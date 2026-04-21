@@ -124,9 +124,17 @@ mock.module("../extensions/tool-executor", () => ({
 // `name: "invoke_agent"` so the rest of the executor path (auto-
 // spin-up, filter preservation, depth-gate, event suppression)
 // behaves identically to the legacy built-in injection.
+// Mutable throw-trigger for the wire-failure coverage test below.
+// When set to a non-null string, `wireOrchestrationToolsForTurn` will throw
+// with that message — lets us drive the try/catch in executor.ts:810-814.
+let forceOrchWireThrow: string | null = null;
+
 mock.module("../runtime/orchestration-host", () => ({
   ensureOrchestrationWired: async () => true,
   wireOrchestrationToolsForTurn: async (params: { agentTools: any[] }) => {
+    if (forceOrchWireThrow) {
+      throw new Error(forceOrchWireThrow);
+    }
     params.agentTools.push({
       name: "invoke_agent",
       label: "Invoke Agent",
@@ -259,6 +267,50 @@ describe("executor agent wiring", () => {
 
     const systemPrompt: string = capturedAgentOpts.initialState.systemPrompt;
     expect(systemPrompt).not.toContain("Available Agents");
+  });
+
+  test("wire-failure catch branch logs warning and does not crash the turn", async () => {
+    // Forces `wireOrchestrationToolsForTurn` to throw so we drive the
+    // `catch (orchWireErr)` branch at executor.ts:810-814. The logger
+    // writes warn lines to `process.stderr.write`, so we swap that with
+    // a capturing spy for the duration of the call.
+    const { executor } = createExecutor();
+    capturedAgentOpts = null;
+
+    const originalStderrWrite = process.stderr.write.bind(process.stderr);
+    const stderrLines: string[] = [];
+    (process.stderr as any).write = (chunk: string | Uint8Array) => {
+      stderrLines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+      return true;
+    };
+
+    forceOrchWireThrow = "simulated orchestration wire failure";
+    try {
+      // Must not throw — the catch must swallow the error.
+      await executor.streamChat(topConvId, `Please ![agent:${agentName}] review this`, {
+        projectId,
+      });
+    } finally {
+      forceOrchWireThrow = null;
+      (process.stderr as any).write = originalStderrWrite;
+    }
+
+    // Turn didn't crash — Agent was constructed with a usable toolset.
+    expect(capturedAgentOpts).not.toBeNull();
+    const tools: any[] = capturedAgentOpts.initialState.tools;
+    expect(Array.isArray(tools)).toBe(true);
+    // ask_human is appended AFTER the orchestration wire try/catch, so
+    // the turn still carries a usable orchestration surface even when the
+    // invoke_agent wire throws. That proves the catch didn't short-circuit
+    // the rest of the turn setup.
+    expect(tools.find((t: any) => t.name === "ask_human")).toBeDefined();
+    // invoke_agent should NOT be present — the wire threw before pushing.
+    expect(tools.find((t: any) => t.name === "invoke_agent")).toBeUndefined();
+
+    // The warn log line emitted by the catch branch must be present.
+    const joined = stderrLines.join("");
+    expect(joined).toMatch(/Orchestration extension wire failed/);
+    expect(joined).toContain("simulated orchestration wire failure");
   });
 });
 
