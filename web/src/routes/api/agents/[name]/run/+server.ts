@@ -1,0 +1,36 @@
+import { json } from "@sveltejs/kit";
+import { getExecutor } from "$lib/server/context";
+import { requireAuth } from "$server/auth/middleware";
+import { runAgentSchema } from "./schema";
+import { validationError } from "$lib/server/security/validation";
+import { checkTokenBudget } from "$lib/server/security/resource-quotas";
+import { requireScope } from "$lib/server/security/api-keys";
+import type { RequestHandler } from "./$types";
+
+export const POST: RequestHandler = async ({ request, params, locals }) => {
+  const scopeErr = requireScope(locals, "chat");
+  if (scopeErr) return scopeErr;
+  const user = requireAuth(locals);
+  const budget = await checkTokenBudget(user.id);
+  if (!budget.allowed) {
+    return json({ error: "Daily token budget exceeded", resetsAt: budget.resetsAt }, { status: 429 });
+  }
+  const executor = getExecutor();
+  const agentName = params.name;
+  try {
+    const result = runAgentSchema.safeParse(await request.json());
+    if (!result.success) {
+      return validationError(result.error);
+    }
+    const { projectId, ...input } = result.data;
+    const run = await executor.runAgent(
+      agentName,
+      input,
+      typeof projectId === "string" ? projectId : undefined,
+    );
+    return json(run);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return json({ error: message }, { status: 400 });
+  }
+};

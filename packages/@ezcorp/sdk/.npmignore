@@ -1,0 +1,8 @@
+**/*.test.ts
+**/*.tsbuildinfo
+tsconfig*.json
+**/*.js.map
+.vscode/
+.DS_Store
+/test/
+node_modules/

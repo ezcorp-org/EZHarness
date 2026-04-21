@@ -1,0 +1,14 @@
+{
+  "extends": "../../../tsconfig.json",
+  "include": ["src/**/*", "test/**/*", "scripts/**/*", "ezcorp.config.ts"],
+  "exclude": [
+    // Opt-in e2e that dynamically imports web/src/lib/server/security
+    // internals through deep relative paths. Those files reference
+    // SvelteKit-only `$server/*` aliases that this package's tsconfig
+    // can't resolve (by design — ai-kit shouldn't know about web's
+    // internals at type-check time). The test is runnable via
+    // `EZCORP_E2E_SUBPROCESS=1 bun test …` where bun's runtime
+    // resolver handles the paths; tsc doesn't need to follow them.
+    "test/e2e/real-subprocess-obo.test.ts"
+  ]
+}

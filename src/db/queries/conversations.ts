@@ -1,0 +1,615 @@
+import { eq, desc, asc, sql, and, or, isNull, inArray, notInArray } from "drizzle-orm";
+import { getDb } from "../connection";
+import { conversations, messages, toolCalls, agentConfigs, runs } from "../schema";
+import { getSetting } from "./settings";
+
+// ── Types ────────────────────────────────────────────────────────────
+
+type Conversation = typeof conversations.$inferSelect;
+type MessageRow = typeof messages.$inferSelect;
+type MemoryUsed = { id: string; content: string; category: string };
+type Message = MessageRow & { memoriesUsed?: MemoryUsed[] };
+
+/**
+ * Batch-attach `memoriesUsed` from the runs table. memoriesUsed is already
+ * persisted per-turn inside `runs.result.output.memoriesUsed` by the executor;
+ * this helper exposes it on each assistant message for the chat UI to render.
+ */
+async function attachMemoriesUsed(msgs: MessageRow[]): Promise<Message[]> {
+  const runIds = Array.from(
+    new Set(msgs.filter((m) => m.role === "assistant" && m.runId).map((m) => m.runId!)),
+  );
+  if (runIds.length === 0) return msgs;
+
+  const rows = await getDb()
+    .select({ id: runs.id, result: runs.result })
+    .from(runs)
+    .where(inArray(runs.id, runIds));
+
+  const byRun = new Map<string, MemoryUsed[]>();
+  for (const row of rows) {
+    const output = (row.result?.output ?? null) as { memoriesUsed?: MemoryUsed[] } | null;
+    if (output?.memoriesUsed && output.memoriesUsed.length > 0) {
+      byRun.set(row.id, output.memoriesUsed);
+    }
+  }
+
+  return msgs.map((m) => {
+    // Only attach to assistant rows — a user row that happens to share a runId must
+    // never leak memoriesUsed. Mirrors the role filter in `runIds` collection above.
+    if (m.role !== "assistant" || !m.runId) return m;
+    const mem = byRun.get(m.runId);
+    return mem ? { ...m, memoriesUsed: mem } : m;
+  });
+}
+
+export interface SearchResult {
+  id: string;
+  title: string;
+  updatedAt: Date;
+  matchingMessageId: string | null;
+  snippet: string;
+  rank: number;
+}
+
+// ── Conversations ────────────────────────────────────────────────────
+
+export async function createConversation(
+  projectId: string,
+  opts?: { title?: string; model?: string; provider?: string; agentConfigId?: string; systemPrompt?: string; test?: boolean; userId?: string; parentConversationId?: string; parentMessageId?: string },
+): Promise<Conversation> {
+  if (!projectId) throw new Error("projectId is required to create a conversation");
+  const rows = await getDb()
+    .insert(conversations)
+    .values({
+      projectId,
+      ...(opts?.title ? { title: opts.title } : {}),
+      model: opts?.model || null,
+      provider: opts?.provider || null,
+      systemPrompt: opts?.systemPrompt || null,
+      agentConfigId: opts?.agentConfigId || null,
+      parentConversationId: opts?.parentConversationId || null,
+      parentMessageId: opts?.parentMessageId || null,
+      test: opts?.test ?? false,
+      userId: opts?.userId || null,
+    })
+    .returning();
+  return rows[0]!;
+}
+
+export async function createSubConversation(
+  projectId: string,
+  opts: { parentConversationId: string; parentMessageId?: string; agentConfigId?: string; systemPrompt?: string; userId?: string; title?: string },
+): Promise<Conversation> {
+  if (!opts.parentConversationId) throw new Error("parentConversationId is required");
+  return createConversation(projectId, {
+    title: opts.title ?? "Sub-conversation",
+    agentConfigId: opts.agentConfigId ?? undefined,
+    systemPrompt: opts.systemPrompt ?? undefined,
+    userId: opts.userId ?? undefined,
+    parentConversationId: opts.parentConversationId,
+    parentMessageId: opts.parentMessageId ?? undefined,
+  });
+}
+
+export async function getSubConversations(parentConversationId: string): Promise<Conversation[]> {
+  return getDb()
+    .select()
+    .from(conversations)
+    .where(eq(conversations.parentConversationId, parentConversationId))
+    .orderBy(asc(conversations.createdAt));
+}
+
+export async function listConversations(
+  projectId: string,
+  userId?: string,
+  options?: { limit?: number; offset?: number },
+): Promise<Conversation[]> {
+  const conditions = [
+    eq(conversations.projectId, projectId),
+    or(eq(conversations.test, false), isNull(conversations.test)),
+    isNull(conversations.parentConversationId),
+  ];
+  if (userId) conditions.push(eq(conversations.userId, userId));
+
+  const query = getDb()
+    .select()
+    .from(conversations)
+    .where(and(...conditions))
+    .orderBy(desc(conversations.updatedAt))
+    .$dynamic();
+
+  if (options?.limit !== undefined) query.limit(options.limit);
+  if (options?.offset !== undefined) query.offset(options.offset);
+
+  return query;
+}
+
+export async function getTestConversations(agentConfigId: string): Promise<Conversation[]> {
+  return getDb()
+    .select()
+    .from(conversations)
+    .where(and(
+      eq(conversations.agentConfigId, agentConfigId),
+      eq(conversations.test, true),
+    ))
+    .orderBy(desc(conversations.createdAt));
+}
+
+export async function deleteTestConversations(agentConfigId: string): Promise<number> {
+  const rows = await getDb()
+    .delete(conversations)
+    .where(and(
+      eq(conversations.agentConfigId, agentConfigId),
+      eq(conversations.test, true),
+    ))
+    .returning({ id: conversations.id });
+  return rows.length;
+}
+
+export async function getConversation(id: string): Promise<Conversation | null> {
+  const rows = await getDb()
+    .select()
+    .from(conversations)
+    .where(eq(conversations.id, id));
+  return rows[0] ?? null;
+}
+
+// ── Phase 2d: conversation metadata helpers ───────────────────────────
+//
+// `conversations.metadata` is a nullable JSONB bag for runtime-only flags
+// that don't deserve their own column (yet). Currently holds `spawnDepth`
+// for the `ezcorp/spawn-assignment` depth-limit gate — the number of
+// extension-initiated spawns between this conversation and the root
+// (0 for top-level conversations, +1 per spawn hop).
+
+/** Read `spawnDepth` from the conversation's metadata bag; 0 when absent. */
+export async function getConversationSpawnDepth(conversationId: string): Promise<number> {
+  const conv = await getConversation(conversationId);
+  if (!conv) return 0;
+  const meta = (conv.metadata ?? {}) as { spawnDepth?: unknown };
+  return typeof meta.spawnDepth === "number" ? meta.spawnDepth : 0;
+}
+
+/** Persist `spawnDepth` into the conversation's metadata bag, preserving
+ *  any other keys already present. No-op on unknown conversation. */
+export async function setConversationSpawnDepth(conversationId: string, depth: number): Promise<void> {
+  const conv = await getConversation(conversationId);
+  if (!conv) return;
+  const meta = { ...((conv.metadata ?? {}) as Record<string, unknown>), spawnDepth: depth };
+  await getDb()
+    .update(conversations)
+    .set({ metadata: meta })
+    .where(eq(conversations.id, conversationId));
+}
+
+export async function updateConversation(
+  id: string,
+  data: { title?: string; model?: string; provider?: string; systemPrompt?: string; agentConfigId?: string; modeId?: string | null },
+): Promise<Conversation | null> {
+  const rows = await getDb()
+    .update(conversations)
+    .set({
+      ...data,
+      updatedAt: sql`NOW()`,
+    })
+    .where(eq(conversations.id, id))
+    .returning();
+  return rows[0] ?? null;
+}
+
+export async function deleteConversation(id: string): Promise<boolean> {
+  const rows = await getDb()
+    .delete(conversations)
+    .where(eq(conversations.id, id))
+    .returning({ id: conversations.id });
+  return rows.length > 0;
+}
+
+// ── Messages ─────────────────────────────────────────────────────────
+
+export async function createMessage(
+  conversationId: string,
+  data: {
+    role: string;
+    content: string;
+    thinkingContent?: string;
+    model?: string;
+    provider?: string;
+    usage?: { inputTokens: number; outputTokens: number };
+    runId?: string;
+    parentMessageId?: string;
+  },
+): Promise<Message> {
+  const db = getDb();
+  const rows = await db
+    .insert(messages)
+    .values({
+      conversationId,
+      role: data.role,
+      content: data.content,
+      thinkingContent: data.thinkingContent ?? null,
+      model: data.model ?? null,
+      provider: data.provider ?? null,
+      usage: data.usage ?? null,
+      runId: data.runId ?? null,
+      parentMessageId: data.parentMessageId ?? null,
+    })
+    .returning();
+
+  // Touch conversation updatedAt
+  await db
+    .update(conversations)
+    .set({ updatedAt: sql`NOW()` })
+    .where(eq(conversations.id, conversationId));
+
+  return rows[0]!;
+}
+
+export async function getMessages(conversationId: string): Promise<Message[]> {
+  const rows = await getDb()
+    .select()
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(asc(messages.createdAt));
+  return attachMemoriesUsed(rows);
+}
+
+// ── Branching ────────────────────────────────────────────────────────
+
+/** Map raw SQL row (snake_case) to Message type (camelCase) */
+function rowToMessage(row: Record<string, unknown>): Message {
+  return {
+    id: row.id as string,
+    conversationId: row.conversation_id as string,
+    role: row.role as string,
+    content: row.content as string,
+    thinkingContent: (row.thinking_content as string) ?? null,
+    model: (row.model as string) ?? null,
+    provider: (row.provider as string) ?? null,
+    usage: row.usage as any,
+    runId: (row.run_id as string) ?? null,
+    parentMessageId: (row.parent_message_id as string) ?? null,
+    createdAt: new Date(row.created_at as string),
+  };
+}
+
+export async function getConversationPath(
+  leafMessageId: string,
+  conversationId: string,
+): Promise<Message[]> {
+  const db = getDb();
+  const result = await db.execute(sql`
+    WITH RECURSIVE path AS (
+      SELECT * FROM messages WHERE id = ${leafMessageId} AND conversation_id = ${conversationId}
+      UNION ALL
+      SELECT m.* FROM messages m
+      JOIN path p ON m.id = p.parent_message_id
+    )
+    SELECT * FROM path ORDER BY created_at ASC
+  `);
+  const rows = (result.rows as Record<string, unknown>[]).map(rowToMessage);
+  return attachMemoriesUsed(rows);
+}
+
+export async function getSiblings(parentMessageId: string): Promise<Message[]> {
+  return getDb()
+    .select()
+    .from(messages)
+    .where(eq(messages.parentMessageId, parentMessageId))
+    .orderBy(asc(messages.createdAt));
+}
+
+export async function getLatestLeaf(conversationId: string): Promise<Message | null> {
+  const db = getDb();
+  // Deterministic tiebreak on id DESC — when two leaves share the same
+  // created_at timestamp (common in tight-loop test inserts or fast
+  // branch creation), the previous ORDER BY created_at DESC alone
+  // produced non-deterministic ordering. The id DESC secondary sort
+  // gives a stable result even though it's arbitrary for ties.
+  const result = await db.execute(sql`
+    SELECT m.* FROM messages m
+    WHERE m.conversation_id = ${conversationId}
+      AND NOT EXISTS (
+        SELECT 1 FROM messages child
+        WHERE child.parent_message_id = m.id
+          AND child.conversation_id = ${conversationId}
+      )
+    ORDER BY m.created_at DESC, m.id DESC
+    LIMIT 1
+  `);
+  const row = result.rows[0] as Record<string, unknown> | undefined;
+  return row ? rowToMessage(row) : null;
+}
+
+// ── Search ───────────────────────────────────────────────────────────
+
+export async function searchConversations(
+  projectId: string,
+  query: string,
+  userId?: string,
+): Promise<SearchResult[]> {
+  if (!query || query.trim().length < 2) return [];
+
+  const db = getDb();
+  const userFilter = userId ? sql` AND c.user_id = ${userId}` : sql``;
+  const results = await db.execute(sql`
+    SELECT DISTINCT ON (c.id)
+      c.id,
+      c.title,
+      c.updated_at,
+      m.id as matching_message_id,
+      ts_headline('english', m.content, plainto_tsquery('english', ${query}),
+        'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as snippet,
+      ts_rank(to_tsvector('english', m.content), plainto_tsquery('english', ${query})) as rank
+    FROM conversations c
+    JOIN messages m ON m.conversation_id = c.id
+    WHERE c.project_id = ${projectId}
+      AND (c.test IS NULL OR c.test = false)
+      ${userFilter}
+      AND (
+        to_tsvector('english', m.content) @@ plainto_tsquery('english', ${query})
+        OR to_tsvector('english', c.title) @@ plainto_tsquery('english', ${query})
+      )
+    ORDER BY c.id, rank DESC
+  `);
+
+  return (results.rows as any[]).map((row) => ({
+    id: row.id as string,
+    title: row.title as string,
+    updatedAt: new Date(row.updated_at as string),
+    matchingMessageId: (row.matching_message_id as string) ?? null,
+    snippet: row.snippet as string,
+    rank: Number(row.rank),
+  }));
+}
+
+// ── System Prompt Resolution ─────────────────────────────────────────
+
+export async function resolveSystemPrompt(
+  conversationId: string,
+  projectId: string,
+  modeId?: string | null,
+): Promise<string | undefined> {
+  const { getMode } = await import("./modes");
+
+  // Fetch all sources in parallel
+  const [conv, projectPrompt, globalPrompt, mode] = await Promise.all([
+    getConversation(conversationId),
+    getSetting(`project:${projectId}:systemPrompt`),
+    getSetting("global:systemPrompt"),
+    modeId ? getMode(modeId) : undefined,
+  ]);
+
+  const basePrompt = conv?.systemPrompt ?? (projectPrompt as string | undefined) ?? (globalPrompt as string | undefined);
+
+  // Layer mode instruction on top of base prompt
+  if (mode?.systemPromptInstruction) {
+    const instruction = mode.systemPromptInstruction;
+    if (mode.instructionPosition === "replace") return instruction;
+    if (mode.instructionPosition === "append") return basePrompt ? `${basePrompt}\n\n${instruction}` : instruction;
+    // Default: prepend
+    return basePrompt ? `${instruction}\n\n${basePrompt}` : instruction;
+  }
+
+  return basePrompt;
+}
+
+// ── Tool Call Hydration ───────────────────────────────────────────────
+
+/**
+ * Extract text from output JSON, take first line, truncate to maxLen.
+ */
+export function truncateOutput(output: unknown, maxLen = 120): string | null {
+  if (output == null) return null;
+  let text: string;
+  if (typeof output === "string") {
+    text = output;
+  } else if (typeof output === "object" && output !== null) {
+    const obj = output as Record<string, unknown>;
+    // Handle ToolCallResult shape: { content: [{ type: "text", text: "..." }] }
+    if (Array.isArray(obj.content)) {
+      const texts = (obj.content as any[])
+        .filter((c: any) => c.type === "text" && typeof c.text === "string")
+        .map((c: any) => c.text);
+      text = texts.length > 0 ? texts.join("\n") : JSON.stringify(output);
+    } else {
+      const candidate = obj.text ?? obj.content ?? obj.result;
+      text = typeof candidate === 'string' ? candidate : JSON.stringify(output);
+    }
+  } else {
+    text = String(output);
+  }
+  const firstLine = text.split("\n")[0] ?? "";
+  return firstLine.length > maxLen ? firstLine.slice(0, maxLen) + "..." : firstLine;
+}
+
+export interface ToolCallSummary {
+  id: string;
+  extensionId: string;
+  toolName: string;
+  input: Record<string, unknown> | null;
+  outputSummary: string | null;
+  fullOutput: string | null;
+  success: boolean;
+  durationMs: number;
+  status: "success" | "error" | "interrupted";
+  cardType: string | null;
+  messageId: string | null;
+  createdAt: Date;
+}
+
+export interface SubConversationSummary {
+  id: string;
+  agentName: string | null;
+  agentConfigId: string | null;
+  messageCount: number;
+  lastMessagePreview: string | null;
+  parentMessageId: string | null;
+}
+
+export interface MessageWithToolCalls extends Message {
+  toolCalls: ToolCallSummary[];
+}
+
+/**
+ * Convert a tool_calls row to the client-facing `ToolCallSummary` shape.
+ * Shared between getMessagesWithToolCalls and getSubConversationToolCalls so
+ * both return identical data for the same underlying row.
+ */
+function toolCallRowToSummary(tc: typeof toolCalls.$inferSelect): ToolCallSummary {
+  const status: ToolCallSummary["status"] =
+    tc.success === null && tc.output === null ? "interrupted"
+      : tc.success === false ? "error"
+      : "success";
+
+  // For tool calls with cardType, include full output so custom cards can render data.
+  let fullOutput: string | null = null;
+  if (tc.cardType && tc.output) {
+    const obj = tc.output as Record<string, unknown>;
+    if (Array.isArray(obj.content)) {
+      const texts = (obj.content as any[])
+        .filter((c: any) => c.type === "text" && typeof c.text === "string")
+        .map((c: any) => c.text);
+      fullOutput = texts.length > 0 ? texts.join("\n") : JSON.stringify(tc.output);
+    } else {
+      fullOutput = JSON.stringify(tc.output);
+    }
+  }
+
+  return {
+    id: tc.id,
+    extensionId: tc.extensionId,
+    toolName: tc.toolName,
+    input: tc.input,
+    outputSummary: truncateOutput(tc.output),
+    fullOutput,
+    success: tc.success,
+    cardType: tc.cardType ?? null,
+    messageId: tc.messageId ?? null,
+    durationMs: tc.durationMs,
+    status,
+    createdAt: tc.createdAt,
+  };
+}
+
+export async function getMessagesWithToolCalls(conversationId: string): Promise<{
+  messages: MessageWithToolCalls[];
+  subConversations: SubConversationSummary[];
+  orphanedToolCalls: ToolCallSummary[];
+}> {
+  const db = getDb();
+
+  // 1. Get messages
+  const msgs = await getMessages(conversationId);
+  if (msgs.length === 0) return { messages: [], subConversations: [], orphanedToolCalls: [] };
+
+  const msgIds = msgs.map((m) => m.id);
+
+  // 2. Batch fetch tool calls — both message-anchored and conversation-level (inline/card actions)
+  const calls = await db
+    .select()
+    .from(toolCalls)
+    .where(
+      or(
+        inArray(toolCalls.messageId, msgIds),
+        and(eq(toolCalls.conversationId, conversationId), isNull(toolCalls.messageId)),
+        and(eq(toolCalls.conversationId, conversationId), notInArray(toolCalls.messageId, msgIds)),
+      )!,
+    )
+    .orderBy(asc(toolCalls.createdAt));
+
+  // Group by messageId, separating orphaned (null messageId) calls
+  const callsByMessage = new Map<string, ToolCallSummary[]>();
+  const orphanedToolCalls: ToolCallSummary[] = [];
+  const msgIdSet = new Set(msgIds);
+
+  for (const tc of calls) {
+    const summary = toolCallRowToSummary(tc);
+
+    if (!tc.messageId || !msgIdSet.has(tc.messageId)) {
+      orphanedToolCalls.push(summary);
+    } else {
+      const arr = callsByMessage.get(tc.messageId) ?? [];
+      arr.push(summary);
+      callsByMessage.set(tc.messageId, arr);
+    }
+  }
+
+  // 3. Attach tool calls to messages
+
+  const messagesWithCalls: MessageWithToolCalls[] = msgs.map((m) => ({
+    ...m,
+    toolCalls: callsByMessage.get(m.id) ?? [],
+  }));
+
+  // 4. Fetch sub-conversation summaries
+  const subConvoRows = await db.execute(sql`
+    SELECT
+      c.id,
+      ac.name AS agent_name,
+      c.agent_config_id,
+      (SELECT COUNT(*)::int FROM messages m WHERE m.conversation_id = c.id) AS message_count,
+      (SELECT m.content FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_message_preview,
+      c.parent_message_id
+    FROM conversations c
+    LEFT JOIN agent_configs ac ON ac.id = c.agent_config_id
+    WHERE c.parent_conversation_id = ${conversationId}
+    ORDER BY c.created_at ASC
+  `);
+
+  const subConversations: SubConversationSummary[] = (subConvoRows.rows as any[]).map((r) => ({
+    id: r.id,
+    agentName: r.agent_name ?? null,
+    agentConfigId: r.agent_config_id ?? null,
+    messageCount: Number(r.message_count),
+    lastMessagePreview: r.last_message_preview ? truncateOutput(r.last_message_preview, 80) : null,
+    parentMessageId: r.parent_message_id ?? null,
+  }));
+
+  return { messages: messagesWithCalls, subConversations, orphanedToolCalls };
+}
+
+/**
+ * Fetch tool calls for every direct sub-conversation of a parent, grouped
+ * by sub-conversation id. Used by the chat page to hydrate tool calls from
+ * team members / invoked agents so their diffs appear in the parent's
+ * Diff Summary panel.
+ *
+ * Only traverses one level — grandchildren (teams-of-teams) are not included.
+ * The returned object is always defined (empty `{}` when there are no subs).
+ */
+export async function getSubConversationToolCalls(
+  parentConversationId: string,
+): Promise<Record<string, ToolCallSummary[]>> {
+  const db = getDb();
+
+  // 1. Collect sub-conversation ids.
+  const subs = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(eq(conversations.parentConversationId, parentConversationId));
+
+  if (subs.length === 0) return {};
+  const subIds = subs.map((r: { id: string }) => r.id);
+
+  // 2. Batch-fetch all tool calls belonging to any of those sub-conversations.
+  const calls = await db
+    .select()
+    .from(toolCalls)
+    .where(inArray(toolCalls.conversationId, subIds))
+    .orderBy(asc(toolCalls.createdAt));
+
+  // 3. Group by sub-conversation id. Initialize empty arrays for every sub so
+  //    callers can tell "no tool calls yet" apart from "not a sub-conversation"
+  //    — the key set mirrors the known sub list.
+  const grouped: Record<string, ToolCallSummary[]> = {};
+  for (const id of subIds) grouped[id] = [];
+  for (const tc of calls) {
+    const summary = toolCallRowToSummary(tc);
+    grouped[tc.conversationId] = grouped[tc.conversationId] ?? [];
+    grouped[tc.conversationId]!.push(summary);
+  }
+
+  return grouped;
+}

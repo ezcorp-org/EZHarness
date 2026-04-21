@@ -1,0 +1,993 @@
+const BASE = "";
+
+/** Check response for errors, showing 429 toast when rate-limited. */
+function checkResponse(res: Response): void {
+	if (res.ok) return;
+	if (res.status === 429) {
+		// Lazy import toast to avoid breaking non-SvelteKit test environments
+		import("$lib/toast.svelte").then(({ addToast }) => {
+			const retryAfter = res.headers.get("Retry-After");
+			const seconds = retryAfter ? parseInt(retryAfter, 10) : undefined;
+			const message = seconds && !isNaN(seconds)
+				? `Rate limit exceeded. Try again in ${seconds} seconds.`
+				: "Rate limit exceeded. Please wait before trying again.";
+			addToast({ type: "warning", message }, (seconds ?? 10) * 1000);
+		}).catch(() => {});
+	}
+	throw new Error(`${res.status} ${res.statusText}`);
+}
+
+export type InputFieldType = "string" | "text" | "number" | "boolean" | "select" | "file-path" | "custom";
+
+export interface InputField {
+	type: InputFieldType;
+	label: string;
+	description?: string;
+	required?: boolean;
+	default?: unknown;
+	options?: string[];
+	component?: string;
+}
+
+export type InputSchema = Record<string, InputField>;
+
+export interface Agent {
+	name: string;
+	description: string;
+	capabilities: string[];
+	inputSchema?: InputSchema;
+	source: "file" | "config";
+	id: string | null;
+	prompt: string | null;
+	category: string | null;
+	shared?: boolean;
+	sharedBy?: string;
+	sharedByName?: string;
+	permission?: "read" | "edit";
+}
+
+export interface LogEntry {
+	timestamp: string;
+	level: string;
+	message: string;
+}
+
+export interface AgentResult {
+	success: boolean;
+	output: unknown;
+	error?: string;
+}
+
+export interface Run {
+	id: string;
+	agentName: string;
+	status: "idle" | "running" | "success" | "error" | "cancelled";
+	startedAt: string;
+	finishedAt?: string;
+	logs: LogEntry[];
+	result?: AgentResult;
+	projectId?: string | null;
+}
+
+export interface Project {
+	id: string;
+	name: string;
+	path: string;
+	icon: string | null;
+	variables: Record<string, unknown>;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export type Settings = Record<string, unknown>;
+
+export async function fetchAgents(): Promise<Agent[]> {
+	const res = await fetch(`${BASE}/api/agents`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function fetchRuns(projectId?: string): Promise<Run[]> {
+	const params = projectId ? `?projectId=${projectId}` : "";
+	const res = await fetch(`${BASE}/api/runs${params}`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function fetchRun(id: string): Promise<Run> {
+	const res = await fetch(`${BASE}/api/runs/${id}`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function triggerRun(
+	agentName: string,
+	input: Record<string, unknown>,
+	projectId?: string,
+): Promise<Run> {
+	const res = await fetch(`${BASE}/api/agents/${agentName}/run`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ ...input, ...(projectId ? { projectId } : {}) }),
+	});
+	checkResponse(res);
+	return res.json();
+}
+
+export async function cancelRun(id: string): Promise<void> {
+	const res = await fetch(`${BASE}/api/runs/${id}`, { method: "DELETE" });
+	checkResponse(res);
+}
+
+// ── Filesystem ──────────────────────────────────────────────────────
+
+export interface FsEntry { name: string; isDir: boolean }
+
+export async function fetchDirContents(dir: string): Promise<FsEntry[]> {
+	const res = await fetch(`${BASE}/api/fs/list?dir=${encodeURIComponent(dir)}`);
+	if (!res.ok) return [];
+	return res.json();
+}
+
+export async function createDir(path: string): Promise<{ path: string }> {
+	const res = await fetch(`${BASE}/api/fs/mkdir`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ path }),
+	});
+	const data = await res.json();
+	if (!res.ok) throw new Error(data.error ?? "Failed to create folder");
+	return data;
+}
+
+// ── Projects ────────────────────────────────────────────────────────
+
+export async function fetchProjects(): Promise<Project[]> {
+	const res = await fetch(`${BASE}/api/projects`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function fetchProject(id: string): Promise<Project> {
+	const res = await fetch(`${BASE}/api/projects/${id}`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function fetchFavicon(url: string): Promise<string> {
+	const res = await fetch(`${BASE}/api/favicon?url=${encodeURIComponent(url)}`);
+	const data = await res.json();
+	if (!res.ok) throw new Error(data.error ?? "Failed to fetch favicon");
+	return data.icon;
+}
+
+export async function createProject(data: { name: string; path: string; icon?: string | null; variables?: Record<string, unknown> }): Promise<Project> {
+	const res = await fetch(`${BASE}/api/projects`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(data),
+	});
+	checkResponse(res);
+	return res.json();
+}
+
+export async function updateProject(id: string, data: Partial<{ name: string; path: string; icon: string | null; variables: Record<string, unknown> }>): Promise<Project> {
+	const res = await fetch(`${BASE}/api/projects/${id}`, {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(data),
+	});
+	checkResponse(res);
+	return res.json();
+}
+
+export async function deleteProject(id: string): Promise<void> {
+	const res = await fetch(`${BASE}/api/projects/${id}`, { method: "DELETE" });
+	checkResponse(res);
+}
+
+// ── Settings ────────────────────────────────────────────────────────
+
+export async function fetchSettings(): Promise<Settings> {
+	const res = await fetch(`${BASE}/api/settings`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function upsertSetting(key: string, value: unknown): Promise<void> {
+	const res = await fetch(`${BASE}/api/settings/${key}`, {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ value }),
+	});
+	checkResponse(res);
+}
+
+export async function deleteSetting(key: string): Promise<void> {
+	const res = await fetch(`${BASE}/api/settings/${key}`, { method: "DELETE" });
+	checkResponse(res);
+}
+
+// ── Providers ───────────────────────────────────────────────────────
+
+export interface ProviderStatus {
+	provider: string;
+	hasKey: boolean;
+	source: "byok" | "env" | "none";
+	oauthConnected: boolean;
+	oauthExpired: boolean;
+	oauthSupported: boolean;
+	expiresAt: string | null;
+}
+
+export async function fetchProviders(): Promise<ProviderStatus[]> {
+	const res = await fetch(`${BASE}/api/providers`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function saveProviderKey(provider: string, apiKey: string): Promise<void> {
+	const res = await fetch(`${BASE}/api/providers`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ provider, apiKey }),
+	});
+	checkResponse(res);
+}
+
+export async function testProviderConnection(provider: string): Promise<{ success: boolean; error?: string }> {
+	const res = await fetch(`${BASE}/api/providers/${provider}/test`, { method: "POST" });
+	return res.json();
+}
+
+export async function deleteProviderKey(provider: string): Promise<void> {
+	const res = await fetch(`${BASE}/api/providers`, {
+		method: "DELETE",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ provider }),
+	});
+	checkResponse(res);
+}
+
+export async function initiateOAuth(
+	provider: string,
+): Promise<{ url: string; state: string; codeVerifier: string; redirectUri: string }> {
+	const params = new URLSearchParams({ provider, app_origin: window.location.origin });
+	const res = await fetch(`${BASE}/api/auth/oauth?${params}`);
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error(data.error ?? `${res.status} ${res.statusText}`);
+	}
+	return res.json();
+}
+
+export async function completeOAuth(
+	provider: string,
+	code: string,
+	codeVerifier: string,
+	redirectUri: string,
+	state?: string,
+): Promise<void> {
+	const res = await fetch(`${BASE}/api/auth/oauth/callback`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ provider, code, codeVerifier, redirectUri, state }),
+	});
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error(data.error ?? `${res.status} ${res.statusText}`);
+	}
+}
+
+export async function disconnectOAuth(provider: string): Promise<void> {
+	const res = await fetch(`${BASE}/api/auth/oauth/callback`, {
+		method: "DELETE",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ provider }),
+	});
+	checkResponse(res);
+}
+
+// ── Local Model Checks ─────────────────────────────────────────────
+
+export interface LocalModelCheckResult {
+	reachable: boolean;
+	modelAvailable: boolean | null;
+	inferenceOk: boolean | null;
+	endpointType: "openai-compatible" | "ollama" | null;
+	error?: string;
+	latencyMs?: number;
+}
+
+export async function testLocalModelConnection(
+	baseUrl: string,
+	modelId: string,
+): Promise<LocalModelCheckResult> {
+	const res = await fetch(`${BASE}/api/providers/local/test`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ baseUrl, modelId }),
+	});
+	return res.json();
+}
+
+export interface LocalModelListEntry {
+	id: string;
+	name?: string;
+}
+
+export async function listLocalModels(
+	baseUrl: string,
+): Promise<{ models: LocalModelListEntry[]; endpointType: string | null; error?: string }> {
+	const res = await fetch(`${BASE}/api/providers/local/models`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ baseUrl }),
+	});
+	return res.json();
+}
+
+// ── Conversations ───────────────────────────────────────────────────
+
+export interface Conversation {
+	id: string;
+	projectId: string;
+	title: string;
+	model: string | null;
+	provider: string | null;
+	systemPrompt: string | null;
+	agentConfigId: string | null;
+	modeId: string | null;
+	test: boolean | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface Mode {
+	id: string;
+	name: string;
+	slug: string;
+	icon: string | null;
+	description: string;
+	systemPromptInstruction: string;
+	instructionPosition: "prepend" | "append" | "replace";
+	preferredModel: string | null;
+	preferredProvider: string | null;
+	preferredThinkingLevel: string | null;
+	temperature: number | null;
+	toolRestriction: "all" | "read-only" | "none";
+	builtin: boolean;
+}
+
+export interface Message {
+	id: string;
+	conversationId: string;
+	role: string;
+	content: string;
+	thinkingContent: string | null;
+	model: string | null;
+	provider: string | null;
+	usage: { inputTokens: number; outputTokens: number } | null;
+	runId: string | null;
+	parentMessageId: string | null;
+	createdAt: string;
+	/** Memories injected into the system prompt for this assistant turn.
+	 *  Sourced server-side from runs.result.output.memoriesUsed. */
+	memoriesUsed?: { id: string; content: string; category: string }[];
+}
+
+export interface SearchResult {
+	id: string;
+	title: string;
+	updatedAt: string;
+	matchingMessageId: string | null;
+	snippet: string;
+	rank: number;
+}
+
+export async function fetchConversation(id: string): Promise<Conversation> {
+	const res = await fetch(`${BASE}/api/conversations/${id}`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function fetchConversations(
+	projectId: string,
+	options?: { limit?: number; offset?: number },
+): Promise<Conversation[]> {
+	const params = new URLSearchParams({ projectId });
+	if (options?.limit !== undefined) params.set("limit", String(options.limit));
+	if (options?.offset !== undefined) params.set("offset", String(options.offset));
+	const res = await fetch(`${BASE}/api/conversations?${params.toString()}`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function createConversation(data: { projectId: string; title?: string; model?: string; provider?: string; agentConfigId?: string; test?: boolean }): Promise<Conversation> {
+	const res = await fetch(`${BASE}/api/conversations`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(data),
+	});
+	checkResponse(res);
+	return res.json();
+}
+
+export async function searchConversations(projectId: string, query: string): Promise<SearchResult[]> {
+	const res = await fetch(`${BASE}/api/conversations?projectId=${projectId}&search=${encodeURIComponent(query)}`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function updateConversation(id: string, data: Partial<{ title: string; model: string; provider: string; systemPrompt: string; modeId: string | null }>): Promise<Conversation> {
+	const res = await fetch(`${BASE}/api/conversations/${id}`, {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(data),
+	});
+	checkResponse(res);
+	return res.json();
+}
+
+export async function deleteConversation(id: string): Promise<void> {
+	const res = await fetch(`${BASE}/api/conversations/${id}`, { method: "DELETE" });
+	checkResponse(res);
+}
+
+// ── Modes ───────────────────────────────────────────────────────────
+
+export async function fetchModes(): Promise<Mode[]> {
+	const res = await fetch(`${BASE}/api/modes`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function createMode(data: Partial<Mode>): Promise<Mode> {
+	const res = await fetch(`${BASE}/api/modes`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(data),
+	});
+	checkResponse(res);
+	return res.json();
+}
+
+export async function updateMode(id: string, data: Partial<Mode>): Promise<Mode> {
+	const res = await fetch(`${BASE}/api/modes/${id}`, {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(data),
+	});
+	checkResponse(res);
+	return res.json();
+}
+
+export async function deleteMode(id: string): Promise<void> {
+	const res = await fetch(`${BASE}/api/modes/${id}`, { method: "DELETE" });
+	checkResponse(res);
+}
+
+// ── Sub-Conversations ───────────────────────────────────────────────
+
+export async function createSubConversation(parentConversationId: string, opts: {
+	parentMessageId: string;
+	agentConfigId: string;
+	title?: string;
+	projectId: string;
+}): Promise<Conversation & { parentConversationId: string; parentMessageId: string }> {
+	const res = await fetch(`${BASE}/api/conversations`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			projectId: opts.projectId,
+			parentConversationId,
+			parentMessageId: opts.parentMessageId,
+			agentConfigId: opts.agentConfigId,
+			title: opts.title,
+		}),
+	});
+	checkResponse(res);
+	return res.json();
+}
+
+export async function fetchSubConversations(parentConversationId: string): Promise<Array<Conversation & { parentConversationId: string; parentMessageId: string; agentConfigId: string }>> {
+	const res = await fetch(`${BASE}/api/conversations/${parentConversationId}/sub-conversations`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function fetchTestConversations(agentName: string): Promise<Conversation[]> {
+	const res = await fetch(`${BASE}/api/agents/${agentName}/test-conversations`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function deleteTestConversations(agentName: string): Promise<{ deleted: number }> {
+	const res = await fetch(`${BASE}/api/agents/${agentName}/test-conversations`, { method: "DELETE" });
+	checkResponse(res);
+	return res.json();
+}
+
+export async function fetchMessages(conversationId: string, leafMessageId?: string): Promise<Message[]> {
+	const params = leafMessageId ? `?leafMessageId=${leafMessageId}` : "";
+	const res = await fetch(`${BASE}/api/conversations/${conversationId}/messages${params}`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function fetchAllMessages(conversationId: string): Promise<Message[]> {
+	const res = await fetch(`${BASE}/api/conversations/${conversationId}/messages?all=true`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function sendMessage(
+	conversationId: string,
+	data: { content: string; provider?: string; model?: string; parentMessageId?: string; editOf?: string; permissionMode?: string; thinkingLevel?: string; attachments?: File[] },
+): Promise<{ userMessage: Message; runId: string; attachments?: Array<{ filename: string; mimeType: string; storagePath: string }> }> {
+	const url = `${BASE}/api/conversations/${conversationId}/messages`;
+	let res: Response;
+	if (data.attachments && data.attachments.length > 0) {
+		const form = new FormData();
+		form.set("content", data.content);
+		if (data.provider) form.set("provider", data.provider);
+		if (data.model) form.set("model", data.model);
+		if (data.parentMessageId) form.set("parentMessageId", data.parentMessageId);
+		if (data.editOf) form.set("editOf", data.editOf);
+		if (data.permissionMode) form.set("permissionMode", data.permissionMode);
+		if (data.thinkingLevel) form.set("thinkingLevel", data.thinkingLevel);
+		for (const file of data.attachments) form.append("files", file);
+		res = await fetch(url, { method: "POST", body: form });
+	} else {
+		const { attachments: _drop, ...jsonBody } = data;
+		res = await fetch(url, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(jsonBody),
+		});
+	}
+	checkResponse(res);
+	return res.json();
+}
+
+export async function exportConversation(conversationId: string, format: "markdown" | "json", leafMessageId?: string): Promise<void> {
+	const params = new URLSearchParams({ format });
+	if (leafMessageId) params.set("leafMessageId", leafMessageId);
+	const res = await fetch(`${BASE}/api/conversations/${conversationId}/export?${params}`);
+	checkResponse(res);
+	const blob = await res.blob();
+	const disposition = res.headers.get("Content-Disposition") ?? "";
+	const filenameMatch = disposition.match(/filename="(.+?)"/);
+	const filename = filenameMatch?.[1] ?? `conversation.${format === "json" ? "json" : "md"}`;
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement("a");
+	a.href = url;
+	a.download = filename;
+	a.click();
+	URL.revokeObjectURL(url);
+}
+
+// ── Agent Configs ───────────────────────────────────────────────────
+
+export interface TeamMemberOverrides {
+	permissionMode?: "ask" | "auto-edit" | "yolo";
+	toolRestriction?: "all" | "read-only" | "none";
+	modeId?: string;
+	allowedTools?: string[];
+	deniedTools?: string[];
+	provider?: string;
+	model?: string;
+	systemPromptAppend?: string;
+}
+
+export interface TeamMember {
+	agentConfigId: string;
+	overrides?: TeamMemberOverrides;
+	subAgents?: TeamMember[];
+}
+
+/**
+ * Team-level tool scoping applied to every invoked member. When set,
+ * overrides each member's per-member tool configuration.
+ */
+export interface TeamToolScope {
+	allowedTools?: string[];
+	deniedTools?: string[];
+}
+
+/** Sentinel value meaning "use the parent conversation's current model/provider." */
+export const CURRENT_MODEL_SENTINEL = "__current__";
+
+export interface AgentConfig {
+	id: string;
+	name: string;
+	description: string;
+	capabilities: string[];
+	prompt: string;
+	inputSchema?: Record<string, unknown> | null;
+	outputFormat?: string | null;
+	provider?: string | null;
+	model?: string | null;
+	temperature?: number | null;
+	maxTokens?: number | null;
+	category?: string | null;
+	extensions?: string[] | null;
+	references?: { agents: string[]; extensions: string[]; members?: TeamMember[]; autoSpinUp?: boolean; teamToolScope?: TeamToolScope } | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export async function fetchAgentConfigs(): Promise<AgentConfig[]> {
+	const res = await fetch(`${BASE}/api/agent-configs`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function fetchAgentConfig(id: string): Promise<AgentConfig> {
+	const res = await fetch(`${BASE}/api/agent-configs/${id}`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function createAgentConfig(data: {
+	name: string;
+	description?: string;
+	prompt: string;
+	references?: { agents?: string[]; extensions?: string[]; autoSpinUp?: boolean };
+	capabilities?: string[];
+	outputFormat?: string;
+	provider?: string;
+	model?: string;
+	temperature?: number;
+	maxTokens?: number;
+	inputSchema?: Record<string, unknown>;
+	category?: string | null;
+}): Promise<AgentConfig> {
+	const res = await fetch(`${BASE}/api/agent-configs`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(data),
+	});
+	checkResponse(res);
+	return res.json();
+}
+
+export async function updateAgentConfig(
+	id: string,
+	data: Partial<Parameters<typeof createAgentConfig>[0]>,
+): Promise<AgentConfig> {
+	const res = await fetch(`${BASE}/api/agent-configs/${id}`, {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(data),
+	});
+	checkResponse(res);
+	return res.json();
+}
+
+export async function deleteAgentConfig(id: string): Promise<void> {
+	const res = await fetch(`${BASE}/api/agent-configs/${id}`, { method: "DELETE" });
+	checkResponse(res);
+}
+
+// ── Pipelines ───────────────────────────────────────────────────────
+
+export interface PipelineStep {
+	name: string;
+	agent: string;
+	input?: Record<string, string>;
+	dependsOn?: string[];
+}
+
+export interface Pipeline {
+	name: string;
+	description: string;
+	steps: PipelineStep[];
+	inputSchema?: Record<string, unknown>;
+}
+
+export interface PipelineRun {
+	id: string;
+	pipelineName: string;
+	status: string;
+	startedAt: number;
+	finishedAt?: number;
+	steps: { stepName: string; runId: string; status: string }[];
+	result?: AgentResult;
+}
+
+export async function fetchPipelines(): Promise<Pipeline[]> {
+	const res = await fetch(`${BASE}/api/pipelines`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function createPipeline(data: Pipeline): Promise<Pipeline> {
+	const res = await fetch(`${BASE}/api/pipelines`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(data),
+	});
+	checkResponse(res);
+	return res.json();
+}
+
+export async function updatePipeline(name: string, data: Partial<Pipeline>): Promise<Pipeline> {
+	const res = await fetch(`${BASE}/api/pipelines/${name}`, {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(data),
+	});
+	checkResponse(res);
+	return res.json();
+}
+
+export async function deletePipeline(name: string): Promise<void> {
+	const res = await fetch(`${BASE}/api/pipelines/${name}`, { method: "DELETE" });
+	checkResponse(res);
+}
+
+export async function triggerPipelineRun(
+	name: string,
+	input: Record<string, unknown>,
+	projectId?: string,
+): Promise<PipelineRun> {
+	const res = await fetch(`${BASE}/api/pipelines/${name}/run`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ ...input, ...(projectId ? { projectId } : {}) }),
+	});
+	checkResponse(res);
+	return res.json();
+}
+
+// ── Marketplace ─────────────────────────────────────────────────────
+
+export interface MarketplaceListing {
+	id: string;
+	authorId: string;
+	agentConfigId: string;
+	name: string;
+	description: string;
+	category: string;
+	tags: string[];
+	latestVersion: string;
+	installCount: number;
+	ratingPositive: number;
+	ratingTotal: number;
+	ratingPercent: number;
+	status: string;
+	slug: string;
+	authorName?: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface MarketplaceVersion {
+	id: string;
+	listingId: string;
+	version: string;
+	manifest: Record<string, unknown>;
+	changelog: string | null;
+	createdAt: string;
+}
+
+export interface BrowseResult {
+	listings: MarketplaceListing[];
+	featured?: MarketplaceListing[];
+}
+
+export interface InstallResult {
+	agentConfig: AgentConfig;
+	extensionsNeeded: Array<{ name: string; source: string; version: string; required: boolean }>;
+}
+
+export async function browseMarketplace(opts?: {
+	q?: string;
+	category?: string;
+	sort?: string;
+	limit?: number;
+	offset?: number;
+}): Promise<BrowseResult> {
+	const params = new URLSearchParams();
+	if (opts?.q) params.set("q", opts.q);
+	if (opts?.category) params.set("category", opts.category);
+	if (opts?.sort) params.set("sort", opts.sort);
+	if (opts?.limit) params.set("limit", String(opts.limit));
+	if (opts?.offset) params.set("offset", String(opts.offset));
+	const qs = params.toString();
+	const res = await fetch(`${BASE}/api/marketplace${qs ? `?${qs}` : ""}`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function getMarketplaceListing(id: string): Promise<{
+	listing: MarketplaceListing;
+	latestVersion: MarketplaceVersion | null;
+	versions: MarketplaceVersion[];
+	userRating: { thumbsUp: boolean } | null;
+	installed: boolean;
+}> {
+	const res = await fetch(`${BASE}/api/marketplace/${id}`);
+	checkResponse(res);
+	return res.json();
+}
+
+export async function publishToMarketplace(
+	agentConfigId: string,
+	opts?: { version?: string; changelog?: string; tags?: string[] },
+): Promise<{ listing: MarketplaceListing; version: MarketplaceVersion }> {
+	const res = await fetch(`${BASE}/api/marketplace`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ agentConfigId, ...opts }),
+	});
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error(data.error ?? `${res.status} ${res.statusText}`);
+	}
+	return res.json();
+}
+
+export async function installMarketplaceAgent(
+	listingId: string,
+	version?: string,
+): Promise<InstallResult> {
+	const res = await fetch(`${BASE}/api/marketplace/${listingId}/install`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ version }),
+	});
+	checkResponse(res);
+	return res.json();
+}
+
+export async function rateMarketplaceListing(
+	listingId: string,
+	thumbsUp: boolean,
+): Promise<void> {
+	const res = await fetch(`${BASE}/api/marketplace/${listingId}/rate`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ thumbsUp }),
+	});
+	checkResponse(res);
+}
+
+export async function flagMarketplaceListing(
+	listingId: string,
+	reason: string,
+): Promise<void> {
+	const res = await fetch(`${BASE}/api/marketplace/${listingId}/flag`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ reason }),
+	});
+	checkResponse(res);
+}
+
+export async function exportManifest(listingId: string): Promise<void> {
+	const res = await fetch(`${BASE}/api/marketplace/export/${listingId}`);
+	checkResponse(res);
+	const blob = await res.blob();
+	const disposition = res.headers.get("Content-Disposition") ?? "";
+	const filenameMatch = disposition.match(/filename="(.+?)"/);
+	const filename = filenameMatch?.[1] ?? "agent-manifest.json";
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement("a");
+	a.href = url;
+	a.download = filename;
+	a.click();
+	URL.revokeObjectURL(url);
+}
+
+export async function importManifest(
+	manifest: Record<string, unknown>,
+): Promise<InstallResult> {
+	const res = await fetch(`${BASE}/api/marketplace/import`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ manifest }),
+	});
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error(data.error ?? `${res.status} ${res.statusText}`);
+	}
+	return res.json();
+}
+
+export async function checkMarketplaceUpdates(
+	ids: string[],
+): Promise<Record<string, { hasUpdate: boolean; currentVersion: string; latestVersion: string; listingId: string }>> {
+	const res = await fetch(`${BASE}/api/marketplace/updates?ids=${ids.join(",")}`);
+	if (!res.ok) return {};
+	return res.json();
+}
+
+// ── Mentions ────────────────────────────────────────────────────────
+
+export interface MentionResult {
+	name: string;
+	description: string;
+	/**
+	 * Concrete kind of the result. For `type=path` searches the server
+	 * returns a mix of `"file"` and `"dir"` entries based on the filesystem.
+	 * For `type=cmd` the result is always `"command"`.
+	 */
+	kind: "agent" | "extension" | "team" | "file" | "dir" | "command";
+	/**
+	 * For `type=cmd` results: the source namespace the command was
+	 * discovered from — e.g. `"project:claude-commands"`,
+	 * `"user:codex-prompts"`, `"user:db"`. Lets the popover show users
+	 * where a command came from (project vs global, which tool's format).
+	 */
+	source?: string;
+	/**
+	 * For `type=cmd` results: raw prompt body. Used by the chat-history
+	 * chip's hover popover so readers can see what the LLM received.
+	 */
+	body?: string;
+}
+
+// ── Command body cache (for /cmd chip hover popover) ────────────────
+//
+// Chat-history messages persist the raw `/[cmd:name]` token; the LLM
+// sees the expanded body (server-side `applyCommandExpansion`). To show
+// the body in a hover popover on the chip, the client fetches it after
+// the fact via `/api/mentions/search?type=cmd&q=<name>`.
+//
+// Cache key is `${projectId}::${name}` — project-scoped commands resolve
+// differently for different projects (e.g. every project has its own
+// `.claude/commands/review.md`). We only cache SUCCESSFUL resolutions;
+// a null result (command not found, transient error) is allowed to
+// retry on next hover instead of being pinned forever.
+const commandBodyCache = new Map<string, string>();
+const commandBodyInflight = new Map<string, Promise<string | null>>();
+
+function commandCacheKey(name: string, projectId?: string): string {
+	return `${projectId ?? "global"}::${name}`;
+}
+
+export async function fetchCommandBody(name: string, projectId?: string): Promise<string | null> {
+	const key = commandCacheKey(name, projectId);
+	const cached = commandBodyCache.get(key);
+	if (cached !== undefined) return cached;
+
+	const inflight = commandBodyInflight.get(key);
+	if (inflight) return inflight;
+
+	const promise = (async () => {
+		try {
+			const results = await searchMentions(name, "cmd", projectId);
+			const match = results.find((r) => r.kind === "command" && r.name === name);
+			const body = match?.body ?? null;
+			if (body !== null) commandBodyCache.set(key, body);
+			return body;
+		} catch {
+			return null;
+		} finally {
+			commandBodyInflight.delete(key);
+		}
+	})();
+	commandBodyInflight.set(key, promise);
+	return promise;
+}
+
+/** Test-only escape hatch: drop all cached command bodies. */
+export function _resetCommandBodyCache(): void {
+	commandBodyCache.clear();
+	commandBodyInflight.clear();
+}
+
+export async function searchMentions(
+	query: string,
+	type?: "ext" | "agent" | "team" | "path" | "cmd",
+	projectId?: string,
+): Promise<MentionResult[]> {
+	const params = new URLSearchParams({ q: query });
+	if (type) params.set("type", type);
+	if (projectId) params.set("projectId", projectId);
+	const res = await fetch(`${BASE}/api/mentions/search?${params}`);
+	checkResponse(res);
+	return res.json();
+}

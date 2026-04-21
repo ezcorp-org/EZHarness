@@ -1,0 +1,9 @@
+node_modules
+web/node_modules
+web/.svelte-kit
+.git
+.planning
+agent/sessions
+.playwright-mcp
+TESTENV/
+test-results/

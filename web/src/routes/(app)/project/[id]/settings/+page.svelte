@@ -1,0 +1,136 @@
+<script lang="ts">
+	import { page } from "$app/state";
+	import { goto } from "$app/navigation";
+	import { store, refreshProjects, setActiveProjectId } from "$lib/stores.svelte.js";
+	import { updateProject, deleteProject as apiDeleteProject, fetchSettings, upsertSetting } from "$lib/api.js";
+	import ProjectForm from "$lib/components/ProjectForm.svelte";
+	import InfoTooltip from "$lib/components/InfoTooltip.svelte";
+
+	let submitting = $state(false);
+	let globalPrompt = $state("");
+	let projectPrompt = $state("");
+	let savingGlobal = $state(false);
+	let savingProject = $state(false);
+
+	async function loadInstructions() {
+		try {
+			const settings = await fetchSettings();
+			globalPrompt = (settings["global:systemPrompt"] as string) ?? "";
+			if (projectId) {
+				projectPrompt = (settings[`project:${projectId}:systemPrompt`] as string) ?? "";
+			}
+		} catch {
+			// silent
+		}
+	}
+
+	$effect(() => {
+		if (projectId) loadInstructions();
+	});
+
+	async function saveGlobalPrompt() {
+		savingGlobal = true;
+		try {
+			await upsertSetting("global:systemPrompt", globalPrompt);
+		} finally {
+			savingGlobal = false;
+		}
+	}
+
+	async function saveProjectPrompt() {
+		if (!projectId) return;
+		savingProject = true;
+		try {
+			await upsertSetting(`project:${projectId}:systemPrompt`, projectPrompt);
+		} finally {
+			savingProject = false;
+		}
+	}
+
+	$effect(() => {
+		setActiveProjectId(page.params.id ?? null);
+	});
+
+	let projectId = $derived(page.params.id);
+	let project = $derived(store.projects.find((p) => p.id === projectId));
+
+	async function handleUpdate(data: { name: string; path: string; icon?: string | null; variables: Record<string, unknown> }) {
+		if (!projectId) return;
+		submitting = true;
+		try {
+			await updateProject(projectId, data);
+			refreshProjects();
+		} finally {
+			submitting = false;
+		}
+	}
+
+	async function handleDelete() {
+		if (!projectId || !confirm("Delete this project? Existing runs will keep their data.")) return;
+		await apiDeleteProject(projectId);
+		refreshProjects();
+		setActiveProjectId(null);
+		goto("/");
+	}
+</script>
+
+<div class="space-y-6">
+	{#if project}
+		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
+			<div class="mb-4 flex items-center justify-between">
+				<div class="flex items-center gap-3">
+					{#if project.icon}
+						<img src={project.icon} alt={project.name} class="h-10 w-10 rounded-xl object-cover" />
+					{/if}
+					<h2 class="text-2xl font-bold text-[var(--color-text-primary)]">{project.name}</h2>
+				</div>
+				<button
+					onclick={handleDelete}
+					class="rounded-md px-3 py-1.5 text-sm text-red-400 hover:bg-[var(--color-surface-tertiary)] hover:text-red-300"
+				>
+					Delete
+				</button>
+			</div>
+			<ProjectForm {project} onsubmit={handleUpdate} {submitting} />
+		</div>
+		<!-- Project Custom Instructions -->
+		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
+			<h3 class="mb-1 text-lg font-semibold text-[var(--color-text-primary)] flex items-center gap-2">Project Custom Instructions <InfoTooltip text="A system prompt applied to every conversation within this project. Overrides global custom instructions. Can itself be overridden by conversation-level instructions set on individual chats. Priority: conversation > project > global." /></h3>
+			<p class="mb-3 text-xs text-[var(--color-text-secondary)]">System prompt applied to all conversations in this project. Overrides global instructions.</p>
+			<textarea
+				bind:value={projectPrompt}
+				rows={4}
+				class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none resize-y"
+				placeholder="e.g. You are a coding assistant for this project..."
+			></textarea>
+			<button
+				onclick={saveProjectPrompt}
+				disabled={savingProject}
+				class="mt-2 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
+			>
+				{savingProject ? "Saving..." : "Save Project Instructions"}
+			</button>
+		</div>
+
+		<!-- Global Custom Instructions -->
+		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
+			<h3 class="mb-1 text-lg font-semibold text-[var(--color-text-primary)] flex items-center gap-2">Global Custom Instructions <InfoTooltip text="A system prompt prepended to every conversation across all projects. This is the lowest priority instruction level. Overridden by project-level instructions, which are in turn overridden by conversation-level instructions." /></h3>
+			<p class="mb-3 text-xs text-[var(--color-text-secondary)]">Default system prompt for all conversations across all projects. Lowest priority.</p>
+			<textarea
+				bind:value={globalPrompt}
+				rows={4}
+				class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none resize-y"
+				placeholder="e.g. You are a helpful AI assistant..."
+			></textarea>
+			<button
+				onclick={saveGlobalPrompt}
+				disabled={savingGlobal}
+				class="mt-2 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
+			>
+				{savingGlobal ? "Saving..." : "Save Global Instructions"}
+			</button>
+		</div>
+	{:else}
+		<p class="text-[var(--color-text-muted)]">Project not found.</p>
+	{/if}
+</div>

@@ -1,0 +1,32 @@
+# Development image — installs all dependencies (including devDependencies)
+# but skips the SvelteKit production build. Source code is bind-mounted at runtime.
+FROM oven/bun:1
+WORKDIR /app
+
+# System packages. `git` is required at runtime by `installFromGit` — the
+# extension installer shells out to `git clone` / `git ls-remote` for the
+# source:"git" install path, and the web-server process is the one that
+# spawns those commands, so the binary has to be on $PATH in this image.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git \
+ && rm -rf /var/lib/apt/lists/*
+
+# Install root dependencies (all, including dev)
+COPY package.json bun.lock ./
+# Workspace package.json files must be present before `bun install` can resolve
+# `workspace:*` specifiers. Only the manifests are needed here — the source
+# gets bind-mounted/COPY'd later.
+COPY packages/@ezcorp/sdk/package.json packages/@ezcorp/sdk/
+COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
+RUN bun install --frozen-lockfile
+
+# Install web dependencies (all, including dev)
+COPY web/package.json web/bun.lock web/
+RUN cd web && bun install --frozen-lockfile
+
+# Copy everything for initial setup (source is bind-mounted over this at runtime)
+COPY . .
+
+EXPOSE 3000
+
+ENV EZCORP_PORT=3000

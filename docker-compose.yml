@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ezcorp
+      POSTGRES_USER: ezcorp
+      POSTGRES_PASSWORD: ezcorp
+    ports:
+      - "5432:5432"
+    volumes:
+      - testenv-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ezcorp"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    network_mode: host
+    environment:
+      - DATABASE_URL=postgres://ezcorp:ezcorp@localhost:5432/ezcorp
+      - EZCORP_PORT=3000
+      - ORIGIN=http://localhost:3000
+      - HF_HOME=/app/cache/huggingface
+      # Stable encryption keys — credentials survive across re-seeds.
+      # Values loaded from .env (gitignored, never committed).
+      - EZCORP_ENCRYPTION_SECRET=${EZCORP_ENCRYPTION_SECRET}
+      - EZCORP_ENCRYPTION_SALT=${EZCORP_ENCRYPTION_SALT}
+      # Public origin for clickable deep-links in ai-kit tool responses.
+      - EZCORP_PUBLIC_URL=${EZCORP_PUBLIC_URL:-}
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -f /app/state/.seeded ]; then
+          echo "Seeding database..."
+          bun src/db/seed-marketplace.ts && touch /app/state/.seeded
+          echo "Seeding complete."
+        else
+          echo "Database already seeded, skipping."
+        fi
+        cd web && bunx svelte-kit sync && cd ..
+        exec bun run dev -- --port 3000
+    volumes:
+      - testenv-state:/app/state
+      - model-cache:/app/cache
+      # Mount credential seed file (read-only) so re-seeds can restore OAuth tokens
+      - ./.env.seed:/app/.env.seed:ro
+      # Mount source for live reload (Vite HMR)
+      - ./src:/app/src
+      - ./web/src:/app/web/src
+      - ./web/static:/app/web/static
+      - ./web/svelte.config.js:/app/web/svelte.config.js
+      - ./web/vite.config.ts:/app/web/vite.config.ts
+      - ./web/tsconfig.json:/app/web/tsconfig.json
+      - ./docs:/app/docs
+      # User-created projects — accessible on host at ./projects/
+      - ./projects:/app/projects
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  testenv-pgdata:
+  testenv-state:
+  model-cache:

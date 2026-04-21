@@ -1,0 +1,8 @@
+node_modules
+web/node_modules
+web/.svelte-kit
+.git
+.planning
+agent/sessions
+*.test.ts
+src/__tests__

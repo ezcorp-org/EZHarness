@@ -1,0 +1,122 @@
+/* Shared highlight.js theme — consumed by chat markdown and diff cards.
+   Scoped on `.hljs` globally so any element hljs tags will be themed. */
+
+/* Dark theme (github-dark inspired) */
+.dark .hljs {
+	background: #1e1e2e;
+	color: #e6edf3;
+}
+.dark .hljs-comment,
+.dark .hljs-quote {
+	color: #8b949e;
+	font-style: italic;
+}
+.dark .hljs-keyword,
+.dark .hljs-selector-tag,
+.dark .hljs-type {
+	color: #ff7b72;
+}
+.dark .hljs-string,
+.dark .hljs-addition {
+	color: #a5d6ff;
+}
+.dark .hljs-number,
+.dark .hljs-literal {
+	color: #79c0ff;
+}
+.dark .hljs-title,
+.dark .hljs-section {
+	color: #d2a8ff;
+}
+.dark .hljs-built_in {
+	color: #ffa657;
+}
+.dark .hljs-attr,
+.dark .hljs-variable {
+	color: #79c0ff;
+}
+.dark .hljs-deletion {
+	color: #ffa198;
+}
+.dark .hljs-name,
+.dark .hljs-tag {
+	color: #7ee787;
+}
+
+/* Light theme (github-light inspired) */
+:not(.dark) .hljs {
+	background: #f6f8fa;
+	color: #24292e;
+}
+:not(.dark) .hljs-comment,
+:not(.dark) .hljs-quote {
+	color: #6a737d;
+	font-style: italic;
+}
+:not(.dark) .hljs-keyword,
+:not(.dark) .hljs-selector-tag,
+:not(.dark) .hljs-type {
+	color: #d73a49;
+}
+:not(.dark) .hljs-string,
+:not(.dark) .hljs-addition {
+	color: #032f62;
+}
+:not(.dark) .hljs-number,
+:not(.dark) .hljs-literal {
+	color: #005cc5;
+}
+:not(.dark) .hljs-title,
+:not(.dark) .hljs-section {
+	color: #6f42c1;
+}
+:not(.dark) .hljs-built_in {
+	color: #e36209;
+}
+:not(.dark) .hljs-attr,
+:not(.dark) .hljs-variable {
+	color: #005cc5;
+}
+:not(.dark) .hljs-deletion {
+	color: #b31d28;
+}
+:not(.dark) .hljs-name,
+:not(.dark) .hljs-tag {
+	color: #22863a;
+}
+
+/* Inside diff2html code lines, hljs's own background would clobber the
+   red/green line backgrounds — keep it transparent there. */
+.d2h-code-line-ctn.hljs,
+.d2h-code-side-line.hljs {
+	background: transparent;
+}
+
+/* diff2html ships light-mode text colors by default. In dark mode, lines
+   that aren't touched by hljs (context lines, empty lines, hunk headers,
+   line numbers) otherwise stay black. Re-color them using diff2html's
+   own dark-theme palette so everything reads correctly. */
+.dark .d2h-wrapper,
+.dark .d2h-file-wrapper,
+.dark .d2h-code-line,
+.dark .d2h-code-side-line,
+.dark .d2h-code-line-ctn {
+	color: #e6edf3;
+}
+.dark .d2h-code-linenumber,
+.dark .d2h-code-side-linenumber {
+	color: #6e7681;
+	background-color: transparent;
+}
+.dark .d2h-info,
+.dark .d2h-code-line-prefix {
+	color: #6e7681;
+}
+.dark .d2h-code-line del,
+.dark .d2h-code-side-line del {
+	color: #ffa198;
+}
+.dark .d2h-code-line ins,
+.dark .d2h-code-side-line ins {
+	color: #7ee787;
+}

@@ -1,0 +1,72 @@
+# dependencies
+node_modules
+
+# output
+out
+dist
+*.tgz
+
+# code coverage
+coverage
+*.lcov
+
+# logs
+logs
+*.log
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# dotenv
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+.env.seed
+
+# caches
+.eslintcache
+.cache
+*.tsbuildinfo
+
+# editors
+.idea
+.vscode
+
+# OS
+.DS_Store
+
+# agent runtime data
+agent/sessions/
+agent/auth.json
+
+# Extension runtime data — every extension stores its persistent state under
+# .ezcorp/extension-data/<ext-name>/ (see docs/extensions/README.md).
+.ezcorp/
+
+# Internal planning docs — milestone plans, phase research, roadmap drafts.
+# Kept locally but not part of the public repo.
+.planning/
+
+# database
+*.db
+ez-corp-db/
+
+# runtime extension installs (installFromGitHub / installFromGit copy here)
+data/extensions/
+
+# wrangler
+.wrangler
+
+# pi-ai encryption key + salt (per-install secrets, never commit)
+**/.pi-secret
+**/.pi-salt
+
+# playwright mcp
+.playwright-mcp/
+
+# test project workspace
+TESTENV/
+web/e2e/.docker-auth.json
+
+# User-created projects (host-accessible bind mount from docker-compose)
+projects/

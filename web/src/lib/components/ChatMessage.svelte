@@ -1,0 +1,387 @@
+<script lang="ts">
+	import type { Message } from "$lib/api.js";
+	import type { ToolCallState, AgentCallState, ContentBlock } from "$lib/stores.svelte.js";
+	import MarkdownRenderer from "./MarkdownRenderer.svelte";
+	import BranchNavigator from "./BranchNavigator.svelte";
+	import MessageToolbar from "./MessageToolbar.svelte";
+	import SkeletonLoader from "./SkeletonLoader.svelte";
+	import ToolCallCard from "./ToolCallCard.svelte";
+	import ThinkingCard from "./ThinkingCard.svelte";
+	import MemoriesCard from "./MemoriesCard.svelte";
+	import AgentChip from "./AgentChip.svelte";
+	import MentionChip from "./MentionChip.svelte";
+	import ProviderIcon from "./ProviderIcon.svelte";
+	import { getSegments } from "$lib/mention-logic.js";
+
+	interface ProviderUnavailableError {
+		type: "provider_unavailable";
+		failedProvider: string;
+		failedModel: string;
+		suggestion: { provider: string; model: string; tier: string } | null;
+		message: string;
+	}
+
+	let {
+		message,
+		streamingText,
+		streamingStatus,
+		streamingStartedAt,
+		onretry,
+		onedit,
+		onregenerate,
+		onfallback,
+		onbranch,
+		onsavememory,
+		onremovememory,
+		savedAsMemory = false,
+		siblings,
+		onnavigate,
+		memoriesUsed,
+		kbSourcesUsed,
+		toolCalls,
+		agentCalls,
+		contentBlocks,
+		inlineToolCalls,
+		conversationId,
+		onagentclick,
+		onsendmessage,
+		onopenobservability,
+	}: {
+		message: Message;
+		streamingText?: string;
+		streamingStatus?: string;
+		/** Wall-clock start of the current streaming run (ms since epoch). When provided,
+		 *  the streaming status line gets an elapsed counter so users can see how long
+		 *  the turn has actually been running. */
+		streamingStartedAt?: number;
+		onretry?: () => void;
+		onedit?: (message: Message) => void;
+		onregenerate?: (message: Message) => void;
+		onfallback?: (provider: string, model: string) => void;
+		onbranch?: (message: Message) => void;
+		onsavememory?: (message: Message) => void;
+		onremovememory?: (message: Message) => void;
+		savedAsMemory?: boolean;
+		siblings?: { id: string; createdAt: string }[];
+		onnavigate?: (messageId: string) => void;
+		memoriesUsed?: { id: string; content: string; category: string }[];
+		kbSourcesUsed?: { id: string; filename: string; chunkIndex: number }[];
+		toolCalls?: ToolCallState[];
+		agentCalls?: AgentCallState[];
+		contentBlocks?: ContentBlock[];
+		inlineToolCalls?: Array<{ extensionName: string; toolName: string; input: Record<string, unknown> }>;
+		conversationId?: string;
+		onagentclick?: (agent: AgentCallState) => void;
+		onsendmessage?: (message: string) => void;
+		/** Opens the observability side panel — wired by the parent chat page. Used by the
+		 *  sub-agent-failure summary so users can dive into `agent_error` rows. */
+		onopenobservability?: () => void;
+	} = $props();
+
+	// Elapsed counter for the main streaming turn. Reused pattern from AgentChip.svelte.
+	// Starts ticking when streamingStartedAt is provided and the message is still streaming.
+	let elapsedSec = $state(0);
+	$effect(() => {
+		if (!streamingStartedAt || !(streamingText !== undefined || streamingStatus !== undefined)) {
+			elapsedSec = 0;
+			return;
+		}
+		elapsedSec = Math.floor((Date.now() - streamingStartedAt) / 1000);
+		const id = setInterval(() => {
+			elapsedSec = Math.floor((Date.now() - streamingStartedAt!) / 1000);
+		}, 1000);
+		return () => clearInterval(id);
+	});
+	let elapsedText = $derived(
+		elapsedSec < 60 ? `${elapsedSec}s` : `${Math.floor(elapsedSec / 60)}m${elapsedSec % 60}s`,
+	);
+
+	// Sub-agent failure rollup — surfaces a persistent red strip above the agent chips
+	// whenever any sub-agent finished with status=error, so users don't have to scan the
+	// pills to find the red one.
+	let failedAgents = $derived((agentCalls ?? []).filter((a) => a.status === "error"));
+	let hasFailedAgents = $derived(failedAgents.length > 0);
+	let failedAgentsSummary = $derived(
+		failedAgents.length === 1
+			? `Agent "${failedAgents[0]!.agentName}" failed`
+			: `${failedAgents.length} sub-agents failed`,
+	);
+
+	let showSources = $state(false);
+	let mdContainer: HTMLDivElement | undefined = $state();
+
+	let hasMemories = $derived(memoriesUsed && memoriesUsed.length > 0);
+	// Popover now only shows KB sources — memories have their own collapsible card above the response.
+	let hasKbSources = $derived(kbSourcesUsed && kbSourcesUsed.length > 0);
+	let hasSources = $derived(hasKbSources);
+	let sourceCount = $derived(kbSourcesUsed?.length ?? 0);
+
+
+	let isError = $derived(
+		message.role === "assistant" &&
+			(message.content.startsWith("Error:") || message.content.startsWith("error:")),
+	);
+
+	/** Parse provider_unavailable error from message content */
+	let providerError = $derived.by((): ProviderUnavailableError | null => {
+		if (!isError) return null;
+		try {
+			// Error content may be "Error: {json}" or just "{json}"
+			const raw = message.content.replace(/^[Ee]rror:\s*/, "");
+			const parsed = JSON.parse(raw);
+			if (parsed?.type === "provider_unavailable") return parsed as ProviderUnavailableError;
+		} catch {
+			// not JSON or not provider_unavailable
+		}
+		return null;
+	});
+
+	let displayContent = $derived(streamingText || message.content);
+
+	let copyableContent = $derived.by(() => {
+		const parts: string[] = [];
+		if (message.content) parts.push(message.content);
+		if (toolCalls?.length) {
+			for (const tc of toolCalls) {
+				const header = `[Tool: ${tc.toolName}]`;
+				const input = tc.input ? `Input: ${typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input, null, 2)}` : '';
+				const output = tc.output ? `Output: ${typeof tc.output === 'string' ? tc.output : JSON.stringify(tc.output, null, 2)}` : '';
+				parts.push([header, input, output].filter(Boolean).join('\n'));
+			}
+		}
+		return parts.join('\n\n');
+	});
+	let isStreaming = $derived(streamingText !== undefined || streamingStatus !== undefined);
+
+	let usageTitle = $derived(
+		message.usage
+			? `Input: ${message.usage.inputTokens} tokens | Output: ${message.usage.outputTokens} tokens`
+			: undefined,
+	);
+
+	let hasSiblings = $derived(siblings && siblings.length > 1 && onnavigate);
+
+	let userSegments = $derived(message.role === "user" ? getSegments(message.content) : []);
+	let hasUserMentions = $derived(userSegments.some(s => s.type === "mention"));
+
+	function tooltipForMention(mentionName: string): string | undefined {
+		if (!inlineToolCalls?.length) return undefined;
+		const matches = inlineToolCalls.filter(c => c.extensionName === mentionName);
+		if (!matches.length) return undefined;
+		return matches.map(c => {
+			const inputs = Object.entries(c.input).map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`).join('\n');
+			return `Tool: ${c.toolName}${inputs ? '\n' + inputs : ''}`;
+		}).join('\n\n');
+	}
+</script>
+
+{#if message.role === "system"}
+	<div class="flex justify-center py-2">
+		<span class="text-xs text-[var(--color-text-muted)] italic">{message.content}</span>
+	</div>
+{:else if message.role === "user"}
+	<div class="group relative flex gap-3 px-4 py-3 bg-[var(--color-surface-tertiary)]/50 rounded-lg hover:outline hover:outline-1 hover:outline-[var(--color-border)]">
+		<div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-surface-tertiary)]">
+			<span class="text-xs font-medium text-[var(--color-text-primary)]">U</span>
+		</div>
+		<div class="min-w-0 flex-1">
+			{#if hasSiblings}
+				<div class="mb-1">
+					<BranchNavigator siblings={siblings!} currentId={message.id} onnavigate={onnavigate!} />
+				</div>
+			{/if}
+			<p class="text-sm text-[var(--color-text-primary)] whitespace-pre-wrap break-words">{#if hasUserMentions}{#each userSegments as seg}{#if seg.type === "text"}{seg.text}{:else if seg.type === "mention"}<MentionChip name={seg.name} kind={seg.kind === 'ext' ? 'extension' : seg.kind === 'cmd' ? 'command' : seg.kind as 'agent' | 'team' | 'file' | 'dir'} tooltip={tooltipForMention(seg.name)} />{/if}{/each}{:else}{message.content}{/if}</p>
+		</div>
+		{#if !isStreaming}
+			<MessageToolbar
+				role="user"
+				{isError}
+				content={message.content}
+				onedit={onedit ? () => onedit!(message) : undefined}
+				onbranch={onbranch ? () => onbranch!(message) : undefined}
+				onsavememory={onsavememory ? () => onsavememory!(message) : undefined}
+				onremovememory={onremovememory ? () => onremovememory!(message) : undefined}
+				{savedAsMemory}
+				onretry={onretry}
+			/>
+		{/if}
+	</div>
+{:else}
+	<div class="group relative flex gap-3 px-4 py-3 rounded-lg hover:outline hover:outline-1 hover:outline-[var(--color-border)]">
+		<ProviderIcon provider={message.provider ?? "anthropic"} size="md" />
+		<div class="min-w-0 flex-1" title={usageTitle}>
+			{#if hasSiblings}
+				<div class="mb-1">
+					<BranchNavigator siblings={siblings!} currentId={message.id} onnavigate={onnavigate!} />
+				</div>
+			{/if}
+			{#if hasMemories && !isStreaming}
+				<div class="mb-2">
+					<MemoriesCard memories={memoriesUsed!} />
+				</div>
+			{/if}
+			{#if isStreaming && !displayContent && !(contentBlocks && contentBlocks.length > 0)}
+				<SkeletonLoader statusText={`${streamingStatus ?? 'Thinking...'}${streamingStartedAt ? ` (${elapsedText})` : ''}`} />
+			{:else if isError && !isStreaming}
+				<div class="rounded-md border border-red-800 bg-red-900/30 p-3">
+					{#if providerError}
+						<p class="text-sm text-red-300">
+							{providerError.failedProvider.charAt(0).toUpperCase() + providerError.failedProvider.slice(1)} is unavailable right now.
+						</p>
+						{#if providerError.suggestion && onfallback}
+							<button
+								onclick={() => onfallback!(providerError!.suggestion!.provider, providerError!.suggestion!.model)}
+								class="mt-2 rounded-md bg-blue-700 px-3 py-1 text-xs text-white hover:bg-blue-600 transition-colors"
+							>
+								Try with {providerError.suggestion.provider} ({providerError.suggestion.model})?
+							</button>
+						{:else if !providerError.suggestion}
+							<p class="mt-1 text-xs text-red-400">All providers are currently unavailable. Please try again later.</p>
+						{/if}
+						{#if onretry}
+							<button
+								onclick={onretry}
+								class="mt-2 ml-2 rounded-md bg-red-700 px-3 py-1 text-xs text-white hover:bg-red-600"
+							>
+								Retry
+							</button>
+						{/if}
+					{:else}
+						<p class="text-sm text-red-300">{message.content}</p>
+						{#if onretry}
+							<button
+								onclick={onretry}
+								class="mt-2 rounded-md bg-red-700 px-3 py-1 text-xs text-white hover:bg-red-600"
+							>
+								Retry
+							</button>
+						{/if}
+					{/if}
+				</div>
+			{:else}
+				{#if contentBlocks && contentBlocks.length > 0}
+					<!-- Interleaved text and tool call rendering -->
+					<div bind:this={mdContainer}>
+						{#each contentBlocks as block, i (block.type === 'tool_ref' ? `tool-${block.toolIndex}` : block.type === 'agent_ref' ? `agent-${block.agentIndex}` : block.type === 'thinking' ? 'thinking' : `text-${i}`)}
+							{#if block.type === 'thinking'}
+								<div class="my-2">
+									<ThinkingCard content={block.content} streaming={isStreaming} />
+								</div>
+							{:else if block.type === 'text'}
+								<MarkdownRenderer content={block.content} streaming={isStreaming && i === contentBlocks.length - 1} />
+							{:else if block.type === 'tool_ref' && toolCalls?.[block.toolIndex]}
+								<div class="my-2 flex flex-col gap-1.5">
+									<ToolCallCard toolCall={toolCalls[block.toolIndex]} {conversationId} {onsendmessage} />
+								</div>
+							{:else if block.type === 'agent_ref'}
+								<!-- agent_ref handled by pinned section below -->
+							{/if}
+						{/each}
+					</div>
+				{:else}
+					<!-- Fallback: flat text then tools (no block data available) -->
+					<div bind:this={mdContainer}>
+						<MarkdownRenderer content={displayContent} streaming={isStreaming} />
+					</div>
+					{#if toolCalls && toolCalls.length > 0}
+						<div class="my-2 flex flex-col gap-1.5">
+							{#each toolCalls as tc, i (tc.id ?? `${tc.toolName}-${i}`)}
+								<ToolCallCard toolCall={tc} {conversationId} {onsendmessage} />
+							{/each}
+						</div>
+					{/if}
+					{/if}
+			{/if}
+			<!-- Sub-agent failure rollup — red strip above the chips when any agent errored -->
+			{#if hasFailedAgents}
+				<button
+					type="button"
+					onclick={() => onopenobservability?.()}
+					class="mt-3 flex w-full items-center gap-2 rounded-md border border-red-500/60 bg-red-500/10 px-3 py-2 text-left text-xs text-red-300 hover:bg-red-500/15 transition-colors"
+				>
+					<svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+					</svg>
+					<span class="min-w-0 flex-1 truncate">
+						<span class="font-medium">{failedAgentsSummary}</span>
+						{#if failedAgents.length === 1 && failedAgents[0]?.resultPreview}
+							<span class="text-[var(--color-text-muted)]"> — {failedAgents[0].resultPreview}</span>
+						{/if}
+					</span>
+					<span class="shrink-0 text-[var(--color-text-muted)]">View details →</span>
+				</button>
+			{/if}
+			<!-- Agent chips pinned at bottom of assistant message -->
+			{#if agentCalls && agentCalls.length > 0}
+				<div class="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-2">
+					<span class="text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">Agents</span>
+					{#each agentCalls as agent (agent.subConversationId)}
+						<AgentChip {agent} onclick={() => onagentclick?.(agent)} />
+					{/each}
+					{#if agentCalls.length >= 2}
+						{@const done = agentCalls.filter(a => a.status === 'complete').length}
+						{@const total = agentCalls.length}
+						<span class="ml-auto text-[10px] tabular-nums text-[var(--color-text-muted)]">{done}/{total} complete</span>
+					{/if}
+				</div>
+			{/if}
+			{#if isStreaming && streamingStatus && displayContent}
+				<div class="mt-1.5 flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+					<span class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400"></span>
+					{streamingStatus}{#if streamingStartedAt} <span class="tabular-nums">({elapsedText})</span>{/if}
+				</div>
+			{/if}
+			<div class="mt-1 flex items-center gap-2">
+				{#if message.model && !isStreaming}
+					<span class="text-xs text-[var(--color-text-muted)]">{message.model}</span>
+				{/if}
+				{#if hasSources && !isStreaming}
+					<div class="relative">
+						<button
+							onclick={() => showSources = !showSources}
+							class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
+							aria-label="Sources used"
+							title="{sourceCount} {sourceCount === 1 ? 'source' : 'sources'} used"
+						>
+							<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+								<path d="M12 2a7 7 0 0 1 7 7c0 2.5-1.3 4.7-3.2 6H8.2C6.3 13.7 5 11.5 5 9a7 7 0 0 1 7-7z" />
+								<path d="M9 21h6" /><path d="M10 17h4" />
+							</svg>
+						</button>
+						{#if showSources}
+							<div class="absolute bottom-full left-0 mb-1 z-10 w-80 max-h-56 overflow-y-auto bg-[var(--color-surface-tertiary)] rounded-lg p-2 text-xs text-[var(--color-text-muted)] shadow-lg border border-[var(--color-border)]">
+								{#if hasKbSources}
+									<div class="flex items-center gap-1.5 font-medium text-[var(--color-text-secondary)] mb-1">
+										<svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+											<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+										</svg>
+										Knowledge Base
+									</div>
+									{#each kbSourcesUsed! as kbSource}
+										<div class="py-0.5 border-b border-[var(--color-border)]/50 last:border-0 pl-4">
+											{kbSource.filename} <span class="text-[var(--color-text-muted)]">[chunk {kbSource.chunkIndex}]</span>
+										</div>
+									{/each}
+								{/if}
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		</div>
+		{#if !isStreaming}
+			<MessageToolbar
+				role="assistant"
+				{isError}
+				content={copyableContent}
+				renderedHtml={mdContainer?.innerHTML}
+				onregenerate={onregenerate ? () => onregenerate!(message) : undefined}
+				onbranch={onbranch ? () => onbranch!(message) : undefined}
+				onsavememory={onsavememory ? () => onsavememory!(message) : undefined}
+				onremovememory={onremovememory ? () => onremovememory!(message) : undefined}
+				{savedAsMemory}
+				onretry={onretry}
+			/>
+		{/if}
+	</div>
+{/if}

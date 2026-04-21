@@ -1,0 +1,94 @@
+<script lang="ts">
+	import { page } from "$app/state";
+	import { goto } from "$app/navigation";
+	import { onMount } from "svelte";
+	import { createConversation, fetchConversations } from "$lib/api.js";
+	import ConversationList from "$lib/components/ConversationList.svelte";
+	import EmptyState from "$lib/components/EmptyState.svelte";
+
+	let projectId = $derived(page.params.id!);
+	let checked = $state(false);
+
+	// Redirect to last-opened chat, or most recent conversation
+	onMount(async () => {
+		// 1. Try the last chat the user had open for this project
+		const lastConvId = localStorage.getItem(`ezcorp-last-chat:${projectId}`);
+		if (lastConvId) {
+			try {
+				const { fetchConversation } = await import("$lib/api.js");
+				const conv = await fetchConversation(lastConvId);
+				if (conv && conv.projectId === projectId) {
+					goto(`/project/${projectId}/chat/${lastConvId}`, { replaceState: true });
+					return;
+				}
+			} catch { /* deleted or inaccessible — fall through */ }
+		}
+
+		// 2. Fall back to most recent conversation
+		try {
+			const convs = await fetchConversations(projectId, { limit: 1 });
+			if (convs.length > 0) {
+				goto(`/project/${projectId}/chat/${convs[0].id}`, { replaceState: true });
+				return;
+			}
+		} catch { /* fall through to empty state */ }
+		checked = true;
+	});
+
+	async function handleCreate() {
+		try {
+			const conv = await createConversation({ projectId });
+			goto(`/project/${projectId}/chat/${conv.id}`);
+		} catch (err) {
+			console.error("Failed to create conversation:", err);
+		}
+	}
+
+	function handleSelect(id: string) {
+		goto(`/project/${projectId}/chat/${id}`);
+	}
+</script>
+
+{#if checked}
+<div class="absolute inset-0 flex">
+	<!-- Desktop: conversation list sidebar + empty state -->
+	<div class="hidden md:flex">
+		{#if projectId}
+			<ConversationList
+				{projectId}
+				oncreate={handleCreate}
+				onselect={handleSelect}
+			/>
+		{/if}
+	</div>
+
+	<!-- Desktop: empty state when no conversation selected -->
+	<div class="hidden md:flex flex-1 flex-col items-center justify-center min-w-0">
+		<EmptyState
+			title="No conversations yet"
+			description="Start your first conversation to begin chatting with AI."
+			ctaLabel="New Conversation"
+			ctaOnclick={handleCreate}
+		>
+			{#snippet icon()}
+				<svg class="h-12 w-12 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+						d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+				</svg>
+			{/snippet}
+		</EmptyState>
+	</div>
+
+	<!-- Mobile: show conversation list inline as primary content -->
+	<div class="flex md:hidden flex-1 min-w-0">
+		{#if projectId}
+			<ConversationList
+				{projectId}
+				oncreate={handleCreate}
+				onselect={handleSelect}
+			/>
+		{/if}
+	</div>
+</div>
+{/if}
+
