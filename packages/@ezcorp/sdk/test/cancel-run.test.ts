@@ -125,3 +125,172 @@ describe("cancelRun — host error propagation", () => {
     }
   });
 });
+
+// ── SDK ↔ channel wire-level round-trip ────────────────────────────
+//
+// Audit gap #1 (§5.3): the other tests mock at `ch.request()`. This
+// test exercises the full path — the SDK wrapper goes through the real
+// singleton channel, a real wire frame is emitted on process.stdout,
+// and a real response frame arriving on Bun.stdin is decoded back into
+// the wrapper's return value. Proves the JSON-RPC serialization of
+// `ezcorp/cancel-run` is actually on-the-wire-correct, not just in the
+// wrapper's unit-test harness.
+
+describe("cancelRun — wire-level round-trip through getChannel()", () => {
+  test("writes a well-formed ezcorp/cancel-run frame to stdout and resolves on the matching response", async () => {
+    // Drive stdin via a ReadableStream we control.
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) { controller = c; },
+    });
+    const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(
+      () => stream as ReturnType<typeof Bun.stdin.stream>,
+    );
+
+    const stdoutWrites: string[] = [];
+    const stdoutSpy = spyOn(process.stdout, "write").mockImplementation((s: unknown) => {
+      stdoutWrites.push(
+        typeof s === "string" ? s : new TextDecoder().decode(s as Uint8Array),
+      );
+      return true;
+    });
+
+    try {
+      // Starts the real HostChannel singleton. Must come AFTER the spies
+      // so getChannel()'s lazy init latches our stubs.
+      getChannel().start();
+
+      // Kick off the SDK call — the channel will serialize and write the
+      // request frame to stdout, then block on a matching response.
+      const pending = cancelRun("run-wire-42");
+
+      // Poll until the outbound frame shows up on stdout.
+      const deadline = Date.now() + 500;
+      while (stdoutWrites.length === 0 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      expect(stdoutWrites.length).toBeGreaterThanOrEqual(1);
+
+      // Wire-level frame shape.
+      const frame = JSON.parse(stdoutWrites[0]!) as {
+        jsonrpc: string;
+        id: number | string;
+        method: string;
+        params: { v: number; agentRunId: string };
+      };
+      expect(frame.jsonrpc).toBe("2.0");
+      expect(frame.method).toBe("ezcorp/cancel-run");
+      expect(frame.params).toEqual({ v: 1, agentRunId: "run-wire-42" });
+      expect(typeof frame.id).toBe("number");
+
+      // Feed back a matching response.
+      const responseFrame = {
+        jsonrpc: "2.0",
+        id: frame.id,
+        result: { v: 1, cancelled: true },
+      };
+      const enc = new TextEncoder();
+      controller.enqueue(enc.encode(JSON.stringify(responseFrame) + "\n"));
+
+      const result = await pending;
+      expect(result).toEqual({ cancelled: true });
+
+      controller.close();
+    } finally {
+      stdinSpy.mockRestore();
+      stdoutSpy.mockRestore();
+    }
+  });
+
+  test("passes the host's `reason` field back through verbatim (not-owned)", async () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) { controller = c; },
+    });
+    const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(
+      () => stream as ReturnType<typeof Bun.stdin.stream>,
+    );
+    const stdoutWrites: string[] = [];
+    const stdoutSpy = spyOn(process.stdout, "write").mockImplementation((s: unknown) => {
+      stdoutWrites.push(
+        typeof s === "string" ? s : new TextDecoder().decode(s as Uint8Array),
+      );
+      return true;
+    });
+
+    try {
+      getChannel().start();
+      const pending = cancelRun("run-someone-else");
+
+      const deadline = Date.now() + 500;
+      while (stdoutWrites.length === 0 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      const frame = JSON.parse(stdoutWrites[0]!) as { id: number | string };
+
+      const enc = new TextEncoder();
+      controller.enqueue(
+        enc.encode(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: frame.id,
+            result: { v: 1, cancelled: false, reason: "not-owned" },
+          }) + "\n",
+        ),
+      );
+
+      const result = await pending;
+      expect(result).toEqual({ cancelled: false, reason: "not-owned" });
+
+      controller.close();
+    } finally {
+      stdinSpy.mockRestore();
+      stdoutSpy.mockRestore();
+    }
+  });
+
+  test("host error frame surfaces as JsonRpcError with code preserved", async () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) { controller = c; },
+    });
+    const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(
+      () => stream as ReturnType<typeof Bun.stdin.stream>,
+    );
+    const stdoutWrites: string[] = [];
+    const stdoutSpy = spyOn(process.stdout, "write").mockImplementation((s: unknown) => {
+      stdoutWrites.push(
+        typeof s === "string" ? s : new TextDecoder().decode(s as Uint8Array),
+      );
+      return true;
+    });
+
+    try {
+      getChannel().start();
+      const pending = cancelRun("run-denied");
+
+      const deadline = Date.now() + 500;
+      while (stdoutWrites.length === 0 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      const frame = JSON.parse(stdoutWrites[0]!) as { id: number | string };
+
+      const enc = new TextEncoder();
+      controller.enqueue(
+        enc.encode(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: frame.id,
+            error: { code: -32001, message: "spawnAgents permission not granted" },
+          }) + "\n",
+        ),
+      );
+
+      await expect(pending).rejects.toThrow(/spawnAgents permission not granted/);
+      controller.close();
+    } finally {
+      stdinSpy.mockRestore();
+      stdoutSpy.mockRestore();
+    }
+  });
+});

@@ -322,6 +322,11 @@ describe("cancel-run — happy path", () => {
 
     const audit = await lastCancelAudit(EXT_A);
     expect(audit?.metadata).toMatchObject({ reason: "cancelled", agentRunId: "run-a-1" });
+    // Tight audit-row shape assertion (§5.3 audit gap #4 — don't just
+    // check the handler wrote *something*, check the fixed columns too).
+    expect(audit?.target).toBe(EXT_A);
+    expect(audit?.action).toBe("ext:spawn-cancelled");
+    expect(audit?.userId).toBe("user-cr");
   });
 });
 
@@ -343,14 +348,25 @@ describe("cancel-run — missing run", () => {
     expect(resp.error).toBeUndefined();
     expect(resp.result).toEqual({ v: 1, cancelled: false, reason: "missing-run" });
     expect(executor.calls).toEqual(["run-a-stale"]);
-    // Defensive cleanup: stale entry is removed so it doesn't leak.
+    // Defensive cleanup: stale entry is removed from both the
+    // concurrent-count tally AND the ownership map so a subsequent
+    // cancel on the same id can't accidentally succeed. (Per §5.3 audit
+    // gap #5 — missing-run defensive cleanup must clear `isOwner` too.)
     expect(quota._concurrentCount(EXT_A)).toBe(0);
+    expect(quota.isOwner(EXT_A, "run-a-stale")).toBe(false);
 
     const audit = await lastCancelAudit(EXT_A);
     expect(audit?.metadata).toMatchObject({
       reason: "missing-run",
       agentRunId: "run-a-stale",
     });
+    // Audit row shape — target is the acting extension, action is the
+    // typed SPAWN_CANCELLED constant (ext:spawn-cancelled). `extensionId`
+    // is redundant with `target` on the row; the key fact here is that
+    // `target === extensionId` so permission audits can be filtered by
+    // either without drift.
+    expect(audit?.target).toBe(EXT_A);
+    expect(audit?.action).toBe("ext:spawn-cancelled");
   });
 });
 

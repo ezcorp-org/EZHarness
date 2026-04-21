@@ -185,6 +185,69 @@ describe("SpawnQuota — swapReservation", () => {
   });
 });
 
+// ── isOwner ────────────────────────────────────────────────────────
+//
+// Phase 4 §5.3 public seam used by the cancel-run handler. Tests here
+// lock in the minimum contract directly on the quota module so any
+// future refactor (e.g. a Map-shape change that would silently break
+// ownership checks) fails loudly here rather than one layer up.
+
+describe("SpawnQuota — isOwner (Phase 4 §5.3)", () => {
+  test("returns true for a token the extension just reserved", () => {
+    const bus = new EventBus<AgentEvents>();
+    const q = createSpawnQuota(bus);
+    q.reserve("ext-a", "run-1");
+    expect(q.isOwner("ext-a", "run-1")).toBe(true);
+    q.dispose();
+  });
+
+  test("returns false for a token owned by a different extension", () => {
+    const bus = new EventBus<AgentEvents>();
+    const q = createSpawnQuota(bus);
+    q.reserve("ext-a", "run-1");
+    expect(q.isOwner("ext-b", "run-1")).toBe(false);
+    // And isOwner does NOT mutate — ext-a's ownership is intact.
+    expect(q.isOwner("ext-a", "run-1")).toBe(true);
+    q.dispose();
+  });
+
+  test("returns false for an unknown / never-reserved token", () => {
+    const bus = new EventBus<AgentEvents>();
+    const q = createSpawnQuota(bus);
+    expect(q.isOwner("ext-a", "never-existed")).toBe(false);
+    q.dispose();
+  });
+
+  test("returns false after the token is released (manual release)", () => {
+    const bus = new EventBus<AgentEvents>();
+    const q = createSpawnQuota(bus);
+    q.reserve("ext-a", "run-1");
+    expect(q.isOwner("ext-a", "run-1")).toBe(true);
+    q.release("run-1");
+    expect(q.isOwner("ext-a", "run-1")).toBe(false);
+    q.dispose();
+  });
+
+  test("returns false after the token is released via bus run:cancel", () => {
+    const bus = new EventBus<AgentEvents>();
+    const q = createSpawnQuota(bus);
+    q.reserve("ext-a", "run-1");
+    bus.emit("run:cancel", { run: { id: "run-1" } } as AgentEvents["run:cancel"]);
+    expect(q.isOwner("ext-a", "run-1")).toBe(false);
+    q.dispose();
+  });
+
+  test("follows swapReservation — old token is no longer owned, new one is", () => {
+    const bus = new EventBus<AgentEvents>();
+    const q = createSpawnQuota(bus);
+    q.reserve("ext-a", "speculative");
+    q.swapReservation("ext-a", "speculative", "real-run-id");
+    expect(q.isOwner("ext-a", "speculative")).toBe(false);
+    expect(q.isOwner("ext-a", "real-run-id")).toBe(true);
+    q.dispose();
+  });
+});
+
 // ── dispose ─────────────────────────────────────────────────────────
 
 describe("SpawnQuota — dispose", () => {

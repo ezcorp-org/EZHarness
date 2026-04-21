@@ -52,6 +52,7 @@ import * as securityModule from "../extensions/security";
 import * as permissionsModule from "../extensions/permissions";
 import * as storageHandlerModule from "../extensions/storage-handler";
 import type { StorageContext } from "../extensions/storage-handler";
+import * as cancelRunHandlerModule from "../extensions/cancel-run-handler";
 
 import {
   buildAllowedEnv,
@@ -739,6 +740,88 @@ describe("extensionToAgentTool", () => {
     const callArgs = mockProc.callTool.mock.calls[0] as unknown as [string, Record<string, unknown>, Record<string, unknown>?];
     const meta = callArgs?.[2];
     expect(meta?.invocationMetadata).toBeUndefined();
+  });
+
+  // The wrapper closes over its 5th/6th args, so a 6-arg wrapper's
+  // invocationMetadata must NOT leak into a subsequently-built 4-arg
+  // wrapper — each call produces an independent AgentTool. This guards
+  // the audit's back-compat invariant: pre-Phase-4 callers (scratchpad,
+  // task-tracking) remain unaffected even when built alongside
+  // orchestration wrappers using the 6-arg form.
+  test("back-compat: 4-arg + 6-arg built back-to-back → no state leakage across wrappers", async () => {
+    const manifestSchemaA = { type: "object", properties: { a: { type: "string" } } };
+    const manifestSchemaB = { type: "object", properties: { b: { type: "number" } } };
+    const override = {
+      type: "object",
+      properties: { agentConfigId: { type: "string", enum: ["alpha", "beta"] } },
+    };
+    const invocationMetadata = {
+      overrides: { model: "gpt-4o" },
+      parentMessageId: "msg-orch",
+    };
+
+    const mockProc = makeMockProcess({
+      content: [{ type: "text", text: "ok" }], isError: false,
+    });
+    const mockRegistry = makeMockRegistry({
+      tools: new Map([
+        ["legacy.tool", makeRegisteredTool({
+          name: "legacy.tool", originalName: "tool", extensionId: "ext-leg",
+        })],
+        ["orch.invoke", makeRegisteredTool({
+          name: "orch.invoke", originalName: "invoke", extensionId: "ext-orch",
+        })],
+      ]),
+      process: mockProc,
+    });
+    const executor = new ToolExecutor(mockRegistry);
+
+    // Build the 6-arg wrapper first (with schemaOverride + invocationMetadata).
+    const orchTool = extensionToAgentTool(
+      { name: "orch.invoke", description: "Orch", inputSchema: manifestSchemaB },
+      executor, "conv-1", "msg-1", override, invocationMetadata,
+    );
+    // Then build the 4-arg wrapper — it must NOT inherit the metadata or override.
+    const legacyTool = extensionToAgentTool(
+      { name: "legacy.tool", description: "Legacy", inputSchema: manifestSchemaA },
+      executor, "conv-1", "msg-1",
+    );
+
+    // Parameters: each wrapper carries its own schema, no cross-pollination.
+    const orchParams = orchTool.parameters as unknown as Record<string, unknown>;
+    const legacyParams = legacyTool.parameters as unknown as Record<string, unknown>;
+    expect(orchParams.properties).toEqual(override.properties);
+    expect(legacyParams.properties).toEqual(manifestSchemaA.properties);
+    expect(legacyParams.properties).not.toEqual(override.properties);
+
+    // Execute both and verify `_meta.invocationMetadata` surfaces only for
+    // the orch call, never for the legacy call — in either order.
+    //
+    // Order 1: legacy first.
+    await legacyTool.execute("call-L1", { a: "x" }, new AbortController().signal);
+    const legacy1Meta = (mockProc.callTool.mock.calls[0] as unknown as
+      [string, Record<string, unknown>, Record<string, unknown>?])[2];
+    expect(legacy1Meta?.invocationMetadata).toBeUndefined();
+
+    // Order 2: orch next — should carry metadata.
+    await orchTool.execute("call-O1", { agentConfigId: "alpha" }, new AbortController().signal);
+    const orch1Meta = (mockProc.callTool.mock.calls[1] as unknown as
+      [string, Record<string, unknown>, Record<string, unknown>?])[2];
+    expect(orch1Meta?.invocationMetadata).toEqual(invocationMetadata);
+
+    // Order 3: legacy again — must STILL be metadata-free (prove the
+    // orch wrapper's closure did not contaminate the legacy wrapper).
+    await legacyTool.execute("call-L2", { a: "y" }, new AbortController().signal);
+    const legacy2Meta = (mockProc.callTool.mock.calls[2] as unknown as
+      [string, Record<string, unknown>, Record<string, unknown>?])[2];
+    expect(legacy2Meta?.invocationMetadata).toBeUndefined();
+
+    // Order 4: orch again — metadata still present (not consumed / cleared
+    // after first use).
+    await orchTool.execute("call-O2", { agentConfigId: "beta" }, new AbortController().signal);
+    const orch2Meta = (mockProc.callTool.mock.calls[3] as unknown as
+      [string, Record<string, unknown>, Record<string, unknown>?])[2];
+    expect(orch2Meta?.invocationMetadata).toEqual(invocationMetadata);
   });
 });
 
@@ -1466,6 +1549,67 @@ describe("ToolExecutor", () => {
       };
       const response = await capturedHandler!(fsReq);
       expect(response.result).toEqual({ allowed: true, resolvedPath: "/tmp/file.txt" });
+      spy.mockRestore();
+    });
+
+    test("wired handler dispatches ezcorp/cancel-run requests to handleCancelRunRpc", async () => {
+      // Routing-layer smoke: proves the exact method-string
+      // "ezcorp/cancel-run" reaches `handleCancelRunRpc` (not a typo like
+      // "ezcorp/cancel_run" or "ezcorp/cancelRun"). The handler itself is
+      // stubbed — this test is about the switch in tool-executor.ts
+      // setRequestHandler, nothing else.
+      const mockProc = makeMockProcess();
+      let capturedHandler: ((req: JsonRpcRequest) => Promise<any>) | null = null;
+      mockProc.setRequestHandler = mock((handler: any) => {
+        capturedHandler = handler;
+      });
+
+      const grantedPerms = new Map<string, ExtensionPermissions>();
+      grantedPerms.set("ext-1", {
+        spawnAgents: { maxPerHour: 10, maxConcurrent: 3 },
+        grantedAt: { spawnAgents: Date.now() },
+      });
+
+      const mockRegistry = makeMockRegistry({
+        tools: new Map([["test-ext__echo", makeRegisteredTool()]]),
+        process: mockProc,
+        grantedPerms,
+      });
+      const executor = new ToolExecutor(mockRegistry);
+      // Wire the minimum needed for cancel dispatch — executor + quota.
+      // The handler itself is stubbed, so the shapes only need to exist.
+      executor.setExecutor({ cancelRun: () => true } as any);
+      executor.setSpawnQuota({
+        isOwner: () => true,
+        release: () => {},
+      } as any);
+
+      const spy = spyOn(cancelRunHandlerModule, "handleCancelRunRpc").mockResolvedValue({
+        jsonrpc: "2.0", id: 600, result: { v: 1, cancelled: true },
+      });
+
+      await executor.executeToolCall("test-ext__echo", {}, "conv-1", "msg-1");
+      expect(capturedHandler).not.toBeNull();
+
+      const cancelReq: JsonRpcRequest = {
+        jsonrpc: "2.0",
+        id: 600,
+        method: "ezcorp/cancel-run",
+        params: { v: 1, agentRunId: "run-x" },
+      };
+      const response = await capturedHandler!(cancelReq);
+
+      // NOT method-not-found (would be -32601). Routing landed.
+      expect(response.error?.code).not.toBe(-32601);
+      expect(spy).toHaveBeenCalledTimes(1);
+      // First positional arg must be the acting extensionId.
+      expect(spy.mock.calls[0]![0]).toBe("ext-1");
+      // Second positional arg is the raw JSON-RPC request — method must
+      // still be the routing-key string (defense against a silent rename
+      // between switch-case and handler ctx).
+      const routedReq = spy.mock.calls[0]![1] as JsonRpcRequest;
+      expect(routedReq.method).toBe("ezcorp/cancel-run");
+      expect(routedReq.id).toBe(600);
       spy.mockRestore();
     });
 
