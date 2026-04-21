@@ -17,6 +17,7 @@ import {
   _setTaskEventsForTests,
   _setAgentConfigsForTests,
   _setSpawnForTests,
+  _setCancelForTests,
   _resetBindingsForTests,
   _internals,
   type PersistedSnapshot,
@@ -1093,5 +1094,374 @@ describe("task-tracking extension — spawn input shape", () => {
     expect(calls[0]!.input.taskId).toBe(task.id);
     expect(calls[0]!.input.assignmentId).toBe(assignment.id);
     expect(calls[0]!.input.title).toBe("X");
+  });
+});
+
+// ── Phase 4: task_stop LLM tool ─────────────────────────────────────
+//
+// Seeds snapshots directly and injects a fake cancelRun via
+// `_setCancelForTests` to cover the stopHandler error ladder and the
+// state transitions on the happy path.
+
+/** Build a synthetic task+assignment pair for stop/resume coverage. */
+function seedTaskWithAssignments(
+  entries: Array<{
+    taskId: string;
+    taskStatus?: TrackedTask["status"];
+    assignments: Array<Partial<TaskAssignment> & { id: string; status: TaskAssignment["status"] }>;
+    dependsOn?: string[];
+  }>,
+  activeTaskId?: string,
+): PersistedSnapshot {
+  const now = new Date().toISOString();
+  const snap: PersistedSnapshot = {
+    schemaVersion: 1,
+    tasks: entries.map((e, i) => ({
+      id: e.taskId,
+      title: e.taskId.toUpperCase(),
+      description: "",
+      status: e.taskStatus ?? "pending",
+      assignments: e.assignments.map((a) => ({
+        id: a.id,
+        agentConfigId: a.agentConfigId ?? "agent-builder",
+        agentName: a.agentName ?? "builder",
+        isTeam: a.isTeam ?? false,
+        status: a.status,
+        assignedAt: a.assignedAt ?? now,
+        ...(a.startedAt !== undefined ? { startedAt: a.startedAt } : {}),
+        ...(a.agentRunId !== undefined ? { agentRunId: a.agentRunId } : {}),
+        ...(a.subConversationId !== undefined ? { subConversationId: a.subConversationId } : {}),
+      })),
+      subtasks: [],
+      priority: i,
+      createdAt: now,
+      ...(e.dependsOn ? { dependsOn: e.dependsOn } : {}),
+    })) as TrackedTask[],
+    ...(activeTaskId !== undefined ? { activeTaskId } : {}),
+  };
+  return snap;
+}
+
+describe("task-tracking extension — task_stop", () => {
+  test("rejects when assignment status !== 'running'", async () => {
+    fakeStorage.seed(seedTaskWithAssignments([
+      {
+        taskId: "t1",
+        taskStatus: "pending",
+        assignments: [{ id: "a1", status: "assigned" }],
+      },
+    ]));
+    const out = await tools.task_stop!({ taskId: "t1", assignmentId: "a1" });
+    const o = out as { isError?: boolean; content: Array<{ text: string }> };
+    expect(o.isError).toBe(true);
+    expect(o.content[0]!.text).toMatch(/expected "running"/);
+  });
+
+  test("surfaces -32001 ownership rejection as UI-guidance toolError", async () => {
+    fakeStorage.seed(seedTaskWithAssignments([
+      {
+        taskId: "t1",
+        taskStatus: "active",
+        assignments: [{
+          id: "a1",
+          status: "running",
+          agentRunId: "run-x",
+          startedAt: new Date().toISOString(),
+        }],
+      },
+    ], "t1"));
+    _setCancelForTests(async () => {
+      throw new JsonRpcError(-32001, "spawnAgents permission not granted");
+    });
+    const out = await tools.task_stop!({ taskId: "t1", assignmentId: "a1" });
+    const o = out as { isError?: boolean; content: Array<{ text: string }> };
+    expect(o.isError).toBe(true);
+    // Handler's UI-guidance sentence mentions clicking Stop in the task panel.
+    expect(o.content[0]!.text).toMatch(/Stop/);
+    expect(o.content[0]!.text).toMatch(/assignment pill/);
+    // Assignment state not mutated on ownership-rejection.
+    const after = fakeStorage.peek()!;
+    expect(after.tasks[0]!.assignments[0]!.status).toBe("running");
+  });
+
+  test("surfaces result.cancelled=false with reason verbatim", async () => {
+    fakeStorage.seed(seedTaskWithAssignments([
+      {
+        taskId: "t1",
+        taskStatus: "active",
+        assignments: [{
+          id: "a1",
+          status: "running",
+          agentRunId: "run-x",
+        }],
+      },
+    ], "t1"));
+    _setCancelForTests(async () => ({ cancelled: false, reason: "not-owned" }));
+    const out = await tools.task_stop!({ taskId: "t1", assignmentId: "a1" });
+    const o = out as { isError?: boolean; content: Array<{ text: string }> };
+    expect(o.isError).toBe(true);
+    expect(o.content[0]!.text).toMatch(/not-owned/);
+  });
+
+  test("happy path resets assignment state + preserves subConversationId", async () => {
+    fakeStorage.seed(seedTaskWithAssignments([
+      {
+        taskId: "t1",
+        taskStatus: "active",
+        assignments: [{
+          id: "a1",
+          status: "running",
+          agentRunId: "run-x",
+          startedAt: "2024-01-01T00:00:00.000Z",
+          subConversationId: "sub-preserved",
+        }],
+      },
+    ], "t1"));
+    _setCancelForTests(async () => ({ cancelled: true }));
+
+    const out = await tools.task_stop!({ taskId: "t1", assignmentId: "a1" });
+    expect(isResultText(out, /Stopped assignment/)).toBe(true);
+
+    const after = fakeStorage.peek()!;
+    const asn = after.tasks[0]!.assignments[0]!;
+    expect(asn.status).toBe("assigned");
+    expect(asn.agentRunId).toBeUndefined();
+    expect(asn.startedAt).toBeUndefined();
+    // subConversationId must survive so task_resume can reuse it.
+    expect(asn.subConversationId).toBe("sub-preserved");
+    // Bus-side assignment_update emitted.
+    expect(fakeEvents.assignmentUpdates.some((u) => u.assignment.id === "a1" && u.assignment.status === "assigned")).toBe(true);
+  });
+
+  test("task falls back to pending when no other assignment is running", async () => {
+    fakeStorage.seed(seedTaskWithAssignments([
+      {
+        taskId: "t1",
+        taskStatus: "active",
+        assignments: [{
+          id: "a1",
+          status: "running",
+          agentRunId: "run-x",
+          subConversationId: "sub-1",
+        }],
+      },
+    ], "t1"));
+    _setCancelForTests(async () => ({ cancelled: true }));
+    await tools.task_stop!({ taskId: "t1", assignmentId: "a1" });
+    const snap = fakeStorage.peek()!;
+    expect(snap.tasks[0]!.status).toBe("pending");
+    expect(snap.activeTaskId).toBeUndefined();
+  });
+
+  test("task stays active when another assignment is still running", async () => {
+    fakeStorage.seed(seedTaskWithAssignments([
+      {
+        taskId: "t1",
+        taskStatus: "active",
+        assignments: [
+          {
+            id: "a1",
+            status: "running",
+            agentRunId: "run-x",
+            subConversationId: "sub-1",
+          },
+          {
+            id: "a2",
+            status: "running",
+            agentRunId: "run-y",
+            subConversationId: "sub-2",
+          },
+        ],
+      },
+    ], "t1"));
+    _setCancelForTests(async () => ({ cancelled: true }));
+    await tools.task_stop!({ taskId: "t1", assignmentId: "a1" });
+    const snap = fakeStorage.peek()!;
+    // Other assignment still running → task stays active.
+    expect(snap.tasks[0]!.status).toBe("active");
+    expect(snap.activeTaskId).toBe("t1");
+  });
+
+  test("missing agentRunId returns guidance error", async () => {
+    // Impossible in practice (running always has agentRunId) but
+    // the handler defends explicitly. No agentRunId field set.
+    fakeStorage.seed(seedTaskWithAssignments([
+      {
+        taskId: "t1",
+        taskStatus: "active",
+        assignments: [{ id: "a1", status: "running" }],
+      },
+    ], "t1"));
+    const out = await tools.task_stop!({ taskId: "t1", assignmentId: "a1" });
+    const o = out as { isError?: boolean; content: Array<{ text: string }> };
+    expect(o.isError).toBe(true);
+    expect(o.content[0]!.text).toMatch(/agentRunId/);
+  });
+});
+
+// ── Phase 4: task_resume LLM tool ───────────────────────────────────
+
+describe("task-tracking extension — task_resume", () => {
+  test("rejects when assignment status !== 'assigned'", async () => {
+    fakeStorage.seed(seedTaskWithAssignments([
+      {
+        taskId: "t1",
+        taskStatus: "active",
+        assignments: [{
+          id: "a1",
+          status: "running",
+          agentRunId: "run-x",
+          subConversationId: "sub-1",
+        }],
+      },
+    ], "t1"));
+    const out = await tools.task_resume!({ taskId: "t1", assignmentId: "a1" });
+    const o = out as { isError?: boolean; content: Array<{ text: string }> };
+    expect(o.isError).toBe(true);
+    expect(o.content[0]!.text).toMatch(/expected "assigned"/);
+  });
+
+  test("rejects when subConversationId is absent", async () => {
+    fakeStorage.seed(seedTaskWithAssignments([
+      {
+        taskId: "t1",
+        taskStatus: "pending",
+        // assigned + no subConversationId — nothing to resume.
+        assignments: [{ id: "a1", status: "assigned" }],
+      },
+    ]));
+    const out = await tools.task_resume!({ taskId: "t1", assignmentId: "a1" });
+    const o = out as { isError?: boolean; content: Array<{ text: string }> };
+    expect(o.isError).toBe(true);
+    expect(o.content[0]!.text).toMatch(/nothing to resume/);
+    expect(o.content[0]!.text).toMatch(/task_start/);
+  });
+
+  test("dependency-gate: rejects when prereqs unmet", async () => {
+    const snap = seedTaskWithAssignments([
+      { taskId: "t-dep", taskStatus: "pending", assignments: [] },
+      {
+        taskId: "t1",
+        taskStatus: "pending",
+        assignments: [{
+          id: "a1",
+          status: "assigned",
+          subConversationId: "sub-1",
+        }],
+        dependsOn: ["t-dep"],
+      },
+    ]);
+    // Make the dep task have a readable title so the error names it.
+    snap.tasks[0]!.title = "Prereq";
+    fakeStorage.seed(snap);
+
+    const out = await tools.task_resume!({ taskId: "t1", assignmentId: "a1" });
+    const o = out as { isError?: boolean; content: Array<{ text: string }> };
+    expect(o.isError).toBe(true);
+    expect(o.content[0]!.text).toMatch(/Prereq/);
+    expect(o.content[0]!.text).toMatch(/blocked/);
+  });
+
+  test("happy path: spawns with reuseSubConversationFor; transitions to running", async () => {
+    fakeStorage.seed(seedTaskWithAssignments([
+      {
+        taskId: "t1",
+        taskStatus: "pending",
+        assignments: [{
+          id: "a1",
+          status: "assigned",
+          agentConfigId: "agent-builder",
+          subConversationId: "sub-persisted",
+        }],
+      },
+    ]));
+    const { fn, calls } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+
+    const out = await tools.task_resume!({ taskId: "t1", assignmentId: "a1" });
+    expect(isResultText(out, /Resumed assignment/)).toBe(true);
+    expect(calls).toHaveLength(1);
+    // Handler asked the host to reuse the same agent's sub-conv.
+    expect(calls[0]!.input.reuseSubConversationFor).toBe("agent-builder");
+    expect(calls[0]!.input.taskId).toBe("t1");
+    expect(calls[0]!.input.assignmentId).toBe("a1");
+
+    const snap = fakeStorage.peek()!;
+    const asn = snap.tasks[0]!.assignments[0]!;
+    expect(asn.status).toBe("running");
+    // Spawn returns sub-${assignmentId} in the "happy" fake.
+    expect(asn.subConversationId).toBe("sub-a1");
+    expect(asn.agentRunId).toBe("run-a1");
+    expect(asn.startedAt).toBeDefined();
+  });
+
+  test("error ladder: -32602 (invalid) records assignment failure", async () => {
+    fakeStorage.seed(seedTaskWithAssignments([
+      {
+        taskId: "t1",
+        taskStatus: "pending",
+        assignments: [{
+          id: "a1",
+          status: "assigned",
+          subConversationId: "sub-1",
+        }],
+      },
+    ]));
+    const { fn } = makeFakeSpawn({ mode: "invalid" });
+    _setSpawnForTests(fn);
+
+    const out = await tools.task_resume!({ taskId: "t1", assignmentId: "a1" });
+    const o = out as { isError?: boolean };
+    expect(o.isError).toBe(true);
+
+    const snap = fakeStorage.peek()!;
+    expect(snap.tasks[0]!.assignments[0]!.status).toBe("failed");
+    expect(snap.tasks[0]!.status).toBe("failed");
+  });
+
+  test("error ladder: -32000 (quota) returns transient error without mutating state", async () => {
+    fakeStorage.seed(seedTaskWithAssignments([
+      {
+        taskId: "t1",
+        taskStatus: "pending",
+        assignments: [{
+          id: "a1",
+          status: "assigned",
+          subConversationId: "sub-1",
+        }],
+      },
+    ]));
+    const { fn } = makeFakeSpawn({ mode: "quota" });
+    _setSpawnForTests(fn);
+
+    const out = await tools.task_resume!({ taskId: "t1", assignmentId: "a1" });
+    const o = out as { isError?: boolean };
+    expect(o.isError).toBe(true);
+
+    const snap = fakeStorage.peek()!;
+    expect(snap.tasks[0]!.assignments[0]!.status).toBe("assigned");
+    // Task status is unchanged (still pending) — transient branch left state alone.
+    expect(snap.tasks[0]!.status).toBe("pending");
+  });
+
+  test("task transitions to 'active' when resuming from 'pending'", async () => {
+    fakeStorage.seed(seedTaskWithAssignments([
+      {
+        taskId: "t1",
+        taskStatus: "pending",
+        assignments: [{
+          id: "a1",
+          status: "assigned",
+          subConversationId: "sub-1",
+        }],
+      },
+    ]));
+    const { fn } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+
+    await tools.task_resume!({ taskId: "t1", assignmentId: "a1" });
+    const snap = fakeStorage.peek()!;
+    expect(snap.tasks[0]!.status).toBe("active");
+    expect(snap.activeTaskId).toBe("t1");
   });
 });
