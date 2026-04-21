@@ -27,6 +27,7 @@
 	let pickerOpenForTaskId = $state<string | null>(null);
 	let pickerAnchorEl = $state<HTMLElement | null>(null);
 	let startingAssignmentId = $state<string | null>(null);
+	let retryingTaskId = $state<string | null>(null);
 
 	// Sort tasks by priority
 	let tasks = $derived([...snapshot.tasks].sort((a, b) => a.priority - b.priority));
@@ -96,6 +97,29 @@
 		if (task.status !== "pending" || !onsendmessage) return;
 		const desc = task.description ? `\n\n${task.description}` : "";
 		onsendmessage(`Work on task: **${task.title}**${desc}`);
+	}
+
+	async function retryTask(taskId: string) {
+		retryingTaskId = taskId;
+		try {
+			const res = await fetch(`/api/conversations/${conversationId}/tasks/${taskId}/retry`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					...(selectedModel ? { provider: selectedModel.provider, model: selectedModel.model } : {}),
+				}),
+			});
+			if (!res.ok) {
+				const data = await res.json().catch(() => ({}));
+				const msg = data.error ?? res.statusText;
+				console.error("Failed to retry task:", res.status, msg);
+				addToast({ type: "error", message: `Failed to retry task: ${msg}` });
+			}
+		} catch (err) {
+			console.error("Failed to retry task:", err);
+			addToast({ type: "error", message: "Failed to retry task" });
+		}
+		retryingTaskId = null;
 	}
 
 	async function startAssignment(taskId: string, assignmentId: string) {
@@ -384,10 +408,21 @@
 						{/if}
 					</div>
 
-					<!-- Failure reason (inline under task) -->
-					{#if task.status === "failed" && task.failureReason}
-						<div class="px-4 pb-1 pl-9 text-[10px] italic text-red-300/80">
-							{task.failureReason}
+					<!-- Failure reason + retry (inline under task) -->
+					{#if task.status === "failed"}
+						<div class="flex items-start gap-2 px-4 pb-1 pl-9">
+							{#if task.failureReason}
+								<span class="flex-1 text-[10px] italic text-red-300/80">{task.failureReason}</span>
+							{/if}
+							<button
+								type="button"
+								onclick={() => retryTask(task.id)}
+								disabled={retryingTaskId === task.id}
+								class="shrink-0 rounded bg-red-500/15 px-2 py-0.5 text-[10px] font-medium text-red-300 hover:bg-red-500/25 hover:text-red-200 transition-colors disabled:opacity-50"
+								title="Reset failure state and re-run the assignment"
+							>
+								{retryingTaskId === task.id ? "Retrying…" : "↻ Retry"}
+							</button>
 						</div>
 					{/if}
 
