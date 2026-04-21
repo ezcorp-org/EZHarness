@@ -7,14 +7,18 @@
 		assignment,
 		now,
 		starting = false,
+		stopping = false,
 		blocked = false,
 		blockedBy = [],
 		onstart,
+		onstop,
 		onclick,
 	}: {
 		assignment: TaskAssignment;
 		now: number;
 		starting?: boolean;
+		/** True while a stop request is in-flight — disables the stop button + swaps the icon for a spinner. */
+		stopping?: boolean;
 		/**
 		 * True when the parent task has unsatisfied dependencies. Disables
 		 * the start button so users don't manually kick off a task that
@@ -24,8 +28,14 @@
 		/** Titles of the prerequisite tasks — shown in the start-button tooltip. */
 		blockedBy?: string[];
 		onstart?: () => void;
+		/** Fires on Stop-button click while the assignment is running. Parent should cancel the run + reset state. */
+		onstop?: () => void;
 		onclick?: () => void;
 	} = $props();
+
+	/** Resume vs Start: an `assigned` assignment that already has a subConversationId
+	 *  is coming off a prior run (via the Stop button) — present it as Resume. */
+	let isResume = $derived(assignment.status === "assigned" && !!assignment.subConversationId);
 
 	let color = $derived(agentColor(assignment.agentName));
 	let r = $derived(parseInt(color.slice(1, 3), 16));
@@ -117,12 +127,37 @@
 			<span
 				class="ml-0.5 cursor-pointer rounded-full p-0.5 transition-colors hover:bg-white/10"
 				onclick={(e) => { e.stopPropagation(); onstart?.(); }}
-				title="Start assignment"
+				title={isResume ? "Resume assignment" : "Start assignment"}
 				role="button"
 				tabindex="0"
 			>
 				<svg class="h-2 w-2" style:color={color} fill="currentColor" viewBox="0 0 20 20">
 					<path d="M6.3 2.841A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+				</svg>
+			</span>
+		{/if}
+	{/if}
+
+	<!-- Stop button (only while running) -->
+	{#if assignment.status === "running" && onstop}
+		{#if stopping}
+			<span class="ml-0.5 animate-spin h-2.5 w-2.5">
+				<svg class="h-2.5 w-2.5" style:color={color} fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3">
+					<path stroke-linecap="round" d="M12 3a9 9 0 019 9" />
+				</svg>
+			</span>
+		{:else}
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<span
+				class="ml-0.5 cursor-pointer rounded-full p-0.5 transition-colors hover:bg-red-500/20"
+				onclick={(e) => { e.stopPropagation(); onstop?.(); }}
+				title="Stop assignment (preserves context for resume)"
+				role="button"
+				tabindex="0"
+			>
+				<svg class="h-2 w-2 text-red-300" fill="currentColor" viewBox="0 0 20 20">
+					<rect x="4" y="4" width="12" height="12" rx="1" />
 				</svg>
 			</span>
 		{/if}

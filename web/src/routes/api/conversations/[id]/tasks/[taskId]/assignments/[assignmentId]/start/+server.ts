@@ -120,6 +120,11 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     },
     parentModel: bodyModel ?? conv.model ?? undefined,
     parentProvider: bodyProvider ?? conv.provider ?? undefined,
+    // Resume-after-stop: when the assignment already carries a sub-
+    // conversation id from a prior run, reuse it so the sub-agent sees
+    // its full prior context. First starts have no subConversationId
+    // and fall through to the normal create-new path.
+    ...(assignment.subConversationId ? { reuseSubConversationId: assignment.subConversationId } : {}),
   });
 
   // Persist the updated snapshot back so the extension sees the

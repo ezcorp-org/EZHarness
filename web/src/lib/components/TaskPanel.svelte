@@ -27,6 +27,7 @@
 	let pickerOpenForTaskId = $state<string | null>(null);
 	let pickerAnchorEl = $state<HTMLElement | null>(null);
 	let startingAssignmentId = $state<string | null>(null);
+	let stoppingAssignmentId = $state<string | null>(null);
 	let retryingTaskId = $state<string | null>(null);
 
 	// Sort tasks by priority
@@ -97,6 +98,26 @@
 		if (task.status !== "pending" || !onsendmessage) return;
 		const desc = task.description ? `\n\n${task.description}` : "";
 		onsendmessage(`Work on task: **${task.title}**${desc}`);
+	}
+
+	async function stopAssignment(taskId: string, assignmentId: string) {
+		stoppingAssignmentId = assignmentId;
+		try {
+			const res = await fetch(`/api/conversations/${conversationId}/tasks/${taskId}/assignments/${assignmentId}/stop`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+			});
+			if (!res.ok) {
+				const data = await res.json().catch(() => ({}));
+				const msg = data.error ?? res.statusText;
+				console.error("Failed to stop assignment:", res.status, msg);
+				addToast({ type: "error", message: `Failed to stop assignment: ${msg}` });
+			}
+		} catch (err) {
+			console.error("Failed to stop assignment:", err);
+			addToast({ type: "error", message: "Failed to stop assignment" });
+		}
+		stoppingAssignmentId = null;
 	}
 
 	async function retryTask(taskId: string) {
@@ -353,9 +374,11 @@
 										{assignment}
 										{now}
 										starting={startingAssignmentId === assignment.id}
+										stopping={stoppingAssignmentId === assignment.id}
 										{blocked}
 										blockedBy={blockedBy.map((t) => t.title)}
 										onstart={() => startAssignment(task.id, assignment.id)}
+										onstop={() => stopAssignment(task.id, assignment.id)}
 										onclick={() => {
 											if (assignment.isTeam && onteamclick) {
 												onteamclick(assignment.agentConfigId, assignment.agentName);
