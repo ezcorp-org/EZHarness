@@ -33,8 +33,19 @@ mock.module("$lib/server/context", () => ({
   ensureInitialized: async () => {},
 }));
 
-mock.module("$server/db/connection", async () => {
-  const { getDb } = await import("../db/connection");
+// Synchronous factory: an async factory here (previously `async () =>
+// { const { getDb } = await import("../db/connection"); return { getDb }; }`)
+// hangs bun-test at process exit when this file is batched with any
+// other file that also registers `$server/db/connection` via
+// `mockServerAlias()` (e.g. `session-api-routes.test.ts`). The promise
+// returned by the async factory appears to stay retained by bun's
+// module-cache/event-loop across files, keeping a handle open after
+// the test suite completes. The sync `require(...)` form resolves the
+// alias immediately and avoids the post-exit hang. See
+// `helpers/mock-cleanup.ts` (SKIP_SERVER_ALIAS_RESTORE note) for the
+// related auto-restore carve-out.
+mock.module("$server/db/connection", () => {
+  const { getDb } = require("../db/connection");
   return { getDb };
 });
 

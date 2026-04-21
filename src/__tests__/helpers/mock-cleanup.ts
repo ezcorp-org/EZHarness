@@ -167,12 +167,14 @@ const SERVER_ALIAS_PREFIXES = [
 ];
 
 /** `$server/*` alias paths skipped by restoreModuleMocks' auto-
- *  restoration. scratchpad-e2e.test.ts registers an async factory for
- *  `$server/db/connection` whose behavior conflicts with the lazy
- *  `() => require(...)` form this function uses, causing bun-test to
- *  hang at process exit after scratchpad-bundled-install's afterAll
- *  runs this function. We skip those aliases — each test file that
- *  needs them registers them itself via its own mock.module call. */
+ *  restoration. phase-2b-e2e.test.ts registers an async factory for
+ *  `$server/db/connection` whose promise-resolution interacts badly
+ *  with this function's lazy `() => require(...)` form, causing
+ *  bun-test to hang at process exit after scratchpad-bundled-install's
+ *  afterAll runs this function. We skip those aliases — each test file
+ *  that needs them registers them itself via its own mock.module call.
+ *  (scratchpad-e2e.test.ts used to hit the same hang; it now uses a
+ *  sync factory and documents the pitfall inline.) */
 const SKIP_SERVER_ALIAS_RESTORE = new Set<string>([
   "db/connection",
 ]);
@@ -194,7 +196,7 @@ export function restoreModuleMocks() {
     // factory re-dispatches at each resolution, letting the next test
     // file's own `mock.module("../../X", ...)` override the alias.
     //
-    // $server/db/connection is skipped because scratchpad-e2e registers
+    // $server/db/connection is skipped because phase-2b-e2e registers
     // an async factory there whose promise-resolution interacts badly
     // with the lazy require pattern and hangs bun-test at exit.
     //
