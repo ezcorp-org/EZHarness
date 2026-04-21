@@ -26,7 +26,7 @@ describe("extension audit action constants", () => {
     }
   });
 
-  test("constant set is exhaustive for the twelve audit paths (7 Phase 1 + 4 Phase 2a/b + 1 Phase 2c)", () => {
+  test("constant set is exhaustive for the thirteen audit paths (7 Phase 1 + 4 Phase 2a/b + 1 Phase 2c + 1 Phase 4)", () => {
     const keys = new Set(Object.keys(EXT_AUDIT_ACTIONS));
     expect(keys).toEqual(new Set([
       // Phase 1
@@ -44,6 +44,8 @@ describe("extension audit action constants", () => {
       "EMIT_EVENT_REJECTED",
       // Phase 2c — server→extension subscription delivery
       "EVENT_SUBSCRIPTION_DENIED",
+      // Phase 4 — ezcorp/cancel-run RPC
+      "SPAWN_CANCELLED",
     ]));
   });
 
