@@ -107,7 +107,7 @@ function makeAssignment(agentConfigId = "cfg-test"): TaskAssignment {
     agentConfigId,
     agentName: "alice",
     isTeam: false,
-    status: "pending",
+    status: "assigned",
     assignedAt: new Date().toISOString(),
   };
 }
