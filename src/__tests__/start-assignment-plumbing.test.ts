@@ -396,6 +396,173 @@ describe("startAssignment — orchestrationDepth plumbing", () => {
   });
 });
 
+// ── run:cancel + streamPromise.catch fallback ──────────────────────
+//
+// startAssignment wires `run:complete` / `run:error` / `run:cancel`
+// listeners and a `streamPromise.catch` fallback on the background
+// executor.streamChat promise. These tests drive the listeners directly
+// via the shared EventBus + a rejecting streamChat to prove:
+//   - run:cancel → assignment transitions to "failed" with the
+//     "Run was cancelled" preview;
+//   - the cancel listener is idempotent with the Stop endpoint's
+//     pre-cancel mutation to "assigned" (does NOT clobber);
+//   - cleanup() unsubscribes on cancel (subsequent events are no-op);
+//   - streamPromise rejection is caught and recorded as "failed".
+
+describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () => {
+  test("marks assignment failed when run:cancel fires mid-run", async () => {
+    const { executor } = makeMockExecutor();
+    const task = makeTask();
+    const assignment = makeAssignment();
+    const snapshot = makeSnapshot(task, "conv-parent");
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+
+    // Collect emitted task events so we can assert the cancel path
+    // re-emits snapshot + assignment_update.
+    const taskSnapshots: unknown[] = [];
+    const assignmentUpdates: unknown[] = [];
+    bus.on("task:snapshot", (d) => taskSnapshots.push(d));
+    bus.on("task:assignment_update", (d) => assignmentUpdates.push(d));
+
+    const opts = baseOpts({ executor, bus, task, assignment, snapshot });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Reset counters established during the startAssignment happy-path
+    // emits so we only assert on the cancel-driven deltas.
+    const priorSnapshots = taskSnapshots.length;
+    const priorAssignUpdates = assignmentUpdates.length;
+
+    // Simulate the cancel signal (e.g. executor.cancelRun or abort).
+    bus.emit("run:cancel", {
+      run: {
+        id: agentRunId,
+        agentName: "alice",
+        status: "cancelled",
+        startedAt: Date.now(),
+        logs: [],
+      },
+      conversationId: "conv-parent",
+    });
+
+    expect(assignment.status).toBe("failed");
+    expect(assignment.resultPreview).toBe("Run was cancelled");
+    expect(assignment.failedAt).toBeDefined();
+    // Bus emits fired for the cancel transition.
+    expect(taskSnapshots.length).toBe(priorSnapshots + 1);
+    expect(assignmentUpdates.length).toBe(priorAssignUpdates + 1);
+  });
+
+  test("idempotent: run:cancel no-op when assignment.status !== 'running'", async () => {
+    const { executor } = makeMockExecutor();
+    const task = makeTask();
+    const assignment = makeAssignment();
+    const snapshot = makeSnapshot(task, "conv-parent");
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+
+    const opts = baseOpts({ executor, bus, task, assignment, snapshot });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Simulate the Stop endpoint's pre-cancel mutation: flip to
+    // "assigned" BEFORE the run:cancel event lands.
+    assignment.status = "assigned";
+    const priorFailedAt = assignment.failedAt;
+
+    bus.emit("run:cancel", {
+      run: {
+        id: agentRunId,
+        agentName: "alice",
+        status: "cancelled",
+        startedAt: Date.now(),
+        logs: [],
+      },
+      conversationId: "conv-parent",
+    });
+
+    // The listener saw status !== "running" and left the assignment alone.
+    expect(assignment.status).toBe("assigned");
+    expect(assignment.failedAt).toBe(priorFailedAt);
+    expect(assignment.resultPreview).not.toBe("Run was cancelled");
+  });
+
+  test("unsubscribes on cancel — subsequent run:complete does not mutate", async () => {
+    const { executor } = makeMockExecutor();
+    const task = makeTask();
+    const assignment = makeAssignment();
+    const snapshot = makeSnapshot(task, "conv-parent");
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+
+    const opts = baseOpts({ executor, bus, task, assignment, snapshot });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Fire cancel first → cleanup() should unsubscribe both listeners.
+    bus.emit("run:cancel", {
+      run: {
+        id: agentRunId,
+        agentName: "alice",
+        status: "cancelled",
+        startedAt: Date.now(),
+        logs: [],
+      },
+      conversationId: "conv-parent",
+    });
+    expect(assignment.status).toBe("failed");
+    expect(assignment.resultPreview).toBe("Run was cancelled");
+
+    // Snapshot post-cancel state then emit run:complete. The listener
+    // for run:complete should already be unsubscribed, so the
+    // completion-path mutation (which would overwrite resultPreview /
+    // status → "completed") must NOT fire.
+    const cancelledSnapshot = { ...assignment };
+    bus.emit("run:complete", {
+      run: {
+        id: agentRunId,
+        agentName: "alice",
+        status: "success",
+        startedAt: Date.now(),
+        logs: [],
+        result: { output: "LATE COMPLETION" },
+      },
+      conversationId: "conv-parent",
+    });
+    expect(assignment.status).toBe(cancelledSnapshot.status);
+    expect(assignment.resultPreview).toBe(cancelledSnapshot.resultPreview);
+    expect(assignment.completedAt).toBeUndefined();
+  });
+
+  test("streamPromise rejection fallback records failure", async () => {
+    // Custom mock executor whose streamChat rejects.
+    const calls: StreamChatCall[] = [];
+    const streamChat = mock(
+      async (
+        conversationId: string,
+        userMessage: string,
+        options: Record<string, unknown>,
+      ) => {
+        calls.push({ conversationId, userMessage, options });
+        throw new Error("stream boom");
+      },
+    );
+    const executor = { streamChat } as unknown as AgentExecutor;
+    const task = makeTask();
+    const assignment = makeAssignment();
+    const snapshot = makeSnapshot(task, "conv-parent");
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+
+    const opts = baseOpts({ executor, bus, task, assignment, snapshot });
+    await startAssignment(opts);
+    // The .catch handler is attached inside startAssignment but not
+    // awaited. Flush the microtask queue so the rejection lands before
+    // we assert on state.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(calls).toHaveLength(1);
+    expect(assignment.status).toBe("failed");
+    expect(assignment.resultPreview).toContain("stream boom");
+    expect(assignment.failedAt).toBeDefined();
+  });
+});
+
 // ── 6. Combined: all 5 fields together across the boundary ─────────
 
 describe("startAssignment — combined plumbing (all 5 new fields together)", () => {
