@@ -57,6 +57,27 @@ export interface SpawnAssignmentInput {
   /** Optional caller-supplied assignment id. Same semantics as
    *  `taskId` — threaded verbatim when provided, generated otherwise. */
   assignmentId?: string;
+  /** If set, the host queries existing sub-conversations of the current
+   *  conversation for one whose `agentConfigId` matches. If found, it's
+   *  reused (persistent context across invocations); otherwise a fresh
+   *  sub-conversation is created. Mirrors the legacy
+   *  `invoke-agent.ts:100-117` reuse semantics. */
+  reuseSubConversationFor?: string;
+  /** Anchors the sub-conversation to a specific parent message for
+   *  historical display after refresh. Mirrors `invoke-agent.ts:110`. */
+  parentMessageId?: string;
+  /** Per-member override bundle — `model`, `provider`, `systemPromptAppend`,
+   *  `permissionMode`, `toolRestriction`, `allowedTools`, `deniedTools`,
+   *  `modeId`. Shape mirrors `TeamMemberOverrides` in the host's `types.ts`.
+   *  Handler forwards onto `startAssignment` → `streamChat`. */
+  overrides?: Record<string, unknown>;
+  /** Team-level allow/deny list that overrides per-member `overrides`.
+   *  Shape mirrors `TeamToolScope`. */
+  teamToolScope?: { allowedTools?: string[]; deniedTools?: string[] };
+  /** Current orchestration depth. Defaults to 0. Handler forwards as
+   *  `options.orchestrationDepth` to `startAssignment`, which becomes the
+   *  starting depth for `streamChat`. */
+  orchestrationDepth?: number;
 }
 
 export interface SpawnAssignmentHandle {
@@ -111,6 +132,15 @@ export async function spawnAssignment(
     ...(input.title ? { title: input.title } : {}),
     ...(input.taskId ? { taskId: input.taskId } : {}),
     ...(input.assignmentId ? { assignmentId: input.assignmentId } : {}),
+    ...(input.reuseSubConversationFor
+      ? { reuseSubConversationFor: input.reuseSubConversationFor }
+      : {}),
+    ...(input.parentMessageId ? { parentMessageId: input.parentMessageId } : {}),
+    ...(input.overrides ? { overrides: input.overrides } : {}),
+    ...(input.teamToolScope ? { teamToolScope: input.teamToolScope } : {}),
+    ...(typeof input.orchestrationDepth === "number"
+      ? { orchestrationDepth: input.orchestrationDepth }
+      : {}),
   });
   return {
     subConversationId: result.subConversationId,

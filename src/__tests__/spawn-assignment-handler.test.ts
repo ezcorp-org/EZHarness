@@ -39,7 +39,12 @@ mock.module("../runtime/start-assignment", () => ({
   startAssignment: async (opts: Record<string, unknown>) => {
     startAssignmentCalls.push(opts);
     const runId = `run-${nextAgentRunId++}`;
-    const subConversationId = `sub-${runId}`;
+    // Honor a pre-resolved reuse id (Phase 4 `reuseSubConversationFor`
+    // path); otherwise fall back to a freshly-minted sub id.
+    const subConversationId =
+      typeof opts.reuseSubConversationId === "string" && opts.reuseSubConversationId
+        ? (opts.reuseSubConversationId as string)
+        : `sub-${runId}`;
     const assignment = opts.assignment as { id: string; status: string; agentRunId?: string; subConversationId?: string; startedAt?: string };
     assignment.status = "running";
     assignment.agentRunId = runId;
@@ -468,5 +473,117 @@ describe("spawn-assignment — dispatch", () => {
     const { subConversationId } = resp.result as { subConversationId: string };
     const { getConversationSpawnDepth } = await import("../db/queries/conversations");
     expect(await getConversationSpawnDepth(subConversationId)).toBe(6);
+  });
+});
+
+// ── Phase 4 additions: pass-through of new SpawnAssignmentInput fields ──
+
+describe("spawn-assignment — Phase 4 pass-through fields", () => {
+  const baseParams = { v: 1, task: "build a thing", agentConfigId: "cfg-alice-helper" };
+
+  test("reuseSubConversationFor: pre-existing sub-conv with matching agentConfigId is reused", async () => {
+    const ext = `reuse-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+
+    // Seed the agent config row in DB so the sub-conv FK can reference it.
+    // (The resolveAgentConfigForUser path uses a separate mock list — the
+    // fixture id "cfg-alice-helper" is what the handler actually resolves.)
+    const { agentConfigs } = await import("../db/schema");
+    await getDb().insert(agentConfigs).values({
+      id: "cfg-alice-helper",
+      name: "alice-helper",
+      prompt: "p",
+      userId: "user-alice",
+    } as any).onConflictDoNothing();
+
+    const parentConv = `conv-reuse-${crypto.randomUUID().slice(0, 8)}`;
+    const seededSubConvId = `seeded-sub-${crypto.randomUUID().slice(0, 8)}`;
+    await getDb().insert(conversations).values({
+      id: parentConv, projectId: "proj-sa", title: "parent",
+    } as any);
+    await getDb().insert(conversations).values({
+      id: seededSubConvId,
+      projectId: "proj-sa",
+      parentConversationId: parentConv,
+      agentConfigId: "cfg-alice-helper",
+      title: "pre-existing",
+    } as any);
+    await wireConversation(parentConv, ext);
+
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, reuseSubConversationFor: "cfg-alice-helper" }, "reuse-1"),
+      makeCtx({ conversationId: parentConv }),
+    );
+    expect(resp.error).toBeUndefined();
+    const result = resp.result as { subConversationId: string };
+    expect(result.subConversationId).toBe(seededSubConvId);
+    // And the mock startAssignment saw the pre-resolved id.
+    expect(startAssignmentCalls).toHaveLength(1);
+    expect(startAssignmentCalls[0]!.reuseSubConversationId).toBe(seededSubConvId);
+  });
+
+  test("parentMessageId: forwarded into startAssignment opts", async () => {
+    const ext = `pmid-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const anchor = "msg-anchor-xyz";
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, parentMessageId: anchor }, "pmid-1"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls).toHaveLength(1);
+    expect(startAssignmentCalls[0]!.parentMessageId).toBe(anchor);
+  });
+
+  test("overrides: flat TeamMemberOverrides bundle forwarded to startAssignment", async () => {
+    const ext = `ov-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const overrides = {
+      model: "claude-3-5-sonnet",
+      provider: "anthropic",
+      systemPromptAppend: "Be concise.",
+      permissionMode: "yolo",
+      toolRestriction: "read-only",
+      allowedTools: ["bash", "read"],
+      deniedTools: ["write"],
+      modeId: "mode-fast",
+    };
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, overrides }, "ov-1"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls).toHaveLength(1);
+    expect(startAssignmentCalls[0]!.overrides).toEqual(overrides);
+  });
+
+  test("teamToolScope: forwarded to startAssignment", async () => {
+    const ext = `tts-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const teamToolScope = { allowedTools: ["read", "grep"], deniedTools: ["bash"] };
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, teamToolScope }, "tts-1"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls).toHaveLength(1);
+    expect(startAssignmentCalls[0]!.teamToolScope).toEqual(teamToolScope);
+  });
+
+  test("orchestrationDepth: forwarded to startAssignment as numeric value", async () => {
+    const ext = `od-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, orchestrationDepth: 3 }, "od-1"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls).toHaveLength(1);
+    expect(startAssignmentCalls[0]!.orchestrationDepth).toBe(3);
   });
 });

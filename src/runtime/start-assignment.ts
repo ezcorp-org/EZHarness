@@ -21,7 +21,7 @@
  */
 import type { AgentExecutor } from "./executor";
 import type { EventBus } from "./events";
-import type { AgentEvents } from "../types";
+import type { AgentEvents, TeamMemberOverrides, TeamToolScope } from "../types";
 import { CURRENT_MODEL_SENTINEL } from "../types";
 import { createSubConversation, getSubConversations } from "../db/queries/conversations";
 import { dequeue } from "./pending-messages";
@@ -56,6 +56,21 @@ export interface StartAssignmentOpts {
   parentModel?: string;
   /** Fallback provider from the parent conversation (used for CURRENT_MODEL_SENTINEL). */
   parentProvider?: string;
+  /** When provided, skip the reuse-by-agentConfigId lookup and treat this
+   *  id as the sub-conversation. Useful when the caller already resolved
+   *  the target sub-conv (e.g. the spawn-assignment handler's
+   *  `reuseSubConversationFor` branch). */
+  reuseSubConversationId?: string;
+  /** Parent message id to anchor a newly-created sub-conversation to. */
+  parentMessageId?: string;
+  /** Per-member override bundle forwarded to `streamChat`. */
+  overrides?: TeamMemberOverrides;
+  /** Team-level allow/deny list forwarded to `streamChat`. When active,
+   *  wins over `overrides.toolRestriction` / `overrides.allowedTools` /
+   *  `overrides.deniedTools`. */
+  teamToolScope?: TeamToolScope;
+  /** Orchestration depth forwarded to `streamChat.options.orchestrationDepth`. */
+  orchestrationDepth?: number;
 }
 
 export interface StartAssignmentResult {
@@ -101,26 +116,39 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
   const {
     executor, bus, conversationId, taskId, assignment, task, snapshot,
     projectId, agentConfig, parentModel, parentProvider,
+    reuseSubConversationId, parentMessageId, overrides, teamToolScope,
+    orchestrationDepth,
   } = opts;
 
   // Reuse an existing sub-conversation for this agent, or create one.
-  const existingSubConvos = await getSubConversations(conversationId);
-  const existingAgentConv = existingSubConvos.find(
-    (sc) => sc.agentConfigId === assignment.agentConfigId,
-  );
-
+  // If the caller pre-resolved a reuse id, honor it verbatim and skip the
+  // by-agentConfigId lookup. Otherwise preserve legacy reuse semantics.
   let subConversationId: string;
-  if (existingAgentConv) {
-    subConversationId = existingAgentConv.id;
+  if (reuseSubConversationId) {
+    subConversationId = reuseSubConversationId;
   } else {
-    const subConv = await createSubConversation(projectId, {
-      parentConversationId: conversationId,
-      agentConfigId: assignment.agentConfigId,
-      systemPrompt: agentConfig.prompt,
-      title: agentConfig.name,
-    });
-    subConversationId = subConv.id;
+    const existingSubConvos = await getSubConversations(conversationId);
+    const existingAgentConv = existingSubConvos.find(
+      (sc) => sc.agentConfigId === assignment.agentConfigId,
+    );
+    if (existingAgentConv) {
+      subConversationId = existingAgentConv.id;
+    } else {
+      const subConv = await createSubConversation(projectId, {
+        parentConversationId: conversationId,
+        agentConfigId: assignment.agentConfigId,
+        systemPrompt: agentConfig.prompt,
+        title: agentConfig.name,
+        ...(parentMessageId ? { parentMessageId } : {}),
+      });
+      subConversationId = subConv.id;
+    }
   }
+  const teamScopeActive = !!(
+    teamToolScope &&
+    ((teamToolScope.allowedTools?.length ?? 0) > 0 ||
+      (teamToolScope.deniedTools?.length ?? 0) > 0)
+  );
 
   const agentRunId = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -159,14 +187,20 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
   const taskDescription =
     `## Your Task\n${taskBody}\n\n## Full Plan Context\nThis task is part of a larger plan. Here are all tasks:\n${planContext}\n\nFocus on completing YOUR task. If you need information from other tasks, note it in your output.`;
 
+  const resolveSentinel = (value: string | undefined | null, fallback: string | undefined): string | undefined =>
+    value === CURRENT_MODEL_SENTINEL ? fallback : value ?? undefined;
   const resolveModel = () =>
-    agentConfig.model === CURRENT_MODEL_SENTINEL
-      ? parentModel
-      : (agentConfig.model ?? parentModel ?? undefined);
+    resolveSentinel(overrides?.model as string | undefined, parentModel)
+    ?? resolveSentinel(agentConfig.model, parentModel)
+    ?? parentModel;
   const resolveProvider = () =>
-    agentConfig.provider === CURRENT_MODEL_SENTINEL
-      ? parentProvider
-      : (agentConfig.provider ?? parentProvider ?? undefined);
+    resolveSentinel(overrides?.provider as string | undefined, parentProvider)
+    ?? resolveSentinel(agentConfig.provider, parentProvider)
+    ?? parentProvider;
+  const resolveSystem = () =>
+    overrides?.systemPromptAppend
+      ? `${agentConfig.prompt}\n\n${overrides.systemPromptAppend}`
+      : agentConfig.prompt;
 
   /**
    * Start a run and register lifecycle listeners. Called for the
@@ -174,15 +208,28 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
    * injects messages via the agent-chat endpoint while the agent is
    * running.
    */
-  function startRun(runId: string, message: string, parentMessageId?: string) {
+  function startRun(runId: string, message: string, runParentMessageId?: string) {
     const streamPromise = executor.streamChat(subConversationId, message, {
       projectId,
       agentConfigId: assignment.agentConfigId,
       runId,
       model: resolveModel() ?? undefined,
       provider: resolveProvider() ?? undefined,
-      system: agentConfig.prompt,
-      parentMessageId,
+      system: resolveSystem(),
+      ...(runParentMessageId ? { parentMessageId: runParentMessageId } : {}),
+      ...(typeof orchestrationDepth === "number" ? { orchestrationDepth } : {}),
+      ...(overrides?.permissionMode ? { permissionMode: overrides.permissionMode } : {}),
+      ...(overrides?.modeId ? { modeId: overrides.modeId } : {}),
+      ...(teamScopeActive
+        ? {
+            ...(teamToolScope!.allowedTools ? { allowedTools: teamToolScope!.allowedTools } : {}),
+            ...(teamToolScope!.deniedTools ? { deniedTools: teamToolScope!.deniedTools } : {}),
+          }
+        : {
+            ...(overrides?.toolRestriction ? { toolRestriction: overrides.toolRestriction } : {}),
+            ...(overrides?.allowedTools ? { allowedTools: overrides.allowedTools as string[] } : {}),
+            ...(overrides?.deniedTools ? { deniedTools: overrides.deniedTools as string[] } : {}),
+          }),
     });
 
     let unsubComplete: () => void = () => {};

@@ -326,6 +326,16 @@ function ensureDispatcherRegistered(): void {
       const p = (params ?? {}) as Record<string, unknown>;
       const name = typeof p.name === "string" ? p.name : "";
       const args = (p.arguments ?? {}) as Record<string, unknown>;
+      // Phase 4 §5.1a: the host threads per-invocation metadata through
+      // `_meta.invocationMetadata`. Surface it on the handler ctx so
+      // extensions can read host-bound overrides without re-parsing
+      // `_meta` themselves.
+      const rawMeta = (p._meta ?? {}) as Record<string, unknown>;
+      const invocationMetadata =
+        rawMeta.invocationMetadata && typeof rawMeta.invocationMetadata === "object"
+          ? (rawMeta.invocationMetadata as Record<string, unknown>)
+          : undefined;
+      const ctx = invocationMetadata ? { invocationMetadata } : {};
       const handler = handlers[name];
       // Protocol error (-32601 Method not found) for unknown tools — thrown
       // so HostChannel emits a real JSON-RPC error envelope, not an
@@ -333,7 +343,7 @@ function ensureDispatcherRegistered(): void {
       // isError:true) keep the result-envelope path below.
       if (!handler) throw new JsonRpcError(-32601, `Tool not found: ${name}`);
       try {
-        return await handler(args);
+        return await handler(args, ctx);
       } catch (err) {
         if (opts?.onError) return opts.onError(err, name);
         const message = err instanceof Error ? err.message : String(err);

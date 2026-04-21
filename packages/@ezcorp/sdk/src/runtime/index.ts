@@ -24,7 +24,7 @@ export {
   _setDispatcherRegister,
 } from "./rpc";
 
-export type { ToolHandler, ToolDispatcherOptions } from "./rpc";
+export type { ToolHandler, ToolHandlerContext, ToolDispatcherOptions } from "./rpc";
 
 export {
   getChannel,

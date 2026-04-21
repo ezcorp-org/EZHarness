@@ -26,21 +26,32 @@ export const MAX_TOOL_CALLS_PER_TURN = 10;
  *
  * Uses Type.Unsafe() to bridge JSON Schema (from extension manifests) to
  * TypeBox schemas (required by AgentTool.parameters).
+ *
+ * Optional Phase 4 args (§5.1a) — back-compat with 4-arg callers:
+ *  - `schemaOverride`: when set, replaces `extTool.inputSchema` in the
+ *    wrapper's `parameters`. Used by the orchestration extension to inject
+ *    a turn-specific enum of available agent ids.
+ *  - `invocationMetadata`: opaque per-turn data closed over by the wrapper
+ *    and forwarded as a trailing arg to `toolExecutor.executeToolCall`,
+ *    which surfaces it to the subprocess via the JSON-RPC `_meta` channel.
  */
 export function extensionToAgentTool(
   extTool: { name: string; description: string; inputSchema: Record<string, unknown> },
   toolExecutor: ToolExecutor,
   conversationId: string,
   messageId: string,
+  schemaOverride?: Record<string, unknown>,
+  invocationMetadata?: Record<string, unknown>,
 ): AgentTool {
   return {
     name: extTool.name,
     label: extTool.name,
     description: extTool.description,
-    parameters: Type.Unsafe(extTool.inputSchema),
+    parameters: Type.Unsafe(schemaOverride ?? extTool.inputSchema),
     execute: async (_toolCallId, params, _signal) => {
       const result = await toolExecutor.executeToolCall(
         extTool.name, params as Record<string, unknown>, conversationId, messageId,
+        undefined, invocationMetadata,
       );
       return {
         content: result.content.map(c => ({ type: "text" as const, text: c.text })),
@@ -130,13 +141,21 @@ export class ToolExecutor {
     this.spawnQuota = quota;
   }
 
-  /** Execute a tool call through the extension subprocess. */
+  /** Execute a tool call through the extension subprocess.
+   *
+   *  `invocationMetadata` (Phase 4 §5.1a) is opaque per-turn data threaded
+   *  onto the JSON-RPC `_meta` channel alongside `params`. Subprocess
+   *  handlers surface it on the tool-handler ctx as `invocationMetadata`
+   *  — the orchestration extension uses it to receive overrides /
+   *  teamToolScope / parentMessageId bound by the host at
+   *  wire-orchestration-tools-for-turn time. */
   async executeToolCall(
     toolName: string,
     input: Record<string, unknown>,
     conversationId: string,
     messageId: string | null,
     _opts?: { callerExtensionId?: string; _callDepth?: number; metadata?: { invocationId?: string; source?: 'inline' | 'agent-run' } },
+    invocationMetadata?: Record<string, unknown>,
   ): Promise<ToolCallResult> {
     const registered = this.registry.getRegisteredTool(toolName);
     if (!registered) {
@@ -242,6 +261,12 @@ export class ToolExecutor {
         // to pass to every subprocess; non-URL-building tools ignore it.
         const publicUrl = process.env.EZCORP_PUBLIC_URL;
         if (publicUrl) meta.ezPublicUrl = publicUrl;
+        // Phase 4 §5.1a: opaque per-turn invocation metadata rides in
+        // `_meta.invocationMetadata`. The SDK's tools/call dispatcher
+        // surfaces it on the handler ctx.
+        if (invocationMetadata && Object.keys(invocationMetadata).length > 0) {
+          meta.invocationMetadata = invocationMetadata;
+        }
         result = await proc.callTool(originalName, callArgs, meta);
       }
 

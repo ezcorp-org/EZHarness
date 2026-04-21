@@ -42,8 +42,22 @@ export function toolError(message: string, code?: string): ToolCallResult {
 
 // ── Tool handler signature ──────────────────────────────────────
 
+/**
+ * Per-invocation context passed as the optional second arg to a tool
+ * handler. Phase 4 §5.1a adds `invocationMetadata` — opaque per-turn
+ * data bound by the host at wire-time (e.g. orchestrator overrides,
+ * teamToolScope, parentMessageId) and carried to the subprocess via
+ * the JSON-RPC `_meta.invocationMetadata` channel.
+ */
+export interface ToolHandlerContext {
+  /** Opaque per-turn data the host bound for this invocation.
+   *  Undefined when the host did not attach any. */
+  invocationMetadata?: Record<string, unknown>;
+}
+
 export type ToolHandler<A = Record<string, unknown>> = (
   args: A,
+  ctx?: ToolHandlerContext,
 ) => Promise<ToolCallResult> | ToolCallResult;
 
 export interface ToolDispatcherOptions {

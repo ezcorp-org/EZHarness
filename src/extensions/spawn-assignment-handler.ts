@@ -34,14 +34,14 @@ import type {
   ExtensionPermissions,
 } from "./types";
 import type { EventBus } from "../runtime/events";
-import type { AgentEvents } from "../types";
+import type { AgentEvents, TeamMemberOverrides, TeamToolScope } from "../types";
 import type { AgentExecutor } from "../runtime/executor";
 import type { SpawnQuota } from "./spawn-quota";
 import {
   getConversationExtensionIds,
   copyConversationExtensions,
 } from "../db/queries/conversation-extensions";
-import { setConversationSpawnDepth } from "../db/queries/conversations";
+import { getSubConversations, setConversationSpawnDepth } from "../db/queries/conversations";
 import { createRateLimiter } from "./rate-limit";
 import { capabilityToolsDisabled } from "./capability-flags";
 import { insertAuditEntry } from "../db/queries/audit-log";
@@ -191,6 +191,26 @@ export async function handleSpawnAssignmentRpc(
   const title = typeof params.title === "string" && params.title.trim() ? params.title.trim() : undefined;
   const callerTaskId = typeof params.taskId === "string" && params.taskId.trim() ? params.taskId : undefined;
   const callerAssignmentId = typeof params.assignmentId === "string" && params.assignmentId.trim() ? params.assignmentId : undefined;
+  const reuseSubConversationFor =
+    typeof params.reuseSubConversationFor === "string" && params.reuseSubConversationFor.trim()
+      ? params.reuseSubConversationFor
+      : undefined;
+  const callerParentMessageId =
+    typeof params.parentMessageId === "string" && params.parentMessageId.trim()
+      ? params.parentMessageId
+      : undefined;
+  const callerOverrides =
+    params.overrides && typeof params.overrides === "object" && !Array.isArray(params.overrides)
+      ? (params.overrides as TeamMemberOverrides)
+      : undefined;
+  const callerTeamToolScope =
+    params.teamToolScope && typeof params.teamToolScope === "object" && !Array.isArray(params.teamToolScope)
+      ? (params.teamToolScope as TeamToolScope)
+      : undefined;
+  const callerOrchestrationDepth =
+    typeof params.orchestrationDepth === "number" && Number.isFinite(params.orchestrationDepth)
+      ? (params.orchestrationDepth as number)
+      : undefined;
 
   // 9. Hourly + concurrent quota.
   const cfg = {
@@ -249,6 +269,16 @@ export async function handleSpawnAssignmentRpc(
     activeTaskId: taskId,
   };
 
+  // When the caller opts in via `reuseSubConversationFor`, resolve the
+  // existing sub-conversation by agentConfigId-match before dispatch and
+  // forward the id into startAssignment so it skips its own lookup.
+  let preResolvedSubConversationId: string | undefined;
+  if (reuseSubConversationFor) {
+    const existing = await getSubConversations(ctx.conversationId);
+    const match = existing.find((sc) => sc.agentConfigId === reuseSubConversationFor);
+    if (match) preResolvedSubConversationId = match.id;
+  }
+
   // Reserve speculatively on assignmentId — we don't have agentRunId yet.
   // Swap after startAssignment returns; release on failure.
   ctx.quota.reserve(extensionId, assignmentId);
@@ -271,6 +301,11 @@ export async function handleSpawnAssignmentRpc(
       },
       ...(ctx.parentModel !== undefined ? { parentModel: ctx.parentModel } : {}),
       ...(ctx.parentProvider !== undefined ? { parentProvider: ctx.parentProvider } : {}),
+      ...(preResolvedSubConversationId ? { reuseSubConversationId: preResolvedSubConversationId } : {}),
+      ...(callerParentMessageId ? { parentMessageId: callerParentMessageId } : {}),
+      ...(callerOverrides ? { overrides: callerOverrides } : {}),
+      ...(callerTeamToolScope ? { teamToolScope: callerTeamToolScope } : {}),
+      ...(callerOrchestrationDepth !== undefined ? { orchestrationDepth: callerOrchestrationDepth } : {}),
     });
 
     // Re-key the reservation to the real agentRunId so the bus

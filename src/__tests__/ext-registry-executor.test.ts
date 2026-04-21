@@ -648,6 +648,98 @@ describe("extensionToAgentTool", () => {
     expect(result.details).toEqual({ isError: true });
     expect(textOf(result as { content: Array<{ type: string; text?: string }> })).toBe("something failed");
   });
+
+  // ── Phase 4 §5.1a: 6-arg form — schemaOverride + invocationMetadata ──
+
+  test("schemaOverride replaces manifest inputSchema in wrapper.parameters", () => {
+    const manifestSchema = { type: "object", properties: { a: { type: "string" } } };
+    const override = {
+      type: "object",
+      properties: { agentConfigId: { type: "string", enum: ["x", "y"] } },
+      required: ["agentConfigId"],
+    };
+    const toolDef = { name: "orch.invoke", description: "Invoke", inputSchema: manifestSchema };
+    const mockRegistry = makeMockRegistry({
+      tools: new Map([["orch.invoke", makeRegisteredTool({
+        name: "orch.invoke", originalName: "invoke", extensionId: "ext-o",
+      })]]),
+    });
+    const executor = new ToolExecutor(mockRegistry);
+    const agentTool = extensionToAgentTool(toolDef, executor, "conv-1", "msg-1", override);
+    // `parameters` is a TypeBox Unsafe wrapper — its bound schema is visible
+    // as the enumerable JSON-schema keys merged in by Type.Unsafe.
+    const params = agentTool.parameters as unknown as Record<string, unknown>;
+    expect(params.properties).toEqual(override.properties);
+    expect(params.required).toEqual(override.required);
+    // And it is NOT the manifest schema.
+    expect(params.properties).not.toEqual(manifestSchema.properties);
+  });
+
+  test("invocationMetadata: forwarded into executeToolCall's trailing metadata arg", async () => {
+    const toolDef = { name: "orch.invoke", description: "Invoke", inputSchema: {} };
+    const mockRegistry = makeMockRegistry({
+      tools: new Map([["orch.invoke", makeRegisteredTool({
+        name: "orch.invoke", originalName: "invoke", extensionId: "ext-o",
+      })]]),
+    });
+    const executor = new ToolExecutor(mockRegistry);
+    // Spy on executeToolCall to capture the trailing invocationMetadata arg.
+    const capturedMetadata: Array<Record<string, unknown> | undefined> = [];
+    const originalExecute = executor.executeToolCall.bind(executor);
+    const spy = spyOn(executor, "executeToolCall");
+    spy.mockImplementation((async (
+      toolName: string,
+      input: Record<string, unknown>,
+      convId: string,
+      msgId: string | null,
+      opts?: unknown,
+      metadata?: Record<string, unknown>,
+    ) => {
+      capturedMetadata.push(metadata);
+      return originalExecute(toolName, input, convId, msgId, opts as never, metadata);
+    }) as typeof executor.executeToolCall);
+
+    const invocationMetadata = {
+      overrides: { model: "claude-3-5-sonnet" },
+      teamToolScope: { allowedTools: ["read"] },
+      parentMessageId: "msg-anchor",
+    };
+    const agentTool = extensionToAgentTool(
+      toolDef, executor, "conv-1", "msg-1", undefined, invocationMetadata,
+    );
+    await agentTool.execute("call-1", { agentConfigId: "x", task: "t" }, new AbortController().signal);
+
+    expect(capturedMetadata).toHaveLength(1);
+    expect(capturedMetadata[0]).toEqual(invocationMetadata);
+    spy.mockRestore();
+  });
+
+  test("back-compat: 4-arg call still works (no override, no metadata)", async () => {
+    const manifestSchema = { type: "object", properties: { a: { type: "string" } } };
+    const toolDef = { name: "legacy.tool", description: "Legacy", inputSchema: manifestSchema };
+    const mockProc = makeMockProcess({
+      content: [{ type: "text", text: "ok" }], isError: false,
+    });
+    const mockRegistry = makeMockRegistry({
+      tools: new Map([["legacy.tool", makeRegisteredTool({
+        name: "legacy.tool", originalName: "tool", extensionId: "ext-leg",
+      })]]),
+      process: mockProc,
+    });
+    const executor = new ToolExecutor(mockRegistry);
+    // 4-arg form — pre-Phase-4 callers.
+    const agentTool = extensionToAgentTool(toolDef, executor, "conv-1", "msg-1");
+    const params = agentTool.parameters as unknown as Record<string, unknown>;
+    // Manifest schema is preserved when no override is supplied.
+    expect(params.properties).toEqual(manifestSchema.properties);
+    // Execution path still works end-to-end.
+    const result = await agentTool.execute("call-1", {}, new AbortController().signal);
+    expect(result.details).toEqual({ isError: false });
+    // And proc.callTool was NOT called with invocationMetadata in _meta.
+    const callArgs = mockProc.callTool.mock.calls[0] as unknown as [string, Record<string, unknown>, Record<string, unknown>?];
+    const meta = callArgs?.[2];
+    expect(meta?.invocationMetadata).toBeUndefined();
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════
