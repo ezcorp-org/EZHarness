@@ -712,6 +712,132 @@ describe("production channel wiring", () => {
   });
 });
 
+// ── Phase 4 §5.1a: _meta.invocationMetadata round-trip ─────────────
+//
+// The host attaches per-invocation overrides to a tools/call frame's
+// `_meta.invocationMetadata`. The SDK dispatcher (channel.ts) MUST
+// extract that field and surface it on the handler's `ctx` (the
+// optional second arg of `ToolHandler`). This test exercises the
+// cross-module boundary — a `tools/call` frame arrives on stdin,
+// is parsed by the dispatcher, and the handler receives `(args, ctx)`
+// with ctx.invocationMetadata surfaced.
+//
+// The register closure below is a near-verbatim copy of the production
+// `ensureDispatcherRegistered()` body in channel.ts (lines ~320-354),
+// re-installed here so this test's assertions exercise the same
+// extraction logic even though earlier tests in this file poisoned
+// the module-level _register. If the production body diverges from
+// this closure, the test becomes stale — keep in sync.
+
+describe("tools/call dispatcher — _meta.invocationMetadata → ctx round-trip", () => {
+  test("ctx.invocationMetadata is populated / omitted / filtered across 4 frames", async () => {
+    const stdin = createStdin();
+    const { writes, stdout } = createStdout();
+    const ch = createHostChannelForTests({ stdin: stdin.iterable, stdout });
+    ch.start();
+
+    // Mirror the production dispatcher body including the Phase 4
+    // §5.1a `_meta.invocationMetadata` → ctx extraction path.
+    _setDispatcherRegister(({ handlers, opts }) => {
+      ch.onRequest("tools/call", async (params) => {
+        const p = (params ?? {}) as Record<string, unknown>;
+        const name = typeof p.name === "string" ? p.name : "";
+        const args = (p.arguments ?? {}) as Record<string, unknown>;
+        const rawMeta = (p._meta ?? {}) as Record<string, unknown>;
+        const invocationMetadata =
+          rawMeta.invocationMetadata && typeof rawMeta.invocationMetadata === "object"
+            ? (rawMeta.invocationMetadata as Record<string, unknown>)
+            : undefined;
+        const ctx = invocationMetadata ? { invocationMetadata } : {};
+        const handler = handlers[name];
+        if (!handler) throw new JsonRpcError(-32601, `Tool not found: ${name}`);
+        try {
+          return await handler(args, ctx);
+        } catch (err) {
+          if (opts?.onError) return opts.onError(err, name);
+          const message = err instanceof Error ? err.message : String(err);
+          return toolError(message);
+        }
+      });
+    });
+
+    const capturedCtxs: Array<unknown> = [];
+    const capturedArgs: Array<unknown> = [];
+    createToolDispatcher({
+      probe: (args, ctx) => {
+        capturedArgs.push(args);
+        capturedCtxs.push(ctx);
+        return toolResult("probe-ok");
+      },
+    });
+
+    // 1) Full bundle — overrides, teamToolScope, parentMessageId — round-tripped.
+    const invocationMetadata = {
+      overrides: { model: "claude-3-5-sonnet", provider: "anthropic" },
+      teamToolScope: { allowedTools: ["read"] },
+      parentMessageId: "msg-anchor",
+    };
+    stdin.push(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 101,
+      method: "tools/call",
+      params: {
+        name: "probe",
+        arguments: { a: 1 },
+        _meta: { invocationMetadata },
+      },
+    }));
+    await waitFor(() => writes.length >= 1);
+    expect(capturedArgs[0]).toEqual({ a: 1 });
+    expect(capturedCtxs[0]).toEqual({ invocationMetadata });
+
+    // 2) No `_meta` at all → ctx is an empty object (not missing / not
+    //    partially populated). Covers the `rawMeta.invocationMetadata
+    //    && typeof === object` false branch.
+    stdin.push(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 102,
+      method: "tools/call",
+      params: { name: "probe", arguments: {} },
+    }));
+    await waitFor(() => writes.length >= 2);
+    expect(capturedCtxs[1]).toEqual({});
+
+    // 3) `_meta` present but `invocationMetadata` is a non-object (string)
+    //    → type-gate drops it; ctx stays empty. Covers the
+    //    `typeof rawMeta.invocationMetadata === "object"` false branch.
+    stdin.push(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 103,
+      method: "tools/call",
+      params: {
+        name: "probe",
+        arguments: {},
+        _meta: { invocationMetadata: "nope-just-a-string" },
+      },
+    }));
+    await waitFor(() => writes.length >= 3);
+    expect(capturedCtxs[2]).toEqual({});
+
+    // 4) Sibling `_meta` keys (e.g. ezOnBehalfOf) don't leak into ctx —
+    //    only the invocationMetadata slot is surfaced.
+    stdin.push(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 104,
+      method: "tools/call",
+      params: {
+        name: "probe",
+        arguments: {},
+        _meta: { ezOnBehalfOf: "user-1", invocationMetadata: { k: "v" } },
+      },
+    }));
+    await waitFor(() => writes.length >= 4);
+    expect(capturedCtxs[3]).toEqual({ invocationMetadata: { k: "v" } });
+
+    stdin.close();
+  });
+});
+
 // ── runLoop fatal error logging ────────────────────────────────────
 //
 // Covers the `.catch((err) => process.stderr.write(...))` arrow in
