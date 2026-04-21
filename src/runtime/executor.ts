@@ -645,6 +645,21 @@ export class AgentExecutor {
         try {
           const { wireMentionedExtensions } = await import("./mention-wiring");
           const { getConversationExtensionIds } = await import("../db/queries/conversation-extensions");
+          // Phase 3 intended task-tracking as wire-on-first-use, but its
+          // `/api/tool-invoke` hook only fires for MANUAL UI tool clicks —
+          // LLM-driven tool calls go through the in-process agentTools
+          // pipeline instead. Without this the LLM never sees task_plan /
+          // task_add / task_list and can't plan tasks when asked to. Match
+          // the orchestration extension's auto-wire pattern at line 787 so
+          // path 3 below picks up the 12 task tools for every turn.
+          try {
+            const { ensureTaskTrackingWired } = await import("./task-tracking-host");
+            await ensureTaskTrackingWired(conversationId);
+          } catch (taskWireErr) {
+            log.warn("Task-tracking wire failed — task tools unavailable this turn", {
+              error: String(taskWireErr),
+            });
+          }
           await wireMentionedExtensions(conversationId, userMessage, options.parentMessageId ?? run.id);
           const convExtIds = await getConversationExtensionIds(conversationId);
           if (convExtIds.length > 0) {
