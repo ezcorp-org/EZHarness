@@ -118,7 +118,12 @@
 			<div class="space-y-1.5">
 				<!-- Title + Status -->
 				<div class="flex items-start gap-2">
-					<span class="text-sm font-medium text-[var(--color-text-primary)] flex-1">{task.title}</span>
+					<span
+						class="text-sm font-medium flex-1"
+						class:text-[var(--color-text-primary)]={task.status !== 'completed'}
+						class:text-[var(--color-text-secondary)]={task.status === 'completed'}
+						class:line-through={task.status === 'completed'}
+					>{task.title}</span>
 					{#if badge}
 						<span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium {badge.classes}">{badge.text}</span>
 					{/if}

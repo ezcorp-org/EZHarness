@@ -117,7 +117,12 @@
 			{#each items as task}
 				<div class="flex items-center gap-2 px-3 py-1.5 text-xs border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-surface-secondary)]/50">
 					<span class="shrink-0 {getStatusColor(task.status)}">{getStatusIcon(task.status)}</span>
-					<span class="truncate text-[var(--color-text-primary)]">{task.title}</span>
+					<span
+						class="truncate"
+						class:text-[var(--color-text-primary)]={task.status !== 'completed'}
+						class:text-[var(--color-text-secondary)]={task.status === 'completed'}
+						class:line-through={task.status === 'completed'}
+					>{task.title}</span>
 					{#if task.readyForAgent}
 						<span class="shrink-0 rounded-full bg-purple-500/20 px-1.5 py-0.5 text-[10px] text-purple-300">agent</span>
 					{/if}
