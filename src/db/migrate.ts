@@ -737,4 +737,49 @@ export async function migrate(db: any): Promise<void> {
     )
   `);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_user_commands_user_id ON user_commands(user_id)`);
+
+  // ── Tool-call analytics dimensions ────────────────────────────────
+  // Denormalize user/agent/model/provider onto tool_calls so admin analytics
+  // can aggregate per-tool × per-dimension without three-way joins. Values
+  // are already in scope at both write sites (executor.ts, tool-executor.ts);
+  // populating at insert time is free. Existing rows are backfilled by
+  // joining through conversations + messages.
+  await db.execute(sql`ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
+  await db.execute(sql`ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS agent_config_id TEXT REFERENCES agent_configs(id) ON DELETE SET NULL`);
+  await db.execute(sql`ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS model TEXT`);
+  await db.execute(sql`ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS provider TEXT`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_tool_created ON tool_calls(tool_name, created_at)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_user_created ON tool_calls(user_id, created_at)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_agent_created ON tool_calls(agent_config_id, created_at)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_model_created ON tool_calls(model, created_at)`);
+  // One-shot backfill. Only touches rows where at least one new dim is
+  // still NULL — re-runs are cheap no-ops once the columns are populated.
+  // Implementation note: Postgres forbids referencing the UPDATE target
+  // table from a join inside the FROM clause, so we pre-join in a
+  // subquery keyed by tool_calls.id and then update by equijoin on that
+  // key.
+  await db.execute(sql`
+    UPDATE tool_calls SET
+      user_id         = COALESCE(tool_calls.user_id,         src.conv_user_id),
+      agent_config_id = COALESCE(tool_calls.agent_config_id, src.conv_agent_id),
+      model           = COALESCE(tool_calls.model,           src.msg_model,    src.conv_model),
+      provider        = COALESCE(tool_calls.provider,        src.msg_provider, src.conv_provider)
+    FROM (
+      SELECT tc.id AS tc_id,
+             c.user_id        AS conv_user_id,
+             c.agent_config_id AS conv_agent_id,
+             c.model           AS conv_model,
+             c.provider        AS conv_provider,
+             m.model           AS msg_model,
+             m.provider        AS msg_provider
+      FROM tool_calls tc
+      JOIN conversations c ON c.id = tc.conversation_id
+      LEFT JOIN messages m ON m.id = tc.message_id
+      WHERE tc.user_id IS NULL
+         OR tc.agent_config_id IS NULL
+         OR tc.model IS NULL
+         OR tc.provider IS NULL
+    ) src
+    WHERE tool_calls.id = src.tc_id
+  `);
 }

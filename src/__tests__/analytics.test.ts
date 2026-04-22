@@ -65,6 +65,10 @@ import {
   getSystemHealth,
   getActivityFeed,
   getErrorSummary,
+  getToolUsageByTool,
+  getToolUsageByAgent,
+  getToolUsageByUser,
+  getToolUsageByModel,
 } from "../db/queries/analytics";
 
 // ── Tests ─────────────────────────────────────────────────────────────
@@ -232,6 +236,159 @@ describe("analytics queries", () => {
       expect(typeof result.totalErrors).toBe("number");
       expect(Array.isArray(result.errorRate)).toBe(true);
       expect(Array.isArray(result.recentErrors)).toBe(true);
+    });
+  });
+
+  // ── Tool-Call Usage ──────────────────────────────────────────────
+
+  describe("getToolUsageByTool", () => {
+    test("projects count, successCount, and derives errorCount", async () => {
+      queryResults = [
+        [
+          { toolName: "read_file", extensionId: "builtin", count: 20, successCount: 18 },
+          { toolName: "search",    extensionId: "ext-1",   count: 5,  successCount: 5 },
+        ],
+      ];
+
+      const result = await getToolUsageByTool(30);
+      expect(result).toHaveLength(2);
+      expect(result[0]).toEqual({
+        toolName: "read_file",
+        extensionId: "builtin",
+        count: 20,
+        successCount: 18,
+        errorCount: 2,
+      });
+      expect(result[1]!.errorCount).toBe(0);
+    });
+
+    test("treats null successCount as zero (all errors)", async () => {
+      queryResults = [[{ toolName: "t", extensionId: "e", count: 3, successCount: null }]];
+      const r = await getToolUsageByTool(30);
+      expect(r[0]).toEqual({
+        toolName: "t", extensionId: "e", count: 3, successCount: 0, errorCount: 3,
+      });
+    });
+
+    test("coerces missing fields to safe strings / zero", async () => {
+      queryResults = [[{ toolName: null, extensionId: null, count: 0, successCount: 0 }]];
+      const r = await getToolUsageByTool(30);
+      expect(r[0]!.toolName).toBe("");
+      expect(r[0]!.extensionId).toBe("");
+      expect(r[0]!.errorCount).toBe(0);
+    });
+
+    test("returns empty array for no rows", async () => {
+      queryResults = [[]];
+      const r = await getToolUsageByTool(30);
+      expect(r).toEqual([]);
+    });
+
+    test("accepts days parameter and clamps to at least 1", async () => {
+      queryResults = [[]];
+      expect(await getToolUsageByTool(0)).toEqual([]);
+      queryResults = [[]];
+      expect(await getToolUsageByTool(-5)).toEqual([]);
+    });
+  });
+
+  describe("getToolUsageByAgent", () => {
+    test("projects agent + tool pair counts with successCount and derives errorCount", async () => {
+      queryResults = [
+        [
+          { agentConfigId: "a1", agentName: "Researcher", toolName: "read_file", count: 12, successCount: 10 },
+          { agentConfigId: "a2", agentName: null,          toolName: "search",    count: 4,  successCount: 4 },
+        ],
+      ];
+
+      const r = await getToolUsageByAgent(30);
+      expect(r).toHaveLength(2);
+      expect(r[0]!.agentName).toBe("Researcher");
+      expect(r[0]!.errorCount).toBe(2);
+      expect(r[0]!.successCount).toBe(10);
+      expect(r[1]!.agentName).toBe("Unknown");
+      expect(r[1]!.count).toBe(4);
+      expect(r[1]!.errorCount).toBe(0);
+    });
+
+    test("treats null successCount as zero (all errors)", async () => {
+      queryResults = [[{ agentConfigId: "a1", agentName: "x", toolName: "t", count: 3, successCount: null }]];
+      const r = await getToolUsageByAgent(30);
+      expect(r[0]!.successCount).toBe(0);
+      expect(r[0]!.errorCount).toBe(3);
+    });
+
+    test("returns [] when no rows", async () => {
+      queryResults = [[]];
+      expect(await getToolUsageByAgent(30)).toEqual([]);
+    });
+  });
+
+  describe("getToolUsageByUser", () => {
+    test("projects user + tool pair counts with name/email, successCount, errorCount", async () => {
+      queryResults = [
+        [
+          { userId: "u1", userName: "Alice", userEmail: "a@x.com", toolName: "read_file", count: 9, successCount: 7 },
+          { userId: "u2", userName: null,    userEmail: null,       toolName: "search",    count: 2, successCount: 2 },
+        ],
+      ];
+
+      const r = await getToolUsageByUser(30);
+      expect(r[0]).toEqual({
+        userId: "u1", userName: "Alice", userEmail: "a@x.com",
+        toolName: "read_file", count: 9, successCount: 7, errorCount: 2,
+      });
+      expect(r[1]!.userName).toBe("Unknown");
+      expect(r[1]!.userEmail).toBe("");
+      expect(r[1]!.errorCount).toBe(0);
+    });
+
+    test("treats null successCount as zero (all errors)", async () => {
+      queryResults = [[{ userId: "u1", userName: "x", userEmail: "x@x", toolName: "t", count: 5, successCount: null }]];
+      const r = await getToolUsageByUser(30);
+      expect(r[0]!.errorCount).toBe(5);
+    });
+
+    test("returns [] when no rows", async () => {
+      queryResults = [[]];
+      expect(await getToolUsageByUser(30)).toEqual([]);
+    });
+  });
+
+  describe("getToolUsageByModel", () => {
+    test("projects model + provider + tool counts with successCount and errorCount", async () => {
+      queryResults = [
+        [
+          { model: "claude-opus-4-7",    provider: "anthropic", toolName: "read_file", count: 15, successCount: 13 },
+          { model: "claude-sonnet-4-6",  provider: "anthropic", toolName: "search",    count: 6,  successCount: 6 },
+        ],
+      ];
+
+      const r = await getToolUsageByModel(30);
+      expect(r[0]!.model).toBe("claude-opus-4-7");
+      expect(r[0]!.provider).toBe("anthropic");
+      expect(r[0]!.count).toBe(15);
+      expect(r[0]!.errorCount).toBe(2);
+      expect(r[1]!.errorCount).toBe(0);
+    });
+
+    test("falls back to 'unknown' when model/provider are null", async () => {
+      queryResults = [[{ model: null, provider: null, toolName: "t", count: 1, successCount: 1 }]];
+      const r = await getToolUsageByModel(30);
+      expect(r[0]!.model).toBe("unknown");
+      expect(r[0]!.provider).toBe("unknown");
+      expect(r[0]!.errorCount).toBe(0);
+    });
+
+    test("treats null successCount as zero (all errors)", async () => {
+      queryResults = [[{ model: "m", provider: "p", toolName: "t", count: 2, successCount: null }]];
+      const r = await getToolUsageByModel(30);
+      expect(r[0]!.errorCount).toBe(2);
+    });
+
+    test("returns [] when no rows", async () => {
+      queryResults = [[]];
+      expect(await getToolUsageByModel(30)).toEqual([]);
     });
   });
 });

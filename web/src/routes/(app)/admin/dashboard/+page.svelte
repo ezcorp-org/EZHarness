@@ -3,6 +3,7 @@
 	import { goto } from "$app/navigation";
 	import SkeletonLoader from "$lib/components/SkeletonLoader.svelte";
 	import MobileCardStack from "$lib/components/MobileCardStack.svelte";
+	import { hoverTooltip } from "$lib/actions/hover-tooltip";
 
 	type AnalyticsData = {
 		chatActivity: { date: string; messageCount: number; conversationCount: number }[];
@@ -10,6 +11,12 @@
 		agentStats: { name: string; conversationCount: number }[];
 		extensionStats: { name: string; installCount: number }[];
 		userStats: { totalUsers: number; activeUsers30d: number; signupsLast30d: { date: string; count: number }[] };
+		toolUsage: {
+			byTool:  { toolName: string; extensionId: string; count: number; successCount: number; errorCount: number }[];
+			byAgent: { agentConfigId: string | null; agentName: string; toolName: string; count: number; successCount: number; errorCount: number }[];
+			byUser:  { userId: string | null; userName: string; userEmail: string; toolName: string; count: number; successCount: number; errorCount: number }[];
+			byModel: { model: string; provider: string; toolName: string; count: number; successCount: number; errorCount: number }[];
+		};
 	};
 
 	type SystemData = {
@@ -144,6 +151,49 @@
 		topAgents.reduce((max, d) => Math.max(max, d.conversationCount), 1)
 	);
 
+	// Usage tab: tool-call analytics scaling + slicing. The API already
+	// caps each dimension at 50; we show the top 15 per panel to keep the
+	// page scannable, with the rest paged into a scroll region.
+	let topToolsByTool = $derived((analyticsData?.toolUsage?.byTool ?? []).slice(0, 15));
+	let maxToolByToolCount = $derived(topToolsByTool.reduce((m, d) => Math.max(m, d.count), 1));
+	let topToolsByAgent = $derived((analyticsData?.toolUsage?.byAgent ?? []).slice(0, 15));
+	let maxToolByAgentCount = $derived(topToolsByAgent.reduce((m, d) => Math.max(m, d.count), 1));
+	let topToolsByUser = $derived((analyticsData?.toolUsage?.byUser ?? []).slice(0, 15));
+	let maxToolByUserCount = $derived(topToolsByUser.reduce((m, d) => Math.max(m, d.count), 1));
+	let topToolsByModel = $derived((analyticsData?.toolUsage?.byModel ?? []).slice(0, 15));
+	let maxToolByModelCount = $derived(topToolsByModel.reduce((m, d) => Math.max(m, d.count), 1));
+
+	// Error-focused panels: surface rows with failures even when they're
+	// low-volume (the by-count slice above hides them behind chatty tools).
+	let errorsByTool = $derived(
+		(analyticsData?.toolUsage?.byTool ?? [])
+			.filter((x) => x.errorCount > 0)
+			.toSorted((a, b) => b.errorCount - a.errorCount)
+			.slice(0, 15)
+	);
+	let maxErrByTool = $derived(errorsByTool.reduce((m, d) => Math.max(m, d.errorCount), 1));
+	let errorsByAgent = $derived(
+		(analyticsData?.toolUsage?.byAgent ?? [])
+			.filter((x) => x.errorCount > 0)
+			.toSorted((a, b) => b.errorCount - a.errorCount)
+			.slice(0, 15)
+	);
+	let maxErrByAgent = $derived(errorsByAgent.reduce((m, d) => Math.max(m, d.errorCount), 1));
+	let errorsByUser = $derived(
+		(analyticsData?.toolUsage?.byUser ?? [])
+			.filter((x) => x.errorCount > 0)
+			.toSorted((a, b) => b.errorCount - a.errorCount)
+			.slice(0, 15)
+	);
+	let maxErrByUser = $derived(errorsByUser.reduce((m, d) => Math.max(m, d.errorCount), 1));
+	let errorsByModel = $derived(
+		(analyticsData?.toolUsage?.byModel ?? [])
+			.filter((x) => x.errorCount > 0)
+			.toSorted((a, b) => b.errorCount - a.errorCount)
+			.slice(0, 15)
+	);
+	let maxErrByModel = $derived(errorsByModel.reduce((m, d) => Math.max(m, d.errorCount), 1));
+
 	// System tab: max error rate for bar scaling
 	let maxErrorRate = $derived(
 		systemData?.errorSummary.errorRate.reduce((max, d) => Math.max(max, d.count), 1) ?? 1
@@ -261,7 +311,7 @@
 						<div class="h-bar-list">
 							{#each analyticsData.modelUsage as model}
 								<div class="h-bar-row">
-									<span class="h-bar-label">{model.model} <span class="text-muted">({model.provider})</span></span>
+									<span class="h-bar-label" use:hoverTooltip={`${model.model} (${model.provider})`}>{model.model} <span class="text-muted">({model.provider})</span></span>
 									<div class="h-bar-track">
 										<div class="h-bar-fill" style="width: {(model.count / maxModelCount) * 100}%"></div>
 									</div>
@@ -281,7 +331,7 @@
 						<div class="h-bar-list">
 							{#each topAgents as agent}
 								<div class="h-bar-row">
-									<span class="h-bar-label">{agent.name}</span>
+									<span class="h-bar-label" use:hoverTooltip={agent.name}>{agent.name}</span>
 									<div class="h-bar-track">
 										<div class="h-bar-fill agent" style="width: {(agent.conversationCount / maxAgentCount) * 100}%"></div>
 									</div>
@@ -291,6 +341,208 @@
 						</div>
 					{:else}
 						<p class="empty-text">No agent data.</p>
+					{/if}
+				</div>
+
+				<!-- Tool Usage by Tool -->
+				<div class="section" data-testid="tool-usage-by-tool">
+					<h3 class="section-title">Top Tools by Call Count</h3>
+					{#if topToolsByTool.length}
+						<div class="h-bar-list">
+							{#each topToolsByTool as t}
+								<div class="h-bar-row">
+									<span class="h-bar-label" use:hoverTooltip={`${t.toolName} (${t.extensionId})${t.errorCount > 0 ? ` · ${t.errorCount} error${t.errorCount === 1 ? '' : 's'}` : ''}`}>
+										{t.toolName}
+										<span class="text-muted">({t.extensionId})</span>
+										{#if t.errorCount > 0}
+											<span class="text-muted">· {t.errorCount} error{t.errorCount === 1 ? "" : "s"}</span>
+										{/if}
+									</span>
+									<div class="h-bar-track">
+										<div class="h-bar-fill" style="width: {(t.count / maxToolByToolCount) * 100}%"></div>
+									</div>
+									<span class="h-bar-value">{t.count.toLocaleString()}</span>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<p class="empty-text">No tool calls in this period.</p>
+					{/if}
+				</div>
+
+				<!-- Tool Usage by Agent -->
+				<div class="section" data-testid="tool-usage-by-agent">
+					<h3 class="section-title">Top (Tool × Agent) Pairs</h3>
+					{#if topToolsByAgent.length}
+						<div class="h-bar-list">
+							{#each topToolsByAgent as row}
+								<div class="h-bar-row">
+									<span class="h-bar-label" use:hoverTooltip={`${row.toolName} · ${row.agentName}${row.errorCount > 0 ? ` · ${row.errorCount} error${row.errorCount === 1 ? '' : 's'}` : ''}`}>
+										{row.toolName}
+										<span class="text-muted">· {row.agentName}</span>
+										{#if row.errorCount > 0}
+											<span class="text-muted">· {row.errorCount} error{row.errorCount === 1 ? "" : "s"}</span>
+										{/if}
+									</span>
+									<div class="h-bar-track">
+										<div class="h-bar-fill agent" style="width: {(row.count / maxToolByAgentCount) * 100}%"></div>
+									</div>
+									<span class="h-bar-value">{row.count.toLocaleString()}</span>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<p class="empty-text">No agent-attributed tool calls in this period.</p>
+					{/if}
+				</div>
+
+				<!-- Tool Usage by User -->
+				<div class="section" data-testid="tool-usage-by-user">
+					<h3 class="section-title">Top (Tool × User) Pairs</h3>
+					{#if topToolsByUser.length}
+						<div class="h-bar-list">
+							{#each topToolsByUser as row}
+								<div class="h-bar-row">
+									<span class="h-bar-label" use:hoverTooltip={`${row.toolName} · ${row.userName} (${row.userEmail})${row.errorCount > 0 ? ` · ${row.errorCount} error${row.errorCount === 1 ? '' : 's'}` : ''}`}>
+										{row.toolName}
+										<span class="text-muted">· {row.userName} ({row.userEmail})</span>
+										{#if row.errorCount > 0}
+											<span class="text-muted">· {row.errorCount} error{row.errorCount === 1 ? "" : "s"}</span>
+										{/if}
+									</span>
+									<div class="h-bar-track">
+										<div class="h-bar-fill" style="width: {(row.count / maxToolByUserCount) * 100}%"></div>
+									</div>
+									<span class="h-bar-value">{row.count.toLocaleString()}</span>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<p class="empty-text">No user-attributed tool calls in this period.</p>
+					{/if}
+				</div>
+
+				<!-- Tool Usage by Model -->
+				<div class="section" data-testid="tool-usage-by-model">
+					<h3 class="section-title">Top (Tool × Model) Pairs</h3>
+					{#if topToolsByModel.length}
+						<div class="h-bar-list">
+							{#each topToolsByModel as row}
+								<div class="h-bar-row">
+									<span class="h-bar-label" use:hoverTooltip={`${row.toolName} · ${row.model} (${row.provider})${row.errorCount > 0 ? ` · ${row.errorCount} error${row.errorCount === 1 ? '' : 's'}` : ''}`}>
+										{row.toolName}
+										<span class="text-muted">· {row.model} ({row.provider})</span>
+										{#if row.errorCount > 0}
+											<span class="text-muted">· {row.errorCount} error{row.errorCount === 1 ? "" : "s"}</span>
+										{/if}
+									</span>
+									<div class="h-bar-track">
+										<div class="h-bar-fill" style="width: {(row.count / maxToolByModelCount) * 100}%"></div>
+									</div>
+									<span class="h-bar-value">{row.count.toLocaleString()}</span>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<p class="empty-text">No model-attributed tool calls in this period.</p>
+					{/if}
+				</div>
+
+				<!-- ── Error-focused panels ──────────────────────────── -->
+
+				<!-- Tool Errors -->
+				<div class="section" data-testid="tool-errors-by-tool">
+					<h3 class="section-title">Tools with Errors</h3>
+					{#if errorsByTool.length}
+						<div class="h-bar-list">
+							{#each errorsByTool as row}
+								<div class="h-bar-row">
+									<span class="h-bar-label" use:hoverTooltip={`${row.toolName} (${row.extensionId}) · ${row.count} call${row.count === 1 ? '' : 's'}`}>
+										{row.toolName}
+										<span class="text-muted">({row.extensionId})</span>
+										<span class="text-muted">· {row.count} call{row.count === 1 ? "" : "s"}</span>
+									</span>
+									<div class="h-bar-track">
+										<div class="h-bar-fill error" style="width: {(row.errorCount / maxErrByTool) * 100}%"></div>
+									</div>
+									<span class="h-bar-value">{row.errorCount.toLocaleString()}</span>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<p class="empty-text">No tool errors in this period.</p>
+					{/if}
+				</div>
+
+				<!-- Agent Errors -->
+				<div class="section" data-testid="tool-errors-by-agent">
+					<h3 class="section-title">(Tool × Agent) with Errors</h3>
+					{#if errorsByAgent.length}
+						<div class="h-bar-list">
+							{#each errorsByAgent as row}
+								<div class="h-bar-row">
+									<span class="h-bar-label" use:hoverTooltip={`${row.toolName} · ${row.agentName} · ${row.count} call${row.count === 1 ? '' : 's'}`}>
+										{row.toolName}
+										<span class="text-muted">· {row.agentName}</span>
+										<span class="text-muted">· {row.count} call{row.count === 1 ? "" : "s"}</span>
+									</span>
+									<div class="h-bar-track">
+										<div class="h-bar-fill error" style="width: {(row.errorCount / maxErrByAgent) * 100}%"></div>
+									</div>
+									<span class="h-bar-value">{row.errorCount.toLocaleString()}</span>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<p class="empty-text">No agent-attributed tool errors in this period.</p>
+					{/if}
+				</div>
+
+				<!-- User Errors -->
+				<div class="section" data-testid="tool-errors-by-user">
+					<h3 class="section-title">(Tool × User) with Errors</h3>
+					{#if errorsByUser.length}
+						<div class="h-bar-list">
+							{#each errorsByUser as row}
+								<div class="h-bar-row">
+									<span class="h-bar-label" use:hoverTooltip={`${row.toolName} · ${row.userName} (${row.userEmail}) · ${row.count} call${row.count === 1 ? '' : 's'}`}>
+										{row.toolName}
+										<span class="text-muted">· {row.userName} ({row.userEmail})</span>
+										<span class="text-muted">· {row.count} call{row.count === 1 ? "" : "s"}</span>
+									</span>
+									<div class="h-bar-track">
+										<div class="h-bar-fill error" style="width: {(row.errorCount / maxErrByUser) * 100}%"></div>
+									</div>
+									<span class="h-bar-value">{row.errorCount.toLocaleString()}</span>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<p class="empty-text">No user-attributed tool errors in this period.</p>
+					{/if}
+				</div>
+
+				<!-- Model Errors -->
+				<div class="section" data-testid="tool-errors-by-model">
+					<h3 class="section-title">(Tool × Model) with Errors</h3>
+					{#if errorsByModel.length}
+						<div class="h-bar-list">
+							{#each errorsByModel as row}
+								<div class="h-bar-row">
+									<span class="h-bar-label" use:hoverTooltip={`${row.toolName} · ${row.model} (${row.provider}) · ${row.count} call${row.count === 1 ? '' : 's'}`}>
+										{row.toolName}
+										<span class="text-muted">· {row.model} ({row.provider})</span>
+										<span class="text-muted">· {row.count} call{row.count === 1 ? "" : "s"}</span>
+									</span>
+									<div class="h-bar-track">
+										<div class="h-bar-fill error" style="width: {(row.errorCount / maxErrByModel) * 100}%"></div>
+									</div>
+									<span class="h-bar-value">{row.errorCount.toLocaleString()}</span>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<p class="empty-text">No model-attributed tool errors in this period.</p>
 					{/if}
 				</div>
 
@@ -563,17 +815,18 @@
 	.h-bar-label {
 		font-size: 0.8125rem;
 		color: var(--color-text-secondary);
-		min-width: 80px;
-		max-width: 140px;
-		flex-shrink: 0;
+		/* Fixed width so every bar track across every section starts at
+		   the same x-position. Overflow truncates with ellipsis. */
+		width: 140px;
+		flex: 0 0 140px;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
 	@media (min-width: 768px) {
 		.h-bar-label {
-			min-width: 140px;
-			max-width: none;
+			width: 280px;
+			flex: 0 0 280px;
 		}
 	}
 	.h-bar-track {
@@ -592,10 +845,14 @@
 	.h-bar-fill.agent {
 		background: var(--color-info, #6366f1);
 	}
+	.h-bar-fill.error {
+		background: var(--color-error, #ef4444);
+	}
 	.h-bar-value {
 		font-size: 0.75rem;
 		color: var(--color-text-muted);
-		min-width: 3rem;
+		width: 4rem;
+		flex: 0 0 4rem;
 		text-align: right;
 	}
 

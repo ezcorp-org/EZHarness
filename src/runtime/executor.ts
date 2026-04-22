@@ -636,6 +636,7 @@ export class AgentExecutor {
               // convRecord would send stale values.
               toolExec.setCurrentModel(options.model ?? convRecord?.model);
               toolExec.setCurrentProvider(options.provider ?? convRecord?.provider);
+              toolExec.setCurrentAgentConfigId(options.agentConfigId ?? convRecord?.agentConfigId);
               try {
                 const { checkSensitiveConfirmation } = await import("../extensions/permissions");
                 toolExec.setPermissionChecker(async (extensionId, _toolName, _input) => {
@@ -687,6 +688,7 @@ export class AgentExecutor {
             if (convRecord?.userId) toolExec.setCurrentUserId(convRecord.userId);
             toolExec.setCurrentModel(options.model ?? convRecord?.model);
             toolExec.setCurrentProvider(options.provider ?? convRecord?.provider);
+            toolExec.setCurrentAgentConfigId(options.agentConfigId ?? convRecord?.agentConfigId);
             for (const extId of convExtIds) {
               for (const t of registry.getToolsForExtension(extId)) {
                 if (!agentTools.some(at => at.name === t.name)) {
@@ -883,6 +885,7 @@ export class AgentExecutor {
                   if (convRecord?.userId) toolExec.setCurrentUserId(convRecord.userId);
                   toolExec.setCurrentModel(options.model ?? convRecord?.model);
                   toolExec.setCurrentProvider(options.provider ?? convRecord?.provider);
+                  toolExec.setCurrentAgentConfigId(options.agentConfigId ?? convRecord?.agentConfigId);
                   for (const t of registry.getToolsForExtension(scratchpadExt.id)) {
                     if (!agentTools.some(at => at.name === t.name)) {
                       agentTools.push(extensionToAgentTool(
@@ -1171,7 +1174,9 @@ export class AgentExecutor {
           if (this.persist) {
             const args = pendingToolArgs.get(event.toolCallId) ?? {};
             pendingToolArgs.delete(event.toolCallId);
-            // Insert with null messageId; anchored to turn message in turn_end handler
+            // Insert with null messageId; anchored to turn message in turn_end handler.
+            // Denormalize user/agent/model/provider onto the row so admin
+            // analytics can aggregate without a three-way join.
             queueDb(() => getDb().insert(toolCalls).values({
               id: event.toolCallId,
               conversationId,
@@ -1182,6 +1187,10 @@ export class AgentExecutor {
               output: { content: event.result?.content ?? [] },
               success: !event.isError,
               durationMs: 0,
+              userId: convRecord?.userId ?? null,
+              agentConfigId: options.agentConfigId ?? convRecord?.agentConfigId ?? null,
+              model: options.model ?? convRecord?.model ?? null,
+              provider: options.provider ?? convRecord?.provider ?? null,
             }).then(() => {}));
           }
           break;

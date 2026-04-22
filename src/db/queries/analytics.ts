@@ -9,8 +9,13 @@ import {
   conversationExtensions,
   auditLog,
   errorLogs,
+  toolCalls,
 } from "../schema";
 import { listErrors } from "./error-logs";
+
+// Top-N cap for each tool-usage ranking. Keeps the admin analytics payload
+// bounded even on installations with thousands of distinct tool names.
+const TOOL_USAGE_TOP_N = 50;
 
 // ── Chat Activity ────────────────────────────────────────────────────
 
@@ -240,4 +245,174 @@ export async function getErrorSummary(days = 7) {
     })),
     recentErrors,
   };
+}
+
+// ── Tool-Call Usage ──────────────────────────────────────────────────
+//
+// Aggregate tool_calls by each of four dimensions: tool, agent, user,
+// model. All filters hit the denormalized user_id / agent_config_id /
+// model columns on tool_calls (indexed on (dim, created_at)), so these
+// queries don't need runtime joins except to project display names.
+
+export type ToolUsageByTool = {
+  toolName: string;
+  extensionId: string;
+  count: number;
+  successCount: number;
+  errorCount: number;
+};
+
+export type ToolUsageByAgent = {
+  agentConfigId: string | null;
+  agentName: string;
+  toolName: string;
+  count: number;
+  successCount: number;
+  errorCount: number;
+};
+
+export type ToolUsageByUser = {
+  userId: string | null;
+  userName: string;
+  userEmail: string;
+  toolName: string;
+  count: number;
+  successCount: number;
+  errorCount: number;
+};
+
+export type ToolUsageByModel = {
+  model: string;
+  provider: string;
+  toolName: string;
+  count: number;
+  successCount: number;
+  errorCount: number;
+};
+
+function sinceDays(days: number) {
+  const n = Math.max(1, Math.floor(days));
+  return gte(toolCalls.createdAt, sql`NOW() - INTERVAL '${sql.raw(String(n))} days'`);
+}
+
+export async function getToolUsageByTool(days = 30): Promise<ToolUsageByTool[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      toolName: toolCalls.toolName,
+      extensionId: toolCalls.extensionId,
+      count: count(toolCalls.id).as("count"),
+      successCount: sql<number>`SUM(CASE WHEN ${toolCalls.success} THEN 1 ELSE 0 END)`.as("success_count"),
+    })
+    .from(toolCalls)
+    .where(sinceDays(days))
+    .groupBy(toolCalls.toolName, toolCalls.extensionId)
+    .orderBy(desc(sql`count`))
+    .limit(TOOL_USAGE_TOP_N);
+
+  return rows.map((r: Record<string, unknown>) => {
+    const total = Number(r.count);
+    const ok = Number(r.successCount ?? 0);
+    return {
+      toolName: String(r.toolName ?? ""),
+      extensionId: String(r.extensionId ?? ""),
+      count: total,
+      successCount: ok,
+      errorCount: total - ok,
+    };
+  });
+}
+
+export async function getToolUsageByAgent(days = 30): Promise<ToolUsageByAgent[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      agentConfigId: toolCalls.agentConfigId,
+      agentName: agentConfigs.name,
+      toolName: toolCalls.toolName,
+      count: count(toolCalls.id).as("count"),
+      successCount: sql<number>`SUM(CASE WHEN ${toolCalls.success} THEN 1 ELSE 0 END)`.as("success_count"),
+    })
+    .from(toolCalls)
+    .leftJoin(agentConfigs, eq(toolCalls.agentConfigId, agentConfigs.id))
+    .where(and(sinceDays(days), isNotNull(toolCalls.agentConfigId)))
+    .groupBy(toolCalls.agentConfigId, agentConfigs.name, toolCalls.toolName)
+    .orderBy(desc(sql`count`))
+    .limit(TOOL_USAGE_TOP_N);
+
+  return rows.map((r: Record<string, unknown>) => {
+    const total = Number(r.count);
+    const ok = Number(r.successCount ?? 0);
+    return {
+      agentConfigId: (r.agentConfigId as string | null) ?? null,
+      agentName: String(r.agentName ?? "Unknown"),
+      toolName: String(r.toolName ?? ""),
+      count: total,
+      successCount: ok,
+      errorCount: total - ok,
+    };
+  });
+}
+
+export async function getToolUsageByUser(days = 30): Promise<ToolUsageByUser[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      userId: toolCalls.userId,
+      userName: users.name,
+      userEmail: users.email,
+      toolName: toolCalls.toolName,
+      count: count(toolCalls.id).as("count"),
+      successCount: sql<number>`SUM(CASE WHEN ${toolCalls.success} THEN 1 ELSE 0 END)`.as("success_count"),
+    })
+    .from(toolCalls)
+    .leftJoin(users, eq(toolCalls.userId, users.id))
+    .where(and(sinceDays(days), isNotNull(toolCalls.userId)))
+    .groupBy(toolCalls.userId, users.name, users.email, toolCalls.toolName)
+    .orderBy(desc(sql`count`))
+    .limit(TOOL_USAGE_TOP_N);
+
+  return rows.map((r: Record<string, unknown>) => {
+    const total = Number(r.count);
+    const ok = Number(r.successCount ?? 0);
+    return {
+      userId: (r.userId as string | null) ?? null,
+      userName: String(r.userName ?? "Unknown"),
+      userEmail: String(r.userEmail ?? ""),
+      toolName: String(r.toolName ?? ""),
+      count: total,
+      successCount: ok,
+      errorCount: total - ok,
+    };
+  });
+}
+
+export async function getToolUsageByModel(days = 30): Promise<ToolUsageByModel[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      model: toolCalls.model,
+      provider: toolCalls.provider,
+      toolName: toolCalls.toolName,
+      count: count(toolCalls.id).as("count"),
+      successCount: sql<number>`SUM(CASE WHEN ${toolCalls.success} THEN 1 ELSE 0 END)`.as("success_count"),
+    })
+    .from(toolCalls)
+    .where(and(sinceDays(days), isNotNull(toolCalls.model)))
+    .groupBy(toolCalls.model, toolCalls.provider, toolCalls.toolName)
+    .orderBy(desc(sql`count`))
+    .limit(TOOL_USAGE_TOP_N);
+
+  return rows.map((r: Record<string, unknown>) => {
+    const total = Number(r.count);
+    const ok = Number(r.successCount ?? 0);
+    return {
+      model: String(r.model ?? "unknown"),
+      provider: String(r.provider ?? "unknown"),
+      toolName: String(r.toolName ?? ""),
+      count: total,
+      successCount: ok,
+      errorCount: total - ok,
+    };
+  });
 }

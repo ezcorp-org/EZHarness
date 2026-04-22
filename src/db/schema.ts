@@ -237,8 +237,17 @@ export const toolCalls = pgTable("tool_calls", {
   success: boolean("success").notNull(),
   durationMs: integer("duration_ms").notNull(),
   cardType: text("card_type"),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  agentConfigId: text("agent_config_id").references(() => agentConfigs.id, { onDelete: "set null" }),
+  model: text("model"),
+  provider: text("provider"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_tool_calls_tool_created").on(table.toolName, table.createdAt),
+  index("idx_tool_calls_user_created").on(table.userId, table.createdAt),
+  index("idx_tool_calls_agent_created").on(table.agentConfigId, table.createdAt),
+  index("idx_tool_calls_model_created").on(table.model, table.createdAt),
+]);
 
 // ── Observability ─────────────────────────────────────────────────
 

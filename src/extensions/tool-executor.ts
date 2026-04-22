@@ -91,6 +91,7 @@ export class ToolExecutor {
   private currentConversationId?: string;
   private currentModel?: string;
   private currentProvider?: string;
+  private currentAgentConfigId?: string;
   private executor?: AgentExecutor;
   private spawnQuota?: SpawnQuota;
 
@@ -123,6 +124,13 @@ export class ToolExecutor {
    *  always win over these values at the ai-kit client layer. */
   setCurrentModel(model: string | null | undefined): void {
     this.currentModel = model ?? undefined;
+  }
+
+  /** Set the calling agent's config id so tool_calls rows carry it for
+   *  admin analytics. `null`/`undefined` clear it (top-level chat with no
+   *  bound agent). */
+  setCurrentAgentConfigId(agentConfigId: string | null | undefined): void {
+    this.currentAgentConfigId = agentConfigId ?? undefined;
   }
 
   setCurrentProvider(provider: string | null | undefined): void {
@@ -625,6 +633,10 @@ export class ToolExecutor {
         success: !result.isError,
         durationMs: Date.now() - startTime,
         cardType: cardType ?? null,
+        userId: this.currentUserId ?? null,
+        agentConfigId: this.currentAgentConfigId ?? null,
+        model: this.currentModel ?? null,
+        provider: this.currentProvider ?? null,
       });
     } catch {
       // DB recording failure should never break tool execution

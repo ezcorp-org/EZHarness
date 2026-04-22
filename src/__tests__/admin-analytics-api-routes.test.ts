@@ -27,6 +27,10 @@ const analyticsMock = () => ({
   getAgentStats: async () => mockAnalytics.agentStats ?? [],
   getExtensionStats: async () => mockAnalytics.extensionStats ?? [],
   getUserStats: async () => mockAnalytics.userStats ?? { totalUsers: 0, activeUsers30d: 0, signupsLast30d: [] },
+  getToolUsageByTool:  async (_days: number) => mockAnalytics.toolUsageByTool  ?? [],
+  getToolUsageByAgent: async (_days: number) => mockAnalytics.toolUsageByAgent ?? [],
+  getToolUsageByUser:  async (_days: number) => mockAnalytics.toolUsageByUser  ?? [],
+  getToolUsageByModel: async (_days: number) => mockAnalytics.toolUsageByModel ?? [],
   getSystemHealth: async () => mockSystem.health ?? { dbSizeBytes: 0, uptimeSeconds: 0, tableRowCounts: {} },
   getActivityFeed: async () => mockSystem.activityFeed ?? [],
   getErrorSummary: async () => mockSystem.errorSummary ?? { totalErrors: 0, errorRate: [], recentErrors: [] },
@@ -58,6 +62,18 @@ beforeEach(() => {
     agentStats: [{ name: "test-agent", runs: 3 }],
     extensionStats: [{ name: "test-ext", calls: 7 }],
     userStats: { totalUsers: 2, activeUsers30d: 1, signupsLast30d: [] },
+    toolUsageByTool: [
+      { toolName: "read_file", extensionId: "builtin", count: 20, successCount: 18, errorCount: 2 },
+    ],
+    toolUsageByAgent: [
+      { agentConfigId: "a1", agentName: "test-agent", toolName: "read_file", count: 12, successCount: 10, errorCount: 2 },
+    ],
+    toolUsageByUser: [
+      { userId: "u1", userName: "Alice", userEmail: "a@x.com", toolName: "read_file", count: 9, successCount: 8, errorCount: 1 },
+    ],
+    toolUsageByModel: [
+      { model: "claude-opus-4-7", provider: "anthropic", toolName: "read_file", count: 15, successCount: 14, errorCount: 1 },
+    ],
   };
   mockSystem = {
     health: { dbSizeBytes: 1024, uptimeSeconds: 3600, tableRowCounts: { users: 2 } },
@@ -87,6 +103,22 @@ describe("GET /api/admin/analytics", () => {
     expect(data.extensionStats).toBeArray();
     expect(data.userStats).toBeDefined();
     expect(data.userStats.totalUsers).toBe(2);
+
+    // Tool-call analytics: four dimension buckets must all be wired into
+    // the admin payload.
+    expect(data.toolUsage).toBeDefined();
+    expect(data.toolUsage.byTool).toBeArray();
+    expect(data.toolUsage.byAgent).toBeArray();
+    expect(data.toolUsage.byUser).toBeArray();
+    expect(data.toolUsage.byModel).toBeArray();
+    expect(data.toolUsage.byTool[0].toolName).toBe("read_file");
+    expect(data.toolUsage.byTool[0].errorCount).toBe(2);
+    expect(data.toolUsage.byAgent[0].agentName).toBe("test-agent");
+    expect(data.toolUsage.byAgent[0].errorCount).toBe(2);
+    expect(data.toolUsage.byUser[0].userEmail).toBe("a@x.com");
+    expect(data.toolUsage.byUser[0].errorCount).toBe(1);
+    expect(data.toolUsage.byModel[0].model).toBe("claude-opus-4-7");
+    expect(data.toolUsage.byModel[0].errorCount).toBe(1);
   });
 
   test("respects days query parameter", async () => {
