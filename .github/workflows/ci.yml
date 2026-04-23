@@ -54,3 +54,20 @@ jobs:
       # vitest runs both *.component.test.ts (Svelte DOM) and
       # *.server.test.ts (route-handler unit tests).
       - run: cd web && bunx --bun vitest run
+
+  lint:
+    name: Lint (biome)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # Biome surfaces a small backlog of pre-existing findings (~13 errors /
+      # ~219 warnings) that are tracked as follow-up cleanup. Visible but
+      # non-blocking until that backlog is burned down — same approach the
+      # typecheck job started with.
+      - run: bun run lint
+        continue-on-error: true
