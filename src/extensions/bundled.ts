@@ -180,6 +180,26 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
       grantedAt: { network: Date.now(), env: Date.now() },
     },
   },
+  {
+    // OpenAI-only image generation (gpt-image-* models). Returns base64
+    // images as data:image/ URIs so the markdown pipeline renders them
+    // inline. `api.openai.com` is the ONLY external host; no filesystem
+    // or shell. Credentials come from OPENAI_API_KEY (sk-...) or
+    // OPENAI_ACCESS_TOKEN (OAuth bearer) — the extension refuses to run
+    // without one.
+    name: "openai-image-gen-2",
+    path: "docs/extensions/examples/openai-image-gen-2",
+    permissions: {
+      network: ["api.openai.com", "chatgpt.com"],
+      env: ["OPENAI_API_KEY", "OPENAI_ACCESS_TOKEN"],
+      // Grant $CWD so the extension can write generated images under
+      // <projectRoot>/.ezcorp/extension-data/openai-image-gen-2/. The
+      // bytes are served back to the UI via /api/ext-files/... so the
+      // tool result stays small (URL, not base64).
+      filesystem: ["$CWD"],
+      grantedAt: { network: Date.now(), env: Date.now(), filesystem: Date.now() },
+    },
+  },
 ];
 
 /** Opt-OUT switches: each maps a bundled-extension name to the env var that

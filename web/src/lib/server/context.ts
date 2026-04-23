@@ -9,6 +9,7 @@ import { startBackups, stopBackups } from "$server/db/backup";
 import { ensureBundledExtensions } from "$server/extensions/bundled";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { bootstrapBundledCredentials } from "$lib/server/security/bundled-creds";
+import { wireOpenAIExtensionCredentials } from "$lib/server/security/openai-extension-creds";
 import { ExtensionStateMediator } from "$server/extensions/state-mediator";
 import { LifecycleHookDispatcher } from "$server/extensions/lifecycle-dispatcher";
 import { EventSubscriptionDispatcher } from "$server/extensions/event-subscription-dispatcher";
@@ -53,6 +54,12 @@ export async function ensureInitialized(): Promise<void> {
   // same server without ever touching process.env or the DB. See
   // lib/server/security/bundled-creds.ts for the security contract.
   await bootstrapBundledCredentials(registry);
+  // Wire a per-spawn resolver so the `openai-image-gen-2` extension gets
+  // the user's configured OpenAI credential (BYOK key or OAuth token,
+  // refreshed on the fly) injected into its subprocess. No host env var
+  // required — it reads whatever the user has already set via admin
+  // settings or the OpenAI OAuth sign-in flow.
+  wireOpenAIExtensionCredentials(registry);
   await ensureBundledExtensions();
   await registry.loadFromDb();
   const agents = await loadAgents(agentsDir, { includeDb: true });
