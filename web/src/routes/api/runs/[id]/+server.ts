@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import { getExecutor } from "$lib/server/context";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params, locals }) => {
@@ -10,7 +11,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   requireAuth(locals);
   const executor = getExecutor();
   const run = await executor.getRun(params.id);
-  if (!run) return json({ error: "Not found" }, { status: 404 });
+  if (!run) return errorJson(404, "Not found");
   return json(run);
 };
 
@@ -20,6 +21,6 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   requireAuth(locals);
   const executor = getExecutor();
   const cancelled = executor.cancelRun(params.id);
-  if (!cancelled) return json({ error: "Run not found or not running" }, { status: 404 });
+  if (!cancelled) return errorJson(404, "Run not found or not running");
   return json({ ok: true });
 };

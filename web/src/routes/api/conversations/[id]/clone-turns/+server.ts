@@ -3,6 +3,7 @@ import * as convQueries from "$server/db/queries/conversations";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { validationError } from "$lib/server/security/validation";
+import { errorJson } from "$lib/server/http-errors";
 import { cloneTurnsSchema } from "../../schema";
 import type { RequestHandler } from "./$types";
 
@@ -13,9 +14,9 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   const sourceConvId = params.id;
 
   const source = await convQueries.getConversation(sourceConvId);
-  if (!source) return json({ error: "Not found" }, { status: 404 });
+  if (!source) return errorJson(404, "Not found");
   if (source.userId !== user.id && user.role !== "admin") {
-    return json({ error: "Not found" }, { status: 404 });
+    return errorJson(404, "Not found");
   }
 
   const parsed = cloneTurnsSchema.safeParse(await request.json());
@@ -31,9 +32,9 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes("do not belong")) {
-      return json({ error: message }, { status: 400 });
+      return errorJson(400, message);
     }
     console.error("[clone-turns] failed:", message);
-    return json({ error: "Failed to clone turns" }, { status: 500 });
+    return errorJson(500, "Failed to clone turns");
   }
 };

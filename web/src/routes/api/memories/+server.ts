@@ -3,6 +3,7 @@ import type { RequestHandler } from "./$types";
 import { insertMemory, updateMemory, searchMemories, getMemoryProjectIds, getProjectIdsForMemories } from "$server/db/queries/memories";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 
 const VALID_CATEGORIES = ["preferences", "biographical", "technical", "decisions_goals"] as const;
 const VALID_CONFIDENCES = ["high", "medium", "low"] as const;
@@ -50,22 +51,22 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const { content, category, confidence, projectId, projectIds: rawProjectIds } = body;
 
   if (!content || typeof content !== "string" || content.trim().length === 0) {
-    return json({ error: "content is required and must be a non-empty string" }, { status: 400 });
+    return errorJson(400, "content is required and must be a non-empty string");
   }
 
   if (!category || !VALID_CATEGORIES.includes(category)) {
-    return json({ error: `category must be one of: ${VALID_CATEGORIES.join(", ")}` }, { status: 400 });
+    return errorJson(400, `category must be one of: ${VALID_CATEGORIES.join(", ")}`);
   }
 
   if (confidence !== undefined && !VALID_CONFIDENCES.includes(confidence)) {
-    return json({ error: `confidence must be one of: ${VALID_CONFIDENCES.join(", ")}` }, { status: 400 });
+    return errorJson(400, `confidence must be one of: ${VALID_CONFIDENCES.join(", ")}`);
   }
 
   // Resolve projectIds: explicit array takes precedence, fall back to single projectId
   let projectIds: string[] | undefined;
   if (rawProjectIds !== undefined) {
     if (!Array.isArray(rawProjectIds) || rawProjectIds.length > 50 || !rawProjectIds.every((id: unknown) => typeof id === "string" && UUID_RE.test(id))) {
-      return json({ error: "projectIds must be an array of up to 50 valid UUIDs" }, { status: 400 });
+      return errorJson(400, "projectIds must be an array of up to 50 valid UUIDs");
     }
     projectIds = rawProjectIds;
   } else if (projectId) {

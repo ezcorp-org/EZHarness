@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import * as convQueries from "$server/db/queries/conversations";
 import { getAgentConfig } from "$server/db/queries/agent-configs";
 import { getExecutor, getBus } from "$lib/server/context";
@@ -42,9 +43,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   } catch { /* empty body is fine */ }
 
   const conv = await convQueries.getConversation(params.id);
-  if (!conv) return json({ error: "Not found" }, { status: 404 });
+  if (!conv) return errorJson(404, "Not found");
   // sec-H3b: fail-closed — unowned rows (null userId) are admin-only
-  if (conv.userId !== user.id && user.role !== "admin") return json({ error: "Not found" }, { status: 404 });
+  if (conv.userId !== user.id && user.role !== "admin") return errorJson(404, "Not found");
 
   await ensureTaskTrackingWired(params.id);
   const snapshot: TaskSnapshot = await getTaskSnapshotForConversation(params.id) ?? {
@@ -54,12 +55,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   };
 
   const task = snapshot.tasks.find((t) => t.id === params.taskId);
-  if (!task) return json({ error: "Task not found" }, { status: 404 });
+  if (!task) return errorJson(404, "Task not found");
   if (task.status !== "failed") {
-    return json(
-      { error: `Task is "${task.status}", expected "failed"` },
-      { status: 409 },
-    );
+    return errorJson(409, `Task is "${task.status}", expected "failed"`);
   }
 
   // Reset task state.

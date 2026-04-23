@@ -7,6 +7,7 @@ import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { upsertSetting } from "$server/db/queries/settings";
 import type { ExtensionManifestV2 } from "$server/extensions/types";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ params, request, locals }) => {
@@ -16,7 +17,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 
   const listing = await getListingById(params.id);
   if (!listing) {
-    return json({ error: "Not found" }, { status: 404 });
+    return errorJson(404, "Not found");
   }
 
   const body = await request.json().catch(() => ({}));
@@ -27,12 +28,12 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     : await getLatestVersion(listing.id);
 
   if (!versionRecord) {
-    return json({ error: "Version not found" }, { status: 404 });
+    return errorJson(404, "Version not found");
   }
 
   const manifest = versionRecord.manifest as ExtensionManifestV2;
   if (!manifest.agent) {
-    return json({ error: "Listing has no agent definition" }, { status: 400 });
+    return errorJson(400, "Listing has no agent definition");
   }
 
   // Handle name collision: append suffix if name already exists for this user

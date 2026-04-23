@@ -5,6 +5,7 @@ import { getSetting, upsertSetting, deleteSetting } from "$server/db/queries/set
 import { requireAuth, requireRole } from "$server/auth/middleware";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 
 const PROVIDERS = ["anthropic", "openai", "google"] as const;
 type Provider = (typeof PROVIDERS)[number];
@@ -84,10 +85,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const { provider, apiKey } = body as { provider: string; apiKey: string };
 
 	if (!provider || !isValidProvider(provider)) {
-		return json({ error: "Invalid provider. Must be one of: anthropic, openai, google" }, { status: 400 });
+		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google");
 	}
 	if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length === 0) {
-		return json({ error: "API key is required" }, { status: 400 });
+		return errorJson(400, "API key is required");
 	}
 
 	const encrypted = encrypt(apiKey.trim());
@@ -109,7 +110,7 @@ export const DELETE: RequestHandler = async ({ request, locals }) => {
 	const { provider } = body as { provider: string };
 
 	if (!provider || !isValidProvider(provider)) {
-		return json({ error: "Invalid provider. Must be one of: anthropic, openai, google" }, { status: 400 });
+		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google");
 	}
 
 	await deleteSetting(settingKey(provider));

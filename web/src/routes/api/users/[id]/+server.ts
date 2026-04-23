@@ -7,6 +7,7 @@ import { agentConfigs } from "$server/db/schema";
 import { eq } from "drizzle-orm";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 
 export const PUT: RequestHandler = async ({ params, request, locals }) => {
   const scopeErr = requireScope(locals, "admin");
@@ -16,12 +17,12 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
     const { status } = (await request.json()) as { status?: "active" | "inactive" };
 
     if (status && !["active", "inactive"].includes(status)) {
-      return json({ error: "Status must be 'active' or 'inactive'" }, { status: 400 });
+      return errorJson(400, "Status must be 'active' or 'inactive'");
     }
 
     if (status === "inactive") {
       if (params.id === admin.id) {
-        return json({ error: "Cannot deactivate yourself" }, { status: 400 });
+        return errorJson(400, "Cannot deactivate yourself");
       }
 
       // Transfer ownership of all agents from deactivated user to admin
@@ -39,7 +40,7 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
     }
 
     const updated = await getUserById(params.id);
-    if (!updated) return json({ error: "User not found" }, { status: 404 });
+    if (!updated) return errorJson(404, "User not found");
 
     const { passwordHash, ...user } = updated;
     return json({ user });

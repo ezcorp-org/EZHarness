@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import * as convQueries from "$server/db/queries/conversations";
 import { getTaskSnapshotForConversation } from "$server/runtime/task-tracking-host";
 import type { TaskAssignment } from "$server/runtime/task-tracking-host";
@@ -16,13 +17,13 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   const user = requireAuth(locals);
 
   const conv = await convQueries.getConversation(params.id);
-  if (!conv) return json({ error: "Not found" }, { status: 404 });
+  if (!conv) return errorJson(404, "Not found");
   // sec-H3b: fail-closed — unowned rows (null userId) are admin-only
-  if (conv.userId !== user.id && user.role !== "admin") return json({ error: "Not found" }, { status: 404 });
+  if (conv.userId !== user.id && user.role !== "admin") return errorJson(404, "Not found");
 
   const snapshot = await getTaskSnapshotForConversation(params.id).catch(() => undefined);
   const task = snapshot?.tasks.find((t) => t.id === params.taskId);
-  if (!task) return json({ error: "Task not found" }, { status: 404 });
+  if (!task) return errorJson(404, "Task not found");
 
   // Collect all assignments with subConversationIds (from task + subtask level)
   const allAssignments: TaskAssignment[] = [

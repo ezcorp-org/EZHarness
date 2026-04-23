@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import * as convQueries from "$server/db/queries/conversations";
 import { getAgentConfig } from "$server/db/queries/agent-configs";
 import type { TeamMember } from "$server/types";
@@ -37,12 +38,12 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   const user = requireAuth(locals);
 
   const conv = await convQueries.getConversation(params.id);
-  if (!conv) return json({ error: "Not found" }, { status: 404 });
+  if (!conv) return errorJson(404, "Not found");
   // sec-H3b: fail-closed — unowned rows (null userId) are admin-only
-  if (conv.userId !== user.id && user.role !== "admin") return json({ error: "Not found" }, { status: 404 });
+  if (conv.userId !== user.id && user.role !== "admin") return errorJson(404, "Not found");
 
   const teamConfig = await getAgentConfig(params.agentConfigId);
-  if (!teamConfig) return json({ error: "Team config not found" }, { status: 404 });
+  if (!teamConfig) return errorJson(404, "Team config not found");
 
   const refs = teamConfig.references as { members?: TeamMember[] } | null;
   const members = refs?.members ?? [];

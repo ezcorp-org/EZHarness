@@ -3,6 +3,7 @@ import { readdir, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ url, locals }) => {
@@ -10,7 +11,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   if (user.role !== "admin") {
-    return json({ error: "Access denied: admin role required" }, { status: 403 });
+    return errorJson(403, "Access denied: admin role required");
   }
 
   const sandboxRoot = process.env.EZCORP_PROJECT_ROOT ?? process.cwd();
@@ -25,7 +26,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   try {
     realSandbox = await realpath(sandboxRoot);
   } catch {
-    return json({ error: "Sandbox root unavailable" }, { status: 500 });
+    return errorJson(500, "Sandbox root unavailable");
   }
 
   let realRequested: string;
@@ -37,7 +38,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   }
 
   if (realRequested !== realSandbox && !realRequested.startsWith(realSandbox + "/")) {
-    return json({ error: "Access denied: path outside allowed sandbox" }, { status: 403 });
+    return errorJson(403, "Access denied: path outside allowed sandbox");
   }
 
   const showHidden = url.searchParams.get("hidden") === "1";

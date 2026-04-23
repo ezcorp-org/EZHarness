@@ -7,6 +7,7 @@ import { EXT_AUDIT_ACTIONS, type ExtensionAuditMetadata } from "$server/extensio
 import { capabilityToolsDisabled, CAPABILITY_PERMISSION_FIELDS } from "$server/extensions/capability-flags";
 import { DIRECT_CARRIER_EVENT_TYPES } from "$server/runtime/sse-conversation-filter";
 import type { ExtensionPermissions, ExtensionManifestV2 } from "$server/extensions/types";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 // sec-C4: clamp a caller-submitted permission set to the intersection of what
@@ -106,7 +107,7 @@ function isCapabilityField(name: string): boolean {
 export const GET: RequestHandler = async ({ params, locals }) => {
   requireAuth(locals);
   const ext = await getExtension(params.id);
-  if (!ext) return json({ error: "Not found" }, { status: 404 });
+  if (!ext) return errorJson(404, "Not found");
   return json(ext.grantedPermissions);
 };
 
@@ -118,11 +119,11 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   const admin = requireRole(locals, "admin");
 
   const ext = await getExtension(params.id);
-  if (!ext) return json({ error: "Not found" }, { status: 404 });
+  if (!ext) return errorJson(404, "Not found");
 
   const { permissions } = await request.json();
   if (!permissions || typeof permissions !== "object") {
-    return json({ error: "permissions required" }, { status: 400 });
+    return errorJson(400, "permissions required");
   }
 
   // sec-C4: clamp to manifest — admin cannot grant more than the extension

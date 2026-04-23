@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import { getExecutor, getBus } from "$lib/server/context";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 import { getActiveRun, markInterrupted } from "$server/db/queries/active-runs";
 
@@ -70,7 +71,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 
   const body = await request.json();
   if (body.action !== "cancel" && body.action !== "force-cancel") {
-    return json({ error: "Unknown action" }, { status: 400 });
+    return errorJson(400, "Unknown action");
   }
 
   const executor = getExecutor();
@@ -90,7 +91,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     try {
       await markInterrupted(dbRun.id);
     } catch (err) {
-      return json({ error: `Failed to mark run interrupted: ${String(err)}` }, { status: 500 });
+      return errorJson(500, `Failed to mark run interrupted: ${String(err)}`);
     }
     try {
       const bus = getBus();
@@ -113,5 +114,5 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     return json({ cancelled: true, path: "db-fallback", runId: dbRun.id });
   }
 
-  return json({ error: "No active run" }, { status: 404 });
+  return errorJson(404, "No active run");
 };

@@ -3,6 +3,7 @@ import { getExtension } from "$server/db/queries/extensions";
 import { setSensitiveAlwaysAllow } from "$server/extensions/permissions";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request, params, locals }) => {
@@ -10,16 +11,16 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   if (scopeErr) return scopeErr;
   requireAuth(locals);
   const ext = await getExtension(params.id);
-  if (!ext) return json({ error: "Not found" }, { status: 404 });
+  if (!ext) return errorJson(404, "Not found");
 
   const { operationType, action } = await request.json();
 
   if (!operationType || !["shell", "filesystem"].includes(operationType)) {
-    return json({ error: "operationType must be 'shell' or 'filesystem'" }, { status: 400 });
+    return errorJson(400, "operationType must be 'shell' or 'filesystem'");
   }
 
   if (!action || !["allow_once", "always_allow", "deny"].includes(action)) {
-    return json({ error: "action must be 'allow_once', 'always_allow', or 'deny'" }, { status: 400 });
+    return errorJson(400, "action must be 'allow_once', 'always_allow', or 'deny'");
   }
 
   if (action === "always_allow") {

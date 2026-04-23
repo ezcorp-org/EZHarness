@@ -4,6 +4,7 @@ import { requireAuth } from "$server/auth/middleware";
 import { upsertSetting } from "$server/db/queries/settings";
 import { OAUTH_CONFIG } from "$lib/server/oauth-config";
 import { startOAuthCallbackServer } from "$server/auth/oauth-callback-server";
+import { errorJson } from "$lib/server/http-errors";
 
 /** Base64url encode without padding. */
 function base64UrlEncode(bytes: Uint8Array): string {
@@ -61,16 +62,16 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
 	const provider = url.searchParams.get("provider");
 	if (!provider || !["openai", "google", "anthropic"].includes(provider)) {
-		return json({ error: "Invalid provider. Must be one of: openai, google, anthropic" }, { status: 400 });
+		return errorJson(400, "Invalid provider. Must be one of: openai, google, anthropic");
 	}
 
 	if (provider === "anthropic") {
-		return json({ error: "OAuth not available for Anthropic. Use API keys." }, { status: 400 });
+		return errorJson(400, "OAuth not available for Anthropic. Use API keys.");
 	}
 
 	const config = OAUTH_CONFIG[provider];
 	if (!config) {
-		return json({ error: `No OAuth config for ${provider}` }, { status: 400 });
+		return errorJson(400, `No OAuth config for ${provider}`);
 	}
 
 	try {
@@ -131,6 +132,6 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		return json({ url: authUrl, state, redirectUri });
 	} catch (e) {
 		console.error(`[oauth] Failed for ${provider}:`, e);
-		return json({ error: (e as Error).message }, { status: 400 });
+		return errorJson(400, (e as Error).message);
 	}
 };

@@ -6,6 +6,7 @@ import { hashPassword } from "$server/auth/password";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { consumeResetSchema } from "../schema";
 import { validationError } from "$lib/server/security/validation";
+import { errorJson } from "$lib/server/http-errors";
 
 export const POST: RequestHandler = async ({ request, params }) => {
   try {
@@ -22,12 +23,12 @@ export const POST: RequestHandler = async ({ request, params }) => {
     // adds no security value and leaks which address owns the token.
     const resetToken = await claimPasswordResetToken(params.token);
     if (!resetToken) {
-      return json({ error: "Invalid or expired reset link" }, { status: 400 });
+      return errorJson(400, "Invalid or expired reset link");
     }
 
     const user = await getUserById(resetToken.userId);
     if (!user) {
-      return json({ error: "Invalid or expired reset link" }, { status: 400 });
+      return errorJson(400, "Invalid or expired reset link");
     }
 
     const passwordHash = await hashPassword(password);
@@ -37,6 +38,6 @@ export const POST: RequestHandler = async ({ request, params }) => {
     return json({ success: true });
   } catch (e) {
     if (e instanceof Response) throw e;
-    return json({ error: "Failed to reset password" }, { status: 500 });
+    return errorJson(500, "Failed to reset password");
   }
 };
