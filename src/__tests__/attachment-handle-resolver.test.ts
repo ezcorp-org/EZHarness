@@ -167,6 +167,18 @@ describe("buildAttachmentHandleResolver", () => {
 		expect(out.sentence).toBe(`use ${png} then ${jpg} and again ${png}`);
 	});
 
+	test("dedupe: same attachment listed twice resolves once and yields identical data URIs", async () => {
+		// Simulates the executor's union of current-turn + past-branch
+		// attachments when the same file appears in both sets.
+		const resolver = buildAttachmentHandleResolver([
+			{ id: "a1", mimeType: "image/png", storagePath: pngPath },
+			{ id: "a1", mimeType: "image/png", storagePath: pngPath },
+		]);
+		const out = await resolver({ images: ["ez-attachment://a1"] });
+		const uri = `data:image/png;base64,${PNG_B64}`;
+		expect((out.images as string[])[0]).toBe(uri);
+	});
+
 	test("unknown handle adjacent to a known handle leaves only the unknown in place", async () => {
 		const resolver = buildAttachmentHandleResolver([
 			{ id: "a1", mimeType: "image/png", storagePath: pngPath },
