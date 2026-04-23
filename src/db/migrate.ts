@@ -748,7 +748,12 @@ export async function migrate(db: any): Promise<void> {
   await db.execute(sql`ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS agent_config_id TEXT REFERENCES agent_configs(id) ON DELETE SET NULL`);
   await db.execute(sql`ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS model TEXT`);
   await db.execute(sql`ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS provider TEXT`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_tool_created ON tool_calls(tool_name, created_at)`);
+  // Plain created_at index — the leading column every analytics query filters on.
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_created_at ON tool_calls(created_at)`);
+  // Drop the leading-tool_name composite if a prior install created it:
+  // it's unreachable by the by-tool query (no tool_name predicate) and is
+  // superseded by idx_tool_calls_created_at for every other query.
+  await db.execute(sql`DROP INDEX IF EXISTS idx_tool_calls_tool_created`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_user_created ON tool_calls(user_id, created_at)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_agent_created ON tool_calls(agent_config_id, created_at)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_model_created ON tool_calls(model, created_at)`);

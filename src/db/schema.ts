@@ -243,7 +243,12 @@ export const toolCalls = pgTable("tool_calls", {
   provider: text("provider"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  index("idx_tool_calls_tool_created").on(table.toolName, table.createdAt),
+  // Plain created_at index powers every analytics query's date-range filter.
+  // A (tool_name, created_at) index would be dead weight for getToolUsageByTool —
+  // that query has no tool_name predicate, and Postgres doesn't skip-scan.
+  index("idx_tool_calls_created_at").on(table.createdAt),
+  // Dimension-leading composites are used by the by-user/by-agent/by-model
+  // queries which DO filter on the leading column (isNotNull(dim)).
   index("idx_tool_calls_user_created").on(table.userId, table.createdAt),
   index("idx_tool_calls_agent_created").on(table.agentConfigId, table.createdAt),
   index("idx_tool_calls_model_created").on(table.model, table.createdAt),

@@ -22,6 +22,7 @@ import { eq } from "drizzle-orm";
 import { ToolExecutor } from "../extensions/tool-executor";
 import type { ExtensionRegistry } from "../extensions/registry";
 import type { ToolCallResult } from "../extensions/types";
+import { persistToolCall } from "../db/queries/tool-calls";
 import {
   users,
   projects,
@@ -196,21 +197,22 @@ describe("tool_calls write path — extension tools (ToolExecutor.recordToolCall
   });
 });
 
-describe("tool_calls write path — built-in tools (executor.ts persist shape)", () => {
-  // executor.ts:1175 writes the toolCalls row with the shape tested here.
-  // The test mirrors that insert so a future refactor that drops any of
-  // the four dimensions fails loudly.
-  test("insert shape carries userId, agentConfigId, model, provider", async () => {
-    const db = getTestDb();
-    const id = "tc-builtin-1";
-    await db.insert(toolCalls).values({
-      id,
+describe("tool_calls write path — shared persistToolCall helper (single-source-of-truth)", () => {
+  // Both the built-in path (executor.ts:tool_execution_end) and the extension
+  // path (tool-executor.ts:recordToolCall) now route through persistToolCall.
+  // Driving the helper directly here means: if anyone drops a dimension
+  // from ONE call site, the helper contract is still verified — and the
+  // remaining site's ToolExecutor test above catches the other half.
+
+  test("persistToolCall inserts all four analytics dimensions + stable columns", async () => {
+    await persistToolCall({
+      id: "tc-helper-1",
       conversationId: CONV_ID,
       messageId: null,
       extensionId: "builtin",
       toolName: "read_file",
       input: { path: "/tmp/x" },
-      output: { content: [] },
+      output: { content: [{ type: "text", text: "ok" }] },
       success: true,
       durationMs: 0,
       userId: USER_ID,
@@ -219,12 +221,52 @@ describe("tool_calls write path — built-in tools (executor.ts persist shape)",
       provider: "anthropic",
     });
 
-    const rows = await db.select().from(toolCalls).where(eq(toolCalls.id, id));
+    const db = getTestDb();
+    const rows = await db.select().from(toolCalls).where(eq(toolCalls.id, "tc-helper-1"));
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.userId).toBe(USER_ID);
-    expect(rows[0]!.agentConfigId).toBe(AGENT_ID);
-    expect(rows[0]!.model).toBe("claude-opus-4-7");
-    expect(rows[0]!.provider).toBe("anthropic");
-    expect(rows[0]!.extensionId).toBe("builtin");
+    const row = rows[0]!;
+    expect(row.extensionId).toBe("builtin");
+    expect(row.toolName).toBe("read_file");
+    expect(row.success).toBe(true);
+    expect(row.userId).toBe(USER_ID);
+    expect(row.agentConfigId).toBe(AGENT_ID);
+    expect(row.model).toBe("claude-opus-4-7");
+    expect(row.provider).toBe("anthropic");
+  });
+
+  test("persistToolCall defaults missing dimensions to null (caller didn't pass them)", async () => {
+    await persistToolCall({
+      id: "tc-helper-2",
+      conversationId: CONV_ID,
+      messageId: null,
+      extensionId: "builtin",
+      toolName: "read_file",
+      input: {},
+      output: { content: [] },
+      success: true,
+      durationMs: 0,
+      // No userId / agentConfigId / model / provider.
+    });
+
+    const db = getTestDb();
+    const rows = await db.select().from(toolCalls).where(eq(toolCalls.id, "tc-helper-2"));
+    expect(rows[0]!.userId).toBeNull();
+    expect(rows[0]!.agentConfigId).toBeNull();
+    expect(rows[0]!.model).toBeNull();
+    expect(rows[0]!.provider).toBeNull();
+  });
+
+  test("persistToolCall swallows DB errors (tool execution must not be blocked)", async () => {
+    // FK violation: conversation_id doesn't exist. Helper must NOT throw.
+    await expect(persistToolCall({
+      conversationId: "conv-does-not-exist",
+      messageId: null,
+      extensionId: "builtin",
+      toolName: "read_file",
+      input: {},
+      output: { content: [] },
+      success: true,
+      durationMs: 0,
+    })).resolves.toBeUndefined();
   });
 });

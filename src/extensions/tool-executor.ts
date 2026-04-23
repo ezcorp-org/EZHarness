@@ -16,8 +16,7 @@ import { handleSpawnAssignmentRpc, type SpawnAssignmentContext } from "./spawn-a
 import { handleCancelRunRpc, type CancelRunContext } from "./cancel-run-handler";
 import type { SpawnQuota } from "./spawn-quota";
 import { getConversation, getConversationSpawnDepth } from "../db/queries/conversations";
-import { getDb } from "../db/connection";
-import { toolCalls } from "../db/schema";
+import { persistToolCall } from "../db/queries/tool-calls";
 
 export const MAX_TOOL_CALLS_PER_TURN = 10;
 
@@ -641,24 +640,24 @@ export class ToolExecutor {
     startTime: number,
     cardType?: string,
   ): Promise<void> {
-    try {
-      await getDb().insert(toolCalls).values({
-        conversationId,
-        messageId,
-        extensionId,
-        toolName,
-        input,
-        output: { content: result.content } as Record<string, unknown>,
-        success: !result.isError,
-        durationMs: Date.now() - startTime,
-        cardType: cardType ?? null,
-        userId: this.currentUserId ?? null,
-        agentConfigId: this.currentAgentConfigId ?? null,
-        model: this.currentModel ?? null,
-        provider: this.currentProvider ?? null,
-      });
-    } catch {
-      // DB recording failure should never break tool execution
-    }
+    // Route through the shared persist helper — single insert site for
+    // tool_calls across the extension-tool path here and the built-in
+    // path in executor.ts. The helper swallows DB errors itself so tool
+    // execution is never blocked by a DB glitch.
+    await persistToolCall({
+      conversationId,
+      messageId,
+      extensionId,
+      toolName,
+      input,
+      output: result,
+      success: !result.isError,
+      durationMs: Date.now() - startTime,
+      cardType: cardType ?? null,
+      userId: this.currentUserId ?? null,
+      agentConfigId: this.currentAgentConfigId ?? null,
+      model: this.currentModel ?? null,
+      provider: this.currentProvider ?? null,
+    });
   }
 }

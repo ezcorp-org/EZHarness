@@ -290,6 +290,13 @@ describe("analytics queries", () => {
       queryResults = [[]];
       expect(await getToolUsageByTool(-5)).toEqual([]);
     });
+
+    test("non-finite days (NaN, Infinity) falls back to default without throwing", async () => {
+      queryResults = [[]];
+      expect(await getToolUsageByTool(Number.NaN)).toEqual([]);
+      queryResults = [[]];
+      expect(await getToolUsageByTool(Number.POSITIVE_INFINITY)).toEqual([]);
+    });
   });
 
   describe("getToolUsageByAgent", () => {

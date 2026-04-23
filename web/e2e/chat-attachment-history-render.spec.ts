@@ -109,6 +109,36 @@ test("broken image URL falls back from image card to file card", async ({ page, 
 	await expect(fileCard).toContainText("missing.png");
 });
 
+test("attachment card renders BELOW the message text (layout preference)", async ({ page, mockApi }) => {
+	const attachment = makeAttachment({
+		id: "att-order",
+		filename: "cow.png",
+		mimeType: "image/png",
+		kind: "image",
+	});
+	const userMsg = makeMessage({
+		id: "m1",
+		conversationId: conv.id,
+		role: "user",
+		content: "here is the image",
+		attachments: [attachment],
+	});
+	await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg] });
+	await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+
+	const text = page.locator("p", { hasText: "here is the image" }).first();
+	const card = page.getByTestId("attachment-card-image").first();
+	await expect(text).toBeVisible({ timeout: 10_000 });
+	await expect(card).toBeVisible();
+
+	const textBox = await text.boundingBox();
+	const cardBox = await card.boundingBox();
+	expect(textBox).not.toBeNull();
+	expect(cardBox).not.toBeNull();
+	// Card's top edge is below the text's bottom edge.
+	expect(cardBox!.y).toBeGreaterThanOrEqual(textBox!.y + textBox!.height - 1);
+});
+
 test("multiple attachments render as separate cards on the same message", async ({ page, mockApi }) => {
 	const atts = [
 		makeAttachment({ id: "att-a", filename: "a.png", mimeType: "image/png", kind: "image" }),

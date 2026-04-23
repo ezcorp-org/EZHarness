@@ -33,6 +33,7 @@ mock.module("./image-storage", () => ({
 
 import {
   buildHandlers, formatResult, makeEditHandler, makeGenerateHandler, resolveAuthPath,
+  start,
 } from "./index";
 
 interface ResultShape { content: Array<{ type: "text"; text: string }>; isError: boolean; }
@@ -273,6 +274,65 @@ describe("edit handler", () => {
     expect((r as ResultShape).isError).toBe(true);
     expect(textOf(r)).toMatch(/Authentication error/);
   });
+  test("routes edit through Codex when OAuth token is set, forwarding inputImages", async () => {
+    delete process.env.OPENAI_API_KEY;
+    const header = Buffer.from(JSON.stringify({ alg: "RS256" })).toString("base64url");
+    const payload = Buffer.from(
+      JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acc-1" } }),
+    ).toString("base64url");
+    const jwt = `${header}.${payload}.SIG`;
+    process.env.OPENAI_ACCESS_TOKEN = jwt;
+
+    const encoder = new TextEncoder();
+    const frame = (obj: unknown) => `data: ${JSON.stringify(obj)}\n\n`;
+    nextResponse = () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encoder.encode(frame({
+              type: "response.output_item.done",
+              item: { type: "image_generation_call", result: "CDX", output_format: "png" },
+            })));
+            controller.close();
+          },
+        }),
+        { status: 200 },
+      );
+
+    const r = await makeEditHandler()({
+      prompt: "blueify",
+      images: ["data:image/png;base64,AAA", "https://img.example/1.png"],
+      augment: false,
+    });
+    expect((r as ResultShape).isError).toBe(false);
+    const body = JSON.parse(capturedInit!.body as string);
+    expect(body.tools[0].type).toBe("image_generation");
+    expect(body.input[0].content).toHaveLength(3);
+    expect(body.input[0].content[0]).toEqual({ type: "input_text", text: "blueify" });
+    expect(body.input[0].content[1]).toEqual({
+      type: "input_image",
+      image_url: "data:image/png;base64,AAA",
+    });
+    expect(body.input[0].content[2]).toEqual({
+      type: "input_image",
+      image_url: "https://img.example/1.png",
+    });
+  });
+  test("edit on Codex surfaces upstream 401 as auth error", async () => {
+    delete process.env.OPENAI_API_KEY;
+    const header = Buffer.from(JSON.stringify({ alg: "RS256" })).toString("base64url");
+    const payload = Buffer.from(
+      JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acc-1" } }),
+    ).toString("base64url");
+    process.env.OPENAI_ACCESS_TOKEN = `${header}.${payload}.SIG`;
+    nextResponse = () => new Response("nope", { status: 401 });
+    const r = await makeEditHandler()({
+      prompt: "blueify",
+      images: ["data:image/png;base64,AAA"],
+    });
+    expect((r as ResultShape).isError).toBe(true);
+    expect(textOf(r)).toMatch(/Authentication error/);
+  });
 });
 
 describe("buildHandlers", () => {
@@ -280,5 +340,14 @@ describe("buildHandlers", () => {
     const h = buildHandlers();
     expect(typeof h.generate).toBe("function");
     expect(typeof h.edit).toBe("function");
+  });
+});
+
+describe("start", () => {
+  test("wires the dispatcher without throwing", () => {
+    // getChannel and createToolDispatcher are mocked at module top, so
+    // start() runs its full body as a no-op. This covers the
+    // `if (import.meta.main) start()` guarded entrypoint lines.
+    expect(() => start()).not.toThrow();
   });
 });

@@ -33,6 +33,7 @@ import { logger } from "../logger";
 const log = logger.child("executor");
 import { getDb } from "../db/connection";
 import { toolCalls, conversations } from "../db/schema";
+import { persistToolCall } from "../db/queries/tool-calls";
 import { and, eq, isNull } from "drizzle-orm";
 import * as activeRunsDb from "../db/queries/active-runs";
 
@@ -1214,10 +1215,11 @@ export class AgentExecutor {
           if (this.persist) {
             const args = pendingToolArgs.get(event.toolCallId) ?? {};
             pendingToolArgs.delete(event.toolCallId);
-            // Insert with null messageId; anchored to turn message in turn_end handler.
-            // Denormalize user/agent/model/provider onto the row so admin
-            // analytics can aggregate without a three-way join.
-            queueDb(() => getDb().insert(toolCalls).values({
+            // Anchored to turn message in turn_end handler (messageId: null here).
+            // persistToolCall is the single insert site for tool_calls — keeps
+            // the four analytics dimensions (user/agent/model/provider) in
+            // lockstep with the extension-tool write path.
+            queueDb(() => persistToolCall({
               id: event.toolCallId,
               conversationId,
               messageId: null,
@@ -1231,7 +1233,7 @@ export class AgentExecutor {
               agentConfigId: options.agentConfigId ?? convRecord?.agentConfigId ?? null,
               model: options.model ?? convRecord?.model ?? null,
               provider: options.provider ?? convRecord?.provider ?? null,
-            }).then(() => {}));
+            }));
           }
           break;
         }

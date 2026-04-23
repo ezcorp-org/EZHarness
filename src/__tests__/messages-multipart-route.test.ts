@@ -290,4 +290,5 @@ describe("POST /api/conversations/:id/messages (multi-modal)", () => {
     expect(body.attachments[1].filename).toBe("b.png");
     expect(body.attachments[0].id).not.toBe(body.attachments[1].id);
   });
+
 });

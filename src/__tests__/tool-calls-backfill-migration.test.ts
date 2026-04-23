@@ -148,16 +148,21 @@ describe("migrate(): tool_calls analytics backfill", () => {
     expect(rows[0]!.user_id).toBe(USER_ID);
   });
 
-  test("new indexes exist on the denormalized dimensions", async () => {
+  test("analytics indexes exist (plain created_at + three dimension-leading composites)", async () => {
     const pg = getTestPglite();
     const { rows } = await pg.query<{ indexname: string }>(
       `SELECT indexname FROM pg_indexes WHERE tablename = 'tool_calls'`,
     );
     const names = new Set(rows.map((r) => r.indexname));
-    expect(names.has("idx_tool_calls_tool_created")).toBe(true);
+    // Plain created_at powers every analytics query's date filter.
+    expect(names.has("idx_tool_calls_created_at")).toBe(true);
+    // Dimension composites — used when the dim is also in the predicate.
     expect(names.has("idx_tool_calls_user_created")).toBe(true);
     expect(names.has("idx_tool_calls_agent_created")).toBe(true);
     expect(names.has("idx_tool_calls_model_created")).toBe(true);
+    // The old (tool_name, created_at) composite was dead weight for the
+    // by-tool query and is explicitly dropped by migrate().
+    expect(names.has("idx_tool_calls_tool_created")).toBe(false);
   });
 
   test("new columns are nullable (pre-migration tool_calls writers stay valid)", async () => {

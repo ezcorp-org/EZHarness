@@ -199,7 +199,7 @@ describe("buildUserContent", () => {
     expect(parts[3].text).not.toContain("att-pdf");
   });
 
-  test("filename containing XML metacharacters is sanitized to avoid breaking the ref tag", async () => {
+  test("filename containing XML metacharacters keeps the ref tag well-formed", async () => {
     const att: StagedAttachment = {
       id: "att-xml",
       filename: `inject"><script>alert(1)</script>.png`,
@@ -208,15 +208,15 @@ describe("buildUserContent", () => {
     };
     const out = await buildUserContent("x", [att], vision);
     const refs = (out as any[])[2].text as string;
-    // The only ref tag opens with `<attachment ` and closes with ` />`.
-    // A filename containing `"><script>` must NOT break that shape — if
-    // it did, we'd end up with extra `<` / `>` characters after the
-    // tag's `/>` close. Assert exactly one opening and one self-close.
+    // Exactly one ref tag emitted.
     expect((refs.match(/<attachment /g) ?? []).length).toBe(1);
     expect((refs.match(/\/>/g) ?? []).length).toBe(1);
-    // The `"` inside the filename attribute is flattened to `'` so the
-    // attribute value remains well-formed.
-    expect(refs).not.toMatch(/filename="[^"]*"[^/]*"/);
+    // The filename attribute value contains no raw `"` (would break the
+    // attribute's own wrapping quotes). Our escape maps `"` to `'`.
+    const filenameMatch = /filename="([^"]*)"/.exec(refs);
+    expect(filenameMatch).not.toBeNull();
+    expect(filenameMatch![1]).not.toContain(`"`);
+    expect(filenameMatch![1]).toContain(`inject'>`); // `"` → `'` was applied
   });
 
   test("handle index increments across images even if non-image attachments are mixed in", async () => {

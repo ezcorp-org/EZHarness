@@ -6,13 +6,6 @@
  * to it on turn N+M — the stored message row only has the typed text, and
  * the `ez-attachment://<id>` handles from turn N's trailing ref block are
  * long gone from the model's context.
- *
- * Returns:
- *   - `rebuilt`: the user-message content to hand back to pi-ai (string for
- *     no-attachment turns, `(TextContent | ImageContent)[]` otherwise).
- *   - `allPastAttachments`: the union of every prior attachment on the branch
- *     so the handle resolver can substitute handles from ANY turn, not just
- *     the current POST's staged files.
  */
 
 import type { AttachmentCapabilities } from "../../providers/model-capabilities";
@@ -23,11 +16,6 @@ export interface HistoryUserRow {
 	id: string;
 	role: string;
 	content: string;
-}
-
-export interface RehydratedUserMessage {
-	messageId: string;
-	content: string | PiContentPart[];
 }
 
 export async function loadPastAttachments(

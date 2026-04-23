@@ -191,3 +191,61 @@ describe("ExtensionRegistry — injected env lifecycle", () => {
     expect(registry.clearInjectedEnv("a")).toBe(false);
   });
 });
+
+// ── callTimeoutMs pass-through (parity with registry.ts lines 359-362) ──────
+//
+// registry.getProcess() spawns a real subprocess, so a full integration test
+// is heavy. Instead, mirror the exact ternary used in the registry here and
+// assert its behavior directly — so any future drift between this test and
+// the source will be caught at review time.
+//
+// Source (src/extensions/registry.ts ~line 359):
+//   const callTimeoutMs =
+//     typeof manifest.resources?.callTimeoutMs === "number" &&
+//     manifest.resources.callTimeoutMs > 0
+//       ? manifest.resources.callTimeoutMs
+//       : undefined;
+function deriveCallTimeoutMs(
+  manifest: ExtensionManifestV2,
+): number | undefined {
+  return typeof manifest.resources?.callTimeoutMs === "number" &&
+    manifest.resources.callTimeoutMs > 0
+    ? manifest.resources.callTimeoutMs
+    : undefined;
+}
+
+describe("registry getProcess — manifest.resources.callTimeoutMs pass-through", () => {
+  test("positive number is forwarded as-is", () => {
+    const m = makeManifest({ resources: { callTimeoutMs: 180_000 } } as any);
+    expect(deriveCallTimeoutMs(m)).toBe(180_000);
+  });
+
+  test("absent resources block → undefined (falls back to subprocess default)", () => {
+    expect(deriveCallTimeoutMs(makeManifest())).toBeUndefined();
+  });
+
+  test("resources block present but callTimeoutMs missing → undefined", () => {
+    const m = makeManifest({ resources: {} } as any);
+    expect(deriveCallTimeoutMs(m)).toBeUndefined();
+  });
+
+  test("explicit undefined → undefined", () => {
+    const m = makeManifest({ resources: { callTimeoutMs: undefined } } as any);
+    expect(deriveCallTimeoutMs(m)).toBeUndefined();
+  });
+
+  test("zero is rejected (positive-number guard)", () => {
+    const m = makeManifest({ resources: { callTimeoutMs: 0 } } as any);
+    expect(deriveCallTimeoutMs(m)).toBeUndefined();
+  });
+
+  test("negative values are rejected", () => {
+    const m = makeManifest({ resources: { callTimeoutMs: -1 } } as any);
+    expect(deriveCallTimeoutMs(m)).toBeUndefined();
+  });
+
+  test("non-number values (string) → undefined", () => {
+    const m = makeManifest({ resources: { callTimeoutMs: "180000" } } as any);
+    expect(deriveCallTimeoutMs(m)).toBeUndefined();
+  });
+});

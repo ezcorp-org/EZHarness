@@ -291,7 +291,11 @@ export type ToolUsageByModel = {
 };
 
 function sinceDays(days: number) {
-  const n = Math.max(1, Math.floor(days));
+  // Defend against non-finite input (NaN / Infinity). Upstream callers clamp
+  // the API query-param to [1, 365], but this helper is reachable from the
+  // query module surface and `Math.max(1, NaN) === NaN` would otherwise
+  // produce `INTERVAL 'NaN days'` and throw. Fall back to the 30-day default.
+  const n = Number.isFinite(days) ? Math.max(1, Math.floor(days)) : 30;
   return gte(toolCalls.createdAt, sql`NOW() - INTERVAL '${sql.raw(String(n))} days'`);
 }
 
