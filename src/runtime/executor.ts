@@ -14,6 +14,7 @@ import type {
 } from "../types";
 import type { EventBus } from "./events";
 import { Agent, type AgentTool, type AgentEvent } from "@mariozechner/pi-agent-core";
+import type { BuiltinToolDef } from "./tools/types";
 import { resolveModel, ProviderUnavailableError } from "../providers/router";
 import { resolveOAuthModel } from "../providers/registry";
 import { getCredential } from "../providers/credentials";
@@ -55,6 +56,114 @@ interface PendingPermissionInfo {
   input: unknown;
   cardType?: string;
   category?: string;
+}
+
+/**
+ * Per-call mutable state for `streamChat`.
+ *
+ * The original `streamChat` body declared ~20 `let`/`const` locals at the
+ * top of the method, then captured them across many sibling closures
+ * (parallel tool-loader IIFEs, the `piAgent.subscribe` event handler,
+ * the bus subscriptions, and the success/error/finally cleanup blocks).
+ * That dense capture made splitting the method into smaller pieces
+ * unsafe — each helper would need 10+ params threaded through, or the
+ * fields would have to leak onto the AgentExecutor instance.
+ *
+ * Bundling the locals into one per-call object means closures capture
+ * a single `ctx` reference. Mutation is still in-place (via `ctx.foo =
+ * bar`); ordering and observable behavior are unchanged. A future wave
+ * can extract phases (setup → subscribe → run → finalize) into pure
+ * functions taking `(ctx, ...)` without re-plumbing parameters.
+ *
+ * NOT a class field. Created once per `streamChat` invocation; lives
+ * only for that call's lifetime.
+ */
+interface StreamChatContext {
+  // ── identity & lifecycle ──
+  /** The AgentRun being driven by this streamChat call. */
+  run: AgentRun;
+  /** Top-level abort controller for the whole turn. */
+  controller: AbortController;
+
+  // ── prompt / tools (mutated during setup phase) ──
+  /** System prompt — re-assigned by memory injection + orchestrator-prompt builders. */
+  system: string | undefined;
+  /** Tool list passed to pi-agent-core; mutated/filtered by tool loaders + scope filters. */
+  agentTools: AgentTool[];
+  /** Per-tool abort controllers, used by tool:kill bus handler + cleared in finally. */
+  toolAbortControllers: Map<string, AbortController>;
+  /** Built-in tool defs by name; used in tool wrappers + subscribe handler for cardType/category. */
+  builtinToolDefsMap: Map<string, BuiltinToolDef>;
+  /** Unsubscribe for the tool:permission_mode_change bus handler (only set when project tools loaded). */
+  unsubModeChange: (() => void) | undefined;
+
+  // ── streaming state (mutated by piAgent.subscribe handler) ──
+  /** Accumulated text across all turns; read by watchdog + final result + cancel-partial path. */
+  allTurnsText: string;
+  /** Current-turn text only; reset on turn_start, used by cancel fallback. */
+  turnText: string;
+  /** Current-turn thinking deltas; reset on turn_start. */
+  turnThinking: string;
+  /** True once the current turn has emitted any tool_execution_start. */
+  turnHasToolCalls: boolean;
+  /** Latest persisted assistant-message id; used as parentMessageId for the next turn save. */
+  lastSavedMessageId: string | null;
+  /** Total token usage from the last turn_end (forwarded to obs:turn). */
+  totalUsage: Usage;
+  /** Serializes async DB writes triggered from the sync subscribe callback. */
+  dbQueue: Promise<void>;
+  /** Buffered tool-call args between tool_execution_start and tool_execution_end (for DB persistence). */
+  pendingToolArgs: Map<string, Record<string, unknown>>;
+  /** Wall-clock ms when the turn began (for obs:turn duration). */
+  turnStart: number;
+
+  // ── unsubs (collected during setup, called in finally) ──
+  /** Unsubscribe for the piAgent.subscribe event stream. */
+  unsub: (() => void) | undefined;
+  /** Unsubscribe for the tool:kill bus handler. */
+  unsubKill: (() => void) | undefined;
+  /** Unsubscribes for agent:spawn/status/complete bus handlers (one per event). */
+  unsubAgentActivity: Array<() => void>;
+}
+
+/**
+ * Build a fresh `StreamChatContext` for a single `streamChat` call.
+ *
+ * Pure factory — takes only the values that are known at the call site
+ * (the `run` and the top-level `controller`) plus the user-supplied
+ * `parentMessageId` for the initial `lastSavedMessageId`. Everything
+ * else is initialized to its empty/zero value. Subsequent setup code
+ * mutates the returned object in place.
+ */
+function createStreamChatContext(
+  run: AgentRun,
+  controller: AbortController,
+  parentMessageId: string | undefined,
+): StreamChatContext {
+  return {
+    run,
+    controller,
+    system: undefined,
+    agentTools: [],
+    toolAbortControllers: new Map(),
+    builtinToolDefsMap: new Map(),
+    unsubModeChange: undefined,
+    allTurnsText: "",
+    turnText: "",
+    turnThinking: "",
+    turnHasToolCalls: false,
+    lastSavedMessageId: parentMessageId ?? null,
+    totalUsage: {
+      input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    dbQueue: Promise.resolve(),
+    pendingToolArgs: new Map(),
+    turnStart: Date.now(),
+    unsub: undefined,
+    unsubKill: undefined,
+    unsubAgentActivity: [],
+  };
 }
 
 export class AgentExecutor {
@@ -323,6 +432,11 @@ export class AgentExecutor {
     this.storeRun(run);
     this.runConversations.set(run.id, conversationId);
 
+    // Per-call context bundle. Closures below capture `ctx` (one ref) instead
+    // of 10+ individual locals so a future wave can split this method into
+    // pure phase functions. See StreamChatContext above for the field map.
+    const ctx = createStreamChatContext(run, controller, options.parentMessageId);
+
     if (this.persist) {
       await dbRuns.insertRun(run, options.projectId);
     }
@@ -396,7 +510,10 @@ export class AgentExecutor {
       } satisfies UserMessage;
     }));
 
-    let system = resolvedSystem;
+    // System prompt lives on the per-call context so the memory/KB injection
+    // closure (in the parallel Promise.all below) and the orchestrator-prompt
+    // rewrites further down can both mutate it without threading it as a param.
+    ctx.system = resolvedSystem;
 
     // ── Credential context: sub-conversations inherit parent's credentials ──
     const convRecord = await getConversation(conversationId);
@@ -405,8 +522,9 @@ export class AgentExecutor {
     // ── Parallel setup: memory/KB, tools, model resolution all run concurrently ──
     this.bus.emit("run:status", { runId: run.id, status: "Preparing..." });
 
-    let agentTools: AgentTool[] = [];
-    const toolAbortControllers = new Map<string, AbortController>();
+    // `ctx.agentTools`, `ctx.toolAbortControllers`, `ctx.builtinToolDefsMap`,
+    // `ctx.unsubModeChange` were initialized empty by createStreamChatContext —
+    // mutated by the parallel tool-loader IIFEs below.
 
     // Build the attachment-handle resolver for this turn. The content-builder
     // emits `ez-attachment://<id>` handles in the LLM-visible text; when the
@@ -428,8 +546,6 @@ export class AgentExecutor {
       for (const a of currentTurn) byId.set(a.id, a);
       return buildAttachmentHandleResolver(toResolvableAttachments(Array.from(byId.values())));
     })();
-    let builtinToolDefsMap = new Map<string, import("./tools/types").BuiltinToolDef>();
-    let unsubModeChange: (() => void) | undefined;
 
     const [, , resolvedModel] = await Promise.all([
       // 1. Memory/KB injection (non-fatal) — skip entirely if project has no data
@@ -464,8 +580,8 @@ export class AgentExecutor {
               } catch { return undefined; }
             })(),
           ]);
-          const injection = await injectionModule.buildSystemPromptWithMemories(system, userMessage, options.projectId!, { kbChunks, queryEmbedding });
-          system = injection.systemPrompt;
+          const injection = await injectionModule.buildSystemPromptWithMemories(ctx.system, userMessage, options.projectId!, { kbChunks, queryEmbedding });
+          ctx.system = injection.systemPrompt;
           if (injection.memoriesUsed.length > 0) run.memoriesUsed = injection.memoriesUsed;
         } catch {
           this.bus.emit("run:status", {
@@ -485,7 +601,7 @@ export class AgentExecutor {
               const { getBuiltinToolDefs } = await import("./tools");
               const { needsApproval, getPermissionMode, createPermissionGate } = await import("./tools/permissions");
               const toolDefs = getBuiltinToolDefs(project.path);
-              for (const def of toolDefs) builtinToolDefsMap.set(def.name, def);
+              for (const def of toolDefs) ctx.builtinToolDefsMap.set(def.name, def);
               const projectId = options.projectId;
 
               // Bus-driven override — only set when user explicitly switches mode mid-run
@@ -494,7 +610,7 @@ export class AgentExecutor {
               getPermissionMode(projectId).then(mode => {
                 if (!busOverrideMode) busOverrideMode = mode;
               }).catch(() => {});
-              unsubModeChange = this.bus.on("tool:permission_mode_change" as any, (data: any) => {
+              ctx.unsubModeChange = this.bus.on("tool:permission_mode_change" as any, (data: any) => {
                 if (data.conversationId === conversationId) busOverrideMode = data.mode;
               });
 
@@ -502,7 +618,7 @@ export class AgentExecutor {
                 name: def.name, label: def.label, description: def.description, parameters: def.parameters,
                 execute: async (toolCallId: string, params: any, signal?: AbortSignal, onUpdate?: any) => {
                   const toolController = new AbortController();
-                  toolAbortControllers.set(toolCallId, toolController);
+                  ctx.toolAbortControllers.set(toolCallId, toolController);
                   const combinedSignal = signal ? AbortSignal.any([signal, toolController.signal]) : toolController.signal;
                   try {
                     const permissionMode = options.permissionMode ?? busOverrideMode ?? await getPermissionMode(projectId);
@@ -521,10 +637,10 @@ export class AgentExecutor {
                       finally { this.pendingPermissions.delete(toolCallId); }
                     }
                     return await def.execute(toolCallId, params, combinedSignal, onUpdate);
-                  } finally { toolAbortControllers.delete(toolCallId); }
+                  } finally { ctx.toolAbortControllers.delete(toolCallId); }
                 },
               }));
-              agentTools.push(...wrappedTools);
+              ctx.agentTools.push(...wrappedTools);
             }
           } catch { /* Built-in tool loading failure is non-fatal */ }
         }
@@ -562,7 +678,7 @@ export class AgentExecutor {
                   return shellCheck === "allowed" && fsCheck === "allowed";
                 });
               } catch { /* permissions.ts not available yet */ }
-              agentTools = extTools.map((t) => extensionToAgentTool(
+              ctx.agentTools = extTools.map((t) => extensionToAgentTool(
                 { name: t.name, description: t.description, inputSchema: t.inputSchema },
                 toolExec, conversationId, run.id,
               ));
@@ -609,8 +725,8 @@ export class AgentExecutor {
             toolExec.setCurrentAgentConfigId(options.agentConfigId ?? convRecord?.agentConfigId);
             for (const extId of convExtIds) {
               for (const t of registry.getToolsForExtension(extId)) {
-                if (!agentTools.some(at => at.name === t.name)) {
-                  agentTools.push(extensionToAgentTool(
+                if (!ctx.agentTools.some(at => at.name === t.name)) {
+                  ctx.agentTools.push(extensionToAgentTool(
                     { name: t.name, description: t.description, inputSchema: t.inputSchema },
                     toolExec, conversationId, run.id,
                   ));
@@ -733,7 +849,7 @@ export class AgentExecutor {
                 const wired = await ensureOrchestrationWired(conversationId);
                 if (wired) {
                   await wireOrchestrationToolsForTurn({
-                    agentTools,
+                    agentTools: ctx.agentTools,
                     conversationId,
                     runId: run.id,
                     availableAgents: allAvailableAgents,
@@ -806,8 +922,8 @@ export class AgentExecutor {
                   toolExec.setCurrentProvider(options.provider ?? convRecord?.provider);
                   toolExec.setCurrentAgentConfigId(options.agentConfigId ?? convRecord?.agentConfigId);
                   for (const t of registry.getToolsForExtension(scratchpadExt.id)) {
-                    if (!agentTools.some(at => at.name === t.name)) {
-                      agentTools.push(extensionToAgentTool(
+                    if (!ctx.agentTools.some(at => at.name === t.name)) {
+                      ctx.agentTools.push(extensionToAgentTool(
                         { name: t.name, description: t.description, inputSchema: t.inputSchema },
                         toolExec, conversationId, run.id,
                       ));
@@ -824,7 +940,7 @@ export class AgentExecutor {
               if (firstTeam) {
                 (run as any)._teamConfig = { name: firstTeam.team.name, prompt: firstTeam.team.prompt, autoSpinUp: firstTeam.team.autoSpinUp };
               }
-              log.info("Injected orchestration tools", { agents: allAvailableAgents.map(a => a.name), toolCount: agentTools.length });
+              log.info("Injected orchestration tools", { agents: allAvailableAgents.map(a => a.name), toolCount: ctx.agentTools.length });
 
               // Store flag for auto-spin-up (executed after Promise.all to avoid blocking tool loading)
               if (((run as any)._teamConfig as any)?.autoSpinUp) {
@@ -852,15 +968,14 @@ export class AgentExecutor {
       })(),
     ]);
 
-    // Auto-spin-up: pre-invoke all members AFTER Promise.all (model is resolved, tools are ready)
-    // Lifted here (from ~line 958 below) so the watchdog closure can read the latest partial
-    // response during long-running turns. Mutated by the piAgent.subscribe message_update handler.
-    let allTurnsText = "";
+    // Auto-spin-up: pre-invoke all members AFTER Promise.all (model is resolved, tools are ready).
+    // The watchdog closure reads `ctx.allTurnsText` so it can capture the latest partial response
+    // during long-running turns. The field is mutated by the piAgent.subscribe message_update handler.
 
     // Start the activity-based watchdog. Replaces the dumb setInterval heartbeat — it only
     // refreshes last_heartbeat while progress signals are bumping activity, and auto-cancels
     // the run if it stays idle for WATCHDOG_IDLE_MS (90s) with no pending permission.
-    this.watchdog.startWatchdog(run.id, conversationId, () => allTurnsText);
+    this.watchdog.startWatchdog(run.id, conversationId, () => ctx.allTurnsText);
 
     const pendingAutoSpinUp = (run as any)._pendingAutoSpinUp;
     const mentionedAgents = (run as any)._mentionedAgents as Array<{ name: string; id: string; description: string }> | undefined;
@@ -868,7 +983,7 @@ export class AgentExecutor {
     let autoSpinUpResults: Array<{ name: string; output: string }> | undefined;
 
     if (pendingAutoSpinUp && mentionedAgents?.length) {
-      const invokeAgentTool = agentTools.find(t => t.name === "invoke_agent");
+      const invokeAgentTool = ctx.agentTools.find(t => t.name === "invoke_agent");
       if (invokeAgentTool) {
         try {
           log.info("Auto-spin-up: pre-invoking all members", { members: mentionedAgents.map(a => a.name) });
@@ -903,7 +1018,7 @@ export class AgentExecutor {
       const orchestratorBlock = teamConfig
         ? buildTeamOrchestratorPrompt(teamConfig.name, teamConfig.prompt, mentionedAgents, autoSpinUpResults, teamToolScopeForPrompt)
         : buildOrchestratorPrompt(mentionedAgents);
-      system = system ? `${orchestratorBlock}\n\n${system}` : orchestratorBlock;
+      ctx.system = ctx.system ? `${orchestratorBlock}\n\n${ctx.system}` : orchestratorBlock;
       delete (run as any)._mentionedAgents;
       delete (run as any)._teamConfig;
       delete (run as any)._memberOverrides;
@@ -915,7 +1030,7 @@ export class AgentExecutor {
       try {
         const { buildTaskTrackingInstructions } = await import("./orchestrator-prompt");
         const taskBlock = buildTaskTrackingInstructions();
-        system = system ? `${system}\n\n${taskBlock}` : taskBlock;
+        ctx.system = ctx.system ? `${ctx.system}\n\n${taskBlock}` : taskBlock;
       } catch { /* non-fatal */ }
     }
 
@@ -926,7 +1041,7 @@ export class AgentExecutor {
         const { getMode } = await import("../db/queries/modes");
         const mode = await getMode(options.modeId);
         if (mode?.toolRestriction) {
-          agentTools = applyToolFilters(agentTools, builtinToolDefsMap, {
+          ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, {
             toolRestriction: mode.toolRestriction,
           });
         }
@@ -937,7 +1052,7 @@ export class AgentExecutor {
     // allow/deny). Takes precedence over mode restriction. allowedTools /
     // deniedTools carry the team-level TeamToolScope when set.
     if (options.toolRestriction || options.allowedTools?.length || options.deniedTools?.length) {
-      agentTools = applyToolFilters(agentTools, builtinToolDefsMap, {
+      ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, {
         toolRestriction: options.toolRestriction,
         allowedTools: options.allowedTools,
         deniedTools: options.deniedTools,
@@ -945,8 +1060,8 @@ export class AgentExecutor {
     }
 
     // Wire tool:kill handler to abort running tools
-    const unsubKill = this.bus.on("tool:kill", ({ toolCallId }) => {
-      const ctrl = toolAbortControllers.get(toolCallId);
+    ctx.unsubKill = this.bus.on("tool:kill", ({ toolCallId }) => {
+      const ctrl = ctx.toolAbortControllers.get(toolCallId);
       if (ctrl) ctrl.abort();
     });
 
@@ -974,9 +1089,9 @@ export class AgentExecutor {
 
     const piAgent = new Agent({
       initialState: {
-        systemPrompt: system ?? "",
+        systemPrompt: ctx.system ?? "",
         model,
-        tools: agentTools,
+        tools: ctx.agentTools,
         messages: history,
         thinkingLevel: options.thinkingLevel ?? (model.reasoning ? "medium" : "off"),
       },
@@ -1000,60 +1115,54 @@ export class AgentExecutor {
 
     this.activeAgents.set(run.id, piAgent);
 
-    let turnText = "";           // current turn only (for cancel fallback)
-    let turnThinking = "";       // thinking content for current turn
-    // allTurnsText is declared earlier (near the watchdog start) so its closure can
-    // read partial responses for crash recovery. We only reset it here for clarity.
-    allTurnsText = "";
-    let lastSavedMessageId: string | null = options.parentMessageId ?? null;
-    let turnHasToolCalls = false;
-    const turnStart = Date.now();
-    let totalUsage: Usage = {
-      input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    };
+    // Streaming state moved into the per-call context (`ctx.turnText`,
+    // `ctx.turnThinking`, `ctx.turnHasToolCalls`, `ctx.totalUsage`,
+    // `ctx.dbQueue`, `ctx.pendingToolArgs`, `ctx.lastSavedMessageId`,
+    // `ctx.turnStart`, `ctx.allTurnsText`). Re-zero allTurnsText here for
+    // clarity — its closure was captured by the watchdog earlier.
+    ctx.allTurnsText = "";
+    ctx.turnStart = Date.now();
 
-    // Serialize async DB operations from the sync subscribe callback
-    let dbQueue = Promise.resolve();
+    // Serialize async DB operations from the sync subscribe callback.
+    // Closure over `ctx.dbQueue` so the success/cancel paths can `await ctx.dbQueue`.
     const queueDb = (fn: () => Promise<void>) => {
-      dbQueue = dbQueue.then(fn).catch(err => log.error("DB error", { error: String(err) }));
+      ctx.dbQueue = ctx.dbQueue.then(fn).catch(err => log.error("DB error", { error: String(err) }));
     };
 
     // Subscribe to AgentEvents and bridge to local EventBus
-    const pendingToolArgs = new Map<string, Record<string, unknown>>();
-    const unsub = piAgent.subscribe((event: AgentEvent) => {
+    ctx.unsub = piAgent.subscribe((event: AgentEvent) => {
       // Any pi-agent-core event counts as progress for the watchdog — LLM is actively producing output.
       this.watchdog.bumpActivity(run.id);
       switch (event.type) {
         case "turn_start":
-          turnText = "";
-          turnThinking = "";
-          turnHasToolCalls = false;
+          ctx.turnText = "";
+          ctx.turnThinking = "";
+          ctx.turnHasToolCalls = false;
           this.bus.emit("run:status", { runId: run.id, status: "Thinking..." });
           break;
         case "message_update": {
           const ame = event.assistantMessageEvent;
           if (ame.type === "text_delta") {
-            turnText += ame.delta;
-            allTurnsText += ame.delta;
+            ctx.turnText += ame.delta;
+            ctx.allTurnsText += ame.delta;
             this.bus.emit("run:token", { runId: run.id, token: ame.delta, kind: "text" });
           } else if (ame.type === "thinking_delta") {
-            turnThinking += ame.delta;
+            ctx.turnThinking += ame.delta;
             this.bus.emit("run:token", { runId: run.id, token: ame.delta, kind: "thinking" });
           }
           break;
         }
         case "tool_execution_start": {
-          turnHasToolCalls = true;
+          ctx.turnHasToolCalls = true;
           const args = (event.args ?? {}) as Record<string, unknown>;
-          pendingToolArgs.set(event.toolCallId, args);
+          ctx.pendingToolArgs.set(event.toolCallId, args);
           // invoke_agent has its own agent:spawn/agent:complete events — skip tool:start
           if (event.toolName === "invoke_agent") break;
           // Build descriptive status from tool name + primary arg
           const primaryArg = args.file_path ?? args.path ?? args.pattern ?? args.command ?? args.query ?? args.url;
           const statusDetail = primaryArg ? `: ${String(primaryArg).slice(0, 60)}` : '';
           this.bus.emit("run:status", { runId: run.id, status: `Running ${event.toolName}${statusDetail}...` });
-          const toolDef = builtinToolDefsMap.get(event.toolName);
+          const toolDef = ctx.builtinToolDefsMap.get(event.toolName);
           this.bus.emit("tool:start", {
             conversationId, extensionId: "", toolName: event.toolName,
             input: event.args, timestamp: Date.now(),
@@ -1069,7 +1178,7 @@ export class AgentExecutor {
           // invoke_agent uses agent:spawn/agent:complete — skip tool:complete/error WS events
           // but still persist to DB below
           if (event.toolName !== "invoke_agent") {
-            const endToolDef = builtinToolDefsMap.get(event.toolName);
+            const endToolDef = ctx.builtinToolDefsMap.get(event.toolName);
             if (event.isError) {
               this.bus.emit("tool:error", {
                 conversationId, extensionId: "", toolName: event.toolName,
@@ -1091,8 +1200,8 @@ export class AgentExecutor {
           // DB rows share the same key — lets the client dedupe without fuzzy
           // matching when a page reload overlaps an in-flight run.
           if (this.persist) {
-            const args = pendingToolArgs.get(event.toolCallId) ?? {};
-            pendingToolArgs.delete(event.toolCallId);
+            const args = ctx.pendingToolArgs.get(event.toolCallId) ?? {};
+            ctx.pendingToolArgs.delete(event.toolCallId);
             // Anchored to turn message in turn_end handler (messageId: null here).
             // persistToolCall is the single insert site for tool_calls — keeps
             // the four analytics dimensions (user/agent/model/provider) in
@@ -1119,7 +1228,7 @@ export class AgentExecutor {
           const msg = event.message;
           if (msg && "role" in msg && msg.role === "assistant") {
             const am = msg as AssistantMessage;
-            totalUsage = am.usage;
+            ctx.totalUsage = am.usage;
             this.bus.emit("run:usage", { runId: run.id, usage: am.usage });
 
             // Persist this turn as its own assistant message
@@ -1134,20 +1243,20 @@ export class AgentExecutor {
               .join("");
             // Fallback: use accumulated streaming text if the final message lacks text blocks
             // (some providers stream text_delta but don't include text in the final message)
-            const resolvedText = textContent || turnText;
-            const resolvedThinking = thinkingContent || turnThinking;
+            const resolvedText = textContent || ctx.turnText;
+            const resolvedThinking = thinkingContent || ctx.turnThinking;
 
-            if (!textContent && turnText) {
-              log.warn("turn_end message missing text blocks but turnText has content", { turnTextPreview: turnText.slice(0, 100), contentTypes: am.content.map((c: { type: string }) => c.type).join(", ") });
+            if (!textContent && ctx.turnText) {
+              log.warn("turn_end message missing text blocks but turnText has content", { turnTextPreview: ctx.turnText.slice(0, 100), contentTypes: am.content.map((c: { type: string }) => c.type).join(", ") });
             }
-            if (!resolvedText && !turnHasToolCalls) {
+            if (!resolvedText && !ctx.turnHasToolCalls) {
               log.warn("turn_end with no text and no tool calls", { contentTypes: am.content.map((c: { type: string }) => c.type).join(", ") });
             }
 
-            if (this.persist && (resolvedText || turnHasToolCalls)) {
+            if (this.persist && (resolvedText || ctx.turnHasToolCalls)) {
               const capturedText = resolvedText;
               const capturedThinking = resolvedThinking || undefined;
-              const capturedParent = lastSavedMessageId;
+              const capturedParent = ctx.lastSavedMessageId;
               queueDb(async () => {
                 const { createMessage } = await import("../db/queries/conversations");
                 const turnMsg = await createMessage(conversationId, {
@@ -1187,7 +1296,7 @@ export class AgentExecutor {
                     isNull(conversations.parentMessageId),
                   ));
 
-                lastSavedMessageId = turnMsg.id;
+                ctx.lastSavedMessageId = turnMsg.id;
 
                 this.bus.emit("run:turn_saved", {
                   runId: run.id,
@@ -1200,10 +1309,10 @@ export class AgentExecutor {
               });
             }
           }
-          if (turnHasToolCalls) {
+          if (ctx.turnHasToolCalls) {
             this.bus.emit("run:status", { runId: run.id, status: "Analyzing results..." });
           }
-          turnText = "";
+          ctx.turnText = "";
           break;
         }
       }
@@ -1213,7 +1322,7 @@ export class AgentExecutor {
     // emits agent:spawn/agent:status/agent:complete with the parent's runId, so when a
     // multi-minute auto-spin-up is running, the parent watchdog sees these as liveness
     // signals and won't kill the outer turn.
-    const unsubAgentActivity = [
+    ctx.unsubAgentActivity = [
       this.bus.on("agent:spawn", (data) => {
         if ((data as { runId?: string }).runId === run.id) this.watchdog.bumpActivity(run.id);
       }),
@@ -1295,20 +1404,20 @@ export class AgentExecutor {
       }
 
       run.status = "success";
-      run.result = { success: true, output: { fullText: allTurnsText, memoriesUsed: run.memoriesUsed } };
+      run.result = { success: true, output: { fullText: ctx.allTurnsText, memoriesUsed: run.memoriesUsed } };
       run.finishedAt = Date.now();
 
       this.bus.emit("run:status", { runId: run.id, status: "Saving response..." });
       // Wait for all queued per-turn DB operations to complete
-      await dbQueue;
+      await ctx.dbQueue;
 
       // Fallback: if no turns were saved (edge case), save allTurnsText as single message
-      if (this.persist && allTurnsText && lastSavedMessageId === (options.parentMessageId ?? null)) {
+      if (this.persist && ctx.allTurnsText && ctx.lastSavedMessageId === (options.parentMessageId ?? null)) {
         try {
           const { createMessage } = await import("../db/queries/conversations");
           const fallbackMsg = await createMessage(conversationId, {
             role: "assistant",
-            content: allTurnsText,
+            content: ctx.allTurnsText,
             model: options.model,
             provider: options.provider,
             runId: run.id,
@@ -1321,7 +1430,7 @@ export class AgentExecutor {
               eq(toolCalls.conversationId, conversationId),
               isNull(toolCalls.messageId),
             ));
-          lastSavedMessageId = fallbackMsg.id;
+          ctx.lastSavedMessageId = fallbackMsg.id;
         } catch (err) {
           log.error("Failed to persist fallback assistant message", { error: String(err) });
         }
@@ -1336,29 +1445,29 @@ export class AgentExecutor {
       this.bus.emit("run:complete", { run, conversationId });
       this.bus.emit("obs:turn", {
         conversationId,
-        llmDurationMs: Date.now() - turnStart,
+        llmDurationMs: Date.now() - ctx.turnStart,
         toolDurationMs: 0,
-        totalDurationMs: Date.now() - turnStart,
-        tokenUsage: { input: totalUsage.input, output: totalUsage.output },
+        totalDurationMs: Date.now() - ctx.turnStart,
+        tokenUsage: { input: ctx.totalUsage.input, output: ctx.totalUsage.output },
       });
     } catch (err) {
       if (run.status !== "cancelled") {
         if (err instanceof DOMException && err.name === "AbortError") {
           run.status = "cancelled";
-          run.result = { success: true, output: { fullText: allTurnsText, partial: true } };
+          run.result = { success: true, output: { fullText: ctx.allTurnsText, partial: true } };
           run.finishedAt = Date.now();
           // Wait for queued turn saves to complete, then save current partial turn
-          await dbQueue;
-          if (this.persist && turnText) {
+          await ctx.dbQueue;
+          if (this.persist && ctx.turnText) {
             try {
               const { createMessage } = await import("../db/queries/conversations");
               const partialMsg = await createMessage(conversationId, {
                 role: "assistant",
-                content: turnText,
+                content: ctx.turnText,
                 model: options.model,
                 provider: options.provider,
                 runId: run.id,
-                parentMessageId: lastSavedMessageId ?? undefined,
+                parentMessageId: ctx.lastSavedMessageId ?? undefined,
               });
               await getDb()
                 .update(toolCalls)
@@ -1383,23 +1492,23 @@ export class AgentExecutor {
           });
           run.result = { success: false, output: null, error: errorPayload };
           run.finishedAt = Date.now();
-          await persistErrorMessage(conversationId, `Error: ${errorPayload}`, { ...options, parentMessageId: lastSavedMessageId ?? options.parentMessageId }, run.id, this.persist);
+          await persistErrorMessage(conversationId, `Error: ${errorPayload}`, { ...options, parentMessageId: ctx.lastSavedMessageId ?? options.parentMessageId }, run.id, this.persist);
           this.bus.emit("run:error", { run, error: errorPayload, conversationId });
         } else {
           const message = err instanceof Error ? err.message : String(err);
           run.status = "error";
           run.result = { success: false, output: null, error: message };
           run.finishedAt = Date.now();
-          await persistErrorMessage(conversationId, `Error: ${message}`, { ...options, parentMessageId: lastSavedMessageId ?? options.parentMessageId }, run.id, this.persist);
+          await persistErrorMessage(conversationId, `Error: ${message}`, { ...options, parentMessageId: ctx.lastSavedMessageId ?? options.parentMessageId }, run.id, this.persist);
           this.bus.emit("run:error", { run, error: message, conversationId });
         }
       }
     } finally {
-      unsub();
-      unsubKill();
-      unsubModeChange?.();
-      for (const off of unsubAgentActivity) off();
-      toolAbortControllers.clear();
+      ctx.unsub?.();
+      ctx.unsubKill?.();
+      ctx.unsubModeChange?.();
+      for (const off of ctx.unsubAgentActivity) off();
+      ctx.toolAbortControllers.clear();
       // Clear watchdog interval + activity tracking
       this.watchdog.clearRun(run.id);
       this.controllers.delete(run.id);
