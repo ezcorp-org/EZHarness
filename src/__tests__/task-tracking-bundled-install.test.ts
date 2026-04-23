@@ -80,36 +80,33 @@ mock.module("../extensions/migrations/task-tracking-storage", () => ({
 //
 // The `loadManifest` export (used by installer.ts on first boot) is
 // left untouched so the existing install-path tests continue to read
-// the REAL bundled manifest from disk. To preserve that, this mock
-// imports the real module via an absolute file-URL specifier (which
-// bypasses the mock.module hook that matches only on the specifier
-// string `../extensions/loader`).
+// the REAL bundled manifest from disk. We capture the real function
+// REFERENCES via top-level `await import(...)` BEFORE registering the
+// mock — once captured into local bindings, they no longer resolve
+// through the live module record (so they're immune to the mock
+// replacement). Importing via a file-URL specifier is NOT sufficient:
+// Bun's `mock.module` matches by resolved file path, not specifier
+// string, so a file-URL re-import inside the mock factory hits the
+// mock again — infinite recursion (which is the bug this fixes).
+const realLoader = await import("../extensions/loader");
+const realLoadManifest = realLoader.loadManifest;
+const realLoadManifestFresh = realLoader.loadManifestFresh;
+
 const freshManifestCalls: Array<{ dir: string }> = [];
 let freshManifestOverride:
   | { kind: "value"; manifest: import("../extensions/types").ExtensionManifestV2 }
   | { kind: "throw"; error: Error }
   | undefined;
 
-// Absolute file URL pointing at the real loader module on disk. Using
-// this specifier sidesteps the mock.module hook below.
-const REAL_LOADER_URL = new URL(
-  "../extensions/loader.ts",
-  import.meta.url,
-).href;
-
 mock.module("../extensions/loader", () => ({
-  loadManifest: async (dir: string) => {
-    const real = await import(REAL_LOADER_URL);
-    return real.loadManifest(dir);
-  },
+  loadManifest: realLoadManifest,
   loadManifestFresh: async (dir: string) => {
     freshManifestCalls.push({ dir });
     if (freshManifestOverride) {
       if (freshManifestOverride.kind === "throw") throw freshManifestOverride.error;
       return freshManifestOverride.manifest;
     }
-    const real = await import(REAL_LOADER_URL);
-    return real.loadManifestFresh(dir);
+    return realLoadManifestFresh(dir);
   },
 }));
 
