@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
@@ -25,13 +26,13 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 
   const body = await request.json().catch(() => null);
   const content = body?.content?.trim();
-  if (!content) return json({ error: "content is required" }, { status: 400 });
+  if (!content) return errorJson(400, "content is required");
 
   // Verify this is a sub-conversation (has a parent)
   const subConv = await convQueries.getConversation(params.id);
-  if (!subConv) return json({ error: "Not found" }, { status: 404 });
+  if (!subConv) return errorJson(404, "Not found");
   if (!subConv.parentConversationId) {
-    return json({ error: "Not a sub-conversation" }, { status: 400 });
+    return errorJson(400, "Not a sub-conversation");
   }
 
   // Walk up the parent chain to find the ROOT conversation (the user's
@@ -42,7 +43,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   // emitting agent:complete with the right parentConversationId so
   // the chat page's listener actually matches.
   const directParent = await convQueries.getConversation(subConv.parentConversationId);
-  if (!directParent) return json({ error: "Parent not found" }, { status: 404 });
+  if (!directParent) return errorJson(404, "Parent not found");
 
   let rootConv = directParent;
   // Bound the walk so a corrupt cycle can't infinite-loop the request.
@@ -54,7 +55,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 
   // sec-H3: fail-closed — unowned rows (null userId) are admin-only
   if (rootConv.userId !== user.id && user.role !== "admin") {
-    return json({ error: "Not found" }, { status: 404 });
+    return errorJson(404, "Not found");
   }
   // Use directParent for model/provider/projectId fallbacks (closer scope),
   // but rootConv.id for agent:complete so the main chat page can refresh.

@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { errorJson } from "$lib/server/http-errors";
 import * as modeQueries from "$server/db/queries/modes";
 import { requireAuth } from "$server/auth/middleware";
 import { updateModeSchema } from "../schema";
@@ -11,7 +12,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   if (scopeErr) return scopeErr;
   requireAuth(locals);
   const mode = await modeQueries.getMode(params.id);
-  if (!mode) return json({ error: "Not found" }, { status: 404 });
+  if (!mode) return errorJson(404, "Not found");
   return json(mode);
 };
 
@@ -20,15 +21,15 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const existing = await modeQueries.getMode(params.id);
-  if (!existing) return json({ error: "Not found" }, { status: 404 });
-  if (existing.builtin) return json({ error: "Cannot edit built-in modes" }, { status: 403 });
-  if (existing.userId && existing.userId !== user.id) return json({ error: "Not found" }, { status: 404 });
+  if (!existing) return errorJson(404, "Not found");
+  if (existing.builtin) return errorJson(403, "Cannot edit built-in modes");
+  if (existing.userId && existing.userId !== user.id) return errorJson(404, "Not found");
 
   const result = updateModeSchema.safeParse(await request.json());
   if (!result.success) return validationError(result.error);
 
   const updated = await modeQueries.updateMode(params.id, result.data);
-  if (!updated) return json({ error: "Not found" }, { status: 404 });
+  if (!updated) return errorJson(404, "Not found");
   return json(updated);
 };
 
@@ -37,9 +38,9 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const existing = await modeQueries.getMode(params.id);
-  if (!existing) return json({ error: "Not found" }, { status: 404 });
-  if (existing.builtin) return json({ error: "Cannot delete built-in modes" }, { status: 403 });
-  if (existing.userId && existing.userId !== user.id) return json({ error: "Not found" }, { status: 404 });
+  if (!existing) return errorJson(404, "Not found");
+  if (existing.builtin) return errorJson(403, "Cannot delete built-in modes");
+  if (existing.userId && existing.userId !== user.id) return errorJson(404, "Not found");
 
   await modeQueries.deleteMode(params.id);
   return json({ ok: true });

@@ -1,5 +1,6 @@
 import type { RequestHandler } from "./$types";
 import { json } from "@sveltejs/kit";
+import { errorJson } from "$lib/server/http-errors";
 import { getInviteByToken, markInviteUsed } from "$server/db/queries/invites";
 import { createUser, getUserByEmail } from "$server/db/queries/users";
 import { hashPassword } from "$server/auth/password";
@@ -12,7 +13,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const GET: RequestHandler = async ({ params }) => {
   const invite = await getInviteByToken(params.token);
   if (!invite) {
-    return json({ error: "Invite not found or expired" }, { status: 404 });
+    return errorJson(404, "Invite not found or expired");
   }
 
   // Only reveal that the token is valid; email/role are disclosed during POST (account creation)
@@ -22,7 +23,7 @@ export const GET: RequestHandler = async ({ params }) => {
 export const POST: RequestHandler = async ({ params, request, cookies }) => {
   const invite = await getInviteByToken(params.token);
   if (!invite) {
-    return json({ error: "Invite not found or expired" }, { status: 404 });
+    return errorJson(404, "Invite not found or expired");
   }
 
   const body = await request.json();
@@ -35,18 +36,18 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
   const pwResult = passwordSchema.safeParse(password);
   if (!pwResult.success) errors.push(pwResult.error.issues.map(i => i.message).join("; "));
   if (errors.length > 0) {
-    return json({ error: errors.join("; ") }, { status: 400 });
+    return errorJson(400, errors.join("; "));
   }
 
   // If invite has a locked email, it must match
   if (invite.email && invite.email.toLowerCase() !== email!.toLowerCase()) {
-    return json({ error: "Email does not match invite" }, { status: 400 });
+    return errorJson(400, "Email does not match invite");
   }
 
   // Check email not already taken
   const existing = await getUserByEmail(email!);
   if (existing) {
-    return json({ error: "Email already registered" }, { status: 409 });
+    return errorJson(409, "Email already registered");
   }
 
   const passwordHash = await hashPassword(password!);

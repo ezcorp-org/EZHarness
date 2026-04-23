@@ -1,5 +1,6 @@
 import type { RequestHandler } from "./$types";
 import { json } from "@sveltejs/kit";
+import { errorJson } from "$lib/server/http-errors";
 import { z } from "zod";
 import { requireAuth } from "$server/auth/middleware";
 import { getUserById, updateUserName, updateUserEmail } from "$server/db/queries/users";
@@ -21,7 +22,7 @@ export const GET: RequestHandler = async ({ locals }) => {
     const authUser = requireAuth(locals);
     const user = await getUserById(authUser.id);
     if (!user) {
-      return json({ error: "User not found" }, { status: 404 });
+      return errorJson(404, "User not found");
     }
     return json({
       id: user.id,
@@ -47,20 +48,20 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
     const { name, email, currentPassword } = result.data;
 
     if (!name && !email) {
-      return json({ error: "Nothing to update" }, { status: 400 });
+      return errorJson(400, "Nothing to update");
     }
 
     // Email change requires current password verification
     if (email) {
       if (!currentPassword) {
-        return json({ error: "Current password is required to change email" }, { status: 400 });
+        return errorJson(400, "Current password is required to change email");
       }
       const user = await getUserById(authUser.id);
-      if (!user) return json({ error: "User not found" }, { status: 404 });
+      if (!user) return errorJson(404, "User not found");
 
       const valid = await verifyPassword(currentPassword, user.passwordHash);
       if (!valid) {
-        return json({ error: "Current password is incorrect" }, { status: 400 });
+        return errorJson(400, "Current password is incorrect");
       }
 
       await updateUserEmail(authUser.id, email);

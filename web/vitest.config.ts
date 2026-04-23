@@ -20,11 +20,12 @@ export default defineConfig({
 		alias: {
 			$lib: resolve(__dirname, "src/lib"),
 			$app: resolve(__dirname, ".svelte-kit/runtime/app"),
+			$server: resolve(__dirname, "../src"),
 		},
 	},
 	test: {
 		environment: "jsdom",
-		include: ["src/**/*.component.test.{ts,svelte.ts}"],
+		include: ["src/**/*.component.test.{ts,svelte.ts}", "src/**/*.server.test.ts"],
 		setupFiles: ["./src/__tests__/vitest-setup.ts"],
 		globals: true,
 	},

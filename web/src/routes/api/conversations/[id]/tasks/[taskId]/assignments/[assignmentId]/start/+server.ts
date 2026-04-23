@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
@@ -43,9 +44,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   } catch { /* empty body is fine */ }
 
   const conv = await convQueries.getConversation(params.id);
-  if (!conv) return json({ error: "Not found" }, { status: 404 });
+  if (!conv) return errorJson(404, "Not found");
   // sec-H3b: fail-closed — unowned rows (null userId) are admin-only
-  if (conv.userId !== user.id && user.role !== "admin") return json({ error: "Not found" }, { status: 404 });
+  if (conv.userId !== user.id && user.role !== "admin") return errorJson(404, "Not found");
 
   await ensureTaskTrackingWired(params.id);
   const snapshot = await getTaskSnapshotForConversation(params.id) ?? {
@@ -61,7 +62,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
       storeTaskCount: snapshot.tasks.length,
       taskIds: snapshot.tasks.map((t) => t.id),
     });
-    return json({ error: "Task not found" }, { status: 404 });
+    return errorJson(404, "Task not found");
   }
 
   // Find assignment at task level or subtask level
@@ -73,12 +74,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
       if (assignment) break;
     }
   }
-  if (!assignment) return json({ error: "Assignment not found" }, { status: 404 });
+  if (!assignment) return errorJson(404, "Assignment not found");
   if (assignment.status !== "assigned") {
-    return json(
-      { error: `Assignment is "${assignment.status}", expected "assigned"` },
-      { status: 409 },
-    );
+    return errorJson(409, `Assignment is "${assignment.status}", expected "assigned"`);
   }
 
   // Dependency gate: block manual start when prerequisites aren't complete.
@@ -87,17 +85,11 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   const depSnap = { tasks: snapshot.tasks as ReadonlyTask[] };
   if (isBlocked(task as ReadonlyTask, depSnap)) {
     const waitingOn = unsatisfiedDeps(task as ReadonlyTask, depSnap).map((t) => t.title);
-    return json(
-      {
-        error: "Task is blocked — waiting for prerequisites to complete.",
-        waitingOn,
-      },
-      { status: 409 },
-    );
+    return errorJson(409, "Task is blocked — waiting for prerequisites to complete.", { waitingOn });
   }
 
   const config = await getAgentConfig(assignment.agentConfigId);
-  if (!config) return json({ error: "Agent config not found" }, { status: 404 });
+  if (!config) return errorJson(404, "Agent config not found");
 
   const projectId = conv.projectId ?? "global";
   const { startAssignment } = await import("$server/runtime/start-assignment");

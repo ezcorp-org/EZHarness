@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { errorJson } from "$lib/server/http-errors";
 import * as convQueries from "$server/db/queries/conversations";
 import * as attachmentsDb from "$server/db/queries/attachments";
 import { getProject } from "$server/db/queries/projects";
@@ -32,7 +33,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
   const conversationId = params.id;
 
   const conv = await verifyConversationOwnership(conversationId, user);
-  if (!conv) return json({ error: "Not found" }, { status: 404 });
+  if (!conv) return errorJson(404, "Not found");
 
   const leafMessageId = url.searchParams.get("leafMessageId");
   const all = url.searchParams.get("all");
@@ -102,11 +103,11 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   const conversationId = params.id;
 
   const conv = await verifyConversationOwnership(conversationId, user);
-  if (!conv) return json({ error: "Not found" }, { status: 404 });
+  if (!conv) return errorJson(404, "Not found");
 
   const budget = await checkTokenBudget(user.id);
   if (!budget.allowed) {
-    return json({ error: "Daily token budget exceeded", resetsAt: budget.resetsAt }, { status: 429 });
+    return errorJson(429, "Daily token budget exceeded", { resetsAt: budget.resetsAt });
   }
 
   const contentType = request.headers.get("content-type") ?? "";
@@ -115,7 +116,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   let body: ParsedBody;
   if (isMultipart) {
     const parsed = await parseMultipart(request);
-    if (!parsed.ok) return json({ error: parsed.error }, { status: 400 });
+    if (!parsed.ok) return errorJson(400, parsed.error);
     body = parsed.body;
   } else {
     const result = createMessageSchema.safeParse(await request.json());
@@ -142,16 +143,16 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 
   if (body.files.length > 0) {
     if (!provider || !model) {
-      return json({ error: "provider and model are required when attaching files" }, { status: 400 });
+      return errorJson(400, "provider and model are required when attaching files");
     }
     const caps = getCapabilities(provider, model);
     if (body.files.length > caps.maxFilesPerMessage) {
-      return json({ error: `Too many files (max ${caps.maxFilesPerMessage})`, code: "TOO_MANY_FILES" }, { status: 400 });
+      return errorJson(400, `Too many files (max ${caps.maxFilesPerMessage})`, { code: "TOO_MANY_FILES" });
     }
 
     const project = await getProject(conv.projectId);
     if (!project?.path) {
-      return json({ error: "Project path not resolvable for attachment storage" }, { status: 500 });
+      return errorJson(500, "Project path not resolvable for attachment storage");
     }
 
     // Pre-validate all files before writing anything to disk or DB. A single
@@ -165,7 +166,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       const res = await validateAttachment(bytes, claimedMime, caps);
       if (!res.ok) {
         const status = res.code === "TOO_LARGE" ? 413 : 400;
-        return json({ error: `File "${file.name}" rejected: ${res.code}`, code: res.code, file: file.name, detail: res }, { status });
+        return errorJson(status, `File "${file.name}" rejected: ${res.code}`, { code: res.code, file: file.name, detail: res });
       }
       validated.push({ bytes, canonicalMime: res.canonicalMime, file });
     }
@@ -216,7 +217,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       // Best-effort rollback: remove disk files + attachment rows for this msg.
       await deleteForMessage({ projectRoot: project.path, conversationId, messageId: userMessage.id }).catch(() => {});
       await attachmentsDb.deleteAttachmentsForMessage(userMessage.id).catch(() => {});
-      return json({ error: "Failed to persist attachments", detail: String(err) }, { status: 500 });
+      return errorJson(500, "Failed to persist attachments", { detail: String(err) });
     }
   } else {
     userMessage = await convQueries.createMessage(conversationId, {

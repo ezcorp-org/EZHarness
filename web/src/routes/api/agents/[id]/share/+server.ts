@@ -1,5 +1,6 @@
 import type { RequestHandler } from "./$types";
 import { json } from "@sveltejs/kit";
+import { errorJson } from "$lib/server/http-errors";
 import { requireAuth } from "$server/auth/middleware";
 import { getAgentConfig } from "$server/db/queries/agent-configs";
 import { shareAgent, shareAgentWithUser, unshareAgent, unshareAgentFromUser, getAgentShares } from "$server/db/queries/agent-shares";
@@ -52,14 +53,14 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     };
 
     if (permission !== "read" && permission !== "edit") {
-      return json({ error: "permission must be 'read' or 'edit'" }, { status: 400 });
+      return errorJson(400, "permission must be 'read' or 'edit'");
     }
 
     const hasTeams = Array.isArray(teamIds) && teamIds.length > 0;
     const hasUsers = Array.isArray(userIds) && userIds.length > 0;
 
     if (!hasTeams && !hasUsers) {
-      return json({ error: "teamIds or userIds array is required" }, { status: 400 });
+      return errorJson(400, "teamIds or userIds array is required");
     }
 
     if (hasTeams) {
@@ -67,7 +68,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
         if (user.role !== "admin") {
           const membership = await getTeamMembership(user.id, teamId);
           if (!membership || membership.role === "viewer") {
-            return json({ error: `Insufficient permissions for team ${teamId}` }, { status: 403 });
+            return errorJson(403, `Insufficient permissions for team ${teamId}`);
           }
         }
         await shareAgent(agent.id, teamId, user.id, permission);
@@ -78,7 +79,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
       for (const targetUserId of userIds!) {
         const targetUser = await getUserById(targetUserId);
         if (!targetUser) {
-          return json({ error: `User ${targetUserId} not found` }, { status: 404 });
+          return errorJson(404, `User ${targetUserId} not found`);
         }
         await shareAgentWithUser(agent.id, targetUserId, user.id, permission);
       }
@@ -107,7 +108,7 @@ export const DELETE: RequestHandler = async ({ params, request, locals }) => {
     const { teamId, userId } = body as { teamId?: string; userId?: string };
 
     if (!teamId && !userId) {
-      return json({ error: "teamId or userId is required" }, { status: 400 });
+      return errorJson(400, "teamId or userId is required");
     }
 
     let removed = false;

@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import * as convQueries from "$server/db/queries/conversations";
 import { getAgentConfig } from "$server/db/queries/agent-configs";
 import { getBus } from "$lib/server/context";
@@ -33,13 +34,13 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   const user = requireAuth(locals);
 
   const conv = await convQueries.getConversation(params.id);
-  if (!conv) return json({ error: "Not found" }, { status: 404 });
+  if (!conv) return errorJson(404, "Not found");
   // sec-H3b: fail-closed — unowned rows (null userId) are admin-only
-  if (conv.userId !== user.id && user.role !== "admin") return json({ error: "Not found" }, { status: 404 });
+  if (conv.userId !== user.id && user.role !== "admin") return errorJson(404, "Not found");
 
   const body = await request.json() as { agentConfigId: string; subtaskId?: string };
   if (!body.agentConfigId) {
-    return json({ error: "agentConfigId is required" }, { status: 400 });
+    return errorJson(400, "agentConfigId is required");
   }
 
   await ensureTaskTrackingWired(params.id);
@@ -48,10 +49,10 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     tasks: [],
   };
   const task = snapshot.tasks.find((t) => t.id === params.taskId);
-  if (!task) return json({ error: "Task not found" }, { status: 404 });
+  if (!task) return errorJson(404, "Task not found");
 
   const config = await getAgentConfig(body.agentConfigId);
-  if (!config) return json({ error: "Agent config not found" }, { status: 404 });
+  if (!config) return errorJson(404, "Agent config not found");
 
   const refs = config.references as { members?: unknown[] } | null;
   const isTeam = Array.isArray(refs?.members) && refs.members.length > 0;
@@ -67,7 +68,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 
   if (body.subtaskId) {
     const subtask = task.subtasks.find((s) => s.id === body.subtaskId);
-    if (!subtask) return json({ error: "Subtask not found" }, { status: 404 });
+    if (!subtask) return errorJson(404, "Subtask not found");
     subtask.assignments = subtask.assignments ?? [];
     subtask.assignments.push(assignment);
   } else {
@@ -100,13 +101,13 @@ export const DELETE: RequestHandler = async ({ params, request, locals }) => {
   const user = requireAuth(locals);
 
   const conv = await convQueries.getConversation(params.id);
-  if (!conv) return json({ error: "Not found" }, { status: 404 });
+  if (!conv) return errorJson(404, "Not found");
   // sec-H3b: fail-closed — unowned rows (null userId) are admin-only
-  if (conv.userId !== user.id && user.role !== "admin") return json({ error: "Not found" }, { status: 404 });
+  if (conv.userId !== user.id && user.role !== "admin") return errorJson(404, "Not found");
 
   const body = await request.json() as { assignmentId: string };
   if (!body.assignmentId) {
-    return json({ error: "assignmentId is required" }, { status: 400 });
+    return errorJson(400, "assignmentId is required");
   }
 
   await ensureTaskTrackingWired(params.id);
@@ -115,17 +116,14 @@ export const DELETE: RequestHandler = async ({ params, request, locals }) => {
     tasks: [],
   };
   const task = snapshot.tasks.find((t) => t.id === params.taskId);
-  if (!task) return json({ error: "Task not found" }, { status: 404 });
+  if (!task) return errorJson(404, "Task not found");
 
   // Check task-level assignments
   let idx = task.assignments.findIndex((a) => a.id === body.assignmentId);
   if (idx >= 0) {
     const target = task.assignments[idx]!;
     if (target.status !== "assigned") {
-      return json(
-        { error: `Cannot remove assignment in "${target.status}" status` },
-        { status: 409 },
-      );
+      return errorJson(409, `Cannot remove assignment in "${target.status}" status`);
     }
     task.assignments.splice(idx, 1);
   } else {
@@ -137,17 +135,14 @@ export const DELETE: RequestHandler = async ({ params, request, locals }) => {
       if (idx >= 0) {
         const target = subtask.assignments[idx]!;
         if (target.status !== "assigned") {
-          return json(
-            { error: `Cannot remove assignment in "${target.status}" status` },
-            { status: 409 },
-          );
+          return errorJson(409, `Cannot remove assignment in "${target.status}" status`);
         }
         subtask.assignments.splice(idx, 1);
         found = true;
         break;
       }
     }
-    if (!found) return json({ error: "Assignment not found" }, { status: 404 });
+    if (!found) return errorJson(404, "Assignment not found");
   }
 
   await writeTaskSnapshotForConversation(params.id, {

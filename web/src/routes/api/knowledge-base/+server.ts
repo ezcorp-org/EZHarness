@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 import { listKBFiles, insertKBFile, updateKBFile, insertKBChunk } from "$server/db/queries/knowledge-base";
 import { isAllowedFile, chunkText } from "$server/memory/chunking";
@@ -17,7 +18,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   const user = requireAuth(locals);
   const projectId = url.searchParams.get("projectId");
   if (!projectId) {
-    return json({ error: "projectId query parameter required" }, { status: 400 });
+    return errorJson(400, "projectId query parameter required");
   }
 
   const files = await listKBFiles(projectId);
@@ -46,19 +47,19 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const userFiles = existingFiles.filter(f => !f.userId || f.userId === user.id);
   const quota = await checkStorageQuota(user.id, "KnowledgeBase", userFiles.length);
   if (!quota.allowed) {
-    return json({ error: "Knowledge base file limit reached" }, { status: 429 });
+    return errorJson(429, "Knowledge base file limit reached");
   }
 
   if (!file) {
-    return json({ error: "file is required" }, { status: 400 });
+    return errorJson(400, "file is required");
   }
 
   if (!isAllowedFile(file.name)) {
-    return json({ error: `File type not allowed: ${file.name}` }, { status: 400 });
+    return errorJson(400, `File type not allowed: ${file.name}`);
   }
 
   if (file.size > MAX_FILE_SIZE) {
-    return json({ error: `File too large (max ${MAX_FILE_SIZE / 1024 / 1024}MB)` }, { status: 400 });
+    return errorJson(400, `File too large (max ${MAX_FILE_SIZE / 1024 / 1024}MB)`);
   }
 
   // Read file text eagerly before the response lifecycle ends
@@ -77,7 +78,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     });
   } catch (err) {
     console.error("[api/knowledge-base] Failed to insert file record:", err);
-    return json({ error: "Failed to create file record" }, { status: 500 });
+    return errorJson(500, "Failed to create file record");
   }
 
   // Process async: chunk and embed (fire-and-forget)

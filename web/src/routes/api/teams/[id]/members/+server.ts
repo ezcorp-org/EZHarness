@@ -1,6 +1,7 @@
 import type { RequestHandler } from "./$types";
 import { json } from "@sveltejs/kit";
-import { requireAuth, requireTeamRole } from "$server/auth/middleware";
+import { errorJson } from "$lib/server/http-errors";
+import { requireTeamRole } from "$server/auth/middleware";
 import {
   getTeamMembers,
   addTeamMember,
@@ -30,9 +31,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
       userId?: string;
       role?: "owner" | "editor" | "viewer";
     };
-    if (!userId) return json({ error: "userId is required" }, { status: 400 });
+    if (!userId) return errorJson(400, "userId is required");
     if (!["owner", "editor", "viewer"].includes(role)) {
-      return json({ error: "Invalid role" }, { status: 400 });
+      return errorJson(400, "Invalid role");
     }
     const member = await addTeamMember(params.id, userId, role);
     return json({ member }, { status: 201 });
@@ -48,17 +49,17 @@ export const DELETE: RequestHandler = async ({ params, request, locals }) => {
   try {
     await requireTeamRole(locals, params.id, "owner");
     const { userId } = (await request.json()) as { userId?: string };
-    if (!userId) return json({ error: "userId is required" }, { status: 400 });
+    if (!userId) return errorJson(400, "userId is required");
 
     // Cannot remove last owner
     const members = await getTeamMembers(params.id);
     const owners = members.filter((m) => m.role === "owner");
     if (owners.length === 1 && owners[0]!.userId === userId) {
-      return json({ error: "Cannot remove the last owner" }, { status: 400 });
+      return errorJson(400, "Cannot remove the last owner");
     }
 
     const removed = await removeTeamMember(params.id, userId);
-    if (!removed) return json({ error: "Member not found" }, { status: 404 });
+    if (!removed) return errorJson(404, "Member not found");
     return json({ success: true });
   } catch (e) {
     if (e instanceof Response) return e;

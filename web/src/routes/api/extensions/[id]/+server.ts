@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { errorJson } from "$lib/server/http-errors";
 import { getExtension, updateExtension, deleteExtension } from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { requireAuth } from "$server/auth/middleware";
@@ -10,7 +11,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   if (scopeErr) return scopeErr;
   requireAuth(locals);
   const ext = await getExtension(params.id);
-  if (!ext) return json({ error: "Not found" }, { status: 404 });
+  if (!ext) return errorJson(404, "Not found");
   return json(ext);
 };
 
@@ -22,24 +23,21 @@ export const PATCH: RequestHandler = async ({ request, params, locals }) => {
   const { enabled } = body;
 
   const ext = await getExtension(params.id);
-  if (!ext) return json({ error: "Not found" }, { status: 404 });
+  if (!ext) return errorJson(404, "Not found");
 
   if (typeof enabled === "boolean") {
     // Enabling via PATCH is a back-door around POST /:id/activate — it skips
     // the admin-role check and the manifest-clamped permission review. Only
     // disabling is permitted here; enabling must go through /activate.
     if (enabled === true) {
-      return json(
-        { error: "Use POST /:id/activate to enable an extension" },
-        { status: 400 },
-      );
+      return errorJson(400, "Use POST /:id/activate to enable an extension");
     }
     const updated = await updateExtension(params.id, { enabled });
     await ExtensionRegistry.getInstance().reload();
     return json(updated);
   }
 
-  return json({ error: "No valid update fields provided" }, { status: 400 });
+  return errorJson(400, "No valid update fields provided");
 };
 
 export const DELETE: RequestHandler = async ({ params, locals }) => {
@@ -47,7 +45,7 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   if (scopeErr) return scopeErr;
   requireAuth(locals);
   const ext = await getExtension(params.id);
-  if (!ext) return json({ error: "Not found" }, { status: 404 });
+  if (!ext) return errorJson(404, "Not found");
 
   // Kill any running subprocess
   try {

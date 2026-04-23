@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 import { getKBFile, deleteKBFile } from "$server/db/queries/knowledge-base";
 import { requireAuth } from "$server/auth/middleware";
@@ -9,8 +10,8 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const file = await getKBFile(params.id);
-  if (!file) return json({ error: "Knowledge base file not found" }, { status: 404 });
-  if (file.userId && file.userId !== user.id) return json({ error: "Knowledge base file not found" }, { status: 404 });
+  if (!file) return errorJson(404, "Knowledge base file not found");
+  if (file.userId && file.userId !== user.id) return errorJson(404, "Knowledge base file not found");
   return json(file);
 };
 
@@ -19,10 +20,10 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const file = await getKBFile(params.id);
-  if (!file) return json({ error: "Knowledge base file not found" }, { status: 404 });
-  if (file.userId && file.userId !== user.id) return json({ error: "Knowledge base file not found" }, { status: 404 });
+  if (!file) return errorJson(404, "Knowledge base file not found");
+  if (file.userId && file.userId !== user.id) return errorJson(404, "Knowledge base file not found");
 
   const deleted = await deleteKBFile(params.id);
-  if (!deleted) return json({ error: "Knowledge base file not found" }, { status: 404 });
+  if (!deleted) return errorJson(404, "Knowledge base file not found");
   return new Response(null, { status: 204 });
 };

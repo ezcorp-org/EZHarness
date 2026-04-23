@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { errorJson } from "$lib/server/http-errors";
 import * as convQueries from "$server/db/queries/conversations";
 import { getProject } from "$server/db/queries/projects";
 import { requireAuth } from "$server/auth/middleware";
@@ -22,7 +23,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const conv = await verifyConversationOwnership(params.id, user);
-  if (!conv) return json({ error: "Not found" }, { status: 404 });
+  if (!conv) return errorJson(404, "Not found");
   return json(conv);
 };
 
@@ -31,14 +32,14 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const conv = await verifyConversationOwnership(params.id, user);
-  if (!conv) return json({ error: "Not found" }, { status: 404 });
+  if (!conv) return errorJson(404, "Not found");
 
   const result = updateConversationSchema.safeParse(await request.json());
   if (!result.success) {
     return validationError(result.error);
   }
   const updated = await convQueries.updateConversation(params.id, result.data);
-  if (!updated) return json({ error: "Not found" }, { status: 404 });
+  if (!updated) return errorJson(404, "Not found");
   return json(updated);
 };
 
@@ -47,14 +48,14 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const conv = await verifyConversationOwnership(params.id, user);
-  if (!conv) return json({ error: "Not found" }, { status: 404 });
+  if (!conv) return errorJson(404, "Not found");
 
   // DB rows cascade via FK; but attachment files live on disk and need manual GC.
   // Resolve project root before the cascade nukes the conversation row.
   const project = await getProject(conv.projectId);
 
   const deleted = await convQueries.deleteConversation(params.id);
-  if (!deleted) return json({ error: "Not found" }, { status: 404 });
+  if (!deleted) return errorJson(404, "Not found");
 
   if (project?.path) {
     await deleteAttachmentsFromDisk({ projectRoot: project.path, conversationId: params.id })

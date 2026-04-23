@@ -1,5 +1,6 @@
 import type { RequestHandler } from "./$types";
 import { json } from "@sveltejs/kit";
+import { errorJson } from "$lib/server/http-errors";
 import { requireRole, requireTeamRole } from "$server/auth/middleware";
 import { getTeam, updateTeamName, deleteTeam, getTeamMembers } from "$server/db/queries/teams";
 import { requireScope } from "$lib/server/security/api-keys";
@@ -10,7 +11,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   try {
     await requireTeamRole(locals, params.id, "viewer");
     const team = await getTeam(params.id);
-    if (!team) return json({ error: "Team not found" }, { status: 404 });
+    if (!team) return errorJson(404, "Team not found");
     const members = await getTeamMembers(params.id);
     return json({ team, members });
   } catch (e) {
@@ -26,10 +27,10 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
     await requireTeamRole(locals, params.id, "owner");
     const { name } = (await request.json()) as { name?: string };
     if (!name?.trim()) {
-      return json({ error: "Team name is required" }, { status: 400 });
+      return errorJson(400, "Team name is required");
     }
     const team = await updateTeamName(params.id, name.trim());
-    if (!team) return json({ error: "Team not found" }, { status: 404 });
+    if (!team) return errorJson(404, "Team not found");
     return json({ team });
   } catch (e) {
     if (e instanceof Response) return e;
@@ -43,7 +44,7 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   try {
     requireRole(locals, "admin");
     const deleted = await deleteTeam(params.id);
-    if (!deleted) return json({ error: "Team not found" }, { status: 404 });
+    if (!deleted) return errorJson(404, "Team not found");
     return json({ success: true });
   } catch (e) {
     if (e instanceof Response) return e;

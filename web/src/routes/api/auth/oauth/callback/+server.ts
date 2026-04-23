@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 import { encrypt } from "$server/providers/encryption";
 import { getSetting, upsertSetting, deleteSetting } from "$server/db/queries/settings";
@@ -85,15 +86,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	};
 
 	if (!provider || !isValidProvider(provider)) {
-		return json({ error: "Invalid provider. Must be one of: openai, google" }, { status: 400 });
+		return errorJson(400, "Invalid provider. Must be one of: openai, google");
 	}
 
 	if (!code) {
-		return json({ error: "code is required" }, { status: 400 });
+		return errorJson(400, "code is required");
 	}
 
 	if (!state) {
-		return json({ error: "state is required" }, { status: 400 });
+		return errorJson(400, "state is required");
 	}
 
 	// sec-M2: look up the server-side pending record for this state. Pre-fix
@@ -105,19 +106,19 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	// state is unknown/replayed/expired.
 	const pending = (await getSetting(`oauth:pending:${state}`)) as PendingOAuth | undefined;
 	if (!pending || typeof pending !== "object") {
-		return json({ error: "Invalid or expired state" }, { status: 400 });
+		return errorJson(400, "Invalid or expired state");
 	}
 
 	// Defence-in-depth: stored provider must match the request.
 	if (pending.provider !== provider) {
 		await deleteSetting(`oauth:pending:${state}`);
-		return json({ error: "Invalid or expired state" }, { status: 400 });
+		return errorJson(400, "Invalid or expired state");
 	}
 
 	// TTL enforcement — expired records are cleaned up lazily here.
 	if (Date.now() - pending.createdAt > OAUTH_PENDING_TTL_MS) {
 		await deleteSetting(`oauth:pending:${state}`);
-		return json({ error: "Invalid or expired state" }, { status: 400 });
+		return errorJson(400, "Invalid or expired state");
 	}
 
 	try {
@@ -138,7 +139,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		return json({ success: true, provider });
 	} catch (e) {
-		return json({ error: (e as Error).message }, { status: 400 });
+		return errorJson(400, (e as Error).message);
 	}
 };
 
@@ -149,7 +150,7 @@ export const DELETE: RequestHandler = async ({ request, locals }) => {
 	const { provider } = body as { provider: string };
 
 	if (!provider || !isValidProvider(provider)) {
-		return json({ error: "Invalid provider. Must be one of: openai, google" }, { status: 400 });
+		return errorJson(400, "Invalid provider. Must be one of: openai, google");
 	}
 
 	await deleteSetting(`provider:oauth:${provider}`);

@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { errorJson } from "$lib/server/http-errors";
 import { mkdir, realpath } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { requireAuth } from "$server/auth/middleware";
@@ -10,12 +11,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   if (user.role !== "admin") {
-    return json({ error: "Access denied: admin role required" }, { status: 403 });
+    return errorJson(403, "Access denied: admin role required");
   }
 
   const body = (await request.json().catch(() => ({}))) as { path?: unknown };
   if (typeof body.path !== "string" || !body.path.trim()) {
-    return json({ error: "path required" }, { status: 400 });
+    return errorJson(400, "path required");
   }
 
   const sandboxRoot = process.env.EZCORP_PROJECT_ROOT ?? process.cwd();
@@ -25,7 +26,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   try {
     realSandbox = await realpath(sandboxRoot);
   } catch {
-    return json({ error: "Sandbox root unavailable" }, { status: 500 });
+    return errorJson(500, "Sandbox root unavailable");
   }
 
   // The target itself does not exist yet; validate its nearest existing
@@ -43,10 +44,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
   }
   if (!realAncestor) {
-    return json({ error: "Unable to resolve path" }, { status: 400 });
+    return errorJson(400, "Unable to resolve path");
   }
   if (realAncestor !== realSandbox && !realAncestor.startsWith(realSandbox + "/")) {
-    return json({ error: "Access denied: path outside allowed sandbox" }, { status: 403 });
+    return errorJson(403, "Access denied: path outside allowed sandbox");
   }
 
   try {
@@ -54,6 +55,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ path: requested }, { status: 201 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "mkdir failed";
-    return json({ error: msg }, { status: 500 });
+    return errorJson(500, msg);
   }
 };

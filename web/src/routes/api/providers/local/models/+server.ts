@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 import { requireRole } from "$server/auth/middleware";
 import { listModels } from "$server/providers/local-model-check";
@@ -16,16 +17,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	const body = await request.json().catch(() => null);
 	if (!body || typeof body !== "object") {
-		return json({ error: "Invalid JSON body" }, { status: 400 });
+		return errorJson(400, "Invalid JSON body");
 	}
 
 	const { baseUrl } = body as { baseUrl?: string };
 
 	if (!baseUrl || typeof baseUrl !== "string") {
-		return json({ error: "baseUrl is required" }, { status: 400 });
+		return errorJson(400, "baseUrl is required");
 	}
 	if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
-		return json({ error: "baseUrl must start with http:// or https://" }, { status: 400 });
+		return errorJson(400, "baseUrl must start with http:// or https://");
 	}
 
 	// sec-H1: reject loopback/private/link-local targets to block SSRF
@@ -34,13 +35,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	try {
 		parsed = new URL(baseUrl);
 	} catch {
-		return json({ error: "Invalid baseUrl" }, { status: 400 });
+		return errorJson(400, "Invalid baseUrl");
 	}
 	if (isPrivateOrLoopback(parsed.hostname)) {
-		return json(
-			{ error: "baseUrl targets a private or loopback address" },
-			{ status: 400 },
-		);
+		return errorJson(400, "baseUrl targets a private or loopback address");
 	}
 
 	// sec-H1 DNS pinning: resolve the hostname and re-check every A/AAAA
@@ -50,16 +48,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	try {
 		const dnsCheck = await resolveAndValidateHostname(parsed.hostname);
 		if (!dnsCheck.ok) {
-			return json(
-				{ error: dnsCheck.reason ?? "baseUrl targets a private or loopback address" },
-				{ status: 400 },
-			);
+			return errorJson(400, dnsCheck.reason ?? "baseUrl targets a private or loopback address");
 		}
 	} catch {
-		return json(
-			{ error: "hostname could not be resolved" },
-			{ status: 400 },
-		);
+		return errorJson(400, "hostname could not be resolved");
 	}
 
 	try {
@@ -67,6 +59,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		return json(result);
 	} catch (err: unknown) {
 		const message = err instanceof Error ? err.message : String(err);
-		return json({ error: message }, { status: 500 });
+		return errorJson(500, message);
 	}
 };

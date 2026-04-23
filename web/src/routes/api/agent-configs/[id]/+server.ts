@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { errorJson } from "$lib/server/http-errors";
 import * as agentConfigQueries from "$server/db/queries/agent-configs";
 import { configToAgent } from "$server/runtime/config-to-agent";
 import { requireAuth } from "$server/auth/middleware";
@@ -11,8 +12,8 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const config = await agentConfigQueries.getAgentConfig(params.id);
-  if (!config) return json({ error: "Not found" }, { status: 404 });
-  if (config.userId && config.userId !== user.id) return json({ error: "Not found" }, { status: 404 });
+  if (!config) return errorJson(404, "Not found");
+  if (config.userId && config.userId !== user.id) return errorJson(404, "Not found");
   return json(config);
 };
 
@@ -21,12 +22,12 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const config = await agentConfigQueries.getAgentConfig(params.id);
-  if (!config) return json({ error: "Not found" }, { status: 404 });
-  if (config.userId && config.userId !== user.id) return json({ error: "Not found" }, { status: 404 });
+  if (!config) return errorJson(404, "Not found");
+  if (config.userId && config.userId !== user.id) return errorJson(404, "Not found");
 
   const body = await request.json();
   const updated = await agentConfigQueries.updateAgentConfig(params.id, body);
-  if (!updated) return json({ error: "Not found" }, { status: 404 });
+  if (!updated) return errorJson(404, "Not found");
 
   // Re-register the agent
   const executor = getExecutor();
@@ -52,8 +53,8 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const config = await agentConfigQueries.getAgentConfig(params.id);
-  if (!config) return json({ error: "Not found" }, { status: 404 });
-  if (config.userId && config.userId !== user.id) return json({ error: "Not found" }, { status: 404 });
+  if (!config) return errorJson(404, "Not found");
+  if (config.userId && config.userId !== user.id) return errorJson(404, "Not found");
 
   await agentConfigQueries.deleteAgentConfig(params.id);
   getExecutor().unregisterAgent(config.name);
