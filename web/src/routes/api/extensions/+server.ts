@@ -9,6 +9,7 @@ import { validationError } from "$lib/server/security/validation";
 import { requireScope } from "$lib/server/security/api-keys";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS, type ExtensionAuditMetadata } from "$server/extensions/audit-actions";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ request, locals }) => {
@@ -92,6 +93,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json(ext, { status: 201 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Install failed";
-    return json({ error: message }, { status: 400 });
+    return errorJson(400, message);
   }
 };

@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import { getConversation, getSubConversations } from "$server/db/queries/conversations";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params, locals }) => {
@@ -18,7 +19,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   // Returns 404 (not 403) on mismatch to avoid leaking existence.
   const parent = await getConversation(params.id);
   if (!parent || (parent.userId !== user.id && user.role !== "admin")) {
-    return json({ error: "Not found" }, { status: 404 });
+    return errorJson(404, "Not found");
   }
 
   return json(await getSubConversations(params.id));

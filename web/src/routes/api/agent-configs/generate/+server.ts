@@ -8,6 +8,7 @@ import { requireAuth } from "$server/auth/middleware";
 import { generateAgentConfigSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 const META_AGENT_SYSTEM_PROMPT = `You are an agent creation assistant. Your job is to help users design an agent persona through conversation.
@@ -138,6 +139,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ text, config });
   } catch (err) {
     const message = err instanceof Error ? err.message : "LLM call failed";
-    return json({ error: message }, { status: 500 });
+    return errorJson(500, message);
   }
 };

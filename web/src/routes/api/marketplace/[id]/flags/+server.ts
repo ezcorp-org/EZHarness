@@ -3,6 +3,7 @@ import { requireRole } from "$server/auth/middleware";
 import { getFlagHistory, resolveFlag } from "$server/db/queries/marketplace-ratings";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params, locals }) => {
@@ -21,7 +22,7 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
   const { flagId, action } = body as { flagId: string; action: "dismissed" | "removed" };
 
   if (!flagId || !["dismissed", "removed"].includes(action)) {
-    return json({ error: "flagId and action ('dismissed' | 'removed') are required" }, { status: 400 });
+    return errorJson(400, "flagId and action ('dismissed' | 'removed') are required");
   }
 
   await resolveFlag(flagId, admin.id, action);

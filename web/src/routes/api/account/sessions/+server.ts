@@ -9,6 +9,7 @@ import {
 } from "$server/db/queries/sessions";
 import { validationError } from "$lib/server/security/validation";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 
 const deleteSchema = z.object({
   sessionId: z.string().min(1, "Session ID is required"),
@@ -58,7 +59,7 @@ export const DELETE: RequestHandler = async ({ request, cookies, locals }) => {
     const sessions = await listSessionsByUser(user.id);
     const target = sessions.find((s) => s.id === sessionId);
     if (!target) {
-      return json({ error: "Session not found" }, { status: 404 });
+      return errorJson(404, "Session not found");
     }
 
     // Prevent revoking the current session
@@ -66,10 +67,7 @@ export const DELETE: RequestHandler = async ({ request, cookies, locals }) => {
     if (token) {
       const currentHash = await hashToken(token);
       if (target.tokenHash === currentHash) {
-        return json(
-          { error: "Cannot revoke your current session. Use logout instead." },
-          { status: 400 },
-        );
+        return errorJson(400, "Cannot revoke your current session. Use logout instead.");
       }
     }
 

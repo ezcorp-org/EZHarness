@@ -6,6 +6,7 @@ import { getUserRating } from "$server/db/queries/marketplace-ratings";
 import { isListingInstalled } from "$server/db/queries/settings";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params, locals }) => {
@@ -13,7 +14,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   if (scopeErr) return scopeErr;
   const listing = await getListingById(params.id);
   if (!listing) {
-    return json({ error: "Not found" }, { status: 404 });
+    return errorJson(404, "Not found");
   }
 
   const latestVersion = await getLatestVersion(listing.id);

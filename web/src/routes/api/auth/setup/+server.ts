@@ -7,11 +7,12 @@ import { upsertSetting } from "$server/db/queries/settings";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { setupSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
+import { errorJson } from "$lib/server/http-errors";
 
 export const POST: RequestHandler = async ({ request, cookies }) => {
   const count = await getUserCount();
   if (count > 0) {
-    return json({ error: "Setup already completed" }, { status: 403 });
+    return errorJson(403, "Setup already completed");
   }
 
   const result = setupSchema.safeParse(await request.json());

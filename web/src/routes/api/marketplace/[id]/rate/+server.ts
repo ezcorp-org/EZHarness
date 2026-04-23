@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import { requireAuth } from "$server/auth/middleware";
 import { upsertRating } from "$server/db/queries/marketplace-ratings";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ params, request, locals }) => {
@@ -12,7 +13,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   const { thumbsUp } = body as { thumbsUp: boolean };
 
   if (typeof thumbsUp !== "boolean") {
-    return json({ error: "thumbsUp must be a boolean" }, { status: 400 });
+    return errorJson(400, "thumbsUp must be a boolean");
   }
 
   await upsertRating(params.id, user.id, thumbsUp);

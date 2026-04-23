@@ -3,6 +3,7 @@ import { ExtensionRegistry } from "$server/extensions/registry";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { ensureInitialized } from "$lib/server/context";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params, locals }) => {
@@ -25,7 +26,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
     if (builtinTools.length > 0) {
       return json({ tools: builtinTools });
     }
-    return json({ error: `No tools found for extension: ${extensionName}` }, { status: 404 });
+    return errorJson(404, `No tools found for extension: ${extensionName}`);
   }
 
   return json({
