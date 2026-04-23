@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "// purpose": "CI typecheck of production source only. Test files live in src/__tests__ and transitively import from web/src/routes, which pulls web (SvelteKit) files into root tsc's graph without its `$server`/`$lib`/`./$types` aliases. Excluding tests here keeps the root check focused on backend src/. Web (web/) is type-checked separately via scripts/typecheck.sh → `cd web && tsc`.",
+  "exclude": [
+    "web",
+    "**/node_modules/**",
+    "**/.svelte-kit/**",
+    "src/__tests__/**",
+    "**/*.test.ts",
+    "packages/**/__tests__/**",
+    "packages/**/*.test.ts"
+  ]
+}

@@ -22,7 +22,7 @@
     "verify:docker-rollback": "bash scripts/verify-docker-rollback.sh",
     "verify:docker-upgrade": "bash scripts/verify-docker-upgrade.sh",
     "verify:all": "bun run verify:backup && bun run verify:edges && bun run verify:docker && bun run verify:docker-rollback && bun run verify:docker-upgrade",
-    "typecheck": "bun x tsc --noEmit -p tsconfig.json"
+    "typecheck": "bash scripts/typecheck.sh"
   },
   "devDependencies": {
     "@types/bun": "latest",

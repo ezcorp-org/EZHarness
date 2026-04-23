@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Type-check both the backend (src/) and the SvelteKit frontend (web/).
+#
+# Why two invocations: the root tsconfig excludes web/, but src/__tests__
+# files transitively import `+server.ts` handlers from web/ routes, which
+# pulls those files into root tsc's graph without SvelteKit's generated
+# `./$types` or the `$server`/`$lib` path aliases from `.svelte-kit/tsconfig.json`.
+# That produced ~700 spurious Cannot-find-module errors.
+#
+# Scoping tsc to each workspace with its own tsconfig (and running
+# `svelte-kit sync` first so `./$types` exists) cuts the error count from
+# ~730 to the real ~90.
+
+set -e
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+ROOT_FAIL=0
+WEB_FAIL=0
+
+echo "→ Typechecking backend (src/)..."
+cd "$ROOT"
+bun x tsc --noEmit -p tsconfig.typecheck.json || ROOT_FAIL=1
+
+echo ""
+echo "→ Typechecking web (SvelteKit)..."
+cd "$ROOT/web"
+bunx --bun svelte-kit sync > /dev/null 2>&1 || true
+bun x tsc --noEmit || WEB_FAIL=1
+
+echo ""
+if [ "$ROOT_FAIL" -eq 0 ] && [ "$WEB_FAIL" -eq 0 ]; then
+  echo "✓ Typecheck passed."
+  exit 0
+fi
+[ "$ROOT_FAIL" -ne 0 ] && echo "✗ Backend (src/) typecheck failed."
+[ "$WEB_FAIL" -ne 0 ] && echo "✗ Web typecheck failed."
+exit 1
