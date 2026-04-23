@@ -24,3 +24,33 @@ jobs:
       # (svelte-kit sync + scoped tsc). Both currently pass, so this is a
       # hard gate.
       - run: bun run typecheck
+
+  test-backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # scripts/test.sh runs each src/__tests__ file in its own bun process
+      # (PARALLEL=6) so mock.module() doesn't leak across files.
+      - run: bun run test
+
+  test-web:
+    name: Web tests (vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: cd web && bun install --frozen-lockfile
+      # SvelteKit ./$types codegen so server tests resolve route types.
+      - run: cd web && bunx --bun svelte-kit sync
+      # vitest runs both *.component.test.ts (Svelte DOM) and
+      # *.server.test.ts (route-handler unit tests).
+      - run: cd web && bunx --bun vitest run
