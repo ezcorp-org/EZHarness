@@ -158,6 +158,12 @@ export interface ExtensionManifestV2 {
   resources?: {
     memory?: string; // e.g. "512MB", "1GB"
     storage?: string; // e.g. "5MB", "50MB" — max quota for extension_storage
+    /**
+     * Per-tool-call timeout in ms. Default: 30_000 (30s). Raise for
+     * long-running upstream calls — e.g. image generation typically
+     * takes 30-120s, well past the default.
+     */
+    callTimeoutMs?: number;
   };
 
   // Marketplace metadata (optional for local installs)

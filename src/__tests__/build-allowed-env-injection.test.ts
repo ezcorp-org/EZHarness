@@ -166,4 +166,28 @@ describe("ExtensionRegistry — injected env lifecycle", () => {
     expect(registry.clearInjectedEnv("a")).toBe(false);
     expect(registry.clearInjectedEnv("b")).toBe(false);
   });
+
+  test("setInjectedEnvResolver registers a resolver findable by clearInjectedEnv", () => {
+    registry.setInjectedEnvResolver("dyn", async () => ({ X: "1" }));
+    // Clear returns true because a resolver was registered under that name.
+    expect(registry.clearInjectedEnv("dyn")).toBe(true);
+    expect(registry.clearInjectedEnv("dyn")).toBe(false);
+  });
+
+  test("clearInjectedEnv returns true if either static env OR resolver was registered", () => {
+    registry.setInjectedEnv("static-only", { X: "1" });
+    registry.setInjectedEnvResolver("resolver-only", async () => ({ X: "1" }));
+    registry.setInjectedEnv("both", { X: "1" });
+    registry.setInjectedEnvResolver("both", async () => ({ X: "2" }));
+    expect(registry.clearInjectedEnv("static-only")).toBe(true);
+    expect(registry.clearInjectedEnv("resolver-only")).toBe(true);
+    expect(registry.clearInjectedEnv("both")).toBe(true);
+    expect(registry.clearInjectedEnv("unknown")).toBe(false);
+  });
+
+  test("resetInjectedEnvForTests clears resolvers too", () => {
+    registry.setInjectedEnvResolver("a", async () => ({ X: "1" }));
+    registry.resetInjectedEnvForTests();
+    expect(registry.clearInjectedEnv("a")).toBe(false);
+  });
 });

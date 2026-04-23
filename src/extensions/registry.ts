@@ -13,6 +13,11 @@ import { join } from "node:path";
 import { McpClient } from "../mcp/client";
 import { buildSandboxedMcpSpec } from "./mcp-sandbox";
 
+/** Async resolver that produces a fresh env map on each spawn — exported
+ *  so callers can type their resolver fns consistently without pulling in
+ *  the registry class shape. */
+export type InjectedEnvResolver = () => Promise<Readonly<Record<string, string>>>;
+
 // ── Env Building (exported for testability) ─────────────────────
 
 /**
@@ -125,6 +130,11 @@ export class ExtensionRegistry {
    *  Keyed by name because the id is DB-generated but the provisioning
    *  layer only knows the well-known name. */
   private injectedEnvByName = new Map<string, Readonly<Record<string, string>>>();
+  /** extension-NAME -> async resolver, invoked on each spawn to produce a
+   *  fresh env map. Used for credentials that can expire (OAuth tokens) —
+   *  the resolver is responsible for refreshing upstream and returning
+   *  the current token. Overrides the static map for the same name. */
+  private envResolversByName: Map<string, InjectedEnvResolver> = new Map();
 
   private constructor() {}
 
@@ -138,15 +148,28 @@ export class ExtensionRegistry {
     this.injectedEnvByName.set(extensionName, { ...env });
   }
 
+  /** Register an async resolver that produces the env map on each spawn.
+   *  Use for credentials with short lifetimes (OAuth access tokens): the
+   *  resolver can hit the credentials layer to refresh before returning.
+   *  A resolver takes precedence over any static entry for the same name.
+   *  Resolver errors are swallowed — the extension is spawned with no
+   *  injected env and reports its own clean error. */
+  setInjectedEnvResolver(extensionName: string, resolver: InjectedEnvResolver): void {
+    this.envResolversByName.set(extensionName, resolver);
+  }
+
   /** Clear any injected env for the named extension. Use on uninstall so a
    *  stale credential isn't available to a re-registered extension. */
   clearInjectedEnv(extensionName: string): boolean {
-    return this.injectedEnvByName.delete(extensionName);
+    const a = this.injectedEnvByName.delete(extensionName);
+    const b = this.envResolversByName.delete(extensionName);
+    return a || b;
   }
 
   /** Test-only: wipe the injected-env registry. */
   resetInjectedEnvForTests(): void {
     this.injectedEnvByName.clear();
+    this.envResolversByName.clear();
   }
 
   static getInstance(): ExtensionRegistry {
@@ -314,15 +337,34 @@ export class ExtensionRegistry {
     }
     const entrypoint = `${installPath}/${manifest.entrypoint.replace(/^\.\//, "")}`;
     const granted = this.grantedPerms.get(extensionId) ?? { grantedAt: {} };
-    const injected = this.injectedEnvByName.get(manifest.name);
+    const resolver = this.envResolversByName.get(manifest.name);
+    let injected = this.injectedEnvByName.get(manifest.name);
+    if (resolver) {
+      try {
+        injected = await resolver();
+      } catch {
+        // Resolver failed (upstream unreachable, no configured credential).
+        // Spawn with no injected env — the extension surfaces a clean
+        // error to the caller rather than stalling the whole run.
+        injected = undefined;
+      }
+    }
     const allowedEnv = buildAllowedEnv(manifest, granted, extensionId, injected);
 
     const memOpt = manifest.resources?.memory;
     const memoryLimitBytes = memOpt ? parseMemoryLimit(memOpt) : undefined;
+    // Manifest-declared per-call timeout. Extensions that make slow
+    // upstream calls (e.g. image generation) declare a higher value so
+    // the subprocess dispatcher doesn't cut them off at the 30s default.
+    const callTimeoutMs =
+      typeof manifest.resources?.callTimeoutMs === "number" && manifest.resources.callTimeoutMs > 0
+        ? manifest.resources.callTimeoutMs
+        : undefined;
 
     proc = new ExtensionProcess(extensionId, entrypoint, allowedEnv, {
       persistent: manifest.persistent,
       memoryLimitBytes,
+      callTimeoutMs,
       networkAllowed: (granted.network?.length ?? 0) > 0,
       shellAllowed: granted.shell === true,
       ...options,

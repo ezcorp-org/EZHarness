@@ -904,6 +904,73 @@ describe("ToolExecutor", () => {
       expect(result.isError).toBe(false);
     });
 
+    test("argsResolver transforms input BEFORE process.callTool sees it", async () => {
+      const mockProc = makeMockProcess();
+      const tool = makeRegisteredTool({ name: "ext.edit", originalName: "edit", extensionId: "ext-1" });
+      const mockRegistry = makeMockRegistry({
+        tools: new Map([["ext.edit", tool]]),
+        process: mockProc,
+      });
+      const executor = new ToolExecutor(mockRegistry);
+      executor.setArgsResolver(async (input) => {
+        // Simulate handle resolution: replace the single known placeholder.
+        const out = { ...input };
+        if (Array.isArray(out.images)) {
+          out.images = (out.images as string[]).map((s) =>
+            s === "ez-attachment://abc" ? "data:image/png;base64,RESOLVED" : s,
+          );
+        }
+        return out;
+      });
+
+      await executor.executeToolCall(
+        "ext.edit",
+        { prompt: "edit", images: ["ez-attachment://abc"] },
+        "conv-1",
+        "msg-1",
+      );
+
+      // Subprocess observes the RESOLVED payload, never the handle.
+      expect(mockProc.callTool).toHaveBeenCalledWith(
+        "edit",
+        { prompt: "edit", images: ["data:image/png;base64,RESOLVED"] },
+        expect.any(Object),
+      );
+    });
+
+    test("argsResolver runs BEFORE permission check (checker sees resolved payload)", async () => {
+      const mockProc = makeMockProcess();
+      const tool = makeRegisteredTool({ name: "ext.edit", originalName: "edit", extensionId: "ext-1" });
+      const mockRegistry = makeMockRegistry({
+        tools: new Map([["ext.edit", tool]]),
+        process: mockProc,
+      });
+      let seenByChecker: Record<string, unknown> | null = null;
+      const executor = new ToolExecutor(mockRegistry, {
+        permissionChecker: async (_ext, _name, input) => {
+          seenByChecker = input;
+          return true;
+        },
+      });
+      executor.setArgsResolver(async (input) => ({ ...input, marker: "RESOLVED" }));
+
+      await executor.executeToolCall("ext.edit", { prompt: "x" }, "conv-1", "msg-1");
+      expect(seenByChecker).toMatchObject({ marker: "RESOLVED" });
+    });
+
+    test("no argsResolver → input passes through unchanged (back-compat)", async () => {
+      const mockProc = makeMockProcess();
+      const tool = makeRegisteredTool({ name: "ext.echo", originalName: "echo", extensionId: "ext-1" });
+      const mockRegistry = makeMockRegistry({
+        tools: new Map([["ext.echo", tool]]),
+        process: mockProc,
+      });
+      const executor = new ToolExecutor(mockRegistry);
+
+      await executor.executeToolCall("ext.echo", { key: "val" }, "conv-1", "msg-1");
+      expect(mockProc.callTool).toHaveBeenCalledWith("echo", { key: "val" }, expect.any(Object));
+    });
+
     test("returns error result when process.callTool throws", async () => {
       const mockProc = makeMockProcess();
       mockProc.callTool = mock(async () => {
