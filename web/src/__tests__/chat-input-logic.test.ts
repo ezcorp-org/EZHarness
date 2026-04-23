@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { isChatDisabled, chatPlaceholder } from "../lib/chat-input-logic";
+import { isChatDisabled, chatPlaceholder, shouldAutofocusComposer } from "../lib/chat-input-logic";
 
 describe("isChatDisabled", () => {
 	test("disabled when streaming", () => {
@@ -42,5 +42,36 @@ describe("chatPlaceholder", () => {
 
 	test("returns reconnecting message when failed", () => {
 		expect(chatPlaceholder("failed", "Send a message...")).toBe("Reconnecting...");
+	});
+});
+
+describe("shouldAutofocusComposer integration with isChatDisabled", () => {
+	const empty = { loaded: true, messageCount: 0 };
+
+	test("streaming wins over empty/loaded → no autofocus", () => {
+		const disabled = isChatDisabled(true, "connected");
+		expect(shouldAutofocusComposer({ ...empty, disabled })).toBe(false);
+	});
+
+	test("disconnected wins over empty/loaded → no autofocus", () => {
+		const disabled = isChatDisabled(false, "disconnected");
+		expect(shouldAutofocusComposer({ ...empty, disabled })).toBe(false);
+	});
+
+	test("reconnecting wins over empty/loaded → no autofocus", () => {
+		const disabled = isChatDisabled(false, "reconnecting");
+		expect(shouldAutofocusComposer({ ...empty, disabled })).toBe(false);
+	});
+
+	test("connected + not streaming + empty + loaded → autofocus (the happy path)", () => {
+		const disabled = isChatDisabled(false, "connected");
+		expect(shouldAutofocusComposer({ ...empty, disabled })).toBe(true);
+	});
+
+	test("connected + not streaming but conversation has messages → no autofocus", () => {
+		const disabled = isChatDisabled(false, "connected");
+		expect(
+			shouldAutofocusComposer({ loaded: true, messageCount: 3, disabled }),
+		).toBe(false);
 	});
 });

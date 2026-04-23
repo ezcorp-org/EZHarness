@@ -52,6 +52,7 @@
 		onmodechange,
 		onmodecreate,
 		toolbarPosition = "top",
+		autofocus = false,
 	}: {
 		onsubmit: (content: string, attachments?: File[]) => void;
 		onstop: () => void;
@@ -78,6 +79,7 @@
 		onmodechange?: (mode: Mode | null) => void;
 		onmodecreate?: () => void;
 		toolbarPosition?: "top" | "hidden";
+		autofocus?: boolean;
 	} = $props();
 
 	let value = $state("");
@@ -490,6 +492,17 @@
 	export function focus() {
 		textarea?.focus();
 	}
+
+	// Auto-focus the textarea when the parent flips `autofocus` true (e.g. on a
+	// brand-new / empty conversation). rAF defers until after Svelte has painted
+	// the textarea, matching the focus pattern used in mention-select handlers above.
+	$effect(() => {
+		if (!autofocus) return;
+		if (isChatDisabled(streaming, connState)) return;
+		const el = textarea;
+		if (!el) return;
+		requestAnimationFrame(() => el.focus());
+	});
 </script>
 
 <div class="chat-input-container border-t border-[var(--color-border)] bg-[var(--color-surface)] px-4 pt-2 pb-2 {subConversationStore.isInSubConversation ? 'opacity-50 pointer-events-none' : ''}">

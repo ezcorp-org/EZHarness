@@ -97,6 +97,7 @@
 				onsubmit={handleSubmit}
 				onstop={() => {}}
 				streaming={false}
+				autofocus={true}
 				{selectedModel}
 				onmodelchange={handleModelChange}
 				onautoselect={handleAutoselect}

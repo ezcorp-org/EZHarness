@@ -82,6 +82,7 @@
 	import StuckRunBanner from "$lib/components/StuckRunBanner.svelte";
 	import InfoTooltip from "$lib/components/InfoTooltip.svelte";
 	import { parseMentions } from "$lib/mention-logic.js";
+	import { shouldAutofocusComposer } from "$lib/chat-input-logic.js";
 	import {
 		backgroundFetch,
 		userFetch,
@@ -2382,6 +2383,11 @@
 				onsubmit={handleSend}
 				onstop={handleStop}
 				streaming={isStreaming}
+				autofocus={shouldAutofocusComposer({
+					loaded: initialLoadDone,
+					messageCount: allMessages.length,
+					disabled: isStreaming,
+				})}
 				{selectedModel}
 				onmodelchange={handleModelChange}
 				onautoselect={handleModelAutoSelect}
