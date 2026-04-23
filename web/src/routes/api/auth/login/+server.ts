@@ -7,6 +7,7 @@ import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { hashToken, createSession } from "$server/db/queries/sessions";
 import { loginSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
+import { errorJson } from "$lib/server/http-errors";
 
 // sec-L1: constant-time login path. When the user lookup misses (or the
 // account is inactive) we still invoke verifyPassword against a pre-computed
@@ -38,13 +39,13 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
     const dummyHash = await getDummyPasswordHash();
     await verifyPassword(password, dummyHash).catch(() => false);
     await insertAuditEntry(null, "auth:failed_login", undefined, { email });
-    return json({ error: "Invalid credentials" }, { status: 401 });
+    return errorJson(401, "Invalid credentials");
   }
 
   const valid = await verifyPassword(password, user.passwordHash);
   if (!valid) {
     await insertAuditEntry(null, "auth:failed_login", undefined, { email });
-    return json({ error: "Invalid credentials" }, { status: 401 });
+    return errorJson(401, "Invalid credentials");
   }
 
   const secret = await getJwtSecret();

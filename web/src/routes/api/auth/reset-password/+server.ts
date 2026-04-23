@@ -6,6 +6,7 @@ import { createPasswordResetToken } from "$server/db/queries/password-resets";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { generateResetSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
+import { errorJson } from "$lib/server/http-errors";
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   try {
@@ -20,7 +21,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
     const user = await getUserById(userId);
     if (!user) {
-      return json({ error: "User not found" }, { status: 404 });
+      return errorJson(404, "User not found");
     }
 
     // Generate 32-byte random hex token
@@ -41,6 +42,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ ok: true, masked });
   } catch (e) {
     if (e instanceof Response) throw e;
-    return json({ error: "Failed to generate reset token" }, { status: 500 });
+    return errorJson(500, "Failed to generate reset token");
   }
 };

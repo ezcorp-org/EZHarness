@@ -7,6 +7,7 @@ import { importManifestSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import type { ExtensionManifestV2 } from "$server/extensions/types";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -21,7 +22,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const validation = validateManifestV2(manifest);
   if (!validation.valid) {
-    return json({ error: "Invalid manifest", errors: validation.errors }, { status: 400 });
+    return errorJson(400, "Invalid manifest", { errors: validation.errors });
   }
 
   if (manifest.agent) {
@@ -58,5 +59,5 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     );
   }
 
-  return json({ error: "Manifest must include an agent component to be imported" }, { status: 400 });
+  return errorJson(400, "Manifest must include an agent component to be imported");
 };

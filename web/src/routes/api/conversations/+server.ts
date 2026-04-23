@@ -5,6 +5,7 @@ import { requireAuth } from "$server/auth/middleware";
 import { createConversationSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ url, locals }) => {
@@ -12,7 +13,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const projectId = url.searchParams.get("projectId");
-  if (!projectId) return json({ error: "projectId required" }, { status: 400 });
+  if (!projectId) return errorJson(400, "projectId required");
 
   const search = url.searchParams.get("search");
   if (search) {
@@ -43,7 +44,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (body.agentConfigId) {
     const agentConfig = await getAgentConfig(body.agentConfigId);
     if (!agentConfig) {
-      return json({ error: "Agent config not found" }, { status: 404 });
+      return errorJson(404, "Agent config not found");
     }
     systemPrompt = agentConfig.prompt;
     if (!title) title = `Chat with ${agentConfig.name}`;

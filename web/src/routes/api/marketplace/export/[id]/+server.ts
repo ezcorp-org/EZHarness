@@ -1,9 +1,9 @@
-import { json } from "@sveltejs/kit";
 import { requireAuth } from "$server/auth/middleware";
 import { getListingById } from "$server/db/queries/marketplace";
 import { getLatestVersion } from "$server/db/queries/marketplace-versions";
 import type { ExtensionManifestV2 } from "$server/extensions/types";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params, locals }) => {
@@ -13,12 +13,12 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 
   const listing = await getListingById(params.id);
   if (!listing) {
-    return json({ error: "Not found" }, { status: 404 });
+    return errorJson(404, "Not found");
   }
 
   const latestVersion = await getLatestVersion(listing.id);
   if (!latestVersion) {
-    return json({ error: "No versions available" }, { status: 404 });
+    return errorJson(404, "No versions available");
   }
 
   const manifest = { ...(latestVersion.manifest as ExtensionManifestV2) } as ExtensionManifestV2 & { exportedAt?: string };

@@ -5,6 +5,7 @@ import { getCredential } from "$server/providers/credentials";
 import { findModelForProviderInTier, resolveModelObject } from "$server/providers/registry";
 import { complete } from "@mariozechner/pi-ai";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 
 const VALID_PROVIDERS = new Set(["anthropic", "openai", "google"]);
 
@@ -15,7 +16,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 
 	const { provider } = params;
 	if (!provider || !VALID_PROVIDERS.has(provider)) {
-		return json({ error: "Invalid provider. Must be one of: anthropic, openai, google" }, { status: 400 });
+		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google");
 	}
 
 	try {

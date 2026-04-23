@@ -5,6 +5,7 @@ import { runAgentSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import { checkTokenBudget } from "$lib/server/security/resource-quotas";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request, params, locals }) => {
@@ -13,7 +14,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   const user = requireAuth(locals);
   const budget = await checkTokenBudget(user.id);
   if (!budget.allowed) {
-    return json({ error: "Daily token budget exceeded", resetsAt: budget.resetsAt }, { status: 429 });
+    return errorJson(429, "Daily token budget exceeded", { resetsAt: budget.resetsAt });
   }
   const executor = getExecutor();
   const agentName = params.name;
@@ -31,6 +32,6 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     return json(run);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return json({ error: message }, { status: 400 });
+    return errorJson(400, message);
   }
 };

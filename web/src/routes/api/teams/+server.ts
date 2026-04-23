@@ -3,6 +3,7 @@ import { json } from "@sveltejs/kit";
 import { requireAuth, requireRole } from "$server/auth/middleware";
 import { listTeams, createTeam, getUserTeams } from "$server/db/queries/teams";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 
 export const GET: RequestHandler = async ({ locals }) => {
   const scopeErr = requireScope(locals, "read");
@@ -26,7 +27,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     requireRole(locals, "admin");
     const { name } = (await request.json()) as { name?: string };
     if (!name?.trim()) {
-      return json({ error: "Team name is required" }, { status: 400 });
+      return errorJson(400, "Team name is required");
     }
     const team = await createTeam(name.trim());
     return json({ team }, { status: 201 });

@@ -29,6 +29,7 @@ import { requireRole } from "$server/auth/middleware";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { capabilityToolsDisabled } from "$server/extensions/capability-flags";
 import { DIRECT_CARRIER_EVENT_TYPES } from "$server/runtime/sse-conversation-filter";
+import { errorJson } from "$lib/server/http-errors";
 import type { ExtensionPermissions, ExtensionManifestV2 } from "$server/extensions/types";
 import type { RequestHandler } from "./$types";
 
@@ -121,15 +122,15 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 	}
 
 	const ext = await getExtension(params.id);
-	if (!ext) return json({ error: "Not found" }, { status: 404 });
+	if (!ext) return errorJson(404, "Not found");
 
 	// Preserve the sec-C4 invariant that previously lived on PATCH: an
 	// extension with an unresolved security violation cannot be re-enabled.
 	const hasViolation = await hasSecurityViolation(params.id);
 	if (hasViolation) {
-		return json(
-			{ error: "Cannot re-enable extension with security violations. Clear violations first." },
-			{ status: 403 },
+		return errorJson(
+			403,
+			"Cannot re-enable extension with security violations. Clear violations first.",
 		);
 	}
 
@@ -142,7 +143,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 
 	if (submittedPerms !== undefined) {
 		if (!submittedPerms || typeof submittedPerms !== "object" || Array.isArray(submittedPerms)) {
-			return json({ error: "grantedPermissions must be an object" }, { status: 400 });
+			return errorJson(400, "grantedPermissions must be an object");
 		}
 		const manifestPerms = ext.manifest?.permissions ?? {};
 		update.grantedPermissions = clampToManifest(

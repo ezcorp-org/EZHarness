@@ -3,6 +3,7 @@ import * as pipelineQueries from "$server/db/queries/pipelines";
 import { getPipelines, reloadPipelines } from "$lib/server/context";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ locals }) => {
@@ -18,7 +19,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   requireAuth(locals);
   const body = await request.json();
   if (!body.name || !Array.isArray(body.steps) || body.steps.length === 0) {
-    return json({ error: "name and steps required" }, { status: 400 });
+    return errorJson(400, "name and steps required");
   }
 
   const pipeline = await pipelineQueries.createPipeline(body);

@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import { getPipelineExecutor, getPipelines } from "$lib/server/context";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request, params, locals }) => {
@@ -9,7 +10,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   if (scopeErr) return scopeErr;
   requireAuth(locals);
   const pipeline = getPipelines().find((p) => p.name === params.name);
-  if (!pipeline) return json({ error: "Pipeline not found" }, { status: 404 });
+  if (!pipeline) return errorJson(404, "Pipeline not found");
 
   try {
     const body = (await request.json()) as Record<string, unknown>;
@@ -23,6 +24,6 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     return json(run);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return json({ error: message }, { status: 400 });
+    return errorJson(400, message);
   }
 };

@@ -3,6 +3,7 @@ import { getAgentConfigByName } from "$server/db/queries/agent-configs";
 import { deleteTestConversations, getTestConversations } from "$server/db/queries/conversations";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params, locals }) => {
@@ -10,7 +11,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   if (scopeErr) return scopeErr;
   requireAuth(locals);
   const config = await getAgentConfigByName(params.name);
-  if (!config) return json({ error: "Agent not found" }, { status: 404 });
+  if (!config) return errorJson(404, "Agent not found");
 
   const conversations = await getTestConversations(config.id);
   return json(conversations);
@@ -21,7 +22,7 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   if (scopeErr) return scopeErr;
   requireAuth(locals);
   const config = await getAgentConfigByName(params.name);
-  if (!config) return json({ error: "Agent not found" }, { status: 404 });
+  if (!config) return errorJson(404, "Agent not found");
 
   const deleted = await deleteTestConversations(config.id);
   return json({ deleted });

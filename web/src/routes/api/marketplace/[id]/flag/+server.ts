@@ -3,6 +3,7 @@ import { requireAuth } from "$server/auth/middleware";
 import { createFlag, countPendingFlagsByUser } from "$server/db/queries/marketplace-ratings";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 const VALID_CATEGORIES = ["spam", "malicious", "misleading", "inappropriate", "other"] as const;
@@ -16,13 +17,13 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   const { reason, category } = body as { reason: string; category?: string };
 
   if (!reason || typeof reason !== "string" || reason.trim().length === 0) {
-    return json({ error: "reason is required and must be a non-empty string" }, { status: 400 });
+    return errorJson(400, "reason is required and must be a non-empty string");
   }
 
   // Rate limiting: max 5 flags per user per hour
   const recentCount = await countPendingFlagsByUser(user.id);
   if (recentCount >= 5) {
-    return json({ error: "Rate limit exceeded: max 5 flags per hour" }, { status: 429 });
+    return errorJson(429, "Rate limit exceeded: max 5 flags per hour");
   }
 
   const validCategory: FlagCategory = category && VALID_CATEGORIES.includes(category as FlagCategory)

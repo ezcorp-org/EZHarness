@@ -7,6 +7,7 @@ import { verifyPassword, hashPassword } from "$server/auth/password";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { validationError, passwordSchema as passwordFieldSchema } from "$lib/server/security/validation";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 
 const passwordSchema = z.object({
   currentPassword: z.string().min(1, "Current password is required"),
@@ -24,11 +25,11 @@ export const PUT: RequestHandler = async ({ request, locals, cookies }) => {
     const { currentPassword, newPassword } = result.data;
 
     const user = await getUserById(authUser.id);
-    if (!user) return json({ error: "User not found" }, { status: 404 });
+    if (!user) return errorJson(404, "User not found");
 
     const valid = await verifyPassword(currentPassword, user.passwordHash);
     if (!valid) {
-      return json({ error: "Current password is incorrect" }, { status: 400 });
+      return errorJson(400, "Current password is incorrect");
     }
 
     const newHash = await hashPassword(newPassword);

@@ -1,8 +1,8 @@
-import { json } from "@sveltejs/kit";
 import * as convQueries from "$server/db/queries/conversations";
 import { requireAuth } from "$server/auth/middleware";
 import { exportToMarkdown, exportToJson } from "$server/lib/export";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 function sanitizeFilename(name: string): string {
@@ -18,9 +18,9 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
   const conversationId = params.id;
 
   const conv = await convQueries.getConversation(conversationId);
-  if (!conv) return json({ error: "Not found" }, { status: 404 });
+  if (!conv) return errorJson(404, "Not found");
   // sec-H3: fail-closed — unowned rows (null userId) are admin-only
-  if (conv.userId !== user.id && user.role !== "admin") return json({ error: "Not found" }, { status: 404 });
+  if (conv.userId !== user.id && user.role !== "admin") return errorJson(404, "Not found");
 
   // Load branch-aware messages
   let msgs;

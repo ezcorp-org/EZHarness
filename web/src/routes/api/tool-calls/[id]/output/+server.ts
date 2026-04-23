@@ -4,6 +4,7 @@ import { getDb } from "$server/db/connection";
 import { toolCalls } from "$server/db/schema";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params, locals }) => {
@@ -18,7 +19,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 		.where(eq(toolCalls.id, params.id));
 
 	if (rows.length === 0) {
-		return json({ error: "Not found" }, { status: 404 });
+		return errorJson(404, "Not found");
 	}
 
 	// Extract text from ToolCallResult shape: { content: [{ type: "text", text: "..." }] }

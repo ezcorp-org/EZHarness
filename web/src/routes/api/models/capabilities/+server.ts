@@ -3,6 +3,7 @@ import type { RequestHandler } from "./$types";
 import { getCapabilities } from "$server/providers/model-capabilities";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 
 export const GET: RequestHandler = async ({ url, locals }) => {
   const scopeErr = requireScope(locals, "read");
@@ -12,7 +13,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   const provider = url.searchParams.get("provider");
   const model = url.searchParams.get("model");
   if (!provider || !model) {
-    return json({ error: "provider and model query params are required" }, { status: 400 });
+    return errorJson(400, "provider and model query params are required");
   }
   const caps = getCapabilities(provider, model);
   // Avoid leaking the internal delivery-strategy enum to clients; the UI only

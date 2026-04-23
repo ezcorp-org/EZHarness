@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import * as projectQueries from "$server/db/queries/projects";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ locals }) => {
@@ -22,7 +23,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     variables?: Record<string, unknown>;
   };
   if (!body.name || !body.path) {
-    return json({ error: "name and path required" }, { status: 400 });
+    return errorJson(400, "name and path required");
   }
   return json(await projectQueries.createProject(body), { status: 201 });
 };

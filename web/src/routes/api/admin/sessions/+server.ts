@@ -9,6 +9,7 @@ import {
   revokeAllUserSessions,
 } from "$server/db/queries/sessions";
 import { validationError } from "$lib/server/security/validation";
+import { errorJson } from "$lib/server/http-errors";
 
 const deleteSchema = z
   .object({
@@ -69,12 +70,12 @@ export const DELETE: RequestHandler = async ({ request, locals }) => {
     if (sessionId) {
       const deleted = await revokeSession(sessionId);
       if (!deleted) {
-        return json({ error: "Session not found" }, { status: 404 });
+        return errorJson(404, "Session not found");
       }
       return json({ success: true });
     }
 
-    return json({ error: "Either userId or sessionId is required" }, { status: 400 });
+    return errorJson(400, "Either userId or sessionId is required");
   } catch (e) {
     if (e instanceof Response) return e;
     throw e;

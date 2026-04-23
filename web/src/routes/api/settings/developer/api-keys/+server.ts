@@ -13,6 +13,7 @@ import { generateApiKey } from "$lib/server/security/api-keys";
 import { validationError } from "$lib/server/security/validation";
 import { createApiKeySchema, deleteApiKeySchema } from "../schema";
 import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ locals }) => {
@@ -57,6 +58,6 @@ export const DELETE: RequestHandler = async ({ request, locals }) => {
 
   const { keyId } = result.data;
   const deleted = await deleteSetting(`apikey:${user.id}:${keyId}`);
-  if (!deleted) return json({ error: "Key not found" }, { status: 404 });
+  if (!deleted) return errorJson(404, "Key not found");
   return new Response(null, { status: 204 });
 };
