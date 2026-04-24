@@ -45,6 +45,14 @@ describe("GET /api/projects", () => {
 		const body = (await res.json()) as { error?: string };
 		expect(typeof body.error).toBe("string");
 	});
+
+	test("returns 403 when API-key scope missing 'read'", async () => {
+		const user = { id: "u1", email: "u@x", name: "u", role: "user" };
+		const res = await GET(makeGetEvent({ user, apiKeyScopes: ["chat"] }));
+		expect(res.status).toBe(403);
+		const body = (await res.json()) as { required?: string };
+		expect(body.required).toBe("read");
+	});
 });
 
 describe("POST /api/projects", () => {
@@ -54,6 +62,19 @@ describe("POST /api/projects", () => {
 			401,
 		);
 		expect(res.status).toBe(401);
+	});
+
+	test("returns 403 when API-key scope missing 'read'", async () => {
+		const user = { id: "u1", email: "u@x", name: "u", role: "user" };
+		const res = await POST(
+			makePostEvent(
+				{ name: "x", path: "/x" },
+				{ user, apiKeyScopes: ["chat"] },
+			),
+		);
+		expect(res.status).toBe(403);
+		const body = (await res.json()) as { required?: string };
+		expect(body.required).toBe("read");
 	});
 
 	test("rejects 400 when name or path missing (auth'd user)", async () => {
