@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { z } from "zod";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 import { requireAuth } from "$server/auth/middleware";
@@ -9,6 +10,16 @@ import { getExecutor, getBus } from "$lib/server/context";
 import { enqueue } from "$server/runtime/pending-messages";
 import { buildCommandResolver } from "$lib/server/command-resolver";
 import { CURRENT_MODEL_SENTINEL } from "$server/types";
+
+// Boundary validation: the only field the handler reads off the body
+// is `content` (a string the user types into the agent sub-conversation
+// composer). The handler then trims and rejects empty/whitespace-only
+// strings — schema accepts any string, the post-trim "content is
+// required" check stays so the test contract on that exact message is
+// preserved.
+const agentChatBodySchema = z.object({
+  content: z.string(),
+}).passthrough();
 
 /**
  * POST — Send a user message into an agent's sub-conversation.
@@ -24,8 +35,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
 
-  const body = await request.json().catch(() => null);
-  const content = body?.content?.trim();
+  const raw = await request.json().catch(() => null);
+  const parsed = agentChatBodySchema.safeParse(raw);
+  const content = parsed.success ? parsed.data.content.trim() : undefined;
   if (!content) return errorJson(400, "content is required");
 
   // Verify this is a sub-conversation (has a parent)
