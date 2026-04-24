@@ -1,0 +1,1328 @@
+txn_id,property_id,date,account_code,account_name,category,amount,description
+T-50000,P001,2025-05-13,4100,Base Rent Income,Revenue,359243,Base Rent Income — 2025-05
+T-50001,P001,2025-05-05,4200,CAM Recovery Income,Revenue,52892,CAM Recovery Income — 2025-05
+T-50002,P001,2025-05-03,4300,Other Income,Revenue,3921,Other Income — 2025-05
+T-50003,P001,2025-05-09,6500,Management Fee Expense,OpEx,-668,Management Fees — 2025-05
+T-50004,P001,2025-05-07,6200,Utilities Expense,OpEx,-8344,Utilities — 2025-05
+T-50005,P001,2025-05-01,6200,Utilities Expense,OpEx,-3209,Utilities — 2025-05
+T-50006,P001,2025-05-16,6600,Landscaping Expense,OpEx,-10542,Landscaping — 2025-05
+T-50007,P001,2025-05-16,6200,Utilities Expense,OpEx,-5876,Utilities — 2025-05
+T-50008,P001,2025-05-21,6100,Repairs & Maintenance Expense,OpEx,-2692,Repairs & Maintenance — 2025-05
+T-50009,P001,2025-05-05,6800,Admin Expense,OpEx,-906,Administrative — 2025-05
+T-50010,P001,2025-05-16,6100,Repairs & Maintenance Expense,OpEx,-5866,Repairs & Maintenance — 2025-05
+T-50011,P001,2025-05-14,6100,Repairs & Maintenance Expense,OpEx,-7070,Repairs & Maintenance — 2025-05
+T-50012,P001,2025-06-28,4100,Base Rent Income,Revenue,387799,Base Rent Income — 2025-06
+T-50013,P001,2025-06-16,4200,CAM Recovery Income,Revenue,59726,CAM Recovery Income — 2025-06
+T-50014,P001,2025-06-25,4300,Other Income,Revenue,1921,Other Income — 2025-06
+T-50015,P001,2025-06-09,6400,Property Tax Expense,OpEx,-7035,Property Taxes — 2025-06
+T-50016,P001,2025-06-28,6300,Insurance Expense,OpEx,-5751,Insurance — 2025-06
+T-50017,P001,2025-06-01,6400,Property Tax Expense,OpEx,-5929,Property Taxes — 2025-06
+T-50018,P001,2025-06-25,6100,Repairs & Maintenance Expense,OpEx,-606,Repairs & Maintenance — 2025-06
+T-50019,P001,2025-06-07,6500,Management Fee Expense,OpEx,-8674,Management Fees — 2025-06
+T-50020,P001,2025-06-09,6700,Security Expense,OpEx,-540,Security — 2025-06
+T-50021,P001,2025-06-18,6700,Security Expense,OpEx,-4298,Security — 2025-06
+T-50022,P001,2025-06-23,6400,Property Tax Expense,OpEx,-2626,Property Taxes — 2025-06
+T-50023,P001,2025-06-10,6500,Management Fee Expense,OpEx,-8035,Management Fees — 2025-06
+T-50024,P001,2025-06-02,6700,Security Expense,OpEx,-537,Security — 2025-06
+T-50025,P001,2025-07-09,4100,Base Rent Income,Revenue,384916,Base Rent Income — 2025-07
+T-50026,P001,2025-07-22,4200,CAM Recovery Income,Revenue,52863,CAM Recovery Income — 2025-07
+T-50027,P001,2025-07-10,4300,Other Income,Revenue,4661,Other Income — 2025-07
+T-50028,P001,2025-07-15,6800,Admin Expense,OpEx,-6590,Administrative — 2025-07
+T-50029,P001,2025-07-14,6600,Landscaping Expense,OpEx,-5647,Landscaping — 2025-07
+T-50030,P001,2025-07-28,6300,Insurance Expense,OpEx,-1225,Insurance — 2025-07
+T-50031,P001,2025-07-04,6100,Repairs & Maintenance Expense,OpEx,-2792,Repairs & Maintenance — 2025-07
+T-50032,P001,2025-07-07,6800,Admin Expense,OpEx,-8014,Administrative — 2025-07
+T-50033,P001,2025-07-02,6800,Admin Expense,OpEx,-4577,Administrative — 2025-07
+T-50034,P001,2025-07-02,6300,Insurance Expense,OpEx,-2252,Insurance — 2025-07
+T-50035,P001,2025-07-10,6800,Admin Expense,OpEx,-5748,Administrative — 2025-07
+T-50036,P001,2025-07-20,6600,Landscaping Expense,OpEx,-6174,Landscaping — 2025-07
+T-50037,P001,2025-07-03,6600,Landscaping Expense,OpEx,-4839,Landscaping — 2025-07
+T-50038,P001,2025-07-28,6400,Property Tax Expense,OpEx,-7353,Property Taxes — 2025-07
+T-50039,P001,2025-08-16,4100,Base Rent Income,Revenue,379271,Base Rent Income — 2025-08
+T-50040,P001,2025-08-21,4200,CAM Recovery Income,Revenue,61417,CAM Recovery Income — 2025-08
+T-50041,P001,2025-08-02,4300,Other Income,Revenue,6841,Other Income — 2025-08
+T-50042,P001,2025-08-14,6600,Landscaping Expense,OpEx,-5850,Landscaping — 2025-08
+T-50043,P001,2025-08-13,6700,Security Expense,OpEx,-4320,Security — 2025-08
+T-50044,P001,2025-08-18,6200,Utilities Expense,OpEx,-8503,Utilities — 2025-08
+T-50045,P001,2025-08-14,6600,Landscaping Expense,OpEx,-7781,Landscaping — 2025-08
+T-50046,P001,2025-08-16,6300,Insurance Expense,OpEx,-2107,Insurance — 2025-08
+T-50047,P001,2025-08-18,6200,Utilities Expense,OpEx,-885,Utilities — 2025-08
+T-50048,P001,2025-09-14,4100,Base Rent Income,Revenue,345703,Base Rent Income — 2025-09
+T-50049,P001,2025-09-03,4200,CAM Recovery Income,Revenue,52835,CAM Recovery Income — 2025-09
+T-50050,P001,2025-09-04,4300,Other Income,Revenue,5240,Other Income — 2025-09
+T-50051,P001,2025-09-05,6100,Repairs & Maintenance Expense,OpEx,-1347,Repairs & Maintenance — 2025-09
+T-50052,P001,2025-09-11,6600,Landscaping Expense,OpEx,-833,Landscaping — 2025-09
+T-50053,P001,2025-09-16,6700,Security Expense,OpEx,-1108,Security — 2025-09
+T-50054,P001,2025-09-25,6400,Property Tax Expense,OpEx,-8530,Property Taxes — 2025-09
+T-50055,P001,2025-09-14,6800,Admin Expense,OpEx,-2273,Administrative — 2025-09
+T-50056,P001,2025-09-08,6200,Utilities Expense,OpEx,-8575,Utilities — 2025-09
+T-50057,P001,2025-10-16,4100,Base Rent Income,Revenue,361949,Base Rent Income — 2025-10
+T-50058,P001,2025-10-28,4200,CAM Recovery Income,Revenue,60234,CAM Recovery Income — 2025-10
+T-50059,P001,2025-10-16,4300,Other Income,Revenue,2885,Other Income — 2025-10
+T-50060,P001,2025-10-23,6800,Admin Expense,OpEx,-577,Administrative — 2025-10
+T-50061,P001,2025-10-05,6500,Management Fee Expense,OpEx,-9598,Management Fees — 2025-10
+T-50062,P001,2025-10-05,6700,Security Expense,OpEx,-5167,Security — 2025-10
+T-50063,P001,2025-10-14,6300,Insurance Expense,OpEx,-2242,Insurance — 2025-10
+T-50064,P001,2025-10-05,6600,Landscaping Expense,OpEx,-2249,Landscaping — 2025-10
+T-50065,P001,2025-11-25,4100,Base Rent Income,Revenue,341658,Base Rent Income — 2025-11
+T-50066,P001,2025-11-21,4200,CAM Recovery Income,Revenue,56275,CAM Recovery Income — 2025-11
+T-50067,P001,2025-11-25,4300,Other Income,Revenue,6327,Other Income — 2025-11
+T-50068,P001,2025-11-07,6600,Landscaping Expense,OpEx,-2384,Landscaping — 2025-11
+T-50069,P001,2025-11-18,6200,Utilities Expense,OpEx,-7986,Utilities — 2025-11
+T-50070,P001,2025-11-01,6500,Management Fee Expense,OpEx,-10171,Management Fees — 2025-11
+T-50071,P001,2025-11-23,6800,Admin Expense,OpEx,-8872,Administrative — 2025-11
+T-50072,P001,2025-11-06,6400,Property Tax Expense,OpEx,-5860,Property Taxes — 2025-11
+T-50073,P001,2025-11-25,6800,Admin Expense,OpEx,-4734,Administrative — 2025-11
+T-50074,P001,2025-11-14,6700,Security Expense,OpEx,-8477,Security — 2025-11
+T-50075,P001,2025-11-09,6200,Utilities Expense,OpEx,-8766,Utilities — 2025-11
+T-50076,P001,2025-12-09,4100,Base Rent Income,Revenue,378115,Base Rent Income — 2025-12
+T-50077,P001,2025-12-11,4200,CAM Recovery Income,Revenue,58068,CAM Recovery Income — 2025-12
+T-50078,P001,2025-12-27,4300,Other Income,Revenue,5835,Other Income — 2025-12
+T-50079,P001,2025-12-06,6600,Landscaping Expense,OpEx,-7366,Landscaping — 2025-12
+T-50080,P001,2025-12-03,6600,Landscaping Expense,OpEx,-7794,Landscaping — 2025-12
+T-50081,P001,2025-12-11,6300,Insurance Expense,OpEx,-7355,Insurance — 2025-12
+T-50082,P001,2025-12-11,6600,Landscaping Expense,OpEx,-6885,Landscaping — 2025-12
+T-50083,P001,2025-12-03,6800,Admin Expense,OpEx,-3028,Administrative — 2025-12
+T-50084,P001,2025-12-10,6600,Landscaping Expense,OpEx,-9228,Landscaping — 2025-12
+T-50085,P001,2025-12-20,6500,Management Fee Expense,OpEx,-787,Management Fees — 2025-12
+T-50086,P001,2025-12-19,6700,Security Expense,OpEx,-10807,Security — 2025-12
+T-50087,P001,2025-12-12,6200,Utilities Expense,OpEx,-6263,Utilities — 2025-12
+T-50088,P001,2025-12-14,6100,Repairs & Maintenance Expense,OpEx,-7983,Repairs & Maintenance — 2025-12
+T-50089,P001,2026-01-20,4100,Base Rent Income,Revenue,337854,Base Rent Income — 2026-01
+T-50090,P001,2026-01-03,4200,CAM Recovery Income,Revenue,52099,CAM Recovery Income — 2026-01
+T-50091,P001,2026-01-17,4300,Other Income,Revenue,5677,Other Income — 2026-01
+T-50092,P001,2026-01-19,6100,Repairs & Maintenance Expense,OpEx,-8619,Repairs & Maintenance — 2026-01
+T-50093,P001,2026-01-10,6600,Landscaping Expense,OpEx,-3237,Landscaping — 2026-01
+T-50094,P001,2026-01-04,6200,Utilities Expense,OpEx,-8432,Utilities — 2026-01
+T-50095,P001,2026-01-10,6800,Admin Expense,OpEx,-3903,Administrative — 2026-01
+T-50096,P001,2026-01-02,6100,Repairs & Maintenance Expense,OpEx,-3831,Repairs & Maintenance — 2026-01
+T-50097,P001,2026-01-27,6400,Property Tax Expense,OpEx,-7037,Property Taxes — 2026-01
+T-50098,P001,2026-01-01,6800,Admin Expense,OpEx,-5165,Administrative — 2026-01
+T-50099,P001,2026-02-24,4100,Base Rent Income,Revenue,340320,Base Rent Income — 2026-02
+T-50100,P001,2026-02-17,4200,CAM Recovery Income,Revenue,59601,CAM Recovery Income — 2026-02
+T-50101,P001,2026-02-17,4300,Other Income,Revenue,2916,Other Income — 2026-02
+T-50102,P001,2026-02-20,6500,Management Fee Expense,OpEx,-8108,Management Fees — 2026-02
+T-50103,P001,2026-02-26,6300,Insurance Expense,OpEx,-10354,Insurance — 2026-02
+T-50104,P001,2026-02-01,6500,Management Fee Expense,OpEx,-8783,Management Fees — 2026-02
+T-50105,P001,2026-02-17,6500,Management Fee Expense,OpEx,-8403,Management Fees — 2026-02
+T-50106,P001,2026-02-12,6200,Utilities Expense,OpEx,-10149,Utilities — 2026-02
+T-50107,P001,2026-02-14,6300,Insurance Expense,OpEx,-7550,Insurance — 2026-02
+T-50108,P001,2026-02-08,6800,Admin Expense,OpEx,-1536,Administrative — 2026-02
+T-50109,P001,2026-02-19,6700,Security Expense,OpEx,-5609,Security — 2026-02
+T-50110,P001,2026-02-19,6100,Repairs & Maintenance Expense,OpEx,-8538,Repairs & Maintenance — 2026-02
+T-50111,P001,2026-02-10,6800,Admin Expense,OpEx,-1392,Administrative — 2026-02
+T-50112,P001,2026-03-05,4100,Base Rent Income,Revenue,365360,Base Rent Income — 2026-03
+T-50113,P001,2026-03-03,4200,CAM Recovery Income,Revenue,56600,CAM Recovery Income — 2026-03
+T-50114,P001,2026-03-16,4300,Other Income,Revenue,7839,Other Income — 2026-03
+T-50115,P001,2026-03-16,6300,Insurance Expense,OpEx,-533,Insurance — 2026-03
+T-50116,P001,2026-03-25,6200,Utilities Expense,OpEx,-667,Utilities — 2026-03
+T-50117,P001,2026-03-09,6600,Landscaping Expense,OpEx,-4372,Landscaping — 2026-03
+T-50118,P001,2026-03-15,6400,Property Tax Expense,OpEx,-5439,Property Taxes — 2026-03
+T-50119,P001,2026-03-09,6200,Utilities Expense,OpEx,-1507,Utilities — 2026-03
+T-50120,P001,2026-03-05,6200,Utilities Expense,OpEx,-4445,Utilities — 2026-03
+T-50121,P001,2026-03-28,6400,Property Tax Expense,OpEx,-2979,Property Taxes — 2026-03
+T-50122,P001,2026-03-14,6100,Repairs & Maintenance Expense,OpEx,-7532,Repairs & Maintenance — 2026-03
+T-50123,P001,2026-03-12,6300,Insurance Expense,OpEx,-3081,Insurance — 2026-03
+T-50124,P001,2026-03-02,6700,Security Expense,OpEx,-6711,Security — 2026-03
+T-50125,P001,2026-04-23,4100,Base Rent Income,Revenue,336414,Base Rent Income — 2026-04
+T-50126,P001,2026-04-21,4200,CAM Recovery Income,Revenue,59184,CAM Recovery Income — 2026-04
+T-50127,P001,2026-04-20,4300,Other Income,Revenue,2078,Other Income — 2026-04
+T-50128,P001,2026-04-06,6400,Property Tax Expense,OpEx,-8168,Property Taxes — 2026-04
+T-50129,P001,2026-04-09,6600,Landscaping Expense,OpEx,-4765,Landscaping — 2026-04
+T-50130,P001,2026-04-17,6700,Security Expense,OpEx,-7423,Security — 2026-04
+T-50131,P001,2026-04-15,6800,Admin Expense,OpEx,-3927,Administrative — 2026-04
+T-50132,P001,2026-04-23,6500,Management Fee Expense,OpEx,-9149,Management Fees — 2026-04
+T-50133,P001,2026-04-22,6100,Repairs & Maintenance Expense,OpEx,-940,Repairs & Maintenance — 2026-04
+T-50134,P001,2026-04-07,6800,Admin Expense,OpEx,-5576,Administrative — 2026-04
+T-50135,P001,2026-04-04,6700,Security Expense,OpEx,-4077,Security — 2026-04
+T-50136,P001,2026-04-02,6400,Property Tax Expense,OpEx,-4386,Property Taxes — 2026-04
+T-50137,P001,2026-04-02,6600,Landscaping Expense,OpEx,-4472,Landscaping — 2026-04
+T-50138,P001,2026-04-03,6600,Landscaping Expense,OpEx,-3904,Landscaping — 2026-04
+T-50139,P002,2025-05-07,4100,Base Rent Income,Revenue,220347,Base Rent Income — 2025-05
+T-50140,P002,2025-05-16,4200,CAM Recovery Income,Revenue,38104,CAM Recovery Income — 2025-05
+T-50141,P002,2025-05-21,4300,Other Income,Revenue,1388,Other Income — 2025-05
+T-50142,P002,2025-05-11,6400,Property Tax Expense,OpEx,-7147,Property Taxes — 2025-05
+T-50143,P002,2025-05-20,6600,Landscaping Expense,OpEx,-1059,Landscaping — 2025-05
+T-50144,P002,2025-05-04,6400,Property Tax Expense,OpEx,-2951,Property Taxes — 2025-05
+T-50145,P002,2025-05-19,6200,Utilities Expense,OpEx,-2927,Utilities — 2025-05
+T-50146,P002,2025-05-15,6200,Utilities Expense,OpEx,-7047,Utilities — 2025-05
+T-50147,P002,2025-05-25,6200,Utilities Expense,OpEx,-8750,Utilities — 2025-05
+T-50148,P002,2025-05-08,6800,Admin Expense,OpEx,-7905,Administrative — 2025-05
+T-50149,P002,2025-06-15,4100,Base Rent Income,Revenue,221314,Base Rent Income — 2025-06
+T-50150,P002,2025-06-03,4200,CAM Recovery Income,Revenue,32983,CAM Recovery Income — 2025-06
+T-50151,P002,2025-06-24,4300,Other Income,Revenue,3926,Other Income — 2025-06
+T-50152,P002,2025-06-17,6800,Admin Expense,OpEx,-1798,Administrative — 2025-06
+T-50153,P002,2025-06-09,6200,Utilities Expense,OpEx,-3869,Utilities — 2025-06
+T-50154,P002,2025-06-28,6500,Management Fee Expense,OpEx,-5846,Management Fees — 2025-06
+T-50155,P002,2025-06-20,6300,Insurance Expense,OpEx,-2818,Insurance — 2025-06
+T-50156,P002,2025-06-21,6800,Admin Expense,OpEx,-3433,Administrative — 2025-06
+T-50157,P002,2025-06-11,6100,Repairs & Maintenance Expense,OpEx,-8532,Repairs & Maintenance — 2025-06
+T-50158,P002,2025-06-11,6100,Repairs & Maintenance Expense,OpEx,-6105,Repairs & Maintenance — 2025-06
+T-50159,P002,2025-06-26,6800,Admin Expense,OpEx,-3319,Administrative — 2025-06
+T-50160,P002,2025-06-17,6600,Landscaping Expense,OpEx,-3508,Landscaping — 2025-06
+T-50161,P002,2025-07-26,4100,Base Rent Income,Revenue,237930,Base Rent Income — 2025-07
+T-50162,P002,2025-07-07,4200,CAM Recovery Income,Revenue,37236,CAM Recovery Income — 2025-07
+T-50163,P002,2025-07-25,4300,Other Income,Revenue,2244,Other Income — 2025-07
+T-50164,P002,2025-07-08,6300,Insurance Expense,OpEx,-1045,Insurance — 2025-07
+T-50165,P002,2025-07-09,6400,Property Tax Expense,OpEx,-2212,Property Taxes — 2025-07
+T-50166,P002,2025-07-18,6600,Landscaping Expense,OpEx,-6334,Landscaping — 2025-07
+T-50167,P002,2025-07-22,6500,Management Fee Expense,OpEx,-9136,Management Fees — 2025-07
+T-50168,P002,2025-07-08,6100,Repairs & Maintenance Expense,OpEx,-8358,Repairs & Maintenance — 2025-07
+T-50169,P002,2025-07-01,6700,Security Expense,OpEx,-7809,Security — 2025-07
+T-50170,P002,2025-07-17,6200,Utilities Expense,OpEx,-6680,Utilities — 2025-07
+T-50171,P002,2025-08-14,4100,Base Rent Income,Revenue,239677,Base Rent Income — 2025-08
+T-50172,P002,2025-08-25,4200,CAM Recovery Income,Revenue,35158,CAM Recovery Income — 2025-08
+T-50173,P002,2025-08-12,4300,Other Income,Revenue,3591,Other Income — 2025-08
+T-50174,P002,2025-08-03,6300,Insurance Expense,OpEx,-7185,Insurance — 2025-08
+T-50175,P002,2025-08-20,6500,Management Fee Expense,OpEx,-7751,Management Fees — 2025-08
+T-50176,P002,2025-08-28,6700,Security Expense,OpEx,-1222,Security — 2025-08
+T-50177,P002,2025-08-07,6100,Repairs & Maintenance Expense,OpEx,-2787,Repairs & Maintenance — 2025-08
+T-50178,P002,2025-08-15,6600,Landscaping Expense,OpEx,-9926,Landscaping — 2025-08
+T-50179,P002,2025-08-11,6700,Security Expense,OpEx,-889,Security — 2025-08
+T-50180,P002,2025-08-01,6200,Utilities Expense,OpEx,-9347,Utilities — 2025-08
+T-50181,P002,2025-08-06,6400,Property Tax Expense,OpEx,-5092,Property Taxes — 2025-08
+T-50182,P002,2025-09-22,4100,Base Rent Income,Revenue,206549,Base Rent Income — 2025-09
+T-50183,P002,2025-09-11,4200,CAM Recovery Income,Revenue,34581,CAM Recovery Income — 2025-09
+T-50184,P002,2025-09-02,4300,Other Income,Revenue,7906,Other Income — 2025-09
+T-50185,P002,2025-09-25,6600,Landscaping Expense,OpEx,-2099,Landscaping — 2025-09
+T-50186,P002,2025-09-19,6700,Security Expense,OpEx,-373,Security — 2025-09
+T-50187,P002,2025-09-09,6700,Security Expense,OpEx,-8310,Security — 2025-09
+T-50188,P002,2025-09-03,6700,Security Expense,OpEx,-1997,Security — 2025-09
+T-50189,P002,2025-09-06,6400,Property Tax Expense,OpEx,-2718,Property Taxes — 2025-09
+T-50190,P002,2025-09-27,6800,Admin Expense,OpEx,-1407,Administrative — 2025-09
+T-50191,P002,2025-10-15,4100,Base Rent Income,Revenue,221995,Base Rent Income — 2025-10
+T-50192,P002,2025-10-19,4200,CAM Recovery Income,Revenue,32713,CAM Recovery Income — 2025-10
+T-50193,P002,2025-10-04,4300,Other Income,Revenue,6545,Other Income — 2025-10
+T-50194,P002,2025-10-23,6600,Landscaping Expense,OpEx,-3801,Landscaping — 2025-10
+T-50195,P002,2025-10-06,6200,Utilities Expense,OpEx,-3937,Utilities — 2025-10
+T-50196,P002,2025-10-28,6800,Admin Expense,OpEx,-8635,Administrative — 2025-10
+T-50197,P002,2025-10-06,6700,Security Expense,OpEx,-2483,Security — 2025-10
+T-50198,P002,2025-10-28,6100,Repairs & Maintenance Expense,OpEx,-770,Repairs & Maintenance — 2025-10
+T-50199,P002,2025-10-22,6100,Repairs & Maintenance Expense,OpEx,-4087,Repairs & Maintenance — 2025-10
+T-50200,P002,2025-11-15,4100,Base Rent Income,Revenue,238573,Base Rent Income — 2025-11
+T-50201,P002,2025-11-19,4200,CAM Recovery Income,Revenue,32488,CAM Recovery Income — 2025-11
+T-50202,P002,2025-11-26,4300,Other Income,Revenue,5335,Other Income — 2025-11
+T-50203,P002,2025-11-17,6300,Insurance Expense,OpEx,-5816,Insurance — 2025-11
+T-50204,P002,2025-11-11,6200,Utilities Expense,OpEx,-3756,Utilities — 2025-11
+T-50205,P002,2025-11-28,6200,Utilities Expense,OpEx,-8004,Utilities — 2025-11
+T-50206,P002,2025-11-01,6100,Repairs & Maintenance Expense,OpEx,-5462,Repairs & Maintenance — 2025-11
+T-50207,P002,2025-11-01,6100,Repairs & Maintenance Expense,OpEx,-7624,Repairs & Maintenance — 2025-11
+T-50208,P002,2025-11-19,6800,Admin Expense,OpEx,-7684,Administrative — 2025-11
+T-50209,P002,2025-11-07,6700,Security Expense,OpEx,-2014,Security — 2025-11
+T-50210,P002,2025-11-28,6500,Management Fee Expense,OpEx,-9341,Management Fees — 2025-11
+T-50211,P002,2025-12-07,4100,Base Rent Income,Revenue,212888,Base Rent Income — 2025-12
+T-50212,P002,2025-12-15,4200,CAM Recovery Income,Revenue,36408,CAM Recovery Income — 2025-12
+T-50213,P002,2025-12-15,4300,Other Income,Revenue,5873,Other Income — 2025-12
+T-50214,P002,2025-12-18,6800,Admin Expense,OpEx,-1243,Administrative — 2025-12
+T-50215,P002,2025-12-22,6800,Admin Expense,OpEx,-3712,Administrative — 2025-12
+T-50216,P002,2025-12-02,6200,Utilities Expense,OpEx,-653,Utilities — 2025-12
+T-50217,P002,2025-12-15,6600,Landscaping Expense,OpEx,-2365,Landscaping — 2025-12
+T-50218,P002,2025-12-13,6600,Landscaping Expense,OpEx,-5994,Landscaping — 2025-12
+T-50219,P002,2025-12-22,6600,Landscaping Expense,OpEx,-9404,Landscaping — 2025-12
+T-50220,P002,2025-12-18,6500,Management Fee Expense,OpEx,-4171,Management Fees — 2025-12
+T-50221,P002,2025-12-21,6100,Repairs & Maintenance Expense,OpEx,-8286,Repairs & Maintenance — 2025-12
+T-50222,P002,2025-12-23,6800,Admin Expense,OpEx,-4806,Administrative — 2025-12
+T-50223,P002,2025-12-19,6800,Admin Expense,OpEx,-3438,Administrative — 2025-12
+T-50224,P002,2026-01-11,4100,Base Rent Income,Revenue,220311,Base Rent Income — 2026-01
+T-50225,P002,2026-01-21,4200,CAM Recovery Income,Revenue,37575,CAM Recovery Income — 2026-01
+T-50226,P002,2026-01-27,4300,Other Income,Revenue,2738,Other Income — 2026-01
+T-50227,P002,2026-01-01,6600,Landscaping Expense,OpEx,-6265,Landscaping — 2026-01
+T-50228,P002,2026-01-19,6300,Insurance Expense,OpEx,-2466,Insurance — 2026-01
+T-50229,P002,2026-01-07,6300,Insurance Expense,OpEx,-9280,Insurance — 2026-01
+T-50230,P002,2026-01-07,6700,Security Expense,OpEx,-9586,Security — 2026-01
+T-50231,P002,2026-01-20,6200,Utilities Expense,OpEx,-7993,Utilities — 2026-01
+T-50232,P002,2026-01-13,6200,Utilities Expense,OpEx,-11144,Utilities — 2026-01
+T-50233,P002,2026-01-14,6500,Management Fee Expense,OpEx,-7838,Management Fees — 2026-01
+T-50234,P002,2026-01-02,6500,Management Fee Expense,OpEx,-7150,Management Fees — 2026-01
+T-50235,P002,2026-01-10,6500,Management Fee Expense,OpEx,-4612,Management Fees — 2026-01
+T-50236,P002,2026-02-22,4100,Base Rent Income,Revenue,210329,Base Rent Income — 2026-02
+T-50237,P002,2026-02-06,4200,CAM Recovery Income,Revenue,32507,CAM Recovery Income — 2026-02
+T-50238,P002,2026-02-14,4300,Other Income,Revenue,3081,Other Income — 2026-02
+T-50239,P002,2026-02-08,6100,Repairs & Maintenance Expense,OpEx,-7128,Repairs & Maintenance — 2026-02
+T-50240,P002,2026-02-23,6400,Property Tax Expense,OpEx,-6168,Property Taxes — 2026-02
+T-50241,P002,2026-02-02,6100,Repairs & Maintenance Expense,OpEx,-8286,Repairs & Maintenance — 2026-02
+T-50242,P002,2026-02-23,6300,Insurance Expense,OpEx,-7244,Insurance — 2026-02
+T-50243,P002,2026-02-18,6200,Utilities Expense,OpEx,-5065,Utilities — 2026-02
+T-50244,P002,2026-02-23,6800,Admin Expense,OpEx,-4765,Administrative — 2026-02
+T-50245,P002,2026-02-04,6500,Management Fee Expense,OpEx,-8334,Management Fees — 2026-02
+T-50246,P002,2026-02-11,6100,Repairs & Maintenance Expense,OpEx,-5717,Repairs & Maintenance — 2026-02
+T-50247,P002,2026-02-18,6800,Admin Expense,OpEx,-7580,Administrative — 2026-02
+T-50248,P002,2026-02-02,6100,Repairs & Maintenance Expense,OpEx,-3189,Repairs & Maintenance — 2026-02
+T-50249,P002,2026-02-17,6500,Management Fee Expense,OpEx,-5789,Management Fees — 2026-02
+T-50250,P002,2026-03-10,4100,Base Rent Income,Revenue,212408,Base Rent Income — 2026-03
+T-50251,P002,2026-03-23,4200,CAM Recovery Income,Revenue,38298,CAM Recovery Income — 2026-03
+T-50252,P002,2026-03-23,4300,Other Income,Revenue,6458,Other Income — 2026-03
+T-50253,P002,2026-03-23,6600,Landscaping Expense,OpEx,-4853,Landscaping — 2026-03
+T-50254,P002,2026-03-22,6600,Landscaping Expense,OpEx,-5465,Landscaping — 2026-03
+T-50255,P002,2026-03-13,6500,Management Fee Expense,OpEx,-8345,Management Fees — 2026-03
+T-50256,P002,2026-03-17,6400,Property Tax Expense,OpEx,-3196,Property Taxes — 2026-03
+T-50257,P002,2026-03-10,6500,Management Fee Expense,OpEx,-4569,Management Fees — 2026-03
+T-50258,P002,2026-03-13,6400,Property Tax Expense,OpEx,-3730,Property Taxes — 2026-03
+T-50259,P002,2026-03-27,6400,Property Tax Expense,OpEx,-1379,Property Taxes — 2026-03
+T-50260,P002,2026-03-01,6500,Management Fee Expense,OpEx,-5248,Management Fees — 2026-03
+T-50261,P002,2026-03-20,6700,Security Expense,OpEx,-4136,Security — 2026-03
+T-50262,P002,2026-03-19,6800,Admin Expense,OpEx,-7093,Administrative — 2026-03
+T-50263,P002,2026-04-17,4100,Base Rent Income,Revenue,209035,Base Rent Income — 2026-04
+T-50264,P002,2026-04-09,4200,CAM Recovery Income,Revenue,33918,CAM Recovery Income — 2026-04
+T-50265,P002,2026-04-14,4300,Other Income,Revenue,3999,Other Income — 2026-04
+T-50266,P002,2026-04-11,6800,Admin Expense,OpEx,-896,Administrative — 2026-04
+T-50267,P002,2026-04-18,6700,Security Expense,OpEx,-6997,Security — 2026-04
+T-50268,P002,2026-04-26,6500,Management Fee Expense,OpEx,-6863,Management Fees — 2026-04
+T-50269,P002,2026-04-19,6300,Insurance Expense,OpEx,-8764,Insurance — 2026-04
+T-50270,P002,2026-04-14,6400,Property Tax Expense,OpEx,-5020,Property Taxes — 2026-04
+T-50271,P002,2026-04-09,6300,Insurance Expense,OpEx,-7025,Insurance — 2026-04
+T-50272,P002,2026-04-18,6700,Security Expense,OpEx,-607,Security — 2026-04
+T-50273,P002,2026-04-06,6200,Utilities Expense,OpEx,-4734,Utilities — 2026-04
+T-50274,P002,2026-04-23,6100,Repairs & Maintenance Expense,OpEx,-892,Repairs & Maintenance — 2026-04
+T-50275,P002,2026-04-26,6800,Admin Expense,OpEx,-1848,Administrative — 2026-04
+T-50276,P003,2025-05-15,4100,Base Rent Income,Revenue,586204,Base Rent Income — 2025-05
+T-50277,P003,2025-05-24,4200,CAM Recovery Income,Revenue,93510,CAM Recovery Income — 2025-05
+T-50278,P003,2025-05-14,4300,Other Income,Revenue,6752,Other Income — 2025-05
+T-50279,P003,2025-05-10,6200,Utilities Expense,OpEx,-6734,Utilities — 2025-05
+T-50280,P003,2025-05-09,6800,Admin Expense,OpEx,-6213,Administrative — 2025-05
+T-50281,P003,2025-05-03,6500,Management Fee Expense,OpEx,-10048,Management Fees — 2025-05
+T-50282,P003,2025-05-21,6400,Property Tax Expense,OpEx,-8274,Property Taxes — 2025-05
+T-50283,P003,2025-05-22,6800,Admin Expense,OpEx,-4456,Administrative — 2025-05
+T-50284,P003,2025-05-19,6300,Insurance Expense,OpEx,-8098,Insurance — 2025-05
+T-50285,P003,2025-05-03,6400,Property Tax Expense,OpEx,-4029,Property Taxes — 2025-05
+T-50286,P003,2025-05-11,6500,Management Fee Expense,OpEx,-6185,Management Fees — 2025-05
+T-50287,P003,2025-05-15,6200,Utilities Expense,OpEx,-2594,Utilities — 2025-05
+T-50288,P003,2025-05-23,6800,Admin Expense,OpEx,-4184,Administrative — 2025-05
+T-50289,P003,2025-05-13,6800,Admin Expense,OpEx,-1578,Administrative — 2025-05
+T-50290,P003,2025-06-14,4100,Base Rent Income,Revenue,567998,Base Rent Income — 2025-06
+T-50291,P003,2025-06-09,4200,CAM Recovery Income,Revenue,86762,CAM Recovery Income — 2025-06
+T-50292,P003,2025-06-10,4300,Other Income,Revenue,3536,Other Income — 2025-06
+T-50293,P003,2025-06-22,6700,Security Expense,OpEx,-8504,Security — 2025-06
+T-50294,P003,2025-06-18,6400,Property Tax Expense,OpEx,-5672,Property Taxes — 2025-06
+T-50295,P003,2025-06-17,6200,Utilities Expense,OpEx,-3275,Utilities — 2025-06
+T-50296,P003,2025-06-13,6800,Admin Expense,OpEx,-8285,Administrative — 2025-06
+T-50297,P003,2025-06-12,6700,Security Expense,OpEx,-10231,Security — 2025-06
+T-50298,P003,2025-06-15,6300,Insurance Expense,OpEx,-4209,Insurance — 2025-06
+T-50299,P003,2025-06-09,6500,Management Fee Expense,OpEx,-4117,Management Fees — 2025-06
+T-50300,P003,2025-07-04,4100,Base Rent Income,Revenue,567878,Base Rent Income — 2025-07
+T-50301,P003,2025-07-06,4200,CAM Recovery Income,Revenue,82618,CAM Recovery Income — 2025-07
+T-50302,P003,2025-07-02,4300,Other Income,Revenue,2075,Other Income — 2025-07
+T-50303,P003,2025-07-21,6200,Utilities Expense,OpEx,-10992,Utilities — 2025-07
+T-50304,P003,2025-07-12,6800,Admin Expense,OpEx,-3319,Administrative — 2025-07
+T-50305,P003,2025-07-23,6100,Repairs & Maintenance Expense,OpEx,-7750,Repairs & Maintenance — 2025-07
+T-50306,P003,2025-07-09,6100,Repairs & Maintenance Expense,OpEx,-1941,Repairs & Maintenance — 2025-07
+T-50307,P003,2025-07-14,6600,Landscaping Expense,OpEx,-9720,Landscaping — 2025-07
+T-50308,P003,2025-07-05,6600,Landscaping Expense,OpEx,-3856,Landscaping — 2025-07
+T-50309,P003,2025-07-26,6400,Property Tax Expense,OpEx,-802,Property Taxes — 2025-07
+T-50310,P003,2025-07-06,6700,Security Expense,OpEx,-5277,Security — 2025-07
+T-50311,P003,2025-07-19,6700,Security Expense,OpEx,-7617,Security — 2025-07
+T-50312,P003,2025-07-22,6800,Admin Expense,OpEx,-1228,Administrative — 2025-07
+T-50313,P003,2025-07-11,6500,Management Fee Expense,OpEx,-8804,Management Fees — 2025-07
+T-50314,P003,2025-08-18,4100,Base Rent Income,Revenue,532800,Base Rent Income — 2025-08
+T-50315,P003,2025-08-23,4200,CAM Recovery Income,Revenue,81955,CAM Recovery Income — 2025-08
+T-50316,P003,2025-08-26,4300,Other Income,Revenue,673,Other Income — 2025-08
+T-50317,P003,2025-08-09,6400,Property Tax Expense,OpEx,-3961,Property Taxes — 2025-08
+T-50318,P003,2025-08-14,6700,Security Expense,OpEx,-2729,Security — 2025-08
+T-50319,P003,2025-08-05,6500,Management Fee Expense,OpEx,-2266,Management Fees — 2025-08
+T-50320,P003,2025-08-03,6100,Repairs & Maintenance Expense,OpEx,-1448,Repairs & Maintenance — 2025-08
+T-50321,P003,2025-08-12,6600,Landscaping Expense,OpEx,-8446,Landscaping — 2025-08
+T-50322,P003,2025-08-16,6700,Security Expense,OpEx,-6875,Security — 2025-08
+T-50323,P003,2025-08-18,6300,Insurance Expense,OpEx,-1559,Insurance — 2025-08
+T-50324,P003,2025-09-20,4100,Base Rent Income,Revenue,530158,Base Rent Income — 2025-09
+T-50325,P003,2025-09-17,4200,CAM Recovery Income,Revenue,78815,CAM Recovery Income — 2025-09
+T-50326,P003,2025-09-02,4300,Other Income,Revenue,2362,Other Income — 2025-09
+T-50327,P003,2025-09-13,6700,Security Expense,OpEx,-2912,Security — 2025-09
+T-50328,P003,2025-09-12,6100,Repairs & Maintenance Expense,OpEx,-8206,Repairs & Maintenance — 2025-09
+T-50329,P003,2025-09-15,6600,Landscaping Expense,OpEx,-7684,Landscaping — 2025-09
+T-50330,P003,2025-09-18,6700,Security Expense,OpEx,-2872,Security — 2025-09
+T-50331,P003,2025-09-18,6700,Security Expense,OpEx,-6008,Security — 2025-09
+T-50332,P003,2025-09-13,6500,Management Fee Expense,OpEx,-3415,Management Fees — 2025-09
+T-50333,P003,2025-09-02,6800,Admin Expense,OpEx,-5301,Administrative — 2025-09
+T-50334,P003,2025-09-21,6600,Landscaping Expense,OpEx,-3247,Landscaping — 2025-09
+T-50335,P003,2025-09-21,6700,Security Expense,OpEx,-2097,Security — 2025-09
+T-50336,P003,2025-09-27,6100,Repairs & Maintenance Expense,OpEx,-1317,Repairs & Maintenance — 2025-09
+T-50337,P003,2025-09-02,6400,Property Tax Expense,OpEx,-8577,Property Taxes — 2025-09
+T-50338,P003,2025-10-05,4100,Base Rent Income,Revenue,502728,Base Rent Income — 2025-10
+T-50339,P003,2025-10-16,4200,CAM Recovery Income,Revenue,84130,CAM Recovery Income — 2025-10
+T-50340,P003,2025-10-20,4300,Other Income,Revenue,7028,Other Income — 2025-10
+T-50341,P003,2025-10-01,6100,Repairs & Maintenance Expense,OpEx,-9309,Repairs & Maintenance — 2025-10
+T-50342,P003,2025-10-20,6800,Admin Expense,OpEx,-2798,Administrative — 2025-10
+T-50343,P003,2025-10-24,6700,Security Expense,OpEx,-7071,Security — 2025-10
+T-50344,P003,2025-10-01,6600,Landscaping Expense,OpEx,-6277,Landscaping — 2025-10
+T-50345,P003,2025-10-03,6700,Security Expense,OpEx,-4810,Security — 2025-10
+T-50346,P003,2025-10-17,6500,Management Fee Expense,OpEx,-2635,Management Fees — 2025-10
+T-50347,P003,2025-10-11,6200,Utilities Expense,OpEx,-6051,Utilities — 2025-10
+T-50348,P003,2025-11-28,4100,Base Rent Income,Revenue,498089,Base Rent Income — 2025-11
+T-50349,P003,2025-11-21,4200,CAM Recovery Income,Revenue,90115,CAM Recovery Income — 2025-11
+T-50350,P003,2025-11-12,4300,Other Income,Revenue,5482,Other Income — 2025-11
+T-50351,P003,2025-11-03,6500,Management Fee Expense,OpEx,-7839,Management Fees — 2025-11
+T-50352,P003,2025-11-24,6400,Property Tax Expense,OpEx,-8672,Property Taxes — 2025-11
+T-50353,P003,2025-11-03,6600,Landscaping Expense,OpEx,-9902,Landscaping — 2025-11
+T-50354,P003,2025-11-28,6400,Property Tax Expense,OpEx,-4079,Property Taxes — 2025-11
+T-50355,P003,2025-11-10,6200,Utilities Expense,OpEx,-5974,Utilities — 2025-11
+T-50356,P003,2025-12-19,4100,Base Rent Income,Revenue,546969,Base Rent Income — 2025-12
+T-50357,P003,2025-12-03,4200,CAM Recovery Income,Revenue,89205,CAM Recovery Income — 2025-12
+T-50358,P003,2025-12-28,4300,Other Income,Revenue,2773,Other Income — 2025-12
+T-50359,P003,2025-12-03,6100,Repairs & Maintenance Expense,OpEx,-4843,Repairs & Maintenance — 2025-12
+T-50360,P003,2025-12-19,6700,Security Expense,OpEx,-5730,Security — 2025-12
+T-50361,P003,2025-12-05,6300,Insurance Expense,OpEx,-4281,Insurance — 2025-12
+T-50362,P003,2025-12-10,6600,Landscaping Expense,OpEx,-5144,Landscaping — 2025-12
+T-50363,P003,2025-12-16,6300,Insurance Expense,OpEx,-1740,Insurance — 2025-12
+T-50364,P003,2025-12-05,6500,Management Fee Expense,OpEx,-5689,Management Fees — 2025-12
+T-50365,P003,2025-12-10,6800,Admin Expense,OpEx,-2039,Administrative — 2025-12
+T-50366,P003,2025-12-14,6800,Admin Expense,OpEx,-9738,Administrative — 2025-12
+T-50367,P003,2026-01-18,4100,Base Rent Income,Revenue,513938,Base Rent Income — 2026-01
+T-50368,P003,2026-01-14,4200,CAM Recovery Income,Revenue,84251,CAM Recovery Income — 2026-01
+T-50369,P003,2026-01-10,4300,Other Income,Revenue,6487,Other Income — 2026-01
+T-50370,P003,2026-01-13,6200,Utilities Expense,OpEx,-6594,Utilities — 2026-01
+T-50371,P003,2026-01-01,6500,Management Fee Expense,OpEx,-4202,Management Fees — 2026-01
+T-50372,P003,2026-01-09,6500,Management Fee Expense,OpEx,-5216,Management Fees — 2026-01
+T-50373,P003,2026-01-14,6300,Insurance Expense,OpEx,-3981,Insurance — 2026-01
+T-50374,P003,2026-01-03,6600,Landscaping Expense,OpEx,-5579,Landscaping — 2026-01
+T-50375,P003,2026-01-14,6300,Insurance Expense,OpEx,-755,Insurance — 2026-01
+T-50376,P003,2026-02-27,4100,Base Rent Income,Revenue,585592,Base Rent Income — 2026-02
+T-50377,P003,2026-02-22,4200,CAM Recovery Income,Revenue,83930,CAM Recovery Income — 2026-02
+T-50378,P003,2026-02-18,4300,Other Income,Revenue,7138,Other Income — 2026-02
+T-50379,P003,2026-02-22,6800,Admin Expense,OpEx,-5654,Administrative — 2026-02
+T-50380,P003,2026-02-10,6400,Property Tax Expense,OpEx,-6342,Property Taxes — 2026-02
+T-50381,P003,2026-02-08,6600,Landscaping Expense,OpEx,-535,Landscaping — 2026-02
+T-50382,P003,2026-02-01,6700,Security Expense,OpEx,-2153,Security — 2026-02
+T-50383,P003,2026-02-07,6700,Security Expense,OpEx,-9827,Security — 2026-02
+T-50384,P003,2026-02-26,6700,Security Expense,OpEx,-6836,Security — 2026-02
+T-50385,P003,2026-03-09,4100,Base Rent Income,Revenue,515294,Base Rent Income — 2026-03
+T-50386,P003,2026-03-09,4200,CAM Recovery Income,Revenue,87067,CAM Recovery Income — 2026-03
+T-50387,P003,2026-03-23,4300,Other Income,Revenue,652,Other Income — 2026-03
+T-50388,P003,2026-03-09,6500,Management Fee Expense,OpEx,-9260,Management Fees — 2026-03
+T-50389,P003,2026-03-17,6700,Security Expense,OpEx,-3522,Security — 2026-03
+T-50390,P003,2026-03-11,6500,Management Fee Expense,OpEx,-913,Management Fees — 2026-03
+T-50391,P003,2026-03-17,6800,Admin Expense,OpEx,-5957,Administrative — 2026-03
+T-50392,P003,2026-03-14,6700,Security Expense,OpEx,-4761,Security — 2026-03
+T-50393,P003,2026-03-19,6200,Utilities Expense,OpEx,-2012,Utilities — 2026-03
+T-50394,P003,2026-03-27,6100,Repairs & Maintenance Expense,OpEx,-2161,Repairs & Maintenance — 2026-03
+T-50395,P003,2026-04-24,4100,Base Rent Income,Revenue,518103,Base Rent Income — 2026-04
+T-50396,P003,2026-04-09,4200,CAM Recovery Income,Revenue,88974,CAM Recovery Income — 2026-04
+T-50397,P003,2026-04-06,4300,Other Income,Revenue,3374,Other Income — 2026-04
+T-50398,P003,2026-04-15,6500,Management Fee Expense,OpEx,-3017,Management Fees — 2026-04
+T-50399,P003,2026-04-02,6800,Admin Expense,OpEx,-7660,Administrative — 2026-04
+T-50400,P003,2026-04-15,6700,Security Expense,OpEx,-5174,Security — 2026-04
+T-50401,P003,2026-04-23,6600,Landscaping Expense,OpEx,-9333,Landscaping — 2026-04
+T-50402,P003,2026-04-01,6500,Management Fee Expense,OpEx,-6149,Management Fees — 2026-04
+T-50403,P003,2026-04-14,6500,Management Fee Expense,OpEx,-8163,Management Fees — 2026-04
+T-50404,P003,2026-04-05,6200,Utilities Expense,OpEx,-6944,Utilities — 2026-04
+T-50405,P004,2025-05-08,4100,Base Rent Income,Revenue,775240,Base Rent Income — 2025-05
+T-50406,P004,2025-05-26,4200,CAM Recovery Income,Revenue,117078,CAM Recovery Income — 2025-05
+T-50407,P004,2025-05-03,4300,Other Income,Revenue,5479,Other Income — 2025-05
+T-50408,P004,2025-05-15,6300,Insurance Expense,OpEx,-8528,Insurance — 2025-05
+T-50409,P004,2025-05-05,6800,Admin Expense,OpEx,-9812,Administrative — 2025-05
+T-50410,P004,2025-05-14,6300,Insurance Expense,OpEx,-7316,Insurance — 2025-05
+T-50411,P004,2025-05-03,6100,Repairs & Maintenance Expense,OpEx,-7985,Repairs & Maintenance — 2025-05
+T-50412,P004,2025-05-06,6100,Repairs & Maintenance Expense,OpEx,-3897,Repairs & Maintenance — 2025-05
+T-50413,P004,2025-05-24,6800,Admin Expense,OpEx,-10276,Administrative — 2025-05
+T-50414,P004,2025-05-19,6200,Utilities Expense,OpEx,-1538,Utilities — 2025-05
+T-50415,P004,2025-05-22,6800,Admin Expense,OpEx,-6843,Administrative — 2025-05
+T-50416,P004,2025-05-13,6800,Admin Expense,OpEx,-418,Administrative — 2025-05
+T-50417,P004,2025-05-26,6500,Management Fee Expense,OpEx,-3951,Management Fees — 2025-05
+T-50418,P004,2025-05-10,6400,Property Tax Expense,OpEx,-6836,Property Taxes — 2025-05
+T-50419,P004,2025-06-01,4100,Base Rent Income,Revenue,742362,Base Rent Income — 2025-06
+T-50420,P004,2025-06-16,4200,CAM Recovery Income,Revenue,113830,CAM Recovery Income — 2025-06
+T-50421,P004,2025-06-06,4300,Other Income,Revenue,779,Other Income — 2025-06
+T-50422,P004,2025-06-25,6600,Landscaping Expense,OpEx,-10353,Landscaping — 2025-06
+T-50423,P004,2025-06-27,6400,Property Tax Expense,OpEx,-6807,Property Taxes — 2025-06
+T-50424,P004,2025-06-16,6500,Management Fee Expense,OpEx,-5952,Management Fees — 2025-06
+T-50425,P004,2025-06-16,6800,Admin Expense,OpEx,-3436,Administrative — 2025-06
+T-50426,P004,2025-06-02,6700,Security Expense,OpEx,-8141,Security — 2025-06
+T-50427,P004,2025-06-16,6800,Admin Expense,OpEx,-7505,Administrative — 2025-06
+T-50428,P004,2025-07-01,4100,Base Rent Income,Revenue,831984,Base Rent Income — 2025-07
+T-50429,P004,2025-07-18,4200,CAM Recovery Income,Revenue,115191,CAM Recovery Income — 2025-07
+T-50430,P004,2025-07-14,4300,Other Income,Revenue,5009,Other Income — 2025-07
+T-50431,P004,2025-07-20,6200,Utilities Expense,OpEx,-3839,Utilities — 2025-07
+T-50432,P004,2025-07-25,6200,Utilities Expense,OpEx,-5965,Utilities — 2025-07
+T-50433,P004,2025-07-02,6600,Landscaping Expense,OpEx,-2997,Landscaping — 2025-07
+T-50434,P004,2025-07-08,6200,Utilities Expense,OpEx,-1331,Utilities — 2025-07
+T-50435,P004,2025-07-19,6500,Management Fee Expense,OpEx,-4350,Management Fees — 2025-07
+T-50436,P004,2025-07-15,6800,Admin Expense,OpEx,-6889,Administrative — 2025-07
+T-50437,P004,2025-08-05,4100,Base Rent Income,Revenue,843021,Base Rent Income — 2025-08
+T-50438,P004,2025-08-16,4200,CAM Recovery Income,Revenue,122891,CAM Recovery Income — 2025-08
+T-50439,P004,2025-08-21,4300,Other Income,Revenue,7364,Other Income — 2025-08
+T-50440,P004,2025-08-23,6400,Property Tax Expense,OpEx,-4855,Property Taxes — 2025-08
+T-50441,P004,2025-08-11,6400,Property Tax Expense,OpEx,-1281,Property Taxes — 2025-08
+T-50442,P004,2025-08-18,6800,Admin Expense,OpEx,-1261,Administrative — 2025-08
+T-50443,P004,2025-08-14,6400,Property Tax Expense,OpEx,-6541,Property Taxes — 2025-08
+T-50444,P004,2025-08-26,6800,Admin Expense,OpEx,-6199,Administrative — 2025-08
+T-50445,P004,2025-08-05,6800,Admin Expense,OpEx,-1376,Administrative — 2025-08
+T-50446,P004,2025-08-10,6500,Management Fee Expense,OpEx,-3515,Management Fees — 2025-08
+T-50447,P004,2025-09-09,4100,Base Rent Income,Revenue,735697,Base Rent Income — 2025-09
+T-50448,P004,2025-09-09,4200,CAM Recovery Income,Revenue,134848,CAM Recovery Income — 2025-09
+T-50449,P004,2025-09-05,4300,Other Income,Revenue,3986,Other Income — 2025-09
+T-50450,P004,2025-09-02,6700,Security Expense,OpEx,-1183,Security — 2025-09
+T-50451,P004,2025-09-20,6200,Utilities Expense,OpEx,-7484,Utilities — 2025-09
+T-50452,P004,2025-09-10,6100,Repairs & Maintenance Expense,OpEx,-6444,Repairs & Maintenance — 2025-09
+T-50453,P004,2025-09-08,6300,Insurance Expense,OpEx,-7905,Insurance — 2025-09
+T-50454,P004,2025-09-25,6600,Landscaping Expense,OpEx,-6818,Landscaping — 2025-09
+T-50455,P004,2025-09-20,6100,Repairs & Maintenance Expense,OpEx,-2721,Repairs & Maintenance — 2025-09
+T-50456,P004,2025-09-16,6700,Security Expense,OpEx,-7663,Security — 2025-09
+T-50457,P004,2025-09-07,6700,Security Expense,OpEx,-7536,Security — 2025-09
+T-50458,P004,2025-10-10,4100,Base Rent Income,Revenue,757886,Base Rent Income — 2025-10
+T-50459,P004,2025-10-17,4200,CAM Recovery Income,Revenue,112203,CAM Recovery Income — 2025-10
+T-50460,P004,2025-10-09,4300,Other Income,Revenue,5644,Other Income — 2025-10
+T-50461,P004,2025-10-16,6100,Repairs & Maintenance Expense,OpEx,-7481,Repairs & Maintenance — 2025-10
+T-50462,P004,2025-10-16,6300,Insurance Expense,OpEx,-1295,Insurance — 2025-10
+T-50463,P004,2025-10-27,6300,Insurance Expense,OpEx,-8237,Insurance — 2025-10
+T-50464,P004,2025-10-14,6700,Security Expense,OpEx,-1899,Security — 2025-10
+T-50465,P004,2025-10-20,6200,Utilities Expense,OpEx,-8345,Utilities — 2025-10
+T-50466,P004,2025-11-22,4100,Base Rent Income,Revenue,749717,Base Rent Income — 2025-11
+T-50467,P004,2025-11-16,4200,CAM Recovery Income,Revenue,128905,CAM Recovery Income — 2025-11
+T-50468,P004,2025-11-25,4300,Other Income,Revenue,7296,Other Income — 2025-11
+T-50469,P004,2025-11-08,6200,Utilities Expense,OpEx,-8810,Utilities — 2025-11
+T-50470,P004,2025-11-26,6200,Utilities Expense,OpEx,-5411,Utilities — 2025-11
+T-50471,P004,2025-11-08,6800,Admin Expense,OpEx,-10092,Administrative — 2025-11
+T-50472,P004,2025-11-28,6500,Management Fee Expense,OpEx,-4918,Management Fees — 2025-11
+T-50473,P004,2025-11-06,6100,Repairs & Maintenance Expense,OpEx,-8985,Repairs & Maintenance — 2025-11
+T-50474,P004,2025-11-23,6300,Insurance Expense,OpEx,-7839,Insurance — 2025-11
+T-50475,P004,2025-11-02,6400,Property Tax Expense,OpEx,-9717,Property Taxes — 2025-11
+T-50476,P004,2025-11-02,6600,Landscaping Expense,OpEx,-8465,Landscaping — 2025-11
+T-50477,P004,2025-11-07,6200,Utilities Expense,OpEx,-7182,Utilities — 2025-11
+T-50478,P004,2025-12-19,4100,Base Rent Income,Revenue,753239,Base Rent Income — 2025-12
+T-50479,P004,2025-12-28,4200,CAM Recovery Income,Revenue,118374,CAM Recovery Income — 2025-12
+T-50480,P004,2025-12-08,4300,Other Income,Revenue,6815,Other Income — 2025-12
+T-50481,P004,2025-12-11,6200,Utilities Expense,OpEx,-4204,Utilities — 2025-12
+T-50482,P004,2025-12-22,6500,Management Fee Expense,OpEx,-5837,Management Fees — 2025-12
+T-50483,P004,2025-12-18,6100,Repairs & Maintenance Expense,OpEx,-4000,Repairs & Maintenance — 2025-12
+T-50484,P004,2025-12-23,6800,Admin Expense,OpEx,-8782,Administrative — 2025-12
+T-50485,P004,2025-12-14,6600,Landscaping Expense,OpEx,-5753,Landscaping — 2025-12
+T-50486,P004,2025-12-05,6500,Management Fee Expense,OpEx,-1420,Management Fees — 2025-12
+T-50487,P004,2025-12-15,6400,Property Tax Expense,OpEx,-10409,Property Taxes — 2025-12
+T-50488,P004,2026-01-21,4100,Base Rent Income,Revenue,838335,Base Rent Income — 2026-01
+T-50489,P004,2026-01-06,4200,CAM Recovery Income,Revenue,116853,CAM Recovery Income — 2026-01
+T-50490,P004,2026-01-13,4300,Other Income,Revenue,1957,Other Income — 2026-01
+T-50491,P004,2026-01-14,6400,Property Tax Expense,OpEx,-8772,Property Taxes — 2026-01
+T-50492,P004,2026-01-19,6600,Landscaping Expense,OpEx,-8076,Landscaping — 2026-01
+T-50493,P004,2026-01-03,6100,Repairs & Maintenance Expense,OpEx,-7568,Repairs & Maintenance — 2026-01
+T-50494,P004,2026-01-22,6600,Landscaping Expense,OpEx,-10406,Landscaping — 2026-01
+T-50495,P004,2026-01-05,6600,Landscaping Expense,OpEx,-1506,Landscaping — 2026-01
+T-50496,P004,2026-01-12,6600,Landscaping Expense,OpEx,-9533,Landscaping — 2026-01
+T-50497,P004,2026-01-08,6400,Property Tax Expense,OpEx,-9040,Property Taxes — 2026-01
+T-50498,P004,2026-01-06,6500,Management Fee Expense,OpEx,-6168,Management Fees — 2026-01
+T-50499,P004,2026-02-08,4100,Base Rent Income,Revenue,737625,Base Rent Income — 2026-02
+T-50500,P004,2026-02-11,4200,CAM Recovery Income,Revenue,120524,CAM Recovery Income — 2026-02
+T-50501,P004,2026-02-17,4300,Other Income,Revenue,7891,Other Income — 2026-02
+T-50502,P004,2026-02-19,6500,Management Fee Expense,OpEx,-2631,Management Fees — 2026-02
+T-50503,P004,2026-02-03,6800,Admin Expense,OpEx,-9863,Administrative — 2026-02
+T-50504,P004,2026-02-14,6100,Repairs & Maintenance Expense,OpEx,-5682,Repairs & Maintenance — 2026-02
+T-50505,P004,2026-02-05,6200,Utilities Expense,OpEx,-5830,Utilities — 2026-02
+T-50506,P004,2026-02-01,6800,Admin Expense,OpEx,-2391,Administrative — 2026-02
+T-50507,P004,2026-02-06,6700,Security Expense,OpEx,-2270,Security — 2026-02
+T-50508,P004,2026-03-07,4100,Base Rent Income,Revenue,850169,Base Rent Income — 2026-03
+T-50509,P004,2026-03-23,4200,CAM Recovery Income,Revenue,117839,CAM Recovery Income — 2026-03
+T-50510,P004,2026-03-14,4300,Other Income,Revenue,3962,Other Income — 2026-03
+T-50511,P004,2026-03-26,6500,Management Fee Expense,OpEx,-4258,Management Fees — 2026-03
+T-50512,P004,2026-03-21,6800,Admin Expense,OpEx,-8760,Administrative — 2026-03
+T-50513,P004,2026-03-13,6800,Admin Expense,OpEx,-3142,Administrative — 2026-03
+T-50514,P004,2026-03-09,6300,Insurance Expense,OpEx,-8411,Insurance — 2026-03
+T-50515,P004,2026-03-07,6100,Repairs & Maintenance Expense,OpEx,-3935,Repairs & Maintenance — 2026-03
+T-50516,P004,2026-04-25,4100,Base Rent Income,Revenue,850021,Base Rent Income — 2026-04
+T-50517,P004,2026-04-28,4200,CAM Recovery Income,Revenue,119302,CAM Recovery Income — 2026-04
+T-50518,P004,2026-04-14,4300,Other Income,Revenue,3178,Other Income — 2026-04
+T-50519,P004,2026-04-18,6400,Property Tax Expense,OpEx,-4858,Property Taxes — 2026-04
+T-50520,P004,2026-04-14,6500,Management Fee Expense,OpEx,-10868,Management Fees — 2026-04
+T-50521,P004,2026-04-21,6500,Management Fee Expense,OpEx,-8151,Management Fees — 2026-04
+T-50522,P004,2026-04-13,6300,Insurance Expense,OpEx,-7766,Insurance — 2026-04
+T-50523,P004,2026-04-11,6800,Admin Expense,OpEx,-6022,Administrative — 2026-04
+T-50524,P004,2026-04-02,6200,Utilities Expense,OpEx,-6688,Utilities — 2026-04
+T-50525,P005,2025-05-18,4100,Base Rent Income,Revenue,521402,Base Rent Income — 2025-05
+T-50526,P005,2025-05-10,4200,CAM Recovery Income,Revenue,74525,CAM Recovery Income — 2025-05
+T-50527,P005,2025-05-16,4300,Other Income,Revenue,5665,Other Income — 2025-05
+T-50528,P005,2025-05-05,6100,Repairs & Maintenance Expense,OpEx,-10452,Repairs & Maintenance — 2025-05
+T-50529,P005,2025-05-05,6500,Management Fee Expense,OpEx,-2785,Management Fees — 2025-05
+T-50530,P005,2025-05-14,6600,Landscaping Expense,OpEx,-3758,Landscaping — 2025-05
+T-50531,P005,2025-05-27,6500,Management Fee Expense,OpEx,-5339,Management Fees — 2025-05
+T-50532,P005,2025-05-12,6200,Utilities Expense,OpEx,-3109,Utilities — 2025-05
+T-50533,P005,2025-05-18,6400,Property Tax Expense,OpEx,-3961,Property Taxes — 2025-05
+T-50534,P005,2025-05-14,6500,Management Fee Expense,OpEx,-4475,Management Fees — 2025-05
+T-50535,P005,2025-05-22,6100,Repairs & Maintenance Expense,OpEx,-1938,Repairs & Maintenance — 2025-05
+T-50536,P005,2025-06-03,4100,Base Rent Income,Revenue,508695,Base Rent Income — 2025-06
+T-50537,P005,2025-06-16,4200,CAM Recovery Income,Revenue,85617,CAM Recovery Income — 2025-06
+T-50538,P005,2025-06-01,4300,Other Income,Revenue,6717,Other Income — 2025-06
+T-50539,P005,2025-06-13,6800,Admin Expense,OpEx,-5214,Administrative — 2025-06
+T-50540,P005,2025-06-24,6100,Repairs & Maintenance Expense,OpEx,-1639,Repairs & Maintenance — 2025-06
+T-50541,P005,2025-06-03,6100,Repairs & Maintenance Expense,OpEx,-3506,Repairs & Maintenance — 2025-06
+T-50542,P005,2025-06-14,6400,Property Tax Expense,OpEx,-3064,Property Taxes — 2025-06
+T-50543,P005,2025-06-14,6400,Property Tax Expense,OpEx,-3842,Property Taxes — 2025-06
+T-50544,P005,2025-06-02,6100,Repairs & Maintenance Expense,OpEx,-3925,Repairs & Maintenance — 2025-06
+T-50545,P005,2025-06-28,6500,Management Fee Expense,OpEx,-7485,Management Fees — 2025-06
+T-50546,P005,2025-06-05,6400,Property Tax Expense,OpEx,-3625,Property Taxes — 2025-06
+T-50547,P005,2025-06-27,6200,Utilities Expense,OpEx,-677,Utilities — 2025-06
+T-50548,P005,2025-07-01,4100,Base Rent Income,Revenue,472021,Base Rent Income — 2025-07
+T-50549,P005,2025-07-12,4200,CAM Recovery Income,Revenue,72567,CAM Recovery Income — 2025-07
+T-50550,P005,2025-07-25,4300,Other Income,Revenue,2504,Other Income — 2025-07
+T-50551,P005,2025-07-19,6300,Insurance Expense,OpEx,-1289,Insurance — 2025-07
+T-50552,P005,2025-07-22,6700,Security Expense,OpEx,-1776,Security — 2025-07
+T-50553,P005,2025-07-20,6800,Admin Expense,OpEx,-1500,Administrative — 2025-07
+T-50554,P005,2025-07-05,6500,Management Fee Expense,OpEx,-2351,Management Fees — 2025-07
+T-50555,P005,2025-07-18,6600,Landscaping Expense,OpEx,-4888,Landscaping — 2025-07
+T-50556,P005,2025-07-10,6400,Property Tax Expense,OpEx,-4355,Property Taxes — 2025-07
+T-50557,P005,2025-07-12,6100,Repairs & Maintenance Expense,OpEx,-5714,Repairs & Maintenance — 2025-07
+T-50558,P005,2025-08-15,4100,Base Rent Income,Revenue,484051,Base Rent Income — 2025-08
+T-50559,P005,2025-08-20,4200,CAM Recovery Income,Revenue,73781,CAM Recovery Income — 2025-08
+T-50560,P005,2025-08-26,4300,Other Income,Revenue,6693,Other Income — 2025-08
+T-50561,P005,2025-08-20,6300,Insurance Expense,OpEx,-4371,Insurance — 2025-08
+T-50562,P005,2025-08-26,6300,Insurance Expense,OpEx,-852,Insurance — 2025-08
+T-50563,P005,2025-08-04,6200,Utilities Expense,OpEx,-715,Utilities — 2025-08
+T-50564,P005,2025-08-03,6700,Security Expense,OpEx,-6674,Security — 2025-08
+T-50565,P005,2025-08-25,6200,Utilities Expense,OpEx,-4342,Utilities — 2025-08
+T-50566,P005,2025-08-22,6800,Admin Expense,OpEx,-6666,Administrative — 2025-08
+T-50567,P005,2025-08-15,6300,Insurance Expense,OpEx,-6492,Insurance — 2025-08
+T-50568,P005,2025-08-17,6600,Landscaping Expense,OpEx,-3224,Landscaping — 2025-08
+T-50569,P005,2025-08-12,6600,Landscaping Expense,OpEx,-6757,Landscaping — 2025-08
+T-50570,P005,2025-08-07,6100,Repairs & Maintenance Expense,OpEx,-1222,Repairs & Maintenance — 2025-08
+T-50571,P005,2025-09-24,4100,Base Rent Income,Revenue,520830,Base Rent Income — 2025-09
+T-50572,P005,2025-09-07,4200,CAM Recovery Income,Revenue,80099,CAM Recovery Income — 2025-09
+T-50573,P005,2025-09-26,4300,Other Income,Revenue,4544,Other Income — 2025-09
+T-50574,P005,2025-09-18,6700,Security Expense,OpEx,-2898,Security — 2025-09
+T-50575,P005,2025-09-07,6800,Admin Expense,OpEx,-8906,Administrative — 2025-09
+T-50576,P005,2025-09-04,6200,Utilities Expense,OpEx,-10002,Utilities — 2025-09
+T-50577,P005,2025-09-18,6400,Property Tax Expense,OpEx,-5537,Property Taxes — 2025-09
+T-50578,P005,2025-09-01,6300,Insurance Expense,OpEx,-2097,Insurance — 2025-09
+T-50579,P005,2025-09-24,6100,Repairs & Maintenance Expense,OpEx,-4425,Repairs & Maintenance — 2025-09
+T-50580,P005,2025-09-13,6800,Admin Expense,OpEx,-6088,Administrative — 2025-09
+T-50581,P005,2025-09-05,6300,Insurance Expense,OpEx,-2475,Insurance — 2025-09
+T-50582,P005,2025-10-23,4100,Base Rent Income,Revenue,539987,Base Rent Income — 2025-10
+T-50583,P005,2025-10-16,4200,CAM Recovery Income,Revenue,79357,CAM Recovery Income — 2025-10
+T-50584,P005,2025-10-08,4300,Other Income,Revenue,682,Other Income — 2025-10
+T-50585,P005,2025-10-20,6100,Repairs & Maintenance Expense,OpEx,-3721,Repairs & Maintenance — 2025-10
+T-50586,P005,2025-10-05,6100,Repairs & Maintenance Expense,OpEx,-1863,Repairs & Maintenance — 2025-10
+T-50587,P005,2025-10-17,6400,Property Tax Expense,OpEx,-1309,Property Taxes — 2025-10
+T-50588,P005,2025-10-22,6700,Security Expense,OpEx,-4457,Security — 2025-10
+T-50589,P005,2025-10-21,6100,Repairs & Maintenance Expense,OpEx,-5635,Repairs & Maintenance — 2025-10
+T-50590,P005,2025-10-25,6700,Security Expense,OpEx,-7429,Security — 2025-10
+T-50591,P005,2025-11-06,4100,Base Rent Income,Revenue,482947,Base Rent Income — 2025-11
+T-50592,P005,2025-11-18,4200,CAM Recovery Income,Revenue,85185,CAM Recovery Income — 2025-11
+T-50593,P005,2025-11-19,4300,Other Income,Revenue,4165,Other Income — 2025-11
+T-50594,P005,2025-11-26,6100,Repairs & Maintenance Expense,OpEx,-10347,Repairs & Maintenance — 2025-11
+T-50595,P005,2025-11-03,6500,Management Fee Expense,OpEx,-9701,Management Fees — 2025-11
+T-50596,P005,2025-11-19,6300,Insurance Expense,OpEx,-9118,Insurance — 2025-11
+T-50597,P005,2025-11-15,6800,Admin Expense,OpEx,-8173,Administrative — 2025-11
+T-50598,P005,2025-11-15,6300,Insurance Expense,OpEx,-8511,Insurance — 2025-11
+T-50599,P005,2025-11-26,6600,Landscaping Expense,OpEx,-4672,Landscaping — 2025-11
+T-50600,P005,2025-11-04,6200,Utilities Expense,OpEx,-6999,Utilities — 2025-11
+T-50601,P005,2025-11-11,6200,Utilities Expense,OpEx,-2379,Utilities — 2025-11
+T-50602,P005,2025-12-24,4100,Base Rent Income,Revenue,529192,Base Rent Income — 2025-12
+T-50603,P005,2025-12-05,4200,CAM Recovery Income,Revenue,77632,CAM Recovery Income — 2025-12
+T-50604,P005,2025-12-19,4300,Other Income,Revenue,4571,Other Income — 2025-12
+T-50605,P005,2025-12-21,6300,Insurance Expense,OpEx,-6710,Insurance — 2025-12
+T-50606,P005,2025-12-26,6100,Repairs & Maintenance Expense,OpEx,-2328,Repairs & Maintenance — 2025-12
+T-50607,P005,2025-12-23,6700,Security Expense,OpEx,-5157,Security — 2025-12
+T-50608,P005,2025-12-14,6700,Security Expense,OpEx,-7308,Security — 2025-12
+T-50609,P005,2025-12-10,6600,Landscaping Expense,OpEx,-7977,Landscaping — 2025-12
+T-50610,P005,2025-12-23,6100,Repairs & Maintenance Expense,OpEx,-1154,Repairs & Maintenance — 2025-12
+T-50611,P005,2025-12-28,6300,Insurance Expense,OpEx,-1105,Insurance — 2025-12
+T-50612,P005,2025-12-26,6400,Property Tax Expense,OpEx,-8469,Property Taxes — 2025-12
+T-50613,P005,2025-12-23,6100,Repairs & Maintenance Expense,OpEx,-528,Repairs & Maintenance — 2025-12
+T-50614,P005,2026-01-26,4100,Base Rent Income,Revenue,477132,Base Rent Income — 2026-01
+T-50615,P005,2026-01-15,4200,CAM Recovery Income,Revenue,81557,CAM Recovery Income — 2026-01
+T-50616,P005,2026-01-18,4300,Other Income,Revenue,7618,Other Income — 2026-01
+T-50617,P005,2026-01-20,6100,Repairs & Maintenance Expense,OpEx,-4310,Repairs & Maintenance — 2026-01
+T-50618,P005,2026-01-24,6200,Utilities Expense,OpEx,-5754,Utilities — 2026-01
+T-50619,P005,2026-01-15,6500,Management Fee Expense,OpEx,-3983,Management Fees — 2026-01
+T-50620,P005,2026-01-04,6400,Property Tax Expense,OpEx,-595,Property Taxes — 2026-01
+T-50621,P005,2026-01-02,6600,Landscaping Expense,OpEx,-6130,Landscaping — 2026-01
+T-50622,P005,2026-01-12,6800,Admin Expense,OpEx,-1353,Administrative — 2026-01
+T-50623,P005,2026-01-22,6400,Property Tax Expense,OpEx,-2565,Property Taxes — 2026-01
+T-50624,P005,2026-01-02,6700,Security Expense,OpEx,-9565,Security — 2026-01
+T-50625,P005,2026-02-04,4100,Base Rent Income,Revenue,506681,Base Rent Income — 2026-02
+T-50626,P005,2026-02-13,4200,CAM Recovery Income,Revenue,75552,CAM Recovery Income — 2026-02
+T-50627,P005,2026-02-13,4300,Other Income,Revenue,803,Other Income — 2026-02
+T-50628,P005,2026-02-06,6100,Repairs & Maintenance Expense,OpEx,-3503,Repairs & Maintenance — 2026-02
+T-50629,P005,2026-02-20,6100,Repairs & Maintenance Expense,OpEx,-4321,Repairs & Maintenance — 2026-02
+T-50630,P005,2026-02-24,6700,Security Expense,OpEx,-5053,Security — 2026-02
+T-50631,P005,2026-02-07,6800,Admin Expense,OpEx,-10008,Administrative — 2026-02
+T-50632,P005,2026-02-12,6600,Landscaping Expense,OpEx,-10876,Landscaping — 2026-02
+T-50633,P005,2026-02-04,6700,Security Expense,OpEx,-8717,Security — 2026-02
+T-50634,P005,2026-02-23,6800,Admin Expense,OpEx,-5523,Administrative — 2026-02
+T-50635,P005,2026-02-05,6100,Repairs & Maintenance Expense,OpEx,-2646,Repairs & Maintenance — 2026-02
+T-50636,P005,2026-02-24,6300,Insurance Expense,OpEx,-7368,Insurance — 2026-02
+T-50637,P005,2026-02-15,6600,Landscaping Expense,OpEx,-5697,Landscaping — 2026-02
+T-50638,P005,2026-02-08,6700,Security Expense,OpEx,-9350,Security — 2026-02
+T-50639,P005,2026-03-27,4100,Base Rent Income,Revenue,476524,Base Rent Income — 2026-03
+T-50640,P005,2026-03-05,4200,CAM Recovery Income,Revenue,76704,CAM Recovery Income — 2026-03
+T-50641,P005,2026-03-09,4300,Other Income,Revenue,6090,Other Income — 2026-03
+T-50642,P005,2026-03-23,6800,Admin Expense,OpEx,-6456,Administrative — 2026-03
+T-50643,P005,2026-03-05,6700,Security Expense,OpEx,-1154,Security — 2026-03
+T-50644,P005,2026-03-01,6600,Landscaping Expense,OpEx,-8148,Landscaping — 2026-03
+T-50645,P005,2026-03-15,6700,Security Expense,OpEx,-3149,Security — 2026-03
+T-50646,P005,2026-03-19,6600,Landscaping Expense,OpEx,-2933,Landscaping — 2026-03
+T-50647,P005,2026-03-24,6700,Security Expense,OpEx,-4892,Security — 2026-03
+T-50648,P005,2026-03-11,6100,Repairs & Maintenance Expense,OpEx,-1665,Repairs & Maintenance — 2026-03
+T-50649,P005,2026-04-22,4100,Base Rent Income,Revenue,488617,Base Rent Income — 2026-04
+T-50650,P005,2026-04-14,4200,CAM Recovery Income,Revenue,84280,CAM Recovery Income — 2026-04
+T-50651,P005,2026-04-12,4300,Other Income,Revenue,5138,Other Income — 2026-04
+T-50652,P005,2026-04-03,6200,Utilities Expense,OpEx,-8400,Utilities — 2026-04
+T-50653,P005,2026-04-07,6800,Admin Expense,OpEx,-2505,Administrative — 2026-04
+T-50654,P005,2026-04-07,6600,Landscaping Expense,OpEx,-1965,Landscaping — 2026-04
+T-50655,P005,2026-04-25,6700,Security Expense,OpEx,-9884,Security — 2026-04
+T-50656,P005,2026-04-24,6600,Landscaping Expense,OpEx,-4927,Landscaping — 2026-04
+T-50657,P005,2026-04-25,6200,Utilities Expense,OpEx,-4811,Utilities — 2026-04
+T-50658,P006,2025-05-10,4100,Base Rent Income,Revenue,153777,Base Rent Income — 2025-05
+T-50659,P006,2025-05-15,4200,CAM Recovery Income,Revenue,22828,CAM Recovery Income — 2025-05
+T-50660,P006,2025-05-20,4300,Other Income,Revenue,6758,Other Income — 2025-05
+T-50661,P006,2025-05-15,6500,Management Fee Expense,OpEx,-4398,Management Fees — 2025-05
+T-50662,P006,2025-05-07,6400,Property Tax Expense,OpEx,-7666,Property Taxes — 2025-05
+T-50663,P006,2025-05-19,6200,Utilities Expense,OpEx,-9323,Utilities — 2025-05
+T-50664,P006,2025-05-04,6700,Security Expense,OpEx,-4038,Security — 2025-05
+T-50665,P006,2025-05-10,6300,Insurance Expense,OpEx,-5493,Insurance — 2025-05
+T-50666,P006,2025-05-14,6700,Security Expense,OpEx,-984,Security — 2025-05
+T-50667,P006,2025-05-23,6400,Property Tax Expense,OpEx,-9178,Property Taxes — 2025-05
+T-50668,P006,2025-05-12,6600,Landscaping Expense,OpEx,-3571,Landscaping — 2025-05
+T-50669,P006,2025-06-13,4100,Base Rent Income,Revenue,144069,Base Rent Income — 2025-06
+T-50670,P006,2025-06-21,4200,CAM Recovery Income,Revenue,23732,CAM Recovery Income — 2025-06
+T-50671,P006,2025-06-01,4300,Other Income,Revenue,7807,Other Income — 2025-06
+T-50672,P006,2025-06-14,6800,Admin Expense,OpEx,-2635,Administrative — 2025-06
+T-50673,P006,2025-06-15,6200,Utilities Expense,OpEx,-9958,Utilities — 2025-06
+T-50674,P006,2025-06-14,6100,Repairs & Maintenance Expense,OpEx,-3671,Repairs & Maintenance — 2025-06
+T-50675,P006,2025-06-19,6800,Admin Expense,OpEx,-6422,Administrative — 2025-06
+T-50676,P006,2025-06-02,6300,Insurance Expense,OpEx,-2890,Insurance — 2025-06
+T-50677,P006,2025-06-15,6200,Utilities Expense,OpEx,-10366,Utilities — 2025-06
+T-50678,P006,2025-06-22,6800,Admin Expense,OpEx,-9142,Administrative — 2025-06
+T-50679,P006,2025-06-08,6600,Landscaping Expense,OpEx,-8762,Landscaping — 2025-06
+T-50680,P006,2025-06-13,6600,Landscaping Expense,OpEx,-3116,Landscaping — 2025-06
+T-50681,P006,2025-06-14,6200,Utilities Expense,OpEx,-5765,Utilities — 2025-06
+T-50682,P006,2025-06-17,6400,Property Tax Expense,OpEx,-7678,Property Taxes — 2025-06
+T-50683,P006,2025-07-21,4100,Base Rent Income,Revenue,151044,Base Rent Income — 2025-07
+T-50684,P006,2025-07-26,4200,CAM Recovery Income,Revenue,26683,CAM Recovery Income — 2025-07
+T-50685,P006,2025-07-27,4300,Other Income,Revenue,3227,Other Income — 2025-07
+T-50686,P006,2025-07-24,6400,Property Tax Expense,OpEx,-4505,Property Taxes — 2025-07
+T-50687,P006,2025-07-11,6500,Management Fee Expense,OpEx,-1502,Management Fees — 2025-07
+T-50688,P006,2025-07-19,6500,Management Fee Expense,OpEx,-3912,Management Fees — 2025-07
+T-50689,P006,2025-07-13,6200,Utilities Expense,OpEx,-7865,Utilities — 2025-07
+T-50690,P006,2025-07-20,6600,Landscaping Expense,OpEx,-3811,Landscaping — 2025-07
+T-50691,P006,2025-07-10,6200,Utilities Expense,OpEx,-1537,Utilities — 2025-07
+T-50692,P006,2025-07-23,6400,Property Tax Expense,OpEx,-8095,Property Taxes — 2025-07
+T-50693,P006,2025-08-04,4100,Base Rent Income,Revenue,154895,Base Rent Income — 2025-08
+T-50694,P006,2025-08-04,4200,CAM Recovery Income,Revenue,25762,CAM Recovery Income — 2025-08
+T-50695,P006,2025-08-14,4300,Other Income,Revenue,6117,Other Income — 2025-08
+T-50696,P006,2025-08-21,6500,Management Fee Expense,OpEx,-3105,Management Fees — 2025-08
+T-50697,P006,2025-08-18,6300,Insurance Expense,OpEx,-1071,Insurance — 2025-08
+T-50698,P006,2025-08-25,6700,Security Expense,OpEx,-1057,Security — 2025-08
+T-50699,P006,2025-08-19,6800,Admin Expense,OpEx,-9275,Administrative — 2025-08
+T-50700,P006,2025-08-11,6400,Property Tax Expense,OpEx,-6860,Property Taxes — 2025-08
+T-50701,P006,2025-08-14,6700,Security Expense,OpEx,-1904,Security — 2025-08
+T-50702,P006,2025-09-13,4100,Base Rent Income,Revenue,166340,Base Rent Income — 2025-09
+T-50703,P006,2025-09-02,4200,CAM Recovery Income,Revenue,25268,CAM Recovery Income — 2025-09
+T-50704,P006,2025-09-23,4300,Other Income,Revenue,560,Other Income — 2025-09
+T-50705,P006,2025-09-11,6800,Admin Expense,OpEx,-430,Administrative — 2025-09
+T-50706,P006,2025-09-14,6800,Admin Expense,OpEx,-798,Administrative — 2025-09
+T-50707,P006,2025-09-10,6400,Property Tax Expense,OpEx,-8452,Property Taxes — 2025-09
+T-50708,P006,2025-09-22,6700,Security Expense,OpEx,-704,Security — 2025-09
+T-50709,P006,2025-09-02,6700,Security Expense,OpEx,-4990,Security — 2025-09
+T-50710,P006,2025-09-21,6100,Repairs & Maintenance Expense,OpEx,-6599,Repairs & Maintenance — 2025-09
+T-50711,P006,2025-10-17,4100,Base Rent Income,Revenue,163016,Base Rent Income — 2025-10
+T-50712,P006,2025-10-24,4200,CAM Recovery Income,Revenue,25026,CAM Recovery Income — 2025-10
+T-50713,P006,2025-10-21,4300,Other Income,Revenue,3170,Other Income — 2025-10
+T-50714,P006,2025-10-25,6400,Property Tax Expense,OpEx,-6440,Property Taxes — 2025-10
+T-50715,P006,2025-10-22,6100,Repairs & Maintenance Expense,OpEx,-3023,Repairs & Maintenance — 2025-10
+T-50716,P006,2025-10-14,6300,Insurance Expense,OpEx,-8973,Insurance — 2025-10
+T-50717,P006,2025-10-02,6400,Property Tax Expense,OpEx,-4539,Property Taxes — 2025-10
+T-50718,P006,2025-10-18,6300,Insurance Expense,OpEx,-8912,Insurance — 2025-10
+T-50719,P006,2025-10-07,6600,Landscaping Expense,OpEx,-1320,Landscaping — 2025-10
+T-50720,P006,2025-10-05,6300,Insurance Expense,OpEx,-9592,Insurance — 2025-10
+T-50721,P006,2025-10-21,6800,Admin Expense,OpEx,-8327,Administrative — 2025-10
+T-50722,P006,2025-10-08,6700,Security Expense,OpEx,-8212,Security — 2025-10
+T-50723,P006,2025-10-25,6300,Insurance Expense,OpEx,-9592,Insurance — 2025-10
+T-50724,P006,2025-10-21,6100,Repairs & Maintenance Expense,OpEx,-6526,Repairs & Maintenance — 2025-10
+T-50725,P006,2025-11-27,4100,Base Rent Income,Revenue,141477,Base Rent Income — 2025-11
+T-50726,P006,2025-11-25,4200,CAM Recovery Income,Revenue,26829,CAM Recovery Income — 2025-11
+T-50727,P006,2025-11-11,4300,Other Income,Revenue,5464,Other Income — 2025-11
+T-50728,P006,2025-11-05,6400,Property Tax Expense,OpEx,-6843,Property Taxes — 2025-11
+T-50729,P006,2025-11-28,6700,Security Expense,OpEx,-10509,Security — 2025-11
+T-50730,P006,2025-11-07,6300,Insurance Expense,OpEx,-4527,Insurance — 2025-11
+T-50731,P006,2025-11-13,6200,Utilities Expense,OpEx,-5320,Utilities — 2025-11
+T-50732,P006,2025-11-20,6400,Property Tax Expense,OpEx,-5034,Property Taxes — 2025-11
+T-50733,P006,2025-11-06,6800,Admin Expense,OpEx,-10569,Administrative — 2025-11
+T-50734,P006,2025-12-22,4100,Base Rent Income,Revenue,145799,Base Rent Income — 2025-12
+T-50735,P006,2025-12-18,4200,CAM Recovery Income,Revenue,23876,CAM Recovery Income — 2025-12
+T-50736,P006,2025-12-26,4300,Other Income,Revenue,3448,Other Income — 2025-12
+T-50737,P006,2025-12-26,6700,Security Expense,OpEx,-2266,Security — 2025-12
+T-50738,P006,2025-12-06,6200,Utilities Expense,OpEx,-6289,Utilities — 2025-12
+T-50739,P006,2025-12-08,6700,Security Expense,OpEx,-459,Security — 2025-12
+T-50740,P006,2025-12-25,6400,Property Tax Expense,OpEx,-5080,Property Taxes — 2025-12
+T-50741,P006,2025-12-05,6500,Management Fee Expense,OpEx,-4924,Management Fees — 2025-12
+T-50742,P006,2025-12-05,6100,Repairs & Maintenance Expense,OpEx,-8734,Repairs & Maintenance — 2025-12
+T-50743,P006,2025-12-15,6200,Utilities Expense,OpEx,-2115,Utilities — 2025-12
+T-50744,P006,2026-01-15,4100,Base Rent Income,Revenue,142508,Base Rent Income — 2026-01
+T-50745,P006,2026-01-16,4200,CAM Recovery Income,Revenue,26310,CAM Recovery Income — 2026-01
+T-50746,P006,2026-01-24,4300,Other Income,Revenue,7361,Other Income — 2026-01
+T-50747,P006,2026-01-07,6400,Property Tax Expense,OpEx,-2735,Property Taxes — 2026-01
+T-50748,P006,2026-01-01,6300,Insurance Expense,OpEx,-658,Insurance — 2026-01
+T-50749,P006,2026-01-06,6700,Security Expense,OpEx,-7227,Security — 2026-01
+T-50750,P006,2026-01-27,6400,Property Tax Expense,OpEx,-8110,Property Taxes — 2026-01
+T-50751,P006,2026-01-03,6100,Repairs & Maintenance Expense,OpEx,-9053,Repairs & Maintenance — 2026-01
+T-50752,P006,2026-01-20,6500,Management Fee Expense,OpEx,-6907,Management Fees — 2026-01
+T-50753,P006,2026-01-07,6100,Repairs & Maintenance Expense,OpEx,-4729,Repairs & Maintenance — 2026-01
+T-50754,P006,2026-01-12,6500,Management Fee Expense,OpEx,-8056,Management Fees — 2026-01
+T-50755,P006,2026-02-19,4100,Base Rent Income,Revenue,161762,Base Rent Income — 2026-02
+T-50756,P006,2026-02-22,4200,CAM Recovery Income,Revenue,27153,CAM Recovery Income — 2026-02
+T-50757,P006,2026-02-04,4300,Other Income,Revenue,4476,Other Income — 2026-02
+T-50758,P006,2026-02-23,6600,Landscaping Expense,OpEx,-4899,Landscaping — 2026-02
+T-50759,P006,2026-02-19,6500,Management Fee Expense,OpEx,-8918,Management Fees — 2026-02
+T-50760,P006,2026-02-12,6600,Landscaping Expense,OpEx,-572,Landscaping — 2026-02
+T-50761,P006,2026-02-28,6400,Property Tax Expense,OpEx,-658,Property Taxes — 2026-02
+T-50762,P006,2026-02-05,6700,Security Expense,OpEx,-5025,Security — 2026-02
+T-50763,P006,2026-03-27,4100,Base Rent Income,Revenue,159090,Base Rent Income — 2026-03
+T-50764,P006,2026-03-06,4200,CAM Recovery Income,Revenue,25546,CAM Recovery Income — 2026-03
+T-50765,P006,2026-03-12,4300,Other Income,Revenue,5377,Other Income — 2026-03
+T-50766,P006,2026-03-24,6400,Property Tax Expense,OpEx,-769,Property Taxes — 2026-03
+T-50767,P006,2026-03-02,6200,Utilities Expense,OpEx,-494,Utilities — 2026-03
+T-50768,P006,2026-03-03,6200,Utilities Expense,OpEx,-3076,Utilities — 2026-03
+T-50769,P006,2026-03-14,6800,Admin Expense,OpEx,-6547,Administrative — 2026-03
+T-50770,P006,2026-03-03,6300,Insurance Expense,OpEx,-3361,Insurance — 2026-03
+T-50771,P006,2026-04-27,4100,Base Rent Income,Revenue,148563,Base Rent Income — 2026-04
+T-50772,P006,2026-04-28,4200,CAM Recovery Income,Revenue,25066,CAM Recovery Income — 2026-04
+T-50773,P006,2026-04-24,4300,Other Income,Revenue,4144,Other Income — 2026-04
+T-50774,P006,2026-04-16,6600,Landscaping Expense,OpEx,-5460,Landscaping — 2026-04
+T-50775,P006,2026-04-15,6300,Insurance Expense,OpEx,-3681,Insurance — 2026-04
+T-50776,P006,2026-04-11,6200,Utilities Expense,OpEx,-4163,Utilities — 2026-04
+T-50777,P006,2026-04-01,6300,Insurance Expense,OpEx,-5842,Insurance — 2026-04
+T-50778,P006,2026-04-24,6600,Landscaping Expense,OpEx,-3489,Landscaping — 2026-04
+T-50779,P007,2025-05-23,4100,Base Rent Income,Revenue,1054794,Base Rent Income — 2025-05
+T-50780,P007,2025-05-03,4200,CAM Recovery Income,Revenue,152577,CAM Recovery Income — 2025-05
+T-50781,P007,2025-05-26,4300,Other Income,Revenue,5323,Other Income — 2025-05
+T-50782,P007,2025-05-20,6100,Repairs & Maintenance Expense,OpEx,-1373,Repairs & Maintenance — 2025-05
+T-50783,P007,2025-05-04,6700,Security Expense,OpEx,-1156,Security — 2025-05
+T-50784,P007,2025-05-03,6700,Security Expense,OpEx,-4551,Security — 2025-05
+T-50785,P007,2025-05-26,6200,Utilities Expense,OpEx,-8590,Utilities — 2025-05
+T-50786,P007,2025-05-11,6600,Landscaping Expense,OpEx,-9502,Landscaping — 2025-05
+T-50787,P007,2025-06-11,4100,Base Rent Income,Revenue,1089296,Base Rent Income — 2025-06
+T-50788,P007,2025-06-17,4200,CAM Recovery Income,Revenue,175042,CAM Recovery Income — 2025-06
+T-50789,P007,2025-06-23,4300,Other Income,Revenue,6790,Other Income — 2025-06
+T-50790,P007,2025-06-17,6800,Admin Expense,OpEx,-7061,Administrative — 2025-06
+T-50791,P007,2025-06-07,6100,Repairs & Maintenance Expense,OpEx,-2078,Repairs & Maintenance — 2025-06
+T-50792,P007,2025-06-02,6200,Utilities Expense,OpEx,-5041,Utilities — 2025-06
+T-50793,P007,2025-06-06,6200,Utilities Expense,OpEx,-6772,Utilities — 2025-06
+T-50794,P007,2025-06-10,6600,Landscaping Expense,OpEx,-1513,Landscaping — 2025-06
+T-50795,P007,2025-06-05,6300,Insurance Expense,OpEx,-8839,Insurance — 2025-06
+T-50796,P007,2025-06-01,6200,Utilities Expense,OpEx,-2769,Utilities — 2025-06
+T-50797,P007,2025-07-14,4100,Base Rent Income,Revenue,1140690,Base Rent Income — 2025-07
+T-50798,P007,2025-07-25,4200,CAM Recovery Income,Revenue,177812,CAM Recovery Income — 2025-07
+T-50799,P007,2025-07-14,4300,Other Income,Revenue,1361,Other Income — 2025-07
+T-50800,P007,2025-07-06,6800,Admin Expense,OpEx,-9169,Administrative — 2025-07
+T-50801,P007,2025-07-27,6800,Admin Expense,OpEx,-3372,Administrative — 2025-07
+T-50802,P007,2025-07-19,6100,Repairs & Maintenance Expense,OpEx,-4597,Repairs & Maintenance — 2025-07
+T-50803,P007,2025-07-28,6100,Repairs & Maintenance Expense,OpEx,-4171,Repairs & Maintenance — 2025-07
+T-50804,P007,2025-07-05,6200,Utilities Expense,OpEx,-3705,Utilities — 2025-07
+T-50805,P007,2025-07-20,6600,Landscaping Expense,OpEx,-4014,Landscaping — 2025-07
+T-50806,P007,2025-08-22,4100,Base Rent Income,Revenue,980682,Base Rent Income — 2025-08
+T-50807,P007,2025-08-23,4200,CAM Recovery Income,Revenue,157093,CAM Recovery Income — 2025-08
+T-50808,P007,2025-08-11,4300,Other Income,Revenue,1997,Other Income — 2025-08
+T-50809,P007,2025-08-20,6400,Property Tax Expense,OpEx,-6898,Property Taxes — 2025-08
+T-50810,P007,2025-08-15,6600,Landscaping Expense,OpEx,-4634,Landscaping — 2025-08
+T-50811,P007,2025-08-16,6200,Utilities Expense,OpEx,-808,Utilities — 2025-08
+T-50812,P007,2025-08-23,6800,Admin Expense,OpEx,-6139,Administrative — 2025-08
+T-50813,P007,2025-08-17,6500,Management Fee Expense,OpEx,-4344,Management Fees — 2025-08
+T-50814,P007,2025-08-22,6300,Insurance Expense,OpEx,-2584,Insurance — 2025-08
+T-50815,P007,2025-08-01,6200,Utilities Expense,OpEx,-4183,Utilities — 2025-08
+T-50816,P007,2025-09-14,4100,Base Rent Income,Revenue,1019760,Base Rent Income — 2025-09
+T-50817,P007,2025-09-10,4200,CAM Recovery Income,Revenue,159407,CAM Recovery Income — 2025-09
+T-50818,P007,2025-09-16,4300,Other Income,Revenue,3855,Other Income — 2025-09
+T-50819,P007,2025-09-07,6700,Security Expense,OpEx,-9779,Security — 2025-09
+T-50820,P007,2025-09-28,6800,Admin Expense,OpEx,-3280,Administrative — 2025-09
+T-50821,P007,2025-09-16,6200,Utilities Expense,OpEx,-5213,Utilities — 2025-09
+T-50822,P007,2025-09-08,6700,Security Expense,OpEx,-7316,Security — 2025-09
+T-50823,P007,2025-09-28,6400,Property Tax Expense,OpEx,-7386,Property Taxes — 2025-09
+T-50824,P007,2025-10-16,4100,Base Rent Income,Revenue,1040835,Base Rent Income — 2025-10
+T-50825,P007,2025-10-15,4200,CAM Recovery Income,Revenue,182843,CAM Recovery Income — 2025-10
+T-50826,P007,2025-10-05,4300,Other Income,Revenue,2959,Other Income — 2025-10
+T-50827,P007,2025-10-24,6400,Property Tax Expense,OpEx,-10768,Property Taxes — 2025-10
+T-50828,P007,2025-10-11,6400,Property Tax Expense,OpEx,-9224,Property Taxes — 2025-10
+T-50829,P007,2025-10-28,6800,Admin Expense,OpEx,-9037,Administrative — 2025-10
+T-50830,P007,2025-10-02,6500,Management Fee Expense,OpEx,-628,Management Fees — 2025-10
+T-50831,P007,2025-10-10,6500,Management Fee Expense,OpEx,-5386,Management Fees — 2025-10
+T-50832,P007,2025-10-09,6800,Admin Expense,OpEx,-6877,Administrative — 2025-10
+T-50833,P007,2025-11-04,4100,Base Rent Income,Revenue,995732,Base Rent Income — 2025-11
+T-50834,P007,2025-11-25,4200,CAM Recovery Income,Revenue,171710,CAM Recovery Income — 2025-11
+T-50835,P007,2025-11-21,4300,Other Income,Revenue,5322,Other Income — 2025-11
+T-50836,P007,2025-11-21,6800,Admin Expense,OpEx,-10049,Administrative — 2025-11
+T-50837,P007,2025-11-20,6700,Security Expense,OpEx,-10463,Security — 2025-11
+T-50838,P007,2025-11-28,6800,Admin Expense,OpEx,-3192,Administrative — 2025-11
+T-50839,P007,2025-11-07,6600,Landscaping Expense,OpEx,-2364,Landscaping — 2025-11
+T-50840,P007,2025-11-06,6100,Repairs & Maintenance Expense,OpEx,-9716,Repairs & Maintenance — 2025-11
+T-50841,P007,2025-11-16,6600,Landscaping Expense,OpEx,-4603,Landscaping — 2025-11
+T-50842,P007,2025-11-25,6700,Security Expense,OpEx,-937,Security — 2025-11
+T-50843,P007,2025-11-28,6700,Security Expense,OpEx,-6305,Security — 2025-11
+T-50844,P007,2025-11-23,6700,Security Expense,OpEx,-6286,Security — 2025-11
+T-50845,P007,2025-11-08,6800,Admin Expense,OpEx,-850,Administrative — 2025-11
+T-50846,P007,2025-12-21,4100,Base Rent Income,Revenue,1005207,Base Rent Income — 2025-12
+T-50847,P007,2025-12-19,4200,CAM Recovery Income,Revenue,151248,CAM Recovery Income — 2025-12
+T-50848,P007,2025-12-09,4300,Other Income,Revenue,5114,Other Income — 2025-12
+T-50849,P007,2025-12-28,6500,Management Fee Expense,OpEx,-8827,Management Fees — 2025-12
+T-50850,P007,2025-12-27,6500,Management Fee Expense,OpEx,-707,Management Fees — 2025-12
+T-50851,P007,2025-12-07,6200,Utilities Expense,OpEx,-2263,Utilities — 2025-12
+T-50852,P007,2025-12-20,6400,Property Tax Expense,OpEx,-5558,Property Taxes — 2025-12
+T-50853,P007,2025-12-05,6700,Security Expense,OpEx,-2451,Security — 2025-12
+T-50854,P007,2025-12-10,6100,Repairs & Maintenance Expense,OpEx,-2793,Repairs & Maintenance — 2025-12
+T-50855,P007,2025-12-24,6600,Landscaping Expense,OpEx,-8308,Landscaping — 2025-12
+T-50856,P007,2025-12-17,6700,Security Expense,OpEx,-5812,Security — 2025-12
+T-50857,P007,2025-12-26,6300,Insurance Expense,OpEx,-6932,Insurance — 2025-12
+T-50858,P007,2026-01-28,4100,Base Rent Income,Revenue,1126656,Base Rent Income — 2026-01
+T-50859,P007,2026-01-25,4200,CAM Recovery Income,Revenue,153933,CAM Recovery Income — 2026-01
+T-50860,P007,2026-01-03,4300,Other Income,Revenue,6685,Other Income — 2026-01
+T-50861,P007,2026-01-13,6300,Insurance Expense,OpEx,-7445,Insurance — 2026-01
+T-50862,P007,2026-01-18,6700,Security Expense,OpEx,-1943,Security — 2026-01
+T-50863,P007,2026-01-12,6400,Property Tax Expense,OpEx,-9606,Property Taxes — 2026-01
+T-50864,P007,2026-01-13,6400,Property Tax Expense,OpEx,-8307,Property Taxes — 2026-01
+T-50865,P007,2026-01-01,6500,Management Fee Expense,OpEx,-2379,Management Fees — 2026-01
+T-50866,P007,2026-01-22,6200,Utilities Expense,OpEx,-1172,Utilities — 2026-01
+T-50867,P007,2026-01-20,6600,Landscaping Expense,OpEx,-9791,Landscaping — 2026-01
+T-50868,P007,2026-01-22,6200,Utilities Expense,OpEx,-7011,Utilities — 2026-01
+T-50869,P007,2026-01-25,6800,Admin Expense,OpEx,-1724,Administrative — 2026-01
+T-50870,P007,2026-01-03,6700,Security Expense,OpEx,-5976,Security — 2026-01
+T-50871,P007,2026-02-04,4100,Base Rent Income,Revenue,980049,Base Rent Income — 2026-02
+T-50872,P007,2026-02-07,4200,CAM Recovery Income,Revenue,158018,CAM Recovery Income — 2026-02
+T-50873,P007,2026-02-01,4300,Other Income,Revenue,6932,Other Income — 2026-02
+T-50874,P007,2026-02-09,6700,Security Expense,OpEx,-1228,Security — 2026-02
+T-50875,P007,2026-02-11,6800,Admin Expense,OpEx,-4513,Administrative — 2026-02
+T-50876,P007,2026-02-21,6400,Property Tax Expense,OpEx,-3686,Property Taxes — 2026-02
+T-50877,P007,2026-02-08,6500,Management Fee Expense,OpEx,-5754,Management Fees — 2026-02
+T-50878,P007,2026-02-03,6800,Admin Expense,OpEx,-1729,Administrative — 2026-02
+T-50879,P007,2026-03-27,4100,Base Rent Income,Revenue,1023651,Base Rent Income — 2026-03
+T-50880,P007,2026-03-18,4200,CAM Recovery Income,Revenue,177210,CAM Recovery Income — 2026-03
+T-50881,P007,2026-03-26,4300,Other Income,Revenue,685,Other Income — 2026-03
+T-50882,P007,2026-03-08,6100,Repairs & Maintenance Expense,OpEx,-7241,Repairs & Maintenance — 2026-03
+T-50883,P007,2026-03-07,6800,Admin Expense,OpEx,-8715,Administrative — 2026-03
+T-50884,P007,2026-03-03,6100,Repairs & Maintenance Expense,OpEx,-5783,Repairs & Maintenance — 2026-03
+T-50885,P007,2026-03-21,6300,Insurance Expense,OpEx,-8197,Insurance — 2026-03
+T-50886,P007,2026-03-10,6600,Landscaping Expense,OpEx,-9144,Landscaping — 2026-03
+T-50887,P007,2026-03-08,6200,Utilities Expense,OpEx,-8468,Utilities — 2026-03
+T-50888,P007,2026-03-21,6400,Property Tax Expense,OpEx,-2062,Property Taxes — 2026-03
+T-50889,P007,2026-04-15,4100,Base Rent Income,Revenue,1040818,Base Rent Income — 2026-04
+T-50890,P007,2026-04-19,4200,CAM Recovery Income,Revenue,181503,CAM Recovery Income — 2026-04
+T-50891,P007,2026-04-16,4300,Other Income,Revenue,4708,Other Income — 2026-04
+T-50892,P007,2026-04-26,6100,Repairs & Maintenance Expense,OpEx,-2193,Repairs & Maintenance — 2026-04
+T-50893,P007,2026-04-08,6700,Security Expense,OpEx,-1702,Security — 2026-04
+T-50894,P007,2026-04-04,6400,Property Tax Expense,OpEx,-1099,Property Taxes — 2026-04
+T-50895,P007,2026-04-20,6200,Utilities Expense,OpEx,-5755,Utilities — 2026-04
+T-50896,P007,2026-04-28,6200,Utilities Expense,OpEx,-813,Utilities — 2026-04
+T-50897,P007,2026-04-12,6400,Property Tax Expense,OpEx,-3792,Property Taxes — 2026-04
+T-50898,P007,2026-04-26,6100,Repairs & Maintenance Expense,OpEx,-1582,Repairs & Maintenance — 2026-04
+T-50899,P007,2026-04-05,6600,Landscaping Expense,OpEx,-7309,Landscaping — 2026-04
+T-50900,P007,2026-04-24,6200,Utilities Expense,OpEx,-9349,Utilities — 2026-04
+T-50901,P007,2026-04-17,6700,Security Expense,OpEx,-2930,Security — 2026-04
+T-50902,P007,2026-04-06,6200,Utilities Expense,OpEx,-5575,Utilities — 2026-04
+T-50903,P008,2025-05-12,4100,Base Rent Income,Revenue,234219,Base Rent Income — 2025-05
+T-50904,P008,2025-05-20,4200,CAM Recovery Income,Revenue,38544,CAM Recovery Income — 2025-05
+T-50905,P008,2025-05-09,4300,Other Income,Revenue,3405,Other Income — 2025-05
+T-50906,P008,2025-05-06,6700,Security Expense,OpEx,-2719,Security — 2025-05
+T-50907,P008,2025-05-21,6500,Management Fee Expense,OpEx,-5648,Management Fees — 2025-05
+T-50908,P008,2025-05-27,6400,Property Tax Expense,OpEx,-2052,Property Taxes — 2025-05
+T-50909,P008,2025-05-01,6300,Insurance Expense,OpEx,-8507,Insurance — 2025-05
+T-50910,P008,2025-05-26,6800,Admin Expense,OpEx,-8894,Administrative — 2025-05
+T-50911,P008,2025-05-09,6500,Management Fee Expense,OpEx,-546,Management Fees — 2025-05
+T-50912,P008,2025-05-06,6700,Security Expense,OpEx,-3044,Security — 2025-05
+T-50913,P008,2025-05-19,6800,Admin Expense,OpEx,-3920,Administrative — 2025-05
+T-50914,P008,2025-05-02,6800,Admin Expense,OpEx,-8765,Administrative — 2025-05
+T-50915,P008,2025-05-15,6700,Security Expense,OpEx,-7905,Security — 2025-05
+T-50916,P008,2025-06-23,4100,Base Rent Income,Revenue,256637,Base Rent Income — 2025-06
+T-50917,P008,2025-06-24,4200,CAM Recovery Income,Revenue,39172,CAM Recovery Income — 2025-06
+T-50918,P008,2025-06-04,4300,Other Income,Revenue,3374,Other Income — 2025-06
+T-50919,P008,2025-06-25,6600,Landscaping Expense,OpEx,-8776,Landscaping — 2025-06
+T-50920,P008,2025-06-08,6300,Insurance Expense,OpEx,-4288,Insurance — 2025-06
+T-50921,P008,2025-06-28,6400,Property Tax Expense,OpEx,-6160,Property Taxes — 2025-06
+T-50922,P008,2025-06-10,6500,Management Fee Expense,OpEx,-3225,Management Fees — 2025-06
+T-50923,P008,2025-06-18,6800,Admin Expense,OpEx,-4550,Administrative — 2025-06
+T-50924,P008,2025-06-17,6700,Security Expense,OpEx,-6168,Security — 2025-06
+T-50925,P008,2025-06-17,6100,Repairs & Maintenance Expense,OpEx,-9234,Repairs & Maintenance — 2025-06
+T-50926,P008,2025-06-28,6200,Utilities Expense,OpEx,-8498,Utilities — 2025-06
+T-50927,P008,2025-06-12,6100,Repairs & Maintenance Expense,OpEx,-2623,Repairs & Maintenance — 2025-06
+T-50928,P008,2025-07-22,4100,Base Rent Income,Revenue,225103,Base Rent Income — 2025-07
+T-50929,P008,2025-07-06,4200,CAM Recovery Income,Revenue,36924,CAM Recovery Income — 2025-07
+T-50930,P008,2025-07-09,4300,Other Income,Revenue,3189,Other Income — 2025-07
+T-50931,P008,2025-07-06,6400,Property Tax Expense,OpEx,-3834,Property Taxes — 2025-07
+T-50932,P008,2025-07-23,6500,Management Fee Expense,OpEx,-4751,Management Fees — 2025-07
+T-50933,P008,2025-07-17,6800,Admin Expense,OpEx,-4752,Administrative — 2025-07
+T-50934,P008,2025-07-15,6200,Utilities Expense,OpEx,-4924,Utilities — 2025-07
+T-50935,P008,2025-07-27,6700,Security Expense,OpEx,-5031,Security — 2025-07
+T-50936,P008,2025-07-14,6400,Property Tax Expense,OpEx,-6488,Property Taxes — 2025-07
+T-50937,P008,2025-07-20,6800,Admin Expense,OpEx,-6942,Administrative — 2025-07
+T-50938,P008,2025-07-07,6400,Property Tax Expense,OpEx,-8154,Property Taxes — 2025-07
+T-50939,P008,2025-07-05,6600,Landscaping Expense,OpEx,-435,Landscaping — 2025-07
+T-50940,P008,2025-08-01,4100,Base Rent Income,Revenue,220253,Base Rent Income — 2025-08
+T-50941,P008,2025-08-26,4200,CAM Recovery Income,Revenue,34335,CAM Recovery Income — 2025-08
+T-50942,P008,2025-08-24,4300,Other Income,Revenue,6442,Other Income — 2025-08
+T-50943,P008,2025-08-21,6500,Management Fee Expense,OpEx,-4516,Management Fees — 2025-08
+T-50944,P008,2025-08-15,6400,Property Tax Expense,OpEx,-493,Property Taxes — 2025-08
+T-50945,P008,2025-08-02,6500,Management Fee Expense,OpEx,-3711,Management Fees — 2025-08
+T-50946,P008,2025-08-08,6600,Landscaping Expense,OpEx,-8071,Landscaping — 2025-08
+T-50947,P008,2025-08-28,6100,Repairs & Maintenance Expense,OpEx,-1826,Repairs & Maintenance — 2025-08
+T-50948,P008,2025-08-05,6600,Landscaping Expense,OpEx,-8931,Landscaping — 2025-08
+T-50949,P008,2025-08-23,6800,Admin Expense,OpEx,-3503,Administrative — 2025-08
+T-50950,P008,2025-08-19,6100,Repairs & Maintenance Expense,OpEx,-5718,Repairs & Maintenance — 2025-08
+T-50951,P008,2025-08-26,6700,Security Expense,OpEx,-6001,Security — 2025-08
+T-50952,P008,2025-09-19,4100,Base Rent Income,Revenue,220287,Base Rent Income — 2025-09
+T-50953,P008,2025-09-07,4200,CAM Recovery Income,Revenue,35850,CAM Recovery Income — 2025-09
+T-50954,P008,2025-09-18,4300,Other Income,Revenue,4498,Other Income — 2025-09
+T-50955,P008,2025-09-16,6800,Admin Expense,OpEx,-7900,Administrative — 2025-09
+T-50956,P008,2025-09-15,6100,Repairs & Maintenance Expense,OpEx,-7346,Repairs & Maintenance — 2025-09
+T-50957,P008,2025-09-24,6500,Management Fee Expense,OpEx,-2673,Management Fees — 2025-09
+T-50958,P008,2025-09-13,6600,Landscaping Expense,OpEx,-4226,Landscaping — 2025-09
+T-50959,P008,2025-09-19,6100,Repairs & Maintenance Expense,OpEx,-5829,Repairs & Maintenance — 2025-09
+T-50960,P008,2025-09-07,6800,Admin Expense,OpEx,-1197,Administrative — 2025-09
+T-50961,P008,2025-09-16,6800,Admin Expense,OpEx,-7815,Administrative — 2025-09
+T-50962,P008,2025-10-01,4100,Base Rent Income,Revenue,214282,Base Rent Income — 2025-10
+T-50963,P008,2025-10-28,4200,CAM Recovery Income,Revenue,37176,CAM Recovery Income — 2025-10
+T-50964,P008,2025-10-08,4300,Other Income,Revenue,2279,Other Income — 2025-10
+T-50965,P008,2025-10-17,6500,Management Fee Expense,OpEx,-5637,Management Fees — 2025-10
+T-50966,P008,2025-10-28,6700,Security Expense,OpEx,-8778,Security — 2025-10
+T-50967,P008,2025-10-17,6700,Security Expense,OpEx,-2490,Security — 2025-10
+T-50968,P008,2025-10-27,6700,Security Expense,OpEx,-3369,Security — 2025-10
+T-50969,P008,2025-10-17,6400,Property Tax Expense,OpEx,-8797,Property Taxes — 2025-10
+T-50970,P008,2025-10-01,6300,Insurance Expense,OpEx,-3739,Insurance — 2025-10
+T-50971,P008,2025-10-08,6300,Insurance Expense,OpEx,-3290,Insurance — 2025-10
+T-50972,P008,2025-10-14,6600,Landscaping Expense,OpEx,-1970,Landscaping — 2025-10
+T-50973,P008,2025-10-20,6700,Security Expense,OpEx,-7121,Security — 2025-10
+T-50974,P008,2025-11-07,4100,Base Rent Income,Revenue,222555,Base Rent Income — 2025-11
+T-50975,P008,2025-11-16,4200,CAM Recovery Income,Revenue,37987,CAM Recovery Income — 2025-11
+T-50976,P008,2025-11-19,4300,Other Income,Revenue,1442,Other Income — 2025-11
+T-50977,P008,2025-11-13,6500,Management Fee Expense,OpEx,-5102,Management Fees — 2025-11
+T-50978,P008,2025-11-01,6800,Admin Expense,OpEx,-845,Administrative — 2025-11
+T-50979,P008,2025-11-07,6400,Property Tax Expense,OpEx,-734,Property Taxes — 2025-11
+T-50980,P008,2025-11-02,6400,Property Tax Expense,OpEx,-5373,Property Taxes — 2025-11
+T-50981,P008,2025-11-09,6600,Landscaping Expense,OpEx,-776,Landscaping — 2025-11
+T-50982,P008,2025-11-02,6600,Landscaping Expense,OpEx,-2625,Landscaping — 2025-11
+T-50983,P008,2025-11-04,6100,Repairs & Maintenance Expense,OpEx,-6741,Repairs & Maintenance — 2025-11
+T-50984,P008,2025-11-14,6200,Utilities Expense,OpEx,-4132,Utilities — 2025-11
+T-50985,P008,2025-12-13,4100,Base Rent Income,Revenue,242344,Base Rent Income — 2025-12
+T-50986,P008,2025-12-16,4200,CAM Recovery Income,Revenue,39305,CAM Recovery Income — 2025-12
+T-50987,P008,2025-12-12,4300,Other Income,Revenue,6580,Other Income — 2025-12
+T-50988,P008,2025-12-04,6700,Security Expense,OpEx,-4236,Security — 2025-12
+T-50989,P008,2025-12-18,6500,Management Fee Expense,OpEx,-555,Management Fees — 2025-12
+T-50990,P008,2025-12-09,6400,Property Tax Expense,OpEx,-3292,Property Taxes — 2025-12
+T-50991,P008,2025-12-01,6600,Landscaping Expense,OpEx,-857,Landscaping — 2025-12
+T-50992,P008,2025-12-21,6500,Management Fee Expense,OpEx,-628,Management Fees — 2025-12
+T-50993,P008,2025-12-22,6700,Security Expense,OpEx,-9931,Security — 2025-12
+T-50994,P008,2025-12-12,6300,Insurance Expense,OpEx,-9226,Insurance — 2025-12
+T-50995,P008,2025-12-15,6300,Insurance Expense,OpEx,-3780,Insurance — 2025-12
+T-50996,P008,2025-12-07,6100,Repairs & Maintenance Expense,OpEx,-3476,Repairs & Maintenance — 2025-12
+T-50997,P008,2025-12-12,6500,Management Fee Expense,OpEx,-1785,Management Fees — 2025-12
+T-50998,P008,2026-01-11,4100,Base Rent Income,Revenue,235416,Base Rent Income — 2026-01
+T-50999,P008,2026-01-19,4200,CAM Recovery Income,Revenue,38230,CAM Recovery Income — 2026-01
+T-51000,P008,2026-01-18,4300,Other Income,Revenue,6655,Other Income — 2026-01
+T-51001,P008,2026-01-28,6400,Property Tax Expense,OpEx,-1171,Property Taxes — 2026-01
+T-51002,P008,2026-01-12,6500,Management Fee Expense,OpEx,-9340,Management Fees — 2026-01
+T-51003,P008,2026-01-28,6800,Admin Expense,OpEx,-1109,Administrative — 2026-01
+T-51004,P008,2026-01-24,6200,Utilities Expense,OpEx,-3601,Utilities — 2026-01
+T-51005,P008,2026-01-27,6400,Property Tax Expense,OpEx,-6854,Property Taxes — 2026-01
+T-51006,P008,2026-01-24,6500,Management Fee Expense,OpEx,-5720,Management Fees — 2026-01
+T-51007,P008,2026-01-23,6500,Management Fee Expense,OpEx,-8742,Management Fees — 2026-01
+T-51008,P008,2026-01-02,6600,Landscaping Expense,OpEx,-7421,Landscaping — 2026-01
+T-51009,P008,2026-01-09,6100,Repairs & Maintenance Expense,OpEx,-2743,Repairs & Maintenance — 2026-01
+T-51010,P008,2026-01-26,6800,Admin Expense,OpEx,-5729,Administrative — 2026-01
+T-51011,P008,2026-01-25,6400,Property Tax Expense,OpEx,-3670,Property Taxes — 2026-01
+T-51012,P008,2026-02-04,4100,Base Rent Income,Revenue,255279,Base Rent Income — 2026-02
+T-51013,P008,2026-02-13,4200,CAM Recovery Income,Revenue,40657,CAM Recovery Income — 2026-02
+T-51014,P008,2026-02-03,4300,Other Income,Revenue,1896,Other Income — 2026-02
+T-51015,P008,2026-02-28,6200,Utilities Expense,OpEx,-2491,Utilities — 2026-02
+T-51016,P008,2026-02-20,6100,Repairs & Maintenance Expense,OpEx,-5375,Repairs & Maintenance — 2026-02
+T-51017,P008,2026-02-19,6800,Admin Expense,OpEx,-5124,Administrative — 2026-02
+T-51018,P008,2026-02-05,6800,Admin Expense,OpEx,-7639,Administrative — 2026-02
+T-51019,P008,2026-02-19,6500,Management Fee Expense,OpEx,-8301,Management Fees — 2026-02
+T-51020,P008,2026-02-17,6300,Insurance Expense,OpEx,-6921,Insurance — 2026-02
+T-51021,P008,2026-02-07,6800,Admin Expense,OpEx,-3747,Administrative — 2026-02
+T-51022,P008,2026-02-02,6200,Utilities Expense,OpEx,-8994,Utilities — 2026-02
+T-51023,P008,2026-02-24,6700,Security Expense,OpEx,-8477,Security — 2026-02
+T-51024,P008,2026-02-18,6700,Security Expense,OpEx,-7505,Security — 2026-02
+T-51025,P008,2026-03-22,4100,Base Rent Income,Revenue,234966,Base Rent Income — 2026-03
+T-51026,P008,2026-03-12,4200,CAM Recovery Income,Revenue,39988,CAM Recovery Income — 2026-03
+T-51027,P008,2026-03-08,4300,Other Income,Revenue,7427,Other Income — 2026-03
+T-51028,P008,2026-03-13,6400,Property Tax Expense,OpEx,-3514,Property Taxes — 2026-03
+T-51029,P008,2026-03-25,6600,Landscaping Expense,OpEx,-3941,Landscaping — 2026-03
+T-51030,P008,2026-03-11,6100,Repairs & Maintenance Expense,OpEx,-6621,Repairs & Maintenance — 2026-03
+T-51031,P008,2026-03-01,6600,Landscaping Expense,OpEx,-680,Landscaping — 2026-03
+T-51032,P008,2026-03-17,6400,Property Tax Expense,OpEx,-3390,Property Taxes — 2026-03
+T-51033,P008,2026-03-14,6200,Utilities Expense,OpEx,-8184,Utilities — 2026-03
+T-51034,P008,2026-03-08,6700,Security Expense,OpEx,-2857,Security — 2026-03
+T-51035,P008,2026-03-20,6300,Insurance Expense,OpEx,-5410,Insurance — 2026-03
+T-51036,P008,2026-03-09,6800,Admin Expense,OpEx,-5094,Administrative — 2026-03
+T-51037,P008,2026-04-22,4100,Base Rent Income,Revenue,212203,Base Rent Income — 2026-04
+T-51038,P008,2026-04-03,4200,CAM Recovery Income,Revenue,39614,CAM Recovery Income — 2026-04
+T-51039,P008,2026-04-20,4300,Other Income,Revenue,2864,Other Income — 2026-04
+T-51040,P008,2026-04-06,6200,Utilities Expense,OpEx,-3700,Utilities — 2026-04
+T-51041,P008,2026-04-16,6600,Landscaping Expense,OpEx,-3710,Landscaping — 2026-04
+T-51042,P008,2026-04-26,6600,Landscaping Expense,OpEx,-2059,Landscaping — 2026-04
+T-51043,P008,2026-04-21,6600,Landscaping Expense,OpEx,-3407,Landscaping — 2026-04
+T-51044,P008,2026-04-04,6400,Property Tax Expense,OpEx,-5299,Property Taxes — 2026-04
+T-51045,P008,2026-04-03,6600,Landscaping Expense,OpEx,-1857,Landscaping — 2026-04
+T-51046,P008,2026-04-25,6600,Landscaping Expense,OpEx,-2455,Landscaping — 2026-04
+T-51047,P008,2026-04-07,6500,Management Fee Expense,OpEx,-6701,Management Fees — 2026-04
+T-51048,P008,2026-04-15,6100,Repairs & Maintenance Expense,OpEx,-2567,Repairs & Maintenance — 2026-04
+T-51049,P008,2026-04-10,6700,Security Expense,OpEx,-1064,Security — 2026-04
+T-51050,P009,2025-05-23,4100,Base Rent Income,Revenue,190359,Base Rent Income — 2025-05
+T-51051,P009,2025-05-08,4200,CAM Recovery Income,Revenue,26348,CAM Recovery Income — 2025-05
+T-51052,P009,2025-05-20,4300,Other Income,Revenue,5750,Other Income — 2025-05
+T-51053,P009,2025-05-04,6500,Management Fee Expense,OpEx,-1586,Management Fees — 2025-05
+T-51054,P009,2025-05-12,6100,Repairs & Maintenance Expense,OpEx,-3964,Repairs & Maintenance — 2025-05
+T-51055,P009,2025-05-06,6300,Insurance Expense,OpEx,-7461,Insurance — 2025-05
+T-51056,P009,2025-05-10,6500,Management Fee Expense,OpEx,-4158,Management Fees — 2025-05
+T-51057,P009,2025-05-03,6700,Security Expense,OpEx,-901,Security — 2025-05
+T-51058,P009,2025-05-11,6100,Repairs & Maintenance Expense,OpEx,-6350,Repairs & Maintenance — 2025-05
+T-51059,P009,2025-06-06,4100,Base Rent Income,Revenue,178384,Base Rent Income — 2025-06
+T-51060,P009,2025-06-25,4200,CAM Recovery Income,Revenue,27804,CAM Recovery Income — 2025-06
+T-51061,P009,2025-06-08,4300,Other Income,Revenue,7432,Other Income — 2025-06
+T-51062,P009,2025-06-22,6100,Repairs & Maintenance Expense,OpEx,-7790,Repairs & Maintenance — 2025-06
+T-51063,P009,2025-06-12,6500,Management Fee Expense,OpEx,-5414,Management Fees — 2025-06
+T-51064,P009,2025-06-08,6400,Property Tax Expense,OpEx,-6668,Property Taxes — 2025-06
+T-51065,P009,2025-06-01,6500,Management Fee Expense,OpEx,-4813,Management Fees — 2025-06
+T-51066,P009,2025-06-03,6200,Utilities Expense,OpEx,-4645,Utilities — 2025-06
+T-51067,P009,2025-06-11,6800,Admin Expense,OpEx,-1021,Administrative — 2025-06
+T-51068,P009,2025-06-21,6400,Property Tax Expense,OpEx,-5837,Property Taxes — 2025-06
+T-51069,P009,2025-06-03,6700,Security Expense,OpEx,-1800,Security — 2025-06
+T-51070,P009,2025-06-15,6700,Security Expense,OpEx,-1773,Security — 2025-06
+T-51071,P009,2025-06-23,6700,Security Expense,OpEx,-3621,Security — 2025-06
+T-51072,P009,2025-06-26,6400,Property Tax Expense,OpEx,-1448,Property Taxes — 2025-06
+T-51073,P009,2025-07-11,4100,Base Rent Income,Revenue,174360,Base Rent Income — 2025-07
+T-51074,P009,2025-07-14,4200,CAM Recovery Income,Revenue,29140,CAM Recovery Income — 2025-07
+T-51075,P009,2025-07-07,4300,Other Income,Revenue,7723,Other Income — 2025-07
+T-51076,P009,2025-07-01,6500,Management Fee Expense,OpEx,-6054,Management Fees — 2025-07
+T-51077,P009,2025-07-20,6100,Repairs & Maintenance Expense,OpEx,-8717,Repairs & Maintenance — 2025-07
+T-51078,P009,2025-07-14,6100,Repairs & Maintenance Expense,OpEx,-9734,Repairs & Maintenance — 2025-07
+T-51079,P009,2025-07-09,6600,Landscaping Expense,OpEx,-606,Landscaping — 2025-07
+T-51080,P009,2025-07-14,6700,Security Expense,OpEx,-7222,Security — 2025-07
+T-51081,P009,2025-07-27,6100,Repairs & Maintenance Expense,OpEx,-5561,Repairs & Maintenance — 2025-07
+T-51082,P009,2025-07-19,6300,Insurance Expense,OpEx,-5710,Insurance — 2025-07
+T-51083,P009,2025-07-04,6600,Landscaping Expense,OpEx,-6294,Landscaping — 2025-07
+T-51084,P009,2025-07-04,6800,Admin Expense,OpEx,-2560,Administrative — 2025-07
+T-51085,P009,2025-07-23,6100,Repairs & Maintenance Expense,OpEx,-7466,Repairs & Maintenance — 2025-07
+T-51086,P009,2025-07-13,6300,Insurance Expense,OpEx,-7362,Insurance — 2025-07
+T-51087,P009,2025-08-23,4100,Base Rent Income,Revenue,187663,Base Rent Income — 2025-08
+T-51088,P009,2025-08-24,4200,CAM Recovery Income,Revenue,27800,CAM Recovery Income — 2025-08
+T-51089,P009,2025-08-20,4300,Other Income,Revenue,3062,Other Income — 2025-08
+T-51090,P009,2025-08-03,6200,Utilities Expense,OpEx,-6570,Utilities — 2025-08
+T-51091,P009,2025-08-18,6100,Repairs & Maintenance Expense,OpEx,-2987,Repairs & Maintenance — 2025-08
+T-51092,P009,2025-08-26,6700,Security Expense,OpEx,-10455,Security — 2025-08
+T-51093,P009,2025-08-26,6300,Insurance Expense,OpEx,-2189,Insurance — 2025-08
+T-51094,P009,2025-08-27,6100,Repairs & Maintenance Expense,OpEx,-2785,Repairs & Maintenance — 2025-08
+T-51095,P009,2025-08-07,6400,Property Tax Expense,OpEx,-4547,Property Taxes — 2025-08
+T-51096,P009,2025-08-16,6200,Utilities Expense,OpEx,-2693,Utilities — 2025-08
+T-51097,P009,2025-08-03,6300,Insurance Expense,OpEx,-1919,Insurance — 2025-08
+T-51098,P009,2025-08-28,6500,Management Fee Expense,OpEx,-915,Management Fees — 2025-08
+T-51099,P009,2025-09-08,4100,Base Rent Income,Revenue,169528,Base Rent Income — 2025-09
+T-51100,P009,2025-09-27,4200,CAM Recovery Income,Revenue,28181,CAM Recovery Income — 2025-09
+T-51101,P009,2025-09-17,4300,Other Income,Revenue,5896,Other Income — 2025-09
+T-51102,P009,2025-09-03,6600,Landscaping Expense,OpEx,-1421,Landscaping — 2025-09
+T-51103,P009,2025-09-28,6500,Management Fee Expense,OpEx,-452,Management Fees — 2025-09
+T-51104,P009,2025-09-27,6100,Repairs & Maintenance Expense,OpEx,-5338,Repairs & Maintenance — 2025-09
+T-51105,P009,2025-09-20,6700,Security Expense,OpEx,-5809,Security — 2025-09
+T-51106,P009,2025-09-19,6200,Utilities Expense,OpEx,-3636,Utilities — 2025-09
+T-51107,P009,2025-09-27,6200,Utilities Expense,OpEx,-5544,Utilities — 2025-09
+T-51108,P009,2025-09-12,6800,Admin Expense,OpEx,-4453,Administrative — 2025-09
+T-51109,P009,2025-09-18,6300,Insurance Expense,OpEx,-3645,Insurance — 2025-09
+T-51110,P009,2025-09-10,6700,Security Expense,OpEx,-3386,Security — 2025-09
+T-51111,P009,2025-09-28,6600,Landscaping Expense,OpEx,-4751,Landscaping — 2025-09
+T-51112,P009,2025-10-23,4100,Base Rent Income,Revenue,165565,Base Rent Income — 2025-10
+T-51113,P009,2025-10-02,4200,CAM Recovery Income,Revenue,26829,CAM Recovery Income — 2025-10
+T-51114,P009,2025-10-10,4300,Other Income,Revenue,708,Other Income — 2025-10
+T-51115,P009,2025-10-11,6500,Management Fee Expense,OpEx,-2548,Management Fees — 2025-10
+T-51116,P009,2025-10-07,6200,Utilities Expense,OpEx,-10276,Utilities — 2025-10
+T-51117,P009,2025-10-15,6100,Repairs & Maintenance Expense,OpEx,-6997,Repairs & Maintenance — 2025-10
+T-51118,P009,2025-10-15,6400,Property Tax Expense,OpEx,-1723,Property Taxes — 2025-10
+T-51119,P009,2025-10-05,6100,Repairs & Maintenance Expense,OpEx,-985,Repairs & Maintenance — 2025-10
+T-51120,P009,2025-10-28,6100,Repairs & Maintenance Expense,OpEx,-8393,Repairs & Maintenance — 2025-10
+T-51121,P009,2025-10-21,6400,Property Tax Expense,OpEx,-6189,Property Taxes — 2025-10
+T-51122,P009,2025-10-06,6200,Utilities Expense,OpEx,-6467,Utilities — 2025-10
+T-51123,P009,2025-10-20,6500,Management Fee Expense,OpEx,-6171,Management Fees — 2025-10
+T-51124,P009,2025-10-19,6300,Insurance Expense,OpEx,-8798,Insurance — 2025-10
+T-51125,P009,2025-11-21,4100,Base Rent Income,Revenue,169056,Base Rent Income — 2025-11
+T-51126,P009,2025-11-13,4200,CAM Recovery Income,Revenue,26208,CAM Recovery Income — 2025-11
+T-51127,P009,2025-11-03,4300,Other Income,Revenue,2461,Other Income — 2025-11
+T-51128,P009,2025-11-19,6300,Insurance Expense,OpEx,-5441,Insurance — 2025-11
+T-51129,P009,2025-11-24,6100,Repairs & Maintenance Expense,OpEx,-5323,Repairs & Maintenance — 2025-11
+T-51130,P009,2025-11-12,6100,Repairs & Maintenance Expense,OpEx,-8634,Repairs & Maintenance — 2025-11
+T-51131,P009,2025-11-13,6200,Utilities Expense,OpEx,-914,Utilities — 2025-11
+T-51132,P009,2025-11-18,6800,Admin Expense,OpEx,-5199,Administrative — 2025-11
+T-51133,P009,2025-11-28,6800,Admin Expense,OpEx,-8251,Administrative — 2025-11
+T-51134,P009,2025-11-16,6400,Property Tax Expense,OpEx,-5171,Property Taxes — 2025-11
+T-51135,P009,2025-12-09,4100,Base Rent Income,Revenue,188921,Base Rent Income — 2025-12
+T-51136,P009,2025-12-18,4200,CAM Recovery Income,Revenue,28312,CAM Recovery Income — 2025-12
+T-51137,P009,2025-12-16,4300,Other Income,Revenue,5073,Other Income — 2025-12
+T-51138,P009,2025-12-08,6400,Property Tax Expense,OpEx,-6866,Property Taxes — 2025-12
+T-51139,P009,2025-12-13,6700,Security Expense,OpEx,-5490,Security — 2025-12
+T-51140,P009,2025-12-26,6200,Utilities Expense,OpEx,-416,Utilities — 2025-12
+T-51141,P009,2025-12-20,6500,Management Fee Expense,OpEx,-2603,Management Fees — 2025-12
+T-51142,P009,2025-12-01,6200,Utilities Expense,OpEx,-7097,Utilities — 2025-12
+T-51143,P009,2026-01-15,4100,Base Rent Income,Revenue,165570,Base Rent Income — 2026-01
+T-51144,P009,2026-01-12,4200,CAM Recovery Income,Revenue,31122,CAM Recovery Income — 2026-01
+T-51145,P009,2026-01-15,4300,Other Income,Revenue,2317,Other Income — 2026-01
+T-51146,P009,2026-01-01,6700,Security Expense,OpEx,-7905,Security — 2026-01
+T-51147,P009,2026-01-10,6500,Management Fee Expense,OpEx,-4547,Management Fees — 2026-01
+T-51148,P009,2026-01-17,6300,Insurance Expense,OpEx,-6048,Insurance — 2026-01
+T-51149,P009,2026-01-15,6100,Repairs & Maintenance Expense,OpEx,-11127,Repairs & Maintenance — 2026-01
+T-51150,P009,2026-01-02,6700,Security Expense,OpEx,-1323,Security — 2026-01
+T-51151,P009,2026-01-10,6500,Management Fee Expense,OpEx,-7716,Management Fees — 2026-01
+T-51152,P009,2026-01-15,6400,Property Tax Expense,OpEx,-5517,Property Taxes — 2026-01
+T-51153,P009,2026-02-08,4100,Base Rent Income,Revenue,174552,Base Rent Income — 2026-02
+T-51154,P009,2026-02-01,4200,CAM Recovery Income,Revenue,28133,CAM Recovery Income — 2026-02
+T-51155,P009,2026-02-24,4300,Other Income,Revenue,5431,Other Income — 2026-02
+T-51156,P009,2026-02-06,6600,Landscaping Expense,OpEx,-5771,Landscaping — 2026-02
+T-51157,P009,2026-02-03,6600,Landscaping Expense,OpEx,-5545,Landscaping — 2026-02
+T-51158,P009,2026-02-20,6600,Landscaping Expense,OpEx,-3218,Landscaping — 2026-02
+T-51159,P009,2026-02-12,6600,Landscaping Expense,OpEx,-6208,Landscaping — 2026-02
+T-51160,P009,2026-02-28,6200,Utilities Expense,OpEx,-4273,Utilities — 2026-02
+T-51161,P009,2026-02-14,6100,Repairs & Maintenance Expense,OpEx,-4725,Repairs & Maintenance — 2026-02
+T-51162,P009,2026-02-06,6400,Property Tax Expense,OpEx,-6415,Property Taxes — 2026-02
+T-51163,P009,2026-02-02,6500,Management Fee Expense,OpEx,-5028,Management Fees — 2026-02
+T-51164,P009,2026-02-17,6700,Security Expense,OpEx,-2895,Security — 2026-02
+T-51165,P009,2026-03-07,4100,Base Rent Income,Revenue,187050,Base Rent Income — 2026-03
+T-51166,P009,2026-03-20,4200,CAM Recovery Income,Revenue,26507,CAM Recovery Income — 2026-03
+T-51167,P009,2026-03-16,4300,Other Income,Revenue,2302,Other Income — 2026-03
+T-51168,P009,2026-03-09,6200,Utilities Expense,OpEx,-8213,Utilities — 2026-03
+T-51169,P009,2026-03-22,6300,Insurance Expense,OpEx,-6450,Insurance — 2026-03
+T-51170,P009,2026-03-18,6700,Security Expense,OpEx,-3265,Security — 2026-03
+T-51171,P009,2026-03-10,6500,Management Fee Expense,OpEx,-4279,Management Fees — 2026-03
+T-51172,P009,2026-03-18,6200,Utilities Expense,OpEx,-9009,Utilities — 2026-03
+T-51173,P009,2026-03-04,6100,Repairs & Maintenance Expense,OpEx,-1527,Repairs & Maintenance — 2026-03
+T-51174,P009,2026-03-15,6700,Security Expense,OpEx,-820,Security — 2026-03
+T-51175,P009,2026-03-05,6400,Property Tax Expense,OpEx,-2389,Property Taxes — 2026-03
+T-51176,P009,2026-03-03,6600,Landscaping Expense,OpEx,-5440,Landscaping — 2026-03
+T-51177,P009,2026-04-09,4100,Base Rent Income,Revenue,196806,Base Rent Income — 2026-04
+T-51178,P009,2026-04-16,4200,CAM Recovery Income,Revenue,26248,CAM Recovery Income — 2026-04
+T-51179,P009,2026-04-28,4300,Other Income,Revenue,7586,Other Income — 2026-04
+T-51180,P009,2026-04-10,6600,Landscaping Expense,OpEx,-6158,Landscaping — 2026-04
+T-51181,P009,2026-04-08,6800,Admin Expense,OpEx,-1844,Administrative — 2026-04
+T-51182,P009,2026-04-19,6100,Repairs & Maintenance Expense,OpEx,-890,Repairs & Maintenance — 2026-04
+T-51183,P009,2026-04-27,6800,Admin Expense,OpEx,-8038,Administrative — 2026-04
+T-51184,P009,2026-04-26,6700,Security Expense,OpEx,-7512,Security — 2026-04
+T-51185,P009,2026-04-15,6800,Admin Expense,OpEx,-1683,Administrative — 2026-04
+T-51186,P009,2026-04-08,6500,Management Fee Expense,OpEx,-6815,Management Fees — 2026-04
+T-51187,P009,2026-04-28,6300,Insurance Expense,OpEx,-6782,Insurance — 2026-04
+T-51188,P009,2026-04-13,6700,Security Expense,OpEx,-2559,Security — 2026-04
+T-51189,P009,2026-04-04,6300,Insurance Expense,OpEx,-5833,Insurance — 2026-04
+T-51190,P010,2025-05-02,4100,Base Rent Income,Revenue,370432,Base Rent Income — 2025-05
+T-51191,P010,2025-05-21,4200,CAM Recovery Income,Revenue,65010,CAM Recovery Income — 2025-05
+T-51192,P010,2025-05-20,4300,Other Income,Revenue,4612,Other Income — 2025-05
+T-51193,P010,2025-05-24,6400,Property Tax Expense,OpEx,-7369,Property Taxes — 2025-05
+T-51194,P010,2025-05-27,6600,Landscaping Expense,OpEx,-3613,Landscaping — 2025-05
+T-51195,P010,2025-05-03,6800,Admin Expense,OpEx,-5073,Administrative — 2025-05
+T-51196,P010,2025-05-04,6300,Insurance Expense,OpEx,-9162,Insurance — 2025-05
+T-51197,P010,2025-05-03,6600,Landscaping Expense,OpEx,-2834,Landscaping — 2025-05
+T-51198,P010,2025-05-08,6200,Utilities Expense,OpEx,-8885,Utilities — 2025-05
+T-51199,P010,2025-05-01,6400,Property Tax Expense,OpEx,-5354,Property Taxes — 2025-05
+T-51200,P010,2025-05-19,6800,Admin Expense,OpEx,-8222,Administrative — 2025-05
+T-51201,P010,2025-06-26,4100,Base Rent Income,Revenue,404348,Base Rent Income — 2025-06
+T-51202,P010,2025-06-24,4200,CAM Recovery Income,Revenue,60915,CAM Recovery Income — 2025-06
+T-51203,P010,2025-06-02,4300,Other Income,Revenue,683,Other Income — 2025-06
+T-51204,P010,2025-06-03,6500,Management Fee Expense,OpEx,-1679,Management Fees — 2025-06
+T-51205,P010,2025-06-03,6300,Insurance Expense,OpEx,-6437,Insurance — 2025-06
+T-51206,P010,2025-06-17,6100,Repairs & Maintenance Expense,OpEx,-552,Repairs & Maintenance — 2025-06
+T-51207,P010,2025-06-25,6100,Repairs & Maintenance Expense,OpEx,-4292,Repairs & Maintenance — 2025-06
+T-51208,P010,2025-06-06,6800,Admin Expense,OpEx,-3185,Administrative — 2025-06
+T-51209,P010,2025-06-16,6400,Property Tax Expense,OpEx,-6125,Property Taxes — 2025-06
+T-51210,P010,2025-06-19,6400,Property Tax Expense,OpEx,-1849,Property Taxes — 2025-06
+T-51211,P010,2025-07-09,4100,Base Rent Income,Revenue,362297,Base Rent Income — 2025-07
+T-51212,P010,2025-07-06,4200,CAM Recovery Income,Revenue,59102,CAM Recovery Income — 2025-07
+T-51213,P010,2025-07-09,4300,Other Income,Revenue,5822,Other Income — 2025-07
+T-51214,P010,2025-07-17,6700,Security Expense,OpEx,-1329,Security — 2025-07
+T-51215,P010,2025-07-18,6800,Admin Expense,OpEx,-7652,Administrative — 2025-07
+T-51216,P010,2025-07-26,6700,Security Expense,OpEx,-5289,Security — 2025-07
+T-51217,P010,2025-07-22,6800,Admin Expense,OpEx,-1056,Administrative — 2025-07
+T-51218,P010,2025-07-24,6600,Landscaping Expense,OpEx,-6628,Landscaping — 2025-07
+T-51219,P010,2025-08-01,4100,Base Rent Income,Revenue,382158,Base Rent Income — 2025-08
+T-51220,P010,2025-08-03,4200,CAM Recovery Income,Revenue,61259,CAM Recovery Income — 2025-08
+T-51221,P010,2025-08-20,4300,Other Income,Revenue,5483,Other Income — 2025-08
+T-51222,P010,2025-08-09,6300,Insurance Expense,OpEx,-3043,Insurance — 2025-08
+T-51223,P010,2025-08-10,6800,Admin Expense,OpEx,-865,Administrative — 2025-08
+T-51224,P010,2025-08-08,6200,Utilities Expense,OpEx,-9829,Utilities — 2025-08
+T-51225,P010,2025-08-19,6200,Utilities Expense,OpEx,-3195,Utilities — 2025-08
+T-51226,P010,2025-08-16,6500,Management Fee Expense,OpEx,-4139,Management Fees — 2025-08
+T-51227,P010,2025-08-21,6200,Utilities Expense,OpEx,-8612,Utilities — 2025-08
+T-51228,P010,2025-08-13,6100,Repairs & Maintenance Expense,OpEx,-6229,Repairs & Maintenance — 2025-08
+T-51229,P010,2025-08-03,6400,Property Tax Expense,OpEx,-5820,Property Taxes — 2025-08
+T-51230,P010,2025-09-14,4100,Base Rent Income,Revenue,364160,Base Rent Income — 2025-09
+T-51231,P010,2025-09-06,4200,CAM Recovery Income,Revenue,61422,CAM Recovery Income — 2025-09
+T-51232,P010,2025-09-07,4300,Other Income,Revenue,4937,Other Income — 2025-09
+T-51233,P010,2025-09-15,6300,Insurance Expense,OpEx,-1182,Insurance — 2025-09
+T-51234,P010,2025-09-28,6600,Landscaping Expense,OpEx,-3803,Landscaping — 2025-09
+T-51235,P010,2025-09-22,6100,Repairs & Maintenance Expense,OpEx,-1602,Repairs & Maintenance — 2025-09
+T-51236,P010,2025-09-22,6600,Landscaping Expense,OpEx,-5796,Landscaping — 2025-09
+T-51237,P010,2025-09-07,6300,Insurance Expense,OpEx,-8695,Insurance — 2025-09
+T-51238,P010,2025-09-03,6200,Utilities Expense,OpEx,-2066,Utilities — 2025-09
+T-51239,P010,2025-09-02,6500,Management Fee Expense,OpEx,-1551,Management Fees — 2025-09
+T-51240,P010,2025-09-15,6800,Admin Expense,OpEx,-1822,Administrative — 2025-09
+T-51241,P010,2025-09-05,6600,Landscaping Expense,OpEx,-5744,Landscaping — 2025-09
+T-51242,P010,2025-09-21,6300,Insurance Expense,OpEx,-1650,Insurance — 2025-09
+T-51243,P010,2025-10-18,4100,Base Rent Income,Revenue,360899,Base Rent Income — 2025-10
+T-51244,P010,2025-10-08,4200,CAM Recovery Income,Revenue,63734,CAM Recovery Income — 2025-10
+T-51245,P010,2025-10-14,4300,Other Income,Revenue,1374,Other Income — 2025-10
+T-51246,P010,2025-10-23,6800,Admin Expense,OpEx,-7741,Administrative — 2025-10
+T-51247,P010,2025-10-18,6300,Insurance Expense,OpEx,-1414,Insurance — 2025-10
+T-51248,P010,2025-10-16,6100,Repairs & Maintenance Expense,OpEx,-7960,Repairs & Maintenance — 2025-10
+T-51249,P010,2025-10-03,6500,Management Fee Expense,OpEx,-6317,Management Fees — 2025-10
+T-51250,P010,2025-10-15,6300,Insurance Expense,OpEx,-2532,Insurance — 2025-10
+T-51251,P010,2025-10-18,6500,Management Fee Expense,OpEx,-9953,Management Fees — 2025-10
+T-51252,P010,2025-10-01,6600,Landscaping Expense,OpEx,-8952,Landscaping — 2025-10
+T-51253,P010,2025-10-22,6100,Repairs & Maintenance Expense,OpEx,-4325,Repairs & Maintenance — 2025-10
+T-51254,P010,2025-10-14,6200,Utilities Expense,OpEx,-1059,Utilities — 2025-10
+T-51255,P010,2025-10-12,6700,Security Expense,OpEx,-7514,Security — 2025-10
+T-51256,P010,2025-10-05,6700,Security Expense,OpEx,-627,Security — 2025-10
+T-51257,P010,2025-11-04,4100,Base Rent Income,Revenue,390175,Base Rent Income — 2025-11
+T-51258,P010,2025-11-05,4200,CAM Recovery Income,Revenue,61892,CAM Recovery Income — 2025-11
+T-51259,P010,2025-11-21,4300,Other Income,Revenue,1442,Other Income — 2025-11
+T-51260,P010,2025-11-22,6500,Management Fee Expense,OpEx,-4958,Management Fees — 2025-11
+T-51261,P010,2025-11-24,6500,Management Fee Expense,OpEx,-10046,Management Fees — 2025-11
+T-51262,P010,2025-11-16,6600,Landscaping Expense,OpEx,-5893,Landscaping — 2025-11
+T-51263,P010,2025-11-20,6800,Admin Expense,OpEx,-9285,Administrative — 2025-11
+T-51264,P010,2025-11-26,6700,Security Expense,OpEx,-5628,Security — 2025-11
+T-51265,P010,2025-12-14,4100,Base Rent Income,Revenue,421692,Base Rent Income — 2025-12
+T-51266,P010,2025-12-20,4200,CAM Recovery Income,Revenue,64566,CAM Recovery Income — 2025-12
+T-51267,P010,2025-12-27,4300,Other Income,Revenue,3835,Other Income — 2025-12
+T-51268,P010,2025-12-23,6500,Management Fee Expense,OpEx,-8085,Management Fees — 2025-12
+T-51269,P010,2025-12-11,6300,Insurance Expense,OpEx,-920,Insurance — 2025-12
+T-51270,P010,2025-12-21,6700,Security Expense,OpEx,-2027,Security — 2025-12
+T-51271,P010,2025-12-22,6100,Repairs & Maintenance Expense,OpEx,-8335,Repairs & Maintenance — 2025-12
+T-51272,P010,2025-12-20,6200,Utilities Expense,OpEx,-7236,Utilities — 2025-12
+T-51273,P010,2025-12-12,6200,Utilities Expense,OpEx,-8719,Utilities — 2025-12
+T-51274,P010,2025-12-28,6700,Security Expense,OpEx,-4170,Security — 2025-12
+T-51275,P010,2025-12-15,6800,Admin Expense,OpEx,-2857,Administrative — 2025-12
+T-51276,P010,2025-12-13,6500,Management Fee Expense,OpEx,-4901,Management Fees — 2025-12
+T-51277,P010,2025-12-05,6500,Management Fee Expense,OpEx,-2546,Management Fees — 2025-12
+T-51278,P010,2025-12-21,6300,Insurance Expense,OpEx,-7473,Insurance — 2025-12
+T-51279,P010,2026-01-17,4100,Base Rent Income,Revenue,413597,Base Rent Income — 2026-01
+T-51280,P010,2026-01-25,4200,CAM Recovery Income,Revenue,61514,CAM Recovery Income — 2026-01
+T-51281,P010,2026-01-28,4300,Other Income,Revenue,2774,Other Income — 2026-01
+T-51282,P010,2026-01-21,6500,Management Fee Expense,OpEx,-5880,Management Fees — 2026-01
+T-51283,P010,2026-01-05,6500,Management Fee Expense,OpEx,-7251,Management Fees — 2026-01
+T-51284,P010,2026-01-06,6700,Security Expense,OpEx,-5344,Security — 2026-01
+T-51285,P010,2026-01-13,6800,Admin Expense,OpEx,-5053,Administrative — 2026-01
+T-51286,P010,2026-01-04,6300,Insurance Expense,OpEx,-8229,Insurance — 2026-01
+T-51287,P010,2026-01-25,6100,Repairs & Maintenance Expense,OpEx,-1551,Repairs & Maintenance — 2026-01
+T-51288,P010,2026-01-14,6200,Utilities Expense,OpEx,-5547,Utilities — 2026-01
+T-51289,P010,2026-01-11,6400,Property Tax Expense,OpEx,-8853,Property Taxes — 2026-01
+T-51290,P010,2026-01-18,6100,Repairs & Maintenance Expense,OpEx,-8346,Repairs & Maintenance — 2026-01
+T-51291,P010,2026-01-05,6800,Admin Expense,OpEx,-8900,Administrative — 2026-01
+T-51292,P010,2026-01-08,6100,Repairs & Maintenance Expense,OpEx,-9036,Repairs & Maintenance — 2026-01
+T-51293,P010,2026-02-10,4100,Base Rent Income,Revenue,352525,Base Rent Income — 2026-02
+T-51294,P010,2026-02-06,4200,CAM Recovery Income,Revenue,61144,CAM Recovery Income — 2026-02
+T-51295,P010,2026-02-22,4300,Other Income,Revenue,7810,Other Income — 2026-02
+T-51296,P010,2026-02-17,6200,Utilities Expense,OpEx,-4364,Utilities — 2026-02
+T-51297,P010,2026-02-10,6300,Insurance Expense,OpEx,-6907,Insurance — 2026-02
+T-51298,P010,2026-02-26,6200,Utilities Expense,OpEx,-10782,Utilities — 2026-02
+T-51299,P010,2026-02-18,6600,Landscaping Expense,OpEx,-6017,Landscaping — 2026-02
+T-51300,P010,2026-02-23,6300,Insurance Expense,OpEx,-3578,Insurance — 2026-02
+T-51301,P010,2026-02-28,6500,Management Fee Expense,OpEx,-9366,Management Fees — 2026-02
+T-51302,P010,2026-03-27,4100,Base Rent Income,Revenue,419737,Base Rent Income — 2026-03
+T-51303,P010,2026-03-08,4200,CAM Recovery Income,Revenue,64045,CAM Recovery Income — 2026-03
+T-51304,P010,2026-03-11,4300,Other Income,Revenue,5562,Other Income — 2026-03
+T-51305,P010,2026-03-11,6700,Security Expense,OpEx,-7087,Security — 2026-03
+T-51306,P010,2026-03-02,6300,Insurance Expense,OpEx,-2668,Insurance — 2026-03
+T-51307,P010,2026-03-14,6600,Landscaping Expense,OpEx,-6008,Landscaping — 2026-03
+T-51308,P010,2026-03-18,6500,Management Fee Expense,OpEx,-3744,Management Fees — 2026-03
+T-51309,P010,2026-03-27,6400,Property Tax Expense,OpEx,-2546,Property Taxes — 2026-03
+T-51310,P010,2026-03-16,6400,Property Tax Expense,OpEx,-8190,Property Taxes — 2026-03
+T-51311,P010,2026-03-12,6400,Property Tax Expense,OpEx,-6908,Property Taxes — 2026-03
+T-51312,P010,2026-03-12,6700,Security Expense,OpEx,-3144,Security — 2026-03
+T-51313,P010,2026-03-22,6200,Utilities Expense,OpEx,-1801,Utilities — 2026-03
+T-51314,P010,2026-03-15,6300,Insurance Expense,OpEx,-5852,Insurance — 2026-03
+T-51315,P010,2026-04-01,4100,Base Rent Income,Revenue,398562,Base Rent Income — 2026-04
+T-51316,P010,2026-04-18,4200,CAM Recovery Income,Revenue,62030,CAM Recovery Income — 2026-04
+T-51317,P010,2026-04-03,4300,Other Income,Revenue,3905,Other Income — 2026-04
+T-51318,P010,2026-04-02,6500,Management Fee Expense,OpEx,-7980,Management Fees — 2026-04
+T-51319,P010,2026-04-09,6700,Security Expense,OpEx,-2507,Security — 2026-04
+T-51320,P010,2026-04-06,6200,Utilities Expense,OpEx,-3945,Utilities — 2026-04
+T-51321,P010,2026-04-12,6400,Property Tax Expense,OpEx,-5503,Property Taxes — 2026-04
+T-51322,P010,2026-04-28,6500,Management Fee Expense,OpEx,-4240,Management Fees — 2026-04
+T-51323,P010,2026-04-15,6400,Property Tax Expense,OpEx,-5721,Property Taxes — 2026-04
+T-51324,P010,2026-04-28,6700,Security Expense,OpEx,-2572,Security — 2026-04
+T-51325,P010,2026-04-24,6500,Management Fee Expense,OpEx,-765,Management Fees — 2026-04
+T-51326,P010,2026-04-09,6200,Utilities Expense,OpEx,-1312,Utilities — 2026-04

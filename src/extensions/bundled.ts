@@ -200,6 +200,20 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
       grantedAt: { network: Date.now(), env: Date.now(), filesystem: Date.now() },
     },
   },
+  {
+    // Property Intelligence Agent — analyzes a commercial real-estate
+    // portfolio (leases, AR, GL, budgets, work orders, loans, CAM recs,
+    // compliance) and surfaces dollar-quantified risks + opportunities
+    // with drafted follow-ups. Reads 10 bundled CSVs under ./data and
+    // regenerates them in place via the `regenerate-data` tool — hence
+    // the `filesystem: ["$CWD"]` grant. No network, no shell.
+    name: "property-intelligence-agent",
+    path: "docs/extensions/examples/property-intelligence-agent",
+    permissions: {
+      filesystem: ["$CWD"],
+      grantedAt: { filesystem: Date.now() },
+    },
+  },
 ];
 
 /** Opt-OUT switches: each maps a bundled-extension name to the env var that

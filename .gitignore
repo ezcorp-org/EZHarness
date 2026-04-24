@@ -5,6 +5,7 @@ node_modules
 out
 dist
 *.tgz
+tasks
 
 # code coverage
 coverage
@@ -66,9 +67,6 @@ data/extensions/
 
 # playwright output (run artifacts, last-run cache, traces)
 test-results/
-
-# ad-hoc debug screenshots saved at repo root
-/mobile-*.png
 
 # test project workspace
 TESTENV/
