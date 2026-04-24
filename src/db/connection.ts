@@ -25,9 +25,9 @@ const DATABASE_URL = process.env.DATABASE_URL;
  * here; callers consume it through typed helpers (`getDb()`) whose drizzle
  * DSL methods return concrete types via the drizzle schema.
  */
-// biome-ignore lint/suspicious/noExplicitAny: drizzle PGlite and bun-sql drivers
-//   return different `execute()` HKT shapes that don't merge; keeping `any`
-//   avoids forcing an intersection cast at every caller site.
+// biome rule `suspicious/noExplicitAny` is off repo-wide; `any` kept by design
+// per the comment above, not an oversight.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Database = any;
 
 let _db: Database = null;
@@ -194,10 +194,11 @@ async function initPostgres(): Promise<void> {
     import("drizzle-orm/pg-core/columns/json"),
   ]);
   const identity = (value: unknown) => value;
-  // biome-ignore lint/suspicious/noExplicitAny: monkey-patching drizzle's private
-  //   `mapToDriverValue` on the column-type prototype; there's no public type for it.
+  // `any` cast is deliberate: monkey-patching drizzle's private
+  // `mapToDriverValue` on the column-type prototype; there's no public type.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (PgJsonb.prototype as any).mapToDriverValue = identity;
-  // biome-ignore lint/suspicious/noExplicitAny: see PgJsonb note above.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (PgJson.prototype as any).mapToDriverValue = identity;
 
   const db = drizzle(DATABASE_URL!, { schema });
@@ -207,9 +208,10 @@ async function initPostgres(): Promise<void> {
   // bun-sql returns arrays directly, but PGlite returns { rows: [...] }.
   // All query code expects the { rows } shape.
   const origExecute = db.execute.bind(db) as (...a: unknown[]) => Promise<unknown>;
-  // biome-ignore lint/suspicious/noExplicitAny: replacing `execute` in-place on the
-  //   drizzle instance; the method's overloaded signature can't be expressed here
-  //   without rebuilding the full generic surface.
+  // `any` cast is deliberate: we replace `execute` in-place on the drizzle
+  // instance, and its overloaded signature can't be expressed here without
+  // rebuilding the full generic surface.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (db as any).execute = async (...args: unknown[]) => {
     const result = await origExecute(...args);
     if (Array.isArray(result)) return { rows: result };
