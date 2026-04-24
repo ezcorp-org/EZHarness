@@ -1,5 +1,6 @@
 import type { RequestHandler } from "./$types";
 import { json } from "@sveltejs/kit";
+import { z } from "zod";
 import { errorJson } from "$lib/server/http-errors";
 import { requireAuth } from "$server/auth/middleware";
 import { getAgentConfig } from "$server/db/queries/agent-configs";
@@ -8,6 +9,26 @@ import { getTeamMembership } from "$server/db/queries/teams";
 import { getUserById } from "$server/db/queries/users";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { requireScope } from "$lib/server/security/api-keys";
+
+// Boundary validation for share POST/DELETE bodies. The handlers have
+// existing 400 messages that the test contract pins (e.g. `"permission
+// must be 'read' or 'edit'"` and `"teamIds or userIds array is
+// required"`), so the schema is permissive and the inline checks below
+// handle the dispatch. Zod here just shapes the wire types — the
+// per-field error messages stay verbatim.
+const sharePostSchema = z.object({
+  teamIds: z.array(z.string()).optional(),
+  userIds: z.array(z.string()).optional(),
+  // permission stays a permissive string here so the handler's inline
+  // "permission must be 'read' or 'edit'" 400 (test-pinned) still fires
+  // for invalid values rather than getting overridden by a Zod issue.
+  permission: z.string().optional(),
+}).strict();
+
+const shareDeleteSchema = z.object({
+  teamId: z.string().optional(),
+  userId: z.string().optional(),
+}).strict();
 
 async function verifyOwnerOrAdmin(locals: App.Locals, agentId: string) {
   const user = requireAuth(locals);
@@ -45,12 +66,11 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   if (scopeErr) return scopeErr;
   try {
     const { user, agent } = await verifyOwnerOrAdmin(locals, params.id);
-    const body = await request.json();
-    const { teamIds, userIds, permission = "read" } = body as {
-      teamIds?: string[];
-      userIds?: string[];
-      permission?: "read" | "edit";
-    };
+    const parsed = sharePostSchema.safeParse(await request.json().catch(() => ({})));
+    if (!parsed.success) {
+      return errorJson(400, "Invalid request body");
+    }
+    const { teamIds, userIds, permission = "read" } = parsed.data;
 
     if (permission !== "read" && permission !== "edit") {
       return errorJson(400, "permission must be 'read' or 'edit'");
@@ -104,8 +124,11 @@ export const DELETE: RequestHandler = async ({ params, request, locals }) => {
   if (scopeErr) return scopeErr;
   try {
     const { user, agent } = await verifyOwnerOrAdmin(locals, params.id);
-    const body = await request.json();
-    const { teamId, userId } = body as { teamId?: string; userId?: string };
+    const parsed = shareDeleteSchema.safeParse(await request.json().catch(() => ({})));
+    if (!parsed.success) {
+      return errorJson(400, "Invalid request body");
+    }
+    const { teamId, userId } = parsed.data;
 
     if (!teamId && !userId) {
       return errorJson(400, "teamId or userId is required");
