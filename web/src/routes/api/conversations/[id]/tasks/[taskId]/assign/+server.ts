@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { z } from "zod";
 import type { RequestHandler } from "./$types";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
@@ -11,6 +12,20 @@ import {
   writeTaskSnapshotForConversation,
   ensureTaskTrackingWired,
 } from "$server/runtime/task-tracking-host";
+
+// Boundary validation. POST attaches an agent config to a task (or
+// optional subtask); DELETE removes an existing assignment by id.
+// Both must reject empty/missing required strings the existing
+// handlers used to check inline. Field-name + 400 message preserved
+// so the test contracts on those messages still hold.
+const assignPostBodySchema = z.object({
+  agentConfigId: z.string().min(1, "agentConfigId is required"),
+  subtaskId: z.string().min(1).optional(),
+}).passthrough();
+
+const assignDeleteBodySchema = z.object({
+  assignmentId: z.string().min(1, "assignmentId is required"),
+}).passthrough();
 
 /**
  * POST — Assign an agent or team to a task.
@@ -38,10 +53,11 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   // sec-H3b: fail-closed — unowned rows (null userId) are admin-only
   if (conv.userId !== user.id && user.role !== "admin") return errorJson(404, "Not found");
 
-  const body = await request.json() as { agentConfigId: string; subtaskId?: string };
-  if (!body.agentConfigId) {
+  const parsed = assignPostBodySchema.safeParse(await request.json().catch(() => ({})));
+  if (!parsed.success) {
     return errorJson(400, "agentConfigId is required");
   }
+  const body = parsed.data;
 
   await ensureTaskTrackingWired(params.id);
   const snapshot = await getTaskSnapshotForConversation(params.id) ?? {
@@ -105,10 +121,11 @@ export const DELETE: RequestHandler = async ({ params, request, locals }) => {
   // sec-H3b: fail-closed — unowned rows (null userId) are admin-only
   if (conv.userId !== user.id && user.role !== "admin") return errorJson(404, "Not found");
 
-  const body = await request.json() as { assignmentId: string };
-  if (!body.assignmentId) {
+  const parsed = assignDeleteBodySchema.safeParse(await request.json().catch(() => ({})));
+  if (!parsed.success) {
     return errorJson(400, "assignmentId is required");
   }
+  const body = parsed.data;
 
   await ensureTaskTrackingWired(params.id);
   const snapshot = await getTaskSnapshotForConversation(params.id) ?? {
