@@ -1,10 +1,19 @@
 import { json } from "@sveltejs/kit";
+import { z } from "zod";
 import { getExecutor, getBus } from "$lib/server/context";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 import { getActiveRun, markInterrupted } from "$server/db/queries/active-runs";
+
+// Boundary validation: the only field the handler reads off the body is
+// `action`, which must be one of two literal strings. Keep the schema
+// strict so unknown fields fail loud rather than silently — this route
+// is small enough that any drift would be intentional.
+const activeRunActionSchema = z.object({
+  action: z.enum(["cancel", "force-cancel"]),
+}).strict();
 
 /** Compute "how long since this run last emitted a heartbeat" in ms. Treats the row's
  *  startedAt as a fallback when last_heartbeat is missing. Used by the client to drive
@@ -69,8 +78,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   if (scopeErr) return scopeErr;
   requireAuth(locals);
 
-  const body = await request.json();
-  if (body.action !== "cancel" && body.action !== "force-cancel") {
+  const raw = await request.json().catch(() => null);
+  const parsed = activeRunActionSchema.safeParse(raw);
+  if (!parsed.success) {
     return errorJson(400, "Unknown action");
   }
 
