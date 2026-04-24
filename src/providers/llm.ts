@@ -6,6 +6,7 @@
 import {
   stream,
   complete,
+  type Api,
   type Model,
   type Context,
   type AssistantMessage,
@@ -18,7 +19,7 @@ export type { AssistantMessageEventStream };
 export { getApiKey } from "./credentials";
 
 export async function streamLLM(
-  model: Model<any>,
+  model: Model<Api>,
   context: Context,
   opts?: { signal?: AbortSignal; conversationId?: string },
 ): Promise<AssistantMessageEventStream> {
@@ -30,7 +31,7 @@ export async function streamLLM(
 }
 
 export async function completeLLM(
-  model: Model<any>,
+  model: Model<Api>,
   context: Context,
   opts?: { conversationId?: string },
 ): Promise<AssistantMessage> {
