@@ -5,10 +5,38 @@ import { resolveModel } from "../../providers/router";
 import { getCredential } from "../../providers/credentials";
 import { extensionToAgentTool, ToolExecutor } from "../../extensions/tool-executor";
 import { ExtensionRegistry } from "../../extensions/registry";
+import type { AgentRun, TeamMember, TeamMemberOverrides, TeamToolScope } from "../../types";
 import type { StreamChatContext } from "./context";
 import type { StreamChatHost, PendingPermissionInfo } from "./host";
 
 const log = logger.child("executor.streamChat.setup");
+
+/**
+ * Scratch fields stashed on the AgentRun by the orchestration tool-loader
+ * (setup-tools.ts 2d) and consumed by {@link applyAutoSpinUp} after the
+ * Promise.all completes. All optional — only set when the agent config /
+ * mention resolution actually produces a team or sub-agent list.
+ *
+ * Exported so `auto-spin-up.ts` can re-use the cast without redeclaring
+ * the field shape. Replaces the `(run as any)._field` pattern that used
+ * to hide the whole schema in inline casts.
+ *
+ * These fields are deleted by auto-spin-up in the same turn, so they
+ * never get persisted to the DB row.
+ */
+export interface RunOrchestrationMeta {
+  _teamConfig?: { name: string; prompt: string; autoSpinUp?: boolean };
+  _memberOverrides?: Map<string, TeamMemberOverrides>;
+  _subAgentMembers?: TeamMember[];
+  _teamToolScope?: TeamToolScope;
+  _mentionedAgents?: Array<{ id: string; name: string; description: string }>;
+  _pendingAutoSpinUp?: boolean;
+}
+
+/** Narrow `AgentRun` alias that exposes the orchestration scratch fields.
+ *  Cast the run to this type when reading/writing `_*` fields so the
+ *  compiler catches typos and renames. */
+export type OrchestratedRun = AgentRun & RunOrchestrationMeta;
 
 /** Subset of streamChat's options the setup-tools phase reads. */
 export interface SetupToolsOptions {
@@ -68,6 +96,10 @@ export async function setupTools(
   credentialConversationId: string,
 ): Promise<SetupToolsResult> {
   const { run } = ctx;
+  // Typed view onto the orchestration scratch fields set by tool-loader 2d
+  // and consumed by auto-spin-up. Replaces the inline `(run as any)` casts
+  // — same underlying object, but the compiler now knows the field shapes.
+  const orchRun = run as OrchestratedRun;
 
   // ── Parallel setup: memory/KB, tools, model resolution all run concurrently ──
   host.bus.emit("run:status", { runId: run.id, status: "Preparing..." });
@@ -118,7 +150,7 @@ export async function setupTools(
         });
         const [injectionModule, kbChunks] = await Promise.all([
           import("../../memory/injection"),
-          (async (): Promise<any[] | undefined> => {
+          (async () => {
             if (!hasKB) return undefined;
             try {
               const { searchKBChunksForQuery } = await import("../../memory/retrieval");
@@ -130,10 +162,14 @@ export async function setupTools(
         ctx.system = injection.systemPrompt;
         if (injection.memoriesUsed.length > 0) run.memoriesUsed = injection.memoriesUsed;
       } catch {
+        // run:status carries extra `degraded` + `message` fields when
+        // surfacing a soft-failure (not defined on the AgentEvents shape,
+        // which only requires runId + status); forwarded verbatim by the
+        // bus subscribers. Cast through `unknown` to the event shape.
         host.bus.emit("run:status", {
           runId: run.id, status: "memory_unavailable", degraded: true,
           message: "Memory is currently unavailable. Responses won't include past context.",
-        } as any);
+        } as unknown as { runId: string; status: string });
       }
     })(),
 
@@ -156,13 +192,15 @@ export async function setupTools(
             getPermissionMode(projectId).then(mode => {
               if (!busOverrideMode) busOverrideMode = mode;
             }).catch(() => {});
-            ctx.unsubModeChange = host.bus.on("tool:permission_mode_change" as any, (data: any) => {
-              if (data.conversationId === conversationId) busOverrideMode = data.mode;
+            ctx.unsubModeChange = host.bus.on("tool:permission_mode_change", (data) => {
+              if (data.conversationId === conversationId) {
+                busOverrideMode = data.mode as import("../tools/permissions").PermissionMode;
+              }
             });
 
             const wrappedTools: AgentTool[] = toolDefs.map((def) => ({
               name: def.name, label: def.label, description: def.description, parameters: def.parameters,
-              execute: async (toolCallId: string, params: any, signal?: AbortSignal, onUpdate?: any) => {
+              execute: async (toolCallId, params, signal, onUpdate) => {
                 const toolController = new AbortController();
                 ctx.toolAbortControllers.set(toolCallId, toolController);
                 const combinedSignal = signal ? AbortSignal.any([signal, toolController.signal]) : toolController.signal;
@@ -344,24 +382,24 @@ export async function setupTools(
                 }));
                 // If config is a team, store for team prompt injection
                 if (config?.category === "team" && mentionedTeams.length === 0) {
-                  (run as any)._teamConfig = { name: config.name, prompt: config.prompt, autoSpinUp: refs?.autoSpinUp ?? false };
+                  orchRun._teamConfig = { name: config.name, prompt: config.prompt, autoSpinUp: refs?.autoSpinUp ?? false };
                 }
               }
               // Build memberOverrides from team config members
               if (refs?.members?.length) {
-                const overridesMap = new Map<string, import("../../types").TeamMemberOverrides>();
+                const overridesMap = new Map<string, TeamMemberOverrides>();
                 for (const m of refs.members) {
                   if (m.overrides) overridesMap.set(m.agentConfigId, m.overrides);
                 }
                 if (overridesMap.size > 0) {
-                  (run as any)._memberOverrides = overridesMap;
-                  (run as any)._subAgentMembers = refs.members;
+                  orchRun._memberOverrides = overridesMap;
+                  orchRun._subAgentMembers = refs.members;
                 }
               }
               // Team-level tool scope (overrides per-member tool lists)
               const scope = refs?.teamToolScope;
               if (scope && ((scope.allowedTools?.length ?? 0) > 0 || (scope.deniedTools?.length ?? 0) > 0)) {
-                (run as any)._teamToolScope = scope;
+                orchRun._teamToolScope = scope;
               }
             } catch { /* Agent config ref wiring failure is non-fatal */ }
           }
@@ -375,14 +413,14 @@ export async function setupTools(
 
           if (allAvailableAgents.length > 0) {
             // Resolve memberOverrides: from options (nested call) or from team config refs
-            const resolvedMemberOverrides = options.memberOverrides ?? (run as any)._memberOverrides as Map<string, import("../../types").TeamMemberOverrides> | undefined;
-            const resolvedSubAgentMembers = options.subAgentMembers ?? (run as any)._subAgentMembers as import("../../types").TeamMember[] | undefined;
+            const resolvedMemberOverrides = options.memberOverrides ?? orchRun._memberOverrides;
+            const resolvedSubAgentMembers = options.subAgentMembers ?? orchRun._subAgentMembers;
             // Team-level tool scope — from team-mention (depth 0) or from team config refs.
             // Cascades to all invoked sub-members, overriding any per-member tool lists.
             const firstMentionedTeam = mentionedTeams[0];
             const resolvedTeamToolScope =
               firstMentionedTeam?.team.teamToolScope
-              ?? (run as any)._teamToolScope as import("../../types").TeamToolScope | undefined;
+              ?? orchRun._teamToolScope;
 
             // Orchestration extension (Phase 4 commit-5): wire-on-first-use for
             // invoke_agent. The legacy built-in was deleted; the same tool
@@ -421,7 +459,7 @@ export async function setupTools(
               });
             }
             if (resolvedTeamToolScope) {
-              (run as any)._teamToolScope = resolvedTeamToolScope;
+              orchRun._teamToolScope = resolvedTeamToolScope;
             }
 
             // Phase 5 commit 4: ask_human is now wired alongside
@@ -481,16 +519,16 @@ export async function setupTools(
             }
 
             // Store metadata for system prompt injection after Promise.all
-            (run as any)._mentionedAgents = allAvailableAgents;
+            orchRun._mentionedAgents = allAvailableAgents;
             const firstTeam = mentionedTeams[0];
             if (firstTeam) {
-              (run as any)._teamConfig = { name: firstTeam.team.name, prompt: firstTeam.team.prompt, autoSpinUp: firstTeam.team.autoSpinUp };
+              orchRun._teamConfig = { name: firstTeam.team.name, prompt: firstTeam.team.prompt, autoSpinUp: firstTeam.team.autoSpinUp };
             }
             log.info("Injected orchestration tools", { agents: allAvailableAgents.map(a => a.name), toolCount: ctx.agentTools.length });
 
             // Store flag for auto-spin-up (executed after Promise.all to avoid blocking tool loading)
-            if (((run as any)._teamConfig as any)?.autoSpinUp) {
-              (run as any)._pendingAutoSpinUp = true;
+            if (orchRun._teamConfig?.autoSpinUp) {
+              orchRun._pendingAutoSpinUp = true;
             }
           }
         }
