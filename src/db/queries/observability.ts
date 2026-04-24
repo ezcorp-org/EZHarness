@@ -76,9 +76,9 @@ export async function getConversationStats(conversationId: string): Promise<Conv
       AND event_type = 'tool_call'
   `);
 
-  const msg = msgRows.rows[0] as any;
-  const dur = durRows.rows[0] as any;
-  const tool = toolRows.rows[0] as any;
+  const msg = msgRows.rows[0] as { total_input_tokens: number | string; total_output_tokens: number | string; turn_count: number | string };
+  const dur = durRows.rows[0] as { avg_duration_ms: number | string };
+  const tool = toolRows.rows[0] as { tool_count: number | string };
 
   return {
     totalInputTokens: Number(msg.total_input_tokens),
@@ -169,9 +169,12 @@ export async function getGlobalStats(options?: { days?: number }): Promise<Globa
     LIMIT 10
   `);
 
-  const msg = msgRows.rows[0] as any;
-  const dur = durRows.rows[0] as any;
-  const tool = toolRows.rows[0] as any;
+  const msg = msgRows.rows[0] as { total_input_tokens: number | string; total_output_tokens: number | string; turn_count: number | string };
+  const dur = durRows.rows[0] as { avg_response_ms: number | string };
+  const tool = toolRows.rows[0] as { tool_count: number | string };
+
+  type DayRow = { day: string; input_tokens: number | string; output_tokens: number | string };
+  type ExtRow = { extension_id: string; call_count: number | string; success_rate: number | string; avg_duration_ms: number | string };
 
   return {
     totalInputTokens: Number(msg.total_input_tokens),
@@ -179,12 +182,12 @@ export async function getGlobalStats(options?: { days?: number }): Promise<Globa
     totalToolCalls: Number(tool.tool_count),
     totalTurnCount: Number(msg.turn_count),
     avgResponseMs: Math.round(Number(dur.avg_response_ms)),
-    tokensByDay: (dayRows.rows as any[]).map((r) => ({
+    tokensByDay: (dayRows.rows as DayRow[]).map((r) => ({
       date: String(r.day),
       input: Number(r.input_tokens),
       output: Number(r.output_tokens),
     })),
-    topExtensions: (extRows.rows as any[]).map((r) => ({
+    topExtensions: (extRows.rows as ExtRow[]).map((r) => ({
       extensionId: String(r.extension_id),
       callCount: Number(r.call_count),
       successRate: Number(r.success_rate),
