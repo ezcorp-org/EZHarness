@@ -81,9 +81,11 @@ async function getOAuthCredential(
 
   // Google Cloud Code Assist requires a projectId. If missing (e.g. OAuth
   // callback didn't discover one), resolve it now and persist.
-  if (provider === "google" && !(creds as any).projectId) {
+  // OAuthCredentials has a `[key: string]: unknown` index signature, so
+  // `projectId` round-trips through it without a cast.
+  if (provider === "google" && !creds.projectId) {
     const projectId = await discoverGoogleProject(creds.access);
-    (creds as any).projectId = projectId;
+    creds.projectId = projectId;
     await upsertSetting(`provider:oauth:${provider}`, encrypt(JSON.stringify(creds)));
   }
 
@@ -156,7 +158,7 @@ export async function getApiKey(provider: string): Promise<string> {
   }
 
   // Try pi-ai's env key resolver (checks standard env vars like ANTHROPIC_API_KEY)
-  const envKey = getEnvApiKey(provider as any);
+  const envKey = getEnvApiKey(provider);
   if (envKey) return envKey;
 
   throw new Error(`Missing API key for ${provider}`);
@@ -205,7 +207,14 @@ export async function getCredential(
     // Last resort: local providers with baseUrl don't need credentials
     try {
       const customModels = await getSetting("provider:customModels");
-      if (Array.isArray(customModels) && customModels.some((m: any) => m.provider === provider && m.baseUrl)) {
+      if (
+        Array.isArray(customModels) &&
+        customModels.some((m: unknown): boolean => {
+          if (!m || typeof m !== "object") return false;
+          const r = m as { provider?: unknown; baseUrl?: unknown };
+          return r.provider === provider && typeof r.baseUrl === "string";
+        })
+      ) {
         return { type: "apikey", token: "no-key-needed" };
       }
     } catch {}
