@@ -59,6 +59,44 @@ describe("PUT /api/teams/[id]", () => {
     );
     expect(res.status).toBe(401);
   });
+
+  test("rejects 400 when name is missing", async () => {
+    const res = await PUT(
+      makeEvent({
+        method: "PUT",
+        locals: { user: { id: "a1", email: "a@x", name: "A", role: "admin" } },
+        body: {},
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("Team name is required");
+  });
+
+  test("rejects 400 when name is blank whitespace", async () => {
+    const res = await PUT(
+      makeEvent({
+        method: "PUT",
+        locals: { user: { id: "a1", email: "a@x", name: "A", role: "admin" } },
+        body: { name: "   " },
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("rejects 403 when API-key lacks 'admin' scope", async () => {
+    const res = await PUT(
+      makeEvent({
+        method: "PUT",
+        locals: {
+          user: { id: "a1", email: "a@x", name: "A", role: "admin" },
+          apiKeyScopes: ["read"],
+        },
+        body: { name: "new-name" },
+      }),
+    );
+    expect(res.status).toBe(403);
+  });
 });
 
 describe("DELETE /api/teams/[id]", () => {
@@ -79,5 +117,20 @@ describe("DELETE /api/teams/[id]", () => {
   test("unauthenticated returns 401", async () => {
     const res = await DELETE(makeEvent({ method: "DELETE", locals: {} }));
     expect(res.status).toBe(401);
+  });
+
+  test("rejects 403 when API-key lacks 'admin' scope", async () => {
+    const res = await DELETE(
+      makeEvent({
+        method: "DELETE",
+        locals: {
+          user: { id: "a1", email: "a@x", name: "A", role: "admin" },
+          apiKeyScopes: ["read"],
+        },
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { required?: string };
+    expect(body.required).toBe("admin");
   });
 });
