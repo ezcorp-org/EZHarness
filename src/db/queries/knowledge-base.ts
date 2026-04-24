@@ -16,7 +16,7 @@ export async function updateKBFile(
   updates: Partial<Pick<KBFile, "status" | "chunkCount">>,
 ): Promise<void> {
   const db = getDb();
-  await db.update(knowledgeBaseFiles).set(updates as any).where(eq(knowledgeBaseFiles.id, id));
+  await db.update(knowledgeBaseFiles).set(updates).where(eq(knowledgeBaseFiles.id, id));
 }
 
 export async function listKBFiles(projectId: string): Promise<KBFile[]> {
@@ -87,5 +87,5 @@ export async function hasKBChunks(projectId: string): Promise<boolean> {
       WHERE f.project_id = ${projectId} AND f.status = 'ready'
     ) AS has_data`,
   );
-  return (rows.rows[0] as any)?.has_data === true;
+  return (rows.rows[0] as { has_data?: boolean } | undefined)?.has_data === true;
 }
