@@ -2,7 +2,7 @@ import { eq, desc, sql, and, ne, inArray } from "drizzle-orm";
 import { getDb } from "../connection";
 import { memories, memoryAuditLog, memoryProjects } from "../schema";
 import type { Memory, NewMemory } from "../schema";
-import type { MemoryProvenance, MemoryStatus } from "../../memory/types";
+import type { MemoryConfidence, MemoryProvenance, MemoryStatus } from "../../memory/types";
 import { toVectorLiteral } from "../../memory/vector-utils";
 
 // ── Junction table helpers ────────────────────────────────────────
@@ -95,7 +95,7 @@ export async function updateMemory(
   id: string,
   updates: {
     content?: string;
-    confidence?: string;
+    confidence?: MemoryConfidence;
     embedding?: number[];
     provenance?: MemoryProvenance;
   },
@@ -106,7 +106,8 @@ export async function updateMemory(
   const existing = await db.select().from(memories).where(eq(memories.id, id));
   const previousContent = existing[0]?.content;
 
-  const setValues: Record<string, unknown> = { updatedAt: new Date() };
+  type MemoryUpdate = Partial<typeof memories.$inferInsert>;
+  const setValues: MemoryUpdate = { updatedAt: new Date() };
   if (updates.content !== undefined) setValues.content = updates.content;
   if (updates.confidence !== undefined) setValues.confidence = updates.confidence;
   if (updates.provenance !== undefined) setValues.provenance = updates.provenance;
@@ -121,7 +122,7 @@ export async function updateMemory(
   // Apply non-embedding updates
   const nonEmbeddingKeys = Object.keys(setValues).filter((k) => k !== "embedding");
   if (nonEmbeddingKeys.length > 0) {
-    await db.update(memories).set(setValues as any).where(eq(memories.id, id));
+    await db.update(memories).set(setValues).where(eq(memories.id, id));
   }
 
   // Create audit log entry
@@ -150,7 +151,7 @@ export async function findSimilarMemory(
   `);
 
   if (!results.rows || results.rows.length === 0) return null;
-  const row = results.rows[0] as any;
+  const row = results.rows[0] as { id: string; content: string; similarity: number | string };
   return { id: row.id, content: row.content, similarity: Number(row.similarity) };
 }
 
@@ -236,7 +237,8 @@ export async function updateMemoryStatus(
   reason?: string,
 ): Promise<void> {
   const db = getDb();
-  const setValues: Record<string, unknown> = {
+  type MemoryUpdate = Partial<typeof memories.$inferInsert>;
+  const setValues: MemoryUpdate = {
     status,
     updatedAt: new Date(),
   };
@@ -244,7 +246,7 @@ export async function updateMemoryStatus(
   if (status === "active") {
     setValues.lastAccessedAt = new Date();
   }
-  await db.update(memories).set(setValues as any).where(eq(memories.id, id));
+  await db.update(memories).set(setValues).where(eq(memories.id, id));
 
   await db.insert(memoryAuditLog).values({
     memoryId: id,
@@ -272,7 +274,7 @@ export async function touchMemoryAccess(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   const db = getDb();
   await db.update(memories)
-    .set({ lastAccessedAt: new Date() } as any)
+    .set({ lastAccessedAt: new Date() })
     .where(inArray(memories.id, ids));
 }
 
@@ -300,5 +302,5 @@ export async function hasMemories(projectId: string): Promise<boolean> {
              OR NOT EXISTS (SELECT 1 FROM memory_projects mp2 WHERE mp2.memory_id = memories.id))
     ) AS has_data`,
   );
-  return (rows.rows[0] as any)?.has_data === true;
+  return (rows.rows[0] as { has_data?: boolean } | undefined)?.has_data === true;
 }
