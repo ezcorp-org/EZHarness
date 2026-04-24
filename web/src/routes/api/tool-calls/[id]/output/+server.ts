@@ -23,13 +23,22 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	}
 
 	// Extract text from ToolCallResult shape: { content: [{ type: "text", text: "..." }] }
-	const raw = rows[0]!.output;
+	const raw: unknown = rows[0]!.output;
 	let output: unknown = raw;
-	if (raw && typeof raw === "object" && Array.isArray((raw as any).content)) {
-		const texts = ((raw as any).content as any[])
-			.filter((c: any) => c.type === "text" && typeof c.text === "string")
-			.map((c: any) => c.text);
-		if (texts.length > 0) output = texts.join("\n");
+	if (raw && typeof raw === "object" && "content" in raw) {
+		const content = (raw as { content: unknown }).content;
+		if (Array.isArray(content)) {
+			const texts = content
+				.filter(
+					(c): c is { type: "text"; text: string } =>
+						typeof c === "object" &&
+						c !== null &&
+						(c as { type?: unknown }).type === "text" &&
+						typeof (c as { text?: unknown }).text === "string",
+				)
+				.map((c) => c.text);
+			if (texts.length > 0) output = texts.join("\n");
+		}
 	}
 
 	return json({ output });
