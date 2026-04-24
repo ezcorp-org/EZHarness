@@ -1,9 +1,20 @@
 import { json } from "@sveltejs/kit";
+import { z } from "zod";
 import * as settingQueries from "$server/db/queries/settings";
 import { requireRole } from "$server/auth/middleware";
 import { isSensitiveSettingKey } from "../deny-list";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
+
+// Boundary validation for setting upsert. `value` is intentionally
+// `z.unknown()` because settings are wide-open scalars/objects (theme
+// strings, JSON config blobs, etc.). The schema's only job is to
+// fence off unknown top-level fields; the inline `value === undefined`
+// check below stays so the test-pinned 400 "value required" message
+// fires for both missing-key and explicit-undefined bodies.
+const upsertSettingSchema = z.object({
+  value: z.unknown(),
+}).strict();
 
 function denyIfSensitive(key: string): Response | null {
   if (isSensitiveSettingKey(key)) {
@@ -28,11 +39,14 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   requireRole(locals, "admin");
   const denied = denyIfSensitive(params.key);
   if (denied) return denied;
-  const body = (await request.json()) as { value: unknown };
-  if (body.value === undefined) {
+  const parsed = upsertSettingSchema.safeParse(await request.json().catch(() => ({})));
+  if (!parsed.success) {
     return errorJson(400, "value required");
   }
-  await settingQueries.upsertSetting(params.key, body.value);
+  if (parsed.data.value === undefined) {
+    return errorJson(400, "value required");
+  }
+  await settingQueries.upsertSetting(params.key, parsed.data.value);
   return json({ ok: true });
 };
 
