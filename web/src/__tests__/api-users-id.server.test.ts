@@ -54,5 +54,45 @@ describe("PUT /api/users/[id]", () => {
 			403,
 		);
 	});
+
+	test("rejects 403 when API-key lacks 'admin' scope", async () => {
+		const admin = { id: "a1", email: "a@x", name: "A", role: "admin" };
+		const res = await PUT(
+			makeEvent({
+				body: { status: "inactive" },
+				locals: { user: admin, apiKeyScopes: ["read"] },
+			}),
+		);
+		expect(res.status).toBe(403);
+		const body = (await res.json()) as { required?: string };
+		expect(body.required).toBe("admin");
+	});
+
+	test("rejects 400 when status is an unknown value", async () => {
+		const admin = { id: "a1", email: "a@x", name: "A", role: "admin" };
+		const res = await PUT(
+			makeEvent({
+				body: { status: "banned" },
+				locals: { user: admin },
+			}),
+		);
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toContain("Status must be");
+	});
+
+	test("rejects 400 when admin tries to deactivate themselves", async () => {
+		const admin = { id: "self-admin", email: "a@x", name: "A", role: "admin" };
+		const res = await PUT(
+			makeEvent({
+				id: "self-admin",
+				body: { status: "inactive" },
+				locals: { user: admin },
+			}),
+		);
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toBe("Cannot deactivate yourself");
+	});
 });
 
