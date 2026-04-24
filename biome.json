@@ -32,9 +32,12 @@
 			"!src/providers/registry.ts",
 			"!src/providers/router.ts",
 			"!src/providers/model-discovery.ts",
+			"!src/chat/attachments/history-rehydrate.ts",
+			"!src/db/queries/conversations.ts",
 			"!web/src/lib/api.ts",
 			"!web/src/routes/api/models",
-			"!web/src/routes/api/providers/\\[provider\\]/refresh-models"
+			"!web/src/routes/api/providers/\\[provider\\]/refresh-models",
+			"!web/src/routes/api/ext-files/\\[name\\]/\\[...path\\]"
 		]
 	},
 	"formatter": {
