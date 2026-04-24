@@ -128,7 +128,7 @@
 		}
 	});
 
-	function stageFiles(files: FileList | File[]) {
+	export function stageFiles(files: FileList | File[]) {
 		if (!capabilities) {
 			attachmentError = "No model selected — pick one before attaching files.";
 			return;
@@ -166,12 +166,14 @@
 
 	function onDrop(e: DragEvent) {
 		e.preventDefault();
+		e.stopPropagation();
 		isDragging = false;
 		if (e.dataTransfer?.files?.length) stageFiles(e.dataTransfer.files);
 	}
 	function onDragOver(e: DragEvent) {
 		if (!capabilities) return;
 		e.preventDefault();
+		e.stopPropagation();
 		isDragging = true;
 	}
 	function onDragLeave() { isDragging = false; }

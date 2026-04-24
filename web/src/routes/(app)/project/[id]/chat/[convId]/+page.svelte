@@ -57,6 +57,7 @@
 	import ConversationList from "$lib/components/ConversationList.svelte";
 	import ChatMessage from "$lib/components/ChatMessage.svelte";
 	import ChatInput from "$lib/components/ChatInput.svelte";
+	import { shouldHandleChatWindowDragOver, filesFromChatWindowDrop } from "$lib/chat/chat-window-drop";
 	import ConversationSettings from "$lib/components/ConversationSettings.svelte";
 	import ExportMenu from "$lib/components/ExportMenu.svelte";
 	import ObservabilityPanel from "$lib/components/ObservabilityPanel.svelte";
@@ -1924,7 +1925,20 @@
 		/>
 	</SwipeDrawer>
 
-	<div class="flex flex-1 flex-col min-w-0">
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="flex flex-1 flex-col min-w-0"
+		data-testid="chat-column"
+		ondragover={(e) => {
+			if (shouldHandleChatWindowDragOver(e.dataTransfer, !!chatInput)) e.preventDefault();
+		}}
+		ondrop={(e) => {
+			const files = filesFromChatWindowDrop(e.dataTransfer, !!chatInput);
+			if (!files) return;
+			e.preventDefault();
+			chatInput?.stageFiles(files);
+		}}
+	>
 		<!-- Chat Header -->
 		<div class="flex items-center justify-between border-b border-[var(--color-border)] px-2 md:px-4 py-2 gap-1">
 			<!-- Mobile menu button -->
