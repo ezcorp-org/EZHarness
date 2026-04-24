@@ -1,9 +1,17 @@
 import type { RequestHandler } from "./$types";
 import { json } from "@sveltejs/kit";
+import { z } from "zod";
 import { errorJson } from "$lib/server/http-errors";
 import { requireRole, requireTeamRole } from "$server/auth/middleware";
 import { getTeam, updateTeamName, deleteTeam, getTeamMembers } from "$server/db/queries/teams";
 import { requireScope } from "$lib/server/security/api-keys";
+
+// Boundary validation for team rename. The PUT handler reads only
+// `name`; the post-trim emptiness check stays so the test-pinned 400
+// "Team name is required" message fires for missing/whitespace input.
+const renameTeamSchema = z.object({
+  name: z.string().optional(),
+}).strict();
 
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "read");
@@ -25,7 +33,11 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
   if (scopeErr) return scopeErr;
   try {
     await requireTeamRole(locals, params.id, "owner");
-    const { name } = (await request.json()) as { name?: string };
+    const parsed = renameTeamSchema.safeParse(await request.json().catch(() => ({})));
+    if (!parsed.success) {
+      return errorJson(400, "Team name is required");
+    }
+    const { name } = parsed.data;
     if (!name?.trim()) {
       return errorJson(400, "Team name is required");
     }
