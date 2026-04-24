@@ -21,8 +21,14 @@
 
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
-import { resolve, normalize, relative, join, sep } from "node:path";
+import { join } from "node:path";
 import { existsSync, createReadStream, statSync } from "node:fs";
+import {
+	ALLOWED_EXTENSIONS,
+	MIME_BY_EXT,
+	extensionDataRoot,
+	resolveExtFilesPath,
+} from "$server/chat/attachments/ext-files-resolver";
 import type { RequestHandler } from "./$types";
 
 function notFound(): Response {
@@ -32,24 +38,11 @@ function notFound(): Response {
 	});
 }
 
-// Hard-coded allowlist. Keep tight — anything added here exposes that
-// extension's `generated/` (and any other disk state) to authenticated
-// users of the platform.
-const ALLOWED_EXTENSIONS = new Set(["openai-image-gen-2"]);
-
-const MIME_BY_EXT: Record<string, string> = {
-	png: "image/png",
-	jpg: "image/jpeg",
-	jpeg: "image/jpeg",
-	webp: "image/webp",
-	gif: "image/gif",
-};
-
 /** Resolve the extension data root inside the server's project root.
  *  Prefixed with `_` because SvelteKit's +server.ts loader only
  *  permits HTTP verbs + `_`-prefixed exports. */
 export function _extensionDataRoot(name: string, cwd: string = process.cwd()): string {
-	return resolve(cwd, ".ezcorp", "extension-data", name);
+	return extensionDataRoot(name, cwd);
 }
 
 export const GET: RequestHandler = async ({ params, locals }) => {
@@ -57,43 +50,17 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	if (scopeErr) return scopeErr;
 	requireAuth(locals);
 
-	const name = params.name;
-	const relRaw = params.path ?? "";
+	const resolved = resolveExtFilesPath(params.name, params.path);
+	if (!resolved) return notFound();
+	if (!existsSync(resolved.absPath)) return notFound();
+	const stat = statSync(resolved.absPath);
+	if (!stat.isFile()) return notFound();
 
-	if (!name || !ALLOWED_EXTENSIONS.has(name)) {
-		return notFound();
-	}
-	// Reject empty / root-only requests.
-	if (!relRaw || relRaw === "/" || relRaw === ".") {
-		return notFound();
-	}
-
-	const root = _extensionDataRoot(name);
-	const absCandidate = resolve(root, normalize(relRaw));
-
-	// Containment check: normalized absolute path must live strictly
-	// under the data root. `relative(root, abs)` starting with ".." means
-	// the caller escaped the directory via ../../ or a leading slash.
-	const rel = relative(root, absCandidate);
-	if (rel.startsWith("..") || rel.includes(`..${sep}`)) {
-		return notFound();
-	}
-	if (!existsSync(absCandidate)) {
-		return notFound();
-	}
-	const stat = statSync(absCandidate);
-	if (!stat.isFile()) {
-		return notFound();
-	}
-
-	const ext = (absCandidate.split(".").pop() ?? "").toLowerCase();
-	const mime = MIME_BY_EXT[ext] ?? "application/octet-stream";
-
-	const stream = createReadStream(absCandidate) as unknown as ReadableStream;
+	const stream = createReadStream(resolved.absPath) as unknown as ReadableStream;
 	return new Response(stream as any, {
 		status: 200,
 		headers: {
-			"Content-Type": mime,
+			"Content-Type": resolved.mimeType,
 			"Content-Length": String(stat.size),
 			// Immutable + short max-age: filenames are UUIDs so content
 			// never changes, but a short age keeps control with us if a

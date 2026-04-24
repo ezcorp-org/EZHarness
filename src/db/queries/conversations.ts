@@ -321,14 +321,20 @@ export async function getConversationPath(
   conversationId: string,
 ): Promise<Message[]> {
   const db = getDb();
+  // Track depth in the recursive CTE so we can order root → leaf via the
+  // parent chain rather than created_at. Two messages inserted in the same
+  // millisecond (common in tight-loop tests and fast branch creation) used
+  // to come back in non-deterministic order, silently breaking downstream
+  // code that expects strict user/assistant alternation in the history.
   const result = await db.execute(sql`
     WITH RECURSIVE path AS (
-      SELECT * FROM messages WHERE id = ${leafMessageId} AND conversation_id = ${conversationId}
+      SELECT *, 0 AS depth FROM messages
+        WHERE id = ${leafMessageId} AND conversation_id = ${conversationId}
       UNION ALL
-      SELECT m.* FROM messages m
-      JOIN path p ON m.id = p.parent_message_id
+      SELECT m.*, p.depth + 1 FROM messages m
+        JOIN path p ON m.id = p.parent_message_id
     )
-    SELECT * FROM path ORDER BY created_at ASC
+    SELECT * FROM path ORDER BY depth DESC
   `);
   const rows = (result.rows as Record<string, unknown>[]).map(rowToMessage);
   const withMem = await attachMemoriesUsed(rows);

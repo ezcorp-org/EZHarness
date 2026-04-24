@@ -32,6 +32,11 @@ afterAll(() => {
 
 let cwd = "";
 const EXT = "openai-image-gen-2";
+// Stable location to chdir back to in teardown so sibling test files
+// running after this one don't find process.cwd() pointing at a deleted
+// tmp dir (the failure mode is node crashing inside any subsequent
+// `process.cwd()` or relative-path resolve).
+const SAFE_CWD = tmpdir();
 
 beforeEach(() => {
   cwd = mkdtempSync(join(tmpdir(), "extfiles-"));
@@ -43,6 +48,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
+  process.chdir(SAFE_CWD);
   if (cwd) {
     try { rmSync(cwd, { recursive: true, force: true }); } catch {}
   }
