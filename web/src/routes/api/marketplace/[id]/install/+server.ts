@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { z } from "zod";
 import { requireAuth } from "$server/auth/middleware";
 import { getListingById, incrementInstallCount } from "$server/db/queries/marketplace";
 import { getLatestVersion, getVersion } from "$server/db/queries/marketplace-versions";
@@ -10,6 +11,15 @@ import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
+// Boundary validation. The handler reads exactly one optional field —
+// `version` — off the body; an empty body is valid (handler falls
+// through to getLatestVersion). Schema requires non-empty when
+// present so a `{version: ""}` payload doesn't sneak past as
+// "requested but blank".
+const installPostSchema = z.object({
+  version: z.string().min(1).optional(),
+}).passthrough();
+
 export const POST: RequestHandler = async ({ params, request, locals }) => {
   const scopeErr = requireScope(locals, "extensions");
   if (scopeErr) return scopeErr;
@@ -20,8 +30,11 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     return errorJson(404, "Not found");
   }
 
-  const body = await request.json().catch(() => ({}));
-  const requestedVersion = (body as { version?: string }).version;
+  const parsed = installPostSchema.safeParse(await request.json().catch(() => ({})));
+  if (!parsed.success) {
+    return errorJson(400, "Invalid request body");
+  }
+  const requestedVersion = parsed.data.version;
 
   const versionRecord = requestedVersion
     ? await getVersion(listing.id, requestedVersion)
