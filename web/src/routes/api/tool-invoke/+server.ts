@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { z } from "zod";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { ToolExecutor } from "$server/extensions/tool-executor";
 import { requireAuth } from "$server/auth/middleware";
@@ -9,20 +10,40 @@ import type { RequestHandler } from "./$types";
 
 const MAX_RETRIES = 2;
 
+// Boundary validation. POST invokes a registered extension tool by
+// `extensionName__toolName`; `input` is forwarded to the tool whose
+// own input schema validates it, so we keep `input` loose here. The
+// existing presence check downstream still drives the
+// "Missing required fields" 400 message verbatim — the test contract
+// asserts on that exact prefix. Strict mode rejects unknown top-level
+// keys.
+const postBodySchema = z.object({
+  extensionName: z.string().optional(),
+  toolName: z.string().optional(),
+  input: z.record(z.string(), z.unknown()).optional(),
+  conversationId: z.string().optional(),
+  invocationId: z.string().optional(),
+  messageId: z.string().optional(),
+}).strict();
+
 export const POST: RequestHandler = async ({ request, locals }) => {
   const scopeErr = requireScope(locals, "extensions");
   if (scopeErr) return scopeErr;
   requireAuth(locals);
   await ensureInitialized();
 
-  let body: { extensionName: string; toolName: string; input: Record<string, unknown>; conversationId: string; invocationId: string; messageId?: string };
+  let raw: unknown;
   try {
-    body = await request.json();
+    raw = await request.json();
   } catch {
     return json({ success: false, error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { extensionName, toolName, input, conversationId, invocationId, messageId } = body;
+  const parsed = postBodySchema.safeParse(raw);
+  if (!parsed.success) {
+    return json({ success: false, error: "Missing required fields: extensionName, toolName, conversationId, invocationId" }, { status: 400 });
+  }
+  const { extensionName, toolName, input, conversationId, invocationId, messageId } = parsed.data;
   if (!extensionName || !toolName || !conversationId || !invocationId) {
     return json({ success: false, error: "Missing required fields: extensionName, toolName, conversationId, invocationId" }, { status: 400 });
   }
