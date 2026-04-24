@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { z } from "zod";
 import type { RequestHandler } from "./$types";
 import { encrypt, decrypt } from "$server/providers/encryption";
 import { getSetting, upsertSetting, deleteSetting } from "$server/db/queries/settings";
@@ -9,6 +10,19 @@ import { errorJson } from "$lib/server/http-errors";
 
 const PROVIDERS = ["anthropic", "openai", "google"] as const;
 type Provider = (typeof PROVIDERS)[number];
+
+// Boundary validation. POST upserts an encrypted API key; DELETE removes
+// it. Both bodies share the `provider` discriminant — POST also requires
+// `apiKey`. The 400 messages are preserved verbatim so the existing test
+// contract on those exact strings still holds.
+const postBodySchema = z.object({
+  provider: z.string().optional(),
+  apiKey: z.string().optional(),
+}).strict();
+
+const deleteBodySchema = z.object({
+  provider: z.string().optional(),
+}).strict();
 
 const ENV_KEYS: Record<Provider, string> = {
 	anthropic: "ANTHROPIC_API_KEY",
@@ -81,8 +95,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	// authenticated member could overwrite the organization's LLM API key —
 	// redirecting billing to an attacker-controlled key.
 	const admin = requireRole(locals, "admin");
-	const body = await request.json();
-	const { provider, apiKey } = body as { provider: string; apiKey: string };
+	const parsed = postBodySchema.safeParse(await request.json().catch(() => ({})));
+	if (!parsed.success) {
+		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google");
+	}
+	const { provider, apiKey } = parsed.data;
 
 	if (!provider || !isValidProvider(provider)) {
 		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google");
@@ -106,8 +123,11 @@ export const DELETE: RequestHandler = async ({ request, locals }) => {
 	// sec-C5: admin role required. Pre-fix, any authenticated member could
 	// delete the organization's LLM API key — DoS for every other user.
 	const admin = requireRole(locals, "admin");
-	const body = await request.json();
-	const { provider } = body as { provider: string };
+	const parsed = deleteBodySchema.safeParse(await request.json().catch(() => ({})));
+	if (!parsed.success) {
+		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google");
+	}
+	const { provider } = parsed.data;
 
 	if (!provider || !isValidProvider(provider)) {
 		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google");
