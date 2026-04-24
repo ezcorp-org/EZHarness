@@ -7,7 +7,7 @@
  */
 
 import { test, expect, describe } from "vitest";
-import { POST } from "../routes/api/pipelines/+server";
+import { GET, POST } from "../routes/api/pipelines/+server";
 
 function makeEvent(opts: {
   locals?: Record<string, unknown>;
@@ -27,7 +27,42 @@ function makeEvent(opts: {
 
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
 
+describe("GET /api/pipelines", () => {
+  test("returns 403 when API-key scope missing 'read'", async () => {
+    const res = await GET(
+      makeEvent({ locals: { ...authedUser, apiKeyScopes: ["chat"] } }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { required?: string };
+    expect(body.required).toBe("read");
+  });
+
+  test("rejects unauthenticated callers with 401", async () => {
+    let res: Response | undefined;
+    try {
+      await GET(makeEvent({}));
+      expect.fail("should have thrown");
+    } catch (thrown) {
+      expect(thrown).toBeInstanceOf(Response);
+      res = thrown as Response;
+    }
+    expect(res!.status).toBe(401);
+  });
+});
+
 describe("POST /api/pipelines", () => {
+  test("returns 403 when API-key scope missing 'chat'", async () => {
+    const res = await POST(
+      makeEvent({
+        locals: { ...authedUser, apiKeyScopes: ["read"] },
+        body: { name: "p1", steps: [{}] },
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { required?: string };
+    expect(body.required).toBe("chat");
+  });
+
   test("rejects unauthenticated callers with 401", async () => {
     let res: Response | undefined;
     try {
