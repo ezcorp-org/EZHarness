@@ -32,6 +32,13 @@ services:
       # and snapshot backups (/app/data/backups). Surviving `docker compose
       # down` is automatic; only `docker compose down -v` destroys it.
       - ezcorp-data:/app/data
+      # Persist extension-generated files (openai-image-gen-2 writes PNG/WEBP
+      # here; rehydrator reads them back on subsequent turns so the model
+      # can describe/edit prior images). WORKDIR=/app in Dockerfile, so
+      # saveImageToDisk resolves <cwd>/.ezcorp/ to this path. Without the
+      # mount, every container restart or image upgrade wipes the files
+      # and tool-card URLs 404 silently.
+      - ext-data:/app/.ezcorp
     healthcheck:
       # Liveness probe. Readiness is served separately at /api/ready — hook
       # that into your orchestrator if you have one.
@@ -92,4 +99,5 @@ services:
 
 volumes:
   ezcorp-data:
+  ext-data:
   # ezcorp-pg:

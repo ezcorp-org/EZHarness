@@ -132,14 +132,20 @@ export async function collectRehydratedImages(
     }
   }
 
-  // Single info-level summary line per turn. One grep target tells you
-  // exactly which stage is zero when rehydration isn't working:
+  // Single summary line per turn. One grep target tells you exactly which
+  // stage is zero when rehydration isn't working:
   //   assistantsInBranch=0  → branch has no assistant turns yet
   //   toolRowsFound=0       → tool_calls anchoring lost the messageId link
   //   urlsSeen=0            → tool output format isn't producing ![](url)
   //   statMisses > 0        → cwd mismatch between save and read, or file GC'd
+  //                           (ext-files volume not mounted → restart wipes)
   //   imagesInjected=0 with urlsSeen>0 → file-read failed (permissions, etc.)
-  log.info("walked", {
+  //
+  // Warn when any URL failed to resolve to a file on disk — that's almost
+  // always a missing volume mount (seen in production: container restart
+  // → /app/.ezcorp wiped → tool-card URLs 404 and rehydration silently
+  // fails). Info otherwise so successful turns stay quiet.
+  const payload = {
     assistantsInBranch: assistantIds.length,
     toolRowsFound,
     urlsSeen,
@@ -147,7 +153,9 @@ export async function collectRehydratedImages(
     imagesInjected: imageCount,
     totalBytes,
     cwd: process.cwd(),
-  });
+  };
+  if (statMisses > 0) log.warn("walked — some ext-files URLs could not be resolved on disk", payload);
+  else log.info("walked", payload);
 }
 
 /** Subset of streamChat's options the load-history phase reads. */

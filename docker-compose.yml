@@ -48,6 +48,14 @@ services:
     volumes:
       - testenv-state:/app/state
       - model-cache:/app/cache
+      # Persist extension-generated files (openai-image-gen-2 writes PNG/WEBP
+      # here; rehydrator reads them back on subsequent turns so the model
+      # can describe/edit prior images). The dev server runs with
+      # cwd=/app/web (see `cd web && bun run dev` above), so
+      # saveImageToDisk resolves <cwd>/.ezcorp/ to this path. Without the
+      # mount, every container restart wipes the images and the tool-card
+      # URLs 404 silently.
+      - ext-data:/app/web/.ezcorp
       # Mount credential seed file (read-only) so re-seeds can restore OAuth tokens
       - ./.env.seed:/app/.env.seed:ro
       # Mount source for live reload (Vite HMR)
@@ -69,3 +77,4 @@ volumes:
   testenv-pgdata:
   testenv-state:
   model-cache:
+  ext-data:
