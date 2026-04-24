@@ -255,8 +255,11 @@ export async function loadHistory(
     if (m.role === "assistant") {
       return {
         role: "assistant" as const,
+        // pi-ai's `Api` is `KnownApi | (string & {})` — "unknown" fits the
+        // branded-string escape hatch without needing a cast. Used for
+        // rehydrated history turns where we never had the original api name.
         content: [{ type: "text" as const, text: m.content }],
-        api: "unknown" as any,
+        api: "unknown",
         provider: "unknown",
         model: "unknown",
         usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
