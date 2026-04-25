@@ -230,7 +230,7 @@ describe("POST /api/conversations", () => {
 		);
 		expect(res.status).toBe(201);
 		expect(vi.mocked(getAgentConfig)).not.toHaveBeenCalled();
-		const [, calledOpts] = vi.mocked(createConversation).mock.calls[0]!;
+		const calledOpts = vi.mocked(createConversation).mock.calls[0]![1]!;
 		expect(calledOpts.systemPrompt).toBeUndefined();
 		expect(calledOpts.title).toBe("Manual title");
 	});
@@ -266,7 +266,7 @@ describe("POST /api/conversations", () => {
 				locals: { user },
 			}),
 		);
-		const [, calledOpts] = vi.mocked(createConversation).mock.calls[0]!;
+		const calledOpts = vi.mocked(createConversation).mock.calls[0]![1]!;
 		expect(calledOpts.title).toBe("Override title");
 	});
 
@@ -280,7 +280,7 @@ describe("POST /api/conversations", () => {
 				locals: { user },
 			}),
 		);
-		const [, calledOpts] = vi.mocked(createConversation).mock.calls[0]!;
+		const calledOpts = vi.mocked(createConversation).mock.calls[0]![1]!;
 		expect(calledOpts.userId).toBe(user.id);
 	});
 });
