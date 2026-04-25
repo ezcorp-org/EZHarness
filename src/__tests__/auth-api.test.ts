@@ -7,12 +7,12 @@ mockDbConnection();
 mockServerAlias();
 
 // NOW import handlers
-import { POST as setupPost } from "../../web/src/routes/api/auth/setup/+server";
-import { POST as loginPost } from "../../web/src/routes/api/auth/login/+server";
+import { POST as setupPost, __rateLimiter as setupLimiter } from "../../web/src/routes/api/auth/setup/+server";
+import { POST as loginPost, __rateLimiter as loginLimiter } from "../../web/src/routes/api/auth/login/+server";
 import { POST as logoutPost } from "../../web/src/routes/api/auth/logout/+server";
 import { GET as meGet } from "../../web/src/routes/api/auth/me/+server";
 import { POST as invitePost, GET as inviteListGet } from "../../web/src/routes/api/auth/invite/+server";
-import { GET as inviteTokenGet, POST as inviteTokenPost } from "../../web/src/routes/api/auth/invite/[token]/+server";
+import { GET as inviteTokenGet, POST as inviteTokenPost, __rateLimiter as inviteTokenLimiter } from "../../web/src/routes/api/auth/invite/[token]/+server";
 
 import { users, invites, settings, auditLog } from "../db/schema";
 import { hashPassword } from "../auth/password";
@@ -27,6 +27,12 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  // Reset module-scoped rate limiters so attempt counters don't leak
+  // between tests sharing the default 127.0.0.1 client address.
+  setupLimiter.reset();
+  loginLimiter.reset();
+  inviteTokenLimiter.reset();
+
   const db = getTestDb();
   await db.delete(auditLog);
   await db.delete(invites);
