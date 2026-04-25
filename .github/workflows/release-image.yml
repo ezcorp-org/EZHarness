@@ -79,6 +79,14 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Verify Docker image (labels, VOLUME, readiness, version)
+        env:
+          # Re-use the same VERSION/REVISION/CREATED that were baked into the
+          # image above so label assertions match. Without these overrides the
+          # script falls back to its local defaults (e.g. 0.1.0-verify) which
+          # would never match a CI-built image.
+          VERIFY_VERSION: ${{ steps.args.outputs.version }}
+          VERIFY_REVISION: ${{ github.sha }}
+          VERIFY_CREATED: ${{ steps.args.outputs.created }}
         run: bash scripts/verify-docker-image.sh --no-build
 
       - name: Verify Docker rollback flow (circuit breaker + recovery)

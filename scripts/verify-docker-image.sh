@@ -18,9 +18,13 @@ CONTAINER="ezcorp-verify"
 VOLUME="ezcorp-verify-data"
 PORT="${VERIFY_PORT:-13000}"
 
-VERSION="0.1.0-verify"
-REVISION="$(git rev-parse HEAD 2>/dev/null || echo dev-verify)"
-CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+# VERSION/REVISION/CREATED are env-overridable so the release-image workflow
+# can build the image with one set of args and then re-use them when invoking
+# `verify-docker-image.sh --no-build`. Locally (no overrides) the script
+# falls back to a deterministic stamp + the current git SHA.
+VERSION="${VERIFY_VERSION:-0.1.0-verify}"
+REVISION="${VERIFY_REVISION:-$(git rev-parse HEAD 2>/dev/null || echo dev-verify)}"
+CREATED="${VERIFY_CREATED:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 
 BOLD="$(tput bold 2>/dev/null || echo)"
 GREEN="$(tput setaf 2 2>/dev/null || echo)"
@@ -53,6 +57,16 @@ if [[ "${1:-}" != "--no-build" ]]; then
       die "docker build failed (full log at /tmp/ezcorp-verify-build.log)"
     }
   pass "Image built"
+else
+  # `--no-build` reuses an existing image. If CREATED wasn't passed in via
+  # VERIFY_CREATED, take it from the image label so we don't compare against
+  # a freshly-stamped wall-clock value the image never saw.
+  if [[ -z "${VERIFY_CREATED:-}" ]]; then
+    LABEL_CREATED=$(docker inspect "${IMAGE}" --format '{{index .Config.Labels "org.opencontainers.image.created"}}' 2>/dev/null || true)
+    if [[ -n "${LABEL_CREATED}" && "${LABEL_CREATED}" != "<no value>" ]]; then
+      CREATED="${LABEL_CREATED}"
+    fi
+  fi
 fi
 
 section "Inspect OCI labels"
