@@ -35,7 +35,7 @@ const { getInviteByToken, markInviteUsed } = await import(
 const { createUser, getUserByEmail } = await import(
   "$server/db/queries/users"
 );
-const { GET, POST } = await import(
+const { GET, POST, __rateLimiter } = await import(
   "../routes/api/auth/invite/[token]/+server"
 );
 
@@ -51,6 +51,7 @@ function makeEvent(opts: {
   token?: string;
   body?: unknown;
   method?: "GET" | "POST";
+  ip?: string;
 }) {
   const token = opts.token ?? "tok-1";
   const method = opts.method ?? "POST";
@@ -65,6 +66,7 @@ function makeEvent(opts: {
       headers: { "content-type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     }),
+    getClientAddress: () => opts.ip ?? "127.0.0.1",
   } as any;
 }
 
@@ -77,6 +79,7 @@ const validBody = {
 describe("GET /api/auth/invite/[token]", () => {
   beforeEach(() => {
     vi.mocked(getInviteByToken).mockReset();
+    __rateLimiter.reset();
   });
 
   test("returns 404 when invite not found", async () => {
@@ -107,6 +110,7 @@ describe("POST /api/auth/invite/[token]", () => {
     vi.mocked(getUserByEmail).mockReset();
     vi.mocked(createUser).mockReset();
     vi.mocked(markInviteUsed).mockClear();
+    __rateLimiter.reset();
   });
 
   test("returns 404 when invite not found", async () => {
@@ -178,6 +182,22 @@ describe("POST /api/auth/invite/[token]", () => {
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("already registered");
+  });
+
+  test("returns 429 after exceeding rate limit (10/15min per IP)", async () => {
+    // Walk the limiter via the 404 (invite-not-found) path — fast and
+    // doesn't require any DB writes.
+    vi.mocked(getInviteByToken).mockResolvedValue(undefined);
+    for (let i = 0; i < 10; i++) {
+      const res = await POST(makeEvent({ body: validBody, ip: "7.7.7.7" }));
+      expect(res.status).toBe(404);
+    }
+    const res = await POST(makeEvent({ body: validBody, ip: "7.7.7.7" }));
+    expect(res.status).toBe(429);
+    const body = (await res.json()) as { error?: string; retryAfter?: number };
+    expect(body.error).toContain("Too many requests");
+    expect(typeof body.retryAfter).toBe("number");
+    expect(res.headers.get("retry-after")).toBeTruthy();
   });
 
   test("returns 201 with user payload on success", async () => {
