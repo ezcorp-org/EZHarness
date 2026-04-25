@@ -43,7 +43,8 @@ function makeEvent(opts: {
   } as any;
 }
 
-const user = { id: "u1", email: "u@x", name: "u", role: "user" };
+const user = { id: "u1", email: "u@x", name: "u", role: "admin" };
+const nonAdminUser = { id: "u2", email: "n@x", name: "n", role: "user" };
 
 describe("POST /api/extensions/[id]/confirm", () => {
   beforeEach(() => {
@@ -61,6 +62,25 @@ describe("POST /api/extensions/[id]/confirm", () => {
       res = thrown as Response;
     }
     expect(res!.status).toBe(401);
+  });
+
+  test("non-admin user throws 403", async () => {
+    let res: Response | undefined;
+    try {
+      await POST(
+        makeEvent({
+          locals: { user: nonAdminUser },
+          body: { operationType: "shell", action: "allow_once" },
+        }),
+      );
+      expect.fail("should have thrown");
+    } catch (thrown) {
+      expect(thrown).toBeInstanceOf(Response);
+      res = thrown as Response;
+    }
+    expect(res!.status).toBe(403);
+    const body = (await res!.json()) as { error?: string };
+    expect(body.error).toBe("Insufficient permissions");
   });
 
   test("unknown extension returns 404", async () => {
