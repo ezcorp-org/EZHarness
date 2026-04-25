@@ -116,7 +116,10 @@ mock.module("$server/db/queries/sessions", sessionsMock);
 mock.module("../../db/queries/sessions", sessionsMock);
 
 // ── Handler import (AFTER mocks) ─────────────────────────────────
-import { POST as loginPost } from "../../../web/src/routes/api/auth/login/+server";
+import {
+  POST as loginPost,
+  __rateLimiter as loginLimiter,
+} from "../../../web/src/routes/api/auth/login/+server";
 
 afterAll(() => {
   restoreModuleMocks();
@@ -126,6 +129,11 @@ beforeEach(() => {
   verifyPasswordCalls.length = 0;
   auditCalls.length = 0;
   userLookupResult = null;
+  // Login limiter is 5/15min per IP. Every test call in this suite uses
+  // the default 127.0.0.1 address, so without a reset the 6th request
+  // returns 429 (which short-circuits before verifyPassword and the
+  // audit-log write the constant-time test asserts on).
+  loginLimiter.reset();
 });
 
 // ── Helper: invoke the login handler with a standard body ───────
