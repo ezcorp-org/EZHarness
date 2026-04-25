@@ -29,7 +29,7 @@ vi.mock("$server/db/queries/audit-log", () => ({
 
 const { getUserCount, createUser } = await import("$server/db/queries/users");
 const { upsertSetting } = await import("$server/db/queries/settings");
-const { POST } = await import("../routes/api/auth/setup/+server");
+const { POST, __rateLimiter } = await import("../routes/api/auth/setup/+server");
 
 function makeCookies() {
   return {
@@ -39,7 +39,7 @@ function makeCookies() {
   };
 }
 
-function makeEvent(opts: { body?: unknown }) {
+function makeEvent(opts: { body?: unknown; ip?: string }) {
   const cookies = makeCookies();
   return {
     url: new URL("http://localhost/api/auth/setup"),
@@ -50,6 +50,7 @@ function makeEvent(opts: { body?: unknown }) {
       headers: { "content-type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     }),
+    getClientAddress: () => opts.ip ?? "127.0.0.1",
     _cookies: cookies,
   } as any;
 }
@@ -65,6 +66,7 @@ describe("POST /api/auth/setup", () => {
     vi.mocked(getUserCount).mockReset();
     vi.mocked(createUser).mockReset();
     vi.mocked(upsertSetting).mockClear();
+    __rateLimiter.reset();
   });
 
   test("returns 403 when setup already completed (users exist)", async () => {
@@ -105,6 +107,23 @@ describe("POST /api/auth/setup", () => {
       makeEvent({ body: { ...validBody, password: "abc" } }),
     );
     expect(res.status).toBe(400);
+  });
+
+  test("returns 429 after exceeding rate limit (3/hour per IP)", async () => {
+    // Fire from existing-users path (403) — fast, no DB writes — to
+    // walk the limiter up. Limiter check sits before the user-count
+    // check, so even 403s consume budget.
+    vi.mocked(getUserCount).mockResolvedValue(1);
+    for (let i = 0; i < 3; i++) {
+      const res = await POST(makeEvent({ body: validBody, ip: "5.5.5.5" }));
+      expect(res.status).toBe(403);
+    }
+    const res = await POST(makeEvent({ body: validBody, ip: "5.5.5.5" }));
+    expect(res.status).toBe(429);
+    const body = (await res.json()) as { error?: string; retryAfter?: number };
+    expect(body.error).toContain("Too many requests");
+    expect(typeof body.retryAfter).toBe("number");
+    expect(res.headers.get("retry-after")).toBeTruthy();
   });
 
   test("returns 201 + user + sets cookie on happy path", async () => {

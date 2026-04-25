@@ -8,8 +8,25 @@ import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { setupSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
+import { RateLimiter } from "$lib/server/security/rate-limiter";
 
-export const POST: RequestHandler = async ({ request, cookies }) => {
+// First-boot bootstrap: 3 attempts / 1 hour per IP. Generous for a
+// legitimate single-shot setup, tight enough to block brute-forcing
+// the `users.length === 0` check on a freshly-deployed instance.
+// Limiter fires BEFORE the user-count gate so a busy attacker can't
+// keep us in DB-read loops. Exported for test reset.
+export const __rateLimiter = new RateLimiter(3, 60 * 60_000);
+
+export const POST: RequestHandler = async ({ request, cookies, getClientAddress }) => {
+  let ip = "unknown";
+  try { ip = getClientAddress(); } catch { /* proxy not configured */ }
+  const rl = __rateLimiter.check(ip);
+  if (!rl.allowed) {
+    return errorJson(429, "Too many requests", { retryAfter: rl.retryAfter }, {
+      "Retry-After": String(rl.retryAfter ?? 1),
+    });
+  }
+
   const count = await getUserCount();
   if (count > 0) {
     return errorJson(403, "Setup already completed");
