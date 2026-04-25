@@ -711,7 +711,12 @@ describe("extensionToAgentTool", () => {
     await agentTool.execute("call-1", { agentConfigId: "x", task: "t" }, new AbortController().signal);
 
     expect(capturedMetadata).toHaveLength(1);
-    expect(capturedMetadata[0]).toEqual(invocationMetadata);
+    // Per the ask-user migration, the per-call seam adds toolCallId on
+    // top of the wire-time invocationMetadata.
+    expect(capturedMetadata[0]).toEqual({
+      ...invocationMetadata,
+      toolCallId: "call-1",
+    });
     spy.mockRestore();
   });
 
@@ -736,10 +741,15 @@ describe("extensionToAgentTool", () => {
     // Execution path still works end-to-end.
     const result = await agentTool.execute("call-1", {}, new AbortController().signal);
     expect(result.details).toEqual({ isError: false });
-    // And proc.callTool was NOT called with invocationMetadata in _meta.
+    // After the ask-user migration's per-call seam widening,
+    // `extensionToAgentTool` ALWAYS threads the host-minted toolCallId
+    // into invocationMetadata. Legacy 4-arg callers see exactly one
+    // field — `{ toolCallId }` — and nothing else (no overrides, no
+    // parentMessageId). The 6-arg wrapper's invocationMetadata is
+    // additive; the 4-arg form remains a single-field shape.
     const callArgs = mockProc.callTool.mock.calls[0] as unknown as [string, Record<string, unknown>, Record<string, unknown>?];
     const meta = callArgs?.[2];
-    expect(meta?.invocationMetadata).toBeUndefined();
+    expect(meta?.invocationMetadata).toEqual({ toolCallId: "call-1" });
   });
 
   // The wrapper closes over its 5th/6th args, so a 6-arg wrapper's
@@ -794,34 +804,44 @@ describe("extensionToAgentTool", () => {
     expect(legacyParams.properties).toEqual(manifestSchemaA.properties);
     expect(legacyParams.properties).not.toEqual(override.properties);
 
-    // Execute both and verify `_meta.invocationMetadata` surfaces only for
-    // the orch call, never for the legacy call — in either order.
+    // Execute both and verify `_meta.invocationMetadata` carries the
+    // wrapper-bound metadata + the per-call toolCallId for the orch
+    // call, and ONLY the per-call toolCallId for the legacy call —
+    // in either order. (The ask-user migration widening adds
+    // `toolCallId` to every extension tool call's invocationMetadata.)
     //
     // Order 1: legacy first.
     await legacyTool.execute("call-L1", { a: "x" }, new AbortController().signal);
     const legacy1Meta = (mockProc.callTool.mock.calls[0] as unknown as
       [string, Record<string, unknown>, Record<string, unknown>?])[2];
-    expect(legacy1Meta?.invocationMetadata).toBeUndefined();
+    expect(legacy1Meta?.invocationMetadata).toEqual({ toolCallId: "call-L1" });
 
-    // Order 2: orch next — should carry metadata.
+    // Order 2: orch next — should carry metadata + toolCallId.
     await orchTool.execute("call-O1", { agentConfigId: "alpha" }, new AbortController().signal);
     const orch1Meta = (mockProc.callTool.mock.calls[1] as unknown as
       [string, Record<string, unknown>, Record<string, unknown>?])[2];
-    expect(orch1Meta?.invocationMetadata).toEqual(invocationMetadata);
+    expect(orch1Meta?.invocationMetadata).toEqual({
+      ...invocationMetadata,
+      toolCallId: "call-O1",
+    });
 
-    // Order 3: legacy again — must STILL be metadata-free (prove the
-    // orch wrapper's closure did not contaminate the legacy wrapper).
+    // Order 3: legacy again — must STILL be just the per-call
+    // toolCallId (prove the orch wrapper's closure did not
+    // contaminate the legacy wrapper).
     await legacyTool.execute("call-L2", { a: "y" }, new AbortController().signal);
     const legacy2Meta = (mockProc.callTool.mock.calls[2] as unknown as
       [string, Record<string, unknown>, Record<string, unknown>?])[2];
-    expect(legacy2Meta?.invocationMetadata).toBeUndefined();
+    expect(legacy2Meta?.invocationMetadata).toEqual({ toolCallId: "call-L2" });
 
-    // Order 4: orch again — metadata still present (not consumed / cleared
-    // after first use).
+    // Order 4: orch again — metadata still present (not consumed /
+    // cleared after first use), plus the new per-call toolCallId.
     await orchTool.execute("call-O2", { agentConfigId: "beta" }, new AbortController().signal);
     const orch2Meta = (mockProc.callTool.mock.calls[3] as unknown as
       [string, Record<string, unknown>, Record<string, unknown>?])[2];
-    expect(orch2Meta?.invocationMetadata).toEqual(invocationMetadata);
+    expect(orch2Meta?.invocationMetadata).toEqual({
+      ...invocationMetadata,
+      toolCallId: "call-O2",
+    });
   });
 });
 
