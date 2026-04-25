@@ -16,18 +16,12 @@
 //     `enum` on `agentConfigId`, threads per-turn invocation metadata
 //     (parentMessageId / overrides / teamToolScope / orchestrationDepth)
 //     through the 6-arg `extensionToAgentTool` seam, and appends the
-//     resulting AgentTool to the turn's tool list. Phase 5 commit 4
-//     extended the helper to also wrap the extension's `ask_human` tool
-//     (static schema, metadata limited to runId + conversationId) and
-//     append it alongside invoke_agent — so both orchestration tools
-//     flow through the extension seam on every turn.
+//     resulting AgentTool to the turn's tool list.
 //
 // Commit 4 shipped this file + bundled the extension alongside the
 // legacy built-in (dual-wired); commit 5 flipped the executor to call
 // these helpers and deleted the legacy built-in — this file is now
-// the sole host-side entry point for the invoke_agent tool. Phase 5
-// commit 4 deleted the last built-in (ask_human), so this file is now
-// the sole host-side entry point for ALL orchestration tools.
+// the sole host-side entry point for the invoke_agent tool.
 
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { getDb } from "../db/connection";
@@ -258,8 +252,7 @@ export async function wireOrchestrationToolsForTurn(
   // 3. ToolExecutor wiring — same set of wires the scratchpad auto-wire
   //    block builds at executor.ts:828-835 so the extension's reverse-
   //    RPC handlers (storage / agent-configs / spawn-assignment /
-  //    cancel-run) are all routable. One ToolExecutor is shared by every
-  //    orchestration tool wired this turn (invoke_agent + ask_human).
+  //    cancel-run) are all routable.
   const toolExec = new ToolExecutor(registry);
   if (stateMediator) toolExec.setStateMediator(stateMediator);
   toolExec.setExecutor(executor);
@@ -284,41 +277,4 @@ export async function wireOrchestrationToolsForTurn(
     invocationMetadata,
   );
   agentTools.push(invokeAgentAgentTool);
-
-  // 5. Phase 5 commit 4: `ask_human` rides in the same extension.
-  //    Unlike invoke_agent, ask_human's schema is static (the manifest
-  //    shape is final) so we pass no `schemaOverride`. The extension's
-  //    handler reads `runId` + `conversationId` from `invocationMetadata`
-  //    to scope the emitted `orchestrator:human_input` event — those are
-  //    the ONLY fields ask_human cares about, so we construct a fresh
-  //    metadata object rather than leaking invoke_agent-specific fields
-  //    (orchestrationDepth, overrides, teamToolScope) that would
-  //    confuse the handler.
-  const askHumanTool = registeredTools.find(
-    (t) => t.originalName === "ask_human",
-  );
-  if (askHumanTool) {
-    const askHumanMetadata: Record<string, unknown> = {
-      runId,
-      conversationId,
-    };
-    const askHumanAgentTool = extensionToAgentTool(
-      {
-        name: askHumanTool.originalName,
-        description: askHumanTool.description,
-        inputSchema: askHumanTool.inputSchema as Record<string, unknown>,
-      },
-      toolExec,
-      conversationId,
-      runId,
-      undefined,
-      askHumanMetadata,
-    );
-    agentTools.push(askHumanAgentTool);
-  } else {
-    log.warn(
-      "Orchestration extension has no ask_human tool registered — registry not loaded?",
-      { conversationId, runId, extId },
-    );
-  }
 }

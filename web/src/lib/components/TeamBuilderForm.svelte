@@ -558,7 +558,7 @@
 			<span class="text-sm font-medium text-[var(--color-text-primary)]">Team Tool Scope</span>
 			<span class="ml-2 text-xs text-[var(--color-text-muted)]">(optional)</span>
 			<p class="mt-0.5 text-xs text-[var(--color-text-muted)]">
-				When set, these lists apply to every team member and override any tool restrictions configured on the member itself. Orchestration tools (invoke_agent, task tracking, ask_human, scratchpad) are always preserved.
+				When set, these lists apply to every team member and override any tool restrictions configured on the member itself. Orchestration tools (invoke_agent, task tracking, scratchpad) are always preserved.
 			</p>
 		</div>
 

@@ -2,33 +2,20 @@
  * Handles `ezcorp/emit-task-event` reverse RPC (Phase 2b).
  *
  * Lets an extension emit a small allowlisted set of bus events from an
- * isolated subprocess. As of Phase 5 the allowlist holds three types:
+ * isolated subprocess. The allowlist holds two types:
  *
  *   - `snapshot` → emits `task:snapshot`
  *     (Phase 2b — task-tracking panel rehydration).
  *   - `assignment_update` → emits `task:assignment_update`
  *     (Phase 2b — task-tracking assignment state change).
- *   - `orchestrator:human_input` → emits `orchestrator:human_input`
- *     (Phase 5 — `ask_human` tool dispatched from the orchestration
- *     extension. Widened scope: the RPC now carries the user-facing
- *     prompt to the frontend, not just task-panel state. The RPC name
- *     is left as `emit-task-event` for now — renaming cascades across
- *     SDK + every consumer; a future phase can rename cleanly.)
  *
  * The `conversationId` stamped on the event is ALWAYS the host's
  * `currentConversationId` — any value an extension includes in its
  * params is ignored. This prevents a compromised or buggy extension
  * from targeting another user's conversation.
  *
- * Permission gating splits by branch:
- *   - `snapshot` / `assignment_update` — requires `taskEvents: true`.
- *   - `orchestrator:human_input` — requires an `eventSubscriptions`
- *     grant that includes `orchestrator:human_response` (the response
- *     pair; the extension must subscribe to resolution events to own
- *     the request side). This keeps the orchestration extension out of
- *     the `taskEvents` permission surface while still gating emit on
- *     an explicit manifest grant. See Phase 5 plan §Open design notes
- *     "Event-emit surface from inside the extension".
+ * Permission gating: `snapshot` / `assignment_update` both require
+ * `taskEvents: true`.
  *
  * All branches share the kill-switch, conversation scope availability,
  * conversation-wiring check, and rate limit. All rejections write an
@@ -122,19 +109,6 @@ function validateAssignmentUpdatePayload(payload: unknown): Validation {
   return errors.length === 0 ? { ok: true } : { ok: false, errors };
 }
 
-// Phase 5: `orchestrator:human_input` payload shape — `{ runId,
-// question, requestId }`. `conversationId` is NEVER read from the
-// params; the host stamps its own `currentConversationId` on emit so
-// an extension cannot target another user's conversation.
-function validateHumanInputPayload(payload: unknown): Validation {
-  const errors: string[] = [];
-  if (!isObj(payload)) { errors.push("payload: not an object"); return { ok: false, errors }; }
-  if (!isString(payload.runId)) errors.push("payload.runId: missing or not a string");
-  if (!isString(payload.question)) errors.push("payload.question: missing or not a string");
-  if (!isString(payload.requestId)) errors.push("payload.requestId: missing or not a string");
-  return errors.length === 0 ? { ok: true } : { ok: false, errors };
-}
-
 // ── Types ──────────────────────────────────────────────────────────
 
 export interface TaskEventsContext {
@@ -195,34 +169,13 @@ export async function handleEmitTaskEventRpc(
     return rpcError(req.id, -32001, "taskEvents permission not granted");
   }
 
-  // 1. Permission check — split by event type. `task:*` events gate on
-  //    `taskEvents: true`; the Phase 5 `orchestrator:human_input`
-  //    branch gates on `eventSubscriptions` including
-  //    `orchestrator:human_response` (the response pair the extension
-  //    must subscribe to in order to own the request side).
+  // 1. Permission check — `task:*` events gate on `taskEvents: true`.
   const rawType = params.type;
   const type = typeof rawType === "string" ? rawType : undefined;
-  const isOrchestratorHumanInput = type === "orchestrator:human_input";
 
-  if (isOrchestratorHumanInput) {
-    const subs = ctx.grantedPermissions.eventSubscriptions;
-    const subscribesToResponse =
-      Array.isArray(subs) && subs.includes("orchestrator:human_response");
-    if (!subscribesToResponse) {
-      await auditReject(extensionId, userIdForAudit, "permission-missing", {
-        type: "orchestrator:human_input",
-      });
-      return rpcError(
-        req.id,
-        -32001,
-        "eventSubscriptions must include 'orchestrator:human_response' to emit 'orchestrator:human_input'",
-      );
-    }
-  } else {
-    if (ctx.grantedPermissions.taskEvents !== true) {
-      await auditReject(extensionId, userIdForAudit, "permission-missing");
-      return rpcError(req.id, -32001, "taskEvents permission not granted");
-    }
+  if (ctx.grantedPermissions.taskEvents !== true) {
+    await auditReject(extensionId, userIdForAudit, "permission-missing");
+    return rpcError(req.id, -32001, "taskEvents permission not granted");
   }
 
   // 2. Conversation scope: reject when context is unbound.
@@ -278,36 +231,6 @@ export async function handleEmitTaskEventRpc(
       conversationId: ctx.conversationId,
       taskId: p.taskId,
       assignment: p.assignment,
-    });
-    return rpcResult(req.id, { ok: true });
-  }
-
-  if (type === "orchestrator:human_input") {
-    const validation = validateHumanInputPayload(payload);
-    if (!validation.ok) {
-      await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: validation.errors });
-      return rpcError(
-        req.id,
-        -32602,
-        `Invalid orchestrator:human_input payload: ${validation.errors[0] ?? "unknown error"}`,
-      );
-    }
-    const p = payload as { runId: string; question: string; requestId: string };
-    // Record the host-side `requestId → conversationId` shadow mapping
-    // BEFORE emitting. The POST endpoint at
-    // `/api/orchestrator/human-input` reads this back to populate the
-    // `conversationId` on the `orchestrator:human_response` event it
-    // emits. Phase 5 commit 4 replaced the built-in ask-human's internal
-    // pending-gate accessor with this host-owned shadow map.
-    const { registerPendingHumanInput } = await import("../runtime/ask-human-registry");
-    registerPendingHumanInput(p.requestId, ctx.conversationId);
-    // conversationId is FORCED — never read from params. Same security
-    // posture as snapshot / assignment_update above.
-    ctx.bus?.emit("orchestrator:human_input", {
-      runId: p.runId,
-      conversationId: ctx.conversationId,
-      question: p.question,
-      requestId: p.requestId,
     });
     return rpcResult(req.id, { ok: true });
   }

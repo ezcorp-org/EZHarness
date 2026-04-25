@@ -23,29 +23,20 @@ const INVOKE_AGENT_SCHEMA = {
   required: ["agentConfigId", "task"],
 } as const;
 
-// Static manifest schema for the `ask_human` tool. Ported from the
-// legacy built-in at `src/runtime/tools/ask-human.ts` (Phase 5).
-// Schema is static — there is no per-turn narrowing, unlike invoke_agent.
-const ASK_HUMAN_SCHEMA = {
-  type: "object",
-  properties: {
-    question: {
-      type: "string",
-      description: "The question to present to the user.",
-    },
-  },
-  required: ["question"],
-} as const;
-
 export default defineExtension({
   schemaVersion: 2,
   name: "orchestration",
-  // Phase 5 bump: additive manifest change (new tool + new subscription).
-  // Minor bump — no permission widening beyond what Phase 4 already had
-  // in the same extension's surface.
-  version: "1.1.0",
+  // Phase 2 of the ask-user migration: the legacy `ask_human` tool
+  // and its `orchestrator:human_response` subscription have been
+  // removed. The new `ask-user` bundled extension owns the
+  // human-in-the-loop surface. This is a permission-shrinking
+  // change — the S9 re-approval gate keys on
+  // `[network, filesystem, shell, env, storage, lifecycleHooks]`,
+  // NOT `eventSubscriptions`, so dropping the subscription does
+  // not auto-disable existing installs.
+  version: "1.2.0",
   description:
-    "Multi-agent orchestration primitives. Provides `invoke_agent` for delegating to a sub-agent within a conversation, and `ask_human` for pausing execution to surface a question to the user.",
+    "Multi-agent orchestration primitives. Provides `invoke_agent` for delegating to a sub-agent within a conversation.",
   author: { name: "EZCorp" },
   entrypoint: "./index.ts",
   persistent: true,
@@ -56,23 +47,12 @@ export default defineExtension({
         "Invoke a specialized agent to handle a task. The agent runs as an independent sub-conversation and returns its response. You can call this tool multiple times in parallel for independent tasks.",
       inputSchema: INVOKE_AGENT_SCHEMA as Record<string, unknown>,
     },
-    {
-      name: "ask_human",
-      description:
-        "Pause execution and ask the user a question. The agent will wait for the user's response before continuing. Use this when you need clarification, a decision, or information that only the user can provide.",
-      inputSchema: ASK_HUMAN_SCHEMA as Record<string, unknown>,
-    },
   ],
   permissions: {
     agentConfig: "read",
     spawnAgents: { maxPerHour: 500, maxConcurrent: 25 },
     // `task:assignment_update` — required by `invoke_agent`'s two-hop
     //   bridge (Phase 4).
-    // `orchestrator:human_response` — required by `ask_human`'s gate
-    //   resolution (Phase 5). The host's POST endpoint at
-    //   `/api/orchestrator/human-input` emits this event on user reply;
-    //   the extension's subscription handler resolves the matching
-    //   pending-input gate.
-    eventSubscriptions: ["task:assignment_update", "orchestrator:human_response"],
+    eventSubscriptions: ["task:assignment_update"],
   },
 });

@@ -18,7 +18,7 @@ Example: if code review finds issues, route to a fixer agent; if clean, proceed 
 
 **Scratchpad for shared state** - Use \`scratchpad__scratchpad_write\` to store intermediate results (plans, data, decisions) and \`scratchpad__scratchpad_read\` to retrieve them. This lets later agent calls build on earlier outputs without stuffing everything into the task description.
 
-**Human checkpoints** - Use \`ask_human\` when you encounter ambiguous requirements, destructive actions, or decision points with significant trade-offs. Don't block on trivial decisions.
+**Human checkpoints** - Use \`ask_user_question\` when you encounter ambiguous requirements, destructive actions, or decision points with significant trade-offs. Don't block on trivial decisions.
 
 **Task planning** - For complex multi-step work, use \`task_plan\` to decompose into tasks BEFORE starting execution. Each task should be atomic and independently verifiable. \`task_plan\` AUTOMATICALLY starts the first task — do not call \`task_start\` separately. When each task is done, call \`task_complete\` with its \`taskId\` (shown in the \`task_plan\` response) and it will auto-advance to the next pending task. Use \`task_fail\` if a task errors. Subtasks track checklist items within a task. You can assign agents/teams at plan time by including \`assignTo\` (an agentConfigId) on each task — this is preferred over separate \`task_assign\` calls. When you delegate a task to a sub-agent via \`invoke_agent\`, the task panel displays which agent owns which task, so attribution stays visible to the user throughout execution.
 

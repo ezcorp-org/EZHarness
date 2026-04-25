@@ -27,7 +27,6 @@
 		getStreamingToolCalls,
 		getStreamingContentBlocks,
 		getStreamingAgentCalls,
-		getPendingHumanInputs,
 		getTaskSnapshot,
 		setTaskSnapshot,
 		getWsReconnectCount,
@@ -360,26 +359,6 @@
 			})
 			.catch(() => {});
 	});
-
-	// Human-in-the-loop input state
-	let pendingHumanInputs = $derived(getPendingHumanInputs(convId));
-	let humanInputValues = $state<Record<string, string>>({});
-	let humanInputResponded = $state<Set<string>>(new Set());
-
-	async function submitHumanInput(requestId: string) {
-		const inputValue = humanInputValues[requestId] ?? '';
-		if (!inputValue.trim()) return;
-		try {
-			await userFetch('/api/orchestrator/human-input', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ requestId, response: inputValue }),
-			});
-			humanInputResponded = new Set([...humanInputResponded, requestId]);
-		} catch (e) {
-			console.error('Failed to submit human input:', e);
-		}
-	}
 
 	// Persist last-opened chat per project so /chat can restore it
 	$effect(() => {
@@ -2277,39 +2256,6 @@
 						/>
 					</div>
 				{/if}
-
-				<!-- Human-in-the-loop input requests -->
-				{#each pendingHumanInputs as req (req.requestId)}
-					<div class="mx-4 my-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-						{#if humanInputResponded.has(req.requestId)}
-							<div class="flex items-center gap-2 text-sm text-green-400">
-								<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-								</svg>
-								Responded
-							</div>
-						{:else}
-							<div class="mb-2 text-xs font-medium uppercase tracking-wider text-amber-400">Input Requested</div>
-							<p class="mb-3 text-sm text-[var(--color-text-primary)]">{req.question}</p>
-							<div class="flex gap-2">
-								<input
-									type="text"
-									class="flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-amber-500 focus:outline-none"
-									placeholder="Type your response..."
-									bind:value={humanInputValues[req.requestId]}
-									onkeydown={(e) => { if (e.key === 'Enter') submitHumanInput(req.requestId); }}
-								/>
-								<button
-									class="rounded-md bg-amber-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
-									disabled={!humanInputValues[req.requestId]?.trim()}
-									onclick={() => submitHumanInput(req.requestId)}
-								>
-									Respond
-								</button>
-							</div>
-						{/if}
-					</div>
-				{/each}
 
 				{#each localSystemMessages as sysMsg (sysMsg.id)}
 					<div class="mx-4 my-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-4 py-2 text-xs text-[var(--color-text-secondary)] italic">

@@ -10,7 +10,6 @@ export type WSRunEvent = {
 		| "pipeline:start" | "pipeline:step" | "pipeline:complete" | "pipeline:error"
 		| "tool:start" | "tool:complete" | "tool:error" | "tool:permission_request"
 		| "agent:spawn" | "agent:status" | "agent:complete"
-		| "orchestrator:human_input" | "orchestrator:human_response"
 		| "task:snapshot" | "task:assignment_update"
 		| "ext:state";
 	data: Record<string, unknown>;

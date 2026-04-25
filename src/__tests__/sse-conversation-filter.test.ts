@@ -24,23 +24,29 @@ beforeEach(() => __clearMembershipCacheForTests());
 afterEach(() => __clearMembershipCacheForTests());
 
 describe("DIRECT_CARRIER_EVENT_TYPES", () => {
-  test("enumerates the 14 direct-carrier event types (13 from prereqs audit + Phase 5 orchestrator:human_response)", () => {
-    expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(14);
+  test("enumerates the direct-carrier event types (13 from prereqs audit + ask-user:answer; Phase 5's orchestrator:human_* removed by ask-user migration)", () => {
+    expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(13);
     for (const name of [
       "run:complete", "run:error", "run:cancel", "run:turn_saved",
       "tool:start", "tool:complete", "tool:error",
       "tool:permission_request", "tool:permission_mode_change",
-      "obs:turn", "orchestrator:human_input", "orchestrator:human_response",
+      "obs:turn", "ask-user:answer",
       "task:snapshot", "task:assignment_update",
     ]) {
       expect(DIRECT_CARRIER_EVENT_TYPES.has(name as never)).toBe(true);
     }
   });
 
-  test("includes orchestrator:human_response (Phase 5 — host-side payload-shape migration)", () => {
-    // Explicit assertion for the Phase 5 addition. Kept as its own case
-    // so a regression that removes the entry surfaces with a clear name.
-    expect(DIRECT_CARRIER_EVENT_TYPES.has("orchestrator:human_response")).toBe(true);
+  test("includes ask-user:answer — host-side response of the ask-user bundled extension's POST endpoint", () => {
+    // Explicit assertion for the entry kept after the ask-user
+    // migration. A regression removing this would silently break the
+    // POST → bus → extension subscription gate-resolution path.
+    expect(DIRECT_CARRIER_EVENT_TYPES.has("ask-user:answer")).toBe(true);
+  });
+
+  test("does NOT include the legacy orchestrator:human_* events — removed by the ask-user migration", () => {
+    expect(DIRECT_CARRIER_EVENT_TYPES.has("orchestrator:human_input" as never)).toBe(false);
+    expect(DIRECT_CARRIER_EVENT_TYPES.has("orchestrator:human_response" as never)).toBe(false);
   });
 
   test("does NOT include runId-only events (pass-through tier)", () => {
@@ -113,19 +119,19 @@ describe("shouldDeliverEvent — direct-carrier filtering", () => {
     expect(deliver).toBe(false);
   });
 
-  test("orchestrator:human_response is filtered by conversationId — passes to owner of conv-A, drops for conv-B subscriber", async () => {
-    // Phase 5 commit 1 — the response event now carries conversationId at
-    // the top level and is in the DIRECT_CARRIER set, so cross-user leak
-    // attempts are blocked identically to tool:complete / task:snapshot.
+  test("ask-user:answer is filtered by conversationId — passes to owner of conv-A, drops for conv-B subscriber", async () => {
+    // The ask-user POST endpoint emits this event with conversationId
+    // at the top level. The filter blocks cross-user leak attempts
+    // identically to tool:complete / task:snapshot.
     const get = makeGetConversation({
       "conv-A": { userId: "user-1" },
       "conv-B": { userId: "user-2" },
     });
 
-    // conv-A subscriber receives the event emitted for conv-A.
+    // conv-A owner receives the event emitted for conv-A.
     const deliverSameConv = await shouldDeliverEvent(
-      "orchestrator:human_response",
-      { requestId: "req-1", response: "blue", conversationId: "conv-A" },
+      "ask-user:answer",
+      { toolCallId: "tc-1", answer: "blue", conversationId: "conv-A" },
       { userId: "user-1" },
       get,
     );
@@ -133,8 +139,8 @@ describe("shouldDeliverEvent — direct-carrier filtering", () => {
 
     // user-2 is on conv-B but the event targets conv-A → filter drops it.
     const deliverCrossUser = await shouldDeliverEvent(
-      "orchestrator:human_response",
-      { requestId: "req-1", response: "blue", conversationId: "conv-A" },
+      "ask-user:answer",
+      { toolCallId: "tc-1", answer: "blue", conversationId: "conv-A" },
       { userId: "user-2" },
       get,
     );

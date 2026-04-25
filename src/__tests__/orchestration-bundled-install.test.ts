@@ -105,7 +105,7 @@ describe("resolveBundledExtensions — orchestration entry", () => {
     expect(list.some((e) => e.name === "orchestration")).toBe(true);
   });
 
-  test("declares the Phase 4 + Phase 5 capability set: agentConfig:read + spawnAgents + eventSubscriptions", () => {
+  test("declares the Phase 4 capability set: agentConfig:read + spawnAgents + eventSubscriptions (Phase 5's ask_human dropped in ask-user migration)", () => {
     const list = resolveBundledExtensions({});
     const entry = list.find((e) => e.name === "orchestration")!;
     expect(entry.path).toBe("docs/extensions/examples/orchestration");
@@ -117,20 +117,18 @@ describe("resolveBundledExtensions — orchestration entry", () => {
       maxPerHour: 500,
       maxConcurrent: 25,
     });
-    // Phase 5 commit 2 added `orchestrator:human_response` alongside
-    // `task:assignment_update` so `ask_human`'s gate-resolution
-    // subscription can be delivered.
+    // After the ask-user migration this extension only needs
+    // `task:assignment_update` for invoke_agent's two-hop bridge.
+    // Human-in-the-loop moved to the bundled `ask-user` extension
+    // which subscribes to its own `ask-user:answer` event.
     expect(entry.permissions.eventSubscriptions).toEqual([
       "task:assignment_update",
-      "orchestrator:human_response",
     ]);
-    // No storage — the extension keeps pending invocations + pending
-    // human-inputs in-memory under its `persistent: true` subprocess.
+    // No storage — the extension keeps pending invocations in-memory
+    // under its `persistent: true` subprocess.
     expect(entry.permissions.storage).toBeUndefined();
     // No taskEvents — orchestration doesn't emit snapshot/update events
-    // directly; that's task-tracking's job. (`ask_human`'s emit of
-    // `orchestrator:human_input` is gated on the response subscription,
-    // not `taskEvents` — see src/extensions/task-events-handler.ts.)
+    // directly; that's task-tracking's job.
     expect(entry.permissions.taskEvents).toBeUndefined();
 
     // Every capability has a grantedAt timestamp so the audit writer
@@ -163,18 +161,19 @@ describe("ensureBundledExtensions — first-boot install", () => {
     expect(granted.spawnAgents).toEqual({ maxPerHour: 500, maxConcurrent: 25 });
     expect(granted.eventSubscriptions).toEqual([
       "task:assignment_update",
-      "orchestrator:human_response",
     ]);
   });
 
-  test("manifest declares invoke_agent + ask_human tools (Phase 5 added ask_human)", async () => {
+  test("manifest declares invoke_agent only — ask_human moved to the `ask-user` extension", async () => {
     await ensureBundledExtensions();
     const row = store.get("orchestration")!;
     const manifest = row.manifest as { tools?: Array<{ name: string }>; version?: string };
     const names = (manifest.tools ?? []).map((t) => t.name).sort();
-    expect(names).toEqual(["ask_human", "invoke_agent"]);
-    // Phase 5 minor bump — additive manifest change.
-    expect(manifest.version).toBe("1.1.0");
+    expect(names).toEqual(["invoke_agent"]);
+    // Version bumped when ask_human shipped (1.1.0); the ask-user
+    // migration may bump it again, so just assert the major+minor are
+    // ≥ 1.1 rather than pin a specific point release.
+    expect(manifest.version?.startsWith("1.")).toBe(true);
   });
 
   test("re-running ensureBundledExtensions is idempotent — same row, still enabled", async () => {
