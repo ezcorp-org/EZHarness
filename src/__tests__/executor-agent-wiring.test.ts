@@ -422,7 +422,7 @@ describe("executor mode filter preserves invoke_agent", () => {
     // ask_user_question, scratchpad__scratchpad_*, task_*).
     // ask_user_question replaced ask_human in the ask-user migration.
     const ORCHESTRATION_TOOLS = new Set([
-      "invoke_agent", "ask_user_question",
+      "invoke_agent", "ask-user__ask_user_question",
       "scratchpad__scratchpad_write", "scratchpad__scratchpad_read",
       "task_plan", "task_start", "task_complete", "task_fail",
       "task_update", "task_list", "task_subtask_toggle",
@@ -614,7 +614,7 @@ describe("executor team member overrides", () => {
     expect(capturedAgentOpts).not.toBeNull();
     const tools: any[] = capturedAgentOpts.initialState.tools;
     const ORCHESTRATION_TOOLS = new Set([
-      "invoke_agent", "ask_user_question",
+      "invoke_agent", "ask-user__ask_user_question",
       "scratchpad__scratchpad_write", "scratchpad__scratchpad_read",
     ]);
     // Every tool should be either an orchestration tool or a read-category tool

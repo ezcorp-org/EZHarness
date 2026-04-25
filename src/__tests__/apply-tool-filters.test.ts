@@ -112,11 +112,15 @@ describe("applyToolFilters", () => {
 
   test("ORCHESTRATION_TOOLS includes the expected delegation and task primitives", () => {
     expect(ORCHESTRATION_TOOLS.has("invoke_agent")).toBe(true);
-    expect(ORCHESTRATION_TOOLS.has("ask_user_question")).toBe(true);
+    // The registry exposes the ask-user tool under the namespaced form
+    // — that's what the filter must preserve so the LLM never sees a
+    // restrictive scope strip its access to the human-in-the-loop tool.
+    expect(ORCHESTRATION_TOOLS.has("ask-user__ask_user_question")).toBe(true);
     // ask_human was renamed/replaced by ask_user_question in the
-    // ask-user migration. Regression guard: it should NOT be in the
-    // preserved set.
+    // ask-user migration; legacy and bare-name forms must NOT be in
+    // the preserved set.
     expect(ORCHESTRATION_TOOLS.has("ask_human")).toBe(false);
+    expect(ORCHESTRATION_TOOLS.has("ask_user_question")).toBe(false);
     expect(ORCHESTRATION_TOOLS.has("task_plan")).toBe(true);
     // Scratchpad moved to the `scratchpad` bundled extension in Phase 1 —
     // the filter now matches the namespaced form (`<ext>__<tool>`).

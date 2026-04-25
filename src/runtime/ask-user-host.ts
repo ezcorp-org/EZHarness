@@ -128,7 +128,12 @@ export async function wireAskUserToolForTurn(
 ): Promise<void> {
   const { agentTools, conversationId, runId, registry, bus, userId } = params;
 
-  if (agentTools.some((t) => t.name === "ask_user_question")) return;
+  // Dedup guard: the convExtIds loop in setup-tools.ts also wires
+  // every tool from a `conversation_extensions` row. Match against
+  // BOTH the namespaced form (what the registry exposes) and the
+  // bare `ask_user_question` (defensive, in case a future change
+  // exposes the originalName too).
+  if (agentTools.some((t) => t.name === "ask-user__ask_user_question" || t.name === "ask_user_question")) return;
 
   const extId = await getAskUserExtensionId();
   if (!extId) {
@@ -157,9 +162,17 @@ export async function wireAskUserToolForTurn(
   // is known at wire time.
   const invocationMetadata: Record<string, unknown> = { conversationId };
 
+  // Use the registry's NAMESPACED name (`ask-user__ask_user_question`).
+  // The registry's `toolMap` is keyed on the namespaced form (see
+  // src/extensions/registry.ts:222) — passing `originalName` would
+  // make the wrapper call `executeToolCall("ask_user_question", ...)`
+  // and the registry lookup at `tool-executor.ts:182` would return
+  // null, surfacing as "Unknown tool: ask_user_question". The LLM
+  // sees the namespaced form too, which matches the convention every
+  // other auto-wired extension tool (scratchpad__*, task_*) uses.
   const wrapped = extensionToAgentTool(
     {
-      name: askTool.originalName,
+      name: askTool.name,
       description: askTool.description,
       inputSchema: askTool.inputSchema as Record<string, unknown>,
     },

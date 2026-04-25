@@ -101,7 +101,7 @@ describe("buildTeamOrchestratorPrompt", () => {
   test("output mentions scratchpad_write and ask_user_question", () => {
     const result = buildTeamOrchestratorPrompt(teamName, teamPrompt, members);
     expect(result).toContain("scratchpad_write");
-    expect(result).toContain("ask_user_question");
+    expect(result).toContain("ask-user__ask_user_question");
   });
 
   test("includes override tags for members with toolRestriction", () => {
