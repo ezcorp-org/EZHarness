@@ -17,6 +17,7 @@
 			"!**/test-results",
 			"!**/.ezcorp",
 			"!**/.planning",
+			"!**/.claude",
 			"!**/TESTENV",
 			"!**/projects",
 			"!web/build",
