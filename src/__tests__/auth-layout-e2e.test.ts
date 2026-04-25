@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeAll, afterAll } from "bun:test";
+import { test, expect, describe, beforeAll, afterAll, beforeEach } from "bun:test";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { mockServerAlias, createMockEvent, jsonFromResponse } from "./helpers/mock-request";
 
@@ -7,18 +7,27 @@ mockDbConnection();
 mockServerAlias();
 
 // NOW import handlers
-import { POST as setupPost } from "../../web/src/routes/api/auth/setup/+server";
-import { POST as loginPost } from "../../web/src/routes/api/auth/login/+server";
+import { POST as setupPost, __rateLimiter as setupLimiter } from "../../web/src/routes/api/auth/setup/+server";
+import { POST as loginPost, __rateLimiter as loginLimiter } from "../../web/src/routes/api/auth/login/+server";
 import { POST as logoutPost } from "../../web/src/routes/api/auth/logout/+server";
 import { GET as meGet } from "../../web/src/routes/api/auth/me/+server";
 import { POST as invitePost } from "../../web/src/routes/api/auth/invite/+server";
-import { GET as inviteTokenGet, POST as inviteTokenPost } from "../../web/src/routes/api/auth/invite/[token]/+server";
+import { GET as inviteTokenGet, POST as inviteTokenPost, __rateLimiter as inviteTokenLimiter } from "../../web/src/routes/api/auth/invite/[token]/+server";
 
 import { users, invites, settings, auditLog, sessions } from "../db/schema";
 import { verifyJWT, getJwtSecret, _resetSecretCache } from "../auth/jwt";
 
 beforeAll(async () => { await setupTestDb(); });
 afterAll(async () => { await closeTestDb(); });
+
+// Reset module-scoped rate limiters before every test. createMockEvent
+// always returns 127.0.0.1 as the client address, so setup (3/hour) and
+// login (5/15min) caps would otherwise fire mid-suite as 429s.
+beforeEach(() => {
+  setupLimiter.reset();
+  loginLimiter.reset();
+  inviteTokenLimiter.reset();
+});
 
 async function cleanDb() {
   const db = getTestDb();
