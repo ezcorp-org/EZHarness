@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import type { RequestHandler } from "./$types";
+import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { getBus } from "$lib/server/context";
@@ -21,6 +22,7 @@ const postBodySchema = z.object({
 }).strict();
 
 export const POST: RequestHandler = async ({ request, locals }) => {
+	requireAuth(locals);
 	const scopeErr = requireScope(locals, "chat");
 	if (scopeErr) return scopeErr;
 
