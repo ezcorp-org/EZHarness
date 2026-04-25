@@ -8,6 +8,13 @@ import { hashToken, createSession } from "$server/db/queries/sessions";
 import { loginSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
+import { RateLimiter } from "$lib/server/security/rate-limiter";
+
+// sec-L1: per-IP brute-force throttle. 5 attempts / 15 min hits before
+// any body parse so an attacker spraying credentials can't even keep
+// us busy validating shape. Exported for test isolation only — see
+// reset() in beforeEach hooks.
+export const __rateLimiter = new RateLimiter(5, 15 * 60_000);
 
 // sec-L1: constant-time login path. When the user lookup misses (or the
 // account is inactive) we still invoke verifyPassword against a pre-computed
@@ -26,6 +33,17 @@ function getDummyPasswordHash(): Promise<string> {
 }
 
 export const POST: RequestHandler = async ({ request, cookies, getClientAddress }) => {
+  // Rate-limit BEFORE body parse so we don't burn cycles on attackers
+  // we're already throttling.
+  let ip = "unknown";
+  try { ip = getClientAddress(); } catch { /* proxy not configured */ }
+  const rl = __rateLimiter.check(ip);
+  if (!rl.allowed) {
+    return errorJson(429, "Too many requests", { retryAfter: rl.retryAfter }, {
+      "Retry-After": String(rl.retryAfter ?? 1),
+    });
+  }
+
   const result = loginSchema.safeParse(await request.json());
   if (!result.success) {
     return validationError(result.error);
