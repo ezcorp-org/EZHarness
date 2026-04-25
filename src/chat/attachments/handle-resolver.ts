@@ -11,7 +11,7 @@
 import { ATTACHMENT_HANDLE_SCHEME, type StagedAttachment } from "./content-builder";
 import { readAttachmentBytes } from "./storage";
 
-export interface ResolvableAttachment {
+interface ResolvableAttachment {
 	id: string;
 	mimeType: string;
 	storagePath: string;

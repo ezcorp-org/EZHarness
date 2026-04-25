@@ -8,7 +8,7 @@
 import { resolve, join, extname } from "node:path";
 import { rm, mkdir } from "node:fs/promises";
 
-export interface WrittenAttachment {
+interface WrittenAttachment {
   storagePath: string;
   sizeBytes: number;
 }

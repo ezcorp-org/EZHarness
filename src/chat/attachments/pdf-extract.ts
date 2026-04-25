@@ -8,7 +8,7 @@
 
 import { PDFParse } from "pdf-parse";
 
-export interface PdfExtractResult {
+interface PdfExtractResult {
   text: string;
   pages: number;
 }

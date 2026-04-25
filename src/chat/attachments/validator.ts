@@ -11,15 +11,15 @@ import { fileTypeFromBuffer } from "file-type";
 import type { AttachmentCapabilities } from "../../providers/model-capabilities";
 import { isMimeAccepted, TEXT_MIMES } from "../../providers/model-capabilities";
 
-export type ValidationFailure =
+type ValidationFailure =
   | { ok: false; code: "TOO_LARGE"; limit: number; actual: number }
   | { ok: false; code: "MIME_NOT_ALLOWED"; mimeType: string }
   | { ok: false; code: "MIME_MISMATCH"; claimed: string; detected: string | null }
   | { ok: false; code: "NOT_UTF8"; mimeType: string };
 
-export type ValidationSuccess = { ok: true; canonicalMime: string };
+type ValidationSuccess = { ok: true; canonicalMime: string };
 
-export type ValidationResult = ValidationSuccess | ValidationFailure;
+type ValidationResult = ValidationSuccess | ValidationFailure;
 
 export async function validateAttachment(
   bytes: Uint8Array,
