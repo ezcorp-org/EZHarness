@@ -1,17 +1,52 @@
 /**
  * Server-handler unit tests for /api/account/password/+server.ts.
- * Auth gate — success path runs argon2id + DB.
+ *
+ * Covers auth gate, scope gate, validation, current-password verification,
+ * happy-path side-effects (hashPassword + updateUserPassword + audit log +
+ * cleared session cookie), and 404 when the user row is missing.
  */
 
-import { test, expect, describe } from "vitest";
-import { PUT } from "../routes/api/account/password/+server";
+import { test, expect, describe, vi, beforeEach } from "vitest";
 
-function makeEvent(opts: { body?: unknown; locals?: Record<string, unknown> }) {
+vi.mock("$server/db/queries/users", () => ({
+	getUserById: vi.fn(),
+	updateUserPassword: vi.fn(),
+}));
+
+vi.mock("$server/auth/password", () => ({
+	verifyPassword: vi.fn(),
+	hashPassword: vi.fn(),
+}));
+
+vi.mock("$server/db/queries/audit-log", () => ({
+	insertAuditEntry: vi.fn(async () => undefined),
+}));
+
+const { getUserById, updateUserPassword } = await import(
+	"$server/db/queries/users"
+);
+const { verifyPassword, hashPassword } = await import("$server/auth/password");
+const { insertAuditEntry } = await import("$server/db/queries/audit-log");
+const { PUT } = await import("../routes/api/account/password/+server");
+
+interface CookieCall {
+	name: string;
+	value: string;
+	opts: Record<string, unknown>;
+}
+
+function makeEvent(opts: {
+	body?: unknown;
+	locals?: Record<string, unknown>;
+	cookieCalls?: CookieCall[];
+}) {
 	return {
 		url: new URL("http://localhost/api/account/password"),
 		locals: opts.locals ?? {},
 		cookies: {
-			set: () => undefined,
+			set: (name: string, value: string, o: Record<string, unknown>) => {
+				opts.cookieCalls?.push({ name, value, opts: o });
+			},
 			get: () => undefined,
 			delete: () => undefined,
 		},
@@ -28,18 +63,134 @@ async function expectThrownResponse(
 	status: number,
 ): Promise<Response> {
 	let res: Response | undefined;
-	try { res = await fn(); }
-	catch (thrown) { expect(thrown).toBeInstanceOf(Response); res = thrown as Response; }
+	try {
+		res = await fn();
+	} catch (thrown) {
+		expect(thrown).toBeInstanceOf(Response);
+		res = thrown as Response;
+	}
 	expect(res!.status).toBe(status);
 	return res!;
 }
 
+const user = { id: "u1", email: "u@x", name: "u", role: "user" };
+const dbUser = {
+	id: "u1",
+	email: "u@x",
+	name: "u",
+	role: "user",
+	passwordHash: "$argon2id$old",
+	createdAt: new Date(),
+};
+
+const VALID_BODY = { currentPassword: "OldPass1!", newPassword: "NewPass1!" };
+
 describe("PUT /api/account/password", () => {
+	beforeEach(() => {
+		vi.mocked(getUserById).mockReset();
+		vi.mocked(updateUserPassword).mockReset();
+		vi.mocked(verifyPassword).mockReset();
+		vi.mocked(hashPassword).mockReset();
+		vi.mocked(insertAuditEntry).mockReset();
+	});
+
 	test("rejects 401 when no auth", async () => {
 		await expectThrownResponse(
-			() =>
-				PUT(makeEvent({ body: { currentPassword: "x", newPassword: "Aa1bcdef" } })),
+			() => PUT(makeEvent({ body: VALID_BODY })),
 			401,
 		);
+	});
+
+	test("returns 403 when API-key scope missing 'admin'", async () => {
+		const res = await PUT(
+			makeEvent({
+				body: VALID_BODY,
+				locals: { user, apiKeyScopes: ["chat"] },
+			}),
+		);
+		expect(res.status).toBe(403);
+		const body = (await res.json()) as { error?: string; required?: string };
+		expect(body.error).toBe("Insufficient scope");
+		expect(body.required).toBe("admin");
+	});
+
+	test("returns 400 on validation failure (missing fields)", async () => {
+		const res = await PUT(
+			makeEvent({
+				body: {},
+				locals: { user },
+			}),
+		);
+		expect(res.status).toBe(400);
+	});
+
+	test("returns 404 when user row missing", async () => {
+		vi.mocked(getUserById).mockResolvedValue(undefined as any);
+		const res = await PUT(
+			makeEvent({
+				body: VALID_BODY,
+				locals: { user },
+			}),
+		);
+		expect(res.status).toBe(404);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toBe("User not found");
+	});
+
+	test("returns 400 when currentPassword is incorrect", async () => {
+		vi.mocked(getUserById).mockResolvedValue(dbUser as any);
+		vi.mocked(verifyPassword).mockResolvedValue(false);
+		const res = await PUT(
+			makeEvent({
+				body: VALID_BODY,
+				locals: { user },
+			}),
+		);
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toBe("Current password is incorrect");
+		expect(vi.mocked(updateUserPassword)).not.toHaveBeenCalled();
+		expect(vi.mocked(hashPassword)).not.toHaveBeenCalled();
+	});
+
+	test("happy path: hashes new password, persists, audits, clears session", async () => {
+		const cookieCalls: CookieCall[] = [];
+		vi.mocked(getUserById).mockResolvedValue(dbUser as any);
+		vi.mocked(verifyPassword).mockResolvedValue(true);
+		vi.mocked(hashPassword).mockResolvedValue("$argon2id$NEW");
+		vi.mocked(updateUserPassword).mockResolvedValue(true as any);
+
+		const res = await PUT(
+			makeEvent({
+				body: VALID_BODY,
+				locals: { user },
+				cookieCalls,
+			}),
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { success?: boolean; message?: string };
+		expect(body.success).toBe(true);
+		expect(body.message).toBe("Password changed. Please log in again.");
+
+		// Side-effect: hash was called with the new password
+		expect(vi.mocked(hashPassword)).toHaveBeenCalledWith("NewPass1!");
+		// Side-effect: stored hash is the hashPassword return value, NOT the
+		// new password plaintext.
+		expect(vi.mocked(updateUserPassword)).toHaveBeenCalledWith(
+			user.id,
+			"$argon2id$NEW",
+		);
+		// Side-effect: audit log entry written
+		expect(vi.mocked(insertAuditEntry)).toHaveBeenCalledWith(
+			user.id,
+			"auth:password_changed",
+		);
+		// Side-effect: session cookie cleared (maxAge: 0)
+		expect(cookieCalls).toHaveLength(1);
+		expect(cookieCalls[0]).toMatchObject({
+			name: "ezcorp_session",
+			value: "",
+			opts: { maxAge: 0, path: "/", httpOnly: true, sameSite: "lax" },
+		});
 	});
 });
