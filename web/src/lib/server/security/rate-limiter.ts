@@ -43,4 +43,14 @@ export class RateLimiter {
       }
     }
   }
+
+  /**
+   * Drop all tracked entries. Intended for test isolation when a handler
+   * module owns a singleton limiter — each test's `beforeEach` calls
+   * `<handler>.__rateLimiter.reset()` so attempt counters don't leak
+   * between cases. Safe to call in production but not used there.
+   */
+  reset(): void {
+    this.entries.clear();
+  }
 }
