@@ -8,10 +8,9 @@ import { getExecutor, getBus } from "$lib/server/context";
 import {
   ensureTaskTrackingWired,
   getTaskSnapshotForConversation,
-  writeTaskSnapshotForConversation,
 } from "$server/runtime/task-tracking-host";
 import type { TaskSnapshot } from "$server/runtime/task-tracking-host";
-import { findAssignment } from "$lib/server/task-helpers";
+import { findAssignment, writeAndBroadcastSnapshot } from "$lib/server/task-helpers";
 
 /**
  * POST — Stop a running assignment.
@@ -76,18 +75,8 @@ export const POST: RequestHandler = async ({ params, locals }) => {
     if (snapshot.activeTaskId === task.id) snapshot.activeTaskId = undefined;
   }
 
-  await writeTaskSnapshotForConversation(params.id, {
-    tasks: snapshot.tasks,
-    ...(snapshot.activeTaskId !== undefined ? { activeTaskId: snapshot.activeTaskId } : {}),
-  });
-
-  const bus = getBus();
-  bus.emit("task:snapshot", {
-    conversationId: params.id,
-    tasks: snapshot.tasks,
-    ...(snapshot.activeTaskId !== undefined ? { activeTaskId: snapshot.activeTaskId } : {}),
-  });
-  bus.emit("task:assignment_update", {
+  await writeAndBroadcastSnapshot(params.id, snapshot);
+  getBus().emit("task:assignment_update", {
     conversationId: params.id,
     taskId: params.taskId,
     assignment,

@@ -10,8 +10,11 @@
 
 import type {
   TaskAssignment,
+  TaskSnapshot,
   TrackedTask,
 } from "$server/runtime/task-tracking-host";
+import { writeTaskSnapshotForConversation } from "$server/runtime/task-tracking-host";
+import { getBus } from "$lib/server/context";
 
 /**
  * Find an assignment by id at the task level or under any of the task's
@@ -34,4 +37,29 @@ export function findAssignment(
     if (match) return match;
   }
   return undefined;
+}
+
+/**
+ * Persist the snapshot for a conversation and broadcast a
+ * `task:snapshot` event on the shared bus. Every task-lifecycle HTTP
+ * handler that mutates the snapshot needs this exact pair, including
+ * the conditional `activeTaskId` spread (the bus payload only carries
+ * the field when it is defined). Callers that also need to broadcast
+ * `task:assignment_update` should still emit that themselves — the
+ * assignment delta isn't always available here (e.g. the DELETE path
+ * has no surviving assignment object).
+ */
+export async function writeAndBroadcastSnapshot(
+  conversationId: string,
+  snapshot: TaskSnapshot,
+): Promise<void> {
+  await writeTaskSnapshotForConversation(conversationId, {
+    tasks: snapshot.tasks,
+    ...(snapshot.activeTaskId !== undefined ? { activeTaskId: snapshot.activeTaskId } : {}),
+  });
+  getBus().emit("task:snapshot", {
+    conversationId,
+    tasks: snapshot.tasks,
+    ...(snapshot.activeTaskId !== undefined ? { activeTaskId: snapshot.activeTaskId } : {}),
+  });
 }

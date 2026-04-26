@@ -13,6 +13,7 @@ import {
   writeTaskSnapshotForConversation,
 } from "$server/runtime/task-tracking-host";
 import type { TaskAssignment, TaskSnapshot } from "$server/runtime/task-tracking-host";
+import { writeAndBroadcastSnapshot } from "$lib/server/task-helpers";
 
 // Boundary validation. Same shape as the sibling /start endpoint —
 // optional `{ model, provider }` for the auto-spawn path; empty body
@@ -106,17 +107,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     }
   }
 
-  await writeTaskSnapshotForConversation(params.id, {
-    tasks: snapshot.tasks,
-    ...(snapshot.activeTaskId !== undefined ? { activeTaskId: snapshot.activeTaskId } : {}),
-  });
+  await writeAndBroadcastSnapshot(params.id, snapshot);
 
   const bus = getBus();
-  bus.emit("task:snapshot", {
-    conversationId: params.id,
-    tasks: snapshot.tasks,
-    ...(snapshot.activeTaskId !== undefined ? { activeTaskId: snapshot.activeTaskId } : {}),
-  });
   for (const a of resetAssignments) {
     bus.emit("task:assignment_update", {
       conversationId: params.id,

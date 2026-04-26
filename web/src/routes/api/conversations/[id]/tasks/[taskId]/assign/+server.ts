@@ -9,9 +9,9 @@ import { getAgentConfig } from "$server/db/queries/agent-configs";
 import { getBus } from "$lib/server/context";
 import {
   getTaskSnapshotForConversation,
-  writeTaskSnapshotForConversation,
   ensureTaskTrackingWired,
 } from "$server/runtime/task-tracking-host";
+import { writeAndBroadcastSnapshot } from "$lib/server/task-helpers";
 
 // Boundary validation. POST attaches an agent config to a task (or
 // optional subtask); DELETE removes an existing assignment by id.
@@ -91,18 +91,8 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     task.assignments.push(assignment);
   }
 
-  await writeTaskSnapshotForConversation(params.id, {
-    tasks: snapshot.tasks,
-    ...(snapshot.activeTaskId !== undefined ? { activeTaskId: snapshot.activeTaskId } : {}),
-  });
-
-  const bus = getBus();
-  bus.emit("task:snapshot", {
-    conversationId: params.id,
-    tasks: snapshot.tasks,
-    ...(snapshot.activeTaskId !== undefined ? { activeTaskId: snapshot.activeTaskId } : {}),
-  });
-  bus.emit("task:assignment_update", {
+  await writeAndBroadcastSnapshot(params.id, snapshot);
+  getBus().emit("task:assignment_update", {
     conversationId: params.id,
     taskId: params.taskId,
     assignment,
@@ -162,17 +152,7 @@ export const DELETE: RequestHandler = async ({ params, request, locals }) => {
     if (!found) return errorJson(404, "Assignment not found");
   }
 
-  await writeTaskSnapshotForConversation(params.id, {
-    tasks: snapshot.tasks,
-    ...(snapshot.activeTaskId !== undefined ? { activeTaskId: snapshot.activeTaskId } : {}),
-  });
-
-  const bus = getBus();
-  bus.emit("task:snapshot", {
-    conversationId: params.id,
-    tasks: snapshot.tasks,
-    ...(snapshot.activeTaskId !== undefined ? { activeTaskId: snapshot.activeTaskId } : {}),
-  });
+  await writeAndBroadcastSnapshot(params.id, snapshot);
 
   return json({ ok: true });
 };
