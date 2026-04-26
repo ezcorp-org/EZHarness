@@ -8,7 +8,11 @@ import * as convQueries from "$server/db/queries/conversations";
 import { getAgentConfig } from "$server/db/queries/agent-configs";
 import { getExecutor, getBus } from "$lib/server/context";
 import { writeTaskSnapshotForConversation } from "$server/runtime/task-tracking-host";
-import { findAssignment, loadSnapshotAndFindTask } from "$lib/server/task-helpers";
+import {
+  findAssignment,
+  loadSnapshotAndFindTask,
+  pickSpawnAgentConfig,
+} from "$lib/server/task-helpers";
 import { isBlocked, unsatisfiedDeps, type ReadonlyTask } from "$server/runtime/task-dependencies";
 
 // Boundary validation. Body is fully optional — the frontend may send
@@ -102,13 +106,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     task,
     snapshot,
     projectId,
-    agentConfig: {
-      id: config.id,
-      name: config.name,
-      prompt: config.prompt,
-      model: config.model,
-      provider: config.provider,
-    },
+    agentConfig: pickSpawnAgentConfig(config),
     parentModel: bodyModel ?? conv.model ?? undefined,
     parentProvider: bodyProvider ?? conv.provider ?? undefined,
     // Resume-after-stop: when the assignment already carries a sub-

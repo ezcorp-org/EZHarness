@@ -12,6 +12,7 @@ import type { TaskAssignment } from "$server/runtime/task-tracking-host";
 import {
   broadcastAssignmentUpdate,
   loadSnapshotAndFindTask,
+  pickSpawnAgentConfig,
   writeAndBroadcastSnapshot,
 } from "$lib/server/task-helpers";
 
@@ -131,13 +132,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
       task,
       snapshot,
       projectId,
-      agentConfig: {
-        id: config.id,
-        name: config.name,
-        prompt: config.prompt,
-        model: config.model,
-        provider: config.provider,
-      },
+      agentConfig: pickSpawnAgentConfig(config),
       parentModel: bodyModel ?? conv.model ?? undefined,
       parentProvider: bodyProvider ?? conv.provider ?? undefined,
     });

@@ -118,3 +118,29 @@ export function broadcastAssignmentUpdate(
     assignment,
   });
 }
+
+/**
+ * Pick the five fields `startAssignment` actually reads off a stored
+ * agent-config row (`{id, name, prompt, model, provider}`). The
+ * `getAgentConfig` query returns the full DB row with extra columns
+ * (timestamps, references, etc.) that the runtime spawn doesn't need;
+ * the verbatim picker literal was duplicated at retry:134-140 and
+ * start:105-111. Keeping it here makes it obvious why those five
+ * fields (and only those five) cross the boundary into the spawn
+ * payload.
+ */
+export function pickSpawnAgentConfig(config: {
+  id: string;
+  name: string;
+  prompt: string;
+  model?: string | null;
+  provider?: string | null;
+}): { id: string; name: string; prompt: string; model?: string | null; provider?: string | null } {
+  return {
+    id: config.id,
+    name: config.name,
+    prompt: config.prompt,
+    model: config.model,
+    provider: config.provider,
+  };
+}
