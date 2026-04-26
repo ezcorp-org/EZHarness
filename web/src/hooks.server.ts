@@ -3,12 +3,15 @@ import { redirect } from "@sveltejs/kit";
 import { ensureInitialized } from "$lib/server/context";
 import { verifyJWT, getJwtSecret } from "$server/auth/jwt";
 import { getUserCount } from "$server/db/queries/users";
+import { logger } from "$server/logger";
 import { RateLimiter } from "$lib/server/security/rate-limiter";
 import { attachBearerAuth } from "$lib/server/security/bearer-auth";
 import { getMaxPayload, payloadTooLarge } from "$lib/server/security/payload";
 import { getSetting } from "$server/db/queries/settings";
 import { hashToken, getSessionByTokenHash, touchSession } from "$server/db/queries/sessions";
 import { startBackgroundTimers } from "$server/startup/background-timers";
+
+const log = logger.child("hooks.server");
 
 if (!process.env.PI_SKIP_INIT) {
   await ensureInitialized();
@@ -179,7 +182,7 @@ export const handle: Handle = async ({ event, resolve }) => {
       if (legacyToken) {
         if (Date.now() > PI_SESSION_MIGRATION_EXPIRES_AT) {
           if (!piSessionMigrationWarned) {
-            console.warn("[hooks] pi_session migration window closed — ignoring legacy cookie. Clients must re-authenticate.");
+            log.warn("pi_session migration window closed - ignoring legacy cookie; clients must re-authenticate");
             piSessionMigrationWarned = true;
           }
           // Purge the stale cookie so the client stops presenting it.
