@@ -299,6 +299,26 @@ async function resolveProjectId(projectName: string | undefined): Promise<string
   return project.id;
 }
 
+/**
+ * Common harness for `run` and `pipeline:run` commands: open the DB,
+ * load agents (incl. DB-backed ones), wire up an event bus + executor,
+ * and start streaming events to the terminal. Caller is responsible for
+ * `disconnect()` in a finally block.
+ */
+async function setupRunHarness(agentsDir: string): Promise<{
+  agents: Awaited<ReturnType<typeof loadAgents>>;
+  bus: EventBus<AgentEvents>;
+  executor: AgentExecutor;
+  disconnect: () => void;
+}> {
+  await initDb();
+  const agents = await loadAgents(agentsDir, { includeDb: true });
+  const bus = new EventBus<AgentEvents>();
+  const executor = new AgentExecutor(agents, bus, { persist: true });
+  const disconnect = connectToEventBus(bus);
+  return { agents, bus, executor, disconnect };
+}
+
 /** Find all extensions that declare targetName as a dependency. */
 async function findDependents(targetName: string, allExts?: Awaited<ReturnType<typeof listExtensions>>): Promise<string[]> {
   const exts = allExts ?? await listExtensions();
@@ -337,11 +357,7 @@ export async function cli(args: string[]): Promise<void> {
         process.exit(1);
       }
 
-      await initDb();
-      const agents = await loadAgents(agentsDir, { includeDb: true });
-      const bus = new EventBus<AgentEvents>();
-      const executor = new AgentExecutor(agents, bus, { persist: true });
-      const disconnect = connectToEventBus(bus);
+      const { agents, executor, disconnect } = await setupRunHarness(agentsDir);
 
       const projectId = await resolveProjectId(parsed.project);
 
@@ -387,12 +403,8 @@ export async function cli(args: string[]): Promise<void> {
         process.exit(1);
       }
 
-      await initDb();
-      const agents = await loadAgents(agentsDir, { includeDb: true });
-      const bus = new EventBus<AgentEvents>();
-      const executor = new AgentExecutor(agents, bus, { persist: true });
+      const { bus, executor, disconnect } = await setupRunHarness(agentsDir);
       const pipelineExec = new PipelineExecutor(executor, bus);
-      const disconnect = connectToEventBus(bus);
 
       const yamlPipelines = await loadYamlPipelines(agentsDir);
       const dbPipelines = await loadDbPipelines();
