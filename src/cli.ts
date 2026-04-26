@@ -285,6 +285,20 @@ Usage:
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+/**
+ * Resolve a `--project <name>` flag to a project id, or exit(1) on not-found.
+ * Returns undefined when no project flag was supplied.
+ */
+async function resolveProjectId(projectName: string | undefined): Promise<string | undefined> {
+  if (!projectName) return undefined;
+  const project = await getProjectByName(projectName);
+  if (!project) {
+    console.error(`Error: project "${projectName}" not found`);
+    process.exit(1);
+  }
+  return project.id;
+}
+
 /** Find all extensions that declare targetName as a dependency. */
 async function findDependents(targetName: string, allExts?: Awaited<ReturnType<typeof listExtensions>>): Promise<string[]> {
   const exts = allExts ?? await listExtensions();
@@ -329,15 +343,7 @@ export async function cli(args: string[]): Promise<void> {
       const executor = new AgentExecutor(agents, bus, { persist: true });
       const disconnect = connectToEventBus(bus);
 
-      let projectId: string | undefined;
-      if (parsed.project) {
-        const project = await getProjectByName(parsed.project);
-        if (!project) {
-          console.error(`Error: project "${parsed.project}" not found`);
-          process.exit(1);
-        }
-        projectId = project.id;
-      }
+      const projectId = await resolveProjectId(parsed.project);
 
       let input = parsed.input;
       if (!input) {
@@ -398,15 +404,7 @@ export async function cli(args: string[]): Promise<void> {
         process.exit(1);
       }
 
-      let projectId: string | undefined;
-      if (parsed.project) {
-        const project = await getProjectByName(parsed.project);
-        if (!project) {
-          console.error(`Error: project "${parsed.project}" not found`);
-          process.exit(1);
-        }
-        projectId = project.id;
-      }
+      const projectId = await resolveProjectId(parsed.project);
 
       try {
         const run = await pipelineExec.runPipeline(pipeline, parsed.input ?? {}, projectId);
