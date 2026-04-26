@@ -420,26 +420,28 @@
 			{@const agentDefaultTools = defaultAllowedToolsFor(agent)}
 			<div class="mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-3" style="margin-left: {depth > 0 ? '1rem' : '0'};">
 				<div class="space-y-3">
-					<div>
-						<label class="mb-1 block text-xs text-[var(--color-text-muted)]">Mode</label>
+					<label class="block">
+						<span class="mb-1 block text-xs text-[var(--color-text-muted)]">Mode</span>
 						<ModeSearchPicker
 							selected={ov.modeId ?? null}
 							placeholder="Search modes..."
 							onselect={(mode) => updateOverrides(path, { ...ov, modeId: mode?.id ?? undefined })}
 						/>
-					</div>
+					</label>
 					<div>
-						<label class="mb-1 flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
-							Allowed Tools
-							{#if !hasToolsOverride && agentDefaultTools.length > 0}
-								<span class="text-[10px] italic">(showing agent defaults — interact to override)</span>
-							{/if}
+						<label class="block">
+							<span class="mb-1 flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+								Allowed Tools
+								{#if !hasToolsOverride && agentDefaultTools.length > 0}
+									<span class="text-[10px] italic">(showing agent defaults — interact to override)</span>
+								{/if}
+							</span>
+							<ToolSearchPicker
+								selected={hasToolsOverride ? ov.allowedTools! : agentDefaultTools}
+								placeholder="Search tools to allow..."
+								onchange={(toolNames) => updateOverrides(path, { ...ov, allowedTools: toolNames.length > 0 ? toolNames : undefined })}
+							/>
 						</label>
-						<ToolSearchPicker
-							selected={hasToolsOverride ? ov.allowedTools! : agentDefaultTools}
-							placeholder="Search tools to allow..."
-							onchange={(toolNames) => updateOverrides(path, { ...ov, allowedTools: toolNames.length > 0 ? toolNames : undefined })}
-						/>
 						{#if hasToolsOverride}
 							<button
 								type="button"
@@ -451,22 +453,24 @@
 						{/if}
 					</div>
 					<div class="col-span-2">
-						<label class="mb-1 block text-xs text-[var(--color-text-muted)]">
-							Model &amp; Provider
-							{#if !hasModelOverride}
-								<span class="text-[var(--color-text-muted)]">— showing agent default ({agentProvider}/{agentModel})</span>
-							{/if}
+						<label class="block">
+							<span class="mb-1 block text-xs text-[var(--color-text-muted)]">
+								Model &amp; Provider
+								{#if !hasModelOverride}
+									<span class="text-[var(--color-text-muted)]">— showing agent default ({agentProvider}/{agentModel})</span>
+								{/if}
+							</span>
+							<ModelSearchPicker
+								selected={hasModelOverride
+									? { provider: ov.provider!, model: ov.model! }
+									: (agent?.provider && agent?.model ? { provider: agent.provider, model: agent.model } : null)}
+								placeholder="Search models... ({agentProvider}/{agentModel})"
+								onselect={(provider, model) => updateOverrides(path, { ...ov, provider, model })}
+								onclear={hasModelOverride
+									? () => updateOverrides(path, { ...ov, provider: undefined, model: undefined })
+									: undefined}
+							/>
 						</label>
-						<ModelSearchPicker
-							selected={hasModelOverride
-								? { provider: ov.provider!, model: ov.model! }
-								: (agent?.provider && agent?.model ? { provider: agent.provider, model: agent.model } : null)}
-							placeholder="Search models... ({agentProvider}/{agentModel})"
-							onselect={(provider, model) => updateOverrides(path, { ...ov, provider, model })}
-							onclear={hasModelOverride
-								? () => updateOverrides(path, { ...ov, provider: undefined, model: undefined })
-								: undefined}
-						/>
 						{#if hasModelOverride}
 							<button
 								type="button"
@@ -479,8 +483,9 @@
 					</div>
 				</div>
 				<div class="mt-3">
-					<label class="mb-1 block text-xs text-[var(--color-text-muted)]">System Prompt Append</label>
+					<label for="team-member-prompt-append-{pathKey}" class="mb-1 block text-xs text-[var(--color-text-muted)]">System Prompt Append</label>
 					<textarea
+						id="team-member-prompt-append-{pathKey}"
 						class={inputClass}
 						rows="2"
 						value={ov.systemPromptAppend ?? ""}
@@ -562,30 +567,30 @@
 			</p>
 		</div>
 
-		<div>
-			<label class="mb-1 block text-xs text-[var(--color-text-muted)]">
+		<label class="block">
+			<span class="mb-1 block text-xs text-[var(--color-text-muted)]">
 				Allowed Tools <span class="text-[var(--color-text-muted)]">(leave empty to allow all)</span>
-			</label>
+			</span>
 			<ToolSearchPicker
 				selected={teamAllowedTools}
 				placeholder="Search tools to allow..."
 				onchange={(toolNames) => { teamAllowedTools = toolNames; }}
 			/>
-		</div>
+		</label>
 
-		<div>
-			<label class="mb-1 block text-xs text-[var(--color-text-muted)]">Denied Tools</label>
+		<label class="block">
+			<span class="mb-1 block text-xs text-[var(--color-text-muted)]">Denied Tools</span>
 			<ToolSearchPicker
 				selected={teamDeniedTools}
 				placeholder="Search tools to deny..."
 				onchange={(toolNames) => { teamDeniedTools = toolNames; }}
 			/>
-		</div>
+		</label>
 	</div>
 
 	<!-- B. Team Members Tree -->
 	<div>
-		<label class="mb-2 block text-sm font-medium text-[var(--color-text-secondary)]">Team Members</label>
+		<div class="mb-2 block text-sm font-medium text-[var(--color-text-secondary)]">Team Members</div>
 
 		{#if members.length === 0}
 			<p class="mb-3 text-sm text-[var(--color-text-muted)]">No members added yet. Add agents to build your team.</p>
