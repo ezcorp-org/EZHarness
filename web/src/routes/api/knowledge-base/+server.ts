@@ -9,6 +9,9 @@ import { uploadKBFileSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import { checkStorageQuota } from "$lib/server/security/resource-quotas";
 import { requireScope } from "$lib/server/security/api-keys";
+import { logger } from "$server/logger";
+
+const log = logger.child("api.knowledge-base");
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -77,7 +80,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       userId: user.id,
     });
   } catch (err) {
-    console.error("[api/knowledge-base] Failed to insert file record:", err);
+    log.error("failed to insert file record", {
+      error: err instanceof Error ? err.message : String(err),
+      projectId,
+      filename: file.name,
+    });
     return errorJson(500, "Failed to create file record");
   }
 
@@ -99,7 +106,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
       await updateKBFile(fileId, { status: "ready", chunkCount: chunks.length });
     } catch (err) {
-      console.error("[api/knowledge-base] Processing failed:", err);
+      log.error("file processing failed", {
+        error: err instanceof Error ? err.message : String(err),
+        fileId,
+      });
       await updateKBFile(fileId, { status: "error" }).catch(() => {});
     }
   })();
