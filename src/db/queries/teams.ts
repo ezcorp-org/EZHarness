@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { getDb } from "../connection";
 import { teams, teamMembers, users } from "../schema";
 import type { Team, TeamMember } from "../schema";
@@ -104,4 +104,36 @@ export async function getTeamMembership(
     .from(teamMembers)
     .where(and(eq(teamMembers.userId, userId), eq(teamMembers.teamId, teamId)));
   return rows[0];
+}
+
+/**
+ * Batched variant of {@link getTeamMembership}. Returns a Map keyed by
+ * `teamId`. Teams the user is not a member of map to `null` so callers
+ * can branch identically to the per-call form (which returns
+ * `undefined`). Internally dedupes `teamIds` to keep the SQL `IN (...)`
+ * list tight; the returned Map is always keyed by every input id, even
+ * duplicates.
+ */
+export async function getTeamMembershipsByTeams(
+  userId: string,
+  teamIds: string[],
+): Promise<Map<string, TeamMember | null>> {
+  const result = new Map<string, TeamMember | null>();
+  if (teamIds.length === 0) return result;
+  const uniqueIds = Array.from(new Set(teamIds));
+  const rows = await getDb()
+    .select()
+    .from(teamMembers)
+    .where(
+      and(
+        eq(teamMembers.userId, userId),
+        inArray(teamMembers.teamId, uniqueIds),
+      ),
+    );
+  const byTeam = new Map<string, TeamMember>();
+  for (const row of rows) byTeam.set(row.teamId, row);
+  for (const id of teamIds) {
+    result.set(id, byTeam.get(id) ?? null);
+  }
+  return result;
 }
