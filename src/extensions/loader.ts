@@ -47,17 +47,23 @@ function stripFunctions(obj: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
- * Load and validate an extension manifest from ezcorp.config.ts.
- * Cached by Bun's module system -- use loadManifestFresh() for dev reload.
+ * Shared body for loadManifest / loadManifestFresh: import the config,
+ * strip handler functions, run kind-specific validation, return the typed manifest.
+ * The only difference between the two callers is whether to append a cache-buster
+ * to the import URL.
  */
-export async function loadManifest(dir: string): Promise<ExtensionManifestV2> {
+async function loadManifestFromPath(
+  dir: string,
+  cacheBust: boolean,
+): Promise<ExtensionManifestV2> {
   const configPath = join(dir, "ezcorp.config.ts");
   const file = Bun.file(configPath);
   if (!(await file.exists())) {
     throw new Error(`No ezcorp.config.ts found at ${dir}`);
   }
 
-  const mod = await import(configPath);
+  const importUrl = cacheBust ? `${configPath}?v=${Date.now()}` : configPath;
+  const mod = await import(importUrl);
   const raw = mod.default;
   if (!raw || typeof raw !== "object") {
     throw new Error("ezcorp.config.ts must have a default export");
@@ -74,28 +80,17 @@ export async function loadManifest(dir: string): Promise<ExtensionManifestV2> {
 }
 
 /**
+ * Load and validate an extension manifest from ezcorp.config.ts.
+ * Cached by Bun's module system -- use loadManifestFresh() for dev reload.
+ */
+export async function loadManifest(dir: string): Promise<ExtensionManifestV2> {
+  return loadManifestFromPath(dir, false);
+}
+
+/**
  * Load manifest with cache-busting for dev server hot reload.
  * Appends a query parameter to bypass Bun's import cache.
  */
 export async function loadManifestFresh(dir: string): Promise<ExtensionManifestV2> {
-  const configPath = join(dir, "ezcorp.config.ts");
-  const file = Bun.file(configPath);
-  if (!(await file.exists())) {
-    throw new Error(`No ezcorp.config.ts found at ${dir}`);
-  }
-
-  const mod = await import(`${configPath}?v=${Date.now()}`);
-  const raw = mod.default;
-  if (!raw || typeof raw !== "object") {
-    throw new Error("ezcorp.config.ts must have a default export");
-  }
-
-  const manifest = stripFunctions(raw as Record<string, unknown>);
-
-  const validation = validateForKind(manifest);
-  if (!validation.valid) {
-    throw new Error(`Invalid manifest: ${validation.errors.join(", ")}`);
-  }
-
-  return manifest as unknown as ExtensionManifestV2;
+  return loadManifestFromPath(dir, true);
 }
