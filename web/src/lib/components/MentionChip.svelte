@@ -102,6 +102,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <span class="{effectiveTooltip || isCommand ? 'relative inline-block' : ''}" bind:this={chipEl}>
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<span
 		class="relative inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium {kind === 'agent'
 			? 'border-blue-500/30 bg-blue-500/20 text-blue-300'
