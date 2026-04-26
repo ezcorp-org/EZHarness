@@ -11,6 +11,7 @@
 		updateConversation,
 		cloneTurns,
 		patchMessageContent,
+		setMessageExcluded,
 		type Message,
 		type Conversation,
 		type Mode,
@@ -19,7 +20,9 @@
 		toggleSelection,
 		clearSelection,
 		orderedSelection,
+		selectRange,
 	} from "$lib/select-mode.js";
+	import { formatMessageForCopy } from "$lib/message-copy.js";
 	import {
 		store,
 		startStreaming,
@@ -53,9 +56,15 @@
 		anchorScrollTop,
 	} from "$lib/message-window.js";
 	import { unreadStore } from "$lib/unread.js";
+	import {
+		decideOpenScroll,
+		getCachedScrollState,
+		updateCachedScrollState,
+	} from "$lib/chat-scroll-restore.js";
 	import ConversationList from "$lib/components/ConversationList.svelte";
 	import ChatMessage from "$lib/components/ChatMessage.svelte";
 	import ChatInput from "$lib/components/ChatInput.svelte";
+	import MessageToolbar from "$lib/components/MessageToolbar.svelte";
 	import { shouldHandleChatWindowDragOver, filesFromChatWindowDrop } from "$lib/chat/chat-window-drop";
 	import ConversationSettings from "$lib/components/ConversationSettings.svelte";
 	import ExportMenu from "$lib/components/ExportMenu.svelte";
@@ -67,7 +76,13 @@
 	import InlineToolForm from "$lib/components/InlineToolForm.svelte";
 	import PermissionModeIndicator from "$lib/components/PermissionModeIndicator.svelte";
 	import ContextUsageIndicator from "$lib/components/ContextUsageIndicator.svelte";
-	import { pickLastTurnInputTokens } from "$lib/context-usage-logic";
+	import { scrollToToolCall } from "$lib/scroll-to-tool-call";
+	import {
+		computeBreakdown,
+		computeToolBreakdown,
+		estimateToolCallTokens,
+		pickLastTurnUsage,
+	} from "$lib/context-usage-logic";
 	import ModeFormModal from "$lib/components/ModeFormModal.svelte";
 	import SkeletonLoader from "$lib/components/SkeletonLoader.svelte";
 	import Tooltip from "$lib/components/Tooltip.svelte";
@@ -158,12 +173,18 @@
 	}
 
 	let settingsOpen = $state(false);
-	// Select Mode — lets users tick specific turns and fork them into a new chat.
+	// Select Mode — lets users tick specific turns to fork or run bulk ops on.
 	// `selectedIds` is a fresh Set each toggle so Svelte's reactivity picks up changes.
+	// `lastSelectionAnchor` is the most recently single-clicked id; shift+click on
+	// another row selects every id between the two (range expand). Cleared on
+	// conversation switch and on Cancel.
 	let selectMode = $state(false);
 	let selectedIds = $state<Set<string>>(new Set());
+	let lastSelectionAnchor = $state<string | null>(null);
 	let selectCloning = $state(false);
 	let selectError = $state<string | null>(null);
+	let bulkBusy = $state(false);
+	let bulkStatus = $state<string | null>(null);
 	// Inline "Edit text" state for seeded assistant turns (content-only PATCH).
 	let editTextMessageId = $state<string | null>(null);
 	let editTextDraft = $state("");
@@ -377,6 +398,13 @@
 	$effect(() => {
 		const cid = convId;
 		if (!cid || panelRestoredFor === cid) return;
+		// Selection is per-conversation by definition — never carries across switches.
+		// Cleared in both branches below (no need to mirror it into panel persistence).
+		selectMode = false;
+		selectedIds = clearSelection();
+		lastSelectionAnchor = null;
+		bulkStatus = null;
+		selectError = null;
 		const saved = readChatPanels(cid);
 		if (saved) {
 			obsOpen = saved.obsOpen;
@@ -546,27 +574,66 @@
 		anthropic: "Anthropic",
 	};
 
-	function addSystemMessage(content: string): void {
-		localSystemMessages = [...localSystemMessages, {
-			id: `system-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-			conversationId: convId,
-			role: "system",
-			content,
+	/**
+	 * Build a client-side `Message` object for optimistic UI updates and
+	 * streaming placeholders. Centralizing the defaults here means new fields
+	 * on the `Message` interface only need a single update — call sites stay
+	 * focused on what's *different* about each message they're constructing.
+	 *
+	 * `conversationId` is required via overrides because every call site has
+	 * a non-null `convId` in scope; threading it through the helper would
+	 * either capture a stale value (if convId becomes reactive later) or
+	 * force every call site to handle the `convId ?? ""` fallback.
+	 */
+	function makeOptimisticMessage(
+		overrides: Partial<Message> & Pick<Message, "conversationId">,
+	): Message {
+		return {
+			id: "",
+			role: "user",
+			content: "",
 			thinkingContent: null,
 			model: null,
 			provider: null,
 			usage: null,
 			runId: null,
-			parentMessageId: activeLeafId,
+			parentMessageId: null,
+			excluded: false,
 			createdAt: new Date().toISOString(),
-		}];
+			...overrides,
+		};
+	}
+
+	function addSystemMessage(content: string): void {
+		localSystemMessages = [
+			...localSystemMessages,
+			makeOptimisticMessage({
+				id: `system-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+				conversationId: convId,
+				role: "system",
+				content,
+				parentMessageId: activeLeafId,
+			}),
+		];
 	}
 
 	let lastMessageIsUser = $derived(messages.length > 0 && messages[messages.length - 1]?.role === "user");
 
 	// Context usage: input tokens from the most recent assistant message on the active branch.
 	// Represents what fit in the prompt last turn — null until the first assistant reply lands.
-	let lastTurnInputTokens = $derived(pickLastTurnInputTokens(messages));
+	let lastTurnUsage = $derived(pickLastTurnUsage(messages));
+	let lastTurnInputTokens = $derived(lastTurnUsage?.inputTokens ?? null);
+	let contextBreakdown = $derived(
+		computeBreakdown(
+			lastTurnUsage?.inputTokens ?? null,
+			lastTurnUsage?.outputTokens ?? null,
+			estimateToolCallTokens(inlineCalls),
+		),
+	);
+	let contextToolBreakdown = $derived(
+		computeToolBreakdown(inlineCalls, contextBreakdown?.totalTokens ?? 0),
+	);
+
 
 	// Memory injection dedup: the backend re-runs hybrid search every turn, so `memoriesUsed`
 	// gets populated on every assistant message even when the retrieved set didn't change.
@@ -649,21 +716,44 @@
 				}
 			}
 
+			// Restore open ask_user_question gates from server state. The
+			// live tool:start SSE fired before this refresh and the
+			// tool_calls DB row isn't written until the user answers, so
+			// the in-memory ask-user-registry is the only source. Mirror
+			// pendingPermissions above: push a synthetic running entry per
+			// gate; the live tool:complete will update it in place by
+			// toolName match (see stores.svelte.ts case "tool:complete").
+			if (data.pendingAskUser?.length) {
+				for (const entry of data.pendingAskUser) {
+					store.streamingToolCalls = {
+						...store.streamingToolCalls,
+						[data.runId]: [
+							...(store.streamingToolCalls[data.runId] ?? []),
+							{
+								id: entry.toolCallId,
+								toolName: 'ask-user__ask_user_question',
+								status: 'running' as const,
+								input: { question: entry.question, options: entry.options },
+								startedAt: Date.now(),
+								cardType: 'ask-user-question',
+							},
+						],
+					};
+				}
+			}
+
 			// Add placeholder assistant message with partial response if available
 			const lastMsg = allMessages[allMessages.length - 1];
-			const assistantPlaceholder: Message = {
+			const assistantPlaceholder = makeOptimisticMessage({
 				id: `streaming-${data.runId}`,
 				conversationId: convId,
 				role: "assistant",
 				content: data.partialResponse ?? "",
-				thinkingContent: null,
 				model: selectedModel?.model ?? null,
 				provider: selectedModel?.provider ?? null,
-				usage: null,
 				runId: data.runId,
 				parentMessageId: lastMsg?.id ?? null,
-				createdAt: new Date().toISOString(),
-			};
+			});
 			allMessages = [...allMessages, assistantPlaceholder];
 			activeLeafId = assistantPlaceholder.id;
 		} catch {
@@ -715,36 +805,29 @@
 			if (evtConvId !== convId || runId !== activeRunId) return;
 
 			// Replace streaming placeholder with the real persisted message
-			const realMsg: Message = {
+			const realMsg = makeOptimisticMessage({
 				id: messageId,
 				conversationId: convId,
 				role: "assistant",
 				content,
-				thinkingContent: null,
 				model: selectedModel?.model ?? null,
 				provider: selectedModel?.provider ?? null,
-				usage: null,
 				runId,
 				parentMessageId,
-				createdAt: new Date().toISOString(),
-			};
+			});
 			allMessages = allMessages.filter(m => m.id !== `streaming-${runId}`);
 			allMessages = [...allMessages, realMsg];
 
 			// Create new streaming placeholder for the next turn, chained to this one
-			const nextPlaceholder: Message = {
+			const nextPlaceholder = makeOptimisticMessage({
 				id: `streaming-${runId}`,
 				conversationId: convId,
 				role: "assistant",
-				content: "",
-				thinkingContent: null,
 				model: selectedModel?.model ?? null,
 				provider: selectedModel?.provider ?? null,
-				usage: null,
 				runId,
 				parentMessageId: messageId,
-				createdAt: new Date().toISOString(),
-			};
+			});
 			allMessages = [...allMessages, nextPlaceholder];
 			activeLeafId = nextPlaceholder.id;
 
@@ -810,27 +893,54 @@
 		}
 	});
 
-	// Initial mount scroll-to-bottom: once the sentinel is in the DOM and
-	// messages are present, jump to the bottom once. Replaces the old
-	// pattern where loadMessages() fired scrollIntoView before the DOM was
-	// ready — that "worked" by luck because every SSE reconnect re-fired
-	// loadMessages (and with it, the scroll), which was also the user-
-	// reported bug of "page jumps to the bottom while I'm scrolling".
+	// Persist scroll position per-conv as the user scrolls so we can restore
+	// it on re-entry when nothing new arrived while they were away.
+	$effect(() => {
+		if (!container) return;
+		const el = container;
+		const cid = convId;
+		const onScroll = () => updateCachedScrollState(cid, { scrollTop: el.scrollTop });
+		el.addEventListener("scroll", onScroll, { passive: true });
+		return () => el.removeEventListener("scroll", onScroll);
+	});
+
+	// Initial mount scroll: once the sentinel is in the DOM and messages are
+	// present, decide whether to jump to bottom (active stream / first visit)
+	// or restore the user's saved scroll position. See decideOpenScroll() in
+	// $lib/chat-scroll-restore. By the time this fires, the convId-reset
+	// effect below has already restored the cached `visibleMessageCount`, so
+	// the DOM has the same number of messages rendered as when the user left
+	// — that's what makes the restored scrollTop land on the same message.
 	let initialScrollDone = $state(false);
 	$effect(() => {
 		if (initialScrollDone) return;
-		if (!sentinel) return;
+		if (!sentinel || !container) return;
 		if (messages.length === 0) return;
 		if (userScrolledUp) { initialScrollDone = true; return; }
-		sentinel.scrollIntoView({ behavior: "instant" as ScrollBehavior });
+
+		const cached = getCachedScrollState(convId);
+		const decision = decideOpenScroll({
+			convId,
+			streamingRunToConversation: store.streamingRunToConversation,
+			cachedScrollTop: cached?.scrollTop,
+		});
+
+		if (decision.kind === "scroll-to-bottom") {
+			sentinel.scrollIntoView({ behavior: "instant" as ScrollBehavior });
+		} else {
+			container.scrollTop = decision.scrollTop;
+		}
 		initialScrollDone = true;
 	});
-	// Reset the gate on conversation switch so the new conversation lands
-	// at the bottom too.
+	// Reset the gate on conversation switch so the decision logic runs
+	// again for the newly-opened conversation. Restore the cached
+	// pagination window so the restored scrollTop lines up with the same
+	// messages the user was reading.
 	$effect(() => {
 		void convId;
 		initialScrollDone = false;
-		visibleMessageCount = INITIAL_MESSAGE_WINDOW;
+		const cached = getCachedScrollState(convId);
+		visibleMessageCount = cached?.windowSize ?? INITIAL_MESSAGE_WINDOW;
 	});
 
 	async function loadOlderMessages(): Promise<void> {
@@ -843,6 +953,7 @@
 		const beforeHeight = el?.scrollHeight ?? 0;
 		const beforeTop = el?.scrollTop ?? 0;
 		visibleMessageCount = nextWindowSize(visibleMessageCount, messages.length, MESSAGE_LOAD_STEP);
+		updateCachedScrollState(convId, { windowSize: visibleMessageCount });
 		await tick();
 		if (el) {
 			el.scrollTop = anchorScrollTop(beforeTop, beforeHeight, el.scrollHeight);
@@ -1373,19 +1484,13 @@
 		}
 
 		// Optimistic user message linked to current leaf
-		const optimisticUserMsg: Message = {
+		const optimisticUserMsg = makeOptimisticMessage({
 			id: `temp-${Date.now()}`,
 			conversationId: convId,
 			role: "user",
 			content,
-			thinkingContent: null,
-			model: null,
-			provider: null,
-			usage: null,
-			runId: null,
 			parentMessageId: resolvedParentId,
-			createdAt: new Date().toISOString(),
-		};
+		});
 		allMessages = [...allMessages, optimisticUserMsg];
 		activeLeafId = optimisticUserMsg.id;
 		error = null;
@@ -1432,19 +1537,15 @@
 			resumedRun = false;
 
 			// Add placeholder assistant message
-			const assistantPlaceholder: Message = {
+			const assistantPlaceholder = makeOptimisticMessage({
 				id: `streaming-${result.runId}`,
 				conversationId: convId,
 				role: "assistant",
-				content: "",
-				thinkingContent: null,
 				model: selectedModel?.model ?? null,
 				provider: selectedModel?.provider ?? null,
-				usage: null,
 				runId: result.runId,
 				parentMessageId: result.userMessage.id,
-				createdAt: new Date().toISOString(),
-			};
+			});
 			allMessages = [...allMessages, assistantPlaceholder];
 			activeLeafId = assistantPlaceholder.id;
 
@@ -1497,19 +1598,15 @@
 			startStreaming(result.runId, convId);
 
 			// Add placeholder assistant message
-			const assistantPlaceholder: Message = {
+			const assistantPlaceholder = makeOptimisticMessage({
 				id: `streaming-${result.runId}`,
 				conversationId: convId,
 				role: "assistant",
-				content: "",
-				thinkingContent: null,
 				model: selectedModel?.model ?? null,
 				provider: selectedModel?.provider ?? null,
-				usage: null,
 				runId: result.runId,
 				parentMessageId: result.userMessage.id,
-				createdAt: new Date().toISOString(),
-			};
+			});
 			allMessages = [...allMessages, assistantPlaceholder];
 			activeLeafId = assistantPlaceholder.id;
 		} catch (err) {
@@ -1552,19 +1649,15 @@
 			startStreaming(result.runId, convId);
 
 			// Add placeholder assistant
-			const assistantPlaceholder: Message = {
+			const assistantPlaceholder = makeOptimisticMessage({
 				id: `streaming-${result.runId}`,
 				conversationId: convId,
 				role: "assistant",
-				content: "",
-				thinkingContent: null,
 				model: selectedModel?.model ?? null,
 				provider: selectedModel?.provider ?? null,
-				usage: null,
 				runId: result.runId,
 				parentMessageId: result.userMessage.id,
-				createdAt: new Date().toISOString(),
-			};
+			});
 			allMessages = [...allMessages, assistantPlaceholder];
 			activeLeafId = assistantPlaceholder.id;
 		} catch (err) {
@@ -1780,12 +1873,61 @@
 		selectMode = !selectMode;
 		if (!selectMode) {
 			selectedIds = clearSelection();
+			lastSelectionAnchor = null;
 			selectError = null;
+			bulkStatus = null;
 		}
 	}
 
-	function toggleSelectedMessage(id: string) {
+	// Escape key exits select mode (mirrors the Cancel button). The listener
+	// only attaches WHILE select mode is active so we never swallow Escape in
+	// other contexts (composer, modals, etc.). Disabled while a bulk op is in
+	// flight — matches the Cancel button's `disabled` state, so users can't
+	// dismiss the action bar mid-fan-out.
+	$effect(() => {
+		if (!selectMode) return;
+		function onKeydown(e: KeyboardEvent) {
+			if (e.key !== "Escape") return;
+			if (selectCloning || bulkBusy) return;
+			e.preventDefault();
+			toggleSelectMode();
+		}
+		window.addEventListener("keydown", onKeydown);
+		return () => window.removeEventListener("keydown", onKeydown);
+	});
+
+	function toggleSelectedMessage(id: string, event?: MouseEvent | KeyboardEvent) {
+		const isShift = event && "shiftKey" in event && event.shiftKey;
+		// Auto-enter select mode on shift+click outside select mode — the row
+		// becomes the anchor and the action bar opens. Lets the user start a
+		// multi-select without first clicking the toolbar's Select button.
+		if (isShift && !selectMode) {
+			selectMode = true;
+			selectedIds = new Set([id]);
+			lastSelectionAnchor = id;
+			if (typeof window !== "undefined") {
+				window.getSelection()?.removeAllRanges();
+			}
+			return;
+		}
+		// Shift+click in select mode → toggle the range from anchor to this row.
+		// If the target is already selected, the range is REMOVED (lets users
+		// back out of an over-shot range with another shift+click). Otherwise
+		// the range is added. First-ever click (no anchor yet) falls through
+		// to a plain toggle below.
+		if (isShift && lastSelectionAnchor) {
+			const orderedIds = visibleMessages.map((m) => m.id);
+			selectedIds = selectRange(selectedIds, orderedIds, lastSelectionAnchor, id, {
+				skipPredicate: (mid) => mid.startsWith("streaming-"),
+				toggle: true,
+			});
+			if (typeof window !== "undefined") {
+				window.getSelection()?.removeAllRanges();
+			}
+			return;
+		}
 		selectedIds = toggleSelection(selectedIds, id);
+		lastSelectionAnchor = id;
 	}
 
 	async function handleForkSelection() {
@@ -1796,6 +1938,7 @@
 		try {
 			const newConv = await cloneTurns(convId, { messageIds: orderedIds });
 			selectedIds = clearSelection();
+			lastSelectionAnchor = null;
 			selectMode = false;
 			goto(`/project/${projectId}/chat/${newConv.id}`);
 		} catch (err) {
@@ -1803,6 +1946,108 @@
 			console.error("Failed to fork turns:", err);
 		} finally {
 			selectCloning = false;
+		}
+	}
+
+	// ── Bulk actions on the current selection ───────────────────────────
+	// Are all selected rows already excluded? Determines whether the bulk
+	// button reads "Include in context" (re-include) vs "Exclude from context".
+	let allSelectedExcluded = $derived.by(() => {
+		if (selectedIds.size === 0) return false;
+		for (const id of selectedIds) {
+			const msg = allMessages.find((m) => m.id === id);
+			if (!msg || !msg.excluded) return false;
+		}
+		return true;
+	});
+
+	// Concatenated copy content for the bulk toolbar — fed into MessageToolbar's
+	// `content` prop so the toolbar's own copy handler does the clipboard work.
+	// Each turn includes its tool calls (if any), separated by `---`.
+	let bulkCopyContent = $derived.by(() => {
+		const orderedIds = orderedSelection(selectedIds, allMessages.map((m) => m.id));
+		return orderedIds
+			.map((id) => {
+				const msg = allMessages.find((m) => m.id === id);
+				if (!msg) return "";
+				const tcs = msg.role === "assistant" ? getHistoricalToolCalls(msg.id) : undefined;
+				return formatMessageForCopy(msg.content, tcs);
+			})
+			.filter(Boolean)
+			.join("\n\n---\n\n");
+	});
+
+	function handleBulkCopied() {
+		// MessageToolbar's internal copy already wrote to the clipboard; this
+		// callback just surfaces the status confirmation in the action bar.
+		const n = selectedIds.size;
+		bulkStatus = `Copied ${n} ${n === 1 ? "turn" : "turns"}`;
+	}
+
+	async function handleBulkSaveMemory() {
+		if (selectedIds.size === 0 || bulkBusy) return;
+		const ids = orderedSelection(selectedIds, allMessages.map((m) => m.id));
+		const targets = ids
+			.map((id) => allMessages.find((m) => m.id === id))
+			.filter((m): m is Message => !!m);
+		if (targets.length === 0) return;
+		// Combine every selected turn into a single memory entry — just the
+		// raw message text, in render order, joined by blank lines. No role
+		// labels or `---` separators (memory should read as continuous text).
+		const combined = targets
+			.map((m) => m.content.trim())
+			.filter(Boolean)
+			.join("\n\n");
+		bulkBusy = true;
+		bulkStatus = null;
+		selectError = null;
+		try {
+			const res = await userFetch("/api/memories", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					content: combined,
+					category: "preferences",
+					confidence: "medium",
+				}),
+			});
+			if (res.status !== 201) throw new Error(`POST /api/memories returned ${res.status}`);
+			const memory = await res.json();
+			// Mark every selected message as saved-as-memory pointing at the
+			// same memory id, so the per-message indicator reflects bulk save.
+			const next = new Map(savedMemories);
+			for (const m of targets) next.set(m.id, memory.id);
+			savedMemories = next;
+			bulkStatus = `Saved ${targets.length} ${targets.length === 1 ? "turn" : "turns"} to memory`;
+		} catch (err) {
+			selectError = err instanceof Error ? err.message : "Failed to save to memory";
+		} finally {
+			bulkBusy = false;
+		}
+	}
+
+async function handleBulkExclude() {
+		if (selectedIds.size === 0 || bulkBusy) return;
+		const target = !allSelectedExcluded; // if all already excluded → re-include; else exclude
+		const ids = Array.from(selectedIds);
+		bulkBusy = true;
+		selectError = null;
+		bulkStatus = null;
+		try {
+			await Promise.all(ids.map((id) => setMessageExcluded(convId, id, target)));
+			// Reconcile local state — mirrors the optimistic flip in `handleToggleExclude`.
+			const idSet = new Set(ids);
+			allMessages = allMessages.map((m) => (idSet.has(m.id) ? { ...m, excluded: target } : m));
+			// Keep select mode open so the user sees the status confirmation. They
+			// can run another bulk op, or click Cancel to return to the composer.
+			selectedIds = clearSelection();
+			lastSelectionAnchor = null;
+			bulkStatus = `${target ? "Excluded" : "Included"} ${ids.length} ${ids.length === 1 ? "turn" : "turns"}`;
+		} catch (err) {
+			selectError = err instanceof Error ? err.message : "Failed to update selection";
+			console.error("Bulk exclude failed:", err);
+		} finally {
+			bulkBusy = false;
 		}
 	}
 
@@ -1831,6 +2076,30 @@
 			console.error("Failed to edit text:", err);
 		} finally {
 			editTextSaving = false;
+		}
+	}
+
+	async function handleToggleExclude(msg: Message) {
+		if (!convId) return;
+		const next = !msg.excluded;
+		// Optimistic flip; the success path reconciles against the server's
+		// returned row. We do NOT roll back on error — by the time the catch
+		// fires the user may have re-clicked, or `allMessages` may have been
+		// rebuilt by a streaming chunk, so reverting from the captured
+		// `msg.excluded` would clobber newer state. Mirrors `submitEditText`
+		// above. Instead, surface the failure via the page-level `error`
+		// banner so the user knows the optimistic flip didn't persist —
+		// silent failure here is privacy-shaped (user thinks a sensitive
+		// turn is excluded when the server still has it included).
+		allMessages = allMessages.map((m) => (m.id === msg.id ? { ...m, excluded: next } : m));
+		try {
+			const updated = await setMessageExcluded(convId, msg.id, next);
+			allMessages = allMessages.map((m) => (m.id === msg.id ? { ...m, excluded: updated.excluded } : m));
+		} catch (err) {
+			console.error("Failed to toggle excluded:", err);
+			error = next
+				? "Couldn't exclude that message from context. Try again."
+				: "Couldn't re-include that message. Try again.";
 		}
 	}
 
@@ -1936,7 +2205,13 @@
 			</span>
 			<div class="flex items-center gap-1 shrink-0">
 				<!-- Context usage -->
-				<ContextUsageIndicator usedTokens={lastTurnInputTokens} contextWindow={selectedModelContextWindow} />
+				<ContextUsageIndicator
+					usedTokens={lastTurnInputTokens}
+					contextWindow={selectedModelContextWindow}
+					breakdown={contextBreakdown}
+					toolBreakdown={contextToolBreakdown}
+					oncallclick={scrollToToolCall}
+				/>
 				<!-- Permission mode indicator -->
 				<Tooltip position="bottom" text="How tool-use permission is granted for this project (ask / auto / deny)">
 					<PermissionModeIndicator {projectId} conversationId={convId} onmodechange={(mode) => { permissionModeOverride = mode; }} />
@@ -2045,7 +2320,7 @@
 		</div>
 
 		<!-- Messages -->
-		<div bind:this={container} class="relative flex-1 overflow-y-auto">
+		<div bind:this={container} class="relative flex-1 overflow-y-auto" data-testid="chat-messages-container">
 			<div class="mx-auto max-w-3xl space-y-1 py-4" aria-live="polite" aria-relevant="additions">
 				{#if messages.length === 0 && !error}
 					<div class="flex items-center justify-center py-20">
@@ -2180,6 +2455,7 @@
 							selected={selectedIds.has(msg.id)}
 							onselectionchange={toggleSelectedMessage}
 							onedittext={msg.role === 'assistant' ? handleEditText : undefined}
+							onexclude={handleToggleExclude}
 						/>
 					{/if}
 
@@ -2234,13 +2510,15 @@
 				     bucket. Rendering them here too would duplicate the card AND spawn
 				     redundant setInterval timers during busy agent runs. -->
 				{#each inlineCalls.filter(c => !c.messageId && c.source !== 'agent-run') as call (call.id)}
-					<InlineToolCard
-						{call}
-						onretry={handleInlineRetry}
-						oneditretry={handleInlineEditRetry}
-						oncancel={handleInlineCancel}
-						onsendmessage={handleSend}
-					/>
+					<div id={`tool-call-${call.id}`}>
+						<InlineToolCard
+							{call}
+							onretry={handleInlineRetry}
+							oneditretry={handleInlineEditRetry}
+							oncancel={handleInlineCancel}
+							onsendmessage={handleSend}
+						/>
+					</div>
 				{/each}
 
 				<!-- Fallback: unanchored edit-retry form -->
@@ -2323,35 +2601,67 @@
 		{/if}
 
 		{#if selectMode}
-			<!-- Select-mode action bar replaces the composer so the fork action
-			     stays visible and un-confused with a normal send. -->
+			<!-- Select-mode action bar replaces the composer so bulk actions stay
+			     visible and un-confused with a normal send. Shift+click a row to
+			     extend the selection to the previously-clicked turn. -->
 			<div class="border-t border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-4 py-3" data-testid="select-action-bar">
 				<div class="mx-auto flex max-w-3xl flex-col gap-2">
 					<div class="flex items-center justify-between gap-3">
 						<div class="text-sm text-[var(--color-text-primary)]">
 							<span data-testid="selected-count" class="font-medium">{selectedIds.size}</span>
 							{selectedIds.size === 1 ? 'turn' : 'turns'} selected
+							<span class="ml-2 text-xs text-[var(--color-text-muted)]">— shift+click to select a range</span>
 						</div>
-						<div class="flex items-center gap-2">
+						<div class="flex flex-wrap items-center gap-2">
 							<button
 								onclick={toggleSelectMode}
-								disabled={selectCloning}
+								disabled={selectCloning || bulkBusy}
 								class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50"
 							>
 								Cancel
 							</button>
+							<!-- Reuses the per-message MessageToolbar in `inline` variant so
+							     the bulk actions share the exact icons/tooltips users see on
+							     hover. The toolbar's internal copy uses our concatenated
+							     `bulkCopyContent`; exclude / include flow through our bulk
+							     handler which fans out one PATCH per selected row. -->
+							{#if selectedIds.size > 0}
+								<MessageToolbar
+									variant="inline"
+									role="user"
+									content={bulkCopyContent}
+									oncopy={handleBulkCopied}
+									onexclude={isStreaming || bulkBusy ? undefined : handleBulkExclude}
+									excluded={allSelectedExcluded}
+									onsavememory={bulkBusy ? undefined : handleBulkSaveMemory}
+									testid="bulk-toolbar"
+								/>
+							{/if}
 							<button
 								onclick={handleForkSelection}
-								disabled={selectedIds.size === 0 || selectCloning}
-								class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+								disabled={selectedIds.size === 0 || selectCloning || bulkBusy}
+								class="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
 								data-testid="new-chat-from-selection"
+								aria-label="New chat from selection"
 							>
+								<!-- Same branch glyph used by MessageToolbar's "Branch from here"
+								     button — signals this fork action ties back to the selected
+								     turns instead of just creating an empty chat. -->
+								<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+									<line x1="6" y1="3" x2="6" y2="15" />
+									<circle cx="18" cy="6" r="3" />
+									<circle cx="6" cy="18" r="3" />
+									<path d="M18 9a9 9 0 0 1-9 9" />
+								</svg>
 								{selectCloning ? "Creating…" : "New Chat"}
 							</button>
 						</div>
 					</div>
 					{#if selectError}
 						<div class="text-xs text-red-400" role="alert">{selectError}</div>
+					{/if}
+					{#if bulkStatus && !selectError}
+						<div class="text-xs text-[var(--color-text-muted)]" role="status" aria-live="polite" data-testid="bulk-status">{bulkStatus}</div>
 					{/if}
 				</div>
 			</div>

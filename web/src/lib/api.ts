@@ -385,6 +385,10 @@ export interface Message {
 	usage: { inputTokens: number; outputTokens: number } | null;
 	runId: string | null;
 	parentMessageId: string | null;
+	/** When true, this message is hidden from the LLM context on subsequent
+	 *  turns (filtered server-side in load-history). The row still renders in
+	 *  the transcript, struck-through, and can be toggled back on. */
+	excluded: boolean;
 	createdAt: string;
 	/** Memories injected into the system prompt for this assistant turn.
 	 *  Sourced server-side from runs.result.output.memoriesUsed. */
@@ -483,6 +487,25 @@ export async function patchMessageContent(
 		method: "PATCH",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ content }),
+	});
+	checkResponse(res);
+	return res.json();
+}
+
+/**
+ * Toggle a message's exclusion from the LLM context. Server keeps the row +
+ * still returns it to the UI; load-history filters it out before pi-ai sees
+ * the array. Rejected with 409 while the conversation has an active run.
+ */
+export async function setMessageExcluded(
+	conversationId: string,
+	messageId: string,
+	excluded: boolean,
+): Promise<Message> {
+	const res = await fetch(`${BASE}/api/conversations/${conversationId}/messages/${messageId}`, {
+		method: "PATCH",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ excluded }),
 	});
 	checkResponse(res);
 	return res.json();

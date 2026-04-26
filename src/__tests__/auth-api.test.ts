@@ -125,6 +125,127 @@ describe("POST /auth/setup", () => {
     const cookie = event.cookies.get("ezcorp_session");
     expect(cookie).toBeTruthy();
   });
+
+  test("second call after a successful first setup is blocked (403, no second user, no second cookie)", async () => {
+    // True end-to-end "first-run only" assertion: drive the endpoint
+    // twice against the real DB. The first call must mint exactly one
+    // admin; the second must be rejected, must NOT insert a second
+    // user, and must NOT issue a session cookie. The previous test
+    // covered this with a raw db.insert seed, which doesn't exercise
+    // the actual "transition from 0 → 1 users via the public route".
+    const first = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/auth/setup",
+      body: { name: "Admin One", email: "first@test.com", password: "Password123" },
+    });
+    const firstRes = await setupPost(first);
+    expect(firstRes.status).toBe(201);
+    const firstData = await jsonFromResponse(firstRes);
+    expect(firstData.user.email).toBe("first@test.com");
+    expect(first.cookies.get("ezcorp_session")).toBeTruthy();
+
+    // Different IP so the rate-limiter bucket is irrelevant — we want
+    // to prove the user-count gate is what blocks the call.
+    setupLimiter.reset();
+    const second = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/auth/setup",
+      body: { name: "Admin Two", email: "second@test.com", password: "Password123" },
+    });
+    const secondRes = await setupPost(second);
+    expect(secondRes.status).toBe(403);
+    const secondData = await jsonFromResponse(secondRes);
+    expect(secondData.error).toBe("Setup already completed");
+    expect(second.cookies.get("ezcorp_session")).toBeNull();
+
+    // DB invariant: exactly one user, the original admin from call #1.
+    const db = getTestDb();
+    const allUsers = await db.select().from(users);
+    expect(allUsers).toBeArrayOfSize(1);
+    expect(allUsers[0]!.email).toBe("first@test.com");
+    expect(allUsers[0]!.role).toBe("admin");
+  });
+
+  test("repeated POSTs after first setup never escalate — still 403, still one user", async () => {
+    // Stronger guarantee: even hammering the endpoint after setup must
+    // not eventually slip a second admin through (e.g. via a count-cache
+    // race or off-by-one).
+    const first = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/auth/setup",
+      body: { name: "Owner", email: "owner@test.com", password: "Password123" },
+    });
+    expect((await setupPost(first)).status).toBe(201);
+
+    for (let i = 0; i < 3; i++) {
+      // Reset limiter each iteration so 429 doesn't mask 403.
+      setupLimiter.reset();
+      const evt = createMockEvent({
+        method: "POST",
+        url: "http://localhost/api/auth/setup",
+        body: { name: `Intruder${i}`, email: `intruder${i}@test.com`, password: "Password123" },
+      });
+      const res = await setupPost(evt);
+      expect(res.status).toBe(403);
+    }
+
+    const db = getTestDb();
+    const allUsers = await db.select().from(users);
+    expect(allUsers).toBeArrayOfSize(1);
+    expect(allUsers[0]!.email).toBe("owner@test.com");
+  });
+
+  test("403 fires even when only a non-admin (member) user exists", async () => {
+    // The gate counts users, not admins — a single member predates any
+    // admin and must still close the bootstrap door. Otherwise an
+    // attacker who got a member-only invite could escalate to admin via
+    // the unauthenticated /api/auth/setup route.
+    const db = getTestDb();
+    await db.insert(users).values({
+      email: "regular@test.com",
+      passwordHash: "hashed",
+      name: "Regular Member",
+      role: "member",
+    });
+
+    const event = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/auth/setup",
+      body: { name: "Sneaky Admin", email: "sneaky@test.com", password: "Password123" },
+    });
+    const res = await setupPost(event);
+    expect(res.status).toBe(403);
+
+    const all = await db.select().from(users);
+    expect(all).toBeArrayOfSize(1);
+    expect(all[0]!.role).toBe("member");
+  });
+
+  test("403 path leaves no audit-log noise (no user:registered entry on rejection)", async () => {
+    // First call writes the legitimate audit row; the second must not
+    // append anything, otherwise an attacker could spam the audit trail
+    // by replaying the bootstrap endpoint.
+    const first = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/auth/setup",
+      body: { name: "Real", email: "real@test.com", password: "Password123" },
+    });
+    expect((await setupPost(first)).status).toBe(201);
+
+    const db = getTestDb();
+    const auditCountBefore = (await db.select().from(auditLog)).length;
+
+    setupLimiter.reset();
+    const second = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/auth/setup",
+      body: { name: "Fake", email: "fake@test.com", password: "Password123" },
+    });
+    expect((await setupPost(second)).status).toBe(403);
+
+    const auditCountAfter = (await db.select().from(auditLog)).length;
+    expect(auditCountAfter).toBe(auditCountBefore);
+  });
 });
 
 // ── POST /auth/login ────────────────────────────────────────────────

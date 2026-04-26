@@ -167,12 +167,15 @@ test.describe("Chat Select Mode → New Chat", () => {
 		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Hi " } });
 
 		await expect(page.getByTestId("select-mode-toggle")).toBeDisabled({ timeout: 5000 });
-		// The hover title swaps to the guard message while streaming — covers
-		// the user-facing affordance in addition to the disabled attribute.
-		await expect(page.getByTestId("select-mode-toggle")).toHaveAttribute(
-			"title",
-			/Finish streaming/i,
-		);
+		// The custom Tooltip component renders its text into a separate
+		// fixed-position div on hover (with a 300ms delay) — there's no
+		// native `title` attribute. Hover the button and wait for the
+		// guard message to appear, covering the user-facing affordance
+		// in addition to the disabled attribute.
+		await page.getByTestId("select-mode-toggle").hover();
+		await expect(
+			page.getByText("Finish streaming turn before selecting"),
+		).toBeVisible({ timeout: 2000 });
 	});
 
 	test("Tool-call card survives the clone and renders in the new chat", async ({ page, mockApi }) => {

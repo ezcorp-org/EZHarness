@@ -20,6 +20,7 @@ const cancelRun = vi.fn();
 const getActiveRunForConversation = vi.fn();
 const getPendingPermissions = vi.fn(() => []);
 const busEmit = vi.fn();
+const getPendingAskUserForConversation = vi.fn((_cid: string) => [] as Array<unknown>);
 
 vi.mock("$lib/server/context", () => ({
   getExecutor: () => ({
@@ -33,6 +34,10 @@ vi.mock("$lib/server/context", () => ({
 vi.mock("$server/db/queries/active-runs", () => ({
   getActiveRun: vi.fn(),
   markInterrupted: vi.fn(),
+}));
+
+vi.mock("$server/runtime/ask-user-registry", () => ({
+  getPendingAskUserForConversation: (cid: string) => getPendingAskUserForConversation(cid),
 }));
 
 const { getActiveRun, markInterrupted } = await import(
@@ -69,6 +74,10 @@ describe("GET /api/conversations/[id]/active-run", () => {
     vi.mocked(getActiveRun).mockReset();
     vi.mocked(markInterrupted).mockReset();
     busEmit.mockReset();
+    getPendingAskUserForConversation.mockReset();
+    getPendingAskUserForConversation.mockReturnValue([]);
+    getPendingPermissions.mockReset();
+    getPendingPermissions.mockReturnValue([]);
   });
 
   test("rejects 401 when unauthenticated", async () => {
@@ -91,6 +100,38 @@ describe("GET /api/conversations/[id]/active-run", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { runId: null };
     expect(body.runId).toBeNull();
+  });
+
+  test("surfaces pendingAskUser entries from the in-memory registry when an in-memory run is active", async () => {
+    // Refresh-survival path: the active-run endpoint must include the
+    // open ask_user_question gates so a refreshed UI can re-hydrate
+    // the inline card before the tool_calls DB row is written.
+    getActiveRunForConversation.mockReturnValue({
+      id: "run-1",
+      startedAt: Date.now(),
+    });
+    vi.mocked(getActiveRun).mockResolvedValue({
+      id: "run-1",
+      status: "running",
+      startedAt: new Date(),
+      lastHeartbeat: new Date(),
+      partialResponse: null,
+    } as any);
+    getPendingAskUserForConversation.mockReturnValue([
+      { toolCallId: "tc-1", question: "Pick one", options: ["A", "B"], userId: "u1" },
+    ]);
+
+    const res = await GET(makeEvent({ locals: { user } }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      runId: string;
+      pendingAskUser: Array<{ toolCallId: string; question: string; options: string[] | undefined }>;
+    };
+    expect(body.runId).toBe("run-1");
+    expect(getPendingAskUserForConversation).toHaveBeenCalledWith("c1");
+    expect(body.pendingAskUser).toEqual([
+      { toolCallId: "tc-1", question: "Pick one", options: ["A", "B"], userId: "u1" },
+    ]);
   });
 });
 

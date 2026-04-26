@@ -13,6 +13,7 @@
 	import ProviderIcon from "./ProviderIcon.svelte";
 	import MessageAttachments from "./MessageAttachments.svelte";
 	import { getSegments } from "$lib/mention-logic.js";
+	import { formatMessageForCopy } from "$lib/message-copy.js";
 
 	interface ProviderUnavailableError {
 		type: "provider_unavailable";
@@ -51,6 +52,7 @@
 		selected = false,
 		onselectionchange,
 		onedittext,
+		onexclude,
 	}: {
 		message: Message;
 		streamingText?: string;
@@ -88,11 +90,16 @@
 		 *  independently of this branch). */
 		selectable?: boolean;
 		selected?: boolean;
-		onselectionchange?: (messageId: string) => void;
+		onselectionchange?: (messageId: string, event?: MouseEvent | KeyboardEvent) => void;
 		/** Content-only edit handler for cloned/seeded assistant turns. When
 		 *  present, the message toolbar surfaces an "Edit text" affordance that
 		 *  updates message content via PATCH (no regen, no branch). */
 		onedittext?: (message: Message) => void;
+		/** Toggle this message's `excluded` flag so load-history drops it from
+		 *  the array sent to the LLM on subsequent turns. The row stays in the
+		 *  transcript with a strike-through visual; toggling again re-includes
+		 *  it. Wired by the chat page; works for user + assistant rows. */
+		onexclude?: (message: Message) => void;
 	} = $props();
 
 	// Elapsed counter for the main streaming turn. Reused pattern from AgentChip.svelte.
@@ -155,19 +162,7 @@
 
 	let displayContent = $derived(streamingText || message.content);
 
-	let copyableContent = $derived.by(() => {
-		const parts: string[] = [];
-		if (message.content) parts.push(message.content);
-		if (toolCalls?.length) {
-			for (const tc of toolCalls) {
-				const header = `[Tool: ${tc.toolName}]`;
-				const input = tc.input ? `Input: ${typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input, null, 2)}` : '';
-				const output = tc.output ? `Output: ${typeof tc.output === 'string' ? tc.output : JSON.stringify(tc.output, null, 2)}` : '';
-				parts.push([header, input, output].filter(Boolean).join('\n'));
-			}
-		}
-		return parts.join('\n\n');
-	});
+	let copyableContent = $derived(formatMessageForCopy(message.content, toolCalls));
 	let isStreaming = $derived(streamingText !== undefined || streamingStatus !== undefined);
 
 	let usageTitle = $derived(
@@ -180,6 +175,34 @@
 
 	let userSegments = $derived(message.role === "user" ? getSegments(message.content) : []);
 	let hasUserMentions = $derived(userSegments.some(s => s.type === "mention"));
+
+	/**
+	 * Click handler for the message row. Behavior depends on `selectable`:
+	 *
+	 *   - In select mode (`selectable=true`): every click on the row fires
+	 *     `onselectionchange` so the parent can toggle / extend selection.
+	 *   - Outside select mode: only fires on shift+click, so the parent can
+	 *     auto-enter select mode and treat this row as the anchor. Plain
+	 *     clicks fall through (preserves links, mentions, and the toolbar).
+	 *
+	 * Either way, clicks that originated on an interactive descendant
+	 * (button, link, input) are ignored — those need to keep their normal
+	 * behavior (e.g. clicking a markdown link, the message toolbar's Copy
+	 * button, the BranchNavigator arrows). `closest()` on an Element-typed
+	 * target catches both the element itself and any ancestor up to the row.
+	 */
+	function handleRowClick(
+		e: MouseEvent,
+		isSelectable: boolean,
+		callback: ((id: string, ev?: MouseEvent | KeyboardEvent) => void) | undefined,
+		messageId: string,
+	) {
+		if (!isSelectable && !e.shiftKey) return;
+		if (e.target instanceof Element && e.target.closest('a, button, [role="button"], input, textarea, [contenteditable="true"]')) {
+			return;
+		}
+		callback?.(messageId, e);
+	}
 
 	function tooltipForMention(mentionName: string): string | undefined {
 		if (!inlineToolCalls?.length) return undefined;
@@ -199,8 +222,9 @@
 {:else if message.role === "user"}
 	<div
 		class="group relative flex gap-3 px-4 py-3 bg-[var(--color-surface-tertiary)]/50 rounded-lg hover:outline hover:outline-1 hover:outline-[var(--color-border)] {selectable ? 'cursor-pointer' : ''} {selectable && selected ? 'outline outline-2 outline-blue-500' : ''}"
-		onclick={selectable ? () => onselectionchange?.(message.id) : undefined}
-		onkeydown={selectable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onselectionchange?.(message.id); } } : undefined}
+		data-excluded={message.excluded ? 'true' : undefined}
+		onclick={(e) => handleRowClick(e, selectable, onselectionchange, message.id)}
+		onkeydown={selectable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onselectionchange?.(message.id, e); } } : undefined}
 		role={selectable ? 'checkbox' : undefined}
 		aria-checked={selectable ? selected : undefined}
 		tabindex={selectable ? 0 : undefined}
@@ -221,7 +245,8 @@
 					<BranchNavigator siblings={siblings!} currentId={message.id} onnavigate={onnavigate!} />
 				</div>
 			{/if}
-			<p class="text-sm text-[var(--color-text-primary)] whitespace-pre-wrap break-words">{#if hasUserMentions}{#each userSegments as seg}{#if seg.type === "text"}{seg.text}{:else if seg.type === "mention"}<MentionChip name={seg.name} kind={seg.kind === 'ext' ? 'extension' : seg.kind === 'cmd' ? 'command' : seg.kind as 'agent' | 'team' | 'file' | 'dir'} tooltip={tooltipForMention(seg.name)} />{/if}{/each}{:else}{message.content}{/if}</p>
+			<p class="excluded-prose text-sm text-[var(--color-text-primary)] whitespace-pre-wrap break-words"
+			>{#if hasUserMentions}{#each userSegments as seg}{#if seg.type === "text"}{seg.text}{:else if seg.type === "mention"}<MentionChip name={seg.name} kind={seg.kind === 'ext' ? 'extension' : seg.kind === 'cmd' ? 'command' : seg.kind as 'agent' | 'team' | 'file' | 'dir'} tooltip={tooltipForMention(seg.name)} />{/if}{/each}{:else}{message.content}{/if}</p>
 			<MessageAttachments attachments={message.attachments} />
 		</div>
 		{#if !isStreaming && !selectable}
@@ -235,14 +260,17 @@
 				onremovememory={onremovememory ? () => onremovememory!(message) : undefined}
 				{savedAsMemory}
 				onretry={onretry}
+				onexclude={onexclude ? () => onexclude!(message) : undefined}
+				excluded={message.excluded}
 			/>
 		{/if}
 	</div>
 {:else}
 	<div
 		class="group relative flex gap-3 px-4 py-3 rounded-lg hover:outline hover:outline-1 hover:outline-[var(--color-border)] {selectable ? 'cursor-pointer' : ''} {selectable && selected ? 'outline outline-2 outline-blue-500' : ''}"
-		onclick={selectable ? () => onselectionchange?.(message.id) : undefined}
-		onkeydown={selectable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onselectionchange?.(message.id); } } : undefined}
+		data-excluded={message.excluded ? 'true' : undefined}
+		onclick={(e) => handleRowClick(e, selectable, onselectionchange, message.id)}
+		onkeydown={selectable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onselectionchange?.(message.id, e); } } : undefined}
 		role={selectable ? 'checkbox' : undefined}
 		aria-checked={selectable ? selected : undefined}
 		tabindex={selectable ? 0 : undefined}
@@ -255,7 +283,10 @@
 			</div>
 		{/if}
 		<ProviderIcon provider={message.provider ?? "anthropic"} size="md" />
-		<div class="min-w-0 flex-1" title={usageTitle}>
+		<div
+			class="min-w-0 flex-1"
+			title={usageTitle}
+		>
 			{#if hasSiblings}
 				<div class="mb-1">
 					<BranchNavigator siblings={siblings!} currentId={message.id} onnavigate={onnavigate!} />
@@ -307,7 +338,12 @@
 				</div>
 			{:else}
 				{#if contentBlocks && contentBlocks.length > 0}
-					<!-- Interleaved text and tool call rendering -->
+					<!-- Interleaved text and tool call rendering. The mdContainer
+					     bind feeds the toolbar's "copy as rich HTML" — line-through
+					     belongs on the prose blocks only, NOT on this wrapper, so
+					     that ToolCallCards / ThinkingCards stay full-opacity (the
+					     side-effects are worth keeping legible) and the copied HTML
+					     doesn't carry the strikethrough into the user's clipboard. -->
 					<div bind:this={mdContainer}>
 						{#each contentBlocks as block, i (block.type === 'tool_ref' ? `tool-${block.toolIndex}` : block.type === 'agent_ref' ? `agent-${block.agentIndex}` : block.type === 'thinking' ? 'thinking' : `text-${i}`)}
 							{#if block.type === 'thinking'}
@@ -315,9 +351,14 @@
 									<ThinkingCard content={block.content} streaming={isStreaming} />
 								</div>
 							{:else if block.type === 'text'}
-								<MarkdownRenderer content={block.content} streaming={isStreaming && i === contentBlocks.length - 1} />
+								<div class="excluded-prose">
+									<MarkdownRenderer content={block.content} streaming={isStreaming && i === contentBlocks.length - 1} />
+								</div>
 							{:else if block.type === 'tool_ref' && toolCalls?.[block.toolIndex]}
-								<div class="my-2 flex flex-col gap-1.5">
+								<div
+									class="my-2 flex flex-col gap-1.5"
+									id={toolCalls[block.toolIndex]?.id ? `tool-call-${toolCalls[block.toolIndex]!.id}` : undefined}
+								>
 									<ToolCallCard toolCall={toolCalls[block.toolIndex]} {conversationId} {onsendmessage} />
 								</div>
 							{:else if block.type === 'agent_ref'}
@@ -326,14 +367,18 @@
 						{/each}
 					</div>
 				{:else}
-					<!-- Fallback: flat text then tools (no block data available) -->
+					<!-- Fallback: flat text then tools (no block data available). -->
 					<div bind:this={mdContainer}>
-						<MarkdownRenderer content={displayContent} streaming={isStreaming} />
+						<div class="excluded-prose">
+							<MarkdownRenderer content={displayContent} streaming={isStreaming} />
+						</div>
 					</div>
 					{#if toolCalls && toolCalls.length > 0}
 						<div class="my-2 flex flex-col gap-1.5">
 							{#each toolCalls as tc, i (tc.id ?? `${tc.toolName}-${i}`)}
-								<ToolCallCard toolCall={tc} {conversationId} {onsendmessage} />
+								<div id={tc.id ? `tool-call-${tc.id}` : undefined}>
+									<ToolCallCard toolCall={tc} {conversationId} {onsendmessage} />
+								</div>
 							{/each}
 						</div>
 					{/if}
@@ -429,7 +474,27 @@
 				{savedAsMemory}
 				onretry={onretry}
 				onedittext={onedittext ? () => onedittext!(message) : undefined}
+				onexclude={onexclude ? () => onexclude!(message) : undefined}
+				excluded={message.excluded}
 			/>
 		{/if}
 	</div>
 {/if}
+
+<style>
+	/* Strikethrough for excluded messages.
+	   - Applied via a Svelte-scoped descendant rule so the visual styling
+	     lives only in this component's CSS, NOT inline on the elements.
+	   - The `excluded-prose` class on the children gets svelte-hashed; their
+	     `class` attribute appears in `mdContainer.innerHTML` (which the
+	     toolbar copies for shift-click rich-HTML), but the matching CSS rule
+	     does not travel with the clipboard payload, so pasting an excluded
+	     message into ANY destination — same app or foreign — never carries
+	     the strikethrough. The original I1 fix used `class:line-through`
+	     which baked Tailwind's `line-through` class into the copied HTML and
+	     re-rendered the strike-through wherever Tailwind was loaded. */
+	[data-excluded="true"] .excluded-prose {
+		text-decoration: line-through;
+		opacity: 0.6;
+	}
+</style>

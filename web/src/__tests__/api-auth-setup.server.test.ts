@@ -26,9 +26,14 @@ vi.mock("$server/db/queries/settings", () => ({
 vi.mock("$server/db/queries/audit-log", () => ({
   insertAuditEntry: vi.fn(async () => undefined),
 }));
+vi.mock("$server/db/queries/sessions", () => ({
+  hashToken: vi.fn(async () => "token-hash"),
+  createSession: vi.fn(async () => undefined),
+}));
 
 const { getUserCount, createUser } = await import("$server/db/queries/users");
 const { upsertSetting } = await import("$server/db/queries/settings");
+const { createSession } = await import("$server/db/queries/sessions");
 const { POST, __rateLimiter } = await import("../routes/api/auth/setup/+server");
 
 function makeCookies() {
@@ -75,6 +80,29 @@ describe("POST /api/auth/setup", () => {
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("already completed");
+  });
+
+  test("403 path short-circuits BEFORE createUser / cookie / settings writes", async () => {
+    // Defence-in-depth: even with a perfectly-shaped body, an existing
+    // user must block any side effect. If this guard ever regresses, a
+    // second `POST /api/auth/setup` would silently mint a fresh admin.
+    vi.mocked(getUserCount).mockResolvedValue(1);
+    const event = makeEvent({ body: validBody });
+    const res = await POST(event);
+    expect(res.status).toBe(403);
+    expect(createUser).not.toHaveBeenCalled();
+    expect(upsertSetting).not.toHaveBeenCalled();
+    expect(event._cookies.set).not.toHaveBeenCalled();
+  });
+
+  test("returns 403 for any positive count (boundary: count = 2, count = 1000)", async () => {
+    for (const n of [2, 1000]) {
+      vi.mocked(getUserCount).mockResolvedValue(n);
+      vi.mocked(createUser).mockClear();
+      const res = await POST(makeEvent({ body: validBody, ip: `9.9.9.${n % 250}` }));
+      expect(res.status).toBe(403);
+      expect(createUser).not.toHaveBeenCalled();
+    }
   });
 
   test("returns 400 when body is empty", async () => {

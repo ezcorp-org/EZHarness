@@ -8,9 +8,19 @@ import { validationError } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
+// Single object + XOR refine (NOT z.union) — a union of two object arms would
+// silently strip the second arm's field on payloads that contain both, e.g.
+// `{content,excluded}` parses as `{content}` under the first arm and the
+// dispatch below would misroute to the content branch. The refine rejects
+// ambiguous payloads and empty payloads explicitly while keeping wire-compat
+// for the two single-field shapes existing clients already send.
 const patchMessageSchema = z.object({
-  content: z.string().min(1, "Content is required").max(100_000),
-});
+  content: z.string().min(1, "Content is required").max(100_000).optional(),
+  excluded: z.boolean().optional(),
+}).refine(
+  (d) => (d.content !== undefined) !== (d.excluded !== undefined),
+  { message: "exactly one of `content` or `excluded` is required" },
+);
 
 export const PATCH: RequestHandler = async ({ request, params, locals }) => {
   const scopeErr = requireScope(locals, "chat");
@@ -25,9 +35,13 @@ export const PATCH: RequestHandler = async ({ request, params, locals }) => {
     return errorJson(404, "Not found");
   }
 
-  // Reject edits while a run is actively streaming into this conversation —
-  // the executor may be appending to a message row that's about to change
-  // under its feet, which produces mangled transcripts.
+  // Reject mutations while a run is actively streaming into this conversation
+  // — the executor may be appending to a message row that's about to change
+  // under its feet (content edits → mangled transcripts; excluded toggles →
+  // mid-flight context swap that pi-ai already snapshotted). Tool callbacks
+  // also re-read history mid-run, so a toggle accepted between the initial
+  // pi-ai call and a tool-callback continuation would silently change the
+  // context window the model sees on the very next step.
   const active = await getActiveRun(conversationId);
   if (active) {
     return errorJson(409, "Conversation has an active run; finish or cancel it first");
@@ -36,7 +50,11 @@ export const PATCH: RequestHandler = async ({ request, params, locals }) => {
   const parsed = patchMessageSchema.safeParse(await request.json());
   if (!parsed.success) return validationError(parsed.error);
 
-  const updated = await convQueries.updateMessageContent(conversationId, messageId, parsed.data.content);
+  // Both fields are optional on the schema, so use `!== undefined` rather
+  // than `in` — the refine above guarantees exactly one of them is set.
+  const updated = parsed.data.excluded !== undefined
+    ? await convQueries.setMessageExcluded(conversationId, messageId, parsed.data.excluded)
+    : await convQueries.updateMessageContent(conversationId, messageId, parsed.data.content!);
   if (!updated) return errorJson(404, "Message not found in this conversation");
 
   return json(updated);

@@ -231,6 +231,59 @@ test.describe("Tool Card Rendering", () => {
 		await expect(page.getByText("some-unknown-tool")).toBeVisible();
 	});
 
+	test("tool:complete with success:false renders the red X (no green checkmark)", async ({ page, mockApi, emitWs }) => {
+		// Regression guard: a runtime that finishes via `tool:complete` but signals
+		// failure with `success: false` MUST surface as the red X status icon, not
+		// a green checkmark. The fix lives in stores.svelte.ts's `tool:complete`
+		// handler — this test pins the user-visible contract end-to-end.
+		await setupStreaming(page, mockApi, emitWs);
+
+		const toolCallId = "tc-failing";
+		await emitWs({
+			type: "tool:start",
+			data: {
+				conversationId: "conv-1",
+				toolName: "failing-tool",
+				input: { query: "boom" },
+				timestamp: Date.now(),
+				invocationId: toolCallId,
+				// no cardType — falls through to the basic ToolCallCard body
+			},
+		});
+
+		await emitWs({
+			type: "tool:complete",
+			data: {
+				conversationId: "conv-1",
+				toolName: "failing-tool",
+				output: "command failed: exit 1",
+				duration: 30,
+				success: false,
+				invocationId: toolCallId,
+			},
+		});
+
+		// The card must show the tool name
+		const toolName = page.getByText("failing-tool");
+		await expect(toolName).toBeVisible();
+
+		// Locate the card root (closest button — the collapsed header)
+		const headerBtn = toolName.locator("xpath=ancestor::button[1]");
+		await expect(headerBtn).toBeVisible();
+
+		// The red-X status icon must be present
+		const errorIcon = headerBtn.locator("svg.text-red-500").first();
+		await expect(errorIcon).toBeVisible();
+
+		// And the green checkmark must NOT be present on this card
+		const greenCheck = headerBtn.locator("svg.text-green-500");
+		await expect(greenCheck).toHaveCount(0);
+
+		// Expanding reveals the error block with the failure text
+		await headerBtn.click();
+		await expect(page.getByText("command failed: exit 1")).toBeVisible();
+	});
+
 	test("PermissionGate renders for permission request", async ({ page, mockApi, emitWs }) => {
 		await setupStreaming(page, mockApi, emitWs);
 

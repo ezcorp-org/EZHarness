@@ -194,7 +194,17 @@ export async function wireAskUserToolForTurn(
   const userIdForRegistry = userId ?? null;
   const originalExecute = wrapped.execute;
   wrapped.execute = async (toolCallId, params, signal) => {
-    registerPendingAskUser(toolCallId, conversationId, userIdForRegistry);
+    // Capture the LLM-supplied prompt so the GET active-run endpoint
+    // can re-hydrate the inline question card on a refreshed client.
+    const input = (params ?? {}) as { question?: unknown; options?: unknown };
+    const question = typeof input.question === "string" ? input.question : undefined;
+    const options = Array.isArray(input.options)
+      ? input.options.filter((o): o is string => typeof o === "string")
+      : undefined;
+    registerPendingAskUser(toolCallId, conversationId, userIdForRegistry, {
+      question,
+      options,
+    });
     try {
       return await originalExecute(toolCallId, params, signal);
     } finally {

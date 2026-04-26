@@ -2,32 +2,39 @@
   let name = $state("");
   let email = $state("");
   let password = $state("");
+  let confirmPassword = $state("");
   let error = $state("");
   let loading = $state(false);
 
   let nameError = $state("");
   let emailError = $state("");
   let passwordError = $state("");
+  let confirmPasswordError = $state("");
 
   const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  function validate(): boolean {
-    let valid = true;
-    nameError = emailError = passwordError = "";
+  // Mirrors $lib/server/security/validation passwordSchema:
+  // ≥8 chars, ≤256, with at least one uppercase, lowercase, and digit.
+  function checkPassword(pw: string): string {
+    if (pw.length < 8) return "Password must be at least 8 characters";
+    if (pw.length > 256) return "Password must be at most 256 characters";
+    if (!/[A-Z]/.test(pw)) return "Password must contain an uppercase letter";
+    if (!/[a-z]/.test(pw)) return "Password must contain a lowercase letter";
+    if (!/[0-9]/.test(pw)) return "Password must contain a digit";
+    return "";
+  }
 
-    if (!name.trim()) {
-      nameError = "Name is required";
-      valid = false;
+  function validate(): boolean {
+    nameError = emailError = passwordError = confirmPasswordError = "";
+
+    if (!name.trim()) nameError = "Name is required";
+    if (!EMAIL_REGEX.test(email)) emailError = "Valid email is required";
+    passwordError = checkPassword(password);
+    if (!confirmPasswordError && password !== confirmPassword) {
+      confirmPasswordError = "Passwords do not match";
     }
-    if (!EMAIL_REGEX.test(email)) {
-      emailError = "Valid email is required";
-      valid = false;
-    }
-    if (password.length < 8) {
-      passwordError = "Password must be at least 8 characters";
-      valid = false;
-    }
-    return valid;
+
+    return !(nameError || emailError || passwordError || confirmPasswordError);
   }
 
   async function handleSubmit(e: SubmitEvent) {
@@ -45,8 +52,16 @@
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        error = data.error || "Setup failed";
+        const data = await res.json().catch(() => ({}));
+        const fields = (data && typeof data === "object" && data.fields) || {};
+        // Route per-field server errors next to their inputs so users see
+        // exactly which rule failed (e.g. password complexity).
+        nameError = fields.name || "";
+        emailError = fields.email || "";
+        passwordError = fields.password || "";
+        if (!nameError && !emailError && !passwordError) {
+          error = data.error || "Setup failed";
+        }
         return;
       }
 
@@ -77,10 +92,12 @@
           type="text"
           bind:value={name}
           required
+          aria-invalid={!!nameError}
+          aria-describedby={nameError ? "name-error" : undefined}
           class="w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:border-transparent"
           placeholder="Your name"
         />
-        {#if nameError}<p class="text-red-400 text-sm mt-1">{nameError}</p>{/if}
+        {#if nameError}<p id="name-error" role="alert" aria-live="polite" class="text-red-400 text-sm mt-1">{nameError}</p>{/if}
       </div>
 
       <div>
@@ -90,10 +107,12 @@
           type="email"
           bind:value={email}
           required
+          aria-invalid={!!emailError}
+          aria-describedby={emailError ? "email-error" : undefined}
           class="w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:border-transparent"
           placeholder="admin@example.com"
         />
-        {#if emailError}<p class="text-red-400 text-sm mt-1">{emailError}</p>{/if}
+        {#if emailError}<p id="email-error" role="alert" aria-live="polite" class="text-red-400 text-sm mt-1">{emailError}</p>{/if}
       </div>
 
       <div>
@@ -104,14 +123,35 @@
           bind:value={password}
           required
           minlength="8"
+          aria-invalid={!!passwordError}
+          aria-describedby={passwordError ? "password-error" : "password-hint"}
           class="w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:border-transparent"
           placeholder="Minimum 8 characters"
         />
-        {#if passwordError}<p class="text-red-400 text-sm mt-1">{passwordError}</p>{/if}
+        {#if passwordError}
+          <p id="password-error" role="alert" aria-live="polite" class="text-red-400 text-sm mt-1">{passwordError}</p>
+        {:else}
+          <p id="password-hint" class="text-[var(--color-text-muted)] text-xs mt-1">At least 8 characters with an uppercase letter, lowercase letter, and digit.</p>
+        {/if}
+      </div>
+
+      <div>
+        <label for="confirmPassword" class="block text-sm font-medium text-[var(--color-text-secondary)] mb-1">Confirm password</label>
+        <input
+          id="confirmPassword"
+          type="password"
+          bind:value={confirmPassword}
+          required
+          aria-invalid={!!confirmPasswordError}
+          aria-describedby={confirmPasswordError ? "confirmPassword-error" : undefined}
+          class="w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:border-transparent"
+          placeholder="Re-enter password"
+        />
+        {#if confirmPasswordError}<p id="confirmPassword-error" role="alert" aria-live="polite" class="text-red-400 text-sm mt-1">{confirmPasswordError}</p>{/if}
       </div>
 
       {#if error}
-        <div class="bg-red-900/30 border border-red-700 rounded-md p-3">
+        <div role="alert" aria-live="polite" class="bg-red-900/30 border border-red-700 rounded-md p-3">
           <p class="text-red-400 text-sm">{error}</p>
         </div>
       {/if}

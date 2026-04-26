@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, not, like } from "drizzle-orm";
 import { getDb } from "../connection";
 import { users } from "../schema";
 import type { User, NewUser } from "../schema";
@@ -55,7 +55,14 @@ export async function updateUserStatus(id: string, status: "active" | "inactive"
 }
 
 export async function getUserCount(): Promise<number> {
-  const rows = await getDb().select().from(users);
+  // Excludes synthetic system users (id `sys-*`) — extensions like ai-kit
+  // seed those on boot for OBO/internal-auth. Real users get UUIDs, which
+  // never start with "sys", so this prefix is a safe distinguisher. The
+  // first-run gate (hooks.server.ts, /setup, /login, POST /api/auth/setup)
+  // calls this to mean "has a human admin been registered?", not "is any
+  // row present?" — without this filter, a freshly booted instance with
+  // ai-kit installed appears already-set-up and routes to /login forever.
+  const rows = await getDb().select().from(users).where(not(like(users.id, "sys-%")));
   return rows.length;
 }
 

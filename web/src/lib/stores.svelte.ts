@@ -317,6 +317,16 @@ export function startStreaming(runId: string, conversationId: string): boolean {
 		store.completedBeforeStream = new Set([...store.completedBeforeStream].filter(id => id !== runId));
 		return false;
 	}
+	// Re-attach: the runId is already streaming (EventSource + store survived a
+	// SPA navigation, and the chat page's convId effect re-fired on return).
+	// Preserve all accumulated tokens, thinking, content blocks, agent pills,
+	// and the ContentBlockBuilder — only (re-)assert the conversation mapping.
+	if (store.streamingRunToConversation[runId] !== undefined && blockBuilders.has(runId)) {
+		if (store.streamingRunToConversation[runId] !== conversationId) {
+			store.streamingRunToConversation = { ...store.streamingRunToConversation, [runId]: conversationId };
+		}
+		return true;
+	}
 	const existing = store.streamingMessages[runId] ?? "";
 	store.streamingMessages = { ...store.streamingMessages, [runId]: existing };
 	store.streamingThinking = { ...store.streamingThinking, [runId]: "" };
@@ -744,7 +754,13 @@ export function initStores() {
 					const idx = calls.findLastIndex((tc) => tc.toolName === toolName && tc.status === 'running');
 					if (idx >= 0) {
 						const updated = [...calls];
-						updated[idx] = { ...updated[idx]!, status: 'complete', output: extractToolOutput(output), duration, permissionPending: false };
+						const extractedOutput = extractToolOutput(output);
+						if (completeSuccess === false) {
+							const errText = typeof extractedOutput === 'string' ? extractedOutput : JSON.stringify(extractedOutput);
+							updated[idx] = { ...updated[idx]!, status: 'error', error: errText, output: extractedOutput, duration, permissionPending: false };
+						} else {
+							updated[idx] = { ...updated[idx]!, status: 'complete', output: extractedOutput, duration, permissionPending: false };
+						}
 						store.streamingToolCalls = { ...store.streamingToolCalls, [runId]: updated };
 					}
 				}

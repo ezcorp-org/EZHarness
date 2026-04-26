@@ -96,6 +96,21 @@ describe("users queries", () => {
     expect(await getUserCount()).toBe(2);
   });
 
+  test("getUserCount excludes synthetic system users (id `sys-*`)", async () => {
+    // Synthetic system users (e.g. ai-kit's `sys-ai-kit`) must not count
+    // toward the first-run gate, otherwise a fresh instance with bundled
+    // extensions never reaches /setup. UUIDs never start with "sys".
+    await createUser({
+      id: "sys-ai-kit",
+      email: "ai-kit@sys.ezcorp.invalid",
+      passwordHash: "x",
+      name: "System: ai-kit",
+    });
+    expect(await getUserCount()).toBe(0);
+    await createUser({ email: "human@test.com", passwordHash: "h", name: "Human" });
+    expect(await getUserCount()).toBe(1);
+  });
+
   test("updateUserStatus flips active/inactive", async () => {
     const u = await createUser({ email: "s@test.com", passwordHash: "h", name: "Stat" });
     expect(u.status).toBe("active");

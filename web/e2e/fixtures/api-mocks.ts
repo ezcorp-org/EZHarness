@@ -292,18 +292,32 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			return route.fulfill({ status: 201, json: newConv });
 		}
 
-		// Content-only message PATCH (Edit text on seeded assistant turns).
+		// Message PATCH — XOR-validated single-object schema on the real
+		// route (`patchMessageSchema` in +server.ts). Two payload shapes:
+		//   { content }   → "Edit text" (seeded assistant turns)
+		//   { excluded }  → strikethrough / restore-to-context toggle
+		// Mirror the real route's ambiguity rejection so e2e tests catch
+		// regressions where a client accidentally sends both fields.
 		if (path.match(/^\/api\/conversations\/[^/]+\/messages\/[^/]+$/) && method === "PATCH") {
 			const segments = path.split("/");
 			const convId = segments[3]!;
 			const messageId = segments[5]!;
-			const body = route.request().postDataJSON() as { content: string };
-			const idx = messages.findIndex((m) => m.id === messageId && m.conversationId === convId);
-			if (idx >= 0) {
-				messages[idx] = { ...messages[idx]!, content: body.content };
-				return route.fulfill({ json: messages[idx] });
+			const body = route.request().postDataJSON() as { content?: string; excluded?: boolean };
+			const hasContent = typeof body.content === "string" && body.content.length > 0;
+			const hasExcluded = typeof body.excluded === "boolean";
+			if (hasContent === hasExcluded) {
+				// Either both present (ambiguous) or neither (empty) — same
+				// 400 the refine on the real route emits.
+				return route.fulfill({ status: 400, json: { error: "exactly one of `content` or `excluded` is required" } });
 			}
-			return route.fulfill({ status: 404, json: { error: "Not found" } });
+			const idx = messages.findIndex((m) => m.id === messageId && m.conversationId === convId);
+			if (idx < 0) return route.fulfill({ status: 404, json: { error: "Not found" } });
+			if (hasExcluded) {
+				messages[idx] = { ...messages[idx]!, excluded: body.excluded! };
+			} else {
+				messages[idx] = { ...messages[idx]!, content: body.content! };
+			}
+			return route.fulfill({ json: messages[idx] });
 		}
 
 		if (path.match(/^\/api\/conversations\/[^/]+\/messages$/) && method === "POST") {

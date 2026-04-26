@@ -80,7 +80,12 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
   try { ipAddress = getClientAddress(); } catch { /* proxy not configured */ }
   await createSession({ userId: user.id, tokenHash, userAgent, ipAddress, expiresAt });
 
-  const isSecure = process.env.FORCE_SECURE_COOKIES === "true" || request.url.startsWith("https");
+  // Only opt-in via FORCE_SECURE_COOKIES. We can't trust request.url to
+  // detect HTTPS reliably — svelte-adapter-bun's get_origin() defaults the
+  // protocol to "https" when ORIGIN env is unset, which would mark the
+  // cookie Secure on a plain-HTTP deployment. Browsers then refuse to
+  // store it, producing an infinite login loop with no audit-log signal.
+  const isSecure = process.env.FORCE_SECURE_COOKIES === "true";
   cookies.set("ezcorp_session", token, {
     path: "/",
     httpOnly: true,

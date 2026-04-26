@@ -3,6 +3,7 @@
 	import Plus from 'lucide-svelte/icons/plus';
 	import Minus from 'lucide-svelte/icons/minus';
 	import Check from 'lucide-svelte/icons/check';
+	import Strikethrough from 'lucide-svelte/icons/strikethrough';
 	import { copyToClipboard } from "$lib/clipboard.js";
 	import Tooltip from "./Tooltip.svelte";
 
@@ -22,6 +23,10 @@
 		onremovememory,
 		savedAsMemory = false,
 		onedittext,
+		onexclude,
+		excluded = false,
+		variant = 'hover',
+		testid,
 	}: {
 		role: 'user' | 'assistant';
 		isError?: boolean;
@@ -39,6 +44,16 @@
 		 *  "Edit text" for assistant rows — primarily useful on seeded turns
 		 *  in a cloned chat. */
 		onedittext?: () => void;
+		/** Toggle this message's `excluded` flag. When excluded, load-history
+		 *  drops it from the array passed to the LLM on subsequent turns,
+		 *  while the row stays in the transcript struck-through. */
+		onexclude?: () => void;
+		excluded?: boolean;
+		/** `'hover'` — anchored to a message row, fades in on group hover (default).
+		 *  `'inline'` — flows in normal layout, always visible. Used by the
+		 *  multi-select bulk action bar so the same icon set drives bulk ops. */
+		variant?: 'hover' | 'inline';
+		testid?: string;
 	} = $props();
 
 	let copyState: 'idle' | 'copied' = $state('idle');
@@ -79,7 +94,12 @@
 	}
 </script>
 
-<div class="absolute -bottom-3 right-2 z-10 flex items-center gap-0.5 rounded-full bg-[var(--color-surface-secondary)] border border-[var(--color-border)] shadow-lg px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+<div
+	data-testid={testid}
+	class={variant === 'inline'
+		? 'flex items-center gap-0.5 rounded-full bg-[var(--color-surface-secondary)] border border-[var(--color-border)] shadow-lg px-1 py-0.5'
+		: 'absolute -bottom-3 right-2 z-10 flex items-center gap-0.5 rounded-full bg-[var(--color-surface-secondary)] border border-[var(--color-border)] shadow-lg px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150'}
+>
 	{#if isError && onretry}
 		<Tooltip text="Retry this failed message">
 			<button onclick={onretry} class={btnClass} aria-label="Retry">
@@ -147,6 +167,23 @@
 						<circle cx="6" cy="18" r="3" />
 						<path d="M18 9a9 9 0 0 1-9 9" />
 					</svg>
+				</button>
+			</Tooltip>
+		{/if}
+
+		{#if onexclude}
+			<Tooltip text={excluded ? 'Include in LLM context' : 'Exclude from LLM context'}>
+				<button
+					onclick={onexclude}
+					class={btnClass}
+					aria-label={excluded ? 'Include in LLM context' : 'Exclude from LLM context'}
+					aria-pressed={excluded}
+					data-testid="exclude-context-btn"
+				>
+					<Strikethrough
+						class={`h-3.5 w-3.5 ${excluded ? 'text-amber-400' : 'text-[var(--color-text-muted)]'}`}
+						strokeWidth={2}
+					/>
 				</button>
 			</Tooltip>
 		{/if}

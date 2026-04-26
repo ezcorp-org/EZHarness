@@ -37,6 +37,19 @@ interface PendingAskUserEntry {
   conversationId: string;
   /** Owner of the conversation, for the POST endpoint's auth check. */
   userId: string | null;
+  /** LLM-supplied prompt — captured so the GET active-run endpoint can
+   *  re-hydrate the inline question card on a refreshed client without
+   *  a DB hop. Optional for callers (e.g. tests) that only need the
+   *  conversation/user mapping. */
+  question?: string;
+  options?: string[];
+}
+
+export interface PendingAskUserSummary {
+  toolCallId: string;
+  question?: string;
+  options?: string[];
+  userId: string | null;
 }
 
 const pendingByToolCallId = new Map<string, PendingAskUserEntry>();
@@ -47,8 +60,14 @@ export function registerPendingAskUser(
   toolCallId: string,
   conversationId: string,
   userId: string | null,
+  details?: { question?: string; options?: string[] },
 ): void {
-  pendingByToolCallId.set(toolCallId, { conversationId, userId });
+  pendingByToolCallId.set(toolCallId, {
+    conversationId,
+    userId,
+    question: details?.question,
+    options: details?.options,
+  });
 }
 
 /** Read the pending entry. Returns `undefined` for an unknown
@@ -58,6 +77,26 @@ export function getPendingAskUser(
   toolCallId: string,
 ): PendingAskUserEntry | undefined {
   return pendingByToolCallId.get(toolCallId);
+}
+
+/** All pending entries scoped to one conversation. Used by the
+ *  `/api/conversations/[id]/active-run` GET handler so a refreshed
+ *  client can re-hydrate the inline ask-user card before the
+ *  `tool_calls` row is written. */
+export function getPendingAskUserForConversation(
+  conversationId: string,
+): PendingAskUserSummary[] {
+  const out: PendingAskUserSummary[] = [];
+  for (const [toolCallId, entry] of pendingByToolCallId) {
+    if (entry.conversationId !== conversationId) continue;
+    out.push({
+      toolCallId,
+      question: entry.question,
+      options: entry.options,
+      userId: entry.userId,
+    });
+  }
+  return out;
 }
 
 /** Clear the entry — called by the wire wrapper's `finally` regardless

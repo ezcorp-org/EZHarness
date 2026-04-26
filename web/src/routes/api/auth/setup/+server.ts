@@ -5,6 +5,7 @@ import { hashPassword } from "$server/auth/password";
 import { signJWT, getJwtSecret } from "$server/auth/jwt";
 import { upsertSetting } from "$server/db/queries/settings";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
+import { hashToken, createSession } from "$server/db/queries/sessions";
 import { setupSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
@@ -55,7 +56,23 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
   await upsertSetting("instance:initialized", true);
   await insertAuditEntry(user.id, "user:registered");
 
-  const isSecure = process.env.FORCE_SECURE_COOKIES === "true" || request.url.startsWith("https");
+  // Mirror the login handler: create a session row so hooks.server.ts's
+  // sec-C2 revocation check (missing row = revoked) accepts the cookie on
+  // the very next navigation. Without this, /setup hands out a JWT, the
+  // browser stores it, and the post-setup GET / immediately bounces the
+  // brand-new admin to /login because no session row matches the token.
+  const tokenHash = await hashToken(token);
+  const expiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1000);
+  const userAgent = request.headers.get("user-agent");
+  let ipAddress: string | null = null;
+  try { ipAddress = getClientAddress(); } catch { /* proxy not configured */ }
+  await createSession({ userId: user.id, tokenHash, userAgent, ipAddress, expiresAt });
+
+  // Only opt-in via FORCE_SECURE_COOKIES — see login +server.ts for why we
+  // can't trust request.url. Same loop-failure mode if the cookie is Secure
+  // over HTTP: setup completes server-side but the cookie never persists,
+  // so the user is bounced straight back to /login on the post-setup nav.
+  const isSecure = process.env.FORCE_SECURE_COOKIES === "true";
   cookies.set("ezcorp_session", token, {
     path: "/",
     httpOnly: true,
