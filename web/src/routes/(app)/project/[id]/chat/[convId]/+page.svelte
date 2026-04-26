@@ -9,20 +9,12 @@
 		createConversation,
 		createSubConversation,
 		updateConversation,
-		cloneTurns,
 		patchMessageContent,
 		setMessageExcluded,
 		type Message,
 		type Conversation,
 		type Mode,
 	} from "$lib/api.js";
-	import {
-		toggleSelection,
-		clearSelection,
-		orderedSelection,
-		selectRange,
-	} from "$lib/select-mode.js";
-	import { formatMessageForCopy } from "$lib/message-copy.js";
 	import {
 		store,
 		startStreaming,
@@ -105,6 +97,7 @@
 		computeLatestLeaf,
 		type HistoricalToolCall,
 	} from "$lib/chat/page-handlers/load-messages.js";
+	import { useSelectMode } from "$lib/chat/page-handlers/useSelectMode.svelte.js";
 	import { parseMentions } from "$lib/mention-logic.js";
 	import { shouldAutofocusComposer } from "$lib/chat-input-logic.js";
 	import {
@@ -174,18 +167,6 @@
 	}
 
 	let settingsOpen = $state(false);
-	// Select Mode — lets users tick specific turns to fork or run bulk ops on.
-	// `selectedIds` is a fresh Set each toggle so Svelte's reactivity picks up changes.
-	// `lastSelectionAnchor` is the most recently single-clicked id; shift+click on
-	// another row selects every id between the two (range expand). Cleared on
-	// conversation switch and on Cancel.
-	let selectMode = $state(false);
-	let selectedIds = $state<Set<string>>(new Set());
-	let lastSelectionAnchor = $state<string | null>(null);
-	let selectCloning = $state(false);
-	let selectError = $state<string | null>(null);
-	let bulkBusy = $state(false);
-	let bulkStatus = $state<string | null>(null);
 	// Inline "Edit text" state for seeded assistant turns (content-only PATCH).
 	let editTextMessageId = $state<string | null>(null);
 	let editTextDraft = $state("");
@@ -332,6 +313,22 @@
 		}
 	});
 
+	// ── Select Mode ──
+	// All select-mode state and handlers live in the rune-host
+	// `$lib/chat/page-handlers/useSelectMode.svelte.ts`. The page accesses
+	// the slots via `selectMode.state.*` / `selectMode.derived.*` and the
+	// handlers directly off `selectMode`. Conversation-switch reset is
+	// invoked from the panel-persistence `onConvSwitch` hook below.
+	const selectMode = useSelectMode({
+		convId: () => convId,
+		projectId: () => projectId,
+		allMessages: { get: () => allMessages, set: (v) => { allMessages = v; } },
+		visibleMessages: () => visibleMessages,
+		savedMemories: { get: () => savedMemories, set: (v) => { savedMemories = v; } },
+		isStreaming: () => isStreaming,
+		getHistoricalToolCalls: (id) => getHistoricalToolCalls(id),
+	});
+
 	// ── Side-panel state persistence ──
 	// Three reactive effects (restore on convId change / resolve pending
 	// agent / persist on slot change) live in the rune-host module so the
@@ -358,11 +355,7 @@
 		streamingAgentCalls: () => store.streamingAgentCalls,
 		onConvSwitch: () => {
 			// Selection is per-conversation by definition — never carries across switches.
-			selectMode = false;
-			selectedIds = clearSelection();
-			lastSelectionAnchor = null;
-			bulkStatus = null;
-			selectError = null;
+			selectMode.resetForConvSwitch();
 		},
 	});
 
@@ -1581,190 +1574,6 @@
 		}
 	}
 
-	// ── Select Mode handlers ─────────────────────────────────────────────
-
-	function toggleSelectMode() {
-		selectMode = !selectMode;
-		if (!selectMode) {
-			selectedIds = clearSelection();
-			lastSelectionAnchor = null;
-			selectError = null;
-			bulkStatus = null;
-		}
-	}
-
-	// Escape key exits select mode (mirrors the Cancel button). The listener
-	// only attaches WHILE select mode is active so we never swallow Escape in
-	// other contexts (composer, modals, etc.). Disabled while a bulk op is in
-	// flight — matches the Cancel button's `disabled` state, so users can't
-	// dismiss the action bar mid-fan-out.
-	$effect(() => {
-		if (!selectMode) return;
-		function onKeydown(e: KeyboardEvent) {
-			if (e.key !== "Escape") return;
-			if (selectCloning || bulkBusy) return;
-			e.preventDefault();
-			toggleSelectMode();
-		}
-		window.addEventListener("keydown", onKeydown);
-		return () => window.removeEventListener("keydown", onKeydown);
-	});
-
-	function toggleSelectedMessage(id: string, event?: MouseEvent | KeyboardEvent) {
-		const isShift = event && "shiftKey" in event && event.shiftKey;
-		// Auto-enter select mode on shift+click outside select mode — the row
-		// becomes the anchor and the action bar opens. Lets the user start a
-		// multi-select without first clicking the toolbar's Select button.
-		if (isShift && !selectMode) {
-			selectMode = true;
-			selectedIds = new Set([id]);
-			lastSelectionAnchor = id;
-			if (typeof window !== "undefined") {
-				window.getSelection()?.removeAllRanges();
-			}
-			return;
-		}
-		// Shift+click in select mode → toggle the range from anchor to this row.
-		// If the target is already selected, the range is REMOVED (lets users
-		// back out of an over-shot range with another shift+click). Otherwise
-		// the range is added. First-ever click (no anchor yet) falls through
-		// to a plain toggle below.
-		if (isShift && lastSelectionAnchor) {
-			const orderedIds = visibleMessages.map((m) => m.id);
-			selectedIds = selectRange(selectedIds, orderedIds, lastSelectionAnchor, id, {
-				skipPredicate: (mid) => mid.startsWith("streaming-"),
-				toggle: true,
-			});
-			if (typeof window !== "undefined") {
-				window.getSelection()?.removeAllRanges();
-			}
-			return;
-		}
-		selectedIds = toggleSelection(selectedIds, id);
-		lastSelectionAnchor = id;
-	}
-
-	async function handleForkSelection() {
-		if (selectedIds.size === 0 || selectCloning) return;
-		const orderedIds = orderedSelection(selectedIds, allMessages.map((m) => m.id));
-		selectCloning = true;
-		selectError = null;
-		try {
-			const newConv = await cloneTurns(convId, { messageIds: orderedIds });
-			selectedIds = clearSelection();
-			lastSelectionAnchor = null;
-			selectMode = false;
-			goto(`/project/${projectId}/chat/${newConv.id}`);
-		} catch (err) {
-			selectError = err instanceof Error ? err.message : "Failed to fork selected turns";
-			console.error("Failed to fork turns:", err);
-		} finally {
-			selectCloning = false;
-		}
-	}
-
-	// ── Bulk actions on the current selection ───────────────────────────
-	// Are all selected rows already excluded? Determines whether the bulk
-	// button reads "Include in context" (re-include) vs "Exclude from context".
-	let allSelectedExcluded = $derived.by(() => {
-		if (selectedIds.size === 0) return false;
-		for (const id of selectedIds) {
-			const msg = allMessages.find((m) => m.id === id);
-			if (!msg || !msg.excluded) return false;
-		}
-		return true;
-	});
-
-	// Concatenated copy content for the bulk toolbar — fed into MessageToolbar's
-	// `content` prop so the toolbar's own copy handler does the clipboard work.
-	// Each turn includes its tool calls (if any), separated by `---`.
-	let bulkCopyContent = $derived.by(() => {
-		const orderedIds = orderedSelection(selectedIds, allMessages.map((m) => m.id));
-		return orderedIds
-			.map((id) => {
-				const msg = allMessages.find((m) => m.id === id);
-				if (!msg) return "";
-				const tcs = msg.role === "assistant" ? getHistoricalToolCalls(msg.id) : undefined;
-				return formatMessageForCopy(msg.content, tcs);
-			})
-			.filter(Boolean)
-			.join("\n\n---\n\n");
-	});
-
-	function handleBulkCopied() {
-		// MessageToolbar's internal copy already wrote to the clipboard; this
-		// callback just surfaces the status confirmation in the action bar.
-		const n = selectedIds.size;
-		bulkStatus = `Copied ${n} ${n === 1 ? "turn" : "turns"}`;
-	}
-
-	async function handleBulkSaveMemory() {
-		if (selectedIds.size === 0 || bulkBusy) return;
-		const ids = orderedSelection(selectedIds, allMessages.map((m) => m.id));
-		const targets = ids
-			.map((id) => allMessages.find((m) => m.id === id))
-			.filter((m): m is Message => !!m);
-		if (targets.length === 0) return;
-		// Combine every selected turn into a single memory entry — just the
-		// raw message text, in render order, joined by blank lines. No role
-		// labels or `---` separators (memory should read as continuous text).
-		const combined = targets
-			.map((m) => m.content.trim())
-			.filter(Boolean)
-			.join("\n\n");
-		bulkBusy = true;
-		bulkStatus = null;
-		selectError = null;
-		try {
-			const res = await userFetch("/api/memories", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					content: combined,
-					category: "preferences",
-					confidence: "medium",
-				}),
-			});
-			if (res.status !== 201) throw new Error(`POST /api/memories returned ${res.status}`);
-			const memory = await res.json();
-			// Mark every selected message as saved-as-memory pointing at the
-			// same memory id, so the per-message indicator reflects bulk save.
-			const next = new Map(savedMemories);
-			for (const m of targets) next.set(m.id, memory.id);
-			savedMemories = next;
-			bulkStatus = `Saved ${targets.length} ${targets.length === 1 ? "turn" : "turns"} to memory`;
-		} catch (err) {
-			selectError = err instanceof Error ? err.message : "Failed to save to memory";
-		} finally {
-			bulkBusy = false;
-		}
-	}
-
-async function handleBulkExclude() {
-		if (selectedIds.size === 0 || bulkBusy) return;
-		const target = !allSelectedExcluded; // if all already excluded → re-include; else exclude
-		const ids = Array.from(selectedIds);
-		bulkBusy = true;
-		selectError = null;
-		bulkStatus = null;
-		try {
-			await Promise.all(ids.map((id) => setMessageExcluded(convId, id, target)));
-			// Reconcile local state — mirrors the optimistic flip in `handleToggleExclude`.
-			const idSet = new Set(ids);
-			allMessages = allMessages.map((m) => (idSet.has(m.id) ? { ...m, excluded: target } : m));
-			// Keep select mode open so the user sees the status confirmation. They
-			// can run another bulk op, or click Cancel to return to the composer.
-			selectedIds = clearSelection();
-			lastSelectionAnchor = null;
-			bulkStatus = `${target ? "Excluded" : "Included"} ${ids.length} ${ids.length === 1 ? "turn" : "turns"}`;
-		} catch (err) {
-			selectError = err instanceof Error ? err.message : "Failed to update selection";
-			console.error("Bulk exclude failed:", err);
-		} finally {
-			bulkBusy = false;
-		}
-	}
-
 	// ── Inline "Edit text" for seeded assistant turns ────────────────────
 
 	function handleEditText(msg: Message) {
@@ -1918,13 +1727,13 @@ async function handleBulkExclude() {
 			{activeLeafId}
 			{showObsButton}
 			{obsOpen}
-			{selectMode}
+			selectMode={selectMode.state.selectMode}
 			{isStreaming}
 			onmobilemenu={() => (mobileConvListOpen = true)}
 			ontoolstoggle={(next) => (toolsOpen = next)}
 			ondifftoggle={() => (diffPanelOpen = !diffPanelOpen)}
 			onobstoggle={() => (obsOpen = !obsOpen)}
-			onselecttoggle={toggleSelectMode}
+			onselecttoggle={selectMode.toggleSelectMode}
 			onsettingstoggle={() => (settingsOpen = true)}
 			onpermissionmodechange={(mode) => { permissionModeOverride = mode; }}
 			oncallclick={scrollToToolCall}
@@ -2062,9 +1871,9 @@ async function handleBulkExclude() {
 							onagentclick={(agent) => { selectedAgent = agent; }}
 							onsendmessage={handleSend}
 							onopenobservability={() => { obsOpen = true; }}
-							selectable={selectMode}
-							selected={selectedIds.has(msg.id)}
-							onselectionchange={toggleSelectedMessage}
+							selectable={selectMode.state.selectMode}
+							selected={selectMode.state.selectedIds.has(msg.id)}
+							onselectionchange={selectMode.toggleSelectedMessage}
 							onedittext={msg.role === 'assistant' ? handleEditText : undefined}
 							onexclude={handleToggleExclude}
 						/>
@@ -2211,21 +2020,21 @@ async function handleBulkExclude() {
 			/>
 		{/if}
 
-		{#if selectMode}
+		{#if selectMode.state.selectMode}
 			<SelectModeActionBar
-				selectedCount={selectedIds.size}
+				selectedCount={selectMode.derived.selectedCount}
 				{isStreaming}
-				{selectCloning}
-				{bulkBusy}
-				{allSelectedExcluded}
-				{bulkCopyContent}
-				{selectError}
-				{bulkStatus}
-				oncancel={toggleSelectMode}
-				onfork={handleForkSelection}
-				oncopy={handleBulkCopied}
-				onexclude={handleBulkExclude}
-				onsavememory={handleBulkSaveMemory}
+				selectCloning={selectMode.state.selectCloning}
+				bulkBusy={selectMode.state.bulkBusy}
+				allSelectedExcluded={selectMode.derived.allSelectedExcluded}
+				bulkCopyContent={selectMode.derived.bulkCopyContent}
+				selectError={selectMode.state.selectError}
+				bulkStatus={selectMode.state.bulkStatus}
+				oncancel={selectMode.toggleSelectMode}
+				onfork={selectMode.handleForkSelection}
+				oncopy={selectMode.handleBulkCopied}
+				onexclude={selectMode.handleBulkExclude}
+				onsavememory={selectMode.handleBulkSaveMemory}
 			/>
 		{:else}
 			<!-- Input -->
