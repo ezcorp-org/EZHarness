@@ -8,7 +8,10 @@ import { updateConversationSchema } from "../schema";
 import { validationError } from "$lib/server/security/validation";
 import { requireScope } from "$lib/server/security/api-keys";
 import { deleteForConversation as deleteAttachmentsFromDisk } from "$server/chat/attachments/storage";
+import { logger } from "$server/logger";
 import type { RequestHandler } from "./$types";
+
+const log = logger.child("api.conversations");
 
 async function verifyConversationOwnership(id: string, user: AuthUser) {
   const conv = await convQueries.getConversation(id);
@@ -59,7 +62,7 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
 
   if (project?.path) {
     await deleteAttachmentsFromDisk({ projectRoot: project.path, conversationId: params.id })
-      .catch((err) => console.error("[conversations] attachment GC failed:", err));
+      .catch((err) => log.warn("attachment GC failed", { error: err instanceof Error ? err.message : String(err), conversationId: params.id }));
   }
 
   return new Response(null, { status: 204 });
