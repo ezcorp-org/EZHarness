@@ -685,8 +685,8 @@
 									<!-- Add member form -->
 									<div class="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 items-end pt-2 border-t border-[var(--color-border)]">
 										<div class="flex-1">
-											<label class="block text-xs text-[var(--color-text-muted)] mb-1">User</label>
-											<select bind:value={addMemberUserId} aria-label="Select user" class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-2 py-1 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none">
+											<label for="settings-team-add-member-user" class="block text-xs text-[var(--color-text-muted)] mb-1">User</label>
+											<select id="settings-team-add-member-user" bind:value={addMemberUserId} aria-label="Select user" class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-2 py-1 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none">
 												<option value="">Select user...</option>
 												{#each allUsers.filter(u => u.status === "active" && !teamMembers[team.id]?.some(m => m.userId === u.id)) as u}
 													<option value={u.id}>{u.name} ({u.email})</option>
@@ -694,8 +694,8 @@
 											</select>
 										</div>
 										<div>
-											<label class="block text-xs text-[var(--color-text-muted)] mb-1">Role</label>
-											<select bind:value={addMemberRole} aria-label="Member role" class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-2 py-1 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none">
+											<label for="settings-team-add-member-role" class="block text-xs text-[var(--color-text-muted)] mb-1">Role</label>
+											<select id="settings-team-add-member-role" bind:value={addMemberRole} aria-label="Member role" class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-2 py-1 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none">
 												<option value="viewer">Viewer</option>
 												<option value="editor">Editor</option>
 												<option value="owner">Owner</option>
@@ -719,8 +719,8 @@
 			<!-- Create invite form -->
 			<div class="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 items-end mb-4">
 				<div class="flex-1">
-					<label class="block text-xs text-[var(--color-text-secondary)] mb-1">Email (optional)</label>
-					<input type="email" bind:value={inviteEmail} placeholder="user@example.com" class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none" />
+					<label for="settings-invite-email" class="block text-xs text-[var(--color-text-secondary)] mb-1">Email (optional)</label>
+					<input id="settings-invite-email" type="email" bind:value={inviteEmail} placeholder="user@example.com" class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none" />
 				</div>
 				<div>
 					<label for="invite-role" class="block text-xs text-[var(--color-text-secondary)] mb-1">Role</label>
@@ -1113,8 +1113,9 @@
 
 		<div class="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] items-end gap-2">
 			<div>
-				<label class="mb-1 block text-xs text-[var(--color-text-secondary)]">Provider</label>
+				<label for="settings-new-model-provider" class="mb-1 block text-xs text-[var(--color-text-secondary)]">Provider</label>
 				<select
+					id="settings-new-model-provider"
 					bind:value={newModelProvider}
 					aria-label="Model provider"
 					onchange={() => { discoveredModels = []; discoveryError = null; newModelId = ""; if (newModelProvider === "ollama" && !newModelBaseUrl) newModelBaseUrl = "http://localhost:11434"; }}
@@ -1126,8 +1127,9 @@
 				</select>
 			</div>
 			<div>
-				<label class="mb-1 block text-xs text-[var(--color-text-secondary)]">Tier</label>
+				<label for="settings-new-model-tier" class="mb-1 block text-xs text-[var(--color-text-secondary)]">Tier</label>
 				<select
+					id="settings-new-model-tier"
 					bind:value={newModelTier}
 					aria-label="Model tier"
 					class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
@@ -1145,8 +1147,9 @@
 		{#if isLocalProvider}
 			<div class="mt-2 grid grid-cols-1 md:grid-cols-[1fr_auto] items-end gap-2">
 				<div>
-					<label class="mb-1 block text-xs text-[var(--color-text-secondary)]">Base URL</label>
+					<label for="settings-new-model-base-url-discovery" class="mb-1 block text-xs text-[var(--color-text-secondary)]">Base URL</label>
 					<input
+						id="settings-new-model-base-url-discovery"
 						type="text"
 						bind:value={newModelBaseUrl}
 						placeholder="e.g. http://localhost:11434"
@@ -1170,8 +1173,9 @@
 			{#if discoveredModels.length > 0}
 				<div class="mt-2 grid grid-cols-1 md:grid-cols-[1fr_auto] items-end gap-2">
 					<div>
-						<label class="mb-1 block text-xs text-[var(--color-text-secondary)]">Model</label>
+						<label for="settings-new-model-discovered" class="mb-1 block text-xs text-[var(--color-text-secondary)]">Model</label>
 						<select
+							id="settings-new-model-discovered"
 							bind:value={newModelId}
 							aria-label="Discovered model"
 							class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
@@ -1193,8 +1197,9 @@
 		{:else}
 			<div class="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] items-end gap-2">
 				<div>
-					<label class="mb-1 block text-xs text-[var(--color-text-secondary)]">Model ID</label>
+					<label for="settings-new-model-id" class="mb-1 block text-xs text-[var(--color-text-secondary)]">Model ID</label>
 					<input
+						id="settings-new-model-id"
 						type="text"
 						bind:value={newModelId}
 						placeholder="e.g. gpt-4-turbo-preview"
@@ -1202,8 +1207,9 @@
 					/>
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-[var(--color-text-secondary)]">Base URL (optional)</label>
+					<label for="settings-new-model-base-url" class="mb-1 block text-xs text-[var(--color-text-secondary)]">Base URL (optional)</label>
 					<input
+						id="settings-new-model-base-url"
 						type="text"
 						bind:value={newModelBaseUrl}
 						placeholder="e.g. http://localhost:11434"
