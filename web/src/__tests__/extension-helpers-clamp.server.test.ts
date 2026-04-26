@@ -142,6 +142,22 @@ describe("clampExtensionPermissions — capability tier", () => {
     expect(out.spawnAgents).toEqual({ maxPerHour: 50, maxConcurrent: 3 });
   });
 
+  test("spawnAgents: submitted maxConcurrent undefined falls back to manifest value, not 3", () => {
+    // V3 gap closure — pin the `?? manifestMax.maxConcurrent ?? 3` chain
+    // so the manifest's declared cap is used when the submitted side
+    // omits maxConcurrent. A regression that swapped the inner ?? order
+    // would silently downgrade the cap to 3 across all admin grants
+    // that rely on the manifest default.
+    const submitted: Partial<ExtensionPermissions> = {
+      spawnAgents: { maxPerHour: 5 } as ExtensionPermissions["spawnAgents"], // no maxConcurrent
+    };
+    const manifest: ExtensionManifestV2["permissions"] = {
+      spawnAgents: { maxPerHour: 5, maxConcurrent: 7 },
+    };
+    const out = clampExtensionPermissions(submitted, manifest);
+    expect(out.spawnAgents).toEqual({ maxPerHour: 5, maxConcurrent: 7 });
+  });
+
   test("spawnAgents drops the field entirely when computed cap is zero", () => {
     const submitted: Partial<ExtensionPermissions> = {
       spawnAgents: { maxPerHour: 0, maxConcurrent: 5 },
@@ -202,6 +218,34 @@ describe("clampExtensionPermissions — capability tier", () => {
     expect(out.eventSubscriptions).toBeUndefined();
     // base tier must still pass — kill-switch is capability-only.
     expect(out.shell).toBe(true);
+  });
+
+  test("kill-switch env var only matches the exact string '1', not 'true'", () => {
+    // V3 gap closure — `capabilityToolsDisabled()` is `=== "1"` not
+    // truthy-coerce. Operators who set EZCORP_DISABLE_CAPABILITY_TOOLS
+    // to "true" / "yes" / "on" must NOT accidentally trigger the
+    // kill-switch — those strings are NOT honored. Pin the strict
+    // equality so a regression to a truthy-coerce check (which would
+    // expand the killable set silently) surfaces here.
+    process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"] = "true";
+
+    const submitted: Partial<ExtensionPermissions> = {
+      taskEvents: true,
+      spawnAgents: { maxPerHour: 10, maxConcurrent: 5 },
+      agentConfig: "read",
+    };
+    const manifest: ExtensionManifestV2["permissions"] = {
+      taskEvents: true,
+      spawnAgents: { maxPerHour: 10, maxConcurrent: 5 },
+      agentConfig: "read",
+    };
+
+    const out = clampExtensionPermissions(submitted, manifest);
+
+    // Capability tier still flows — kill-switch did NOT trigger.
+    expect(out.taskEvents).toBe(true);
+    expect(out.spawnAgents).toEqual({ maxPerHour: 10, maxConcurrent: 5 });
+    expect(out.agentConfig).toBe("read");
   });
 
   test("agentConfig only granted when both sides exactly === 'read'", () => {
