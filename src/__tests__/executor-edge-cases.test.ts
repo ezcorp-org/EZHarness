@@ -55,6 +55,10 @@ describe("AgentExecutor edge cases", () => {
     await runP;
     expect(observedSignalAborted).toBe(true);
     expect(active!.status).toBe("cancelled");
+    // Well-behaved abort (agent threw on ctx.signal): cancelRun()'s
+    // populated discriminator survives the error branch.
+    const err = active!.result?.error as { code: string; message: string };
+    expect(err?.code).toBe("cancelled");
   });
 
   test("agent failure surfaces error message in run.result", async () => {
@@ -228,5 +232,56 @@ describe("AgentExecutor edge cases", () => {
     // Status must remain "cancelled" — the success branch must respect
     // the prior cancelRun() write.
     expect(active!.status).toBe("cancelled");
+    // Swallowed-abort discriminator: success branch overrides
+    // cancelRun()'s "cancelled" code to flag the misbehaving path.
+    const err = active!.result?.error as { code: string; message: string };
+    expect(err?.code).toBe("swallowed_abort");
+  });
+
+  test("swallowed-abort path emits a warn log", async () => {
+    // Capture stderr to assert the structured logger fires.
+    // Pattern mirrors src/__tests__/logger.test.ts.
+    const stderrChunks: string[] = [];
+    const origStderrWrite = process.stderr.write;
+    process.stderr.write = ((chunk: string) => {
+      stderrChunks.push(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      const agents = loadAgentsStatic([
+        makeAgent("swallows-and-logs", async (ctx) => {
+          await new Promise<void>((resolve) => {
+            const t = setTimeout(resolve, 60_000);
+            ctx.signal.addEventListener("abort", () => {
+              clearTimeout(t);
+              resolve(); // swallow — do NOT throw
+            });
+          });
+          return { success: true, output: "ignored" };
+        }),
+      ]);
+      const exec = track(new AgentExecutor(agents, new EventBus<AgentEvents>()));
+
+      const runP = exec.runAgent("swallows-and-logs", {});
+      await new Promise((r) => setTimeout(r, 10));
+      const [active] = await exec.listRuns();
+      expect(exec.cancelRun(active!.id)).toBe(true);
+      await runP;
+
+      const warnLines = stderrChunks
+        .map((c) => {
+          try { return JSON.parse(c) as { level?: string; msg?: string; subsystem?: string; agentName?: string }; }
+          catch { return null; }
+        })
+        .filter((p): p is { level: string; msg: string; subsystem?: string; agentName?: string } =>
+          p !== null && p.level === "warn" && p.msg === "agent resolved after cancel was requested",
+        );
+      expect(warnLines.length).toBe(1);
+      expect(warnLines[0]!.subsystem).toBe("executor");
+      expect(warnLines[0]!.agentName).toBe("swallows-and-logs");
+    } finally {
+      process.stderr.write = origStderrWrite;
+    }
   });
 });
