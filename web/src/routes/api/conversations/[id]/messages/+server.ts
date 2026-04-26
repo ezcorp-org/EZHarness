@@ -1,5 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { errorJson } from "$lib/server/http-errors";
+import { logger } from "$server/logger";
 import * as convQueries from "$server/db/queries/conversations";
 import * as attachmentsDb from "$server/db/queries/attachments";
 import { getProject } from "$server/db/queries/projects";
@@ -17,6 +18,8 @@ import type { StagedAttachment } from "$server/chat/attachments/content-builder"
 import type { AttachmentSummary } from "$server/db/queries/conversations";
 import { buildCommandResolver } from "$lib/server/command-resolver";
 import type { RequestHandler } from "./$types";
+
+const log = logger.child("api.messages");
 
 async function verifyConversationOwnership(id: string, user: AuthUser) {
   const conv = await convQueries.getConversation(id);
@@ -230,7 +233,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   const executor = getExecutor();
   const runId = crypto.randomUUID();
 
-  console.log("[messages] streamChat starting", {
+  log.debug("streamChat starting", {
     content: body.content.slice(0, 120),
     attachments: stagedAttachments.length,
     projectId: conv.projectId,
@@ -252,7 +255,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   });
 
   streamPromise.catch((err) => {
-    console.error("[messages] streamChat error:", err instanceof Error ? err.message : err);
+    log.error("streamChat error", { error: err instanceof Error ? err.message : String(err) });
   });
 
   const userMessageWithAttachments =

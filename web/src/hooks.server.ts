@@ -352,7 +352,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 export const handleError: HandleServerError = ({ error, status, message }) => {
   const err = error as Error;
-  console.error("[error]", status, err?.message ?? "Unknown error");
+  log.error("server error", { status, error: err?.message ?? "Unknown error" });
   return { message: message || "An unexpected error occurred" };
 };
 
