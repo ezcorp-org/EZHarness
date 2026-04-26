@@ -1,6 +1,6 @@
 import { parseMentions } from "../../web/src/lib/mention-logic";
-import { getExtensionByName } from "../db/queries/extensions";
-import { getAgentConfigByName, getAgentConfig } from "../db/queries/agent-configs";
+import { getExtensionsByNames } from "../db/queries/extensions";
+import { getAgentConfigsByNames, getAgentConfigsByIds } from "../db/queries/agent-configs";
 import { getConversationExtensionIds, addConversationExtensions } from "../db/queries/conversation-extensions";
 import { validatePath } from "./tools/validate";
 
@@ -164,19 +164,25 @@ export async function applyCommandExpansion(
 export async function resolveMentionedAgents(
   messageContent: string,
 ): Promise<Array<{ id: string; name: string; description: string }>> {
+  const mentions = parseMentions(messageContent);
+  // Pre-collect agent names in source order; the Set passed to
+  // getAgentConfigsByNames dedupes the round-trip but we still want to
+  // walk `mentions` to preserve user-authored order in the result.
+  const agentNames = mentions.filter((m) => m.kind === "agent").map((m) => m.name);
+  if (agentNames.length === 0) return [];
+
+  const byName = await getAgentConfigsByNames(agentNames);
+
   const seen = new Set<string>();
   const agents: Array<{ id: string; name: string; description: string }> = [];
-
-  const mentions = parseMentions(messageContent);
-  await Promise.all(mentions.map(async (mention) => {
-    if (mention.kind !== "agent") return;
-    const config = await getAgentConfigByName(mention.name);
+  for (const mention of mentions) {
+    if (mention.kind !== "agent") continue;
+    const config = byName.get(mention.name);
     if (config && !seen.has(config.id)) {
       seen.add(config.id);
       agents.push({ id: config.id, name: config.name, description: config.description });
     }
-  }));
-
+  }
   return agents;
 }
 
@@ -187,31 +193,49 @@ export async function resolveMentionedTeams(
   messageContent: string,
 ): Promise<Array<{ team: { id: string; name: string; description: string; prompt: string; autoSpinUp?: boolean; teamToolScope?: import("../types").TeamToolScope }; members: Array<{ id: string; name: string; description: string }> }>> {
   const mentions = parseMentions(messageContent);
+  const teamNames = mentions.filter((m) => m.kind === "team").map((m) => m.name);
+  if (teamNames.length === 0) return [];
+
+  // Round-trip 1: resolve all team-name mentions to configs in one query.
+  const teamConfigByName = await getAgentConfigsByNames(teamNames);
+
+  // Walk mentions in source order, filter to category === "team", dedupe
+  // by config.id. Collect every member agentId across all teams so we can
+  // batch-fetch member configs in a single round trip.
+  const seenTeamIds = new Set<string>();
+  const teamRecords: Array<{
+    config: typeof teamConfigByName extends Map<string, infer V> ? V : never;
+    refs: { agents?: string[]; extensions?: string[]; autoSpinUp?: boolean; teamToolScope?: import("../types").TeamToolScope } | null;
+  }> = [];
+  const allMemberIds: string[] = [];
+  for (const mention of mentions) {
+    if (mention.kind !== "team") continue;
+    const config = teamConfigByName.get(mention.name);
+    if (!config || config.category !== "team" || seenTeamIds.has(config.id)) continue;
+    seenTeamIds.add(config.id);
+    const refs = config.references as { agents?: string[]; extensions?: string[]; autoSpinUp?: boolean; teamToolScope?: import("../types").TeamToolScope } | null;
+    teamRecords.push({ config, refs });
+    for (const id of refs?.agents ?? []) allMemberIds.push(id);
+  }
+
+  // Round-trip 2: resolve every member id across every mentioned team in
+  // one query. Empty input short-circuits to an empty map.
+  const memberById = await getAgentConfigsByIds(allMemberIds);
+
   const results: Array<{ team: { id: string; name: string; description: string; prompt: string; autoSpinUp?: boolean; teamToolScope?: import("../types").TeamToolScope }; members: Array<{ id: string; name: string; description: string }> }> = [];
-  const seen = new Set<string>();
-
-  await Promise.all(mentions.map(async (mention) => {
-    if (mention.kind !== "team") return;
-    const config = await getAgentConfigByName(mention.name);
-    if (!config || config.category !== "team" || seen.has(config.id)) return;
-    seen.add(config.id);
-
-    const refs = (config.references as { agents?: string[]; extensions?: string[]; autoSpinUp?: boolean; teamToolScope?: import("../types").TeamToolScope } | null);
-    const agentIds = refs?.agents ?? [];
+  for (const { config, refs } of teamRecords) {
     const members: Array<{ id: string; name: string; description: string }> = [];
-    await Promise.all(agentIds.map(async (agentId) => {
-      const member = await getAgentConfig(agentId);
+    for (const agentId of refs?.agents ?? []) {
+      const member = memberById.get(agentId);
       if (member) {
         members.push({ id: member.id, name: member.name, description: member.description });
       }
-    }));
-
+    }
     results.push({
       team: { id: config.id, name: config.name, description: config.description, prompt: config.prompt, autoSpinUp: refs?.autoSpinUp ?? false, teamToolScope: refs?.teamToolScope },
       members,
     });
-  }));
-
+  }
   return results;
 }
 
@@ -227,20 +251,31 @@ export async function wireMentionedExtensions(
   const mentions = parseMentions(messageContent);
   if (mentions.length === 0) return [];
 
-  const extensionIds = new Set<string>();
+  // Pre-collect every name we need to look up so each kind makes a single
+  // round trip regardless of mention count. The two queries (extensions
+  // by name, agents by name) run in parallel.
+  const extNames = mentions.filter((m) => m.kind === "ext").map((m) => m.name);
+  const agentNames = mentions.filter((m) => m.kind === "agent").map((m) => m.name);
+  if (extNames.length === 0 && agentNames.length === 0) return [];
 
-  await Promise.all(mentions.map(async (mention) => {
+  const [extByName, agentByName] = await Promise.all([
+    getExtensionsByNames(extNames),
+    getAgentConfigsByNames(agentNames),
+  ]);
+
+  const extensionIds = new Set<string>();
+  for (const mention of mentions) {
     if (mention.kind === "ext") {
-      const ext = await getExtensionByName(mention.name);
+      const ext = extByName.get(mention.name);
       if (ext) extensionIds.add(ext.id);
     } else if (mention.kind === "agent") {
-      const agent = await getAgentConfigByName(mention.name);
+      const agent = agentByName.get(mention.name);
       if (agent) {
         const extIds = (agent.extensions as string[] | null) ?? [];
         for (const id of extIds) extensionIds.add(id);
       }
     }
-  }));
+  }
 
   if (extensionIds.size === 0) return [];
 

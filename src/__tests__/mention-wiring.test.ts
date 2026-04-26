@@ -59,23 +59,40 @@ describe("parseMentions", () => {
 
 // Test wireMentionedExtensions with mocked DB
 describe("wireMentionedExtensions", () => {
-  const mockGetExtByName = mock(() => Promise.resolve(null));
-  const mockGetAgentByName = mock(() => Promise.resolve(null));
+  // After the N+1 batching pass, mention-wiring resolves names through
+  // `getExtensionsByNames` / `getAgentConfigsByNames` (returning a
+  // Map<name, row>) instead of the per-name helpers. The mocks stub the
+  // batch APIs and a thin `lookupBy` test helper builds the Map from a
+  // record so existing assertions read like before.
+  const mockGetExtsByNames = mock(async (_names: string[]) => new Map<string, unknown>());
+  const mockGetAgentsByNames = mock(async (_names: string[]) => new Map<string, unknown>());
   const mockGetConvExtIds = mock(() => Promise.resolve([] as string[]));
   const mockAddConvExts = mock(() => Promise.resolve());
 
+  /**
+   * Build a Map from name → row that the batch helpers would have
+   * returned. Names not in the record are absent from the Map (matches
+   * production behaviour: `IN (...)` simply returns no rows for them).
+   */
+  function mapFromRecord(record: Record<string, unknown>): Map<string, unknown> {
+    const m = new Map<string, unknown>();
+    for (const [k, v] of Object.entries(record)) m.set(k, v);
+    return m;
+  }
+
   beforeEach(() => {
-    mockGetExtByName.mockClear();
-    mockGetAgentByName.mockClear();
+    mockGetExtsByNames.mockClear();
+    mockGetAgentsByNames.mockClear();
     mockGetConvExtIds.mockClear();
     mockAddConvExts.mockClear();
 
     // Reset module mocks
     mock.module("../db/queries/extensions", () => ({
-      getExtensionByName: mockGetExtByName,
+      getExtensionsByNames: mockGetExtsByNames,
     }));
     mock.module("../db/queries/agent-configs", () => ({
-      getAgentConfigByName: mockGetAgentByName,
+      getAgentConfigsByNames: mockGetAgentsByNames,
+      getAgentConfigsByIds: async () => new Map<string, unknown>(),
     }));
     mock.module("../db/queries/conversation-extensions", () => ({
       getConversationExtensionIds: mockGetConvExtIds,
@@ -90,13 +107,13 @@ describe("wireMentionedExtensions", () => {
   }
 
   test("resolves ext mention to extension ID", async () => {
-    mockGetExtByName.mockResolvedValue({ id: "ext-123", name: "analyzer" } as any);
+    mockGetExtsByNames.mockResolvedValueOnce(mapFromRecord({ analyzer: { id: "ext-123", name: "analyzer" } }) as any);
     mockGetConvExtIds.mockResolvedValue([]);
 
     const wire = await loadWire();
     const result = await wire("conv-1", "![ext:analyzer] do stuff", "msg-1");
 
-    expect(mockGetExtByName).toHaveBeenCalledWith("analyzer");
+    expect(mockGetExtsByNames).toHaveBeenCalledWith(["analyzer"]);
     expect(mockAddConvExts).toHaveBeenCalledWith("conv-1", [
       { extensionId: "ext-123", messageId: "msg-1" },
     ]);
@@ -104,11 +121,9 @@ describe("wireMentionedExtensions", () => {
   });
 
   test("resolves agent mention to its extension IDs", async () => {
-    mockGetAgentByName.mockResolvedValue({
-      id: "agent-1",
-      name: "Helper",
-      extensions: ["ext-a", "ext-b"],
-    } as any);
+    mockGetAgentsByNames.mockResolvedValueOnce(mapFromRecord({
+      Helper: { id: "agent-1", name: "Helper", extensions: ["ext-a", "ext-b"] },
+    }) as any);
     mockGetConvExtIds.mockResolvedValue([]);
 
     const wire = await loadWire();
@@ -118,7 +133,7 @@ describe("wireMentionedExtensions", () => {
   });
 
   test("deduplicates against existing conversation extensions", async () => {
-    mockGetExtByName.mockResolvedValue({ id: "ext-123" } as any);
+    mockGetExtsByNames.mockResolvedValueOnce(mapFromRecord({ analyzer: { id: "ext-123" } }) as any);
     mockGetConvExtIds.mockResolvedValue(["ext-123"]);
 
     const wire = await loadWire();
@@ -133,11 +148,11 @@ describe("wireMentionedExtensions", () => {
     const result = await wire("conv-1", "normal message", "msg-1");
 
     expect(result).toEqual([]);
-    expect(mockGetExtByName).not.toHaveBeenCalled();
+    expect(mockGetExtsByNames).not.toHaveBeenCalled();
   });
 
   test("skips unknown extension names gracefully", async () => {
-    mockGetExtByName.mockResolvedValue(null);
+    mockGetExtsByNames.mockResolvedValueOnce(new Map() as any);
     const wire = await loadWire();
     const result = await wire("conv-1", "![ext:nonexistent] stuff", "msg-1");
 
@@ -145,7 +160,7 @@ describe("wireMentionedExtensions", () => {
   });
 
   test("skips unknown agent names gracefully", async () => {
-    mockGetAgentByName.mockResolvedValue(null);
+    mockGetAgentsByNames.mockResolvedValueOnce(new Map() as any);
     const wire = await loadWire();
     const result = await wire("conv-1", "![agent:Unknown] stuff", "msg-1");
 
@@ -157,7 +172,7 @@ describe("wireMentionedExtensions", () => {
     const result = await wire("conv-1", "read @[file:src/app.ts]", "msg-1");
 
     expect(result).toEqual([]);
-    expect(mockGetExtByName).not.toHaveBeenCalled();
-    expect(mockGetAgentByName).not.toHaveBeenCalled();
+    expect(mockGetExtsByNames).not.toHaveBeenCalled();
+    expect(mockGetAgentsByNames).not.toHaveBeenCalled();
   });
 });

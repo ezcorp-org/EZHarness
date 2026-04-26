@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { getDb } from "../connection";
 import { agentConfigs } from "../schema";
 import { configToAgent } from "../../runtime/config-to-agent";
@@ -86,6 +86,39 @@ export async function getAgentConfig(id: string): Promise<DbAgentConfig | undefi
 export async function getAgentConfigByName(name: string): Promise<DbAgentConfig | undefined> {
   const rows = await getDb().select().from(agentConfigs).where(eq(agentConfigs.name, name));
   return rows[0];
+}
+
+/**
+ * Batch-fetch agent configs by id. Returns a Map<id, config> for O(1) lookup.
+ * Missing ids are simply absent from the map (no throw). Empty input → empty map.
+ *
+ * Single round-trip via `IN (...)` — replaces N concurrent `getAgentConfig(id)`
+ * calls in callers like `setupTools` sub-agent wiring and team-member resolution.
+ */
+export async function getAgentConfigsByIds(ids: string[]): Promise<Map<string, DbAgentConfig>> {
+  const out = new Map<string, DbAgentConfig>();
+  if (ids.length === 0) return out;
+  const unique = [...new Set(ids)];
+  const rows = await getDb().select().from(agentConfigs).where(inArray(agentConfigs.id, unique));
+  for (const row of rows) out.set(row.id, row);
+  return out;
+}
+
+/**
+ * Batch-fetch agent configs by name. Returns a Map<name, config> for O(1) lookup.
+ * Missing names are simply absent from the map (no throw). Empty input → empty map.
+ *
+ * Single round-trip via `IN (...)` — replaces N concurrent `getAgentConfigByName(name)`
+ * calls in mention-wiring (resolveMentionedAgents, resolveMentionedTeams,
+ * wireMentionedExtensions).
+ */
+export async function getAgentConfigsByNames(names: string[]): Promise<Map<string, DbAgentConfig>> {
+  const out = new Map<string, DbAgentConfig>();
+  if (names.length === 0) return out;
+  const unique = [...new Set(names)];
+  const rows = await getDb().select().from(agentConfigs).where(inArray(agentConfigs.name, unique));
+  for (const row of rows) out.set(row.name, row);
+  return out;
 }
 
 export async function createAgentConfig(data: Omit<AgentConfig, "capabilities"> & { capabilities?: string[]; category?: string | null; userId?: string; references?: { agents?: string[]; extensions?: string[]; members?: TeamMember[]; autoSpinUp?: boolean; teamToolScope?: import("../../types").TeamToolScope } }): Promise<DbAgentConfig> {

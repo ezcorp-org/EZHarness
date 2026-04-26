@@ -92,6 +92,8 @@ beforeEach(() => {
     listAgentConfigs: async () => [],
     getAgentConfig: async () => null,
     getAgentConfigByName: async () => null,
+    getAgentConfigsByIds: async () => new Map(),
+    getAgentConfigsByNames: async () => new Map(),
   }));
   mock.module("../db/queries/active-runs", () => ({
     createActiveRun: async () => {},
@@ -108,6 +110,7 @@ beforeEach(() => {
   }));
   mock.module("../db/queries/extensions", () => ({
     getExtensionByName: async () => null,
+    getExtensionsByNames: async () => new Map(),
   }));
   mock.module("../extensions/registry", () => ({
     ExtensionRegistry: { getInstance: () => ({ getToolsForAgent: async () => [] }) },

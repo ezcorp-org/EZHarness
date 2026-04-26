@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, inArray } from "drizzle-orm";
 import { getDb } from "../connection";
 import { extensions, type Extension, type NewExtension } from "../schema";
 import type { McpServerDefinition, ExtensionManifestV2, ToolDefinition } from "../../extensions/types";
@@ -34,6 +34,25 @@ export async function getExtensionByName(name: string): Promise<Extension | null
     .from(extensions)
     .where(eq(extensions.name, name));
   return rows[0] ?? null;
+}
+
+/**
+ * Batch-fetch extensions by name. Returns a Map<name, extension> for O(1) lookup.
+ * Missing names are simply absent from the map (no throw). Empty input → empty map.
+ *
+ * Single round-trip via `IN (...)` — replaces N concurrent `getExtensionByName(name)`
+ * calls in mention-wiring (wireMentionedExtensions).
+ */
+export async function getExtensionsByNames(names: string[]): Promise<Map<string, Extension>> {
+  const out = new Map<string, Extension>();
+  if (names.length === 0) return out;
+  const unique = [...new Set(names)];
+  const rows = await getDb()
+    .select()
+    .from(extensions)
+    .where(inArray(extensions.name, unique));
+  for (const row of rows) out.set(row.name, row);
+  return out;
 }
 
 export async function listExtensions(enabledOnly?: boolean): Promise<Extension[]> {
