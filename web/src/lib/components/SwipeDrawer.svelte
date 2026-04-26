@@ -221,6 +221,7 @@
 			></div>
 		{/if}
 
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="absolute inset-y-0 flex flex-col overflow-y-auto bg-[var(--color-surface)] {side === 'left' ? 'left-0' : 'right-0'} {width} {maxWidth} {extraClass}"

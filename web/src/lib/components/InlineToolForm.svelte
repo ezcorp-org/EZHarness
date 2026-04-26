@@ -144,7 +144,11 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="absolute bottom-full left-0 right-0 z-50 mb-2" onclick={handleWrapperClick}>
+<div
+	class="absolute bottom-full left-0 right-0 z-50 mb-2"
+	onclick={handleWrapperClick}
+	onkeydown={(e) => { if (e.key === 'Escape') onclose(); }}
+>
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<form
 		class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] shadow-lg"
