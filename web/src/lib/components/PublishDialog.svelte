@@ -72,14 +72,23 @@
 </script>
 
 {#if open}
-	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onclick={onclose}>
-		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+		onclick={onclose}
+		onkeydown={(e) => { if (e.key === 'Escape') onclose(); }}
+		role="dialog"
+		aria-modal="true"
+		aria-labelledby="publish-dialog-title"
+		tabindex={-1}
+	>
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="w-full max-w-md rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6 shadow-xl"
 			onclick={(e) => e.stopPropagation()}
 		>
-			<h2 class="mb-4 text-lg font-bold text-[var(--color-text-primary)]">
+			<h2 id="publish-dialog-title" class="mb-4 text-lg font-bold text-[var(--color-text-primary)]">
 				{existingVersion ? "Publish Update" : "Publish to Marketplace"}
 			</h2>
 
