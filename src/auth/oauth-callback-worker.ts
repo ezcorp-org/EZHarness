@@ -20,6 +20,11 @@
 const rawPort = process.env.EZCORP_OAUTH_CB_PORT;
 const rawUrl = process.env.EZCORP_OAUTH_CB_URL;
 
+// pre-logger-init bootstrap: keep console.* — this is a standalone
+// subprocess (spawned by oauth-callback-server.ts) that validates env
+// and exits before any logger module is loaded. Importing the logger
+// here would pull in the full DB/persist-error stack just to report a
+// fatal config error.
 if (!rawPort || !rawUrl) {
   console.error("[oauth-callback-worker] missing EZCORP_OAUTH_CB_PORT or EZCORP_OAUTH_CB_URL");
   process.exit(1);
@@ -27,6 +32,7 @@ if (!rawPort || !rawUrl) {
 
 const port = Number(rawPort);
 if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+  // pre-logger-init bootstrap: keep console.*
   console.error(`[oauth-callback-worker] invalid port: ${rawPort}`);
   process.exit(1);
 }
@@ -35,10 +41,12 @@ let appCallbackUrl: URL;
 try {
   appCallbackUrl = new URL(rawUrl);
 } catch {
+  // pre-logger-init bootstrap: keep console.*
   console.error(`[oauth-callback-worker] invalid EZCORP_OAUTH_CB_URL: ${rawUrl}`);
   process.exit(1);
 }
 if (appCallbackUrl.protocol !== "http:" && appCallbackUrl.protocol !== "https:") {
+  // pre-logger-init bootstrap: keep console.*
   console.error(`[oauth-callback-worker] invalid protocol: ${appCallbackUrl.protocol}`);
   process.exit(1);
 }

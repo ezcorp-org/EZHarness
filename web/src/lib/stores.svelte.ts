@@ -826,6 +826,8 @@ export function initStores() {
 				} else {
 					// No root run found — this shouldn't happen if agent:spawn was received
 					// Surface a toast so the user can manually deny/approve via the sub-conversation view
+					// browser-side store: keep console.* — server-side $server/logger writes to
+					// process.stderr, which doesn't exist in the browser bundle.
 					console.warn("[permission] Could not resolve root run for conversation", conversationId, "tool", permToolName);
 					addToast({ type: "warning", message: `Sub-agent "${permToolName}" is waiting for permission. Open the sub-conversation to approve.` });
 				}
