@@ -10,7 +10,8 @@ import {
   getTaskSnapshotForConversation,
   writeTaskSnapshotForConversation,
 } from "$server/runtime/task-tracking-host";
-import type { TaskAssignment, TaskSnapshot } from "$server/runtime/task-tracking-host";
+import type { TaskSnapshot } from "$server/runtime/task-tracking-host";
+import { findAssignment } from "$lib/server/task-helpers";
 
 /**
  * POST — Stop a running assignment.
@@ -45,16 +46,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
   const task = snapshot.tasks.find((t) => t.id === params.taskId);
   if (!task) return errorJson(404, "Task not found");
 
-  // Find assignment at task level or subtask level (same lookup pattern
-  // as the start endpoint).
-  let assignment: TaskAssignment | undefined;
-  assignment = task.assignments.find((a) => a.id === params.assignmentId);
-  if (!assignment) {
-    for (const subtask of task.subtasks) {
-      assignment = subtask.assignments?.find((a) => a.id === params.assignmentId);
-      if (assignment) break;
-    }
-  }
+  const assignment = findAssignment(task, params.assignmentId);
   if (!assignment) return errorJson(404, "Assignment not found");
   if (assignment.status !== "running") {
     return errorJson(409, `Assignment is "${assignment.status}", expected "running"`);

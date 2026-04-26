@@ -12,7 +12,7 @@ import {
   getTaskSnapshotForConversation,
   writeTaskSnapshotForConversation,
 } from "$server/runtime/task-tracking-host";
-import type { TaskAssignment } from "$server/runtime/task-tracking-host";
+import { findAssignment } from "$lib/server/task-helpers";
 import { isBlocked, unsatisfiedDeps, type ReadonlyTask } from "$server/runtime/task-dependencies";
 
 // Boundary validation. Body is fully optional — the frontend may send
@@ -82,15 +82,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     return errorJson(404, "Task not found");
   }
 
-  // Find assignment at task level or subtask level
-  let assignment: TaskAssignment | undefined;
-  assignment = task.assignments.find((a) => a.id === params.assignmentId);
-  if (!assignment) {
-    for (const subtask of task.subtasks) {
-      assignment = subtask.assignments?.find((a) => a.id === params.assignmentId);
-      if (assignment) break;
-    }
-  }
+  const assignment = findAssignment(task, params.assignmentId);
   if (!assignment) return errorJson(404, "Assignment not found");
   if (assignment.status !== "assigned") {
     return errorJson(409, `Assignment is "${assignment.status}", expected "assigned"`);
