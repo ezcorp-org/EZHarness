@@ -123,8 +123,9 @@
 	<h4 class="mb-3 text-sm font-medium text-[var(--color-text-primary)]">Create API Key</h4>
 	<div class="space-y-3">
 		<div>
-			<label class="mb-1 block text-xs text-[var(--color-text-secondary)]">Name</label>
+			<label for="api-key-manager-name" class="mb-1 block text-xs text-[var(--color-text-secondary)]">Name</label>
 			<input
+				id="api-key-manager-name"
 				type="text"
 				bind:value={newKeyName}
 				placeholder="e.g. CI Pipeline"
@@ -132,7 +133,7 @@
 			/>
 		</div>
 		<div>
-			<label class="mb-1 block text-xs text-[var(--color-text-secondary)]">Scopes</label>
+			<div class="mb-1 block text-xs text-[var(--color-text-secondary)]">Scopes</div>
 			<div class="flex flex-wrap gap-2">
 				{#each SCOPES as scope}
 					<button
