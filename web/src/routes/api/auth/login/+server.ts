@@ -39,6 +39,15 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
   try { ip = getClientAddress(); } catch { /* proxy not configured */ }
   const rl = __rateLimiter.check(ip);
   if (!rl.allowed) {
+    // sec-L1 (Option C): emit a single `auth:rate_limited` audit row
+    // per (IP, window) when the limiter first fires. Subsequent blocked
+    // attempts in the same window do NOT re-audit — the limiter's
+    // `firstBlock` signal self-throttles to one row per window so an
+    // attacker cannot flood audit_log via repeated 429s. We still write
+    // BEFORE returning 429 so the response shape is unchanged.
+    if (rl.firstBlock) {
+      await insertAuditEntry(null, "auth:rate_limited", undefined, { ip });
+    }
     return errorJson(429, "Too many requests", { retryAfter: rl.retryAfter }, {
       "Retry-After": String(rl.retryAfter ?? 1),
     });
