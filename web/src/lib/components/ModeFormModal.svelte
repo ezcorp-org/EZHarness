@@ -100,6 +100,7 @@
 		role="dialog"
 		aria-modal="true"
 		aria-label={title}
+		tabindex={-1}
 	>
 		<div class="w-full max-w-lg rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6 shadow-2xl mx-4">
 			<div class="flex items-center justify-between mb-4">

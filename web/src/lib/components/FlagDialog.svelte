@@ -71,6 +71,7 @@
 		role="dialog"
 		aria-modal="true"
 		aria-label="Report listing"
+		tabindex={-1}
 	>
 		<div class="w-full max-w-md rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6 shadow-xl">
 			<div class="mb-4 flex items-center justify-between">

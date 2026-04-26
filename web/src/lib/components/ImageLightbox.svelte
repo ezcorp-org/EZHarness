@@ -25,6 +25,7 @@
 		aria-modal="true"
 		aria-label={lightbox.alt || "Image preview"}
 		data-testid="image-lightbox"
+		tabindex={-1}
 	>
 		<button
 			type="button"
