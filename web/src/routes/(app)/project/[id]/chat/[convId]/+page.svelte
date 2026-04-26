@@ -46,7 +46,7 @@
 	import { startOAuthFlow, completeOAuthWithCode, listenForOAuthResult, isLoginCommand, type OAuthPending } from "$lib/oauth.js";
 	import { isModelCommand } from "$lib/commands.js";
 	import { restoreLastModel, persistLastModel } from "$lib/last-model.js";
-	import { readChatPanels, writeChatPanels } from "$lib/panel-persistence.js";
+	import { attachPanelPersistence } from "$lib/chat/page-handlers/panel-persistence.svelte.js";
 	import {
 		INITIAL_MESSAGE_WINDOW,
 		MESSAGE_LOAD_STEP,
@@ -333,91 +333,37 @@
 	});
 
 	// ── Side-panel state persistence ──
-	// Restore which side panels were open for THIS conversation, then
-	// persist any change. The `panelRestoredFor` flag prevents the persist
-	// effect from clobbering storage with default values before restore runs.
-	let panelRestoredFor = $state<string | null>(null);
+	// Three reactive effects (restore on convId change / resolve pending
+	// agent / persist on slot change) live in the rune-host module so the
+	// page only owns the `$state` slots and a single attach call. See
+	// `$lib/chat/page-handlers/panel-persistence.svelte.ts`.
 	let pendingSelectedAgentSubConvId = $state<string | null>(null);
-
-	$effect(() => {
-		const cid = convId;
-		if (!cid || panelRestoredFor === cid) return;
-		// Selection is per-conversation by definition — never carries across switches.
-		// Cleared in both branches below (no need to mirror it into panel persistence).
-		selectMode = false;
-		selectedIds = clearSelection();
-		lastSelectionAnchor = null;
-		bulkStatus = null;
-		selectError = null;
-		const saved = readChatPanels(cid);
-		if (saved) {
-			obsOpen = saved.obsOpen;
-			diffPanelOpen = saved.diffPanelOpen;
-			toolsOpen = saved.toolsOpen;
-			settingsOpen = saved.settingsOpen;
-			// taskLogs is restored once we have a matching task in scope
-			if (saved.taskLogsOpen && saved.taskLogsTaskId) {
-				const found = taskSnapshot?.tasks.find(t => t.id === saved.taskLogsTaskId) ?? null;
-				if (found) {
-					taskLogsTask = found;
-					taskLogsOpen = true;
-				}
-			}
-			pendingSelectedAgentSubConvId = saved.selectedAgentSubConvId;
-		} else {
-			// New conversation — clear any leaked state from prior conv
-			obsOpen = false;
-			diffPanelOpen = false;
-			toolsOpen = false;
-			settingsOpen = false;
-			taskLogsOpen = false;
-			taskLogsTask = null;
-			selectedAgent = null;
-			pendingSelectedAgentSubConvId = null;
-		}
-		// ?agent=<subConversationId> overrides localStorage — set by the
-		// Active Agents list when opening a sub-agent from its parent chat.
-		const urlAgent = page.url.searchParams.get("agent");
-		if (urlAgent) pendingSelectedAgentSubConvId = urlAgent;
-		panelRestoredFor = cid;
-	});
-
-	// Resolve pending selectedAgent once the streaming agent calls hydrate.
-	// The user may have had the AgentDetailPanel open on a sub-agent; we
-	// rebind it from store.streamingAgentCalls when the matching entry shows up,
-	// or synthesize one from the DB-loaded subConversations when arriving via
-	// a ?agent= deep link (no live streaming state yet).
-	$effect(() => {
-		if (!pendingSelectedAgentSubConvId) return;
-		const target = pendingSelectedAgentSubConvId;
-		for (const calls of Object.values(store.streamingAgentCalls)) {
-			const found = calls.find(c => c.subConversationId === target);
-			if (found) {
-				selectedAgent = found;
-				pendingSelectedAgentSubConvId = null;
-				return;
-			}
-		}
-		const sc = subConversations.find(s => s.id === target);
-		if (sc) {
-			selectedAgent = subConvoToAgentCallState(sc, assignmentBySubConvo.get(sc.id));
-			pendingSelectedAgentSubConvId = null;
-		}
-	});
-
-	// Persist whenever any tracked panel state changes (only after restore).
-	$effect(() => {
-		const cid = convId;
-		if (!cid || panelRestoredFor !== cid) return;
-		writeChatPanels(cid, {
-			obsOpen,
-			diffPanelOpen,
-			taskLogsOpen,
-			taskLogsTaskId: taskLogsTask?.id ?? null,
-			toolsOpen,
-			settingsOpen,
-			selectedAgentSubConvId: selectedAgent?.subConversationId ?? null,
-		});
+	attachPanelPersistence({
+		convId: () => convId,
+		searchParams: () => page.url.searchParams,
+		settingsOpen: { get: () => settingsOpen, set: (v) => { settingsOpen = v; } },
+		obsOpen: { get: () => obsOpen, set: (v) => { obsOpen = v; } },
+		diffPanelOpen: { get: () => diffPanelOpen, set: (v) => { diffPanelOpen = v; } },
+		toolsOpen: { get: () => toolsOpen, set: (v) => { toolsOpen = v; } },
+		taskLogsOpen: { get: () => taskLogsOpen, set: (v) => { taskLogsOpen = v; } },
+		taskLogsTask: { get: () => taskLogsTask, set: (v) => { taskLogsTask = v; } },
+		agentDetailId: {
+			get: () => pendingSelectedAgentSubConvId,
+			set: (v) => { pendingSelectedAgentSubConvId = v; },
+		},
+		selectedAgent: { get: () => selectedAgent, set: (v) => { selectedAgent = v; } },
+		taskSnapshot: () => taskSnapshot ?? null,
+		subConversations: () => subConversations,
+		assignmentForSubConvo: (id) => assignmentBySubConvo.get(id),
+		streamingAgentCalls: () => store.streamingAgentCalls,
+		onConvSwitch: () => {
+			// Selection is per-conversation by definition — never carries across switches.
+			selectMode = false;
+			selectedIds = clearSelection();
+			lastSelectionAnchor = null;
+			bulkStatus = null;
+			selectError = null;
+		},
 	});
 
 	// Branch-aware state
