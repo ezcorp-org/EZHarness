@@ -72,7 +72,7 @@
 	<!-- Input Mapping -->
 	<div>
 		<div class="mb-1 flex items-center justify-between">
-			<label class="text-xs text-[var(--color-text-secondary)]">Input Mapping</label>
+			<div class="text-xs text-[var(--color-text-secondary)]">Input Mapping</div>
 			<button type="button" onclick={addInputPair} class="text-xs text-blue-400 hover:text-blue-300">+ Add</button>
 		</div>
 		{#each inputPairs as pair, idx}
@@ -90,7 +90,7 @@
 	<!-- Depends On -->
 	{#if otherStepNames.length > 0}
 		<div>
-			<label class="mb-1 block text-xs text-[var(--color-text-secondary)]">Depends On</label>
+			<div class="mb-1 block text-xs text-[var(--color-text-secondary)]">Depends On</div>
 			<div class="flex flex-wrap gap-2">
 				{#each otherStepNames as depName}
 					<label class="flex items-center gap-1 text-xs text-[var(--color-text-secondary)]">
