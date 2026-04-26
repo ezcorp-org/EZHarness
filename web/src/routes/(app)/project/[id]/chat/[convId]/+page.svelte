@@ -15,7 +15,6 @@
 	} from "$lib/api.js";
 	import {
 		store,
-		startStreaming,
 		stopStreaming,
 		getStreamingToolCalls,
 		getStreamingContentBlocks,
@@ -96,6 +95,7 @@
 	} from "$lib/chat/page-handlers/load-messages.js";
 	import { useSelectMode } from "$lib/chat/page-handlers/useSelectMode.svelte.js";
 	import { makeSendMessage } from "$lib/chat/page-handlers/send-message.js";
+	import { attachStreamResume } from "$lib/chat/page-handlers/stream-resume.svelte.js";
 	import { shouldAutofocusComposer } from "$lib/chat-input-logic.js";
 	import {
 		backgroundFetch,
@@ -540,108 +540,31 @@
 		return visible;
 	});
 
-	async function checkActiveRun(gen: number) {
-		try {
-			// Throttled + deduped by fetch-policy: all three active-run call sites
-			// (this one, the staleness poll, and the zombie re-check) share the
-			// same semantic key, so concurrent callers collapse to a single
-			// in-flight GET instead of racing each other.
-			const res = await backgroundFetch(
-				`active-run:${convId}`,
-				`/api/conversations/${convId}/active-run`,
-				{},
-				{ minIntervalMs: 4000 },
-			);
-			if (!res || !res.ok || gen !== loadGeneration) return;
-			const data = await res.json();
-			if (!data.runId || gen !== loadGeneration) return;
-
-			// If the run is not actively running, just reload messages
-			if (data.status && data.status !== "running") {
-				if (gen === loadGeneration) await loadMessages();
-				return;
-			}
-
-			if (gen !== loadGeneration) return;
-			const started = startStreaming(data.runId, convId);
-			if (!started) {
-				await loadMessages();
-				return;
-			}
-			activeRunId = data.runId;
-			resumedRun = true;
-			// Capture server-side run metadata for the elapsed counter + stuck-run banner.
-			activeRunStartedAt = data.startedAt ? new Date(data.startedAt).getTime() : Date.now();
-			serverStalenessMs = typeof data.stalenessMs === 'number' ? data.stalenessMs : null;
-
-			// Restore pending permission gates from server state
-			if (data.pendingPermissions?.length) {
-				for (const perm of data.pendingPermissions) {
-					store.streamingToolCalls = {
-						...store.streamingToolCalls,
-						[data.runId]: [
-							...(store.streamingToolCalls[data.runId] ?? []),
-							{
-								id: perm.toolCallId,
-								toolName: perm.toolName,
-								status: 'running' as const,
-								input: perm.input,
-								startedAt: Date.now(),
-								permissionPending: true,
-								cardType: perm.cardType,
-								category: perm.category,
-							},
-						],
-					};
-				}
-			}
-
-			// Restore open ask_user_question gates from server state. The
-			// live tool:start SSE fired before this refresh and the
-			// tool_calls DB row isn't written until the user answers, so
-			// the in-memory ask-user-registry is the only source. Mirror
-			// pendingPermissions above: push a synthetic running entry per
-			// gate; the live tool:complete will update it in place by
-			// toolName match (see stores.svelte.ts case "tool:complete").
-			if (data.pendingAskUser?.length) {
-				for (const entry of data.pendingAskUser) {
-					store.streamingToolCalls = {
-						...store.streamingToolCalls,
-						[data.runId]: [
-							...(store.streamingToolCalls[data.runId] ?? []),
-							{
-								id: entry.toolCallId,
-								toolName: 'ask-user__ask_user_question',
-								status: 'running' as const,
-								input: { question: entry.question, options: entry.options },
-								startedAt: Date.now(),
-								cardType: 'ask-user-question',
-							},
-						],
-					};
-				}
-			}
-
-			// Add placeholder assistant message with partial response if available
-			const lastMsg = allMessages[allMessages.length - 1];
-			const assistantPlaceholder = makeOptimisticMessage({
-				id: `streaming-${data.runId}`,
-				conversationId: convId,
-				role: "assistant",
-				content: data.partialResponse ?? "",
-				model: selectedModel?.model ?? null,
-				provider: selectedModel?.provider ?? null,
-				runId: data.runId,
-				parentMessageId: lastMsg?.id ?? null,
-			});
-			allMessages = [...allMessages, assistantPlaceholder];
-			activeLeafId = assistantPlaceholder.id;
-		} catch {
-			// Non-fatal — page works normally without resume
-		} finally {
-			checkingActiveRun = false;
-		}
-	}
+	// Stream-resume orchestration (checkActiveRun, WS-reconnect resume effect,
+	// zombie/staleness watchdog) lives in
+	// $lib/chat/page-handlers/stream-resume.svelte.ts (W9). The page provides
+	// the host below; the module owns the timer effects and the module-scoped
+	// reconnect cooldown timestamp. The `checkActiveRun` returned here is
+	// called from the convId-change effect AFTER loadMessages settles so
+	// the resumed stream attaches at the correct leaf.
+	const streamResumeApi = attachStreamResume({
+		convId: () => convId,
+		loadGeneration: () => loadGeneration,
+		initialLoadDone: () => initialLoadDone,
+		selectedModel: () => selectedModel,
+		activeRunId: { get: () => activeRunId, set: (v) => { activeRunId = v; } },
+		activeRunStartedAt: { get: () => activeRunStartedAt, set: (v) => { activeRunStartedAt = v; } },
+		serverStalenessMs: { get: () => serverStalenessMs, set: (v) => { serverStalenessMs = v; } },
+		resumedRun: { get: () => resumedRun, set: (v) => { resumedRun = v; } },
+		checkingActiveRun: { get: () => checkingActiveRun, set: (v) => { checkingActiveRun = v; } },
+		allMessages: { get: () => allMessages, set: (v) => { allMessages = v; } },
+		activeLeafId: { get: () => activeLeafId, set: (v) => { activeLeafId = v; } },
+		loadMessages: () => loadMessages(),
+		makeOptimisticMessage,
+		currentStreamingText: () => currentStreamingText,
+		isStreaming: () => isStreaming,
+	});
+	const checkActiveRun = streamResumeApi.checkActiveRun;
 
 	let pendingInitial = $state<string | null>(null);
 	let initialApplied = false;
@@ -761,7 +684,8 @@
 			cleanupOAuth();
 			window.removeEventListener("ez:turn_saved", handleTurnSaved);
 			window.removeEventListener("ez:agent_complete", handleAgentComplete);
-			if (zombieTimer) { clearTimeout(zombieTimer); zombieTimer = null; }
+			// Zombie/staleness timers are owned by attachStreamResume and torn
+			// down via its $effect cleanup — nothing to clear here.
 		};
 	});
 
@@ -897,91 +821,12 @@
 		}
 	});
 
-	// Zombie run detection: if streaming but no tokens arrive, re-check with server.
-	// Resumed runs use a shorter timeout (5s) since they're more likely stale.
-	// Also refreshes serverStalenessMs on every poll so the StuckRunBanner reflects the
-	// most recent server-side heartbeat gap even when the user is passively watching.
-	let zombieTimer: ReturnType<typeof setTimeout> | null = null;
-	let stalenessPollTimer: ReturnType<typeof setInterval> | null = null;
-	$effect(() => {
-		if (zombieTimer) { clearTimeout(zombieTimer); zombieTimer = null; }
-		if (stalenessPollTimer) { clearInterval(stalenessPollTimer); stalenessPollTimer = null; }
-		if (!activeRunId || !isStreaming) {
-			serverStalenessMs = null;
-			activeRunStartedAt = null;
-			return;
-		}
-		const snapshot = currentStreamingText ?? "";
-		const timeout = resumedRun ? 5_000 : 30_000;
-
-		// Lightweight staleness poll every 10s — only reads metadata, doesn't touch streaming
-		// state. Keeps the StuckRunBanner timer fresh without depending on zombie-check firing.
-		stalenessPollTimer = setInterval(async () => {
-			if (!activeRunId) return;
-			try {
-				const res = await backgroundFetch(
-					`active-run:${convId}`,
-					`/api/conversations/${convId}/active-run`,
-					{},
-					{ minIntervalMs: 4000 },
-				);
-				if (!res || !res.ok) return;
-				const data = await res.json();
-				if (!data.runId || data.runId !== activeRunId) return;
-				if (typeof data.stalenessMs === 'number') serverStalenessMs = data.stalenessMs;
-				if (data.startedAt && activeRunStartedAt == null) {
-					activeRunStartedAt = new Date(data.startedAt).getTime();
-				}
-			} catch { /* non-fatal */ }
-		}, 10_000);
-
-		zombieTimer = setTimeout(async () => {
-			if (activeRunId && currentStreamingText === snapshot) {
-				try {
-					const res = await backgroundFetch(
-						`active-run:${convId}`,
-						`/api/conversations/${convId}/active-run`,
-						{},
-						{ minIntervalMs: 4000 },
-					);
-					if (!res || !res.ok) return;
-					const data = await res.json();
-					if (!data.runId || data.runId !== activeRunId || (data.status && data.status !== "running")) {
-						stopStreaming(activeRunId);
-					} else if (typeof data.stalenessMs === 'number') {
-						serverStalenessMs = data.stalenessMs;
-					}
-				} catch { /* non-fatal */ }
-			}
-		}, timeout);
-	});
-
-	// On WS reconnect, check for active run and resume.
-	//
-	// Important: this must NOT fire on every reconnect. On a flaky network
-	// (Tailscale, captive-portal handoff, mobile), the EventSource at
-	// /api/runtime-events can drop and re-connect every second or two. Each
-	// reconnect that called `checkActiveRun` used to cascade into
-	// `loadMessages()` (which fires GET /:id, GET /:id/messages?all=true,
-	// GET /:id/messages?withToolCalls=true) — visibly spamming the server
-	// and freezing the UI. The server's answer to "is there an active run"
-	// does not meaningfully change between reconnects that happen seconds
-	// apart, so we throttle to at most one check per RECONNECT_CHECK_COOLDOWN_MS.
-	const RECONNECT_CHECK_COOLDOWN_MS = 10_000;
-	let wasConnected = $state(false);
-	let lastReconnectCheckAt = 0;
-	$effect(() => {
-		const connected = store.connected;
-		if (connected && !wasConnected && !activeRunId && initialLoadDone) {
-			const now = Date.now();
-			if (now - lastReconnectCheckAt >= RECONNECT_CHECK_COOLDOWN_MS) {
-				lastReconnectCheckAt = now;
-				checkingActiveRun = true;
-				checkActiveRun(loadGeneration);
-			}
-		}
-		wasConnected = connected;
-	});
+	// Zombie/staleness watchdog and WS-reconnect resume effects are owned by
+	// `attachStreamResume` (W9, called above). Both effects fire automatically
+	// — the WS-reconnect throttle's `lastReconnectCheckAt` lives at module
+	// scope inside `stream-resume.svelte.ts` so it persists across re-mounts
+	// (per-page-instance scope would let the cooldown reset on every convId
+	// change, defeating the throttle).
 
 	// Tree-walking helpers + the dedup'd loadMessages / hydrateToolCallsFromApi
 	// pair are extracted to $lib/chat/page-handlers/load-messages.ts (W5).
