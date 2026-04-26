@@ -110,8 +110,9 @@
 	}
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 <div>
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="flex flex-wrap items-center gap-1 rounded-md border border-[var(--color-border,#4b5563)] bg-[var(--color-surface-primary,#1f2937)] px-2 {sizeClass} focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 {disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-text'}"
 		onclick={onContainerClick}

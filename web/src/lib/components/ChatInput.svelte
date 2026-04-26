@@ -584,6 +584,8 @@
 				/>
 				<div
 					class="chat-input-box {isDragging ? 'chat-input-box--dragging' : ''}"
+					role="group"
+					aria-label="Chat input with file drop zone"
 					ondrop={onDrop}
 					ondragover={onDragOver}
 					ondragleave={onDragLeave}
