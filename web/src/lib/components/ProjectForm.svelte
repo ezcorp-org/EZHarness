@@ -99,7 +99,7 @@
 <form onsubmit={handleSubmit} class="space-y-4">
 	<!-- Icon -->
 	<div>
-		<label class="mb-2 block text-sm font-medium text-[var(--color-text-secondary)]">Icon</label>
+		<div class="mb-2 block text-sm font-medium text-[var(--color-text-secondary)]">Icon</div>
 		<div class="flex items-center gap-4">
 			<!-- Preview -->
 			<div class="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl {icon ? '' : hashColor(name || 'P')}">

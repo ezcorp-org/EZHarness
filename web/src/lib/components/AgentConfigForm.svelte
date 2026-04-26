@@ -170,7 +170,7 @@
 	<!-- Input Schema Builder -->
 	<div>
 		<div class="mb-2 flex items-center justify-between">
-			<label class="text-sm font-medium text-[var(--color-text-secondary)]">Input Fields</label>
+			<div class="text-sm font-medium text-[var(--color-text-secondary)]">Input Fields</div>
 			<button type="button" onclick={addField} class="rounded bg-[var(--color-surface-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]">
 				+ Add Field
 			</button>
