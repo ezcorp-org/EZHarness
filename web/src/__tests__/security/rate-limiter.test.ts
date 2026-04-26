@@ -58,3 +58,46 @@ test("tracks separate keys independently", () => {
   expect(limiter.check("x").allowed).toBe(false);
   expect(limiter.check("y").allowed).toBe(true);
 });
+
+test("firstBlock is true on the transition to blocked, false after", () => {
+  // Burn through the limit (3 allowed, 4th is blocked).
+  expect(limiter.check("z").allowed).toBe(true);
+  expect(limiter.check("z").allowed).toBe(true);
+  expect(limiter.check("z").allowed).toBe(true);
+
+  const first = limiter.check("z");
+  expect(first.allowed).toBe(false);
+  expect(first.firstBlock).toBe(true);
+
+  // Subsequent blocked calls in the same window do NOT re-fire firstBlock.
+  const second = limiter.check("z");
+  expect(second.allowed).toBe(false);
+  expect(second.firstBlock).toBe(false);
+
+  const third = limiter.check("z");
+  expect(third.allowed).toBe(false);
+  expect(third.firstBlock).toBe(false);
+});
+
+test("firstBlock fires again after the window rolls over", async () => {
+  const fast = new RateLimiter(1, 50);
+  expect(fast.check("k").allowed).toBe(true);
+  const blocked = fast.check("k");
+  expect(blocked.allowed).toBe(false);
+  expect(blocked.firstBlock).toBe(true);
+  expect(fast.check("k").firstBlock).toBe(false);
+
+  await new Promise((r) => setTimeout(r, 60));
+  // Window rolled over → first call is allowed (resets entry); next
+  // blocked call should report firstBlock=true again.
+  expect(fast.check("k").allowed).toBe(true);
+  const reblocked = fast.check("k");
+  expect(reblocked.allowed).toBe(false);
+  expect(reblocked.firstBlock).toBe(true);
+});
+
+test("firstBlock is omitted (undefined) on allowed responses", () => {
+  const r = limiter.check("ok-key");
+  expect(r.allowed).toBe(true);
+  expect(r.firstBlock).toBeUndefined();
+});
