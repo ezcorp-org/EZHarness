@@ -88,6 +88,26 @@ function rpcResult(id: number | string, result: unknown): JsonRpcResponse {
   return { jsonrpc: "2.0", id, result };
 }
 
+/**
+ * Pre-flight for per-key actions (get/set/delete): validate the key shape
+ * and consume one rate-limit token. Returns a `JsonRpcResponse` error to
+ * forward to the caller, or `null` when the action is cleared to proceed.
+ */
+function preflightKeyOp(
+  extensionId: string,
+  id: number | string,
+  key: string,
+  isBuiltin: boolean,
+  skipRateLimit: boolean,
+): JsonRpcResponse | null {
+  const keyErr = validateKey(key, isBuiltin);
+  if (keyErr) return rpcError(id, -32602, keyErr);
+  if (!skipRateLimit && !consumeTokens(extensionId, 1)) {
+    return rpcError(id, -32004, "Rate limited");
+  }
+  return null;
+}
+
 // ── Main handler ────────────────────────────────────────────────────
 
 export async function handleStorageRpc(
@@ -147,10 +167,8 @@ async function handleGet(
   isBuiltin: boolean, skipRateLimit = false,
 ): Promise<JsonRpcResponse> {
   const key = params.key as string;
-  const keyErr = validateKey(key, isBuiltin);
-  if (keyErr) return rpcError(id, -32602, keyErr);
-
-  if (!skipRateLimit && !consumeTokens(extensionId, 1)) return rpcError(id, -32004, "Rate limited");
+  const pre = preflightKeyOp(extensionId, id, key, isBuiltin, skipRateLimit);
+  if (pre) return pre;
 
   const row = await getStorageValue(extensionId, scope, scopeId, key);
   if (!row) return rpcResult(id, { value: null, exists: false });
@@ -173,10 +191,8 @@ async function handleSet(
   manifest: ExtensionManifestV2, isBuiltin: boolean, skipRateLimit = false,
 ): Promise<JsonRpcResponse> {
   const key = params.key as string;
-  const keyErr = validateKey(key, isBuiltin);
-  if (keyErr) return rpcError(id, -32602, keyErr);
-
-  if (!skipRateLimit && !consumeTokens(extensionId, 1)) return rpcError(id, -32004, "Rate limited");
+  const pre = preflightKeyOp(extensionId, id, key, isBuiltin, skipRateLimit);
+  if (pre) return pre;
 
   const shouldEncrypt = params.encrypted === true;
   let valueToStore: unknown = params.value;
@@ -222,10 +238,8 @@ async function handleDelete(
   isBuiltin: boolean, skipRateLimit = false,
 ): Promise<JsonRpcResponse> {
   const key = params.key as string;
-  const keyErr = validateKey(key, isBuiltin);
-  if (keyErr) return rpcError(id, -32602, keyErr);
-
-  if (!skipRateLimit && !consumeTokens(extensionId, 1)) return rpcError(id, -32004, "Rate limited");
+  const pre = preflightKeyOp(extensionId, id, key, isBuiltin, skipRateLimit);
+  if (pre) return pre;
 
   const deleted = await deleteStorageValue(extensionId, scope, scopeId, key);
   return rpcResult(id, { deleted });
