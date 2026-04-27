@@ -1,13 +1,37 @@
 <script lang="ts">
 	import type { ToolCallState } from "$lib/stores.svelte.js";
+	import { openDock, store } from "$lib/stores.svelte.js";
 	import { slide } from "svelte/transition";
 	import ToolCardRouter from "./tool-cards/ToolCardRouter.svelte";
+	import DockOpenPill from "./tool-cards/DockOpenPill.svelte";
+	import { shouldRenderInDock } from "./tool-cards/utils.js";
 	import MarkdownRenderer from "./MarkdownRenderer.svelte";
 
 	let { toolCall, conversationId, onsendmessage }: { toolCall: ToolCallState; conversationId?: string; onsendmessage?: (message: string) => void } = $props();
 
 	/** Delegate to specialized card renderers when a cardType is set */
 	let useSpecializedCard = $derived(!!toolCall.cardType);
+
+	/** Dock-routing: when complete + cardLayout="dock", render a DockOpenPill instead. */
+	let routeToDock = $derived(shouldRenderInDock(toolCall.cardLayout, toolCall.status));
+
+	// Auto-open dock when this card first becomes a dock-routed complete entry
+	// (debounced 500ms — multi-tool turns coalesce to the last completion).
+	// Skips when the user has explicitly closed THIS toolCallId in this
+	// conversation; clearing the flag requires a manual reopen via the
+	// chat-history `DockOpenPill`.
+	let openDockTimer: ReturnType<typeof setTimeout> | undefined;
+	$effect(() => {
+		if (!routeToDock || !toolCall.id || !conversationId) return;
+		if (store.dismissedDocks[conversationId]?.[toolCall.id]) return;
+		const existing = store.dockState[conversationId];
+		if (existing?.toolCallId === toolCall.id) return;
+		clearTimeout(openDockTimer);
+		const id = toolCall.id;
+		const conv = conversationId;
+		openDockTimer = setTimeout(() => { openDock(conv, id); }, 500);
+		return () => { clearTimeout(openDockTimer); };
+	});
 	let expanded = $state(false);
 	let fullOutput = $state<string | null>(null);
 	let loadingOutput = $state(false);
@@ -66,7 +90,9 @@
 	}
 </script>
 
-{#if useSpecializedCard}
+{#if routeToDock && toolCall.id && conversationId}
+	<DockOpenPill toolCallId={toolCall.id} conversationId={conversationId} />
+{:else if useSpecializedCard}
 	<ToolCardRouter {toolCall} {conversationId} {onsendmessage} />
 {:else}
 <div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] overflow-hidden">

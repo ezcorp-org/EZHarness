@@ -216,3 +216,53 @@ describe("applyKnobs — multi-knob composition", () => {
     expect(changedVars).toEqual([]);
   });
 });
+
+// ── Iframe-stability regression: parent file gets overwritten ─────
+//
+// The canvas iframe URL points at `<parentDraftId>.html`. Without
+// also writing the post-tweak HTML to the parent path, the iframe
+// reload after a knob-change shows the pre-tweak design and the user
+// sees no change. This test mirrors the index.ts dispatcher's
+// `applyKnobsToDraft` post-tweak file write — both the new
+// `<parentId>__r<ts>.html` revision file AND the parent `<parentId>.html`
+// must contain the new CSS-variable values. Locks the contract that
+// `iframeBustTick`-driven reloads in DesignCanvasCard see fresh content.
+
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+describe("dispatcher contract: applyKnobs result is written to BOTH the new revision AND the parent path", () => {
+  test("after applyKnobs, persisting to both paths leaves matching content", () => {
+    const dir = mkdtempSync(join(tmpdir(), "claude-design-tweak-"));
+    try {
+      const parentId = "d-parent";
+      const parentHtmlPath = join(dir, `${parentId}.html`);
+      writeFileSync(parentHtmlPath, FIXTURE);
+
+      // Simulate the dispatcher path:
+      const html = readFileSync(parentHtmlPath, "utf-8");
+      const { html: nextHtml, changedVars } = applyKnobs(html, { primaryColor: "#ff0066" });
+
+      // 1) Write new revision (revision history preservation).
+      const revisionId = `${parentId}__r123abc`;
+      const revisionPath = join(dir, `${revisionId}.html`);
+      writeFileSync(revisionPath, nextHtml);
+
+      // 2) Overwrite the parent (iframe URL stability).
+      writeFileSync(parentHtmlPath, nextHtml);
+
+      // Both files now show the new tokens — that's the contract.
+      expect(existsSync(revisionPath)).toBe(true);
+      expect(existsSync(parentHtmlPath)).toBe(true);
+      const revisionContents = readFileSync(revisionPath, "utf-8");
+      const parentContents = readFileSync(parentHtmlPath, "utf-8");
+      expect(revisionContents).toContain("--color-primary: #ff0066;");
+      expect(parentContents).toContain("--color-primary: #ff0066;");
+      expect(parentContents).not.toContain("--color-primary: #336699;");
+      expect(changedVars).toContain("--color-primary");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

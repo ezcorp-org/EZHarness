@@ -22,6 +22,7 @@ interface InlineToolCall {
 	conversationId: string;
 	messageId?: string;
 	cardType?: string;
+	cardLayout?: "inline" | "dock";
 }
 
 interface HydrateInput {
@@ -282,5 +283,83 @@ describe("getHistoricalToolCalls cardType mapping", () => {
 		}];
 		const mapped = mapToToolCallState(calls);
 		expect(mapped[0]!.cardType).toBe("task-detail");
+	});
+});
+
+// ── getHistoricalToolCalls cardLayout mapping ──
+// Regression for canvas-dock-sdk: after a streaming run completes,
+// `getHistoricalToolCalls` projects InlineToolCalls → ToolCallState. If
+// `cardLayout` is dropped here, `ToolCallCard.shouldRenderInDock` becomes
+// false on the persisted message and the canvas renders inline. Mirror
+// the +page.svelte mapping (now including cardLayout) and assert that
+// `dock` rides through.
+describe("getHistoricalToolCalls cardLayout mapping", () => {
+	function mapToToolCallState(calls: InlineToolCall[]): Array<{
+		id: string;
+		toolName: string;
+		status: string;
+		cardType?: string;
+		cardLayout?: "inline" | "dock";
+	}> {
+		return calls.map((c, i) => ({
+			id: c.id,
+			toolName: c.toolName,
+			status: c.status === "complete" ? "complete" : c.status === "error" ? "error" : "running",
+			input: c.input,
+			output: c.output,
+			startedAt: c.startedAt ?? i,
+			duration: c.duration,
+			extensionId: c.extensionName,
+			cardType: c.cardType,
+			cardLayout: c.cardLayout,
+		}));
+	}
+
+	test("cardLayout='dock' rides through to ToolCallState", () => {
+		const calls: InlineToolCall[] = [{
+			id: "tc-canvas-1",
+			extensionName: "claude-design",
+			toolName: "open-canvas",
+			input: { draftId: "d-1" },
+			status: "complete",
+			retryCount: 0,
+			conversationId: "c-1",
+			messageId: "m-asst-1",
+			output: "ok",
+			cardType: "design-canvas",
+			cardLayout: "dock",
+		}];
+		const mapped = mapToToolCallState(calls);
+		expect(mapped[0]!.cardLayout).toBe("dock");
+		expect(mapped[0]!.cardType).toBe("design-canvas");
+	});
+
+	test("cardLayout='inline' rides through to ToolCallState", () => {
+		const calls: InlineToolCall[] = [{
+			id: "tc-x",
+			extensionName: "task-stack",
+			toolName: "list-tasks",
+			input: {},
+			status: "complete",
+			retryCount: 0,
+			conversationId: "c-1",
+			cardLayout: "inline",
+		}];
+		const mapped = mapToToolCallState(calls);
+		expect(mapped[0]!.cardLayout).toBe("inline");
+	});
+
+	test("missing cardLayout maps to undefined (treated as inline by shouldRenderInDock)", () => {
+		const calls: InlineToolCall[] = [{
+			id: "tc-y",
+			extensionName: "ext",
+			toolName: "tool",
+			input: {},
+			status: "complete",
+			retryCount: 0,
+			conversationId: "c-1",
+		}];
+		const mapped = mapToToolCallState(calls);
+		expect(mapped[0]!.cardLayout).toBeUndefined();
 	});
 });

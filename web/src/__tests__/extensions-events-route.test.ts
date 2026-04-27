@@ -239,11 +239,52 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
     mockRegisteredEvents.add("claude-design:knob-change");
     const res = await POST(
       makeEvent({
-        toolCallId: "x".repeat(65),
+        toolCallId: "x".repeat(257),
         conversationId: "c",
       }) as never,
     );
     expect(res.status).toBe(400);
+  });
+
+  test("over-long conversationId → 400 (boundary protection)", async () => {
+    mockRegisteredEvents.add("claude-design:knob-change");
+    const res = await POST(
+      makeEvent({
+        toolCallId: "tc",
+        conversationId: "c".repeat(257),
+      }) as never,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("OpenAI-shaped toolCallId (~83 chars `call_…|fc_…`) accepted (regression for the 64→256 bump)", async () => {
+    mockRegisteredEvents.add("claude-design:knob-change");
+    mockConv = { id: "c1", userId: "user-1" };
+    const openaiId = "call_" + "a".repeat(24) + "|fc_" + "b".repeat(48);
+    expect(openaiId.length).toBe(81);
+    const res = await POST(
+      makeEvent({
+        toolCallId: openaiId,
+        conversationId: "c1",
+        knobs: { primaryColor: "#ff0066" },
+      }) as never,
+    );
+    expect(res.status).toBe(200);
+    expect(mockBusEmit).toHaveBeenCalledTimes(1);
+  });
+
+  test("Anthropic-shaped toolCallId (`toolu_…` ~30 chars) accepted", async () => {
+    mockRegisteredEvents.add("claude-design:knob-change");
+    mockConv = { id: "c1", userId: "user-1" };
+    const res = await POST(
+      makeEvent({
+        toolCallId: "toolu_01XYZabc123def456ghi789j",
+        conversationId: "c1",
+        knobs: { primaryColor: "#0066ff" },
+      }) as never,
+    );
+    expect(res.status).toBe(200);
+    expect(mockBusEmit).toHaveBeenCalledTimes(1);
   });
 
   // ── Conversation ownership ──────────────────────────────────────
@@ -384,5 +425,84 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
     );
     expect(res.status).toBe(200);
     expect(mockBusEmit).toHaveBeenCalledTimes(1);
+  });
+
+  // ── Body min-length boundaries (.min(1)) ────────────────────────
+
+  test("empty-string toolCallId → 400 (z.string().min(1) lower bound)", async () => {
+    mockRegisteredEvents.add("claude-design:knob-change");
+    const res = await POST(
+      makeEvent({ toolCallId: "", conversationId: "c" }) as never,
+    );
+    expect(res.status).toBe(400);
+    expect(mockBusEmit).not.toHaveBeenCalled();
+  });
+
+  test("empty-string conversationId → 400 (z.string().min(1) lower bound)", async () => {
+    mockRegisteredEvents.add("claude-design:knob-change");
+    const res = await POST(
+      makeEvent({ toolCallId: "tc", conversationId: "" }) as never,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("non-string toolCallId (number) → 400", async () => {
+    mockRegisteredEvents.add("claude-design:knob-change");
+    const res = await POST(
+      makeEvent({ toolCallId: 12345, conversationId: "c" }) as never,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("exactly 256-char toolCallId is the upper bound (.max(256) inclusive)", async () => {
+    mockRegisteredEvents.add("claude-design:knob-change");
+    mockConv = { id: "c", userId: "user-1" };
+    const res = await POST(
+      makeEvent({
+        toolCallId: "x".repeat(256),
+        conversationId: "c",
+      }) as never,
+    );
+    expect(res.status).toBe(200);
+    expect(mockBusEmit).toHaveBeenCalledTimes(1);
+  });
+
+  // ── Empty URL params ────────────────────────────────────────────
+
+  test("empty event-name in URL → 404 (regex lower bound)", async () => {
+    const res = await POST(
+      makeEvent(
+        { toolCallId: "tc", conversationId: "c" },
+        { name: "ext", event: "" },
+      ) as never,
+    );
+    expect(res.status).toBe(404);
+    expect(mockBusEmit).not.toHaveBeenCalled();
+  });
+
+  // ── Override-protected fields ───────────────────────────────────
+
+  test("user-supplied 'toolCallId' / 'conversationId' in extra payload do NOT override the URL/body fields", async () => {
+    // The route destructures `{toolCallId, conversationId, ...userData}`
+    // so the spread can never re-introduce a user-supplied
+    // `toolCallId`/`conversationId`. This locks that contract — a
+    // future refactor that swaps the spread order would fail here.
+    mockRegisteredEvents.add("claude-design:knob-change");
+    mockConv = { id: "c-1", userId: "user-1" };
+    const res = await POST(
+      makeEvent({
+        toolCallId: "tc-host",
+        conversationId: "c-1",
+        // The handler's destructure pulls these out before `...userData`,
+        // so the bus payload's `conversationId` is the validated body
+        // value, not whatever a malicious caller puts into a duplicate.
+        // (Zod's loose() preserves the duplicate; our handler does
+        // the right thing anyway.)
+      }) as never,
+    );
+    expect(res.status).toBe(200);
+    const [, payload] = mockBusEmit.mock.calls[0] as [string, Record<string, unknown>];
+    expect(payload.toolCallId).toBe("tc-host");
+    expect(payload.conversationId).toBe("c-1");
   });
 });

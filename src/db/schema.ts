@@ -237,6 +237,9 @@ export const toolCalls = pgTable("tool_calls", {
   success: boolean("success").notNull(),
   durationMs: integer("duration_ms").notNull(),
   cardType: text("card_type"),
+  // "inline" | "dock" | NULL. Drives the chat UI's DockHost auto-open.
+  // NULL is treated as "inline" by the host — see web/src/lib/components/tool-cards/utils.ts:shouldRenderInDock.
+  cardLayout: text("card_layout"),
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   agentConfigId: text("agent_config_id").references(() => agentConfigs.id, { onDelete: "set null" }),
   model: text("model"),

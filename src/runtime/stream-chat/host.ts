@@ -18,6 +18,7 @@ export interface PendingPermissionInfo {
   toolName: string;
   input: unknown;
   cardType?: string;
+  cardLayout?: string;
   category?: string;
 }
 

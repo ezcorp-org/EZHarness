@@ -13,6 +13,9 @@ export interface BuiltinToolDef {
   description: string;
   category: ToolCategory;
   cardType: CardType;
+  /** Built-ins are always inline — this field exists for wire compat with
+   *  the extension `ToolDefinition.cardLayout` and is not exercised today. */
+  cardLayout?: "inline" | "dock";
   /** TypeBox schema wrapping the JSON-Schema describing the tool's args.
    *  Tool factories construct this with `Type.Unsafe({...})`; the inner
    *  parameter type is the pi-ai `Tool<TSchema>["parameters"]` default —

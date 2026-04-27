@@ -35,9 +35,15 @@ import { getToolCallConversationById } from "$server/db/queries/tool-calls";
 // Boundary validation. `conversationId` and `toolCallId` are the host-
 // authoritative identity fields the extension relies on; `loose()`
 // preserves any additional user-defined keys without coercion.
+//
+// Length budget: conversationId is a UUID (~36 chars). toolCallId is
+// provider-shaped — Anthropic uses `toolu_<24>` (~30 chars), OpenAI
+// uses the compound `call_<24>|fc_<48>` form (~80 chars). 256 leaves
+// comfortable headroom for any future provider while still bounding
+// the input for DoS protection.
 const eventBodySchema = z.looseObject({
-  conversationId: z.string().min(1).max(64),
-  toolCallId: z.string().min(1).max(64),
+  conversationId: z.string().min(1).max(256),
+  toolCallId: z.string().min(1).max(256),
 });
 
 // Mirrors `manifest.name` regex. We re-validate URL params in case the

@@ -5,6 +5,18 @@ export interface ToolDefinition {
   description: string;
   inputSchema: Record<string, unknown>; // JSON Schema object
   cardType?: string; // Maps to frontend card component for custom rendering
+  /**
+   * Where the chat UI should render this tool's card when the call completes.
+   *   "inline" (default) — render inside the message bubble, same as today.
+   *   "dock"             — render in the floating right-side `DockHost` panel,
+   *                        and replace the in-message slot with a navigable
+   *                        "Canvas open ↗" pill. Only honored for
+   *                        `status === "complete"`; running calls always
+   *                        render inline (streaming-precedence rule).
+   * Unknown values are tolerated and normalized to `"inline"` at the host —
+   * the warning surfaces in the registry log without breaking install.
+   */
+  cardLayout?: "inline" | "dock";
 }
 
 export interface SkillDefinition {

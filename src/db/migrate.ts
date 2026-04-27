@@ -529,6 +529,13 @@ export async function migrate(db: any): Promise<void> {
   // ── Phase 40: Tool call cardType ──────────────────────────────
   await db.execute(sql`ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS card_type TEXT`);
 
+  // ── Canvas dock SDK: tool_calls.card_layout ───────────────────
+  // "inline" | "dock" | NULL. Plain ADD COLUMN IF NOT EXISTS — both PGlite
+  // and external Postgres support this form natively (NO PL/pgSQL DO blocks
+  // here, see plan §4.1). NULL on pre-migration rows is treated as "inline"
+  // by the chat UI.
+  await db.execute(sql`ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS card_layout TEXT`);
+
   // ── Phase 43: Sessions ──────────────────────────────────────────
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS sessions (

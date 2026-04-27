@@ -73,6 +73,7 @@ Callable functions exposed over JSON-RPC.
 | `description` | `string` | Yes | Human-readable description. |
 | `inputSchema` | `object` | Yes | JSON Schema defining accepted parameters. |
 | `cardType` | `string` | No | Custom UI card type. Maps to a Svelte component via [`tool-cards/utils.ts`](../../web/src/lib/components/tool-cards/utils.ts). For interactive cards (iframe previews, knob sliders), pair with the SDK's `createCanvas` helper — see **[Canvas Cards](canvas-cards.md)** for the full pattern. |
+| `cardLayout` | `"inline" \| "dock"` | No | Where the card renders when the call completes. Default `"inline"` — chat bubble, same as today. `"dock"` — floats in the right-side `DockHost` panel (~50% viewport on desktop, full-screen overlay on mobile) and replaces the in-message slot with a "Canvas open ↗" pill. Only `status === "complete"` calls dock; running calls always render inline. Unknown values normalize to `"inline"` with a console warning. See **[Canvas Cards](canvas-cards.md)** § Dock layout. |
 
 When `tools[]` is non-empty, `entrypoint` is **required** at the manifest level. The platform spawns a subprocess at the entrypoint and communicates via JSON-RPC over stdio.
 

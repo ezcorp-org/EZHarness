@@ -189,3 +189,28 @@ describe("buildEventUrl", () => {
     expect(buildEventUrl("a/b", "c?d")).toBe("/api/extensions/a%2Fb/events/c%3Fd");
   });
 });
+
+// ── Canvas-dock SDK regression: dock-mode src validation is unchanged ──
+//
+// The DockHost mounts the same routed component as inline mode — only its
+// parent slot moves. The plan (§ Critical constraint #4) requires that
+// security-critical iframe attributes / cross-origin refusal stay
+// byte-identical regardless of layout. This case locks down that contract.
+//
+// See canvas-dock-sdk.md §5 unit-cases iframe row.
+describe("validateIframeSrc — dock-mode regression", () => {
+  test("cross-origin URL is still rejected (sanity, no behavior change in dock mode)", () => {
+    // Dock mode is purely a CSS / parent-slot change — there is no `mode`
+    // parameter on validateIframeSrc by design. This test asserts that no
+    // future refactor accidentally ties validation to layout.
+    const result = validateIframeSrc("https://evil.example.com/x", ORIGIN);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("Cross-origin");
+    }
+  });
+
+  test("SANDBOX_FLAGS_STRICT remains the only acceptable iframe sandbox attribute", () => {
+    expect(SANDBOX_FLAGS_STRICT).toBe("allow-scripts allow-same-origin");
+  });
+});

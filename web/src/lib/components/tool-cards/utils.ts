@@ -3,6 +3,24 @@
  * Extracted for unit testability without Svelte component rendering.
  */
 
+/**
+ * Pure helper: should the tool call render in the dock instead of inline?
+ *
+ * Streaming-precedence rule: a `cardLayout: "dock"` tool only docks when
+ * its status is "complete". Running calls render inline so the user can
+ * watch progress in the message bubble. NULL/undefined `cardLayout` is
+ * treated as "inline" (backwards-compat for pre-migration tool_calls rows).
+ *
+ * Pure function — no side effects, no Svelte runes — so unit tests can
+ * exercise the matrix without a renderer.
+ */
+export function shouldRenderInDock(
+	cardLayout: string | null | undefined,
+	status: string | null | undefined,
+): boolean {
+	return cardLayout === 'dock' && status === 'complete';
+}
+
 /** Map cardType string to the component name that should render it */
 export function getCardComponentName(cardType: string | undefined, permissionPending: boolean | undefined): string {
 	if (permissionPending) return 'PermissionGate';

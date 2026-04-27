@@ -11,6 +11,30 @@ import type { StreamChatHost } from "./host";
 
 const log = logger.child("executor.streamChat.subscribe");
 
+/**
+ * Fail-open normalizer for `ToolDefinition.cardLayout`. Returns "inline"
+ * or "dock" only — anything else (typo, future value, garbage) is folded
+ * to undefined so downstream treats the row as inline. The warn-log path
+ * surfaces typos to extension authors without breaking install (per the
+ * canvas-dock-sdk plan §7.1).
+ *
+ * The toolName is included in the warning so authors can grep their
+ * manifest for the offending entry. Only warns when the input is set
+ * to a non-string truthy or a string that doesn't match the enum —
+ * undefined/null are silent (the common no-op path).
+ */
+function normalizeCardLayout(
+  raw: unknown,
+  toolName: string,
+): "inline" | "dock" | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (raw === "inline" || raw === "dock") return raw;
+  log.warn("ignoring unknown cardLayout — defaulting to inline", {
+    toolName, value: String(raw),
+  });
+  return undefined;
+}
+
 /** Subset of streamChat's options the subscribe handler reads. */
 export interface SubscribeBridgeOptions {
   agentConfigId?: string;
@@ -96,10 +120,17 @@ export function subscribeBridge(
         const startRegistered = !toolDef && event.toolName.includes("__")
           ? ExtensionRegistry.getInstance().getRegisteredTool(event.toolName)
           : undefined;
+        // cardLayout fan-out: normalize unknown values to "inline" (fail-open)
+        // and only emit when explicitly declared. Mirrors cardType resolution.
+        const startCardLayout = normalizeCardLayout(
+          toolDef?.cardLayout ?? startRegistered?.cardLayout,
+          event.toolName,
+        );
         host.bus.emit("tool:start", {
           conversationId, extensionId: "", toolName: event.toolName,
           input: event.args, timestamp: Date.now(),
           cardType: toolDef?.cardType ?? startRegistered?.cardType,
+          ...(startCardLayout ? { cardLayout: startCardLayout } : {}),
           category: toolDef?.category,
           // Propagate the pi-agent tool call id so the client can correlate
           // this start with the later complete/error event (and with the
@@ -117,16 +148,23 @@ export function subscribeBridge(
         // DefaultCard for every extension tool — including custom canvas
         // cards like claude-design's design-canvas.
         const endToolDef = ctx.builtinToolDefsMap.get(event.toolName);
-        const endCardType = endToolDef?.cardType
-          ?? (event.toolName.includes("__")
-              ? ExtensionRegistry.getInstance().getRegisteredTool(event.toolName)?.cardType
-              : undefined);
+        const endRegistered = !endToolDef && event.toolName.includes("__")
+          ? ExtensionRegistry.getInstance().getRegisteredTool(event.toolName)
+          : undefined;
+        const endCardType = endToolDef?.cardType ?? endRegistered?.cardType;
+        // Same normalization as tool:start. Only emitted when explicitly
+        // "dock" — undefined keeps the wire payload identical to today.
+        const endCardLayout = normalizeCardLayout(
+          endToolDef?.cardLayout ?? endRegistered?.cardLayout,
+          event.toolName,
+        );
         if (event.toolName !== "invoke_agent") {
           if (event.isError) {
             host.bus.emit("tool:error", {
               conversationId, extensionId: "", toolName: event.toolName,
               error: typeof event.result === 'string' ? event.result : JSON.stringify(event.result), duration: 0,
               cardType: endCardType,
+              ...(endCardLayout ? { cardLayout: endCardLayout } : {}),
               invocationId: event.toolCallId,
             });
           } else {
@@ -134,6 +172,7 @@ export function subscribeBridge(
               conversationId, extensionId: "", toolName: event.toolName,
               output: event.result, duration: 0, success: true,
               cardType: endCardType,
+              ...(endCardLayout ? { cardLayout: endCardLayout } : {}),
               invocationId: event.toolCallId,
             });
           }
@@ -160,6 +199,7 @@ export function subscribeBridge(
             success: !event.isError,
             durationMs: 0,
             cardType: endCardType ?? null,
+            cardLayout: endCardLayout ?? null,
             userId: convRecord?.userId ?? null,
             agentConfigId: options.agentConfigId ?? convRecord?.agentConfigId ?? null,
             model: options.model ?? convRecord?.model ?? null,

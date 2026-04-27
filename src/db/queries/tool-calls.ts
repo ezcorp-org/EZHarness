@@ -25,6 +25,9 @@ export interface ToolCallRow {
   success: boolean;
   durationMs: number;
   cardType?: string | null;
+  /** "inline" | "dock" — drives the chat UI's DockHost auto-open. NULL/unset
+   *  is treated as "inline" by the host (see canvas-dock-sdk plan §4). */
+  cardLayout?: string | null;
   userId?: string | null;
   agentConfigId?: string | null;
   model?: string | null;
@@ -101,6 +104,7 @@ export async function persistToolCall(row: ToolCallRow): Promise<void> {
       success: row.success,
       durationMs: row.durationMs,
       cardType: row.cardType ?? null,
+      cardLayout: row.cardLayout ?? null,
       userId: row.userId ?? null,
       agentConfigId: row.agentConfigId ?? null,
       model: row.model ?? null,

@@ -280,6 +280,13 @@ async function applyKnobsToDraft(
     join(draftsDir, `${draftId}.meta.json`),
     JSON.stringify(nextMeta, null, 2) + "\n",
   );
+  // Also overwrite the parent draft's HTML so the canvas iframe — which
+  // points at `<parentDraftId>.html` — picks up the new tokens on reload.
+  // The `__r<ts>.html` file above preserves the full revision history;
+  // the parent path is the "current head" the UI URL is stable on.
+  // Without this, the iframe URL never changes and the user sees the
+  // pre-tweak design despite the knob-change handler running.
+  writeFileSync(htmlPath, nextHtml);
   return { draftId, parentDraftId, htmlPath: newHtmlPath, changedVars };
 }
 

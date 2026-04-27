@@ -16,9 +16,14 @@
 	let {
 		toolCall,
 		conversationId = "",
+		mode = "inline",
 	}: {
 		toolCall: ToolCallState;
 		conversationId?: string;
+		/** "inline" — chat bubble. "dock" — full-bleed in DockHost panel.
+		 *  In dock mode the wrapping ExtensionIframeCard relaxes its
+		 *  min-height + drops border so the iframe fills the host. */
+		mode?: "inline" | "dock";
 	} = $props();
 
 	// ── Parse the tool result to find iframeSrc + draft id ──────────
@@ -65,7 +70,21 @@
 	});
 
 	let draftId = $derived(payload.draftId ?? "");
-	let iframeSrc = $derived(payload.iframeSrc ?? "");
+	let baseIframeSrc = $derived(payload.iframeSrc ?? "");
+
+	// Cache-busted iframe URL. Knob changes write a new revision back to
+	// the parent draft's HTML file (see `applyKnobsToDraft` in the
+	// extension's index.ts), so the iframe URL is stable but the content
+	// at that URL changes. Without a query-param bump, the browser caches
+	// the pre-tweak HTML and the user sees no change. We bump on every
+	// successful `postEvent("knob-change")` and also on iframeSrc changes.
+	let iframeBustTick = $state(0);
+	let iframeSrc = $derived.by((): string => {
+		if (!baseIframeSrc) return "";
+		if (iframeBustTick === 0) return baseIframeSrc;
+		const sep = baseIframeSrc.includes("?") ? "&" : "?";
+		return `${baseIframeSrc}${sep}_v=${iframeBustTick}`;
+	});
 
 	// conversationId is threaded through ToolCardRouter — it's the
 	// active conversation the chat page is rendering.
@@ -99,6 +118,7 @@
 		{toolCall}
 		{conversationId}
 		{iframeSrc}
+		{mode}
 		extensionName="claude-design"
 		ariaLabel="Design canvas"
 	>
@@ -172,6 +192,15 @@
 					try {
 						await postEvent("knob-change", { draftId, knobs });
 						lastKnobError = null;
+						// The route's POST returns as soon as the bus event is
+						// queued. The subprocess's handler (which runs the actual
+						// CSS-var rewrite + file write) executes asynchronously
+						// after that. 600ms is comfortably above observed handler
+						// turnaround on small drafts and below human-perceptible
+						// lag. Bumping the tick changes the iframe URL (cache-bust
+						// query param), which the ExtensionIframeCard's existing
+						// `iframeKey` effect notices and triggers a clean reload.
+						setTimeout(() => { iframeBustTick = Date.now(); }, 600);
 					} catch (err) {
 						lastKnobError = err instanceof Error ? err.message : String(err);
 					}

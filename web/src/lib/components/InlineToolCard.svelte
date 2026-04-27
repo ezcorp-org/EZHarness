@@ -1,9 +1,12 @@
 <script lang="ts">
 	import type { InlineToolCall } from "$lib/inline-tool-store.svelte.js";
 	import type { ToolCallState } from "$lib/stores.svelte.js";
+	import { openDock, store } from "$lib/stores.svelte.js";
 	import MarkdownRenderer from "./MarkdownRenderer.svelte";
 	import InfoTooltip from "./InfoTooltip.svelte";
 	import ToolCardRouter from "./tool-cards/ToolCardRouter.svelte";
+	import DockOpenPill from "./tool-cards/DockOpenPill.svelte";
+	import { shouldRenderInDock } from "./tool-cards/utils.js";
 	import { slide } from "svelte/transition";
 
 	let {
@@ -63,6 +66,11 @@
 	/** When cardType is set, delegate to the specialized card router */
 	let useSpecializedCard = $derived(!!call.cardType && call.status === 'complete');
 
+	/** Dock-routing: complete + cardLayout="dock" → render the pill, NOT the card.
+	 *  The dock itself is mounted at app-layout level; the openDock effect below
+	 *  fires when the call first enters this state, debounced by 500ms (plan §7.6). */
+	let routeToDock = $derived(shouldRenderInDock(call.cardLayout, call.status));
+
 	/** Adapt InlineToolCall to ToolCallState for the router */
 	let toolCallState = $derived.by((): ToolCallState => ({
 		id: call.id,
@@ -75,7 +83,27 @@
 		duration: call.duration,
 		extensionId: call.extensionName,
 		cardType: call.cardType,
+		cardLayout: call.cardLayout,
 	}));
+
+	// Auto-open dock on first complete-state observation (debounced 500ms).
+	// If multiple dock-mode tools complete in a tight window, only the LAST
+	// fires openDock — see plan §7.6.
+	let openDockTimer: ReturnType<typeof setTimeout> | undefined;
+	$effect(() => {
+		if (!routeToDock || !call.id || !call.conversationId) return;
+		// Skip if the user has explicitly dismissed this toolCallId — without
+		// this guard, closeDock triggers an immediate re-open loop.
+		if (store.dismissedDocks[call.conversationId]?.[call.id]) return;
+		// Skip if dock already shows this id.
+		const existing = store.dockState[call.conversationId];
+		if (existing?.toolCallId === call.id) return;
+		clearTimeout(openDockTimer);
+		const id = call.id;
+		const conv = call.conversationId;
+		openDockTimer = setTimeout(() => { openDock(conv, id); }, 500);
+		return () => { clearTimeout(openDockTimer); };
+	});
 
 	async function fetchFullOutput() {
 		if (loadingOutput || fullOutput !== null || !call.id) return;
@@ -98,7 +126,11 @@
 	}
 </script>
 
-{#if useSpecializedCard}
+{#if routeToDock && call.id}
+	<div class="ml-4">
+		<DockOpenPill toolCallId={call.id} conversationId={call.conversationId} />
+	</div>
+{:else if useSpecializedCard}
 	<div class="ml-4">
 		<ToolCardRouter toolCall={toolCallState} conversationId={call.conversationId} messageId={call.messageId} {onsendmessage} />
 	</div>

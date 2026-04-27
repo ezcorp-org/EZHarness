@@ -11,7 +11,7 @@
 	import DesignCanvasCard from "./DesignCanvasCard.svelte";
 	import DefaultCard from "./DefaultCard.svelte";
 
-	let { toolCall, conversationId, messageId, onsendmessage }: { toolCall: ToolCallState; conversationId?: string; messageId?: string; onsendmessage?: (message: string) => void } = $props();
+	let { toolCall, conversationId, messageId, onsendmessage, mode = 'inline' }: { toolCall: ToolCallState; conversationId?: string; messageId?: string; onsendmessage?: (message: string) => void; mode?: 'inline' | 'dock' } = $props();
 
 	let cardName = $derived(getCardComponentName(toolCall.cardType, toolCall.permissionPending));
 </script>
@@ -31,7 +31,7 @@
 {:else if cardName === 'AskUserQuestionCard'}
 	<AskUserQuestionCard {toolCall} />
 {:else if cardName === 'DesignCanvasCard'}
-	<DesignCanvasCard {toolCall} {conversationId} />
+	<DesignCanvasCard {toolCall} {conversationId} {mode} />
 {:else}
 	<DefaultCard {toolCall} />
 {/if}

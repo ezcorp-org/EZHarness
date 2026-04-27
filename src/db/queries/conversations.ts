@@ -449,6 +449,7 @@ export async function cloneTurnsIntoNewConversation(
         success: tc.success,
         durationMs: tc.durationMs,
         cardType: tc.cardType ?? null,
+        cardLayout: tc.cardLayout ?? null,
         userId: opts.userId ?? null,
         agentConfigId: tc.agentConfigId ?? null,
         model: tc.model ?? null,
@@ -645,6 +646,7 @@ export interface ToolCallSummary {
   durationMs: number;
   status: "success" | "error" | "interrupted";
   cardType: string | null;
+  cardLayout: string | null;
   messageId: string | null;
   createdAt: Date;
 }
@@ -694,6 +696,7 @@ function toolCallRowToSummary(tc: typeof toolCalls.$inferSelect): ToolCallSummar
     fullOutput,
     success: tc.success,
     cardType: tc.cardType ?? null,
+    cardLayout: tc.cardLayout ?? null,
     messageId: tc.messageId ?? null,
     durationMs: tc.durationMs,
     status,

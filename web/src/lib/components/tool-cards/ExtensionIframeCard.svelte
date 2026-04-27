@@ -70,6 +70,7 @@
 		extensionName,
 		sidebar,
 		ariaLabel = "Extension preview",
+		mode = "inline",
 	}: {
 		toolCall: ToolCallState;
 		/** The conversation this card lives in. Required for postEvent
@@ -89,6 +90,11 @@
 		sidebar?: Snippet<[SidebarParams]>;
 		/** Accessibility label for the iframe. */
 		ariaLabel?: string;
+		/** "inline" (default) — chat-bubble card with min-height 320px and a
+		 *  border. "dock" — full-bleed: drops the border + min-height so the
+		 *  iframe fills the DockHost panel. Security-critical sandbox attrs
+		 *  are NOT relaxed in either mode. */
+		mode?: "inline" | "dock";
 	} = $props();
 
 	// ── Validation ──────────────────────────────────────────────────
@@ -176,7 +182,7 @@
 	});
 </script>
 
-<div class="extension-iframe-card" data-tool-call-id={toolCall.id}>
+<div class="extension-iframe-card {mode === 'dock' ? 'mode-dock' : 'mode-inline'}" data-tool-call-id={toolCall.id} data-mode={mode}>
 	{#if validationError}
 		<div class="error-state" role="alert">
 			<strong>Cannot render preview:</strong>
@@ -227,6 +233,22 @@
 		border-radius: 6px;
 		overflow: hidden;
 		background: var(--color-surface, #1a1a1a);
+	}
+
+	/* Dock mode: full-bleed inside DockHost. Sandbox attrs unchanged. */
+	.extension-iframe-card.mode-dock {
+		border: 0;
+		border-radius: 0;
+		height: 100%;
+	}
+	.extension-iframe-card.mode-dock .preview-container {
+		min-height: 0;
+		height: 100%;
+	}
+	.extension-iframe-card.mode-dock .iframe-wrap,
+	.extension-iframe-card.mode-dock .iframe-wrap iframe {
+		min-height: 0;
+		height: 100%;
 	}
 
 	.preview-container {

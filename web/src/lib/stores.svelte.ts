@@ -55,8 +55,23 @@ export interface ToolCallState {
 	duration?: number;
 	extensionId?: string;
 	cardType?: string;
+	/** "inline" (default) or "dock" — when "dock" + status="complete",
+	 *  the chat UI renders a navigable pill in the message bubble and
+	 *  mounts the routed card in the right-side `DockHost` panel. */
+	cardLayout?: 'inline' | 'dock';
 	category?: string;
 	permissionPending?: boolean;
+}
+
+/**
+ * Per-conversation dock slot state. `userOverrode` flips to true when the
+ * user manually toggles the sidebar after `openDock` snapshotted the
+ * previous state — sidebar restore-on-close skips when set, per plan §7.2.
+ */
+export interface DockSlot {
+	toolCallId: string;
+	previousSidebar: boolean;
+	userOverrode: boolean;
 }
 
 export interface AgentCallState {
@@ -193,6 +208,37 @@ class AppStore {
 		conversationId: string | null;
 		drillDownAgent: { subConversationId: string; agentName: string; turnIndex?: number } | null;
 	}>(readTeamPanel() ?? { open: false, agentConfigId: null, teamName: null, conversationId: null, drillDownAgent: null });
+
+	// ── Canvas Dock SDK ──
+	// Per-conversation dock slot — null when no dock is open in that
+	// conversation. Cleared by `closeDock`. See `openDock` for snapshot
+	// semantics. Mounted by `DockHost.svelte` at app-layout level.
+	dockState = $state<Record<string, DockSlot>>({});
+
+	// Dock width in pixels. Drag-handle on `DockHost` writes here via
+	// `setDockSize`; clamped to [320, viewportWidth*0.8] and persisted
+	// to localStorage("ezcorp-dock-size-px"). Default = 50% of viewport
+	// when no prior value exists.
+	dockSizePx = $state<number>(_initDockSizePx());
+
+	// Per-conversation set of toolCallIds the user explicitly dismissed
+	// (closed the dock). The auto-open `$effect` in InlineToolCard /
+	// ToolCallCard checks this set and skips scheduling `openDock` for
+	// dismissed ids — without it, `closeDock` triggers an immediate
+	// re-open loop because `routeToDock` is still true. A manual reopen
+	// via `DockOpenPill` (or any direct `openDock` call) clears the entry
+	// for that toolCallId. New tool calls from the agent are unaffected.
+	dismissedDocks = $state<Record<string, Record<string, true>>>({});
+}
+
+function _initDockSizePx(): number {
+	if (typeof window === 'undefined') return 640;
+	try {
+		const stored = localStorage.getItem('ezcorp-dock-size-px');
+		const parsed = stored ? parseInt(stored, 10) : NaN;
+		if (Number.isFinite(parsed) && parsed > 0) return parsed;
+	} catch { /* SSR / private mode */ }
+	return Math.round(window.innerWidth * 0.5);
 }
 
 export const store = new AppStore();
@@ -462,6 +508,181 @@ export function setRunStaleness(conversationId: string, value: { stalenessMs: nu
 	store.runStaleness = { ...store.runStaleness, [conversationId]: value };
 }
 
+// ── Canvas Dock helpers ──
+//
+// Three-method API:
+//   - openDock(convId, toolCallId): snapshot sidebar, force-collapse it,
+//     persist the dock-state to localStorage. Idempotent on a no-op same-id
+//     call. Replacing the toolCallId leaves `previousSidebar` snapshot intact
+//     so close still restores the user's pre-dock state.
+//   - closeDock(convId): clear the slot, restore previousSidebar UNLESS the
+//     user manually toggled it while open (precedence rule, plan §7.2).
+//   - setDockSize(px): clamp + persist.
+//
+// Per-conversation reload restore is keyed on `ezcorp-dock-state-<convId>`
+// in localStorage; `DockHost` reads this on mount via `_readDockSlot`.
+
+const DOCK_SIZE_KEY = 'ezcorp-dock-size-px';
+
+function _dockStateKey(conversationId: string): string {
+	return `ezcorp-dock-state-${conversationId}`;
+}
+
+/**
+ * Persist a dock slot to localStorage so a hard reload reopens the dock at
+ * the same toolCallId. Stores `{toolCallId, lastOpenedAt}` only — `previousSidebar`
+ * doesn't need to round-trip because on reload we're starting fresh and the
+ * sidebar's stored value is the user's current preference anyway. Best-effort:
+ * any storage exception (private-mode, quota) is silently swallowed.
+ */
+function _writeDockSlotLS(conversationId: string, slot: { toolCallId: string }): void {
+	if (typeof localStorage === 'undefined') return;
+	try {
+		localStorage.setItem(
+			_dockStateKey(conversationId),
+			JSON.stringify({ toolCallId: slot.toolCallId, lastOpenedAt: Date.now() }),
+		);
+	} catch { /* private mode / quota */ }
+}
+
+function _clearDockSlotLS(conversationId: string): void {
+	if (typeof localStorage === 'undefined') return;
+	try { localStorage.removeItem(_dockStateKey(conversationId)); } catch {}
+}
+
+/**
+ * Read the persisted dock slot for a conversation. Used by DockHost on mount
+ * to rehydrate the prior session's open dock — if the toolCallId is no longer
+ * known to inlineToolStore (history was purged), the caller silently bails.
+ */
+export function readPersistedDockSlot(conversationId: string): { toolCallId: string; lastOpenedAt: number } | null {
+	if (typeof localStorage === 'undefined') return null;
+	try {
+		const raw = localStorage.getItem(_dockStateKey(conversationId));
+		if (!raw) return null;
+		const parsed = JSON.parse(raw) as { toolCallId?: unknown; lastOpenedAt?: unknown };
+		if (typeof parsed?.toolCallId !== 'string') return null;
+		return {
+			toolCallId: parsed.toolCallId,
+			lastOpenedAt: typeof parsed.lastOpenedAt === 'number' ? parsed.lastOpenedAt : Date.now(),
+		};
+	} catch { return null; }
+}
+
+/**
+ * Open the dock for `conversationId` showing `toolCallId`. Snapshots the
+ * current `sidebarCollapsed` only on the FIRST open (per replace-without-resnapshot
+ * rule, plan §5 unit-test #2), then forces the sidebar collapsed.
+ *
+ * Re-calling with the SAME toolCallId is a no-op — useful so $effects in
+ * `InlineToolCard` / `ChatMessage` can fire freely without double-opening.
+ */
+export function openDock(conversationId: string, toolCallId: string): void {
+	// Manual / auto open clears the user-dismissed flag for this toolCallId.
+	// Without this, clicking the chat-history "Canvas open ↗" pill after a
+	// previous close would no-op forever because the auto-open effect would
+	// still skip the dismissed id.
+	const dismissed = store.dismissedDocks[conversationId];
+	if (dismissed && dismissed[toolCallId]) {
+		const { [toolCallId]: _drop, ...remaining } = dismissed;
+		store.dismissedDocks = {
+			...store.dismissedDocks,
+			[conversationId]: remaining,
+		};
+	}
+	const existing = store.dockState[conversationId];
+	if (existing && existing.toolCallId === toolCallId) {
+		// Already open with this id — make sure the sidebar is still collapsed
+		// (the user may have re-expanded it; we don't override that here, the
+		// auto-replace path is for swapping toolCallId only).
+		_writeDockSlotLS(conversationId, { toolCallId });
+		return;
+	}
+	const previousSidebar = existing?.previousSidebar ?? store.sidebarCollapsed;
+	const userOverrode = existing?.userOverrode ?? false;
+	store.dockState = {
+		...store.dockState,
+		[conversationId]: { toolCallId, previousSidebar, userOverrode },
+	};
+	if (!store.sidebarCollapsed) {
+		store.sidebarCollapsed = true;
+		if (typeof localStorage !== 'undefined') {
+			try { localStorage.setItem('pi-sidebar-collapsed', 'true'); } catch {}
+		}
+	}
+	_writeDockSlotLS(conversationId, { toolCallId });
+}
+
+/**
+ * Close the dock for `conversationId`. Restores the snapshot of
+ * `sidebarCollapsed` UNLESS `userOverrode` is set (the user manually toggled
+ * it after the auto-collapse, so we leave their choice alone).
+ */
+export function closeDock(conversationId: string): void {
+	const slot = store.dockState[conversationId];
+	if (!slot) return;
+	const { [conversationId]: _removed, ...rest } = store.dockState;
+	store.dockState = rest;
+	// Mark this toolCallId as user-dismissed so the InlineToolCard /
+	// ToolCallCard auto-open `$effect` doesn't fire `openDock` again the
+	// moment we return — `routeToDock` is still true (cardLayout=dock,
+	// status=complete). The flag is cleared on a manual reopen via
+	// `openDock` (which the chat-history pill click goes through).
+	const prevDismissed = store.dismissedDocks[conversationId] ?? {};
+	store.dismissedDocks = {
+		...store.dismissedDocks,
+		[conversationId]: { ...prevDismissed, [slot.toolCallId]: true },
+	};
+	if (!slot.userOverrode && store.sidebarCollapsed !== slot.previousSidebar) {
+		store.sidebarCollapsed = slot.previousSidebar;
+		if (typeof localStorage !== 'undefined') {
+			try { localStorage.setItem('pi-sidebar-collapsed', String(slot.previousSidebar)); } catch {}
+		}
+	}
+	_clearDockSlotLS(conversationId);
+}
+
+/**
+ * Mark that the user manually changed `sidebarCollapsed` after `openDock`.
+ * Called by the layout's toggle handler — the layout already owns sidebar
+ * mutations, so this is the cheap centralized signal. Closes flip to "user
+ * wins": restore-on-close becomes a no-op for this dock instance.
+ *
+ * Idempotent — flips the flag for whichever conversation currently has a
+ * dock open. (Realistically only one is "active" in the UI at a time, but
+ * we keep the contract per-conversation for future multi-pane layouts.)
+ */
+export function noteSidebarUserOverride(): void {
+	const next: Record<string, DockSlot> = {};
+	let mutated = false;
+	for (const [convId, slot] of Object.entries(store.dockState)) {
+		if (!slot.userOverrode) {
+			next[convId] = { ...slot, userOverrode: true };
+			mutated = true;
+		} else {
+			next[convId] = slot;
+		}
+	}
+	if (mutated) store.dockState = next;
+}
+
+/**
+ * Set the dock width in pixels, clamping to a sane range. Persists to
+ * localStorage on every successful set so reload picks up the user's last
+ * size. Caller is responsible for reading from `store.dockSizePx` to drive
+ * the CSS `width` property.
+ */
+export function setDockSize(px: number): void {
+	if (!Number.isFinite(px)) return;
+	const min = 320;
+	const max = typeof window !== 'undefined' ? Math.round(window.innerWidth * 0.8) : 1600;
+	const clamped = Math.max(min, Math.min(max, Math.round(px)));
+	store.dockSizePx = clamped;
+	if (typeof localStorage !== 'undefined') {
+		try { localStorage.setItem(DOCK_SIZE_KEY, String(clamped)); } catch {}
+	}
+}
+
 // ── Team panel helpers ──
 
 export function openTeamPanel(conversationId: string, agentConfigId: string, teamName: string): void {
@@ -668,11 +889,12 @@ export function initStores() {
 			}
 
 			case "tool:start": {
-				const { conversationId, toolName, input, timestamp, extensionId, source, invocationId, cardType, category } = event.data as {
-					conversationId: string; toolName: string; input: unknown; timestamp: number; extensionId?: string; source?: string; invocationId?: string; cardType?: string; category?: string;
+				const { conversationId, toolName, input, timestamp, extensionId, source, invocationId, cardType, cardLayout, category } = event.data as {
+					conversationId: string; toolName: string; input: unknown; timestamp: number; extensionId?: string; source?: string; invocationId?: string; cardType?: string; cardLayout?: string; category?: string;
 				};
+				const safeLayout = cardLayout === 'dock' ? 'dock' as const : cardLayout === 'inline' ? 'inline' as const : undefined;
 				if (source === 'inline' && invocationId) {
-					inlineToolStore.updateFromEvent(invocationId, 'tool:start', { timestamp, ...(cardType ? { cardType } : {}) });
+					inlineToolStore.updateFromEvent(invocationId, 'tool:start', { timestamp, ...(cardType ? { cardType } : {}), ...(safeLayout ? { cardLayout: safeLayout } : {}) });
 					break;
 				}
 				// Live Diff Summary panel: upsert non-inline tool calls into the
@@ -690,6 +912,7 @@ export function initStores() {
 						status: 'running',
 						startedAt: timestamp,
 						...(cardType ? { cardType } : {}),
+						...(safeLayout ? { cardLayout: safeLayout } : {}),
 					});
 				}
 				// Find runId from conversationId
@@ -701,7 +924,7 @@ export function initStores() {
 					const existing = store.streamingToolCalls[runId] ?? [];
 					store.streamingToolCalls = {
 						...store.streamingToolCalls,
-						[runId]: [...existing, { ...(invocationId ? { id: invocationId } : {}), toolName, status: 'running', input, startedAt: timestamp, extensionId, cardType, category }],
+						[runId]: [...existing, { ...(invocationId ? { id: invocationId } : {}), toolName, status: 'running', input, startedAt: timestamp, extensionId, cardType, cardLayout: safeLayout, category }],
 					};
 					// Insert tool_ref into content blocks
 					const tcBuilder = blockBuilders.get(runId);
@@ -717,14 +940,15 @@ export function initStores() {
 			}
 
 			case "tool:complete": {
-				const { conversationId, toolName, output, duration, success: completeSuccess, source: completeSource, invocationId: completeInvId, cardType: completeCardType } = event.data as {
-					conversationId: string; toolName: string; output: unknown; duration: number; success?: boolean; source?: string; invocationId?: string; cardType?: string;
+				const { conversationId, toolName, output, duration, success: completeSuccess, source: completeSource, invocationId: completeInvId, cardType: completeCardType, cardLayout: completeCardLayout } = event.data as {
+					conversationId: string; toolName: string; output: unknown; duration: number; success?: boolean; source?: string; invocationId?: string; cardType?: string; cardLayout?: string;
 				};
+				const safeCompleteLayout = completeCardLayout === 'dock' ? 'dock' as const : completeCardLayout === 'inline' ? 'inline' as const : undefined;
 				if (completeSource === 'inline' && completeInvId) {
 					if (completeSuccess === false) {
 						inlineToolStore.updateFromEvent(completeInvId, 'tool:error', { error: output, duration });
 					} else {
-						inlineToolStore.updateFromEvent(completeInvId, 'tool:complete', { output, duration, ...(completeCardType ? { cardType: completeCardType } : {}) });
+						inlineToolStore.updateFromEvent(completeInvId, 'tool:complete', { output, duration, ...(completeCardType ? { cardType: completeCardType } : {}), ...(safeCompleteLayout ? { cardLayout: safeCompleteLayout } : {}) });
 					}
 					break;
 				}
@@ -745,6 +969,7 @@ export function initStores() {
 						output: outputText,
 						duration,
 						...(completeCardType ? { cardType: completeCardType } : {}),
+						...(safeCompleteLayout ? { cardLayout: safeCompleteLayout } : {}),
 					});
 				}
 				const runId = Object.entries(store.streamingRunToConversation)
@@ -758,9 +983,9 @@ export function initStores() {
 						const extractedOutput = extractToolOutput(output);
 						if (completeSuccess === false) {
 							const errText = typeof extractedOutput === 'string' ? extractedOutput : JSON.stringify(extractedOutput);
-							updated[idx] = { ...updated[idx]!, status: 'error', error: errText, output: extractedOutput, duration, permissionPending: false };
+							updated[idx] = { ...updated[idx]!, status: 'error', error: errText, output: extractedOutput, duration, permissionPending: false, ...(safeCompleteLayout ? { cardLayout: safeCompleteLayout } : {}) };
 						} else {
-							updated[idx] = { ...updated[idx]!, status: 'complete', output: extractedOutput, duration, permissionPending: false };
+							updated[idx] = { ...updated[idx]!, status: 'complete', output: extractedOutput, duration, permissionPending: false, ...(safeCompleteLayout ? { cardLayout: safeCompleteLayout } : {}) };
 						}
 						store.streamingToolCalls = { ...store.streamingToolCalls, [runId]: updated };
 					}
@@ -805,9 +1030,10 @@ export function initStores() {
 			}
 
 			case "tool:permission_request": {
-				const { conversationId, toolCallId, toolName: permToolName, input: permInput, cardType: permCardType, category: permCategory } = event.data as {
-					conversationId: string; toolCallId: string; toolName: string; input: unknown; cardType?: string; category?: string;
+				const { conversationId, toolCallId, toolName: permToolName, input: permInput, cardType: permCardType, cardLayout: permCardLayout, category: permCategory } = event.data as {
+					conversationId: string; toolCallId: string; toolName: string; input: unknown; cardType?: string; cardLayout?: string; category?: string;
 				};
+				const safePermLayout = permCardLayout === 'dock' ? 'dock' as const : permCardLayout === 'inline' ? 'inline' as const : undefined;
 				// Resolve root run — handles both root conversations and sub-agent conversations
 				const runId = resolveRunForConversation(conversationId);
 				if (runId) {
@@ -816,12 +1042,12 @@ export function initStores() {
 					const idx = calls.findLastIndex((tc) => tc.toolName === permToolName && tc.status === 'running');
 					if (idx >= 0) {
 						const updated = [...calls];
-						updated[idx] = { ...updated[idx]!, id: toolCallId, permissionPending: true, cardType: permCardType, category: permCategory };
+						updated[idx] = { ...updated[idx]!, id: toolCallId, permissionPending: true, cardType: permCardType, cardLayout: safePermLayout, category: permCategory };
 						store.streamingToolCalls = { ...store.streamingToolCalls, [runId]: updated };
 					} else {
 						store.streamingToolCalls = {
 							...store.streamingToolCalls,
-							[runId]: [...calls, { id: toolCallId, toolName: permToolName, status: 'running', input: permInput, startedAt: Date.now(), permissionPending: true, cardType: permCardType, category: permCategory }],
+							[runId]: [...calls, { id: toolCallId, toolName: permToolName, status: 'running', input: permInput, startedAt: Date.now(), permissionPending: true, cardType: permCardType, cardLayout: safePermLayout, category: permCategory }],
 						};
 					}
 				} else {

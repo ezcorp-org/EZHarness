@@ -343,7 +343,12 @@ export async function ensureBundledExtensions(): Promise<void> {
         //       integrity check is (intentionally) skipped for bundled
         //       exts — this is our only structural signal.
         try {
-          await detectAndLogManifestDrift(entry, existing.id, existing.manifest as ExtensionManifestV2);
+          await detectAndLogManifestDrift(
+            entry,
+            existing.id,
+            existing.manifest as ExtensionManifestV2,
+            (existing as { grantedPermissions?: ExtensionPermissions }).grantedPermissions,
+          );
         } catch (driftErr) {
           // Drift detection must never block startup — log and continue.
           log.warn("Manifest-drift check failed", { name: entry.name, error: String(driftErr) });
@@ -470,12 +475,38 @@ export async function ensureBundledExtensions(): Promise<void> {
 
 /**
  * Compare an on-disk manifest's `permissions` block against the
- * DB-stored manifest's permissions. Emits one WARN per differing field.
- * Intentionally does NOT mutate any state — the operator's job is to
- * either re-install (via admin UI or a future CI step) or revert the
- * on-disk change. Fail-closed guarantees that runtime enforcement
+ * DB-stored manifest's permissions AND the runtime `granted_permissions`
+ * column. Emits one WARN per differing safety-boundary field
+ * (network/filesystem/shell/env/storage/lifecycleHooks) and DOES NOT
+ * mutate them — those are privacy/safety boundaries; the operator's job
+ * is to either re-install (via admin UI or a future CI step) or revert
+ * the on-disk change. Fail-closed guarantees that runtime enforcement
  * continues to use the DB grant, not the (possibly tampered) on-disk
  * declaration.
+ *
+ * Exception: `eventSubscriptions`. This field is infrastructure
+ * plumbing (which canvas-style POST routes the extension can receive),
+ * NOT a privacy/safety boundary. Failing closed here would brick the
+ * canvas knob round-trip for any bundled extension that adds a new
+ * event after its first install — exactly the 400 captured in the
+ * test suite for this code path. The chosen policy:
+ *
+ *   - eventSubscriptions: AUTO-HEAL. If the on-disk manifest declares
+ *     subscriptions that are missing from `granted_permissions.eventSubscriptions`
+ *     OR the DB-stored manifest's `permissions.eventSubscriptions`, the
+ *     host UNION-merges the disk additions in (never removes — removal
+ *     is the operator's job via re-install) and writes a
+ *     `BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED` audit row.
+ *   - everything else: WARN-AND-FAIL-CLOSED (legacy behavior).
+ *
+ * Tradeoff: auto-heal sacrifices the strict drift signal for
+ * eventSubscriptions specifically, in exchange for avoiding the
+ * "bundled extension declares a new event but the runtime can't
+ * deliver it" footgun. Anyone who can edit the bundled extension's
+ * source can already widen its event surface — the bundled-trust model
+ * is "code review is the approval gate" — so auto-heal here is
+ * equivalent in security posture to the existing BUNDLED_REGRANTED
+ * audit behavior.
  *
  * This is the S6 invariant in the security plan — see
  * .claude/plans/mellow-floating-prism.md for the full security model.
@@ -484,6 +515,7 @@ async function detectAndLogManifestDrift(
   entry: BundledExtension,
   extensionId: string,
   dbManifest: ExtensionManifestV2,
+  dbGranted?: ExtensionPermissions,
 ): Promise<void> {
   const diskDir = join(getProjectRoot(), entry.path);
   let diskManifest: ExtensionManifestV2;
@@ -501,9 +533,11 @@ async function detectAndLogManifestDrift(
   const dbPerms = dbManifest.permissions ?? {};
   const diffs: string[] = [];
 
-  // Permission-typed fields we care about. Anything else declared in the
-  // manifest (description, version, tools list) does not affect the
-  // runtime security boundary and so is not surfaced here.
+  // Permission-typed fields we care about for the FAIL-CLOSED branch.
+  // Anything else declared in the manifest (description, version, tools
+  // list) does not affect the runtime security boundary and so is not
+  // surfaced here. eventSubscriptions is handled separately below
+  // because we auto-heal that field.
   const fields = ["network", "filesystem", "shell", "env", "storage", "lifecycleHooks"] as const;
   for (const f of fields) {
     if (JSON.stringify(diskPerms[f]) !== JSON.stringify(dbPerms[f])) {
@@ -513,29 +547,135 @@ async function detectAndLogManifestDrift(
     }
   }
 
-  if (diffs.length === 0) return;
+  if (diffs.length > 0) {
+    log.warn("Bundled extension manifest permissions drifted — DB grant unchanged (fail-closed)", {
+      name: entry.name,
+      extensionId,
+      diffs,
+    });
+    // Best-effort audit log — a durable record for post-hoc review.
+    try {
+      for (const f of fields) {
+        const oldValue = dbPerms[f];
+        const newValue = diskPerms[f];
+        if (JSON.stringify(oldValue) === JSON.stringify(newValue)) continue;
+        const meta: ExtensionAuditMetadata = {
+          permission: f,
+          oldValue,
+          newValue,
+          actor: "system",
+          reason: "bundled-manifest-drifted: on-disk declaration diverges from DB",
+        };
+        await insertAuditEntry(null, EXT_AUDIT_ACTIONS.MANIFEST_DRIFTED, extensionId, meta);
+      }
+    } catch { /* audit write failure is non-fatal — the WARN is the primary signal */ }
+  }
 
-  log.warn("Bundled extension manifest permissions drifted — DB grant unchanged (fail-closed)", {
+  // ── eventSubscriptions auto-heal branch ──────────────────────────
+  //
+  // Compare the on-disk declaration against BOTH the DB manifest's
+  // permissions block AND the runtime grant. If the disk declares any
+  // subscription not present in either, union-merge it into
+  // `granted_permissions.eventSubscriptions` and the DB manifest's
+  // `permissions.eventSubscriptions`, then audit. Pure additions only
+  // — disk-only removals are not propagated (operator's job at
+  // re-install time, mirroring the network/filesystem fail-closed
+  // policy).
+  const diskEvents = Array.isArray(diskPerms.eventSubscriptions)
+    ? diskPerms.eventSubscriptions
+    : [];
+  const dbManifestEvents = Array.isArray(dbPerms.eventSubscriptions)
+    ? dbPerms.eventSubscriptions
+    : [];
+  const dbGrantedEvents = Array.isArray(dbGranted?.eventSubscriptions)
+    ? (dbGranted!.eventSubscriptions as string[])
+    : [];
+
+  // Union of "what's already on the row". Merging via Set so duplicates
+  // don't accumulate when the disk and grant both declare the same entry.
+  const existing = new Set<string>([...dbManifestEvents, ...dbGrantedEvents]);
+  const additions = diskEvents.filter((e) => !existing.has(e));
+
+  if (additions.length === 0) return;
+
+  // Compose the new grant + manifest so the union holds across both
+  // columns. Idempotent — same on-disk additions on the next boot
+  // produce no further diffs.
+  const newGrantedEvents = Array.from(new Set<string>([...dbGrantedEvents, ...additions]));
+  const newManifestEvents = Array.from(new Set<string>([...dbManifestEvents, ...additions]));
+
+  try {
+    const updates: Partial<{
+      grantedPermissions: ExtensionPermissions;
+      manifest: ExtensionManifestV2;
+    }> = {};
+    if (dbGranted) {
+      updates.grantedPermissions = {
+        ...dbGranted,
+        eventSubscriptions: newGrantedEvents,
+        grantedAt: {
+          ...(dbGranted.grantedAt ?? {}),
+          eventSubscriptions: Date.now(),
+        },
+      };
+    }
+    const newManifest: ExtensionManifestV2 = {
+      ...dbManifest,
+      permissions: {
+        ...dbPerms,
+        eventSubscriptions: newManifestEvents,
+      },
+    };
+    updates.manifest = newManifest;
+    await updateExtension(extensionId, updates);
+    // ALSO mutate the in-memory snapshot the caller is holding so the
+    // downstream "refresh manifest from disk" branch in
+    // `ensureBundledExtensions` (which reads `existing.manifest.permissions`
+    // and would otherwise overwrite our backfill with the pre-backfill
+    // snapshot) sees the merged state. Without this, the manifest column
+    // would oscillate every boot; the grant column survives because the
+    // refresh only touches `manifest`, but cosmetic drift would re-fire.
+    if (dbManifest.permissions == null) {
+      (dbManifest as { permissions: Record<string, unknown> }).permissions = {
+        eventSubscriptions: newManifestEvents,
+      };
+    } else {
+      (dbManifest.permissions as { eventSubscriptions?: string[] }).eventSubscriptions =
+        newManifestEvents;
+    }
+  } catch (writeErr) {
+    log.warn("eventSubscriptions backfill write failed", {
+      name: entry.name,
+      extensionId,
+      error: String(writeErr),
+    });
+    return;
+  }
+
+  log.info("Backfilled bundled extension eventSubscriptions from disk manifest", {
     name: entry.name,
     extensionId,
-    diffs,
+    additions,
   });
-  // Best-effort audit log — a durable record for post-hoc review.
+
   try {
-    for (const f of fields) {
-      const oldValue = dbPerms[f];
-      const newValue = diskPerms[f];
-      if (JSON.stringify(oldValue) === JSON.stringify(newValue)) continue;
-      const meta: ExtensionAuditMetadata = {
-        permission: f,
-        oldValue,
-        newValue,
-        actor: "system",
-        reason: "bundled-manifest-drifted: on-disk declaration diverges from DB",
-      };
-      await insertAuditEntry(null, EXT_AUDIT_ACTIONS.MANIFEST_DRIFTED, extensionId, meta);
-    }
-  } catch { /* audit write failure is non-fatal — the WARN is the primary signal */ }
+    const meta: ExtensionAuditMetadata = {
+      permission: "eventSubscriptions",
+      oldValue: dbGrantedEvents,
+      newValue: newGrantedEvents,
+      actor: "system",
+      reason:
+        "bundled-event-subscriptions-backfilled: on-disk manifest declared additions not " +
+        "present in the DB grant. Auto-heal — eventSubscriptions are infrastructure plumbing, " +
+        "not a privacy/safety boundary.",
+    };
+    await insertAuditEntry(
+      null,
+      EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED,
+      extensionId,
+      meta,
+    );
+  } catch { /* non-fatal — the info log is the primary signal */ }
 }
 
 /**

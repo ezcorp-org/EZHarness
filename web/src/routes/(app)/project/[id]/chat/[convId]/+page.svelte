@@ -1217,6 +1217,9 @@
 			duration: c.duration,
 			extensionId: c.extensionName,
 			cardType: c.cardType,
+			// Preserve cardLayout so ToolCallCard's `routeToDock` derived can fire
+			// for persisted dock-routed cards (canvas-dock-sdk.md §5).
+			cardLayout: c.cardLayout,
 		}));
 	}
 </script>

@@ -169,6 +169,7 @@ export default defineExtension({
         required: ["draftId"],
       },
       cardType: "design-canvas",
+      cardLayout: "dock",
     },
   ],
 

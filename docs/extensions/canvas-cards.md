@@ -267,6 +267,75 @@ The wire format is byte-equivalent — no behavior change. `ask-user` migrated i
 | iframe shows "Cannot render preview" | `iframeSrc` is cross-origin or non-http(s) | Use `extensionDataUrl()`; URL is relative same-origin |
 | Two consumers register same `<ns>:<event>` | Cross-namespace forgery — dispatcher rejects | Each extension declares only `<own-name>:<event>` |
 
+## Dock layout
+
+Set `cardLayout: "dock"` on a `ToolDefinition` to opt into the floating
+right-side `DockHost` panel — a Slack/Linear-style sidecar (~50% viewport
+on desktop, full-screen overlay on mobile) that lives at the app-layout
+level. The same routed component (e.g. `DesignCanvasCard`) is mounted in
+the dock; only its parent slot moves. Inline cards keep their existing
+behavior.
+
+```ts
+{
+  name: "open-canvas",
+  description: "...",
+  inputSchema: { ... },
+  cardType: "design-canvas",
+  cardLayout: "dock", // ← single line opts into the dock host
+}
+```
+
+### What the host does for you
+
+1. **Auto-replace.** The first dock-mode tool that completes opens the
+   dock. Subsequent dock-mode completions in the same conversation
+   REPLACE the dock content; the previous tool call's bubble shows a
+   navigable "Canvas open ↗" pill that re-routes to that draft when
+   clicked.
+2. **Sidebar precedence.** The host snapshots the user's
+   `sidebarCollapsed` preference, force-collapses the sidebar to give
+   the dock breathing room, and restores the snapshot on close. If the
+   user manually toggles the sidebar while the dock is open, that's
+   "user wins" — close-on-dock skips the auto-restore.
+3. **Streaming-precedence.** Running calls (`status === "running"`)
+   always render inline so the user can watch progress. Only completed
+   calls dock — the inline → dock handoff happens on `tool:complete`.
+4. **Persistence.** Dock open-state survives a page reload (per-conv
+   `localStorage["ezcorp-dock-state-<convId>"]`). The size is per-user
+   (`localStorage["ezcorp-dock-size-px"]`).
+5. **Mobile.** ≤640px viewport flips the dock to a full-screen overlay
+   with swipe-to-dismiss (vertical-down or horizontal-right >80px). The
+   close button stays available too.
+6. **Debounce.** If multiple dock-mode tools complete within 500ms,
+   only the last fires `openDock` — prevents flicker on multi-tool
+   turns.
+7. **Pop out to new tab.** If your tool's result includes an `iframeSrc`
+   field (a relative path or same-origin absolute URL), the dock header
+   shows a "Pop out" button that opens that URL in a new browser tab via
+   `window.open(url, '_blank', 'noopener,noreferrer')`. Cross-origin or
+   non-http(s) URLs are silently ignored — same policy as the embedded
+   iframe. No extension code needed; the convention is the contract.
+8. **Esc + close button.** The dock header's "Close" button and the Esc
+   key both dismiss the dock. The closed `toolCallId` is marked
+   "dismissed" in the store so the auto-open `$effect` doesn't fight the
+   user; clicking the chat-history "Canvas open ↗" pill clears the flag
+   and reopens.
+
+### Security note
+
+The component identity is the same in both inline and dock modes. The
+iframe sandbox attribute (`allow-scripts allow-same-origin`) and the
+`validateIframeSrc` cross-origin refusal are unchanged. Dock mode only
+relaxes presentational CSS (border, min-height) — never the
+`SANDBOX_FLAGS_STRICT` constant in `iframe-card-logic.ts`.
+
+### Backwards compat
+
+Pre-migration `tool_calls` rows have `card_layout = NULL`. The
+`shouldRenderInDock` helper treats NULL as `"inline"`, so existing inline
+cards (terminal, diff, ask-user, etc.) render exactly as today.
+
 ## Reference
 
 - SDK: [`packages/@ezcorp/sdk/src/runtime/canvas.ts`](../../packages/@ezcorp/sdk/src/runtime/canvas.ts)

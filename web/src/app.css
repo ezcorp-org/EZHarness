@@ -63,17 +63,21 @@ html[data-dev-indicator="1"] img[src="/logo.svg"] {
 }
 
 .chat-input-container {
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1.25rem);
+  margin-bottom: calc(env(safe-area-inset-bottom, 0px) + 1.5rem);
+  padding-bottom: 0.5rem;
 }
 
 @media (min-width: 768px) {
   .chat-input-container {
+    margin-bottom: 0;
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
-}
 
-:root:has(textarea:focus-visible) .chat-input-container {
-  padding-bottom: 0;
+  /* Desktop only: collapse padding while typing so the input doesn't feel oversized.
+     Mobile keeps its breathing room above the keyboard / nav. */
+  :root:has(textarea:focus-visible) .chat-input-container {
+    padding-bottom: 0;
+  }
 }
 
 /* WCAG 2.1 AA focus indicators — keyboard-only via :focus-visible */

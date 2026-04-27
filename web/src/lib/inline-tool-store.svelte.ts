@@ -12,6 +12,10 @@ export interface InlineToolCall {
   conversationId: string;
   messageId?: string;
   cardType?: string;
+  /** "inline" | "dock" — the chat UI's DockHost reads this to decide
+   *  whether to auto-open a docked card on completion. NULL/undefined
+   *  is treated as "inline" by `shouldRenderInDock` (utils.ts). */
+  cardLayout?: 'inline' | 'dock';
   /**
    * Where this entry came from:
    *   'inline'    — user-initiated invocation from the client (default).
@@ -55,6 +59,9 @@ class InlineToolStore {
       case 'tool:start': {
         const startUpdate: Partial<InlineToolCall> = { status: 'running', startedAt: data.timestamp as number };
         if (data.cardType) startUpdate.cardType = data.cardType as string;
+        if (data.cardLayout === 'dock' || data.cardLayout === 'inline') {
+          startUpdate.cardLayout = data.cardLayout as 'inline' | 'dock';
+        }
         updated[idx] = { ...call, ...startUpdate };
         break;
       }
@@ -65,6 +72,9 @@ class InlineToolStore {
           duration: data.duration as number,
         };
         if (data.cardType) completeUpdate.cardType = data.cardType as string;
+        if (data.cardLayout === 'dock' || data.cardLayout === 'inline') {
+          completeUpdate.cardLayout = data.cardLayout as 'inline' | 'dock';
+        }
         updated[idx] = { ...call, ...completeUpdate };
         break;
       }
@@ -126,6 +136,7 @@ class InlineToolStore {
     output?: string;
     error?: string;
     cardType?: string;
+    cardLayout?: 'inline' | 'dock';
     messageId?: string;
     /** Defaults to 'agent-run' since this path is only called by the SSE
      *  event handler for non-inline tool events. */
@@ -169,6 +180,7 @@ class InlineToolStore {
     status: "success" | "error" | "interrupted";
     messageId?: string;
     cardType?: string | null;
+    cardLayout?: string | null;
     fullOutput?: string | null;
   }>): void {
     // Remove existing calls for this conversation (streaming ones get replaced by DB state)
@@ -189,6 +201,7 @@ class InlineToolStore {
       conversationId,
       messageId: tc.messageId,
       cardType: tc.cardType ?? undefined,
+      cardLayout: tc.cardLayout === 'dock' ? 'dock' as const : tc.cardLayout === 'inline' ? 'inline' as const : undefined,
     }));
     this.calls = [...otherCalls, ...hydrated];
   }

@@ -51,6 +51,7 @@ export interface HistoricalToolCall {
 	toolName: string;
 	status: "success" | "error" | "interrupted";
 	source?: "user" | "agent";
+	cardLayout?: string | null;
 }
 
 /** Tool-call shape consumed by `inlineToolStore.hydrateToolCalls`. */
@@ -66,6 +67,7 @@ export interface HydrateInputCall {
 	status: "success" | "error" | "interrupted";
 	messageId?: string;
 	cardType?: string | null;
+	cardLayout?: string | null;
 }
 
 /** Raw API row (loose — server may add new fields and we tolerate them). */
@@ -81,6 +83,7 @@ interface ApiToolCallRow {
 	durationMs: number;
 	messageId?: string | null;
 	cardType?: string | null;
+	cardLayout?: string | null;
 }
 
 /** Raw `/messages?withToolCalls=true` payload. */
@@ -167,6 +170,7 @@ export function hydrateToolCallsFromApiData(
 				extensionId: tc.extensionId,
 				toolName: tc.toolName,
 				status: tc.status,
+				cardLayout: tc.cardLayout ?? null,
 			});
 			hydrateInput.push({ ...tc, messageId: msg.id });
 		}

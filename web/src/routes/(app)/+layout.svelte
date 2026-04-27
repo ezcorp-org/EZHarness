@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { store, initStores } from "$lib/stores.svelte.js";
+	import { store, initStores, noteSidebarUserOverride } from "$lib/stores.svelte.js";
 	import { onMount } from "svelte";
 	import { afterNavigate } from "$app/navigation";
 	import { goto } from "$app/navigation";
@@ -17,6 +17,7 @@
 	import PullToRefresh from "$lib/components/PullToRefresh.svelte";
 	import SwipeDrawer from "$lib/components/SwipeDrawer.svelte";
 	import TeamChatPanel from "$lib/components/TeamChatPanel.svelte";
+	import DockHost from "$lib/components/tool-cards/DockHost.svelte";
 
 	let { children } = $props();
 	let commandPaletteOpen = $state(false);
@@ -27,6 +28,10 @@
 	let userMenuOpen = $state(false);
 
 	function toggleSidebar() {
+		// User-action precedence rule (canvas-dock-sdk plan §7.2): manually
+		// toggling the sidebar while the dock is open marks the dock slot's
+		// `userOverrode = true`, so close-on-dock skips the auto-restore.
+		noteSidebarUserOverride();
 		store.sidebarCollapsed = !store.sidebarCollapsed;
 		if (typeof localStorage !== "undefined") {
 			localStorage.setItem("pi-sidebar-collapsed", String(store.sidebarCollapsed));
@@ -327,6 +332,7 @@
 <ConnectionBanner />
 <ToastContainer />
 <ImageLightbox />
+<DockHost />
 
 <!-- Mobile overlay drawer -->
 <SwipeDrawer

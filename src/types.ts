@@ -251,10 +251,10 @@ export interface AgentEvents {
   "pipeline:step": { pipelineRun: PipelineRun; step: PipelineStepRun };
   "pipeline:complete": { pipelineRun: PipelineRun };
   "pipeline:error": { pipelineRun: PipelineRun; error: string };
-  "tool:start": { conversationId: string; extensionId: string; toolName: string; input: unknown; timestamp: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; category?: string };
-  "tool:complete": { conversationId: string; extensionId: string; toolName: string; output: unknown; duration: number; success: boolean; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string };
-  "tool:error": { conversationId: string; extensionId: string; toolName: string; error: string; duration: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string };
-  "tool:permission_request": { conversationId: string; toolCallId: string; toolName: string; input: unknown; cardType?: string; category?: string };
+  "tool:start": { conversationId: string; extensionId: string; toolName: string; input: unknown; timestamp: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string; category?: string };
+  "tool:complete": { conversationId: string; extensionId: string; toolName: string; output: unknown; duration: number; success: boolean; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };
+  "tool:error": { conversationId: string; extensionId: string; toolName: string; error: string; duration: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };
+  "tool:permission_request": { conversationId: string; toolCallId: string; toolName: string; input: unknown; cardType?: string; cardLayout?: string; category?: string };
   "tool:kill": { toolCallId: string };
   "tool:permission_mode_change": { conversationId: string; mode: string };
   "obs:turn": { conversationId: string; messageId?: string; llmDurationMs: number; toolDurationMs: number; totalDurationMs: number; tokenUsage: { input: number; output: number } };

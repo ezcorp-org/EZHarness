@@ -65,6 +65,25 @@ export const EXT_AUDIT_ACTIONS = {
    *  (Phase 2c). The metadata `reason` field distinguishes them:
    *  `"rate-limited"`, `"not-wired"`, `"no-conversation-id"`. */
   EVENT_SUBSCRIPTION_DENIED: "ext:event-subscription-denied",
+  /**
+   * `ensureBundledExtensions()` self-healed a bundled extension's
+   * `eventSubscriptions` grant: the on-disk manifest declared
+   * additions (or net-new subscriptions) that were missing from
+   * the DB-stored grant, so the host backfilled them into
+   * `granted_permissions.eventSubscriptions` and the manifest's
+   * `permissions.eventSubscriptions`. Only fires for the
+   * eventSubscriptions field — every other permission field
+   * still warns-and-fails-closed via MANIFEST_DRIFTED.
+   *
+   * Rationale: eventSubscriptions are infrastructure plumbing
+   * (which canvas-style POST routes the extension can receive),
+   * not a privacy/safety boundary like network/filesystem/shell.
+   * Failing closed there would brick the canvas knob round-trip
+   * for any bundled extension that adds a new event after its
+   * first install — exactly the bug captured in the test
+   * suite for this audit action.
+   */
+  BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED: "ext:bundled-event-subscriptions-backfilled",
 } as const;
 
 export type ExtAuditAction = typeof EXT_AUDIT_ACTIONS[keyof typeof EXT_AUDIT_ACTIONS];

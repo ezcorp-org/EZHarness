@@ -160,6 +160,7 @@ interface PendingPermissionEntry {
 	toolName: string;
 	input: Record<string, unknown> | null;
 	cardType?: string | null;
+	cardLayout?: string | null;
 	category?: string | null;
 }
 
@@ -249,6 +250,7 @@ export async function runActiveRunCheck(
 							startedAt: Date.now(),
 							permissionPending: true,
 							cardType: perm.cardType ?? undefined,
+							cardLayout: perm.cardLayout === 'dock' ? 'dock' as const : perm.cardLayout === 'inline' ? 'inline' as const : undefined,
 							category: perm.category ?? undefined,
 						},
 					],
