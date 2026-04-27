@@ -44,7 +44,7 @@
 	}
 </script>
 
-<div class="flex h-full w-[72px] shrink-0 flex-col items-center bg-[var(--color-surface-secondary)] py-3">
+<div class="sticky top-0 self-start flex h-[100dvh] max-h-[100dvh] w-[72px] shrink-0 flex-col items-center bg-[var(--color-surface-secondary)] py-3">
 	<!-- Home button -->
 	<button
 		class="group relative mb-2 flex cursor-pointer items-center"
@@ -86,7 +86,7 @@
 	<div class="mx-auto mb-2 h-0.5 w-8 rounded-full bg-[var(--color-border)]"></div>
 
 	<!-- Project icons -->
-	<div class="flex flex-1 flex-col items-center gap-2 overflow-y-auto">
+	<div class="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto scrollbar-hide">
 		{#each store.projects.filter(p => p.id !== "global") as project (project.id)}
 			{@const isActive = store.activeProjectId === project.id}
 			<button

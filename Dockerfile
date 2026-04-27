@@ -78,10 +78,17 @@ COPY --from=builder /app/web/build ./web/build
 # image upgrades). Default backup dir resolves to /app/data/backups via
 # src/db/backup.ts:getBackupDir(), so one mount covers both.
 #
+# /app/.ezcorp is the per-project extension-data root (openai-image-gen-2
+# writes generated PNGs there; rehydrator reads them on subsequent turns).
+# It must exist in the image with bun ownership — otherwise the named-volume
+# mount in compose.prod.yml creates the directory as root at runtime, and
+# the unprivileged `bun` user can't mkdir extension-data/<name>/ inside it.
+#
 # chown to the `bun` user so the runtime (which runs unprivileged — see USER
 # below) can write snapshots, backups, and the persistent encryption secret.
-RUN mkdir -p /app/data && chown -R bun:bun /app /app/data
+RUN mkdir -p /app/data /app/.ezcorp && chown -R bun:bun /app /app/data /app/.ezcorp
 VOLUME /app/data
+VOLUME /app/.ezcorp
 
 EXPOSE 3000
 

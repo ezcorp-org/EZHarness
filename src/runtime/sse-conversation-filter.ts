@@ -59,6 +59,148 @@ export const DIRECT_CARRIER_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
   "task:assignment_update",
 ]);
 
+// ── Extension-declared event registry ───────────────────────────────
+//
+// Phase A2: extensions can declare their own canvas events via
+// `permissions.eventSubscriptions: ["<extName>:<event>"]` in the
+// manifest. Each entry is registered here at extension load time.
+// Both the SSE filter (this module) and the EventSubscriptionDispatcher
+// consult this registry to decide whether `<extName>:<event>` is a
+// recognized event type.
+//
+// The static set above continues to enumerate platform events.
+// Extension events live here, are auto-pruned when the extension
+// reloads, and can never collide with a platform event because the
+// platform set is checked first.
+//
+// Same threat model as the static set: events here MUST carry
+// `conversationId` at the top level — `shouldDeliverEvent` filters
+// them. Extensions that emit without a conversationId have the event
+// pass through unfiltered (matches platform behavior on the three
+// optional carriers `run:complete`/`:error`/`:cancel`).
+
+/** Validation regex for extension namespaces. Mirrors manifest.name. */
+const NAMESPACE_REGEX = /^[a-z0-9][a-z0-9-_.]{0,63}$/;
+
+/** namespace → Set<eventName>. Populated by `registerExtensionEvent`,
+ *  cleared by `unregisterExtensionEvents`. Read by both the SSE filter
+ *  (for delivery scoping) and the EventSubscriptionDispatcher (for the
+ *  manifest-clamp at registration time). */
+const extensionEventRegistry = new Map<string, Set<string>>();
+
+/**
+ * Register an extension-declared event. Called by the dispatcher's
+ * `registerExtension` once per declared `<namespace>:<event>` entry
+ * in the manifest. Idempotent — re-registering the same pair is a
+ * no-op.
+ *
+ * Validation:
+ *   - namespace must match `/^[a-z0-9][a-z0-9-_.]{0,63}$/` (extension
+ *     name regex).
+ *   - eventName must be a non-empty string with no colon (a colon
+ *     would re-prefix the event when the dispatcher composes the bus
+ *     event name).
+ *   - the composed `<namespace>:<eventName>` MUST NOT collide with
+ *     a platform event in `DIRECT_CARRIER_EVENT_TYPES`. Without this
+ *     guard, an extension named `ask-user`/`tool`/`task`/`run`/`obs`
+ *     could shadow a platform event and POST to it through the
+ *     generic events route, bypassing the bespoke route's stricter
+ *     authorization (e.g., ask-user's in-memory pending registry).
+ *     [F3 from the Phase A security review]
+ *
+ * Returns true if accepted, false if rejected. Rejection is silent —
+ * the dispatcher logs at the call site.
+ */
+export function registerExtensionEvent(namespace: string, eventName: string): boolean {
+  if (!NAMESPACE_REGEX.test(namespace)) return false;
+  if (typeof eventName !== "string" || eventName.length === 0) return false;
+  if (eventName.includes(":")) return false;
+  // Platform-event collision guard — see comment above. The cast
+  // mirrors `DIRECT_CARRIER_EVENT_TYPES`'s `keyof AgentEvents`
+  // membership check used elsewhere; runtime is just a Set lookup.
+  const composed = `${namespace}:${eventName}`;
+  if (DIRECT_CARRIER_EVENT_TYPES.has(composed as keyof AgentEvents)) return false;
+  let set = extensionEventRegistry.get(namespace);
+  if (!set) {
+    set = new Set();
+    extensionEventRegistry.set(namespace, set);
+  }
+  set.add(eventName);
+  return true;
+}
+
+/**
+ * Drop a SINGLE registered (namespace, event) tuple. Phase A2 hardens
+ * the un-registration path: the prior wholesale-by-namespace API
+ * `unregisterExtensionEvents` was retained for back-compat, but the
+ * dispatcher now uses this finer-grained helper to avoid wiping
+ * sibling extensions when two share a manifest name.
+ * [F1 from the Phase A security review]
+ *
+ * Idempotent — unknown (namespace, event) is a no-op. Empties an
+ * empty namespace bucket to keep the registry compact.
+ */
+export function unregisterExtensionEvent(namespace: string, eventName: string): void {
+  const set = extensionEventRegistry.get(namespace);
+  if (!set) return;
+  set.delete(eventName);
+  if (set.size === 0) extensionEventRegistry.delete(namespace);
+}
+
+/**
+ * Drop every event registration for the given namespace. Retained
+ * for callers that genuinely own the namespace wholesale. The
+ * dispatcher does NOT use this — see `unregisterExtensionEvent`.
+ */
+export function unregisterExtensionEvents(namespace: string): void {
+  extensionEventRegistry.delete(namespace);
+}
+
+/**
+ * Split a bus event name on the FIRST colon. Returns null if there
+ * isn't one or either side is empty. The first-colon rule matches
+ * the platform convention (`tool:start`, `ask-user:answer`) and
+ * leaves room for extension events to use colons in the suffix
+ * (currently rejected by `registerExtensionEvent` — kept disallowed
+ * to avoid ambiguity with multi-segment platform events).
+ */
+function parseEventName(eventType: string): { namespace: string; event: string } | null {
+  const idx = eventType.indexOf(":");
+  if (idx <= 0 || idx >= eventType.length - 1) return null;
+  return {
+    namespace: eventType.slice(0, idx),
+    event: eventType.slice(idx + 1),
+  };
+}
+
+/**
+ * True iff the event type matches `<namespace>:<event>` AND the
+ * extension has declared that event. Platform events (in
+ * `DIRECT_CARRIER_EVENT_TYPES`) return false here even though they
+ * may share the `<ns>:<event>` shape — the static set is checked
+ * first by `shouldDeliverEvent` and `isDirectCarrierEvent`.
+ */
+export function isRegisteredExtensionEvent(eventType: string): boolean {
+  const parsed = parseEventName(eventType);
+  if (!parsed) return false;
+  return extensionEventRegistry.get(parsed.namespace)?.has(parsed.event) === true;
+}
+
+/**
+ * True iff the event is a known direct-carrier (platform OR
+ * extension-declared). Both kinds carry `conversationId` and require
+ * authorization filtering.
+ */
+export function isDirectCarrierEvent(eventType: string): boolean {
+  if (DIRECT_CARRIER_EVENT_TYPES.has(eventType as keyof AgentEvents)) return true;
+  return isRegisteredExtensionEvent(eventType);
+}
+
+/** Test-only: drop all extension event registrations. */
+export function __clearExtensionEventRegistryForTests(): void {
+  extensionEventRegistry.clear();
+}
+
 /**
  * Membership cache for `isAuthorizedForConversation`. Per-process,
  * per-(userId,conversationId) with a 30s TTL. Prevents N+1 DB queries
@@ -133,7 +275,9 @@ export async function shouldDeliverEvent(
 ): Promise<boolean> {
   // Not a direct-carrier event → pass through. Client-side filtering
   // handles any conversation-identity resolution via `runId`.
-  if (!DIRECT_CARRIER_EVENT_TYPES.has(eventType as keyof AgentEvents)) return true;
+  // Both platform (`DIRECT_CARRIER_EVENT_TYPES`) and extension-declared
+  // events (`isRegisteredExtensionEvent`) get the same scope filter.
+  if (!isDirectCarrierEvent(eventType as string)) return true;
 
   // Extract conversationId from the payload. If it's absent (valid for
   // the three optional carriers `run:complete`/`:error`/`:cancel`),

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { store } from "$lib/stores.svelte.js";
+	import { hasProviderInSettings } from "$lib/has-provider.js";
 
 	const QUICKSTART_KEY = "pi-quickstart";
 
@@ -22,11 +23,7 @@
 	let apiSteps = $state<{ provider: boolean; chat: boolean; extension: boolean; agent: boolean } | null>(null);
 
 	// Live store fallback: provider updates immediately when user adds one in current session
-	let hasProviderFromStore = $derived(
-		Object.keys(store.settings).some(
-			(k) => k.startsWith("provider:") && k.includes(":apiKey") || k.startsWith("provider:oauth:"),
-		),
-	);
+	let hasProviderFromStore = $derived(hasProviderInSettings(store.settings));
 	let hasAgentsFromStore = $derived(store.agentConfigs.length > 0);
 
 	// Merged completion: API data OR live store (whichever is true)
@@ -103,16 +100,18 @@
 				Get Started
 				<span class="text-[var(--color-text-muted)] font-normal">{progress}/{steps.length}</span>
 			</button>
-			<button
-				onclick={dismiss}
-				class="rounded p-0.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
-				title="Dismiss checklist"
-				aria-label="Dismiss checklist"
-			>
-				<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-				</svg>
-			</button>
+			{#if progress > 0}
+				<button
+					onclick={dismiss}
+					class="rounded p-0.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
+					title="Dismiss checklist"
+					aria-label="Dismiss checklist"
+				>
+					<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+					</svg>
+				</button>
+			{/if}
 		</div>
 
 		<!-- Progress bar -->

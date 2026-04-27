@@ -10,6 +10,7 @@ Extensions run in isolated subprocesses with strict security boundaries. They co
 - **[API Reference](api-reference.md)** -- CLI commands, SDK types, JSON-RPC protocol, and Storage API
 - **[Manifest Schema](manifest-schema.md)** -- Complete manifest field reference with permissions
 - **[Data Storage Convention](data-storage.md)** -- Where extensions write persistent user-visible files
+- **[Canvas Cards](canvas-cards.md)** -- Interactive cards with iframe previews + bidirectional events (`createCanvas`, `ExtensionIframeCard`)
 - **[Examples](examples/)** -- Working example extensions for common patterns
 
 ## Quick Links
@@ -42,6 +43,7 @@ See the [Getting Started guide](getting-started.md) for the full walkthrough.
 | **Env Vars** | Read host environment | `permissions.env: ["VAR_NAME"]` |
 | **Storage** | Persistent key-value DB | `permissions.storage: true` |
 | **Lifecycle hooks** | Subscribe to platform events | `permissions.lifecycleHooks: true` |
+| **Canvas cards** | Interactive UI cards with bidirectional events ([guide](canvas-cards.md)) | `tools[].cardType` + `permissions.eventSubscriptions` |
 | **Cross-extension calls** | Invoke other extensions' tools | `dependencies` declared in manifest |
 
 ## Security Model

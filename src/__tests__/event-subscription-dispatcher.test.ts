@@ -66,6 +66,25 @@ function mockRegistry(procs: Map<string, ReturnType<typeof mockProc>>) {
   } as any;
 }
 
+/** Registry stub that ALSO supports getManifest, used for Phase A2
+ *  extension-event tests. The legacy `mockRegistry` (no getManifest)
+ *  remains for the platform-event tests so we exercise the defensive
+ *  fall-through path. */
+function mockRegistryWithManifests(
+  procs: Map<string, ReturnType<typeof mockProc>>,
+  manifests: Record<string, { name: string }>,
+) {
+  return {
+    getProcessIfRunning(extensionId: string) {
+      const p = procs.get(extensionId);
+      return p?.isRunning ? p : null;
+    },
+    getManifest(extensionId: string) {
+      return manifests[extensionId];
+    },
+  } as any;
+}
+
 /** Stub wiring lookup — `conversationId → string[]` of wired extensionIds. */
 function wireLookup(map: Record<string, string[]>): (convId: string) => Promise<string[]> {
   return async (convId: string) => map[convId] ?? [];
@@ -393,5 +412,334 @@ describe("EventSubscriptionDispatcher — lifecycle", () => {
 
     expect(proc.calls).toHaveLength(0);
     expect(auditCalls).toHaveLength(0);
+  });
+});
+
+// ── Phase A2: extension-declared events ─────────────────────────────
+
+describe("EventSubscriptionDispatcher — extension-declared events", () => {
+  beforeEach(async () => {
+    auditCalls.length = 0;
+    const { __clearExtensionEventRegistryForTests } = await import(
+      "../runtime/sse-conversation-filter"
+    );
+    __clearExtensionEventRegistryForTests();
+  });
+
+  afterEach(async () => {
+    const { __clearExtensionEventRegistryForTests } = await import(
+      "../runtime/sse-conversation-filter"
+    );
+    __clearExtensionEventRegistryForTests();
+  });
+
+  test("registers <extName>:<event> when extName matches manifest.name", async () => {
+    const { isRegisteredExtensionEvent } = await import(
+      "../runtime/sse-conversation-filter"
+    );
+    const proc = mockProc();
+    const bus = new EventBus<AgentEvents>();
+    const dispatcher = new EventSubscriptionDispatcher(
+      bus,
+      mockRegistryWithManifests(
+        new Map([["ext-a", proc]]),
+        { "ext-a": { name: "claude-design" } },
+      ),
+      wireLookup({ "c1": ["ext-a"] }),
+    );
+    dispatcher.registerExtension("ext-a", ["claude-design:knob-change"]);
+    dispatcher.start();
+
+    expect(isRegisteredExtensionEvent("claude-design:knob-change")).toBe(true);
+
+    bus.emit(
+      "claude-design:knob-change" as never,
+      { conversationId: "c1", primaryColor: "#ff0066" } as never,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(proc.calls).toHaveLength(1);
+    expect(proc.calls[0]?.method).toBe("ezcorp/event/claude-design:knob-change");
+    expect((proc.calls[0]?.params as Record<string, unknown>)?.conversationId).toBe("c1");
+  });
+
+  test("rejects cross-namespace subscription (ext-a manifest.name='alpha' cannot subscribe to 'beta:evt')", async () => {
+    const { isRegisteredExtensionEvent } = await import(
+      "../runtime/sse-conversation-filter"
+    );
+    const proc = mockProc();
+    const bus = new EventBus<AgentEvents>();
+    const dispatcher = new EventSubscriptionDispatcher(
+      bus,
+      mockRegistryWithManifests(
+        new Map([["ext-a", proc]]),
+        { "ext-a": { name: "alpha" } },
+      ),
+      wireLookup({ "c1": ["ext-a"] }),
+    );
+    dispatcher.registerExtension("ext-a", ["beta:evt"]);
+    dispatcher.start();
+
+    expect(isRegisteredExtensionEvent("beta:evt")).toBe(false);
+
+    bus.emit(
+      "beta:evt" as never,
+      { conversationId: "c1" } as never,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(proc.calls).toHaveLength(0);
+  });
+
+  test("missing manifest (no getManifest on registry) silently skips extension events", async () => {
+    const { isRegisteredExtensionEvent } = await import(
+      "../runtime/sse-conversation-filter"
+    );
+    const proc = mockProc();
+    const bus = new EventBus<AgentEvents>();
+    const dispatcher = new EventSubscriptionDispatcher(
+      bus,
+      mockRegistry(new Map([["ext-a", proc]])), // no getManifest
+      wireLookup({ "c1": ["ext-a"] }),
+    );
+    // ext-event silently dropped, platform-event accepted.
+    dispatcher.registerExtension("ext-a", ["claude-design:knob-change", "task:snapshot"]);
+    dispatcher.start();
+
+    expect(isRegisteredExtensionEvent("claude-design:knob-change")).toBe(false);
+
+    bus.emit("task:snapshot", snapshotPayload("c1") as AgentEvents["task:snapshot"]);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(proc.calls).toHaveLength(1);
+    expect(proc.calls[0]?.method).toBe("ezcorp/event/task:snapshot");
+  });
+
+  test("mixed platform + extension events both register from one call", async () => {
+    const { isRegisteredExtensionEvent } = await import(
+      "../runtime/sse-conversation-filter"
+    );
+    const proc = mockProc();
+    const bus = new EventBus<AgentEvents>();
+    const dispatcher = new EventSubscriptionDispatcher(
+      bus,
+      mockRegistryWithManifests(
+        new Map([["ext-a", proc]]),
+        { "ext-a": { name: "claude-design" } },
+      ),
+      wireLookup({ "c1": ["ext-a"] }),
+    );
+    dispatcher.registerExtension("ext-a", [
+      "task:snapshot",
+      "claude-design:knob-change",
+    ]);
+    dispatcher.start();
+
+    expect(isRegisteredExtensionEvent("claude-design:knob-change")).toBe(true);
+
+    bus.emit("task:snapshot", snapshotPayload("c1") as AgentEvents["task:snapshot"]);
+    bus.emit(
+      "claude-design:knob-change" as never,
+      { conversationId: "c1" } as never,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(proc.calls).toHaveLength(2);
+    expect(proc.calls.map((c) => c.method).sort()).toEqual([
+      "ezcorp/event/claude-design:knob-change",
+      "ezcorp/event/task:snapshot",
+    ]);
+  });
+
+  test("unregisterExtension drops both subscriptions and SSE-filter entries", async () => {
+    const { isRegisteredExtensionEvent } = await import(
+      "../runtime/sse-conversation-filter"
+    );
+    const proc = mockProc();
+    const bus = new EventBus<AgentEvents>();
+    const dispatcher = new EventSubscriptionDispatcher(
+      bus,
+      mockRegistryWithManifests(
+        new Map([["ext-a", proc]]),
+        { "ext-a": { name: "claude-design" } },
+      ),
+      wireLookup({ "c1": ["ext-a"] }),
+    );
+    dispatcher.registerExtension("ext-a", ["claude-design:knob-change"]);
+    dispatcher.start();
+
+    expect(isRegisteredExtensionEvent("claude-design:knob-change")).toBe(true);
+
+    dispatcher.unregisterExtension("ext-a");
+
+    expect(isRegisteredExtensionEvent("claude-design:knob-change")).toBe(false);
+
+    // Bus listener still wired (start() ran), but no subscribers map → no delivery.
+    bus.emit(
+      "claude-design:knob-change" as never,
+      { conversationId: "c1" } as never,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(proc.calls).toHaveLength(0);
+  });
+
+  test("malformed extension-event names are silently dropped", async () => {
+    const { isRegisteredExtensionEvent } = await import(
+      "../runtime/sse-conversation-filter"
+    );
+    const proc = mockProc();
+    const bus = new EventBus<AgentEvents>();
+    const dispatcher = new EventSubscriptionDispatcher(
+      bus,
+      mockRegistryWithManifests(
+        new Map([["ext-a", proc]]),
+        { "ext-a": { name: "claude-design" } },
+      ),
+      wireLookup({ "c1": ["ext-a"] }),
+    );
+    // Each rejected: leading colon, trailing colon, no colon, empty.
+    dispatcher.registerExtension("ext-a", [
+      ":evt",
+      "claude-design:",
+      "no-colon",
+      "",
+    ]);
+    expect(isRegisteredExtensionEvent(":evt")).toBe(false);
+    expect(isRegisteredExtensionEvent("claude-design:")).toBe(false);
+    expect(isRegisteredExtensionEvent("no-colon")).toBe(false);
+  });
+
+  // ── S-2: double unregister no-op ──────────────────────────────────
+
+  test("S-2: unregisterExtension is a safe no-op when called twice", async () => {
+    const { isRegisteredExtensionEvent } = await import(
+      "../runtime/sse-conversation-filter"
+    );
+    const proc = mockProc();
+    const bus = new EventBus<AgentEvents>();
+    const dispatcher = new EventSubscriptionDispatcher(
+      bus,
+      mockRegistryWithManifests(
+        new Map([["ext-a", proc]]),
+        { "ext-a": { name: "claude-design" } },
+      ),
+      wireLookup({ "c1": ["ext-a"] }),
+    );
+    dispatcher.registerExtension("ext-a", ["claude-design:knob-change"]);
+    dispatcher.unregisterExtension("ext-a");
+    // Second call — must not throw, must leave the registry clean.
+    expect(() => dispatcher.unregisterExtension("ext-a")).not.toThrow();
+    // Third call on an extension that never registered — also no-op.
+    expect(() => dispatcher.unregisterExtension("never-existed")).not.toThrow();
+    expect(isRegisteredExtensionEvent("claude-design:knob-change")).toBe(false);
+  });
+
+  // ── S-3: rate limiter applies to extension events ─────────────────
+
+  test("S-3: rate limiter applies to extension events with the same per-ext budget as platform events", async () => {
+    const proc = mockProc();
+    const bus = new EventBus<AgentEvents>();
+    const dispatcher = new EventSubscriptionDispatcher(
+      bus,
+      mockRegistryWithManifests(
+        new Map([["ext-a", proc]]),
+        { "ext-a": { name: "claude-design" } },
+      ),
+      wireLookup({ "c1": ["ext-a"] }),
+      { maxOpsPerSecond: 5 }, // small budget to exercise the limiter quickly
+    );
+    dispatcher.registerExtension("ext-a", ["claude-design:knob-change"]);
+    dispatcher.start();
+
+    // Fire 10 rapid events — exactly 5 should pass, 5 should drop.
+    for (let i = 0; i < 10; i++) {
+      bus.emit(
+        "claude-design:knob-change" as never,
+        { conversationId: "c1", iter: i } as never,
+      );
+    }
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(proc.calls.length).toBeGreaterThanOrEqual(4);
+    expect(proc.calls.length).toBeLessThanOrEqual(5);
+    // Same path that platform events take — same code, no special branch.
+    for (const call of proc.calls) {
+      expect(call.method).toBe("ezcorp/event/claude-design:knob-change");
+    }
+  });
+
+  // ── F1 regression: shared-namespace unregister doesn't wipe sibling ──
+
+  test("F1: unregisterExtension only removes own tuples; sibling extension keeps its events", async () => {
+    const { isRegisteredExtensionEvent } = await import(
+      "../runtime/sse-conversation-filter"
+    );
+    const procA = mockProc();
+    const procB = mockProc();
+    const bus = new EventBus<AgentEvents>();
+    // Two extensions sharing a manifest.name — registry doesn't enforce
+    // uniqueness today, so the dispatcher must be defensive.
+    const dispatcher = new EventSubscriptionDispatcher(
+      bus,
+      mockRegistryWithManifests(
+        new Map([["a1", procA], ["a2", procB]]),
+        {
+          "a1": { name: "shared" },
+          "a2": { name: "shared" },
+        },
+      ),
+      wireLookup({ "c1": ["a1", "a2"] }),
+    );
+    dispatcher.registerExtension("a1", ["shared:evt-a"]);
+    dispatcher.registerExtension("a2", ["shared:evt-b"]);
+    expect(isRegisteredExtensionEvent("shared:evt-a")).toBe(true);
+    expect(isRegisteredExtensionEvent("shared:evt-b")).toBe(true);
+
+    // Unregister a1 — must NOT wipe a2's `shared:evt-b`.
+    dispatcher.unregisterExtension("a1");
+    expect(isRegisteredExtensionEvent("shared:evt-a")).toBe(false);
+    expect(isRegisteredExtensionEvent("shared:evt-b")).toBe(true);
+  });
+
+  // ── F3 regression: platform-collision rejection ─────────────────
+
+  test("F3: extension named 'ask-user' cannot register 'ask-user:answer' (platform-collision)", async () => {
+    const { isRegisteredExtensionEvent } = await import(
+      "../runtime/sse-conversation-filter"
+    );
+    const proc = mockProc();
+    const bus = new EventBus<AgentEvents>();
+    const dispatcher = new EventSubscriptionDispatcher(
+      bus,
+      mockRegistryWithManifests(
+        new Map([["ext-x", proc]]),
+        { "ext-x": { name: "ask-user" } },
+      ),
+      wireLookup({ "c1": ["ext-x"] }),
+    );
+    // The extension's own namespace + an event name that produces a
+    // string colliding with `DIRECT_CARRIER_EVENT_TYPES`. Must be
+    // rejected — otherwise it could be POST'd through the generic
+    // route and bypass the bespoke ask-user authorization.
+    dispatcher.registerExtension("ext-x", ["ask-user:answer"]);
+    expect(isRegisteredExtensionEvent("ask-user:answer")).toBe(false);
+  });
+
+  test("F3: extension named 'task' cannot register 'task:snapshot'", async () => {
+    const { isRegisteredExtensionEvent } = await import(
+      "../runtime/sse-conversation-filter"
+    );
+    const proc = mockProc();
+    const bus = new EventBus<AgentEvents>();
+    const dispatcher = new EventSubscriptionDispatcher(
+      bus,
+      mockRegistryWithManifests(
+        new Map([["ext-y", proc]]),
+        { "ext-y": { name: "task" } },
+      ),
+      wireLookup({ "c1": ["ext-y"] }),
+    );
+    dispatcher.registerExtension("ext-y", ["task:snapshot"]);
+    expect(isRegisteredExtensionEvent("task:snapshot")).toBe(false);
   });
 });

@@ -16,13 +16,12 @@ logs
 *.log
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
-# dotenv
+# dotenv — never commit any .env* file, with one exception: *.example
+# templates are explicitly tracked so contributors know what shape a
+# concrete .env should take (real secrets must NEVER live in those).
 .env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
-.env.seed
+.env.*
+!.env.*.example
 
 # caches
 .eslintcache
@@ -74,3 +73,7 @@ web/e2e/.docker-auth.json
 
 # User-created projects (host-accessible bind mount from docker-compose)
 projects/
+
+# Local git worktrees — checked-out branches under ./worktrees/ for parallel
+# work. Never commit; the actual branches live in the remote.
+worktrees/

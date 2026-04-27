@@ -216,13 +216,14 @@
 </script>
 
 {#if message.role === "system"}
-	<div class="flex justify-center py-2">
+	<div class="flex justify-center py-2" data-message-id={message.id}>
 		<span class="text-xs text-[var(--color-text-muted)] italic">{message.content}</span>
 	</div>
 {:else if message.role === "user"}
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<div
 		class="group relative flex gap-3 px-4 py-3 bg-[var(--color-surface-tertiary)]/50 rounded-lg hover:outline hover:outline-1 hover:outline-[var(--color-border)] {selectable ? 'cursor-pointer' : ''} {selectable && selected ? 'outline outline-2 outline-blue-500' : ''}"
+		data-message-id={message.id}
 		data-excluded={message.excluded ? 'true' : undefined}
 		onclick={(e) => handleRowClick(e, selectable, onselectionchange, message.id)}
 		onkeydown={selectable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onselectionchange?.(message.id, e); } } : undefined}
@@ -270,6 +271,7 @@
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<div
 		class="group relative flex gap-3 px-4 py-3 rounded-lg hover:outline hover:outline-1 hover:outline-[var(--color-border)] {selectable ? 'cursor-pointer' : ''} {selectable && selected ? 'outline outline-2 outline-blue-500' : ''}"
+		data-message-id={message.id}
 		data-excluded={message.excluded ? 'true' : undefined}
 		onclick={(e) => handleRowClick(e, selectable, onselectionchange, message.id)}
 		onkeydown={selectable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onselectionchange?.(message.id, e); } } : undefined}

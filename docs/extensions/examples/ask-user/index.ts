@@ -39,32 +39,64 @@
 // survives across calls.
 
 import {
+  createCanvas,
   createToolDispatcher,
   getChannel,
-  registerEventHandler,
   toolResult,
   type ToolHandler,
   type ToolHandlerContext,
 } from "@ezcorp/sdk/runtime";
 
 // ── Capability bindings (swappable for tests) ──────────────────────
+//
+// Phase C migration: replaced the bespoke `registerEventHandler` call
+// with the SDK's `createCanvas` helper — same wire format on the bus,
+// but a typed canvas surface that ask-user shares with claude-design
+// (the first canvas consumer). The pattern is now identical across
+// every extension that has a custom card type:
+//
+//   createCanvas({
+//     cardType: "<advertised on the tool>",
+//     namespace: "<manifest.name>",
+//     events: { "<event>": handler },
+//   });
+//
+// The seam below lets tests swap `createCanvas` for a no-op so the
+// production wiring path can be exercised without opening stdin and
+// without registering real channel handlers.
 
-type RegisterEventHandlerFn = typeof registerEventHandler;
+type CreateCanvasFn = typeof createCanvas;
 
-let registerEventHandlerImpl: RegisterEventHandlerFn = registerEventHandler;
+let createCanvasImpl: CreateCanvasFn = createCanvas;
 
-/** Test-only: inject a fake registerEventHandler. Defaults to the SDK's
- *  real implementation, which opens the channel; tests that want to
- *  drive the subscription manually (via `_internals.handleAnswer`) can
- *  swap in a no-op. */
-export function _setRegisterEventHandlerForTests(fake: RegisterEventHandlerFn): void {
-  registerEventHandlerImpl = fake;
+/** Test-only: inject a fake createCanvas. Defaults to the SDK's real
+ *  implementation. Tests that drive `_internals.handleAnswer` directly
+ *  swap in a no-op so `start()` can be invoked safely. */
+export function _setCreateCanvasForTests(fake: CreateCanvasFn): void {
+  createCanvasImpl = fake;
 }
 
 /** Test-only: restore the real SDK binding. */
 export function _resetBindingsForTests(): void {
-  registerEventHandlerImpl = registerEventHandler;
+  createCanvasImpl = createCanvas;
 }
+
+/** @deprecated Phase C migrated ask-user from `registerEventHandler` to
+ *  `createCanvas`. This export THROWS on call — the legacy seam was
+ *  silently load-bearing for in-flight test files, and a silent no-op
+ *  trap would let "I swapped the registration" tests pass without
+ *  actually swapping anything (silent test corruption). Calling this
+ *  function is now a loud migration prompt:
+ *    `_setRegisterEventHandlerForTests` was removed in Phase C.
+ *    Use `_setCreateCanvasForTests` instead.
+ *  See `docs/extensions/canvas-cards.md` for migration guidance.
+ *  [F2 from the Phase C review] */
+export const _setRegisterEventHandlerForTests = (_fake: unknown): never => {
+  throw new Error(
+    "[ask-user] _setRegisterEventHandlerForTests was removed in Phase C — " +
+      "use _setCreateCanvasForTests instead.",
+  );
+};
 
 // ── Timeout (injectable for tests) ─────────────────────────────────
 
@@ -244,7 +276,25 @@ export const _internals = {
 export function start(): void {
   const ch = getChannel();
   createToolDispatcher(tools);
-  registerEventHandlerImpl("ask-user:answer", handleAnswer);
+  // Phase C: createCanvas registers an `onRequest` handler at
+  // `ezcorp/event/ask-user:answer` — same wire format as the legacy
+  // `registerEventHandler("ask-user:answer", …)`. The handler unwraps
+  // the host's flat payload (toolCallId, conversationId, answer) and
+  // delegates to the existing `handleAnswer` so tests that drive
+  // `_internals.handleAnswer` directly continue to work unchanged.
+  // Generic carries the typed event-payload shape — no cast at the
+  // handler boundary. The SDK extracts toolCallId/conversationId into
+  // `context`, but ask-user uses the whole frame as the legacy
+  // `IncomingAskUserAnswer` shape.
+  createCanvasImpl<{ answer: IncomingAskUserAnswer }>({
+    cardType: "ask-user-question",
+    namespace: "ask-user",
+    events: {
+      answer: async ({ payload }) => {
+        await handleAnswer(payload);
+      },
+    },
+  });
   ch.start();
 }
 

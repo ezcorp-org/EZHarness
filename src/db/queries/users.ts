@@ -1,4 +1,4 @@
-import { eq, inArray, not, like } from "drizzle-orm";
+import { eq, inArray, not, like, sql, and, isNull } from "drizzle-orm";
 import { getDb } from "../connection";
 import { users } from "../schema";
 import type { User, NewUser } from "../schema";
@@ -78,5 +78,20 @@ export async function updateUserEmail(id: string, email: string): Promise<boolea
 
 export async function updateUserName(id: string, name: string): Promise<boolean> {
   const rows = await getDb().update(users).set({ name }).where(eq(users.id, id)).returning();
+  return rows.length > 0;
+}
+
+/**
+ * First-write-wins. Returns true if this call set the timestamp;
+ * false if the user was already onboarded (or doesn't exist). The
+ * `WHERE onboarded_at IS NULL` clause keeps a re-POST race (e.g. two
+ * tabs both finishing the wizard) from advancing the original stamp.
+ */
+export async function markUserOnboarded(id: string): Promise<boolean> {
+  const rows = await getDb()
+    .update(users)
+    .set({ onboardedAt: sql`NOW()` })
+    .where(and(eq(users.id, id), isNull(users.onboardedAt)))
+    .returning();
   return rows.length > 0;
 }

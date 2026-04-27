@@ -16,10 +16,12 @@ mock.module("@ezcorp/sdk/runtime", () => ({
   }),
   getChannel: () => ({ start: () => {}, onRequest: () => {} }),
   createToolDispatcher: () => {},
-  // `registerEventHandler` is what the start() function calls. The
-  // production wiring assigns the real SDK function to
-  // `registerEventHandlerImpl` at module load, so this fake is what
-  // start() invokes.
+  // Phase C: ask-user's start() now calls `createCanvas` instead of
+  // `registerEventHandler`. The fake mirrors the SDK's return shape
+  // (an empty object) so start()'s sync flow completes.
+  createCanvas: (_opts: unknown) => ({}),
+  // Legacy export still imported by the production module's
+  // `_setRegisterEventHandlerForTests` deprecation alias.
   registerEventHandler: () => {},
 }));
 

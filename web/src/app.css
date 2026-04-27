@@ -41,6 +41,10 @@ button:not(:disabled) {
   cursor: pointer;
 }
 
+html[data-dev-indicator="1"] img[src="/logo.svg"] {
+  filter: invert(1) hue-rotate(180deg);
+}
+
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
@@ -59,7 +63,13 @@ button:not(:disabled) {
 }
 
 .chat-input-container {
-  padding-bottom: env(safe-area-inset-bottom, 0);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1.25rem);
+}
+
+@media (min-width: 768px) {
+  .chat-input-container {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
 }
 
 :root:has(textarea:focus-visible) .chat-input-container {
@@ -70,4 +80,12 @@ button:not(:disabled) {
 :focus-visible {
   outline: 2px solid var(--color-accent, #60a5fa);
   outline-offset: 2px;
+}
+
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }

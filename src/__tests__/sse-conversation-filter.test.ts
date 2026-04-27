@@ -11,7 +11,12 @@ import {
   shouldDeliverEvent,
   isAuthorizedForConversation,
   __clearMembershipCacheForTests,
+  __clearExtensionEventRegistryForTests,
   DIRECT_CARRIER_EVENT_TYPES,
+  isDirectCarrierEvent,
+  isRegisteredExtensionEvent,
+  registerExtensionEvent,
+  unregisterExtensionEvents,
 } from "../runtime/sse-conversation-filter";
 
 // ── Fake getConversation ──
@@ -221,5 +226,200 @@ describe("shouldDeliverEvent — optional-carrier events without conversationId"
       get,
     );
     expect(deliver).toBe(false);
+  });
+});
+
+// ── Phase A2: extension-declared event registry ─────────────────────
+
+describe("registerExtensionEvent — validation", () => {
+  beforeEach(() => __clearExtensionEventRegistryForTests());
+  afterEach(() => __clearExtensionEventRegistryForTests());
+
+  test("accepts a valid namespace + event pair", () => {
+    expect(registerExtensionEvent("claude-design", "knob-change")).toBe(true);
+    expect(isRegisteredExtensionEvent("claude-design:knob-change")).toBe(true);
+  });
+
+  test("rejects namespace not matching extension-name regex", () => {
+    expect(registerExtensionEvent("Bad Name", "evt")).toBe(false);
+    expect(registerExtensionEvent("UPPER", "evt")).toBe(false);
+    expect(registerExtensionEvent("", "evt")).toBe(false);
+    expect(registerExtensionEvent("a".repeat(65), "evt")).toBe(false);
+  });
+
+  test("rejects empty event name", () => {
+    expect(registerExtensionEvent("ext", "")).toBe(false);
+  });
+
+  test("rejects event name containing a colon (would re-prefix)", () => {
+    expect(registerExtensionEvent("ext", "nested:event")).toBe(false);
+  });
+
+  test("re-registering the same pair is idempotent", () => {
+    expect(registerExtensionEvent("ext", "evt")).toBe(true);
+    expect(registerExtensionEvent("ext", "evt")).toBe(true);
+    expect(isRegisteredExtensionEvent("ext:evt")).toBe(true);
+  });
+});
+
+describe("isRegisteredExtensionEvent — pattern matching", () => {
+  beforeEach(() => __clearExtensionEventRegistryForTests());
+  afterEach(() => __clearExtensionEventRegistryForTests());
+
+  test("returns false for empty registry regardless of input", () => {
+    expect(isRegisteredExtensionEvent("anything")).toBe(false);
+    expect(isRegisteredExtensionEvent("ext:evt")).toBe(false);
+    expect(isRegisteredExtensionEvent("")).toBe(false);
+  });
+
+  test("returns false for missing colon", () => {
+    registerExtensionEvent("ext", "evt");
+    expect(isRegisteredExtensionEvent("evt")).toBe(false);
+    expect(isRegisteredExtensionEvent("ext")).toBe(false);
+  });
+
+  test("returns false for leading/trailing colon", () => {
+    registerExtensionEvent("ext", "evt");
+    expect(isRegisteredExtensionEvent(":evt")).toBe(false);
+    expect(isRegisteredExtensionEvent("ext:")).toBe(false);
+  });
+
+  test("splits on the FIRST colon (suffix may contain colons in theory; rejected at register time)", () => {
+    // We cannot register "a:b:c" because event name with ":" is rejected.
+    // But the splitter uses first-colon — namespace "a" looks for event "b:c".
+    // Both would have to have been registered to match.
+    registerExtensionEvent("a", "b");
+    expect(isRegisteredExtensionEvent("a:b")).toBe(true);
+    expect(isRegisteredExtensionEvent("a:b:c")).toBe(false); // "a" has no event "b:c"
+  });
+
+  test("returns false for unknown namespace", () => {
+    registerExtensionEvent("ext-a", "evt");
+    expect(isRegisteredExtensionEvent("ext-b:evt")).toBe(false);
+  });
+
+  test("returns false for known namespace with unknown event", () => {
+    registerExtensionEvent("ext", "evt-1");
+    expect(isRegisteredExtensionEvent("ext:evt-2")).toBe(false);
+  });
+});
+
+describe("unregisterExtensionEvents — cleanup", () => {
+  beforeEach(() => __clearExtensionEventRegistryForTests());
+  afterEach(() => __clearExtensionEventRegistryForTests());
+
+  test("drops every event for the namespace", () => {
+    registerExtensionEvent("ext", "a");
+    registerExtensionEvent("ext", "b");
+    expect(isRegisteredExtensionEvent("ext:a")).toBe(true);
+    expect(isRegisteredExtensionEvent("ext:b")).toBe(true);
+
+    unregisterExtensionEvents("ext");
+    expect(isRegisteredExtensionEvent("ext:a")).toBe(false);
+    expect(isRegisteredExtensionEvent("ext:b")).toBe(false);
+  });
+
+  test("does not affect other namespaces", () => {
+    registerExtensionEvent("ext-a", "evt");
+    registerExtensionEvent("ext-b", "evt");
+
+    unregisterExtensionEvents("ext-a");
+    expect(isRegisteredExtensionEvent("ext-a:evt")).toBe(false);
+    expect(isRegisteredExtensionEvent("ext-b:evt")).toBe(true);
+  });
+
+  test("unregistering an unknown namespace is a no-op", () => {
+    registerExtensionEvent("ext", "evt");
+    expect(() => unregisterExtensionEvents("never-registered")).not.toThrow();
+    expect(isRegisteredExtensionEvent("ext:evt")).toBe(true);
+  });
+});
+
+describe("isDirectCarrierEvent — combined predicate", () => {
+  beforeEach(() => __clearExtensionEventRegistryForTests());
+  afterEach(() => __clearExtensionEventRegistryForTests());
+
+  test("returns true for platform events", () => {
+    expect(isDirectCarrierEvent("tool:start")).toBe(true);
+    expect(isDirectCarrierEvent("ask-user:answer")).toBe(true);
+    expect(isDirectCarrierEvent("task:snapshot")).toBe(true);
+  });
+
+  test("returns true for registered extension events", () => {
+    registerExtensionEvent("claude-design", "knob-change");
+    expect(isDirectCarrierEvent("claude-design:knob-change")).toBe(true);
+  });
+
+  test("returns false for unknown events", () => {
+    expect(isDirectCarrierEvent("nope:never")).toBe(false);
+    expect(isDirectCarrierEvent("totally-unknown")).toBe(false);
+  });
+
+  test("platform events take precedence over registry collisions", () => {
+    // Even if someone registered an extension named "tool" with event
+    // "start" (which the dispatcher's namespace check would reject in
+    // practice), the platform set is checked first.
+    registerExtensionEvent("tool", "start");
+    expect(isDirectCarrierEvent("tool:start")).toBe(true);
+  });
+});
+
+describe("shouldDeliverEvent — extension events", () => {
+  beforeEach(() => {
+    __clearMembershipCacheForTests();
+    __clearExtensionEventRegistryForTests();
+  });
+  afterEach(() => {
+    __clearMembershipCacheForTests();
+    __clearExtensionEventRegistryForTests();
+  });
+
+  test("extension event WITHOUT conversationId passes through (can't filter what we can't see)", async () => {
+    registerExtensionEvent("claude-design", "knob-change");
+    const get = makeGetConversation({});
+    const deliver = await shouldDeliverEvent(
+      "claude-design:knob-change",
+      { primaryColor: "#ff0066" }, // no conversationId
+      { userId: "user-1" },
+      get,
+    );
+    expect(deliver).toBe(true);
+  });
+
+  test("extension event WITH owning user delivers", async () => {
+    registerExtensionEvent("claude-design", "knob-change");
+    const get = makeGetConversation({ "conv-A": { userId: "user-1" } });
+    const deliver = await shouldDeliverEvent(
+      "claude-design:knob-change",
+      { conversationId: "conv-A", primaryColor: "#ff0066" },
+      { userId: "user-1" },
+      get,
+    );
+    expect(deliver).toBe(true);
+  });
+
+  test("extension event WITH non-owning user is filtered", async () => {
+    registerExtensionEvent("claude-design", "knob-change");
+    const get = makeGetConversation({ "conv-A": { userId: "owner" } });
+    const deliver = await shouldDeliverEvent(
+      "claude-design:knob-change",
+      { conversationId: "conv-A", primaryColor: "#ff0066" },
+      { userId: "intruder" },
+      get,
+    );
+    expect(deliver).toBe(false);
+  });
+
+  test("UNREGISTERED extension event passes through (defense: not our problem)", async () => {
+    // No registration call. The unknown event is treated as not-a-direct-
+    // carrier and passes through to the client-side filter.
+    const get = makeGetConversation({ "conv-A": { userId: "owner" } });
+    const deliver = await shouldDeliverEvent(
+      "unknown-ext:rogue",
+      { conversationId: "conv-A" },
+      { userId: "intruder" },
+      get,
+    );
+    expect(deliver).toBe(true);
   });
 });

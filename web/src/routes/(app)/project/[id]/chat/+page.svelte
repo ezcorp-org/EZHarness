@@ -3,14 +3,24 @@
 	import { goto } from "$app/navigation";
 	import { onMount } from "svelte";
 	import { createConversation, fetchConversations } from "$lib/api.js";
+	import { store } from "$lib/stores.svelte.js";
 	import ConversationList from "$lib/components/ConversationList.svelte";
 	import EmptyState from "$lib/components/EmptyState.svelte";
+	import NoProviderBanner from "$lib/components/chat/NoProviderBanner.svelte";
+	import ProjectRail from "$lib/components/ProjectRail.svelte";
 
 	let projectId = $derived(page.params.id!);
 	let checked = $state(false);
 
-	// Redirect to last-opened chat, or most recent conversation
+	// Redirect to last-opened chat, or most recent conversation.
+	// On mobile we never auto-redirect — the chat index is the list view.
 	onMount(async () => {
+		const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+		if (isMobile) {
+			checked = true;
+			return;
+		}
+
 		// 1. Try the last chat the user had open for this project
 		const lastConvId = localStorage.getItem(`ezcorp-last-chat:${projectId}`);
 		if (lastConvId) {
@@ -64,6 +74,7 @@
 
 	<!-- Desktop: empty state when no conversation selected -->
 	<div class="hidden md:flex flex-1 flex-col items-center justify-center min-w-0">
+		<NoProviderBanner />
 		<EmptyState
 			title="No conversations yet"
 			description="Start your first conversation to begin chatting with AI."
@@ -79,15 +90,32 @@
 		</EmptyState>
 	</div>
 
-	<!-- Mobile: show conversation list inline as primary content -->
+	<!-- Mobile: ProjectRail + ConversationList with a back button to the project menu -->
 	<div class="flex md:hidden flex-1 min-w-0">
-		{#if projectId}
-			<ConversationList
-				{projectId}
-				oncreate={handleCreate}
-				onselect={handleSelect}
-			/>
-		{/if}
+		<ProjectRail />
+		<div class="flex flex-1 min-w-0 flex-col">
+			<div class="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-2 py-2">
+				<button
+					onclick={() => (store.mobileMenuOpen = true)}
+					class="flex items-center justify-center rounded-md p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]"
+					aria-label="Back to project menu"
+					style="min-width: 44px; min-height: 44px;"
+				>
+					<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+					</svg>
+				</button>
+				<span class="text-sm font-medium text-[var(--color-text-secondary)]">Chats</span>
+			</div>
+			<NoProviderBanner />
+			{#if projectId}
+				<ConversationList
+					{projectId}
+					oncreate={handleCreate}
+					onselect={handleSelect}
+				/>
+			{/if}
+		</div>
 	</div>
 </div>
 {/if}

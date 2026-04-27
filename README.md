@@ -25,12 +25,13 @@ EZCorp is a self-hosted AI platform that brings together multi-model chat, long-
 
 ```bash
 curl -O https://raw.githubusercontent.com/ezcorp-org/EZcorp/main/compose.prod.yml
-export EZCORP_ENCRYPTION_SECRET=$(openssl rand -base64 32)
-export EZCORP_ENCRYPTION_SALT=$(openssl rand -base64 32)
-docker compose -f compose.prod.yml up -d
+curl -O https://raw.githubusercontent.com/ezcorp-org/EZcorp/main/.env.prod.example
+cp .env.prod.example .env.prod && chmod 600 .env.prod
+# fill the three secrets in .env.prod with: openssl rand -base64 32 (and -base64 16 for the salt)
+docker compose -f compose.prod.yml --env-file .env.prod up -d
 ```
 
-Open [http://localhost:3000](http://localhost:3000), create your admin account, and start chatting. Your data lives in a named Docker volume and survives `docker compose down`.
+Open [http://localhost:4000](http://localhost:4000), create your admin account, and start chatting. Your data lives in a named Docker volume and survives `docker compose down`.
 
 For HTTPS, backups, external Postgres, and auto-updates, see the **[production guide](docs/production-guide.md)**.
 
@@ -38,10 +39,30 @@ For HTTPS, backups, external Postgres, and auto-updates, see the **[production g
 
 ```bash
 git clone <repo-url> && cd ezcorp
-docker compose up -d
+docker compose up -d                               # → http://localhost:3000 (dev / Vite HMR)
 ```
 
-The dev compose uses an external pgvector container with live mounts for development. Production deployments use `compose.prod.yml` instead — see below.
+For a production-mode build from the same checkout:
+
+```bash
+docker build -t ezcorp:local .
+cp .env.prod.example .env.prod && chmod 600 .env.prod
+echo "EZCORP_IMAGE=ezcorp:local" >> .env.prod      # pin to your local build
+# fill in the three secrets in .env.prod
+docker compose -f compose.prod.yml --env-file .env.prod up -d   # → http://localhost:4000
+```
+
+### Dev and prod side-by-side
+
+`docker-compose.yml` (dev) and `compose.prod.yml` (prod) declare distinct project names (`ez-corp-ai` and `ezcorp-prod`) and bind to different host ports (`3000` and `4000` by default), so the two stacks run independently — same source tree, different runtimes, different volumes. Bringing one up never touches the other:
+
+```bash
+docker compose up -d                                              # dev
+docker compose -f compose.prod.yml --env-file .env.prod up -d     # prod
+docker compose -f compose.prod.yml --env-file .env.prod down      # stop prod, dev keeps running
+```
+
+Without the distinct `name:` they would share the default project namespace (the directory name) and `up` against either file would silently recreate the other's container in place.
 
 ## Docker Setup
 

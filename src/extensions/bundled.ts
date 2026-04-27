@@ -236,6 +236,32 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
       grantedAt: { filesystem: Date.now() },
     },
   },
+  {
+    // claude-design — first consumer of the @ezcorp/sdk canvas primitives
+    // (Phase B of the design-extension SDK initiative). Reads the project
+    // codebase to extract a design system, generates HTML drafts honoring
+    // it, and supports knob-based refinement via the canvas card.
+    //
+    // Subscribes to `claude-design:knob-change` so the canvas's knob
+    // sliders can round-trip back into `tweak-design`. The grant MUST
+    // be present for the generic `/api/extensions/claude-design/events/
+    // knob-change` route to clear the manifest-clamp gate at boot
+    // (Phase A2: pattern-matched event allowlist).
+    name: "claude-design",
+    path: "docs/extensions/examples/claude-design",
+    permissions: {
+      filesystem: ["$CWD"],
+      storage: true,
+      eventSubscriptions: ["claude-design:knob-change"],
+      network: ["cdn.jsdelivr.net"],
+      grantedAt: {
+        filesystem: Date.now(),
+        storage: Date.now(),
+        eventSubscriptions: Date.now(),
+        network: Date.now(),
+      },
+    },
+  },
 ];
 
 /** Opt-OUT switches: each maps a bundled-extension name to the env var that

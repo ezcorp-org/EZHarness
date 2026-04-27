@@ -13,38 +13,88 @@ backups, auto-updates, and TLS.
 ## 1. Quick start (embedded PGlite)
 
 ```bash
-# Generate persistent encryption secrets
-export EZCORP_ENCRYPTION_SECRET=$(openssl rand -base64 32)
-export EZCORP_ENCRYPTION_SALT=$(openssl rand -base64 32)
+# 1. Seed the env file from the tracked template
+cp .env.prod.example .env.prod
+chmod 600 .env.prod
 
-# Start
-docker compose -f compose.prod.yml up -d
+# 2. Generate the four required secrets and paste each into .env.prod
+openssl rand -base64 32   # → EZCORP_ENCRYPTION_SECRET
+openssl rand -base64 16   # → EZCORP_ENCRYPTION_SALT
+openssl rand -base64 32   # → EZCORP_JWT_SECRET
+# EZCORP_PUBLIC_URL = the URL you'll reach the app at, e.g.
+#   https://ezcorp.example.com   (behind TLS reverse proxy)
+#   http://localhost:4000        (LAN / single-host)
+
+# 3. Start (note: --env-file feeds host-side ${VAR} interpolation;
+#    env_file: in compose.prod.yml additionally injects the same values
+#    into the container at runtime — both layers point at .env.prod)
+docker compose --env-file .env.prod -f compose.prod.yml up -d
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and create the admin account.
+Open the URL you set in `EZCORP_PUBLIC_URL` (default host port `4000`)
+and create the admin account.
 
-The single volume `ezcorp-data` holds the PGlite database and all snapshot
-backups (`/app/data/ezcorp` + `/app/data/backups`). Your data survives
-`docker compose down`; only `docker compose down -v` destroys it.
+`compose.prod.yml` declares `${VAR:?error}` for the four required secrets,
+so `docker compose` aborts with a clear message if any are missing —
+better than booting with auto-generated ephemeral secrets that would
+break decrypts on the next restart.
+
+> **Why `.env.prod` and not `.env`?** Keeping prod values in their own file
+> avoids accidentally sourcing dev defaults from a stray `.env`, makes the
+> intended permission posture (`chmod 600`) explicit, and lets you commit
+> `.env.prod.example` as a checklist without ever risking the real file.
+
+### Backing up the data volume
+
+Everything stateful — PGlite database, pre-boot snapshots, periodic backups,
+extension files — lives under the named volume `ezcorp-data`. `docker
+compose down` preserves it; `docker compose down -v` destroys it. To copy
+it off-host:
+
+```bash
+docker run --rm -v ezcorp-data:/data -v "$PWD":/backup alpine \
+  tar czf /backup/ezcorp-data-$(date +%Y%m%d).tgz -C /data .
+```
+
+Restore by stopping the stack, untarring back into the volume, then
+starting again. See §3 for snapshot-level recovery details.
 
 ### Environment variables
 
+Set in `.env.prod` (gitignored). Required vars are enforced at compose-up
+time via `${VAR:?...}` interpolation — missing any of them aborts the
+deploy with an explanatory error.
+
 | Variable                      | Required | Description                                                                                                     |
 |-------------------------------|----------|-----------------------------------------------------------------------------------------------------------------|
-| `EZCORP_ENCRYPTION_SECRET`    | Yes†     | Used to encrypt stored credentials. 32+ random bytes. Changing it renders stored secrets unreadable.            |
-| `EZCORP_ENCRYPTION_SALT`      | Yes†     | Paired with the secret for key derivation. Must also be stable across restarts.                                 |
-| `EZCORP_JWT_SECRET`           | No       | Signing secret for session JWTs. Auto-generated and persisted (encrypted) to the DB on first boot if unset — but set explicitly in prod if you want rotatable, externally-managed secrets. Changing it invalidates all live sessions. |
-| `EZCORP_SECRETS_DIR`          | No       | Directory for auto-generated secret fallbacks (`.pi-secret`, `.pi-salt`). Default: parent of `EZCORP_DB_PATH` (i.e. `/app/data` in Docker, inside the named volume). Override only if you want secrets on a separate mount. |
-| `EZCORP_PORT`                 | No       | Host port (default: `3000`).                                                                                    |
-| `EZCORP_PUBLIC_URL`           | No       | Public-facing URL (used for deep-links). Default: `http://localhost:3000`.                                      |
-| `EZCORP_DB_PATH`              | No       | DB directory inside the container (default: `/app/data/ezcorp`).                                                |
-| `EZCORP_BACKUP_DIR`           | No       | Override the backup directory. Default: sibling `backups/` of the DB dir (`/app/data/backups` under defaults).  |
+| `EZCORP_ENCRYPTION_SECRET`    | **Yes**  | Encrypts stored OAuth tokens and provider API keys at rest. `openssl rand -base64 32`. Rotating it renders every stored credential unreadable. |
+| `EZCORP_ENCRYPTION_SALT`      | **Yes**  | Paired with the secret for key derivation. `openssl rand -base64 16`. Same stability rules as the secret.       |
+| `EZCORP_JWT_SECRET`           | **Yes**  | Signs session JWTs. `openssl rand -base64 32`. Rotating it logs every active user out.                          |
+| `EZCORP_PUBLIC_URL`           | **Yes**  | Public-facing URL (drives `ORIGIN`). Without it, `svelte-adapter-bun`'s `get_origin()` defaults the scheme to `https` and breaks login over plain HTTP. |
+| `FORCE_SECURE_COOKIES`        | No       | Set to `true` only when traffic reaches the app over HTTPS. Default: `false`.                                   |
+| `EZCORP_PORT_HOST`            | No       | Host port published by Docker (container always listens on 3000). Default: `4000`.                              |
 | `EZCORP_CHECK_UPDATES`        | No       | Set to `false` to disable the in-app update banner and GitHub Releases poll. Default: `true`.                   |
 | `EZCORP_UPDATE_REPO`          | No       | `<owner>/<repo>` for the update check. Default: `ezcorp-org/EZcorp`.                                            |
+| `EZCORP_SECRETS_DIR`          | No       | Directory for legacy auto-generated secret fallbacks (`.pi-secret`, `.pi-salt`). Default: parent of `EZCORP_DB_PATH`. |
+| `EZCORP_DB_PATH`              | No       | DB directory inside the container (default: `/app/data/ezcorp`).                                                |
+| `EZCORP_BACKUP_DIR`           | No       | Override the backup directory. Default: sibling `backups/` of the DB dir (`/app/data/backups` under defaults).  |
 | `EZCORP_SCAN_GLOBAL_COMMANDS` | No       | Set to `0` to disable slash-command discovery from the server's home dir. **Recommended for multi-tenant.**     |
 | `DATABASE_URL`                | No       | Use external Postgres instead of embedded PGlite (see §5).                                                      |
 
-† *Technically* optional — on first boot the app auto-generates both into `${EZCORP_SECRETS_DIR}/.pi-secret` and `.pi-salt`, which persist inside the data volume. **Setting them via env is strongly recommended for production** so they can be rotated without touching disk, stored in a secret manager, and shared across replicas.
+> **Never auto-generate the four required secrets in production.** The
+> first-boot fallback writes them to `.pi-secret` / `.pi-salt` inside the
+> data volume — fine for a one-off laptop demo, fatal anywhere else: a
+> volume reset, a `down -v`, or a fresh host all silently mint new
+> secrets and orphan every previously-stored OAuth token. Set them
+> explicitly so the values are reproducible from your secret manager.
+
+### When to flip `FORCE_SECURE_COOKIES`
+
+Off by default so the LAN/single-host happy path works over plain HTTP.
+Flip to `true` **only after** TLS is terminating in front of the app
+(Caddy / nginx / cloud LB — see §6). Setting it without HTTPS makes
+browsers refuse to send the session cookie back, and the symptom is an
+infinite login loop rather than a clean error.
 
 ### Bind mounts and file ownership
 
@@ -56,6 +106,20 @@ docker run -v /srv/ezcorp-data:/app/data ghcr.io/ezcorp-org/ezcorp:latest
 ```
 
 Named volumes (the default in `compose.prod.yml`) inherit ownership from the image, so this only matters for host-path mounts.
+
+#### Fixing a pre-existing `ext-data` volume
+
+Docker initializes a named volume from the image only on **first** creation.
+If you deployed before the image pre-created `/app/.ezcorp`, the existing
+`ext-data` volume is root-owned and the openai-image-gen extension fails
+with `EACCES: permission denied, mkdir '/app/.ezcorp/extension-data'`. Fix
+with a one-time chown — no data loss, no `down -v`:
+
+```bash
+docker compose -f compose.prod.yml run --rm --user 0 --entrypoint sh app \
+  -c "chown -R bun:bun /app/.ezcorp"
+docker compose -f compose.prod.yml up -d
+```
 
 ## 2. Boot sequence and migration safety
 
@@ -248,8 +312,9 @@ Two orthogonal probes:
 
 ## 8. Security checklist
 
-- [ ] `EZCORP_ENCRYPTION_SECRET` and `EZCORP_ENCRYPTION_SALT` are random and stable (never change them on a live instance with stored credentials).
-- [ ] HTTPS terminated at the reverse proxy (secure cookies require it).
+- [ ] `.env.prod` is `chmod 600` and owned by the user running Docker — and is **not** checked into version control (the repo's `.gitignore` already excludes `.env.*` while allowing `.env.*.example`).
+- [ ] All four required secrets (`EZCORP_ENCRYPTION_SECRET`, `EZCORP_ENCRYPTION_SALT`, `EZCORP_JWT_SECRET`, `EZCORP_PUBLIC_URL`) are set explicitly — never relying on first-boot auto-generation in production.
+- [ ] HTTPS terminated at the reverse proxy, then `FORCE_SECURE_COOKIES=true`.
 - [ ] Firewall rules restrict DB / container ports to trusted networks.
 - [ ] `EZCORP_SCAN_GLOBAL_COMMANDS=0` for multi-tenant deployments — the server's home-directory slash-command scan is shared across users. See [slash-commands.md](slash-commands.md#multi-tenant-deployments).
 - [ ] Docker and base images kept current (Watchtower or manual).

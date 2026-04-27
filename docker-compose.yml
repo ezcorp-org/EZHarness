@@ -32,6 +32,10 @@ services:
       - EZCORP_ENCRYPTION_SALT=${EZCORP_ENCRYPTION_SALT}
       # Public origin for clickable deep-links in ai-kit tool responses.
       - EZCORP_PUBLIC_URL=${EZCORP_PUBLIC_URL:-}
+      # Inverts the EZCorp logo across the UI (splash, login, error pages)
+      # so it's obvious at a glance that you're hitting the dev stack and
+      # not prod. Read by hooks.server.ts -> transformPageChunk.
+      - EZCORP_DEV_INDICATOR=1
     command:
       - sh
       - -c

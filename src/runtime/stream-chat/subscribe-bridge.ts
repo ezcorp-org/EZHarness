@@ -5,6 +5,7 @@ import { logger } from "../../logger";
 import { getDb } from "../../db/connection";
 import { toolCalls, conversations } from "../../db/schema";
 import { persistToolCall } from "../../db/queries/tool-calls";
+import { ExtensionRegistry } from "../../extensions/registry";
 import type { StreamChatContext } from "./context";
 import type { StreamChatHost } from "./host";
 
@@ -90,10 +91,16 @@ export function subscribeBridge(
         const statusDetail = primaryArg ? `: ${String(primaryArg).slice(0, 60)}` : '';
         host.bus.emit("run:status", { runId: run.id, status: `Running ${event.toolName}${statusDetail}...` });
         const toolDef = ctx.builtinToolDefsMap.get(event.toolName);
+        // Extension tools live in the registry under `<ext>__<tool>`;
+        // built-ins are bare names. Same lookup logic as tool_execution_end.
+        const startRegistered = !toolDef && event.toolName.includes("__")
+          ? ExtensionRegistry.getInstance().getRegisteredTool(event.toolName)
+          : undefined;
         host.bus.emit("tool:start", {
           conversationId, extensionId: "", toolName: event.toolName,
           input: event.args, timestamp: Date.now(),
-          cardType: toolDef?.cardType, category: toolDef?.category,
+          cardType: toolDef?.cardType ?? startRegistered?.cardType,
+          category: toolDef?.category,
           // Propagate the pi-agent tool call id so the client can correlate
           // this start with the later complete/error event (and with the
           // persisted DB row — see the DB insert in tool_execution_end).
@@ -104,20 +111,29 @@ export function subscribeBridge(
       case "tool_execution_end": {
         // invoke_agent uses agent:spawn/agent:complete — skip tool:complete/error WS events
         // but still persist to DB below
+        // cardType lookup: built-ins are in builtinToolDefsMap; extension
+        // tools are namespaced (`<ext>__<tool>`) and live in the registry.
+        // Without this, the chat UI's ToolCardRouter falls through to
+        // DefaultCard for every extension tool — including custom canvas
+        // cards like claude-design's design-canvas.
+        const endToolDef = ctx.builtinToolDefsMap.get(event.toolName);
+        const endCardType = endToolDef?.cardType
+          ?? (event.toolName.includes("__")
+              ? ExtensionRegistry.getInstance().getRegisteredTool(event.toolName)?.cardType
+              : undefined);
         if (event.toolName !== "invoke_agent") {
-          const endToolDef = ctx.builtinToolDefsMap.get(event.toolName);
           if (event.isError) {
             host.bus.emit("tool:error", {
               conversationId, extensionId: "", toolName: event.toolName,
               error: typeof event.result === 'string' ? event.result : JSON.stringify(event.result), duration: 0,
-              cardType: endToolDef?.cardType,
+              cardType: endCardType,
               invocationId: event.toolCallId,
             });
           } else {
             host.bus.emit("tool:complete", {
               conversationId, extensionId: "", toolName: event.toolName,
               output: event.result, duration: 0, success: true,
-              cardType: endToolDef?.cardType,
+              cardType: endCardType,
               invocationId: event.toolCallId,
             });
           }
@@ -143,6 +159,7 @@ export function subscribeBridge(
             output: { content: event.result?.content ?? [] },
             success: !event.isError,
             durationMs: 0,
+            cardType: endCardType ?? null,
             userId: convRecord?.userId ?? null,
             agentConfigId: options.agentConfigId ?? convRecord?.agentConfigId ?? null,
             model: options.model ?? convRecord?.model ?? null,

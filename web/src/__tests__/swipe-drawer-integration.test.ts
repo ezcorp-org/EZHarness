@@ -57,12 +57,12 @@ describe("Layout mobile drawer uses SwipeDrawer", () => {
 		expect(layoutSrc).toContain('maxWidth="max-w-[85vw]"');
 	});
 
-	test("passes mobileMenuOpen as open prop", () => {
-		expect(layoutSrc).toContain("open={mobileMenuOpen}");
+	test("passes store.mobileMenuOpen as open prop", () => {
+		expect(layoutSrc).toContain("open={store.mobileMenuOpen}");
 	});
 
 	test("passes onclose to close mobile menu", () => {
-		expect(layoutSrc).toContain("onclose={() => (mobileMenuOpen = false)}");
+		expect(layoutSrc).toContain("onclose={() => (store.mobileMenuOpen = false)}");
 	});
 
 	test("no manual touch handlers (touchStartX removed)", () => {
@@ -87,12 +87,12 @@ describe("Chat page mobile conversation list uses SwipeDrawer", () => {
 		expect(chatPageSrc).toMatch(/<SwipeDrawer[\s\S]*?side="left"/);
 	});
 
-	test("uses correct width for conversation list", () => {
-		expect(chatPageSrc).toContain('width="w-[85vw]"');
+	test("uses correct width for conversation list (rail + list)", () => {
+		expect(chatPageSrc).toContain('width="w-[calc(72px+14rem)]"');
 	});
 
 	test("uses correct maxWidth", () => {
-		expect(chatPageSrc).toContain('maxWidth="max-w-[320px]"');
+		expect(chatPageSrc).toContain('maxWidth="max-w-[85vw]"');
 	});
 
 	test("passes mobileConvListOpen as open prop", () => {

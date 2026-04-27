@@ -13,6 +13,7 @@ const {
   updateUserEmail,
   updateUserName,
   getUserCount,
+  markUserOnboarded,
 } = await import("../db/queries/users");
 
 describe("users queries", () => {
@@ -167,6 +168,45 @@ describe("users queries", () => {
 
   test("updateUserName returns false for missing user", async () => {
     const result = await updateUserName(crypto.randomUUID(), "x");
+    expect(result).toBe(false);
+  });
+
+  test("createUser leaves onboardedAt null by default", async () => {
+    const u = await createUser({ email: "fresh@test.com", passwordHash: "h", name: "Fresh" });
+    expect(u.onboardedAt).toBeNull();
+    const found = await getUserById(u.id);
+    expect(found!.onboardedAt).toBeNull();
+  });
+
+  test("markUserOnboarded sets onboardedAt to current time", async () => {
+    const u = await createUser({ email: "onb@test.com", passwordHash: "h", name: "Onb" });
+    expect(u.onboardedAt).toBeNull();
+
+    const ok = await markUserOnboarded(u.id);
+    expect(ok).toBe(true);
+
+    const after = await getUserById(u.id);
+    expect(after!.onboardedAt).toBeInstanceOf(Date);
+    // Sanity: stamp is recent (last 5 seconds).
+    expect(Date.now() - after!.onboardedAt!.getTime()).toBeLessThan(5_000);
+  });
+
+  test("markUserOnboarded is first-write-wins — second call returns false, timestamp unchanged", async () => {
+    const u = await createUser({ email: "idem@test.com", passwordHash: "h", name: "Idem" });
+    const firstOk = await markUserOnboarded(u.id);
+    expect(firstOk).toBe(true);
+    const first = (await getUserById(u.id))!.onboardedAt!;
+    // Sleep so any incidental re-write would produce a later NOW().
+    await new Promise((r) => setTimeout(r, 10));
+    const secondOk = await markUserOnboarded(u.id);
+    // First-write-wins: second call matches no rows (WHERE onboarded_at IS NULL).
+    expect(secondOk).toBe(false);
+    const second = (await getUserById(u.id))!.onboardedAt!;
+    expect(second.getTime()).toBe(first.getTime());
+  });
+
+  test("markUserOnboarded returns false for missing user", async () => {
+    const result = await markUserOnboarded(crypto.randomUUID());
     expect(result).toBe(false);
   });
 });

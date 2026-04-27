@@ -1,32 +1,58 @@
 # Production / self-hosted deployment.
 #
 # Quick start:
-#   1. Copy .env.example → .env and fill in EZCORP_ENCRYPTION_SECRET and
-#      EZCORP_ENCRYPTION_SALT (generate with: openssl rand -base64 32).
+#   1. Copy `.env.prod.example` → `.env.prod` and fill it in.
 #   2. docker compose -f compose.prod.yml up -d
-#   3. Open http://localhost:3000 and create the admin account.
+#   3. Open http://localhost:4000 and create the admin account.
 #
 # See docs/production-guide.md for backups, migration safety, auto-updates,
 # external Postgres, and TLS reverse-proxy setup.
 
+# Distinct project name so this stack and `docker-compose.yml` (dev) don't
+# stomp each other. Without it, both default to `ez-corp-ai` (the directory
+# name) and `docker compose up` against either file recreates the other's
+# `app` container in place.
+name: ezcorp-prod
+
 services:
   app:
-    image: ghcr.io/ezcorp-org/ezcorp:latest
-    # Pin to a specific version in production to avoid surprise updates:
-    #   image: ghcr.io/ezcorp-org/ezcorp:0.1.0
+    # Defaults to the published GHCR image. Override `EZCORP_IMAGE` in
+    # .env.prod to pin a specific version (e.g.
+    # `EZCORP_IMAGE=ghcr.io/ezcorp-org/ezcorp:0.1.0`) or to deploy a
+    # locally-built image (e.g. `EZCORP_IMAGE=ezcorp:local`).
+    image: "${EZCORP_IMAGE:-ghcr.io/ezcorp-org/ezcorp:latest}"
     restart: unless-stopped
+    # Load secrets and tunables from the host-side .env.prod (gitignored).
+    # `${VAR:?...}` interpolation below makes `docker compose` abort the
+    # deploy with a clear error if any required variable is missing —
+    # we'd rather fail at boot than silently auto-generate ephemeral
+    # secrets that break decrypts on the next restart.
+    env_file:
+      - .env.prod
     ports:
-      - "${EZCORP_PORT:-3000}:3000"
+      - "${EZCORP_PORT_HOST:-4000}:3000"
     environment:
       EZCORP_PORT: "3000"
-      ORIGIN: "${EZCORP_PUBLIC_URL:-http://localhost:3000}"
-      EZCORP_PUBLIC_URL: "${EZCORP_PUBLIC_URL:-}"
-      EZCORP_ENCRYPTION_SECRET: "${EZCORP_ENCRYPTION_SECRET}"
-      EZCORP_ENCRYPTION_SALT: "${EZCORP_ENCRYPTION_SALT}"
+      ORIGIN: "${EZCORP_PUBLIC_URL:?EZCORP_PUBLIC_URL is required — set it in .env.prod (e.g. https://ezcorp.example.com). svelte-adapter-bun defaults the scheme to https without it, which breaks login over plain HTTP.}"
+      EZCORP_PUBLIC_URL: "${EZCORP_PUBLIC_URL:?EZCORP_PUBLIC_URL is required — set it in .env.prod}"
+      EZCORP_ENCRYPTION_SECRET: "${EZCORP_ENCRYPTION_SECRET:?EZCORP_ENCRYPTION_SECRET is required — generate with: openssl rand -base64 32, then set in .env.prod. Rotating this value renders every stored credential unreadable.}"
+      EZCORP_ENCRYPTION_SALT: "${EZCORP_ENCRYPTION_SALT:?EZCORP_ENCRYPTION_SALT is required — generate with: openssl rand -base64 16, then set in .env.prod}"
+      EZCORP_JWT_SECRET: "${EZCORP_JWT_SECRET:?EZCORP_JWT_SECRET is required — generate with: openssl rand -base64 32, then set in .env.prod. Rotating this value invalidates every live session.}"
+      # Force the `Secure` flag on session cookies. Only flip to "true"
+      # when traffic reaches the app over HTTPS — otherwise browsers
+      # silently drop the cookie and login appears broken.
+      FORCE_SECURE_COOKIES: "${FORCE_SECURE_COOKIES:-false}"
       # External update check (default on). Set to "false" to disable the
       # in-app update banner and the periodic GitHub Releases poll.
       EZCORP_CHECK_UPDATES: "${EZCORP_CHECK_UPDATES:-true}"
       EZCORP_UPDATE_REPO: "${EZCORP_UPDATE_REPO:-ezcorp-org/EZcorp}"
+      # Disable svelte-adapter-bun's idle-connection killer. Default is 10s,
+      # which murders SSE connections on /api/runtime-events between
+      # heartbeats and shows up as "keeps reconnecting" in the UI. Our
+      # SSE handler emits its own 15s heartbeat to detect dead clients,
+      # and TCP RST handles abandoned sockets, so the adapter-level
+      # axe is redundant and harmful.
+      IDLE_TIMEOUT: "0"
     volumes:
       # Single named volume covers both the PGlite data dir (/app/data/ezcorp)
       # and snapshot backups (/app/data/backups). Surviving `docker compose

@@ -28,6 +28,8 @@ import type { AgentEvents } from "../types";
 import type { ExtensionRegistry } from "./registry";
 import {
   DIRECT_CARRIER_EVENT_TYPES,
+  registerExtensionEvent,
+  unregisterExtensionEvent,
 } from "../runtime/sse-conversation-filter";
 import { createRateLimiter } from "./rate-limit";
 import { capabilityToolsDisabled } from "./capability-flags";
@@ -87,31 +89,131 @@ export class EventSubscriptionDispatcher {
   }
 
   /**
-   * Record an extension's declared event interest. Event names not in
-   * `DIRECT_CARRIER_EVENT_TYPES` are silently filtered — the clamp at
-   * install time already does this, so this is defense-in-depth for
-   * manifests that bypassed the clamp path.
+   * Record an extension's declared event interest. Two kinds of event
+   * names are accepted:
+   *
+   *   1. Platform events from `DIRECT_CARRIER_EVENT_TYPES` (e.g.
+   *      `"task:snapshot"`, `"ask-user:answer"`). Same behavior as
+   *      before Phase A2.
+   *
+   *   2. Extension-declared events of the form `<extName>:<event>`,
+   *      where `<extName>` MUST equal this extension's manifest name.
+   *      Cross-namespace subscription is rejected — extensions can
+   *      only subscribe to their own canvas events. Accepted entries
+   *      are also registered with the SSE filter so
+   *      `shouldDeliverEvent` treats them as direct carriers.
+   *
+   * Event names not matching either branch are silently filtered.
+   * Defense-in-depth — the manifest clamp at install time should
+   * already have rejected them.
    */
   registerExtension(extensionId: string, eventTypes: string[]): void {
-    const valid = eventTypes.filter((e): e is SubscribableEvent =>
-      DIRECT_CARRIER_EVENT_TYPES.has(e as SubscribableEvent),
-    );
-    if (valid.length === 0) return;
+    // Defensive: tests pass a stub registry that may not implement
+    // `getManifest`. Treat missing as "no manifest", which short-circuits
+    // the extension-event branch — platform events still register.
+    const manifest =
+      typeof this.registry.getManifest === "function"
+        ? this.registry.getManifest(extensionId)
+        : undefined;
+    const ownNamespace = manifest?.name;
 
     let extSubs = this.subscriptions.get(extensionId);
-    if (!extSubs) {
-      extSubs = new Set();
-      this.subscriptions.set(extensionId, extSubs);
-    }
-    for (const eventType of valid) {
-      extSubs.add(eventType);
-      let extSet = this.eventToExtensions.get(eventType);
+    let added = 0;
+
+    for (const eventType of eventTypes) {
+      // Branch 1: platform event.
+      if (DIRECT_CARRIER_EVENT_TYPES.has(eventType as SubscribableEvent)) {
+        if (!extSubs) {
+          extSubs = new Set();
+          this.subscriptions.set(extensionId, extSubs);
+        }
+        extSubs.add(eventType as SubscribableEvent);
+        let extSet = this.eventToExtensions.get(eventType as SubscribableEvent);
+        if (!extSet) {
+          extSet = new Set();
+          this.eventToExtensions.set(eventType as SubscribableEvent, extSet);
+        }
+        extSet.add(extensionId);
+        added++;
+        continue;
+      }
+
+      // Branch 2: extension-declared event `<extName>:<event>`.
+      // Reject if no manifest (extension not registered) or namespace
+      // mismatch (cross-namespace subscription).
+      if (!ownNamespace) continue;
+      const colon = eventType.indexOf(":");
+      if (colon <= 0 || colon >= eventType.length - 1) continue;
+      const ns = eventType.slice(0, colon);
+      const ev = eventType.slice(colon + 1);
+      if (ns !== ownNamespace) continue;
+
+      if (!registerExtensionEvent(ns, ev)) continue;
+
+      if (!extSubs) {
+        extSubs = new Set();
+        this.subscriptions.set(extensionId, extSubs);
+      }
+      extSubs.add(eventType as SubscribableEvent);
+      let extSet = this.eventToExtensions.get(eventType as SubscribableEvent);
       if (!extSet) {
         extSet = new Set();
-        this.eventToExtensions.set(eventType, extSet);
+        this.eventToExtensions.set(eventType as SubscribableEvent, extSet);
       }
       extSet.add(extensionId);
+      added++;
     }
+
+    // Touched extension but added nothing — leave maps clean.
+    if (added === 0 && extSubs && extSubs.size === 0) {
+      this.subscriptions.delete(extensionId);
+    }
+  }
+
+  /**
+   * Drop every registration for an extension. Used when an extension
+   * is uninstalled or its manifest reloads with a different event set.
+   * Mirrors the SSE filter's `unregisterExtensionEvents` semantics.
+   */
+  unregisterExtension(extensionId: string): void {
+    const subs = this.subscriptions.get(extensionId);
+    if (!subs) return;
+    // Resolve the extension's own namespace once. We use it to
+    // determine which `subs` entries are extension-declared (and
+    // therefore have a matching SSE-filter registry entry to clean
+    // up) vs platform events (registered as direct carriers; not
+    // owned by us).
+    const manifest =
+      typeof this.registry.getManifest === "function"
+        ? this.registry.getManifest(extensionId)
+        : undefined;
+    const ownNamespace = manifest?.name;
+
+    for (const eventType of subs) {
+      const extSet = this.eventToExtensions.get(eventType);
+      if (extSet) {
+        extSet.delete(extensionId);
+        if (extSet.size === 0) this.eventToExtensions.delete(eventType);
+      }
+
+      // Per-tuple cleanup of the SSE-filter registry. Only touch
+      // entries this extension actually owns (`<ownNamespace>:<ev>`),
+      // never wholesale-by-namespace — if two extensions share
+      // `manifest.name` (which the registry doesn't currently
+      // enforce as unique), the wholesale path would wipe the
+      // sibling's events. [F1 from the Phase A security review]
+      if (ownNamespace) {
+        const colon = eventType.indexOf(":");
+        if (colon > 0 && colon < eventType.length - 1) {
+          const ns = eventType.slice(0, colon);
+          const ev = eventType.slice(colon + 1);
+          if (ns === ownNamespace) {
+            unregisterExtensionEvent(ns, ev);
+          }
+        }
+      }
+    }
+    this.subscriptions.delete(extensionId);
   }
 
   /**

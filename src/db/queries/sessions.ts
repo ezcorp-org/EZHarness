@@ -104,6 +104,29 @@ export async function touchSession(id: string, throttleMs = 60_000): Promise<Ses
   return rows[0] ?? null;
 }
 
+/**
+ * Atomically rotate a session's token hash and extend its expiry.
+ *
+ * Used by the sliding-refresh path in hooks.server.ts: when a JWT crosses the
+ * refresh threshold we re-issue it and want the DB row to point at the new
+ * hash. The match on `oldTokenHash` is the CAS predicate — if a concurrent
+ * request already rotated the row, we lose silently (returns null) and the
+ * caller leaves the inbound cookie alone.
+ */
+export async function rotateSessionToken(opts: {
+  id: string;
+  oldTokenHash: string;
+  newTokenHash: string;
+  newExpiresAt: Date;
+}): Promise<Session | null> {
+  const rows = await getDb()
+    .update(sessions)
+    .set({ tokenHash: opts.newTokenHash, expiresAt: opts.newExpiresAt })
+    .where(and(eq(sessions.id, opts.id), eq(sessions.tokenHash, opts.oldTokenHash)))
+    .returning();
+  return rows[0] ?? null;
+}
+
 export async function deleteExpiredSessions(): Promise<number> {
   const rows = await getDb()
     .delete(sessions)

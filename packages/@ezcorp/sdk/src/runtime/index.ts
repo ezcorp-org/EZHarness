@@ -87,6 +87,26 @@ export type {
 export { registerEventHandler } from "./events";
 export type { SubscribableEvent, SubscribableEventMap } from "./events";
 
+// ── Phase A1 canvas wrapper ─────────────────────────────────────
+
+export { createCanvas } from "./canvas";
+export type {
+  Canvas,
+  CanvasContext,
+  CanvasEventHandler,
+  CanvasOptions,
+  DefaultCanvasEvents,
+} from "./canvas";
+
+// ── Phase A1 preview helpers ────────────────────────────────────
+
+export {
+  SANDBOX_FLAGS_STRICT,
+  assertContentType,
+  contentTypeForPath,
+  extensionDataUrl,
+} from "./preview";
+
 // ── Phase 2d spawn wrapper ──────────────────────────────────────
 
 export { spawnAssignment } from "./spawn";

@@ -318,6 +318,9 @@ export async function migrate(db: any): Promise<void> {
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id)`);
 
+  // First-time onboarding: per-user wizard completion stamp.
+  await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarded_at TIMESTAMP WITH TIME ZONE`);
+
   // Add user_id to existing tables for multi-user ownership
   await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
   await db.execute(sql`ALTER TABLE memories ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
@@ -649,34 +652,41 @@ export async function migrate(db: any): Promise<void> {
   // dedupe duplicate global-scope rows (keep lowest id deterministically),
   // drop the old auto-named UNIQUE, install the correctly-named constraint.
   // Idempotent — skipped once extension_storage_upsert_key exists.
-  await db.execute(sql`
-    DO $$
-    DECLARE cname TEXT;
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conname = 'extension_storage_upsert_key'
-      ) THEN
+  // Driven from JS rather than a PL/pgSQL DO block because PGlite's
+  // anonymous-block parser fails on the EXECUTE … quote_ident() form.
+  {
+    const constraintCheck = (await db.execute(sql`
+      SELECT 1 AS present FROM pg_constraint
+      WHERE conname = 'extension_storage_upsert_key'
+      LIMIT 1
+    `)) as { rows: Array<{ present: number }> };
+    if (constraintCheck.rows.length === 0) {
+      await db.execute(sql`
         DELETE FROM extension_storage a USING extension_storage b
         WHERE a.id < b.id
           AND a.extension_id = b.extension_id
           AND a.scope = b.scope
           AND a.scope_id IS NOT DISTINCT FROM b.scope_id
-          AND a.key = b.key;
-        SELECT conname INTO cname FROM pg_constraint
+          AND a.key = b.key
+      `);
+      const oldConstraint = (await db.execute(sql`
+        SELECT conname FROM pg_constraint
         WHERE conrelid = 'extension_storage'::regclass
           AND contype = 'u'
           AND array_length(conkey, 1) = 4
-        LIMIT 1;
-        IF cname IS NOT NULL THEN
-          EXECUTE 'ALTER TABLE extension_storage DROP CONSTRAINT ' || quote_ident(cname);
-        END IF;
+        LIMIT 1
+      `)) as { rows: Array<{ conname: string }> };
+      const cname = oldConstraint.rows[0]?.conname;
+      if (cname && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(cname)) {
+        await db.execute(sql.raw(`ALTER TABLE extension_storage DROP CONSTRAINT "${cname}"`));
+      }
+      await db.execute(sql`
         ALTER TABLE extension_storage
           ADD CONSTRAINT extension_storage_upsert_key
-          UNIQUE NULLS NOT DISTINCT (extension_id, scope, scope_id, key);
-      END IF;
-    END $$
-  `);
+          UNIQUE NULLS NOT DISTINCT (extension_id, scope, scope_id, key)
+      `);
+    }
+  }
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_ext_storage_lookup ON extension_storage(extension_id, scope, scope_id, key)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_ext_storage_extension ON extension_storage(extension_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_ext_storage_expires ON extension_storage(expires_at)`);

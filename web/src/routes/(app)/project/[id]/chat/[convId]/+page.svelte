@@ -48,8 +48,11 @@
 		decideOpenScroll,
 		getCachedScrollState,
 		updateCachedScrollState,
+		computeAnchor,
+		scrollTopForAnchor,
 	} from "$lib/chat-scroll-restore.js";
 	import ConversationList from "$lib/components/ConversationList.svelte";
+	import ProjectRail from "$lib/components/ProjectRail.svelte";
 	import ChatMessage from "$lib/components/ChatMessage.svelte";
 	import ChatInput from "$lib/components/ChatInput.svelte";
 	import { shouldHandleChatWindowDragOver, filesFromChatWindowDrop } from "$lib/chat/chat-window-drop";
@@ -698,12 +701,26 @@
 	});
 
 	// Persist scroll position per-conv as the user scrolls so we can restore
-	// it on re-entry when nothing new arrived while they were away.
+	// it on re-entry when nothing new arrived while they were away. We capture
+	// both a numeric `scrollTop` (fallback) and an anchor (id of the message
+	// crossing the viewport top + its offset from the top). On restore we
+	// prefer the anchor, which keeps the user on the same content even if
+	// asynchronously-rendered tool cards / images shift heights above the fold.
 	$effect(() => {
 		if (!container) return;
 		const el = container;
 		const cid = convId;
-		const onScroll = () => updateCachedScrollState(cid, { scrollTop: el.scrollTop });
+		const onScroll = () => {
+			const anchor = computeAnchor(el);
+			const partial: Parameters<typeof updateCachedScrollState>[1] = {
+				scrollTop: el.scrollTop,
+			};
+			if (anchor) {
+				partial.anchorMessageId = anchor.messageId;
+				partial.anchorOffset = anchor.offset;
+			}
+			updateCachedScrollState(cid, partial);
+		};
 		el.addEventListener("scroll", onScroll, { passive: true });
 		return () => el.removeEventListener("scroll", onScroll);
 	});
@@ -714,7 +731,8 @@
 	// $lib/chat-scroll-restore. By the time this fires, the convId-reset
 	// effect below has already restored the cached `visibleMessageCount`, so
 	// the DOM has the same number of messages rendered as when the user left
-	// — that's what makes the restored scrollTop land on the same message.
+	// — that's what makes the restored scrollTop / anchor land on the same
+	// message.
 	let initialScrollDone = $state(false);
 	$effect(() => {
 		if (initialScrollDone) return;
@@ -732,10 +750,67 @@
 		if (decision.kind === "scroll-to-bottom") {
 			sentinel.scrollIntoView({ behavior: "instant" as ScrollBehavior });
 		} else {
-			container.scrollTop = decision.scrollTop;
+			// Prefer the message-anchor over the raw scrollTop: it stays correct
+			// even if tool-call cards or images above the viewport render
+			// asynchronously and shift content heights.
+			const anchorTop = cached?.anchorMessageId !== undefined && cached?.anchorOffset !== undefined
+				? scrollTopForAnchor(container, cached.anchorMessageId, cached.anchorOffset)
+				: null;
+			container.scrollTop = anchorTop ?? decision.scrollTop;
+			startAnchorReapplyWatch(container, cached?.anchorMessageId, cached?.anchorOffset);
 		}
 		initialScrollDone = true;
 	});
+
+	// While late-rendering content (tool cards, images, syntax highlighting)
+	// changes the container's scrollHeight, re-apply the anchor so the user's
+	// view stays pinned to the same message. We disengage on the first real
+	// user scroll, on conv switch, or after 3 seconds — whichever comes first.
+	let stopAnchorWatch: (() => void) | null = null;
+	function startAnchorReapplyWatch(
+		el: HTMLElement,
+		messageId: string | undefined,
+		offset: number | undefined,
+	): void {
+		stopAnchorWatch?.();
+		stopAnchorWatch = null;
+		if (messageId === undefined || offset === undefined) return;
+		if (typeof ResizeObserver === "undefined") return;
+
+		let disposed = false;
+		// Track our last programmatic write so the scroll listener can
+		// distinguish browser-driven adjustments from real user input.
+		let lastProgrammaticTop = el.scrollTop;
+
+		const reapply = () => {
+			if (disposed) return;
+			const target = scrollTopForAnchor(el, messageId, offset);
+			if (target !== null && Math.abs(target - el.scrollTop) > 1) {
+				lastProgrammaticTop = target;
+				el.scrollTop = target;
+			}
+		};
+		const obs = new ResizeObserver(reapply);
+		obs.observe(el);
+		const inner = el.firstElementChild;
+		if (inner) obs.observe(inner);
+
+		const onScroll = () => {
+			if (Math.abs(el.scrollTop - lastProgrammaticTop) > 2) stop();
+		};
+		el.addEventListener("scroll", onScroll, { passive: true });
+		const timer = setTimeout(stop, 3000);
+
+		function stop(): void {
+			if (disposed) return;
+			disposed = true;
+			obs.disconnect();
+			el.removeEventListener("scroll", onScroll);
+			clearTimeout(timer);
+			stopAnchorWatch = null;
+		}
+		stopAnchorWatch = stop;
+	}
 	// Reset the gate on conversation switch so the decision logic runs
 	// again for the newly-opened conversation. Restore the cached
 	// pagination window so the restored scrollTop lines up with the same
@@ -743,6 +818,8 @@
 	$effect(() => {
 		void convId;
 		initialScrollDone = false;
+		stopAnchorWatch?.();
+		stopAnchorWatch = null;
 		const cached = getCachedScrollState(convId);
 		visibleMessageCount = cached?.windowSize ?? INITIAL_MESSAGE_WINDOW;
 	});
@@ -1160,17 +1237,35 @@
 	<SwipeDrawer
 		open={mobileConvListOpen}
 		side="left"
-		width="w-[85vw]"
-		maxWidth="max-w-[320px]"
+		width="w-[calc(72px+14rem)]"
+		maxWidth="max-w-[85vw]"
 		onclose={() => (mobileConvListOpen = false)}
 		ariaLabel="Conversation list"
 	>
-		<ConversationList
-			{projectId}
-			activeConversationId={convId}
-			oncreate={() => { mobileConvListOpen = false; handleCreate(); }}
-			onselect={(id) => { mobileConvListOpen = false; handleSelect(id); }}
-		/>
+		<div class="flex h-full">
+			<ProjectRail />
+			<div class="flex flex-1 min-w-0 flex-col bg-[var(--color-surface-secondary)]">
+				<div class="flex items-center gap-2 border-b border-[var(--color-border)] px-2 py-2">
+					<button
+						onclick={() => { mobileConvListOpen = false; store.mobileMenuOpen = true; }}
+						class="flex items-center justify-center rounded-md p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]"
+						aria-label="Back to project menu"
+						style="min-width: 44px; min-height: 44px;"
+					>
+						<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+						</svg>
+					</button>
+					<span class="text-sm font-medium text-[var(--color-text-secondary)]">Chats</span>
+				</div>
+				<ConversationList
+					{projectId}
+					activeConversationId={convId}
+					oncreate={() => { mobileConvListOpen = false; handleCreate(); }}
+					onselect={(id) => { mobileConvListOpen = false; handleSelect(id); }}
+				/>
+			</div>
+		</div>
 	</SwipeDrawer>
 
 	<!-- svelte-ignore a11y_no_static_element_interactions -->

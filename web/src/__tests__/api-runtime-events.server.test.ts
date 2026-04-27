@@ -67,7 +67,11 @@ describe("GET /api/runtime-events", () => {
     const res = await GET(makeEvent({ locals: authedUser }));
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("text/event-stream");
-    expect(res.headers.get("cache-control")).toBe("no-cache");
+    expect(res.headers.get("cache-control")).toBe("no-cache, no-transform");
+    // `Content-Encoding: identity` defeats compression middleware that
+    // would otherwise buffer SSE frames until a block boundary. Pair it
+    // with `no-transform` so caching proxies don't override.
+    expect(res.headers.get("content-encoding")).toBe("identity");
     // Stream's start/cancel lifecycle is exercised in integration tests;
     // the bus is fully mocked here so no cleanup is needed.
     expect(res.body).toBeInstanceOf(ReadableStream);

@@ -1,4 +1,4 @@
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { getDb } from "../connection";
 import { toolCalls } from "../schema";
 import type { ToolCallResult } from "../../extensions/types";
@@ -63,6 +63,29 @@ export async function listToolCallOutputsForMessages(
     (r: { messageId: string | null; output: unknown }): r is { messageId: string; output: unknown } =>
       r.messageId !== null,
   );
+}
+
+/**
+ * Look up the (id, conversationId) pair for a tool call. Returns null
+ * when the row doesn't exist (yet — extension tools persist after the
+ * subprocess returns, so very fresh ids may be missing).
+ *
+ * Used by the generic events route to cross-check that a posted
+ * `toolCallId` actually belongs to the body's `conversationId`,
+ * closing the F2 forgery surface from the Phase A security review:
+ * without this check, a user authenticated for conv-A could fire
+ * events tagged with toolCallIds from conv-B as long as both are
+ * theirs.
+ */
+export async function getToolCallConversationById(
+  id: string,
+): Promise<{ id: string; conversationId: string | null } | null> {
+  const rows = await getDb()
+    .select({ id: toolCalls.id, conversationId: toolCalls.conversationId })
+    .from(toolCalls)
+    .where(eq(toolCalls.id, id))
+    .limit(1);
+  return rows[0] ?? null;
 }
 
 export async function persistToolCall(row: ToolCallRow): Promise<void> {

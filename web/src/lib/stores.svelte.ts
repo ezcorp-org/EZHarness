@@ -150,6 +150,7 @@ class AppStore {
 	sidebarCollapsed = $state<boolean>(
 		typeof localStorage !== "undefined" ? localStorage.getItem("pi-sidebar-collapsed") === "true" : false,
 	);
+	mobileMenuOpen = $state<boolean>(false);
 
 	// Chat streaming state
 	streamingMessages = $state<Record<string, string>>({});

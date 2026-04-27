@@ -72,6 +72,7 @@ Callable functions exposed over JSON-RPC.
 | `name` | `string` | Yes | Tool name. Sent as-is to the subprocess via `tools/call`. |
 | `description` | `string` | Yes | Human-readable description. |
 | `inputSchema` | `object` | Yes | JSON Schema defining accepted parameters. |
+| `cardType` | `string` | No | Custom UI card type. Maps to a Svelte component via [`tool-cards/utils.ts`](../../web/src/lib/components/tool-cards/utils.ts). For interactive cards (iframe previews, knob sliders), pair with the SDK's `createCanvas` helper — see **[Canvas Cards](canvas-cards.md)** for the full pattern. |
 
 When `tools[]` is non-empty, `entrypoint` is **required** at the manifest level. The platform spawns a subprocess at the entrypoint and communicates via JSON-RPC over stdio.
 
@@ -449,6 +450,34 @@ Storage is scoped at three levels:
 - **`user`** — isolated per user
 
 See [Storage API](api-reference.md#storage-api) in the API Reference for the full `ezcorp/storage` protocol.
+
+---
+
+### `eventSubscriptions` -- `string[]`
+
+Subscribe to server→extension bus-event notifications. Each entry is the full event name on the bus.
+
+| Detail | |
+|--------|---|
+| **Type** | String array |
+| **What it controls** | Which bus events the dispatcher delivers to your subprocess as `ezcorp/event/<name>` JSON-RPC notifications |
+| **Allowed values** | Platform direct-carrier events (e.g. `task:snapshot`, `tool:complete`, `ask-user:answer`) AND custom events of the form `<your-extension-name>:<event>` |
+| **Default** | `[]` (no subscriptions) |
+
+```typescript
+permissions: {
+  eventSubscriptions: ["my-extension:user-action", "task:snapshot"],
+},
+```
+
+**Two enforcement rules** (both server-side, in [`event-subscription-dispatcher.ts`](../../src/extensions/event-subscription-dispatcher.ts)):
+
+1. **Namespace must equal `manifest.name`.** You can only subscribe to events in your own namespace. Cross-namespace declarations (`other-extension:foo`) are silently dropped.
+2. **No platform-event collisions.** If your extension is named `tool` / `task` / `ask-user` / etc. and you declare `task:snapshot`, the dispatcher drops it (the platform set wins). This prevents an extension named `ask-user` from forging `ask-user:answer` payloads.
+
+For interactive cards that round-trip events from a UI sidebar, pair this with the SDK's `createCanvas` helper — see **[Canvas Cards](canvas-cards.md)** for the full pattern.
+
+The full list of platform direct-carrier events lives in [`src/runtime/sse-conversation-filter.ts`](../../src/runtime/sse-conversation-filter.ts) under `DIRECT_CARRIER_EVENT_TYPES`.
 
 ---
 

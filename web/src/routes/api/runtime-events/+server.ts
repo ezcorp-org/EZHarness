@@ -55,9 +55,31 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   const subscriberConversationId = url.searchParams.get("conversationId") ?? undefined;
   const subscriber = { userId: user.id, conversationId: subscriberConversationId };
 
-  const stream = new ReadableStream({
+  // Cleanup state lives in this closure — `cancel()` is called with the
+  // cancellation reason (per the WHATWG Streams spec), NOT the controller,
+  // so we can't stash refs on the controller and read them back. Hoisting
+  // them here lets cancel() unsubscribe bus listeners and clear the
+  // heartbeat regardless of what the runtime passes.
+  const unsubs: Array<() => void> = [];
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+
+  // Encode every SSE frame to bytes up front. Mixing strings and bytes
+  // through `controller.enqueue` lets the runtime pick when to coerce,
+  // which adds non-trivial flush latency on Bun. A pre-encoded byte
+  // payload reaches the socket the moment we enqueue.
+  const encoder = new TextEncoder();
+  const encodeFrame = (s: string): Uint8Array => encoder.encode(s);
+
+  const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const unsubs: Array<() => void> = [];
+      // Immediate priming frame. Forces the kernel to commit the TCP
+      // data path before any natural event arrives — without this, the
+      // first ~30s of idle on the connection let intermediaries (home
+      // router NAT, Tailscale relay) drop the flow before our heartbeat
+      // gets a chance, which is exactly the "keeps reconnecting" symptom.
+      try {
+        controller.enqueue(encodeFrame(": connected\n\n"));
+      } catch { /* stream closed before we got here — ignore */ }
 
       for (const event of BUS_EVENTS) {
         unsubs.push(
@@ -73,7 +95,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
                 if (!deliver) return;
                 try {
                   const payload = JSON.stringify({ type: event, data });
-                  controller.enqueue(`data: ${payload}\n\n`);
+                  controller.enqueue(encodeFrame(`data: ${payload}\n\n`));
                 } catch {
                   // Encoding error or controller closed — ignore.
                 }
@@ -87,32 +109,37 @@ export const GET: RequestHandler = async ({ locals, url }) => {
         );
       }
 
-      // Send a heartbeat every 30s to keep proxies / load balancers from
-      // closing the connection due to inactivity.
-      const heartbeat = setInterval(() => {
+      // Send a heartbeat every 15s. 30s loses races against many
+      // intermediaries that idle-close at exactly 30s (Tailscale relay
+      // sessions, home-router conntrack, AWS NLB). 15s keeps the flow
+      // alive without measurable bandwidth cost (4 bytes per frame).
+      heartbeat = setInterval(() => {
         try {
-          controller.enqueue(": heartbeat\n\n");
+          controller.enqueue(encodeFrame(": heartbeat\n\n"));
         } catch {
           // Stream closed — cleanup will run via cancel().
         }
-      }, 30_000);
-
-      // Stash cleanup refs on the controller so cancel() can reach them.
-      (controller as unknown as { _ezCleanup: () => void })._ezCleanup = () => {
-        for (const unsub of unsubs) unsub();
-        clearInterval(heartbeat);
-      };
+      }, 15_000);
     },
-    cancel(controller) {
-      (controller as unknown as { _ezCleanup?: () => void })._ezCleanup?.();
+    cancel() {
+      for (const unsub of unsubs) unsub();
+      unsubs.length = 0;
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
     },
   });
 
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-transform",
       "Connection": "keep-alive",
+      // Defeat any compression middleware in the path. SSE depends on
+      // immediate per-frame flushes; gzip/brotli buffer until a block
+      // boundary, which masquerades as a stalled connection.
+      "Content-Encoding": "identity",
       // Allow the browser to reconnect after 1s if the connection drops.
       "X-Accel-Buffering": "no",
     },

@@ -1,14 +1,14 @@
 import type { Handle, HandleServerError } from "@sveltejs/kit";
 import { redirect } from "@sveltejs/kit";
 import { ensureInitialized } from "$lib/server/context";
-import { verifyJWT, getJwtSecret } from "$server/auth/jwt";
-import { getUserCount } from "$server/db/queries/users";
+import { verifyJWT, getJwtSecret, signJWT } from "$server/auth/jwt";
+import { getUserCount, getUserById } from "$server/db/queries/users";
 import { logger } from "$server/logger";
 import { RateLimiter } from "$lib/server/security/rate-limiter";
 import { attachBearerAuth } from "$lib/server/security/bearer-auth";
 import { getMaxPayload, payloadTooLarge } from "$lib/server/security/payload";
 import { getSetting } from "$server/db/queries/settings";
-import { hashToken, getSessionByTokenHash, touchSession } from "$server/db/queries/sessions";
+import { hashToken, getSessionByTokenHash, touchSession, rotateSessionToken } from "$server/db/queries/sessions";
 import { startBackgroundTimers } from "$server/startup/background-timers";
 
 const log = logger.child("hooks.server");
@@ -131,6 +131,15 @@ function getCorsHeaders(request: Request): Record<string, string> {
 // After this date we stop honoring the old cookie entirely.
 const PI_SESSION_MIGRATION_EXPIRES_AT = Date.parse("2026-06-01T00:00:00Z");
 let piSessionMigrationWarned = false;
+
+// Sliding-session refresh: re-issue the JWT (and bump the DB row's expiresAt)
+// once the current token is older than REFRESH_AFTER_SECONDS. The new token
+// gets another NEW_LIFETIME_SECONDS of validity. Keeps active users from
+// being forced to re-authenticate on a hard 30-day boundary while still
+// capping the lifetime of an idle session.
+const REFRESH_AFTER_SECONDS = 7 * 24 * 3600;
+const NEW_LIFETIME_SECONDS = 30 * 24 * 3600;
+export const __sessionRefreshConfig = { REFRESH_AFTER_SECONDS, NEW_LIFETIME_SECONDS };
 
 export const handle: Handle = async ({ event, resolve }) => {
   const { request } = event;
@@ -273,12 +282,15 @@ export const handle: Handle = async ({ event, resolve }) => {
       // Missing session row = revoked; clear cookies and reject (do not auto-recreate).
       let sessionMissing = false;
       let dbAvailable = true;
+      let sessionId: string | null = null;
+      let oldTokenHash: string | null = null;
       try {
-        const tokenHash = await hashToken(sessionToken);
-        const session = await getSessionByTokenHash(tokenHash);
+        oldTokenHash = await hashToken(sessionToken);
+        const session = await getSessionByTokenHash(oldTokenHash);
         if (!session) {
           sessionMissing = true;
         } else {
+          sessionId = session.id;
           // Throttled touch to track last activity
           touchSession(session.id).catch(() => {});
         }
@@ -299,12 +311,81 @@ export const handle: Handle = async ({ event, resolve }) => {
         throw redirect(302, "/login?reason=session_revoked");
       }
 
+      // ── Sliding refresh ────────────────────────────────────────────────
+      // Once the JWT crosses REFRESH_AFTER_SECONDS of age, re-issue it with
+      // another NEW_LIFETIME_SECONDS and bump the DB row's expiresAt. CAS on
+      // (id, oldTokenHash) means concurrent requests can't double-rotate:
+      // the loser sees `rotated === null` and silently keeps using its
+      // inbound cookie, whose hash is still in the row.
+      //
+      // Skipped when the DB is unavailable (we have no row to rotate) or
+      // when the row was missing (we already cleared the cookies above).
+      if (sessionId && oldTokenHash && dbAvailable) {
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        if (nowSeconds - payload.iat > REFRESH_AFTER_SECONDS) {
+          try {
+            const newToken = await signJWT(
+              { id: payload.id, email: payload.email, name: payload.name, role: payload.role },
+              secret,
+              NEW_LIFETIME_SECONDS,
+            );
+            const newTokenHash = await hashToken(newToken);
+            const newExpiresAt = new Date((nowSeconds + NEW_LIFETIME_SECONDS) * 1000);
+            const rotated = await rotateSessionToken({
+              id: sessionId,
+              oldTokenHash,
+              newTokenHash,
+              newExpiresAt,
+            });
+            if (rotated) {
+              const isSecure = process.env.FORCE_SECURE_COOKIES === "true";
+              event.cookies.set("ezcorp_session", newToken, {
+                path: "/",
+                httpOnly: true,
+                sameSite: "lax",
+                maxAge: NEW_LIFETIME_SECONDS,
+                secure: isSecure,
+              });
+            }
+          } catch (err) {
+            // Refresh is best-effort: if signing or the CAS update throws
+            // we keep serving the request with the old (still-valid) cookie.
+            log.warn("session refresh failed", { error: String(err) });
+          }
+        }
+      }
+
       event.locals.user = {
         id: payload.id,
         email: payload.email,
         name: payload.name,
         role: payload.role,
       };
+    }
+  }
+
+  // ── First-time onboarding gate ───────────────────────────────────
+  // Pages-only: API routes (cookie OR Bearer) and asset paths bypass
+  // entirely so programmatic clients aren't redirected. For real page
+  // nav (including /onboarding itself), look up the user and stash
+  // `onboardedAt` on locals so the wizard's load doesn't re-fetch.
+  // The redirect itself is suppressed on /onboarding to avoid a loop.
+  if (
+    event.locals.user
+    && !url.pathname.startsWith("/api/")
+    && !url.pathname.startsWith("/_app/")
+  ) {
+    let userRow;
+    try {
+      userRow = await getUserById(event.locals.user.id);
+    } catch {
+      userRow = undefined; // DB unavailable — fail open.
+    }
+    if (userRow) {
+      event.locals.onboardedAt = userRow.onboardedAt;
+    }
+    if (userRow && userRow.onboardedAt === null && url.pathname !== "/onboarding") {
+      throw redirect(302, "/onboarding");
     }
   }
 
@@ -318,11 +399,19 @@ export const handle: Handle = async ({ event, resolve }) => {
     }
   }
 
-  const response = await resolve(event);
+  const response = await resolve(event, {
+    transformPageChunk: process.env.EZCORP_DEV_INDICATOR === "1"
+      ? ({ html }) => html.replace("<html ", '<html data-dev-indicator="1" ')
+      : undefined,
+  });
 
   // ── Security headers on ALL responses ───────────────────────────
   // SSE replaces the old WebSocket transport — no ws: or wss: scheme needed
   // in connect-src anymore.
+  // These are applied as DEFAULTS — a route that already set its own
+  // value (e.g. /api/extensions/[name]/data/* serves sandboxed content
+  // that needs same-origin iframing, so it sets a more permissive
+  // Content-Security-Policy + omits X-Frame-Options) keeps that value.
   const connectSrc = "'self'";
   const SECURITY_HEADERS: Record<string, string> = {
     "X-Frame-Options": "DENY",
@@ -332,7 +421,9 @@ export const handle: Handle = async ({ event, resolve }) => {
     "Content-Security-Policy": `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src ${connectSrc}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
   };
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
-    response.headers.set(key, value);
+    if (!response.headers.has(key)) {
+      response.headers.set(key, value);
+    }
   }
   if (url.protocol === "https:") {
     response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");

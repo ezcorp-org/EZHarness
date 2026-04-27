@@ -13,6 +13,7 @@ export function getCardComponentName(cardType: string | undefined, permissionPen
 		case 'task-list': return 'TaskListCard';
 		case 'task-detail': return 'TaskDetailCard';
 		case 'ask-user-question': return 'AskUserQuestionCard';
+		case 'design-canvas': return 'DesignCanvasCard';
 		default: return 'DefaultCard';
 	}
 }

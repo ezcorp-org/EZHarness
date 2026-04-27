@@ -11,10 +11,11 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import {
   tools,
-  _setRegisterEventHandlerForTests,
+  _setCreateCanvasForTests,
   _setAskUserTimeoutForTests,
   _resetBindingsForTests,
   _internals,
+  start,
 } from "./index";
 
 // ── Test fakes ──────────────────────────────────────────────────────
@@ -57,10 +58,11 @@ beforeEach(() => {
   // on a shrunk value bleeding across cases.
   _setAskUserTimeoutForTests(5 * 60_000);
   _internals.pendingAskUser.clear();
-  // Replace the SDK's registerEventHandler with a no-op so importing
-  // the production wiring (gated on import.meta.main) wouldn't open
-  // stdin. Tests drive _internals.handleAnswer directly.
-  _setRegisterEventHandlerForTests((() => {}) as never);
+  // Phase C: tests drive `_internals.handleAnswer` directly, so the
+  // SDK wiring never actually runs. The legacy `registerEventHandler`
+  // swap is no longer needed — the migration to `createCanvas` made
+  // it dead. Production wiring is exercised by the dedicated tests
+  // below that use `_setCreateCanvasForTests` + `start()`.
 });
 
 afterEach(() => {
@@ -475,5 +477,106 @@ describe("ask_user_question — no AbortSignal supplied", () => {
       answer: "fine",
     });
     expect(expectText(await invocation)).toBe("fine");
+  });
+});
+
+// ── Phase C migration regression ───────────────────────────────────
+//
+// Locks the contract that ask-user's `start()` calls `createCanvas`
+// with the documented shape (cardType="ask-user-question",
+// namespace="ask-user", events.answer is a function). A regression
+// here means the SDK's canvas API drifted and a future extension
+// might silently follow the wrong pattern.
+
+describe("ask-user start() — Phase C createCanvas shape", () => {
+  test("start() invokes createCanvas with the canvas-card contract", () => {
+    const calls: Array<{ cardType: unknown; namespace: unknown; events: Record<string, unknown> }> = [];
+    _setCreateCanvasForTests(((opts: {
+      cardType: unknown;
+      namespace: unknown;
+      events: Record<string, unknown>;
+    }) => {
+      calls.push(opts);
+      return {};
+    }) as never);
+    try {
+      start();
+    } finally {
+      _resetBindingsForTests();
+    }
+    expect(calls.length).toBe(1);
+    expect(calls[0]?.cardType).toBe("ask-user-question");
+    expect(calls[0]?.namespace).toBe("ask-user");
+    expect(typeof calls[0]?.events.answer).toBe("function");
+  });
+
+  test("the deprecated _setRegisterEventHandlerForTests alias throws with a migration message", async () => {
+    // Phase C made the legacy export a throwing alias to convert silent
+    // test corruption into a loud migration prompt. Locks the contract
+    // so a future refactor doesn't downgrade it back to a silent no-op.
+    const { _setRegisterEventHandlerForTests } = await import("./index");
+    expect(() => _setRegisterEventHandlerForTests(() => {})).toThrow(
+      /removed in Phase C.*_setCreateCanvasForTests/,
+    );
+  });
+
+  test("calling start() twice does not double-fire handleAnswer (Map last-write-wins)", async () => {
+    // Phase C relies on `getChannel().onRequest`'s Map semantics — the
+    // SECOND `createCanvas` registration overwrites the first, so the
+    // user handler runs exactly once per inbound event. Without this
+    // contract, calling `start()` twice (e.g. on hot-reload) would
+    // double-resolve every promise gate.
+    const captured: string[] = [];
+    const handlers: Record<string, (args: { payload: unknown }) => Promise<void>> = {};
+    _setCreateCanvasForTests(((opts: {
+      events: Record<string, (args: { payload: unknown }) => Promise<void>>;
+    }) => {
+      // Each call REPLACES the handler — same as the production singleton
+      // channel's `onRequest` Map.
+      Object.assign(handlers, opts.events);
+      return {};
+    }) as never);
+    try {
+      start();
+      start();
+    } finally {
+      _resetBindingsForTests();
+    }
+    _internals.pendingAskUser.set("tc-idem", {
+      conversationId: "conv-idem",
+      resolve: (a) => { captured.push(a); },
+      reject: () => {},
+      timeoutHandle: setTimeout(() => {}, 0),
+    });
+    await handlers.answer!({
+      payload: { toolCallId: "tc-idem", conversationId: "conv-idem", answer: "once" },
+    });
+    expect(captured).toEqual(["once"]);
+  });
+
+  test("createCanvas's `answer` handler delegates to handleAnswer with the host's flat payload", async () => {
+    const handlers: Record<string, unknown> = {};
+    _setCreateCanvasForTests(((opts: {
+      events: Record<string, (args: { payload: unknown }) => Promise<void> | void>;
+    }) => {
+      Object.assign(handlers, opts.events);
+      return {};
+    }) as never);
+    try {
+      start();
+    } finally {
+      _resetBindingsForTests();
+    }
+    // Open a gate, then invoke the handler that createCanvas registered.
+    const captured: string[] = [];
+    _internals.pendingAskUser.set("tc-c-1", {
+      conversationId: "conv-c-1",
+      resolve: (a) => { captured.push(a); },
+      reject: () => {},
+      timeoutHandle: setTimeout(() => {}, 0),
+    });
+    const fn = handlers.answer as (args: { payload: unknown }) => Promise<void>;
+    await fn({ payload: { toolCallId: "tc-c-1", conversationId: "conv-c-1", answer: "delegated" } });
+    expect(captured).toEqual(["delegated"]);
   });
 });

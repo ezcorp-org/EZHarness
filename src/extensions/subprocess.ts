@@ -2,6 +2,7 @@ import { JsonRpcTransport } from "./json-rpc";
 import type { JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, ToolCallResult } from "./types";
 import { incrementFailures, disableExtension, resetFailures } from "../db/queries/extensions";
 import { logger } from "../logger";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 
@@ -51,15 +52,32 @@ export interface ExtensionProcessOptions {
 /**
  * Absolute path to the subprocess sandbox preload script.
  *
- * IMPORTANT: use `fileURLToPath(import.meta.url)` instead of `import.meta.dir`.
- * `import.meta.dir` is a Bun-only property; it is `undefined` when this module
- * is loaded by Vite's SSR transform (Node), which made the preload path
- * resolve to the literal string `"undefined/runtime/sandbox-preload.ts"`. Bun
- * then failed with `preload not found`, the subprocess exited immediately,
- * the JSON-RPC transport closed, and every extension tool call surfaced as
- * "Transport closed" in the UI.
+ * Resolution must work in two very different load contexts:
+ *   1. Source — running directly under Bun: `import.meta.url` points at this
+ *      file, so `dirname(...)/runtime/sandbox-preload.ts` resolves correctly.
+ *   2. Bundled (svelte-adapter-bun production) — Vite collapses this module
+ *      into `web/build/server/chunks/registry2-*.js`, so `import.meta.url`
+ *      points at the chunk's directory, and the sibling `runtime/` folder
+ *      doesn't exist there. The source is still on disk at
+ *      `<projectRoot>/src/extensions/runtime/sandbox-preload.ts`, so we fall
+ *      back to a cwd-anchored path.
+ *
+ * Same failure mode in either context: a wrong path makes Bun's
+ * `--preload` fail, the subprocess exits immediately, the JSON-RPC transport
+ * closes mid-call, and every extension tool surfaces "Transport closed" in
+ * the UI. (`import.meta.dir` had a related "undefined" bug on Vite SSR.)
  */
-const SANDBOX_PRELOAD_PATH = `${dirname(fileURLToPath(import.meta.url))}/runtime/sandbox-preload.ts`;
+function resolveSandboxPreloadPath(): string {
+  const candidates = [
+    `${dirname(fileURLToPath(import.meta.url))}/runtime/sandbox-preload.ts`,
+    `${process.cwd()}/src/extensions/runtime/sandbox-preload.ts`,
+  ];
+  for (const p of candidates) {
+    try { if (existsSync(p)) return p; } catch { /* continue */ }
+  }
+  return candidates[0]!;
+}
+const SANDBOX_PRELOAD_PATH = resolveSandboxPreloadPath();
 
 /**
  * Parse a memory limit string (e.g. "256MB", "1GB") to bytes.

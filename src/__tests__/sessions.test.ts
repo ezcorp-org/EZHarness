@@ -6,6 +6,7 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 let mockRows: any[] = [];
 let lastInsertValues: any = null;
 let _lastUpdateSet: any = null;
+let _lastUpdateWhere: any = null;
 let _lastDeleteWhere: any = null;
 let executeResults: any[] = [];
 
@@ -13,6 +14,7 @@ function resetMockState() {
   mockRows = [];
   lastInsertValues = null;
   _lastUpdateSet = null;
+  _lastUpdateWhere = null;
   _lastDeleteWhere = null;
   executeResults = [];
 }
@@ -49,6 +51,7 @@ function createChainableDb() {
     leftJoin: (_table: any, _cond: any) => chain,
     where: (args: any) => {
       if (chain._op === "delete") _lastDeleteWhere = args;
+      if (chain._op === "update") _lastUpdateWhere = args;
       if (chain._op === "select") {
         return {
           orderBy: (..._args: any[]) => ({ then: (resolve: any, reject?: any) => Promise.resolve(mockRows).then(resolve, reject) }),
@@ -121,6 +124,7 @@ import {
   listAllSessions,
   touchSession,
   deleteExpiredSessions,
+  rotateSessionToken,
 } from "../db/queries/sessions";
 
 describe("session queries", () => {
@@ -252,6 +256,51 @@ describe("session queries", () => {
       mockRows = [{ id: "s1" }, { id: "s2" }];
       const count = await deleteExpiredSessions();
       expect(count).toBe(2);
+    });
+  });
+
+  describe("rotateSessionToken", () => {
+    test("returns updated row when CAS predicate matches", async () => {
+      const updated = {
+        id: "sess-1",
+        userId: "user-1",
+        tokenHash: "new-hash",
+        expiresAt: new Date("2026-12-01"),
+      };
+      mockRows = [updated];
+
+      const result = await rotateSessionToken({
+        id: "sess-1",
+        oldTokenHash: "old-hash",
+        newTokenHash: "new-hash",
+        newExpiresAt: new Date("2026-12-01"),
+      });
+
+      // Set clause must carry both the new hash and the new expiry — if either
+      // is dropped, sessions silently revert or the reaper kills them early.
+      expect(_lastUpdateSet).toEqual({
+        tokenHash: "new-hash",
+        expiresAt: new Date("2026-12-01"),
+      });
+      // CAS predicate is non-empty (drizzle wraps it in an SQL builder; we
+      // don't introspect the AST — the lost-race test below proves it gates).
+      expect(_lastUpdateWhere).toBeDefined();
+      expect(result).toBe(updated as typeof result);
+    });
+
+    test("returns null when CAS predicate misses (lost race)", async () => {
+      // Concurrent rotation already replaced the row's tokenHash, so the
+      // UPDATE matches zero rows. RETURNING is empty → null.
+      mockRows = [];
+
+      const result = await rotateSessionToken({
+        id: "sess-1",
+        oldTokenHash: "stale-hash",
+        newTokenHash: "another-new-hash",
+        newExpiresAt: new Date("2026-12-01"),
+      });
+
+      expect(result).toBeNull();
     });
   });
 });

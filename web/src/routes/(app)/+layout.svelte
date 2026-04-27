@@ -14,14 +14,12 @@
 	import ImageLightbox from "$lib/components/ImageLightbox.svelte";
 	import QuickStartChecklist from "$lib/components/QuickStartChecklist.svelte";
 	import ConnectionBanner from "$lib/components/chat/ConnectionBanner.svelte";
-	import MobileTabBar from "$lib/components/MobileTabBar.svelte";
 	import PullToRefresh from "$lib/components/PullToRefresh.svelte";
 	import SwipeDrawer from "$lib/components/SwipeDrawer.svelte";
 	import TeamChatPanel from "$lib/components/TeamChatPanel.svelte";
 
 	let { children } = $props();
 	let commandPaletteOpen = $state(false);
-	let mobileMenuOpen = $state(false);
 	let shortcutHelpOpen = $state(false);
 	let shortcuts = $state<ShortcutBinding[]>([]);
 	let isAdmin = $state(false);
@@ -219,7 +217,7 @@
 			</div>
 			<a href="/" class="mt-2 block truncate text-lg font-bold hover:text-[var(--color-accent)] transition-colors" title="Go to Home">{activeProject?.name ?? "EZCorp"}</a>
 		</div>
-		<nav class="flex flex-1 flex-col gap-1 p-3" aria-label="Main navigation">
+		<nav class="scrollbar-hide flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-3" aria-label="Main navigation">
 			{#each navLinks as link, i}
 				{#if link.group && (i === 0 || navLinks[i - 1]?.group !== link.group)}
 					<div class="mt-3 mb-1 px-3 text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
@@ -291,12 +289,12 @@
 	{/if}
 
 	<!-- Main content -->
-	<main class="relative flex-1 overflow-y-auto {isChatRoute ? 'flex flex-col' : ''} pb-14 md:pb-0">
+	<main class="relative flex-1 overflow-y-auto {isChatRoute ? 'flex flex-col' : ''}">
 		<!-- Mobile header (hidden on chat routes - chat has its own mobile header) -->
 		{#if !isChatRoute}
 		<div class="flex md:hidden items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-4 py-3">
 			<button
-				onclick={() => (mobileMenuOpen = true)}
+				onclick={() => (store.mobileMenuOpen = true)}
 				class="flex items-center justify-center rounded-md p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]"
 				aria-label="Open menu"
 				style="min-width: 44px; min-height: 44px;"
@@ -323,7 +321,6 @@
 			</div>
 		{/if}
 	</main>
-	<MobileTabBar projectId={store.activeProjectId} currentPath={page.url.pathname} />
 </div>
 
 <PullToRefresh />
@@ -333,11 +330,11 @@
 
 <!-- Mobile overlay drawer -->
 <SwipeDrawer
-	open={mobileMenuOpen}
+	open={store.mobileMenuOpen}
 	side="left"
 	width="w-[calc(72px+14rem)]"
 	maxWidth="max-w-[85vw]"
-	onclose={() => (mobileMenuOpen = false)}
+	onclose={() => (store.mobileMenuOpen = false)}
 	ariaLabel="Mobile navigation"
 >
 	<div class="flex h-full">
@@ -350,7 +347,7 @@
 					title={store.connected ? "Connected" : "Disconnected"}
 				></span>
 				<button
-					onclick={() => (mobileMenuOpen = false)}
+					onclick={() => (store.mobileMenuOpen = false)}
 					class="rounded-md p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)]"
 					aria-label="Close menu"
 					style="min-width: 44px; min-height: 44px;"
@@ -360,7 +357,7 @@
 					</svg>
 				</button>
 			</div>
-			<nav class="flex flex-col gap-1 p-3">
+			<nav class="scrollbar-hide flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-3">
 				{#each navLinks as link, i}
 					{#if link.group && (i === 0 || navLinks[i - 1]?.group !== link.group)}
 						<div class="mt-3 mb-1 px-3 text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
@@ -370,7 +367,7 @@
 					{@const active = isLinkActive(link.href)}
 					<a
 						href={link.href}
-						onclick={() => (mobileMenuOpen = false)}
+						onclick={() => (store.mobileMenuOpen = false)}
 						class="rounded-md px-3 py-2 text-sm font-medium transition-colors {active ? 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]'}"
 						style="min-height: 44px; display: flex; align-items: center;"
 						aria-current={active ? 'page' : undefined}

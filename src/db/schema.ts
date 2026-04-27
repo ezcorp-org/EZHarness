@@ -359,6 +359,7 @@ export const users = pgTable("users", {
   role: text("role").notNull().default("member").$type<"admin" | "member">(),
   status: text("status").notNull().default("active").$type<"active" | "inactive">(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
 });
 
 export const invites = pgTable("invites", {
