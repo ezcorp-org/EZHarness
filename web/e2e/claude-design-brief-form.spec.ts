@@ -10,6 +10,13 @@
  * Mirrors the canvas-dock-knob-change.spec.ts intercept pattern: the
  * route handler is registered BEFORE the catch-all api mock so it
  * wins by Playwright's registration-order rule.
+ *
+ * NOTE (2026-04 / textarea-locator regression): the chat-composer
+ * textarea selector currently breaks several specs across this branch
+ * (this one included). The fix is suite-wide and tracked
+ * separately. Tests here are structured to pass once the composer
+ * locator is restored — do NOT add `test.skip` here; the spec's
+ * structure is the contract. Filed scope: composer textarea-locator.
  */
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
@@ -136,5 +143,110 @@ test.describe("claude-design — clarify-brief form-card flow", () => {
 		expect(body.conversationId).toBe("conv-1");
 		expect(body.answer.tone).toBe("modern");
 		expect(body.answer.audience).toBe("developers");
+	});
+
+	test("after answer submit, a follow-on generate-design tool-call card renders", async ({
+		page,
+		mockApi,
+		emitWs,
+	}) => {
+		// End-to-end gate-flow scenario: the form posts an answer, the
+		// agent (mocked here as a follow-up tool:start emission) then
+		// calls generate-design. We pin that the generate-design
+		// tool-card surface appears in the chat — this is the ONLY
+		// surface that proves "the brief gate actually unblocked the
+		// next tool".
+		await page.route(
+			"**/api/extensions/claude-design/events/brief-answer",
+			async (route) => {
+				await route.fulfill({
+					status: 200,
+					contentType: "application/json",
+					body: JSON.stringify({ ok: true }),
+				});
+			},
+		);
+		await mockApi({
+			projects: [proj],
+			conversations: [conv],
+			messages: [userMsg, assistantMsg],
+		});
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+
+		// Send a vague prompt to nudge the agent into clarify-brief
+		// territory (mocked — no real agent runs in e2e).
+		const composer = page.locator("textarea");
+		await composer.fill("make me a page");
+		await composer.press("Enter");
+		await page.waitForResponse(
+			(r) => r.url().includes("/messages") && r.request().method() === "POST",
+		);
+
+		// Stream clarify-brief tool start.
+		await emitWs({
+			type: "tool:start",
+			data: {
+				conversationId: "conv-1",
+				toolName: "claude-design__clarify-brief",
+				input: {
+					fields: [{ key: "tone", label: "Tone", kind: "text" }],
+				},
+				timestamp: Date.now(),
+				cardType: "design-brief",
+				invocationId: TOOL_CALL_ID,
+			},
+		});
+		await expect(page.getByTestId("design-brief-card")).toBeVisible({
+			timeout: 3000,
+		});
+
+		// Fill + submit.
+		await page
+			.getByTestId("design-brief-text-tone")
+			.fill("modern, refined-minimal");
+		await page.getByTestId("design-brief-submit").click();
+
+		// Simulate the runtime path: brief-answer resolves the gate, the
+		// extension's clarify-brief tool returns, then the agent calls
+		// generate-design.
+		await emitWs({
+			type: "tool:complete",
+			data: {
+				conversationId: "conv-1",
+				toolName: "claude-design__clarify-brief",
+				invocationId: TOOL_CALL_ID,
+				output: {
+					content: [
+						{ type: "text", text: JSON.stringify({ tone: "modern" }) },
+					],
+				},
+				timestamp: Date.now(),
+			},
+		});
+		await emitWs({
+			type: "tool:start",
+			data: {
+				conversationId: "conv-1",
+				toolName: "claude-design__generate-design",
+				input: {
+					prompt: "modern landing page",
+					kind: "page",
+					bodyMarkup: "<main>...</main>",
+				},
+				timestamp: Date.now(),
+				invocationId: "tc-gen-1",
+			},
+		});
+
+		// Pin: the brief card flips to the answered/summary surface, AND
+		// the follow-on tool-call surface for generate-design appears.
+		await expect(page.getByTestId("design-brief-summary")).toBeVisible({
+			timeout: 3000,
+		});
+		// generate-design has no specific card type; it surfaces via the
+		// generic tool-call list. Match by visible toolName text.
+		await expect(
+			page.getByText(/generate-design/i).first(),
+		).toBeVisible({ timeout: 3000 });
 	});
 });

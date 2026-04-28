@@ -312,3 +312,183 @@ describe("validation: DesignBriefCard — required reset, double-submit, intro d
 		expect(container.textContent ?? "").toContain("awaiting answer");
 	});
 });
+
+describe("validation: DesignBriefCard — server error paths + missing context", () => {
+	test("HTTP 500 response → error banner with server-supplied message; Retry returns to running", async () => {
+		fetchSpy.mockImplementationOnce(async (_url: RequestInfo | URL, init?: RequestInit) => {
+			lastFetchInit = init;
+			return new Response(JSON.stringify({ error: "extension crashed" }), {
+				status: 500,
+				headers: { "Content-Type": "application/json" },
+			});
+		});
+		const { getByTestId, queryByTestId, findByTestId } = render(DesignBriefCard, {
+			toolCall: makeRunningCall({
+				input: { fields: [{ key: "tone", label: "Tone", kind: "text" }] },
+			}),
+			conversationId: "conv-1",
+		});
+		const ta = getByTestId("design-brief-text-tone") as HTMLTextAreaElement;
+		await fireEvent.input(ta, { target: { value: "modern" } });
+		await fireEvent.click(getByTestId("design-brief-submit"));
+		const err = await findByTestId("design-brief-error");
+		// Error banner surfaces the server's message.
+		expect(err.textContent).toContain("extension crashed");
+		// Retry returns to the running form.
+		await fireEvent.click(getByTestId("design-brief-retry"));
+		expect(queryByTestId("design-brief-error")).toBeNull();
+		expect(getByTestId("design-brief-form")).toBeInTheDocument();
+	});
+
+	test("HTTP 500 with non-JSON body → falls back to 'HTTP 500' message", async () => {
+		fetchSpy.mockImplementationOnce(async () => {
+			return new Response("not json at all", {
+				status: 500,
+				headers: { "Content-Type": "text/plain" },
+			});
+		});
+		const { getByTestId, findByTestId } = render(DesignBriefCard, {
+			toolCall: makeRunningCall({
+				input: { fields: [{ key: "tone", label: "Tone", kind: "text" }] },
+			}),
+			conversationId: "conv-1",
+		});
+		await fireEvent.input(
+			getByTestId("design-brief-text-tone") as HTMLTextAreaElement,
+			{ target: { value: "modern" } },
+		);
+		await fireEvent.click(getByTestId("design-brief-submit"));
+		const err = await findByTestId("design-brief-error");
+		expect(err.textContent).toContain("HTTP 500");
+	});
+
+	test("network failure (fetch throws) → error banner shows the thrown message", async () => {
+		fetchSpy.mockImplementationOnce(async () => {
+			throw new Error("network down");
+		});
+		const { getByTestId, findByTestId } = render(DesignBriefCard, {
+			toolCall: makeRunningCall({
+				input: { fields: [{ key: "tone", label: "Tone", kind: "text" }] },
+			}),
+			conversationId: "conv-1",
+		});
+		await fireEvent.input(
+			getByTestId("design-brief-text-tone") as HTMLTextAreaElement,
+			{ target: { value: "modern" } },
+		);
+		await fireEvent.click(getByTestId("design-brief-submit"));
+		const err = await findByTestId("design-brief-error");
+		expect(err.textContent).toContain("network down");
+	});
+
+	test("missing conversationId → submit blocked, error banner explains why", async () => {
+		const { getByTestId, findByTestId } = render(DesignBriefCard, {
+			toolCall: makeRunningCall({
+				input: { fields: [{ key: "tone", label: "Tone", kind: "text" }] },
+			}),
+			conversationId: undefined,
+		});
+		await fireEvent.input(
+			getByTestId("design-brief-text-tone") as HTMLTextAreaElement,
+			{ target: { value: "modern" } },
+		);
+		await fireEvent.click(getByTestId("design-brief-submit"));
+		expect(fetchSpy).not.toHaveBeenCalled();
+		const err = await findByTestId("design-brief-error");
+		expect(err.textContent).toMatch(/conversation id/i);
+	});
+
+	test("required multi-select with empty selection → submit blocked, error references the field", async () => {
+		const { getByTestId, findByTestId } = render(DesignBriefCard, {
+			toolCall: makeRunningCall({
+				input: {
+					fields: [
+						{
+							key: "sections",
+							label: "Sections",
+							kind: "multi-select",
+							options: ["hero", "features"],
+							required: true,
+						},
+					],
+				},
+			}),
+			conversationId: "conv-1",
+		});
+		await fireEvent.click(getByTestId("design-brief-submit"));
+		expect(fetchSpy).not.toHaveBeenCalled();
+		const err = await findByTestId("design-brief-error");
+		expect(err.textContent).toContain("Sections");
+	});
+
+	test("required-field error: whitespace-only text counts as empty", async () => {
+		const { getByTestId, findByTestId } = render(DesignBriefCard, {
+			toolCall: makeRunningCall({
+				input: {
+					fields: [{ key: "tone", label: "Tone", kind: "text", required: true }],
+				},
+			}),
+			conversationId: "conv-1",
+		});
+		const ta = getByTestId("design-brief-text-tone") as HTMLTextAreaElement;
+		await fireEvent.input(ta, { target: { value: "    \n  " } });
+		await fireEvent.click(getByTestId("design-brief-submit"));
+		expect(fetchSpy).not.toHaveBeenCalled();
+		const err = await findByTestId("design-brief-error");
+		expect(err.textContent).toContain("Tone");
+	});
+
+	test("Retry after HTTP 500 returns to running and a second submit POSTs again to the same endpoint", async () => {
+		// Pin the full retry loop: first submit gets 500, banner shows,
+		// Retry dismisses the banner and restores the form (running),
+		// then a second submit fires a SECOND fetch to the SAME endpoint.
+		// Guards against a regression where Retry would clear errors but
+		// leave the card in a phase that swallowed the next click.
+		fetchSpy.mockImplementationOnce(async () => {
+			return new Response(JSON.stringify({ error: "boom" }), {
+				status: 500,
+				headers: { "Content-Type": "application/json" },
+			});
+		});
+		const { getByTestId, queryByTestId, findByTestId } = render(DesignBriefCard, {
+			toolCall: makeRunningCall({
+				input: { fields: [{ key: "tone", label: "Tone", kind: "text" }] },
+			}),
+			conversationId: "conv-1",
+		});
+		const ta = getByTestId("design-brief-text-tone") as HTMLTextAreaElement;
+		await fireEvent.input(ta, { target: { value: "modern" } });
+		await fireEvent.click(getByTestId("design-brief-submit"));
+		// First call captured.
+		await findByTestId("design-brief-error");
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		// Retry → form returns.
+		await fireEvent.click(getByTestId("design-brief-retry"));
+		expect(queryByTestId("design-brief-error")).toBeNull();
+		expect(getByTestId("design-brief-form")).toBeInTheDocument();
+		// Re-submit (default fetchSpy returns 200).
+		await fireEvent.click(getByTestId("design-brief-submit"));
+		expect(fetchSpy).toHaveBeenCalledTimes(2);
+		// Both calls go to the same endpoint.
+		const url1 = String(fetchSpy.mock.calls[0]![0]);
+		const url2 = String(fetchSpy.mock.calls[1]![0]);
+		expect(url1).toBe("/api/extensions/claude-design/events/brief-answer");
+		expect(url2).toBe("/api/extensions/claude-design/events/brief-answer");
+	});
+
+	test("status='complete' with non-JSON output text → summary block still renders (best-effort)", () => {
+		// Server returned non-JSON text (e.g. an early agent error). The
+		// card must still render the summary surface — empty entries —
+		// rather than crashing. The form must NOT come back.
+		const completed = makeRunningCall({
+			status: "complete",
+			output: { content: [{ type: "text", text: "not-valid-json{" }] },
+		});
+		const { getByTestId, queryByTestId } = render(DesignBriefCard, {
+			toolCall: completed,
+			conversationId: "conv-1",
+		});
+		expect(getByTestId("design-brief-summary")).toBeInTheDocument();
+		expect(queryByTestId("design-brief-form")).toBeNull();
+	});
+});

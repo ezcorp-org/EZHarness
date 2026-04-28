@@ -857,7 +857,7 @@ export function initStores() {
 					const viewingConv = conversationId && typeof window !== "undefined"
 						&& window.location.pathname.includes(conversationId);
 					if (!viewingConv) {
-						if (conversationId) unreadStore.markUnread(conversationId);
+						if (conversationId) unreadStore.markUnread(conversationId, updated.projectId ?? null);
 						addToast({
 							type: "success",
 							message: "Run completed",

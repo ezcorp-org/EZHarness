@@ -263,7 +263,31 @@ const generateDesign: ToolHandler = async (args) => {
   const bodyMarkup = typeof args.bodyMarkup === "string" ? args.bodyMarkup : undefined;
   const knobsTitle = typeof args.knobsTitle === "string" ? args.knobsTitle : undefined;
   const rawKnobs = args.knobs;
+  const skipBriefReason = typeof args.skipBriefReason === "string" ? args.skipBriefReason.trim() : "";
   if (!prompt) return toolError("prompt is required");
+
+  // Brief-presence soft gate. The agent prompt instructs the model to
+  // call `clarify-brief` UNLESS all four signals (tone, audience, ≥1
+  // section, brand colors) are explicitly present. The check below is a
+  // last-line guard that nudges the agent back when the prompt is so
+  // under-specified that proceeding would mean fabricating answers.
+  // Detection is heuristic on purpose — false negatives are tolerable
+  // (the agent prompt is the primary defense); false positives hurt UX.
+  // Only fail closed when ALL of: prompt is short AND has no hex code
+  // AND has no section keyword AND no skipBriefReason was supplied.
+  if (!skipBriefReason) {
+    const evidence = analyzePromptSpecificity(prompt);
+    if (evidence.score === 0 && prompt.split(/\s+/).filter(Boolean).length < 12) {
+      return toolError(
+        "Prompt is too under-specified to generate a polished design. " +
+          "Call `clarify-brief` first to collect tone / audience / sections / brand " +
+          "colors from the user. If the user explicitly told you to skip questions, " +
+          "pass `skipBriefReason: \"<one-sentence justification listing what the user said>\"` " +
+          "and retry.\nPrompt was: " +
+          JSON.stringify(prompt),
+      );
+    }
+  }
 
   // Lint the body markup before scaffolding. On failure, return a
   // clear toolError listing each violation with its line number — the
@@ -723,6 +747,64 @@ export function extractCssVarsFromBody(body: string): Set<string> {
   return found;
 }
 
+// ── Prompt specificity analyzer ───────────────────────────────────
+//
+// Heuristic check used by `generateDesign` to refuse generation when
+// the prompt is so vague that the agent must be fabricating answers.
+// Counts four cheap signals: a tone keyword, a section keyword, a
+// brand color hex / palette name, an audience keyword. Returns a
+// `score` (0..4) and the detected signal labels for diagnostics.
+// Pure — testable without I/O.
+
+const TONE_KEYWORDS = [
+  "modern", "playful", "corporate", "brutalist", "editorial",
+  "retro-futuristic", "retro futuristic", "retro", "futuristic",
+  "refined-minimal", "refined minimal", "minimalist", "minimal",
+  "maximalist", "maximalism", "elegant", "luxurious", "industrial",
+  "neon", "cyberpunk", "y2k", "hand-drawn", "sketchy",
+];
+const SECTION_KEYWORDS = [
+  "hero", "features", "pricing", "testimonials", "cta",
+  "footer", "faq", "about", "gallery", "contact", "navigation",
+  "nav", "header", "team", "blog", "case studies", "stats",
+];
+const AUDIENCE_KEYWORDS = [
+  "developer", "developers", "executive", "executives", "designer",
+  "designers", "consumer", "consumers", "user", "users", "team",
+  "teams", "founder", "founders", "startup", "enterprise",
+  "marketer", "marketers", "investor", "investors", "agent",
+  "agents", "engineer", "engineers", "operator", "operators",
+  "creator", "creators",
+];
+
+export interface PromptSpecificity {
+  score: number;
+  signals: {
+    tone: boolean;
+    section: boolean;
+    color: boolean;
+    audience: boolean;
+  };
+}
+
+export function analyzePromptSpecificity(prompt: string): PromptSpecificity {
+  const lower = prompt.toLowerCase();
+  const tone = TONE_KEYWORDS.some((k) => lower.includes(k));
+  const section = SECTION_KEYWORDS.some((k) => lower.includes(k));
+  const audience = AUDIENCE_KEYWORDS.some((k) => lower.includes(k));
+  // Hex codes (#rgb / #rrggbb) OR named CSS colors that signal brand
+  // intent (heuristic — we don't enumerate every CSS named color).
+  const hex = /#[0-9a-fA-F]{3,8}\b/.test(prompt);
+  const namedBrandColor =
+    /\b(electric blue|navy|royal blue|forest green|emerald|crimson|magenta|teal|charcoal|coral|gold|silver|bronze)\b/i.test(
+      prompt,
+    );
+  const color = hex || namedBrandColor;
+  const score =
+    Number(tone) + Number(section) + Number(audience) + Number(color);
+  return { score, signals: { tone, section, color, audience } };
+}
+
 const SCAFFOLD_VARS: ReadonlySet<string> = new Set([
   // Always emitted by the scaffold's `<style id="design-tokens">` block;
   // tracking them is `extract-design-system`'s job, not the agent's.
@@ -881,5 +963,6 @@ export const _internals = {
   DEFAULT_BRIEF_TIMEOUT_MS,
   // D2 helpers exposed for direct testing.
   extractCssVarsFromBody,
+  analyzePromptSpecificity,
   descriptorsCoverVars,
 };

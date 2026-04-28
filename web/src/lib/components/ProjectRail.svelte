@@ -1,6 +1,26 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { store, setActiveProjectId } from "$lib/stores.svelte.js";
+	import { unreadStore } from "$lib/unread.js";
+
+	// Reactive unread tracking — bump revision on store changes so per-project
+	// counts re-evaluate without us having to mirror the whole map into state.
+	let unreadRev = $state(0);
+	unreadStore.subscribe(() => { unreadRev++; });
+
+	function unreadFor(projectId: string): number {
+		void unreadRev;
+		return unreadStore.getUnreadCountByProject(projectId);
+	}
+
+	function homeUnread(): number {
+		void unreadRev;
+		return unreadStore.getUnreadCountByProject("global");
+	}
+
+	function formatCount(n: number): string {
+		return n > 99 ? "99+" : String(n);
+	}
 
 	const BG_COLORS = [
 		"bg-blue-600",
@@ -63,15 +83,23 @@
 			style="top: 50%; transform: translateY(-50%);"
 		></div>
 
-		<div
-			class="ml-3 flex h-12 w-12 items-center justify-center transition-all duration-200
-				{store.activeProjectId === 'global'
-				? 'rounded-2xl bg-blue-600'
-				: 'rounded-full bg-[var(--color-surface-tertiary)] group-hover:rounded-2xl group-hover:bg-blue-600'}"
-		>
-			<svg class="h-6 w-6 text-[var(--color-text-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1" />
-			</svg>
+		<div class="relative ml-3">
+			<div
+				class="flex h-12 w-12 items-center justify-center transition-all duration-200
+					{store.activeProjectId === 'global'
+					? 'rounded-2xl bg-blue-600'
+					: 'rounded-full bg-[var(--color-surface-tertiary)] group-hover:rounded-2xl group-hover:bg-blue-600'}"
+			>
+				<svg class="h-6 w-6 text-[var(--color-text-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1" />
+				</svg>
+			</div>
+			{#if homeUnread() > 0}
+				<span
+					data-testid="project-unread-badge-home"
+					class="pointer-events-none absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-[var(--color-surface-secondary)]"
+				>{formatCount(homeUnread())}</span>
+			{/if}
 		</div>
 
 		<!-- Tooltip -->
@@ -106,16 +134,25 @@
 					style="top: 50%; transform: translateY(-50%);"
 				></div>
 
-				<div
-					class="ml-3 flex h-12 w-12 items-center justify-center overflow-hidden transition-all duration-200
-						{isActive
-						? 'rounded-2xl'
-						: 'rounded-full group-hover:rounded-2xl'} {project.icon ? '' : hashColor(project.name)}"
-				>
-					{#if project.icon}
-						<img src={project.icon} alt={project.name} class="h-full w-full object-cover" />
-					{:else}
-						<span class="text-lg font-semibold text-white">{project.name.charAt(0).toUpperCase()}</span>
+				<div class="relative ml-3">
+					<div
+						class="flex h-12 w-12 items-center justify-center overflow-hidden transition-all duration-200
+							{isActive
+							? 'rounded-2xl'
+							: 'rounded-full group-hover:rounded-2xl'} {project.icon ? '' : hashColor(project.name)}"
+					>
+						{#if project.icon}
+							<img src={project.icon} alt={project.name} class="h-full w-full object-cover" />
+						{:else}
+							<span class="text-lg font-semibold text-white">{project.name.charAt(0).toUpperCase()}</span>
+						{/if}
+					</div>
+					{#if unreadFor(project.id) > 0}
+						<span
+							data-testid="project-unread-badge"
+							data-project-id={project.id}
+							class="pointer-events-none absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-[var(--color-surface-secondary)]"
+						>{formatCount(unreadFor(project.id))}</span>
 					{/if}
 				</div>
 

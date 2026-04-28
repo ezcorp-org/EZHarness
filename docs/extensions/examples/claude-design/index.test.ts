@@ -770,6 +770,7 @@ describe("D2: generateDesign integration", () => {
         knobs: [
           { key: "primaryColor", label: "Primary", kind: "color", var: "--color-primary" },
         ],
+        skipBriefReason: "test fixture",
       },
       makeCtx() as never,
     );
@@ -788,6 +789,7 @@ describe("D2: generateDesign integration", () => {
         prompt: "test",
         kind: "page",
         bodyMarkup: body,
+        skipBriefReason: "test fixture",
       },
       makeCtx() as never,
     );
@@ -1447,5 +1449,410 @@ describe("legacy draft — list-revisions still works", () => {
     expect(revs[0].isOriginal).toBe(true);
     // v1 → migrateMeta moves knobs object to knobValues.
     expect(revs[0].knobValues).toEqual({ primaryColor: "#000" });
+  });
+});
+
+// ── Prompt specificity analyzer + brief-skip soft gate ────────────
+//
+// `clarify-brief` was being silently skipped by the LLM, which then
+// fabricated answers internally — the "agent answers itself" bug.
+// `analyzePromptSpecificity` is the heuristic backstop, and
+// `generate-design` refuses generation when the prompt has zero
+// signals AND the agent didn't pass `skipBriefReason`.
+
+describe("analyzePromptSpecificity", () => {
+  test("vague prompt scores 0 across all signals", () => {
+    const r = _internals.analyzePromptSpecificity("make me a marketing page");
+    expect(r.score).toBe(0);
+    expect(r.signals).toEqual({
+      tone: false,
+      section: false,
+      color: false,
+      audience: false,
+    });
+  });
+
+  test("rich prompt scores 4 / detects every signal", () => {
+    const r = _internals.analyzePromptSpecificity(
+      "Build a brutalist landing page for Pulse — AI agent monitoring for developer teams. Include hero, features, pricing. Electric blue (#0066ff) accents.",
+    );
+    expect(r.signals.tone).toBe(true);     // "brutalist"
+    expect(r.signals.section).toBe(true);  // "hero" / "features" / "pricing"
+    expect(r.signals.color).toBe(true);    // "#0066ff" hex
+    expect(r.signals.audience).toBe(true); // "developer"
+    expect(r.score).toBe(4);
+  });
+
+  test("detects named brand colors without hex", () => {
+    const r = _internals.analyzePromptSpecificity(
+      "Editorial homepage with charcoal accents for designers.",
+    );
+    expect(r.signals.color).toBe(true);     // "charcoal"
+    expect(r.signals.tone).toBe(true);      // "editorial"
+    expect(r.signals.audience).toBe(true);  // "designers"
+  });
+
+  test("partial specificity scores correctly", () => {
+    const r = _internals.analyzePromptSpecificity(
+      "A modern hero section with pricing.",
+    );
+    expect(r.signals.tone).toBe(true);
+    expect(r.signals.section).toBe(true);
+    expect(r.signals.color).toBe(false);
+    expect(r.signals.audience).toBe(false);
+    expect(r.score).toBe(2);
+  });
+});
+
+describe("generate-design — brief-skip soft gate", () => {
+  test("refuses generation for under-specified short prompt", async () => {
+    seedDesignSystem();
+    const out = await _internals.generateDesign({
+      prompt: "make me a page",
+      kind: "page",
+      bodyMarkup: FIXTURE_BODY,
+    });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("clarify-brief");
+    expect(expectText(out)).toContain("under-specified");
+  });
+
+  test("allows generation when prompt is rich (any signal detected)", async () => {
+    seedDesignSystem();
+    const out = await _internals.generateDesign({
+      prompt:
+        "Brutalist landing page hero for developer teams with #0066ff accents.",
+      kind: "page",
+      bodyMarkup: FIXTURE_BODY,
+    });
+    expect(expectIsError(out)).toBe(false);
+  });
+
+  test("allows generation when skipBriefReason is supplied even if prompt is vague", async () => {
+    seedDesignSystem();
+    const out = await _internals.generateDesign({
+      prompt: "make me a page",
+      kind: "page",
+      bodyMarkup: FIXTURE_BODY,
+      skipBriefReason:
+        "User said 'just give me anything, I'll iterate' — explicit delegation.",
+    });
+    expect(expectIsError(out)).toBe(false);
+  });
+
+  test("vague but long prompt (≥12 words) is allowed without skipBriefReason", async () => {
+    seedDesignSystem();
+    // Long prompts pass the gate even with zero detected signals — they
+    // typically contain enough context the agent can interpret. The hard
+    // cutoff catches only the truly empty 1-5 word prompts.
+    const out = await _internals.generateDesign({
+      prompt:
+        "I want a website that talks about my company's services and what we do for the world",
+      kind: "page",
+      bodyMarkup: FIXTURE_BODY,
+    });
+    expect(expectIsError(out)).toBe(false);
+  });
+});
+
+// ── analyzePromptSpecificity edge cases ────────────────────────────
+//
+// The first batch of tests covers happy paths. These pin the actual
+// behavior on the heuristic's failure modes so future refactors don't
+// drift unintentionally. Detection is `lower.includes(k)` — substring,
+// not word-boundary. That's a conscious tradeoff (false negatives are
+// tolerable; the agent prompt is the primary defense).
+
+describe("analyzePromptSpecificity — edge cases", () => {
+  test("matches mixed-case keywords (BRUTALIST, Modern, Hero)", () => {
+    const r = _internals.analyzePromptSpecificity(
+      "BRUTALIST landing page Hero with Modern style",
+    );
+    expect(r.signals.tone).toBe(true);
+    expect(r.signals.section).toBe(true);
+  });
+
+  test("'minimum' does NOT match 'minimal' (not a substring)", () => {
+    // Keyword list contains 'minimal' / 'minimalist' — but 'minimum'
+    // doesn't contain 'minimal' as a substring (m-i-n-i-m-u-m vs
+    // m-i-n-i-m-a-l). Pin this so a refactor that adds 'min' or
+    // similar to the keyword list would be caught.
+    const r = _internals.analyzePromptSpecificity("the minimum order is five");
+    expect(r.signals.tone).toBe(false);
+  });
+
+  test("substring match — 'contact lens' falsely triggers section=true (documented behavior)", () => {
+    // Honest pin of the substring-match behavior. If we ever switch
+    // to word-boundary regex this test will fail and force an update.
+    const r = _internals.analyzePromptSpecificity("a contact lens shop site");
+    expect(r.signals.section).toBe(true);
+  });
+
+  test("multiple tone keywords still scores as 1 for tone (not double-count)", () => {
+    const r = _internals.analyzePromptSpecificity(
+      "modern playful editorial brutalist tone",
+    );
+    expect(r.signals.tone).toBe(true);
+    // Score reflects ONE tone signal regardless of count.
+    expect(r.score).toBe(1);
+  });
+
+  test("multiple section keywords still scores as 1 for section", () => {
+    const r = _internals.analyzePromptSpecificity(
+      "page with a hero, features, pricing, testimonials, and footer",
+    );
+    expect(r.signals.section).toBe(true);
+    // tone/audience/color absent → exactly 1.
+    expect(r.score).toBe(1);
+  });
+
+  test("hex with 8-digit alpha channel (#RRGGBBAA) detected", () => {
+    const r = _internals.analyzePromptSpecificity("brand color #0066ffcc");
+    expect(r.signals.color).toBe(true);
+  });
+
+  test("named brand color is case-insensitive ('Charcoal' / 'CRIMSON')", () => {
+    expect(_internals.analyzePromptSpecificity("Charcoal accents").signals.color).toBe(true);
+    expect(_internals.analyzePromptSpecificity("CRIMSON background").signals.color).toBe(true);
+  });
+
+  test("empty prompt returns score 0 with all signals false", () => {
+    const r = _internals.analyzePromptSpecificity("");
+    expect(r.score).toBe(0);
+    expect(r.signals).toEqual({
+      tone: false,
+      section: false,
+      color: false,
+      audience: false,
+    });
+  });
+});
+
+// ── generate-design soft-gate edge cases ───────────────────────────
+//
+// Boundary + sentinel values around the `< 12 words AND score 0 AND
+// no skipBriefReason` predicate. Pin the exact cutoff so a future
+// refactor that swaps `<` for `<=` can't slip through.
+
+describe("generate-design — brief-skip soft gate edge cases", () => {
+  test("exactly 12 words with score 0 → passes the gate (cutoff is `< 12`)", async () => {
+    seedDesignSystem();
+    // 12 word tokens, no detectable signal.
+    const prompt =
+      "make a basic webpage with various small bits of placeholder content please";
+    expect(prompt.split(/\s+/).filter(Boolean).length).toBe(12);
+    expect(_internals.analyzePromptSpecificity(prompt).score).toBe(0);
+    const out = await _internals.generateDesign({
+      prompt,
+      kind: "page",
+      bodyMarkup: FIXTURE_BODY,
+    });
+    expect(expectIsError(out)).toBe(false);
+  });
+
+  test("11 words with score 0 → blocked by gate", async () => {
+    seedDesignSystem();
+    // 11 tokens, no detectable signal.
+    const prompt =
+      "make a basic webpage with placeholder content for some random folks";
+    expect(prompt.split(/\s+/).filter(Boolean).length).toBe(11);
+    expect(_internals.analyzePromptSpecificity(prompt).score).toBe(0);
+    const out = await _internals.generateDesign({
+      prompt,
+      kind: "page",
+      bodyMarkup: FIXTURE_BODY,
+    });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("clarify-brief");
+  });
+
+  test("short prompt with ONE signal (e.g. 'modern' alone) → passes the gate", async () => {
+    seedDesignSystem();
+    // "make a modern page" is 4 words but score=1 (tone matches).
+    const prompt = "make a modern page";
+    expect(prompt.split(/\s+/).filter(Boolean).length).toBeLessThan(12);
+    expect(_internals.analyzePromptSpecificity(prompt).score).toBe(1);
+    const out = await _internals.generateDesign({
+      prompt,
+      kind: "page",
+      bodyMarkup: FIXTURE_BODY,
+    });
+    expect(expectIsError(out)).toBe(false);
+  });
+
+  test("empty skipBriefReason ('') does NOT count as supplied → still blocked", async () => {
+    seedDesignSystem();
+    const out = await _internals.generateDesign({
+      prompt: "make a page",
+      kind: "page",
+      bodyMarkup: FIXTURE_BODY,
+      skipBriefReason: "",
+    });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("under-specified");
+  });
+
+  test("whitespace-only skipBriefReason ('   ') does NOT count as supplied → still blocked", async () => {
+    seedDesignSystem();
+    const out = await _internals.generateDesign({
+      prompt: "make a page",
+      kind: "page",
+      bodyMarkup: FIXTURE_BODY,
+      skipBriefReason: "   \n  ",
+    });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("under-specified");
+  });
+
+  test("non-string skipBriefReason ignored → blocked when prompt vague", async () => {
+    seedDesignSystem();
+    const out = await _internals.generateDesign({
+      prompt: "make a page",
+      kind: "page",
+      bodyMarkup: FIXTURE_BODY,
+      skipBriefReason: 42 as unknown as string,
+    });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("under-specified");
+  });
+
+  test("error message echoes the offending prompt for the agent's context", async () => {
+    seedDesignSystem();
+    const out = await _internals.generateDesign({
+      prompt: "make me a page",
+      kind: "page",
+      bodyMarkup: FIXTURE_BODY,
+    });
+    expect(expectIsError(out)).toBe(true);
+    const text = expectText(out);
+    // The toolError JSON-stringifies the prompt so the agent can see
+    // exactly what it sent.
+    expect(text).toContain("make me a page");
+    expect(text).toContain("skipBriefReason");
+  });
+
+  test("error message names BOTH escape hatches: clarify-brief AND skipBriefReason", async () => {
+    // The agent needs to know about both routes out of the gate. If a
+    // future refactor accidentally drops one of the two phrases, this
+    // test fails — the agent would otherwise be stranded.
+    seedDesignSystem();
+    const out = await _internals.generateDesign({
+      prompt: "make a page",
+      kind: "page",
+      bodyMarkup: FIXTURE_BODY,
+    });
+    expect(expectIsError(out)).toBe(true);
+    const text = expectText(out);
+    expect(text).toContain("clarify-brief");
+    expect(text).toContain("skipBriefReason");
+  });
+
+  test("rich prompt + supplied skipBriefReason → generation proceeds (no gate, no double-block)", async () => {
+    // skipBriefReason is an escape hatch, not a precondition. A prompt
+    // that already passes by signal-detection should also pass when a
+    // (now-redundant) reason is supplied. Pin so the gate doesn't
+    // accidentally start enforcing skipBriefReason as required.
+    seedDesignSystem();
+    const out = await _internals.generateDesign({
+      prompt:
+        "Brutalist landing page hero for developer teams with #0066ff accents.",
+      kind: "page",
+      bodyMarkup: FIXTURE_BODY,
+      skipBriefReason: "User said skip; prompt is fully specified anyway.",
+    });
+    expect(expectIsError(out)).toBe(false);
+  });
+
+  test("rich prompt passes the gate but bodyMarkup lint failure is independent", async () => {
+    // The brief gate and the lint check are independent stages. Pin
+    // that a prompt rich enough to pass the gate still surfaces the
+    // lint error (with its 'bodyMarkup failed lint' marker), not the
+    // gate's 'under-specified' error.
+    seedDesignSystem();
+    const out = await _internals.generateDesign({
+      prompt:
+        "Brutalist hero page for developer teams with #0066ff brand color.",
+      kind: "page",
+      bodyMarkup: `<div style="color: #ff0066">x</div>`,
+    });
+    expect(expectIsError(out)).toBe(true);
+    const text = expectText(out);
+    expect(text).toContain("bodyMarkup failed lint");
+    // And NOT the gate's signature.
+    expect(text).not.toContain("under-specified");
+  });
+});
+
+// ── handleBriefAnswer edge cases ───────────────────────────────────
+//
+// Verifies the resolver is robust to junk events arriving from the
+// generic event route (e.g. stale toolCallIds, replays after timeout).
+
+describe("handleBriefAnswer — robustness", () => {
+  test("no-op for unknown toolCallId (does not throw)", async () => {
+    expect(_internals.pendingBriefAnswers.size).toBe(0);
+    const result = await _internals.handleBriefAnswer({
+      toolCallId: "tc-never-registered",
+      conversationId: "conv-test",
+      answer: "ignored",
+    });
+    expect(result).toBeUndefined();
+    expect(_internals.pendingBriefAnswers.size).toBe(0);
+  });
+
+  test("stringifies non-string answer payloads to JSON", async () => {
+    const invocation = _internals.clarifyBrief(
+      { fields: [{ key: "tone", label: "Tone", kind: "text" }] },
+      makeCtx({ toolCallId: "tc-json" }),
+    );
+    for (let i = 0; i < 20 && !_internals.pendingBriefAnswers.has("tc-json"); i++) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    await _internals.handleBriefAnswer({
+      toolCallId: "tc-json",
+      conversationId: "conv-test",
+      answer: { tone: "modern", sections: ["hero", "pricing"] },
+    });
+    const out = await invocation;
+    const text = expectText(out);
+    // JSON.stringify shape, not a `[object Object]` toString.
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    expect(parsed.tone).toBe("modern");
+    expect(parsed.sections).toEqual(["hero", "pricing"]);
+  });
+
+  test("string answer is forwarded verbatim (not double-stringified)", async () => {
+    const invocation = _internals.clarifyBrief(
+      { fields: [{ key: "tone", label: "Tone", kind: "text" }] },
+      makeCtx({ toolCallId: "tc-str" }),
+    );
+    for (let i = 0; i < 20 && !_internals.pendingBriefAnswers.has("tc-str"); i++) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    await _internals.handleBriefAnswer({
+      toolCallId: "tc-str",
+      conversationId: "conv-test",
+      answer: "plain string answer",
+    });
+    const out = await invocation;
+    expect(expectText(out)).toBe("plain string answer");
+  });
+
+  test("clears the pending entry on resolve so reuse of the toolCallId is safe", async () => {
+    const invocation = _internals.clarifyBrief(
+      { fields: [{ key: "tone", label: "Tone", kind: "text" }] },
+      makeCtx({ toolCallId: "tc-clear" }),
+    );
+    for (let i = 0; i < 20 && !_internals.pendingBriefAnswers.has("tc-clear"); i++) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    expect(_internals.pendingBriefAnswers.has("tc-clear")).toBe(true);
+    await _internals.handleBriefAnswer({
+      toolCallId: "tc-clear",
+      conversationId: "conv-test",
+      answer: "ok",
+    });
+    await invocation;
+    expect(_internals.pendingBriefAnswers.has("tc-clear")).toBe(false);
   });
 });

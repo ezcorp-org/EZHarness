@@ -1,20 +1,40 @@
 const STORAGE_KEY = "ez-unread-conversations";
 
-function loadFromStorage(): Set<string> {
+type Entries = Map<string, string | null>;
+
+function loadFromStorage(): Entries {
 	try {
 		const raw = localStorage.getItem(STORAGE_KEY);
-		if (!raw) return new Set();
+		if (!raw) return new Map();
 		const parsed = JSON.parse(raw);
-		if (!Array.isArray(parsed)) return new Set();
-		return new Set(parsed.filter((id: unknown) => typeof id === "string"));
+		// Legacy format: string[] of convIds (no project association).
+		if (Array.isArray(parsed)) {
+			const out: Entries = new Map();
+			for (const id of parsed) {
+				if (typeof id === "string") out.set(id, null);
+			}
+			return out;
+		}
+		// Current format: { [convId]: projectId | null }
+		if (parsed && typeof parsed === "object") {
+			const out: Entries = new Map();
+			for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+				if (typeof k !== "string") continue;
+				out.set(k, typeof v === "string" ? v : null);
+			}
+			return out;
+		}
+		return new Map();
 	} catch {
-		return new Set();
+		return new Map();
 	}
 }
 
-function persist(ids: Set<string>) {
+function persist(entries: Entries) {
 	try {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify([...ids]));
+		const obj: Record<string, string | null> = {};
+		for (const [k, v] of entries) obj[k] = v;
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
 	} catch {
 		// localStorage full or unavailable
 	}
@@ -23,7 +43,7 @@ function persist(ids: Set<string>) {
 type Listener = () => void;
 
 function createUnreadStore() {
-	let ids = loadFromStorage();
+	let entries = loadFromStorage();
 	const listeners = new Set<Listener>();
 
 	function notify() {
@@ -31,25 +51,35 @@ function createUnreadStore() {
 	}
 
 	return {
-		markUnread(convId: string) {
-			if (!ids.has(convId)) {
-				ids = new Set([...ids, convId]);
-				persist(ids);
-				notify();
-			}
+		markUnread(convId: string, projectId?: string | null) {
+			const prev = entries.get(convId);
+			const next = projectId ?? prev ?? null;
+			if (entries.has(convId) && prev === next) return;
+			entries = new Map(entries);
+			entries.set(convId, next);
+			persist(entries);
+			notify();
 		},
 		markRead(convId: string) {
-			if (ids.has(convId)) {
-				ids = new Set([...ids].filter((id) => id !== convId));
-				persist(ids);
-				notify();
-			}
+			if (!entries.has(convId)) return;
+			entries = new Map(entries);
+			entries.delete(convId);
+			persist(entries);
+			notify();
 		},
 		isUnread(convId: string): boolean {
-			return ids.has(convId);
+			return entries.has(convId);
 		},
 		getUnreadIds(): Set<string> {
-			return new Set(ids);
+			return new Set(entries.keys());
+		},
+		getUnreadCountByProject(projectId: string): number {
+			let n = 0;
+			for (const pid of entries.values()) if (pid === projectId) n++;
+			return n;
+		},
+		getTotalUnreadCount(): number {
+			return entries.size;
 		},
 		subscribe(fn: Listener): () => void {
 			listeners.add(fn);
@@ -57,7 +87,7 @@ function createUnreadStore() {
 		},
 		/** Reset store state from localStorage — used for testing */
 		_reset() {
-			ids = loadFromStorage();
+			entries = loadFromStorage();
 			notify();
 		},
 	};
