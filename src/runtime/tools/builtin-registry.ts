@@ -15,6 +15,8 @@
  * closes, delete this module and remove the call sites.
  */
 
+import { getEzToolMetadata } from "./ez/index";
+
 export type BuiltInCategory = string;
 
 export interface BuiltInToolMeta {
@@ -33,11 +35,6 @@ export interface BuiltInToolMeta {
  *  carry. The metadata listing here is parameter-only; the executable
  *  defs come from `runtime/tools/ez/index.ts#getEzToolDefs(ctx)`. */
 function buildToolList(): BuiltInToolMeta[] {
-  // Lazy require to avoid circular import: the ez/index module imports
-  // from this file's sibling (`types`), and pulling it at module-load
-  // time risks an init-order cycle. require() resolves at call time.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { getEzToolMetadata } = require("./ez/index") as typeof import("./ez/index");
   return getEzToolMetadata();
 }
 
