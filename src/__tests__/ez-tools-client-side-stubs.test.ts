@@ -3,40 +3,57 @@
  *
  * These tools are NOT executed server-side. The runtime hands the LLM's
  * tool call to the panel via an `ez:client-tool` event; the panel's
- * client-tool dispatcher (Wave 3) resolves the call locally.
+ * client-tool dispatcher resolves the call locally and POSTs back.
  *
- * What this suite asserts about Wave 2's stubs:
- *  - both tools carry `clientSide: true`
- *  - both tools live in the 'ez' category
+ * After the Wave 2 fix-wiring change the tools no longer return a
+ * synchronous `EZ_CLIENT_TOOL_DEFERRED_MARKER` placeholder — they
+ * suspend on the `ez-client-tool-registry`'s Promise until the panel's
+ * POST handler calls `resolveEzClientTool(toolCallId, dispatchResult)`.
+ * The full round-trip contract is pinned in
+ * `ez-client-tool-roundtrip.test.ts`. THIS suite stays focused on the
+ * stub-shape invariants:
+ *
+ *  - both tools carry `clientSide: true` and live in the 'ez' category
  *  - calling `execute` emits a single `ez:client-tool` event with the
  *    correct shape (conversationId, toolCallId, toolName, input)
- *  - the execute body returns a deferred-marker placeholder (not a
- *    real result — the panel POSTs the resolution back later)
- *  - navigate_to rejects external URLs and returns an error result
- *    BEFORE emitting the event (defense-in-depth even if the panel
- *    forgets to validate again)
+ *  - schema-level rejections (missing formId, external URL, control-char
+ *    paths, invalid path types) return an isError result BEFORE
+ *    emitting any event — i.e. defense-in-depth even if the panel
+ *    forgets to validate again
  *  - if no bus is wired, the execute body returns an error rather than
- *    silently dropping the call
+ *    suspending forever
+ *  - the `isValidInAppPath` helper enforces the in-app path policy
  */
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 import {
   createFillFormTool,
   createNavigateToTool,
   isValidInAppPath,
-  EZ_CLIENT_TOOL_DEFERRED_MARKER,
 } from "../runtime/tools/ez";
+import {
+  resolveEzClientTool,
+  _resetPendingEzClientToolsForTests,
+} from "../runtime/ez-client-tool-registry";
 import { expectDetails, expectText } from "./helpers/expect-tool-result";
 
 interface ClientToolDetails {
   clientSide?: boolean;
   toolName?: string;
-  deferred?: boolean;
   formId?: string;
   path?: string;
   isError?: boolean;
+  code?: string;
 }
+
+beforeEach(() => {
+  _resetPendingEzClientToolsForTests();
+});
+
+afterEach(() => {
+  _resetPendingEzClientToolsForTests();
+});
 
 function bus(): EventBus<AgentEvents> {
   return new EventBus<AgentEvents>();
@@ -48,6 +65,13 @@ function captureClientTool(b: EventBus<AgentEvents>): AgentEvents["ez:client-too
   return events;
 }
 
+/** Yield once to the microtask queue so the execute body's emit + register
+ *  steps run before we inspect the bus / registry. Mirrors the helper used
+ *  in ez-client-tool-roundtrip.test.ts. */
+async function tick(): Promise<void> {
+  await new Promise<void>((r) => setTimeout(r, 0));
+}
+
 describe("fill_form (client-side stub)", () => {
   test("flagged clientSide=true and category='ez'", () => {
     const tool = createFillFormTool({ conversationId: "conv-x", bus: bus() });
@@ -56,13 +80,16 @@ describe("fill_form (client-side stub)", () => {
     expect(tool.name).toBe("fill_form");
   });
 
-  test("execute emits one ez:client-tool event with the input echoed", async () => {
+  test("execute emits one ez:client-tool event with the input echoed, then resolves through the registry", async () => {
     const b = bus();
     const events = captureClientTool(b);
     const tool = createFillFormTool({ conversationId: "conv-x", bus: b });
 
-    const result = await tool.execute("call-1", { formId: "agent-new", values: { name: "Foo" } });
+    // Spawn the call — DO NOT await synchronously, the tool now suspends
+    // until resolveEzClientTool is called.
+    const pending = tool.execute("call-1", { formId: "agent-new", values: { name: "Foo" } });
 
+    await tick();
     expect(events.length).toBe(1);
     expect(events[0]).toEqual({
       conversationId: "conv-x",
@@ -70,11 +97,25 @@ describe("fill_form (client-side stub)", () => {
       toolName: "fill_form",
       input: { formId: "agent-new", values: { name: "Foo" } },
     });
-    expect(expectText(result)).toBe(EZ_CLIENT_TOOL_DEFERRED_MARKER);
+
+    // Wake the suspended Promise with a panel-shaped success result.
+    expect(
+      resolveEzClientTool("call-1", {
+        ok: true,
+        toolName: "fill_form",
+        toolCallId: "call-1",
+        detail: { formId: "agent-new" },
+      }),
+    ).toBe(true);
+
+    const result = await pending;
     const details = expectDetails<ClientToolDetails>(result);
-    expect(details.deferred).toBe(true);
     expect(details.clientSide).toBe(true);
     expect(details.toolName).toBe("fill_form");
+    expect(details.formId).toBe("agent-new");
+    expect(details.isError).toBeUndefined();
+    // The panel's success message is normalized to "<tool> completed."
+    expectText(result, "fill_form");
   });
 
   test("missing formId rejects without emitting", async () => {
@@ -87,7 +128,7 @@ describe("fill_form (client-side stub)", () => {
     expect(events.length).toBe(0);
   });
 
-  test("no bus wired → error result, no event emitted", async () => {
+  test("no bus wired → error result, no suspend", async () => {
     const tool = createFillFormTool({ conversationId: "conv-x" });
     const result = await tool.execute("call-3", { formId: "x", values: {} });
     expect(expectDetails<ClientToolDetails>(result).isError).toBe(true);
@@ -103,13 +144,14 @@ describe("navigate_to (client-side stub)", () => {
     expect(tool.name).toBe("navigate_to");
   });
 
-  test("execute emits one ez:client-tool event with the path", async () => {
+  test("execute emits one ez:client-tool event with the path, then resolves through the registry", async () => {
     const b = bus();
     const events = captureClientTool(b);
     const tool = createNavigateToTool({ conversationId: "conv-x", bus: b });
 
-    const result = await tool.execute("nav-1", { path: "/marketplace?q=pdf" });
+    const pending = tool.execute("nav-1", { path: "/marketplace?q=pdf" });
 
+    await tick();
     expect(events.length).toBe(1);
     expect(events[0]).toEqual({
       conversationId: "conv-x",
@@ -117,10 +159,23 @@ describe("navigate_to (client-side stub)", () => {
       toolName: "navigate_to",
       input: { path: "/marketplace?q=pdf" },
     });
-    expect(expectText(result)).toBe(EZ_CLIENT_TOOL_DEFERRED_MARKER);
+
+    expect(
+      resolveEzClientTool("nav-1", {
+        ok: true,
+        toolName: "navigate_to",
+        toolCallId: "nav-1",
+        detail: { path: "/marketplace?q=pdf" },
+      }),
+    ).toBe(true);
+
+    const result = await pending;
     const details = expectDetails<ClientToolDetails>(result);
-    expect(details.deferred).toBe(true);
+    expect(details.clientSide).toBe(true);
+    expect(details.toolName).toBe("navigate_to");
     expect(details.path).toBe("/marketplace?q=pdf");
+    expect(details.isError).toBeUndefined();
+    expectText(result, "navigate_to");
   });
 
   test("rejects external URLs BEFORE emitting an event", async () => {
