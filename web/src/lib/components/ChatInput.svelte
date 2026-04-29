@@ -35,10 +35,10 @@
 
 	let {
 		onsubmit,
-		onstop,
+		onstop = () => {},
 		streaming = false,
-		selectedModel,
-		onmodelchange,
+		selectedModel = null,
+		onmodelchange = () => {},
 		onautoselect,
 		thinkingLevel = "medium",
 		onthinkinglevelchange,
@@ -55,12 +55,16 @@
 		onmodecreate,
 		toolbarPosition = "top",
 		autofocus = false,
+		initialValue = "",
+		disabled = false,
+		lockedMode,
+		placeholder,
 	}: {
 		onsubmit: (content: string, attachments?: File[]) => void;
-		onstop: () => void;
-		streaming: boolean;
-		selectedModel: { provider: string; model: string } | null;
-		onmodelchange: (provider: string, model: string) => void;
+		onstop?: () => void;
+		streaming?: boolean;
+		selectedModel?: { provider: string; model: string } | null;
+		onmodelchange?: (provider: string, model: string) => void;
 		onautoselect?: (provider: string, model: string) => void;
 		thinkingLevel?: string;
 		onthinkinglevelchange?: (level: string) => void;
@@ -83,7 +87,58 @@
 		onmodecreate?: () => void;
 		toolbarPosition?: "top" | "hidden";
 		autofocus?: boolean;
+		/**
+		 * Pre-fill the textarea on first mount. Re-applied on subsequent
+		 * prop changes only if the textarea is currently empty (or holds
+		 * the previously-applied prefill), so a queued prompt from the
+		 * parent doesn't clobber text the user has been typing.
+		 */
+		initialValue?: string;
+		/**
+		 * External disabled override — additional to the streaming /
+		 * reconnecting / sub-conversation gates the component already
+		 * applies. Used by the Ez panel to keep the composer inert until
+		 * `getOrCreateEzConversation` resolves.
+		 */
+		disabled?: boolean;
+		/**
+		 * Lock the composer to a single mode and hide all picker UI
+		 * (model, mode, thinking-level, attachments). Used by the Ez
+		 * slide-in panel: the Ez conversation's mode is pinned server-
+		 * side, so the user-facing picker controls would just be
+		 * misleading. When set, a small static label is rendered in
+		 * place of the picker row. Defaults to `undefined` (full picker
+		 * UI, original behavior).
+		 */
+		lockedMode?: { modeSlug: string; label?: string };
+		/**
+		 * Override the textarea placeholder. Defaults to "Send a
+		 * message..." when unset, matching the chat page's behavior.
+		 */
+		placeholder?: string;
 	} = $props();
+
+	let isLocked = $derived(!!lockedMode);
+	let lockedLabel = $derived(
+		lockedMode?.label ?? (lockedMode?.modeSlug === "ez" ? "Ez" : (lockedMode?.modeSlug ?? "")),
+	);
+
+	// Track which `initialValue` we've already applied so re-renders with
+	// the same prefill don't keep clobbering user-typed text. Mirrors the
+	// pattern PanelChatInput uses; off by default (initialValue === "")
+	// for the chat page's existing call site.
+	let appliedInitialValue = $state<string | null>(null);
+	$effect(() => {
+		const next = initialValue;
+		if (next === appliedInitialValue) return;
+		const prevApplied = appliedInitialValue;
+		if (value === "" || value === prevApplied) {
+			value = next;
+			// Resize textarea to fit the new content on next paint.
+			requestAnimationFrame(() => adjustHeight());
+		}
+		appliedInitialValue = next;
+	});
 
 	let value = $state("");
 	let textarea: HTMLTextAreaElement | undefined = $state();
@@ -194,7 +249,12 @@
 			? capabilities.acceptedMimeTypes.join(",")
 			: undefined,
 	);
-	let attachmentsSupported = $derived(!!capabilities && capabilities.kinds.length > 1);
+	// Attachments are suppressed entirely when the composer is in
+	// locked-mode (Ez panel). Otherwise they show whenever the selected
+	// model advertises non-text input kinds.
+	let attachmentsSupported = $derived(
+		!isLocked && !!capabilities && capabilities.kinds.length > 1,
+	);
 
 	// Mention state
 	let mentionOpen = $state(false);
@@ -475,7 +535,9 @@
 
 	function submit() {
 		const text = value.trim();
-		if (streaming || !selectedModel) return;
+		if (streaming) return;
+		if (!isLocked && !selectedModel) return;
+		if (disabled) return;
 		// Allow empty text when attachments are staged (e.g. "summarize this image").
 		if (!text && stagedFiles.length === 0) return;
 		onsubmit(text, stagedFiles.length > 0 ? stagedFiles : undefined);
@@ -503,7 +565,7 @@
 	// the textarea, matching the focus pattern used in mention-select handlers above.
 	$effect(() => {
 		if (!autofocus) return;
-		if (isChatDisabled(streaming, connState)) return;
+		if (disabled || isChatDisabled(streaming, connState)) return;
 		const el = textarea;
 		if (!el) return;
 		requestAnimationFrame(() => el.focus());
@@ -514,28 +576,45 @@
 	<div class="mx-auto flex max-w-3xl items-end gap-2">
 		<div class="flex min-w-0 flex-1 flex-col gap-1">
 			{#if toolbarPosition !== "hidden"}
-				<div class="flex items-center gap-3">
-					<div class="flex flex-col">
-						<span class="toolbar-label" data-tip="Choose which AI model powers this conversation">Model</span>
-						<ModelSelector selected={selectedModel} onselect={onmodelchange} {onreasoningchange} {oncontextwindowchange} {onautoselect} />
+				{#if isLocked}
+					<!-- Locked-mode toolbar: a single static chip in the visual
+					     style of the picker labels. The Ez panel pins the
+					     conversation's mode server-side, so model / mode /
+					     thinking pickers would be misleading. -->
+					<div class="flex items-center gap-3">
+						<div class="flex flex-col">
+							<span class="toolbar-label" data-tip="This conversation is locked to a fixed mode">Mode</span>
+							<span
+								class="locked-mode-chip"
+								data-testid="chat-input-locked-mode"
+								data-mode-slug={lockedMode?.modeSlug}
+							>{lockedLabel}</span>
+						</div>
 					</div>
-					{#if modelSupportsReasoning && onthinkinglevelchange}
+				{:else}
+					<div class="flex items-center gap-3">
 						<div class="flex flex-col">
-							<span class="toolbar-label" data-tip="How long the model thinks before responding — higher means slower but smarter">Thinking</span>
-							<ThinkingLevelSelector selected={thinkingLevel as any} onselect={onthinkinglevelchange} />
+							<span class="toolbar-label" data-tip="Choose which AI model powers this conversation">Model</span>
+							<ModelSelector selected={selectedModel} onselect={onmodelchange} {onreasoningchange} {oncontextwindowchange} {onautoselect} />
 						</div>
-					{/if}
-					{#if onmodechange}
-						<div class="flex flex-col">
-							<span class="toolbar-label" data-tip="Behavioral preset that controls system prompt, tool access, and AI behavior">Mode</span>
-							<ModeSelector selected={selectedMode} {modes} onselect={onmodechange} oncreate={onmodecreate} />
-						</div>
-					{/if}
-					{#if !selectedModel}
-						<span class="text-xs text-amber-400">Select a model to start chatting</span>
-					{/if}
-					<InfoTooltip key="chat.mentions" />
-				</div>
+						{#if modelSupportsReasoning && onthinkinglevelchange}
+							<div class="flex flex-col">
+								<span class="toolbar-label" data-tip="How long the model thinks before responding — higher means slower but smarter">Thinking</span>
+								<ThinkingLevelSelector selected={thinkingLevel as any} onselect={onthinkinglevelchange} />
+							</div>
+						{/if}
+						{#if onmodechange}
+							<div class="flex flex-col">
+								<span class="toolbar-label" data-tip="Behavioral preset that controls system prompt, tool access, and AI behavior">Mode</span>
+								<ModeSelector selected={selectedMode} {modes} onselect={onmodechange} oncreate={onmodecreate} />
+							</div>
+						{/if}
+						{#if !selectedModel}
+							<span class="text-xs text-amber-400">Select a model to start chatting</span>
+						{/if}
+						<InfoTooltip key="chat.mentions" />
+					</div>
+				{/if}
 			{/if}
 			<div class="relative">
 				<MentionPopover
@@ -618,20 +697,20 @@
 							oncompositionstart={() => (isComposing = true)}
 							oncompositionend={() => { isComposing = false; handleInput(); }}
 							rows={1}
-							disabled={isChatDisabled(streaming, connState) || subConversationStore.isInSubConversation}
+							disabled={disabled || isChatDisabled(streaming, connState) || subConversationStore.isInSubConversation}
 							role="combobox"
 							aria-expanded={mentionOpen}
 							aria-controls="mention-listbox"
 							aria-autocomplete="list"
 							aria-activedescendant={mentionOpen && popoverRef ? `mention-item-${popoverRef.getHighlightedIndex()}` : undefined}
 							class="chat-textarea"
-							placeholder={chatPlaceholder(connState, 'Send a message...')}
+							placeholder={chatPlaceholder(connState, placeholder ?? 'Send a message...')}
 						></textarea>
 
 						<!-- Overlay for chip rendering -->
 						<div
 							bind:this={overlayEl}
-							class="pointer-events-none absolute inset-0 overflow-hidden text-sm text-[var(--color-text-primary)]"
+							class="chat-textarea-overlay pointer-events-none absolute inset-0 overflow-hidden text-[var(--color-text-primary)]"
 							style="padding: 4px 0.75rem; word-wrap: break-word; white-space: pre-wrap; line-height: 1.75rem; font-family: inherit;"
 							aria-hidden="true"
 						>
@@ -646,6 +725,7 @@
 							onclick={onstop}
 							class="send-btn send-btn--stop"
 							title="Stop generating"
+							aria-label="Stop generating"
 						>
 							<svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
 								<rect x="6" y="6" width="12" height="12" rx="2" />
@@ -654,9 +734,10 @@
 					{:else}
 						<button
 							onclick={submit}
-							disabled={(!value.trim() && stagedFiles.length === 0) || !selectedModel || connState !== 'connected'}
+							disabled={(!value.trim() && stagedFiles.length === 0) || (!isLocked && !selectedModel) || connState !== 'connected' || disabled}
 							class="send-btn send-btn--send"
-							title={!selectedModel ? "Select a model first" : "Send message"}
+							title={!isLocked && !selectedModel ? "Select a model first" : "Send message"}
+							aria-label="Send message"
 						>
 							<svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m0 0l-6 6m6-6l6 6" />
@@ -700,11 +781,23 @@
 		caret-color: var(--color-text-primary);
 		box-sizing: border-box;
 	}
+	.chat-textarea-overlay {
+		font-size: 0.875rem;
+	}
 	.chat-textarea::placeholder {
 		color: var(--color-text-muted);
 	}
 	.chat-textarea:disabled {
 		opacity: 0.5;
+	}
+	/* iOS Safari zooms when a focused input's font-size is < 16px.
+	 * Bump both the textarea and its mirror overlay together so chip
+	 * positions stay aligned. */
+	@media (pointer: coarse) {
+		.chat-textarea,
+		.chat-textarea-overlay {
+			font-size: 16px;
+		}
 	}
 
 	/* Send button */
@@ -796,6 +889,23 @@
 	}
 	.toolbar-label:hover::after {
 		opacity: 1;
+	}
+
+	/* Locked-mode chip — small static badge that takes the visual slot
+	 * of a picker (model / mode / thinking) when `lockedMode` is set. */
+	.locked-mode-chip {
+		display: inline-flex;
+		align-items: center;
+		height: 1.5rem;
+		padding: 0 0.5rem;
+		border-radius: 0.35rem;
+		border: 1px solid var(--color-border);
+		background: var(--color-surface-tertiary);
+		color: var(--color-text-primary);
+		font-size: 11px;
+		line-height: 1;
+		font-weight: 500;
+		white-space: nowrap;
 	}
 
 	/* ── Attachment UI ──────────────────────────────────────────── */
