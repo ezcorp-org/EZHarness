@@ -27,6 +27,16 @@ import {
   isValidInAppPath,
   EZ_CLIENT_TOOL_DEFERRED_MARKER,
 } from "../runtime/tools/ez";
+import { expectDetails, expectText } from "./helpers/expect-tool-result";
+
+interface ClientToolDetails {
+  clientSide?: boolean;
+  toolName?: string;
+  deferred?: boolean;
+  formId?: string;
+  path?: string;
+  isError?: boolean;
+}
 
 function bus(): EventBus<AgentEvents> {
   return new EventBus<AgentEvents>();
@@ -60,10 +70,11 @@ describe("fill_form (client-side stub)", () => {
       toolName: "fill_form",
       input: { formId: "agent-new", values: { name: "Foo" } },
     });
-    expect(result.content[0].text).toBe(EZ_CLIENT_TOOL_DEFERRED_MARKER);
-    expect(result.details.deferred).toBe(true);
-    expect(result.details.clientSide).toBe(true);
-    expect(result.details.toolName).toBe("fill_form");
+    expect(expectText(result)).toBe(EZ_CLIENT_TOOL_DEFERRED_MARKER);
+    const details = expectDetails<ClientToolDetails>(result);
+    expect(details.deferred).toBe(true);
+    expect(details.clientSide).toBe(true);
+    expect(details.toolName).toBe("fill_form");
   });
 
   test("missing formId rejects without emitting", async () => {
@@ -72,15 +83,15 @@ describe("fill_form (client-side stub)", () => {
     const tool = createFillFormTool({ conversationId: "conv-x", bus: b });
 
     const result = await tool.execute("call-2", { values: { name: "Foo" } });
-    expect(result.details.isError).toBe(true);
+    expect(expectDetails<ClientToolDetails>(result).isError).toBe(true);
     expect(events.length).toBe(0);
   });
 
   test("no bus wired → error result, no event emitted", async () => {
     const tool = createFillFormTool({ conversationId: "conv-x" });
     const result = await tool.execute("call-3", { formId: "x", values: {} });
-    expect(result.details.isError).toBe(true);
-    expect(result.content[0].text).toContain("bus not wired");
+    expect(expectDetails<ClientToolDetails>(result).isError).toBe(true);
+    expectText(result, "bus not wired");
   });
 });
 
@@ -106,9 +117,10 @@ describe("navigate_to (client-side stub)", () => {
       toolName: "navigate_to",
       input: { path: "/marketplace?q=pdf" },
     });
-    expect(result.content[0].text).toBe(EZ_CLIENT_TOOL_DEFERRED_MARKER);
-    expect(result.details.deferred).toBe(true);
-    expect(result.details.path).toBe("/marketplace?q=pdf");
+    expect(expectText(result)).toBe(EZ_CLIENT_TOOL_DEFERRED_MARKER);
+    const details = expectDetails<ClientToolDetails>(result);
+    expect(details.deferred).toBe(true);
+    expect(details.path).toBe("/marketplace?q=pdf");
   });
 
   test("rejects external URLs BEFORE emitting an event", async () => {
@@ -118,7 +130,7 @@ describe("navigate_to (client-side stub)", () => {
 
     for (const bad of ["https://evil.com", "//cdn.evil.com/pwn", "javascript:alert(1)", "ftp://x"]) {
       const result = await tool.execute("nav-bad", { path: bad });
-      expect(result.details.isError).toBe(true);
+      expect(expectDetails<ClientToolDetails>(result).isError).toBe(true);
     }
     expect(events.length).toBe(0);
   });
@@ -130,7 +142,7 @@ describe("navigate_to (client-side stub)", () => {
 
     for (const bad of ["", "  ", "marketplace", "/with\nnewline"]) {
       const result = await tool.execute("nav-bad", { path: bad });
-      expect(result.details.isError).toBe(true);
+      expect(expectDetails<ClientToolDetails>(result).isError).toBe(true);
     }
     expect(events.length).toBe(0);
   });

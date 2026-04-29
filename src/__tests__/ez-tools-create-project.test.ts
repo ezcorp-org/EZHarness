@@ -13,6 +13,7 @@
  */
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
+import { expectDetails, expectJson, expectText } from "./helpers/expect-tool-result";
 
 mockDbConnection();
 
@@ -21,6 +22,15 @@ const { createProposeCreateProjectTool } = await import("../runtime/tools/ez/pro
 const { getDraft } = await import("../db/queries/ez-drafts");
 const { getDb } = await import("../db/connection");
 const { ezDrafts } = await import("../db/schema");
+
+interface ProjectDraftDetails {
+  draftId: string;
+  openUrl: string;
+  kind: "project";
+}
+interface ToolErrorDetails {
+  isError: true;
+}
 
 let userId: string;
 
@@ -34,20 +44,17 @@ afterAll(async () => {
   await closeTestDb();
 });
 
-function getJson(result: any): { draftId: string; openUrl: string } {
-  return JSON.parse(result.content[0].text);
-}
-
 describe("propose_create_project", () => {
   test("happy path: persists draft and returns { draftId, openUrl }", async () => {
     const tool = createProposeCreateProjectTool({ userId });
     const result = await tool.execute("call-1", { name: "My App", path: "./my-app", description: "Test" });
 
-    const parsed = getJson(result);
+    const parsed = expectJson<{ draftId: string; openUrl: string }>(result);
     expect(parsed.draftId).toBeDefined();
     expect(parsed.openUrl).toBe(`/new-project?prefill=${parsed.draftId}`);
-    expect(result.details.kind).toBe("project");
-    expect(result.details.draftId).toBe(parsed.draftId);
+    const details = expectDetails<ProjectDraftDetails>(result);
+    expect(details.kind).toBe("project");
+    expect(details.draftId).toBe(parsed.draftId);
 
     const persisted = await getDraft(parsed.draftId, userId);
     expect(persisted).toBeDefined();
@@ -58,7 +65,7 @@ describe("propose_create_project", () => {
   test("description is optional — omitting it does not produce a description key", async () => {
     const tool = createProposeCreateProjectTool({ userId });
     const result = await tool.execute("call-2", { name: "No Desc", path: "/tmp/nd" });
-    const { draftId } = getJson(result);
+    const { draftId } = expectJson<{ draftId: string }>(result);
     const row = await getDraft(draftId, userId);
     expect(row!.payload).toEqual({ name: "No Desc", path: "/tmp/nd" });
     expect(Object.prototype.hasOwnProperty.call(row!.payload, "description")).toBe(false);
@@ -67,21 +74,21 @@ describe("propose_create_project", () => {
   test("rejects when name is missing", async () => {
     const tool = createProposeCreateProjectTool({ userId });
     const result = await tool.execute("call-3", { path: "/tmp/x" });
-    expect(result.details.isError).toBe(true);
-    expect(result.content[0].text).toContain("name");
+    expect(expectDetails<ToolErrorDetails>(result).isError).toBe(true);
+    expectText(result, "name");
   });
 
   test("rejects when path is missing", async () => {
     const tool = createProposeCreateProjectTool({ userId });
     const result = await tool.execute("call-4", { name: "Foo" });
-    expect(result.details.isError).toBe(true);
-    expect(result.content[0].text).toContain("path");
+    expect(expectDetails<ToolErrorDetails>(result).isError).toBe(true);
+    expectText(result, "path");
   });
 
   test("openUrl shape includes the draftId as a query param", async () => {
     const tool = createProposeCreateProjectTool({ userId });
     const result = await tool.execute("call-5", { name: "Url Shape", path: "/tmp/us" });
-    const parsed = getJson(result);
+    const parsed = expectJson<{ draftId: string; openUrl: string }>(result);
     expect(parsed.openUrl).toMatch(/^\/new-project\?prefill=[a-f0-9-]+$/);
     // The id in the URL must match what's persisted.
     const url = new URL(`http://x${parsed.openUrl}`);
@@ -92,7 +99,7 @@ describe("propose_create_project", () => {
     const otherUser = await createUser({ email: "ez-create-proj-other@test.com", passwordHash: "h", name: "Other" });
     const tool = createProposeCreateProjectTool({ userId });
     const result = await tool.execute("call-6", { name: "Owned", path: "/tmp/owned" });
-    const { draftId } = getJson(result);
+    const { draftId } = expectJson<{ draftId: string }>(result);
     expect(await getDraft(draftId, userId)).toBeDefined();
     expect(await getDraft(draftId, otherUser.id)).toBeUndefined();
   });

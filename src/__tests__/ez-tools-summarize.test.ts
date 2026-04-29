@@ -18,6 +18,14 @@
  */
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
+import { expectDetails, expectText } from "./helpers/expect-tool-result";
+
+interface SummaryDetails {
+  conversationId?: string;
+  style?: "brief" | "standup" | "tweet";
+  messageCount?: number;
+  isError?: boolean;
+}
 
 mockDbConnection();
 
@@ -61,13 +69,14 @@ describe("summarize_conversation", () => {
       },
     });
     const result = await tool.execute("s-1", { conversationId });
-    expect(result.content[0].text).toBe("BRIEF SUMMARY");
-    expect(result.details.style).toBe("brief");
-    expect(result.details.messageCount).toBe(3);
+    expect(expectText(result)).toBe("BRIEF SUMMARY");
+    const details = expectDetails<SummaryDetails>(result);
+    expect(details.style).toBe("brief");
+    expect(details.messageCount).toBe(3);
     expect(calls.length).toBe(1);
-    expect(calls[0].system).toContain("2-3 sentences");
-    expect(calls[0].transcript).toContain("user: What's the weather?");
-    expect(calls[0].transcript).toContain("assistant: Sunny and 75F.");
+    expect(calls[0]!.system).toContain("2-3 sentences");
+    expect(calls[0]!.transcript).toContain("user: What's the weather?");
+    expect(calls[0]!.transcript).toContain("assistant: Sunny and 75F.");
   });
 
   test("style='standup' routes to the bulleted-update prompt", async () => {
@@ -79,8 +88,8 @@ describe("summarize_conversation", () => {
       },
     });
     const result = await tool.execute("s-2", { conversationId, style: "standup" });
-    expect(result.details.style).toBe("standup");
-    expect(calls[0].system).toContain("daily-standup");
+    expect(expectDetails<SummaryDetails>(result).style).toBe("standup");
+    expect(calls[0]!.system).toContain("daily-standup");
   });
 
   test("style='tweet' routes to the under-280-char prompt", async () => {
@@ -92,8 +101,8 @@ describe("summarize_conversation", () => {
       },
     });
     const result = await tool.execute("s-3", { conversationId, style: "tweet" });
-    expect(result.details.style).toBe("tweet");
-    expect(calls[0].system).toContain("280 characters");
+    expect(expectDetails<SummaryDetails>(result).style).toBe("tweet");
+    expect(calls[0]!.system).toContain("280 characters");
   });
 
   test("missing conversation returns an error result, not a thrown exception", async () => {
@@ -101,8 +110,8 @@ describe("summarize_conversation", () => {
       summarize: async () => "should-not-be-called",
     });
     const result = await tool.execute("s-4", { conversationId: "ghost-conv-id" });
-    expect(result.details.isError).toBe(true);
-    expect(result.content[0].text).toContain("not found");
+    expect(expectDetails<SummaryDetails>(result).isError).toBe(true);
+    expectText(result, "not found");
   });
 
   test("empty conversation reports the empty-state message and skips the LLM", async () => {
@@ -114,8 +123,8 @@ describe("summarize_conversation", () => {
       },
     });
     const result = await tool.execute("s-5", { conversationId: emptyConvId });
-    expect(result.content[0].text).toContain("empty conversation");
-    expect(result.details.messageCount).toBe(0);
+    expectText(result, "empty conversation");
+    expect(expectDetails<SummaryDetails>(result).messageCount).toBe(0);
     expect(summarizerCalled).toBe(false);
   });
 
@@ -124,7 +133,7 @@ describe("summarize_conversation", () => {
       summarize: async () => "x",
     });
     const result = await tool.execute("s-6", { conversationId: "  " });
-    expect(result.details.isError).toBe(true);
-    expect(result.content[0].text).toContain("conversationId");
+    expect(expectDetails<SummaryDetails>(result).isError).toBe(true);
+    expectText(result, "conversationId");
   });
 });

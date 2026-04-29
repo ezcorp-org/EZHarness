@@ -10,12 +10,22 @@
  */
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
+import { expectDetails, expectJson, expectText } from "./helpers/expect-tool-result";
 
 mockDbConnection();
 
 const { createUser } = await import("../db/queries/users");
 const { createProposeCreateAgentTool } = await import("../runtime/tools/ez/propose-create-agent");
 const { getDraft } = await import("../db/queries/ez-drafts");
+
+interface AgentDraftDetails {
+  draftId: string;
+  openUrl: string;
+  kind: "agent";
+}
+interface ToolErrorDetails {
+  isError: true;
+}
 
 let userId: string;
 
@@ -29,19 +39,15 @@ afterAll(async () => {
   await closeTestDb();
 });
 
-function getJson(result: any): { draftId: string; openUrl: string } {
-  return JSON.parse(result.content[0].text);
-}
-
 describe("propose_create_agent", () => {
   test("happy path: minimal name+prompt persists a draft", async () => {
     const tool = createProposeCreateAgentTool({ userId });
     const result = await tool.execute("a-1", { name: "Summarizer", prompt: "Summarize PR comments." });
 
-    const { draftId, openUrl } = getJson(result);
+    const { draftId, openUrl } = expectJson<{ draftId: string; openUrl: string }>(result);
     expect(draftId).toBeDefined();
     expect(openUrl).toBe(`/agents/new?prefill=${draftId}`);
-    expect(result.details.kind).toBe("agent");
+    expect(expectDetails<AgentDraftDetails>(result).kind).toBe("agent");
 
     const row = await getDraft(draftId, userId);
     expect(row!.kind).toBe("agent");
@@ -54,7 +60,7 @@ describe("propose_create_agent", () => {
     const capabilities = ["llm", "tools"];
     const result = await tool.execute("a-2", { name: "Crawler", prompt: "Crawl a URL.", inputSchema, capabilities });
 
-    const { draftId } = getJson(result);
+    const { draftId } = expectJson<{ draftId: string }>(result);
     const row = await getDraft(draftId, userId);
     expect(row!.payload).toEqual({
       name: "Crawler",
@@ -67,15 +73,15 @@ describe("propose_create_agent", () => {
   test("rejects when name is missing", async () => {
     const tool = createProposeCreateAgentTool({ userId });
     const result = await tool.execute("a-3", { prompt: "Has no name." });
-    expect(result.details.isError).toBe(true);
-    expect(result.content[0].text).toContain("name");
+    expect(expectDetails<ToolErrorDetails>(result).isError).toBe(true);
+    expectText(result, "name");
   });
 
   test("rejects when prompt is missing", async () => {
     const tool = createProposeCreateAgentTool({ userId });
     const result = await tool.execute("a-4", { name: "Nope" });
-    expect(result.details.isError).toBe(true);
-    expect(result.content[0].text).toContain("prompt");
+    expect(expectDetails<ToolErrorDetails>(result).isError).toBe(true);
+    expectText(result, "prompt");
   });
 
   test("non-string capabilities entries are filtered out", async () => {
@@ -85,15 +91,15 @@ describe("propose_create_agent", () => {
       prompt: "Mixed caps test.",
       capabilities: ["llm", 42, null, "tools"] as any,
     });
-    const { draftId } = getJson(result);
+    const { draftId } = expectJson<{ draftId: string }>(result);
     const row = await getDraft(draftId, userId);
-    expect(row!.payload.capabilities).toEqual(["llm", "tools"]);
+    expect((row!.payload as { capabilities: string[] }).capabilities).toEqual(["llm", "tools"]);
   });
 
   test("openUrl matches /agents/new?prefill=<draftId>", async () => {
     const tool = createProposeCreateAgentTool({ userId });
     const result = await tool.execute("a-6", { name: "UrlShape", prompt: "x" });
-    const { draftId, openUrl } = getJson(result);
+    const { draftId, openUrl } = expectJson<{ draftId: string; openUrl: string }>(result);
     expect(openUrl).toMatch(/^\/agents\/new\?prefill=[a-f0-9-]+$/);
     expect(openUrl).toBe(`/agents/new?prefill=${draftId}`);
   });

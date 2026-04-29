@@ -11,6 +11,25 @@
  */
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
+import { expectDetails, expectJson, expectText } from "./helpers/expect-tool-result";
+
+interface AgentHit {
+  id: string;
+  name: string;
+  description: string;
+  url: string;
+  capabilities: string[];
+  category: string | null;
+  shared: boolean;
+}
+interface FindAgentsJson {
+  query: string;
+  count: number;
+  agents: AgentHit[];
+}
+interface ToolErrorDetails {
+  isError: true;
+}
 
 mockDbConnection();
 
@@ -36,15 +55,11 @@ afterAll(async () => {
   await closeTestDb();
 });
 
-function getJson(result: any): { count: number; agents: Array<{ name: string; url: string; description: string }> } {
-  return JSON.parse(result.content[0].text);
-}
-
 describe("find_agents", () => {
   test("empty result when nothing matches", async () => {
     const tool = createFindAgentsTool({ userId });
     const result = await tool.execute("f-1", { query: "no-such-agent-xyz" });
-    const parsed = getJson(result);
+    const parsed = expectJson<FindAgentsJson>(result);
     expect(parsed.count).toBe(0);
     expect(parsed.agents).toEqual([]);
   });
@@ -52,31 +67,31 @@ describe("find_agents", () => {
   test("exact name match wins (Crawler > MentionsCrawler for query='crawler')", async () => {
     const tool = createFindAgentsTool({ userId });
     const result = await tool.execute("f-2", { query: "Crawler" });
-    const parsed = getJson(result);
+    const parsed = expectJson<FindAgentsJson>(result);
     expect(parsed.count).toBeGreaterThanOrEqual(2);
-    expect(parsed.agents[0].name).toBe("Crawler");
+    expect(parsed.agents[0]!.name).toBe("Crawler");
   });
 
   test("capability tag match outranks prompt substring match", async () => {
     // 'pdf' is a capability on PDF Reader but only appears in prompts of others.
     const tool = createFindAgentsTool({ userId });
     const result = await tool.execute("f-3", { query: "pdf" });
-    const parsed = getJson(result);
-    expect(parsed.agents[0].name).toBe("PDF Reader");
+    const parsed = expectJson<FindAgentsJson>(result);
+    expect(parsed.agents[0]!.name).toBe("PDF Reader");
   });
 
   test("returns deep-link URLs of the form /agents/<id>", async () => {
     const tool = createFindAgentsTool({ userId });
     const result = await tool.execute("f-4", { query: "Summarizer" });
-    const parsed = getJson(result);
+    const parsed = expectJson<FindAgentsJson>(result);
     expect(parsed.agents.length).toBeGreaterThan(0);
-    expect(parsed.agents[0].url).toMatch(/^\/agents\/[0-9a-f-]+$/);
+    expect(parsed.agents[0]!.url).toMatch(/^\/agents\/[0-9a-f-]+$/);
   });
 
   test("missing query rejects with an error result", async () => {
     const tool = createFindAgentsTool({ userId });
     const result = await tool.execute("f-5", { query: "  " });
-    expect(result.details.isError).toBe(true);
-    expect(result.content[0].text).toContain("query");
+    expect(expectDetails<ToolErrorDetails>(result).isError).toBe(true);
+    expectText(result, "query");
   });
 });
