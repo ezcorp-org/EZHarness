@@ -566,7 +566,15 @@
 	function submit() {
 		const text = value.trim();
 		if (streaming) return;
-		if (!isLocked && !selectedModel) return;
+		// Block submit when no model is selected. Locked-mode surfaces (the
+		// Ez panel) still need a real model — `lockedMode` only locks the
+		// MODE picker (e.g. pinned to "Ez"); the user's model choice is
+		// independent. Without this gate, sending before the picker's
+		// async /api/models autoselect resolves leaks an empty
+		// provider/model on the wire and the runtime falls back to its
+		// default-tier resolution (resolveModel L3) — silent divergence
+		// from the model the picker UI is showing.
+		if (!selectedModel) return;
 		if (disabled) return;
 		// Allow empty text when attachments are staged (e.g. "summarize this image").
 		if (!text && stagedFiles.length === 0) return;
@@ -772,9 +780,9 @@
 					{:else}
 						<button
 							onclick={submit}
-							disabled={(!value.trim() && stagedFiles.length === 0) || (!isLocked && !selectedModel) || connState !== 'connected' || disabled}
+							disabled={(!value.trim() && stagedFiles.length === 0) || !selectedModel || connState !== 'connected' || disabled}
 							class="send-btn send-btn--send"
-							title={!isLocked && !selectedModel ? "Select a model first" : "Send message"}
+							title={!selectedModel ? "Select a model first" : "Send message"}
 							aria-label="Send message"
 						>
 							<svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">

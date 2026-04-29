@@ -123,6 +123,15 @@ import { __resetForTests, registerContext } from "$lib/ez/registry";
 beforeEach(() => {
 	__resetForTests();
 	closeEzPanel();
+	// Clear localStorage between tests — `EzPanel.svelte`'s loadStoredModel
+	// reads `ez-panel:selected-model` at module init, so a prior test that
+	// triggered `handleModelAutoSelect` would leak the saved choice into
+	// the next test's render. Tests that need a saved model should set it
+	// explicitly. This isolates the regression test for the "Send disabled
+	// while autoselect pending" path from the "happy-path send" test.
+	if (typeof localStorage !== "undefined") {
+		localStorage.clear();
+	}
 	// jsdom doesn't ship IntersectionObserver; PanelChatInput's
 	// scroll-to-bottom effect calls it when both sentinel + container
 	// refs are bound. Provide a no-op stub so the effect doesn't throw.
@@ -234,40 +243,111 @@ describe("EzPanel — composer", () => {
 			forms: { "agent-new": { schema: { name: "string" }, fill: () => {} } },
 		});
 
-		openEzPanel();
-		const { findByPlaceholderText, findByLabelText } = render(EzPanel);
+		// Mock /api/models so ModelSelector's autoselect fires and the
+		// Send button enables. ChatInput now blocks submit when no model
+		// is selected (locked-mode included) — see EzPanel-model-routing
+		// regression test below.
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+			const url = typeof input === "string" ? input : input.toString();
+			if (url.endsWith("/api/models")) {
+				return new Response(
+					JSON.stringify([
+						{ provider: "anthropic", model: "claude-sonnet-4-6", tier: "balanced", costTier: "medium", available: true },
+					]),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				);
+			}
+			return new Response("not found", { status: 404 });
+		}) as unknown as typeof fetch;
 
-		// Wait until the conversation resolved and composer is enabled.
-		await waitFor(() => expect(mocks.getOrCreateMock).toHaveBeenCalled());
+		try {
+			openEzPanel();
+			const { findByPlaceholderText, findByLabelText } = render(EzPanel);
 
-		const input = await findByPlaceholderText(/Ask Ez to do something/i) as HTMLTextAreaElement;
-		await waitFor(() => expect(input.disabled).toBe(false));
-		await fireEvent.input(input, { target: { value: "summarize this" } });
+			// Wait until the conversation resolved and composer is enabled.
+			await waitFor(() => expect(mocks.getOrCreateMock).toHaveBeenCalled());
 
-		const sendBtn = await findByLabelText("Send message") as HTMLButtonElement;
-		await waitFor(() => expect(sendBtn.disabled).toBe(false));
-		await fireEvent.click(sendBtn);
+			const input = await findByPlaceholderText(/Ask Ez to do something/i) as HTMLTextAreaElement;
+			await waitFor(() => expect(input.disabled).toBe(false));
+			await fireEvent.input(input, { target: { value: "summarize this" } });
 
-		await waitFor(() => expect(mocks.sendMessageMock).toHaveBeenCalledTimes(1));
-		const [convId, payload] = mocks.sendMessageMock.mock.calls[0]!;
-		expect(convId).toBe("ez-conv-1");
-		expect(payload.content).toBe("summarize this");
-		expect(payload.ezContext).toBeDefined();
-		expect(payload.ezContext.route.url).toBe("/agents/new");
-		expect(payload.ezContext.data).toEqual({ existingAgentNames: ["Foo"] });
-		expect(payload.ezContext.formIds).toEqual(["agent-new"]);
-		// Locked-mode now ships the user's chosen thinking level inline.
-		// No model is pre-selected (localStorage is empty in jsdom), so
-		// `provider`/`model` stay omitted — the runtime picks its default.
-		expect(payload.thinkingLevel).toBe("medium");
-		expect(payload.provider).toBeUndefined();
-		expect(payload.model).toBeUndefined();
+			const sendBtn = await findByLabelText("Send message") as HTMLButtonElement;
+			await waitFor(() => expect(sendBtn.disabled).toBe(false));
+			await fireEvent.click(sendBtn);
 
-		// Ez follows the same SSE consumption pattern as the chat page —
-		// once `sendMessage` returns a runId, the panel registers it with
-		// the global streaming store. `run:token` / `run:status` events
-		// then accumulate into `store.streamingMessages[runId]`.
-		await waitFor(() => expect(mocks.startStreamingMock).toHaveBeenCalledWith("r1", "ez-conv-1"));
+			await waitFor(() => expect(mocks.sendMessageMock).toHaveBeenCalledTimes(1));
+			const [convId, payload] = mocks.sendMessageMock.mock.calls[0]!;
+			expect(convId).toBe("ez-conv-1");
+			expect(payload.content).toBe("summarize this");
+			expect(payload.ezContext).toBeDefined();
+			expect(payload.ezContext.route.url).toBe("/agents/new");
+			expect(payload.ezContext.data).toEqual({ existingAgentNames: ["Foo"] });
+			expect(payload.ezContext.formIds).toEqual(["agent-new"]);
+			expect(payload.thinkingLevel).toBe("medium");
+			// REGRESSION GUARD (model-routing fix): the panel MUST ship the
+			// auto-selected provider/model on the wire. The previous
+			// implementation omitted them when `selectedModel` was null —
+			// that left a race window where a fast Enter before
+			// /api/models resolved would reach the server without
+			// provider/model and the runtime would silently fall back to
+			// default-tier resolution (resolveModel L3) instead of the
+			// model the picker UI advertised.
+			expect(payload.provider).toBe("anthropic");
+			expect(payload.model).toBe("claude-sonnet-4-6");
+
+			// Ez follows the same SSE consumption pattern as the chat page —
+			// once `sendMessage` returns a runId, the panel registers it with
+			// the global streaming store. `run:token` / `run:status` events
+			// then accumulate into `store.streamingMessages[runId]`.
+			await waitFor(() => expect(mocks.startStreamingMock).toHaveBeenCalledWith("r1", "ez-conv-1"));
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	test("Send button is disabled while ModelSelector's autoselect has not yet resolved (regression)", async () => {
+		// Reproduces the "Ez panel sometimes uses a different model"
+		// bug: before the fix, ChatInput's submit gate was `(!isLocked
+		// && !selectedModel)` — so locked-mode surfaces (the Ez panel)
+		// allowed submit with `selectedModel == null`, the request
+		// shipped without provider/model, and the runtime fell back to
+		// its default-tier preference order. This test pins the gate by
+		// withholding /api/models indefinitely so autoselect never fires
+		// and asserting that Send stays disabled.
+		const originalFetch = globalThis.fetch;
+		// Pending fetch — never resolves within the test window.
+		globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+			const url = typeof input === "string" ? input : input.toString();
+			if (url.endsWith("/api/models")) {
+				return new Promise<Response>(() => {}); // never resolves
+			}
+			return new Response("not found", { status: 404 });
+		}) as unknown as typeof fetch;
+
+		try {
+			openEzPanel();
+			const { findByPlaceholderText, findByLabelText } = render(EzPanel);
+
+			await waitFor(() => expect(mocks.getOrCreateMock).toHaveBeenCalled());
+
+			const input = await findByPlaceholderText(/Ask Ez to do something/i) as HTMLTextAreaElement;
+			await waitFor(() => expect(input.disabled).toBe(false));
+			await fireEvent.input(input, { target: { value: "trying to send fast" } });
+
+			const sendBtn = await findByLabelText("Send message") as HTMLButtonElement;
+			// The button stays disabled because no model has been
+			// auto-selected (or chosen from localStorage).
+			expect(sendBtn.disabled).toBe(true);
+			expect(sendBtn.title).toMatch(/Select a model first/i);
+
+			// Even if we click anyway, sendMessage must not be invoked —
+			// the click should be a no-op while disabled.
+			await fireEvent.click(sendBtn);
+			expect(mocks.sendMessageMock).not.toHaveBeenCalled();
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
 	});
 });
 

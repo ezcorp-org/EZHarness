@@ -245,6 +245,14 @@
 	 */
 	async function send(content: string): Promise<void> {
 		if (!conversationId) throw new Error("Ez conversation not ready");
+		// Defense-in-depth: ChatInput's submit gate blocks the click while
+		// `selectedModel` is null (waiting for ModelSelector's autoselect to
+		// fire), but a programmatic caller — Enter handler, future test
+		// harness, retry path — could still invoke send() directly. Refuse
+		// rather than ship an empty provider/model on the wire (the server
+		// would silently fall back to default-tier resolution because
+		// Ez conv rows store model=null/provider=null).
+		if (!selectedModel) throw new Error("No model selected");
 		const ezContext = buildEzContextPayload(page, readSnapshot());
 		error = null;
 
@@ -263,10 +271,11 @@
 				content,
 				// Ship the user's chosen model + thinking level inline so
 				// the runtime routes the run through the right provider.
-				// Mirrors the chat page's `handleSend` payload shape.
-				...(selectedModel
-					? { provider: selectedModel.provider, model: selectedModel.model }
-					: {}),
+				// Mirrors the chat page's `handleSend` payload shape. The
+				// `if (!selectedModel)` guard above ensures these are
+				// always concrete strings — never omitted from the wire.
+				provider: selectedModel.provider,
+				model: selectedModel.model,
 				thinkingLevel,
 				// `ezContext` flows through `api.sendMessage` into the JSON
 				// body; the server reads it from the request payload.
