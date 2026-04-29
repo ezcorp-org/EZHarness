@@ -7,6 +7,7 @@ function isBrowser(): boolean {
 }
 
 /** Resolve whether effective theme is dark, considering 'system' mode */
+// fallow-ignore-next-line unused-export
 export function getEffectiveDark(mode: ThemeMode): boolean {
 	if (mode === "dark") return true;
 	if (mode === "light") return false;
@@ -18,6 +19,7 @@ export function getEffectiveDark(mode: ThemeMode): boolean {
 }
 
 /** Toggle .dark class on documentElement and update OS chrome meta tags */
+// fallow-ignore-next-line unused-export
 export function applyTheme(isDark: boolean): void {
 	if (!isBrowser()) return;
 	document.documentElement.classList.toggle("dark", isDark);

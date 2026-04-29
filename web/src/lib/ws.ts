@@ -19,10 +19,14 @@ export type WSEvent = WSConnectionEvent | WSRunEvent;
 
 type Subscriber = (event: WSEvent) => void;
 
+// fallow-ignore-next-line unused-export
 export const MAX_ATTEMPTS = 10;
+// fallow-ignore-next-line unused-export
 export const BASE_DELAY = 1000;
+// fallow-ignore-next-line unused-export
 export const MAX_DELAY = 30000;
 
+// fallow-ignore-next-line unused-export
 export function getBackoffDelay(attempt: number): number {
 	return Math.min(BASE_DELAY * 2 ** attempt, MAX_DELAY);
 }

@@ -114,7 +114,7 @@ export async function triggerRun(
 	return res.json();
 }
 
-export async function cancelRun(id: string): Promise<void> {
+async function cancelRun(id: string): Promise<void> {
 	const res = await fetch(`${BASE}/api/runs/${id}`, { method: "DELETE" });
 	checkResponse(res);
 }
@@ -148,7 +148,7 @@ export async function fetchProjects(): Promise<Project[]> {
 	return res.json();
 }
 
-export async function fetchProject(id: string): Promise<Project> {
+async function fetchProject(id: string): Promise<Project> {
 	const res = await fetch(`${BASE}/api/projects/${id}`);
 	checkResponse(res);
 	return res.json();
@@ -585,7 +585,7 @@ export async function deleteTestConversations(agentName: string): Promise<{ dele
 	return res.json();
 }
 
-export async function fetchMessages(conversationId: string, leafMessageId?: string): Promise<Message[]> {
+async function fetchMessages(conversationId: string, leafMessageId?: string): Promise<Message[]> {
 	const params = leafMessageId ? `?leafMessageId=${leafMessageId}` : "";
 	const res = await fetch(`${BASE}/api/conversations/${conversationId}/messages${params}`);
 	checkResponse(res);
@@ -742,7 +742,7 @@ export async function updateAgentConfig(
 	return res.json();
 }
 
-export async function deleteAgentConfig(id: string): Promise<void> {
+async function deleteAgentConfig(id: string): Promise<void> {
 	const res = await fetch(`${BASE}/api/agent-configs/${id}`, { method: "DELETE" });
 	checkResponse(res);
 }
@@ -789,7 +789,7 @@ export async function createPipeline(data: Pipeline): Promise<Pipeline> {
 	return res.json();
 }
 
-export async function updatePipeline(name: string, data: Partial<Pipeline>): Promise<Pipeline> {
+async function updatePipeline(name: string, data: Partial<Pipeline>): Promise<Pipeline> {
 	const res = await fetch(`${BASE}/api/pipelines/${name}`, {
 		method: "PUT",
 		headers: { "content-type": "application/json" },
@@ -931,7 +931,7 @@ export async function rateMarketplaceListing(
 	checkResponse(res);
 }
 
-export async function flagMarketplaceListing(
+async function flagMarketplaceListing(
 	listingId: string,
 	reason: string,
 ): Promise<void> {
@@ -973,7 +973,7 @@ export async function importManifest(
 	return res.json();
 }
 
-export async function checkMarketplaceUpdates(
+async function checkMarketplaceUpdates(
 	ids: string[],
 ): Promise<Record<string, { hasUpdate: boolean; currentVersion: string; latestVersion: string; listingId: string }>> {
 	const res = await fetch(`${BASE}/api/marketplace/updates?ids=${ids.join(",")}`);

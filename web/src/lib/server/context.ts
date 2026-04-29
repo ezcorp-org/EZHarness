@@ -172,7 +172,7 @@ export function getCommandRegistry(): CommandRegistry {
   return commandRegistry;
 }
 
-export function getStateMediator(): ExtensionStateMediator | null {
+function getStateMediator(): ExtensionStateMediator | null {
   return stateMediator;
 }
 
@@ -186,7 +186,7 @@ export async function reloadPipelines(): Promise<void> {
   pipelines = [...yamlPipelines, ...dbPipelines];
 }
 
-export function reset(): void {
+function reset(): void {
   if (extractionUnsub) extractionUnsub();
   extractionUnsub = null;
   // Tear down executor-owned timers + in-flight runs before dropping

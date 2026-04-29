@@ -74,7 +74,7 @@ async function getRateLimitOverride(category: string): Promise<number | undefine
   return rateLimitOverrides[category];
 }
 
-export function matchRateLimitRoute(pathname: string, method: string): RateLimitRoute | undefined {
+function matchRateLimitRoute(pathname: string, method: string): RateLimitRoute | undefined {
   for (const route of RATE_LIMITED_ROUTES) {
     if (route.method && route.method !== method) continue;
     if (route.pattern.test(pathname)) return route;

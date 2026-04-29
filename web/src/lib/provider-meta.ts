@@ -22,7 +22,7 @@ export function canonicalProvider(provider: string): string {
 	return PROVIDER_ALIASES[provider] ?? provider;
 }
 
-export function providerDisplayName(provider: string): string {
+function providerDisplayName(provider: string): string {
 	const key = canonicalProvider(provider);
 	return PROVIDER_META[key]?.name ?? provider;
 }

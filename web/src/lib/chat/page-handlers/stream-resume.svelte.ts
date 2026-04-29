@@ -427,7 +427,7 @@ export function __resetReconnectCooldown(convId?: string): void {
 }
 
 /** Test-only: read the cooldown timestamp for a given conversation. */
-export function __getReconnectCooldownAt(convId: string): number {
+function __getReconnectCooldownAt(convId: string): number {
 	return reconnectCooldownByConv.get(convId) ?? 0;
 }
 
