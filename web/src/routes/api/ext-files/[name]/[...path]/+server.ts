@@ -41,7 +41,7 @@ function notFound(): Response {
 /** Resolve the extension data root inside the server's project root.
  *  Prefixed with `_` because SvelteKit's +server.ts loader only
  *  permits HTTP verbs + `_`-prefixed exports. */
-export function _extensionDataRoot(name: string, cwd: string = process.cwd()): string {
+function _extensionDataRoot(name: string, cwd: string = process.cwd()): string {
 	return extensionDataRoot(name, cwd);
 }
 
@@ -71,4 +71,4 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 };
 
 // Re-export for test ergonomics. SvelteKit allows `_`-prefixed exports.
-export const _TEST = { ALLOWED_EXTENSIONS, MIME_BY_EXT, _extensionDataRoot, join };
+const _TEST = { ALLOWED_EXTENSIONS, MIME_BY_EXT, _extensionDataRoot, join };

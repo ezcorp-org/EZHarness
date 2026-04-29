@@ -47,7 +47,7 @@ export function getSessionConfig(): SessionConfig {
 }
 
 /** Test-only: override the cached config. Pass `null` to revert to env-derived defaults. */
-export function __overrideSessionConfig(override: Partial<SessionConfig> | null): void {
+function __overrideSessionConfig(override: Partial<SessionConfig> | null): void {
   if (override === null) {
     _config = null;
     return;

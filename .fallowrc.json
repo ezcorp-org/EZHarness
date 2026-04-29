@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "index.ts",
+    "scripts/*.ts",
+    "src/db/schema.ts",
+    "drizzle.config.ts",
+    "worker/src/index.ts"
+  ],
+  "ignorePatterns": [
+    "web/**",
+    "packages/@ezcorp/**",
+    "**/.svelte-kit/**",
+    "**/build/**",
+    "**/dist/**"
+  ],
+  "dynamicallyLoaded": [
+    "docs/extensions/examples/**",
+    "src/__tests__/**",
+    "src/extensions/builtins/**",
+    "src/extensions/runtime/sandbox-preload.ts",
+    "src/auth/oauth-callback-worker.ts",
+    "src/scripts/restore-builtin-task-storage.ts",
+    "src/db/migrations/**",
+    "src/runtime/commands/**",
+    "src/providers/model-discovery.ts"
+  ]
+}

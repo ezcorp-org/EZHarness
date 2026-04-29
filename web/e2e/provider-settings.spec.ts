@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProviderStatus } from "./fixtures/data.js";
-import type { ProviderStatus } from "../../src/lib/api.js";
+import type { ProviderStatus } from "../src/lib/api.js";
 
 function threeProviders(overrides?: {
 	anthropic?: Partial<ProviderStatus>;

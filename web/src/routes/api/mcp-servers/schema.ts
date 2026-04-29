@@ -25,7 +25,7 @@ const sseSchema = z.object({
   headers: z.record(z.string(), z.string()).optional(),
 });
 
-export const mcpServerSpecSchema = z.discriminatedUnion("transport", [stdioSchema, httpSchema, sseSchema]);
+const mcpServerSpecSchema = z.discriminatedUnion("transport", [stdioSchema, httpSchema, sseSchema]);
 
 export const installMcpServerSchema = z.object({
   name: z.string().min(1),

@@ -55,6 +55,7 @@ function substituteArgs(body: string, args: string): string {
  * `expanded` return value to the LLM. `systemNotes` surfaces advisory
  * info (unknown command, frontmatter `agent:` routing hints).
  */
+// fallow-ignore-next-line unused-export
 export async function expandCommandMentions(
   content: string,
   resolver: CommandResolver,

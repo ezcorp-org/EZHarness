@@ -23,7 +23,7 @@ const log = logger.child("bearer-auth");
  *  header — it's set by the executor via a `_meta.ezOnBehalfOf` side
  *  channel in the subprocess JSON-RPC request (see ToolExecutor + ai-kit's
  *  MCP server for the full propagation chain). */
-export const ON_BEHALF_OF_HEADER = "X-Ezcorp-On-Behalf-Of";
+const ON_BEHALF_OF_HEADER = "X-Ezcorp-On-Behalf-Of";
 
 export interface BearerAuthEvent {
   locals: {

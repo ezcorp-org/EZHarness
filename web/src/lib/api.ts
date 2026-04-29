@@ -114,11 +114,6 @@ export async function triggerRun(
 	return res.json();
 }
 
-export async function cancelRun(id: string): Promise<void> {
-	const res = await fetch(`${BASE}/api/runs/${id}`, { method: "DELETE" });
-	checkResponse(res);
-}
-
 // ── Filesystem ──────────────────────────────────────────────────────
 
 export interface FsEntry { name: string; isDir: boolean }
@@ -144,12 +139,6 @@ export async function createDir(path: string): Promise<{ path: string }> {
 
 export async function fetchProjects(): Promise<Project[]> {
 	const res = await fetch(`${BASE}/api/projects`);
-	checkResponse(res);
-	return res.json();
-}
-
-export async function fetchProject(id: string): Promise<Project> {
-	const res = await fetch(`${BASE}/api/projects/${id}`);
 	checkResponse(res);
 	return res.json();
 }
@@ -200,11 +189,6 @@ export async function upsertSetting(key: string, value: unknown): Promise<void> 
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ value }),
 	});
-	checkResponse(res);
-}
-
-export async function deleteSetting(key: string): Promise<void> {
-	const res = await fetch(`${BASE}/api/settings/${key}`, { method: "DELETE" });
 	checkResponse(res);
 }
 
@@ -589,13 +573,6 @@ export async function deleteTestConversations(agentName: string): Promise<{ dele
 	return res.json();
 }
 
-export async function fetchMessages(conversationId: string, leafMessageId?: string): Promise<Message[]> {
-	const params = leafMessageId ? `?leafMessageId=${leafMessageId}` : "";
-	const res = await fetch(`${BASE}/api/conversations/${conversationId}/messages${params}`);
-	checkResponse(res);
-	return res.json();
-}
-
 export async function fetchAllMessages(conversationId: string): Promise<Message[]> {
 	const res = await fetch(`${BASE}/api/conversations/${conversationId}/messages?all=true`);
 	checkResponse(res);
@@ -746,11 +723,6 @@ export async function updateAgentConfig(
 	return res.json();
 }
 
-export async function deleteAgentConfig(id: string): Promise<void> {
-	const res = await fetch(`${BASE}/api/agent-configs/${id}`, { method: "DELETE" });
-	checkResponse(res);
-}
-
 // ── Pipelines ───────────────────────────────────────────────────────
 
 export interface PipelineStep {
@@ -786,16 +758,6 @@ export async function fetchPipelines(): Promise<Pipeline[]> {
 export async function createPipeline(data: Pipeline): Promise<Pipeline> {
 	const res = await fetch(`${BASE}/api/pipelines`, {
 		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify(data),
-	});
-	checkResponse(res);
-	return res.json();
-}
-
-export async function updatePipeline(name: string, data: Partial<Pipeline>): Promise<Pipeline> {
-	const res = await fetch(`${BASE}/api/pipelines/${name}`, {
-		method: "PUT",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(data),
 	});
@@ -935,18 +897,6 @@ export async function rateMarketplaceListing(
 	checkResponse(res);
 }
 
-export async function flagMarketplaceListing(
-	listingId: string,
-	reason: string,
-): Promise<void> {
-	const res = await fetch(`${BASE}/api/marketplace/${listingId}/flag`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ reason }),
-	});
-	checkResponse(res);
-}
-
 export async function exportManifest(listingId: string): Promise<void> {
 	const res = await fetch(`${BASE}/api/marketplace/export/${listingId}`);
 	checkResponse(res);
@@ -974,14 +924,6 @@ export async function importManifest(
 		const data = await res.json().catch(() => ({}));
 		throw new Error(data.error ?? `${res.status} ${res.statusText}`);
 	}
-	return res.json();
-}
-
-export async function checkMarketplaceUpdates(
-	ids: string[],
-): Promise<Record<string, { hasUpdate: boolean; currentVersion: string; latestVersion: string; listingId: string }>> {
-	const res = await fetch(`${BASE}/api/marketplace/updates?ids=${ids.join(",")}`);
-	if (!res.ok) return {};
 	return res.json();
 }
 

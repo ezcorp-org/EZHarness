@@ -1,17 +1,8 @@
 /**
- * Circuit-breaker wrapped LLM calls using pi-ai stream/complete.
  * Provider routing with fallback suggestions.
  */
 
-import {
-  stream,
-  complete,
-  type Model,
-  type Context,
-  type AssistantMessage,
-  type AssistantMessageEventStream,
-} from "@mariozechner/pi-ai";
-import { getCredential } from "./credentials";
+import { type Model } from "@mariozechner/pi-ai";
 import { resolveModelObject, findModelForProviderInTier, resolveDiscoveredModel } from "./registry";
 import { getCircuitBreaker } from "./circuit-breaker";
 import { getSetting } from "../db/queries/settings";
@@ -129,75 +120,3 @@ export async function suggestFallback(
   return null;
 }
 
-// ── Routed Stream/Complete ───────────────────────────────────────────
-
-export async function createRoutedStream(
-  model: Model<any>,
-  context: Context,
-  opts?: { signal?: AbortSignal; conversationId?: string },
-): Promise<AssistantMessageEventStream> {
-  const cb = getCircuitBreaker(model.provider);
-
-  if (cb.isOpen()) {
-    const suggestion = await suggestFallback(model.provider, await getDefaultTier());
-    throw new ProviderUnavailableError(
-      `${model.provider} is unavailable right now`,
-      model.provider,
-      model.id,
-      suggestion,
-    );
-  }
-
-  try {
-    const cred = await getCredential(model.provider, opts?.conversationId);
-    const s = stream(model, context, {
-      apiKey: cred.token,
-      signal: opts?.signal,
-    });
-    cb.recordSuccess();
-    return s;
-  } catch (err) {
-    cb.recordFailure();
-    const suggestion = await suggestFallback(model.provider, await getDefaultTier());
-    throw new ProviderUnavailableError(
-      `${model.provider} is unavailable right now`,
-      model.provider,
-      model.id,
-      suggestion,
-    );
-  }
-}
-
-export async function createRoutedComplete(
-  model: Model<any>,
-  context: Context,
-  opts?: { conversationId?: string },
-): Promise<AssistantMessage> {
-  const cb = getCircuitBreaker(model.provider);
-
-  if (cb.isOpen()) {
-    const suggestion = await suggestFallback(model.provider, await getDefaultTier());
-    throw new ProviderUnavailableError(
-      `${model.provider} is unavailable right now`,
-      model.provider,
-      model.id,
-      suggestion,
-    );
-  }
-
-  try {
-    const cred = await getCredential(model.provider, opts?.conversationId);
-    const result = await complete(model, context, { apiKey: cred.token });
-    cb.recordSuccess();
-    return result;
-  } catch (err) {
-    cb.recordFailure();
-    const suggestion = await suggestFallback(model.provider, await getDefaultTier());
-    throw new ProviderUnavailableError(
-      `${model.provider} is unavailable right now`,
-      model.provider,
-      model.id,
-      suggestion,
-    );
-  }
-}

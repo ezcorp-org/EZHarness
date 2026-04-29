@@ -107,7 +107,7 @@
 		userFetch,
 		invalidate as invalidateFetchPolicy,
 	} from "$lib/utils/fetch-policy.js";
-	import type { ToolDefinition } from '../../../../../../src/extensions/types';
+	import type { ToolDefinition } from '$server/extensions/types';
 
 	// Historical tool call tracking. `HistoricalToolCall` is imported from
 	// `$lib/chat/page-handlers/load-messages.js` (W5) — the hydration step

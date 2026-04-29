@@ -194,6 +194,7 @@ const OAUTH_PROVIDER_MAP: Record<string, KnownProvider> = {
  * Returns the set of model IDs supported by a provider's OAuth-compatible variant.
  * Used to filter the model list when OAuth is active.
  */
+// fallow-ignore-next-line unused-export
 export function getOAuthModelIds(provider: string): Set<string> | null {
   const oauthProvider = OAUTH_PROVIDER_MAP[provider];
   if (!oauthProvider) return null;

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "ignorePatterns": [
+    ".svelte-kit/**",
+    "build/**"
+  ],
+  "ignoreDependencies": [
+    "@mariozechner/pi-ai",
+    "drizzle-orm",
+    "linkedom",
+    "svelte-adapter-bun"
+  ]
+}

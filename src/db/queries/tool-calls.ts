@@ -80,6 +80,7 @@ export async function listToolCallOutputsForMessages(
  * events tagged with toolCallIds from conv-B as long as both are
  * theirs.
  */
+// fallow-ignore-next-line unused-export
 export async function getToolCallConversationById(
   id: string,
 ): Promise<{ id: string; conversationId: string | null } | null> {

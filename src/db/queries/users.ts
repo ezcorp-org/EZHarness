@@ -27,6 +27,7 @@ export async function getUserById(id: string): Promise<User | undefined> {
  * `ids` to keep the SQL `IN (...)` list tight; the returned Map is
  * always keyed by every input id, even duplicates.
  */
+// fallow-ignore-next-line unused-export
 export async function getUsersByIds(
   ids: string[],
 ): Promise<Map<string, User | null>> {
