@@ -3,5 +3,8 @@
   "dynamicallyLoaded": [
     "test/**",
     "scripts/**"
+  ],
+  "ignoreDependencies": [
+    "drizzle-orm"
   ]
 }

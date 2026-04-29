@@ -3,5 +3,11 @@
   "ignorePatterns": [
     ".svelte-kit/**",
     "build/**"
+  ],
+  "ignoreDependencies": [
+    "@mariozechner/pi-ai",
+    "drizzle-orm",
+    "linkedom",
+    "svelte-adapter-bun"
   ]
 }
