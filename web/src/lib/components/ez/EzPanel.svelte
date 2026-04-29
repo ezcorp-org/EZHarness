@@ -8,10 +8,13 @@
 	 *
 	 *   - `ChatInput.svelte` for composition — the literal same component
 	 *     the chat page imports. We pass `lockedMode={ modeSlug: 'ez',
-	 *     label: 'Ez' }` so the model / mode / thinking-level pickers and
-	 *     the attachment button collapse into a single static "Ez" chip,
-	 *     since the Ez conversation's `modeId` is pinned server-side.
-	 *     This guarantees the panel composer's mention popover, chip
+	 *     label: 'Ez' }` so the Mode picker is rendered disabled (pinned
+	 *     to "Ez" — the conversation's `modeId` is fixed server-side),
+	 *     while the Model picker and Thinking-level picker stay fully
+	 *     interactive: the panel manages those locally and persists the
+	 *     user's choice to localStorage so it survives reloads. The
+	 *     attachments paperclip remains hidden in locked mode. This
+	 *     guarantees the panel composer's mention popover, chip
 	 *     rendering, and Enter/Shift+Enter behavior stay in lock-step
 	 *     with the chat page — there's no second textarea variant to
 	 *     keep in sync.
@@ -90,6 +93,73 @@
 	let pendingPrefill = $state<string>("");
 	let error = $state<string | null>(null);
 	let scrollEl = $state<HTMLDivElement | null>(null);
+
+	// ── Model + thinking-level state ─────────────────────────────────
+	//
+	// Mirrors the chat page (`+page.svelte`): `selectedModel` drives the
+	// `<ModelSelector>` displayed in the locked toolbar, `thinkingLevel`
+	// drives `<ThinkingLevelSelector>` (when the model supports
+	// reasoning). The panel persists both to its own localStorage keys
+	// (separate from the chat page's `last-model` / `ezcorp-thinking-
+	// level` so opening Ez never overwrites the user's preferred chat
+	// configuration) and ships them inline with each `sendMessage` call
+	// so the runtime knows which provider/model to route through.
+	const LS_MODEL = "ez-panel:selected-model";
+	const LS_THINKING = "ez-panel:thinking-level";
+
+	function loadStoredModel(): { provider: string; model: string } | null {
+		if (typeof localStorage === "undefined") return null;
+		const raw = localStorage.getItem(LS_MODEL);
+		if (!raw) return null;
+		try {
+			const parsed = JSON.parse(raw) as { provider?: unknown; model?: unknown };
+			if (typeof parsed.provider === "string" && typeof parsed.model === "string") {
+				return { provider: parsed.provider, model: parsed.model };
+			}
+		} catch {
+			// Malformed JSON — drop the stale value rather than crash.
+		}
+		return null;
+	}
+
+	function loadStoredThinking(): string {
+		if (typeof localStorage === "undefined") return "medium";
+		return localStorage.getItem(LS_THINKING) ?? "medium";
+	}
+
+	let selectedModel = $state<{ provider: string; model: string } | null>(loadStoredModel());
+	let thinkingLevel = $state<string>(loadStoredThinking());
+	let modelSupportsReasoning = $state(false);
+
+	function handleModelChange(provider: string, model: string) {
+		selectedModel = { provider, model };
+		if (typeof localStorage !== "undefined") {
+			localStorage.setItem(LS_MODEL, JSON.stringify({ provider, model }));
+		}
+	}
+
+	// Auto-select fires when the picker resolves a default the first time.
+	// Only persist if we don't already have a stored pick — same guard the
+	// chat page uses, so a fast `/api/models` response can't overwrite the
+	// user's saved choice during the open animation.
+	function handleModelAutoSelect(provider: string, model: string) {
+		if (selectedModel) return;
+		selectedModel = { provider, model };
+		if (typeof localStorage !== "undefined") {
+			localStorage.setItem(LS_MODEL, JSON.stringify({ provider, model }));
+		}
+	}
+
+	function handleThinkingLevelChange(level: string) {
+		thinkingLevel = level;
+		if (typeof localStorage !== "undefined") {
+			localStorage.setItem(LS_THINKING, level);
+		}
+	}
+
+	function handleReasoningChange(reasoning: boolean) {
+		modelSupportsReasoning = reasoning;
+	}
 
 	let panelOpen = $derived(ezPanelState.open);
 
@@ -187,6 +257,13 @@
 		try {
 			const result = await sendMessage(convIdNow, {
 				content,
+				// Ship the user's chosen model + thinking level inline so
+				// the runtime routes the run through the right provider.
+				// Mirrors the chat page's `handleSend` payload shape.
+				...(selectedModel
+					? { provider: selectedModel.provider, model: selectedModel.model }
+					: {}),
+				thinkingLevel,
 				// `ezContext` flows through `api.sendMessage` into the JSON
 				// body; the server reads it from the request payload.
 				ezContext,
@@ -488,6 +565,13 @@
 			lockedMode={{ modeSlug: 'ez', label: 'Ez' }}
 			initialValue={pendingPrefill}
 			autofocus
+			{selectedModel}
+			onmodelchange={handleModelChange}
+			onautoselect={handleModelAutoSelect}
+			{thinkingLevel}
+			onthinkinglevelchange={handleThinkingLevelChange}
+			{modelSupportsReasoning}
+			onreasoningchange={handleReasoningChange}
 			onsubmit={(content) => { void send(content); }}
 			onstop={() => { if (activeRunId) stopStreaming(activeRunId); activeRunId = null; }}
 		/>

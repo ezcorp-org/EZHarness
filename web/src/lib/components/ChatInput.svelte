@@ -102,13 +102,14 @@
 		 */
 		disabled?: boolean;
 		/**
-		 * Lock the composer to a single mode and hide all picker UI
-		 * (model, mode, thinking-level, attachments). Used by the Ez
-		 * slide-in panel: the Ez conversation's mode is pinned server-
-		 * side, so the user-facing picker controls would just be
-		 * misleading. When set, a small static label is rendered in
-		 * place of the picker row. Defaults to `undefined` (full picker
-		 * UI, original behavior).
+		 * Lock the composer's *mode* to a fixed value while keeping the
+		 * Model and Thinking pickers fully functional. Used by the Ez
+		 * slide-in panel: the Ez conversation's `modeId` is pinned
+		 * server-side, but users still need to pick a model and tune
+		 * thinking depth like any other chat. When set, the Mode column
+		 * renders a disabled <ModeSelector> showing the locked mode's
+		 * label, and the attachments paperclip stays hidden. Defaults
+		 * to `undefined` (full picker UI, original behavior).
 		 */
 		lockedMode?: { modeSlug: string; label?: string };
 		/**
@@ -121,6 +122,35 @@
 	let isLocked = $derived(!!lockedMode);
 	let lockedLabel = $derived(
 		lockedMode?.label ?? (lockedMode?.modeSlug === "ez" ? "Ez" : (lockedMode?.modeSlug ?? "")),
+	);
+
+	// When locked, synthesize a Mode-shaped object so we can render a
+	// real (but disabled) <ModeSelector> in the toolbar. Reusing the
+	// component — instead of emitting a bespoke chip — keeps the locked
+	// composer visually aligned with the unlocked one (same height,
+	// border radius, font sizing) and means future ModeSelector tweaks
+	// land in both surfaces automatically. All required Mode fields get
+	// sensible defaults; `slug` echoes `lockedMode.modeSlug` so any
+	// downstream consumer that keys on slug (DOM data attrs, styling)
+	// still has something to read.
+	let lockedModeObject = $derived<Mode | null>(
+		lockedMode
+			? {
+				id: `builtin-${lockedMode.modeSlug}`,
+				name: lockedLabel,
+				slug: lockedMode.modeSlug,
+				icon: lockedMode.modeSlug === "ez" ? "⚡" : null,
+				description: "",
+				systemPromptInstruction: "",
+				instructionPosition: "append",
+				preferredModel: null,
+				preferredProvider: null,
+				preferredThinkingLevel: null,
+				temperature: null,
+				toolRestriction: "all",
+				builtin: true,
+			}
+			: null,
 	);
 
 	// Track which `initialValue` we've already applied so re-renders with
@@ -576,43 +606,53 @@
 	<div class="mx-auto flex max-w-3xl items-end gap-2">
 		<div class="flex min-w-0 flex-1 flex-col gap-1">
 			{#if toolbarPosition !== "hidden"}
-				{#if isLocked}
-					<!-- Locked-mode toolbar: a single static chip in the visual
-					     style of the picker labels. The Ez panel pins the
-					     conversation's mode server-side, so model / mode /
-					     thinking pickers would be misleading. -->
-					<div class="flex items-center gap-3">
-						<span
-							class="locked-mode-chip"
+				<!--
+				 * Toolbar — Model / Thinking / Mode columns + the amber
+				 * "select a model" warning + mentions tooltip. Locked
+				 * surfaces (the Ez panel today) keep all three columns:
+				 * Model + Thinking work as usual; the Mode picker renders
+				 * a disabled <ModeSelector> pinned to the synthesized
+				 * `lockedModeObject` so users see *which* mode the
+				 * conversation is fixed to without being able to change
+				 * it. This replaces the old single "Ez" chip — Model and
+				 * Thinking are now first-class citizens in locked mode.
+				 -->
+				<div class="flex items-center gap-3">
+					<div class="flex flex-col">
+						<span class="toolbar-label" data-tip="Choose which AI model powers this conversation">Model</span>
+						<ModelSelector selected={selectedModel} onselect={onmodelchange} {onreasoningchange} {oncontextwindowchange} {onautoselect} />
+					</div>
+					{#if modelSupportsReasoning && onthinkinglevelchange}
+						<div class="flex flex-col">
+							<span class="toolbar-label" data-tip="How long the model thinks before responding — higher means slower but smarter">Thinking</span>
+							<ThinkingLevelSelector selected={thinkingLevel as any} onselect={onthinkinglevelchange} />
+						</div>
+					{/if}
+					{#if isLocked && lockedModeObject}
+						<div
+							class="flex flex-col"
 							data-testid="chat-input-locked-mode"
 							data-mode-slug={lockedMode?.modeSlug}
-							title="This conversation is locked to a fixed mode"
-						>{lockedLabel}</span>
-					</div>
-				{:else}
-					<div class="flex items-center gap-3">
-						<div class="flex flex-col">
-							<span class="toolbar-label" data-tip="Choose which AI model powers this conversation">Model</span>
-							<ModelSelector selected={selectedModel} onselect={onmodelchange} {onreasoningchange} {oncontextwindowchange} {onautoselect} />
+						>
+							<span class="toolbar-label" data-tip="This conversation is locked to a fixed mode">Mode</span>
+							<ModeSelector
+								selected={lockedModeObject}
+								modes={[lockedModeObject]}
+								onselect={() => {}}
+								disabled
+							/>
 						</div>
-						{#if modelSupportsReasoning && onthinkinglevelchange}
-							<div class="flex flex-col">
-								<span class="toolbar-label" data-tip="How long the model thinks before responding — higher means slower but smarter">Thinking</span>
-								<ThinkingLevelSelector selected={thinkingLevel as any} onselect={onthinkinglevelchange} />
-							</div>
-						{/if}
-						{#if onmodechange}
-							<div class="flex flex-col">
-								<span class="toolbar-label" data-tip="Behavioral preset that controls system prompt, tool access, and AI behavior">Mode</span>
-								<ModeSelector selected={selectedMode} {modes} onselect={onmodechange} oncreate={onmodecreate} />
-							</div>
-						{/if}
-						{#if !selectedModel}
-							<span class="text-xs text-amber-400">Select a model to start chatting</span>
-						{/if}
-						<InfoTooltip key="chat.mentions" />
-					</div>
-				{/if}
+					{:else if onmodechange}
+						<div class="flex flex-col">
+							<span class="toolbar-label" data-tip="Behavioral preset that controls system prompt, tool access, and AI behavior">Mode</span>
+							<ModeSelector selected={selectedMode} {modes} onselect={onmodechange} oncreate={onmodecreate} />
+						</div>
+					{/if}
+					{#if !selectedModel}
+						<span class="text-xs text-amber-400">Select a model to start chatting</span>
+					{/if}
+					<InfoTooltip key="chat.mentions" />
+				</div>
 			{/if}
 			<div class="relative">
 				<MentionPopover
@@ -887,23 +927,6 @@
 	}
 	.toolbar-label:hover::after {
 		opacity: 1;
-	}
-
-	/* Locked-mode chip — small static badge that takes the visual slot
-	 * of a picker (model / mode / thinking) when `lockedMode` is set. */
-	.locked-mode-chip {
-		display: inline-flex;
-		align-items: center;
-		height: 1.5rem;
-		padding: 0 0.5rem;
-		border-radius: 0.35rem;
-		border: 1px solid var(--color-border);
-		background: var(--color-surface-tertiary);
-		color: var(--color-text-primary);
-		font-size: 11px;
-		line-height: 1;
-		font-weight: 500;
-		white-space: nowrap;
 	}
 
 	/* ── Attachment UI ──────────────────────────────────────────── */
