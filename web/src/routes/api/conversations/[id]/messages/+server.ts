@@ -70,6 +70,11 @@ interface ParsedBody {
   permissionMode?: "ask" | "auto-edit" | "yolo";
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   files: File[];
+  /** Phase 48 — Ez page context (route + opt-in page data + form ids).
+   *  Forwarded to executor.streamChat which appends a `<page_context>`
+   *  block to the system prompt for Ez-mode turns ONLY. Multipart
+   *  uploads don't carry this — the Ez panel never sends attachments. */
+  ezContext?: unknown;
 }
 
 function coerceEnum<T extends string>(raw: unknown, allowed: readonly T[]): T | undefined {
@@ -252,6 +257,12 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     thinkingLevel: body.thinkingLevel,
     attachments: stagedAttachments.length > 0 ? stagedAttachments : undefined,
     commandResolver: buildCommandResolver(user.id, conv.projectId),
+    // Phase 48: forward the Ez page-context payload. setup-tools.ts gates
+    // `<page_context>` emission on `convRecord.kind === 'ez'` — sending
+    // it on a regular conversation is a no-op (and the schema already
+    // strips unknown fields, so a regular client can't sneak one in
+    // unless they explicitly construct it).
+    ezContext: body.ezContext,
   });
 
   streamPromise.catch((err) => {

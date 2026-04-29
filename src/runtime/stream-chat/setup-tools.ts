@@ -54,6 +54,15 @@ export interface SetupToolsOptions {
   attachments?: import("../../chat/attachments/content-builder").StagedAttachment[];
   provider?: string;
   model?: string;
+  /** Phase 48: Ez panel page-context payload. Captured client-side per
+   *  turn (route metadata + opt-in `<EzContext>` data + form ids) and
+   *  forwarded by the messages endpoint. setup-tools serializes this
+   *  into a `<page_context>` block appended to ctx.system for Ez-mode
+   *  turns ONLY. The Ez persona prompt looks for that tag explicitly
+   *  to distinguish instrumented vs non-instrumented pages. Permissive
+   *  shape (`unknown`) — schema validation lives at the route layer.
+   *  Ignored on non-Ez turns even if a client manages to inject one. */
+  ezContext?: unknown;
 }
 
 /** Subset of the conversation row the setup-tools phase reads — the
@@ -64,6 +73,11 @@ export interface SetupToolsConvRecord {
   agentConfigId?: string | null;
   model?: string | null;
   provider?: string | null;
+  /** Phase 48: 'ez' marks the conversation as the user's dedicated Ez
+   *  concierge thread. setup-tools branches on this to wire the seven
+   *  Ez tools (propose_*, summarize_conversation, find_agents,
+   *  fill_form, navigate_to) BEFORE the allowlist filter runs. */
+  kind?: "regular" | "ez" | null;
 }
 
 export interface SetupToolsResult {
@@ -313,6 +327,75 @@ export async function setupTools(
           log.warn("ask-user wire failed — ask_user_question unavailable this turn", {
             error: String(askUserWireErr),
           });
+        }
+
+        // Phase 48: Ez concierge tools. Mirrors the ask-user wire-pattern —
+        // auto-wire on every turn before the allowlist filter runs, but
+        // ONLY for `kind='ez'` conversations. The seven Ez tool names must
+        // be in `ctx.agentTools` BEFORE `applyToolFilters` runs against
+        // `mode.allowedTools = [...ezNames]` (executor.ts:432-435); without
+        // this branch the filter would strip every project-rooted tool
+        // and the Ez turn would be left with only orchestration tools,
+        // making propose_*/summarize/find/fill/navigate unreachable.
+        // The wire is fail-soft: any error logs + falls through, the LLM
+        // sees an empty Ez toolset rather than a hard 500.
+        if (convRecord?.kind === "ez") {
+          try {
+            const { wireEzToolsForTurn } = await import("../ez-tools-host");
+            // userId is REQUIRED for Ez tools (propose_* persists
+            // user-owned drafts, find_agents scopes by user). Skip the
+            // wire if it's missing — log explicitly so a misconfigured
+            // Ez conversation surfaces in the operator dashboard.
+            if (!convRecord.userId) {
+              log.warn(
+                "Ez wire skipped — convRecord.userId missing on a kind='ez' row. " +
+                "Drafts could not be attributed; the Ez tools have been omitted for this turn.",
+                { conversationId },
+              );
+            } else {
+              wireEzToolsForTurn({
+                agentTools: ctx.agentTools,
+                builtinToolDefsMap: ctx.builtinToolDefsMap,
+                conversationId,
+                userId: convRecord.userId,
+                bus: host.bus,
+              });
+            }
+          } catch (ezWireErr) {
+            log.warn("Ez tools wire failed — ez tools unavailable this turn", {
+              error: String(ezWireErr),
+            });
+          }
+
+          // Phase 48: append the page-context block to the Ez system
+          // prompt. The persona seeded in the migration explicitly looks
+          // for `<page_context>` to distinguish instrumented from
+          // non-instrumented pages. We only emit the tag for Ez turns —
+          // a regular conversation that somehow received an `ezContext`
+          // payload (defense-in-depth: the messages endpoint shouldn't
+          // forward one for non-Ez convs, but this branch enforces it
+          // even if upstream changes) gets nothing.
+          //
+          // Compact JSON keeps the token cost minimal; the client-side
+          // serializer already capped data at ~500 tokens
+          // (context-serializer.ts:TOKEN_BUDGET). The block is appended
+          // (not prepended) so any earlier memory/KB injection still
+          // dominates positionally.
+          if (options.ezContext !== undefined && options.ezContext !== null) {
+            try {
+              const block = `<page_context>${JSON.stringify(options.ezContext)}</page_context>`;
+              ctx.system = ctx.system ? `${ctx.system}\n\n${block}` : block;
+            } catch (ezCtxErr) {
+              // JSON.stringify can throw on circular refs — log once and
+              // fall through. The Ez panel's serializer already guards
+              // its own input; reaching this branch implies upstream
+              // tampering, in which case dropping the block is the safe
+              // outcome.
+              log.warn("Ez ezContext serialization failed — page_context block omitted", {
+                error: String(ezCtxErr),
+              });
+            }
+          }
         }
         await wireMentionedExtensions(conversationId, userMessage, options.parentMessageId ?? run.id);
         const convExtIds = await getConversationExtensionIds(conversationId);
