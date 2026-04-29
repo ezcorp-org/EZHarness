@@ -64,6 +64,13 @@ export interface EzToolFactoryContext {
   bus?: EventBus<AgentEvents>;
   /** Optional summarizer override for tests. */
   summarize?: SummarizeContext["summarize"];
+  /** Phase 48 fix: per-turn provider/model picked by the user.
+   *  Forwarded into the summarize_conversation tool so it uses the
+   *  SAME model as the surrounding Ez conversation, instead of
+   *  always resolving to the default tier (which is Anthropic-first
+   *  and breaks when the user picked OpenAI). */
+  provider?: string | null;
+  model?: string | null;
 }
 
 /**
@@ -79,7 +86,7 @@ export function getEzToolDefs(ctx: EzToolFactoryContext): BuiltinToolDef[] {
     createProposeCreateProjectTool(userCtx),
     createProposeCreateAgentTool(userCtx),
     createProposeInstallExtensionTool(userCtx),
-    createSummarizeConversationTool({ summarize: ctx.summarize }),
+    createSummarizeConversationTool({ summarize: ctx.summarize, provider: ctx.provider, model: ctx.model }),
     createFindAgentsTool(userCtx),
     createFillFormTool(clientCtx),
     createNavigateToTool(clientCtx),

@@ -37,15 +37,46 @@ export interface SummarizeContext {
    *  Receives the system prompt + the joined conversation transcript
    *  and returns the summary text. */
   summarize?: (systemPrompt: string, transcript: string) => Promise<string>;
+  /** Phase 48 fix: provider/model the user picked for THIS Ez turn.
+   *  Threaded through from `streamChat` options so the summarizer uses
+   *  the same model as the surrounding conversation. When absent (or
+   *  when resolution against the picked pair fails), the default
+   *  summarizer falls back to `resolveModel(undefined)` — preserving
+   *  the legacy default-tier behavior. */
+  provider?: string | null;
+  model?: string | null;
 }
 
 /** Default summarizer: routes the request through the project's
- *  resolveModel + completeLLM. Picks the first available model from
- *  the credentials store. Errors propagate as tool errors. */
-async function defaultSummarize(systemPrompt: string, transcript: string): Promise<string> {
+ *  resolveModel + completeLLM. Prefers the per-turn provider/model
+ *  picked by the user (passed via SummarizeContext) so the summarizer
+ *  uses the SAME model as the surrounding Ez conversation. Falls back
+ *  to default-tier resolution if the picked pair fails to resolve.
+ *  Errors propagate as tool errors. */
+async function defaultSummarize(
+  systemPrompt: string,
+  transcript: string,
+  provider?: string | null,
+  model?: string | null,
+): Promise<string> {
   const { resolveModel } = await import("../../../providers/router");
   const { completeLLM } = await import("../../../providers/llm");
-  const resolved = await resolveModel(undefined);
+  let resolved: Awaited<ReturnType<typeof resolveModel>> | null = null;
+  // Prefer the user-picked provider+model (matches the chat page's
+  // resolveModel(options.provider, options.model) call). If both are
+  // present we try them first; on any failure we fall through to the
+  // legacy default-tier path so misconfigurations of the picked model
+  // don't make summarize unusable.
+  if (provider && model) {
+    try {
+      resolved = await resolveModel(provider, model);
+    } catch {
+      resolved = null;
+    }
+  }
+  if (!resolved) {
+    resolved = await resolveModel(undefined);
+  }
   if (!resolved) {
     throw new Error("no model available — connect a provider in Settings");
   }
@@ -68,7 +99,12 @@ async function defaultSummarize(systemPrompt: string, transcript: string): Promi
 const MAX_TRANSCRIPT_CHARS = 60_000; // ~15k tokens. Truncates from the start (oldest) so the recent context survives.
 
 export function createSummarizeConversationTool(ctx: SummarizeContext = {}): BuiltinToolDef {
-  const summarize = ctx.summarize ?? defaultSummarize;
+  // Bind the per-turn provider/model into the default summarizer so the
+  // tool's `summarize(system, transcript)` call site (below) doesn't need
+  // to know about model resolution. Test-injected stubs ignore this
+  // entirely — they receive `(systemPrompt, transcript)` and short-circuit
+  // before defaultSummarize runs.
+  const summarize = ctx.summarize ?? ((sys: string, t: string) => defaultSummarize(sys, t, ctx.provider, ctx.model));
   return {
     name: "summarize_conversation",
     label: "summarize_conversation",

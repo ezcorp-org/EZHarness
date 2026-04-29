@@ -49,6 +49,17 @@ export interface WireEzToolsForTurnParams {
    *  navigate_to. May be omitted in tests that don't exercise the
    *  client-side path. */
   bus?: EventBus<AgentEvents>;
+  /** Phase 48 fix: provider/model the user picked for THIS Ez turn,
+   *  pulled from `streamChat`'s `options.provider` / `options.model`
+   *  (with conversation-row fallback). Forwarded into
+   *  `summarize_conversation` so the tool uses the same model the
+   *  user sees in the chat — previously it always fell back to the
+   *  Anthropic-first default tier and threw "no Anthropic credentials"
+   *  when the user picked OpenAI. May be null/undefined when the
+   *  caller has no per-turn or stored selection (rare; the default
+   *  summarizer falls back to default-tier resolution in that case). */
+  provider?: string | null;
+  model?: string | null;
 }
 
 /**
@@ -66,10 +77,10 @@ export interface WireEzToolsForTurnParams {
  * `description`, `parameters`, `execute`).
  */
 export function wireEzToolsForTurn(params: WireEzToolsForTurnParams): void {
-  const { agentTools, builtinToolDefsMap, conversationId, userId, bus } = params;
+  const { agentTools, builtinToolDefsMap, conversationId, userId, bus, provider, model } = params;
 
   const existingNames = new Set(agentTools.map((t) => t.name));
-  const defs = getEzToolDefs({ userId, conversationId, bus });
+  const defs = getEzToolDefs({ userId, conversationId, bus, provider, model });
 
   let registered = 0;
   for (const def of defs) {

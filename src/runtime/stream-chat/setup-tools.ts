@@ -359,6 +359,17 @@ export async function setupTools(
                 conversationId,
                 userId: convRecord.userId,
                 bus: host.bus,
+                // Thread the per-turn provider/model the user picked in
+                // the UI (options.*) — falling back to the conversation's
+                // stored default — so summarize_conversation uses the
+                // SAME model as the surrounding Ez chat. Without this
+                // the tool's defaultSummarize would fall through to the
+                // Anthropic-first default tier and throw "no Anthropic
+                // credentials" when the user picked OpenAI. Mirrors the
+                // toolExec.setCurrentModel/setCurrentProvider pattern
+                // used a few blocks above for ai-kit sibling chats.
+                provider: options.provider ?? convRecord.provider,
+                model: options.model ?? convRecord.model,
               });
             }
           } catch (ezWireErr) {
