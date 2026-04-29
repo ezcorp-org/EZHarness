@@ -114,6 +114,7 @@ export async function getTeamMembership(
  * list tight; the returned Map is always keyed by every input id, even
  * duplicates.
  */
+// fallow-ignore-next-line unused-export
 export async function getTeamMembershipsByTeams(
   userId: string,
   teamIds: string[],

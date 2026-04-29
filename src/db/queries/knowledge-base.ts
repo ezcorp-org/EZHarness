@@ -77,7 +77,9 @@ export async function searchKBChunks(
   return (results.rows ?? []) as unknown as KBChunkResult[];
 }
 
-/** Fast check: does this project have any indexed KB chunks? */
+/** Fast check: does this project have any indexed KB chunks?
+ *  Imported dynamically by src/runtime/stream-chat/setup-tools.ts. */
+// fallow-ignore-next-line unused-export
 export async function hasKBChunks(projectId: string): Promise<boolean> {
   const db = getDb();
   const rows = await db.execute(

@@ -79,26 +79,6 @@ export function getPendingAskUser(
   return pendingByToolCallId.get(toolCallId);
 }
 
-/** All pending entries scoped to one conversation. Used by the
- *  `/api/conversations/[id]/active-run` GET handler so a refreshed
- *  client can re-hydrate the inline ask-user card before the
- *  `tool_calls` row is written. */
-export function getPendingAskUserForConversation(
-  conversationId: string,
-): PendingAskUserSummary[] {
-  const out: PendingAskUserSummary[] = [];
-  for (const [toolCallId, entry] of pendingByToolCallId) {
-    if (entry.conversationId !== conversationId) continue;
-    out.push({
-      toolCallId,
-      question: entry.question,
-      options: entry.options,
-      userId: entry.userId,
-    });
-  }
-  return out;
-}
-
 /** Clear the entry — called by the wire wrapper's `finally` regardless
  *  of success / error / timeout / abort. */
 export function clearPendingAskUser(toolCallId: string): void {

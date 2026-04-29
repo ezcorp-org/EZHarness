@@ -16,7 +16,6 @@ import { getCredential } from "./credentials";
 
 // Re-export for downstream usage
 export type { AssistantMessageEventStream };
-export { getApiKey } from "./credentials";
 
 export async function streamLLM(
   model: Model<Api>,

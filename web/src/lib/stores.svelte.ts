@@ -256,7 +256,7 @@ export function refreshProjects() {
 		.catch(() => {});
 }
 
-export function refreshSettings() {
+function refreshSettings() {
 	fetchSettings()
 		.then((data) => (store.settings = data))
 		.catch(() => {});
@@ -384,10 +384,6 @@ export function startStreaming(runId: string, conversationId: string): boolean {
 	return true;
 }
 
-function getStreamingText(runId: string): string | undefined {
-	return store.streamingMessages[runId];
-}
-
 export function stopStreaming(runId: string) {
 	const { [runId]: _, ...rest } = store.streamingMessages;
 	store.streamingMessages = rest;
@@ -404,18 +400,6 @@ export function stopStreaming(runId: string) {
 	store.streamingContentBlocks = restBlocks;
 	const { [runId]: ______, ...restAgents } = store.streamingAgentCalls;
 	store.streamingAgentCalls = restAgents;
-}
-
-function getStreamingStatus(runId: string): string | undefined {
-	return store.streamingStatus[runId];
-}
-
-function getStreamingConversationId(runId: string): string | undefined {
-	return store.streamingRunToConversation[runId];
-}
-
-function isConversationStreaming(conversationId: string): boolean {
-	return Object.values(store.streamingRunToConversation).includes(conversationId);
 }
 
 /** Build a snapshot of the store's routing state for the pure routing module. */
@@ -489,23 +473,6 @@ export function getWsReconnectCount(): number {
 
 export function setTaskSnapshot(snapshot: TaskSnapshot): void {
 	store.taskSnapshots = { ...store.taskSnapshots, [snapshot.conversationId]: snapshot };
-}
-
-/** Read-only accessor for the server-reported staleness of a conversation's active run. */
-function getRunStaleness(conversationId: string): { stalenessMs: number; startedAt: number } | undefined {
-	return store.runStaleness[conversationId];
-}
-
-/** Called by the chat page's zombie-timer on every /active-run poll. Pass null to clear. */
-function setRunStaleness(conversationId: string, value: { stalenessMs: number; startedAt: number } | null): void {
-	if (value === null) {
-		if (conversationId in store.runStaleness) {
-			const { [conversationId]: _removed, ...rest } = store.runStaleness;
-			store.runStaleness = rest;
-		}
-		return;
-	}
-	store.runStaleness = { ...store.runStaleness, [conversationId]: value };
 }
 
 // ── Canvas Dock helpers ──

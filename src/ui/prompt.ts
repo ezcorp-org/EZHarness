@@ -5,7 +5,7 @@ import { createInterface as createInterfaceCallback } from "node:readline";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
-export const EOF = Symbol("EOF");
+const EOF = Symbol("EOF");
 
 /**
  * One-shot stdin prompt. Opens a readline interface, asks a single

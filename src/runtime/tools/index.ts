@@ -1,4 +1,3 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { BuiltinToolDef } from "./types";
 import { createReadFileTool } from "./read-file";
 import { createListFilesTool } from "./list-files";
@@ -10,14 +9,6 @@ import { createGlobTool } from "./glob";
 import { describeOutputCap, getToolOutputLimit } from "./output-limits";
 
 export type { BuiltinToolDef, ToolCategory, PermissionMode, CardType } from "./types";
-export {
-  DEFAULT_MAX_OUTPUT_BYTES,
-  TOOL_OUTPUT_LIMITS,
-  getToolOutputLimit,
-  formatBytes,
-  describeOutputCap,
-  truncateText,
-} from "./output-limits";
 
 /**
  * Get all built-in tool definitions with full metadata (category, cardType,
@@ -40,20 +31,4 @@ export function getBuiltinToolDefs(projectPath: string): BuiltinToolDef[] {
     def.description = `${def.description} ${describeOutputCap(def.name)}`;
   }
   return defs;
-}
-
-/** Wrap a BuiltinToolDef into an AgentTool (pi-agent-core interface). */
-function toAgentTool(def: BuiltinToolDef): AgentTool {
-  return {
-    name: def.name,
-    label: def.label,
-    description: def.description,
-    parameters: def.parameters,
-    execute: def.execute,
-  };
-}
-
-/** Create all built-in tools as AgentTool[] for use in the agent loop. */
-export function createBuiltinTools(projectPath: string): AgentTool[] {
-  return getBuiltinToolDefs(projectPath).map(toAgentTool);
 }
