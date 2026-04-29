@@ -18,6 +18,9 @@
     "docs/extensions/examples/**",
     "src/__tests__/**",
     "src/extensions/builtins/**",
+    "src/extensions/runtime/sandbox-preload.ts",
+    "src/auth/oauth-callback-worker.ts",
+    "src/scripts/restore-builtin-task-storage.ts",
     "src/db/migrations/**",
     "src/runtime/commands/**",
     "src/providers/model-discovery.ts"
