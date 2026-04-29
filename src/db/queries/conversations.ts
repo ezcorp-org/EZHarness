@@ -354,6 +354,43 @@ export async function getMessages(conversationId: string): Promise<Message[]> {
   return attachAttachments(withMem);
 }
 
+/**
+ * Delete every message for a conversation, leaving the conversation row
+ * itself in place. Returns the number of rows removed.
+ *
+ * Used by the Ez panel's "Clear conversation" action: the schema enforces
+ * one Ez conversation per user (partial unique index on
+ * `conversations(user_id) WHERE kind = 'ez'`), so "start a new chat" is
+ * implemented as wiping the message list rather than deleting + recreating
+ * the row. The conversation id stays stable — the caller's SSE
+ * subscription, ezContext, and locked mode continue working unchanged.
+ *
+ * Cascade behavior (see schema.ts FK definitions):
+ *   - `attachments.message_id`  → ON DELETE CASCADE (rows wiped)
+ *   - `tool_calls.message_id`   → ON DELETE CASCADE (inline calls wiped)
+ *   - `tool_calls.conversation_id` rows with NULL messageId (conversation-
+ *     level, not message-anchored) are NOT touched here — they belong to
+ *     the conversation as a whole. None are expected on Ez conversations.
+ *   - `runs` are referenced from messages via `messages.run_id` (set null
+ *     on delete) — we don't garbage-collect runs rows, but they're harmless
+ *     once unreferenced.
+ *   - `active_runs.conversation_id` cascade only fires on conversation
+ *     delete (not message delete) — any in-flight stream's active_run row
+ *     stays. Caller is expected to stop streaming on the client side
+ *     before clearing; the runtime treats a missing message history as a
+ *     fresh start regardless.
+ */
+export async function deleteAllMessagesForConversation(conversationId: string): Promise<number> {
+  if (!conversationId || typeof conversationId !== "string") {
+    throw new Error("conversationId must be a non-empty string");
+  }
+  const rows = await getDb()
+    .delete(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .returning({ id: messages.id });
+  return rows.length;
+}
+
 // ── Branching ────────────────────────────────────────────────────────
 
 /** Map raw SQL row (snake_case) to Message type (camelCase) */
