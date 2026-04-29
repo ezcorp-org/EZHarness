@@ -1,3 +1,15 @@
+## Project
+
+EZCorp — a self-hosted AI platform for multi-model chat with persistent memory and an extension ecosystem.
+
+**Goals:**
+- **Extensibility** — user-built extensions for custom UI, tools, and interactions
+- **Security** — RBAC and per-tool-call permissions for LLM actions
+- **Reliability** — safe migrations, durable storage, single-container deploy
+
+Stack: Bun runtime, PGlite/Postgres, SvelteKit frontend (`web/`), backend (`src/`), runtime executor + built-in tools.
+
+---
 
 Default to using Bun instead of Node.js.
 

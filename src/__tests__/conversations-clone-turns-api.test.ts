@@ -22,7 +22,7 @@ mock.module("$lib/server/security/api-keys", () => ({
 }));
 
 // ── Mocked conversations query module ────────────────────────────
-type MockConv = { id: string; userId: string; projectId: string; title: string; model: string | null; provider: string | null };
+type MockConv = { id: string; userId: string; projectId: string; title: string; model: string | null; provider: string | null; forkedFromConversationId?: string | null; forkedFromMessageId?: string | null };
 
 let mockSourceConv: MockConv | null = null;
 let mockCloneError: Error | null = null;
@@ -71,6 +71,8 @@ beforeEach(() => {
       title: "Forked: Source chat",
       model: "claude-sonnet-4-6",
       provider: "anthropic",
+      forkedFromConversationId: "conv-source",
+      forkedFromMessageId: "11111111-1111-4111-8111-111111111111",
     },
     messageIdMap: new Map<string, string>(),
   };
@@ -98,6 +100,10 @@ describe("POST /api/conversations/[id]/clone-turns", () => {
     expect(capturedCloneArgs!.sourceConvId).toBe("conv-source");
     expect(capturedCloneArgs!.messageIds).toEqual([messageId]);
     expect(capturedCloneArgs!.opts.userId).toBe(MEMBER_USER.id);
+
+    // Fork-link fields are persisted by the helper and round-trip through the route.
+    expect(data.forkedFromConversationId).toBe("conv-source");
+    expect(data.forkedFromMessageId).toBe(messageId);
   });
 
   test("returns 404 when caller is not the conversation owner", async () => {

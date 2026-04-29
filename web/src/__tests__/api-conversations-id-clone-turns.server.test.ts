@@ -115,7 +115,12 @@ describe("POST /api/conversations/[id]/clone-turns", () => {
   test("happy path: returns 201 with new conversation", async () => {
     getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
     cloneTurnsIntoNewConversation.mockResolvedValue({
-      conversation: { id: "c-new", title: "Branch" },
+      conversation: {
+        id: "c-new",
+        title: "Branch",
+        forkedFromConversationId: "c1",
+        forkedFromMessageId: MID,
+      },
     });
     const res = await POST(
       makeEvent({
@@ -124,8 +129,16 @@ describe("POST /api/conversations/[id]/clone-turns", () => {
       }),
     );
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { id: string; title: string };
+    const body = (await res.json()) as {
+      id: string;
+      title: string;
+      forkedFromConversationId?: string;
+      forkedFromMessageId?: string;
+    };
     expect(body.id).toBe("c-new");
     expect(body.title).toBe("Branch");
+    // Fork link round-trips through the route.
+    expect(body.forkedFromConversationId).toBe("c1");
+    expect(body.forkedFromMessageId).toBe(MID);
   });
 });

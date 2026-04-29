@@ -521,6 +521,15 @@ export async function migrate(db: any): Promise<void> {
   await db.execute(sql`ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS "references" JSONB DEFAULT '{"agents":[],"extensions":[]}'`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conversations_parent ON conversations(parent_conversation_id)`);
 
+  // ── Fork tracking: link cloned conversations back to their source ──
+  // Distinct from parent_conversation_id (which is reserved for sub-conversations
+  // and excluded from the sidebar). Forks are root-level chats with a back-pointer
+  // so the sidebar can group them under their source. SET NULL on delete so a
+  // fork survives if its source is removed.
+  await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS forked_from_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`);
+  await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS forked_from_message_id TEXT`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conversations_forked_from ON conversations(forked_from_conversation_id)`);
+
   // ── Phase 2d: Conversation metadata (runtime-only flags) ────────
   // Nullable JSONB bag. Currently holds `spawnDepth` for the ezcorp/spawn-assignment
   // depth-limit enforcement; future phases may add UI / panel state.

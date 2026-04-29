@@ -50,6 +50,8 @@ export const conversations = pgTable("conversations", {
   modeId: text("mode_id").references(() => modes.id, { onDelete: "set null" }),
   parentConversationId: text("parent_conversation_id").references((): any => conversations.id, { onDelete: "cascade" }),
   parentMessageId: text("parent_message_id"),
+  forkedFromConversationId: text("forked_from_conversation_id").references((): any => conversations.id, { onDelete: "set null" }),
+  forkedFromMessageId: text("forked_from_message_id"),
   test: boolean("test").default(false),
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   /** Phase 2d: opaque per-conversation bag for runtime-only flags. Currently

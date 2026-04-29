@@ -97,7 +97,7 @@ export interface SearchResult {
 
 export async function createConversation(
   projectId: string,
-  opts?: { title?: string; model?: string; provider?: string; agentConfigId?: string; systemPrompt?: string; test?: boolean; userId?: string; parentConversationId?: string; parentMessageId?: string },
+  opts?: { title?: string; model?: string; provider?: string; agentConfigId?: string; systemPrompt?: string; test?: boolean; userId?: string; parentConversationId?: string; parentMessageId?: string; forkedFromConversationId?: string; forkedFromMessageId?: string },
 ): Promise<Conversation> {
   if (!projectId) throw new Error("projectId is required to create a conversation");
   const rows = await getDb()
@@ -111,6 +111,8 @@ export async function createConversation(
       agentConfigId: opts?.agentConfigId || null,
       parentConversationId: opts?.parentConversationId || null,
       parentMessageId: opts?.parentMessageId || null,
+      forkedFromConversationId: opts?.forkedFromConversationId || null,
+      forkedFromMessageId: opts?.forkedFromMessageId || null,
       test: opts?.test ?? false,
       userId: opts?.userId || null,
     })
@@ -391,6 +393,11 @@ export async function cloneTurnsIntoNewConversation(
     throw new Error("One or more messageIds do not belong to the source conversation");
   }
 
+  // Anchor = the last (most recent) selected source message in chronological
+  // order. Used by the sidebar to group the fork under its source and (later)
+  // power a "view in source" deep-link back to the branch point.
+  const forkAnchorMessageId = selected[selected.length - 1]!.id;
+
   const newConv = await createConversation(source.projectId, {
     title: opts.title ?? `Forked: ${source.title}`,
     model: source.model ?? undefined,
@@ -398,6 +405,8 @@ export async function cloneTurnsIntoNewConversation(
     systemPrompt: source.systemPrompt ?? undefined,
     agentConfigId: source.agentConfigId ?? undefined,
     userId: opts.userId ?? undefined,
+    forkedFromConversationId: sourceConvId,
+    forkedFromMessageId: forkAnchorMessageId,
   });
 
   try {

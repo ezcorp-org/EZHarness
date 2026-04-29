@@ -7,6 +7,10 @@
 		type Conversation,
 		type SearchResult,
 	} from "$lib/api.js";
+	import {
+		groupConversations,
+		unreadForkCount,
+	} from "$lib/conversation-grouping.js";
 	import { unreadStore } from "$lib/unread.js";
 	import DeleteConfirmDialog from "./DeleteConfirmDialog.svelte";
 	import MentionText from "./MentionText.svelte";
@@ -177,36 +181,46 @@
 		return () => observer.disconnect();
 	});
 
-	// Group conversations by recency
-	type Group = { label: string; items: Conversation[] };
+	// Group conversations into families (parent + forks) bucketed by recency.
+	// See $lib/conversation-grouping.ts for algorithm + tests.
+	let grouped = $derived(() =>
+		groupConversations(conversations, { now: Date.now() }),
+	);
 
-	let grouped = $derived(() => {
-		const now = Date.now();
-		const DAY = 86_400_000;
-		const today: Conversation[] = [];
-		const week: Conversation[] = [];
-		const month: Conversation[] = [];
-		const older: Conversation[] = [];
+	// Collapse state for fork families. Persisted to localStorage so users
+	// don't have to re-collapse on every reload. Keyed by root conversation id.
+	const COLLAPSE_LS_KEY = "chatList.collapsedFamilies";
 
-		const sorted = [...conversations].sort(
-			(a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-		);
-
-		for (const conv of sorted) {
-			const age = now - new Date(conv.updatedAt).getTime();
-			if (age < DAY) today.push(conv);
-			else if (age < 7 * DAY) week.push(conv);
-			else if (age < 30 * DAY) month.push(conv);
-			else older.push(conv);
+	function loadCollapsed(): Set<string> {
+		if (typeof localStorage === "undefined") return new Set();
+		try {
+			const raw = localStorage.getItem(COLLAPSE_LS_KEY);
+			if (!raw) return new Set();
+			const arr = JSON.parse(raw) as unknown;
+			return new Set(Array.isArray(arr) ? arr.filter((s): s is string => typeof s === "string") : []);
+		} catch {
+			return new Set();
 		}
+	}
 
-		const groups: Group[] = [];
-		if (today.length) groups.push({ label: "Today", items: today });
-		if (week.length) groups.push({ label: "Previous 7 Days", items: week });
-		if (month.length) groups.push({ label: "Previous 30 Days", items: month });
-		if (older.length) groups.push({ label: "Older", items: older });
-		return groups;
-	});
+	function persistCollapsed(s: Set<string>) {
+		if (typeof localStorage === "undefined") return;
+		try {
+			localStorage.setItem(COLLAPSE_LS_KEY, JSON.stringify([...s]));
+		} catch {
+			// ignore quota / privacy-mode failures
+		}
+	}
+
+	let collapsedRoots = $state<Set<string>>(loadCollapsed());
+
+	function toggleCollapse(id: string) {
+		const next = new Set(collapsedRoots);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		collapsedRoots = next;
+		persistCollapsed(next);
+	}
 
 	function relativeTime(dateStr: string): string {
 		const diff = Date.now() - new Date(dateStr).getTime();
@@ -345,73 +359,125 @@
 		{:else if grouped().length === 0}
 			<p class="p-4 text-xs text-[var(--color-text-muted)]">No conversations yet</p>
 		{:else}
+			{#snippet conversationRow(
+				conv: Conversation,
+				rowOpts: {
+					indent: boolean;
+					chevron: "open" | "closed" | null;
+					unreadBadgeCount: number;
+					onChevronClick?: () => void;
+				},
+			)}
+				{@const isActive = activeConversationId === conv.id}
+				<div class="group relative">
+					{#if renamingId === conv.id}
+						<div class="px-3 py-1.5 {rowOpts.indent ? 'pl-9' : ''}">
+							<input
+								type="text"
+								bind:value={renameValue}
+								onkeydown={(e) => {
+									if (e.key === "Enter") finishRename();
+									if (e.key === "Escape") (renamingId = null);
+								}}
+								onblur={finishRename}
+								class="w-full rounded border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
+							/>
+						</div>
+					{:else}
+						<button
+							onclick={() => onselect(conv.id)}
+							class="flex w-full flex-col px-3 py-2 text-left transition-colors {rowOpts.indent ? 'pl-9' : ''}
+								{isActive ? 'bg-[var(--color-surface-tertiary)]' : 'hover:bg-[var(--color-surface-tertiary)]/70'}"
+						>
+							<span class="flex items-center gap-1.5 truncate text-sm {isActive ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}">
+								{#if rowOpts.indent}
+									<span class="shrink-0 text-[var(--color-text-muted)]" aria-hidden="true">↳</span>
+								{/if}
+								{#if conv.test}
+									<span class="shrink-0 rounded bg-amber-600/80 px-1 py-0.5 text-[9px] font-bold uppercase leading-none text-white">TEST</span>
+								{/if}
+								<span class="truncate"><MentionText text={conv.title} /></span>
+								{#if rowOpts.unreadBadgeCount > 0}
+									<span
+										class="ml-auto shrink-0 rounded-full bg-green-500/20 px-1.5 py-0.5 text-[9px] font-medium leading-none text-green-300"
+										title="{rowOpts.unreadBadgeCount} unread fork{rowOpts.unreadBadgeCount === 1 ? '' : 's'}"
+									>
+										{rowOpts.unreadBadgeCount}
+									</span>
+								{/if}
+							</span>
+							{#if conv.agentConfigId}
+								<span class="block truncate text-xs text-blue-400">Agent conversation</span>
+							{/if}
+							<span class="text-[10px] text-[var(--color-text-muted)]">{relativeTime(conv.updatedAt)}</span>
+						</button>
+						{#if rowOpts.chevron !== null}
+							<button
+								onclick={rowOpts.onChevronClick}
+								class="absolute left-1 top-2.5 flex h-5 w-5 items-center justify-center rounded text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-secondary)]"
+								title={rowOpts.chevron === "open" ? "Collapse forks" : "Expand forks"}
+								aria-label={rowOpts.chevron === "open" ? "Collapse forks" : "Expand forks"}
+							>
+								<svg class="h-3 w-3 transition-transform {rowOpts.chevron === 'open' ? 'rotate-90' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+								</svg>
+							</button>
+						{/if}
+						{#if !isActive && (unreadRev, unreadStore.isUnread(conv.id))}
+							<span class="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-green-500" title="New activity"></span>
+						{/if}
+						<!-- Quick actions on hover -->
+						<div class="absolute right-2 top-1/2 -translate-y-1/2 hidden gap-1 group-hover:flex">
+							<button
+								onclick={() => startRename(conv)}
+								class="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-secondary)]"
+								title="Rename"
+							>
+								<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+										d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+								</svg>
+							</button>
+							<button
+								onclick={() => handleDelete(conv)}
+								class="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-red-400"
+								title="Delete"
+							>
+								<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+										d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+								</svg>
+							</button>
+						</div>
+					{/if}
+				</div>
+			{/snippet}
+
 			{#each grouped() as group}
 				<div class="px-3 pt-3 pb-1">
 					<span class="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
 						{group.label}
 					</span>
 				</div>
-				{#each group.items as conv (conv.id)}
-					{@const isActive = activeConversationId === conv.id}
-					<div class="group relative">
-						{#if renamingId === conv.id}
-							<div class="px-3 py-1.5">
-								<input
-									type="text"
-									bind:value={renameValue}
-									onkeydown={(e) => {
-										if (e.key === "Enter") finishRename();
-										if (e.key === "Escape") (renamingId = null);
-									}}
-									onblur={finishRename}
-									class="w-full rounded border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
-								/>
-							</div>
-						{:else}
-							<button
-								onclick={() => onselect(conv.id)}
-								class="flex w-full flex-col px-3 py-2 text-left transition-colors
-									{isActive ? 'bg-[var(--color-surface-tertiary)]' : 'hover:bg-[var(--color-surface-tertiary)]/70'}"
-							>
-								<span class="flex items-center gap-1.5 truncate text-sm {isActive ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}">
-									{#if conv.test}
-										<span class="shrink-0 rounded bg-amber-600/80 px-1 py-0.5 text-[9px] font-bold uppercase leading-none text-white">TEST</span>
-									{/if}
-									<span class="truncate"><MentionText text={conv.title} /></span>
-								</span>
-								{#if conv.agentConfigId}
-									<span class="block truncate text-xs text-blue-400">Agent conversation</span>
-								{/if}
-								<span class="text-[10px] text-[var(--color-text-muted)]">{relativeTime(conv.updatedAt)}</span>
-							</button>
-							{#if !isActive && (unreadRev, unreadStore.isUnread(conv.id))}
-								<span class="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-green-500" title="New activity"></span>
-							{/if}
-							<!-- Quick actions on hover -->
-							<div class="absolute right-2 top-1/2 -translate-y-1/2 hidden gap-1 group-hover:flex">
-								<button
-									onclick={() => startRename(conv)}
-									class="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-secondary)]"
-									title="Rename"
-								>
-									<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-											d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-									</svg>
-								</button>
-								<button
-									onclick={() => handleDelete(conv)}
-									class="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-red-400"
-									title="Delete"
-								>
-									<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-											d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-									</svg>
-								</button>
-							</div>
-						{/if}
-					</div>
+				{#each group.families as fam (fam.root.id)}
+					{@const hasForks = fam.forks.length > 0}
+					{@const isCollapsed = collapsedRoots.has(fam.root.id)}
+					{@const unreadInForks = (unreadRev, unreadForkCount(fam, (id) => unreadStore.isUnread(id)))}
+					{@render conversationRow(fam.root, {
+						indent: false,
+						chevron: hasForks ? (isCollapsed ? "closed" : "open") : null,
+						unreadBadgeCount: hasForks && isCollapsed ? unreadInForks : 0,
+						onChevronClick: () => toggleCollapse(fam.root.id),
+					})}
+					{#if hasForks && !isCollapsed}
+						{#each fam.forks as fork (fork.id)}
+							{@render conversationRow(fork, {
+								indent: true,
+								chevron: null,
+								unreadBadgeCount: 0,
+							})}
+						{/each}
+					{/if}
 				{/each}
 			{/each}
 			{#if hasMore}

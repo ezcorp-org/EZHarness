@@ -215,6 +215,25 @@ describe("cloneTurnsIntoNewConversation", () => {
     expect(conversation.title).toBe("Forked: Source chat");
   });
 
+  test("links the fork back to its source via forkedFrom* fields", async () => {
+    // Anchor must be the LAST selected message in createdAt order, regardless
+    // of client-supplied ordering. Sidebar groups forks under the source via
+    // forkedFromConversationId; forkedFromMessageId pinpoints the branch point.
+    const { conversation } = await cloneTurnsIntoNewConversation(
+      SOURCE_CONV_ID,
+      ["msg-3", "msg-1", "msg-2a"], // mixed order
+      { userId: USER_ID },
+    );
+
+    expect(conversation.forkedFromConversationId).toBe(SOURCE_CONV_ID);
+    // msg-3 is the most recent of the three selected (per seed createdAt).
+    expect(conversation.forkedFromMessageId).toBe("msg-3");
+    // Forks are NOT sub-conversations — parentConversationId stays null so
+    // they show up in the sidebar's listConversations query.
+    expect(conversation.parentConversationId).toBeNull();
+    expect(conversation.parentMessageId).toBeNull();
+  });
+
   test("honours custom title", async () => {
     const { conversation } = await cloneTurnsIntoNewConversation(
       SOURCE_CONV_ID,

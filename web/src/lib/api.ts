@@ -346,6 +346,10 @@ export interface Conversation {
 	agentConfigId: string | null;
 	modeId: string | null;
 	test: boolean | null;
+	parentConversationId?: string | null;
+	parentMessageId?: string | null;
+	forkedFromConversationId?: string | null;
+	forkedFromMessageId?: string | null;
 	createdAt: string;
 	updatedAt: string;
 }
