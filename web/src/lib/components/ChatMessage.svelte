@@ -286,7 +286,11 @@
 				{/if}
 			</div>
 		{/if}
-		<ProviderIcon provider={message.provider ?? "anthropic"} size="md" />
+		{#if message.provider}
+			<ProviderIcon provider={message.provider} size="md" />
+		{:else}
+			<div class="h-7 w-7 shrink-0" aria-hidden="true"></div>
+		{/if}
 		<div
 			class="min-w-0 flex-1"
 			title={usageTitle}
