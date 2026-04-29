@@ -19,6 +19,13 @@ export default defineConfig({
 		conditions: ["browser"],
 		alias: {
 			$lib: resolve(__dirname, "src/lib"),
+			// `.svelte-kit/runtime/app` only exists after a SvelteKit build —
+			// vitest can't depend on it. Map the `$app/*` subpaths to local
+			// no-op stubs; any test asserting specific behaviour `vi.mock`s
+			// the same path on top.
+			"$app/navigation": resolve(__dirname, "src/__tests__/stubs/app-navigation.ts"),
+			"$app/state": resolve(__dirname, "src/__tests__/stubs/app-state.ts"),
+			"$app/stores": resolve(__dirname, "src/__tests__/stubs/app-stores.ts"),
 			$app: resolve(__dirname, ".svelte-kit/runtime/app"),
 			$server: resolve(__dirname, "../src"),
 		},

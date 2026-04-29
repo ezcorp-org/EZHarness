@@ -10,7 +10,9 @@
 		fuzzyMatch,
 		addRecentCommand,
 		getRecentCommands,
+		tryParseEzPrefix,
 	} from "$lib/command-registry.js";
+	import { openEzPanel } from "$lib/ez/panel-store.svelte.js";
 	import { createFocusTrap } from "$lib/focus-trap.js";
 
 	let {
@@ -206,14 +208,28 @@
 			}
 			return;
 		}
-		if (e.key === "Enter" && highlightedIndex >= 0 && highlightedIndex < total) {
-			e.preventDefault();
-			const item = flatItems[highlightedIndex];
-			if (item) {
-				if (searchMode) {
-					selectSearchResult(item as SearchResult);
-				} else {
-					executeCommand(item as Command);
+		if (e.key === "Enter") {
+			// "ez: <prompt>" prefix shortcut — open the Ez panel with the
+			// remainder pre-typed in the composer. Wins over any matched
+			// command so users can't accidentally trigger a navigation.
+			const prefill = tryParseEzPrefix(query);
+			if (prefill !== null) {
+				e.preventDefault();
+				openEzPanel(prefill);
+				resetState();
+				onclose();
+				return;
+			}
+
+			if (highlightedIndex >= 0 && highlightedIndex < total) {
+				e.preventDefault();
+				const item = flatItems[highlightedIndex];
+				if (item) {
+					if (searchMode) {
+						selectSearchResult(item as SearchResult);
+					} else {
+						executeCommand(item as Command);
+					}
 				}
 			}
 		}

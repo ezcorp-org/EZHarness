@@ -1,15 +1,34 @@
 import { goto } from "$app/navigation";
 import { toggleTheme } from "./theme.js";
+import { openEzPanel } from "./ez/panel-store.svelte.js";
 
 export interface Command {
 	id: string;
 	label: string;
-	group: "Navigate" | "Actions" | "Search";
+	group: "Navigate" | "Actions" | "Search" | "Ez";
 	icon?: string;
 	shortcut?: string;
 	context?: string[];
 	action: () => void;
 	children?: Command[];
+}
+
+/**
+ * Phase 48 Wave 3 — `ez:` query prefix.
+ *
+ * Typing `ez: hello` in the palette is shorthand for "open Ez and
+ * pre-fill the composer with 'hello'". The CommandPalette checks this
+ * regex on every keystroke and intercepts Enter when it matches.
+ */
+export const EZ_PREFIX_REGEX = /^ez:\s*(.*)$/i;
+
+/**
+ * Returns the prefilled prompt if the query is the `ez: ...` shape,
+ * otherwise null. Pure helper so the palette stays declarative.
+ */
+export function tryParseEzPrefix(query: string): string | null {
+	const m = EZ_PREFIX_REGEX.exec(query);
+	return m ? m[1] ?? "" : null;
 }
 
 // --- Command definitions (factory) ---
@@ -141,12 +160,23 @@ export function buildCommands(activeProjectId: string): Command[] {
 		},
 	];
 
+	const ezCommands: Command[] = [
+		{
+			id: "ask-ez",
+			label: "Ask Ez",
+			group: "Ez",
+			shortcut: undefined,
+			action: () => openEzPanel(),
+		},
+	];
+
 	return [
 		...navigation,
 		...chatContext,
 		...extensionContext,
 		...settingsCommands,
 		...searchCommands,
+		...ezCommands,
 	];
 }
 

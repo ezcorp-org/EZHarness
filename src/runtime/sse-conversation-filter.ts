@@ -55,6 +55,10 @@ export const DIRECT_CARRIER_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
   "tool:permission_mode_change",
   "obs:turn",
   "ask-user:answer",
+  // Phase 48 Wave 3: Ez client-side tool delivery. The runtime emits
+  // `ez:client-tool` with a top-level conversationId so it's filtered
+  // per subscriber the same way ask-user:answer is.
+  "ez:client-tool",
   "task:snapshot",
   "task:assignment_update",
 ]);

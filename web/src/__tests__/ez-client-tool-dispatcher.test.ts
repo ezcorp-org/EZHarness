@@ -67,7 +67,7 @@ describe("dispatch — fill_form routing", () => {
     };
     const r = await dispatch(evt, deps);
     expect(r.ok).toBe(true);
-    expect(received).toEqual({ name: "Foo" });
+    expect(received as Record<string, unknown> | null).toEqual({ name: "Foo" });
   });
 
   test("returns 'no-handler' error when no handler is registered for the formId", async () => {

@@ -37,6 +37,12 @@ const BUS_EVENTS = [
   "agent:spawn", "agent:status", "agent:complete",
   "task:snapshot", "task:assignment_update",
   "ask-user:answer",
+  // Ez concierge client-side tool delivery (Phase 48 Wave 3). The
+  // runtime emits this when the LLM calls fill_form / navigate_to;
+  // EzPanel intercepts the event and dispatches the resolution to
+  // the page-registered handler / SvelteKit goto. Filtered per
+  // subscriber by conversationId via shouldDeliverEvent.
+  "ez:client-tool",
   "ext:state",
 ] as const;
 

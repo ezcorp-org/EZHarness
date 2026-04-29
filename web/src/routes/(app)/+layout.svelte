@@ -19,6 +19,8 @@
 	import SwipeDrawer from "$lib/components/SwipeDrawer.svelte";
 	import TeamChatPanel from "$lib/components/TeamChatPanel.svelte";
 	import DockHost from "$lib/components/tool-cards/DockHost.svelte";
+	import EzButton from "$lib/components/ez/EzButton.svelte";
+	import EzPanel from "$lib/components/ez/EzPanel.svelte";
 
 	let { children } = $props();
 	let commandPaletteOpen = $state(false);
@@ -377,6 +379,15 @@
 <ToastContainer />
 <ImageLightbox />
 <DockHost />
+
+<!--
+	Phase 48 Wave 3 — Ez floating button + slide-in panel. Mounted at the
+	(app) layout so they appear on every authenticated route. The button
+	auto-hides while the panel is open (visibility state lives in
+	`$lib/ez/panel-store.svelte.ts`).
+-->
+<EzButton />
+<EzPanel />
 
 <!-- Mobile overlay drawer -->
 <SwipeDrawer

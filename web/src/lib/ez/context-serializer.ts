@@ -97,11 +97,12 @@ export function estimateTokens(value: unknown): number {
 }
 
 function isDev(): boolean {
-  // jsdom + Vite both define globalThis.import.meta.env.DEV at build
-  // time, but tests don't always run under Vite. Fall back to NODE_ENV.
+  // Vite defines `import.meta.env.DEV` at build time, but bun tests
+  // run plain ESM where the meta is unset. Probe both signals; the
+  // first that yields a truthy answer wins.
   try {
-    // @ts-expect-error import.meta is fine in ESM
-    if (typeof import.meta !== "undefined" && import.meta?.env?.DEV) return true;
+    const meta = (import.meta as unknown as { env?: { DEV?: boolean } });
+    if (meta?.env?.DEV) return true;
   } catch { /* ignore */ }
   if (typeof process !== "undefined") {
     const env = process.env?.NODE_ENV;
