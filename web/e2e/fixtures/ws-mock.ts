@@ -64,9 +64,15 @@ export async function setupWsMock(page: Page) {
 		(window as any).WebSocket.CLOSED = 3;
 
 		// ── EventSource stub (SSE runtime-events) ──────────────────
+		// We expose two handles per instance:
+		//   - `listeners`: explicit `addEventListener` registrations
+		//   - `instance`:  the FakeEventSource itself, so tests can
+		//     emit a frame even when the consumer used `es.onmessage = …`
+		//     (the Ez panel does this rather than addEventListener).
 		const esInstances: Array<{
 			url: string;
 			listeners: Record<string, Array<(e: MessageEvent) => void>>;
+			instance: any;
 		}> = [];
 
 		class FakeEventSource {
@@ -85,7 +91,7 @@ export async function setupWsMock(page: Page) {
 			};
 			constructor(url: string) {
 				this.url = url;
-				esInstances.push({ url, listeners: this.listeners });
+				esInstances.push({ url, listeners: this.listeners, instance: this });
 				// Fire open on next tick so the client's `onopen` handler can
 				// register before the event lands. This drives the connection
 				// store to `"connected"` and enables the textarea.
@@ -111,6 +117,36 @@ export async function setupWsMock(page: Page) {
 		(window as any).EventSource = FakeEventSource;
 		(window as any).__fakeEventSources = esInstances;
 	});
+}
+
+/**
+ * Emit a Server-Sent Event into the page's fake EventSource(s).
+ *
+ * `urlMatch` lets specs target a specific stream (e.g. only the Ez
+ * panel's `/api/runtime-events?conversationId=ez-conv-1`). When omitted
+ * the most-recently-constructed EventSource is used — convenient for
+ * specs that only have one stream open.
+ */
+export async function emitSseEvent(
+	page: Page,
+	event: { type: string; data: unknown },
+	urlMatch?: string,
+) {
+	await page.evaluate(({ event, urlMatch }) => {
+		const all = (window as any).__fakeEventSources as Array<{
+			url: string;
+			listeners: Record<string, Array<(e: MessageEvent) => void>>;
+			instance: any;
+		}>;
+		if (!Array.isArray(all) || all.length === 0) return;
+		const target = urlMatch ? all.find((es) => es.url.includes(urlMatch)) : all[all.length - 1];
+		if (!target) return;
+		const messageEvent = new MessageEvent("message", { data: JSON.stringify(event) });
+		// Fire both wiring shapes — `addEventListener('message')` and
+		// `es.onmessage = fn`. The Ez panel uses the latter.
+		for (const fn of target.listeners.message ?? []) fn(messageEvent);
+		target.instance?.onmessage?.(messageEvent);
+	}, { event, urlMatch });
 }
 
 /**

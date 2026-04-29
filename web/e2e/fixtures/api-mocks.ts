@@ -82,6 +82,19 @@ export interface MockOverrides {
 		messageId?: string | null;
 		cardType?: string | null;
 	}>>;
+	/**
+	 * Phase 48 — fixtures for the Ez panel API.
+	 * `ezConversation`: the find-or-create response for `GET /api/ez/conversation`.
+	 * `ezDrafts`: keyed by draft id; serves `GET /api/ez/drafts/<id>` and
+	 *   the consume sub-route. Marks `consumed: true` when consumed but
+	 *   keeps the row available so the spec can assert subsequent reads.
+	 * `ezMessages`: messages returned by `GET /api/conversations/<ezConv>/messages`.
+	 *   Lets specs seed propose-result tool messages so the panel renders
+	 *   the EzToolResultCard immediately.
+	 */
+	ezConversation?: { conversationId: string; modeId?: string; title?: string | null };
+	ezDrafts?: Record<string, { kind: string; payload: Record<string, unknown>; expiresAtMs?: number; consumed?: boolean }>;
+	ezMessages?: ReturnType<typeof makeMessage>[];
 }
 
 const DEFAULT_PROJECT = makeProject({ id: "proj-1", name: "My Project" });
@@ -114,6 +127,16 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 	const routes = overrides.routes ?? {};
 	const messageToolCalls: Record<string, Array<any>> = { ...(overrides.messageToolCalls ?? {}) };
 
+	// Phase 48 — Ez panel state. Mutable so the consume route can flip
+	// `consumed` and a subsequent GET reflects it.
+	const ezConversation = overrides.ezConversation ?? { conversationId: "ez-conv-1", modeId: "mode-ez", title: null };
+	const ezDrafts: Record<string, { kind: string; payload: Record<string, unknown>; expiresAtMs?: number; consumed: boolean }> = {};
+	for (const [id, d] of Object.entries(overrides.ezDrafts ?? {})) {
+		ezDrafts[id] = { kind: d.kind, payload: d.payload, expiresAtMs: d.expiresAtMs, consumed: !!d.consumed };
+	}
+	const ezConvId = ezConversation.conversationId;
+	const ezMessages = (overrides.ezMessages ?? []).map((m) => ({ ...m, conversationId: ezConvId }));
+
 	await page.route("**/api/**", (route) => {
 		const url = new URL(route.request().url());
 		const path = url.pathname;
@@ -124,6 +147,76 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			if (path.includes(pattern)) {
 				return route.fulfill({ json: handler(url) });
 			}
+		}
+
+		// Phase 48 — Ez API. Lives near the top so per-spec tests get
+		// deterministic responses without falling through to "default empty".
+		if (path === "/api/ez/conversation" && (method === "GET" || method === "POST")) {
+			return route.fulfill({
+				json: {
+					conversationId: ezConversation.conversationId,
+					kind: "ez",
+					modeId: ezConversation.modeId ?? "mode-ez",
+					title: ezConversation.title ?? null,
+					createdAt: "2026-04-01T00:00:00.000Z",
+					updatedAt: "2026-04-01T00:00:00.000Z",
+				},
+			});
+		}
+		const draftMatch = path.match(/^\/api\/ez\/drafts\/([^/]+)(?:\/(consume))?$/);
+		if (draftMatch) {
+			const id = decodeURIComponent(draftMatch[1]!);
+			const isConsumeSub = !!draftMatch[2];
+			const draft = ezDrafts[id];
+			if (!draft) {
+				return route.fulfill({ status: 404, json: { error: "Draft not found" } });
+			}
+			const expiresAt = new Date(draft.expiresAtMs ?? Date.now() + 24 * 60 * 60 * 1000).toISOString();
+			const consumedAt = draft.consumed ? new Date().toISOString() : null;
+			const body = {
+				id,
+				kind: draft.kind,
+				payload: draft.payload,
+				createdAt: "2026-04-01T00:00:00.000Z",
+				expiresAt,
+				consumedAt,
+				consumed: !!draft.consumed,
+			};
+			if (method === "GET") return route.fulfill({ json: body });
+			if (method === "POST") {
+				if (isConsumeSub) {
+					draft.consumed = true;
+					return route.fulfill({ json: { ...body, consumed: true, consumedAt: new Date().toISOString() } });
+				}
+				draft.consumed = true;
+				return route.fulfill({ json: { ...body, consumed: true, consumedAt: new Date().toISOString() } });
+			}
+		}
+		// Mode-lock guard: PUT /api/conversations/<ezConvId> attempting to
+		// change `modeId` returns 403, mirroring the real route's behavior
+		// (`api-conversations-ez-lock.server.test.ts`). Order matters — the
+		// generic conversation-PUT handler below would otherwise let it
+		// through with a fake JSON.
+		if (
+			method === "PUT" &&
+			path === `/api/conversations/${ezConvId}` &&
+			route.request().postDataJSON()?.modeId !== undefined
+		) {
+			return route.fulfill({
+				status: 403,
+				json: { error: "Cannot change the mode on the Ez conversation" },
+			});
+		}
+		// Messages list for the Ez conversation — must precede the generic
+		// /messages handler so seeded ezMessages are returned even when the
+		// caller didn't pass them via `overrides.messages`.
+		if (
+			method === "GET" &&
+			path === `/api/conversations/${ezConvId}/messages` &&
+			ezMessages.length > 0 &&
+			!url.searchParams.get("withToolCalls")
+		) {
+			return route.fulfill({ json: ezMessages });
 		}
 
 		// Projects
@@ -250,18 +343,22 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			const source = conversations.find((c) => c.id === sourceConvId);
 			const srcTitle = source?.title ?? "Source";
 			const newConvId = "cloned-conv";
+			// Mirror the real backend: anchor = last selected message in createdAt order.
+			const orderedSelected = messages
+				.filter((m) => m.conversationId === sourceConvId && body.messageIds.includes(m.id))
+				.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 			const newConv = makeConversation({
 				id: newConvId,
 				projectId: source?.projectId ?? "proj-1",
 				title: body.title ?? `Forked: ${srcTitle}`,
+				forkedFromConversationId: sourceConvId,
+				forkedFromMessageId: orderedSelected[orderedSelected.length - 1]?.id ?? null,
 			});
 			conversations.push(newConv);
 
 			// Copy each selected message with a fresh id, preserving order via
 			// the original createdAt. Rebuild the parent chain linearly.
-			const selected = messages
-				.filter((m) => m.conversationId === sourceConvId && body.messageIds.includes(m.id))
-				.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+			const selected = orderedSelected;
 			let prevId: string | null = null;
 			for (let i = 0; i < selected.length; i++) {
 				const src = selected[i]!;
