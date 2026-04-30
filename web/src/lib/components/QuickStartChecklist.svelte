@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { store } from "$lib/stores.svelte.js";
-	import { hasProviderInSettings } from "$lib/has-provider.js";
 
 	const QUICKSTART_KEY = "pi-quickstart";
 
@@ -22,12 +21,12 @@
 	// Server-side completion state (fetched on mount)
 	let apiSteps = $state<{ provider: boolean; chat: boolean; extension: boolean; agent: boolean } | null>(null);
 
-	// Live store fallback: provider updates immediately when user adds one in current session
-	let hasProviderFromStore = $derived(hasProviderInSettings(store.settings));
+	// Provider creds aren't in `store.settings` (deny-listed), so that
+	// signal must come from `/api/quickstart`; agents do live in the
+	// store, so we can fall back to a live derived signal there.
 	let hasAgentsFromStore = $derived(store.agentConfigs.length > 0);
 
-	// Merged completion: API data OR live store (whichever is true)
-	let hasProvider = $derived((apiSteps?.provider ?? false) || hasProviderFromStore);
+	let hasProvider = $derived(apiSteps?.provider ?? false);
 	let hasConversations = $derived(apiSteps?.chat ?? false);
 	let hasExtensions = $derived(apiSteps?.extension ?? false);
 	let hasAgents = $derived((apiSteps?.agent ?? false) || hasAgentsFromStore);

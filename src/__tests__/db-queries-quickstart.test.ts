@@ -15,14 +15,14 @@ describe("quickstart queries", () => {
     expect(await hasAnyProvider()).toBe(false);
   });
 
-  test("hasAnyProvider — settings exist but none provider:%:apiKey → false", async () => {
+  test("hasAnyProvider — settings exist but none provider:apiKey:% → false", async () => {
     await upsertSetting("provider:defaultTier", "balanced");
     await upsertSetting("provider:preferenceOrder", ["anthropic"]);
     expect(await hasAnyProvider()).toBe(false);
   });
 
-  test("hasAnyProvider — provider:<name>:apiKey present → true", async () => {
-    await upsertSetting("provider:anthropic:apiKey", "sk-test");
+  test("hasAnyProvider — provider:apiKey:<name> present → true", async () => {
+    await upsertSetting("provider:apiKey:anthropic", "sk-test");
     expect(await hasAnyProvider()).toBe(true);
   });
 
@@ -49,7 +49,7 @@ describe("quickstart queries", () => {
     expect((await getQuickstartSteps(u.id)).provider).toBe(false);
     expect(await hasAnyProvider()).toBe(false);
 
-    await upsertSetting("provider:anthropic:apiKey", "sk-x");
+    await upsertSetting("provider:apiKey:anthropic", "sk-x");
 
     const steps = await getQuickstartSteps(u.id);
     expect(steps.provider).toBe(true);

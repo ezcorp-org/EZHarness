@@ -13,7 +13,7 @@ export async function hasAnyProvider(): Promise<boolean> {
   const rows = await getDb()
     .select({ v: sql`1` })
     .from(settings)
-    .where(or(like(settings.key, "provider:%:apiKey"), like(settings.key, "provider:oauth:%")))
+    .where(or(like(settings.key, "provider:apiKey:%"), like(settings.key, "provider:oauth:%")))
     .limit(1);
   return rows.length > 0;
 }
@@ -24,7 +24,7 @@ export async function getQuickstartSteps(userId: string): Promise<QuickstartStep
     db
       .select({ v: sql`1` })
       .from(settings)
-      .where(or(like(settings.key, "provider:%:apiKey"), like(settings.key, "provider:oauth:%")))
+      .where(or(like(settings.key, "provider:apiKey:%"), like(settings.key, "provider:oauth:%")))
       .limit(1),
     db
       .select({ v: sql`1` })

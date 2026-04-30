@@ -38,7 +38,7 @@ describe("onboarding skip flow — markUserOnboarded + hasAnyProvider integratio
 
   test("user finishes happy-path → onboardedAt set, hasAnyProvider true", async () => {
     const u = await createUser({ email: "finisher@test.com", passwordHash: "h", name: "Finisher" });
-    await upsertSetting("provider:anthropic:apiKey", "sk-test");
+    await upsertSetting("provider:apiKey:anthropic", "sk-test");
     await markUserOnboarded(u.id);
 
     const after = (await getUserById(u.id))!;

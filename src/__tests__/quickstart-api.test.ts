@@ -81,7 +81,7 @@ describe("GET /api/quickstart", () => {
   test("provider step true when API key exists", async () => {
     const db = getDb();
     await db.insert(settings).values({
-      key: "provider:openai:apiKey",
+      key: "provider:apiKey:openai",
       value: "sk-test",
     });
 

@@ -1,16 +1,29 @@
 <script lang="ts">
-	import { store } from "$lib/stores.svelte.js";
-	import { hasProviderInSettings } from "$lib/has-provider.js";
+	import { onMount } from "svelte";
 
-	// Reactive on the layout-populated `store.settings` so connecting a
-	// provider in another tab (or on the Settings page) clears the
-	// banner without a reload. Mirrors the predicate used by
-	// QuickStartChecklist; the server's `hasAnyProvider()` SQL helper
-	// uses the same key conventions.
-	const hasProvider = $derived(hasProviderInSettings(store.settings));
+	// `/api/settings` deny-lists `provider:apiKey:*` and `provider:oauth:*`,
+	// so `store.settings` never carries provider creds — we have to ask the
+	// server. `/api/quickstart` returns a flat boolean per onboarding step
+	// and is gated only by `requireAuth`, so it works for non-admin users.
+	// `null` while loading so we don't flash the warning before the answer.
+	let hasProvider = $state<boolean | null>(null);
+
+	onMount(async () => {
+		try {
+			const res = await fetch("/api/quickstart");
+			if (!res.ok) {
+				hasProvider = false;
+				return;
+			}
+			const data = (await res.json()) as { steps?: { provider?: boolean } };
+			hasProvider = data.steps?.provider === true;
+		} catch {
+			hasProvider = false;
+		}
+	});
 </script>
 
-{#if !hasProvider}
+{#if hasProvider === false}
 	<div
 		class="mx-4 mt-4 rounded-md border border-amber-700 bg-amber-900/20 p-4 text-sm"
 		role="status"

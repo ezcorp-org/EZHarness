@@ -20,6 +20,11 @@ mock.module("$lib/server/security/api-keys", () => ({
 
 mock.module("$lib/server/context", () => ({
 	getExecutor: () => ({ listAgents: () => [] }),
+	// File-search route doesn't exercise commands, but the route's static
+	// import of `getCommandRegistry` from `$lib/server/context` still has
+	// to resolve — return an empty registry shape to keep the mock surface
+	// matched.
+	getCommandRegistry: () => ({ listCommands: () => [] }),
 }));
 
 mock.module("$server/db/connection", () => ({
