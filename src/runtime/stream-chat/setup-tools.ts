@@ -353,6 +353,23 @@ export async function setupTools(
                 { conversationId },
               );
             } else {
+              // Phase 48 defense-in-depth: extract the conversation id
+              // the user is currently viewing from the page-context
+              // payload so summarize_conversation can fall back to it
+              // when the LLM fails to lift the id from
+              // JSON-in-system-prompt. The serializer at
+              // `web/src/lib/ez/context-serializer.ts` already populates
+              // `route.conversationId` from the URL params (`convId`
+              // first, then `conversationId`); we read defensively in
+              // case a future serializer change moves the field — the
+              // tool simply degrades to "conversationId is required"
+              // when the extraction yields nothing.
+              const ezRoute = (options.ezContext as { route?: { conversationId?: unknown } } | null | undefined)?.route;
+              const defaultConversationId =
+                typeof ezRoute?.conversationId === "string" && ezRoute.conversationId.length > 0
+                  ? ezRoute.conversationId
+                  : undefined;
+
               wireEzToolsForTurn({
                 agentTools: ctx.agentTools,
                 builtinToolDefsMap: ctx.builtinToolDefsMap,
@@ -370,6 +387,7 @@ export async function setupTools(
                 // used a few blocks above for ai-kit sibling chats.
                 provider: options.provider ?? convRecord.provider,
                 model: options.model ?? convRecord.model,
+                defaultConversationId,
               });
             }
           } catch (ezWireErr) {

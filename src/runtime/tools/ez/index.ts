@@ -71,6 +71,15 @@ export interface EzToolFactoryContext {
    *  and breaks when the user picked OpenAI). */
   provider?: string | null;
   model?: string | null;
+  /** Phase 48 defense-in-depth: default conversation id for the
+   *  `summarize_conversation` tool. Wired from the page-context block's
+   *  `route.conversationId` so the LLM's "summarize this" turn works
+   *  even when it fails to extract the id from JSON-in-system-prompt.
+   *  Distinct from `conversationId` (which is the Ez-mode chat id used
+   *  for client-tool event routing) — `defaultConversationId` is the
+   *  conversation the user is currently *viewing*, which may or may
+   *  not be the same as the Ez conversation they're chatting in. */
+  defaultConversationId?: string;
 }
 
 /**
@@ -86,7 +95,12 @@ export function getEzToolDefs(ctx: EzToolFactoryContext): BuiltinToolDef[] {
     createProposeCreateProjectTool(userCtx),
     createProposeCreateAgentTool(userCtx),
     createProposeInstallExtensionTool(userCtx),
-    createSummarizeConversationTool({ summarize: ctx.summarize, provider: ctx.provider, model: ctx.model }),
+    createSummarizeConversationTool({
+      summarize: ctx.summarize,
+      provider: ctx.provider,
+      model: ctx.model,
+      defaultConversationId: ctx.defaultConversationId,
+    }),
     createFindAgentsTool(userCtx),
     createFillFormTool(clientCtx),
     createNavigateToTool(clientCtx),

@@ -48,7 +48,8 @@
  * `setupTools` reaches via dynamic import is mocked to a deterministic
  * stub at module scope before the function under test is loaded.
  */
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
+import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 // ── Module mocks (must be installed before importing setup-tools) ──────
 
@@ -213,6 +214,14 @@ describe("setupTools — Ez page_context vs memory-injection race", () => {
   beforeEach(() => {
     ezWireCalls.length = 0;
   });
+
+  // Bun's `mock.module()` is process-global and persists across test
+  // files. This file installs ~16 stubs (DB queries, providers, runtime
+  // hosts), every one of which would leak into subsequent test files in
+  // the suite without a restore. ez-clear-leaks-context.test.ts hits
+  // `getConversationExtensionIds` directly and goes red when our
+  // no-op stub leaks; restoring snapshots in afterAll closes that gap.
+  afterAll(() => restoreModuleMocks());
 
   test("memory injection + Ez ezContext both land — page_context survives the race", async () => {
     const ctx = makeCtx();

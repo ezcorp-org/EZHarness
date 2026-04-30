@@ -254,4 +254,83 @@ describe("summarize_conversation", () => {
     expect(resolveModelCalls[1]![1]).toBeUndefined();
     expectText(result, "STUBBED:");
   });
+
+  // ── Phase 48 defense-in-depth: server-side conversationId default ─────
+  // The LLM sometimes fails to extract `conversationId` from the
+  // JSON-in-system-prompt page_context block. The runtime now wires a
+  // `defaultConversationId` (pulled from `ezContext.route.conversationId`)
+  // into the summarize tool factory; the tool prefers an explicit
+  // params.conversationId when present, falls back to the default
+  // otherwise, and only errors when BOTH are missing.
+
+  test("defaults to ctx.defaultConversationId when params.conversationId is omitted", async () => {
+    const calls: Array<{ system: string; transcript: string }> = [];
+    const tool = createSummarizeConversationTool({
+      defaultConversationId: conversationId,
+      summarize: async (system, transcript) => {
+        calls.push({ system, transcript });
+        return "DEFAULTED";
+      },
+    });
+    // No conversationId in params — the runtime default kicks in.
+    const result = await tool.execute("s-d1", {});
+    expectText(result, "DEFAULTED");
+    const details = expectDetails<SummaryDetails>(result);
+    expect(details.isError).toBeUndefined();
+    expect(details.conversationId).toBe(conversationId);
+    expect(details.messageCount).toBe(3);
+    expect(calls.length).toBe(1);
+  });
+
+  test("defaults to ctx.defaultConversationId when params.conversationId is empty/whitespace", async () => {
+    const tool = createSummarizeConversationTool({
+      defaultConversationId: conversationId,
+      summarize: async () => "DEFAULTED",
+    });
+    const result = await tool.execute("s-d2", { conversationId: "   " });
+    expectText(result, "DEFAULTED");
+    expect(expectDetails<SummaryDetails>(result).conversationId).toBe(conversationId);
+  });
+
+  test("explicit params.conversationId WINS over ctx.defaultConversationId", async () => {
+    // Two convs exist (the suite's main convId and the empty one). The
+    // user passes the empty conv explicitly — that must be summarized,
+    // even though the default points to the populated one.
+    const tool = createSummarizeConversationTool({
+      defaultConversationId: conversationId, // populated conv (3 msgs)
+      summarize: async () => "should-not-be-called",
+    });
+    const result = await tool.execute("s-d3", { conversationId: emptyConvId });
+    // Empty-conv path returns the empty-state message and SKIPS the
+    // summarizer — proves the explicit id was honored.
+    expectText(result, "empty conversation");
+    expect(expectDetails<SummaryDetails>(result).messageCount).toBe(0);
+  });
+
+  test("error when BOTH params.conversationId AND ctx.defaultConversationId are missing", async () => {
+    const tool = createSummarizeConversationTool({
+      // No defaultConversationId — simulates the user being on a
+      // non-chat page (no current conversation to default to).
+      summarize: async () => "should-not-be-called",
+    });
+    const result = await tool.execute("s-d4", {});
+    expect(expectDetails<SummaryDetails>(result).isError).toBe(true);
+    expectText(result, "conversationId");
+  });
+
+  test("error when params is empty AND ctx.defaultConversationId is empty string", async () => {
+    const tool = createSummarizeConversationTool({
+      defaultConversationId: "   ",
+      summarize: async () => "should-not-be-called",
+    });
+    const result = await tool.execute("s-d5", { conversationId: "" });
+    expect(expectDetails<SummaryDetails>(result).isError).toBe(true);
+    expectText(result, "conversationId");
+  });
+
+  test("conversationId is no longer in the parameters' `required` array", () => {
+    const tool = createSummarizeConversationTool({});
+    const params = tool.parameters as { required?: string[] };
+    expect(params.required ?? []).not.toContain("conversationId");
+  });
 });
