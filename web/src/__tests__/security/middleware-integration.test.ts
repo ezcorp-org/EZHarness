@@ -202,6 +202,9 @@ describe("middleware: Bearer token extraction", () => {
     // `null`, which would collapse the `!== null` guard to `never`.
     const header = null as string | null;
     const isBearer = header?.startsWith("Bearer ");
-    expect(isBearer).toBe(false);
+    // Optional chaining on `null` short-circuits to `undefined`, not `false` —
+    // assert falsy rather than the strict `false` literal so the guard
+    // semantics (treat anything non-truthy as "no Bearer prefix") match.
+    expect(isBearer).toBeFalsy();
   });
 });
