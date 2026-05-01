@@ -456,6 +456,13 @@ export async function setupTools(
           const { getMode } = await import("../../db/queries/modes");
           const mode = await getMode(options.modeId);
           const modeExtIds = mode?.extensionIds ?? [];
+          log.info("mode-extensions wire", {
+            subsystem: "setup-tools.modeExtWire",
+            modeId: options.modeId,
+            modeFound: !!mode,
+            modeExtIds,
+            modeExtIdCount: modeExtIds.length,
+          });
           if (modeExtIds.length > 0) {
             const registry = ExtensionRegistry.getInstance();
             const toolExec = new ToolExecutor(registry, { bus: host.bus });
@@ -468,7 +475,14 @@ export async function setupTools(
             toolExec.setCurrentProvider(options.provider ?? convRecord?.provider);
             toolExec.setCurrentAgentConfigId(options.agentConfigId ?? convRecord?.agentConfigId);
             for (const extId of modeExtIds) {
-              for (const t of registry.getToolsForExtension(extId)) {
+              const extTools = registry.getToolsForExtension(extId);
+              log.info("mode-extensions resolveExt", {
+                subsystem: "setup-tools.modeExtWire",
+                extId,
+                toolCount: extTools.length,
+                toolNames: extTools.map(t => t.name),
+              });
+              for (const t of extTools) {
                 if (!ctx.agentTools.some(at => at.name === t.name)) {
                   ctx.agentTools.push(extensionToAgentTool(
                     { name: t.name, description: t.description, inputSchema: t.inputSchema },
@@ -477,8 +491,18 @@ export async function setupTools(
                 }
               }
             }
+            log.info("mode-extensions wired", {
+              subsystem: "setup-tools.modeExtWire",
+              finalAgentToolCount: ctx.agentTools.length,
+              finalAgentToolNames: ctx.agentTools.map(t => t.name),
+            });
           }
-        } catch { /* Mode-extension wiring failure is non-fatal */ }
+        } catch (err) {
+          log.warn("mode-extensions wire failed", {
+            subsystem: "setup-tools.modeExtWire",
+            error: String(err),
+          });
+        }
       }
 
       // 2d. Multi-agent orchestration: resolve mentions, auto-wire references, inject tools
