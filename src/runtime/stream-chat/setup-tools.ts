@@ -438,45 +438,48 @@ export async function setupTools(
             }
           }
         }
+      } catch { /* Dynamic tool wiring failure is non-fatal */ }
 
-        // 2c-mode. Mode-attached extensions: wire any extensions declared
-        // by the active mode (mode.extensionIds) the same way as
-        // mention-wired extensions above. Without this, the extensionIds
-        // → allowlist filter at executor.ts (mode-restriction block)
-        // intersects against tools that were never injected, leaving the
-        // LLM with only orchestration tools. Treat the wire as additive:
-        // dedupe by tool name against tools already added by 2b
-        // (agent-config) or 2c (mentions / auto-wired hosts).
-        if (options.modeId) {
-          try {
-            const { getMode } = await import("../../db/queries/modes");
-            const mode = await getMode(options.modeId);
-            const modeExtIds = mode?.extensionIds ?? [];
-            if (modeExtIds.length > 0) {
-              const registry = ExtensionRegistry.getInstance();
-              const toolExec = new ToolExecutor(registry, { bus: host.bus });
-              if (host.stateMediator) toolExec.setStateMediator(host.stateMediator);
-              toolExec.setExecutor(host.executor);
-              toolExec.setSpawnQuota(host.spawnQuota);
-              if (attachmentArgsResolver) toolExec.setArgsResolver(attachmentArgsResolver);
-              if (convRecord?.userId) toolExec.setCurrentUserId(convRecord.userId);
-              toolExec.setCurrentModel(options.model ?? convRecord?.model);
-              toolExec.setCurrentProvider(options.provider ?? convRecord?.provider);
-              toolExec.setCurrentAgentConfigId(options.agentConfigId ?? convRecord?.agentConfigId);
-              for (const extId of modeExtIds) {
-                for (const t of registry.getToolsForExtension(extId)) {
-                  if (!ctx.agentTools.some(at => at.name === t.name)) {
-                    ctx.agentTools.push(extensionToAgentTool(
-                      { name: t.name, description: t.description, inputSchema: t.inputSchema },
-                      toolExec, conversationId, run.id,
-                    ));
-                  }
+      // 2c-mode. Mode-attached extensions: wire any extensions declared
+      // by the active mode (mode.extensionIds) the same way as
+      // mention-wired extensions above. Without this, the extensionIds
+      // → allowlist filter at executor.ts (mode-restriction block)
+      // intersects against tools that were never injected, leaving the
+      // LLM with only orchestration tools. Lives OUTSIDE the 2c outer
+      // try so an earlier wire failure (ask-user / ez / mention-wiring)
+      // doesn't skip the mode wire — those steps share a non-fatal
+      // catch but their failure shouldn't strip the user's mode tools.
+      // Additive: dedupe by tool name against tools already added by 2b
+      // (agent-config) or 2c (mentions / auto-wired hosts).
+      if (options.modeId) {
+        try {
+          const { getMode } = await import("../../db/queries/modes");
+          const mode = await getMode(options.modeId);
+          const modeExtIds = mode?.extensionIds ?? [];
+          if (modeExtIds.length > 0) {
+            const registry = ExtensionRegistry.getInstance();
+            const toolExec = new ToolExecutor(registry, { bus: host.bus });
+            if (host.stateMediator) toolExec.setStateMediator(host.stateMediator);
+            toolExec.setExecutor(host.executor);
+            toolExec.setSpawnQuota(host.spawnQuota);
+            if (attachmentArgsResolver) toolExec.setArgsResolver(attachmentArgsResolver);
+            if (convRecord?.userId) toolExec.setCurrentUserId(convRecord.userId);
+            toolExec.setCurrentModel(options.model ?? convRecord?.model);
+            toolExec.setCurrentProvider(options.provider ?? convRecord?.provider);
+            toolExec.setCurrentAgentConfigId(options.agentConfigId ?? convRecord?.agentConfigId);
+            for (const extId of modeExtIds) {
+              for (const t of registry.getToolsForExtension(extId)) {
+                if (!ctx.agentTools.some(at => at.name === t.name)) {
+                  ctx.agentTools.push(extensionToAgentTool(
+                    { name: t.name, description: t.description, inputSchema: t.inputSchema },
+                    toolExec, conversationId, run.id,
+                  ));
                 }
               }
             }
-          } catch { /* Mode-extension wiring failure is non-fatal */ }
-        }
-      } catch { /* Dynamic tool wiring failure is non-fatal */ }
+          }
+        } catch { /* Mode-extension wiring failure is non-fatal */ }
+      }
 
       // 2d. Multi-agent orchestration: resolve mentions, auto-wire references, inject tools
       // NOTE: system prompt injection is deferred until after Promise.all to avoid race with memory injection
