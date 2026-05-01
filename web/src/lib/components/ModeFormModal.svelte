@@ -1,14 +1,20 @@
 <script lang="ts">
 	import { createMode, updateMode as apiUpdateMode, type Mode } from "$lib/api";
+	import Tooltip from "$lib/components/Tooltip.svelte";
+	import InfoTooltip from "$lib/components/InfoTooltip.svelte";
+	import ExtensionSearchPicker from "$lib/components/ExtensionSearchPicker.svelte";
+	import { onMount } from "svelte";
 
 	let {
 		open = false,
 		editMode = null,
+		viewMode = false,
 		onsaved,
 		onclose,
 	}: {
 		open: boolean;
 		editMode?: Mode | null;
+		viewMode?: boolean;
 		onsaved: (mode: Mode) => void;
 		onclose: () => void;
 	} = $props();
@@ -20,40 +26,66 @@
 		description: "",
 		systemPromptInstruction: "",
 		instructionPosition: "prepend" as "prepend" | "append" | "replace",
-		toolRestriction: "all" as "all" | "read-only" | "none",
+		extensionIds: [] as string[],
+	});
+
+	// Lookup table for resolving extension IDs → human names in read-only mode.
+	// The picker fetches its own copy when interactive; we mirror it here so
+	// the view-mode chip strip can show names without depending on the picker.
+	let extensionNames = $state<Record<string, string>>({});
+	onMount(async () => {
+		try {
+			const res = await fetch("/api/extensions");
+			if (!res.ok) return;
+			const data = await res.json();
+			const list: unknown[] = Array.isArray(data) ? data : Array.isArray(data?.extensions) ? data.extensions : [];
+			const map: Record<string, string> = {};
+			for (const e of list as Array<{ id: string; name?: string }>) {
+				map[e.id] = e.name ?? e.id;
+			}
+			extensionNames = map;
+		} catch { /* non-fatal */ }
 	});
 	let saving = $state(false);
 	let error = $state<string | null>(null);
+	let isEditing = $state(true);
 
-	let isEdit = $derived(editMode !== null && editMode !== undefined);
-	let title = $derived(isEdit ? "Edit Mode" : "Create Mode");
-	let submitLabel = $derived(isEdit ? "Save Changes" : "Create Mode");
+	let isExisting = $derived(editMode !== null && editMode !== undefined);
+	let isBuiltin = $derived(Boolean(editMode?.builtin));
+	let readonly = $derived(isExisting && !isEditing);
+	let title = $derived(
+		isExisting ? (isEditing ? "Edit Mode" : "View Mode") : "Create Mode",
+	);
+	let submitLabel = $derived(isExisting ? "Save Changes" : "Create Mode");
 
-	// Populate form when editMode changes
+	// Populate form and reset edit/view state when modal opens or target changes
 	$effect(() => {
-		if (editMode && open) {
-			form = {
-				name: editMode.name,
-				slug: editMode.slug,
-				icon: editMode.icon ?? "",
-				description: editMode.description,
-				systemPromptInstruction: editMode.systemPromptInstruction,
-				instructionPosition: editMode.instructionPosition,
-				toolRestriction: editMode.toolRestriction,
-			};
-		} else if (!editMode && open) {
-			form = { name: "", slug: "", icon: "", description: "", systemPromptInstruction: "", instructionPosition: "prepend", toolRestriction: "all" };
+		if (open) {
+			isEditing = !viewMode || !editMode;
+			if (editMode) {
+				form = {
+					name: editMode.name,
+					slug: editMode.slug,
+					icon: editMode.icon ?? "",
+					description: editMode.description,
+					systemPromptInstruction: editMode.systemPromptInstruction,
+					instructionPosition: editMode.instructionPosition,
+					extensionIds: editMode.extensionIds ?? [],
+				};
+			} else {
+				form = { name: "", slug: "", icon: "", description: "", systemPromptInstruction: "", instructionPosition: "prepend", extensionIds: [] };
+			}
 		}
 	});
 
 	function autoSlug() {
-		if (!isEdit) {
+		if (!isExisting) {
 			form.slug = form.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 		}
 	}
 
 	function reset() {
-		form = { name: "", slug: "", icon: "", description: "", systemPromptInstruction: "", instructionPosition: "prepend", toolRestriction: "all" };
+		form = { name: "", slug: "", icon: "", description: "", systemPromptInstruction: "", instructionPosition: "prepend", extensionIds: [] };
 		error = null;
 		saving = false;
 	}
@@ -76,7 +108,7 @@
 		error = null;
 		try {
 			let mode: Mode;
-			if (isEdit && editMode) {
+			if (isExisting && editMode) {
 				mode = await apiUpdateMode(editMode.id, form);
 			} else {
 				mode = await createMode(form);
@@ -105,49 +137,95 @@
 		<div class="w-full max-w-lg rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6 shadow-2xl mx-4">
 			<div class="flex items-center justify-between mb-4">
 				<h2 class="text-base font-semibold text-[var(--color-text-primary)]">{title}</h2>
-				<button type="button" onclick={handleClose} aria-label="Close" class="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors">
-					<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-					</svg>
-				</button>
+				<div class="flex items-center gap-1">
+					{#if isExisting && !isEditing}
+						{#if isBuiltin}
+							<Tooltip text="Built-in modes cannot be edited." position="bottom">
+								<button
+									type="button"
+									disabled
+									aria-label="Edit (disabled — built-in mode)"
+									class="rounded-md px-2 py-1 text-xs font-medium text-[var(--color-text-muted)] opacity-50 cursor-not-allowed"
+								>
+									Edit
+								</button>
+							</Tooltip>
+						{:else}
+							<button
+								type="button"
+								onclick={() => { isEditing = true; }}
+								aria-label="Edit mode"
+								class="rounded-md px-2 py-1 text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+							>
+								Edit
+							</button>
+						{/if}
+					{/if}
+					<button type="button" onclick={handleClose} aria-label="Close" class="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors p-1">
+						<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
+				</div>
 			</div>
 
 			<div class="space-y-3">
 				<div class="grid grid-cols-2 gap-3">
 					<div>
 						<label for="mode-form-name" class="block text-xs text-[var(--color-text-secondary)] mb-1">Name</label>
-						<input id="mode-form-name" bind:value={form.name} oninput={autoSlug} class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none" placeholder="e.g. Debug" />
+						<input id="mode-form-name" bind:value={form.name} oninput={autoSlug} readonly={readonly} class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none read-only:opacity-70 read-only:cursor-not-allowed" placeholder="e.g. Debug" />
 					</div>
 					<div>
 						<label for="mode-form-slug" class="block text-xs text-[var(--color-text-secondary)] mb-1">Slug</label>
-						<input id="mode-form-slug" bind:value={form.slug} disabled={isEdit} class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none font-mono disabled:opacity-50" placeholder="debug" />
+						<input id="mode-form-slug" bind:value={form.slug} disabled={isExisting} class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none font-mono disabled:opacity-50" placeholder="debug" />
 					</div>
 				</div>
 				<div class="grid grid-cols-2 gap-3">
 					<div>
 						<label for="mode-form-icon" class="block text-xs text-[var(--color-text-secondary)] mb-1">Icon (emoji)</label>
-						<input id="mode-form-icon" bind:value={form.icon} class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none" maxlength="10" />
+						<input id="mode-form-icon" bind:value={form.icon} readonly={readonly} class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none read-only:opacity-70 read-only:cursor-not-allowed" maxlength="10" />
 					</div>
-					<div>
-						<label for="mode-form-tool-restriction" class="block text-xs text-[var(--color-text-secondary)] mb-1">Tool Restriction</label>
-						<select id="mode-form-tool-restriction" bind:value={form.toolRestriction} class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none">
-							<option value="all">All tools</option>
-							<option value="read-only">Read-only</option>
-							<option value="none">No tools</option>
-						</select>
-					</div>
+					<div></div>
+				</div>
+				<!-- Tools & Extensions — attaches extension tools to this mode. Mirrors AgentConfigForm. -->
+				<div>
+					<label class="mb-1 flex items-center gap-1 text-xs text-[var(--color-text-secondary)]">
+						Tools &amp; Extensions <InfoTooltip key="mode.extensions" />
+					</label>
+					<p class="mb-2 text-xs text-[var(--color-text-muted)]">
+						Attach extensions to give this mode access to their tools. Selected extensions appear as chips below the picker.
+					</p>
+					{#if readonly}
+						{#if form.extensionIds.length === 0}
+							<p class="text-xs text-[var(--color-text-muted)] italic">No extensions attached.</p>
+						{:else}
+							<div data-testid="mode-readonly-extension-chips" class="flex flex-wrap gap-1">
+								{#each form.extensionIds as extId (extId)}
+									<span class="inline-flex max-w-full items-center rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
+										<span class="truncate">{extensionNames[extId] ?? extId}</span>
+									</span>
+								{/each}
+							</div>
+						{/if}
+					{:else}
+						<ExtensionSearchPicker
+							selected={form.extensionIds}
+							placeholder="Search extensions to attach..."
+							onchange={(ids) => { form.extensionIds = ids; }}
+						/>
+					{/if}
 				</div>
 				<div>
 					<label for="mode-form-description" class="block text-xs text-[var(--color-text-secondary)] mb-1">Description</label>
-					<input id="mode-form-description" bind:value={form.description} class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none" placeholder="Short description" maxlength="500" />
+					<input id="mode-form-description" bind:value={form.description} readonly={readonly} class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none read-only:opacity-70 read-only:cursor-not-allowed" placeholder="Short description" maxlength="500" />
 				</div>
 				<div>
 					<label for="mode-form-system-prompt" class="block text-xs text-[var(--color-text-secondary)] mb-1">System Prompt Instruction</label>
-					<textarea id="mode-form-system-prompt" bind:value={form.systemPromptInstruction} rows={4} class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-2 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none resize-y" placeholder="Instructions added to the system prompt when this mode is active..."></textarea>
+					<textarea id="mode-form-system-prompt" bind:value={form.systemPromptInstruction} readonly={readonly} rows={4} class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-2 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none resize-y read-only:opacity-70 read-only:cursor-not-allowed" placeholder="Instructions added to the system prompt when this mode is active..."></textarea>
 				</div>
 				<div>
 					<label for="mode-form-instruction-position" class="block text-xs text-[var(--color-text-secondary)] mb-1">Instruction Position</label>
-					<select id="mode-form-instruction-position" bind:value={form.instructionPosition} class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none">
+					<select id="mode-form-instruction-position" bind:value={form.instructionPosition} disabled={readonly} class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none disabled:opacity-70 disabled:cursor-not-allowed">
 						<option value="prepend">Prepend (before system prompt)</option>
 						<option value="append">Append (after system prompt)</option>
 						<option value="replace">Replace (override system prompt)</option>
@@ -159,16 +237,22 @@
 				{/if}
 
 				<div class="flex gap-2 pt-1">
-					<button
-						onclick={handleSubmit}
-						disabled={saving || !form.name || !form.slug || !form.systemPromptInstruction}
-						class="rounded-md bg-blue-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
-					>
-						{saving ? "Saving..." : submitLabel}
-					</button>
-					<button onclick={handleClose} class="rounded-md border border-[var(--color-border)] px-4 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors">
-						Cancel
-					</button>
+					{#if readonly}
+						<button onclick={handleClose} class="rounded-md border border-[var(--color-border)] px-4 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors">
+							Close
+						</button>
+					{:else}
+						<button
+							onclick={handleSubmit}
+							disabled={saving || !form.name || !form.slug || !form.systemPromptInstruction}
+							class="rounded-md bg-blue-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
+						>
+							{saving ? "Saving..." : submitLabel}
+						</button>
+						<button onclick={handleClose} class="rounded-md border border-[var(--color-border)] px-4 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors">
+							Cancel
+						</button>
+					{/if}
 				</div>
 			</div>
 		</div>

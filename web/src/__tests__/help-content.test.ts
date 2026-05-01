@@ -12,6 +12,7 @@ const COMPONENT_KEYS = [
 	"chat.inline-tools", // InlineToolCard.svelte
 	"chat.diff-panel", // DiffSummaryPanel.svelte
 	"chat.sub-conversations", // chat/[convId]/+page.svelte
+	"mode.extensions", // ModeFormModal.svelte (Phase modes.extensionIds)
 	"settings.providers", // settings/+page.svelte
 	"knowledge.overview", // memories/+page.svelte
 	"memory.overview", // memories/+page.svelte

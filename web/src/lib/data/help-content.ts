@@ -10,6 +10,8 @@ export const helpContent: Record<string, string> = {
 		"Choose a specific model to override the default. Faster models are cheaper and lower-latency; more powerful models handle complex tasks better.",
 	"agent.extensions":
 		"Extensions give your agent access to external tools and APIs. Attach an extension to let the agent call its tools during conversations.",
+	"mode.extensions":
+		"Extensions attached to a mode become the mode's effective tool allowlist. When at least one is selected, only tools provided by these extensions (plus orchestration tools) are available while this mode is active.",
 	"agent.variables":
 		"Override shared variables for this agent. Values set here take priority over the extension-level defaults.",
 

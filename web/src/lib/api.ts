@@ -351,6 +351,7 @@ export interface Mode {
 	preferredThinkingLevel: string | null;
 	temperature: number | null;
 	toolRestriction: "all" | "read-only" | "none";
+	extensionIds: string[] | null;
 	builtin: boolean;
 }
 

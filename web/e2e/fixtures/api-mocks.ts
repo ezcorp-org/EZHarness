@@ -507,6 +507,15 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		if (path.match(/^\/api\/settings\//) && method === "PUT") {
 			return route.fulfill({ json: { ok: true } });
 		}
+		// Developer API keys — ApiKeyManager.svelte reads `data.keys` and
+		// dereferences `.length` on the result, so the fallback `{}` body
+		// would trigger a runtime TypeError that propagates up Svelte's
+		// reactive graph and blocks click handlers on the same page (notably
+		// the Custom Modes "Create Mode" button). Provide an empty list by
+		// default; specs that exercise the API-key flow can override.
+		if (path === "/api/settings/developer/api-keys" && method === "GET") {
+			return route.fulfill({ json: { keys: [] } });
+		}
 
 		// Modes
 		if (path === "/api/modes" && method === "GET") {

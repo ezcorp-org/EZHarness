@@ -330,6 +330,11 @@ export const modes = pgTable("modes", {
    *  NULL otherwise — the existing applyToolFilters intersection logic treats
    *  empty/missing allowedTools as a no-op for non-allowlist modes. */
   allowedTools: text("allowed_tools").array(),
+  /** Extensions attached to this mode. When non-empty, the runtime resolves
+   *  the union of tools provided by these extensions and uses that set as
+   *  the effective allowlist (see src/runtime/executor.ts). When empty/null,
+   *  the toolRestriction + allowedTools fallback continues to govern. */
+  extensionIds: text("extension_ids").array(),
   builtin: boolean("builtin").notNull().default(false),
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

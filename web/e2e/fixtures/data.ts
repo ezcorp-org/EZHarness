@@ -75,6 +75,13 @@ export interface ModeData {
 	preferredThinkingLevel: string | null;
 	temperature: number | null;
 	toolRestriction: "all" | "read-only" | "none";
+	/**
+	 * Phase modes.extensionIds — when non-null/non-empty, the executor
+	 * resolves each id to its tool surface and uses the union as the
+	 * mode's allowlist. The settings card surfaces the count as an
+	 * "{n} extensions" badge for non-builtin modes.
+	 */
+	extensionIds: string[] | null;
 	builtin: boolean;
 }
 
@@ -92,6 +99,7 @@ export function makeMode(overrides: Partial<ModeData> = {}): ModeData {
 		preferredThinkingLevel: null,
 		temperature: null,
 		toolRestriction: "all",
+		extensionIds: null,
 		builtin: false,
 		...overrides,
 	};

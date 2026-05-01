@@ -218,6 +218,144 @@ describe("modes CRUD", () => {
   });
 });
 
+// ── extensionIds round-trip ───────────────────────────────────────────
+//
+// Phase: modes.extensionIds — modes can declare a tool surface as the
+// union of attached extensions. The DB column is `extension_ids TEXT[]`
+// so unset === null, "explicitly cleared" === []. Round-tripping that
+// distinction matters: the executor reads `mode.extensionIds ?? []`
+// and only takes the new-allowlist code path when the array has
+// entries; null and [] both fall through to the legacy
+// toolRestriction/allowedTools path.
+
+describe("modes extensionIds round-trip", () => {
+  test("createMode persists extensionIds and getMode returns the array", async () => {
+    const mode = await createMode({
+      name: "Ext Round-trip",
+      slug: "ext-roundtrip-" + Date.now(),
+      systemPromptInstruction: "Use only the attached extensions.",
+      extensionIds: ["ext-a", "ext-b"],
+    });
+    expect(mode.extensionIds).toEqual(["ext-a", "ext-b"]);
+    const fetched = await getMode(mode.id);
+    expect(fetched!.extensionIds).toEqual(["ext-a", "ext-b"]);
+  });
+
+  test("createMode without extensionIds defaults to null (column is nullable)", async () => {
+    // Defaulting to null (NOT []) lets the executor distinguish "field
+    // never set" from "user explicitly cleared the list" — both paths
+    // bypass the new allowlist filter, but the distinction shows up in
+    // the API JSON the client renders.
+    const mode = await createMode({
+      name: "No Exts",
+      slug: "no-exts-" + Date.now(),
+      systemPromptInstruction: "Plain mode with no attached extensions.",
+    });
+    expect(mode.extensionIds).toBeNull();
+    const fetched = await getMode(mode.id);
+    expect(fetched!.extensionIds).toBeNull();
+  });
+
+  test("createMode with extensionIds=[] persists empty array (NOT null)", async () => {
+    const mode = await createMode({
+      name: "Empty Exts",
+      slug: "empty-exts-" + Date.now(),
+      systemPromptInstruction: "Cleared list.",
+      extensionIds: [],
+    });
+    // PGlite stores empty array as [], not null. Asserts the column
+    // didn't fall back to its default.
+    expect(mode.extensionIds).toEqual([]);
+    const fetched = await getMode(mode.id);
+    expect(fetched!.extensionIds).toEqual([]);
+  });
+
+  test("updateMode replaces extensionIds with a new list", async () => {
+    const mode = await createMode({
+      name: "Update Exts",
+      slug: "update-exts-" + Date.now(),
+      systemPromptInstruction: "Will swap extensions.",
+      extensionIds: ["old-1", "old-2"],
+    });
+    const updated = await updateMode(mode.id, {
+      extensionIds: ["new-a", "new-b", "new-c"],
+    });
+    expect(updated!.extensionIds).toEqual(["new-a", "new-b", "new-c"]);
+    const fetched = await getMode(mode.id);
+    expect(fetched!.extensionIds).toEqual(["new-a", "new-b", "new-c"]);
+  });
+
+  test("updateMode with extensionIds=[] clears the list", async () => {
+    const mode = await createMode({
+      name: "Clear Exts",
+      slug: "clear-exts-" + Date.now(),
+      systemPromptInstruction: "Will be cleared.",
+      extensionIds: ["a", "b"],
+    });
+    const cleared = await updateMode(mode.id, { extensionIds: [] });
+    expect(cleared!.extensionIds).toEqual([]);
+    const fetched = await getMode(mode.id);
+    expect(fetched!.extensionIds).toEqual([]);
+  });
+
+  test("updateMode WITHOUT extensionIds key leaves the existing list untouched (partial update)", async () => {
+    // The shared updateMode loop applies updates only when the value is
+    // !== undefined, so a partial PUT that only renames the mode must
+    // not reset extensionIds to null.
+    const mode = await createMode({
+      name: "Partial Update Source",
+      slug: "partial-source-" + Date.now(),
+      systemPromptInstruction: "Keep these.",
+      extensionIds: ["keep-1", "keep-2"],
+    });
+    const updated = await updateMode(mode.id, { name: "Partial Update Renamed" });
+    expect(updated!.name).toBe("Partial Update Renamed");
+    expect(updated!.extensionIds).toEqual(["keep-1", "keep-2"]);
+  });
+
+  test("updateMode with extensionIds=null explicitly resets to null", async () => {
+    // Distinct from "key omitted" (kept) — explicitly setting the value
+    // to null wipes the list. Mirrors the API contract for "remove the
+    // attached extensions" via PUT.
+    const mode = await createMode({
+      name: "Reset Source",
+      slug: "reset-source-" + Date.now(),
+      systemPromptInstruction: "Will be reset.",
+      extensionIds: ["a"],
+    });
+    const reset = await updateMode(mode.id, { extensionIds: null });
+    expect(reset!.extensionIds).toBeNull();
+    const fetched = await getMode(mode.id);
+    expect(fetched!.extensionIds).toBeNull();
+  });
+
+  test("listModes surfaces extensionIds for every row", async () => {
+    // Guards against a future select() that accidentally projects a
+    // narrower column set and drops the new field.
+    const created = await createMode({
+      name: "Listed Ext Mode",
+      slug: "listed-ext-" + Date.now(),
+      systemPromptInstruction: "List me.",
+      extensionIds: ["listed-x"],
+    });
+    const all = await listModes();
+    const found = all.find((m) => m.id === created.id);
+    expect(found).toBeDefined();
+    expect(found!.extensionIds).toEqual(["listed-x"]);
+  });
+
+  test("seeded built-in modes have extensionIds=null (no attached extensions by default)", async () => {
+    // Built-ins ship with toolRestriction='read-only' and no extension
+    // attachments. The migration must NOT have backfilled the column
+    // with a non-null default; the executor's null-vs-empty branching
+    // depends on this.
+    const plan = await getMode("builtin-plan");
+    const review = await getMode("builtin-code-review");
+    expect(plan!.extensionIds).toBeNull();
+    expect(review!.extensionIds).toBeNull();
+  });
+});
+
 // ── Conversation modeId FK ────────────────────────────────────────────
 
 describe("conversation modeId", () => {

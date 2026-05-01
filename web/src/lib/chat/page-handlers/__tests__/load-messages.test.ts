@@ -547,6 +547,7 @@ describe("makeLoadMessages.loadMessages", () => {
 			preferredThinkingLevel: null,
 			temperature: null,
 			toolRestriction: "all",
+			extensionIds: null,
 			builtin: false,
 		};
 		backgroundFetchMock.mockImplementation(async (key: string) => {
@@ -564,7 +565,7 @@ describe("makeLoadMessages.loadMessages", () => {
 			id: "mode-x", name: "X", slug: "x", icon: null, description: "",
 			systemPromptInstruction: "", instructionPosition: "append",
 			preferredModel: null, preferredProvider: null, preferredThinkingLevel: null,
-			temperature: null, toolRestriction: "all", builtin: false,
+			temperature: null, toolRestriction: "all", extensionIds: null, builtin: false,
 		};
 		backgroundFetchMock.mockImplementation(async (key: string) => {
 			if (key.startsWith("messages-all:")) return jsonResponse([]);

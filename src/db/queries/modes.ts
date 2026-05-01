@@ -38,6 +38,9 @@ export async function createMode(data: {
   toolRestriction?: "all" | "read-only" | "none" | "allowlist";
   /** Phase 48: only meaningful when toolRestriction === 'allowlist'. */
   allowedTools?: string[] | null;
+  /** When non-empty, the runtime expands the union of these extensions'
+   *  tool names into the effective allowlist (overrides toolRestriction). */
+  extensionIds?: string[] | null;
   userId?: string | null;
 }): Promise<DbMode> {
   const now = new Date();
@@ -55,6 +58,7 @@ export async function createMode(data: {
     temperature: data.temperature ?? null,
     toolRestriction: (data.toolRestriction ?? "all") as "all" | "read-only" | "none" | "allowlist",
     allowedTools: data.allowedTools ?? null,
+    extensionIds: data.extensionIds ?? null,
     builtin: false,
     userId: data.userId ?? null,
     createdAt: now,
@@ -77,6 +81,7 @@ export async function updateMode(id: string, data: Partial<{
   temperature: number | null;
   toolRestriction: "all" | "read-only" | "none" | "allowlist";
   allowedTools: string[] | null;
+  extensionIds: string[] | null;
 }>): Promise<DbMode | undefined> {
   const existing = await getMode(id);
   if (!existing || existing.builtin) return undefined;

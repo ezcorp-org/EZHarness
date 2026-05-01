@@ -148,6 +148,7 @@
 				preferredThinkingLevel: null,
 				temperature: null,
 				toolRestriction: "all",
+				extensionIds: null,
 				builtin: true,
 			}
 			: null,

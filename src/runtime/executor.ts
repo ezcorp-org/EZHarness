@@ -423,16 +423,39 @@ export class AgentExecutor {
     // with toolRestriction in {'all','read-only','none'} and a NULL
     // allowedTools — applyToolFilters treats that as a no-op for the
     // allow-step.
+    //
+    // Mode-extensions extension: when mode.extensionIds is non-empty, the
+    // mode authors declared its tool surface via attached extensions. We
+    // resolve those IDs to the union of tool names and feed them as an
+    // allowlist (toolRestriction='allowlist'), which supersedes any legacy
+    // toolRestriction/allowedTools values for that mode. Built-in modes
+    // with extensionIds=null/empty (e.g. seeded Ez mode) keep their
+    // existing toolRestriction='allowlist' + allowedTools behaviour.
     const { applyToolFilters } = await import("./tools/filter");
     if (options.modeId) {
       try {
         const { getMode } = await import("../db/queries/modes");
         const mode = await getMode(options.modeId);
-        if (mode?.toolRestriction) {
-          ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, {
-            toolRestriction: mode.toolRestriction,
-            allowedTools: mode.allowedTools ?? undefined,
-          });
+        if (mode) {
+          const extensionIds = mode.extensionIds ?? [];
+          if (extensionIds.length > 0) {
+            const registry = ExtensionRegistry.getInstance();
+            const allowed = new Set<string>();
+            for (const extId of extensionIds) {
+              for (const t of registry.getToolsForExtension(extId)) {
+                allowed.add(t.name);
+              }
+            }
+            ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, {
+              toolRestriction: "allowlist",
+              allowedTools: [...allowed],
+            });
+          } else if (mode.toolRestriction) {
+            ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, {
+              toolRestriction: mode.toolRestriction,
+              allowedTools: mode.allowedTools ?? undefined,
+            });
+          }
         }
       } catch { /* Mode lookup failure is non-fatal — keep all tools */ }
     }

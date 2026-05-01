@@ -142,6 +142,89 @@ describe("POST /api/modes", () => {
     const res = await createPOST(event);
     expect(res.status).toBe(400);
   });
+
+  // ── extensionIds round-trip via the real handler + PGlite ──────────
+
+  test("creates a mode with extensionIds and round-trips via GET", async () => {
+    const event = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/modes",
+      user: USER,
+      body: {
+        name: "Ext Trip Mode",
+        slug: "ext-trip-mode-" + Date.now(),
+        systemPromptInstruction: "Use only attached extensions.",
+        extensionIds: ["ext-a", "ext-b"],
+      },
+    });
+    const res = await createPOST(event);
+    expect(res.status).toBe(201);
+    const created = await jsonFromResponse(res);
+    expect(created.extensionIds).toEqual(["ext-a", "ext-b"]);
+
+    // Re-fetch via GET /api/modes/[id] to confirm persistence + JSON shape.
+    const getEvent = createMockEvent({
+      url: `http://localhost/api/modes/${created.id}`,
+      user: USER,
+      params: { id: created.id },
+    });
+    const getRes = await detailGET(getEvent);
+    const fetched = await jsonFromResponse(getRes);
+    expect(fetched.extensionIds).toEqual(["ext-a", "ext-b"]);
+  });
+
+  test("creates a mode without extensionIds (back-compat: returns null)", async () => {
+    const event = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/modes",
+      user: USER,
+      body: {
+        name: "No Ext Mode",
+        slug: "no-ext-mode-" + Date.now(),
+        systemPromptInstruction: "Plain.",
+      },
+    });
+    const res = await createPOST(event);
+    expect(res.status).toBe(201);
+    const created = await jsonFromResponse(res);
+    // The DB column defaults to null when the field is omitted; the
+    // handler returns the row as-is, so extensionIds must be null on
+    // the wire (NOT undefined / missing).
+    expect(created.extensionIds).toBeNull();
+  });
+
+  test("rejects extensionIds with >100 entries (zod array.max)", async () => {
+    const tooMany = Array.from({ length: 101 }, (_, i) => `ext-${i}`);
+    const event = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/modes",
+      user: USER,
+      body: {
+        name: "Too Many Ext Mode",
+        slug: "too-many-ext-" + Date.now(),
+        systemPromptInstruction: "Too many.",
+        extensionIds: tooMany,
+      },
+    });
+    const res = await createPOST(event);
+    expect(res.status).toBe(400);
+  });
+
+  test("rejects non-string extensionIds entries", async () => {
+    const event = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/modes",
+      user: USER,
+      body: {
+        name: "Non String Ext Mode",
+        slug: "non-string-ext-" + Date.now(),
+        systemPromptInstruction: "Bad shape.",
+        extensionIds: ["ok", 99],
+      },
+    });
+    const res = await createPOST(event);
+    expect(res.status).toBe(400);
+  });
 });
 
 // ── GET /api/modes/[id] ────────────────────────────────────────
@@ -263,6 +346,136 @@ describe("PUT /api/modes/[id]", () => {
     });
     const res = await updatePUT(event);
     expect(res.status).toBe(404);
+  });
+
+  test("PUT replaces extensionIds and round-trips via GET", async () => {
+    const createEvent = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/modes",
+      user: USER,
+      body: {
+        name: "PUT Ext Mode",
+        slug: "put-ext-mode-" + Date.now(),
+        systemPromptInstruction: "Original",
+        extensionIds: ["old-1"],
+      },
+    });
+    const created = await jsonFromResponse(await createPOST(createEvent));
+
+    // Replace the list.
+    const putEvent = createMockEvent({
+      method: "PUT",
+      url: `http://localhost/api/modes/${created.id}`,
+      user: USER,
+      params: { id: created.id },
+      body: { extensionIds: ["new-a", "new-b"] },
+    });
+    const putRes = await updatePUT(putEvent);
+    expect(putRes.status).toBe(200);
+    const updated = await jsonFromResponse(putRes);
+    expect(updated.extensionIds).toEqual(["new-a", "new-b"]);
+
+    // Re-fetch to confirm persistence.
+    const getRes = await detailGET(
+      createMockEvent({
+        url: `http://localhost/api/modes/${created.id}`,
+        user: USER,
+        params: { id: created.id },
+      }),
+    );
+    const fetched = await jsonFromResponse(getRes);
+    expect(fetched.extensionIds).toEqual(["new-a", "new-b"]);
+  });
+
+  test("PUT with extensionIds=[] clears the list (round-trips as [])", async () => {
+    const create = await jsonFromResponse(
+      await createPOST(
+        createMockEvent({
+          method: "POST",
+          url: "http://localhost/api/modes",
+          user: USER,
+          body: {
+            name: "Clear Ext Mode",
+            slug: "clear-ext-" + Date.now(),
+            systemPromptInstruction: "Will clear.",
+            extensionIds: ["a", "b"],
+          },
+        }),
+      ),
+    );
+
+    const putRes = await updatePUT(
+      createMockEvent({
+        method: "PUT",
+        url: `http://localhost/api/modes/${create.id}`,
+        user: USER,
+        params: { id: create.id },
+        body: { extensionIds: [] },
+      }),
+    );
+    expect(putRes.status).toBe(200);
+    const updated = await jsonFromResponse(putRes);
+    expect(updated.extensionIds).toEqual([]);
+  });
+
+  test("PUT without extensionIds key leaves attached list untouched", async () => {
+    const create = await jsonFromResponse(
+      await createPOST(
+        createMockEvent({
+          method: "POST",
+          url: "http://localhost/api/modes",
+          user: USER,
+          body: {
+            name: "Partial Update Ext Mode",
+            slug: "partial-update-ext-" + Date.now(),
+            systemPromptInstruction: "Keep these.",
+            extensionIds: ["keep-1", "keep-2"],
+          },
+        }),
+      ),
+    );
+
+    const putRes = await updatePUT(
+      createMockEvent({
+        method: "PUT",
+        url: `http://localhost/api/modes/${create.id}`,
+        user: USER,
+        params: { id: create.id },
+        body: { name: "Partial Update Renamed" },
+      }),
+    );
+    expect(putRes.status).toBe(200);
+    const updated = await jsonFromResponse(putRes);
+    expect(updated.name).toBe("Partial Update Renamed");
+    expect(updated.extensionIds).toEqual(["keep-1", "keep-2"]);
+  });
+
+  test("PUT rejects extensionIds with non-string entries (400)", async () => {
+    const create = await jsonFromResponse(
+      await createPOST(
+        createMockEvent({
+          method: "POST",
+          url: "http://localhost/api/modes",
+          user: USER,
+          body: {
+            name: "Bad Update Ext Mode",
+            slug: "bad-update-ext-" + Date.now(),
+            systemPromptInstruction: "Will reject.",
+          },
+        }),
+      ),
+    );
+
+    const putRes = await updatePUT(
+      createMockEvent({
+        method: "PUT",
+        url: `http://localhost/api/modes/${create.id}`,
+        user: USER,
+        params: { id: create.id },
+        body: { extensionIds: ["ok", 7] },
+      }),
+    );
+    expect(putRes.status).toBe(400);
   });
 
   test("returns 400 for invalid update body", async () => {

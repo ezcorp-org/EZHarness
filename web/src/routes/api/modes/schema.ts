@@ -12,6 +12,7 @@ export const createModeSchema = z.object({
   preferredThinkingLevel: z.enum(["off", "minimal", "low", "medium", "high", "xhigh"]).nullable().optional(),
   temperature: z.number().int().min(0).max(100).nullable().optional(),
   toolRestriction: z.enum(["all", "read-only", "none"]).optional(),
+  extensionIds: z.array(z.string().max(200)).max(100).optional(),
 });
 
 export const updateModeSchema = createModeSchema.partial();

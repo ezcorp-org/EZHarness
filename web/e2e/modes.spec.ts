@@ -66,10 +66,12 @@ test.describe("Modes", () => {
 		const modeBtn = page.locator(".mode-selector button").first();
 		await modeBtn.click();
 
-		// Should show all modes plus Default option
-		await expect(page.getByText("Plan")).toBeVisible();
-		await expect(page.getByText("Code Review")).toBeVisible();
-		await expect(page.getByText("Debug")).toBeVisible();
+		// Should show all modes plus Default option. `getByText` defaults
+		// to substring matching, so "Plan" would also match the description
+		// "Plan without coding". Use exact-match to pin to the option title.
+		await expect(page.getByText("Plan", { exact: true })).toBeVisible();
+		await expect(page.getByText("Code Review", { exact: true })).toBeVisible();
+		await expect(page.getByText("Debug", { exact: true })).toBeVisible();
 	});
 
 	test("mode selector shows tool restriction badges", async ({ page, mockApi }) => {
@@ -162,7 +164,9 @@ test.describe("Modes", () => {
 
 		// Open dropdown
 		await page.locator(".mode-selector button").first().click();
-		await expect(page.getByText("Plan")).toBeVisible();
+		// "Plan" appears as both an option title and inside the description
+		// "Plan without coding" — pin to the exact title with { exact: true }.
+		await expect(page.getByText("Plan", { exact: true })).toBeVisible();
 
 		// Click outside
 		await page.locator("body").click({ position: { x: 10, y: 10 } });
@@ -238,9 +242,11 @@ test.describe("Modes", () => {
 		await page.locator(".mode-selector button").first().click();
 		await page.locator(".mode-selector").getByText("New mode").click();
 
-		// Modal should appear with the create form
+		// Modal should appear with the create form. "Create Mode" appears
+		// twice in the dialog (h2 title + submit button); pin to the heading
+		// to avoid strict-mode ambiguity.
 		await expect(page.getByRole("dialog")).toBeVisible({ timeout: 3000 });
-		await expect(page.getByText("Create Mode")).toBeVisible();
+		await expect(page.getByRole("dialog").getByRole("heading", { name: "Create Mode" })).toBeVisible();
 		await expect(page.getByText("System Prompt Instruction")).toBeVisible();
 	});
 
@@ -324,7 +330,10 @@ test.describe("Modes", () => {
 		await expect(dialog.getByText("Name")).toBeVisible();
 		await expect(dialog.getByText("Slug")).toBeVisible();
 		await expect(dialog.getByText("Icon (emoji)")).toBeVisible();
-		await expect(dialog.getByText("Tool Restriction")).toBeVisible();
+		// Phase modes.extensionIds: the legacy "Tool Restriction" <select> was
+		// replaced with the shared "Tools & Extensions" picker.
+		await expect(dialog.getByText("Tools & Extensions")).toBeVisible();
+		await expect(dialog.getByText("Tool Restriction")).toHaveCount(0);
 		await expect(dialog.getByText("Description")).toBeVisible();
 		await expect(dialog.getByText("System Prompt Instruction")).toBeVisible();
 		await expect(dialog.getByText("Instruction Position")).toBeVisible();
@@ -485,7 +494,7 @@ test.describe("Modes on Settings Page", () => {
 		await expect(page.getByText("built-in")).toBeVisible({ timeout: 5000 });
 	});
 
-	test("settings shows edit/delete buttons only for custom modes", async ({ page, mockApi }) => {
+	test("settings shows delete button only for custom modes; edit lives behind the view modal", async ({ page, mockApi }) => {
 		const proj = makeProject({ id: "proj-1" });
 		const modes = [
 			makeMode({ id: "builtin-plan", name: "Plan", slug: "plan", builtin: true }),
@@ -498,9 +507,15 @@ test.describe("Modes on Settings Page", () => {
 		});
 		await page.goto("/settings");
 
-		// Custom mode should have Edit and Delete
-		await expect(page.getByText("Edit")).toBeVisible({ timeout: 5000 });
-		await expect(page.getByText("Delete")).toBeVisible();
+		// Phase modes.extensionIds: the inline Edit button was removed —
+		// clicking the card now opens the view modal where Edit is the
+		// header action. Custom modes still have an inline Delete button.
+		await expect(page.getByText("Delete")).toBeVisible({ timeout: 5000 });
+
+		// View card opens a dialog whose header has "Edit mode" aria-label.
+		await page.locator('button[aria-label="View My Mode mode"]').click();
+		await expect(page.getByRole("dialog")).toBeVisible();
+		await expect(page.locator('button[aria-label="Edit mode"]')).toBeVisible();
 	});
 
 	test("create mode form opens on button click", async ({ page, mockApi }) => {
@@ -514,9 +529,12 @@ test.describe("Modes on Settings Page", () => {
 
 		await page.getByText("Create Mode").click();
 
-		// Form should be visible
+		// Form should be visible. Phase modes.extensionIds: the legacy
+		// "Tool Restriction" <select> was replaced with the "Tools &
+		// Extensions" picker.
 		await expect(page.getByText("System Prompt Instruction")).toBeVisible({ timeout: 3000 });
-		await expect(page.getByText("Tool Restriction")).toBeVisible();
+		await expect(page.getByText("Tools & Extensions")).toBeVisible();
+		await expect(page.getByText("Tool Restriction")).toHaveCount(0);
 		await expect(page.getByText("Instruction Position")).toBeVisible();
 	});
 

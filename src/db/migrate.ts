@@ -831,6 +831,11 @@ export async function migrate(db: any): Promise<void> {
   // (ON CONFLICT slug DO NOTHING). The `kind` column defaults to 'regular'
   // so all existing conversations remain unaffected.
   await db.execute(sql`ALTER TABLE modes ADD COLUMN IF NOT EXISTS allowed_tools TEXT[]`);
+  // Extensions attached to a mode. When non-empty the runtime expands the
+  // union of these extensions' tool names into an effective allowlist;
+  // when empty/null the existing tool_restriction + allowed_tools fallback
+  // governs (see src/runtime/executor.ts). Idempotent.
+  await db.execute(sql`ALTER TABLE modes ADD COLUMN IF NOT EXISTS extension_ids TEXT[]`);
   await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'regular'`);
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS ez_drafts (

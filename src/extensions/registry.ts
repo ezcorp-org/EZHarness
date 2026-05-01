@@ -284,6 +284,18 @@ export class ExtensionRegistry {
     return this.manifests.get(extensionId);
   }
 
+  /**
+   * Get the manifest for an extension by NAME. Used by the composer's
+   * pending-extension MIME lookup, where we know the name from a
+   * `!ext:NAME` mention but not yet the DB id.
+   */
+  getManifestByName(name: string): ExtensionManifestV2 | undefined {
+    for (const m of this.manifests.values()) {
+      if (m.name === name) return m;
+    }
+    return undefined;
+  }
+
   /** Iterate over all registered extension manifests. */
   getAllManifests(): IterableIterator<[string, ExtensionManifestV2]> {
     return this.manifests.entries();
