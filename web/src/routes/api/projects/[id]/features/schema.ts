@@ -14,7 +14,17 @@ import { z } from "zod";
  */
 
 const SLUG_RE = /^[a-z0-9_-]+$/i;
-const RELPATH_RE = /^(?!\/)(?!.*\.\.).+$/; // no leading '/'; no '..' anywhere
+// relpath: project-relative POSIX path. Reject leading `/` (absolute) and
+// reject `..` ONLY when it appears as a path segment — bounded by `/` or
+// the string boundaries. The previous `(?!.*\.\.)` rejected any two
+// consecutive dots, which mis-rejected legitimate filenames like
+// `package..config.json` (audit defect C7). The fix splits the
+// traversal-segment check (`(?:^|\/)\.\.(?:$|\/)`) from the in-name
+// double-dot, so files containing `..` in the basename pass while
+// `../foo`, `foo/../bar`, `foo/..`, and bare `..` are still rejected.
+// `validatePath` enforces the same boundary server-side; this is the
+// boundary fail-fast for obvious mistakes.
+const RELPATH_RE = /^(?!\/)(?!.*(?:^|\/)\.\.(?:$|\/)).+$/;
 
 export const createFeatureSchema = z.object({
   name: z.string().min(1).max(120).regex(SLUG_RE, "name must be alphanumeric with hyphens/underscores"),
