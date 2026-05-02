@@ -773,7 +773,24 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 					description?: string;
 				};
 				if (!body.name) {
-					return route.fulfill({ status: 400, json: { error: "name required" } });
+					return route.fulfill({
+						status: 400,
+						json: {
+							error: "Validation failed",
+							fields: { name: "Feature name is required." },
+						},
+					});
+				}
+				if (!/^[a-z0-9_-]+$/i.test(body.name)) {
+					return route.fulfill({
+						status: 400,
+						json: {
+							error: "Validation failed",
+							fields: {
+								name: "Feature name can only contain letters, numbers, hyphens, and underscores — no spaces or other punctuation.",
+							},
+						},
+					});
 				}
 				if (features.find((f) => f.projectId === projectId && f.name === body.name)) {
 					return route.fulfill({
@@ -846,7 +863,25 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 				) {
 					return route.fulfill({
 						status: 400,
-						json: { error: "at least one field required" },
+						json: {
+							error: "Validation failed",
+							fields: {
+								"": "Provide at least one field to change: name, description, addFiles, or removeFiles.",
+							},
+						},
+					});
+				}
+				// Slug validation mirrors the real schema (web/.../features/schema.ts)
+				// so e2e tests can exercise the field-level validation surface.
+				if (body.name !== undefined && !/^[a-z0-9_-]+$/i.test(body.name)) {
+					return route.fulfill({
+						status: 400,
+						json: {
+							error: "Validation failed",
+							fields: {
+								name: "Feature name can only contain letters, numbers, hyphens, and underscores — no spaces or other punctuation.",
+							},
+						},
 					});
 				}
 				if (body.name !== undefined && body.name !== target.name) {

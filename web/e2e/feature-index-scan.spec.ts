@@ -274,4 +274,156 @@ test.describe("Feature Index — settings UI scan flow", () => {
     // The seed scan-sourced file is still present.
     await expect(page.getByText("src/auth/seed.ts")).toBeVisible();
   });
+
+  // ── Inline-edit UX guards ────────────────────────────────────────────
+  // Regression coverage for the rename-with-space → "Validation failed"
+  // dead-end + the keyboard-submit / keep-open-on-failure follow-ups.
+
+  test("rename with invalid name keeps edit open with typed value AND surfaces the actionable field message", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({
+      projects: [project],
+      features: [
+        {
+          id: "feat-edit",
+          projectId: PROJECT_ID,
+          name: "auth",
+          description: "Files under src/auth",
+          source: "agent",
+          fileCount: 0,
+        },
+      ],
+      featureFiles: { "feat-edit": [] },
+    });
+
+    await page.goto(`/project/${PROJECT_ID}/settings`);
+    const table = page.locator("table");
+
+    // Click the name to enter edit mode.
+    await table.getByRole("button", { name: "Edit name" }).click();
+    const nameInput = page.locator('input.font-mono[type="text"]').first();
+    await expect(nameInput).toBeVisible({ timeout: 5000 });
+
+    // Type a bad value (with a space) and press Enter to submit.
+    await nameInput.fill("has a space");
+    await nameInput.press("Enter");
+
+    // Edit row stays open with the typed value preserved.
+    await expect(nameInput).toBeVisible();
+    await expect(nameInput).toHaveValue("has a space");
+
+    // Actionable field message surfaces, not the bare "Validation failed".
+    await expect(
+      page.getByText(
+        /Feature name can only contain letters, numbers, hyphens, and underscores/,
+      ),
+    ).toBeVisible({ timeout: 5000 });
+
+    // Fix the value and Enter again — success path closes the row.
+    await nameInput.fill("auth-renamed");
+    await nameInput.press("Enter");
+    await expect(nameInput).not.toBeVisible({ timeout: 5000 });
+    await expect(table.getByText("auth-renamed")).toBeVisible();
+  });
+
+  test("Escape during rename discards changes and closes the edit row", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({
+      projects: [project],
+      features: [
+        {
+          id: "feat-esc",
+          projectId: PROJECT_ID,
+          name: "auth",
+          description: "Files under src/auth",
+          source: "user",
+          fileCount: 0,
+        },
+      ],
+      featureFiles: { "feat-esc": [] },
+    });
+
+    await page.goto(`/project/${PROJECT_ID}/settings`);
+    const table = page.locator("table");
+
+    await table.getByRole("button", { name: "Edit name" }).click();
+    const nameInput = page.locator('input.font-mono[type="text"]').first();
+    await nameInput.fill("scratch-value");
+    await nameInput.press("Escape");
+
+    // Row closed, original name still in the row (no commit happened).
+    await expect(nameInput).not.toBeVisible({ timeout: 5000 });
+    await expect(table.getByText("auth")).toBeVisible();
+    // The discarded value never lands in the table.
+    await expect(table.getByText("scratch-value")).not.toBeVisible();
+  });
+
+  test("create form: Enter submits, Escape cancels and clears the form", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({
+      projects: [project],
+      features: [],
+      featureFiles: {},
+    });
+
+    await page.goto(`/project/${PROJECT_ID}/settings`);
+
+    // Open the create form.
+    await page.getByRole("button", { name: "+ New feature" }).click();
+    const nameInput = page
+      .getByPlaceholder("Feature name (e.g. chat-attachments)")
+      .first();
+    await expect(nameInput).toBeVisible({ timeout: 5000 });
+
+    // Escape closes and clears.
+    await nameInput.fill("scratch");
+    await nameInput.press("Escape");
+    await expect(nameInput).not.toBeVisible({ timeout: 5000 });
+
+    // Re-open: form is empty, not pre-filled with prior "scratch".
+    await page.getByRole("button", { name: "+ New feature" }).click();
+    const nameInput2 = page
+      .getByPlaceholder("Feature name (e.g. chat-attachments)")
+      .first();
+    await expect(nameInput2).toHaveValue("");
+
+    // Type valid name + Enter → creates the feature, closes the form.
+    await nameInput2.fill("brand-new");
+    await nameInput2.press("Enter");
+    const table = page.locator("table");
+    await expect(table.getByText("brand-new")).toBeVisible({ timeout: 5000 });
+    await expect(nameInput2).not.toBeVisible();
+  });
+
+  test("create form with invalid name surfaces the field message and keeps the typed value", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({
+      projects: [project],
+      features: [],
+      featureFiles: {},
+    });
+
+    await page.goto(`/project/${PROJECT_ID}/settings`);
+    await page.getByRole("button", { name: "+ New feature" }).click();
+    const nameInput = page
+      .getByPlaceholder("Feature name (e.g. chat-attachments)")
+      .first();
+    await nameInput.fill("name with space");
+    await nameInput.press("Enter");
+
+    await expect(nameInput).toHaveValue("name with space");
+    await expect(
+      page.getByText(
+        /Feature name can only contain letters, numbers, hyphens, and underscores/,
+      ),
+    ).toBeVisible({ timeout: 5000 });
+  });
 });
