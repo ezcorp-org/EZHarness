@@ -201,13 +201,56 @@
 				features = features
 					.map((x) => (x.id === f.id ? { ...x, ...updated } : x))
 					.sort((a, b) => a.name.localeCompare(b.name));
-			} else {
+				editingId = null;
+			}
+			// On failure (validation, conflict, etc.) keep the edit row
+			// open with the user's typed values so they can fix the typo
+			// and re-submit. errorMessage carries the actionable text from
+			// readError().
+			else {
 				errorMessage = await readError(res, "Save failed");
 			}
 		} catch (e) {
+			// Network / unexpected error: same UX — keep the values, show
+			// the message, let the user retry without retyping.
 			errorMessage = `Save failed: ${String(e)}`;
-		} finally {
-			editingId = null;
+		}
+	}
+
+	function cancelEdit(): void {
+		errorMessage = null;
+		editingId = null;
+	}
+
+	function cancelCreate(): void {
+		newFeatureOpen = false;
+		newFeatureName = "";
+		newFeatureDescription = "";
+		errorMessage = null;
+	}
+
+	function handleCreateKey(e: KeyboardEvent): void {
+		if (e.key === "Enter" && !e.shiftKey) {
+			e.preventDefault();
+			void handleCreate();
+		} else if (e.key === "Escape") {
+			e.preventDefault();
+			cancelCreate();
+		}
+	}
+
+	/**
+	 * Keyboard handler for the inline name/description inputs. Enter
+	 * commits (Shift+Enter inserts a newline in the textarea), Escape
+	 * discards. Other keys pass through.
+	 */
+	function handleEditKey(e: KeyboardEvent, f: FeatureRow): void {
+		if (e.key === "Enter" && !e.shiftKey) {
+			e.preventDefault();
+			void commitEdit(f);
+		} else if (e.key === "Escape") {
+			e.preventDefault();
+			cancelEdit();
 		}
 	}
 
@@ -386,25 +429,25 @@
 
 	{#if newFeatureOpen}
 		<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-3 space-y-2">
+			<!-- svelte-ignore a11y_autofocus -->
 			<input
 				type="text"
 				bind:value={newFeatureName}
+				onkeydown={handleCreateKey}
+				autofocus
 				placeholder="Feature name (e.g. chat-attachments)"
 				class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
 			/>
 			<textarea
 				bind:value={newFeatureDescription}
+				onkeydown={handleCreateKey}
 				rows={2}
-				placeholder="Optional description"
+				placeholder="Optional description (Shift+Enter for newline)"
 				class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none resize-y"
 			></textarea>
 			<div class="flex justify-end gap-2">
 				<button
-					onclick={() => {
-						newFeatureOpen = false;
-						newFeatureName = "";
-						newFeatureDescription = "";
-					}}
+					onclick={cancelCreate}
 					class="rounded-md px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
 				>
 					Cancel
@@ -458,10 +501,13 @@
 							</td>
 							<td class="px-3 py-2 align-top font-mono text-[var(--color-text-primary)]">
 								{#if editingId === f.id}
+									<!-- svelte-ignore a11y_autofocus -->
 									<input
 										type="text"
 										bind:value={editName}
 										onblur={() => commitEdit(f)}
+										onkeydown={(e) => handleEditKey(e, f)}
+										autofocus
 										class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-sm font-mono"
 									/>
 								{:else}
@@ -479,6 +525,7 @@
 									<textarea
 										bind:value={editDescription}
 										onblur={() => commitEdit(f)}
+										onkeydown={(e) => handleEditKey(e, f)}
 										rows={1}
 										class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-sm resize-y"
 									></textarea>
