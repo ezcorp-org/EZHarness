@@ -30,6 +30,14 @@ export interface ScannedFeature {
   name: string;
   /** Placeholder description users can edit later. */
   description: string;
+  /**
+   * Project-relative directory path this feature was derived from
+   * (e.g. `src/chat/attachments` or `web/src/components`). The rescan
+   * endpoint matches existing rows by this immutable identity FIRST,
+   * so a user-renamed feature stays linked to its source dir instead
+   * of getting silently shadowed by a fresh agent row.
+   */
+  originPath: string;
   /** Project-relative file paths under the feature's directory, sorted. */
   files: string[];
 }
@@ -253,6 +261,7 @@ export async function scanFeatures(projectRoot: string): Promise<ScannedFeature[
       features.push({
         name: slug,
         description: `Files under ${featureRelPath}`,
+        originPath: featureRelPath,
         files,
       });
     }

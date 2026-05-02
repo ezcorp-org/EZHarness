@@ -903,12 +903,12 @@ describe("POST /api/projects/:id/features/scan — hybrid-ownership invariants",
     expect(bySource.get("src/featA/c.ts")).toBe("scan");
   });
 
-  test("HEADLINE: user-renamed feature survives rescan (description NOT clobbered)", async () => {
+  test("HEADLINE: user-renamed feature survives rescan and ABSORBS the rescan candidate (no duplicate)", async () => {
     await mkdir(resolve(projectRoot, "src/featB"), { recursive: true });
     await writeFile(resolve(projectRoot, "src/featB/a.ts"), "a");
     await writeFile(resolve(projectRoot, "src/featB/b.ts"), "b");
 
-    // Initial scan creates agent feature.
+    // Initial scan creates the agent feature with originPath='src/featB'.
     await call(
       POST_scan,
       createMockEvent({
@@ -920,8 +920,11 @@ describe("POST /api/projects/:id/features/scan — hybrid-ownership invariants",
     const before = await getFeature(projectId, "featB");
     expect(before!.source).toBe("agent");
     expect(before!.description).toBe("Files under src/featB");
+    expect(before!.originPath).toBe("src/featB");
 
     // User renames + edits description (PATCH flips source → 'user').
+    // Critical: originPath stays put — that's the immutable link back
+    // to the source dir that lets the next rescan re-find this row.
     const patchRes = await call(
       PATCH,
       createMockEvent({
@@ -933,10 +936,15 @@ describe("POST /api/projects/:id/features/scan — hybrid-ownership invariants",
     );
     expect(patchRes.status).toBe(200);
 
-    // Rescan — even though the FS still produces a `featB` candidate,
-    // there is no longer an `agent`-sourced row by that name, so a NEW
-    // agent feature `featB` will be created. The user-renamed feature
-    // (now called `user-renamed`) must NOT be touched.
+    // Add a new file in the source dir so the rescan has something
+    // fresh to surface — and so we can assert files actually flow into
+    // the renamed row (not into a duplicate).
+    await writeFile(resolve(projectRoot, "src/featB/c.ts"), "c");
+
+    // Rescan: scanner produces a candidate with originPath='src/featB'.
+    // The endpoint matches it to the user-renamed row by originPath
+    // and refreshes the agent file slice. NO `featB` duplicate should
+    // ever appear in the output.
     const scanRes = await call(
       POST_scan,
       createMockEvent({
@@ -946,10 +954,68 @@ describe("POST /api/projects/:id/features/scan — hybrid-ownership invariants",
       }),
     );
     const list = await jsonFromResponse(scanRes);
+
+    // No duplicate row under the original slug — this is the user-
+    // visible bug fix. Before originPath tracking, a fresh agent row
+    // named `featB` would have appeared alongside `user-renamed`.
+    const featBDup = list.find((f: any) => f.name === "featB");
+    expect(featBDup).toBeUndefined();
+
+    // The renamed row is intact: name, description, and source-flip
+    // all preserved.
     const userRenamed = list.find((f: any) => f.name === "user-renamed");
     expect(userRenamed).toBeDefined();
     expect(userRenamed.source).toBe("user");
     expect(userRenamed.description).toBe("Authentication module");
+    expect(userRenamed.originPath).toBe("src/featB");
+
+    // Files from the rescan flow into the renamed row, not a duplicate.
+    const reloaded = await getFeature(projectId, "user-renamed");
+    const paths = reloaded!.files.map((f) => f.relpath).sort();
+    expect(paths).toEqual([
+      "src/featB/a.ts",
+      "src/featB/b.ts",
+      "src/featB/c.ts",
+    ]);
+    // And those files are scan-sourced (not user-pinned).
+    for (const f of reloaded!.files) {
+      expect(f.source).toBe("scan");
+    }
+  });
+
+  test("backfill: legacy agent row with originPath=null is matched by name and updated with originPath", async () => {
+    // Simulates an upgrade path: a row created before originPath
+    // tracking existed (originPath null in DB). On rescan we want to
+    // (a) match it by name fallback, (b) backfill originPath so the
+    // NEXT rescan uses the fast path and survives a future rename.
+    await mkdir(resolve(projectRoot, "src/legacy-feat"), { recursive: true });
+    await writeFile(resolve(projectRoot, "src/legacy-feat/a.ts"), "a");
+    await writeFile(resolve(projectRoot, "src/legacy-feat/b.ts"), "b");
+
+    // Seed an agent-sourced row with NO originPath (the legacy shape).
+    const legacy = await createFeature({
+      projectId,
+      name: "legacy-feat",
+      description: "Files under src/legacy-feat",
+      source: "agent",
+      // originPath intentionally omitted → null
+    });
+    expect(legacy.originPath).toBeNull();
+
+    // Rescan triggers the name-fallback branch + backfill.
+    const res = await call(
+      POST_scan,
+      createMockEvent({
+        method: "POST",
+        params: { id: projectId },
+        user: MEMBER_USER,
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    const reloaded = await getFeature(projectId, "legacy-feat");
+    expect(reloaded!.id).toBe(legacy.id); // Same row, not a new one.
+    expect(reloaded!.originPath).toBe("src/legacy-feat"); // Backfilled.
   });
 
   test("rescan over a user-sourced feature with the SAME slug: description preserved, agent files refreshed", async () => {

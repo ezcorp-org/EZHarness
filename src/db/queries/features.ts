@@ -124,6 +124,13 @@ export interface CreateFeatureInput {
   description?: string;
   /** 'user' for user-created (default) or 'agent' for scan-discovered. */
   source?: "user" | "agent";
+  /**
+   * Source directory the scanner derived this feature from. Set on
+   * agent-created rows so a later rescan can re-link a user-renamed
+   * feature to its origin dir instead of creating a duplicate. Null
+   * for hand-created user features.
+   */
+  originPath?: string | null;
 }
 
 export async function createFeature(input: CreateFeatureInput): Promise<Feature> {
@@ -136,6 +143,7 @@ export async function createFeature(input: CreateFeatureInput): Promise<Feature>
     name: input.name,
     description: input.description ?? "",
     source: input.source ?? "user",
+    originPath: input.originPath ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -146,11 +154,35 @@ export async function createFeature(input: CreateFeatureInput): Promise<Feature>
   return inserted[0]!;
 }
 
+/**
+ * Look up a feature by (projectId, originPath). Returns the row that
+ * the scanner originally produced for this directory, regardless of
+ * whether the user has since renamed it. Used by the rescan endpoint
+ * to keep agent → user-renamed links intact across rescans.
+ */
+export async function getFeatureByOriginPath(
+  projectId: string,
+  originPath: string,
+): Promise<Feature | undefined> {
+  if (!projectId || !originPath) return undefined;
+  const rows = (await getDb()
+    .select()
+    .from(features)
+    .where(and(eq(features.projectId, projectId), eq(features.originPath, originPath)))) as Feature[];
+  return rows[0];
+}
+
 export interface UpdateFeatureInput {
   name?: string;
   description?: string;
   /** Pass 'user' to flip ownership (the REST PATCH does this on agent rows). */
   source?: "user" | "agent";
+  /**
+   * Backfill / correction only — the rescan endpoint sets this when it
+   * matches a legacy row (originPath was null) by name and wants to
+   * remember the link for future rescans.
+   */
+  originPath?: string | null;
 }
 
 /**
@@ -172,6 +204,7 @@ export async function updateFeature(
   if (patch.name !== undefined) updates.name = patch.name;
   if (patch.description !== undefined) updates.description = patch.description;
   if (patch.source !== undefined) updates.source = patch.source;
+  if (patch.originPath !== undefined) updates.originPath = patch.originPath;
 
   const rows = (await getDb()
     .update(features)

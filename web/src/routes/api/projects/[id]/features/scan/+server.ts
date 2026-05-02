@@ -40,14 +40,42 @@ export const POST: RequestHandler = async ({ params, locals }) => {
   const projectRoot = resolve(project.path);
   const scanned = await scanFeatures(projectRoot);
 
-  // Index existing features by name for the upsert pass. Pulling them
-  // all once (per project, sub-100 features in practice) is cheaper
-  // than a getFeature() round trip per scanned candidate.
+  // Index existing features twice: once by `originPath` (the scanner-
+  // recorded source dir, immutable across renames), once by `name` (a
+  // back-compat fallback for legacy rows that predate the originPath
+  // column or hand-created user features that happen to collide on
+  // slug). Match originPath FIRST — that's how a user-renamed feature
+  // stays linked to its source dir on rescan instead of being silently
+  // shadowed by a fresh agent row under the original slug.
+  //
+  // Pulling all features once (per project, sub-100 features in
+  // practice) is cheaper than a per-candidate round trip.
   const existing = await featureQueries.listFeatures(params.id);
-  const byName = new Map(existing.map((f) => [f.name, f]));
+  const byOriginPath = new Map<string, (typeof existing)[number]>();
+  const byName = new Map<string, (typeof existing)[number]>();
+  for (const f of existing) {
+    if (f.originPath) byOriginPath.set(f.originPath, f);
+    byName.set(f.name, f);
+  }
 
   for (const candidate of scanned) {
-    const prior = byName.get(candidate.name);
+    // Prefer originPath match (survives renames). Fall back to name
+    // for legacy rows where originPath is null — those will be
+    // backfilled on this same pass so subsequent scans use the fast
+    // path. Avoid double-binding a single existing row to two scanned
+    // candidates: a name-fallback hit is only valid if the row has no
+    // originPath yet (otherwise it's already linked to a different
+    // dir and we should treat the slug-collision candidate as new).
+    let prior = byOriginPath.get(candidate.originPath);
+    let priorMatchedByName = false;
+    if (!prior) {
+      const byNameMatch = byName.get(candidate.name);
+      if (byNameMatch && !byNameMatch.originPath) {
+        prior = byNameMatch;
+        priorMatchedByName = true;
+      }
+    }
+
     if (!prior) {
       // Brand-new agent-discovered feature.
       const created = await featureQueries.createFeature({
@@ -55,16 +83,25 @@ export const POST: RequestHandler = async ({ params, locals }) => {
         name: candidate.name,
         description: candidate.description,
         source: "agent",
+        originPath: candidate.originPath,
       });
       await featureQueries.replaceAgentFiles(created.id, candidate.files);
       continue;
     }
 
+    // Backfill originPath on legacy rows we matched by name, so the
+    // next rescan can use the fast path (and survive a future rename).
+    // Don't overwrite a non-null originPath even if the matched row
+    // somehow had a stale one — that would be lossy.
+    if (priorMatchedByName && !prior.originPath) {
+      await featureQueries.updateFeature(prior.id, { originPath: candidate.originPath });
+    }
+
     if (prior.source === "user") {
-      // User has claimed this slug — do NOT touch the description or
-      // source. Refresh only the agent file slice (replaceAgentFiles
-      // never deletes user-pinned rows, so this is safe even on
-      // user-owned features).
+      // User has claimed this row (renamed or hand-created) — do NOT
+      // touch name, description, or source. Refresh only the agent
+      // file slice (replaceAgentFiles never deletes user-pinned rows,
+      // so this is safe even on user-owned features).
       await featureQueries.replaceAgentFiles(prior.id, candidate.files);
       continue;
     }

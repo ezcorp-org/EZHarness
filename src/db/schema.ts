@@ -624,10 +624,19 @@ export const features = pgTable("features", {
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
   source: text("source").notNull().default("user").$type<"user" | "agent">(),
+  // Project-relative directory path the agent scanner derived this
+  // feature from (e.g. `src/chat/attachments`). Survives renames so
+  // that a user-renamed feature stays linked to its source dir on the
+  // next rescan, instead of the rescan creating a fresh duplicate
+  // under the original slug. Null for hand-created (user-source) rows
+  // that have no scanner origin, and null on rows created before this
+  // column existed (back-compat).
+  originPath: text("origin_path"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("idx_features_project").on(table.projectId),
+  index("idx_features_origin_path").on(table.projectId, table.originPath),
   // Slug uniqueness is per-project, enforced by a partial-free unique
   // index on (project_id, name); declared as a UNIQUE constraint in
   // migrate.ts so PGlite + external Postgres both accept it.

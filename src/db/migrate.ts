@@ -962,4 +962,11 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
     )
   `);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_feature_files_feature ON feature_files(feature_id)`);
+
+  // origin_path: directory the scanner derived the feature from. Lets
+  // a rescan re-link a user-renamed feature to its source dir instead
+  // of creating a fresh duplicate. Nullable: legacy rows + hand-created
+  // user features have no scanner origin.
+  await db.execute(sql`ALTER TABLE features ADD COLUMN IF NOT EXISTS origin_path TEXT`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_features_origin_path ON features(project_id, origin_path)`);
 }
