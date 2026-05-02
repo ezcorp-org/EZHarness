@@ -54,20 +54,19 @@ export const GET: RequestHandler = async ({ params, locals }) => {
  * from PATCH-ing a different project's feature by guessing its uuid).
  */
 
-async function loadFeatureScopedToProject(
-  projectId: string,
-  featureId: string,
-): Promise<Awaited<ReturnType<typeof featureQueries.listFeatures>>[number] | undefined> {
-  const features = await featureQueries.listFeatures(projectId);
-  return features.find((f) => f.id === featureId);
-}
+// Note: PATCH and DELETE both use `getFeatureById(projectId, featureId)`
+// directly. The previous `loadFeatureScopedToProject` helper called
+// `listFeatures(projectId)` and scanned the result — O(N) read for an
+// O(1) need. Audit defect C5 (closed alongside this refactor); the
+// helper introduced for D4's GET endpoint is the right primitive for
+// every per-feature scoped lookup.
 
 export const PATCH: RequestHandler = async ({ request, params, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
   requireAuth(locals);
 
-  const existing = await loadFeatureScopedToProject(params.id, params.featureId);
+  const existing = await featureQueries.getFeatureById(params.id, params.featureId);
   if (!existing) return errorJson(404, "Feature not found");
 
   const parsed = updateFeatureSchema.safeParse(await request.json().catch(() => ({})));
@@ -155,7 +154,7 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   if (scopeErr) return scopeErr;
   requireAuth(locals);
 
-  const existing = await loadFeatureScopedToProject(params.id, params.featureId);
+  const existing = await featureQueries.getFeatureById(params.id, params.featureId);
   if (!existing) return errorJson(404, "Feature not found");
 
   await featureQueries.deleteFeature(params.featureId);

@@ -21,10 +21,15 @@
 import { readdir, realpath, stat } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { parseCommandFile } from "./parser";
+import { EXCLUDED_DIR_NAMES, realpathInsideRoot } from "../fs/scan-fs";
 
 export const COMMAND_BODY_MAX_BYTES = 64 * 1024;
 export const COMMAND_COUNT_MAX = 500;
-const EXCLUDED_DIR_NAMES = new Set<string>(["node_modules", ".git", ".ezcorp"]);
+// EXCLUDED_DIR_NAMES is now imported from runtime/fs/scan-fs so the
+// scanner, the @[file:…] autocomplete, and slash-command discovery all
+// share one exclusion list. Adding `dist` or `build` etc. updates every
+// call site at once. (Audit defect C11 close-out — pre-existing
+// duplication, byte-identical to the shared module's export.)
 
 export type CommandSource =
   | "project:claude-commands"
@@ -67,18 +72,11 @@ const HOME_ROOTS: Array<{ rel: string; source: CommandSource }> = [
   { rel: "agents", source: "user:agents" },
 ];
 
-/**
- * Resolve `absPath` through realpath and confirm it still lives inside
- * `realRoot` (which itself must already be a resolved real path).
- */
-async function insideRoot(realRoot: string, absPath: string): Promise<boolean> {
-  try {
-    const real = await realpath(absPath);
-    return real === realRoot || real.startsWith(realRoot + "/");
-  } catch {
-    return false;
-  }
-}
+// `insideRoot` is now an alias for `realpathInsideRoot` from
+// runtime/fs/scan-fs — the previous local implementation was
+// byte-identical to the shared one. Retained as a local name so the
+// existing call sites below read unchanged. (Audit C11.)
+const insideRoot = realpathInsideRoot;
 
 /**
  * Recursively collect `.md` files inside `dir`, constrained to the resolved
