@@ -13,7 +13,14 @@ class ToastStore {
 	private timers = new Map<string, ReturnType<typeof setTimeout>>();
 
 	add(toast: Omit<ToastData, 'id' | 'dismissAt'>, duration = 5000) {
-		const id = crypto.randomUUID();
+		// `crypto.randomUUID()` is gated to secure contexts (HTTPS or
+		// localhost). Tailscale and other plain-HTTP hosts hit the
+		// non-secure path; fall back to a timestamp+random id since we
+		// only need uniqueness within the active toast set.
+		const id =
+			typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+				? crypto.randomUUID()
+				: `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 		const dismissAt = Date.now() + duration;
 		const entry: ToastData = { ...toast, id, dismissAt };
 
