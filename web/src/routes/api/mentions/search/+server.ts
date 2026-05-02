@@ -5,18 +5,17 @@ import { requireScope } from "$lib/server/security/api-keys";
 import { getDb } from "$server/db/connection";
 import { extensions, agentConfigs } from "$server/db/schema";
 import { eq, and, or, ilike } from "drizzle-orm";
-import { readdir, realpath } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import * as projectQueries from "$server/db/queries/projects";
 import { fuzzyScore } from "$lib/fuzzy-match";
+import {
+	EXCLUDED_DIR_NAMES,
+	listFilteredChildren,
+} from "$server/runtime/fs/scan-fs";
 import type { RequestHandler } from "./$types";
 
 const MAX_RESULTS = 10;
-
-// Directory entries we never surface in file-mention autocomplete. Matches
-// the UX rules we've agreed on with the user: hidden dotfiles, dependency
-// folders, git metadata, and our own extension-data directory.
-const EXCLUDED_DIR_NAMES = new Set<string>(["node_modules", ".git", ".ezcorp"]);
 
 type FileType = "ext" | "agent" | "team" | "path" | "cmd";
 
@@ -28,7 +27,10 @@ interface PathCandidate {
 
 /**
  * Read a single directory's direct children and push matching entries into
- * `out`. Respects the exclusion list + symlink-escape check.
+ * `out`. Delegates the dotfile + EXCLUDED_DIR_NAMES + symlink-escape
+ * filtering to the shared `listFilteredChildren` helper so the scanner
+ * (`src/runtime/scan/feature-scan.ts`) and this autocomplete stay in
+ * lockstep — adding a new exclusion in scan-fs.ts updates both call sites.
  */
 async function readDirectChildren(
 	realRoot: string,
@@ -36,35 +38,9 @@ async function readDirectChildren(
 	relDirPrefix: string,
 	out: PathCandidate[],
 ): Promise<void> {
-	async function insideRoot(absPath: string): Promise<boolean> {
-		try {
-			const real = await realpath(absPath);
-			return real === realRoot || real.startsWith(realRoot + "/");
-		} catch {
-			return false;
-		}
-	}
-
-	if (!(await insideRoot(absDir))) return;
-
-	let entries: import("node:fs").Dirent[];
-	try {
-		entries = await readdir(absDir, { withFileTypes: true });
-	} catch {
-		return;
-	}
-	for (const d of entries) {
-		if (d.name.startsWith(".")) continue;
-		if (EXCLUDED_DIR_NAMES.has(d.name)) continue;
-		const abs = join(absDir, d.name);
-		if (!(await insideRoot(abs))) continue;
-		const rel = relDirPrefix ? `${relDirPrefix}/${d.name}` : d.name;
-		if (d.isDirectory()) {
-			out.push({ name: rel, description: abs, kind: "dir" });
-			continue;
-		}
-		if (!d.isFile() && !d.isSymbolicLink()) continue;
-		out.push({ name: rel, description: abs, kind: "file" });
+	const children = await listFilteredChildren(realRoot, absDir, relDirPrefix);
+	for (const c of children) {
+		out.push({ name: c.relPath, description: c.abs, kind: c.kind });
 	}
 }
 
