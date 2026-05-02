@@ -815,6 +815,22 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 				return route.fulfill({ json: { ok: true } });
 			}
 
+			// GET /api/projects/:id/features/:featureId — per-feature read
+			// (used by FeatureIndex.svelte's row expand to fetch the file
+			// list lazily; the list endpoint only includes counts).
+			if (method === "GET") {
+				const filesArr = (featureFiles[featureId] ?? [])
+					.slice()
+					.sort((a, b) => a.relpath.localeCompare(b.relpath));
+				return route.fulfill({
+					json: {
+						...target,
+						files: filesArr,
+						fileCount: filesArr.length,
+					},
+				});
+			}
+
 			if (method === "PATCH") {
 				const body = (route.request().postDataJSON() ?? {}) as {
 					name?: string;
