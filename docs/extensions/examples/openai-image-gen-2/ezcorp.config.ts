@@ -6,9 +6,12 @@ export default defineExtension({
   version: "1.0.0",
   description:
     "Generate or edit raster images with OpenAI's gpt-image-* models. " +
-    "Returns the bitmap inline as a data:image/ URL so it renders directly " +
-    "in chat. Uses your subscription OAuth token via the Codex Responses API " +
-    "when available, or a classic sk-… API key against the Images API.",
+    "Persists each image under .ezcorp/extension-data/openai-image-gen-2/ " +
+    "and returns a markdown reference to a /api/ext-files/openai-image-gen-2/<relPath> " +
+    "URL — keeping image bytes out of the model's context window. " +
+    "The same URL form is accepted back by the `edit` tool so the model can " +
+    "modify a prior turn's image. Uses your subscription OAuth token via the " +
+    "Codex Responses API when available, or a classic sk-… API key against the Images API.",
   author: { name: "EZCorp" },
   entrypoint: "./index.ts",
   tools: [
@@ -16,7 +19,10 @@ export default defineExtension({
       name: "generate",
       description:
         "Create a new image from a text prompt. Returns a markdown image " +
-        "reference with a data:image/ URI that renders inline in chat.",
+        "reference pointing at a /api/ext-files/openai-image-gen-2/<relPath> " +
+        "URL — the bytes live on disk under .ezcorp/extension-data/, NOT inline " +
+        "in the result, so prior turns don't blow up the model's context window. " +
+        "To modify the result later, pass that same URL back to the `edit` tool.",
       inputSchema: {
         type: "object",
         required: ["prompt"],
@@ -52,8 +58,12 @@ export default defineExtension({
     {
       name: "edit",
       description:
-        "Edit input images with a prompt. Accepts data:image/ URIs or https:// URLs. " +
-        "Returns a markdown image reference with a data:image/ URI.",
+        "Edit input images with a prompt. Each image is a URL string in one of three forms: " +
+        "(1) `data:image/<type>;base64,...` data URIs; (2) `https://...` URLs; " +
+        "(3) `/api/ext-files/openai-image-gen-2/<relPath>` — the same URL form this " +
+        "tool emits in its own results, so to modify an image you (or a prior turn) " +
+        "generated, pass that URL straight back in here. Use this tool — NOT `generate` — " +
+        "for any modification of a prior image.",
       inputSchema: {
         type: "object",
         required: ["prompt", "images"],
@@ -63,7 +73,14 @@ export default defineExtension({
             type: "array",
             minItems: 1,
             maxItems: 4,
-            items: { type: "string" },
+            items: {
+              type: "string",
+              description:
+                "An image URL: `data:image/<type>;base64,<...>` data URI, `https://...` URL, " +
+                "or `/api/ext-files/openai-image-gen-2/<relPath>` URL (use this last form to " +
+                "edit an image previously produced by this tool — copy the URL out of the " +
+                "prior tool result's markdown).",
+            },
           },
           mask: { type: "string" },
           model: {

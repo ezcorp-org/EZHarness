@@ -12,6 +12,13 @@
 // SSE, pluck base64 images out of `image_generation_call` outputs.
 
 import { fetchPermitted } from "@ezcorp/sdk/runtime";
+import {
+  ACCEPTED_IMAGE_REF_HELP,
+  isAcceptedImageRef,
+  isExtFileUrl,
+  readExtFileBytes,
+  resolveExtFileUrl,
+} from "./ext-files";
 
 export const CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses";
 const JWT_CLAIM_PATH = "https://api.openai.com/auth";
@@ -126,6 +133,60 @@ export function buildRequestBody(o: CodexImageOptions): Record<string, unknown> 
   };
 }
 
+// ── Input image materialization ──────────────────────────────────────
+
+// Codex's ChatGPT-account backend cannot reach the host's localhost
+// `/api/ext-files/...` URLs — those are served by the EZCorp web layer,
+// not the public internet. So before sending, we resolve any ext-files
+// URLs locally and inline the bytes as base64 data: URIs. `data:` and
+// `https://` entries pass through untouched.
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+  return btoa(bin);
+}
+
+export async function materializeInputImages(
+  inputImages: readonly string[] | undefined,
+  cwd: string = process.cwd(),
+): Promise<string[]> {
+  if (!inputImages || inputImages.length === 0) return [];
+  const out: string[] = [];
+  for (const img of inputImages) {
+    // Symmetric URL-form check with the BYOK path (validateEditParams in
+    // openai-client.ts). Without this, an unknown-namespace ext-files URL
+    // — e.g. `/api/ext-files/<other-ext>/foo.png` — would fall through
+    // and be sent as an opaque image_url to the Codex backend, which
+    // can't fetch localhost and would surface an unclear `api` error.
+    if (!isAcceptedImageRef(img)) {
+      throw new CodexImageError("validation", ACCEPTED_IMAGE_REF_HELP);
+    }
+    if (!isExtFileUrl(img)) {
+      out.push(img);
+      continue;
+    }
+    const resolved = resolveExtFileUrl(img, cwd);
+    if (!resolved) {
+      throw new CodexImageError(
+        "validation",
+        `ext-files URL is malformed or escapes the extension data root: ${img}`,
+      );
+    }
+    let bytes: Uint8Array;
+    let mimeType: string;
+    try {
+      ({ bytes, mimeType } = await readExtFileBytes(resolved.absPath));
+    } catch {
+      throw new CodexImageError(
+        "validation",
+        `ext-files URL points to a missing file (the prior generation may have been cleaned up): ${img}`,
+      );
+    }
+    out.push(`data:${mimeType};base64,${bytesToBase64(bytes)}`);
+  }
+  return out;
+}
+
 // ── SSE parsing ──────────────────────────────────────────────────────
 
 type SSEEvent = { event?: string; data?: string };
@@ -227,6 +288,14 @@ export async function generateViaCodex(
   const accountId = extractChatGPTAccountId(token);
   const fetcher = opts.fetcher ?? fetchPermitted;
 
+  // Inline ext-files URLs to data: URIs before the request leaves the
+  // host — the Codex backend can't fetch our localhost routes.
+  const materializedInputImages = await materializeInputImages(options.inputImages);
+  const effectiveOptions: CodexImageOptions = {
+    ...options,
+    inputImages: materializedInputImages,
+  };
+
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     "chatgpt-account-id": accountId,
@@ -240,7 +309,7 @@ export async function generateViaCodex(
   const res = await fetcher(CODEX_RESPONSES_URL, {
     method: "POST",
     headers,
-    body: JSON.stringify(buildRequestBody(options)),
+    body: JSON.stringify(buildRequestBody(effectiveOptions)),
   });
 
   if (!res.ok) {

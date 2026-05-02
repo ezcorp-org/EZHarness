@@ -59,6 +59,41 @@ Use-case slugs (keep consistent):
 Keep augmentation light. If the user's prompt is already specific, just
 normalize it; don't inflate.
 
+## Editing prior generations
+
+When the user asks you to **modify, tweak, change, refine, or iterate on**
+an image you (or an earlier turn) just generated with this extension,
+call **`edit`** — never `generate`. `generate` produces a fresh image
+unrelated to the prior one; `edit` is the only path that modifies it.
+
+Every `generate` / `edit` result is rendered as markdown like:
+
+```
+![alt text](/api/ext-files/openai-image-gen-2/generated/<uuid>.png)
+```
+
+That URL is itself a valid `images` entry for `edit`. To modify the
+prior image, copy the URL out of the prior tool result's markdown and
+pass it through:
+
+```
+edit({
+  prompt: "make the sky overcast, keep everything else identical",
+  images: ["/api/ext-files/openai-image-gen-2/generated/<uuid>.png"]
+})
+```
+
+The extension resolves the URL to bytes locally before sending — both
+on the OAuth path (data URI inlined for the Codex backend) and on the
+BYOK path (multipart upload).
+
+Iterate one change at a time. Repeat the invariants ("keep everything
+else identical", "same camera angle", etc.) every turn — it cuts down
+on drift across edits.
+
+If the file no longer exists on disk you'll get a clear validation
+error; ask the user for the image again or regenerate from scratch.
+
 ## Best practices
 
 - Structure: scene/backdrop → subject → details → constraints.

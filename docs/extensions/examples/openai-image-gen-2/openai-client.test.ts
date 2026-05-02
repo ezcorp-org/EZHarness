@@ -1,4 +1,7 @@
-import { describe, expect, test, beforeEach, mock } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 let nextResponse: () => Response = () => new Response("{}");
 let captured: { url: string; init?: RequestInit } | null = null;
@@ -99,15 +102,49 @@ describe("validateEditParams", () => {
     ).toThrow(/4/);
   });
   test("rejects bad image scheme", () => {
-    expect(() => validateEditParams({ prompt: "x", images: ["ftp://x"] })).toThrow(/data.*https/);
+    expect(() => validateEditParams({ prompt: "x", images: ["ftp://x"] })).toThrow(/data.*https.*ext-files/);
   });
   test("accepts data: and https: image refs", () => {
     expect(() => validateEditParams({ prompt: "x", images: ["https://x/1.png", "data:image/png;base64,AA"] })).not.toThrow();
+  });
+  test("accepts /api/ext-files/openai-image-gen-2/<relPath> URL (symmetric with tool's own output)", () => {
+    expect(() =>
+      validateEditParams({
+        prompt: "x",
+        images: ["/api/ext-files/openai-image-gen-2/generated/abc.png"],
+      }),
+    ).not.toThrow();
+  });
+  test("rejects /api/ext-files/<other-ext>/... — only this extension's namespace is allowed", () => {
+    expect(() =>
+      validateEditParams({ prompt: "x", images: ["/api/ext-files/some-other-ext/x.png"] }),
+    ).toThrow(/data.*https.*ext-files/);
+  });
+  test("validates EVERY image — bad entry after accepted entries still triggers rejection", () => {
+    // Coverage gap: ensure the loop iterates all the way to the bad
+    // element even when earlier ones are valid. A regression that
+    // exited after the first valid entry would silently let `ftp://bad`
+    // through.
+    expect(() =>
+      validateEditParams({
+        prompt: "x",
+        images: ["https://ok.test/1.png", "ftp://bad"],
+      }),
+    ).toThrow(/data.*https.*ext-files/);
   });
   test("rejects invalid mask", () => {
     expect(() =>
       validateEditParams({ prompt: "x", images: ["https://x/1.png"], mask: "ftp://m" }),
     ).toThrow(/mask/);
+  });
+  test("accepts ext-files URL as mask", () => {
+    expect(() =>
+      validateEditParams({
+        prompt: "x",
+        images: ["https://x/1.png"],
+        mask: "/api/ext-files/openai-image-gen-2/generated/m.png",
+      }),
+    ).not.toThrow();
   });
   test("rejects empty-string image entry", () => {
     expect(() => validateEditParams({ prompt: "x", images: ["", "https://x/1.png"] })).toThrow(/non-empty/);
@@ -279,5 +316,105 @@ describe("edit", () => {
     expect(fd.get("background")).toBe("transparent");
     expect(fd.get("input_fidelity")).toBe("high");
     expect(fd.get("output_compression")).toBe("60");
+  });
+});
+
+describe("edit with ext-files URLs", () => {
+  const FAKE = "aGVsbG8=";
+  const PIC_BYTES = "PNGBYTES";
+  let projectRoot = "";
+  let prevCwd = "";
+
+  beforeEach(() => {
+    projectRoot = mkdtempSync(join(tmpdir(), "oig2-cli-"));
+    const dir = join(projectRoot, ".ezcorp", "extension-data", "openai-image-gen-2", "generated");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "pic.png"), PIC_BYTES);
+    prevCwd = process.cwd();
+    process.chdir(projectRoot);
+  });
+
+  afterEach(() => {
+    if (prevCwd) process.chdir(prevCwd);
+    if (projectRoot) {
+      try { rmSync(projectRoot, { recursive: true, force: true }); } catch {}
+      projectRoot = "";
+    }
+  });
+
+  test("end-to-end: ext-files URL → FormData carries the resolved disk bytes (no network fetch)", async () => {
+    let editInit: RequestInit | null = null;
+    const fetcher = async (u: string | URL, init?: RequestInit) => {
+      if (String(u).includes("/v1/images/edits")) {
+        editInit = init ?? null;
+        return new Response(JSON.stringify({ data: [{ b64_json: FAKE }] }));
+      }
+      // No other fetches should happen — ext-files URLs resolve locally.
+      throw new Error(`unexpected fetch: ${String(u)}`);
+    };
+    await edit(
+      { prompt: "p", images: ["/api/ext-files/openai-image-gen-2/generated/pic.png"] },
+      { env: { OPENAI_API_KEY: "sk-t" }, fetcher },
+    );
+    const fd = editInit!.body as FormData;
+    const blobs = fd.getAll("image[]") as Blob[];
+    expect(blobs.length).toBe(1);
+    expect(blobs[0]!.type).toBe("image/png");
+    expect(await blobs[0]!.text()).toBe(PIC_BYTES);
+  });
+
+  test("missing file produces a clear validation error mentioning the URL", async () => {
+    try {
+      await edit(
+        { prompt: "p", images: ["/api/ext-files/openai-image-gen-2/generated/nope.png"] },
+        { env: { OPENAI_API_KEY: "sk-t" } },
+      );
+      expect.unreachable();
+    } catch (e) {
+      expect((e as OpenAIImageError).code).toBe("validation");
+      expect((e as Error).message).toContain("missing file");
+      expect((e as Error).message).toContain("nope.png");
+    }
+  });
+
+  test("malformed ext-files URL (escapes root) → validation error", async () => {
+    try {
+      await edit(
+        {
+          prompt: "p",
+          images: ["/api/ext-files/openai-image-gen-2/../../etc/passwd"],
+        },
+        { env: { OPENAI_API_KEY: "sk-t" } },
+      );
+      expect.unreachable();
+    } catch (e) {
+      expect((e as OpenAIImageError).code).toBe("validation");
+      expect((e as Error).message).toMatch(/malformed|escapes/);
+    }
+  });
+
+  test("mixed images: data: + ext-files + https: all resolve and are uploaded", async () => {
+    let editInit: RequestInit | null = null;
+    const fetcher = async (u: string | URL, init?: RequestInit) => {
+      if (String(u).includes("/v1/images/edits")) {
+        editInit = init ?? null;
+        return new Response(JSON.stringify({ data: [{ b64_json: FAKE }] }));
+      }
+      // https:// fetches still go through the fetcher.
+      return new Response(new Uint8Array([7, 8, 9]), { headers: { "content-type": "image/png" } });
+    };
+    await edit(
+      {
+        prompt: "p",
+        images: [
+          "data:image/png;base64,AAAA",
+          "/api/ext-files/openai-image-gen-2/generated/pic.png",
+          "https://img.test/3.png",
+        ],
+      },
+      { env: { OPENAI_API_KEY: "sk-t" }, fetcher },
+    );
+    const fd = editInit!.body as FormData;
+    expect(fd.getAll("image[]").length).toBe(3);
   });
 });

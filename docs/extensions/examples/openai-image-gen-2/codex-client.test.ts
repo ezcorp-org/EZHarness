@@ -1,4 +1,7 @@
-import { describe, expect, test, beforeEach, mock } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // Mock fetchPermitted so tests don't hit the real network. Each test can
 // override nextResponse.
@@ -20,7 +23,7 @@ import {
   CODEX_IMAGE_TOOL_TYPE, CODEX_INSTRUCTIONS, CODEX_RESPONSES_URL,
   CodexImageError, DEFAULT_CODEX_MODEL, buildRequestBody,
   extractChatGPTAccountId, extractImagesFromStream, generateViaCodex,
-  parseSSE, resolveCodexModel,
+  materializeInputImages, parseSSE, resolveCodexModel,
 } from "./codex-client";
 
 function makeToken(claimPayload: Record<string, unknown>): string {
@@ -303,5 +306,161 @@ describe("generateViaCodex", () => {
   test("no body → api error", async () => {
     const fetcher = async () => new Response(null, { status: 200 });
     await expect(generateViaCodex(VALID, { prompt: "x" }, { fetcher })).rejects.toMatchObject({ code: "api" });
+  });
+});
+
+describe("materializeInputImages + generateViaCodex with ext-files URLs", () => {
+  const VALID = makeToken({ "https://api.openai.com/auth": { chatgpt_account_id: "acc-1" } });
+  const PIC_BYTES = "PNGBYTES";
+  let projectRoot = "";
+  let prevCwd = "";
+
+  beforeEach(() => {
+    projectRoot = mkdtempSync(join(tmpdir(), "oig2-codex-"));
+    const dir = join(projectRoot, ".ezcorp", "extension-data", "openai-image-gen-2", "generated");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "pic.png"), PIC_BYTES);
+    prevCwd = process.cwd();
+    process.chdir(projectRoot);
+  });
+
+  afterEach(() => {
+    if (prevCwd) process.chdir(prevCwd);
+    if (projectRoot) {
+      try { rmSync(projectRoot, { recursive: true, force: true }); } catch {}
+      projectRoot = "";
+    }
+  });
+
+  test("materializeInputImages: ext-files URL → data: URI with disk bytes", async () => {
+    const out = await materializeInputImages([
+      "/api/ext-files/openai-image-gen-2/generated/pic.png",
+    ]);
+    expect(out.length).toBe(1);
+    expect(out[0]!.startsWith("data:image/png;base64,")).toBe(true);
+    const b64 = out[0]!.slice("data:image/png;base64,".length);
+    expect(Buffer.from(b64, "base64").toString("utf8")).toBe(PIC_BYTES);
+  });
+
+  test("materializeInputImages: data: and https: pass through unchanged", async () => {
+    const inputs = [
+      "data:image/png;base64,AAAA",
+      "https://x.test/y.png",
+    ];
+    expect(await materializeInputImages(inputs)).toEqual(inputs);
+  });
+
+  test("materializeInputImages: undefined / empty → empty array", async () => {
+    expect(await materializeInputImages(undefined)).toEqual([]);
+    expect(await materializeInputImages([])).toEqual([]);
+  });
+
+  test("materializeInputImages: missing file throws CodexImageError(validation)", async () => {
+    await expect(
+      materializeInputImages(["/api/ext-files/openai-image-gen-2/generated/missing.png"]),
+    ).rejects.toMatchObject({ code: "validation" });
+  });
+
+  test("materializeInputImages: malformed (escapes root) throws CodexImageError(validation)", async () => {
+    await expect(
+      materializeInputImages(["/api/ext-files/openai-image-gen-2/../../etc/passwd"]),
+    ).rejects.toMatchObject({ code: "validation" });
+  });
+
+  test("materializeInputImages: rejects unknown URL scheme (symmetric with BYOK validateEditParams)", async () => {
+    // Codex must reject the same URL forms BYOK rejects, before any
+    // outbound HTTP, so callers see the same clear validation error
+    // regardless of which auth path is active.
+    await expect(materializeInputImages(["ftp://bad"])).rejects.toMatchObject({
+      code: "validation",
+    });
+  });
+
+  test("materializeInputImages: rejects /api/ext-files/<other-ext>/... namespace", async () => {
+    // Critical regression — without this, an unknown-namespace ext-files
+    // URL would slip through to Codex as an opaque image_url.
+    await expect(
+      materializeInputImages(["/api/ext-files/some-other-ext/foo.png"]),
+    ).rejects.toMatchObject({ code: "validation" });
+  });
+
+  test("materializeInputImages: validates EVERY image — bad entry after good ones still rejected", async () => {
+    // Coverage: prove the loop iterates to the bad element even when
+    // earlier entries are accepted forms.
+    await expect(
+      materializeInputImages(["https://ok.test/1.png", "ftp://bad"]),
+    ).rejects.toMatchObject({ code: "validation" });
+  });
+
+  test("generateViaCodex: ext-files URL is inlined as data: URI in the outgoing request body", async () => {
+    let captured: RequestInit | null = null;
+    const fetcher = async (_u: string | URL, init?: RequestInit) => {
+      captured = init ?? null;
+      return new Response(
+        streamFromChunks([
+          sseFrame({ type: "response.output_item.done", item: { type: "image_generation_call", result: "OK", output_format: "png" } }),
+        ]),
+      );
+    };
+    await generateViaCodex(
+      VALID,
+      {
+        prompt: "modify",
+        inputImages: ["/api/ext-files/openai-image-gen-2/generated/pic.png"],
+      },
+      { fetcher },
+    );
+    const body = JSON.parse(captured!.body as string);
+    const content = body.input[0].content as any[];
+    // text part + 1 input_image
+    expect(content.length).toBe(2);
+    expect(content[1].type).toBe("input_image");
+    const url = content[1].image_url as string;
+    expect(url.startsWith("data:image/png;base64,")).toBe(true);
+    const b64 = url.slice("data:image/png;base64,".length);
+    expect(Buffer.from(b64, "base64").toString("utf8")).toBe(PIC_BYTES);
+  });
+
+  test("generateViaCodex: data: and https: inputs pass through to the request body unchanged", async () => {
+    let captured: RequestInit | null = null;
+    const fetcher = async (_u: string | URL, init?: RequestInit) => {
+      captured = init ?? null;
+      return new Response(
+        streamFromChunks([
+          sseFrame({ type: "response.output_item.done", item: { type: "image_generation_call", result: "OK", output_format: "png" } }),
+        ]),
+      );
+    };
+    await generateViaCodex(
+      VALID,
+      {
+        prompt: "modify",
+        inputImages: ["data:image/png;base64,AAA", "https://x.test/y.png"],
+      },
+      { fetcher },
+    );
+    const body = JSON.parse(captured!.body as string);
+    const content = body.input[0].content as any[];
+    expect(content[1]).toEqual({ type: "input_image", image_url: "data:image/png;base64,AAA" });
+    expect(content[2]).toEqual({ type: "input_image", image_url: "https://x.test/y.png" });
+  });
+
+  test("generateViaCodex: missing ext-files file throws validation BEFORE any HTTP call", async () => {
+    let fetched = false;
+    const fetcher = async () => {
+      fetched = true;
+      return new Response("{}", { status: 200 });
+    };
+    await expect(
+      generateViaCodex(
+        VALID,
+        {
+          prompt: "modify",
+          inputImages: ["/api/ext-files/openai-image-gen-2/generated/missing.png"],
+        },
+        { fetcher },
+      ),
+    ).rejects.toMatchObject({ code: "validation" });
+    expect(fetched).toBe(false);
   });
 });

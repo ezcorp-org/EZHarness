@@ -127,7 +127,9 @@ export function makeEditHandler(): ToolHandler {
       ? (input.images as unknown[]).filter((v): v is string => typeof v === "string")
       : [];
     if (images.length === 0) {
-      return toolError("`images` must be a non-empty array of data: or https: URIs.");
+      return toolError(
+        "`images` must be a non-empty array of data: URIs, https:// URLs, or /api/ext-files/openai-image-gen-2/<relPath> URLs.",
+      );
     }
     const augment = input.augment !== false;
     const fields = fieldsFromInput(input);

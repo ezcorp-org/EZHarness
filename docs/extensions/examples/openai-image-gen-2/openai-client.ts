@@ -7,6 +7,13 @@
 // cannot authenticate to `api.openai.com/v1/images/*`.
 
 import { fetchPermitted } from "@ezcorp/sdk/runtime";
+import {
+  ACCEPTED_IMAGE_REF_HELP,
+  isAcceptedImageRef,
+  isExtFileUrl,
+  readExtFileBytes,
+  resolveExtFileUrl,
+} from "./ext-files";
 
 export const GPT_IMAGE_MODEL_PREFIX = "gpt-image-";
 // Matches the Codex imagegen skill's fallback CLI default
@@ -128,22 +135,25 @@ export function validateEditParams(p: EditParams): EditParams & { model: string 
     throw new OpenAIImageError("validation", "`prompt` is required and must be a non-empty string.");
   }
   if (!Array.isArray(p.images) || p.images.length === 0) {
-    throw new OpenAIImageError("validation", "`images` must be a non-empty array of data/https URIs.");
+    throw new OpenAIImageError("validation", "`images` must be a non-empty array of image URIs.");
   }
   if (p.images.length > 4) {
     throw new OpenAIImageError("validation", "at most 4 input images are supported.");
   }
   for (const img of p.images) {
     if (typeof img !== "string" || img.trim().length === 0) {
-      throw new OpenAIImageError("validation", "each image must be a non-empty data: or https: URI.");
+      throw new OpenAIImageError("validation", "each image must be a non-empty image URI.");
     }
-    if (!img.startsWith("data:image/") && !img.startsWith("https://")) {
-      throw new OpenAIImageError("validation", "images must be data:image/ URIs or https:// URLs.");
+    if (!isAcceptedImageRef(img)) {
+      throw new OpenAIImageError("validation", ACCEPTED_IMAGE_REF_HELP);
     }
   }
   if (p.mask !== undefined && p.mask !== null) {
-    if (typeof p.mask !== "string" || !(p.mask.startsWith("data:image/") || p.mask.startsWith("https://"))) {
-      throw new OpenAIImageError("validation", "mask must be a data:image/ URI or https:// URL.");
+    if (typeof p.mask !== "string" || !isAcceptedImageRef(p.mask)) {
+      throw new OpenAIImageError(
+        "validation",
+        `mask: ${ACCEPTED_IMAGE_REF_HELP}`,
+      );
     }
   }
   const model = normalizeModel(p.model);
@@ -171,6 +181,23 @@ async function fetchImageRef(fetcher: Fetcher, ref: string): Promise<{ bytes: Ui
     if (!isBase64) throw new OpenAIImageError("validation", "data: URI must use ;base64 encoding.");
     const bytes = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
     return { bytes, mimeType };
+  }
+  if (isExtFileUrl(ref)) {
+    const resolved = resolveExtFileUrl(ref);
+    if (!resolved) {
+      throw new OpenAIImageError(
+        "validation",
+        `ext-files URL is malformed or escapes the extension data root: ${ref}`,
+      );
+    }
+    try {
+      return await readExtFileBytes(resolved.absPath);
+    } catch (err) {
+      throw new OpenAIImageError(
+        "validation",
+        `ext-files URL points to a missing file (the prior generation may have been cleaned up): ${ref}`,
+      );
+    }
   }
   const res = await fetcher(ref);
   if (!res.ok) {
