@@ -44,6 +44,7 @@
     "@mariozechner/pi-ai": "^0.57.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "drizzle-orm": "^0.45.2",
+    "exceljs": "^4.4.0",
     "file-type": "^22.0.1",
     "pdf-parse": "^2.4.5",
     "yaml": "^2.8.2"

@@ -265,6 +265,16 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
       },
     },
   },
+  {
+    // excel — first consumer of `acceptedAttachmentMimes`. Lets users
+    // drag a `.xlsx` workbook into chat; the host emits a handle-only
+    // `<file>` reference into the prompt and this extension's
+    // `read-spreadsheet` tool fetches sheets/ranges on demand. Pure
+    // in-process parser (ExcelJS); no network, filesystem, or shell.
+    name: "excel",
+    path: "docs/extensions/examples/excel",
+    permissions: { grantedAt: {} },
+  },
 ];
 
 /** Opt-OUT switches: each maps a bundled-extension name to the env var that

@@ -205,6 +205,24 @@ scripts: {
 
 ---
 
+### `acceptedAttachmentMimes` -- `string[]`
+
+MIME types this extension can ingest as user-uploaded chat attachments.
+
+When the extension is wired into a conversation (via `!ext:<name>` or auto-attach), these MIMEs are unioned into the chat composer's accept list. Files matching them upload through the standard pipeline (size check, magic-byte sniffing) but are delivered to the model as a small `<file>` reference containing only the attachment handle (`ez-attachment://<id>`) — not the file body. The extension's own tools then read the bytes on demand by passing the handle as a tool argument; the runtime substitutes it to a `data:<mime>;base64,...` URI before dispatch.
+
+This keeps format-specific parsing (xlsx, docx, etc.) out of core. The extension owns the decode logic and the tool-shaped API the LLM uses to query the file.
+
+```typescript
+acceptedAttachmentMimes: [
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+],
+```
+
+The accepted MIMEs are only honored when the extension is wired to the conversation — they don't expand the global allowlist for other chats. Each entry must be a fully-qualified `type/subtype` string.
+
+---
+
 ### `dependencies` -- `Record<string, DependencySpec>`
 
 Declare dependencies on other extensions. Dependencies are auto-installed when the extension is installed.

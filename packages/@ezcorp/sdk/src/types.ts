@@ -129,6 +129,19 @@ export interface ExtensionManifestV2 {
   // Lifecycle hooks this extension subscribes to
   lifecycleHooks?: string[];
 
+  /**
+   * MIME types this extension can ingest as user-uploaded attachments.
+   *
+   * When the extension is wired into a conversation (via `!ext:<name>` or
+   * auto-attach), these MIMEs are unioned into the chat composer's
+   * accept list and a generic "extension-handle-only" delivery strategy
+   * is used: the LLM sees a `<file handle="ez-attachment://<id>" />`
+   * reference rather than the file body, and the extension's own tools
+   * read the bytes on demand by passing the handle (the runtime
+   * substitutes it to a `data:` URI before tool dispatch).
+   */
+  acceptedAttachmentMimes?: string[];
+
   // Dependencies on other extensions
   dependencies?: Record<string, DependencySpec>;
 

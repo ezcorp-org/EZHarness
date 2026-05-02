@@ -9,6 +9,11 @@ const SEMVER_REGEX = /^\d+\.\d+\.\d+$/;
 // leading dots, and length > 64.
 const NAME_REGEX = /^[a-z0-9][a-z0-9-_.]{0,63}$/;
 
+// RFC 6838 token chars for type-name and subtype-name: alphanumeric start,
+// then alphanumeric or any of ! # $ & - ^ _ . + . Exactly one slash. No
+// whitespace, no traversal-friendly chars.
+const MIME_REGEX = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$/;
+
 // ── Component Validators ─────────────────────────────────────────
 
 function validateToolsArray(tools: unknown, errors: string[]): void {
@@ -198,6 +203,21 @@ export function validateManifestV2(
   if (m.dependencies !== undefined) {
     const depResult = validateDependencies(m.dependencies);
     errors.push(...depResult.errors);
+  }
+
+  if (m.acceptedAttachmentMimes !== undefined) {
+    if (!Array.isArray(m.acceptedAttachmentMimes)) {
+      errors.push("acceptedAttachmentMimes must be an array of strings");
+    } else {
+      for (let i = 0; i < m.acceptedAttachmentMimes.length; i++) {
+        const v = m.acceptedAttachmentMimes[i];
+        if (typeof v !== "string" || !MIME_REGEX.test(v)) {
+          errors.push(
+            `acceptedAttachmentMimes[${i}] must be a valid MIME of the form "type/subtype" (RFC 6838 token chars, exactly one slash)`,
+          );
+        }
+      }
+    }
   }
 
   return { valid: errors.length === 0, errors };
