@@ -3,6 +3,12 @@ import { getProject } from "../../db/queries/projects";
 /** Subset of streamChat's options the prompt-building phase reads. */
 export interface BuildPromptOptions {
   projectId?: string;
+  /** Conversation id — used to look up extensions wired to this conversation
+   *  so their declared `acceptedAttachmentMimes` extend the capability
+   *  table. Optional: omitting it falls back to the static per-model
+   *  capabilities, which is correct for replays / preview paths that don't
+   *  have a persisted conversation. */
+  conversationId?: string;
   provider?: string;
   model?: string;
   attachments?: import("../../chat/attachments/content-builder").StagedAttachment[];
@@ -59,6 +65,30 @@ export async function buildPromptInput(
     } catch { /* File mention resolution failure is non-fatal */ }
   }
 
+  // Resolve $[feature:…] mentions against the active project's Feature
+  // Index and prepend a system note per feature listing its description
+  // + plain-text file paths. This runs in the SAME pass as @[file:…]
+  // (both are project-scoped, both produce prepended system notes),
+  // and like @[file:…] failures here are non-fatal — a missing feature
+  // shouldn't 500 the chat turn. Files are emitted as plain text, NOT
+  // `@[file:…]` tokens — no double-expansion (see design doc §4).
+  if (options.projectId) {
+    try {
+      const { applyFeatureExpansion } = await import("../mention-wiring");
+      const { getFeature } = await import("../../db/queries/features");
+      const projectId = options.projectId;
+      const note = await applyFeatureExpansion(userMessage, async (name) => {
+        const feature = await getFeature(projectId, name);
+        if (!feature) return null;
+        return {
+          description: feature.description,
+          files: feature.files.map((f) => f.relpath),
+        };
+      });
+      if (note) text = `${note}\n\n${text}`;
+    } catch { /* Feature mention resolution failure is non-fatal */ }
+  }
+
   // Multi-modal attachments for the current turn: convert to pi-ai parts.
   // Images go through the prompt(text, images) overload; text/pdf content
   // is inlined into the prompt string. Incompatible attachments throw
@@ -67,9 +97,16 @@ export async function buildPromptInput(
   // we surface the error rather than silently dropping content.
   const images: import("@mariozechner/pi-ai").ImageContent[] = [];
   if (options.attachments && options.attachments.length > 0 && options.provider && options.model) {
-    const { getCapabilities } = await import("../../providers/model-capabilities");
+    const { getCapabilitiesWithExtensions } = await import("../../providers/model-capabilities");
     const { buildUserContent } = await import("../../chat/attachments/content-builder");
-    const caps = getCapabilities(options.provider, options.model);
+    let extensionMimes: string[] = [];
+    if (options.conversationId) {
+      try {
+        const { getConversationExtensionMimes } = await import("../../db/queries/conversation-extensions");
+        extensionMimes = await getConversationExtensionMimes(options.conversationId);
+      } catch { /* non-fatal: fall through with no extension overlay */ }
+    }
+    const caps = getCapabilitiesWithExtensions(options.provider, options.model, extensionMimes);
     const built = await buildUserContent(text, options.attachments, caps);
     if (Array.isArray(built)) {
       const textBits: string[] = [];

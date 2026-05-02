@@ -1,8 +1,10 @@
+import { realpath } from "node:fs/promises";
 import { parseMentions } from "../../web/src/lib/mention-logic";
 import { getExtensionsByNames } from "../db/queries/extensions";
 import { getAgentConfigsByNames, getAgentConfigsByIds } from "../db/queries/agent-configs";
 import { getConversationExtensionIds, addConversationExtensions } from "../db/queries/conversation-extensions";
 import { validatePath } from "./tools/validate";
+import { realpathInsideRoot } from "./fs/scan-fs";
 
 // ─── Slash-command expansion ───────────────────────────────────────
 
@@ -151,6 +153,94 @@ export async function applyCommandExpansion(
   }
   const notes = systemNotes.length > 0 ? systemNotes.join("\n") + "\n\n" : "";
   return notes + expanded;
+}
+
+// ─── Feature-mention expansion ─────────────────────────────────────
+
+/**
+ * Resolves a `$[feature:name]` token to the feature's description and
+ * file list (project-relative paths). `null` for unknown / deleted
+ * features — caller MUST treat that as a silent no-op (mirroring how
+ * `@[file:…]` handles a deleted file).
+ *
+ * The resolver pattern matches `CommandResolver` so this module stays
+ * DB-free and unit-testable in isolation. The build-prompt path
+ * supplies a real DB-backed resolver via `getFeature(projectId, name)`.
+ */
+export type FeatureResolver = (
+  name: string,
+) => Promise<{ description: string; files: string[] } | null>;
+
+/**
+ * Standalone token regex for `$[feature:name]`. Lives here (instead of
+ * piggy-backing on `parseMentions` from web/src/lib/mention-logic.ts)
+ * so this module's expansion is decoupled from the front-end picker
+ * wiring — `applyFeatureExpansion` works correctly even before the
+ * composer regex grows the `$` sigil. The two will agree once
+ * mention-logic.ts is updated, but feature-expansion correctness does
+ * not depend on it.
+ *
+ * `[^\]]+` matches any non-`]` chars; the parser strips whitespace and
+ * skips empty names. The `g` flag is ON via the local copy in the loop
+ * — the exported `source` is reusable.
+ */
+export const FEATURE_TOKEN_RE = /\$\[feature:([^\]]+)\]/g;
+
+/**
+ * Expand `$[feature:<name>]` tokens in `userMessage` into a system-note
+ * block per resolved feature.
+ *
+ * Returns the JOINED system-note text (or `""` when no tokens / no
+ * resolvable features). The caller is responsible for prepending the
+ * result to the prompt — the user-visible message text is NEVER
+ * modified by this function. That mirrors `@[file:…]` resolution:
+ * the raw token survives in the persisted message, while the LLM
+ * sees an additional system note.
+ *
+ * Critical correctness rules (per design doc §4):
+ *   - Files are emitted as PLAIN TEXT (`- src/foo.ts`), NOT as
+ *     `@[file:…]` tokens. No double-expansion: any other mention
+ *     sigil that happens to live inside a feature description or
+ *     file path is left untouched downstream.
+ *   - Unknown / deleted features → silent no-op. The token text
+ *     stays in the user message; no system note is generated.
+ *   - Duplicate tokens (`$[feature:x]` twice) emit ONE block per
+ *     feature. Order is the source order of first occurrence.
+ */
+export async function applyFeatureExpansion(
+  userMessage: string,
+  resolver: FeatureResolver,
+): Promise<string> {
+  // Walk tokens in source order, dedupe by name. Using a fresh regex
+  // instance per call keeps `lastIndex` from leaking across calls.
+  const re = new RegExp(FEATURE_TOKEN_RE.source, "g");
+  const seen = new Set<string>();
+  const orderedNames: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(userMessage)) !== null) {
+    const name = m[1]!.trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    orderedNames.push(name);
+  }
+  if (orderedNames.length === 0) return "";
+
+  const blocks: string[] = [];
+  for (const name of orderedNames) {
+    const f = await resolver(name);
+    if (!f) continue; // unknown / deleted → silent no-op
+    if (f.files.length === 0) {
+      // Description-only block. The "Look at and modify these files"
+      // sentence reads as a contradiction with no list, so we omit it.
+      blocks.push(`**Feature: ${name}**\n${f.description}`);
+      continue;
+    }
+    const filesList = f.files.map((p) => `- ${p}`).join("\n");
+    blocks.push(
+      `**Feature: ${name}**\n${f.description}. Look at and modify these files first when working on this feature:\n${filesList}`,
+    );
+  }
+  return blocks.join("\n\n");
 }
 
 /**
@@ -328,12 +418,19 @@ async function pathExistsAsKind(
   }
 }
 
+// Symlink-escape predicate is shared with the autocomplete + scanner via
+// runtime/fs/scan-fs::realpathInsideRoot. Locally aliased so the call
+// site below reads the same as before the refactor.
+const isInsideRoot = realpathInsideRoot;
+
 /**
  * Resolve `@[file:…]` and `@[dir:…]` mentions against the active project root.
  *
  * Rejects:
  *   - absolute paths (`/etc/passwd` → skipped)
  *   - path traversal (`../../secret` → skipped via validatePath)
+ *   - symlink-escape (an existing path whose realpath resolves outside
+ *     the project root → skipped via `isInsideRoot`)
  *
  * Returns an empty array when `projectPath` is not provided. Duplicate
  * (kind, relPath) pairs are deduplicated.
@@ -349,6 +446,17 @@ export async function resolveFileMentions(
     (m) => m.kind === "file" || m.kind === "dir",
   );
   if (pathMentions.length === 0) return [];
+
+  // Resolve project root once via realpath so symlink-escape confinement
+  // compares against the canonical root, not a passed-in path that could
+  // itself contain symlinks. If the root fails to resolve, refuse all
+  // mentions — we can't enforce the boundary.
+  let realRoot: string;
+  try {
+    realRoot = await realpath(projectPath);
+  } catch {
+    return [];
+  }
 
   const seen = new Set<string>();
   const resolved: ResolvedFileMention[] = [];
@@ -373,6 +481,11 @@ export async function resolveFileMentions(
     }
 
     const exists = await pathExistsAsKind(absPath, kind);
+    // Symlink-escape confinement: an existing path whose realpath resolves
+    // outside the project root is refused. Non-existent paths are kept
+    // (with exists=false) — they can't leak read content, and validatePath
+    // already blocks `..`/absolute traversal at the string layer.
+    if (exists && !(await isInsideRoot(realRoot, absPath))) continue;
 
     resolved.push({ kind, relPath: rel, absPath, exists });
   }
