@@ -214,17 +214,13 @@
 
 	async function refreshFeatureFiles(featureId: string): Promise<void> {
 		try {
-			// Empty PATCH would 400 (zod refine requires a field). Send a
-			// description-rewrite to its current value instead — a no-op
-			// from the user's perspective. The endpoint echoes the row +
-			// files array.
-			const target = features.find((x) => x.id === featureId);
-			if (!target) return;
-			const res = await fetch(`/api/projects/${projectId}/features/${featureId}`, {
-				method: "PATCH",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ description: target.description }),
-			});
+			// Side-effect-free fetch via the per-feature GET endpoint —
+			// the legacy "no-op PATCH with description=current" pattern
+			// silently flipped features.source from 'agent' to 'user' on
+			// any agent-sourced row, muting it from future rescans
+			// (audit defect D4). GET is the correct verb for a read; the
+			// endpoint echoes the row + full files array.
+			const res = await fetch(`/api/projects/${projectId}/features/${featureId}`);
 			if (res.ok) {
 				const updated = (await res.json()) as FeatureRow & { files: FeatureFileRow[] };
 				features = features.map((x) =>

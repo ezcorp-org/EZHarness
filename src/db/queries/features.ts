@@ -88,6 +88,36 @@ export async function getFeature(
   return { ...feature, files };
 }
 
+/**
+ * Look up a single feature by (projectId, featureId) and return its
+ * files. Used by the per-feature GET endpoint backing the settings
+ * UI's row-expand fetch. The `(projectId, featureId)` pair scopes the
+ * lookup so a caller with one project's id can't read a different
+ * project's feature by guessing its uuid.
+ */
+export async function getFeatureById(
+  projectId: string,
+  featureId: string,
+): Promise<FeatureWithFiles | undefined> {
+  if (!projectId || !featureId) return undefined;
+  const db = getDb();
+  const rows = (await db
+    .select()
+    .from(features)
+    .where(
+      and(eq(features.projectId, projectId), eq(features.id, featureId)),
+    )) as Feature[];
+  const feature = rows[0];
+  if (!feature) return undefined;
+
+  const files = (await db
+    .select()
+    .from(featureFiles)
+    .where(eq(featureFiles.featureId, feature.id))) as FeatureFile[];
+  files.sort((a, b) => a.relpath.localeCompare(b.relpath));
+  return { ...feature, files };
+}
+
 export interface CreateFeatureInput {
   projectId: string;
   name: string;

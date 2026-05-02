@@ -66,8 +66,26 @@ const BANG_TRIGGER_RE = /(?:^|\s)!((?:ext:|agent:|team:)?[^\s]*)$/;
 const AT_TRIGGER_RE = /(?:^|\s)@([^\s]*)$/;
 // `/` is dedicated to slash-command references; same tail semantics as `@`.
 const SLASH_TRIGGER_RE = /(?:^|\s)\/([^\s]*)$/;
-// `$` is dedicated to Feature Index references; same tail semantics as `@`.
-const DOLLAR_TRIGGER_RE = /(?:^|\s)\$([^\s]*)$/;
+// `$` is dedicated to Feature Index references. Unlike `@`/`/`, the `$`
+// character collides with common JS / shell idioms — `${var}`, `$5.00`,
+// `$5`, `$ARGUMENTS` — so we require the FIRST tail character to be a
+// letter / underscore / hyphen (i.e. NOT a digit and NOT `{`/`(`/etc).
+// This rejects price tags (`$5.00`) and template literals (`${var}`)
+// without needing an exhaustive blocklist.
+//
+// Subsequent characters accept anything non-whitespace, mirroring the
+// permissive tail shape of `@`/`/` — partial / mistyped queries like
+// `$chat-` or `$x{` still keep the picker open until the user moves on
+// (the API will simply return no matches and the picker dismisses on
+// whitespace).
+//
+// Tradeoff: digit-leading feature names (e.g. a directory named
+// `2c-mode`) won't trigger the picker via incremental typing. The user
+// can still access them by typing `$` alone (empty query → full list)
+// or by inserting via the settings UI. Digit-first slugs are uncommon
+// in practice; the false-positive cost on every `$N.NN` price tag is
+// the larger UX hit.
+const DOLLAR_TRIGGER_RE = /(?:^|\s)\$([a-z_-][^\s]*|)$/i;
 
 /**
  * Detect if the user is actively typing a mention trigger.

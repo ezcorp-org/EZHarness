@@ -8,6 +8,27 @@ import { updateFeatureSchema } from "../schema";
 import type { RequestHandler } from "./$types";
 
 /**
+ * GET — read a single feature with its full file list. Used by the
+ * settings UI's row-expand flow as a side-effect-free alternative to
+ * the "no-op PATCH" pattern that previously triggered the source-flip
+ * (audit defect D4). The PATCH source-flip predicate is also
+ * defended at the endpoint level (see PATCH below) — both fixes
+ * complement each other.
+ */
+export const GET: RequestHandler = async ({ params, locals }) => {
+  const scopeErr = requireScope(locals, "read");
+  if (scopeErr) return scopeErr;
+  requireAuth(locals);
+
+  const feature = await featureQueries.getFeatureById(params.id, params.featureId);
+  if (!feature) return errorJson(404, "Feature not found");
+  return json({
+    ...feature,
+    fileCount: feature.files.length,
+  });
+};
+
+/**
  * Feature Index — per-feature PATCH + DELETE.
  *
  * PATCH /api/projects/:id/features/:featureId
@@ -62,23 +83,40 @@ export const PATCH: RequestHandler = async ({ request, params, locals }) => {
   }
 
   // **Source-flip policy** — flip features.source from 'agent' → 'user'
-  // ONLY on rename or description edit. File-level pins are independent:
-  // adding / removing a featureFiles row does NOT promote the feature
-  // itself to user-owned (the per-row featureFiles.source column already
-  // protects user pins from rescans; the feature-level source column
-  // exists to protect rename/description edits from rescan clobber, a
-  // disjoint concern).
+  // ONLY on rename or description edit that actually changes the value.
+  // File-level pins are independent: adding / removing a featureFiles row
+  // does NOT promote the feature itself to user-owned (the per-row
+  // featureFiles.source column already protects user pins from rescans;
+  // the feature-level source column exists to protect rename/description
+  // edits from rescan clobber, a disjoint concern).
+  //
+  // The "actually changes the value" check (audit defect D4 defense) is
+  // critical: a no-op PATCH that re-asserts the existing description —
+  // such as the legacy `refreshFeatureFiles` round-trip from the row-
+  // expand UI flow — must NOT silently mute the feature from future
+  // rescans. The settings UI now uses GET for that fetch (eliminating
+  // the misuse), but this check is defense-in-depth for any future
+  // caller that re-PATCHes a current value.
   //
   // Per PM acceptance criterion #9 + 2026-05-01 follow-up: a file-only
   // PATCH on an agent-sourced feature MUST keep features.source='agent'
   // so a subsequent scan can refresh the description if the dir is
   // renamed in the FS.
-  const isFeatureLevelEdit =
-    data.name !== undefined || data.description !== undefined;
+  const isMeaningfulNameEdit =
+    data.name !== undefined && data.name !== existing.name;
+  const isMeaningfulDescriptionEdit =
+    data.description !== undefined && data.description !== existing.description;
+  const isFeatureLevelEdit = isMeaningfulNameEdit || isMeaningfulDescriptionEdit;
   const sourceFlip: { source?: "user" } =
     isFeatureLevelEdit && existing.source === "agent" ? { source: "user" } : {};
 
-  if (isFeatureLevelEdit) {
+  // Still write through if the user passed name/description equal to
+  // current values: it's a no-op write but updatedAt moves, which is
+  // fine. The source flip is gated on `isFeatureLevelEdit` (above), so
+  // a no-op PATCH does NOT mutate ownership.
+  const hasNameOrDescriptionField =
+    data.name !== undefined || data.description !== undefined;
+  if (hasNameOrDescriptionField) {
     await featureQueries.updateFeature(params.featureId, {
       name: data.name,
       description: data.description,
