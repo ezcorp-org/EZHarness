@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from "svelte";
 	import { searchMentions } from "$lib/api";
 
 	/**
@@ -299,8 +300,16 @@
 	}
 
 	$effect(() => {
+		// Track projectId so the effect re-fires when the user navigates
+		// between projects in the same session. `fetchFeatures()` itself
+		// reads `features.length` (for the loading-flag heuristic) and
+		// then writes `features = await res.json()` — without `untrack`
+		// that synchronous read subscribes the effect to its own write
+		// target, producing an unbounded re-fetch loop the moment the
+		// fetch resolves. `untrack` confines reactivity to projectId
+		// only, which is the only dependency we actually want here.
 		void projectId;
-		fetchFeatures();
+		untrack(() => fetchFeatures());
 	});
 </script>
 
