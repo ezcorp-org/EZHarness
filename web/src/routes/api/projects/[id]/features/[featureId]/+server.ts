@@ -61,18 +61,24 @@ export const PATCH: RequestHandler = async ({ request, params, locals }) => {
     if (collision) return errorJson(409, "Feature with this name already exists");
   }
 
-  // **Source-flip policy** — every non-empty PATCH on an agent-sourced
-  // row flips it to 'user'. The schema's `.refine()` already guarantees
-  // at least one mutating field is present, so reaching this point
-  // means the user did an edit (not a no-op).
-  const sourceFlip: { source?: "user" } = existing.source === "agent" ? { source: "user" } : {};
+  // **Source-flip policy** — flip features.source from 'agent' → 'user'
+  // ONLY on rename or description edit. File-level pins are independent:
+  // adding / removing a featureFiles row does NOT promote the feature
+  // itself to user-owned (the per-row featureFiles.source column already
+  // protects user pins from rescans; the feature-level source column
+  // exists to protect rename/description edits from rescan clobber, a
+  // disjoint concern).
+  //
+  // Per PM acceptance criterion #9 + 2026-05-01 follow-up: a file-only
+  // PATCH on an agent-sourced feature MUST keep features.source='agent'
+  // so a subsequent scan can refresh the description if the dir is
+  // renamed in the FS.
+  const isFeatureLevelEdit =
+    data.name !== undefined || data.description !== undefined;
+  const sourceFlip: { source?: "user" } =
+    isFeatureLevelEdit && existing.source === "agent" ? { source: "user" } : {};
 
-  // Apply name + description + source flip in a single update. If
-  // neither name nor description is in the PATCH, this still runs to
-  // perform the source flip when applicable — the row's updatedAt
-  // timestamp moves either way, which is the correct signal that the
-  // user touched this feature.
-  if (data.name !== undefined || data.description !== undefined || sourceFlip.source) {
+  if (isFeatureLevelEdit) {
     await featureQueries.updateFeature(params.featureId, {
       name: data.name,
       description: data.description,
