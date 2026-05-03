@@ -969,4 +969,41 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
   // user features have no scanner origin.
   await db.execute(sql`ALTER TABLE features ADD COLUMN IF NOT EXISTS origin_path TEXT`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_features_origin_path ON features(project_id, origin_path)`);
+
+  // ── Lessons-Keeper v1 (per-user-per-project + promotion ladder) ───
+  // See src/db/migrations/add-lessons.ts for the rationale.
+  // Drives the `%[lesson:slug]` mention sigil. Slug uniqueness is
+  // visibility-scoped via partial unique indexes (PGlite supports the
+  // `WHERE` clause on CREATE UNIQUE INDEX).
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS lessons (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      visibility TEXT NOT NULL DEFAULT 'user',
+      slug TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      frontmatter JSONB,
+      source TEXT NOT NULL DEFAULT 'distiller',
+      source_sha256 TEXT,
+      fired_count INTEGER NOT NULL DEFAULT 0,
+      last_fired_at TIMESTAMP WITH TIME ZONE,
+      dismissed_count INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_lessons_project_owner ON lessons(project_id, owner_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_lessons_visibility ON lessons(project_id, visibility)`);
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_lessons_user_slug_unique
+      ON lessons(project_id, owner_id, slug)
+      WHERE visibility = 'user'
+  `);
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_lessons_shared_slug_unique
+      ON lessons(project_id, slug)
+      WHERE visibility IN ('project', 'global')
+  `);
 }

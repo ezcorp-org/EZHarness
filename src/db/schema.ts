@@ -656,3 +656,57 @@ export type Feature = typeof features.$inferSelect;
 export type NewFeature = typeof features.$inferInsert;
 export type FeatureFile = typeof featureFiles.$inferSelect;
 export type NewFeatureFile = typeof featureFiles.$inferInsert;
+
+// ── Lessons (per-user-per-project, with promotion ladder) ─────────
+//
+// Drives the `%[lesson:slug]` mention sigil. A lesson is a small,
+// self-contained note distilled from a prior conversation that the
+// user (or the runtime distiller) wants surfaced again later.
+//
+// Visibility ladder (monotonic, human-promoted):
+//   `user`    — visible only to (project_id, owner_id). Default for
+//               distiller-captured lessons. Blast radius: the
+//               capturing user's own future sessions.
+//   `project` — visible to every member of the project.
+//   `global`  — visible across all projects (v2 surface).
+//
+// Slug uniqueness rules (enforced by partial unique indexes in
+// migrate.ts, since drizzle-orm has no portable partial-unique
+// helper):
+//   - visibility='user'              → UNIQUE(project_id, owner_id, slug)
+//   - visibility IN ('project','global') → UNIQUE(project_id, slug)
+//
+// Counters (`firedCount`, `lastFiredAt`, `dismissedCount`) land in v1
+// so usage data is collected from day one — UI wiring for dismissal
+// + validation dashboards are deferred to v1.5/v3 per the plan.
+//
+// See tasks/lessons-keeper-v1.md for the full design.
+
+export const lessons = pgTable("lessons", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  visibility: text("visibility").notNull().default("user").$type<"user" | "project" | "global">(),
+  slug: text("slug").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  frontmatter: jsonb("frontmatter").$type<Record<string, unknown>>(),
+  source: text("source").notNull().default("distiller").$type<"distiller" | "user">(),
+  sourceSha256: text("source_sha256"),
+  firedCount: integer("fired_count").notNull().default(0),
+  lastFiredAt: timestamp("last_fired_at", { withTimezone: true }),
+  dismissedCount: integer("dismissed_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_lessons_project_owner").on(table.projectId, table.ownerId),
+  index("idx_lessons_visibility").on(table.projectId, table.visibility),
+  // Slug uniqueness is enforced by two partial unique indexes declared
+  // in migrate.ts (PGlite supports `CREATE UNIQUE INDEX … WHERE`).
+  // drizzle-orm has no first-class partial-unique helper, so we follow
+  // the same migration-only pattern that `features.UNIQUE(project_id,
+  // name)` and `agent_shares_agent_user_unique` use.
+]);
+
+export type Lesson = typeof lessons.$inferSelect;
+export type NewLesson = typeof lessons.$inferInsert;
