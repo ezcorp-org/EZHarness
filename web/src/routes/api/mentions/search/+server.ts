@@ -245,12 +245,20 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		const { searchLessons } = await import("$server/db/queries/lessons");
 		const lessons = await searchLessons(projectId, user.id, q, MAX_RESULTS);
 		for (const lesson of lessons) {
+			// Body excerpt drives the popover preview (Builder A's spec).
+			// 60-char cap keeps the chip compact; the full body is
+			// rendered server-side at expansion time, not here. Append `…`
+			// when the body was actually truncated so the user can see
+			// there's more content beyond the excerpt — CSS `truncate` on
+			// the popover row handles overflow visually but doesn't signal
+			// truncation. We slice to 59 + "…" to keep the total at 60.
+			const description =
+				lesson.body.length > 60
+					? lesson.body.slice(0, 59) + "…"
+					: lesson.body;
 			results.push({
 				name: lesson.slug,
-				// Body excerpt drives the popover preview (Builder A's spec).
-				// 60-char cap keeps the chip compact; the full body is
-				// rendered server-side at expansion time, not here.
-				description: lesson.body.slice(0, 60),
+				description,
 				kind: "lesson",
 			});
 		}

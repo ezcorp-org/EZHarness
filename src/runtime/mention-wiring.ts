@@ -293,6 +293,12 @@ export const LESSON_TOKEN_RE = new RegExp(
  * `applyFeatureExpansion`).
  */
 const MAX_LESSON_EXPANSIONS_PER_TURN = 5;
+// 8 KiB measured as JS string length — i.e. UTF-16 code units, NOT bytes
+// or grapheme clusters. Multi-byte UTF-8 chars (CJK ~3 B, emoji ~4 B)
+// produce a larger downstream payload than this number suggests, so
+// treat it as a soft "context-window units" budget rather than a strict
+// byte ceiling. If a hard byte cap is ever needed, swap to
+// `Buffer.byteLength(block, "utf8")`.
 const MAX_LESSON_EXPANDED_CHARS = 8 * 1024;
 
 /**
