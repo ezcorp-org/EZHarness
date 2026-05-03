@@ -47,6 +47,13 @@ import type { NewLesson } from "../../db/schema";
 import { createLesson } from "../../db/queries/lessons";
 import { getSetting } from "../../db/queries/settings";
 import { getMessages, getConversation } from "../../db/queries/conversations";
+import { listToolCallsByConversation } from "../../db/queries/tool-calls";
+import {
+  shouldDistill,
+  detectUserCorrection,
+  detectErrorRecovery,
+  detectExplicitTag,
+} from "./triggers";
 import { logger } from "../../logger";
 
 const log = logger.child("lessons-distiller");
@@ -191,6 +198,35 @@ export async function distillLesson(
   // `lessons.source_sha256` so debugging can answer "what input
   // produced this lesson?" without re-reading the messages table.
   const sourceSha256 = sha256Hex(conversationText);
+
+  // ── Trigger gate (Hermes "trigger discipline") ─────────────────
+  //
+  // Pure-heuristic OR-of-flags from `runtime/lessons/triggers.ts`:
+  // we only pay the LLM call when at least one signal fires
+  // (≥5 tool calls, error→ok recovery, user-correction tokens,
+  // explicit `[lesson]` tag). Sources:
+  //   - tool-call signals come from `tool_calls` (single SELECT
+  //     of just the `success` column, ordered by created_at —
+  //     order matters for the recovery detector)
+  //   - text signals reuse the `recentMessages` slice already in
+  //     memory (no re-load)
+  //
+  // If the tool-calls query throws, we DO NOT swallow it: the
+  // listener's `.catch` already logs, and a hard DB failure here
+  // is a real signal that something is wrong with the runtime.
+  const userMessageTexts = recentMessages
+    .filter((m) => m.role === "user")
+    .map((m) => m.content);
+  const toolCallRows = await listToolCallsByConversation(conversationId);
+  const triggerInput = {
+    toolCallCount: toolCallRows.length,
+    errorRecoveryObserved: detectErrorRecovery(
+      toolCallRows.map((r) => ({ status: r.success ? "ok" : "error" })),
+    ),
+    userCorrectionObserved: detectUserCorrection(userMessageTexts),
+    explicitlyTagged: detectExplicitTag(userMessageTexts),
+  };
+  if (!shouldDistill(triggerInput)) return;
 
   // ── Provider / model resolution ────────────────────────────────
   // Mirrors extraction.ts:94–108.

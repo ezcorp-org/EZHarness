@@ -69,6 +69,32 @@ export async function listToolCallOutputsForMessages(
 }
 
 /**
+ * Bulk-load minimal `(success)` rows for every tool call in a
+ * conversation, ordered by `created_at` so the slice is sequence-faithful.
+ *
+ * Used by the lessons distiller's trigger gate
+ * (`runtime/lessons/triggers.ts`) to compute two of the four signals:
+ *   - `toolCallCount` (length of the returned array)
+ *   - `errorRecoveryObserved` (an `error` row followed by an `ok` row)
+ *
+ * Selects only the `success` column — the gate doesn't need outputs,
+ * names, or timing, so we keep the row footprint tiny. Row order is
+ * load-bearing for the recovery detector; do not reorder.
+ */
+export async function listToolCallsByConversation(
+  conversationId: string,
+): Promise<Array<{ success: boolean }>> {
+  if (!conversationId) return [];
+  const db = getDb();
+  const rows: Array<{ success: boolean }> = await db
+    .select({ success: toolCalls.success })
+    .from(toolCalls)
+    .where(eq(toolCalls.conversationId, conversationId))
+    .orderBy(toolCalls.createdAt);
+  return rows;
+}
+
+/**
  * Look up the (id, conversationId) pair for a tool call. Returns null
  * when the row doesn't exist (yet — extension tools persist after the
  * subprocess returns, so very fresh ids may be missing).

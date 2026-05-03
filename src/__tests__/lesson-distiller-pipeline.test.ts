@@ -20,13 +20,21 @@ import type { AgentRun } from "../types";
 mockDbConnection();
 
 let mockCompleteResponse = "EMPTY";
+// Counter the trigger-gate test asserts on. Bumped by EVERY `complete()`
+// invocation through the mocked pi-ai module — gives us proof the gate
+// short-circuited before the LLM call (count stays at the pre-call value)
+// or proof it didn't (count incremented).
+let mockCompleteCallCount = 0;
 
 mock.module("@mariozechner/pi-ai", () => ({
-  complete: async () => ({
-    content: [{ type: "text", text: mockCompleteResponse }],
-    usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-    stopReason: "stop",
-  }),
+  complete: async () => {
+    mockCompleteCallCount += 1;
+    return {
+      content: [{ type: "text", text: mockCompleteResponse }],
+      usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: "stop",
+    };
+  },
   stream: async function* () {},
   getModel: () => ({ id: "test", provider: "anthropic", api: "anthropic", name: "test", contextWindow: 100000, maxTokens: 4096, input: ["text"], reasoning: false, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }),
   getModels: () => [],
@@ -91,6 +99,8 @@ const { distillLesson } = await import("../runtime/lessons/distiller");
 const { createProject } = await import("../db/queries/projects");
 const { createUser } = await import("../db/queries/users");
 const { createConversation, createMessage } = await import("../db/queries/conversations");
+const { createExtension } = await import("../db/queries/extensions");
+const { persistToolCall } = await import("../db/queries/tool-calls");
 const { createLesson, listVisibleLessons } = realLessonsModule;
 const { upsertSetting, deleteSetting } = await import("../db/queries/settings");
 const { lessons: lessonsTable } = await import("../db/schema");
@@ -101,6 +111,10 @@ let otherProjectId: string;
 let userId: string;
 let conversationId: string;
 let otherConversationId: string;
+// Conversation with NO tool calls + low-signal text — used by the
+// trigger-gate test to prove the LLM is not invoked.
+let lowSignalConversationId: string;
+let extensionId: string;
 
 const baseRun = (overrides: Partial<AgentRun> = {}): AgentRun => ({
   id: "run-test",
@@ -124,11 +138,54 @@ beforeAll(async () => {
   conversationId = conv.id;
   const otherConv = await createConversation(otherProjectId, { title: "Other conv", userId });
   otherConversationId = otherConv.id;
+  const lowSignalConv = await createConversation(projectId, { title: "Low-signal conv", userId });
+  lowSignalConversationId = lowSignalConv.id;
   // Seed at least one message so the distiller has input context.
   await createMessage(conversationId, { role: "user", content: "hello", parentMessageId: undefined });
   await createMessage(conversationId, { role: "assistant", content: "hi", parentMessageId: undefined });
   await createMessage(otherConversationId, { role: "user", content: "hello in other", parentMessageId: undefined });
   await createMessage(otherConversationId, { role: "assistant", content: "hi in other", parentMessageId: undefined });
+  // Low-signal conv: a benign user/assistant pair with NO correction
+  // tokens, NO `[lesson]` tag, and (below) NO tool calls. This is the
+  // configuration the trigger gate must reject.
+  await createMessage(lowSignalConversationId, { role: "user", content: "hello", parentMessageId: undefined });
+  await createMessage(lowSignalConversationId, { role: "assistant", content: "hi", parentMessageId: undefined });
+
+  // ── Tool-call seed ─────────────────────────────────────────────
+  // Seed five SUCCESSFUL tool calls on the two main conversations so
+  // every existing test exercising the happy-path passes the
+  // shouldDistill gate (toolCallCount >= 5). The low-signal conv
+  // intentionally has zero tool calls — that's what the gate test
+  // asserts against.
+  const ext = await createExtension({
+    name: "lessons-distiller-test-ext",
+    version: "0.0.0",
+    source: "test",
+    manifest: {
+      schemaVersion: 2,
+      name: "lessons-distiller-test-ext",
+      version: "0.0.0",
+      entrypoint: "x",
+      author: { name: "t" },
+      tools: [],
+      permissions: {},
+    } as any,
+  });
+  extensionId = ext.id;
+  for (const cid of [conversationId, otherConversationId]) {
+    for (let i = 0; i < 5; i += 1) {
+      await persistToolCall({
+        conversationId: cid,
+        messageId: null,
+        extensionId,
+        toolName: "noop",
+        input: { i },
+        output: { content: [] },
+        success: true,
+        durationMs: 1,
+      });
+    }
+  }
 });
 
 afterAll(async () => {
@@ -146,6 +203,7 @@ beforeEach(async () => {
   await getDb().delete(lessonsTable);
   await deleteSetting("global:lessonDistillerEnabled");
   mockCompleteResponse = "EMPTY";
+  mockCompleteCallCount = 0;
   __createLessonDelayMs = 0;
   resetSpyCounters();
 });
@@ -193,6 +251,67 @@ describe("distillLesson — gating", () => {
     // No lessons inserted for any user in this project.
     const all = await getDb().select().from(lessonsTable);
     expect(all).toHaveLength(0);
+  });
+});
+
+describe("distillLesson — trigger gate", () => {
+  // Phase 3 review fix: the pure-function triggers in
+  // runtime/lessons/triggers.ts must run BEFORE the LLM call so
+  // low-signal runs don't burn tokens. These tests pin both sides
+  // of the gate.
+
+  test("low-signal run (no tool calls, no corrections) does NOT invoke LLM", async () => {
+    // The low-signal conv was seeded with two benign messages and
+    // ZERO tool calls — every gate signal evaluates to false.
+    // If the gate is bypassed, mockCompleteCallCount will increment.
+    mockCompleteResponse = validLessonJson;
+
+    await distillLesson(baseRun(), lowSignalConversationId);
+
+    expect(mockCompleteCallCount).toBe(0);
+    const all = await getDb().select().from(lessonsTable);
+    expect(all).toHaveLength(0);
+  });
+
+  test("high-signal run (≥5 tool calls) DOES invoke LLM and persists lesson", async () => {
+    // The main `conversationId` was seeded with 5 successful tool
+    // calls — toolCallCount alone is enough to fire the gate.
+    mockCompleteResponse = validLessonJson;
+
+    await distillLesson(baseRun(), conversationId);
+
+    expect(mockCompleteCallCount).toBe(1);
+    const rows = await listVisibleLessons(projectId, userId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.slug).toBe("prefer-bun-test");
+  });
+
+  test("user-correction token fires the gate even with no tool calls", async () => {
+    // Spin up a fresh conversation with NO tool calls but a
+    // user-correction phrase ("no, do X instead") — the
+    // detectUserCorrection branch must carry the gate alone.
+    const correctionConv = await createConversation(projectId, {
+      title: "correction conv",
+      userId,
+    });
+    await createMessage(correctionConv.id, {
+      role: "user",
+      content: "no, do X instead",
+      parentMessageId: undefined,
+    });
+    await createMessage(correctionConv.id, {
+      role: "assistant",
+      content: "got it, switching",
+      parentMessageId: undefined,
+    });
+    mockCompleteResponse = validLessonJson;
+
+    await distillLesson(baseRun(), correctionConv.id);
+
+    expect(mockCompleteCallCount).toBe(1);
+    const rows = await listVisibleLessons(projectId, userId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.slug).toBe("prefer-bun-test");
   });
 });
 
