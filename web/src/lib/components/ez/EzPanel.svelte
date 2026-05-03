@@ -70,8 +70,13 @@
 		getStreamingAgentCalls,
 		getStreamingContentBlocks,
 	} from "$lib/stores.svelte.js";
+	import { inlineToolStore } from "$lib/inline-tool-store.svelte.js";
 	import ChatInput from "$lib/components/ChatInput.svelte";
 	import ChatMessage from "$lib/components/ChatMessage.svelte";
+	import { buildHistoricalBlocks } from "$lib/content-blocks.js";
+	import { hydrateToolCallsFromApiData, type MessagesWithToolCallsResponse } from "$lib/chat/page-handlers/load-messages.js";
+	import { getHistoricalToolCalls } from "$lib/chat/historical-tool-calls.js";
+	import { filterEmptyAssistantTurns } from "$lib/chat/filter-empty-turns.js";
 
 	let {
 		/** Bypass `getOrCreateEzConversation` — used by tests. */
@@ -188,6 +193,19 @@
 				store.streamingStatus[activeRunId] !== undefined),
 	);
 
+	// EzPanel doesn't render <MemoriesCard> and never spawns sub-agents, so
+	// `isMemoryCardVisible` is always false and `getHistoricalAgentCalls`
+	// always returns no entries. Empty assistant turns whose only signal is
+	// `memoriesUsed` would be invisible here — hide them. Tool-only / agent
+	// turns are kept by the hydrated tool-call check below.
+	let renderableMessages = $derived(
+		filterEmptyAssistantTurns(messages, {
+			hasHistoricalToolCalls: (id) => getHistoricalToolCalls(id).length > 0,
+			hasHistoricalAgentCalls: () => false,
+			isMemoryCardVisible: () => false,
+		}),
+	);
+
 	// Resolve the conversation id once on first open. Subsequent opens
 	// reuse the cached id; the server enforces uniqueness so this is
 	// idempotent regardless.
@@ -209,9 +227,36 @@
 			queueMicrotask(() => {
 				if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
 			});
+			// Hydrate historical tool calls so empty-content / tool-only turns
+			// can render their cards (without this they collapse to a blank
+			// bubble shell — the user-reported regression). Fire-and-forget;
+			// hydration failure is non-fatal.
+			void hydrateHistoricalToolCalls();
 		} catch (e) {
 			// Non-fatal — stale message list won't crash the panel.
 			console.warn("Ez panel refresh failed", e);
+		}
+	}
+
+	/**
+	 * Pull `?withToolCalls=true` and push the rows into `inlineToolStore`.
+	 * Mirrors the chat page's `hydrateToolCallsFromApi` (W7 of the chat-page
+	 * split) but inlined here because the panel doesn't need the LoadMessages
+	 * host abstractions — only the historical-tool-call slice. The dedup
+	 * `messages-tools:<cid>` key is shared with the main page's hydrate so
+	 * fetch-policy collapses duplicate calls when both surfaces are open.
+	 */
+	async function hydrateHistoricalToolCalls(): Promise<void> {
+		const cid = conversationId;
+		if (!cid) return;
+		try {
+			const res = await fetch(`/api/conversations/${cid}/messages?withToolCalls=true`);
+			if (!res.ok) return;
+			const data = (await res.json()) as MessagesWithToolCallsResponse;
+			const bundle = hydrateToolCallsFromApiData(data);
+			inlineToolStore.hydrateToolCalls(cid, bundle.hydrateInput);
+		} catch {
+			// Hydration is purely additive UI — swallow.
 		}
 	}
 
@@ -606,20 +651,29 @@
 					around. What do you need?
 				</div>
 			{:else}
-				{#each messages as msg (msg.id)}
+				{#each renderableMessages as msg (msg.id)}
 					{@const isStreamingMsg =
 						msg.id === `streaming-${activeRunId}` && isStreaming}
 					{@const streamingTools = isStreamingMsg && activeRunId ? getStreamingToolCalls(activeRunId) : undefined}
 					{@const streamingAgents = isStreamingMsg && activeRunId ? getStreamingAgentCalls(activeRunId) : undefined}
 					{@const streamingBlocks = isStreamingMsg && activeRunId ? getStreamingContentBlocks(activeRunId) : undefined}
-					<div data-testid="ez-message" data-role={msg.role}>
+					{@const historicalTools = !isStreamingMsg && msg.role === 'assistant' ? getHistoricalToolCalls(msg.id) : undefined}
+					{@const msgToolCalls = (streamingTools && streamingTools.length > 0)
+						? streamingTools
+						: (historicalTools && historicalTools.length > 0 ? historicalTools : undefined)}
+					{@const msgContentBlocks = (streamingBlocks && streamingBlocks.length > 0)
+						? streamingBlocks
+						: ((historicalTools && historicalTools.length > 0) || msg.thinkingContent
+							? buildHistoricalBlocks(msg.content, historicalTools?.length ?? 0, 0, msg.thinkingContent)
+							: undefined)}
+					<div data-testid="ez-message" data-role={msg.role} data-message-id={msg.id}>
 						<ChatMessage
 							message={msg}
 							streamingText={isStreamingMsg ? currentStreamingText : undefined}
 							streamingStatus={isStreamingMsg ? currentStreamingStatus : undefined}
-							toolCalls={streamingTools && streamingTools.length > 0 ? streamingTools : undefined}
+							toolCalls={msgToolCalls}
 							agentCalls={streamingAgents && streamingAgents.length > 0 ? streamingAgents : undefined}
-							contentBlocks={streamingBlocks && streamingBlocks.length > 0 ? streamingBlocks : undefined}
+							contentBlocks={msgContentBlocks}
 							conversationId={conversationId ?? undefined}
 							onsendmessage={(text) => void send(text)}
 						/>

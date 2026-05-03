@@ -483,3 +483,164 @@ describe("EzPanel — clear conversation", () => {
 		window.confirm = originalConfirm;
 	});
 });
+
+// ── Iter 6: empty-turn rendering ─────────────────────────────────────
+// The user reported the blank-bubble bug as still visible "in the ez chat
+// ui" even after iter 5 fixed the main chat page. Root cause: EzPanel
+// rendered `messages` raw, with NO `getHistoricalToolCalls`, NO
+// `inlineToolStore` hydration, NO `buildHistoricalBlocks`, and NO
+// `filterEmptyAssistantTurns`. After `run:complete` cleared the streaming
+// caches, an empty-content tool-only turn fell through ChatMessage to a
+// blank shell. These tests pin the iter-6 wiring.
+
+import { inlineToolStore } from "$lib/inline-tool-store.svelte.js";
+
+describe("EzPanel — empty-turn rendering (iter 6)", () => {
+	beforeEach(() => {
+		// Clear the global inlineToolStore so tests can seed deterministic
+		// historical tool calls without leaking into one another.
+		(inlineToolStore as unknown as { calls: unknown[] }).calls = [];
+		// Stub the messages?withToolCalls=true endpoint so the panel's
+		// hydrate call doesn't reach the real network. Tests that need
+		// specific tool-call data seed it directly into `inlineToolStore`
+		// AFTER initial hydration completes (or override the fetch stub
+		// to return the desired payload).
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+			const url = typeof input === "string" ? input : input.toString();
+			if (url.includes("?withToolCalls=true")) {
+				return new Response(JSON.stringify({ messages: [], orphanedToolCalls: [] }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				});
+			}
+			return new Response("not found", { status: 404 });
+		}) as unknown as typeof fetch;
+		// Restore via afterEach; the stub is per-test.
+		(globalThis as unknown as { __origFetch?: typeof fetch }).__origFetch = originalFetch;
+	});
+
+	afterEach(() => {
+		const orig = (globalThis as unknown as { __origFetch?: typeof fetch }).__origFetch;
+		if (orig) globalThis.fetch = orig;
+		(inlineToolStore as unknown as { calls: unknown[] }).calls = [];
+	});
+
+	test("empty-content assistant turn with hydrated tool call → renders the tool card, no blank `.markdown-body`", async () => {
+		// Two assistant turns sharing a runId: the first is the prod
+		// blank-bubble shape (empty content + tool call), the second
+		// carries the actual reply.
+		mocks.fetchAllMessagesMock.mockResolvedValue([
+			{ id: "u1", role: "user", content: "scan the dir", conversationId: "ez-conv-1", excluded: false, createdAt: "", thinkingContent: null, model: null, provider: null, usage: null, runId: null, parentMessageId: null },
+			{ id: "a1-tool", role: "assistant", content: "", conversationId: "ez-conv-1", excluded: false, createdAt: "", thinkingContent: null, model: null, provider: null, usage: null, runId: "run-x", parentMessageId: "u1" },
+			{ id: "a2-reply", role: "assistant", content: "Here is what I found.", conversationId: "ez-conv-1", excluded: false, createdAt: "", thinkingContent: null, model: null, provider: null, usage: null, runId: "run-x", parentMessageId: "a1-tool" },
+		]);
+		// Override fetch so the hydrate call returns a tool call anchored
+		// to the empty turn `a1-tool` — exactly the prod shape.
+		globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+			const url = typeof input === "string" ? input : input.toString();
+			if (url.includes("?withToolCalls=true")) {
+				return new Response(JSON.stringify({
+					messages: [
+						{
+							id: "a1-tool",
+							toolCalls: [
+								{
+									id: "tc-1",
+									extensionId: "fs",
+									toolName: "fs__list",
+									input: { path: "/tmp" },
+									outputSummary: "ok",
+									success: true,
+									durationMs: 12,
+									status: "success",
+									messageId: "a1-tool",
+									cardType: null,
+									cardLayout: null,
+									fullOutput: "[\"a.md\",\"b.md\"]",
+								},
+							],
+						},
+					],
+					orphanedToolCalls: [],
+				}), { status: 200, headers: { "content-type": "application/json" } });
+			}
+			return new Response("not found", { status: 404 });
+		}) as unknown as typeof fetch;
+
+		openEzPanel();
+		const { container, findAllByTestId } = render(EzPanel);
+		await waitFor(() => expect(mocks.getOrCreateMock).toHaveBeenCalled());
+		await waitFor(() => expect(mocks.fetchAllMessagesMock).toHaveBeenCalled());
+
+		// Wait for hydration to land tool call into the store.
+		await waitFor(() => {
+			expect(inlineToolStore.getByMessage("a1-tool").length).toBe(1);
+		});
+
+		// Both assistant rows render (the empty one is kept by hydrated tools).
+		const msgs = await findAllByTestId("ez-message");
+		// 1 user + 2 assistant = 3.
+		expect(msgs.length).toBe(3);
+
+		// The empty-content row has its tool card mounted (id starts with
+		// `tool-call-`) but NO `.markdown-body` (the iter-4 fix suppresses
+		// the empty markdown wrapper).
+		const a1Row = container.querySelector('[data-message-id="a1-tool"]');
+		expect(a1Row).not.toBeNull();
+		expect(a1Row?.querySelector("[id^='tool-call-']")).not.toBeNull();
+		expect(a1Row?.querySelector(".markdown-body")).toBeNull();
+
+		// The reply row renders its text via `.markdown-body`.
+		const a2Row = container.querySelector('[data-message-id="a2-reply"]');
+		expect(a2Row).not.toBeNull();
+		expect(a2Row?.querySelector(".markdown-body")).not.toBeNull();
+		expect(a2Row?.textContent).toContain("Here is what I found.");
+	});
+
+	test("empty-content assistant turn with NO tool calls / memories / thinking → row hidden by filter (no blank shell)", async () => {
+		// `a1-blank` is the user-reported deduped-blank shape: empty
+		// content, no tool/agent/thinking signal at all. Filter must drop
+		// it entirely — pre-iter-6 it rendered as a blank avatar+toolbar
+		// shell in the EzPanel.
+		mocks.fetchAllMessagesMock.mockResolvedValue([
+			{ id: "u1", role: "user", content: "?", conversationId: "ez-conv-1", excluded: false, createdAt: "", thinkingContent: null, model: null, provider: null, usage: null, runId: null, parentMessageId: null },
+			{ id: "a1-blank", role: "assistant", content: "", conversationId: "ez-conv-1", excluded: false, createdAt: "", thinkingContent: null, model: null, provider: null, usage: null, runId: "run-y", parentMessageId: "u1" },
+			{ id: "a2-reply", role: "assistant", content: "Final reply.", conversationId: "ez-conv-1", excluded: false, createdAt: "", thinkingContent: null, model: null, provider: null, usage: null, runId: "run-y", parentMessageId: "a1-blank" },
+		]);
+
+		openEzPanel();
+		const { container, findAllByTestId } = render(EzPanel);
+		await waitFor(() => expect(mocks.getOrCreateMock).toHaveBeenCalled());
+		await waitFor(() => expect(mocks.fetchAllMessagesMock).toHaveBeenCalled());
+
+		// One user + one final reply — the blank intermediate is filtered.
+		const msgs = await findAllByTestId("ez-message");
+		expect(msgs.length).toBe(2);
+
+		// Critically: no DOM node for the blank intermediate.
+		expect(container.querySelector('[data-message-id="a1-blank"]')).toBeNull();
+		// Reply IS rendered.
+		const a2Row = container.querySelector('[data-message-id="a2-reply"]');
+		expect(a2Row).not.toBeNull();
+		expect(a2Row?.textContent).toContain("Final reply.");
+	});
+
+	test("non-empty assistant turn always renders its text", async () => {
+		mocks.fetchAllMessagesMock.mockResolvedValue([
+			{ id: "u1", role: "user", content: "hi", conversationId: "ez-conv-1", excluded: false, createdAt: "", thinkingContent: null, model: null, provider: null, usage: null, runId: null, parentMessageId: null },
+			{ id: "a1", role: "assistant", content: "hello back", conversationId: "ez-conv-1", excluded: false, createdAt: "", thinkingContent: null, model: null, provider: null, usage: null, runId: "run-z", parentMessageId: "u1" },
+		]);
+
+		openEzPanel();
+		const { container, findAllByTestId } = render(EzPanel);
+		await waitFor(() => expect(mocks.getOrCreateMock).toHaveBeenCalled());
+		await waitFor(() => expect(mocks.fetchAllMessagesMock).toHaveBeenCalled());
+
+		const msgs = await findAllByTestId("ez-message");
+		expect(msgs.length).toBe(2);
+
+		const a1Row = container.querySelector('[data-message-id="a1"]');
+		expect(a1Row?.querySelector(".markdown-body")?.textContent).toContain("hello back");
+	});
+});

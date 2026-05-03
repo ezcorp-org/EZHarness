@@ -31,6 +31,7 @@
 	import { recordSnapshot, type StreamSnapshot } from "$lib/chat/reconcile-stream.js";
 	import { runReconcileAfterStream } from "$lib/chat/reconcile-after-stream.js";
 	import { filterEmptyAssistantTurns } from "$lib/chat/filter-empty-turns.js";
+	import { getHistoricalToolCalls as mapHistoricalToolCalls } from "$lib/chat/historical-tool-calls.js";
 	import {
 		subConvoToAgentCallState,
 		type SubConvoRecord,
@@ -1241,27 +1242,11 @@
 		return siblingMap.get(parentKey) ?? [];
 	}
 
-	/** Convert hydrated InlineToolCalls to ToolCallState[] for ChatMessage rendering */
+	/** Convert hydrated InlineToolCalls to ToolCallState[] for ChatMessage rendering.
+	 *  Implementation lives in `$lib/chat/historical-tool-calls.ts` so the
+	 *  floating Ez panel can reuse the same mapping. */
 	function getHistoricalToolCalls(messageId: string): import("$lib/stores.svelte.js").ToolCallState[] {
-		const calls = inlineToolStore.getByMessage(messageId);
-		if (calls.length === 0) return [];
-		return calls.map((c, i) => ({
-			id: c.id,
-			toolName: c.toolName,
-			status: c.status === 'complete' ? 'complete' as const
-				: c.status === 'error' ? 'error' as const
-				: 'running' as const,
-			input: c.input,
-			output: c.output,
-			error: c.error,
-			startedAt: c.startedAt ?? i, // Use index as fallback to avoid key collisions
-			duration: c.duration,
-			extensionId: c.extensionName,
-			cardType: c.cardType,
-			// Preserve cardLayout so ToolCallCard's `routeToDock` derived can fire
-			// for persisted dock-routed cards (canvas-dock-sdk.md §5).
-			cardLayout: c.cardLayout,
-		}));
+		return mapHistoricalToolCalls(messageId);
 	}
 
 	// Phase 48 Wave 4 — expose chat surface state to the Ez panel via the
