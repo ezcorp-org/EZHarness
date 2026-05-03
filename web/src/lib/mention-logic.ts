@@ -12,6 +12,9 @@
  *   $[feature:Name]                              — Feature Index references
  *     (per-project; resolved via DB. Server-side expansion lives in
  *      src/runtime/mention-wiring.ts::applyFeatureExpansion.)
+ *   %[lesson:Slug]                               — Lessons-Keeper references
+ *     (per-user / per-project; resolved via DB. Server-side expansion lives
+ *      in src/runtime/mention-wiring.ts::applyLessonExpansion.)
  */
 
 /**
@@ -24,17 +27,17 @@
  * every downstream consumer at once.
  *
  * NOTE: the LIVE-TRIGGER regexes (BANG_TRIGGER_RE / AT_TRIGGER_RE /
- * SLASH_TRIGGER_RE / DOLLAR_TRIGGER_RE below) are deliberately
- * decoupled from this constant — they're matching the raw "user is
- * typing" sequence, not the final structured token, and have their
- * own constraints (e.g. DOLLAR_TRIGGER_RE rejects digit-leading tails
- * to dodge the `$5.00` false-positive — see comment there).
+ * SLASH_TRIGGER_RE / DOLLAR_TRIGGER_RE / PERCENT_TRIGGER_RE below) are
+ * deliberately decoupled from this constant — they're matching the raw
+ * "user is typing" sequence, not the final structured token, and have
+ * their own constraints (e.g. DOLLAR_TRIGGER_RE rejects digit-leading
+ * tails to dodge the `$5.00` false-positive — see comment there).
  */
 export const STRUCTURED_NAME_CHAR_CLASS = "[^\\]]+";
 
 // Structured token regex: matches `![kind:name]` (kind ∈ agent/ext/team),
-// `@[file|dir:name]`, `/[cmd:name]`, or `$[feature:name]`. The four sigils
-// are mutually exclusive at the trigger layer.
+// `@[file|dir:name]`, `/[cmd:name]`, `$[feature:name]`, or `%[lesson:name]`.
+// The five sigils are mutually exclusive at the trigger layer.
 // Capture groups:
 //   1 = kind  (agent|ext|team)   when the ! alternative matches
 //   2 = name  when the ! alternative matches
@@ -44,17 +47,28 @@ export const STRUCTURED_NAME_CHAR_CLASS = "[^\\]]+";
 //   6 = name  when the / alternative matches
 //   7 = kind  (feature)          when the $ alternative matches
 //   8 = name  when the $ alternative matches
+//   9 = kind  (lesson)           when the % alternative matches
+//  10 = name  when the % alternative matches
 export const MENTION_REGEX = new RegExp(
 	[
 		`!\\[(agent|ext|team):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
 		`@\\[(file|dir):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
 		`\\/\\[(cmd):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
 		`\\$\\[(feature):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
+		`\\%\\[(lesson):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
 	].join("|"),
 	"g",
 );
 
-export type MentionKind = "agent" | "ext" | "team" | "file" | "dir" | "cmd" | "feature";
+export type MentionKind =
+	| "agent"
+	| "ext"
+	| "team"
+	| "file"
+	| "dir"
+	| "cmd"
+	| "feature"
+	| "lesson";
 
 export interface MentionTrigger {
 	active: boolean;
@@ -68,10 +82,12 @@ export interface MentionTrigger {
 	 * For the `/` sigil, always `"cmd"` — the popover shows slash commands.
 	 * For the `$` sigil, always `"feature"` — the popover shows Feature Index
 	 * entries scoped to the active project.
+	 * For the `%` sigil, always `"lesson"` — the popover shows Lessons-Keeper
+	 * entries scoped to the active user + project (visibility-filtered).
 	 */
-	type?: "ext" | "agent" | "team" | "path" | "cmd" | "feature";
+	type?: "ext" | "agent" | "team" | "path" | "cmd" | "feature" | "lesson";
 	/** Which sigil activated the trigger. */
-	sigil: "!" | "@" | "/" | "$";
+	sigil: "!" | "@" | "/" | "$" | "%";
 }
 
 export interface MentionToken {
@@ -112,15 +128,23 @@ const SLASH_TRIGGER_RE = /(?:^|\s)\/([^\s]*)$/;
 // in practice; the false-positive cost on every `$N.NN` price tag is
 // the larger UX hit.
 const DOLLAR_TRIGGER_RE = /(?:^|\s)\$([a-z_-][^\s]*|)$/i;
+// `%` is dedicated to Lessons-Keeper references. Like `$`, the `%` character
+// can collide with non-mention idioms (URL-encoded sequences `%20`, format
+// strings `%s`, modulo expressions `5 % 2`), so we mirror DOLLAR_TRIGGER_RE
+// and require the FIRST tail character to be a letter / underscore / hyphen.
+// This rejects `5 % 2`, `%20`, and `printf("%s")` without an exhaustive
+// blocklist while still allowing letter/hyphen-led slugs and the empty
+// just-typed-`%` query (which opens the popover with the full visible list).
+const PERCENT_TRIGGER_RE = /(?:^|\s)%([a-z_-][^\s]*|)$/i;
 
 /**
  * Detect if the user is actively typing a mention trigger.
- * Returns null if neither `!` nor `@` is at a word boundary, or was dismissed
- * (whitespace after the sigil with nothing else).
+ * Returns null if none of `!` / `@` / `/` / `$` / `%` is at a word boundary,
+ * or was dismissed (whitespace after the sigil with nothing else).
  *
- * When both could theoretically match, the last sigil before the cursor wins
- * — because each pattern anchors to `$`, only the rightmost word-boundary
- * sigil can produce a match.
+ * When several could theoretically match, the last sigil before the cursor
+ * wins — because each pattern anchors to `$` (end-of-input), only the
+ * rightmost word-boundary sigil can produce a match.
  */
 export function detectMentionTrigger(
 	value: string,
@@ -166,6 +190,13 @@ export function detectMentionTrigger(
 		return { active: true, query: dollar[1]!, type: "feature", sigil: "$" };
 	}
 
+	const percent = before.match(PERCENT_TRIGGER_RE);
+	if (percent) {
+		// `%` triggers the Lessons-Keeper popover. The search API routes this
+		// to the per-user / per-project `lessons` table (visibility-filtered).
+		return { active: true, query: percent[1]!, type: "lesson", sigil: "%" };
+	}
+
 	return null;
 }
 
@@ -209,6 +240,14 @@ export function parseMentions(text: string): MentionToken[] {
 				start: match.index,
 				end: match.index + match[0].length,
 			});
+		} else if (match[9] !== undefined) {
+			// Alternative 5 matched (% sigil, lesson)
+			mentions.push({
+				kind: match[9] as "lesson",
+				name: match[10]!,
+				start: match.index,
+				end: match.index + match[0].length,
+			});
 		}
 	}
 	return mentions;
@@ -220,6 +259,7 @@ export function parseMentions(text: string): MentionToken[] {
  *   kind === "file" | "dir"           → `@[kind:name] ` (path references)
  *   kind === "cmd"                    → `/[kind:name] ` (slash commands)
  *   kind === "feature"                → `$[kind:name] ` (Feature Index)
+ *   kind === "lesson"                 → `%[kind:name] ` (Lessons-Keeper)
  *   kind === "agent" | "ext" | "team" → `![kind:name] ` (logical mentions)
  *
  * Returns new text and cursor position after the inserted token (including
@@ -234,6 +274,7 @@ export function insertMentionToken(
 	const isAtSigil = mention.kind === "file" || mention.kind === "dir";
 	const isSlashSigil = mention.kind === "cmd";
 	const isDollarSigil = mention.kind === "feature";
+	const isPercentSigil = mention.kind === "lesson";
 
 	// Match the trigger span that corresponds to the target sigil. We inspect
 	// the same underlying regex used for detection — the replacement only
@@ -244,6 +285,8 @@ export function insertMentionToken(
 		? /(?:^|\s)\/[^\s]*$/
 		: isDollarSigil
 		? /(?:^|\s)\$[^\s]*$/
+		: isPercentSigil
+		? /(?:^|\s)%[^\s]*$/
 		: /(?:^|\s)!(?:(?:ext:|agent:|team:)?[^\s]*)$/;
 	const spanMatch = before.match(triggerRe);
 	if (!spanMatch) return { text: value, cursor: cursorPos };
@@ -261,6 +304,8 @@ export function insertMentionToken(
 		? `/[${mention.kind}:${mention.name}] `
 		: isDollarSigil
 		? `$[${mention.kind}:${mention.name}] `
+		: isPercentSigil
+		? `%[${mention.kind}:${mention.name}] `
 		: `![${mention.kind}:${mention.name}] `;
 	const after = value.slice(cursorPos);
 	const newText = value.slice(0, atStart) + token + after;
@@ -340,7 +385,7 @@ export function getSegments(text: string): Segment[] {
 		if (match.index > lastIndex) {
 			segments.push({ type: "text", text: text.slice(lastIndex, match.index) });
 		}
-		// Four alternatives in MENTION_REGEX — pick the capture pair that matched.
+		// Five alternatives in MENTION_REGEX — pick the capture pair that matched.
 		let kind: string;
 		let name: string;
 		if (match[1] !== undefined) {
@@ -352,9 +397,12 @@ export function getSegments(text: string): Segment[] {
 		} else if (match[5] !== undefined) {
 			kind = match[5]!;
 			name = match[6]!;
-		} else {
+		} else if (match[7] !== undefined) {
 			kind = match[7]!;
 			name = match[8]!;
+		} else {
+			kind = match[9]!;
+			name = match[10]!;
 		}
 		segments.push({
 			type: "mention",
