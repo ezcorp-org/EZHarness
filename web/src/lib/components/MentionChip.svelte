@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { fetchCommandBody } from "$lib/api";
+	import { fetchCommandBody, fetchFeatureDetails, type FeatureDetails } from "$lib/api";
 	import { store } from "$lib/stores.svelte";
 
 	let {
@@ -18,7 +18,13 @@
 		tooltip?: string;
 	} = $props();
 
-	let hovering = $state(false);
+	let chipHovering = $state(false);
+	let popoverHovering = $state(false);
+	// Single source of truth for "is the hover popover/tooltip visible".
+	// Either the chip itself or the popover (for interactive feature
+	// popovers where the user clicks the file-tree toggle) keeps it up;
+	// closes only when the cursor leaves both.
+	let hovering = $derived(chipHovering || popoverHovering);
 	let chipEl: HTMLSpanElement | undefined = $state();
 
 	// Where the command-hover popover renders relative to the chip.
@@ -33,7 +39,7 @@
 	const POPOVER_FLIP_THRESHOLD_PX = 360;
 
 	function computePopoverPosition() {
-		if (!isCommand || !chipEl || typeof window === 'undefined') return;
+		if (!(isCommand || isFeature) || !chipEl || typeof window === 'undefined') return;
 		const rect = chipEl.getBoundingClientRect();
 		const spaceAbove = rect.top;
 		const spaceBelow = window.innerHeight - rect.bottom;
@@ -99,10 +105,108 @@
 			commandBodyLoading = false;
 		}
 	}
+
+	// Feature chips lazy-fetch their description + file list on first
+	// hover. Like commands, the chat-history token persists raw; the
+	// LLM sees the expanded system note. The popover surfaces the same
+	// info to readers — collapsed by default so a 30-file feature
+	// doesn't dominate the chat.
+	let featureDetails = $state<FeatureDetails | null>(null);
+	let featureDetailsLoading = $state(false);
+	let featureFilesExpanded = $state(false);
+
+	async function loadFeatureDetails() {
+		if (!isFeature || featureDetails !== null || featureDetailsLoading) return;
+		const pid = store.activeProjectId;
+		if (!pid || pid === 'global') return;
+		featureDetailsLoading = true;
+		try {
+			featureDetails = await fetchFeatureDetails(name, pid);
+		} finally {
+			featureDetailsLoading = false;
+		}
+	}
+
+	// ── Tap-and-hold (mobile) ───────────────────────────────────────
+	// Touch devices don't fire mouseenter/leave, so a long-press
+	// (≥ 500ms) is the mobile equivalent of "hover" — it pins the
+	// popover open until the user taps outside. `pinnedByTouch` keeps
+	// `chipHovering` latched after touchend, since the popoverHovering
+	// fallback only triggers on cursor input.
+	const TOUCH_HOLD_MS = 500;
+	let touchHoldTimer: ReturnType<typeof setTimeout> | null = null;
+	let pinnedByTouch = $state(false);
+
+	function openPopoverFromTouch() {
+		chipHovering = true;
+		pinnedByTouch = true;
+		if (isCommand) {
+			computePopoverPosition();
+			loadCommandBody();
+		}
+		if (isFeature) {
+			computePopoverPosition();
+			loadFeatureDetails();
+		}
+	}
+
+	function clearTouchHold() {
+		if (touchHoldTimer) {
+			clearTimeout(touchHoldTimer);
+			touchHoldTimer = null;
+		}
+	}
+
+	function onTouchStart() {
+		// Only chips that have something to show on hover should react
+		// to long-press. A bare agent/team chip with no tooltip stays a
+		// plain tap target.
+		if (!effectiveTooltip && !isCommand && !isFeature) return;
+		clearTouchHold();
+		touchHoldTimer = setTimeout(() => {
+			openPopoverFromTouch();
+			touchHoldTimer = null;
+		}, TOUCH_HOLD_MS);
+	}
+
+	// Movement before the timer fires means the user is scrolling, not
+	// pressing — cancel so we don't accidentally pop a card mid-scroll.
+	function onTouchMoveOrEnd() {
+		clearTouchHold();
+	}
+
+	// Suppress the browser's long-press callout (context menu / text
+	// selection bubble) on any chip that has its own popover. Without
+	// this, iOS Safari + Android Chrome show their native long-press UI
+	// (selection/share menu) on top of — or instead of — our popover.
+	// Plain chips (no tooltip / popover) keep default behavior.
+	function onContextMenu(e: Event) {
+		if (effectiveTooltip || isCommand || isFeature) e.preventDefault();
+	}
+
+	// Tap outside the chip + its popover dismisses the touch-pinned
+	// popover. Capture-phase so we close before any inner click handler
+	// (e.g. the file-tree toggle) re-opens us via state confusion.
+	$effect(() => {
+		if (!pinnedByTouch) return;
+		function handle(e: MouseEvent | TouchEvent) {
+			const target = e.target as Node | null;
+			if (!target) return;
+			if (chipEl?.contains(target)) return;
+			pinnedByTouch = false;
+			chipHovering = false;
+		}
+		document.addEventListener('click', handle as EventListener, true);
+		document.addEventListener('touchstart', handle as EventListener, true);
+		return () => {
+			document.removeEventListener('click', handle as EventListener, true);
+			document.removeEventListener('touchstart', handle as EventListener, true);
+		};
+	});
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<span class="{effectiveTooltip || isCommand ? 'relative inline-block' : ''}" bind:this={chipEl}>
+<span class="{effectiveTooltip || isCommand || isFeature ? 'relative inline-block' : ''}" bind:this={chipEl}>
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<span
 		class="relative inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium {kind === 'agent'
@@ -119,13 +223,22 @@
 		onclick={onclick}
 		onkeydown={onclick ? (e) => { if (e.key === 'Enter' || e.key === ' ') onclick?.(); } : undefined}
 		onmouseenter={() => {
-			if (effectiveTooltip || isCommand) hovering = true;
+			if (effectiveTooltip || isCommand || isFeature) chipHovering = true;
 			if (isCommand) {
 				computePopoverPosition();
 				loadCommandBody();
 			}
+			if (isFeature) {
+				computePopoverPosition();
+				loadFeatureDetails();
+			}
 		}}
-		onmouseleave={() => { hovering = false; }}
+		onmouseleave={() => { chipHovering = false; }}
+		ontouchstart={onTouchStart}
+		ontouchend={onTouchMoveOrEnd}
+		ontouchcancel={onTouchMoveOrEnd}
+		ontouchmove={onTouchMoveOrEnd}
+		oncontextmenu={onContextMenu}
 		role={onclick ? 'button' : undefined}
 		tabindex={onclick ? 0 : undefined}
 		data-mention-kind={kind}
@@ -147,6 +260,56 @@
 				<span class="text-[var(--color-text-muted)] italic">Loading prompt…</span>
 			{:else}
 				<span class="text-[var(--color-text-muted)] italic">Prompt body unavailable.</span>
+			{/if}
+		</div>
+	{:else if isFeature && hovering}
+		<!--
+			No `mb-2`/`mt-2` gap on the feature popover: the chip and the
+			popover share an edge so the cursor can transition into the
+			popover without crossing dead space. This matters because the
+			popover has an interactive Files toggle — `popoverHovering`
+			pins it open while the user clicks/scrolls inside.
+		-->
+		<div
+			class="absolute {popoverPosition === 'above' ? 'bottom-full' : 'top-full'} left-0 z-30 w-max max-w-md rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-2 text-xs text-[var(--color-text-primary)] shadow-lg"
+			role="tooltip"
+			data-feature-popover={name}
+			data-feature-popover-position={popoverPosition}
+			onmouseenter={() => { popoverHovering = true; }}
+			onmouseleave={() => { popoverHovering = false; }}
+		>
+			<div class="mb-1 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
+				Feature ${name}
+			</div>
+			{#if featureDetails}
+				{#if featureDetails.description}
+					<p class="m-0 mb-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--color-text-secondary)]">{featureDetails.description}</p>
+				{:else}
+					<p class="m-0 mb-2 italic text-[var(--color-text-muted)]">No description.</p>
+				{/if}
+				<button
+					type="button"
+					class="flex w-full items-center gap-1 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+					onclick={(e) => { e.stopPropagation(); featureFilesExpanded = !featureFilesExpanded; }}
+					data-feature-files-toggle
+					aria-expanded={featureFilesExpanded}
+				>
+					<span class="inline-block w-3">{featureFilesExpanded ? '▾' : '▸'}</span>
+					<span>Files ({featureDetails.files.length})</span>
+				</button>
+				{#if featureFilesExpanded && featureDetails.files.length > 0}
+					<ul class="mt-1 max-h-64 list-none overflow-auto pl-4 text-xs leading-relaxed text-[var(--color-text-secondary)]" data-feature-files-list>
+						{#each featureDetails.files as f (f.relpath)}
+							<li class="font-mono">{f.relpath}</li>
+						{/each}
+					</ul>
+				{:else if featureFilesExpanded}
+					<p class="m-0 mt-1 pl-4 italic text-[var(--color-text-muted)]">No files pinned.</p>
+				{/if}
+			{:else if featureDetailsLoading}
+				<span class="text-[var(--color-text-muted)] italic">Loading feature…</span>
+			{:else}
+				<span class="text-[var(--color-text-muted)] italic">Feature unavailable.</span>
 			{/if}
 		</div>
 	{:else if effectiveTooltip && hovering}

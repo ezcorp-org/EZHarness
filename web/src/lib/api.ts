@@ -1,7 +1,11 @@
 const BASE = "";
 
-/** Check response for errors, showing 429 toast when rate-limited. */
-function checkResponse(res: Response): void {
+/** Check response for errors, showing 429 toast when rate-limited. On
+ *  non-OK responses, throws the server's `data.error` body field when
+ *  present (much more useful than `statusText` — e.g. "Pipeline name
+ *  already exists" instead of "400 Bad Request"), falling back to
+ *  `${status} ${statusText}` when the body is missing or non-JSON. */
+async function checkResponse(res: Response): Promise<void> {
 	if (res.ok) return;
 	if (res.status === 429) {
 		// Lazy import toast to avoid breaking non-SvelteKit test environments
@@ -14,7 +18,8 @@ function checkResponse(res: Response): void {
 			addToast({ type: "warning", message }, (seconds ?? 10) * 1000);
 		}).catch(() => {});
 	}
-	throw new Error(`${res.status} ${res.statusText}`);
+	const data = await res.json().catch(() => ({}));
+	throw new Error(data.error ?? `${res.status} ${res.statusText}`);
 }
 
 export type InputFieldType = "string" | "text" | "number" | "boolean" | "select" | "file-path" | "custom";
@@ -83,20 +88,20 @@ export type Settings = Record<string, unknown>;
 
 export async function fetchAgents(): Promise<Agent[]> {
 	const res = await fetch(`${BASE}/api/agents`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
 export async function fetchRuns(projectId?: string): Promise<Run[]> {
 	const params = projectId ? `?projectId=${projectId}` : "";
 	const res = await fetch(`${BASE}/api/runs${params}`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
 export async function fetchRun(id: string): Promise<Run> {
 	const res = await fetch(`${BASE}/api/runs/${id}`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -110,7 +115,7 @@ export async function triggerRun(
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ ...input, ...(projectId ? { projectId } : {}) }),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -139,7 +144,7 @@ export async function createDir(path: string): Promise<{ path: string }> {
 
 export async function fetchProjects(): Promise<Project[]> {
 	const res = await fetch(`${BASE}/api/projects`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -156,7 +161,7 @@ export async function createProject(data: { name: string; path: string; icon?: s
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(data),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -166,20 +171,20 @@ export async function updateProject(id: string, data: Partial<{ name: string; pa
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(data),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
 export async function deleteProject(id: string): Promise<void> {
 	const res = await fetch(`${BASE}/api/projects/${id}`, { method: "DELETE" });
-	checkResponse(res);
+	await checkResponse(res);
 }
 
 // ── Settings ────────────────────────────────────────────────────────
 
 export async function fetchSettings(): Promise<Settings> {
 	const res = await fetch(`${BASE}/api/settings`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -189,7 +194,7 @@ export async function upsertSetting(key: string, value: unknown): Promise<void> 
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ value }),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 }
 
 // ── Providers ───────────────────────────────────────────────────────
@@ -206,7 +211,7 @@ export interface ProviderStatus {
 
 export async function fetchProviders(): Promise<ProviderStatus[]> {
 	const res = await fetch(`${BASE}/api/providers`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -216,7 +221,7 @@ export async function saveProviderKey(provider: string, apiKey: string): Promise
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ provider, apiKey }),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 }
 
 export async function testProviderConnection(provider: string): Promise<{ success: boolean; error?: string }> {
@@ -237,7 +242,7 @@ export async function deleteProviderKey(provider: string): Promise<void> {
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ provider }),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 }
 
 export async function initiateOAuth(
@@ -276,7 +281,7 @@ export async function disconnectOAuth(provider: string): Promise<void> {
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ provider }),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 }
 
 // ── Local Model Checks ─────────────────────────────────────────────
@@ -398,7 +403,7 @@ export interface SearchResult {
 
 export async function fetchConversation(id: string): Promise<Conversation> {
 	const res = await fetch(`${BASE}/api/conversations/${id}`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -410,7 +415,7 @@ export async function fetchConversations(
 	if (options?.limit !== undefined) params.set("limit", String(options.limit));
 	if (options?.offset !== undefined) params.set("offset", String(options.offset));
 	const res = await fetch(`${BASE}/api/conversations?${params.toString()}`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -420,13 +425,13 @@ export async function createConversation(data: { projectId: string; title?: stri
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(data),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
 export async function searchConversations(projectId: string, query: string): Promise<SearchResult[]> {
 	const res = await fetch(`${BASE}/api/conversations?projectId=${projectId}&search=${encodeURIComponent(query)}`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -436,13 +441,13 @@ export async function updateConversation(id: string, data: Partial<{ title: stri
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(data),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
 export async function deleteConversation(id: string): Promise<void> {
 	const res = await fetch(`${BASE}/api/conversations/${id}`, { method: "DELETE" });
-	checkResponse(res);
+	await checkResponse(res);
 }
 
 /**
@@ -459,7 +464,7 @@ export async function cloneTurns(
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(data),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -477,7 +482,7 @@ export async function patchMessageContent(
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ content }),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -496,7 +501,7 @@ export async function setMessageExcluded(
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ excluded }),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -504,7 +509,7 @@ export async function setMessageExcluded(
 
 export async function fetchModes(): Promise<Mode[]> {
 	const res = await fetch(`${BASE}/api/modes`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -514,7 +519,7 @@ export async function createMode(data: Partial<Mode>): Promise<Mode> {
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(data),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -524,13 +529,13 @@ export async function updateMode(id: string, data: Partial<Mode>): Promise<Mode>
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(data),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
 export async function deleteMode(id: string): Promise<void> {
 	const res = await fetch(`${BASE}/api/modes/${id}`, { method: "DELETE" });
-	checkResponse(res);
+	await checkResponse(res);
 }
 
 // ── Sub-Conversations ───────────────────────────────────────────────
@@ -552,31 +557,31 @@ export async function createSubConversation(parentConversationId: string, opts: 
 			title: opts.title,
 		}),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
 export async function fetchSubConversations(parentConversationId: string): Promise<Array<Conversation & { parentConversationId: string; parentMessageId: string; agentConfigId: string }>> {
 	const res = await fetch(`${BASE}/api/conversations/${parentConversationId}/sub-conversations`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
 export async function fetchTestConversations(agentName: string): Promise<Conversation[]> {
 	const res = await fetch(`${BASE}/api/agents/${agentName}/test-conversations`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
 export async function deleteTestConversations(agentName: string): Promise<{ deleted: number }> {
 	const res = await fetch(`${BASE}/api/agents/${agentName}/test-conversations`, { method: "DELETE" });
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
 export async function fetchAllMessages(conversationId: string): Promise<Message[]> {
 	const res = await fetch(`${BASE}/api/conversations/${conversationId}/messages?all=true`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -622,7 +627,7 @@ export async function sendMessage(
 			body: JSON.stringify(jsonBody),
 		});
 	}
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -630,7 +635,7 @@ export async function exportConversation(conversationId: string, format: "markdo
 	const params = new URLSearchParams({ format });
 	if (leafMessageId) params.set("leafMessageId", leafMessageId);
 	const res = await fetch(`${BASE}/api/conversations/${conversationId}/export?${params}`);
-	checkResponse(res);
+	await checkResponse(res);
 	const blob = await res.blob();
 	const disposition = res.headers.get("Content-Disposition") ?? "";
 	const filenameMatch = disposition.match(/filename="(.+?)"/);
@@ -695,13 +700,13 @@ export interface AgentConfig {
 
 export async function fetchAgentConfigs(): Promise<AgentConfig[]> {
 	const res = await fetch(`${BASE}/api/agent-configs`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
 export async function fetchAgentConfig(id: string): Promise<AgentConfig> {
 	const res = await fetch(`${BASE}/api/agent-configs/${id}`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -724,7 +729,7 @@ export async function createAgentConfig(data: {
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(data),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -737,7 +742,7 @@ export async function updateAgentConfig(
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(data),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -769,7 +774,7 @@ export interface PipelineRun {
 
 export async function fetchPipelines(): Promise<Pipeline[]> {
 	const res = await fetch(`${BASE}/api/pipelines`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -779,13 +784,13 @@ export async function createPipeline(data: Pipeline): Promise<Pipeline> {
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(data),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
 export async function deletePipeline(name: string): Promise<void> {
 	const res = await fetch(`${BASE}/api/pipelines/${name}`, { method: "DELETE" });
-	checkResponse(res);
+	await checkResponse(res);
 }
 
 export async function triggerPipelineRun(
@@ -798,7 +803,7 @@ export async function triggerPipelineRun(
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ ...input, ...(projectId ? { projectId } : {}) }),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -858,7 +863,7 @@ export async function browseMarketplace(opts?: {
 	if (opts?.offset) params.set("offset", String(opts.offset));
 	const qs = params.toString();
 	const res = await fetch(`${BASE}/api/marketplace${qs ? `?${qs}` : ""}`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -870,7 +875,7 @@ export async function getMarketplaceListing(id: string): Promise<{
 	installed: boolean;
 }> {
 	const res = await fetch(`${BASE}/api/marketplace/${id}`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -899,7 +904,7 @@ export async function installMarketplaceAgent(
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ version }),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
 
@@ -912,12 +917,12 @@ export async function rateMarketplaceListing(
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ thumbsUp }),
 	});
-	checkResponse(res);
+	await checkResponse(res);
 }
 
 export async function exportManifest(listingId: string): Promise<void> {
 	const res = await fetch(`${BASE}/api/marketplace/export/${listingId}`);
-	checkResponse(res);
+	await checkResponse(res);
 	const blob = await res.blob();
 	const disposition = res.headers.get("Content-Disposition") ?? "";
 	const filenameMatch = disposition.match(/filename="(.+?)"/);
@@ -1027,6 +1032,78 @@ export function _resetCommandBodyCache(): void {
 	commandBodyInflight.clear();
 }
 
+// ── Feature details cache (for $feature chip hover popover) ─────────
+//
+// Chat-history messages persist the raw `$[feature:name]` token; the LLM
+// sees a system note listing the feature's description + file paths
+// (server-side `applyFeatureExpansion`). The chip's hover popover shows
+// the same description + a collapsible file tree, fetched here.
+//
+// Cache key is `${projectId}::${name}`. Features are project-scoped, so
+// the same feature name in two projects resolves to different rows.
+// We only cache successful resolutions; missing features stay null so a
+// later add/rename can still light up the popover without a manual
+// reset.
+export interface FeatureDetails {
+	id: string;
+	name: string;
+	description: string;
+	files: { relpath: string; source: "scan" | "user" }[];
+}
+
+const featureDetailsCache = new Map<string, FeatureDetails>();
+const featureDetailsInflight = new Map<string, Promise<FeatureDetails | null>>();
+
+function featureCacheKey(name: string, projectId: string): string {
+	return `${projectId}::${name}`;
+}
+
+export async function fetchFeatureDetails(
+	name: string,
+	projectId: string,
+): Promise<FeatureDetails | null> {
+	if (!projectId || projectId === "global" || !name) return null;
+	const key = featureCacheKey(name, projectId);
+	const cached = featureDetailsCache.get(key);
+	if (cached !== undefined) return cached;
+
+	const inflight = featureDetailsInflight.get(key);
+	if (inflight) return inflight;
+
+	const promise = (async (): Promise<FeatureDetails | null> => {
+		try {
+			// Two-step: list endpoint returns name → id; per-id GET returns
+			// the full file list. The list response is small (one row per
+			// feature, no files) so we don't bother caching it separately.
+			const listRes = await fetch(`${BASE}/api/projects/${projectId}/features`);
+			if (!listRes.ok) return null;
+			const list = (await listRes.json()) as Array<{ id: string; name: string }>;
+			const match = list.find((f) => f.name === name);
+			if (!match) return null;
+
+			const detailRes = await fetch(
+				`${BASE}/api/projects/${projectId}/features/${match.id}`,
+			);
+			if (!detailRes.ok) return null;
+			const detail = (await detailRes.json()) as FeatureDetails;
+			featureDetailsCache.set(key, detail);
+			return detail;
+		} catch {
+			return null;
+		} finally {
+			featureDetailsInflight.delete(key);
+		}
+	})();
+	featureDetailsInflight.set(key, promise);
+	return promise;
+}
+
+/** Test-only escape hatch: drop all cached feature details. */
+export function _resetFeatureDetailsCache(): void {
+	featureDetailsCache.clear();
+	featureDetailsInflight.clear();
+}
+
 export async function searchMentions(
 	query: string,
 	type?: "ext" | "agent" | "team" | "path" | "cmd" | "feature",
@@ -1036,6 +1113,6 @@ export async function searchMentions(
 	if (type) params.set("type", type);
 	if (projectId) params.set("projectId", projectId);
 	const res = await fetch(`${BASE}/api/mentions/search?${params}`);
-	checkResponse(res);
+	await checkResponse(res);
 	return res.json();
 }
