@@ -61,6 +61,32 @@ function gapSection(title: string, verdicts: FeatureVerdict[], pick: (v: Surface
   return lines.join("\n") + "\n";
 }
 
+/**
+ * Surface the *why* behind every ✓ verdict that carries an evidence
+ * string. Without this, readers never see why an extension is treated as
+ * MCP-exposed (the precheck stamp says "covered by extension_search MCP
+ * meta-tool"), and lose the architectural rationale embedded in the
+ * verdict. Failures already show evidence in the gap sections.
+ */
+function coverageNotesSection(verdicts: FeatureVerdict[]): string {
+  const surfaces: Array<[keyof SurfaceVerdicts, string]> = [
+    ["sdk", "SDK"],
+    ["ezbutton", "EzButton"],
+    ["mcp", "MCP"],
+  ];
+  const lines: string[] = [];
+  for (const v of verdicts) {
+    for (const [key, label] of surfaces) {
+      const s = v.surfaces[key];
+      if (!s.exposed) continue;
+      if (!s.evidence) continue;
+      lines.push(`- **${v.feature.name}** · ${label} ✓ — ${s.evidence}`);
+    }
+  }
+  if (lines.length === 0) return "_No exposed surfaces with evidence to report._\n";
+  return lines.join("\n") + "\n";
+}
+
 function deltaSection(
   current: FeatureVerdict[],
   prev: FeatureClassification[],
@@ -135,6 +161,9 @@ export async function writeReport(input: WriteReportInput): Promise<string> {
   sections.push(gapSection("Missing SDK exposure", verdicts, (s) => s.sdk));
   sections.push(gapSection("Missing EzButton exposure", verdicts, (s) => s.ezbutton));
   sections.push(gapSection("Missing MCP exposure", verdicts, (s) => s.mcp));
+  sections.push("## Coverage notes");
+  sections.push("");
+  sections.push(coverageNotesSection(verdicts));
   sections.push("## Delta from last run");
   sections.push("");
   sections.push(deltaSection(verdicts, prevClassifications));

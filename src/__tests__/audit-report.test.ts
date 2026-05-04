@@ -134,6 +134,41 @@ describe("writeReport", () => {
     expect(text).toContain("LLM verdicts");
   });
 
+  test("coverage notes section surfaces evidence for ✓ verdicts", async () => {
+    const path = await writeReport({
+      projectId: "p1",
+      projectName: "notes",
+      projectRoot,
+      verdicts: [
+        verdict("auto-note", {
+          sdk: { exposed: true, via: "precheck", evidence: "docs/extensions/examples/auto-note/ezcorp.config.ts" },
+          mcp: { exposed: true, via: "precheck", evidence: "docs/extensions/examples/auto-note/ezcorp.config.ts: covered by extension_search MCP meta-tool" },
+        }),
+      ],
+      prevClassifications: [],
+    });
+    const text = readFileSync(path, "utf8");
+    expect(text).toContain("## Coverage notes");
+    expect(text).toContain("**auto-note** · SDK ✓");
+    expect(text).toContain("**auto-note** · MCP ✓");
+    expect(text).toContain("extension_search");
+  });
+
+  test("coverage notes skips ✓ rows without evidence", async () => {
+    const path = await writeReport({
+      projectId: "p1",
+      projectName: "no-evidence",
+      projectRoot,
+      verdicts: [verdict("bare-true", { sdk: { exposed: true, via: "precheck" } })],
+      prevClassifications: [],
+    });
+    const text = readFileSync(path, "utf8");
+    const notesIdx = text.indexOf("## Coverage notes");
+    const deltaIdx = text.indexOf("## Delta from last run");
+    const notesBlock = text.slice(notesIdx, deltaIdx);
+    expect(notesBlock).not.toContain("**bare-true**");
+  });
+
   test("truncated flag emits a warning header", async () => {
     const path = await writeReport({
       projectId: "p1",
