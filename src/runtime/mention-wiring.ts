@@ -348,14 +348,24 @@ export async function applyLessonExpansion(
   }
   if (orderedSlugs.length === 0) return "";
 
+  // Cap-then-parallelize: slice to MAX_LESSON_EXPANSIONS_PER_TURN BEFORE
+  // resolving so we don't fan out beyond what we could ever emit. Then
+  // Promise.all those (≤5) lookups so external Postgres latency is paid
+  // once instead of N×RTT. Source order is preserved because Promise.all
+  // returns results in input order.
+  //
+  // Tradeoff vs. the prior serial loop: if a slug in the first
+  // MAX-sized window resolves to null, we no longer reach further down
+  // the list to fill its slot. Acceptable — null-resolves are typos /
+  // deleted lessons (rare in normal flow), and the slice-then-parallel
+  // shape is what bounds resolver work against paste-bomb messages
+  // (100 unique tokens still triggers exactly 5 lookups).
+  const slugsToResolve = orderedSlugs.slice(0, MAX_LESSON_EXPANSIONS_PER_TURN);
+  const resolved = await Promise.all(slugsToResolve.map(resolver));
+
   const blocks: string[] = [];
   let totalChars = 0;
-  for (const slug of orderedSlugs) {
-    // Per-turn count cap — applied AFTER dedupe (each unique slug
-    // consumes one slot, regardless of how many times it appeared).
-    if (blocks.length >= MAX_LESSON_EXPANSIONS_PER_TURN) break;
-
-    const lesson = await resolver(slug);
+  for (const lesson of resolved) {
     if (!lesson) continue; // unknown / deleted → silent no-op
 
     const block = `**Lesson: ${lesson.title}**\n${lesson.body}`;
@@ -367,7 +377,7 @@ export async function applyLessonExpansion(
     if (totalChars + separatorCost + block.length > MAX_LESSON_EXPANDED_CHARS) {
       // Drop this whole block — no partial-truncation. Subsequent
       // blocks will also fail the check (they'd still need the
-      // separator), so break early to avoid pointless resolver work.
+      // separator), so break early.
       break;
     }
     blocks.push(block);
