@@ -84,6 +84,16 @@ export const EXT_AUDIT_ACTIONS = {
    * suite for this audit action.
    */
   BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED: "ext:bundled-event-subscriptions-backfilled",
+  /** A user updated their per-extension settings via PUT
+   *  /api/extensions/[id]/settings/user. Settings can carry
+   *  user-controlled values (e.g. an API key in a text field —
+   *  there's no `secret:true` flag yet), so the mutation is
+   *  audited with before/after values + the raw submitted blob. */
+  SETTINGS_USER_UPDATED: "ext:settings.user.update",
+  /** A user reset their per-extension settings via DELETE
+   *  /api/extensions/[id]/settings/user. Audited with the
+   *  pre-delete values for forensic trail. */
+  SETTINGS_USER_RESET: "ext:settings.user.reset",
 } as const;
 
 export type ExtAuditAction = typeof EXT_AUDIT_ACTIONS[keyof typeof EXT_AUDIT_ACTIONS];

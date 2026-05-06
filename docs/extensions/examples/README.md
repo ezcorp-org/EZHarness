@@ -24,6 +24,7 @@ These examples demonstrate advanced input schema features (combo boxes, tag inpu
 9. **[log-analyzer](log-analyzer/)** -- Log file search with level and date filters (search, combo-box, date)
 10. **[todo-tracker](todo-tracker/)** -- Scan for TODO/FIXME/HACK comments with priority and tag filters
 11. **[task-stack](task-stack/)** -- Comprehensive task management (25 tools, filesystem access)
+12. **[kokoro-tts](kokoro-tts/)** -- `messageToolbar` contribution + `appendMessages` reverse-RPC for in-browser TTS
 
 ## Feature Matrix
 

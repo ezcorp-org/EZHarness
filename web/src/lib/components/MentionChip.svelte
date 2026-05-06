@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { fetchCommandBody, fetchFeatureDetails, type FeatureDetails } from "$lib/api";
 	import { store } from "$lib/stores.svelte";
+	import { buildFileTree } from "$lib/feature-file-tree";
+	import FeatureFileTree from "./FeatureFileTree.svelte";
 
 	let {
 		name,
@@ -18,14 +20,36 @@
 		tooltip?: string;
 	} = $props();
 
-	let chipHovering = $state(false);
-	let popoverHovering = $state(false);
-	// Single source of truth for "is the hover popover/tooltip visible".
-	// Either the chip itself or the popover (for interactive feature
-	// popovers where the user clicks the file-tree toggle) keeps it up;
-	// closes only when the cursor leaves both.
-	let hovering = $derived(chipHovering || popoverHovering);
+	// Single hover flag covering both the chip and its popover. Two
+	// regions because the popover may be interactive (feature file tree
+	// toggle), but the boolean is one — the cursor is either over one
+	// of those regions, or it isn't.
+	let hovering = $state(false);
 	let chipEl: HTMLSpanElement | undefined = $state();
+
+	// Closing is deferred a tick because the browser fires mouseleave
+	// on the leaving region *before* mouseenter on the entering one
+	// when the cursor crosses chip↔popover. Without the timer,
+	// `hovering` flips false for one frame, the popover unmounts, and
+	// the upcoming mouseenter lands on a vanished element. Any
+	// subsequent enter on either region cancels the pending close.
+	const HOVER_CLOSE_DELAY_MS = 80;
+	let hoverCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function cancelHoverClose() {
+		if (hoverCloseTimer) {
+			clearTimeout(hoverCloseTimer);
+			hoverCloseTimer = null;
+		}
+	}
+
+	function scheduleHoverClose() {
+		cancelHoverClose();
+		hoverCloseTimer = setTimeout(() => {
+			hovering = false;
+			hoverCloseTimer = null;
+		}, HOVER_CLOSE_DELAY_MS);
+	}
 
 	// Where the command-hover popover renders relative to the chip.
 	// Default "above" matches current UX; flips to "below" when the chip
@@ -113,7 +137,14 @@
 	// doesn't dominate the chat.
 	let featureDetails = $state<FeatureDetails | null>(null);
 	let featureDetailsLoading = $state(false);
-	let featureFilesExpanded = $state(false);
+
+	// Re-shape the flat relpath list into a code-editor-style tree once
+	// per details fetch. `buildFileTree` is pure + cheap (O(N log N) on
+	// path count), so deriving on every render is fine — features
+	// rarely have more than a few dozen files.
+	let featureFileTree = $derived(
+		featureDetails ? buildFileTree(featureDetails.files.map((f) => f.relpath)) : [],
+	);
 
 	async function loadFeatureDetails() {
 		if (!isFeature || featureDetails !== null || featureDetailsLoading) return;
@@ -131,14 +162,15 @@
 	// Touch devices don't fire mouseenter/leave, so a long-press
 	// (≥ 500ms) is the mobile equivalent of "hover" — it pins the
 	// popover open until the user taps outside. `pinnedByTouch` keeps
-	// `chipHovering` latched after touchend, since the popoverHovering
-	// fallback only triggers on cursor input.
+	// `hovering` latched after touchend (the deferred-close timer
+	// would otherwise fire as soon as the finger lifts).
 	const TOUCH_HOLD_MS = 500;
 	let touchHoldTimer: ReturnType<typeof setTimeout> | null = null;
 	let pinnedByTouch = $state(false);
 
 	function openPopoverFromTouch() {
-		chipHovering = true;
+		cancelHoverClose();
+		hovering = true;
 		pinnedByTouch = true;
 		if (isCommand) {
 			computePopoverPosition();
@@ -194,7 +226,8 @@
 			if (!target) return;
 			if (chipEl?.contains(target)) return;
 			pinnedByTouch = false;
-			chipHovering = false;
+			cancelHoverClose();
+			hovering = false;
 		}
 		document.addEventListener('click', handle as EventListener, true);
 		document.addEventListener('touchstart', handle as EventListener, true);
@@ -223,7 +256,8 @@
 		onclick={onclick}
 		onkeydown={onclick ? (e) => { if (e.key === 'Enter' || e.key === ' ') onclick?.(); } : undefined}
 		onmouseenter={() => {
-			if (effectiveTooltip || isCommand || isFeature) chipHovering = true;
+			cancelHoverClose();
+			if (effectiveTooltip || isCommand || isFeature) hovering = true;
 			if (isCommand) {
 				computePopoverPosition();
 				loadCommandBody();
@@ -233,7 +267,7 @@
 				loadFeatureDetails();
 			}
 		}}
-		onmouseleave={() => { chipHovering = false; }}
+		onmouseleave={() => { scheduleHoverClose(); }}
 		ontouchstart={onTouchStart}
 		ontouchend={onTouchMoveOrEnd}
 		ontouchcancel={onTouchMoveOrEnd}
@@ -267,16 +301,17 @@
 			No `mb-2`/`mt-2` gap on the feature popover: the chip and the
 			popover share an edge so the cursor can transition into the
 			popover without crossing dead space. This matters because the
-			popover has an interactive Files toggle — `popoverHovering`
-			pins it open while the user clicks/scrolls inside.
+			popover has an interactive Files toggle — the popover's own
+			mouseenter cancels the chip's pending close timer so the
+			user can click/scroll inside without it vanishing.
 		-->
 		<div
 			class="absolute {popoverPosition === 'above' ? 'bottom-full' : 'top-full'} left-0 z-30 w-max max-w-md rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-2 text-xs text-[var(--color-text-primary)] shadow-lg"
 			role="tooltip"
 			data-feature-popover={name}
 			data-feature-popover-position={popoverPosition}
-			onmouseenter={() => { popoverHovering = true; }}
-			onmouseleave={() => { popoverHovering = false; }}
+			onmouseenter={() => { cancelHoverClose(); hovering = true; }}
+			onmouseleave={() => { scheduleHoverClose(); }}
 		>
 			<div class="mb-1 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
 				Feature ${name}
@@ -287,24 +322,21 @@
 				{:else}
 					<p class="m-0 mb-2 italic text-[var(--color-text-muted)]">No description.</p>
 				{/if}
-				<button
-					type="button"
-					class="flex w-full items-center gap-1 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-					onclick={(e) => { e.stopPropagation(); featureFilesExpanded = !featureFilesExpanded; }}
-					data-feature-files-toggle
-					aria-expanded={featureFilesExpanded}
+				<div
+					class="mb-1 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]"
+					data-feature-files-header
 				>
-					<span class="inline-block w-3">{featureFilesExpanded ? '▾' : '▸'}</span>
-					<span>Files ({featureDetails.files.length})</span>
-				</button>
-				{#if featureFilesExpanded && featureDetails.files.length > 0}
-					<ul class="mt-1 max-h-64 list-none overflow-auto pl-4 text-xs leading-relaxed text-[var(--color-text-secondary)]" data-feature-files-list>
-						{#each featureDetails.files as f (f.relpath)}
-							<li class="font-mono">{f.relpath}</li>
-						{/each}
-					</ul>
-				{:else if featureFilesExpanded}
-					<p class="m-0 mt-1 pl-4 italic text-[var(--color-text-muted)]">No files pinned.</p>
+					Files ({featureDetails.files.length})
+				</div>
+				{#if featureDetails.files.length > 0}
+					<div
+						class="max-h-64 overflow-auto rounded border border-[var(--color-border)]/40 bg-[var(--color-surface-secondary)]/40 px-2 py-1 text-xs"
+						data-feature-files-list
+					>
+						<FeatureFileTree nodes={featureFileTree} />
+					</div>
+				{:else}
+					<p class="m-0 italic text-[var(--color-text-muted)]">No files pinned.</p>
 				{/if}
 			{:else if featureDetailsLoading}
 				<span class="text-[var(--color-text-muted)] italic">Loading feature…</span>

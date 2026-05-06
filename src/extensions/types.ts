@@ -87,12 +87,113 @@ export interface ScriptDefinition {
   >;
 }
 
+/**
+ * Per-turn action icon contributed by an extension. Rendered in
+ * `MessageToolbar.svelte` between the exclude and save-to-memory buttons.
+ *
+ * Click handler in the host posts to the existing extension event route
+ * (`/api/extensions/<name>/events/<event>`) with
+ * `{ messageId, conversationId, content, selection }`. The selection is
+ * captured via `window.getSelection()` and clamped to the source row's
+ * DOM (so highlighting in another row doesn't leak).
+ *
+ * `event` MUST be prefixed with the extension's `name:` (mirrors the
+ * dispatcher rule in `event-subscription-dispatcher.ts:registerExtension`),
+ * AND the extension MUST also list this event under
+ * `permissions.eventSubscriptions` — toolbar contributions are gated by
+ * the same allowlist as canvas-card events.
+ */
+export interface MessageToolbarItem {
+  /** Unique id within the extension. Lowercase letters, digits, hyphens. */
+  id: string;
+  /** lucide-svelte icon name, e.g. "Volume2". */
+  icon: string;
+  /** Tooltip text shown on hover. */
+  tooltip: string;
+  /** Which message roles this icon should appear on. Default `"both"`. */
+  appliesTo?: "user" | "assistant" | "both";
+  /**
+   * Whether this contribution participates in the multi-select bulk
+   * action bar (`SelectModeActionBar.svelte`) in addition to / instead
+   * of the per-message hover toolbar.
+   *
+   *   - `"single"` (default) — appears only on the per-message hover
+   *     toolbar. Click POSTs `{ conversationId, messageId, content,
+   *     selection }`.
+   *   - `"bulk"`  — appears only in the multi-select bar. Click POSTs
+   *     `{ conversationId, messageIds: string[], content }` where
+   *     `content` is the concatenated content of the selected turns
+   *     (no `selection` — bulk has no single highlight).
+   *   - `"both"`  — appears in both. Single-row clicks send the
+   *     single-id payload; bulk clicks send the array payload.
+   *
+   * The host route (`/api/extensions/[name]/events/[event]`) accepts
+   * EITHER `messageId` OR `messageIds[]` for messageToolbar events,
+   * so an extension only needs to handle whichever shapes match the
+   * `appliesToSelection` modes it opts into. Default `"single"`
+   * preserves the original behavior for existing manifests.
+   */
+  appliesToSelection?: "single" | "bulk" | "both";
+  /** Event name in this extension's namespace, e.g. "kokoro-tts:speak". */
+  event: string;
+}
+
 // ── Dependency Types ─────────────────────────────────────────────
 
 export interface DependencySpec {
   source: string; // e.g. "github:user/repo" or "git:https://..."
   version: string; // exact "1.0.0" or caret "^1.0.0"
 }
+
+// ── Settings Schema (user-editable extension config) ─────────────
+
+export interface SettingsFieldSelect {
+  type: "select";
+  label: string;
+  description?: string;
+  options: { value: string; label: string }[];
+  default?: string;
+}
+
+export interface SettingsFieldText {
+  type: "text";
+  label: string;
+  description?: string;
+  default?: string;
+  minLength?: number;
+  maxLength?: number;
+  /** ECMAScript regex source. Validated server-side at admit time. */
+  pattern?: string;
+}
+
+export interface SettingsFieldNumber {
+  type: "number";
+  label: string;
+  description?: string;
+  default?: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  /** When true, only integers are accepted. */
+  integer?: boolean;
+}
+
+export interface SettingsFieldBoolean {
+  type: "boolean";
+  label: string;
+  description?: string;
+  default?: boolean;
+}
+
+export type SettingsField =
+  | SettingsFieldSelect
+  | SettingsFieldText
+  | SettingsFieldNumber
+  | SettingsFieldBoolean;
+
+/** Map of setting key → field declaration. Keys must match
+ *  /^[a-z][a-z0-9_]{0,63}$/ (filesystem-safe identifier). */
+export type SettingsSchema = Record<string, SettingsField>;
 
 // ── Extension Manifest V2 ────────────────────────────────────────
 
@@ -147,6 +248,22 @@ export interface ExtensionManifestV2 {
    */
   acceptedAttachmentMimes?: string[];
 
+  /**
+   * Per-turn action icons contributed to `MessageToolbar`. Each item must
+   * declare an event that is also present in
+   * `permissions.eventSubscriptions` (the same dispatcher allowlist used
+   * by canvas-card events). See `MessageToolbarItem`.
+   */
+  messageToolbar?: MessageToolbarItem[];
+
+  /**
+   * User-editable configuration declared by the extension. The host renders
+   * a form on the extension detail page, persists per-user + global values,
+   * and injects the resolved map into tool calls. Keys must be filesystem-safe
+   * identifiers; field declarations are validated at admit time.
+   */
+  settings?: SettingsSchema;
+
   // Dependencies on other extensions
   dependencies?: Record<string, DependencySpec>;
 
@@ -180,6 +297,14 @@ export interface ExtensionManifestV2 {
      *  conversations it's wired to via `conversation_extensions`. Unknown
      *  event names are silently filtered at clamp time. */
     eventSubscriptions?: string[];
+    /** Author turns directly via the `ezcorp/append-message` reverse RPC.
+     *  Conversation scope is forced by the host (the extension cannot
+     *  target another conversation). The host always forces the new
+     *  message's `excluded` flag to `true` regardless of what the
+     *  extension passes in `excludedDefault`; the field is reserved for
+     *  a future opt-in tier. Pairs naturally with `messageToolbar`
+     *  (toolbar click → subprocess gets event → calls append-message). */
+    appendMessages?: { excludedDefault: boolean };
   };
 
   // Resource limits for subprocess
@@ -293,6 +418,9 @@ export interface ExtensionPermissions {
    *  the intersection of manifest declaration and the direct-carrier
    *  allowlist. */
   eventSubscriptions?: string[];
+  /** Grants the `ezcorp/append-message` reverse RPC. See the matching
+   *  field on `ExtensionManifestV2.permissions`. */
+  appendMessages?: { excludedDefault: boolean };
   grantedAt: Record<string, number>; // permission key -> timestamp
 }
 

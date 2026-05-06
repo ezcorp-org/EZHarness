@@ -40,6 +40,12 @@ export function createShellTool(projectPath: string): BuiltinToolDef {
     description: "Execute a shell command in the project directory. Streams stdout/stderr in real-time. Supports timeout and abort.",
     category: "execute",
     cardType: "terminal",
+    // Match the tool's own per-command `timeout` arg cap (600_000ms,
+    // enforced by validateTimeout). Bun test/build, package install, and
+    // codegen routinely run 2–5+ minutes; the default 90s watchdog
+    // deferral would kill them long before the command itself decides to
+    // give up. See `.planning/watchdog-builtins-hotfix.md`.
+    callTimeoutMs: 600_000,
     parameters: Type.Unsafe({
       type: "object",
       properties: {

@@ -162,6 +162,35 @@ describe("scanFeatures — slug collision", () => {
     expect(result.map((f) => f.name)).toEqual(["standalone"]);
   });
 
+  test("scoped packages: packages/@scope/<pkg>/src is treated as a source root", async () => {
+    await writeFiles({
+      "packages/@ezcorp/sdk/src/runtime/r.ts": "r",
+      "packages/@ezcorp/sdk/src/runtime/s.ts": "s",
+      "packages/@ezcorp/ai-kit/src/mcp/server.ts": "x",
+      "packages/@ezcorp/ai-kit/src/mcp/client.ts": "y",
+    });
+    const result = await scanFeatures(projectRoot);
+    const names = result.map((f) => f.name).sort();
+    // Each scoped package's src/* immediate children become features.
+    expect(names).toContain("runtime");
+    expect(names).toContain("mcp");
+  });
+
+  test("docs/extensions/examples is a source root: each example becomes a feature", async () => {
+    await writeFiles({
+      "docs/extensions/examples/auto-note/ezcorp.config.ts": "// manifest",
+      "docs/extensions/examples/auto-note/runtime.ts": "// runtime",
+      "docs/extensions/examples/task-stack/ezcorp.config.ts": "// manifest",
+      "docs/extensions/examples/task-stack/runtime.ts": "// runtime",
+    });
+    const result = await scanFeatures(projectRoot);
+    const names = result.map((f) => f.name).sort();
+    expect(names).toContain("auto-note");
+    expect(names).toContain("task-stack");
+    const autoNote = result.find((f) => f.name === "auto-note")!;
+    expect(autoNote.files).toContain("docs/extensions/examples/auto-note/ezcorp.config.ts");
+  });
+
   test("triple collision (prefixed slug also collides) → duplicate dropped", async () => {
     // src/foo claims "foo".
     // web/src/foo collides → becomes "web-foo".

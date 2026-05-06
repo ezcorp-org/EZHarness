@@ -205,6 +205,46 @@ scripts: {
 
 ---
 
+### `messageToolbar[]` -- `MessageToolbarItem[]`
+
+Per-turn action icons contributed to the chat row's `MessageToolbar`. Each item renders as a clickable icon next to the built-in copy / regenerate / edit / branch / exclude / save-to-memory icons; clicking it POSTs your declared event on the bus, which the dispatcher delivers to your subprocess as a JSON-RPC notification.
+
+Pair with the `ezcorp/append-message` reverse RPC (gated on `permissions.appendMessages`) to author a new excluded turn in response to the click. The full pattern is documented in **[Message Toolbar](message-toolbar.md)**; the kokoro-tts example below is the worked reference.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | `string` | Yes | Unique within the extension. Must match `/^[a-z0-9][a-z0-9-]{0,31}$/`. Used as a test-id selector. |
+| `icon` | `string` | Yes | Lucide icon name (e.g. `"Volume2"`). Resolved by the host's lucide-icon resolver at render time; unknown names fall back to a generic icon. |
+| `tooltip` | `string` | Yes | Hover label, also used as the accessible name. |
+| `appliesTo` | `"user" \| "assistant" \| "both"` | No | Which roles get the icon. Default `"both"`. |
+| `event` | `string` | Yes | Bus event the click POSTs. **Must** be prefixed with the manifest's `name:` (the event-subscription-dispatcher namespace rule) AND **must** also be listed in `permissions.eventSubscriptions`. The validator rejects manifests that violate either rule. |
+
+**Worked example** — the kokoro-tts manifest at [`examples/kokoro-tts/ezcorp.config.ts`](examples/kokoro-tts/ezcorp.config.ts):
+
+```typescript
+messageToolbar: [
+  {
+    id: "speak",
+    icon: "Volume2",
+    tooltip: "Read aloud (selection or full message)",
+    appliesTo: "both",
+    event: "kokoro-tts:speak",
+  },
+],
+permissions: {
+  // The same string MUST appear here, otherwise the dispatcher returns
+  // 404 for the click POST. The manifest validator catches this at
+  // install time with: `messageToolbar[i].event "<event>" must also be
+  // listed in permissions.eventSubscriptions`.
+  eventSubscriptions: ["kokoro-tts:speak", "kokoro-tts:save"],
+  appendMessages: { excludedDefault: true },
+},
+```
+
+The host emits the event with payload `{ messageId, conversationId, content, selection? }` — `selection` is the user's DOM selection clamped to the row element (≤4 000 chars), or omitted if nothing was highlighted. See [Message Toolbar](message-toolbar.md) for the full event lifecycle and selection-clamping rules.
+
+---
+
 ### `acceptedAttachmentMimes` -- `string[]`
 
 MIME types this extension can ingest as user-uploaded chat attachments.
@@ -220,6 +260,89 @@ acceptedAttachmentMimes: [
 ```
 
 The accepted MIMEs are only honored when the extension is wired to the conversation — they don't expand the global allowlist for other chats. Each entry must be a fully-qualified `type/subtype` string.
+
+---
+
+### `settings` -- `Record<string, SettingsField>`
+
+User-facing configuration the host exposes via the extension detail page. Each user has their own values, and the runtime resolves `declared default < user override` before injecting the merged blob into every tool call (see [Settings](settings.md) for the full provider guide).
+
+The section is hidden in the UI when this field is omitted. Mutations to the settings HTTP routes return `409 Conflict` for an extension that doesn't declare a settings block.
+
+| Field-shared property | Type | Required | Description |
+|-----------------------|------|----------|-------------|
+| `type` | `"select" \| "text" \| "number" \| "boolean"` | Yes | Discriminator. |
+| `label` | `string` | Yes | Display label rendered above the input. |
+| `description` | `string` | No | Hint text rendered under the label. |
+| `default` | matches `type` | No | Falls through when no user override exists. |
+
+**`type: "select"`**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `options` | `Array<{ value: string; label: string }>` | Yes | Non-empty list. `default`, if set, must equal one `value`. |
+
+**`type: "text"`**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `minLength` | `number` | No | Minimum string length. |
+| `maxLength` | `number` | No | Maximum string length. |
+| `pattern` | `string` | No | Regex source — must compile via `new RegExp(...)` at validation time. |
+
+**`type: "number"`**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `min` | `number` | No | Lower bound (inclusive). |
+| `max` | `number` | No | Upper bound (inclusive). |
+| `step` | `number` | No | UI step hint. |
+| `integer` | `boolean` | No | When `true`, the resolver coerces to `parseInt`; otherwise `Number(...)`. |
+
+**`type: "boolean"`** — no extra fields beyond `default`.
+
+#### Validation rules
+
+The `validateSettingsSchema()` validator (called from `validateManifestV2` in [`src/extensions/manifest.ts`](../../src/extensions/manifest.ts)) rejects manifests that violate any of the following:
+
+- **Setting keys** must match `^[a-z][a-z0-9_]*$` and be ≤ 64 characters.
+- **`select.options`** must be non-empty; `default`, if set, must equal one of the `value` strings.
+- **`text.pattern`** must compile as a `RegExp` (`new RegExp(pattern)` mustn't throw).
+- **`number` bounds** — when both `min` and `max` are set, `min ≤ default ≤ max`.
+- **Unknown `type`** values are rejected.
+
+Values are validated **server-side both on write AND on resolve**. A manifest schema change that drops a field will cause stale persisted values for that key to be silently dropped on the next read — they are never returned to the SDK or to the UI. Plan your migrations accordingly (see [Settings § Migrations](settings.md#migrations)).
+
+#### Worked example — kokoro-tts
+
+```typescript
+settings: {
+  voice: {
+    type: "select",
+    label: "Voice",
+    description: "Speaker timbre used for synthesis.",
+    options: [
+      { value: "af_bella", label: "Bella (US, female)" },
+      { value: "af_sarah", label: "Sarah (US, female)" },
+      { value: "am_adam",  label: "Adam (US, male)" },
+      { value: "bf_emma",  label: "Emma (UK, female)" },
+      { value: "bm_george", label: "George (UK, male)" },
+    ],
+    default: "af_bella",
+  },
+  speed: {
+    type: "number",
+    label: "Playback speed",
+    description: "1.0 = natural; <1 slower, >1 faster.",
+    min: 0.5,
+    max: 2.0,
+    step: 0.05,
+    default: 1.0,
+  },
+}
+```
+
+The full manifest lives at [`examples/kokoro-tts/ezcorp.config.ts`](examples/kokoro-tts/ezcorp.config.ts). The host card reads these at render time via the per-extension settings store (`getCachedSettings("kokoro-tts")`); see [Settings § Reading values from a tool card](settings.md#reading-values-from-a-tool-card-frontend).
 
 ---
 
@@ -497,6 +620,30 @@ permissions: {
 For interactive cards that round-trip events from a UI sidebar, pair this with the SDK's `createCanvas` helper — see **[Canvas Cards](canvas-cards.md)** for the full pattern.
 
 The full list of platform direct-carrier events lives in [`src/runtime/sse-conversation-filter.ts`](../../src/runtime/sse-conversation-filter.ts) under `DIRECT_CARRIER_EVENT_TYPES`.
+
+---
+
+### `appendMessages` -- `{ excludedDefault: boolean }`
+
+Grants the `ezcorp/append-message` reverse RPC, which lets the extension author a turn directly in the conversation. Pairs naturally with `messageToolbar` — toolbar click → subprocess receives event → calls `ezcorp/append-message` to insert a follow-up turn.
+
+| Detail | |
+|--------|---|
+| **Type** | `{ excludedDefault: boolean }` |
+| **What it controls** | Whether the extension may call `ezcorp/append-message` |
+| **Default** | not granted (RPC returns `-32001` Permission denied) |
+
+```typescript
+permissions: {
+  appendMessages: { excludedDefault: true },
+}
+```
+
+**Conversation scope is forced by the host** — the extension cannot target another conversation, even by passing a different `conversationId` in the params. The host substitutes the caller's wired conversation. This mirrors the same posture as `ezcorp/emit-task-event` (see `src/extensions/types.ts:200`).
+
+**`excluded: true` is forced** — every appended turn is marked excluded regardless of what the extension passes in the call params. The `excludedDefault` field is reserved for a future opt-in tier where extensions might author included turns; today it is informational only. The host renders an "Excluded from chat context" pill on the new row so users can see at a glance that the turn isn't fed back to the LLM.
+
+See [Reverse RPC: `ezcorp/append-message`](api-reference.md#reverse-rpc-ezcorpappend-message) for the wire shape, and **[Message Toolbar](message-toolbar.md)** for the end-to-end pattern.
 
 ---
 

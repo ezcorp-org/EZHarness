@@ -201,9 +201,11 @@ function patchReq(id: string, body: unknown) {
 	} as any;
 }
 
-function listReq() {
+function listReq(query = "") {
+	const href = `http://localhost/api/extensions${query}`;
 	return {
-		request: new Request("http://localhost/api/extensions", { method: "GET" }),
+		request: new Request(href, { method: "GET" }),
+		url: new URL(href),
 		locals: { user: authUser, apiKeyScopes },
 	} as any;
 }

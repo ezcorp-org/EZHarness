@@ -1,3 +1,34 @@
+<!--
+  AgentInputForm — runs an agent, driven by an `InputSchema` from `$lib/api.js`.
+
+  ── Why this does NOT delegate to SchemaForm ──
+  An earlier slice flagged the duplicated primitive renderers and asked whether
+  AgentInputForm should delegate the overlapping field types (text / number /
+  boolean / select) to <SchemaForm/>. After auditing both schemas the answer
+  is no: the two are surface-similar but semantically incompatible, and forcing
+  a shared renderer would either bloat SchemaForm with branches that only one
+  caller needs, or require an awkward per-call adapter that's larger than the
+  duplicated markup it replaces. The blocking divergences:
+
+    1. `select.options` shape — AgentInputForm uses `string[]`, SchemaForm uses
+       `{ value, label }[]`. Different on-screen contract.
+    2. `text` semantics — AgentInputForm renders a multi-line `<textarea rows=4>`
+       (free-form agent prompts), SchemaForm renders a single-line
+       `<input type="text">` with `minLength`/`maxLength`/`pattern` validation.
+    3. Required fields — AgentInputForm has a `required` flag with a red
+       asterisk and submit-blocking validation; SettingsField has no notion of
+       required (settings always have a default).
+    4. Submit/error UX — AgentInputForm owns a visible Run button, an inline
+       error string, and clean-input filtering (empty optionals are stripped);
+       SchemaForm is fully controlled with only a hidden submit affordance.
+    5. Agent-only field types — `custom` (component fallback), `file-path`,
+       and the plain single-line `string` variant don't exist in SettingsSchema.
+
+  The redundant renderers stay local on purpose. If a future change unifies
+  the schemas (e.g. add `required` + textarea variant to SettingsField, or
+  normalise `select.options` to objects), revisit the delegation then.
+-->
+
 <script lang="ts">
 	import type { InputSchema } from "$lib/api.js";
 	import type { Component } from "svelte";

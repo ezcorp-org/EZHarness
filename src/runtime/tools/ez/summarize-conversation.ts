@@ -128,6 +128,12 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
       "Summarize a conversation's message history. Style: 'brief' (default, 2-3 sentences), 'standup' (bulleted update), or 'tweet' (under 280 chars).",
     category: "ez",
     cardType: "default",
+    // Server-side LLM call. Slow models on long transcripts (transcript
+    // is capped at MAX_TRANSCRIPT_CHARS ≈ 15k tokens) can comfortably
+    // exceed the default 90s watchdog deferral. 5 minutes covers the
+    // worst legitimate case without papering over a wedged provider.
+    // See `.planning/watchdog-builtins-hotfix.md`.
+    callTimeoutMs: 300_000,
     parameters: Type.Unsafe({
       type: "object",
       properties: {

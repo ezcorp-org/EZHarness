@@ -5,7 +5,7 @@
 
 import type { ExtensionManifestV2 } from "./types";
 import { validateManifestV2, validateMcpManifest } from "./manifest";
-import { join } from "path";
+import { join } from "node:path";
 
 // Route kind:"mcp" manifests to the stricter mcp validator (enforces
 // single-server, no entrypoint, etc.). Everything else keeps the base rules.

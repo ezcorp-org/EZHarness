@@ -25,6 +25,17 @@ interface State {
     string,
     { id: string; name: string; prompt: string; category?: string; references?: unknown }
   >;
+  /** Seedable list returned by `/api/extensions`. Tests can push entries
+   *  before invoking client methods; defaults to empty so existing tests
+   *  that expect `[]` keep passing. */
+  extensions: Array<{
+    id: string;
+    name: string;
+    version: string;
+    description: string;
+    enabled: boolean;
+    manifest: { tools?: Array<{ name: string; description: string; inputSchema?: unknown }> };
+  }>;
   runEvents: Array<unknown>;
   /** Pending SSE clients — writers push frames to each. */
   sseClients: Set<WritableStreamDefaultWriter<Uint8Array>>;
@@ -47,6 +58,7 @@ export function startStubServer(opts: { apiKey?: string } = {}): StubServer {
     conversations: new Map(),
     messages: new Map(),
     agents: new Map(),
+    extensions: [],
     runEvents: [],
     sseClients: new Set(),
   };
@@ -242,7 +254,7 @@ export function startStubServer(opts: { apiKey?: string } = {}): StubServer {
       }
 
       if (p === "/api/models") return json([{ id: "claude-sonnet-4-6", provider: "anthropic" }]);
-      if (p === "/api/extensions") return json([]);
+      if (p === "/api/extensions") return json(state.extensions);
 
       if (p === "/api/runtime-events") {
         const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();

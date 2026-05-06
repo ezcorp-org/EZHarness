@@ -46,6 +46,7 @@ const MODULE_PATHS = [
   "../../db/queries/conversation-extensions",
   "../../db/queries/sessions",
   "../../db/queries/audit-log",
+  "../../db/queries/extension-settings",
   "../../db/queries/extension-storage",
   "../../db/queries/memories",
   "../../db/queries/password-resets",

@@ -1,4 +1,5 @@
 import type { ExtensionRegistry } from "./registry";
+import type { ExtensionProcess } from "./subprocess";
 import type { ToolCallResult, JsonRpcRequest, JsonRpcResponse } from "./types";
 import type { ExtensionStateMediator } from "./state-mediator";
 import type { EventBus } from "../runtime/events";
@@ -14,9 +15,12 @@ import { handleAgentConfigsRpc, type AgentConfigsContext } from "./agent-configs
 import { handleEmitTaskEventRpc, type TaskEventsContext } from "./task-events-handler";
 import { handleSpawnAssignmentRpc, type SpawnAssignmentContext } from "./spawn-assignment-handler";
 import { handleCancelRunRpc, type CancelRunContext } from "./cancel-run-handler";
+import { handleAppendMessageRpc, type AppendMessageContext } from "./append-message-handler";
+import { handleFinalizeToolCallRpc, type FinalizeToolCallContext } from "./finalize-tool-call-handler";
 import type { SpawnQuota } from "./spawn-quota";
 import { getConversation, getConversationSpawnDepth } from "../db/queries/conversations";
 import { persistToolCall } from "../db/queries/tool-calls";
+import { resolveExtensionSettings } from "../db/queries/extension-settings";
 
 export const MAX_TOOL_CALLS_PER_TURN = 10;
 
@@ -242,46 +246,7 @@ export class ToolExecutor {
         const proc = await this.registry.getProcess(extensionId);
 
         // Wire handlers if not already wired for this extension
-        if (!this.wiredExtensions.has(extensionId)) {
-          this.wiredExtensions.add(extensionId);
-
-          // Route extension notifications through the state mediator (if available)
-          if (this.stateMediator) {
-            const mediator = this.stateMediator;
-            proc.setNotificationHandler((notification) => {
-              mediator.handleNotification(extensionId, notification);
-            });
-          }
-
-          proc.setRequestHandler(async (req) => {
-            if (req.method === "ezcorp/invoke") {
-              return this.handlePiInvoke(extensionId, req);
-            }
-            if (req.method === "ezcorp/fs") {
-              return this.handlePiFs(extensionId, req);
-            }
-            if (req.method === "ezcorp/emit-task-event") {
-              return this.handlePiEmitTaskEvent(extensionId, req);
-            }
-            if (req.method === "ezcorp/agent-configs") {
-              return this.handlePiAgentConfigs(extensionId, req);
-            }
-            if (req.method === "ezcorp/spawn-assignment") {
-              return this.handlePiSpawnAssignment(extensionId, req);
-            }
-            if (req.method === "ezcorp/cancel-run") {
-              return this.handlePiCancelRun(extensionId, req);
-            }
-            if (req.method === "ezcorp/storage") {
-              return this.handlePiStorage(extensionId, req);
-            }
-            return {
-              jsonrpc: "2.0" as const,
-              id: req.id,
-              error: { code: -32601, message: "Method not found" },
-            };
-          });
-        }
+        await this.ensureSubprocessRpcWired(extensionId, proc);
 
         // Use originalName for RPC call to subprocess, not the namespaced name
         const callArgs = _opts?._callDepth != null && _opts._callDepth > 0
@@ -307,8 +272,32 @@ export class ToolExecutor {
         // Phase 4 §5.1a: opaque per-turn invocation metadata rides in
         // `_meta.invocationMetadata`. The SDK's tools/call dispatcher
         // surfaces it on the handler ctx.
-        if (invocationMetadata && Object.keys(invocationMetadata).length > 0) {
-          meta.invocationMetadata = invocationMetadata;
+        //
+        // Per-extension user/global settings (lazy-foraging-hammock):
+        // when the manifest declares a `settings` schema, resolve the
+        // effective values for the acting user and merge them under
+        // `invocationMetadata.settings`. Caller-supplied settings win
+        // over resolved values (the host orchestrator may pre-bind
+        // overrides at wire time); resolved values fill the gaps.
+        let mergedInvocationMetadata = invocationMetadata;
+        if (manifest?.settings) {
+          // Pass the in-memory schema so the resolver skips the
+          // per-call `extensions.manifest` DB query — N+1 fix.
+          const resolved = await resolveExtensionSettings(
+            extensionId,
+            this.currentUserId ?? null,
+            manifest.settings,
+          );
+          const callerSettings = (invocationMetadata?.settings ?? undefined) as
+            | Record<string, unknown>
+            | undefined;
+          mergedInvocationMetadata = {
+            ...invocationMetadata,
+            settings: { ...resolved, ...(callerSettings ?? {}) },
+          };
+        }
+        if (mergedInvocationMetadata && Object.keys(mergedInvocationMetadata).length > 0) {
+          meta.invocationMetadata = mergedInvocationMetadata;
         }
         result = await proc.callTool(originalName, callArgs, meta);
       }
@@ -641,6 +630,166 @@ export class ToolExecutor {
       quota: this.spawnQuota,
     };
     return handleCancelRunRpc(extensionId, req, ctx);
+  }
+
+  /**
+   * Install the reverse-RPC request handler + state-mediator
+   * notification handler on this extension's subprocess. Idempotent:
+   * `wiredExtensions` is consulted first.
+   *
+   * Public so the messageToolbar event route can pre-wire the
+   * subprocess BEFORE the bus emit. Without that, an extension that
+   * never receives a tool call (e.g. `kokoro-tts`, which is purely
+   * event-driven) would have no `transport.onRequest` set when its
+   * subprocess sends `ezcorp/append-message` — the request would be
+   * silently dropped at `json-rpc.ts:67` and the subprocess's call
+   * would hang forever. The user sees a "Generating speech…" toast
+   * with no follow-up.
+   *
+   * The closures capture `this`, but every handler reads from
+   * `this.registry` / static helpers — no per-turn state is
+   * required. So if a fresh ToolExecutor instance later re-wires the
+   * same proc (per-turn), the new closure overwrites the old; both
+   * do the same thing.
+   */
+  async ensureSubprocessRpcWired(
+    extensionId: string,
+    proc: ExtensionProcess,
+  ): Promise<void> {
+    if (this.wiredExtensions.has(extensionId)) return;
+    this.wiredExtensions.add(extensionId);
+
+    if (this.stateMediator) {
+      const mediator = this.stateMediator;
+      proc.setNotificationHandler((notification) => {
+        mediator.handleNotification(extensionId, notification);
+      });
+    }
+
+    proc.setRequestHandler(async (req) => {
+      if (req.method === "ezcorp/invoke") {
+        return this.handlePiInvoke(extensionId, req);
+      }
+      if (req.method === "ezcorp/fs") {
+        return this.handlePiFs(extensionId, req);
+      }
+      if (req.method === "ezcorp/emit-task-event") {
+        return this.handlePiEmitTaskEvent(extensionId, req);
+      }
+      if (req.method === "ezcorp/agent-configs") {
+        return this.handlePiAgentConfigs(extensionId, req);
+      }
+      if (req.method === "ezcorp/spawn-assignment") {
+        return this.handlePiSpawnAssignment(extensionId, req);
+      }
+      if (req.method === "ezcorp/cancel-run") {
+        return this.handlePiCancelRun(extensionId, req);
+      }
+      if (req.method === "ezcorp/append-message") {
+        return this.handlePiAppendMessage(extensionId, req);
+      }
+      if (req.method === "ezcorp/finalize-tool-call") {
+        return this.handlePiFinalizeToolCall(extensionId, req);
+      }
+      if (req.method === "ezcorp/storage") {
+        return this.handlePiStorage(extensionId, req);
+      }
+      return {
+        jsonrpc: "2.0" as const,
+        id: req.id,
+        error: { code: -32601, message: "Method not found" },
+      };
+    });
+  }
+
+  /**
+   * Handle a `ezcorp/append-message` reverse RPC request. Creates an
+   * extension-authored turn (role:"extension", excluded:true) plus
+   * inline tool-call rows, and reattributes any pre-uploaded
+   * attachments to the new message id. Conversation scope is FORCED
+   * by the host — see append-message-handler.ts for the full
+   * enforcement ladder.
+   */
+  async handlePiAppendMessage(
+    extensionId: string,
+    req: JsonRpcRequest,
+  ): Promise<JsonRpcResponse> {
+    const granted = this.registry.getGrantedPermissions(extensionId);
+    if (!granted) {
+      return {
+        jsonrpc: "2.0",
+        id: req.id,
+        error: { code: -32603, message: "Extension not found in registry" },
+      };
+    }
+    const ctx: AppendMessageContext = {
+      conversationId: this.currentConversationId ?? "unknown",
+      userId: this.currentUserId ?? "unknown",
+      grantedPermissions: granted,
+    };
+    const response = await handleAppendMessageRpc(extensionId, req, ctx);
+
+    // On success, broadcast `run:turn_saved` so the chat UI's
+    // existing `ez:turn_saved` listener picks up the new turn. Without
+    // this, the row sits in the DB but the user never sees it — the
+    // frontend only re-hydrates messages on initial page load and on
+    // run completion. The conversationId comes from the same source
+    // the handler uses (params if ctx is unbound, otherwise ctx).
+    if (this.bus && "result" in response && response.result) {
+      const result = response.result as { messageId?: unknown; toolCallIds?: unknown };
+      if (typeof result.messageId === "string") {
+        const params = (req.params ?? {}) as Record<string, unknown>;
+        const convId =
+          ctx.conversationId !== "unknown"
+            ? ctx.conversationId
+            : (typeof params.conversationId === "string" ? params.conversationId : null);
+        const parentId = typeof params.parentMessageId === "string"
+          ? params.parentMessageId
+          : null;
+        const content = typeof params.content === "string" ? params.content : "";
+        if (convId) {
+          this.bus.emit("run:turn_saved", {
+            // No host-driven run for extension-authored turns. Use a
+            // synthetic id so SSE consumers that key on runId don't
+            // collide with a real run.
+            runId: `ext:${extensionId}:${result.messageId}`,
+            conversationId: convId,
+            messageId: result.messageId,
+            parentMessageId: parentId,
+            content,
+          });
+        }
+      }
+    }
+
+    return response;
+  }
+
+  /**
+   * Handle a `ezcorp/finalize-tool-call` reverse RPC request. Flips a
+   * previously-`running` tool-call row into its terminal state. Caller
+   * must own the row (extensionId match) and hold the same
+   * `appendMessages` permission used to author it. See
+   * finalize-tool-call-handler.ts for the full contract.
+   */
+  async handlePiFinalizeToolCall(
+    extensionId: string,
+    req: JsonRpcRequest,
+  ): Promise<JsonRpcResponse> {
+    const granted = this.registry.getGrantedPermissions(extensionId);
+    if (!granted) {
+      return {
+        jsonrpc: "2.0",
+        id: req.id,
+        error: { code: -32603, message: "Extension not found in registry" },
+      };
+    }
+    const ctx: FinalizeToolCallContext = {
+      conversationId: this.currentConversationId ?? "unknown",
+      userId: this.currentUserId ?? "unknown",
+      grantedPermissions: granted,
+    };
+    return handleFinalizeToolCallRpc(extensionId, req, ctx);
   }
 
   private async recordToolCall(

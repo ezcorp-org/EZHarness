@@ -8,10 +8,10 @@ import { installFromLocal } from "./installer";
 import { loadManifestFresh } from "./loader";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS, type ExtensionAuditMetadata } from "./audit-actions";
-import { join, dirname } from "path";
+import { join, dirname } from "node:path";
 import { logger } from "../logger";
 const log = logger.child("extensions");
-import { fileURLToPath } from "url";
+import { fileURLToPath } from "node:url";
 
 interface BundledExtension {
   name: string;
@@ -274,6 +274,25 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     name: "excel",
     path: "docs/extensions/examples/excel",
     permissions: { grantedAt: {} },
+  },
+  {
+    // In-browser Kokoro-TTS. Adds a speaker icon to the per-message
+    // action toolbar via the `messageToolbar` extension point. Click
+    // sends a `kokoro-tts:speak` event; the subprocess responds with
+    // an `ezcorp/append-message` reverse-RPC call to insert an
+    // excluded turn whose `kokoro-tts-player` card runs kokoro-js in
+    // the browser to synthesize WAV. Persists the audio via a
+    // `kokoro-tts:save` callback that finalises the tool call.
+    name: "kokoro-tts",
+    path: "docs/extensions/examples/kokoro-tts",
+    permissions: {
+      eventSubscriptions: ["kokoro-tts:speak", "kokoro-tts:save"],
+      appendMessages: { excludedDefault: true },
+      grantedAt: {
+        eventSubscriptions: Date.now(),
+        appendMessages: Date.now(),
+      },
+    },
   },
 ];
 

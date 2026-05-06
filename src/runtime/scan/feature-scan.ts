@@ -43,7 +43,7 @@ export interface ScannedFeature {
 }
 
 /** Source roots scanned in this exact order — first-seen slug wins. */
-const STATIC_SOURCE_ROOTS = ["src", "web/src"] as const;
+const STATIC_SOURCE_ROOTS = ["src", "web/src", "docs/extensions/examples"] as const;
 
 /** Empty / single-file features are skipped (noise). */
 const MIN_FILES_PER_FEATURE = 2;
@@ -74,9 +74,15 @@ const MAX_TOTAL_FILES = 50_000;
 
 /**
  * List the source roots that actually exist under `realRoot`, expanding
- * `packages/*​/src` at runtime. Order matters for slug-collision rules:
- * the first source root to claim a slug keeps it bare; later collisions
- * get a leading-segment prefix (e.g., `web-components`).
+ * `packages/*​/src` (and `packages/@scope/*​/src` for npm-scoped packages)
+ * at runtime. Order matters for slug-collision rules: the first source
+ * root to claim a slug keeps it bare; later collisions get a
+ * leading-segment prefix (e.g., `web-components`).
+ *
+ * `listFilteredChildren` already excludes dotfiles via the
+ * starts-with-"." check, so it would skip a literal `.` in a child name
+ * but does NOT skip `@scope` directories — those flow through normally
+ * and the scoped-packages branch below handles them.
  */
 async function listSourceRoots(realRoot: string): Promise<string[]> {
   const roots: string[] = [];
@@ -86,13 +92,25 @@ async function listSourceRoots(realRoot: string): Promise<string[]> {
   const pkgsDir = join(realRoot, "packages");
   if (existsSync(pkgsDir)) {
     const pkgChildren = await listFilteredChildren(realRoot, pkgsDir, "packages");
-    // Sort for deterministic ordering — readdir order is FS-defined and
-    // would otherwise make slug-collision outcomes flaky in tests.
     pkgChildren.sort((a, b) => a.relPath.localeCompare(b.relPath));
     for (const child of pkgChildren) {
       if (child.kind !== "dir") continue;
+      // Plain `packages/<pkg>/src`
       const candidateAbs = join(realRoot, child.relPath, "src");
-      if (existsSync(candidateAbs)) roots.push(`${child.relPath}/src`);
+      if (existsSync(candidateAbs)) {
+        roots.push(`${child.relPath}/src`);
+        continue;
+      }
+      // Scoped `packages/@scope/<pkg>/src` — recurse one level.
+      if (child.name.startsWith("@")) {
+        const scopeChildren = await listFilteredChildren(realRoot, child.abs, child.relPath);
+        scopeChildren.sort((a, b) => a.relPath.localeCompare(b.relPath));
+        for (const inner of scopeChildren) {
+          if (inner.kind !== "dir") continue;
+          const innerSrc = join(realRoot, inner.relPath, "src");
+          if (existsSync(innerSrc)) roots.push(`${inner.relPath}/src`);
+        }
+      }
     }
   }
   return roots;

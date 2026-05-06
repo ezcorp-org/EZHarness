@@ -140,21 +140,30 @@ export function subscribeBridge(
           invocationId: event.toolCallId,
         });
         // Register the in-flight call with the watchdog so it (a) defers
-        // the idle kill until the manifest-declared callTimeoutMs is
-        // exceeded — pi-agent-core emits no events while awaiting the tool
-        // result, so otherwise the activity tracker would trip — and (b)
-        // can synthesize a `tool:error` event for this call if the
-        // watchdog ends up killing the run anyway. Built-ins fall back to
-        // DEFAULT_BUILTIN_CALL_TIMEOUT_MS; extensions read
-        // resources.callTimeoutMs from their manifest.
+        // the idle kill until the declared callTimeoutMs is exceeded —
+        // pi-agent-core emits no events while awaiting the tool result, so
+        // otherwise the activity tracker would trip — and (b) can
+        // synthesize a `tool:error` event for this call if the watchdog
+        // ends up killing the run anyway.
+        //
+        // Precedence: extension manifest `resources.callTimeoutMs` >
+        // built-in `BuiltinToolDef.callTimeoutMs` > the principled default
+        // (DEFAULT_BUILTIN_CALL_TIMEOUT_MS == WATCHDOG_IDLE_MS, i.e.
+        // pre-Tier-2 behavior). The two paths are mutually exclusive in
+        // practice (extensions are registered, built-ins are in
+        // builtinToolDefsMap), so this is one fallback chain — no new
+        // helper needed.
         const startManifest = startRegistered
           ? ExtensionRegistry.getInstance().getManifest(startRegistered.extensionId)
           : undefined;
         const manifestCallTimeout = startManifest?.resources?.callTimeoutMs;
+        const builtinCallTimeout = toolDef?.callTimeoutMs;
         const callTimeoutMs =
           typeof manifestCallTimeout === "number" && manifestCallTimeout > 0
             ? manifestCallTimeout
-            : DEFAULT_BUILTIN_CALL_TIMEOUT_MS;
+            : typeof builtinCallTimeout === "number" && builtinCallTimeout > 0
+              ? builtinCallTimeout
+              : DEFAULT_BUILTIN_CALL_TIMEOUT_MS;
         host.watchdog.noteToolStart(run.id, event.toolCallId, {
           toolName: event.toolName,
           conversationId,

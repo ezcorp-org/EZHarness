@@ -48,6 +48,17 @@ export interface BuiltinToolDef {
    */
   maxOutputBytes?: number;
   /**
+   * Optional per-call timeout (ms) the watchdog uses to defer the idle kill
+   * while this built-in is in flight. Mirrors the manifest
+   * `resources.callTimeoutMs` field for extension tools. Omit for the
+   * default ({@link DEFAULT_BUILTIN_CALL_TIMEOUT_MS}, which equals
+   * `WATCHDOG_IDLE_MS` so undeclared built-ins behave exactly as
+   * pre-Tier-2). Declare only when the tool can legitimately exceed the
+   * idle threshold under normal load (e.g. shell builds, LLM-backed
+   * summarization). See `.planning/watchdog-builtins-hotfix.md`.
+   */
+  callTimeoutMs?: number;
+  /**
    * Tool entry point. `params` is `unknown` because pi-agent-core delivers
    * args as a decoded-JSON blob without validating against `parameters`
    * at runtime — each tool factory is responsible for narrowing via

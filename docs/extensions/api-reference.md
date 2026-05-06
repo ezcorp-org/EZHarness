@@ -554,6 +554,8 @@ Extensions can call back into the platform by sending a `JsonRpcRequest` on stdo
 | `ezcorp/invoke` | Call a tool in another extension. Cross-extension call depth limited to 10. |
 | `ezcorp/fs` | Request filesystem access (mediated by permission checks). Files the user might open, edit, or grep should live under the convention path `<projectRoot>/.ezcorp/extension-data/<name>/` -- see [Data Storage Convention](data-storage.md). |
 | `ezcorp/storage` | Persistent key-value storage (requires `permissions.storage: true`). See [Storage API](#storage-api). |
+| `ezcorp/append-message` | Author a new turn in the caller's conversation (requires `permissions.appendMessages`). See [Reverse RPC: `ezcorp/append-message`](#reverse-rpc-ezcorpappend-message). |
+| `ezcorp/finalize-tool-call` | Mark an existing tool call complete and persist its `output` (used by `messageToolbar` cards to swap a transient blob URL for a stable attachment id once upload finishes). |
 
 ### Distinguishing requests from responses
 
@@ -859,3 +861,185 @@ function loadSetting(key: string): void {
 | Access the database directly | Extensions run as isolated subprocesses with no database connection string |
 | Store unlimited data | Per-key limit of 1MB, per-extension quota of 5–100MB |
 | Use expired data to inflate quota | Expired keys are excluded from quota calculations |
+
+---
+
+## Reverse RPC: `ezcorp/append-message`
+
+Author a new turn directly in the caller's conversation. Pairs with the `messageToolbar` manifest field — a toolbar click delivers an event to the subprocess, the subprocess calls this RPC to insert a follow-up turn. See **[Message Toolbar](message-toolbar.md)** for the end-to-end pattern.
+
+**Requirement:** the manifest must declare `permissions.appendMessages` and the user must grant it at install time. Without the grant the RPC returns `-32001 Permission denied`.
+
+### Request
+
+```typescript
+{
+  jsonrpc: "2.0",
+  id: 1,
+  method: "ezcorp/append-message",
+  params: {
+    conversationId: string,         // forced by the host to the caller's wired conversation
+    parentMessageId: string,        // the row this turn is a follow-up to
+    role: "extension",              // only role accepted today; enum may widen later
+    content: string,                // 1-100_000 characters (matches the messages POST cap)
+    excluded?: boolean,             // ignored — host always forces `true`
+    toolCalls?: Array<{
+      name: string,
+      input: Record<string, unknown>,
+      cardType?: string,
+      cardLayout?: "inline" | "dock",
+      status: "running" | "complete",
+      output?: unknown,
+    }>,
+    attachmentIds?: string[],       // pre-uploaded ids (re-keyed to the new message id)
+  }
+}
+```
+
+### Response
+
+```typescript
+{
+  jsonrpc: "2.0",
+  id: 1,
+  result: {
+    messageId: string,              // id of the newly inserted message row
+    toolCallIds?: string[],         // parallel to params.toolCalls if any
+  }
+}
+```
+
+### Forced behaviour
+
+| Field | Force | Why |
+|-------|-------|-----|
+| `conversationId` | substituted with the caller's wired conversation | Mirrors `ezcorp/emit-task-event`: extensions cannot target other conversations even by guessing UUIDs |
+| `role` | coerced to `"extension"` | A future enum widening is the only path to other roles |
+| `excluded` | forced to `true` | Today every appended turn is excluded from chat context. The `excludedDefault` permission field is reserved for a future opt-in tier |
+
+### Attachment re-attribution
+
+If `attachmentIds` is non-empty, every id is re-keyed to the new message row by updating `message_attachments.messageId`. The host rejects the call (and rolls back the insert) if any attachment doesn't belong to the caller's user/conversation — this prevents an extension from grafting another user's file onto its own turn.
+
+### Error codes
+
+| Code | Meaning |
+|------|---------|
+| `-32001` | `appendMessages` permission not granted |
+| `-32602` | Invalid params (missing parentMessageId, content too long, bad attachment id, unknown role) |
+| `-32603` | Internal error (DB write failed) |
+
+---
+
+## Per-extension Settings API
+
+Three HTTP routes manage the user-facing configuration declared via [`manifest.settings`](manifest-schema.md#settings----recordstring-settingsfield). See [Settings](settings.md) for the full provider guide.
+
+All routes require an authenticated session. Settings are per-user only.
+
+### `GET /api/extensions/[id]/settings`
+
+Returns the schema and the user's resolution chain.
+
+```typescript
+// Response (200)
+{
+  schema: SettingsSchema | null,             // null when manifest has no settings block
+  declaredDefaults: Record<string, unknown>, // empty when schema is null
+  userValues:       Record<string, unknown>, // calling user's overrides
+  resolved:         Record<string, unknown>, // declared < user, clamped to schema
+}
+```
+
+| Status | Meaning |
+|--------|---------|
+| `200` | Success — `schema: null` when the extension declares no settings (the value blobs are all `{}`). |
+| `404` | Extension not found. |
+
+### `PUT /api/extensions/[id]/settings/user`
+
+Replaces the calling user's override blob. No audit (per-user preferences are not security-relevant).
+
+```typescript
+// Body
+{ values: Record<string, unknown> }
+
+// Response (200)
+{ ok: true, userValues: Record<string, unknown> }
+```
+
+| Status | Meaning |
+|--------|---------|
+| `200` | Saved. |
+| `400` | Body lacks `values` or `values` is not an object. |
+| `404` | Extension not found. |
+| `409` | Extension's manifest declares no settings block. |
+
+### `DELETE /api/extensions/[id]/settings/user`
+
+Clears the calling user's overrides. The next `resolved` blob falls back to declared defaults.
+
+```typescript
+// Response (200)
+{ ok: true }
+```
+
+### Runtime injection — `_meta.invocationMetadata.settings`
+
+The tool executor calls `resolveExtensionSettings(extensionId, userId)` before building the JSON-RPC envelope and merges the result under `_meta.invocationMetadata.settings`. Caller-supplied `invocationMetadata.settings` (e.g. from cross-extension `ezcorp/invoke` calls) takes precedence. The subprocess reads via the SDK helpers below.
+
+### SDK helpers — `getSetting<T>(ctx, key)` / `getAllSettings(ctx)`
+
+Exported from [`@ezcorp/sdk/runtime`](../../packages/@ezcorp/sdk/src/runtime/settings.ts):
+
+```typescript
+import { createToolDispatcher, getChannel, getSetting, getAllSettings, toolResult } from "@ezcorp/sdk/runtime";
+
+createToolDispatcher({
+  synthesize: async (ctx, args) => {
+    const voice = getSetting<string>(ctx, "voice") ?? "af_bella";
+    const speed = getSetting<number>(ctx, "speed") ?? 1.0;
+    // … call into kokoro-js with { voice, speed } …
+    return toolResult(JSON.stringify({ ok: true }));
+  },
+});
+
+getChannel().start();
+```
+
+`getSetting<T>(ctx, key)` returns the resolved value (or `undefined` if missing); `getAllSettings(ctx)` returns the full resolved blob. Both read from `ctx._meta.invocationMetadata.settings`.
+
+---
+
+## Reverse RPC: `ezcorp/finalize-tool-call`
+
+Mark an in-flight tool call complete and persist its `output`. Used by `messageToolbar` cards that perform asynchronous browser-side work (e.g. uploading a generated artifact) — the card POSTs the result to the extension's event route, the subprocess then finalizes the tool call so the next render shows the completed state.
+
+### Request
+
+```typescript
+{
+  jsonrpc: "2.0",
+  id: 1,
+  method: "ezcorp/finalize-tool-call",
+  params: {
+    toolCallId: string,
+    output: unknown,
+    status: "complete" | "error",
+  }
+}
+```
+
+### Response
+
+```typescript
+{
+  jsonrpc: "2.0",
+  id: 1,
+  result: { ok: true }
+}
+```
+
+### Scope
+
+The host validates that `toolCallId` belongs to a message in the caller's wired conversation; mismatches return `-32001`. No new permission is needed beyond whatever permission inserted the tool call in the first place (typically `appendMessages` for `messageToolbar` flows).

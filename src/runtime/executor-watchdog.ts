@@ -16,13 +16,16 @@ const HEARTBEAT_REFRESH_MS = 30_000;
 
 /**
  * Default per-call timeout (ms) used when a tool's manifest doesn't declare
- * `resources.callTimeoutMs`. Built-in tools and extensions that omit the
- * field fall back to this value when the watchdog decides whether an
- * in-flight call still has budget. Matches the spirit of the subprocess
- * dispatcher's default — long enough for normal latency, short enough that
- * a truly stuck call still gets caught by the next tick after expiring.
+ * `resources.callTimeoutMs` AND the built-in `BuiltinToolDef` doesn't declare
+ * `callTimeoutMs`. Pinned to `WATCHDOG_IDLE_MS` on purpose: the moment the
+ * tool-in-flight deferral expires, the activity-based idle kill would have
+ * fired in the same tick anyway. This makes undeclared built-ins behave
+ * **exactly** as pre-Tier-2 — zero new regression surface vs. the prior
+ * activity-only watchdog. Slow built-ins (shell builds, LLM-backed
+ * summaries) opt into a longer budget by setting `callTimeoutMs` on their
+ * `BuiltinToolDef`. See `.planning/watchdog-builtins-hotfix.md`.
  */
-export const DEFAULT_BUILTIN_CALL_TIMEOUT_MS = 60_000;
+export const DEFAULT_BUILTIN_CALL_TIMEOUT_MS = WATCHDOG_IDLE_MS;
 
 /**
  * Per-tool-call snapshot recorded when an extension/builtin tool starts.

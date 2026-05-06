@@ -52,6 +52,52 @@ export async function startBackgroundTimers(): Promise<void> {
   } catch (e) {
     log.warn("Failed to start compaction timer", { error: String(e) });
   }
+
+  // Surface coverage audit (opt-in via global:auditIntervalHours,
+  // default 0 = disabled — audits make LLM calls so we don't surprise
+  // users with cost. On-demand runs via the surface-audit agent always
+  // work regardless of this setting.)
+  try {
+    const intervalHours = ((await getSetting("global:auditIntervalHours")) as number) ?? 0;
+    if (intervalHours > 0) {
+      const intervalMs = intervalHours * 60 * 60 * 1000;
+      setInterval(() => {
+        runScheduledSurfaceAudit().catch((e: unknown) => {
+          log.error("Surface audit error", { error: String(e) });
+        });
+      }, intervalMs);
+      log.info("Surface audit started", { intervalHours });
+    }
+  } catch (e) {
+    log.warn("Failed to start surface audit timer", { error: String(e) });
+  }
+}
+
+/**
+ * Build a minimal AgentContext for scheduled audits and run them
+ * across every project. Lazy-imported to avoid pulling the audit
+ * runtime into the startup bundle when the timer is disabled.
+ */
+async function runScheduledSurfaceAudit(): Promise<void> {
+  const [{ runScheduledAudit }, { createPiLlmAdapter }] = await Promise.all([
+    import("../runtime/audit/run"),
+    import("../runtime/executor-helpers"),
+  ]);
+  const llm = createPiLlmAdapter();
+  const ctx = {
+    input: {},
+    llm,
+    shell: { async run() { return { stdout: "", stderr: "", exitCode: 0 }; } },
+    file: {
+      async read(path: string) { return await Bun.file(path).text(); },
+      async write(path: string, content: string) { await Bun.write(path, content); },
+      async exists(path: string) { return await Bun.file(path).exists(); },
+    },
+    log(message: string) { log.info(message); },
+    signal: new AbortController().signal,
+    async run() { return { success: true, output: null }; },
+  };
+  await runScheduledAudit(ctx as never);
 }
 
 /** Test-only: reset the singleton flag so tests can re-invoke. */

@@ -8,6 +8,19 @@ import { errorJson } from "$lib/server/http-errors";
 import { isRegisteredExtensionEvent } from "$server/runtime/sse-conversation-filter";
 import { getConversation } from "$server/db/queries/conversations";
 import { getToolCallConversationById } from "$server/db/queries/tool-calls";
+import { getExtensionByName } from "$server/db/queries/extensions";
+import {
+  addConversationExtensions,
+  getConversationExtensionIds,
+} from "$server/db/queries/conversation-extensions";
+import { ExtensionRegistry } from "$server/extensions/registry";
+import { ToolExecutor } from "$server/extensions/tool-executor";
+import { handleAppendMessageRpc } from "$server/extensions/append-message-handler";
+import { handleFinalizeToolCallRpc } from "$server/extensions/finalize-tool-call-handler";
+import type { ExtensionPermissions } from "$server/extensions/types";
+import { logger } from "$server/logger";
+
+const log = logger.child("ext-events");
 
 // ── /api/extensions/[name]/events/[event] — Phase A2 generic event route ──
 //
@@ -32,19 +45,50 @@ import { getToolCallConversationById } from "$server/db/queries/tool-calls";
 // canonical reference): the bus emits a flat object with `toolCallId`
 // and `conversationId` as siblings of the user-defined event data.
 
-// Boundary validation. `conversationId` and `toolCallId` are the host-
-// authoritative identity fields the extension relies on; `loose()`
-// preserves any additional user-defined keys without coercion.
+// Boundary validation. `conversationId` is the host-authoritative
+// identity field every extension event must carry; `toolCallId` is
+// required for canvas-card events (the original shape) and `messageId`
+// is required for messageToolbar contributions. Exactly one of the two
+// must be present — `loose()` preserves any additional user-defined
+// keys without coercion.
 //
 // Length budget: conversationId is a UUID (~36 chars). toolCallId is
 // provider-shaped — Anthropic uses `toolu_<24>` (~30 chars), OpenAI
 // uses the compound `call_<24>|fc_<48>` form (~80 chars). 256 leaves
 // comfortable headroom for any future provider while still bounding
-// the input for DoS protection.
-const eventBodySchema = z.looseObject({
-  conversationId: z.string().min(1).max(256),
-  toolCallId: z.string().min(1).max(256),
-});
+// the input for DoS protection. messageId is a UUID like
+// conversationId, but we allow 256 too — symmetry, no code-path
+// branch needed.
+//
+// `selection` and `content` are optional and only present on
+// messageToolbar-originated events. Caps mirror the messages POST
+// limits (4_000 for highlights — the LLM's context budget for a TTS
+// pass, 100_000 for full-message body). Validation only applies when
+// the field is supplied so canvas-card events that legitimately omit
+// them aren't accidentally rejected.
+const eventBodySchema = z
+  .looseObject({
+    conversationId: z.string().min(1).max(256),
+    toolCallId: z.string().min(1).max(256).optional(),
+    messageId: z.string().min(1).max(256).optional(),
+    /**
+     * Multi-select payload: bulk messageToolbar contributions submit
+     * an array of message ids whose contents are concatenated by the
+     * route. Capped at 50 to bound DoS surface — the bulk-copy UI's
+     * own ergonomic ceiling is ~10-20 turns, so 50 leaves headroom.
+     * Per-id length matches the `messageId` cap above (UUID + slack).
+     */
+    messageIds: z.array(z.string().min(1).max(256)).min(1).max(50).optional(),
+    selection: z.string().max(4_000).nullable().optional(),
+    content: z.string().max(100_000).optional(),
+  })
+  .refine(
+    (v) =>
+      typeof v.toolCallId === "string" ||
+      typeof v.messageId === "string" ||
+      (Array.isArray(v.messageIds) && v.messageIds.length > 0),
+    { message: "Either toolCallId, messageId, or messageIds[] is required" },
+  );
 
 // Mirrors `manifest.name` regex. We re-validate URL params in case the
 // router accepted something the regex would reject (defense-in-depth).
@@ -72,7 +116,7 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
     return errorJson(404, "Not found");
   }
 
-  // Body. Strict at the two known fields, passthrough on the rest so
+  // Body. Strict at the known fields, passthrough on the rest so
   // extensions can ship arbitrary user-defined payloads without the
   // host having to know their shape.
   const raw = await request.json().catch(() => null);
@@ -88,23 +132,338 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
     return errorJson(404, "Not found");
   }
 
-  // Defense-in-depth: bind toolCallId to conversationId. Without this,
-  // a user who owns BOTH conv-A and conv-B could POST to conv-A's
-  // route with conv-B's toolCallId and trick an extension into
-  // resolving the wrong card. We accept missing rows (canvas tools
-  // may persist after the subprocess returns) but reject mismatches.
-  // [F2 from the Phase A security review]
-  const toolCall = await getToolCallConversationById(toolCallId);
-  if (toolCall && toolCall.conversationId !== conversationId) {
-    return errorJson(404, "Not found");
+  // Defense-in-depth: when toolCallId is supplied, bind it to
+  // conversationId. Without this, a user who owns BOTH conv-A and
+  // conv-B could POST to conv-A's route with conv-B's toolCallId and
+  // trick an extension into resolving the wrong card. We accept
+  // missing rows (canvas tools may persist after the subprocess
+  // returns) but reject mismatches. [F2 from the Phase A security
+  // review.] messageToolbar events legitimately omit toolCallId, so
+  // we skip the check entirely in that branch.
+  if (typeof toolCallId === "string") {
+    const toolCall = await getToolCallConversationById(toolCallId);
+    if (toolCall && toolCall.conversationId !== conversationId) {
+      return errorJson(404, "Not found");
+    }
   }
 
-  // Emit on the bus. The dispatcher fans out to subscribed extensions
-  // (gated on `conversation_extensions` wiring + per-extension rate
-  // limit). The SSE filter treats this event as a direct carrier
-  // because `isRegisteredExtensionEvent` returned true.
+  // ── Auto-wire + spawn for messageToolbar events ─────────────────
+  //
+  // messageToolbar contributions are USER-facing UI affordances — the
+  // icon is rendered on every chat row regardless of whether the
+  // extension was previously wired into this conversation. Without
+  // wiring, the EventSubscriptionDispatcher silently drops the event
+  // (its `wired.has(extId)` gate fails) and the user sees nothing.
+  //
+  // Two things must be true before the bus emit:
+  //   1. `conversation_extensions` has a row for (conv, ext) — so
+  //      the dispatcher's wiring gate passes.
+  //   2. The subprocess is running — so the dispatcher's
+  //      `getProcessIfRunning` returns non-null. `persistent: false`
+  //      extensions don't auto-spawn at boot; we have to nudge them.
+  //
+  // Discriminator: messageToolbar events carry `messageId` (single
+  // row) or `messageIds[]` (multi-select bulk), and never a
+  // `toolCallId`. Canvas-card events are the inverse. We only
+  // auto-wire/spawn in the messageToolbar branch — leaving canvas-card
+  // semantics untouched (those still require explicit wiring via
+  // `!ext:NAME` mention or programmatic add).
+  const messageIdsParsed = (parsed.data as { messageIds?: unknown }).messageIds;
+  const isBulkMessageToolbarEvent =
+    Array.isArray(messageIdsParsed) &&
+    messageIdsParsed.length > 0 &&
+    typeof toolCallId !== "string";
+  const isSingleMessageToolbarEvent =
+    typeof (parsed.data as { messageId?: unknown }).messageId === "string" &&
+    typeof toolCallId !== "string" &&
+    !isBulkMessageToolbarEvent;
+  const isMessageToolbarEvent =
+    isSingleMessageToolbarEvent || isBulkMessageToolbarEvent;
+
+  if (isMessageToolbarEvent) {
+    // ── Diagnostic instrumentation [kokoro-tts-flow] ────────────────
+    // Step-by-step logs let the user see where the flow breaks
+    // between click → 200 response → new turn rendering. Each stage
+    // mirrors a `log.info` plus a push into `diagnostics.stages` so
+    // the network-tab response body carries the same trail.
+    const flowStartedAt = Date.now();
+    const diagnostics: { stages: Array<Record<string, unknown>>; elapsedMs: number } = {
+      stages: [],
+      elapsedMs: 0,
+    };
+    const recordStage = (stage: string, data: Record<string, unknown>) => {
+      const entry = { stage, t: Date.now() - flowStartedAt, ...data };
+      diagnostics.stages.push(entry);
+      log.info(`[kokoro-tts-flow][server] ${stage}`, entry);
+    };
+
+    const messageIdProbe = (parsed.data as { messageId?: unknown }).messageId as string | undefined;
+    const messageIdsProbe = isBulkMessageToolbarEvent
+      ? (messageIdsParsed as string[])
+      : undefined;
+    recordStage("[messageToolbar] received", {
+      name,
+      event,
+      conversationId,
+      messageId: messageIdProbe,
+      messageIdsCount: messageIdsProbe?.length ?? 0,
+      hasSelection: typeof userData.selection === "string" && userData.selection !== null,
+      contentLength: typeof userData.content === "string" ? userData.content.length : 0,
+      bulk: isBulkMessageToolbarEvent,
+    });
+
+    const ext = await getExtensionByName(name);
+    const grantedProbe = (ext as { grantedPermissions?: ExtensionPermissions } | null)?.grantedPermissions;
+    recordStage("[messageToolbar] extension lookup", {
+      extId: ext?.id ?? null,
+      enabled: ext?.enabled ?? false,
+      hasAppendMessagesGrant: !!grantedProbe?.appendMessages,
+    });
+    if (!ext || !ext.enabled) {
+      log.warn("[kokoro-tts-flow][server] messageToolbar event for unknown/disabled extension", {
+        name,
+        event,
+      });
+      return errorJson(404, "Not found");
+    }
+    const wired = await getConversationExtensionIds(conversationId);
+    const alreadyWired = wired.includes(ext.id);
+    if (!alreadyWired) {
+      await addConversationExtensions(conversationId, [{ extensionId: ext.id }]);
+      log.info("[kokoro-tts-flow][server] auto-wired extension via messageToolbar click", {
+        extensionId: ext.id,
+        name,
+        conversationId,
+      });
+    }
+    recordStage("[messageToolbar] auto-wire", {
+      alreadyWired,
+      addedNow: !alreadyWired,
+    });
+
+    // ── Direct in-process append-message (bypasses subprocess) ──────
+    //
+    // We used to emit on the bus and rely on the
+    // dispatcher → subprocess → reverse-RPC chain to call
+    // `ezcorp/append-message`. That worked in tests but failed in
+    // production for messageToolbar events because of multiple silent
+    // failure points (subprocess spawn races, RPC handler wiring
+    // lifecycle, dispatcher ordering, SDK shape mismatches). The
+    // user-visible symptom: 200 response + click toast + nothing
+    // else.
+    //
+    // For messageToolbar events the subprocess's only job is to
+    // compute `text = (selection || content).slice(0, 4000)` and
+    // call append-message with a `<name>-player` card type. That's
+    // pure plumbing — pulling it inline is far more reliable AND
+    // lets the user-facing flow always succeed when the route
+    // returns 200. The card itself (kokoro-tts-player) still runs
+    // in the browser; only the host-side bookkeeping moves.
+    //
+    // Phase 2 (future): generalize this with manifest-declared
+    // `messageToolbar[i].action` fields (cardType, toolName,
+    // contentTemplate) so other extensions can opt in. For now
+    // every messageToolbar contribution gets the kokoro-tts shape.
+    // Parent-message anchor:
+    //   - Single mode: the row the user clicked.
+    //   - Bulk mode:   the LAST id in messageIds[] — the natural anchor
+    //     because the new extension turn appends below the most-recent
+    //     selected reply, mirroring the visual order in the chat.
+    const rawMessageIds = isBulkMessageToolbarEvent
+      ? (messageIdsParsed as string[])
+      : [(parsed.data as { messageId: string }).messageId];
+    const messageId = rawMessageIds[rawMessageIds.length - 1] as string;
+    const rawContent = typeof userData.content === "string" ? userData.content : "";
+    const rawSelection = typeof userData.selection === "string" ? userData.selection : null;
+    // `selection` is meaningful only for single-row clicks. Bulk mode
+    // ignores any caller-supplied selection — the bulk button has no
+    // single-row highlight semantics.
+    const usedSelection =
+      !isBulkMessageToolbarEvent &&
+      rawSelection !== null &&
+      rawSelection.trim().length > 0;
+    const text = (usedSelection ? rawSelection.trim() : rawContent).slice(0, 4_000);
+    const headerSubject = isBulkMessageToolbarEvent
+      ? `${rawMessageIds.length} turns`
+      : usedSelection
+        ? "selection"
+        : "message";
+    const headerContent = `🔊 TTS of ${headerSubject} (${text.length} chars)`;
+
+    const granted = (ext as { grantedPermissions?: ExtensionPermissions }).grantedPermissions;
+    if (!granted?.appendMessages) {
+      log.warn("[kokoro-tts-flow][server] messageToolbar event for extension without appendMessages grant", {
+        extensionId: ext.id,
+        name,
+      });
+      return errorJson(403, "Extension lacks appendMessages permission");
+    }
+
+    // Spawn + wire the subprocess so the BROWSER card's later
+    // `*:save` callback can be handled. (For the speak event itself
+    // we don't need the subprocess — the route does the work
+    // directly below.) Failures here log but don't abort: the user
+    // can still hear the audio, only the persist-on-reload step
+    // would later fail.
+    const registry = ExtensionRegistry.getInstance();
+    const wireStartedAt = Date.now();
+    let wireOk = true;
+    let wireError: string | undefined;
+    try {
+      const proc = await registry.getProcess(ext.id);
+      const wirer = new ToolExecutor(registry, { bus: getBus() });
+      await wirer.ensureSubprocessRpcWired(ext.id, proc);
+    } catch (err) {
+      wireOk = false;
+      wireError = err instanceof Error ? err.message : String(err);
+      log.warn("[kokoro-tts-flow][server] subprocess spawn/wire failed for messageToolbar event (non-fatal)", {
+        extensionId: ext.id,
+        name,
+        error: wireError,
+      });
+    }
+    recordStage("[messageToolbar] subprocess wire", {
+      ok: wireOk,
+      error: wireError,
+      durationMs: Date.now() - wireStartedAt,
+    });
+
+    recordStage("[messageToolbar] append-message call", {
+      textLength: text.length,
+      usedSelection,
+      headerContent,
+    });
+
+    // Call append-message directly. This is the same handler the
+    // subprocess would invoke via reverse-RPC — same security
+    // ladder (permission check, wiring check, attachment
+    // reattribution), same row shape.
+    const rpcReq = {
+      jsonrpc: "2.0" as const,
+      id: 1,
+      method: "ezcorp/append-message",
+      params: {
+        conversationId,
+        parentMessageId: messageId,
+        role: "extension",
+        content: headerContent,
+        excluded: true,
+        toolCalls: [
+          {
+            name: `${name}.synthesize`,
+            input: { text },
+            cardType: `${name}-player`,
+            status: "running",
+          },
+        ],
+      },
+    };
+    const ctx = {
+      conversationId,
+      userId: user.id,
+      grantedPermissions: granted,
+    };
+    const response = await handleAppendMessageRpc(ext.id, rpcReq, ctx);
+    const respHasError = "error" in response && response.error;
+    if (respHasError) {
+      recordStage("[messageToolbar] append-message response", {
+        ok: false,
+        error: { code: response.error!.code, message: response.error!.message },
+      });
+      log.warn("[kokoro-tts-flow][server] append-message in-process call failed", {
+        extensionId: ext.id,
+        code: response.error!.code,
+        message: response.error!.message,
+      });
+      return errorJson(500, response.error!.message);
+    }
+
+    const result = response.result as { messageId: string; toolCallIds: string[] };
+    recordStage("[messageToolbar] append-message response", {
+      ok: true,
+      messageId: result.messageId,
+      toolCallIds: result.toolCallIds,
+    });
+
+    // Notify the chat UI. The frontend's `ez:turn_saved` listener
+    // recognises the synthetic `ext:` runId and calls
+    // `loadMessages()` to fetch the new row + its tool-card.
+    const runId = `ext:${ext.id}:${result.messageId}`;
+    getBus().emit("run:turn_saved", {
+      runId,
+      conversationId,
+      messageId: result.messageId,
+      parentMessageId: messageId,
+      content: headerContent,
+    });
+    recordStage("[messageToolbar] run:turn_saved emitted", {
+      runId,
+      messageId: result.messageId,
+      conversationId,
+    });
+
+    diagnostics.elapsedMs = Date.now() - flowStartedAt;
+    return json({
+      ok: true,
+      messageId: result.messageId,
+      toolCallIds: result.toolCallIds,
+      diagnostics,
+    });
+  }
+
+  // ── Save-event short-circuit (e.g. `kokoro-tts:save`) ────────────
+  //
+  // The browser card POSTs `{toolCallId, attachmentId, messageId}`
+  // when its async work (synth + upload) completes. Same in-process
+  // shortcut: bypass the subprocess and call finalize-tool-call
+  // directly. The handler enforces ownership (extensionId match),
+  // so we don't widen the trust boundary.
+  const userDataRecord = userData as Record<string, unknown>;
+  const isSaveShape =
+    typeof toolCallId === "string" &&
+    typeof userDataRecord.attachmentId === "string";
+  if (isSaveShape) {
+    const ext = await getExtensionByName(name);
+    if (!ext || !ext.enabled) return errorJson(404, "Not found");
+    const granted = (ext as { grantedPermissions?: ExtensionPermissions }).grantedPermissions;
+    if (!granted?.appendMessages) {
+      return errorJson(403, "Extension lacks appendMessages permission");
+    }
+
+    const finalizeReq = {
+      jsonrpc: "2.0" as const,
+      id: 1,
+      method: "ezcorp/finalize-tool-call",
+      params: {
+        toolCallId,
+        output: { attachmentId: userDataRecord.attachmentId },
+        status: "complete",
+      },
+    };
+    const finalizeCtx = {
+      conversationId,
+      userId: user.id,
+      grantedPermissions: granted,
+    };
+    const finalizeResp = await handleFinalizeToolCallRpc(ext.id, finalizeReq, finalizeCtx);
+    if ("error" in finalizeResp && finalizeResp.error) {
+      log.warn("finalize-tool-call in-process call failed", {
+        extensionId: ext.id,
+        code: finalizeResp.error.code,
+        message: finalizeResp.error.message,
+      });
+      return errorJson(500, finalizeResp.error.message);
+    }
+    return json({ ok: true });
+  }
+
+  // Default path (canvas-card events with toolCallId): emit on the
+  // bus. The dispatcher fans out to subscribed extensions (gated on
+  // `conversation_extensions` wiring + per-extension rate limit).
+  // The SSE filter treats this event as a direct carrier because
+  // `isRegisteredExtensionEvent` returned true.
   getBus().emit(fullEventName as never, {
-    toolCallId,
+    ...(typeof toolCallId === "string" ? { toolCallId } : {}),
     conversationId,
     ...userData,
   } as never);

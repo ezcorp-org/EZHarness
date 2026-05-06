@@ -67,6 +67,39 @@ export const onBehalfOfContext = {
   },
 };
 
+/** Curated tool projection returned by `searchExtensions`. We deliberately
+ *  drop `inputSchema` to keep MCP tool responses small — clients that need
+ *  the schema can call `/api/extensions/:name/tools` directly. */
+export interface ExtensionToolSummary {
+  name: string;
+  description: string;
+}
+
+/** One result row from `searchExtensions`. Mirrors a subset of the DB
+ *  `extensions` row + a flattened `tools` list extracted from the manifest. */
+export interface ExtensionSearchHit {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  enabled: boolean;
+  tools: ExtensionToolSummary[];
+}
+
+/** Shape of one row from `GET /api/extensions` — only the fields we read.
+ *  Kept loose (`?`) because we want to be tolerant of older rows where
+ *  e.g. `manifest.tools` is missing. */
+interface RawExtensionRow {
+  id: string;
+  name: string;
+  version: string;
+  description?: string;
+  enabled?: boolean;
+  manifest?: {
+    tools?: Array<{ name: string; description: string }>;
+  };
+}
+
 export interface ClientOptions {
   baseUrl?: string;
   /** Public origin used to build clickable URLs returned in tool
@@ -324,6 +357,41 @@ export class EzcorpClient {
 
   listExtensions(): Promise<unknown[]> {
     return this.request("/api/extensions");
+  }
+
+  /** Search installed extensions by substring match against name and
+   *  description (case-insensitive). When `query` is empty/undefined,
+   *  returns the full curated list. Each result includes a small
+   *  `tools` projection (`{ name, description }` only) extracted from
+   *  the extension's manifest — `inputSchema` is intentionally dropped
+   *  to keep MCP responses small. Skill-only extensions return
+   *  `tools: []`.
+   *
+   *  Filtering is done client-side; the HTTP `/api/extensions` endpoint
+   *  is not parameterized today. If/when the server gains a `?q=` filter
+   *  this method can switch to passing it through without changing the
+   *  return shape. */
+  async searchExtensions(query?: string): Promise<ExtensionSearchHit[]> {
+    const all = await this.request<RawExtensionRow[]>("/api/extensions");
+    const q = query?.trim().toLowerCase();
+    const filtered = q
+      ? all.filter((row) => {
+          const name = (row.name ?? "").toLowerCase();
+          const desc = (row.description ?? "").toLowerCase();
+          return name.includes(q) || desc.includes(q);
+        })
+      : all;
+    return filtered.map((row) => ({
+      id: row.id,
+      name: row.name,
+      version: row.version,
+      description: row.description ?? "",
+      enabled: row.enabled ?? true,
+      tools: (row.manifest?.tools ?? []).map((t) => ({
+        name: t.name,
+        description: t.description,
+      })),
+    }));
   }
 
   // ────── runtime events (SSE) ──────

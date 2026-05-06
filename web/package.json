@@ -41,6 +41,7 @@
 		"diff2html": "^3.4.56",
 		"highlight.js": "^11.11.1",
 		"isomorphic-dompurify": "^3.7.1",
+		"kokoro-js": "^1.2.0",
 		"linkedom": "^0.18.12",
 		"lucide-svelte": "^0.577.0",
 		"marked": "^17.0.4",

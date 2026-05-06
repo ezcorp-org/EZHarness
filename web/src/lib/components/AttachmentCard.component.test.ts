@@ -83,14 +83,21 @@ describe("AttachmentCard", () => {
 		expect(fallback).toHaveTextContent(image.filename);
 	});
 
-	test("audio kind renders file card with audio icon", () => {
-		const { getByTestId } = render(AttachmentCard, {
+	test("audio kind renders the inline <audio> player branch", () => {
+		// Audio attachments now render with native <audio controls> so
+		// users can scrub / play directly inside the chat bubble — no
+		// click-through to a download. See AttachmentCard.audio.component.test.ts
+		// for the new branch's full contract.
+		const { getByTestId, queryByTestId } = render(AttachmentCard, {
 			attachment: { id: "a1", filename: "bell.mp3", mimeType: "audio/mpeg", sizeBytes: 4096, kind: "audio" },
 		});
-		const card = getByTestId("attachment-card-file");
-		expect(card).toHaveTextContent("🎵");
-		expect(card).toHaveTextContent("bell.mp3");
-		expect(card).toHaveTextContent("4.0 KB");
+		const card = getByTestId("attachment-card-audio");
+		const audio = card.querySelector("audio");
+		expect(audio).not.toBeNull();
+		expect(audio).toHaveAttribute("src", "/api/attachments/a1");
+		expect(audio).toHaveAttribute("aria-label", "bell.mp3");
+		// File card branch is NOT rendered for audio kind anymore.
+		expect(queryByTestId("attachment-card-file")).toBeNull();
 	});
 
 	test("pdf kind renders file card with document icon", () => {

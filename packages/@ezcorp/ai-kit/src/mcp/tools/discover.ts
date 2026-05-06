@@ -9,7 +9,8 @@ export const TOOLS = [
   { name: "list_agents", description: "List all agent configs defined in EZCorp. Use this to discover available agents before mentioning them in messages." },
   { name: "search_mentions", description: "Search for mentionable items (agents, teams, extensions, files, commands) by query. Use this to resolve mention tokens before composing a message." },
   { name: "list_models", description: "List all LLM models available in this EZCorp instance. Use this to validate model identifiers before starting a chat." },
-  { name: "list_extensions", description: "List all installed EZCorp extensions. Use this to discover extension capabilities before referencing them in messages." },
+  { name: "list_extensions", description: "List all installed EZCorp extensions. Use this to discover extension capabilities before referencing them in messages. (DEPRECATED — use extension_search)" },
+  { name: "extension_search", description: "Search installed EZCorp extensions by name/description substring (case-insensitive). Returns matching extensions with a curated `tools` list (`{ name, description }` only) per extension. Omit `query` to list everything. Prefer this over `list_extensions`." },
 ] as const;
 
 export type ToolName = (typeof TOOLS)[number]["name"];
@@ -59,13 +60,38 @@ export function register(server: McpServer, client: EzcorpClient): void {
     },
   );
 
+  /**
+   * @deprecated Use `extension_search` instead. `list_extensions` returns
+   * the raw `/api/extensions` blob (full manifests, including large
+   * `inputSchema` objects per tool) which bloats LLM context. The newer
+   * `extension_search` tool supports a substring filter and returns a
+   * curated `{ name, description }` projection of each extension's tools.
+   * Kept registered for backwards compatibility with older agents/clients.
+   */
   server.tool(
     "list_extensions",
-    "List all installed EZCorp extensions. Use this to discover extension capabilities before referencing them in messages.",
+    "List all installed EZCorp extensions. Use this to discover extension capabilities before referencing them in messages. (DEPRECATED — use extension_search)",
     {},
     async () => {
       const extensions = await client.listExtensions();
       return { content: [{ type: "text" as const, text: JSON.stringify(extensions) }] };
+    },
+  );
+
+  server.tool(
+    "extension_search",
+    "Search installed EZCorp extensions by name/description substring (case-insensitive). Returns matching extensions with a curated `tools` list (`{ name, description }` only) per extension. Omit `query` to list everything. Prefer this over `list_extensions`.",
+    {
+      query: z
+        .string()
+        .optional()
+        .describe(
+          "Substring to match against extension name and description (case-insensitive). Omit to return all extensions.",
+        ),
+    },
+    async ({ query }) => {
+      const hits = await client.searchExtensions(query);
+      return { content: [{ type: "text" as const, text: JSON.stringify(hits) }] };
     },
   );
 }

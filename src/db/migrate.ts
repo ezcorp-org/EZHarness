@@ -970,6 +970,38 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
   await db.execute(sql`ALTER TABLE features ADD COLUMN IF NOT EXISTS origin_path TEXT`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_features_origin_path ON features(project_id, origin_path)`);
 
+  // ── Extension Settings (per-user) ────────────────────────────────
+  // Backs the manifest `settings` schema. resolveExtensionSettings()
+  // merges declared-defaults < user at read time. Values are clamped
+  // against the manifest schema before persist (see queries/extension-settings.ts).
+  await db.execute(sql`DROP TABLE IF EXISTS extension_settings_global`);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS extension_settings_user (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      extension_id TEXT NOT NULL REFERENCES extensions(id) ON DELETE CASCADE,
+      values JSONB NOT NULL DEFAULT '{}',
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, extension_id)
+    )
+  `);
+
+  // ── Feature Surface Coverage Audit ─────────────────────────────
+  // Cache of per-feature classifications against the three surfaces
+  // (SDK / EzButton / MCP). Composite PK (feature_id, content_hash)
+  // means re-running the audit on an unchanged feature is a pure
+  // cache hit. See src/runtime/audit/ for the orchestrator.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS feature_classifications (
+      feature_id TEXT NOT NULL REFERENCES features(id) ON DELETE CASCADE,
+      content_hash TEXT NOT NULL,
+      surfaces JSONB NOT NULL,
+      rationale TEXT NOT NULL DEFAULT '',
+      classified_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (feature_id, content_hash)
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_feature_classifications_feature ON feature_classifications(feature_id)`);
+
   // ── Lessons-Keeper v1 (per-user-per-project + promotion ladder) ───
   // See src/db/migrations/add-lessons.ts for the rationale.
   // Drives the `%[lesson:slug]` mention sigil. Slug uniqueness is
