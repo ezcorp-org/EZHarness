@@ -7,6 +7,8 @@ import {
   getUserSettings,
   setUserSettings,
 } from "$server/db/queries/extension-settings";
+import { insertAuditEntry } from "$server/db/queries/audit-log";
+import { EXT_AUDIT_ACTIONS } from "$server/extensions/audit-actions";
 import { errorJson } from "$lib/server/http-errors";
 import type { ExtensionManifestV2 } from "$server/extensions/types";
 import type { RequestHandler } from "./$types";
@@ -33,8 +35,30 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
     return errorJson(400, "values required");
   }
 
+  // Snapshot the prior values for the audit row before we overwrite.
+  const before = await getUserSettings(user.id, params.id);
+
   await setUserSettings(user.id, params.id, values as Record<string, unknown>);
   const after = await getUserSettings(user.id, params.id);
+
+  // Settings can carry user-controlled secrets (e.g. an API key in a
+  // text field — there's no `secret:true` flag yet), so we audit the
+  // mutation. Mirrors the metadata shape Permissions PUT uses:
+  // `permission` is the field-level discriminator (here the literal
+  // "settings.user"), `oldValue` / `newValue` are the post-clamp
+  // blobs, and `submitted` carries the raw user input for forensics.
+  try {
+    await insertAuditEntry(user.id, EXT_AUDIT_ACTIONS.SETTINGS_USER_UPDATED, params.id, {
+      permission: "settings.user",
+      oldValue: before,
+      newValue: after,
+      actor: user.id,
+      reason: "user-update",
+      before,
+      after,
+      submitted: values,
+    });
+  } catch { /* swallow */ }
 
   return json({ ok: true, userValues: after });
 };
@@ -52,6 +76,22 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
     return errorJson(409, "Extension has no settings schema");
   }
 
+  // Snapshot pre-delete values so the audit row can capture what was
+  // actually wiped (forensic trail).
+  const before = await getUserSettings(user.id, params.id);
+
   await clearUserSettings(user.id, params.id);
+
+  try {
+    await insertAuditEntry(user.id, EXT_AUDIT_ACTIONS.SETTINGS_USER_RESET, params.id, {
+      permission: "settings.user",
+      oldValue: before,
+      newValue: {},
+      actor: user.id,
+      reason: "user-reset",
+      before,
+    });
+  } catch { /* swallow */ }
+
   return json({ ok: true });
 };

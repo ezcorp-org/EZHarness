@@ -231,9 +231,22 @@ describe("extension settings API", () => {
       expect(mockSetUser).not.toHaveBeenCalled();
     });
 
-    test("no audit row written (per-user own-data is silent)", async () => {
+    test("PUT writes ext:settings.user.update audit row", async () => {
+      // Pre-existing user values become the `before` snapshot.
+      mockUserValues = { voice: "af_bella" };
       await call(userRoute.PUT, makeEvent("PUT", { values: { voice: "am_adam" } }));
-      expect(mockAudit).not.toHaveBeenCalled();
+
+      expect(mockAudit).toHaveBeenCalledTimes(1);
+      const args = mockAudit.mock.calls[0]!;
+      expect(args[0]).toBe("user-1");
+      expect(args[1]).toBe("ext:settings.user.update");
+      expect(args[2]).toBe("ext-1");
+      const meta = args[3] as Record<string, unknown>;
+      expect(meta.permission).toBe("settings.user");
+      expect(meta.actor).toBe("user-1");
+      expect(meta.before).toEqual({ voice: "af_bella" });
+      expect(meta.after).toEqual({ voice: "am_adam" });
+      expect(meta.submitted).toEqual({ voice: "am_adam" });
     });
 
     test("400 when values missing or not an object", async () => {
@@ -272,6 +285,21 @@ describe("extension settings API", () => {
       const res = await call(userRoute.DELETE, makeEvent("DELETE", undefined));
       expect(res.status).toBe(409);
       expect(mockClearUser).not.toHaveBeenCalled();
+    });
+
+    test("DELETE writes ext:settings.user.reset audit row", async () => {
+      mockUserValues = { voice: "am_adam", speed: 1.5 };
+      await call(userRoute.DELETE, makeEvent("DELETE", undefined));
+
+      expect(mockAudit).toHaveBeenCalledTimes(1);
+      const args = mockAudit.mock.calls[0]!;
+      expect(args[0]).toBe("user-1");
+      expect(args[1]).toBe("ext:settings.user.reset");
+      expect(args[2]).toBe("ext-1");
+      const meta = args[3] as Record<string, unknown>;
+      expect(meta.permission).toBe("settings.user");
+      expect(meta.actor).toBe("user-1");
+      expect(meta.before).toEqual({ voice: "am_adam", speed: 1.5 });
     });
   });
 });
