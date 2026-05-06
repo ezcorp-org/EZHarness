@@ -1,4 +1,4 @@
-// ── settings — Phase B SDK helpers for per-extension user/global config ──
+// ── settings — Phase B SDK helpers for per-extension user config ──
 //
 // Tool handlers receive the resolved settings map on the per-invocation
 // `ToolHandlerContext.invocationMetadata.settings` channel (set by the host
@@ -26,14 +26,15 @@ export function getSetting<T = unknown>(
   return settings[key] as T | undefined;
 }
 
-/** Return the full resolved settings map for the current invocation, or an
- *  empty object when none was attached. Callers may treat the returned
- *  object as read-only — mutating it has no host-side effect. */
+/** Return a fresh shallow copy of the resolved settings map for the current
+ *  invocation, or an empty object when none was attached. Each call returns
+ *  a new object — mutating the result is safe and will not affect
+ *  subsequent reads or other helpers reading the same context. */
 export function getAllSettings(
   ctx: ToolHandlerContext | undefined,
 ): Record<string, unknown> {
   const settings = ctx?.invocationMetadata?.settings as
     | Record<string, unknown>
     | undefined;
-  return settings ?? {};
+  return { ...(settings ?? {}) };
 }

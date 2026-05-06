@@ -88,4 +88,27 @@ describe("getAllSettings", () => {
   test("returns {} when ctx itself is undefined", () => {
     expect(getAllSettings(undefined)).toEqual({});
   });
+
+  test("returns a fresh copy (mutation is isolated)", () => {
+    const ctx: ToolHandlerContext = {
+      invocationMetadata: { settings: { voice: "af_bella", speed: 1.2 } },
+    };
+    const first = getAllSettings(ctx);
+    (first as Record<string, unknown>).voice = "mutated";
+    (first as Record<string, unknown>).newKey = "leaked";
+
+    expect(getAllSettings(ctx)).toEqual({ voice: "af_bella", speed: 1.2 });
+    expect(getSetting<string>(ctx, "voice")).toBe("af_bella");
+    expect(getSetting(ctx, "newKey")).toBeUndefined();
+  });
+
+  test("second call returns a different reference", () => {
+    const ctx: ToolHandlerContext = {
+      invocationMetadata: { settings: { voice: "af_bella" } },
+    };
+    const a = getAllSettings(ctx);
+    const b = getAllSettings(ctx);
+    expect(a).not.toBe(b);
+    expect(a).toEqual(b);
+  });
 });
