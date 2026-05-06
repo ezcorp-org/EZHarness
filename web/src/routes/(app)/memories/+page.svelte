@@ -3,9 +3,10 @@
 	import { store } from "$lib/stores.svelte.js";
 	import MemoryList from "$lib/components/MemoryList.svelte";
 	import KnowledgeBaseTab from "$lib/components/KnowledgeBaseTab.svelte";
+	import LessonsTab from "$lib/components/LessonsTab.svelte";
 	import InfoTooltip from "$lib/components/InfoTooltip.svelte";
 
-	type Tab = "memories" | "knowledge-base";
+	type Tab = "memories" | "knowledge-base" | "lessons";
 	let activeTab = $state<Tab>("memories");
 
 	let projectId = $derived(store.activeProjectId);
@@ -15,6 +16,7 @@
 	const tabs: { id: Tab; label: string }[] = [
 		{ id: "memories", label: "Memories" },
 		{ id: "knowledge-base", label: "Knowledge Base" },
+		{ id: "lessons", label: "Lessons" },
 	];
 </script>
 
@@ -39,11 +41,21 @@
 	<!-- Tab content -->
 	{#if activeTab === "memories"}
 		<MemoryList {projectId} {focusMemoryId} />
-	{:else if projectId}
-		<KnowledgeBaseTab {projectId} />
-	{:else}
-		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-8 text-center text-[var(--color-text-secondary)]">
-			Select a project to manage knowledge base files.
-		</div>
+	{:else if activeTab === "knowledge-base"}
+		{#if projectId}
+			<KnowledgeBaseTab {projectId} />
+		{:else}
+			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-8 text-center text-[var(--color-text-secondary)]">
+				Select a project to manage knowledge base files.
+			</div>
+		{/if}
+	{:else if activeTab === "lessons"}
+		{#if projectId}
+			<LessonsTab {projectId} />
+		{:else}
+			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-8 text-center text-[var(--color-text-secondary)]">
+				Select a project to view lessons.
+			</div>
+		{/if}
 	{/if}
 </div>
