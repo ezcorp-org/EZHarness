@@ -116,3 +116,7 @@ export type { SpawnAssignmentInput, SpawnAssignmentHandle } from "./spawn";
 
 export { cancelRun } from "./cancel-run";
 export type { CancelRunResult } from "./cancel-run";
+
+// ── Phase B per-extension settings ──────────────────────────────
+
+export { getSetting, getAllSettings } from "./settings";
