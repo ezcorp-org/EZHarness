@@ -146,4 +146,61 @@ describe("KokoroTtsPlayerCard — settings store integration", () => {
     expect(opts.voice).toBe("af_bella");
     expect(opts.speed).toBe(1.0);
   });
+
+  describe("NaN / Infinity / negative speed handling", () => {
+    // The card's expression is `(typeof s.speed === "number" && s.speed) || 1.0`:
+    //   NaN      → typeof "number" but falsy → falls back to 1.0
+    //   Infinity → typeof "number" and truthy → passes through (NOT 1.0)
+    //   -1       → typeof "number" and truthy → passes through (NOT 1.0)
+    //
+    // FINDING: The card has no min/max guard. It relies on the server-side
+    // clamper (`isValidForField` in src/extensions/manifest.ts) to reject
+    // out-of-range values before they're persisted — i.e. the resolved
+    // store should never carry Infinity or -1 in steady state. If a stale
+    // cache or a future client-side write bypasses clamping, these values
+    // will reach the bridge unfiltered. Worth a follow-up: the card
+    // should clamp once on its own, defense-in-depth.
+
+    test("NaN speed falls back to 1.0 (NaN is falsy)", async () => {
+      mockGetCachedSettings.mockReturnValue({ voice: "af_bella", speed: NaN });
+      render(KokoroTtsPlayerCard, {
+        toolCall: makeToolCall(),
+        conversationId: "conv-1",
+      });
+      await waitFor(() => expect(mockSynthesize).toHaveBeenCalled());
+      const opts = mockSynthesize.mock.calls[0]?.[1] as { speed: number };
+      expect(opts.speed).toBe(1.0);
+    });
+
+    test("Infinity speed currently passes through (truthy → no fallback)", async () => {
+      mockGetCachedSettings.mockReturnValue({
+        voice: "af_bella",
+        speed: Infinity,
+      });
+      render(KokoroTtsPlayerCard, {
+        toolCall: makeToolCall(),
+        conversationId: "conv-1",
+      });
+      await waitFor(() => expect(mockSynthesize).toHaveBeenCalled());
+      const opts = mockSynthesize.mock.calls[0]?.[1] as { speed: number };
+      // Pin current behavior; the brief expected 1.0 fallback but
+      // the JS expression `(typeof n === "number" && n) || 1.0`
+      // does NOT short-circuit on Infinity. Server-side clamping is
+      // the only line of defense here.
+      expect(opts.speed).toBe(Infinity);
+    });
+
+    test("negative speed -1 currently passes through (no client-side clamp)", async () => {
+      mockGetCachedSettings.mockReturnValue({ voice: "af_bella", speed: -1 });
+      render(KokoroTtsPlayerCard, {
+        toolCall: makeToolCall(),
+        conversationId: "conv-1",
+      });
+      await waitFor(() => expect(mockSynthesize).toHaveBeenCalled());
+      const opts = mockSynthesize.mock.calls[0]?.[1] as { speed: number };
+      // The card relies on server-side clamping to reject -1; without
+      // it, a negative number reaches the bridge.
+      expect(opts.speed).toBe(-1);
+    });
+  });
 });

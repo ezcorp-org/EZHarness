@@ -333,6 +333,35 @@ describe("extension settings API", () => {
       const c = await call(userRoute.PUT, makeEvent("PUT", "not-json"));
       expect(c.status).toBe(400);
     });
+
+    test("400 on malformed body edge cases", async () => {
+      // null body — looseObject rejects non-object root.
+      const nullRes = await call(userRoute.PUT, makeEvent("PUT", null));
+      expect(nullRes.status).toBe(400);
+
+      // [] body — array isn't a plain object.
+      const arrRes = await call(userRoute.PUT, makeEvent("PUT", []));
+      expect(arrRes.status).toBe(400);
+
+      // 42 body — number isn't an object.
+      const numRes = await call(userRoute.PUT, makeEvent("PUT", 42));
+      expect(numRes.status).toBe(400);
+
+      // {values: null} — explicit null fails the "object" guard.
+      const nullValsRes = await call(
+        userRoute.PUT,
+        makeEvent("PUT", { values: null }),
+      );
+      expect(nullValsRes.status).toBe(400);
+
+      // {values: []} — array fails the explicit Array.isArray guard.
+      const arrValsRes = await call(
+        userRoute.PUT,
+        makeEvent("PUT", { values: [] }),
+      );
+      expect(arrValsRes.status).toBe(400);
+      expect(mockSetUser).not.toHaveBeenCalled();
+    });
   });
 
   describe("DELETE /settings/user", () => {
