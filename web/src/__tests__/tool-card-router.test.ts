@@ -31,4 +31,12 @@ describe("getCardComponentName", () => {
 	test("returns card component when permissionPending is undefined", () => {
 		expect(getCardComponentName("terminal", undefined)).toBe("TerminalCard");
 	});
+
+	test("maps 'kokoro-tts-player' cardType to KokoroTtsPlayerCard (Kokoro-TTS extension card)", () => {
+		expect(getCardComponentName("kokoro-tts-player", false)).toBe("KokoroTtsPlayerCard");
+	});
+
+	test("kokoro-tts-player still respects permissionPending gate", () => {
+		expect(getCardComponentName("kokoro-tts-player", true)).toBe("PermissionGate");
+	});
 });

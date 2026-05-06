@@ -4,8 +4,11 @@
 	import Minus from 'lucide-svelte/icons/minus';
 	import Check from 'lucide-svelte/icons/check';
 	import Strikethrough from 'lucide-svelte/icons/strikethrough';
+	import Loader2 from 'lucide-svelte/icons/loader-2';
 	import { copyToClipboard } from "$lib/clipboard.js";
 	import Tooltip from "./Tooltip.svelte";
+	import LucideIcon from "./LucideIcon.svelte";
+	import type { ExtensionAction } from "$lib/chat/extension-toolbar-action.js";
 
 	const btnClass = "p-1.5 rounded-full hover:bg-[var(--color-surface-tertiary)] hover:outline hover:outline-1 hover:outline-[var(--color-text-muted)]/30 transition-colors min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 flex items-center justify-center";
 
@@ -25,6 +28,7 @@
 		onedittext,
 		onexclude,
 		excluded = false,
+		extensionActions = [],
 		variant = 'hover',
 		testid,
 	}: {
@@ -49,6 +53,14 @@
 		 *  while the row stays in the transcript struck-through. */
 		onexclude?: () => void;
 		excluded?: boolean;
+		/** Extension-contributed toolbar buttons. Render between the
+		 *  exclude affordance and the save-memory button so the
+		 *  established left-to-right ordering (copy → edit → regen →
+		 *  branch → exclude → [extensions] → save-memory) holds. The
+		 *  host fetches these from
+		 *  `/api/conversations/{id}/extension-toolbar` and binds each
+		 *  entry's `onclick` to fire the extension event. */
+		extensionActions?: ExtensionAction[];
 		/** `'hover'` — anchored to a message row, fades in on group hover (default).
 		 *  `'inline'` — flows in normal layout, always visible. Used by the
 		 *  multi-select bulk action bar so the same icon set drives bulk ops. */
@@ -61,6 +73,31 @@
 	let justSaved = $state(false);
 	let justSavedTimer: ReturnType<typeof setTimeout> | undefined;
 	let hoveringMemoryBtn = $state(false);
+
+	// In-flight tracking for extension actions. Keyed by
+	// `${extName}:${id}` so two different actions can run concurrently
+	// without their spinners colliding. The button swaps to a Loader2
+	// icon and is disabled for the duration of the click handler — gives
+	// the user immediate synchronous feedback that the click registered,
+	// which they don't get from the eventual chat-side rendering of the
+	// new turn (that arrives over SSE after the subprocess responds).
+	let inflightActions: Record<string, boolean> = $state({});
+	// Force the toolbar to stay visible while any extension action is in
+	// flight. Otherwise the user clicks the spinner-replaced icon, the
+	// mouse moves off the row, the `group-hover:opacity-100` collapses,
+	// and the spinner is invisible — the user thinks nothing's happening.
+	let anyInflight = $derived(Object.values(inflightActions).some(Boolean));
+
+	async function runExtensionAction(action: ExtensionAction): Promise<void> {
+		const key = `${action.extName}:${action.id}`;
+		if (inflightActions[key]) return; // re-click while in flight = no-op
+		inflightActions[key] = true;
+		try {
+			await action.onclick();
+		} finally {
+			inflightActions[key] = false;
+		}
+	}
 
 	async function handleCopy(e: MouseEvent) {
 		try {
@@ -98,7 +135,7 @@
 	data-testid={testid}
 	class={variant === 'inline'
 		? 'flex items-center gap-0.5 rounded-full bg-[var(--color-surface-secondary)] border border-[var(--color-border)] shadow-lg px-1 py-0.5'
-		: 'absolute -bottom-3 right-2 z-10 flex items-center gap-0.5 rounded-full bg-[var(--color-surface-secondary)] border border-[var(--color-border)] shadow-lg px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150'}
+		: `absolute -bottom-3 right-2 z-10 flex items-center gap-0.5 rounded-full bg-[var(--color-surface-secondary)] border border-[var(--color-border)] shadow-lg px-1 py-0.5 transition-opacity duration-150 ${anyInflight ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
 >
 	{#if isError && onretry}
 		<Tooltip text="Retry this failed message">
@@ -187,6 +224,52 @@
 				</button>
 			</Tooltip>
 		{/if}
+
+		{#each extensionActions as action (action.extName + ':' + action.id)}
+			{@const key = action.extName + ':' + action.id}
+			{@const busy = inflightActions[key] === true}
+			<Tooltip text={busy ? `${action.tooltip} (working…)` : action.tooltip}>
+				<button
+					onclick={() => runExtensionAction(action)}
+					disabled={busy}
+					class={`${btnClass} text-[var(--color-text-primary)]${busy ? ' opacity-70 cursor-wait' : ''}`}
+					aria-label={action.tooltip}
+					aria-busy={busy}
+					data-testid={`ext-action-${action.extName}-${action.id}`}
+					data-extension-action={key}
+				>
+					<!--
+					  Color is set on the BUTTON (not the icon) so it
+					  cascades to the SVG via lucide's default
+					  `stroke="currentColor"`. We can't rely on
+					  class-prop forwarding through LucideIcon's dynamic
+					  `<Resolved>` for color: lucide-svelte's icon
+					  components are still in Svelte 4 legacy mode and
+					  their `$$props.class` merge isn't reliably hit
+					  when invoked as a dynamic component value in
+					  Svelte 5. Setting `color` on the button instead
+					  inherits down regardless.
+
+					  `size={14}` is forwarded explicitly (NOT a CSS
+					  size class) because lucide legacy mode hard-codes
+					  `width={size}` / `height={size}` AS SVG attributes
+					  (default 24); Tailwind h-N/w-N only fix this for
+					  static-imported icons whose class lands on the
+					  same element. Dynamic resolution requires the
+					  `size` prop to reach Icon.svelte directly.
+					-->
+					{#if busy}
+						<Loader2 size={14} strokeWidth={2.25} class="animate-spin" />
+					{:else}
+						<LucideIcon
+							name={action.icon}
+							size={14}
+							strokeWidth={2.25}
+						/>
+					{/if}
+				</button>
+			</Tooltip>
+		{/each}
 
 		{#if onsavememory}
 			{@const isSaved = savedAsMemory && !justSaved}

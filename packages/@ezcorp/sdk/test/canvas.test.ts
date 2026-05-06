@@ -172,24 +172,37 @@ describe("createCanvas — inbound event handlers", () => {
     expect(seen[0]?.payload.primaryColor).toBe("#ff0066");
   });
 
-  test("frame missing toolCallId is dropped silently — handler not called", async () => {
+  test("frame missing toolCallId still calls the handler when conversationId is present (messageToolbar shape)", async () => {
+    // Updated 2026-05-05: the old contract required BOTH toolCallId and
+    // conversationId. messageToolbar contributions emit
+    // `{ messageId, conversationId, content, selection }` with no
+    // toolCallId — gating on toolCallId would silently drop those.
+    // The new contract drops only when conversationId is missing.
     const registry = captureRegistrations();
-    let called = false;
+    const seen: Array<{ payload: unknown; context: unknown }> = [];
 
     createCanvas({
-      cardType: "design-canvas",
-      namespace: "claude-design",
+      cardType: "kokoro-tts-player",
+      namespace: "kokoro-tts",
       events: {
-        "knob-change": async () => {
-          called = true;
+        speak: async ({ payload, context }) => {
+          seen.push({ payload, context });
         },
       },
     });
 
-    const handler = registry.get("ezcorp/event/claude-design:knob-change")!;
-    await handler({ conversationId: "c-1", primaryColor: "#ff0066" });
+    const handler = registry.get("ezcorp/event/kokoro-tts:speak")!;
+    await handler({
+      messageId: "m-1",
+      conversationId: "c-1",
+      content: "hi",
+      selection: null,
+    });
 
-    expect(called).toBe(false);
+    expect(seen).toHaveLength(1);
+    expect((seen[0]?.payload as { messageId: string }).messageId).toBe("m-1");
+    expect((seen[0]?.context as { toolCallId: string; conversationId: string }))
+      .toEqual({ toolCallId: "", conversationId: "c-1" });
   });
 
   test("frame missing conversationId is dropped silently — handler not called", async () => {
@@ -297,24 +310,32 @@ describe("createCanvas — inbound event handlers", () => {
     expect(seen).toEqual(["a", "b"]);
   });
 
-  test("context fields are stripped to strings — non-string toolCallId rejected", async () => {
+  test("non-string toolCallId is coerced to empty — handler still called (messageToolbar shape)", async () => {
+    // Contract since 2026-05-05: only conversationId is required.
+    // toolCallId, when missing or non-string, is delivered as the empty
+    // string. Canvas-card consumers that need it should guard with
+    // `if (toolCallId)`.
     const registry = captureRegistrations();
-    let called = false;
+    const seen: Array<{ toolCallId: string }> = [];
 
     createCanvas({
       cardType: "x",
       namespace: "ext",
-      events: { "e": async () => { called = true; } },
+      events: {
+        "e": async ({ context }) => { seen.push({ toolCallId: context.toolCallId }); },
+      },
     });
 
     const handler = registry.get("ezcorp/event/ext:e")!;
-    // toolCallId provided but as a number — should be rejected
+    // non-string toolCallId — context.toolCallId becomes empty string
     await handler({ toolCallId: 123, conversationId: "c-1" });
-    expect(called).toBe(false);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.toolCallId).toBe("");
 
-    // empty string toolCallId — rejected
+    // empty string toolCallId — passes through as empty
     await handler({ toolCallId: "", conversationId: "c-1" });
-    expect(called).toBe(false);
+    expect(seen).toHaveLength(2);
+    expect(seen[1]?.toolCallId).toBe("");
   });
 });
 

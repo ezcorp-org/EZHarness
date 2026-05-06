@@ -1,5 +1,6 @@
 <script lang="ts">
 	import MessageToolbar from "$lib/components/MessageToolbar.svelte";
+	import type { ExtensionAction } from "$lib/chat/extension-toolbar-action.js";
 
 	interface Props {
 		selectedCount: number;
@@ -15,6 +16,16 @@
 		oncopy: () => void;
 		onexclude: () => void | Promise<void>;
 		onsavememory: () => void | Promise<void>;
+		/**
+		 * Extension `messageToolbar[]` contributions whose
+		 * `appliesToSelection` is `"bulk"` or `"both"`. The chat page
+		 * builds these from `extensionToolbarStore` filtered by
+		 * `selectBulkApplicableContributions`, with onclicks bound to
+		 * POST a bulk-shaped event (messageIds[] + concatenated content)
+		 * to the standard extension events route. Empty array (default)
+		 * keeps the bar identical to its pre-bulk-SDK shape.
+		 */
+		extensionActions?: ExtensionAction[];
 	}
 
 	let {
@@ -31,6 +42,7 @@
 		oncopy,
 		onexclude,
 		onsavememory,
+		extensionActions = [],
 	}: Props = $props();
 </script>
 
@@ -67,6 +79,7 @@
 						onexclude={isStreaming || bulkBusy ? undefined : onexclude}
 						excluded={allSelectedExcluded}
 						onsavememory={bulkBusy ? undefined : onsavememory}
+						{extensionActions}
 						testid="bulk-toolbar"
 					/>
 				{/if}

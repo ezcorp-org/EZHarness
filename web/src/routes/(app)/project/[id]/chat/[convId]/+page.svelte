@@ -93,6 +93,15 @@
 	import InfoTooltip from "$lib/components/InfoTooltip.svelte";
 	import ChatHeader from "$lib/components/chat/ChatHeader.svelte";
 	import SelectModeActionBar from "$lib/components/chat/SelectModeActionBar.svelte";
+	import { extensionToolbarStore } from "$lib/stores/extension-toolbar.svelte.js";
+	import {
+		buildExtensionBulkEventPayload,
+		buildExtensionEventUrl,
+		postExtensionEvent,
+		selectBulkApplicableContributions,
+		type ExtensionAction,
+	} from "$lib/chat/extension-toolbar-action.js";
+	import { addToast } from "$lib/toast.svelte.js";
 	import { makeInlineToolHandlers } from "$lib/chat/page-handlers/inline-tool-handlers.js";
 	import {
 		makeLoadMessages,
@@ -100,6 +109,7 @@
 		computeLatestLeaf,
 		type HistoricalToolCall,
 	} from "$lib/chat/page-handlers/load-messages.js";
+	import { handleExtensionTurnSaved } from "$lib/chat/page-handlers/handle-extension-turn.js";
 	import { useSelectMode } from "$lib/chat/page-handlers/useSelectMode.svelte.js";
 	import { makeSendMessage } from "$lib/chat/page-handlers/send-message.js";
 	import { attachStreamResume } from "$lib/chat/page-handlers/stream-resume.svelte.js";
@@ -285,6 +295,66 @@
 		'project.name': currentProject?.name ?? '',
 	});
 	let convId = $derived(page.params.convId!);
+
+	// ── Bulk extension actions (multi-select bar) ──────────────────
+	//
+	// `extensionToolbarStore` is filled by ChatMessage rows on mount,
+	// so by the time the user enters select mode the items are usually
+	// already cached. We `ensure()` here too so a user who enters
+	// select mode on a freshly-loaded conversation (no rows mounted
+	// yet) still gets the bulk icons populated.
+	$effect(() => {
+		if (convId) void extensionToolbarStore.ensure(convId);
+	});
+	let bulkToolbarItems = $derived(
+		convId ? extensionToolbarStore.get(convId) : [],
+	);
+	let bulkExtensionActions = $derived.by((): ExtensionAction[] => {
+		const applicable = selectBulkApplicableContributions(bulkToolbarItems);
+		if (applicable.length === 0) return [];
+		return applicable.map((item) => ({
+			extName: item.extName,
+			id: item.id,
+			icon: item.icon,
+			tooltip: item.tooltip,
+			onclick: async () => {
+				const messageIds = Array.from(selectMode.state.selectedIds);
+				if (messageIds.length === 0) return;
+				// Concatenate the selected turns' content in the order they
+				// appear in the chat (NOT selectedIds insertion order, which
+				// is click-order). Falls back to `bulkCopyContent` (the same
+				// string the existing copy button uses) if our by-id lookup
+				// can't resolve every id — defense-in-depth so the bulk
+				// action never silently drops content.
+				const idSet = new Set(messageIds);
+				const ordered = allMessages
+					.filter((m) => idSet.has(m.id))
+					.map((m) => m.content ?? "")
+					.filter((c) => c.length > 0);
+				const content =
+					ordered.length === messageIds.length
+						? ordered.join("\n\n")
+						: selectMode.derived.bulkCopyContent;
+				const orderedMessageIds = allMessages
+					.filter((m) => idSet.has(m.id))
+					.map((m) => m.id);
+				const payload = buildExtensionBulkEventPayload({
+					messageIds: orderedMessageIds.length > 0 ? orderedMessageIds : messageIds,
+					conversationId: convId,
+					content,
+				});
+				addToast(
+					{ type: "info", message: `${item.tooltip}…` },
+					2500,
+				);
+				const url = buildExtensionEventUrl(item.extName, item.event);
+				await postExtensionEvent(url, payload, item.tooltip, {
+					fetcher: userFetch,
+					addToast,
+				});
+			},
+		}));
+	});
 
 	// Task panel state (updated via task:snapshot WS events).
 	// Panel stays visible as long as any task exists in the conversation —
@@ -655,7 +725,44 @@
 		// Per-turn streaming: swap streaming placeholder with persisted turn message
 		const handleTurnSaved = (e: Event) => {
 			const { runId, conversationId: evtConvId, messageId, parentMessageId, content } = (e as CustomEvent).detail;
-			if (evtConvId !== convId || runId !== activeRunId) return;
+			console.info("[kokoro-tts-flow][chat] ez:turn_saved received", {
+				runId, evtConvId, currentConvId: convId, messageId,
+				willMatchConv: evtConvId === convId,
+				isExtensionRun: typeof runId === "string" && runId.startsWith("ext:"),
+			});
+			if (evtConvId !== convId) return;
+
+			// Extension-authored turns (synthetic runId prefix `ext:`) don't
+			// belong to any LLM run — they arrive out-of-band when the user
+			// clicks a messageToolbar icon and the subprocess calls
+			// `ezcorp/append-message`. The placeholder-swap logic below is
+			// for streaming assistant turns; for extension turns we just
+			// reload the message list so the new row + its tool-card render
+			// in their persisted shape.
+			if (typeof runId === "string" && runId.startsWith("ext:")) {
+				const knownIds = new Set(allMessages.map((m) => m.id));
+				console.info("[kokoro-tts-flow][chat] extension turn — checking allMessages", {
+					alreadyKnown: knownIds.has(messageId),
+					totalMessages: allMessages.length,
+				});
+				// Delegate to the pure helper — it busts the
+				// `messages-all:` / `messages-tools:` fetch-policy cooldowns
+				// first (mirroring handleAgentComplete below), then re-runs
+				// loadMessages + hydrateToolCallsFromApi. Without the
+				// invalidation the click typically fires within 5s of page
+				// mount's loadMessages(), the throttle silently no-ops the
+				// refresh, and the new extension-authored row never appears.
+				const refreshed = handleExtensionTurnSaved(
+					{ invalidateFetchPolicy, loadMessages, hydrateToolCallsFromApi },
+					{ convId, messageId, knownMessageIds: knownIds },
+				);
+				if (refreshed) {
+					console.info("[kokoro-tts-flow][chat] loadMessages dispatched");
+				}
+				return;
+			}
+
+			if (runId !== activeRunId) return;
 
 			// Replace streaming placeholder with the real persisted message
 			const realMsg = makeOptimisticMessage({
@@ -1656,6 +1763,7 @@
 				oncopy={selectMode.handleBulkCopied}
 				onexclude={selectMode.handleBulkExclude}
 				onsavememory={selectMode.handleBulkSaveMemory}
+				extensionActions={bulkExtensionActions}
 			/>
 		{:else}
 			<!-- Input -->

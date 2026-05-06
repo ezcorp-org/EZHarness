@@ -132,6 +132,9 @@ function validateScriptsBlock(scripts: unknown, errors: string[]): void {
 // The id charset is filesystem-safe and predictable for test-id selectors.
 const MSG_TOOLBAR_ID_REGEX = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const MSG_TOOLBAR_APPLIES_TO = new Set(["user", "assistant", "both"]);
+// `appliesToSelection` opts a contribution into the multi-select bulk
+// action bar. Default ("single") preserves pre-bulk behavior.
+const MSG_TOOLBAR_APPLIES_TO_SELECTION = new Set(["single", "bulk", "both"]);
 
 function validateMessageToolbarArray(
   manifestName: string,
@@ -172,6 +175,15 @@ function validateMessageToolbarArray(
     ) {
       errors.push(
         `messageToolbar[${i}].appliesTo must be one of "user"|"assistant"|"both"`,
+      );
+    }
+    if (
+      it.appliesToSelection !== undefined &&
+      (typeof it.appliesToSelection !== "string" ||
+        !MSG_TOOLBAR_APPLIES_TO_SELECTION.has(it.appliesToSelection))
+    ) {
+      errors.push(
+        `messageToolbar[${i}].appliesToSelection must be one of "single"|"bulk"|"both"`,
       );
     }
     if (typeof it.event !== "string" || it.event.length === 0) {

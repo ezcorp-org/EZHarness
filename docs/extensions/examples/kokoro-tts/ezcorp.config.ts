@@ -40,6 +40,14 @@ export default defineExtension({
       icon: "Volume2",
       tooltip: "Read aloud (selection or full message)",
       appliesTo: "both",
+      // Show the speaker on both the per-message hover toolbar AND the
+      // multi-select bulk action bar. In single mode the route receives
+      // `messageId` + `selection` (or full content); in bulk mode it
+      // receives `messageIds[]` + concatenated content of every
+      // selected turn. The card flow is identical for both — one new
+      // excluded turn with one audio player synthesizing the supplied
+      // text.
+      appliesToSelection: "both",
       // Event name MUST be prefixed with `kokoro-tts:` (the
       // event-subscription-dispatcher namespace rule) AND must also be
       // present in `permissions.eventSubscriptions` below.

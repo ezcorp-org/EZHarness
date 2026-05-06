@@ -112,6 +112,28 @@ export interface MessageToolbarItem {
   tooltip: string;
   /** Which message roles this icon should appear on. Default `"both"`. */
   appliesTo?: "user" | "assistant" | "both";
+  /**
+   * Whether this contribution participates in the multi-select bulk
+   * action bar (`SelectModeActionBar.svelte`) in addition to / instead
+   * of the per-message hover toolbar.
+   *
+   *   - `"single"` (default) — appears only on the per-message hover
+   *     toolbar. Click POSTs `{ conversationId, messageId, content,
+   *     selection }`.
+   *   - `"bulk"`  — appears only in the multi-select bar. Click POSTs
+   *     `{ conversationId, messageIds: string[], content }` where
+   *     `content` is the concatenated content of the selected turns
+   *     (no `selection` — bulk has no single highlight).
+   *   - `"both"`  — appears in both. Single-row clicks send the
+   *     single-id payload; bulk clicks send the array payload.
+   *
+   * The host route (`/api/extensions/[name]/events/[event]`) accepts
+   * EITHER `messageId` OR `messageIds[]` for messageToolbar events,
+   * so an extension only needs to handle whichever shapes match the
+   * `appliesToSelection` modes it opts into. Default `"single"`
+   * preserves the original behavior for existing manifests.
+   */
+  appliesToSelection?: "single" | "bulk" | "both";
   /** Event name in this extension's namespace, e.g. "kokoro-tts:speak". */
   event: string;
 }

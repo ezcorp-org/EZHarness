@@ -33,6 +33,7 @@ export function getCardComponentName(cardType: string | undefined, permissionPen
 		case 'ask-user-question': return 'AskUserQuestionCard';
 		case 'design-canvas': return 'DesignCanvasCard';
 		case 'design-brief': return 'DesignBriefCard';
+		case 'kokoro-tts-player': return 'KokoroTtsPlayerCard';
 		default: return 'DefaultCard';
 	}
 }

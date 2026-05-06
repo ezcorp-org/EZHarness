@@ -786,6 +786,9 @@ export function initStores() {
 				const { runId, conversationId, messageId, parentMessageId, content } = event.data as {
 					runId: string; conversationId: string; messageId: string; parentMessageId: string | null; content: string;
 				};
+				console.info("[kokoro-tts-flow][store] run:turn_saved received", {
+					runId, conversationId, messageId, parentMessageId, isExtension: runId.startsWith("ext:"),
+				});
 				// Dispatch DOM event for chat page to handle message list update
 				if (typeof window !== "undefined") {
 					window.dispatchEvent(new CustomEvent("ez:turn_saved", {

@@ -153,6 +153,106 @@ export const __sessionRefreshConfig = {
   NEW_LIFETIME_SECONDS: _cfg.lifetimeSeconds,
 };
 
+// ── Content-Security-Policy ────────────────────────────────────────
+// Extracted as module-level exports so tests can assert against the
+// exact directive set without importing the full `handle` (which has
+// startup side effects).
+//
+// `connect-src` allows the in-browser Kokoro-TTS pipeline (the
+// `kokoro-tts` extension's player card) to fetch model + voice
+// assets directly from Hugging Face. The fetch sites are:
+//   - `KokoroTTS.from_pretrained(...)` in
+//     node_modules/kokoro-js/dist/kokoro.js (the `M` class) which
+//     delegates to `@huggingface/transformers` for config.json,
+//     tokenizer.json, tokenizer_config.json, and the *.onnx model.
+//   - The voice-bin loader inside the same file
+//     (`https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/voices/${e}.bin`)
+//     which kokoro.js fetches directly via `fetch()`.
+// Hugging Face redirects large blobs (the .onnx weights) to its
+// LFS / Xet CDN — the exact host varies by region and migration
+// state, so we allowlist all known fronts.
+//
+// `script-src` adds `'wasm-unsafe-eval'` because onnxruntime-web
+// (pulled in by `@huggingface/transformers`) instantiates its WASM
+// backend via `WebAssembly.instantiate()`. Strict CSPs treat that as
+// dynamic code execution and block it — without this directive the
+// model fails to initialize even when `connect-src` succeeds.
+//
+// `cdn.jsdelivr.net` appears in BOTH `script-src` and `connect-src`
+// because `node_modules/onnxruntime-web/dist/ort.wasm.bundle.min.mjs`
+// dynamically `import()`s its WASM glue (`ort-wasm-simd-threaded.jsep.mjs`)
+// from a jsDelivr fallback unless a same-origin `wasmPaths` is set.
+// transformers.js v3.8.1 hardcodes the fallback URL
+// `https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/`.
+// The dynamic-import is gated by `script-src`; the underlying network
+// fetch is gated by `connect-src` — both must allow the host.
+export const HUGGINGFACE_CSP_HOSTS = [
+  "https://huggingface.co",
+  // Old HF LFS fronts — kept for forward/back-compat with repos that
+  // still resolve to them. Today's hot path is `cas-bridge.xethub.hf.co`.
+  "https://cdn-lfs.huggingface.co",
+  "https://cdn-lfs-us-1.huggingface.co",
+  "https://cdn-lfs-eu-1.huggingface.co",
+  // HF's new Xet-backed LFS. The `kokoro-82M-v1.0-ONNX` repo's
+  // `.onnx` and `voices/*.bin` blobs all 302 here as of 2026-05-05.
+  "https://cas-bridge.xethub.hf.co",
+] as const;
+
+// Hosts the onnxruntime-web WASM-glue dynamic import lands on. Read
+// from the same constant in `script-src` (for the `import()`) and
+// `connect-src` (for the underlying fetch).
+export const ONNX_WASM_CDN_HOSTS = [
+  "https://cdn.jsdelivr.net",
+] as const;
+
+export const CSP_CONNECT_SRC = [
+  "'self'",
+  ...HUGGINGFACE_CSP_HOSTS,
+  ...ONNX_WASM_CDN_HOSTS,
+].join(" ");
+export const CSP_SCRIPT_SRC = [
+  "'self'",
+  "'unsafe-inline'",
+  "'wasm-unsafe-eval'",
+  ...ONNX_WASM_CDN_HOSTS,
+].join(" ");
+// `worker-src` gates the kokoro-tts Web Worker spawned by
+// `web/src/lib/workers/kokoro-tts-bridge.ts`. `'self'` covers the
+// production worker bundle (same-origin URL emitted by Vite); `blob:`
+// covers Vite's dev-mode inline-worker fallback (some browsers refuse
+// `import.meta.url` workers without it during HMR).
+//
+// We do NOT relax `script-src` further — the worker's outbound network
+// traffic to HF / jsDelivr is already covered by `connect-src`.
+export const CSP_WORKER_SRC = [
+  "'self'",
+  "blob:",
+].join(" ");
+// `media-src` gates `<audio>` / `<video>` sources. The kokoro-tts card
+// plays back synthesized WAVs as `blob:` URLs (built from the
+// ArrayBuffer the worker transfers back) before the upload + finalize
+// chain swaps in the persisted `/api/attachments/{id}` URL. Without
+// this directive, browsers fall back to `default-src 'self'` and
+// refuse the blob URL.
+export const CSP_MEDIA_SRC = [
+  "'self'",
+  "blob:",
+].join(" ");
+
+export const CSP_HEADER_VALUE = [
+  `default-src 'self'`,
+  `script-src ${CSP_SCRIPT_SRC}`,
+  `style-src 'self' 'unsafe-inline'`,
+  `img-src 'self' data: blob: https:`,
+  `font-src 'self'`,
+  `connect-src ${CSP_CONNECT_SRC}`,
+  `worker-src ${CSP_WORKER_SRC}`,
+  `media-src ${CSP_MEDIA_SRC}`,
+  `frame-ancestors 'none'`,
+  `base-uri 'self'`,
+  `form-action 'self'`,
+].join("; ");
+
 export const handle: Handle = async ({ event, resolve }) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -446,13 +546,17 @@ export const handle: Handle = async ({ event, resolve }) => {
   // value (e.g. /api/extensions/[name]/data/* serves sandboxed content
   // that needs same-origin iframing, so it sets a more permissive
   // Content-Security-Policy + omits X-Frame-Options) keeps that value.
-  const connectSrc = "'self'";
+  // The CSP itself is built from `CSP_HEADER_VALUE` above — see that
+  // export for the rationale behind each directive (in particular,
+  // the Hugging Face hosts in `connect-src` and `'wasm-unsafe-eval'`
+  // in `script-src`, both required by the kokoro-tts extension's
+  // in-browser TTS pipeline).
   const SECURITY_HEADERS: Record<string, string> = {
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-    "Content-Security-Policy": `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src ${connectSrc}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
+    "Content-Security-Policy": CSP_HEADER_VALUE,
   };
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     if (!response.headers.has(key)) {

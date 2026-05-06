@@ -42,6 +42,15 @@
 			onerror={() => (imageFailed = true)}
 		/>
 	</button>
+{:else if attachment.kind === "audio"}
+	<div class="attachment-card attachment-audio" data-testid="attachment-card-audio">
+		<audio
+			controls
+			preload="metadata"
+			src={url}
+			aria-label={attachment.filename}
+		></audio>
+	</div>
 {:else}
 	<div class="attachment-card attachment-file" data-testid="attachment-card-file">
 		<span class="attachment-icon" aria-hidden="true">{iconForKind(attachment.kind)}</span>
@@ -90,6 +99,16 @@
 		padding: 0.5rem 0.75rem;
 		min-width: 14rem;
 		max-width: 20rem;
+	}
+	.attachment-audio {
+		align-items: center;
+		padding: 0.375rem 0.5rem;
+		max-width: 22rem;
+	}
+	.attachment-audio audio {
+		display: block;
+		width: 100%;
+		min-width: 14rem;
 	}
 	.attachment-icon {
 		font-size: 1.25rem;

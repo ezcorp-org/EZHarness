@@ -14,6 +14,17 @@
 	import MessageAttachments from "./MessageAttachments.svelte";
 	import { getSegments } from "$lib/mention-logic.js";
 	import { formatMessageForCopy } from "$lib/message-copy.js";
+	import { extensionToolbarStore } from "$lib/stores/extension-toolbar.svelte.js";
+	import {
+		buildExtensionEventPayload,
+		buildExtensionEventUrl,
+		captureSelection,
+		postExtensionEvent,
+		selectApplicableContributions,
+		type ExtensionAction,
+	} from "$lib/chat/extension-toolbar-action.js";
+	import { userFetch } from "$lib/utils/fetch-policy.js";
+	import { addToast } from "$lib/toast.svelte.js";
 
 	interface ProviderUnavailableError {
 		type: "provider_unavailable";
@@ -204,6 +215,114 @@
 		callback?.(messageId, e);
 	}
 
+	// ── Extension `messageToolbar[]` slot ─────────────────────────
+	//
+	// Lazy-fetch extension contributions for this conversation when the
+	// row mounts. Gated behind a non-empty conversationId because the
+	// store keys by it; the GET dedupes across rows so the worst-case
+	// is one fetch per conversation, not per row.
+	let messageRowEl = $state<HTMLDivElement | undefined>();
+	$effect(() => {
+		if (conversationId) void extensionToolbarStore.ensure(conversationId);
+	});
+	let toolbarItems = $derived(conversationId ? extensionToolbarStore.get(conversationId) : []);
+
+	let extensionActions = $derived.by((): ExtensionAction[] => {
+		// Skip system + extension rows — those don't render the user/
+		// assistant toolbar at all (system rows are inert; extension
+		// rows go through a different render path below).
+		if (message.role !== "user" && message.role !== "assistant") return [];
+		const role = message.role as "user" | "assistant";
+		const applicable = selectApplicableContributions(toolbarItems, role);
+		return applicable.map((item) => ({
+			extName: item.extName,
+			id: item.id,
+			icon: item.icon,
+			tooltip: item.tooltip,
+			// `async` so MessageToolbar can `await` it and show a spinner
+			// for the request duration. The eventual rendering of the new
+			// excluded turn is what tells the user the subprocess work
+			// completed — but until that arrives over SSE, the spinner +
+			// toast are the only feedback that the click registered.
+			onclick: async () => {
+				const sel = typeof window !== "undefined" ? window.getSelection() : null;
+				const selection = captureSelection(sel, messageRowEl ?? null);
+				const payload = buildExtensionEventPayload({
+					messageId: message.id,
+					conversationId: conversationId ?? "",
+					content: message.content,
+					selection,
+				});
+				console.info("[kokoro-tts-flow][click] start", {
+					extName: item.extName,
+					event: item.event,
+					messageId: message.id,
+					conversationId: conversationId ?? "",
+					hasSelection: selection != null,
+					contentLength: message.content.length,
+				});
+				// Fire an immediate info toast so the user knows the click
+				// registered, even after the toolbar collapses on
+				// mouseout. Short duration — the new turn (or an error
+				// toast from postExtensionEvent) takes over from here.
+				addToast(
+					{ type: "info", message: `${item.tooltip}…` },
+					2500,
+				);
+				// Local fetcher wrapper so we can log the response shape.
+				// The underlying postExtensionEvent helper is left untouched —
+				// behavior identical, only the diagnostic stream is added.
+				const loggedFetcher = async (url: string, init: RequestInit) => {
+					const res = await userFetch(url, init);
+					try {
+						const cloned = res.clone();
+						const text = await cloned.text();
+						let parsedBody: unknown = text;
+						try { parsedBody = JSON.parse(text); } catch { /* keep raw */ }
+						console.info("[kokoro-tts-flow][click] response", {
+							status: res.status,
+							body: parsedBody,
+						});
+					} catch (err) {
+						console.warn("[kokoro-tts-flow][click] response (read failed)", {
+							status: res.status,
+							error: err instanceof Error ? err.message : String(err),
+						});
+					}
+					return res;
+				};
+				await postExtensionEvent(
+					buildExtensionEventUrl(item.extName, item.event),
+					payload,
+					item.tooltip,
+					{ fetcher: loggedFetcher, addToast },
+				);
+				console.info("[kokoro-tts-flow][click] done", {
+					extName: item.extName,
+					event: item.event,
+					messageId: message.id,
+				});
+			},
+		}));
+	});
+
+	// "Excluded from chat context" pill: explicit signal that the row is
+	// not in the LLM input. Only renders for extension-authored rows so
+	// regular user/assistant rows that the user toggled off keep their
+	// existing strikethrough-only treatment (the pill on every excluded
+	// row would be visual clutter for the common case).
+	let showExcludedPill = $derived(message.role === "extension" && message.excluded === true);
+
+	// Extension-authored rows render ONLY their tool card(s) — no
+	// markdown body. The `content` field on these rows is a synthetic
+	// label (e.g. kokoro-tts uses `🔊 TTS of selection (N chars)`)
+	// emitted server-side as a placeholder; the tool card itself
+	// (audio player, chart, etc.) is the real payload. The excluded-
+	// from-chat-context pill above gives the user the row-purpose cue
+	// the label was previously serving, so we suppress the prose to
+	// keep the row visually clean.
+	let suppressExtensionBody = $derived(message.role === "extension");
+
 	function tooltipForMention(mentionName: string): string | undefined {
 		if (!inlineToolCalls?.length) return undefined;
 		const matches = inlineToolCalls.filter(c => c.extensionName === mentionName);
@@ -222,6 +341,7 @@
 {:else if message.role === "user"}
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<div
+		bind:this={messageRowEl}
 		class="group relative flex gap-3 px-4 py-3 bg-[var(--color-surface-tertiary)]/50 rounded-lg hover:outline hover:outline-1 hover:outline-[var(--color-border)] {selectable ? 'cursor-pointer' : ''} {selectable && selected ? 'outline outline-2 outline-blue-500' : ''}"
 		data-message-id={message.id}
 		data-excluded={message.excluded ? 'true' : undefined}
@@ -264,12 +384,14 @@
 				onretry={onretry}
 				onexclude={onexclude ? () => onexclude!(message) : undefined}
 				excluded={message.excluded}
+				{extensionActions}
 			/>
 		{/if}
 	</div>
 {:else}
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<div
+		bind:this={messageRowEl}
 		class="group relative flex gap-3 px-4 py-3 rounded-lg hover:outline hover:outline-1 hover:outline-[var(--color-border)] {selectable ? 'cursor-pointer' : ''} {selectable && selected ? 'outline outline-2 outline-blue-500' : ''}"
 		data-message-id={message.id}
 		data-excluded={message.excluded ? 'true' : undefined}
@@ -298,6 +420,16 @@
 			{#if hasSiblings}
 				<div class="mb-1">
 					<BranchNavigator siblings={siblings!} currentId={message.id} onnavigate={onnavigate!} />
+				</div>
+			{/if}
+			{#if showExcludedPill}
+				<div class="mb-2 flex items-center">
+					<span
+						class="inline-flex items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-muted)]"
+						data-testid="excluded-from-chat-pill"
+					>
+						Excluded from chat context
+					</span>
 				</div>
 			{/if}
 			{#if hasMemories && !isStreaming}
@@ -359,7 +491,7 @@
 									<ThinkingCard content={block.content} streaming={isStreaming} />
 								</div>
 							{:else if block.type === 'text'}
-								{#if (block.content && block.content.trim().length > 0) || (isStreaming && i === contentBlocks.length - 1)}
+								{#if !suppressExtensionBody && ((block.content && block.content.trim().length > 0) || (isStreaming && i === contentBlocks.length - 1))}
 									<div class="excluded-prose">
 										<MarkdownRenderer content={block.content} streaming={isStreaming && i === contentBlocks.length - 1} />
 									</div>
@@ -384,7 +516,7 @@
 					     when the message has nothing to render. Streaming bypasses
 					     the guard so the live token target is always present. -->
 					<div bind:this={mdContainer}>
-						{#if (displayContent && displayContent.trim().length > 0) || isStreaming}
+						{#if !suppressExtensionBody && ((displayContent && displayContent.trim().length > 0) || isStreaming)}
 							<div class="excluded-prose">
 								<MarkdownRenderer content={displayContent} streaming={isStreaming} />
 							</div>
@@ -493,6 +625,7 @@
 				onedittext={onedittext ? () => onedittext!(message) : undefined}
 				onexclude={onexclude ? () => onexclude!(message) : undefined}
 				excluded={message.excluded}
+				{extensionActions}
 			/>
 		{/if}
 	</div>

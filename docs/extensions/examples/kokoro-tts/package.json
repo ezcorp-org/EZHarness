@@ -1,0 +1,10 @@
+{
+  "name": "kokoro-tts",
+  "version": "1.0.0",
+  "description": "In-browser Kokoro-TTS. Adds a speaker icon to message toolbars.",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@ezcorp/sdk": "^0.1.0"
+  }
+}

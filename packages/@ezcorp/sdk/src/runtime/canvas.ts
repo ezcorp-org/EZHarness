@@ -166,18 +166,26 @@ export function createCanvas<TEvents extends DefaultCanvasEvents = DefaultCanvas
     }
     const fullName = `${opts.namespace}:${eventName}`;
     ch.onRequest(`${EVENT_METHOD_PREFIX}${fullName}`, async (params: unknown) => {
-      // Wire format (matches every existing direct-carrier event —
-      // see ask-user/index.ts:204-211 for the reference consumer):
-      // params = { toolCallId, conversationId, ...userData }
-      // — toolCallId/conversationId are siblings of the user-defined
-      // body, NOT a wrapping envelope. We extract them into the typed
-      // context and pass the whole frame as `payload` so consumers
-      // can destructure however they want.
+      // Wire format. Two shapes are supported:
+      //   (a) canvas-card events:    { toolCallId, conversationId, …userData }
+      //   (b) messageToolbar events: { messageId,  conversationId, …userData }
+      //
+      // `conversationId` is the only field common to both — it's the
+      // dispatcher's scope key and is guaranteed-present by the route.
+      // `toolCallId` is empty for messageToolbar events; consumers that
+      // need it should pull from `payload` and noop when absent.
+      //
+      // We pass the whole frame as `payload` so handlers can destructure
+      // whatever their event uses (toolCallId / messageId / custom
+      // fields). The typed `context` keeps existing canvas-card consumers
+      // working — they read `context.toolCallId` and get an empty string
+      // for messageToolbar shape, which their existing
+      // "if (toolCallId)" guards already short-circuit on.
       const frame = (params ?? {}) as Record<string, unknown>;
       const toolCallId = typeof frame.toolCallId === "string" ? frame.toolCallId : "";
       const conversationId =
         typeof frame.conversationId === "string" ? frame.conversationId : "";
-      if (!toolCallId || !conversationId) {
+      if (!conversationId) {
         // Drop silently — the dispatcher already gates on conversationId
         // before delivery, so the only way to hit this is a host bug or
         // a hand-crafted frame. Throwing here would bubble into the
