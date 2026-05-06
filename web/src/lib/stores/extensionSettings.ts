@@ -27,6 +27,9 @@ async function resolveExtensionId(extensionName: string): Promise<string | null>
     `/api/extensions?name=${encodeURIComponent(extensionName)}`,
   );
   if (!res.ok) return null;
+  // Server now filters server-side. The legacy `{extensions:[...]}`
+  // shape is still tolerated for older fixtures, but production sends
+  // a single-element array (or empty array) when `?name=` is set.
   const data = (await res.json()) as ExtensionLookup[] | { extensions?: ExtensionLookup[] };
   const list = Array.isArray(data) ? data : (data.extensions ?? []);
   const match = list.find((e) => e.name === extensionName);

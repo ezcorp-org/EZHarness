@@ -1,5 +1,5 @@
 import { json } from "@sveltejs/kit";
-import { listExtensions } from "$server/db/queries/extensions";
+import { getExtensionByName, listExtensions } from "$server/db/queries/extensions";
 import { installFromLocal, installFromGitHub, installFromGit } from "$server/extensions/installer";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { requireAuth, requireRole } from "$server/auth/middleware";
@@ -12,10 +12,21 @@ import { EXT_AUDIT_ACTIONS, type ExtensionAuditMetadata } from "$server/extensio
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
-export const GET: RequestHandler = async ({ request, locals }) => {
+export const GET: RequestHandler = async ({ request, url, locals }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
   requireAuth(locals);
+
+  // `?name=<exact>` short-circuits the full list — used by the
+  // browser-side resolved-settings store to look up an extension's id
+  // by manifest name. Filtering server-side avoids shipping the full
+  // list on every cold-start lookup.
+  const nameFilter = url.searchParams.get("name");
+  if (nameFilter !== null) {
+    const ext = await getExtensionByName(nameFilter);
+    return cacheableResponse(request, ext ? [ext] : [], { maxAge: 60, staleWhileRevalidate: 300 });
+  }
+
   const extensions = await listExtensions();
   return cacheableResponse(request, extensions, { maxAge: 60, staleWhileRevalidate: 300 });
 };

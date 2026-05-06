@@ -16,6 +16,7 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 
 vi.mock("$server/db/queries/extensions", () => ({
   listExtensions: vi.fn(),
+  getExtensionByName: vi.fn(),
 }));
 
 vi.mock("$server/extensions/installer", () => ({
@@ -34,7 +35,7 @@ vi.mock("$server/db/queries/audit-log", () => ({
   insertAuditEntry: vi.fn(async () => undefined),
 }));
 
-const { listExtensions } = await import("$server/db/queries/extensions");
+const { listExtensions, getExtensionByName } = await import("$server/db/queries/extensions");
 const { installFromLocal } = await import("$server/extensions/installer");
 const { GET, POST } = await import("../routes/api/extensions/+server.ts");
 
@@ -42,8 +43,9 @@ function makeEvent(opts: {
   locals?: Record<string, unknown>;
   body?: unknown;
   method?: string;
+  query?: string;
 }) {
-  const href = "http://localhost/api/extensions";
+  const href = `http://localhost/api/extensions${opts.query ?? ""}`;
   return {
     url: new URL(href),
     locals: opts.locals ?? {},
@@ -79,6 +81,36 @@ describe("GET /api/extensions", () => {
     vi.mocked(listExtensions).mockResolvedValue([] as any);
     const res = await GET(makeEvent({ locals: { user: regularUser } }));
     expect(res.status).toBe(200);
+  });
+
+  test("?name= short-circuits to a single-element array on match", async () => {
+    const ext = { id: "ext-1", name: "kokoro-tts" } as any;
+    vi.mocked(getExtensionByName).mockResolvedValue(ext);
+    const res = await GET(
+      makeEvent({
+        locals: { user: regularUser },
+        query: "?name=kokoro-tts",
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual([ext]);
+    expect(getExtensionByName).toHaveBeenCalledWith("kokoro-tts");
+    expect(listExtensions).not.toHaveBeenCalled();
+  });
+
+  test("?name= returns empty array when no match", async () => {
+    vi.mocked(getExtensionByName).mockResolvedValue(null as any);
+    const res = await GET(
+      makeEvent({
+        locals: { user: regularUser },
+        query: "?name=nope",
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual([]);
+    expect(listExtensions).not.toHaveBeenCalled();
   });
 });
 
