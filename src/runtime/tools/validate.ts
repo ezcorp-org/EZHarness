@@ -1,4 +1,4 @@
-import { resolve, relative } from "path";
+import { resolve, relative } from "node:path";
 
 export function validatePath(projectPath: string, relativePath: string): string {
   const resolved = resolve(projectPath, relativePath);

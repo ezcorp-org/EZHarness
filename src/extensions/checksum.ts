@@ -2,8 +2,8 @@
  * SHA-256 checksum computation and verification for extension files.
  */
 
-import { join } from "path";
-import { stat } from "fs/promises";
+import { join } from "node:path";
+import { stat } from "node:fs/promises";
 
 export async function computeChecksum(filePath: string): Promise<string> {
   const file = Bun.file(filePath);

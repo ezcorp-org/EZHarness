@@ -1,6 +1,6 @@
 import { Type } from "@mariozechner/pi-ai";
-import { mkdir } from "fs/promises";
-import { dirname } from "path";
+import { mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import { validatePath } from "./validate";
 import type { BuiltinToolDef } from "./types";
 

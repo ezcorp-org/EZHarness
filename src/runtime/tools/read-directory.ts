@@ -1,6 +1,6 @@
 import { Type } from "@mariozechner/pi-ai";
-import { readdir } from "fs/promises";
-import { resolve } from "path";
+import { readdir } from "node:fs/promises";
+import { resolve } from "node:path";
 import { validatePath } from "./validate";
 import type { BuiltinToolDef } from "./types";
 

@@ -16,9 +16,9 @@ import {
   updateExtension as dbUpdateExtension,
   deleteExtension,
 } from "../db/queries/extensions";
-import { join } from "path";
-import { mkdtemp, mkdir, rm } from "fs/promises";
-import { tmpdir } from "os";
+import { join } from "node:path";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 
 // ── Local Install ───────────────────────────────────────────────────
 
