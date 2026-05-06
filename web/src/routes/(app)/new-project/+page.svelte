@@ -1,11 +1,9 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
-	import { onMount } from "svelte";
 	import { refreshProjects, setActiveProjectId } from "$lib/stores.svelte.js";
-	import { createDir, createProject, fetchProjects, type Project } from "$lib/api.js";
+	import { createDir, createProject } from "$lib/api.js";
 	import ProjectForm from "$lib/components/ProjectForm.svelte";
-	import EzContext from "$lib/components/ez/EzContext.svelte";
 	import ProjectPrefillBanner from "$lib/components/ez/ProjectPrefillBanner.svelte";
 	import { getDraft, consumeDraft } from "$lib/ez/api.js";
 
@@ -15,16 +13,6 @@
 	let prefillKey = $state(0);
 	let bannerState = $state<"hidden" | "active" | "expired">("hidden");
 	let consumedDraftId = $state<string | null>(null);
-	let existingProjectPaths = $state<string[]>([]);
-
-	// Load other projects so Ez (and the user) can see what already exists.
-	// This is best-effort; non-fatal on failure.
-	onMount(async () => {
-		try {
-			const list = await fetchProjects();
-			existingProjectPaths = list.map((p: Project) => p.path).filter(Boolean) as string[];
-		} catch { /* non-fatal */ }
-	});
 
 	// Hydrate from `?prefill=<draftId>` once. Re-running on prefillId change
 	// covers the case where Ez navigates the user here from another page.
@@ -85,28 +73,7 @@
 		}
 	}
 
-	/** Ez `fill_form` handler — invoked by the panel's client-tool dispatcher. */
-	function handleEzFill(values: Record<string, unknown>): void {
-		const next: { name?: string; path?: string } = { ...(prefillData ?? {}) };
-		if (typeof values.name === "string") next.name = values.name;
-		if (typeof values.path === "string") next.path = values.path;
-		prefillData = next;
-		prefillKey++;
-		// Showing the prefill banner here would imply a draft origin; an
-		// in-page fill is a different vibe (no `?prefill=` URL), so we
-		// leave the banner state alone.
-	}
 </script>
-
-<EzContext
-	data={{ existingProjectPaths }}
-	forms={{
-		"new-project": {
-			schema: { name: "string", path: "string" },
-			fill: handleEzFill,
-		},
-	}}
-/>
 
 <div class="space-y-6">
 	<h2 class="text-xl font-semibold text-[var(--color-text-primary)]">Create Project</h2>

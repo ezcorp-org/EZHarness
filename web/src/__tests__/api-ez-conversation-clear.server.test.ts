@@ -4,8 +4,8 @@
  * "Clear conversation" handler for the Ez panel. The schema enforces one
  * Ez conversation per user, so this endpoint deletes every message on the
  * user's Ez conversation row while leaving the row itself in place — the
- * panel's existing SSE subscription, locked mode, and ezContext keep
- * working under the same conversation id.
+ * panel's existing SSE subscription and locked mode keep working
+ * under the same conversation id.
  *
  * Mocks `getOrCreateEzConversation` and `deleteAllMessagesForConversation`
  * at the import boundary so vitest doesn't need PGlite. Other users'

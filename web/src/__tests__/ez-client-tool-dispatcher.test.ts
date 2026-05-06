@@ -2,8 +2,12 @@
  * Phase 48 Wave 3 — client-tool dispatcher behaviour.
  *
  * Pure-logic tests for `web/src/lib/ez/client-tool-dispatcher.ts`.
- * The dispatcher accepts a `findHandler` injection so we can wire the
- * test directly without mutating the global registry; same for `goto`.
+ * The dispatcher accepts a `goto` injection so navigation can be
+ * captured/spoofed without bringing SvelteKit into the test runtime.
+ *
+ * The page-side form registry was retired alongside the `<EzContext>`
+ * mechanism, so `fill_form` now always returns "no-handler". The
+ * navigate_to path is unchanged.
  */
 import { test, expect, describe } from "bun:test";
 import {
@@ -16,7 +20,6 @@ import {
 function makeDeps(over: Partial<DispatcherDeps> = {}): DispatcherDeps {
   return {
     goto: async () => {},
-    findHandler: () => undefined,
     ...over,
   };
 }
@@ -49,68 +52,29 @@ describe("isAllowedNavigateTarget — same-origin allowlist", () => {
   });
 });
 
-describe("dispatch — fill_form routing", () => {
-  test("calls the registered handler with the values payload", async () => {
-    let received: Record<string, unknown> | null = null;
-    const deps = makeDeps({
-      findHandler: (formId: string) => {
-        if (formId !== "agent-new") return undefined;
-        return {
-          schema: { name: "string" },
-          fill: (v) => { received = v; },
-        };
-      },
-    });
+describe("dispatch — fill_form routing (no-handler stub)", () => {
+  test("returns 'no-handler' for any formId — registry was removed", async () => {
+    const deps = makeDeps();
     const evt: EzClientToolEvent = {
       conversationId: "c", toolCallId: "t1", toolName: "fill_form",
       input: { formId: "agent-new", values: { name: "Foo" } },
     };
     const r = await dispatch(evt, deps);
-    expect(r.ok).toBe(true);
-    expect(received as Record<string, unknown> | null).toEqual({ name: "Foo" });
-  });
-
-  test("returns 'no-handler' error when no handler is registered for the formId", async () => {
-    const deps = makeDeps({ findHandler: () => undefined });
-    const evt: EzClientToolEvent = {
-      conversationId: "c", toolCallId: "t2", toolName: "fill_form",
-      input: { formId: "missing", values: { x: 1 } },
-    };
-    const r = await dispatch(evt, deps);
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.code).toBe("no-handler");
-      expect(r.error).toContain("missing");
+      expect(r.error).toContain("agent-new");
     }
   });
 
-  test("returns 'invalid-input' when formId is missing or empty", async () => {
+  test("returns 'no-handler' (with placeholder formId) when input lacks formId", async () => {
     const deps = makeDeps();
-    const r1 = await dispatch({ conversationId: "c", toolCallId: "t", toolName: "fill_form", input: { values: {} } }, deps);
-    expect(r1.ok).toBe(false);
-    if (!r1.ok) expect(r1.code).toBe("invalid-input");
-
-    const r2 = await dispatch({ conversationId: "c", toolCallId: "t", toolName: "fill_form", input: { formId: "x" } }, deps);
-    expect(r2.ok).toBe(false);
-    if (!r2.ok) expect(r2.code).toBe("invalid-input");
-  });
-
-  test("captures handler exceptions and reports them as 'rejected'", async () => {
-    const deps = makeDeps({
-      findHandler: () => ({
-        schema: {},
-        fill: () => { throw new Error("boom"); },
-      }),
-    });
     const r = await dispatch(
-      { conversationId: "c", toolCallId: "t", toolName: "fill_form", input: { formId: "x", values: {} } },
+      { conversationId: "c", toolCallId: "t", toolName: "fill_form", input: { values: {} } },
       deps,
     );
     expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.code).toBe("rejected");
-      expect(r.error).toContain("boom");
-    }
+    if (!r.ok) expect(r.code).toBe("no-handler");
   });
 });
 

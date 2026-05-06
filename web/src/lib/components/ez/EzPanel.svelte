@@ -53,12 +53,9 @@
 	 * the panel is a *view* into the same conversation, not a fork of it.
 	 */
 	import { onMount, onDestroy } from "svelte";
-	import { page } from "$app/state";
 	import { ezPanelState, closeEzPanel, consumePendingPrompt } from "$lib/ez/panel-store.svelte.js";
 	import { getOrCreateEzConversation, clearEzConversation } from "$lib/ez/api.js";
 	import Trash2 from "lucide-svelte/icons/trash-2";
-	import { buildEzContextPayload } from "$lib/ez/context-serializer.js";
-	import { readSnapshot } from "$lib/ez/registry.js";
 	import { dispatch as dispatchClientTool } from "$lib/ez/client-tool-dispatcher.js";
 	import { goto as appGoto } from "$app/navigation";
 	import { fetchAllMessages, sendMessage, type Message } from "$lib/api.js";
@@ -301,7 +298,6 @@
 		// would silently fall back to default-tier resolution because
 		// Ez conv rows store model=null/provider=null).
 		if (!selectedModel) throw new Error("No model selected");
-		const ezContext = buildEzContextPayload(page, readSnapshot());
 		error = null;
 
 		// Optimistic user message — same pattern as the chat page.
@@ -325,9 +321,6 @@
 				provider: selectedModel.provider,
 				model: selectedModel.model,
 				thinkingLevel,
-				// `ezContext` flows through `api.sendMessage` into the JSON
-				// body; the server reads it from the request payload.
-				ezContext,
 			});
 
 			// Replace the optimistic user message with the real persisted one.
@@ -375,9 +368,9 @@
 	 * "Clear conversation / start fresh" — wipes every message on the
 	 * server side and resets the panel's local view to an empty state.
 	 * The conversation id stays the same (schema enforces one Ez convo
-	 * per user), so the panel's SSE subscription, ezContext, and locked
-	 * mode all keep working unchanged. The composer's typed-but-unsent
-	 * prompt is left as-is so the user doesn't lose their draft.
+	 * per user), so the panel's SSE subscription and locked mode all
+	 * keep working unchanged. The composer's typed-but-unsent prompt is
+	 * left as-is so the user doesn't lose their draft.
 	 *
 	 * Uses the codebase's existing destructive-action confirm pattern
 	 * (e.g. project settings, custom-mode delete) — `window.confirm()`
