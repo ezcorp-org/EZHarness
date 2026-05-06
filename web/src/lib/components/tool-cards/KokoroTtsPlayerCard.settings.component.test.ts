@@ -19,8 +19,9 @@ function silentWavBlob(): Blob {
 }
 
 type SynthesizeFn = (text: string, opts?: unknown) => Promise<Blob>;
+type GetCachedSettingsFn = (name: string) => Record<string, unknown> | undefined;
 let mockSynthesize: ReturnType<typeof vi.fn<SynthesizeFn>>;
-let mockGetCachedSettings: ReturnType<typeof vi.fn>;
+let mockGetCachedSettings: ReturnType<typeof vi.fn<GetCachedSettingsFn>>;
 
 vi.mock("$lib/workers/kokoro-tts-bridge", () => ({
   synthesize: (text: string, opts?: unknown) => mockSynthesize(text, opts),
