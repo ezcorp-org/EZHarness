@@ -34,6 +34,7 @@ export interface ChatEzContextData {
   conversationTitle: string | null;
   messageCount: number;
   recentMessages: ChatRecentMessage[];
+  [key: string]: unknown;
 }
 
 export const RECENT_MESSAGE_LIMIT = 5;

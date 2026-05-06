@@ -690,6 +690,7 @@ export interface AgentConfig {
 	references?: { agents: string[]; extensions: string[]; members?: TeamMember[]; autoSpinUp?: boolean; teamToolScope?: TeamToolScope } | null;
 	createdAt: string;
 	updatedAt: string;
+	[key: string]: unknown;
 }
 
 export async function fetchAgentConfigs(): Promise<AgentConfig[]> {
