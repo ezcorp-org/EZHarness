@@ -241,3 +241,96 @@ export async function incrementDismissedCount(lessonId: string): Promise<void> {
     })
     .where(eq(lessons.id, lessonId));
 }
+
+// ── v1.5 admin-tab additions ──────────────────────────────────────────
+//
+// The three helpers below back the curation surface in `/memories →
+// Lessons` (see tasks/lessons-keeper-v1.5-admin.md). All three are
+// owner-gated: a row owned by another user is treated identically to
+// a row that does not exist, so the API can return a uniform 404
+// without leaking the existence of other users' lessons via id
+// enumeration.
+
+/**
+ * Owner-gated hard delete. Returns true if a row was deleted, false if
+ * no row matched (id-not-found OR not-owned-by-this-user — collapse the
+ * two cases so the API can't enumerate ids). Caller should respond 404
+ * on `false` regardless of which case applied.
+ *
+ * Hard delete (not soft) is the v1.5 contract — see "Soft delete vs
+ * hard delete" in the v1.5 admin spec. Schema is forward-compatible if
+ * v2 adds a `deleted_at` column.
+ */
+export async function deleteLessonAsOwner(
+  id: string,
+  ownerId: string,
+): Promise<boolean> {
+  if (!id || !ownerId) return false;
+  const db = getDb();
+  const rows = await db
+    .delete(lessons)
+    .where(and(eq(lessons.id, id), eq(lessons.ownerId, ownerId)))
+    .returning({ id: lessons.id });
+  return rows.length > 0;
+}
+
+/**
+ * Read-only fetch by id, ignoring owner. Used by the PATCH endpoint to
+ * disambiguate a not-found row (404) from a backward-visibility-
+ * transition attempt by the actual owner (409). Read-only — never
+ * mutate from this helper.
+ */
+export async function getLessonByIdForOwnerCheck(id: string): Promise<Lesson | null> {
+  if (!id) return null;
+  const db = getDb();
+  const rows = (await db
+    .select()
+    .from(lessons)
+    .where(eq(lessons.id, id))
+    .limit(1)) as Lesson[];
+  return rows[0] ?? null;
+}
+
+/**
+ * Owner-gated visibility promotion. Monotonic only:
+ *   user → project | global
+ *   project → global
+ *
+ * Returns the updated row when the transition is forward (or a no-op
+ * same-visibility update — that returns the unchanged row). Returns
+ * `null` when:
+ *   (a) row not found OR not owned by this user, OR
+ *   (b) the requested transition is backward (e.g. project → user).
+ *
+ * Backward transitions are rejected silently here; the API layer uses
+ * `getLessonByIdForOwnerCheck` to disambiguate (a) → 404 from (b) → 409.
+ *
+ * Why monotonic: a project-shared lesson's `firedCount` accrues across
+ * every project member; demoting to user-scope would orphan that
+ * shared usage signal. Bad project lessons get hard-deleted, not
+ * demoted.
+ */
+export async function updateLessonVisibilityAsOwner(
+  id: string,
+  ownerId: string,
+  next: "user" | "project" | "global",
+): Promise<Lesson | null> {
+  if (!id || !ownerId) return null;
+  const db = getDb();
+  const currentRows = (await db
+    .select()
+    .from(lessons)
+    .where(and(eq(lessons.id, id), eq(lessons.ownerId, ownerId)))
+    .limit(1)) as Lesson[];
+  const current = currentRows[0];
+  if (!current) return null;
+  const order = { user: 0, project: 1, global: 2 } as const;
+  if (order[next] < order[current.visibility]) return null; // backward
+  if (order[next] === order[current.visibility]) return current; // no-op
+  const updatedRows = (await db
+    .update(lessons)
+    .set({ visibility: next, updatedAt: new Date() })
+    .where(and(eq(lessons.id, id), eq(lessons.ownerId, ownerId)))
+    .returning()) as Lesson[];
+  return updatedRows[0] ?? null;
+}

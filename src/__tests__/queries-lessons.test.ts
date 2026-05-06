@@ -33,6 +33,9 @@ const {
   searchLessons,
   incrementFiredCount,
   incrementDismissedCount,
+  deleteLessonAsOwner,
+  getLessonByIdForOwnerCheck,
+  updateLessonVisibilityAsOwner,
 } = await import("../db/queries/lessons");
 const { createProject, deleteProject } = await import("../db/queries/projects");
 const { createUser } = await import("../db/queries/users");
@@ -431,6 +434,156 @@ describe("lessons queries", () => {
       expect((await listVisibleLessons(projectId, ownerId)).length).toBe(2);
       await getTestDb().delete(users).where(eq(users.id, ownerId));
       expect(await listVisibleLessons(projectId, ownerId)).toEqual([]);
+    });
+  });
+
+  // ── v1.5 admin-tab helpers ─────────────────────────────────────────
+  // Three owner-gated helpers back `/memories → Lessons` curation.
+  // Auth-gate semantics are tested rigorously here because the API
+  // layer relies on these returning false/null (not throwing) so it
+  // can collapse "not found" + "not owned" into a single 404 response.
+
+  describe("deleteLessonAsOwner (owner-gated hard delete)", () => {
+    test("deletes when owner matches; row no longer in listVisibleLessons", async () => {
+      const l = await make({ slug: "to-delete" });
+      expect(await deleteLessonAsOwner(l.id, ownerId)).toBe(true);
+      expect(await getLessonBySlug(projectId, ownerId, "to-delete")).toBeUndefined();
+    });
+
+    test("returns false when id does not exist (silent — no throw)", async () => {
+      expect(await deleteLessonAsOwner(crypto.randomUUID(), ownerId)).toBe(false);
+    });
+
+    test("returns false when row exists but is owned by a different user (regression guard)", async () => {
+      // Headline auth-gate scenario: another user's lesson MUST NOT be
+      // deletable. This is the critical regression guard for the
+      // owner-gated mutation contract.
+      const stranger = await make({
+        slug: "not-mine",
+        visibility: "user",
+        ownerId: otherOwnerId,
+      });
+      expect(await deleteLessonAsOwner(stranger.id, ownerId)).toBe(false);
+      // Row still present in stranger's view.
+      const stillThere = await getLessonBySlug(projectId, otherOwnerId, "not-mine");
+      expect(stillThere?.id).toBe(stranger.id);
+    });
+
+    test("project-scoped row owned by the caller deletes (visibility doesn't override ownership)", async () => {
+      const proj = await make({ slug: "my-proj-share", visibility: "project" });
+      expect(await deleteLessonAsOwner(proj.id, ownerId)).toBe(true);
+    });
+
+    test("project-scoped row owned by another user does NOT delete", async () => {
+      // A user CANNOT delete a project-shared lesson they don't own,
+      // even if it lives in their project. Ownership beats co-location.
+      const stranger = await make({
+        slug: "their-share",
+        visibility: "project",
+        ownerId: otherOwnerId,
+      });
+      expect(await deleteLessonAsOwner(stranger.id, ownerId)).toBe(false);
+    });
+
+    test("guards empty inputs", async () => {
+      expect(await deleteLessonAsOwner("", ownerId)).toBe(false);
+      const l = await make({ slug: "guard-empty" });
+      expect(await deleteLessonAsOwner(l.id, "")).toBe(false);
+    });
+  });
+
+  describe("getLessonByIdForOwnerCheck (read-only, ignores owner)", () => {
+    test("returns the row regardless of caller — used by API to disambiguate 404 vs 409", async () => {
+      const l = await make({ slug: "rfo", ownerId: otherOwnerId });
+      const got = await getLessonByIdForOwnerCheck(l.id);
+      expect(got).not.toBeNull();
+      expect(got!.id).toBe(l.id);
+      expect(got!.ownerId).toBe(otherOwnerId);
+    });
+
+    test("returns null for unknown id", async () => {
+      expect(await getLessonByIdForOwnerCheck(crypto.randomUUID())).toBeNull();
+    });
+
+    test("returns null for empty id", async () => {
+      expect(await getLessonByIdForOwnerCheck("")).toBeNull();
+    });
+  });
+
+  describe("updateLessonVisibilityAsOwner (owner-gated, monotonic promote)", () => {
+    test("promotes user → project — returns updated row, persists", async () => {
+      const l = await make({ slug: "promote-up", visibility: "user" });
+      const updated = await updateLessonVisibilityAsOwner(l.id, ownerId, "project");
+      expect(updated).not.toBeNull();
+      expect(updated!.visibility).toBe("project");
+      // Persistence check.
+      const reread = await getLessonByIdForOwnerCheck(l.id);
+      expect(reread!.visibility).toBe("project");
+    });
+
+    test("promotes user → global", async () => {
+      const l = await make({ slug: "promote-global", visibility: "user" });
+      const updated = await updateLessonVisibilityAsOwner(l.id, ownerId, "global");
+      expect(updated!.visibility).toBe("global");
+    });
+
+    test("promotes project → global", async () => {
+      const l = await make({ slug: "ladder-up", visibility: "project" });
+      const updated = await updateLessonVisibilityAsOwner(l.id, ownerId, "global");
+      expect(updated!.visibility).toBe("global");
+    });
+
+    test("same-visibility no-op returns the row unchanged (caller decides whether to surface)", async () => {
+      const l = await make({ slug: "noop", visibility: "project" });
+      const result = await updateLessonVisibilityAsOwner(l.id, ownerId, "project");
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe(l.id);
+      expect(result!.visibility).toBe("project");
+    });
+
+    test("rejects backward project → user (returns null)", async () => {
+      const l = await make({ slug: "no-demote-1", visibility: "project" });
+      expect(await updateLessonVisibilityAsOwner(l.id, ownerId, "user")).toBeNull();
+      // Persistence check: visibility unchanged on disk.
+      const reread = await getLessonByIdForOwnerCheck(l.id);
+      expect(reread!.visibility).toBe("project");
+    });
+
+    test("rejects backward global → project (returns null)", async () => {
+      const l = await make({ slug: "no-demote-2", visibility: "global" });
+      expect(await updateLessonVisibilityAsOwner(l.id, ownerId, "project")).toBeNull();
+    });
+
+    test("rejects backward global → user (returns null)", async () => {
+      const l = await make({ slug: "no-demote-3", visibility: "global" });
+      expect(await updateLessonVisibilityAsOwner(l.id, ownerId, "user")).toBeNull();
+    });
+
+    test("returns null when owner does not match — does NOT mutate the row", async () => {
+      const stranger = await make({
+        slug: "auth-gate",
+        visibility: "user",
+        ownerId: otherOwnerId,
+      });
+      expect(
+        await updateLessonVisibilityAsOwner(stranger.id, ownerId, "project"),
+      ).toBeNull();
+      // Persistence check: row untouched.
+      const reread = await getLessonByIdForOwnerCheck(stranger.id);
+      expect(reread!.visibility).toBe("user");
+    });
+
+    test("returns null for unknown id", async () => {
+      expect(
+        await updateLessonVisibilityAsOwner(crypto.randomUUID(), ownerId, "global"),
+      ).toBeNull();
+    });
+
+    test("guards empty inputs", async () => {
+      expect(await updateLessonVisibilityAsOwner("", ownerId, "global")).toBeNull();
+      expect(
+        await updateLessonVisibilityAsOwner(crypto.randomUUID(), "", "global"),
+      ).toBeNull();
     });
   });
 });
