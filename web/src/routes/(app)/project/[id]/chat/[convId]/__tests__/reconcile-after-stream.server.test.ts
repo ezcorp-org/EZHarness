@@ -16,7 +16,7 @@
  * empty by the time reconcile reads it.
  */
 
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
+import { test, expect, describe, beforeEach, vi } from "vitest";
 import type { Message } from "$lib/api.js";
 import {
 	recordSnapshot,
@@ -30,24 +30,24 @@ interface FakeStore {
 	streamingThinking: Record<string, string>;
 }
 
-const storeStub: FakeStore = {
-	streamingMessages: {},
-	streamingThinking: {},
-};
+const { storeStub, fakeStopStreaming } = vi.hoisted(() => {
+	const storeStub: FakeStore = {
+		streamingMessages: {},
+		streamingThinking: {},
+	};
+	function fakeStopStreaming(runId: string) {
+		const { [runId]: _a, ...restM } = storeStub.streamingMessages;
+		storeStub.streamingMessages = restM;
+		const { [runId]: _b, ...restT } = storeStub.streamingThinking;
+		storeStub.streamingThinking = restT;
+	}
+	return { storeStub, fakeStopStreaming };
+});
 
-function fakeStopStreaming(runId: string) {
-	const { [runId]: _a, ...restM } = storeStub.streamingMessages;
-	storeStub.streamingMessages = restM;
-	const { [runId]: _b, ...restT } = storeStub.streamingThinking;
-	storeStub.streamingThinking = restT;
-}
-
-mock.module("$lib/stores.svelte.js", () => ({
+vi.mock("$lib/stores.svelte.js", () => ({
 	store: storeStub,
 	stopStreaming: fakeStopStreaming,
 }));
-
-afterAll(() => mock.restore());
 
 const { runReconcileAfterStream } = await import(
 	"$lib/chat/reconcile-after-stream.js"
