@@ -8,7 +8,7 @@
 	let show = $state(false);
 	let placedBelow = $state(false);
 	let timer: ReturnType<typeof setTimeout> | null = null;
-	let el: HTMLSpanElement;
+	let el = $state<HTMLSpanElement | undefined>();
 
 	function startDelay() {
 		timer = setTimeout(() => {

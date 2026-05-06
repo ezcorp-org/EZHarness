@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from "svelte";
 	import type { Project } from "$lib/api.js";
 	import { createDir, fetchFavicon } from "$lib/api.js";
 	import { inputClass } from "$lib/styles.js";
@@ -22,11 +23,11 @@
 		initial?: { name?: string; path?: string };
 	} = $props();
 
-	let name = $state(project?.name ?? initial?.name ?? "");
+	let name = $state(untrack(() => project?.name ?? initial?.name ?? ""));
 	// Default to the host-accessible bind mount from docker-compose so new
 	// projects are visible on the host at ./projects/ by default.
-	let path = $state(project?.path ?? initial?.path ?? "/app/projects/");
-	let icon = $state<string | null>(project?.icon ?? null);
+	let path = $state(untrack(() => project?.path ?? initial?.path ?? "/app/projects/"));
+	let icon = $state<string | null>(untrack(() => project?.icon ?? null));
 	let faviconUrl = $state("");
 	let fetchingFavicon = $state(false);
 	let faviconError = $state("");

@@ -163,51 +163,11 @@ describe("wireEzToolsForTurn — Gap #1 fix", () => {
     expect(/convRecord\?\.kind\s*===\s*['"]ez['"]/.test(src)).toBe(true);
   });
 
-  test("REGRESSION GUARD: setup-tools.ts injects <page_context> for Ez-mode turns", async () => {
-    // Companion regression for Gap #3 in the verification report — the
-    // server must serialize ezContext into a `<page_context>` block on
-    // ctx.system. Static check so a future refactor that drops the
-    // injection path surfaces immediately.
-    const { readFileSync } = await import("node:fs");
-    const { join } = await import("node:path");
-    const src = readFileSync(
-      join(import.meta.dir, "..", "runtime", "stream-chat", "setup-tools.ts"),
-      "utf-8",
-    );
-    expect(src).toContain("<page_context>");
-    expect(src).toContain("</page_context>");
-    // The injection must read options.ezContext (where the messages
-    // endpoint forwarded the body field).
-    expect(src).toContain("options.ezContext");
-  });
-
-  test("REGRESSION GUARD: setup-tools.ts threads defaultConversationId into wireEzToolsForTurn", async () => {
-    // Phase 48 defense-in-depth: when summarize_conversation receives
-    // no `conversationId` argument from the LLM, the runtime falls back
-    // to the conversation id extracted from `ezContext.route.conversationId`.
-    // The wire-site MUST extract that field and pass it through, or the
-    // fallback never reaches the tool factory and the LLM's omission
-    // re-surfaces as the legacy "conversationId is required" error.
-    const { readFileSync } = await import("node:fs");
-    const { join } = await import("node:path");
-    const src = readFileSync(
-      join(import.meta.dir, "..", "runtime", "stream-chat", "setup-tools.ts"),
-      "utf-8",
-    );
-    // The extraction reads the route.conversationId from options.ezContext.
-    expect(/route\?\.conversationId|route\.conversationId/.test(src)).toBe(true);
-    // The extracted value is passed to wireEzToolsForTurn under the
-    // exact name the host signature expects.
-    expect(src).toContain("defaultConversationId");
-  });
-
-  test("WIRING: summarize_conversation parameters no longer require conversationId", () => {
-    // After Phase 48 defense-in-depth, the JSON-schema `required` array
-    // for the wired tool MUST omit `conversationId` — the runtime
-    // back-fills from `ezContext.route.conversationId` when the LLM
-    // omits the argument. If a future refactor restores the required
-    // gate, this assertion catches the regression before integration
-    // coverage does.
+  test("WIRING: summarize_conversation requires conversationId in its JSON schema", () => {
+    // After the page-context-pushing mechanism was retired, the runtime
+    // no longer supplies a server-side default for `conversationId`.
+    // The JSON-schema `required` array for the wired tool MUST list
+    // `conversationId` so the LLM is forced to supply it explicitly.
     const turn = freshTurn();
     wireEzToolsForTurn({
       agentTools: turn.agentTools,
@@ -215,44 +175,13 @@ describe("wireEzToolsForTurn — Gap #1 fix", () => {
       conversationId: "ez-conv-1",
       userId: "user-1",
       bus: turn.bus,
-      defaultConversationId: "default-conv-zzz",
     });
 
     const summarizeTool = turn.agentTools.find((t) => t.name === "summarize_conversation");
     expect(summarizeTool).toBeDefined();
 
     const params = summarizeTool!.parameters as { required?: string[]; properties?: Record<string, unknown> };
-    expect(params.required ?? []).not.toContain("conversationId");
-    // The property itself is still defined — the LLM may still pass it
-    // explicitly, in which case the explicit value wins over the default.
+    expect(params.required ?? []).toContain("conversationId");
     expect(params.properties?.conversationId).toBeDefined();
-  });
-
-  test("WIRING: defaultConversationId is forwarded through getEzToolDefs to the summarize factory", async () => {
-    // Fresh-load the module graph so we observe the factory call
-    // arguments end-to-end. We spy on the summarize factory by
-    // re-importing it, registering through `wireEzToolsForTurn`, and
-    // confirming the registered tool's identity matches what
-    // getEzToolDefs would produce for the same context.
-    //
-    // Concretely: the only field that affects the summarize tool's
-    // observable behavior at registration time (no DB call yet) is the
-    // parameters schema — if the host had failed to forward
-    // defaultConversationId, the factory would have produced the same
-    // schema, so we additionally cross-check the host's exported type
-    // accepts the field (compile-time) and that the registry path
-    // doesn't throw when defaultConversationId is supplied (runtime).
-    const turn = freshTurn();
-    expect(() =>
-      wireEzToolsForTurn({
-        agentTools: turn.agentTools,
-        builtinToolDefsMap: turn.builtinToolDefsMap,
-        conversationId: "ez-conv-1",
-        userId: "user-1",
-        bus: turn.bus,
-        defaultConversationId: "default-conv-zzz",
-      }),
-    ).not.toThrow();
-    expect(turn.agentTools.find((t) => t.name === "summarize_conversation")).toBeDefined();
   });
 });

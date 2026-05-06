@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from "svelte";
 	import type { Agent } from "$lib/api.js";
 	import { inputClass } from "$lib/styles.js";
 	import PipelineStepForm from "./PipelineStepForm.svelte";
@@ -15,13 +16,13 @@
 		submitting?: boolean;
 	} = $props();
 
-	let name = $state((initial.name as string) ?? "");
-	let description = $state((initial.description as string) ?? "");
+	let name = $state(untrack(() => (initial.name as string) ?? ""));
+	let description = $state(untrack(() => (initial.description as string) ?? ""));
 
 	type StepData = { name: string; agent: string; input: Record<string, string>; dependsOn: string[] };
 
 	let steps = $state<StepData[]>(
-		(initial.steps as StepData[]) ?? [{ name: "step-1", agent: "", input: {}, dependsOn: [] }],
+		untrack(() => (initial.steps as StepData[]) ?? [{ name: "step-1", agent: "", input: {}, dependsOn: [] }]),
 	);
 
 	let allStepNames = $derived(steps.map((s) => s.name));

@@ -2,21 +2,17 @@
  * Phase 48 Wave 4 — page-level test for /agents/new.
  *
  * The page is responsible for:
- *   - registering an `<EzContext>` with `data.existingAgentNames`
- *     populated from `fetchAgentConfigs()` and a form-fill handler
- *     keyed `agent-new`
  *   - reading `?prefill=<id>` on mount, hydrating the form, and showing
  *     the AgentPrefillBanner in active or expired state depending on
  *     the draft status
  *   - calling `consumeDraft(id)` on successful submit
  *
- * We render the +page.svelte component directly and assert through the
- * registry snapshot (no need to scrape the form's internal DOM, which
- * is exercised by AgentConfigForm's own tests).
+ * We render the +page.svelte component directly and exercise the
+ * banner through its data-testid hooks.
  */
 import "@testing-library/jest-dom/vitest";
 import { render, waitFor, fireEvent } from "@testing-library/svelte";
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, vi, beforeEach } from "vitest";
 
 // `$app/state` page mock — the page reads `page.url.searchParams` to
 // get the `?prefill=<id>` query. We swap the URL per-test by mutating
@@ -57,7 +53,7 @@ vi.mock("$lib/ez/api.js", () => ({
 }));
 
 // MetaAgentChat / TeamBuilderForm pull in WebSocket + heavy stores. Stub
-// them out — the EzContext registration path doesn't depend on them.
+// them out — the prefill path doesn't depend on them.
 vi.mock("$lib/components/MetaAgentChat.svelte", async () => {
 	const stub = await import("./stubs/empty-component.js");
 	return { default: stub.default };
@@ -68,10 +64,8 @@ vi.mock("$lib/components/TeamBuilderForm.svelte", async () => {
 });
 
 import AgentsNewPage from "../routes/(app)/agents/new/+page.svelte";
-import { readSnapshot, __resetForTests } from "$lib/ez/registry";
 
 beforeEach(() => {
-	__resetForTests();
 	pageState.url = new URL("http://localhost/agents/new");
 	fetchAgentConfigsMock.mockReset().mockResolvedValue([
 		{ id: "a1", name: "summarizer", prompt: "p", capabilities: [] },
@@ -80,38 +74,6 @@ beforeEach(() => {
 	createAgentConfigMock.mockReset().mockResolvedValue({ id: "new" });
 	getDraftMock.mockReset();
 	consumeDraftMock.mockReset().mockResolvedValue({ id: "d", consumedAt: new Date().toISOString() });
-});
-
-afterEach(() => __resetForTests());
-
-describe("/agents/new — EzContext registration", () => {
-	test("registers an EzContext entry with `existingAgentNames` and an `agent-new` form handler", async () => {
-		render(AgentsNewPage);
-		// Existing-name fetch is async; wait for the snapshot to populate.
-		await waitFor(() => {
-			const snap = readSnapshot();
-			expect(snap.length).toBeGreaterThan(0);
-			const entry = snap[0]!;
-			expect(Object.keys(entry.forms)).toContain("agent-new");
-		});
-
-		// fetchAgentConfigs runs onMount; the registry should reflect the
-		// resolved names once the promise settles.
-		await waitFor(() => {
-			const snap = readSnapshot();
-			const data = snap[0]?.data as { existingAgentNames?: string[] } | undefined;
-			expect(data?.existingAgentNames).toEqual(["summarizer", "reviewer"]);
-		});
-	});
-
-	test("agent-new form handler writes `name` into the form state via re-mount", async () => {
-		render(AgentsNewPage);
-		await waitFor(() => expect(readSnapshot().length).toBeGreaterThan(0));
-		const handler = readSnapshot()[0]?.forms["agent-new"];
-		expect(handler).toBeDefined();
-		// The handler should not throw on a valid values payload.
-		expect(() => handler!.fill({ name: "Email Triager", prompt: "Triage email." })).not.toThrow();
-	});
 });
 
 describe("/agents/new — ?prefill hydration", () => {
@@ -189,7 +151,8 @@ describe("/agents/new — ?prefill hydration", () => {
 describe("/agents/new — no-prefill path", () => {
 	test("does not call getDraft when no `?prefill` is present", async () => {
 		render(AgentsNewPage);
-		await waitFor(() => expect(readSnapshot().length).toBeGreaterThan(0));
+		// Allow microtasks to flush so onMount + $effect both run.
+		await new Promise((r) => setTimeout(r, 0));
 		expect(getDraftMock).not.toHaveBeenCalled();
 	});
 });

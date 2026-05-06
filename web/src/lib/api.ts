@@ -590,14 +590,6 @@ export async function sendMessage(
 		permissionMode?: string;
 		thinkingLevel?: string;
 		attachments?: File[];
-		/**
-		 * Phase 48 — Ez panel ships its synthesized page-context payload
-		 * (route metadata + opt-in `<EzContext>` data + form ids) inline
-		 * with each message. Server-side wiring is added in Wave 4; this
-		 * field is forward-compatible because the existing endpoint
-		 * silently ignores unknown JSON keys.
-		 */
-		ezContext?: unknown;
 	},
 ): Promise<{ userMessage: Message; runId: string; attachments?: AttachmentSummary[] }> {
 	const url = `${BASE}/api/conversations/${conversationId}/messages`;
@@ -690,6 +682,7 @@ export interface AgentConfig {
 	references?: { agents: string[]; extensions: string[]; members?: TeamMember[]; autoSpinUp?: boolean; teamToolScope?: TeamToolScope } | null;
 	createdAt: string;
 	updatedAt: string;
+	[key: string]: unknown;
 }
 
 export async function fetchAgentConfigs(): Promise<AgentConfig[]> {

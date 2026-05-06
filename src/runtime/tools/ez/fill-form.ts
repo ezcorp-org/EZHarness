@@ -4,10 +4,12 @@
  * Marked `clientSide: true`, which the runtime treats as "do not execute
  * this server-side." Instead, when the LLM emits a `fill_form(...)` call,
  * the runtime emits an `ez:client-tool` SSE event to the streaming
- * client; the Ez panel intercepts the event, looks up the page-
- * registered form handler in the global EzContext store, runs it
- * locally, and POSTs the resolution back via
- * `/api/conversations/[id]/tool-results` so the agent loop continues.
+ * client; the Ez panel intercepts the event and POSTs the resolution
+ * back via `/api/conversations/[id]/tool-results` so the agent loop
+ * continues. The page-side form registry that previously routed the
+ * request to a live handler was retired with the `<EzContext>`
+ * mechanism — the panel currently always responds "no-handler". A
+ * future on-demand form-discovery design will reinstate the round-trip.
  *
  * The execute body emits the event AND registers a pending entry in
  * `ez-client-tool-registry`. The Promise returned by

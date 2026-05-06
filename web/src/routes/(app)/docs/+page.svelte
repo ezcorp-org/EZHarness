@@ -68,7 +68,7 @@
 			name,
 			type: prop.items?.type ? `${prop.type}<${prop.items.type}>` : (prop.type ?? "any"),
 			required: required.has(name),
-			description: prop.description ?? prop.format ?? (prop.enum ? `enum: ${prop.enum.join(", ")}` : "") ?? "",
+			description: prop.description ?? prop.format ?? (prop.enum ? `enum: ${prop.enum.join(", ")}` : ""),
 			constraints: [
 				prop.minimum != null ? `min: ${prop.minimum}` : "",
 				prop.maximum != null ? `max: ${prop.maximum}` : "",
@@ -83,18 +83,7 @@
 		if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
 	}
 
-	onMount(async () => {
-		try {
-			const res = await fetch("/api/docs");
-			if (!res.ok) throw new Error(`HTTP ${res.status}`);
-			const data = await res.json();
-			routes = data.routes;
-		} catch (e) {
-			error = e instanceof Error ? e.message : "Failed to load docs";
-		} finally {
-			loading = false;
-		}
-
+	onMount(() => {
 		// Track active section on scroll
 		const observer = new IntersectionObserver(
 			(entries) => {
@@ -107,13 +96,26 @@
 			{ rootMargin: "-20% 0px -70% 0px" }
 		);
 
-		// Observe after routes load
-		setTimeout(() => {
-			for (const cat of categoryOrder) {
-				const el = document.getElementById(`cat-${cat}`);
-				if (el) observer.observe(el);
+		(async () => {
+			try {
+				const res = await fetch("/api/docs");
+				if (!res.ok) throw new Error(`HTTP ${res.status}`);
+				const data = await res.json();
+				routes = data.routes;
+			} catch (e) {
+				error = e instanceof Error ? e.message : "Failed to load docs";
+			} finally {
+				loading = false;
 			}
-		}, 100);
+
+			// Observe after routes load
+			setTimeout(() => {
+				for (const cat of categoryOrder) {
+					const el = document.getElementById(`cat-${cat}`);
+					if (el) observer.observe(el);
+				}
+			}, 100);
+		})();
 
 		return () => observer.disconnect();
 	});

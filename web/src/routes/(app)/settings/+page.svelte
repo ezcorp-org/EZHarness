@@ -894,27 +894,31 @@
 							</div>
 
 							<!-- URL config -->
-							<div class="mt-2 flex items-center gap-2">
-								<input
-									type="text"
-									bind:value={ollamaUrl}
-									placeholder="http://localhost:11434"
-									class="flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
-								/>
-								<button
-									onclick={saveOllamaUrl}
-									disabled={savingOllamaUrl}
-									class="rounded-md border border-[var(--color-border)] px-2 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-50 transition-colors"
-								>
-									{savingOllamaUrl ? "Saving..." : "Save URL"}
-								</button>
-								<button
-									onclick={fetchOllamaModels}
-									disabled={ollamaFetching || !ollamaUrl.trim()}
-									class="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-500 disabled:opacity-50 transition-colors"
-								>
-									{ollamaFetching ? "Fetching..." : "Fetch Models"}
-								</button>
+							<div class="mt-2">
+								<label for="settings-ollama-base-url" class="mb-1 block text-xs text-[var(--color-text-secondary)]">Base URL</label>
+								<div class="flex items-center gap-2">
+									<input
+										id="settings-ollama-base-url"
+										type="text"
+										bind:value={ollamaUrl}
+										placeholder="e.g. http://localhost:11434"
+										class="flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
+									/>
+									<button
+										onclick={saveOllamaUrl}
+										disabled={savingOllamaUrl}
+										class="rounded-md border border-[var(--color-border)] px-2 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-50 transition-colors"
+									>
+										{savingOllamaUrl ? "Saving..." : "Save URL"}
+									</button>
+									<button
+										onclick={fetchOllamaModels}
+										disabled={ollamaFetching || !ollamaUrl.trim()}
+										class="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-500 disabled:opacity-50 transition-colors"
+									>
+										{ollamaFetching ? "Fetching..." : "Fetch Models"}
+									</button>
+								</div>
 							</div>
 
 							{#if ollamaError}

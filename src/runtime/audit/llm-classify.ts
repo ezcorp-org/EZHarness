@@ -20,7 +20,7 @@ const LLM_TOTAL_BUDGET_BYTES = 8_192;
 const SYSTEM_PROMPT = `You are a coverage auditor for the EZCorp codebase. Given a feature (name, description, file list, and optional file headers), decide whether it should be exposed via each of three "outward" surfaces:
 
   - sdk: programmatic, schema-stable, sandboxable interface in packages/@ezcorp/sdk (tools/skills/agents declared via defineExtension())
-  - ezbutton: page-mounted UI capability that the Ez panel should be able to read or invoke (uses <EzContext> on a route)
+  - ezbutton: page-mounted UI capability that the Ez panel should be able to read or invoke
   - mcp: programmatic tool useful to external LLM clients via the MCP server (no GUI dependency, schema-able I/O)
 
 Respond with STRICT JSON only — no markdown, no prose, no code fences:

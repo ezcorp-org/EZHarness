@@ -102,7 +102,7 @@
 			if (val === '' || val === undefined) continue;
 
 			// Format-aware collection: tag-input arrays stay as arrays, not stringified
-			if (prop.format && prop.format in formatComponentMap) {
+			if (typeof prop.format === 'string' && prop.format in formatComponentMap) {
 				if (prop.format === 'tag-input' && prop.type === 'array' && Array.isArray(val)) {
 					result[key] = val;
 				} else if (prop.format === 'tag-input' && typeof val === 'object' && Array.isArray(val)) {
@@ -182,9 +182,9 @@
 						<span class="text-[10px] text-[var(--color-text-muted)]">{prop.description}</span>
 					{/if}
 
-					{#if prop.format && prop.format in formatComponentMap && values[key] !== undefined}
-					<svelte:component
-						this={getFormatComponent(prop.format)}
+					{#if typeof prop.format === 'string' && prop.format in formatComponentMap && values[key] !== undefined}
+					{@const FormatComp = getFormatComponent(prop.format)}
+					<FormatComp
 						bind:value={values[key]}
 						size="sm"
 						disabled={false}

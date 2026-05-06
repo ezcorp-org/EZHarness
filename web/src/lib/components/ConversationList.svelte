@@ -113,6 +113,7 @@
 					provider: conv?.provider ?? null,
 					systemPrompt: conv?.systemPrompt ?? null,
 					agentConfigId: conv?.agentConfigId ?? null,
+					modeId: conv?.modeId ?? null,
 					test: conv?.test ?? null,
 					createdAt: conv?.createdAt ?? r.updatedAt,
 					updatedAt: r.updatedAt,
@@ -442,7 +443,7 @@
 								</svg>
 							</button>
 						{/if}
-						{#if !isActive && (unreadRev, unreadStore.isUnread(conv.id))}
+						{#if !isActive && unreadRev >= 0 && unreadStore.isUnread(conv.id)}
 							<span class="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-green-500" title="New activity"></span>
 						{/if}
 						<!-- Quick actions on hover -->
@@ -481,7 +482,7 @@
 				{#each group.families as fam (fam.root.id)}
 					{@const hasForks = fam.forks.length > 0}
 					{@const isCollapsed = collapsedRoots.has(fam.root.id)}
-					{@const unreadInForks = (unreadRev, unreadForkCount(fam, (id) => unreadStore.isUnread(id)))}
+					{@const unreadInForks = unreadRev >= 0 ? unreadForkCount(fam, (id) => unreadStore.isUnread(id)) : 0}
 					{@render conversationRow(fam.root, {
 						indent: false,
 						chevron: hasForks ? (isCollapsed ? "closed" : "open") : null,

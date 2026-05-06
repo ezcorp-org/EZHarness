@@ -3,7 +3,7 @@
 	import { wsManualRetry } from "$lib/stores.svelte.js";
 	import { isBannerVisible, bannerColorClass } from "$lib/connection-banner-logic";
 
-	let state = $state<"connected" | "disconnected" | "reconnecting" | "failed">("connected");
+	let connStatus = $state<"connected" | "disconnected" | "reconnecting" | "failed">("connected");
 	let attempt = $state(0);
 	let maxAttempts = $state(10);
 	let showConnected = $state(false);
@@ -11,8 +11,8 @@
 	let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
 	connectionState.subscribe((info) => {
-		const prev = state;
-		state = info.state;
+		const prev = connStatus;
+		connStatus = info.state;
 		attempt = info.attempt;
 		maxAttempts = info.maxAttempts;
 
@@ -29,21 +29,21 @@
 		}
 	});
 
-	let visible = $derived(isBannerVisible(state, showConnected));
+	let visible = $derived(isBannerVisible(connStatus, showConnected));
 </script>
 
 {#if visible}
 	<div class="fixed top-0 left-0 right-0 z-50 flex items-center justify-center px-4 py-0 pointer-events-none">
 		<div
 			class="mt-2 flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-lg pointer-events-auto transition-all duration-300
-				{bannerColorClass(state, showConnected)}"
+				{bannerColorClass(connStatus, showConnected)}"
 		>
-			{#if showConnected && state === "connected"}
+			{#if showConnected && connStatus === "connected"}
 				<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
 				</svg>
 				Connected
-			{:else if state === "failed"}
+			{:else if connStatus === "failed"}
 				<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
 				</svg>

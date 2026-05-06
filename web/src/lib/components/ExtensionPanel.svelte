@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from "svelte";
 	import { slide } from "svelte/transition";
 	import { readExtPanel, writeExtPanel } from "$lib/panel-persistence.js";
 
@@ -35,7 +36,7 @@
 		extensionId,
 		extensionName,
 		conversationId,
-		state,
+		state: extState,
 	}: {
 		extensionId: string;
 		extensionName: string;
@@ -46,13 +47,13 @@
 	// ── Validate state as ExtensionPanelState ──
 
 	let panelState = $derived.by((): ExtensionPanelState | null => {
-		if (!state || typeof state !== "object") return null;
-		if (typeof state.title !== "string") return null;
-		if (!Array.isArray(state.components)) return null;
-		return state as unknown as ExtensionPanelState;
+		if (!extState || typeof extState !== "object") return null;
+		if (typeof extState.title !== "string") return null;
+		if (!Array.isArray(extState.components)) return null;
+		return extState as unknown as ExtensionPanelState;
 	});
 
-	let expanded = $state(readExtPanel(conversationId, extensionId)?.expanded ?? true);
+	let expanded = $state(untrack(() => readExtPanel(conversationId, extensionId)?.expanded ?? true));
 	let componentCount = $derived(panelState?.components.length ?? 0);
 
 	// Persist `expanded` state per conversation+extension so a refresh

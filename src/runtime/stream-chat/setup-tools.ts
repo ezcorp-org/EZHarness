@@ -54,15 +54,6 @@ export interface SetupToolsOptions {
   attachments?: import("../../chat/attachments/content-builder").StagedAttachment[];
   provider?: string;
   model?: string;
-  /** Phase 48: Ez panel page-context payload. Captured client-side per
-   *  turn (route metadata + opt-in `<EzContext>` data + form ids) and
-   *  forwarded by the messages endpoint. setup-tools serializes this
-   *  into a `<page_context>` block appended to ctx.system for Ez-mode
-   *  turns ONLY. The Ez persona prompt looks for that tag explicitly
-   *  to distinguish instrumented vs non-instrumented pages. Permissive
-   *  shape (`unknown`) — schema validation lives at the route layer.
-   *  Ignored on non-Ez turns even if a client manages to inject one. */
-  ezContext?: unknown;
 }
 
 /** Subset of the conversation row the setup-tools phase reads — the
@@ -353,23 +344,6 @@ export async function setupTools(
                 { conversationId },
               );
             } else {
-              // Phase 48 defense-in-depth: extract the conversation id
-              // the user is currently viewing from the page-context
-              // payload so summarize_conversation can fall back to it
-              // when the LLM fails to lift the id from
-              // JSON-in-system-prompt. The serializer at
-              // `web/src/lib/ez/context-serializer.ts` already populates
-              // `route.conversationId` from the URL params (`convId`
-              // first, then `conversationId`); we read defensively in
-              // case a future serializer change moves the field — the
-              // tool simply degrades to "conversationId is required"
-              // when the extraction yields nothing.
-              const ezRoute = (options.ezContext as { route?: { conversationId?: unknown } } | null | undefined)?.route;
-              const defaultConversationId =
-                typeof ezRoute?.conversationId === "string" && ezRoute.conversationId.length > 0
-                  ? ezRoute.conversationId
-                  : undefined;
-
               wireEzToolsForTurn({
                 agentTools: ctx.agentTools,
                 builtinToolDefsMap: ctx.builtinToolDefsMap,
@@ -387,7 +361,6 @@ export async function setupTools(
                 // used a few blocks above for ai-kit sibling chats.
                 provider: options.provider ?? convRecord.provider,
                 model: options.model ?? convRecord.model,
-                defaultConversationId,
               });
             }
           } catch (ezWireErr) {
@@ -395,19 +368,6 @@ export async function setupTools(
               error: String(ezWireErr),
             });
           }
-
-          // NOTE: page_context append for Ez turns is DEFERRED until
-          // after the surrounding Promise.all returns (see the post-
-          // Promise.all block near the bottom of this function). The
-          // memory-injection branch (1) snapshots ctx.system BEFORE its
-          // `await generateEmbedding(...)` and writes back the snapshot
-          // + memory block at the end — clobbering anything else that
-          // mutated ctx.system during the await. Appending here
-          // produced an intermittent silent loss of `<page_context>`
-          // depending on whether memory injection happened to win the
-          // race. Same pattern as the orchestrator-prompt deferral
-          // (see comment at "system prompt injection is deferred"
-          // below) — fixed identically.
         }
         await wireMentionedExtensions(conversationId, userMessage, options.parentMessageId ?? run.id);
         const convExtIds = await getConversationExtensionIds(conversationId);
@@ -737,44 +697,6 @@ export async function setupTools(
       return { resolved: r, initialCred: cred };
     })(),
   ]);
-
-  // ── Post-Promise.all: append the Ez page-context block ───────────────
-  // The persona seeded in the migration explicitly looks for
-  // `<page_context>` to distinguish instrumented from non-instrumented
-  // pages. We only emit the tag for Ez turns — a regular conversation
-  // that somehow received an `ezContext` payload (defense-in-depth: the
-  // messages endpoint shouldn't forward one for non-Ez convs, but this
-  // branch enforces it even if upstream changes) gets nothing.
-  //
-  // Done AFTER Promise.all so the memory-injection branch's snapshot/
-  // write-back race can no longer clobber our append. The orchestrator-
-  // prompt block (applied later in applyAutoSpinUp) prepends to
-  // ctx.system, so the final ordering is:
-  //   [orchestrator-prompt]\n\n[base-system]\n\n[memory-injection]\n\n[page_context]
-  // — `<page_context>` is preserved unconditionally for every Ez turn
-  // that supplied an ezContext payload.
-  //
-  // Compact JSON keeps the token cost minimal; the client-side
-  // serializer already capped data at ~500 tokens
-  // (context-serializer.ts:TOKEN_BUDGET).
-  if (
-    convRecord?.kind === "ez" &&
-    options.ezContext !== undefined &&
-    options.ezContext !== null
-  ) {
-    try {
-      const block = `<page_context>${JSON.stringify(options.ezContext)}</page_context>`;
-      ctx.system = ctx.system ? `${ctx.system}\n\n${block}` : block;
-    } catch (ezCtxErr) {
-      // JSON.stringify can throw on circular refs — log once and fall
-      // through. The Ez panel's serializer already guards its own
-      // input; reaching this branch implies upstream tampering, in
-      // which case dropping the block is the safe outcome.
-      log.warn("Ez ezContext serialization failed — page_context block omitted", {
-        error: String(ezCtxErr),
-      });
-    }
-  }
 
   // The third tuple slot is the only one we surface upward.
   return resolvedModel;

@@ -363,7 +363,7 @@ export async function getMessages(conversationId: string): Promise<Message[]> {
  * `conversations(user_id) WHERE kind = 'ez'`), so "start a new chat" is
  * implemented as wiping the message list rather than deleting + recreating
  * the row. The conversation id stays stable — the caller's SSE
- * subscription, ezContext, and locked mode continue working unchanged.
+ * subscription and locked mode continue working unchanged.
  *
  * `tool_calls.message_id` and `conversation_extensions.added_by_message_id`
  * are `ON DELETE SET NULL`, NOT CASCADE — so wiping `messages` alone leaves

@@ -9,6 +9,7 @@
 	//
 	// No iframe — this is NOT an `ExtensionIframeCard`-based card.
 
+	import { untrack } from "svelte";
 	import type { ToolCallState } from "$lib/stores.svelte.js";
 	import { userFetch } from "$lib/utils/fetch-policy.js";
 	import { buildEventUrl } from "./iframe-card-logic.js";
@@ -45,7 +46,7 @@
 
 	// ── State machine ──────────────────────────────────────────────
 	let phase = $state<"running" | "sending" | "answered" | "error">(
-		toolCall.status === "complete" ? "answered" : "running",
+		untrack(() => (toolCall.status === "complete" ? "answered" : "running")),
 	);
 	let errorMessage = $state<string | null>(null);
 
@@ -241,7 +242,7 @@
 					{/each}
 				</dl>
 			</div>
-		{:else if phase === "error" && toolCall.status !== "complete"}
+		{:else if phase === "error"}
 			<div
 				class="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-300"
 				role="alert"

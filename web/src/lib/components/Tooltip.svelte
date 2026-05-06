@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 
 	let {
 		text,
@@ -13,7 +13,7 @@
 	} = $props();
 
 	let show = $state(false);
-	let resolvedPosition = $state(position);
+	let resolvedPosition = $state(untrack(() => position));
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let el: HTMLSpanElement;
 	let tipEl = $state<HTMLDivElement | null>(null);

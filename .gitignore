@@ -53,7 +53,7 @@ agent/auth.json
 ez-corp-db/
 
 # runtime extension installs (installFromGitHub / installFromGit copy here)
-data/extensions/
+**/data/extensions/
 
 # wrangler
 .wrangler

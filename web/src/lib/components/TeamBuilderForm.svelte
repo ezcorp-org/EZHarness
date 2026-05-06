@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from "svelte";
+	import { onMount, untrack } from "svelte";
 	import { inputClass } from "$lib/styles.js";
 	import { CURRENT_MODEL_SENTINEL, type AgentConfig, type TeamMember, type TeamMemberOverrides, type TeamToolScope } from "$lib/api";
 	import AgentSearchPicker from "$lib/components/AgentSearchPicker.svelte";
@@ -20,10 +20,10 @@
 		submitting?: boolean;
 	} = $props();
 
-	const initialRefs = (initial?.references ?? null) as
+	const initialRefs = untrack(() => (initial?.references ?? null) as
 		| { agents?: string[]; extensions?: string[]; members?: TeamMember[]; autoSpinUp?: boolean; teamToolScope?: TeamToolScope }
 		| null
-		| undefined;
+		| undefined);
 
 	// If members array exists, use it. Otherwise, fall back to flat agents array
 	// (backwards compat for teams created before the members feature)
@@ -37,9 +37,9 @@
 		return [];
 	}
 
-	let name = $state((initial?.name as string) ?? "");
-	let description = $state((initial?.description as string) ?? "");
-	let prompt = $state((initial?.prompt as string) ?? "");
+	let name = $state(untrack(() => (initial?.name as string) ?? ""));
+	let description = $state(untrack(() => (initial?.description as string) ?? ""));
+	let prompt = $state(untrack(() => (initial?.prompt as string) ?? ""));
 	let autoSpinUp = $state<boolean>(initialRefs?.autoSpinUp ?? false);
 	let members = $state<TeamMember[]>(JSON.parse(JSON.stringify(resolveInitialMembers())));
 	// Team-level tool scope (optional). When either list is non-empty, it

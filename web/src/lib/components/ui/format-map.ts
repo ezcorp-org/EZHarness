@@ -5,7 +5,7 @@ import SearchBox from './SearchBox.svelte';
 import TagInput from './TagInput.svelte';
 import DatePicker from './DatePicker.svelte';
 
-export const formatComponentMap: Record<string, Component> = {
+export const formatComponentMap: Record<string, Component<any, any, 'value'>> = {
 	'file-path': SharedFilePicker,
 	'combo-box': ComboBox,
 	'search': SearchBox,
@@ -15,7 +15,7 @@ export const formatComponentMap: Record<string, Component> = {
 };
 
 /** Returns the component for a format string, or throws on unrecognized formats. */
-export function getFormatComponent(format: string): Component {
+export function getFormatComponent(format: string): Component<any, any, 'value'> {
 	const component = formatComponentMap[format];
 	if (!component) {
 		throw new Error(

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from "svelte";
 	import type { ToolCallState } from "$lib/stores.svelte.js";
 	import { openDock, store } from "$lib/stores.svelte.js";
 	import { slide } from "svelte/transition";
@@ -24,7 +25,7 @@
 	//
 	// Each card fires AT MOST ONCE via `firedOnce`. Manual re-opens via the
 	// chat-history `DockOpenPill` bypass this effect entirely.
-	const initialStatus = toolCall.status;
+	const initialStatus = untrack(() => toolCall.status);
 	let openDockTimer: ReturnType<typeof setTimeout> | undefined;
 	let firedOnce = $state(false);
 	$effect(() => {
@@ -112,7 +113,6 @@
 	<button
 		onclick={handleExpand}
 		class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--color-surface-secondary)]/50 transition-colors"
-		role="button"
 		aria-expanded={expanded}
 	>
 		<!-- Status icon -->

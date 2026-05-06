@@ -120,8 +120,6 @@
 		invalidate as invalidateFetchPolicy,
 	} from "$lib/utils/fetch-policy.js";
 	import type { ToolDefinition } from '$server/extensions/types';
-	import EzContext from "$lib/components/ez/EzContext.svelte";
-	import { buildChatEzContextData } from "$lib/ez/chat-context.js";
 
 	// Historical tool call tracking. `HistoricalToolCall` is imported from
 	// `$lib/chat/page-handlers/load-messages.js` (W5) — the hydration step
@@ -1356,21 +1354,7 @@
 		return mapHistoricalToolCalls(messageId);
 	}
 
-	// Phase 48 Wave 4 — expose chat surface state to the Ez panel via the
-	// shared `<EzContext>` provider. Pure logic lives in
-	// `$lib/ez/chat-context.ts` so the truncation + recent-5 contract is
-	// unit-testable without dragging the chat route's dependency graph
-	// into vitest. No `forms` are registered — chat doesn't expose a form
-	// Ez can `fill_form` into; instrumenting this page is purely data-
-	// side so Ez can answer "summarize this".
-	let ezContextData = $derived(buildChatEzContextData({
-		conversationId: convId,
-		conversationTitle: currentConversation?.title ?? null,
-		messages,
-	}));
 </script>
-
-<EzContext data={ezContextData} />
 
 <div class="absolute inset-0 flex">
 	<!-- Desktop conversation list -->

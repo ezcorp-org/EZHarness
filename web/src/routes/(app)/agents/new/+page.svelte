@@ -6,7 +6,6 @@
 	import AgentConfigForm from "$lib/components/AgentConfigForm.svelte";
 	import TeamBuilderForm from "$lib/components/TeamBuilderForm.svelte";
 	import MetaAgentChat from "$lib/components/MetaAgentChat.svelte";
-	import EzContext from "$lib/components/ez/EzContext.svelte";
 	import AgentPrefillBanner from "$lib/components/ez/AgentPrefillBanner.svelte";
 	import { getDraft, consumeDraft } from "$lib/ez/api.js";
 	import { onMount } from "svelte";
@@ -30,10 +29,6 @@
 	let consumedDraftId = $state<string | null>(null);
 
 	let isTeamMode = $derived(page.url.searchParams.get("type") === "team");
-
-	let existingAgentNames = $derived(
-		existingConfigs.map((c) => c.name).filter((n): n is string => typeof n === "string"),
-	);
 
 	onMount(async () => {
 		try { existingConfigs = await fetchAgentConfigs(); } catch { /* non-fatal */ }
@@ -101,34 +96,7 @@
 		}
 	}
 
-	/** Ez `fill_form` handler — invoked by the panel's client-tool dispatcher. */
-	function handleEzFill(values: Record<string, unknown>): void {
-		const next = { ...(prefillData ?? {}) };
-		// Whitelist the well-known keys; the AgentConfigForm reads them via
-		// the same `initial` props it accepts on edit.
-		if (typeof values.name === "string") next.name = values.name;
-		if (typeof values.prompt === "string") next.prompt = values.prompt;
-		if (typeof values.description === "string") next.description = values.description;
-		if (typeof values.category === "string") next.category = values.category;
-		if (Array.isArray(values.capabilities)) next.capabilities = values.capabilities;
-		if (Array.isArray(values.extensions)) next.extensions = values.extensions;
-		if (values.inputSchema && typeof values.inputSchema === "object") next.inputSchema = values.inputSchema;
-		prefillData = next;
-		prefillKey++;
-		// Switch into Configure so the populated form is visible.
-		if (mode === "chat" && activeTab !== "configure") activeTab = "configure";
-	}
 </script>
-
-<EzContext
-	data={{ existingAgentNames }}
-	forms={{
-		"agent-new": {
-			schema: { name: "string", prompt: "string", description: "string", capabilities: "json" },
-			fill: handleEzFill,
-		},
-	}}
-/>
 
 <div class="space-y-6">
 	<div>

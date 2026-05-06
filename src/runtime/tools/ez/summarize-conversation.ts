@@ -9,11 +9,9 @@
  * lookup is by id and we cannot enforce "must be owned by ctx.userId"
  * from inside the tool without a query change. The runtime calls this
  * tool only inside Ez-mode conversations (allowlist gate), and Ez
- * conversations are user-owned, so the LLM only ever sees a
- * conversationId pulled from page context where the user is already
- * authenticated. A future hardening pass can add an ownership check
- * inside the tool body if `getConversation()` becomes routinely callable
- * from broader contexts.
+ * conversations are user-owned. A future hardening pass can add an
+ * ownership check inside the tool body if `getConversation()` becomes
+ * routinely callable from broader contexts.
  *
  * Determinism for tests: the LLM call is injected via `summarize` in
  * the context object so unit tests can stub it without spinning up a
@@ -45,17 +43,6 @@ export interface SummarizeContext {
    *  the legacy default-tier behavior. */
   provider?: string | null;
   model?: string | null;
-  /** Phase 48 defense-in-depth: server-side default for the
-   *  `conversationId` argument. Wired from `ezContext.route.conversationId`
-   *  by the runtime so the tool works even when the LLM fails to extract
-   *  the id from the JSON-in-system-prompt page_context block. The tool
-   *  prefers an explicit `params.conversationId` (LLM-supplied) when
-   *  present and non-empty; otherwise it falls back to this default.
-   *  When BOTH are missing the tool returns the legacy "conversationId
-   *  is required" error — that path now only fires when the user is on
-   *  a non-chat page (no current conversation to default to) AND the
-   *  LLM produced no id. */
-  defaultConversationId?: string;
 }
 
 /** Default summarizer: routes the request through the project's
@@ -116,16 +103,11 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
   // entirely — they receive `(systemPrompt, transcript)` and short-circuit
   // before defaultSummarize runs.
   const summarize = ctx.summarize ?? ((sys: string, t: string) => defaultSummarize(sys, t, ctx.provider, ctx.model));
-  // Capture the default conversation id at factory time so the execute
-  // closure has it on every call. Wired from `ezContext.route.conversationId`
-  // by the runtime; undefined when the user is on a non-chat page or
-  // the runtime couldn't extract a current conversation.
-  const defaultConversationId = ctx.defaultConversationId;
   return {
     name: "summarize_conversation",
     label: "summarize_conversation",
     description:
-      "Summarize a conversation's message history. Style: 'brief' (default, 2-3 sentences), 'standup' (bulleted update), or 'tweet' (under 280 chars).",
+      "Summarize a conversation's message history. The LLM MUST supply the conversationId.",
     category: "ez",
     cardType: "default",
     // Server-side LLM call. Slow models on long transcripts (transcript
@@ -139,31 +121,23 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
       properties: {
         conversationId: {
           type: "string",
-          description:
-            "Conversation to summarize. Optional — defaults to the current chat from page context when omitted.",
+          description: "Conversation to summarize. Required.",
         },
         style: { type: "string", enum: ["brief", "standup", "tweet"], description: "Summary style." },
       },
-      // conversationId is INTENTIONALLY not required: the runtime
-      // back-fills it from `ezContext.route.conversationId` when the LLM
-      // omits it. See SummarizeContext.defaultConversationId.
-      required: [],
+      required: ["conversationId"],
     }),
     execute: async (_toolCallId, params: any) => {
       try {
-        // Prefer the LLM-supplied id (it can override when summarizing
-        // a different conversation than the one currently open), but
-        // fall back to the runtime-supplied default for the common case
-        // where the user said "summarize this" with the chat open.
         const explicit = typeof params?.conversationId === "string" ? params.conversationId.trim() : "";
-        const conversationId = explicit || (defaultConversationId ?? "").trim();
+        const conversationId = explicit;
         if (!conversationId) {
           return {
             content: [
               {
                 type: "text" as const,
                 text:
-                  "Error: conversationId is required. Open a chat first, or pass the id explicitly.",
+                  "Error: conversationId is required. Pass the id explicitly.",
               },
             ],
             details: { isError: true },

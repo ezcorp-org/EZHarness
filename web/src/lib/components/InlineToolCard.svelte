@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from "svelte";
 	import type { InlineToolCall } from "$lib/inline-tool-store.svelte.js";
 	import type { ToolCallState } from "$lib/stores.svelte.js";
 	import { openDock, store } from "$lib/stores.svelte.js";
@@ -79,7 +80,7 @@
 		input: call.input,
 		output: call.output,
 		error: call.error,
-		startedAt: call.startedAt,
+		startedAt: call.startedAt ?? Date.now(),
 		duration: call.duration,
 		extensionId: call.extensionName,
 		cardType: call.cardType,
@@ -90,7 +91,7 @@
 	// If multiple dock-mode tools complete in a tight window, only the LAST
 	// fires openDock — see plan §7.6.
 	let openDockTimer: ReturnType<typeof setTimeout> | undefined;
-	const initialStatus = call.status;
+	const initialStatus = untrack(() => call.status);
 	let firedOnce = $state(false);
 	$effect(() => {
 		// Auto-open ONLY on a live status flip during this page session.

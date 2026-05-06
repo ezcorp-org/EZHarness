@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from "svelte";
 	import { inputClass } from "$lib/styles.js";
 	import InfoTooltip from "$lib/components/InfoTooltip.svelte";
 	import ModelSearchPicker from "$lib/components/ModelSearchPicker.svelte";
@@ -15,32 +16,36 @@
 		submitting?: boolean;
 	} = $props();
 
-	let name = $state((initial.name as string) ?? "");
-	let description = $state((initial.description as string) ?? "");
-	let prompt = $state((initial.prompt as string) ?? "");
-	let outputFormat = $state((initial.outputFormat as string) ?? "text");
+	let name = $state(untrack(() => (initial.name as string) ?? ""));
+	let description = $state(untrack(() => (initial.description as string) ?? ""));
+	let prompt = $state(untrack(() => (initial.prompt as string) ?? ""));
+	let outputFormat = $state(untrack(() => (initial.outputFormat as string) ?? "text"));
 	let selectedModel = $state<{ provider: string; model: string } | null>(
-		initial.provider && initial.model
-			? { provider: initial.provider as string, model: initial.model as string }
-			: { provider: CURRENT_MODEL_SENTINEL, model: CURRENT_MODEL_SENTINEL }
+		untrack(() =>
+			initial.provider && initial.model
+				? { provider: initial.provider as string, model: initial.model as string }
+				: { provider: CURRENT_MODEL_SENTINEL, model: CURRENT_MODEL_SENTINEL },
+		),
 	);
-	let temperature = $state((initial.temperature as number | null) ?? null);
-	let maxTokens = $state((initial.maxTokens as number | null) ?? null);
-	let category = $state((initial.category as string) ?? "");
+	let temperature = $state(untrack(() => (initial.temperature as number | null) ?? null));
+	let maxTokens = $state(untrack(() => (initial.maxTokens as number | null) ?? null));
+	let category = $state(untrack(() => (initial.category as string) ?? ""));
 	// Extensions attached to this agent (runtime wires their tools when the
 	// agent is @mentioned — see src/runtime/mention-wiring.ts). Pre-populates
 	// from the saved config so users see the selection on edit/reload.
 	let extensions = $state<string[]>(
-		Array.isArray(initial.extensions) ? (initial.extensions as string[]) : [],
+		untrack(() => (Array.isArray(initial.extensions) ? (initial.extensions as string[]) : [])),
 	);
 
 	// Dynamic input schema builder
 	let fields = $state<{ key: string; type: string; label: string; required: boolean }[]>(
-		initial.inputSchema
-			? Object.entries(initial.inputSchema as Record<string, { type: string; label: string; required?: boolean }>).map(
-					([key, f]) => ({ key, type: f.type ?? "string", label: f.label ?? key, required: f.required ?? false }),
-				)
-			: [],
+		untrack(() =>
+			initial.inputSchema
+				? Object.entries(initial.inputSchema as Record<string, { type: string; label: string; required?: boolean }>).map(
+						([key, f]) => ({ key, type: f.type ?? "string", label: f.label ?? key, required: f.required ?? false }),
+					)
+				: [],
+		),
 	);
 
 	let errorMsg = $state("");

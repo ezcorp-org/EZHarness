@@ -16,7 +16,7 @@
 	} = $props();
 
 	let inputPairs = $state(
-		Object.entries(step.input).map(([k, v]) => ({ key: k, value: v })),
+		untrack(() => Object.entries(step.input).map(([k, v]) => ({ key: k, value: v }))),
 	);
 
 	function addInputPair() {

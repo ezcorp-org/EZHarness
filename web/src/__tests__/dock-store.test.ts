@@ -389,14 +389,13 @@ describe("dock store", () => {
 		// after the call flips to complete. This is the ping-pong fix's
 		// inverse: skip-on-mount-complete must NOT regress live-claiming.
 		const m = new DockMirror(storage, win, false);
-		function makeCardLive(toolCallId: string) {
+		function makeCardLive(toolCallId: string, initialStatus: "running" | "complete") {
 			let firedOnce = false;
-			let status: "running" | "complete" = "running";
+			let status: "running" | "complete" = initialStatus;
 			return {
 				flipComplete(): void { status = "complete"; },
 				maybeClaim(): boolean {
 					// Same guards the real component runs.
-					const initialStatus: "running" | "complete" = "running";
 					if (initialStatus === "complete") return false;
 					if (firedOnce) return false;
 					if (status !== "complete") return false;
@@ -406,7 +405,7 @@ describe("dock store", () => {
 				},
 			};
 		}
-		const card = makeCardLive("tc-live-1");
+		const card = makeCardLive("tc-live-1", "running");
 		// Effect runs while still running — no claim.
 		expect(card.maybeClaim()).toBe(false);
 		expect(m.dockState["conv-1"]).toBeUndefined();

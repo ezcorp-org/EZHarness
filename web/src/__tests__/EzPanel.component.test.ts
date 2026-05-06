@@ -23,10 +23,10 @@
  *     Ez prompt, the Model column is rendered, the Mode picker is
  *     present-but-disabled and shows "Ez"
  *   - clicking the close button closes the panel
- *   - sending a message calls `sendMessage` with content + an
- *     `ezContext` payload synthesized from $page + the registry, then
- *     registers the runId with the global streaming store via
- *     `startStreaming`
+ *   - sending a message calls `sendMessage` with content + provider/
+ *     model/thinkingLevel, and registers the runId with the global
+ *     streaming store via `startStreaming` (the page-context payload
+ *     is no longer attached — `<EzContext>` was retired)
  *   - an `ez:client-tool` window event is dispatched onto the global
  *     bus (by `stores.svelte.ts`) and EzPanel routes it through the
  *     client-tool dispatcher, POSTing the result back to
@@ -118,10 +118,8 @@ vi.mock("$lib/toast.svelte.js", () => ({ addToast: vi.fn() }));
 
 import EzPanel from "$lib/components/ez/EzPanel.svelte";
 import { ezPanelState, openEzPanel, closeEzPanel } from "$lib/ez/panel-store.svelte.js";
-import { __resetForTests, registerContext } from "$lib/ez/registry";
 
 beforeEach(() => {
-	__resetForTests();
 	closeEzPanel();
 	// Clear localStorage between tests — `EzPanel.svelte`'s loadStoredModel
 	// reads `ez-panel:selected-model` at module init, so a prior test that
@@ -234,15 +232,7 @@ describe("EzPanel — composer", () => {
 		expect(queryByText(/^Thinking$/)).toBeNull();
 	});
 
-	test("Send posts content + ezContext to api.sendMessage and starts streaming", async () => {
-		// Register a page-level context entry so the serializer captures
-		// some payload — verifies the wire shape end-to-end.
-		registerContext({
-			routeId: "/(app)/agents/new",
-			data: { existingAgentNames: ["Foo"] },
-			forms: { "agent-new": { schema: { name: "string" }, fill: () => {} } },
-		});
-
+	test("Send posts content to api.sendMessage and starts streaming", async () => {
 		// Mock /api/models so ModelSelector's autoselect fires and the
 		// Send button enables. ChatInput now blocks submit when no model
 		// is selected (locked-mode included) — see EzPanel-model-routing
@@ -280,10 +270,9 @@ describe("EzPanel — composer", () => {
 			const [convId, payload] = mocks.sendMessageMock.mock.calls[0]!;
 			expect(convId).toBe("ez-conv-1");
 			expect(payload.content).toBe("summarize this");
-			expect(payload.ezContext).toBeDefined();
-			expect(payload.ezContext.route.url).toBe("/agents/new");
-			expect(payload.ezContext.data).toEqual({ existingAgentNames: ["Foo"] });
-			expect(payload.ezContext.formIds).toEqual(["agent-new"]);
+			// Page-context payload no longer flows on the wire — the
+			// `<EzContext>` mechanism was retired.
+			expect(payload.ezContext).toBeUndefined();
 			expect(payload.thinkingLevel).toBe("medium");
 			// REGRESSION GUARD (model-routing fix): the panel MUST ship the
 			// auto-selected provider/model on the wire. The previous

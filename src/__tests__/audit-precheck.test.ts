@@ -88,16 +88,6 @@ describe("runPrecheck — path rules", () => {
 });
 
 describe("runPrecheck — content grep rules", () => {
-  test("file containing <EzContext flips EzButton", async () => {
-    writeFixture("web/src/routes/somepage/+page.svelte", "<EzContext data={x} />");
-    const v = await runPrecheck(
-      feat("page-with-context", ["web/src/routes/somepage/+page.svelte"]),
-      projectRoot,
-    );
-    expect(v.ezbutton?.exposed).toBe(true);
-    expect(v.ezbutton?.via).toBe("precheck");
-  });
-
   test("MCP-path file with server.tool( call flips MCP via grep", async () => {
     writeFixture("packages/foo/mcp/registrar.ts", "server.tool('x', 'desc', schema, handler);");
     const v = await runPrecheck(
@@ -121,8 +111,9 @@ describe("runPrecheck — empty / undecided", () => {
   });
 
   test("binary-extension files are skipped during grep", async () => {
-    // .png is in BINARY_EXTENSIONS — even with <EzContext "in" the file (impossible but pretend)
-    // we should not open it. Use a non-existent file; since the file doesn't exist it's also a no-op.
+    // .png is in BINARY_EXTENSIONS — even with grep markers "in" the file
+    // (impossible but pretend) we should not open it. Use a non-existent
+    // file; since the file doesn't exist it's also a no-op.
     const v = await runPrecheck(
       feat("only-image", ["assets/foo.png"]),
       projectRoot,

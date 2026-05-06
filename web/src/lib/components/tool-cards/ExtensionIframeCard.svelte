@@ -38,7 +38,7 @@
 -->
 
 <script lang="ts">
-	import type { Snippet } from "svelte";
+	import { untrack, type Snippet } from "svelte";
 	import type { ToolCallState } from "$lib/stores.svelte.js";
 	import { userFetch } from "$lib/utils/fetch-policy.js";
 	import {
@@ -171,7 +171,7 @@
 	// instead of caching the prior document. `iframeKey` increments on
 	// every src change.
 	let iframeKey = $state(0);
-	let prevSrc = $state(iframeSrc);
+	let prevSrc = $state(untrack(() => iframeSrc));
 	$effect(() => {
 		if (iframeSrc !== prevSrc) {
 			iframeKey++;

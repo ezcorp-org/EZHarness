@@ -327,7 +327,7 @@
 
 	// ── Scroll tracking ──
 
-	let timelineEl: HTMLDivElement | undefined;
+	let timelineEl = $state<HTMLDivElement | undefined>();
 	let timelineSentinel: HTMLDivElement | undefined = $state();
 
 	let drillSentinel: HTMLDivElement | undefined = $state();

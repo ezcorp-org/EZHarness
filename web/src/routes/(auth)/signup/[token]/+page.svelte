@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { untrack } from "svelte";
+
   let { data } = $props();
 
   let name = $state("");
-  let email = $state(data?.invite?.email ?? "");
+  let email = $state(untrack(() => data?.invite?.email ?? ""));
   let password = $state("");
   let error = $state("");
   let loading = $state(false);

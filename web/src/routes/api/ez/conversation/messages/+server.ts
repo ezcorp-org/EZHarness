@@ -5,8 +5,8 @@
  * one Ez conversation per user (partial unique index
  * `conversations_user_ez_unique`), so starting fresh means wiping the
  * message list — the conversation row itself stays so the panel's open
- * SSE subscription, locked mode, and ezContext continue working with the
- * same conversation id.
+ * SSE subscription and locked mode continue working with the same
+ * conversation id.
  *
  * The handler resolves the user's Ez conversation through the same
  * `getOrCreateEzConversation` helper the GET/POST sibling uses, then

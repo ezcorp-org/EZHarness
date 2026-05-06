@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from "svelte";
 	import { slide } from "svelte/transition";
 	import { agentColor } from "$lib/agent-color";
 	import { subConversationStore } from "$lib/sub-conversation-store.svelte.js";
@@ -23,7 +24,7 @@
 		lastMessagePreview?: string | null;
 	} = $props();
 
-	let collapsed = $state(!isActive);
+	let collapsed = $state(untrack(() => !isActive));
 	let color = $derived(agentColor(conversation.agentName));
 	let lazyMessages = $state<SubConvoMessage[]>([]);
 	let loadingMessages = $state(false);

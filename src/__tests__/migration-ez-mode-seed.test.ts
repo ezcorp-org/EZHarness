@@ -58,10 +58,10 @@ describe("Ez mode seed (post-migration)", () => {
     expect(mode!.systemPromptInstruction).toContain("concierge");
     expect(mode!.systemPromptInstruction).toContain("not a general-purpose assistant");
     // The persona references the propose_* tool family (wildcard form,
-    // not literal individual names) and the fill_form / summarize_conversation
-    // primitives the panel also wires up.
+    // not literal individual names).
     expect(mode!.systemPromptInstruction).toContain("propose_*");
-    expect(mode!.systemPromptInstruction).toContain("fill_form");
-    expect(mode!.systemPromptInstruction).toContain("summarize_conversation");
+    // After the page-context-pushing mechanism was retired, the persona
+    // explicitly tells the model it has limited page awareness.
+    expect(mode!.systemPromptInstruction).toContain("limited awareness");
   });
 });

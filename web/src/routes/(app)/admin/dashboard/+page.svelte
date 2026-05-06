@@ -97,12 +97,7 @@
 		return "var(--color-text-muted)";
 	}
 
-	onMount(async () => {
-		await checkAdmin();
-		if (!isAdmin) return;
-
-		await refreshAll();
-
+	onMount(() => {
 		const refreshTimer = setInterval(() => {
 			if (!document.hidden) refreshAll();
 		}, 30_000);
@@ -117,6 +112,12 @@
 			if (!document.hidden) refreshAll();
 		};
 		document.addEventListener("visibilitychange", handleVisibility);
+
+		(async () => {
+			await checkAdmin();
+			if (!isAdmin) return;
+			await refreshAll();
+		})();
 
 		return () => {
 			clearInterval(refreshTimer);

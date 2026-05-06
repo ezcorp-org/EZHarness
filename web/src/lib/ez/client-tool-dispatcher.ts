@@ -6,8 +6,9 @@
  * `navigate_to`). The Ez panel forwards each event to `dispatch()`,
  * which:
  *
- *   - looks up the registered handler in `registry.ts` for `fill_form`
- *     and runs it; or
+ *   - returns a "no-handler" result for `fill_form` (the page-context
+ *     registry that previously routed handlers was removed when the
+ *     `<EzContext>` mechanism was retired); or
  *   - calls SvelteKit's `goto(path)` for `navigate_to` after a
  *     same-origin allowlist check.
  *
@@ -22,7 +23,6 @@
  * extension emits the event directly), the panel still refuses to
  * navigate off-origin.
  */
-import { findFormHandler } from "./registry";
 
 const ALLOWED_ROUTE_PREFIXES = [
   "/project/", "/agents/", "/agents", "/new-project", "/marketplace",
@@ -45,8 +45,6 @@ export type DispatchResult =
 export interface DispatcherDeps {
   /** Page-level navigator. Pass SvelteKit's `goto` in production. */
   goto: (path: string) => Promise<unknown> | unknown;
-  /** Override the form-handler lookup (tests). */
-  findHandler?: typeof findFormHandler;
 }
 
 function isInAppPath(path: string): boolean {
@@ -66,56 +64,19 @@ export function isAllowedNavigateTarget(path: unknown): path is string {
 }
 
 export async function dispatch(event: EzClientToolEvent, deps: DispatcherDeps): Promise<DispatchResult> {
-  const findHandler = deps.findHandler ?? findFormHandler;
-
   if (event.toolName === "fill_form") {
-    const input = event.input as { formId?: unknown; values?: unknown } | null | undefined;
+    // The page-side form registry was removed alongside the
+    // `<EzContext>` mechanism. `fill_form` always reports "no handler"
+    // until v1.3 reintroduces an on-demand form-discovery design.
+    const input = event.input as { formId?: unknown } | null | undefined;
     const formId = typeof input?.formId === "string" ? input.formId : "";
-    const values = (input?.values && typeof input.values === "object") ? input.values as Record<string, unknown> : null;
-
-    if (!formId) {
-      return {
-        ok: false,
-        toolName: event.toolName,
-        toolCallId: event.toolCallId,
-        error: "fill_form requires a non-empty formId",
-        code: "invalid-input",
-      };
-    }
-    if (!values) {
-      return {
-        ok: false,
-        toolName: event.toolName,
-        toolCallId: event.toolCallId,
-        error: "fill_form requires a values object",
-        code: "invalid-input",
-      };
-    }
-
-    const handler = findHandler(formId);
-    if (!handler) {
-      return {
-        ok: false,
-        toolName: event.toolName,
-        toolCallId: event.toolCallId,
-        error: `No handler registered for form '${formId}'. The current page does not expose this form to Ez.`,
-        code: "no-handler",
-      };
-    }
-
-    try {
-      handler.fill(values);
-    } catch (err) {
-      return {
-        ok: false,
-        toolName: event.toolName,
-        toolCallId: event.toolCallId,
-        error: `fill_form handler threw: ${(err as Error)?.message ?? String(err)}`,
-        code: "rejected",
-      };
-    }
-
-    return { ok: true, toolName: event.toolName, toolCallId: event.toolCallId, detail: { formId } };
+    return {
+      ok: false,
+      toolName: event.toolName,
+      toolCallId: event.toolCallId,
+      error: `No handler registered for form '${formId || "<missing>"}'. The current page does not expose this form to Ez.`,
+      code: "no-handler",
+    };
   }
 
   if (event.toolName === "navigate_to") {

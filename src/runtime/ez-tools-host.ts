@@ -60,15 +60,6 @@ export interface WireEzToolsForTurnParams {
    *  summarizer falls back to default-tier resolution in that case). */
   provider?: string | null;
   model?: string | null;
-  /** Phase 48 defense-in-depth: the conversation id the user is
-   *  currently viewing (extracted from `ezContext.route.conversationId`
-   *  by setup-tools). Forwarded into the summarize_conversation factory
-   *  so the tool can fall back to it when the LLM omits the
-   *  `conversationId` argument — covers the (still-frequent) case where
-   *  the LLM fails to extract the id from JSON-in-system-prompt. May be
-   *  undefined when the user is on a non-chat page, in which case the
-   *  tool retains its original "conversationId is required" error. */
-  defaultConversationId?: string;
 }
 
 /**
@@ -86,10 +77,10 @@ export interface WireEzToolsForTurnParams {
  * `description`, `parameters`, `execute`).
  */
 export function wireEzToolsForTurn(params: WireEzToolsForTurnParams): void {
-  const { agentTools, builtinToolDefsMap, conversationId, userId, bus, provider, model, defaultConversationId } = params;
+  const { agentTools, builtinToolDefsMap, conversationId, userId, bus, provider, model } = params;
 
   const existingNames = new Set(agentTools.map((t) => t.name));
-  const defs = getEzToolDefs({ userId, conversationId, bus, provider, model, defaultConversationId });
+  const defs = getEzToolDefs({ userId, conversationId, bus, provider, model });
 
   let registered = 0;
   for (const def of defs) {

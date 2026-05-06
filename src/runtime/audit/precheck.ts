@@ -117,9 +117,9 @@ export async function runPrecheck(
     }
     filesRead += 1;
 
-    if (!verdict.ezbutton && head.includes("<EzContext")) {
-      verdict.ezbutton = { exposed: true, via: "precheck", evidence: `${rp}: <EzContext` };
-    }
+    // Note: the previous `<EzContext>` precheck heuristic was retired
+    // alongside the page-context-pushing mechanism. The ezbutton verdict
+    // now relies on the LLM classifier alone.
     if (!verdict.mcp && rp.includes("/mcp/") && head.includes("server.tool(")) {
       verdict.mcp = { exposed: true, via: "precheck", evidence: `${rp}: server.tool(` };
     }

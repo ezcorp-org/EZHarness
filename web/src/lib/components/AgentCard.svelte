@@ -28,7 +28,8 @@
 				<span class="shrink-0 rounded bg-purple-900/40 px-1.5 py-0.5 text-xs text-purple-300">Shared</span>
 			{/if}
 			{#if isReadOnly}
-				<svg class="h-4 w-4 shrink-0 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" title="Read-only">
+				<svg class="h-4 w-4 shrink-0 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-label="Read-only">
+					<title>Read-only</title>
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
 				</svg>
 			{/if}

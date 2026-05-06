@@ -67,16 +67,7 @@
 	}
 
 	function findAssignment(assignmentId: string): TaskAssignment | undefined {
-		// Look at both task-level and subtask-level assignments — the
-		// backend /messages endpoint collects from both, so the lookup
-		// has to match.
-		const top = task.assignments?.find(a => a.id === assignmentId);
-		if (top) return top;
-		for (const s of task.subtasks ?? []) {
-			const hit = s.assignments?.find(a => a.id === assignmentId);
-			if (hit) return hit;
-		}
-		return undefined;
+		return task.assignments?.find(a => a.id === assignmentId);
 	}
 
 	/**
