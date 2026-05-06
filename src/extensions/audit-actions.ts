@@ -84,6 +84,12 @@ export const EXT_AUDIT_ACTIONS = {
    * suite for this audit action.
    */
   BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED: "ext:bundled-event-subscriptions-backfilled",
+  /**
+   * Admin updated the global default settings for an extension via
+   * `PUT /api/extensions/[id]/settings/global`. Metadata records the
+   * before/after values blob so the audit-log viewer can surface a diff.
+   */
+  SETTINGS_GLOBAL_UPDATED: "ext:settings.global.update",
 } as const;
 
 export type ExtAuditAction = typeof EXT_AUDIT_ACTIONS[keyof typeof EXT_AUDIT_ACTIONS];
