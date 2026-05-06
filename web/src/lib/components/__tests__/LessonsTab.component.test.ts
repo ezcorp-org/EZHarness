@@ -147,6 +147,48 @@ describe("LessonsTab — list + states", () => {
 		expect(within(row).getByText("Rule A")).not.toBeNull();
 		expect(within(row).getByTestId("lesson-visibility-badge").textContent?.trim()).toBe("user");
 	});
+
+	test('meta row pins the literal "distiller" source label', async () => {
+		vi.stubGlobal(
+			"fetch",
+			makeFetchStub([
+				{
+					method: "GET",
+					match: "/api/lessons",
+					respond: () => ({
+						status: 200,
+						body: [makeLesson({ id: "auto-row", source: "distiller" })],
+					}),
+				},
+			]),
+		);
+		render(LessonsTab, { projectId: "p1" });
+		await waitFor(() => {
+			expect(screen.queryByTestId("lesson-meta")).not.toBeNull();
+		});
+		expect(screen.getByTestId("lesson-meta").textContent).toContain("source: distiller");
+	});
+
+	test('meta row pins the literal "user" source label', async () => {
+		vi.stubGlobal(
+			"fetch",
+			makeFetchStub([
+				{
+					method: "GET",
+					match: "/api/lessons",
+					respond: () => ({
+						status: 200,
+						body: [makeLesson({ id: "manual-row", source: "user" })],
+					}),
+				},
+			]),
+		);
+		render(LessonsTab, { projectId: "p1" });
+		await waitFor(() => {
+			expect(screen.queryByTestId("lesson-meta")).not.toBeNull();
+		});
+		expect(screen.getByTestId("lesson-meta").textContent).toContain("source: user");
+	});
 });
 
 describe("LessonsTab — owner-gated affordances", () => {

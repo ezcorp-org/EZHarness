@@ -39,6 +39,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 			id: r.id,
 			slug: r.slug,
 			title: r.title,
+			// By design (spec §1): users see and manage lessons they OWN
+			// plus project-shared and global lessons that affect them — the
+			// full body is part of the curation surface, not a leak.
 			body: r.body,
 			visibility: r.visibility,
 			ownedByMe: r.ownerId === user.id,
