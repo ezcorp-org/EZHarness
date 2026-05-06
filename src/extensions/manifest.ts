@@ -1,4 +1,5 @@
 import { inferPackageType } from "./types";
+import type { SettingsField } from "./types";
 export { inferPackageType };
 
 const SEMVER_REGEX = /^\d+\.\d+\.\d+$/;
@@ -218,6 +219,83 @@ function isNonNegativeInt(v: unknown): v is number {
   return typeof v === "number" && Number.isInteger(v) && v >= 0;
 }
 
+// ── Shared per-rule predicates ────────────────────────────────────
+// These helpers are the single source of truth for "is this value
+// acceptable for this field?". Both admit-time (granular error
+// emission) and clamp-time (`isValidForField` → drop on false) consume
+// them, so the validity rule set lives in exactly one place.
+
+function selectValueAccepted(
+  options: readonly { value: string }[],
+  value: unknown,
+): boolean {
+  return typeof value === "string" && options.some((o) => o.value === value);
+}
+
+function textLengthMinOk(field: { minLength?: number }, len: number): boolean {
+  return field.minLength === undefined || len >= field.minLength;
+}
+
+function textLengthMaxOk(field: { maxLength?: number }, len: number): boolean {
+  return field.maxLength === undefined || len <= field.maxLength;
+}
+
+/** Returns null if pattern is unset OR malformed; the regex otherwise.
+ *  Clamp-time treats malformed-pattern as "drop the value"; admit-time
+ *  emits a separate `pattern is not a valid regex` error already, so a
+ *  text default whose pattern is malformed is moot at admit-time. */
+function compileTextPattern(field: { pattern?: string }): RegExp | null {
+  if (field.pattern === undefined || typeof field.pattern !== "string") return null;
+  try {
+    return new RegExp(field.pattern);
+  } catch {
+    return null;
+  }
+}
+
+function numberMinOk(field: { min?: number }, value: number): boolean {
+  return field.min === undefined || value >= field.min;
+}
+
+function numberMaxOk(field: { max?: number }, value: number): boolean {
+  return field.max === undefined || value <= field.max;
+}
+
+function numberIntegerOk(field: { integer?: boolean }, value: number): boolean {
+  return field.integer !== true || Number.isInteger(value);
+}
+
+/**
+ * Single-bool validity check used at clamp-time (`coerceValue`) and as
+ * the conjunctive sanity gate at admit-time. Mirrors the per-rule
+ * predicates above — keep them in sync if the rule set changes.
+ */
+export function isValidForField(field: SettingsField, value: unknown): boolean {
+  switch (field.type) {
+    case "select":
+      return selectValueAccepted(field.options, value);
+    case "text": {
+      if (typeof value !== "string") return false;
+      if (!textLengthMinOk(field, value.length)) return false;
+      if (!textLengthMaxOk(field, value.length)) return false;
+      if (field.pattern !== undefined) {
+        const re = compileTextPattern(field);
+        if (!re || !re.test(value)) return false;
+      }
+      return true;
+    }
+    case "number": {
+      if (typeof value !== "number" || !Number.isFinite(value)) return false;
+      if (!numberMinOk(field, value)) return false;
+      if (!numberMaxOk(field, value)) return false;
+      if (!numberIntegerOk(field, value)) return false;
+      return true;
+    }
+    case "boolean":
+      return typeof value === "boolean";
+  }
+}
+
 function validateSelectField(
   path: string,
   field: Record<string, unknown>,
@@ -248,10 +326,15 @@ function validateSelectField(
   if (field.default !== undefined) {
     if (typeof field.default !== "string") {
       errors.push(`${path}.default must be a string`);
-    } else if (!seen.has(field.default)) {
-      errors.push(
-        `${path}.default "${field.default}" must be one of the option values`,
+    } else {
+      const optionsTyped = (field.options as { value: string }[]).filter(
+        (o) => o && typeof o.value === "string",
       );
+      if (!selectValueAccepted(optionsTyped, field.default)) {
+        errors.push(
+          `${path}.default "${field.default}" must be one of the option values`,
+        );
+      }
     }
   }
 }
@@ -297,16 +380,14 @@ function validateTextField(
   }
   if (typeof field.default === "string") {
     const d = field.default;
-    if (
-      isNonNegativeInt(field.minLength) &&
-      d.length < (field.minLength as number)
-    ) {
+    const fieldNorm = {
+      minLength: isNonNegativeInt(field.minLength) ? (field.minLength as number) : undefined,
+      maxLength: isNonNegativeInt(field.maxLength) ? (field.maxLength as number) : undefined,
+    };
+    if (!textLengthMinOk(fieldNorm, d.length)) {
       errors.push(`${path}.default length must be >= minLength`);
     }
-    if (
-      isNonNegativeInt(field.maxLength) &&
-      d.length > (field.maxLength as number)
-    ) {
+    if (!textLengthMaxOk(fieldNorm, d.length)) {
       errors.push(`${path}.default length must be <= maxLength`);
     }
     if (compiledPattern && !compiledPattern.test(d)) {
@@ -337,13 +418,18 @@ function validateNumberField(
   }
   if (isFiniteNumber(field.default)) {
     const d = field.default as number;
-    if (isFiniteNumber(field.min) && d < (field.min as number)) {
+    const fieldNorm = {
+      min: isFiniteNumber(field.min) ? (field.min as number) : undefined,
+      max: isFiniteNumber(field.max) ? (field.max as number) : undefined,
+      integer: field.integer === true ? true : undefined,
+    };
+    if (!numberMinOk(fieldNorm, d)) {
       errors.push(`${path}.default must be >= min`);
     }
-    if (isFiniteNumber(field.max) && d > (field.max as number)) {
+    if (!numberMaxOk(fieldNorm, d)) {
       errors.push(`${path}.default must be <= max`);
     }
-    if (field.integer === true && !Number.isInteger(d)) {
+    if (!numberIntegerOk(fieldNorm, d)) {
       errors.push(`${path}.default must be an integer when integer is true`);
     }
   }

@@ -2,10 +2,10 @@ import { eq, and } from "drizzle-orm";
 import { getDb } from "../connection";
 import { extensionSettingsUser, extensions } from "../schema";
 import type {
-  SettingsField,
   SettingsSchema,
   ExtensionManifestV2,
 } from "../../extensions/types";
+import { isValidForField } from "../../extensions/manifest";
 
 /** Pure: pulls each field's `default` from the manifest schema. */
 export function getDeclaredDefaults(
@@ -19,48 +19,10 @@ export function getDeclaredDefaults(
   return out;
 }
 
-/** Per-type validity check used by `clampSettings`. Mirrors the per-field
- *  rules in src/extensions/manifest.ts but operates on a single value
- *  rather than a default. Returns the value as-is when valid, otherwise
- *  `undefined` to signal the caller should drop it. */
-function coerceValue(field: SettingsField, value: unknown): unknown | undefined {
-  switch (field.type) {
-    case "select": {
-      if (typeof value !== "string") return undefined;
-      if (!field.options.some((o) => o.value === value)) return undefined;
-      return value;
-    }
-    case "text": {
-      if (typeof value !== "string") return undefined;
-      if (field.minLength !== undefined && value.length < field.minLength) return undefined;
-      if (field.maxLength !== undefined && value.length > field.maxLength) return undefined;
-      if (field.pattern !== undefined) {
-        let re: RegExp;
-        try {
-          re = new RegExp(field.pattern);
-        } catch {
-          return undefined;
-        }
-        if (!re.test(value)) return undefined;
-      }
-      return value;
-    }
-    case "number": {
-      if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
-      if (field.min !== undefined && value < field.min) return undefined;
-      if (field.max !== undefined && value > field.max) return undefined;
-      if (field.integer === true && !Number.isInteger(value)) return undefined;
-      return value;
-    }
-    case "boolean": {
-      if (typeof value !== "boolean") return undefined;
-      return value;
-    }
-  }
-}
-
 /** Pure: clamps a values blob against the schema. Drops unknown keys and
- *  invalid values. Never throws. */
+ *  invalid values. Never throws. The per-value validity rules live in
+ *  `isValidForField` (src/extensions/manifest.ts) — the same predicate
+ *  the admit-time validator uses for default checks. */
 export function clampSettings(
   schema: SettingsSchema | undefined,
   values: unknown,
@@ -71,8 +33,7 @@ export function clampSettings(
   for (const [key, raw] of Object.entries(values as Record<string, unknown>)) {
     const field = schema[key];
     if (!field) continue;
-    const coerced = coerceValue(field, raw);
-    if (coerced !== undefined) out[key] = coerced;
+    if (isValidForField(field, raw)) out[key] = raw;
   }
   return out;
 }
