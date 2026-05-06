@@ -1,5 +1,5 @@
 <!--
-  SettingsPanel — one form panel (user OR global) on the extension detail page.
+  SettingsPanel — one form panel on the extension detail page.
 
   Owns the local edit buffer + Save/Reset buttons. Delegates field rendering
   to the generic <SchemaForm/>. Submission/reset hooks are passed in by the
