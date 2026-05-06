@@ -92,6 +92,56 @@ export interface DependencySpec {
   version: string; // exact "1.0.0" or caret "^1.0.0"
 }
 
+// ── Settings Schema (user-editable extension config) ─────────────
+
+export interface SettingsFieldSelect {
+  type: "select";
+  label: string;
+  description?: string;
+  options: { value: string; label: string }[];
+  default?: string;
+}
+
+export interface SettingsFieldText {
+  type: "text";
+  label: string;
+  description?: string;
+  default?: string;
+  minLength?: number;
+  maxLength?: number;
+  /** ECMAScript regex source. Validated server-side at admit time. */
+  pattern?: string;
+}
+
+export interface SettingsFieldNumber {
+  type: "number";
+  label: string;
+  description?: string;
+  default?: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  /** When true, only integers are accepted. */
+  integer?: boolean;
+}
+
+export interface SettingsFieldBoolean {
+  type: "boolean";
+  label: string;
+  description?: string;
+  default?: boolean;
+}
+
+export type SettingsField =
+  | SettingsFieldSelect
+  | SettingsFieldText
+  | SettingsFieldNumber
+  | SettingsFieldBoolean;
+
+/** Map of setting key → field declaration. Keys must match
+ *  /^[a-z][a-z0-9_]{0,63}$/ (filesystem-safe identifier). */
+export type SettingsSchema = Record<string, SettingsField>;
+
 // ── Extension Manifest V2 ────────────────────────────────────────
 
 export interface ExtensionManifestV2 {
@@ -141,6 +191,14 @@ export interface ExtensionManifestV2 {
    * substitutes it to a `data:` URI before tool dispatch).
    */
   acceptedAttachmentMimes?: string[];
+
+  /**
+   * User-editable configuration declared by the extension. The host renders
+   * a form on the extension detail page, persists per-user + global values,
+   * and injects the resolved map into tool calls. Keys must be filesystem-safe
+   * identifiers; field declarations are validated at admit time.
+   */
+  settings?: SettingsSchema;
 
   // Dependencies on other extensions
   dependencies?: Record<string, DependencySpec>;

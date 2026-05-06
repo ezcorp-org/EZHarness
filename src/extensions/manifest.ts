@@ -127,6 +127,293 @@ function validateScriptsBlock(scripts: unknown, errors: string[]): void {
   }
 }
 
+// Mirrors the dispatcher constraint that an extension can only declare
+// events in its own namespace (`event-subscription-dispatcher.ts:registerExtension`).
+// The id charset is filesystem-safe and predictable for test-id selectors.
+const MSG_TOOLBAR_ID_REGEX = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const MSG_TOOLBAR_APPLIES_TO = new Set(["user", "assistant", "both"]);
+
+function validateMessageToolbarArray(
+  manifestName: string,
+  items: unknown,
+  declaredEventSubs: readonly string[],
+  errors: string[],
+): void {
+  if (!Array.isArray(items)) {
+    errors.push("messageToolbar must be an array");
+    return;
+  }
+  const seenIds = new Set<string>();
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i] as Record<string, unknown>;
+    if (!it || typeof it !== "object") {
+      errors.push(`messageToolbar[${i}] must be an object`);
+      continue;
+    }
+    if (typeof it.id !== "string" || !MSG_TOOLBAR_ID_REGEX.test(it.id)) {
+      errors.push(
+        `messageToolbar[${i}].id must match /^[a-z0-9][a-z0-9-]{0,31}$/`,
+      );
+    } else if (seenIds.has(it.id)) {
+      errors.push(`messageToolbar[${i}].id "${it.id}" is duplicated`);
+    } else {
+      seenIds.add(it.id);
+    }
+    if (!it.icon || typeof it.icon !== "string")
+      errors.push(`messageToolbar[${i}].icon is required and must be a string`);
+    if (!it.tooltip || typeof it.tooltip !== "string")
+      errors.push(
+        `messageToolbar[${i}].tooltip is required and must be a string`,
+      );
+    if (
+      it.appliesTo !== undefined &&
+      (typeof it.appliesTo !== "string" ||
+        !MSG_TOOLBAR_APPLIES_TO.has(it.appliesTo))
+    ) {
+      errors.push(
+        `messageToolbar[${i}].appliesTo must be one of "user"|"assistant"|"both"`,
+      );
+    }
+    if (typeof it.event !== "string" || it.event.length === 0) {
+      errors.push(`messageToolbar[${i}].event is required and must be a string`);
+    } else {
+      const expectedPrefix = `${manifestName}:`;
+      if (!it.event.startsWith(expectedPrefix)) {
+        errors.push(
+          `messageToolbar[${i}].event must be prefixed with "${expectedPrefix}" (event-subscription-dispatcher namespace rule)`,
+        );
+      }
+      if (!declaredEventSubs.includes(it.event)) {
+        errors.push(
+          `messageToolbar[${i}].event "${it.event}" must also be listed in permissions.eventSubscriptions`,
+        );
+      }
+    }
+  }
+}
+
+// Settings keys are used as filesystem-safe identifiers and as JS-object
+// keys exposed to extension authors — keep them lowercase, no traversal,
+// no leading digit/underscore.
+const SETTINGS_KEY_REGEX = /^[a-z][a-z0-9_]{0,63}$/;
+const SETTINGS_FIELD_TYPES = new Set(["select", "text", "number", "boolean"]);
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
+function isNonNegativeInt(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 0;
+}
+
+function validateSelectField(
+  path: string,
+  field: Record<string, unknown>,
+  errors: string[],
+): void {
+  if (!Array.isArray(field.options) || field.options.length === 0) {
+    errors.push(`${path}.options must be a non-empty array`);
+    return;
+  }
+  const seen = new Set<string>();
+  for (let i = 0; i < field.options.length; i++) {
+    const opt = field.options[i] as Record<string, unknown> | null;
+    if (!opt || typeof opt !== "object") {
+      errors.push(`${path}.options[${i}] must be an object`);
+      continue;
+    }
+    if (typeof opt.value !== "string") {
+      errors.push(`${path}.options[${i}].value must be a string`);
+    } else if (seen.has(opt.value)) {
+      errors.push(`${path}.options[${i}].value "${opt.value}" is duplicated`);
+    } else {
+      seen.add(opt.value);
+    }
+    if (typeof opt.label !== "string") {
+      errors.push(`${path}.options[${i}].label must be a string`);
+    }
+  }
+  if (field.default !== undefined) {
+    if (typeof field.default !== "string") {
+      errors.push(`${path}.default must be a string`);
+    } else if (!seen.has(field.default)) {
+      errors.push(
+        `${path}.default "${field.default}" must be one of the option values`,
+      );
+    }
+  }
+}
+
+function validateTextField(
+  path: string,
+  field: Record<string, unknown>,
+  errors: string[],
+): void {
+  if (field.default !== undefined && typeof field.default !== "string") {
+    errors.push(`${path}.default must be a string`);
+  }
+  if (field.minLength !== undefined && !isNonNegativeInt(field.minLength)) {
+    errors.push(`${path}.minLength must be a non-negative integer`);
+  }
+  if (field.maxLength !== undefined && !isNonNegativeInt(field.maxLength)) {
+    errors.push(`${path}.maxLength must be a non-negative integer`);
+  }
+  const minOk = field.minLength === undefined || isNonNegativeInt(field.minLength);
+  const maxOk = field.maxLength === undefined || isNonNegativeInt(field.maxLength);
+  if (
+    minOk &&
+    maxOk &&
+    field.minLength !== undefined &&
+    field.maxLength !== undefined &&
+    (field.minLength as number) > (field.maxLength as number)
+  ) {
+    errors.push(`${path}.minLength must be <= maxLength`);
+  }
+  let compiledPattern: RegExp | null = null;
+  if (field.pattern !== undefined) {
+    if (typeof field.pattern !== "string") {
+      errors.push(`${path}.pattern must be a string`);
+    } else {
+      try {
+        compiledPattern = new RegExp(field.pattern);
+      } catch (e) {
+        errors.push(
+          `${path}.pattern is not a valid regex: ${(e as Error).message}`,
+        );
+      }
+    }
+  }
+  if (typeof field.default === "string") {
+    const d = field.default;
+    if (
+      isNonNegativeInt(field.minLength) &&
+      d.length < (field.minLength as number)
+    ) {
+      errors.push(`${path}.default length must be >= minLength`);
+    }
+    if (
+      isNonNegativeInt(field.maxLength) &&
+      d.length > (field.maxLength as number)
+    ) {
+      errors.push(`${path}.default length must be <= maxLength`);
+    }
+    if (compiledPattern && !compiledPattern.test(d)) {
+      errors.push(`${path}.default must match pattern`);
+    }
+  }
+}
+
+function validateNumberField(
+  path: string,
+  field: Record<string, unknown>,
+  errors: string[],
+): void {
+  for (const key of ["default", "min", "max", "step"] as const) {
+    if (field[key] !== undefined && !isFiniteNumber(field[key])) {
+      errors.push(`${path}.${key} must be a finite number`);
+    }
+  }
+  if (field.integer !== undefined && typeof field.integer !== "boolean") {
+    errors.push(`${path}.integer must be a boolean`);
+  }
+  if (
+    isFiniteNumber(field.min) &&
+    isFiniteNumber(field.max) &&
+    (field.min as number) > (field.max as number)
+  ) {
+    errors.push(`${path}.min must be <= max`);
+  }
+  if (isFiniteNumber(field.default)) {
+    const d = field.default as number;
+    if (isFiniteNumber(field.min) && d < (field.min as number)) {
+      errors.push(`${path}.default must be >= min`);
+    }
+    if (isFiniteNumber(field.max) && d > (field.max as number)) {
+      errors.push(`${path}.default must be <= max`);
+    }
+    if (field.integer === true && !Number.isInteger(d)) {
+      errors.push(`${path}.default must be an integer when integer is true`);
+    }
+  }
+}
+
+function validateBooleanField(
+  path: string,
+  field: Record<string, unknown>,
+  errors: string[],
+): void {
+  if (field.default !== undefined && typeof field.default !== "boolean") {
+    errors.push(`${path}.default must be a boolean`);
+  }
+}
+
+export function validateSettingsSchema(
+  settings: unknown,
+  errors: string[],
+): void {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+    errors.push("settings must be a plain object");
+    return;
+  }
+  for (const [key, raw] of Object.entries(settings as Record<string, unknown>)) {
+    if (!SETTINGS_KEY_REGEX.test(key) || key.includes("..")) {
+      errors.push(
+        `settings key "${key}" must match /^[a-z][a-z0-9_]{0,63}$/ (filesystem-safe, no leading digit/underscore)`,
+      );
+      continue;
+    }
+    const path = `settings.${key}`;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      errors.push(`${path} must be an object`);
+      continue;
+    }
+    const field = raw as Record<string, unknown>;
+    if (typeof field.type !== "string" || !SETTINGS_FIELD_TYPES.has(field.type)) {
+      errors.push(
+        `${path}.type must be one of "select"|"text"|"number"|"boolean"`,
+      );
+      continue;
+    }
+    if (typeof field.label !== "string" || field.label.length === 0) {
+      errors.push(`${path}.label is required and must be a non-empty string`);
+    }
+    if (field.description !== undefined && typeof field.description !== "string") {
+      errors.push(`${path}.description must be a string`);
+    }
+    switch (field.type) {
+      case "select":
+        validateSelectField(path, field, errors);
+        break;
+      case "text":
+        validateTextField(path, field, errors);
+        break;
+      case "number":
+        validateNumberField(path, field, errors);
+        break;
+      case "boolean":
+        validateBooleanField(path, field, errors);
+        break;
+    }
+  }
+}
+
+function validatePermissionsBlock(perms: unknown, errors: string[]): void {
+  if (!perms || typeof perms !== "object") return; // top-level guard handled elsewhere
+  const p = perms as Record<string, unknown>;
+  if (p.appendMessages !== undefined) {
+    if (typeof p.appendMessages !== "object" || Array.isArray(p.appendMessages)) {
+      errors.push("permissions.appendMessages must be an object");
+    } else {
+      const a = p.appendMessages as Record<string, unknown>;
+      if (typeof a.excludedDefault !== "boolean") {
+        errors.push(
+          "permissions.appendMessages.excludedDefault must be a boolean",
+        );
+      }
+    }
+  }
+}
+
 // ── Main Validator ───────────────────────────────────────────────
 
 export function validateManifestV2(
@@ -172,6 +459,23 @@ export function validateManifestV2(
   if (m.mcpServers !== undefined) validateMcpServersArray(m.mcpServers, errors);
   if (m.agent !== undefined) validateAgentComponent(m.agent, errors);
   if (m.scripts !== undefined) validateScriptsBlock(m.scripts, errors);
+  if (m.permissions !== undefined)
+    validatePermissionsBlock(m.permissions, errors);
+  if (m.messageToolbar !== undefined) {
+    const declaredEventSubs = Array.isArray(
+      (m.permissions as Record<string, unknown>)?.eventSubscriptions,
+    )
+      ? ((m.permissions as Record<string, unknown>)
+          .eventSubscriptions as string[])
+      : [];
+    validateMessageToolbarArray(
+      typeof m.name === "string" ? m.name : "",
+      m.messageToolbar,
+      declaredEventSubs,
+      errors,
+    );
+  }
+  if (m.settings !== undefined) validateSettingsSchema(m.settings, errors);
 
   // Entrypoint required if tools are declared -- except for MCP-kind manifests,
   // whose tools[] is a cache of the remote server's tools/list.
