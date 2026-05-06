@@ -1,20 +1,48 @@
 /**
  * Conversation layout — preloads per-extension settings the chat's tool
- * cards rely on. The kokoro-tts player card reads `voice` + `speed` from
- * the shared `extensionSettings` store synchronously while rendering, so
- * the load has to complete (or at least kick off) before the first card
- * mounts.
+ * cards rely on. Tool cards (e.g. the kokoro-tts player) read their
+ * extension's resolved settings from the shared `extensionSettings`
+ * store synchronously while rendering, so the load has to complete
+ * (or at least kick off) before the first card mounts.
  *
- * For v1 we hardcode kokoro-tts. Future extensions that declare a
- * `settings` block will be added here (or, ideally, picked up by a small
- * generic loop that walks the enabled-extensions list).
+ * Walks the enabled-extensions list and fires `loadExtensionSettings`
+ * for every extension that declares a `settings` block. Failures are
+ * non-fatal — each card has a sane default fallback.
  */
 
 import { loadExtensionSettings } from "$lib/stores/extensionSettings";
+import type { LayoutLoad } from "./$types";
 
-export const load = async () => {
-  // Fire the fetch but don't fail the whole layout if the API is
-  // unreachable — the card has a sane default fallback.
-  await loadExtensionSettings("kokoro-tts").catch(() => undefined);
+interface ExtensionListItem {
+  name?: string;
+  enabled?: boolean;
+  manifest?: { settings?: Record<string, unknown> } | null;
+}
+
+export const load: LayoutLoad = async ({ fetch }) => {
+  try {
+    const res = await fetch("/api/extensions");
+    if (res.ok) {
+      const data = (await res.json()) as ExtensionListItem[] | { extensions?: ExtensionListItem[] };
+      const list: ExtensionListItem[] = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.extensions)
+          ? data.extensions
+          : [];
+      await Promise.all(
+        list
+          .filter(
+            (e) =>
+              e.enabled === true &&
+              typeof e.name === "string" &&
+              e.manifest?.settings &&
+              Object.keys(e.manifest.settings).length > 0,
+          )
+          .map((e) => loadExtensionSettings(e.name as string).catch(() => undefined)),
+      );
+    }
+  } catch {
+    // Non-fatal — tool cards fall back to defaults if their settings aren't preloaded.
+  }
   return {};
 };
