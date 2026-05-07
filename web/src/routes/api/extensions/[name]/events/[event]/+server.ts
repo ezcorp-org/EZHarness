@@ -15,6 +15,7 @@ import {
 } from "$server/db/queries/conversation-extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { ToolExecutor } from "$server/extensions/tool-executor";
+import { getPermissionEngine } from "$server/extensions/permission-engine";
 import { handleAppendMessageRpc } from "$server/extensions/append-message-handler";
 import { handleFinalizeToolCallRpc } from "$server/extensions/finalize-tool-call-handler";
 import type { ExtensionPermissions } from "$server/extensions/types";
@@ -311,7 +312,12 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
     let wireError: string | undefined;
     try {
       const proc = await registry.getProcess(ext.id);
-      const wirer = new ToolExecutor(registry, { bus: getBus() });
+      const engine = getPermissionEngine({
+        registry,
+        bus: getBus(),
+        db: { _token: "events-route" },
+      });
+      const wirer = new ToolExecutor(registry, engine, { bus: getBus() });
       await wirer.ensureSubprocessRpcWired(ext.id, proc);
     } catch (err) {
       wireOk = false;
