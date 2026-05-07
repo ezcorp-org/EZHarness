@@ -184,7 +184,12 @@ export type DistillationOutcome =
   /** DB error during persistence (excluding slug collisions). */
   | { kind: "error"; reason: "db_error"; detail: string }
   /** LLM call threw. */
-  | { kind: "error"; reason: "llm_error"; detail: string };
+  | { kind: "error"; reason: "llm_error"; detail: string }
+  /** Sentinel — should never surface in production. Emitted only if a
+   *  future code path inside `runDistillation` returns without setting
+   *  `outcome`. Treat as a coding bug; the outcome's `detail` carries
+   *  the diagnostic. */
+  | { kind: "error"; reason: "internal"; detail: string };
 
 /** Inputs to the post-trigger-gate distillation pipeline. */
 export interface RunDistillationOptions {
@@ -349,7 +354,17 @@ export async function runDistillation(
   }
 
   // ── Persist (serialized per project) ───────────────────────────
-  let outcome: DistillationOutcome | null = null;
+  // Initialize to a sentinel error outcome so a future contributor who
+  // adds a code path inside `withDistillationLock` that forgets to set
+  // `outcome` can't silently regress. Today every path (success +
+  // slug_collision decline + thrown DB error) sets it before returning;
+  // this guard makes the invariant explicit. If the sentinel ever
+  // surfaces in a SUMMARY, it's a coding bug — surface it loudly.
+  let outcome: DistillationOutcome = {
+    kind: "error",
+    reason: "internal",
+    detail: "outcome unset — coding bug in runDistillation",
+  };
   await withDistillationLock(projectId, async () => {
     const row: NewLesson = {
       projectId,
@@ -397,10 +412,12 @@ export async function runDistillation(
     }
   });
 
-  // The mutex callback always sets `outcome` (success or one of the
-  // decline/error variants). The non-null assertion captures that
-  // invariant — if it ever fires, it's a coding bug.
-  return outcome!;
+  // `outcome` is initialized to a sentinel error variant at the top of
+  // this function, then every code path inside `withDistillationLock`
+  // overwrites it. If a future contributor adds a path that forgets to
+  // set it, the sentinel surfaces — better than a non-null-assertion
+  // crash because the `detail` carries the bug location.
+  return outcome;
 }
 
 // ── Pipeline entry point (auto-listener) ──────────────────────────

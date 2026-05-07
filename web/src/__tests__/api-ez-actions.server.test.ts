@@ -26,9 +26,11 @@ vi.mock("$server/runtime/ez-actions/registry", () => ({
 
 const mockGetConversation = vi.fn();
 const mockCreateMessage = vi.fn();
+const mockGetLatestLeaf = vi.fn();
 vi.mock("$server/db/queries/conversations", () => ({
   getConversation: mockGetConversation,
   createMessage: mockCreateMessage,
+  getLatestLeaf: mockGetLatestLeaf,
 }));
 
 vi.mock("$lib/server/security/api-keys", () => ({
@@ -64,6 +66,10 @@ describe("POST /api/ez-actions/[name]", () => {
     mockGetEzAction.mockReset();
     mockGetConversation.mockReset();
     mockCreateMessage.mockReset();
+    mockGetLatestLeaf.mockReset();
+    // Default: empty conversation (no leaf). Individual tests that
+    // exercise the parentMessageId wiring override this.
+    mockGetLatestLeaf.mockResolvedValue(null);
   });
 
   test("401 when no authenticated user", async () => {
@@ -225,10 +231,64 @@ describe("POST /api/ez-actions/[name]", () => {
     });
 
     // Message persisted with correct role + JSON-encoded payload.
+    // parentMessageId is undefined here because mockGetLatestLeaf
+    // returns null (the `beforeEach` default — empty conversation).
+    // The next test exercises the populated-leaf branch.
     expect(mockCreateMessage).toHaveBeenCalledWith("c1", {
       role: "ez-action-result",
       content: JSON.stringify(handlerResult),
+      parentMessageId: undefined,
     });
+  });
+
+  test("persisted message has parentMessageId set to the conversation's leaf id", async () => {
+    // Mirrors the submit-time path's pattern (messages/+server.ts uses
+    // userMessage.id as parent). The dispatcher has no preceding user
+    // message, so the conversation's current leaf is the canonical
+    // anchor — without it, the row drifts in the branched-conversation
+    // render path.
+    const handlerResult = {
+      kind: "success" as const,
+      card: { title: "x", body: "y", variant: "success" as const },
+    };
+    mockGetEzAction.mockReturnValue({
+      name: "distill",
+      description: "x",
+      handler: vi.fn().mockResolvedValue(handlerResult),
+    });
+    mockGetConversation.mockResolvedValue({
+      id: "c1",
+      userId: USER.id,
+      projectId: "p1",
+    });
+    mockGetLatestLeaf.mockResolvedValue({
+      id: "leaf-msg-42",
+      conversationId: "c1",
+      role: "assistant",
+      content: "prior turn",
+    });
+    mockCreateMessage.mockResolvedValue({
+      id: "msg-101",
+      role: "ez-action-result",
+      content: JSON.stringify(handlerResult),
+      parentMessageId: "leaf-msg-42",
+    });
+
+    const res = await POST(
+      makeEvent({
+        name: "distill",
+        body: { conversationId: "c1" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(mockGetLatestLeaf).toHaveBeenCalledWith("c1");
+
+    // The persisted row's parentMessageId is the leaf's id — NOT null
+    // and NOT undefined.
+    const callArgs = mockCreateMessage.mock.calls[0]!;
+    expect(callArgs[0]).toBe("c1");
+    expect(callArgs[1].parentMessageId).toBe("leaf-msg-42");
+    expect(callArgs[1].parentMessageId).not.toBeNull();
   });
 
   test("body's projectId is IGNORED in favor of conv.projectId", async () => {
@@ -267,7 +327,12 @@ describe("POST /api/ez-actions/[name]", () => {
     );
   });
 
-  test("500 when handler throws (not just returns error result)", async () => {
+  test("handler throw → 200 with synthesized error result card (matches submit-time pattern)", async () => {
+    // Pre-fix this returned 500. The dispatcher endpoint and the submit-
+    // time path now BOTH catch handler throws and persist an error
+    // result card — the inline-card UX is the contract: every action
+    // invocation yields a card, never a bare HTTP error. HTTP 5xx is
+    // reserved for genuine transport / persistence failures.
     mockGetEzAction.mockReturnValue({
       name: "distill",
       description: "x",
@@ -278,6 +343,12 @@ describe("POST /api/ez-actions/[name]", () => {
       userId: USER.id,
       projectId: "p1",
     });
+    mockCreateMessage.mockImplementation(async (_convId, data) => ({
+      id: "msg-thrown",
+      role: data.role,
+      content: data.content,
+      parentMessageId: data.parentMessageId ?? null,
+    }));
 
     const res = await POST(
       makeEvent({
@@ -285,7 +356,24 @@ describe("POST /api/ez-actions/[name]", () => {
         body: { conversationId: "c1" },
       }),
     );
-    expect(res.status).toBe(500);
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      result: { kind: string; card: { title: string; variant: string } };
+      messageId: string;
+    };
+    expect(json.result.kind).toBe("error");
+    expect(json.result.card.variant).toBe("error");
+    expect(json.result.card.title).toMatch(/action failed/i);
+
+    // Server-side error detail is NOT leaked into the persisted card —
+    // matches the submit-time pattern + avoids exposing raw error
+    // messages to the chat-renderable history.
+    expect(JSON.stringify(json.result)).not.toContain("kaboom");
+
+    // The error card is persisted as a normal ez-action-result row.
+    expect(mockCreateMessage).toHaveBeenCalledTimes(1);
+    expect(mockCreateMessage.mock.calls[0]![1].role).toBe("ez-action-result");
   });
 
   test("decline / error result still persists a message and returns 200", async () => {

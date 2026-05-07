@@ -194,6 +194,21 @@ async function handler(ctx: EzActionContext): Promise<EzActionResult> {
       },
     };
   }
+  if (outcome.reason === "internal") {
+    // Sentinel — runDistillation initialized `outcome` to this and
+    // never overwrote it. Means a code path inside the lock returned
+    // without setting it. Surface as a distinct error card so the
+    // diagnostic detail is visible (and not mis-labelled as a DB
+    // error).
+    return {
+      kind: "error",
+      card: {
+        title: "Distiller failed",
+        body: `Internal error: ${outcome.detail}`,
+        variant: "error",
+      },
+    };
+  }
   // db_error — runDistillation re-throws after building the outcome,
   // so this branch is reached via the catch above. Keeping the
   // exhaustive map here for symmetry with the discriminant types.

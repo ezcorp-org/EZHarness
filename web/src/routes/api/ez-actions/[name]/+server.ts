@@ -30,7 +30,7 @@ import { json } from "@sveltejs/kit";
 import { errorJson } from "$lib/server/http-errors";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
-import { getConversation, createMessage } from "$server/db/queries/conversations";
+import { getConversation, createMessage, getLatestLeaf } from "$server/db/queries/conversations";
 import { getEzAction } from "$server/runtime/ez-actions/registry";
 import type { EzActionResult } from "$server/runtime/ez-actions/types";
 import type { RequestHandler } from "./$types";
@@ -61,10 +61,25 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	if (!conv) return errorJson(404, "Conversation not found");
 	if (conv.userId !== user.id) return errorJson(404, "Conversation not found");
 
-	// Run the handler. The handler is responsible for its own error
-	// containment — every documented decline / error path returns a
-	// card. An UNCAUGHT throw is a handler bug; collapse it to a 500
-	// + minimal response (no internal detail leak).
+	// Resolve the conversation's current leaf so the synthetic
+	// ez-action-result row hangs off the latest message in the branch.
+	// Without this, a direct dispatcher invocation produces an orphan
+	// row (parent_message_id = null) that can drift in the branched-
+	// conversation render path. The submit-time handler in
+	// /api/conversations/[id]/messages parents under the just-persisted
+	// user message; the dispatcher has no preceding user message, so the
+	// branch leaf is the canonical anchor. `null` (empty conversation)
+	// is fine — the row simply has no parent.
+	const leaf = await getLatestLeaf(conversationId);
+	const parentMessageId = leaf?.id;
+
+	// Run the handler. Handlers are expected to return decline / error
+	// result cards rather than throw; an uncaught throw is a handler
+	// bug. Mirror the submit-time pattern (messages/+server.ts:290): on
+	// throw, synthesize an `error` result card so the user STILL sees a
+	// card (not a bare HTTP 500). Every action invocation yields a card
+	// — that's the contract — so HTTP 5xx is reserved for genuine
+	// transport / persistence failures.
 	let result: EzActionResult;
 	try {
 		result = await action.handler({
@@ -76,9 +91,20 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 			projectId: conv.projectId,
 		});
 	} catch (err) {
-		return errorJson(500, "EZ action handler failed", {
-			detail: (err as Error).message,
-		});
+		result = {
+			kind: "error",
+			card: {
+				title: "Action failed",
+				body: `The "${name}" action threw an unexpected error.`,
+				variant: "error",
+			},
+		};
+		// We intentionally do NOT bubble (err as Error).message into the
+		// card — the submit-time path doesn't either, and exposing
+		// internal error text via an unauthenticated chat-renderable
+		// row is the kind of leak that lands on a security review. The
+		// detail is captured server-side by the request log.
+		console.error("[ez-actions] handler threw", { name, error: String(err) });
 	}
 
 	// Persist the result as a synthetic message so it's part of
@@ -89,6 +115,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const persisted = await createMessage(conversationId, {
 		role: "ez-action-result",
 		content: JSON.stringify(result),
+		parentMessageId,
 	});
 
 	return json({ result, messageId: persisted.id });
