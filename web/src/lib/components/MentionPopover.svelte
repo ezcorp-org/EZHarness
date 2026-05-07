@@ -8,7 +8,7 @@
 		 * descended folder view — selecting it commits the current folder as
 		 * a `@[dir:…]` token instead of descending further.
 		 */
-		kind: 'agent' | 'extension' | 'team' | 'file' | 'dir' | 'dir-target' | 'command' | 'feature' | 'lesson';
+		kind: 'agent' | 'extension' | 'team' | 'EZ' | 'file' | 'dir' | 'dir-target' | 'command' | 'feature' | 'lesson';
 		/**
 		 * For `command` kind: origin namespace, e.g. `"project:claude-commands"`,
 		 * `"user:codex-prompts"`, `"user:db"`. Rendered as a scope + folder
@@ -62,6 +62,7 @@
 	let commands = $derived(items.filter((i) => i.kind === 'command'));
 	let features = $derived(items.filter((i) => i.kind === 'feature'));
 	let lessons = $derived(items.filter((i) => i.kind === 'lesson'));
+	let ezActions = $derived(items.filter((i) => i.kind === 'EZ'));
 	let dirs = $derived(items.filter((i) => i.kind === 'dir'));
 	let files = $derived(items.filter((i) => i.kind === 'file'));
 
@@ -95,6 +96,7 @@
 		...commands,
 		...features,
 		...lessons,
+		...ezActions,
 		...teams,
 		...agents,
 		...extensions,
@@ -291,12 +293,36 @@
 					{/each}
 				{/if}
 
+				{#if ezActions.length > 0}
+					<div class="px-2 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+						EZ actions
+					</div>
+					{#each ezActions as item, i}
+						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + i}
+						<button
+							id="mention-item-{idx}"
+							role="option"
+							aria-selected={idx === highlightedIndex}
+							class="flex w-full flex-col gap-0.5 px-4 py-2 text-left transition-colors border-l-2 border-amber-500/60 {idx === highlightedIndex
+								? 'bg-[var(--color-surface-tertiary)]'
+								: 'hover:bg-[var(--color-surface-tertiary)]/50'}"
+							onclick={() => onselect(item)}
+							onmouseenter={() => (highlightedIndex = idx)}
+						>
+							<div class="flex items-baseline gap-2">
+								<span class="text-sm font-medium text-amber-300">!EZ:{item.name}</span>
+							</div>
+							<span class="truncate text-xs text-[var(--color-text-muted)]">{item.description || "—"}</span>
+						</button>
+					{/each}
+				{/if}
+
 				{#if teams.length > 0}
 					<div class="px-2 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
 						Teams
 					</div>
 					{#each teams as item, i}
-						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + i}
+						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + ezActions.length + i}
 						<button
 							id="mention-item-{idx}"
 							role="option"
@@ -318,7 +344,7 @@
 						Agents
 					</div>
 					{#each agents as item, i}
-						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + teams.length + i}
+						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + ezActions.length + teams.length + i}
 						<button
 							id="mention-item-{idx}"
 							role="option"
@@ -340,7 +366,7 @@
 						Extensions
 					</div>
 					{#each extensions as item, i}
-						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + teams.length + agents.length + i}
+						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + ezActions.length + teams.length + agents.length + i}
 						<button
 							id="mention-item-{idx}"
 							role="option"
@@ -362,7 +388,7 @@
 						Folders
 					</div>
 					{#each dirs as item, i}
-						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + teams.length + agents.length + extensions.length + i}
+						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + ezActions.length + teams.length + agents.length + extensions.length + i}
 						<button
 							id="mention-item-{idx}"
 							role="option"
@@ -385,7 +411,7 @@
 						Files
 					</div>
 					{#each files as item, i}
-						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + teams.length + agents.length + extensions.length + dirs.length + i}
+						{@const idx = dirTarget.length + commands.length + features.length + lessons.length + ezActions.length + teams.length + agents.length + extensions.length + dirs.length + i}
 						<button
 							id="mention-item-{idx}"
 							role="option"

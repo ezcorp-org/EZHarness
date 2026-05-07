@@ -17,7 +17,7 @@ import type { RequestHandler } from "./$types";
 
 const MAX_RESULTS = 10;
 
-type FileType = "ext" | "agent" | "team" | "path" | "cmd" | "feature" | "lesson";
+type FileType = "ext" | "agent" | "team" | "EZ" | "path" | "cmd" | "feature" | "lesson";
 
 interface PathCandidate {
 	name: string;
@@ -142,7 +142,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const results: Array<{
 		name: string;
 		description: string;
-		kind: "agent" | "extension" | "team" | "file" | "dir" | "command" | "feature" | "lesson";
+		kind: "agent" | "extension" | "team" | "EZ" | "file" | "dir" | "command" | "feature" | "lesson";
 		source?: string;
 		body?: string;
 		fileCount?: number;
@@ -195,6 +195,39 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 				source: c.source,
 				body: c.body,
 			});
+		}
+		return json(results);
+	}
+
+	// EZ Actions searches are mutually exclusive with other kinds — the
+	// `!EZ:` prefix's popover lists only EZ actions from the in-memory
+	// registry (`src/runtime/ez-actions/registry.ts`). No DB query, no
+	// project scope — actions are global, code-defined.
+	//
+	// Substring match on `name` AND `description` (case-insensitive) so
+	// users can find an action by what it does as well as what it's
+	// called. Fuzzy ranking is overkill given the tiny registry size in
+	// v1 (single digits) — substring is plenty and easier to test.
+	//
+	// The wire format intentionally surfaces ONLY `name` + `description`
+	// + `kind: "EZ"`. The handler function is kept inside the registry
+	// — see `listEzActions()`'s contract. This is defense-in-depth: even
+	// if the registry shape ever grew more fields, the route would have
+	// to be updated explicitly to leak them.
+	if (type === "EZ") {
+		const { listEzActions } = await import(
+			"$server/runtime/ez-actions/registry"
+		);
+		const actions = listEzActions();
+		const matched = q
+			? actions.filter(
+					(a) =>
+						a.name.toLowerCase().includes(lowerQ) ||
+						a.description.toLowerCase().includes(lowerQ),
+				)
+			: actions;
+		for (const a of matched.slice(0, MAX_RESULTS)) {
+			results.push({ name: a.name, description: a.description, kind: "EZ" });
 		}
 		return json(results);
 	}

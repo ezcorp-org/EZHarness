@@ -540,15 +540,17 @@
 			return;
 		}
 
-		// Leaf selection (file / agent / ext / team / command). API returns
-		// `extension` / `command` but mention-logic uses `ext` / `cmd`.
+		// Leaf selection (file / agent / ext / team / command / EZ). API
+		// returns `extension` / `command` but mention-logic uses `ext` /
+		// `cmd`. `EZ` is the runtime-action kind under the `!` sigil and
+		// keeps its API/wire name unchanged.
 		const kind = item.kind === 'extension'
 			? 'ext'
 			: item.kind === 'command'
 				? 'cmd'
 				: item.kind;
 		const result = insertMentionToken(value, textarea.selectionStart, {
-			kind: kind as 'agent' | 'ext' | 'team' | 'file' | 'dir' | 'cmd',
+			kind: kind as 'agent' | 'ext' | 'team' | 'EZ' | 'file' | 'dir' | 'cmd',
 			name: item.name,
 		});
 		value = result.text;

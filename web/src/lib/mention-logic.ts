@@ -4,6 +4,9 @@
  *
  * Grammar:
  *   ![agent:Name]   ![ext:Name]   ![team:Name]   — resolved via DB / executor
+ *   ![EZ:Name]                                   — runtime actions (silent
+ *     server-side ops; LLM never sees them — token is stripped pre-prompt
+ *     by `src/runtime/mention-wiring.ts::stripEzActionTokens`)
  *   @[file:relative/path.ts]                     — project file references
  *   @[dir:relative/path]                         — project directory references
  *     (agent should read-all-files / write-into-folder for dir mentions)
@@ -35,11 +38,11 @@
  */
 export const STRUCTURED_NAME_CHAR_CLASS = "[^\\]]+";
 
-// Structured token regex: matches `![kind:name]` (kind ∈ agent/ext/team),
+// Structured token regex: matches `![kind:name]` (kind ∈ agent/ext/team/EZ),
 // `@[file|dir:name]`, `/[cmd:name]`, `$[feature:name]`, or `%[lesson:name]`.
 // The five sigils are mutually exclusive at the trigger layer.
 // Capture groups:
-//   1 = kind  (agent|ext|team)   when the ! alternative matches
+//   1 = kind  (agent|ext|team|EZ) when the ! alternative matches
 //   2 = name  when the ! alternative matches
 //   3 = kind  (file|dir)         when the @ alternative matches
 //   4 = name  when the @ alternative matches
@@ -49,9 +52,17 @@ export const STRUCTURED_NAME_CHAR_CLASS = "[^\\]]+";
 //   8 = name  when the $ alternative matches
 //   9 = kind  (lesson)           when the % alternative matches
 //  10 = name  when the % alternative matches
+//
+// `EZ` (uppercase) sits under the `!` sigil — it's the runtime-action kind
+// (`![EZ:distill]` etc). Distinct from agent/ext/team because the LLM
+// never sees these tokens (they're stripped pre-prompt server-side) and
+// they invoke a server handler that returns a structured result card.
+// The kind is uppercase to make it visually distinct from the
+// lowercase logical-mention kinds at a glance and avoid collision with
+// any existing or future agent/extension/team named "ez".
 export const MENTION_REGEX = new RegExp(
 	[
-		`!\\[(agent|ext|team):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
+		`!\\[(agent|ext|team|EZ):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
 		`@\\[(file|dir):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
 		`\\/\\[(cmd):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
 		`\\$\\[(feature):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
@@ -64,6 +75,7 @@ export type MentionKind =
 	| "agent"
 	| "ext"
 	| "team"
+	| "EZ"
 	| "file"
 	| "dir"
 	| "cmd"
@@ -85,7 +97,7 @@ export interface MentionTrigger {
 	 * For the `%` sigil, always `"lesson"` — the popover shows Lessons-Keeper
 	 * entries scoped to the active user + project (visibility-filtered).
 	 */
-	type?: "ext" | "agent" | "team" | "path" | "cmd" | "feature" | "lesson";
+	type?: "ext" | "agent" | "team" | "EZ" | "path" | "cmd" | "feature" | "lesson";
 	/** Which sigil activated the trigger. */
 	sigil: "!" | "@" | "/" | "$" | "%";
 }
@@ -102,8 +114,11 @@ export type Segment =
 	| { type: "mention"; kind: string; name: string; raw: string };
 
 // Trigger regexes anchored to end-of-input-before-cursor.
-// `!` captures an optional agent/ext/team: prefix and the query.
-const BANG_TRIGGER_RE = /(?:^|\s)!((?:ext:|agent:|team:)?[^\s]*)$/;
+// `!` captures an optional agent/ext/team/EZ: prefix and the query.
+// `EZ:` is uppercase by design (matches the kind in the structured
+// token `![EZ:name]`) — keeping the prefix case-sensitive prevents
+// false-positive triggers on lowercase `ez:` typed mid-prose.
+const BANG_TRIGGER_RE = /(?:^|\s)!((?:ext:|agent:|team:|EZ:)?[^\s]*)$/;
 // `@` is dedicated to file references; the whole non-space tail is the query.
 const AT_TRIGGER_RE = /(?:^|\s)@([^\s]*)$/;
 // `/` is dedicated to slash-command references; same tail semantics as `@`.
@@ -165,6 +180,8 @@ export function detectMentionTrigger(
 			return { active: true, query: raw.slice(6), type: "agent", sigil: "!" };
 		if (raw.startsWith("team:"))
 			return { active: true, query: raw.slice(5), type: "team", sigil: "!" };
+		if (raw.startsWith("EZ:"))
+			return { active: true, query: raw.slice(3), type: "EZ", sigil: "!" };
 		return { active: true, query: raw, type: undefined, sigil: "!" };
 	}
 
@@ -208,10 +225,10 @@ export function parseMentions(text: string): MentionToken[] {
 	const regex = new RegExp(MENTION_REGEX.source, "g");
 	let match;
 	while ((match = regex.exec(text)) !== null) {
-		// Alternative 1 matched (! sigil, agent/ext/team)
+		// Alternative 1 matched (! sigil, agent/ext/team/EZ)
 		if (match[1] !== undefined) {
 			mentions.push({
-				kind: match[1] as "agent" | "ext" | "team",
+				kind: match[1] as "agent" | "ext" | "team" | "EZ",
 				name: match[2]!,
 				start: match.index,
 				end: match.index + match[0].length,
@@ -287,7 +304,7 @@ export function insertMentionToken(
 		? /(?:^|\s)\$[^\s]*$/
 		: isPercentSigil
 		? /(?:^|\s)%[^\s]*$/
-		: /(?:^|\s)!(?:(?:ext:|agent:|team:)?[^\s]*)$/;
+		: /(?:^|\s)!(?:(?:ext:|agent:|team:|EZ:)?[^\s]*)$/;
 	const spanMatch = before.match(triggerRe);
 	if (!spanMatch) return { text: value, cursor: cursorPos };
 

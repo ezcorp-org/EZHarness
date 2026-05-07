@@ -368,7 +368,7 @@
 				</div>
 			{/if}
 			<p class="excluded-prose text-sm text-[var(--color-text-primary)] whitespace-pre-wrap break-words"
-			>{#if hasUserMentions}{#each userSegments as seg}{#if seg.type === "text"}{seg.text}{:else if seg.type === "mention"}<MentionChip name={seg.name} kind={seg.kind === 'ext' ? 'extension' : seg.kind === 'cmd' ? 'command' : seg.kind as 'agent' | 'team' | 'file' | 'dir' | 'feature'} tooltip={tooltipForMention(seg.name)} />{/if}{/each}{:else}{message.content}{/if}</p>
+			>{#if hasUserMentions}{#each userSegments as seg}{#if seg.type === "text"}{seg.text}{:else if seg.type === "mention"}<MentionChip name={seg.name} kind={seg.kind === 'ext' ? 'extension' : seg.kind === 'cmd' ? 'command' : seg.kind as 'agent' | 'team' | 'EZ' | 'file' | 'dir' | 'feature' | 'lesson'} tooltip={tooltipForMention(seg.name)} />{/if}{/each}{:else}{message.content}{/if}</p>
 			<MessageAttachments attachments={message.attachments} />
 		</div>
 		{#if !isStreaming && !selectable}
