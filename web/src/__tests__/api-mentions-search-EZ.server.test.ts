@@ -28,6 +28,22 @@ vi.mock("$lib/server/context", () => ({
   getCommandRegistry: () => ({ listCommands: async () => [] }),
 }));
 
+// Stub the DB and builtin-registry calls used by the no-colon `!`
+// fallback merge path. Empty results so the EZ merge is the only
+// contributor when type is undefined — keeps the assertions surgical.
+vi.mock("$server/db/connection", () => ({
+  getDb: () => ({
+    select: () => ({
+      from: () => ({
+        where: () => ({ limit: () => Promise.resolve([]) }),
+      }),
+    }),
+  }),
+}));
+vi.mock("$server/runtime/tools/builtin-registry", () => ({
+  getBuiltInCategories: () => [],
+}));
+
 const { GET } = await import("../routes/api/mentions/search/+server");
 
 function makeEvent(opts: { href: string; locals?: Record<string, unknown> }) {
@@ -191,5 +207,100 @@ describe("GET /api/mentions/search?type=EZ", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<Record<string, unknown>>;
     expect(body).toHaveLength(1);
+  });
+});
+
+// ── No-colon `!` fallback merge ───────────────────────────────────────
+//
+// When the user types bare `!` / `!e` / `!ez` (no colon), the trigger
+// detector routes to `type: undefined`. The server merges agent + ext +
+// team + EZ results. These tests verify EZ is included in the merge —
+// the gap that escaped the original v1 build.
+describe("GET /api/mentions/search (no type param) — EZ included in merge", () => {
+  beforeEach(() => {
+    mockListEzActions.mockReset();
+  });
+
+  test("no type, populated registry → EZ actions appear in merged response", async () => {
+    mockListEzActions.mockReturnValue([
+      { name: "distill", description: "Force-trigger lesson distillation" },
+    ]);
+
+    const res = await GET(
+      makeEvent({
+        href: "http://localhost/api/mentions/search",
+        locals: { user: USER },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+    expect(body.map((b) => b.kind)).toContain("EZ");
+    expect(body.find((b) => b.kind === "EZ")).toEqual({
+      name: "distill",
+      description: "Force-trigger lesson distillation",
+      kind: "EZ",
+    });
+  });
+
+  test("no type, q=dist → action matched by name appears in merged response", async () => {
+    mockListEzActions.mockReturnValue([
+      { name: "distill", description: "Force-trigger lesson distillation" },
+      { name: "summarize", description: "Summarize this conversation" },
+    ]);
+
+    const res = await GET(
+      makeEvent({
+        href: "http://localhost/api/mentions/search?q=dist",
+        locals: { user: USER },
+      }),
+    );
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const ezResults = body.filter((b) => b.kind === "EZ");
+    expect(ezResults.map((b) => b.name)).toEqual(["distill"]);
+  });
+
+  test("type=agent → EZ actions are EXCLUDED (filter respected)", async () => {
+    mockListEzActions.mockReturnValue([
+      { name: "distill", description: "Force-trigger lesson distillation" },
+    ]);
+
+    const res = await GET(
+      makeEvent({
+        href: "http://localhost/api/mentions/search?type=agent",
+        locals: { user: USER },
+      }),
+    );
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+    expect(body.filter((b) => b.kind === "EZ")).toEqual([]);
+  });
+
+  test("type=ext → EZ actions are EXCLUDED (filter respected)", async () => {
+    mockListEzActions.mockReturnValue([
+      { name: "distill", description: "Force-trigger lesson distillation" },
+    ]);
+
+    const res = await GET(
+      makeEvent({
+        href: "http://localhost/api/mentions/search?type=ext",
+        locals: { user: USER },
+      }),
+    );
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+    expect(body.filter((b) => b.kind === "EZ")).toEqual([]);
+  });
+
+  test("type=team → EZ actions are EXCLUDED (filter respected)", async () => {
+    mockListEzActions.mockReturnValue([
+      { name: "distill", description: "Force-trigger lesson distillation" },
+    ]);
+
+    const res = await GET(
+      makeEvent({
+        href: "http://localhost/api/mentions/search?type=team",
+        locals: { user: USER },
+      }),
+    );
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+    expect(body.filter((b) => b.kind === "EZ")).toEqual([]);
   });
 });

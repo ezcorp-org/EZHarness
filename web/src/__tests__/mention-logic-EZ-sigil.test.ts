@@ -7,9 +7,10 @@
  *     1 + 2, sharing the `!` alternative with agent/ext/team).
  *   - parseMentions emits the correct token + offsets.
  *   - getSegments interleaves text + mention segments for `![EZ:…]`.
- *   - detectMentionTrigger returns `{type:"EZ", sigil:"!"}` for the
- *     literal `!EZ:` prefix at a word boundary; case-sensitive (no
- *     `!ez:` match → falls through to plain `!` trigger).
+ *   - detectMentionTrigger returns `{type:"EZ", sigil:"!"}` for any
+ *     casing of the EZ prefix at a word boundary (`!EZ:`, `!ez:`,
+ *     `!Ez:`, `!eZ:`). The persisted token is always canonical
+ *     `![EZ:name]` regardless of typed casing.
  *   - insertMentionToken inserts `![EZ:name] ` for kind=EZ.
  *   - Round-trip: insert → parse → getSegments preserves kind+name.
  *   - Coexists with all four other sigils in a single string.
@@ -181,13 +182,40 @@ describe("detectMentionTrigger — !EZ: prefix", () => {
     });
   });
 
-  test("`!ez:` (lowercase) does NOT match the EZ branch — falls through to plain `!`", () => {
-    // Case-sensitive prefix match. Lowercase `ez:` is treated as part
-    // of the free-text query (type=undefined), not as the EZ kind.
-    const result = detectMentionTrigger("hi !ez:dist", 11);
-    expect(result?.type).toBeUndefined();
-    expect(result?.sigil).toBe("!");
-    expect(result?.query).toBe("ez:dist");
+  test("`!ez:` (lowercase) routes to type=EZ — case-insensitive trigger", () => {
+    expect(detectMentionTrigger("hi !ez:dist", 11)).toEqual({
+      active: true,
+      query: "dist",
+      type: "EZ",
+      sigil: "!",
+    });
+  });
+
+  test("`!Ez:` (mixed case) routes to type=EZ", () => {
+    expect(detectMentionTrigger("hi !Ez:dist", 11)).toEqual({
+      active: true,
+      query: "dist",
+      type: "EZ",
+      sigil: "!",
+    });
+  });
+
+  test("`!eZ:` (mixed case, reversed) routes to type=EZ", () => {
+    expect(detectMentionTrigger("!eZ:", 4)).toEqual({
+      active: true,
+      query: "",
+      type: "EZ",
+      sigil: "!",
+    });
+  });
+
+  test("Case-insensitivity is scoped to the EZ kind only — agent/ext/team stay case-sensitive", () => {
+    // `!Agent:` with uppercase A does NOT route to type=agent today; it falls
+    // through to plain `!` (type=undefined). Documenting this asymmetry as a
+    // regression guard — broaden if desired in a follow-up.
+    const agent = detectMentionTrigger("!Agent:foo", 10);
+    expect(agent?.type).toBeUndefined();
+    expect(agent?.query).toBe("Agent:foo");
   });
 
   test("`!EZ:` does NOT shadow other sigils — rightmost-sigil-wins still applies", () => {

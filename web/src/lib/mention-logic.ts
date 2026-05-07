@@ -180,7 +180,11 @@ export function detectMentionTrigger(
 			return { active: true, query: raw.slice(6), type: "agent", sigil: "!" };
 		if (raw.startsWith("team:"))
 			return { active: true, query: raw.slice(5), type: "team", sigil: "!" };
-		if (raw.startsWith("EZ:"))
+		// Case-insensitive on the EZ kind prefix at trigger time — `!ez:`,
+		// `!Ez:`, `!EZ:` all route to the EZ search. The popover's selection
+		// step always inserts the canonical `![EZ:name]` token regardless of
+		// the typed casing, so persistence stays uniform.
+		if (/^ez:/i.test(raw))
 			return { active: true, query: raw.slice(3), type: "EZ", sigil: "!" };
 		return { active: true, query: raw, type: undefined, sigil: "!" };
 	}
