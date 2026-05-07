@@ -6,6 +6,7 @@ import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 import { getActiveRun, markInterrupted } from "$server/db/queries/active-runs";
+import { getPendingAskUserForConversation } from "$server/runtime/ask-user-registry";
 
 // Boundary validation: the only field the handler reads off the body is
 // `action`, which must be one of two literal strings. Keep the schema
@@ -48,11 +49,17 @@ export const GET: RequestHandler = async ({ params, locals }) => {
       });
     }
     const pendingPermissions = executor.getPendingPermissions(params.id);
+    // Open ask_user_question gates for this conversation. Sourced from
+    // the in-memory registry, not the DB — the `tool_calls` row isn't
+    // written until the gate resolves, so a refreshed client has no
+    // other way to learn about a question that's still pending.
+    const pendingAskUser = getPendingAskUserForConversation(params.id);
     return json({
       runId: memRun.id,
       status: "running",
       partialResponse: null,
       pendingPermissions,
+      pendingAskUser,
       startedAt: new Date(memRun.startedAt).toISOString(),
       stalenessMs: stalenessFor(dbRun),
     });

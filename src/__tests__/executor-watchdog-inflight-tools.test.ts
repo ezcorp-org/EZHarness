@@ -336,6 +336,39 @@ describe("Watchdog deferral via inflight tools (AC2)", () => {
     expect(data.error).toMatch(/exceeded.*call timeout/i);
   });
 
+  test("requiresUserInput tool defers the idle kill indefinitely (past callTimeoutMs)", async () => {
+    // Locks the contract for human-in-the-loop tools (ToolDefinition.
+    // requiresUserInput): the watchdog never fires the elapsed-budget
+    // kill while such a tool is in flight, no matter how small the
+    // declared callTimeoutMs is or how much wall-clock elapses.
+    const h = makeHarness();
+    const run = startRun(h);
+    h.manager.noteToolStart(RUN_ID, TOOL_CALL_ID, info({
+      toolName: "ask-user__ask_user_question",
+      callTimeoutMs: 50_000, // tiny budget — would normally fire fast
+      requiresUserInput: true,
+    }));
+
+    // Drive the clock to 30 minutes — 36x the would-be budget and 20x
+    // the idle threshold. With requiresUserInput, deferralReason
+    // returns the "awaiting user input" branch every tick, bumping
+    // activity, so neither the budget-based nor the idle-based kill
+    // ever fires.
+    await advanceAndTick(600_000);
+    await advanceAndTick(600_000);
+    await advanceAndTick(600_000);
+
+    expect(run.status).toBe("running");
+    expect(h.events.filter((e) => e.type === "run:error")).toHaveLength(0);
+    expect(h.events.filter((e) => e.type === "tool:error")).toHaveLength(0);
+
+    // Sanity: once the tool ends, the next idle tick kills as usual —
+    // the deferral was load-bearing, not a permanent exemption.
+    h.manager.noteToolEnd(RUN_ID, TOOL_CALL_ID);
+    await advanceAndTick(95_000);
+    expect(run.status).toBe("error");
+  });
+
   test("when no tool exceeded its budget but idle still tripped, reason is the generic idle string", async () => {
     // Setup: NO inflight tools at all. Deferral never engages. The kill
     // reason should be the generic "no activity for Ns" string, not a

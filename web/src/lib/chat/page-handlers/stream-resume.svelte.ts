@@ -235,13 +235,18 @@ export async function runActiveRunCheck(
 			typeof data.stalenessMs === "number" ? data.stalenessMs : null,
 		);
 
-		// Restore pending permission gates from server state
+		// Restore pending permission gates from server state.
+		// Dedup-by-id: this resume path also fires on WS reconnects mid-run,
+		// where the live `tool:start` SSE already populated the entry. A
+		// blind push would render the same card twice.
 		if (data.pendingPermissions?.length) {
 			for (const perm of data.pendingPermissions) {
+				const existing = store.streamingToolCalls[data.runId] ?? [];
+				if (existing.some((tc) => tc.id === perm.toolCallId)) continue;
 				store.streamingToolCalls = {
 					...store.streamingToolCalls,
 					[data.runId]: [
-						...(store.streamingToolCalls[data.runId] ?? []),
+						...existing,
 						{
 							id: perm.toolCallId,
 							toolName: perm.toolName,
@@ -265,12 +270,17 @@ export async function runActiveRunCheck(
 		// pendingPermissions above: push a synthetic running entry per
 		// gate; the live tool:complete will update it in place by
 		// toolName match (see stores.svelte.ts case "tool:complete").
+		// Dedup-by-id: same reason as pendingPermissions above — this
+		// resume path also runs on WS reconnects, and re-pushing an
+		// already-streamed entry doubles the rendered card.
 		if (data.pendingAskUser?.length) {
 			for (const entry of data.pendingAskUser) {
+				const existing = store.streamingToolCalls[data.runId] ?? [];
+				if (existing.some((tc) => tc.id === entry.toolCallId)) continue;
 				store.streamingToolCalls = {
 					...store.streamingToolCalls,
 					[data.runId]: [
-						...(store.streamingToolCalls[data.runId] ?? []),
+						...existing,
 						{
 							id: entry.toolCallId,
 							toolName: "ask-user__ask_user_question",
@@ -284,22 +294,29 @@ export async function runActiveRunCheck(
 			}
 		}
 
-		// Add placeholder assistant message with partial response if available
+		// Add placeholder assistant message with partial response if available.
+		// Dedup-by-id: this path may run on a WS reconnect mid-stream — a
+		// `streaming-${runId}` placeholder already exists, and pushing
+		// another would double-mount it (Svelte warns on duplicate keys
+		// AND the message bubble briefly renders twice).
+		const placeholderId = `streaming-${data.runId}`;
 		const all = host.allMessages.get();
-		const lastMsg = all[all.length - 1];
-		const selectedModel = host.selectedModel();
-		const assistantPlaceholder = host.makeOptimisticMessage({
-			id: `streaming-${data.runId}`,
-			conversationId: convId,
-			role: "assistant",
-			content: data.partialResponse ?? "",
-			model: selectedModel?.model ?? null,
-			provider: selectedModel?.provider ?? null,
-			runId: data.runId,
-			parentMessageId: lastMsg?.id ?? null,
-		});
-		host.allMessages.set([...all, assistantPlaceholder]);
-		host.activeLeafId.set(assistantPlaceholder.id);
+		if (!all.some((m) => m.id === placeholderId)) {
+			const lastMsg = all[all.length - 1];
+			const selectedModel = host.selectedModel();
+			const assistantPlaceholder = host.makeOptimisticMessage({
+				id: placeholderId,
+				conversationId: convId,
+				role: "assistant",
+				content: data.partialResponse ?? "",
+				model: selectedModel?.model ?? null,
+				provider: selectedModel?.provider ?? null,
+				runId: data.runId,
+				parentMessageId: lastMsg?.id ?? null,
+			});
+			host.allMessages.set([...all, assistantPlaceholder]);
+			host.activeLeafId.set(assistantPlaceholder.id);
+		}
 	} catch {
 		// Non-fatal — page works normally without resume
 	} finally {

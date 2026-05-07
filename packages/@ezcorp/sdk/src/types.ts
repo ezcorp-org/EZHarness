@@ -15,6 +15,14 @@ export interface ToolDefinition {
   description: string;
   inputSchema: Record<string, unknown>; // JSON Schema object
   cardType?: string; // Maps to frontend card component for custom rendering
+  /**
+   * When `true`, the host treats this tool as human-in-the-loop:
+   * the subprocess JSON-RPC timeout race is skipped, and the watchdog
+   * defers the idle kill for the duration of the call. Use only for
+   * tools that explicitly block on a user reply (e.g. `ask_user_question`).
+   * Default `false`.
+   */
+  requiresUserInput?: boolean;
 }
 
 export interface SkillDefinition {

@@ -12,7 +12,6 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import {
   tools,
   _setCreateCanvasForTests,
-  _setAskUserTimeoutForTests,
   _resetBindingsForTests,
   _internals,
   start,
@@ -54,9 +53,6 @@ function makeCtx(
 }
 
 beforeEach(() => {
-  // Default to the production timeout so tests don't accidentally rely
-  // on a shrunk value bleeding across cases.
-  _setAskUserTimeoutForTests(5 * 60_000);
   _internals.pendingAskUser.clear();
   // Phase C: tests drive `_internals.handleAnswer` directly, so the
   // SDK wiring never actually runs. The legacy `registerEventHandler`
@@ -67,7 +63,6 @@ beforeEach(() => {
 
 afterEach(() => {
   _resetBindingsForTests();
-  _setAskUserTimeoutForTests(5 * 60_000);
   _internals.pendingAskUser.clear();
 });
 
@@ -144,22 +139,7 @@ describe("ask_user_question — abort during wait", () => {
   });
 });
 
-// ── 4. Timeout ─────────────────────────────────────────────────────
-
-describe("ask_user_question — timeout", () => {
-  test("timeout expires → isError + 'Timed out waiting for user answer'", async () => {
-    _setAskUserTimeoutForTests(20);
-    const out = await tools.ask_user_question!(
-      { question: "Never answered?" },
-      makeCtx({ toolCallId: "tc-timeout-1" }),
-    );
-    expect(expectIsError(out)).toBe(true);
-    expect(expectText(out)).toContain("Timed out waiting for user answer");
-    expect(_internals.pendingAskUser.size).toBe(0);
-  });
-});
-
-// ── 5. Unknown toolCallId in subscription ──────────────────────────
+// ── 4. Unknown toolCallId in subscription ──────────────────────────
 
 describe("ask_user_question — unknown toolCallId is no-op", () => {
   test("subscription event with unknown toolCallId does not throw or mutate", async () => {
@@ -190,7 +170,7 @@ describe("ask_user_question — unknown toolCallId is no-op", () => {
   });
 });
 
-// ── 6. conversationId mismatch (security) ──────────────────────────
+// ── 5. conversationId mismatch (security) ──────────────────────────
 
 describe("ask_user_question — conversationId mismatch dropped silently", () => {
   test("event with mismatched conversationId does not resolve the gate", async () => {
@@ -229,10 +209,10 @@ describe("ask_user_question — conversationId mismatch dropped silently", () =>
   });
 });
 
-// ── 7. Cleanup on success ──────────────────────────────────────────
+// ── 6. Cleanup on success ──────────────────────────────────────────
 
 describe("ask_user_question — cleanup on success", () => {
-  test("timeout cleared and entry removed on resolve", async () => {
+  test("entry removed on resolve", async () => {
     const invocation = tools.ask_user_question!(
       { question: "ok?" },
       makeCtx({ toolCallId: "tc-clean-1" }),
@@ -253,7 +233,7 @@ describe("ask_user_question — cleanup on success", () => {
   });
 });
 
-// ── 8. Cleanup on abort (listener removed) ────────────────────────
+// ── 7. Cleanup on abort (listener removed) ────────────────────────
 
 describe("ask_user_question — cleanup on abort removes listener", () => {
   test("removeEventListener is called exactly once after abort fires", async () => {
@@ -302,46 +282,7 @@ describe("ask_user_question — cleanup on abort removes listener", () => {
   });
 });
 
-// ── 9. Cleanup on timeout (listener removed) ──────────────────────
-
-describe("ask_user_question — cleanup on timeout removes listener", () => {
-  test("timeout path also detaches the abort listener via finally", async () => {
-    _setAskUserTimeoutForTests(15);
-    const controller = new AbortController();
-    let removeCount = 0;
-    const rawSignal = controller.signal;
-    const wrapped: AbortSignal = Object.create(rawSignal, {
-      addEventListener: {
-        value: (
-          type: string,
-          listener: EventListenerOrEventListenerObject,
-          options?: AddEventListenerOptions | boolean,
-        ) => rawSignal.addEventListener(type, listener, options),
-      },
-      removeEventListener: {
-        value: (
-          type: string,
-          listener: EventListenerOrEventListenerObject,
-          options?: EventListenerOptions | boolean,
-        ) => {
-          removeCount++;
-          return rawSignal.removeEventListener(type, listener, options);
-        },
-      },
-    }) as AbortSignal;
-
-    const out = await tools.ask_user_question!(
-      { question: "q?" },
-      makeCtx({ toolCallId: "tc-tcleanup", signal: wrapped }),
-    );
-    expect(expectIsError(out)).toBe(true);
-    expect(expectText(out)).toContain("Timed out");
-    expect(removeCount).toBe(1);
-    expect(_internals.pendingAskUser.size).toBe(0);
-  });
-});
-
-// ── 10. Concurrent calls ──────────────────────────────────────────
+// ── 8. Concurrent calls ──────────────────────────────────────────
 
 describe("ask_user_question — concurrent calls don't cross-talk", () => {
   test("two in-flight invocations each resolve from their own toolCallId", async () => {
@@ -376,7 +317,7 @@ describe("ask_user_question — concurrent calls don't cross-talk", () => {
   });
 });
 
-// ── 11. Input validation ──────────────────────────────────────────
+// ── 9. Input validation ──────────────────────────────────────────
 
 describe("ask_user_question — input validation", () => {
   test("missing question → error, no gate opened", async () => {
@@ -421,7 +362,7 @@ describe("ask_user_question — input validation", () => {
   });
 });
 
-// ── 12. Missing context fields ────────────────────────────────────
+// ── 10. Missing context fields ────────────────────────────────────
 
 describe("ask_user_question — missing invocationMetadata", () => {
   test("missing toolCallId → error", async () => {
@@ -459,7 +400,7 @@ describe("ask_user_question — missing invocationMetadata", () => {
   });
 });
 
-// ── 13. No-signal path (covers `signal?.addEventListener` undef branch) ─
+// ── 11. No-signal path (covers `signal?.addEventListener` undef branch) ─
 
 describe("ask_user_question — no AbortSignal supplied", () => {
   test("happy path resolves without ctx.signal", async () => {
@@ -546,7 +487,6 @@ describe("ask-user start() — Phase C createCanvas shape", () => {
       conversationId: "conv-idem",
       resolve: (a) => { captured.push(a); },
       reject: () => {},
-      timeoutHandle: setTimeout(() => {}, 0),
     });
     await handlers.answer!({
       payload: { toolCallId: "tc-idem", conversationId: "conv-idem", answer: "once" },
@@ -573,7 +513,6 @@ describe("ask-user start() — Phase C createCanvas shape", () => {
       conversationId: "conv-c-1",
       resolve: (a) => { captured.push(a); },
       reject: () => {},
-      timeoutHandle: setTimeout(() => {}, 0),
     });
     const fn = handlers.answer as (args: { payload: unknown }) => Promise<void>;
     await fn({ payload: { toolCallId: "tc-c-1", conversationId: "conv-c-1", answer: "delegated" } });

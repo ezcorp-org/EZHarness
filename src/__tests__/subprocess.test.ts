@@ -172,6 +172,32 @@ main();
     expect(ep.isRunning).toBe(false);
   });
 
+  test("call with skipTimeout does not race against the timeout", async () => {
+    // Locks the contract for human-in-the-loop tools (ToolDefinition.
+    // requiresUserInput → tool-executor passes { skipTimeout: true }):
+    // the per-call timeout race is suppressed and the subprocess is NOT
+    // killed when the configured callTimeoutMs would have fired.
+    ep = new ExtensionProcess("test-ext", slowPath, allowedEnv, {
+      callTimeoutMs: 50,
+    });
+    const callPromise = ep.call("anything", undefined, { skipTimeout: true });
+    // Attach a noop catch so the eventual kill-induced rejection
+    // doesn't surface as an unhandled promise during teardown.
+    callPromise.catch(() => {});
+
+    // Race against a sentinel set 4x past the would-be timeout. If the
+    // skip-timeout opt-out failed, callPromise would reject within 50ms.
+    const sentinel = Symbol("not-timed-out");
+    const winner = await Promise.race([
+      callPromise.then(() => "resolved" as const, () => "rejected" as const),
+      new Promise<typeof sentinel>((r) => setTimeout(() => r(sentinel), 200)),
+    ]);
+    expect(winner).toBe(sentinel);
+    // Process is still alive — proves the timeout-triggered kill did
+    // NOT fire (the slow extension hasn't responded, but it's still up).
+    expect(ep.isRunning).toBe(true);
+  });
+
   test("ensureRunning is idempotent", () => {
     ep = new ExtensionProcess("test-ext", echoPath, allowedEnv);
     ep.ensureRunning();

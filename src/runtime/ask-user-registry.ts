@@ -27,8 +27,9 @@
  * Stale entries: impossible in production. Every entry is set+cleared
  * by the same `try/finally` in the wire wrapper. A subprocess crash
  * during a gate would cause the wrapper's promise to reject, which
- * still runs the `finally`. The 5-min `callTimeoutMs` is the longest
- * any entry can live.
+ * still runs the `finally`. An entry lives until the user answers,
+ * the run is aborted, or the subprocess crashes — there is no
+ * server-side timer (the tool is `requiresUserInput: true`).
  *
  * Test surface: `_resetPendingAskUserForTests()` clears between tests.
  */
@@ -77,6 +78,28 @@ export function getPendingAskUser(
   toolCallId: string,
 ): PendingAskUserEntry | undefined {
   return pendingByToolCallId.get(toolCallId);
+}
+
+/** All pending entries scoped to one conversation. Used by the
+ *  `/api/conversations/[id]/active-run` GET handler so a refreshed
+ *  client can re-hydrate the inline ask-user card before the
+ *  `tool_calls` row is written (the row only lands after the user
+ *  answers, so a SELECT-by-conversation would silently miss every
+ *  in-flight question). */
+export function getPendingAskUserForConversation(
+  conversationId: string,
+): PendingAskUserSummary[] {
+  const out: PendingAskUserSummary[] = [];
+  for (const [toolCallId, entry] of pendingByToolCallId) {
+    if (entry.conversationId !== conversationId) continue;
+    out.push({
+      toolCallId,
+      question: entry.question,
+      options: entry.options,
+      userId: entry.userId,
+    });
+  }
+  return out;
 }
 
 /** Clear the entry — called by the wire wrapper's `finally` regardless

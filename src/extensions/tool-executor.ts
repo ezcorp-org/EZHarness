@@ -299,7 +299,12 @@ export class ToolExecutor {
         if (mergedInvocationMetadata && Object.keys(mergedInvocationMetadata).length > 0) {
           meta.invocationMetadata = mergedInvocationMetadata;
         }
-        result = await proc.callTool(originalName, callArgs, meta);
+        // Only pass the fourth `options` arg when there's something to set —
+        // keeps the 3-arg call shape for the common case (tests assert with
+        // strict `toHaveBeenCalledWith` arity).
+        result = registered.requiresUserInput === true
+          ? await proc.callTool(originalName, callArgs, meta, { skipTimeout: true })
+          : await proc.callTool(originalName, callArgs, meta);
       }
 
       // Record to tool_calls table

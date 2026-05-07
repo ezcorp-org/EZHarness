@@ -38,13 +38,20 @@ export default defineExtension({
     {
       name: "ask_user_question",
       description:
-        "Ask the user a question and wait for their answer. Use this whenever you need clarification, a decision, or information that only the user can provide. Prefer providing `options` when the answer space is finite (yes/no, a small list of choices) — the UI renders clickable buttons and the user can answer in one click. Omit `options` for open-ended questions; the UI renders a text input. The tool returns the user's answer verbatim. Times out after 5 minutes if the user does not respond.",
+        "Ask the user a question and wait for their answer. Use this whenever you need clarification, a decision, or information that only the user can provide. Prefer providing `options` when the answer space is finite (yes/no, a small list of choices) — the UI renders clickable buttons and the user can answer in one click. Omit `options` for open-ended questions; the UI renders a text input. The tool returns the user's answer verbatim.",
       inputSchema: ASK_USER_QUESTION_SCHEMA as Record<string, unknown>,
       // Inline tool-card rendering — `web/src/lib/components/tool-cards/
       // AskUserQuestionCard.svelte` reads `toolCall.input.question` and
       // `toolCall.input.options` and renders buttons or a textarea. The
       // user's click POSTs to `/api/ask-user/answer` with the toolCallId.
       cardType: "ask-user-question",
+      // Human-in-the-loop: the wait is bounded by user behavior, not by
+      // a server-side timer. Opts the call out of the subprocess
+      // JSON-RPC timeout race AND the watchdog idle-kill — both layers
+      // would otherwise fire at the manifest's `callTimeoutMs` and surface
+      // as `Tool call timed out after Xms`. Cancellation still flows
+      // through the normal AbortSignal path on run interruption.
+      requiresUserInput: true,
     },
   ],
   permissions: {
@@ -55,11 +62,5 @@ export default defineExtension({
     // `src/runtime/sse-conversation-filter.ts` clamps delivery to wired
     // extensions in the matching conversation.
     eventSubscriptions: ["ask-user:answer"],
-  },
-  resources: {
-    // 5-minute pending-answer window. Matches the timeout enforced inside
-    // the handler's promise gate so a hung gate cannot outlive its
-    // tool-call timeout.
-    callTimeoutMs: 5 * 60_000,
   },
 });

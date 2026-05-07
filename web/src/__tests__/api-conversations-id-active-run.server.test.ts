@@ -35,8 +35,15 @@ vi.mock("$server/db/queries/active-runs", () => ({
   markInterrupted: vi.fn(),
 }));
 
+vi.mock("$server/runtime/ask-user-registry", () => ({
+  getPendingAskUserForConversation: vi.fn(() => []),
+}));
+
 const { getActiveRun, markInterrupted } = await import(
   "$server/db/queries/active-runs"
+);
+const { getPendingAskUserForConversation } = await import(
+  "$server/runtime/ask-user-registry"
 );
 const { GET, POST } = await import(
   "../routes/api/conversations/[id]/active-run/+server.ts"
@@ -71,6 +78,8 @@ describe("GET /api/conversations/[id]/active-run", () => {
     busEmit.mockReset();
     getPendingPermissions.mockReset();
     getPendingPermissions.mockReturnValue([]);
+    vi.mocked(getPendingAskUserForConversation).mockReset();
+    vi.mocked(getPendingAskUserForConversation).mockReturnValue([]);
   });
 
   test("rejects 401 when unauthenticated", async () => {
@@ -93,6 +102,30 @@ describe("GET /api/conversations/[id]/active-run", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { runId: null };
     expect(body.runId).toBeNull();
+  });
+
+  test("in-memory run: returns pendingAskUser entries for re-hydration", async () => {
+    // The ask-user gate hangs on a process-local Map; the tool_calls DB
+    // row is only written after the user answers, so the active-run GET
+    // is the ONLY way a refreshed client can learn about an in-flight
+    // question. Locks the wiring so a future refactor doesn't silently
+    // drop this field again (the symptom is an infinite skeleton loader
+    // on refresh).
+    getActiveRunForConversation.mockReturnValue({ id: "run-1", startedAt: Date.now() });
+    vi.mocked(getActiveRun).mockResolvedValue(null as any);
+    vi.mocked(getPendingAskUserForConversation).mockReturnValue([
+      { toolCallId: "tc-1", question: "Pick one", options: ["A", "B"], userId: "u1" },
+    ]);
+
+    const res = await GET(makeEvent({ locals: { user } }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      pendingAskUser?: Array<{ toolCallId: string; question?: string }>;
+    };
+    expect(body.pendingAskUser).toHaveLength(1);
+    expect(body.pendingAskUser?.[0]?.toolCallId).toBe("tc-1");
+    expect(body.pendingAskUser?.[0]?.question).toBe("Pick one");
+    expect(getPendingAskUserForConversation).toHaveBeenCalledWith("c1");
   });
 });
 

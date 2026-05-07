@@ -41,6 +41,12 @@ export interface InflightToolInfo {
   cardLayout?: string;
   startedAt: number;
   callTimeoutMs: number;
+  /**
+   * When `true`, the watchdog defers the idle kill for the duration of
+   * this call regardless of `callTimeoutMs` — see
+   * `ToolDefinition.requiresUserInput`.
+   */
+  requiresUserInput?: boolean;
 }
 
 /**
@@ -189,6 +195,11 @@ export class WatchdogManager {
     const runMap = this.inflightTools.get(runId);
     if (runMap && runMap.size > 0) {
       for (const info of runMap.values()) {
+        // Human-in-the-loop tools (requiresUserInput) defer indefinitely —
+        // the wait is bounded by the user, not by callTimeoutMs.
+        if (info.requiresUserInput) {
+          return `tool ${info.toolName} awaiting user input`;
+        }
         if (now - info.startedAt < info.callTimeoutMs) {
           return `tool ${info.toolName} in flight`;
         }
@@ -239,6 +250,11 @@ export class WatchdogManager {
         let reason = `Watchdog: no activity for ${Math.round(idleMs / 1000)}s`;
         if (runMap) {
           for (const info of runMap.values()) {
+            // Defensive: requiresUserInput tools never produce a
+            // callTimeoutMs-based kill reason (the deferral path always
+            // wins, but a future deferralReason refactor shouldn't
+            // accidentally surface this).
+            if (info.requiresUserInput) continue;
             const elapsed = now - info.startedAt;
             if (elapsed >= info.callTimeoutMs) {
               reason = `Tool ${info.toolName} exceeded its ${info.callTimeoutMs}ms call timeout`;

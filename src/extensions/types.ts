@@ -17,6 +17,14 @@ export interface ToolDefinition {
    * the warning surfaces in the registry log without breaking install.
    */
   cardLayout?: "inline" | "dock";
+  /**
+   * When `true`, the host treats this tool as human-in-the-loop:
+   * the subprocess JSON-RPC timeout race is skipped, and the watchdog
+   * defers the idle kill for the duration of the call. Use only for
+   * tools that explicitly block on a user reply (e.g. `ask_user_question`).
+   * Default `false`.
+   */
+  requiresUserInput?: boolean;
 }
 
 export interface SkillDefinition {

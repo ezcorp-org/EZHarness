@@ -333,6 +333,81 @@ describe("runActiveRunCheck (checkActiveRun)", () => {
 		expect(entry.input).toEqual({ question: "Confirm?", options: ["yes", "no"] });
 	});
 
+	test("pendingAskUser dedups by toolCallId — re-running on a WS reconnect does NOT double the entry", async () => {
+		// Reproduces the user-reported "question card renders twice" bug:
+		// the live `tool:start` SSE populated the entry; later a WS
+		// reconnect re-fired this resume path, and the active-run endpoint
+		// returned the same `pendingAskUser` entry. Without the dedup
+		// guard, the entry would be appended again, rendering the card
+		// twice. This test pins the dedup so future regressions are loud.
+		const respond = async () =>
+			jsonResponse({
+				runId: "run-dup",
+				status: "running",
+				pendingAskUser: [
+					{ toolCallId: "tc-dup-1", question: "Pick", options: ["a", "b"] },
+				],
+			});
+		backgroundFetchMock.mockImplementationOnce(respond);
+		backgroundFetchMock.mockImplementationOnce(respond);
+		const { host, state } = makeHost();
+
+		await runActiveRunCheck(host, state.loadGeneration);
+		await runActiveRunCheck(host, state.loadGeneration);
+
+		const calls = storeStub.streamingToolCalls["run-dup"];
+		expect(calls).toBeDefined();
+		expect(calls!.length).toBe(1);
+		expect(calls![0]!.id).toBe("tc-dup-1");
+	});
+
+	test("pendingPermissions dedups by toolCallId — same WS-reconnect race", async () => {
+		const respond = async () =>
+			jsonResponse({
+				runId: "run-perm-dup",
+				status: "running",
+				pendingPermissions: [
+					{ toolCallId: "tc-p-1", toolName: "fs__write", input: { path: "a" }, cardType: "fs-write" },
+				],
+			});
+		backgroundFetchMock.mockImplementationOnce(respond);
+		backgroundFetchMock.mockImplementationOnce(respond);
+		const { host, state } = makeHost();
+
+		await runActiveRunCheck(host, state.loadGeneration);
+		await runActiveRunCheck(host, state.loadGeneration);
+
+		const calls = storeStub.streamingToolCalls["run-perm-dup"];
+		expect(calls).toBeDefined();
+		expect(calls!.length).toBe(1);
+	});
+
+	test("streaming-${runId} placeholder dedups — re-running does NOT push a second placeholder", async () => {
+		// Companion to the above: the placeholder-message push at the end
+		// of the resume path also has to dedup, otherwise Svelte ends up
+		// with two messages keyed `streaming-<runId>` and the bubble
+		// briefly renders twice on reconnect.
+		const respond = async () =>
+			jsonResponse({
+				runId: "run-pl",
+				status: "running",
+				pendingAskUser: [
+					{ toolCallId: "tc-pl-1", question: "Pick", options: ["a"] },
+				],
+			});
+		backgroundFetchMock.mockImplementationOnce(respond);
+		backgroundFetchMock.mockImplementationOnce(respond);
+		const { host, state } = makeHost();
+
+		await runActiveRunCheck(host, state.loadGeneration);
+		const after1 = state.allMessages.filter((m) => m.id === "streaming-run-pl").length;
+		expect(after1).toBe(1);
+
+		await runActiveRunCheck(host, state.loadGeneration);
+		const after2 = state.allMessages.filter((m) => m.id === "streaming-run-pl").length;
+		expect(after2).toBe(1);
+	});
+
 	test("backgroundFetch throws → caught, checkingActiveRun cleared", async () => {
 		backgroundFetchMock.mockImplementationOnce(async () => {
 			throw new Error("network down");

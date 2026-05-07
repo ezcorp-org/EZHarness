@@ -98,23 +98,17 @@ export const _setRegisterEventHandlerForTests = (_fake: unknown): never => {
   );
 };
 
-// ── Timeout (injectable for tests) ─────────────────────────────────
-
-const DEFAULT_ASK_USER_TIMEOUT_MS = 5 * 60_000;
-let askUserTimeoutMs = DEFAULT_ASK_USER_TIMEOUT_MS;
-
-/** Test-only: shrink the 5-minute timeout so the timeout branch can be
- *  exercised without a real five-minute wait. */
-export function _setAskUserTimeoutForTests(ms: number): void {
-  askUserTimeoutMs = ms;
-}
-
 // ── Pending-answer tracking ────────────────────────────────────────
 //
 // Keyed on `toolCallId` (the host-minted invocation id). The gate is
 // resolved by the `ask-user:answer` subscription handler when the user
-// replies, rejected on timeout or abort. Subprocess is `persistent:
-// true`, so this map survives across calls.
+// replies, rejected on abort. Subprocess is `persistent: true`, so this
+// map survives across calls.
+//
+// No server-side timeout: the wait is bounded by user behavior, not by
+// a timer. The host opts out of both the subprocess JSON-RPC timeout
+// race and the watchdog idle-kill via the manifest's
+// `requiresUserInput: true` flag.
 //
 // `conversationId` is recorded for a defense-in-depth check inside the
 // subscription handler — even though the host's
@@ -126,7 +120,6 @@ export function _setAskUserTimeoutForTests(ms: number): void {
 interface PendingAskUser {
   resolve: (answer: string) => void;
   reject: (err: Error) => void;
-  timeoutHandle: ReturnType<typeof setTimeout>;
   conversationId: string;
 }
 
@@ -185,7 +178,6 @@ const askUserQuestion: ToolHandler = async (args, ctx?: AskUserToolContext) => {
   const onAbort = () => {
     const pending = pendingAskUser.get(toolCallId);
     if (pending) {
-      clearTimeout(pending.timeoutHandle);
       pendingAskUser.delete(toolCallId);
       pending.reject(new Error("Aborted while waiting for user answer"));
     }
@@ -194,17 +186,9 @@ const askUserQuestion: ToolHandler = async (args, ctx?: AskUserToolContext) => {
 
   try {
     const answer = await new Promise<string>((resolve, reject) => {
-      const timeoutHandle = setTimeout(() => {
-        const pending = pendingAskUser.get(toolCallId);
-        if (pending) {
-          pendingAskUser.delete(toolCallId);
-          pending.reject(new Error("Timed out waiting for user answer"));
-        }
-      }, askUserTimeoutMs);
       pendingAskUser.set(toolCallId, {
         resolve,
         reject,
-        timeoutHandle,
         conversationId,
       });
     });
@@ -249,7 +233,6 @@ async function handleAnswer(payload: IncomingAskUserAnswer): Promise<void> {
   // different conversation (or tampered). Drop silently.
   if (pending.conversationId !== conversationId) return;
 
-  clearTimeout(pending.timeoutHandle);
   pendingAskUser.delete(toolCallId);
   pending.resolve(answer);
 }
@@ -263,7 +246,6 @@ export const tools: Record<string, ToolHandler> = {
 export const _internals = {
   pendingAskUser,
   handleAnswer,
-  DEFAULT_ASK_USER_TIMEOUT_MS,
 };
 
 /**

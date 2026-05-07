@@ -172,6 +172,9 @@ export function subscribeBridge(
           callTimeoutMs,
           ...(startCardType ? { cardType: startCardType } : {}),
           ...(startCardLayout ? { cardLayout: startCardLayout } : {}),
+          ...(startRegistered?.requiresUserInput === true
+            ? { requiresUserInput: true }
+            : {}),
         });
         break;
       }

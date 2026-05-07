@@ -237,8 +237,18 @@ export class ExtensionProcess {
       });
   }
 
-  /** Send a JSON-RPC call and wait for the response. */
-  async call(method: string, params?: Record<string, unknown>): Promise<JsonRpcResponse> {
+  /** Send a JSON-RPC call and wait for the response.
+   *
+   *  `options.skipTimeout` opts out of the per-call timeout race — the
+   *  host awaits the subprocess response indefinitely, cancelled only
+   *  by the caller's AbortSignal (or a subprocess crash). Used for
+   *  human-in-the-loop tools (`ToolDefinition.requiresUserInput`) where
+   *  the wait is bounded by user behavior, not server budget. */
+  async call(
+    method: string,
+    params?: Record<string, unknown>,
+    options?: { skipTimeout?: boolean },
+  ): Promise<JsonRpcResponse> {
     this.ensureRunning();
 
     const request: JsonRpcRequest = {
@@ -251,15 +261,19 @@ export class ExtensionProcess {
     this.resetIdleTimer();
 
     const responsePromise = this.transport!.send(request);
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(
-        () => reject(new Error(`Tool call timed out after ${this.callTimeoutMs}ms`)),
-        this.callTimeoutMs,
-      );
-    });
 
     try {
-      const response = await Promise.race([responsePromise, timeoutPromise]);
+      const response = options?.skipTimeout
+        ? await responsePromise
+        : await Promise.race([
+            responsePromise,
+            new Promise<never>((_, reject) => {
+              setTimeout(
+                () => reject(new Error(`Tool call timed out after ${this.callTimeoutMs}ms`)),
+                this.callTimeoutMs,
+              );
+            }),
+          ]);
       // Success -- reset failure count
       try { await resetFailures(this.extensionId); } catch { /* DB may not be available in tests */ }
       return response;
@@ -286,10 +300,11 @@ export class ExtensionProcess {
     toolName: string,
     args: Record<string, unknown>,
     meta?: Record<string, unknown>,
+    options?: { skipTimeout?: boolean },
   ): Promise<ToolCallResult> {
     const params: Record<string, unknown> = { name: toolName, arguments: args };
     if (meta && Object.keys(meta).length > 0) params._meta = meta;
-    const response = await this.call("tools/call", params);
+    const response = await this.call("tools/call", params, options);
     if (response.error) {
       return {
         content: [{ type: "text", text: response.error.message }],
