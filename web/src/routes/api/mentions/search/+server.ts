@@ -380,10 +380,22 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	// the user typed bare `!` / `!ez` / `!e` etc. — discoverability parity
 	// with agent/ext/team. Skipped when explicitly filtering to a sibling
 	// kind (`!agent:` / `!ext:` / `!team:`).
+	//
+	// `isKindPrefix` makes typing the kind label itself (`!`, `!e`, `!ez`)
+	// surface ALL EZ actions. Without it, the substring match against
+	// name/description would exclude every action when no name happens to
+	// contain "ez" — which is the live case in v1 (`distill`,
+	// "Force-trigger lesson distillation"). Typing the kind name should
+	// mean "show me this kind's stuff," matching how the user thinks.
 	if (type !== "agent" && type !== "ext" && type !== "team" && results.length < MAX_RESULTS) {
 		const { listEzActions } = await import("$server/runtime/ez-actions/registry");
+		const isKindPrefix = !q || "ez".startsWith(lowerQ);
 		for (const a of listEzActions()) {
-			if (!q || a.name.toLowerCase().includes(lowerQ) || a.description.toLowerCase().includes(lowerQ)) {
+			if (
+				isKindPrefix ||
+				a.name.toLowerCase().includes(lowerQ) ||
+				a.description.toLowerCase().includes(lowerQ)
+			) {
 				results.push({ name: a.name, description: a.description, kind: "EZ" });
 			}
 			if (results.length >= MAX_RESULTS) break;

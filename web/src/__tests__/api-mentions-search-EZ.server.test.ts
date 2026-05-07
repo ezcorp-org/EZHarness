@@ -303,4 +303,93 @@ describe("GET /api/mentions/search (no type param) — EZ included in merge", ()
     const body = (await res.json()) as Array<Record<string, unknown>>;
     expect(body.filter((b) => b.kind === "EZ")).toEqual([]);
   });
+
+  // ── Kind-prefix matching: `!ez` should surface EZ actions even when ──
+  // ── the action's name/description doesn't contain "ez".            ──
+  //
+  // Live bug fixed here: `distill` action name has no "ez", description
+  // "Force-trigger lesson distillation" has no "ez". Pre-fix, typing
+  // `!ez` matched neither and the user saw an empty popover even
+  // though the popover was wired to render the EZ section.
+
+  test("no type, q=ez → ALL EZ actions surface (kind label is `ez` prefix)", async () => {
+    mockListEzActions.mockReturnValue([
+      { name: "distill", description: "Force-trigger lesson distillation" },
+      { name: "summarize", description: "Summarize this conversation" },
+    ]);
+
+    const res = await GET(
+      makeEvent({
+        href: "http://localhost/api/mentions/search?q=ez",
+        locals: { user: USER },
+      }),
+    );
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const ez = body.filter((b) => b.kind === "EZ");
+    expect(ez.map((b) => b.name).sort()).toEqual(["distill", "summarize"]);
+  });
+
+  test("no type, q=e → ALL EZ actions surface (`e` is a prefix of `ez`)", async () => {
+    mockListEzActions.mockReturnValue([
+      { name: "distill", description: "Force-trigger lesson distillation" },
+    ]);
+
+    const res = await GET(
+      makeEvent({
+        href: "http://localhost/api/mentions/search?q=e",
+        locals: { user: USER },
+      }),
+    );
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+    expect(body.filter((b) => b.kind === "EZ").map((b) => b.name)).toEqual(["distill"]);
+  });
+
+  test("no type, q=Ez (mixed case) → kind-prefix match is case-insensitive", async () => {
+    mockListEzActions.mockReturnValue([
+      { name: "distill", description: "Force-trigger lesson distillation" },
+    ]);
+
+    const res = await GET(
+      makeEvent({
+        href: "http://localhost/api/mentions/search?q=Ez",
+        locals: { user: USER },
+      }),
+    );
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+    expect(body.filter((b) => b.kind === "EZ").map((b) => b.name)).toEqual(["distill"]);
+  });
+
+  test("no type, q=ezx (typo past `ez`) → name/description fallback only", async () => {
+    mockListEzActions.mockReturnValue([
+      { name: "distill", description: "Force-trigger lesson distillation" },
+    ]);
+
+    const res = await GET(
+      makeEvent({
+        href: "http://localhost/api/mentions/search?q=ezx",
+        locals: { user: USER },
+      }),
+    );
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+    // Neither name nor description contains "ezx" → no match.
+    expect(body.filter((b) => b.kind === "EZ")).toEqual([]);
+  });
+
+  test("no type, q=dist → name match still works alongside kind-prefix path", async () => {
+    mockListEzActions.mockReturnValue([
+      { name: "distill", description: "Force-trigger lesson distillation" },
+      { name: "summarize", description: "Summarize this conversation" },
+    ]);
+
+    const res = await GET(
+      makeEvent({
+        href: "http://localhost/api/mentions/search?q=dist",
+        locals: { user: USER },
+      }),
+    );
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+    // "dist" doesn't prefix-match "ez", so only the name-substring match fires:
+    // distill matches by name, summarize doesn't.
+    expect(body.filter((b) => b.kind === "EZ").map((b) => b.name)).toEqual(["distill"]);
+  });
 });
