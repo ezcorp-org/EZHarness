@@ -461,6 +461,44 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 					),
 			);
 
+			// EZ Actions v1: append synthetic `ez-action-result`
+			// messages to chat history immediately so the result cards
+			// render inline. Mirrors the optimistic-message pattern —
+			// the server already persisted these rows; we just need the
+			// client store to know about them so ChatMessage.svelte's
+			// `role === "ez-action-result"` branch renders them. They
+			// parent off the user message for branch-navigation parity.
+			if (result.ezActionResults && result.ezActionResults.length > 0) {
+				const ezMsgs: Message[] = result.ezActionResults.map((r) => ({
+					id: r.id,
+					conversationId: convIdNow,
+					role: r.role,
+					content: r.content,
+					parentMessageId: realUserMsg.id,
+					createdAt: new Date().toISOString(),
+				} as Message));
+				host.allMessages.set([
+					...host.allMessages.get(),
+					...ezMsgs,
+				]);
+			}
+
+			// No-LLM mode: action-only message returned `runId: null`.
+			// No assistant turn fires; skip the streaming setup
+			// entirely. The result cards added above are the full UI
+			// payload for this submission. We still update the active
+			// leaf so subsequent messages parent correctly off the
+			// user message (or the last result card, whichever is
+			// chronologically last in the chat tree).
+			if (result.runId === null) {
+				const lastEz = result.ezActionResults?.[result.ezActionResults.length - 1];
+				host.activeLeafId.set(lastEz?.id ?? realUserMsg.id);
+				host.activeRunId.set(null);
+				host.activeRunStartedAt.set(null);
+				host.serverStalenessMs.set(null);
+				return;
+			}
+
 			// Start streaming (returns false if run already errored).
 			const started = startStreaming(result.runId, convIdNow);
 			if (!started) {
@@ -559,7 +597,13 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 				result.userMessage,
 			]);
 
-			// Start streaming for the AI response.
+			// Start streaming for the AI response. EZ Actions can return
+			// `runId: null` for action-only messages, but this path
+			// (handleEditConfirm) doesn't accept action-only messages
+			// because the edit content already has tokens stripped at
+			// the edit-input stage. Defensive narrowing here so the
+			// downstream code can keep treating runId as non-null.
+			if (result.runId === null) return;
 			host.activeRunId.set(result.runId);
 			host.activeRunStartedAt.set(Date.now());
 			host.serverStalenessMs.set(0);
@@ -618,7 +662,11 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 				result.userMessage,
 			]);
 
-			// Start streaming.
+			// Start streaming. As above, this handler (handleRegenerate)
+			// doesn't accept action-only EZ messages — narrow the
+			// `runId | null` from sendMessage's return so downstream
+			// code keeps the non-null assumption.
+			if (result.runId === null) return;
 			host.activeRunId.set(result.runId);
 			host.activeRunStartedAt.set(Date.now());
 			host.serverStalenessMs.set(0);
@@ -751,6 +799,13 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 				content: text,
 				parentMessageId: undefined,
 			});
+			// Sub-conversations don't fire EZ actions (the spawn path
+			// doesn't go through the messages POST handler that
+			// handles tokens). Narrow `runId | null` defensively.
+			if (result.runId === null) {
+				subConversationStore.setStreaming(false);
+				return;
+			}
 			startStreaming(result.runId, active.id);
 		} catch (err) {
 			console.error("Sub-convo send failed:", err);

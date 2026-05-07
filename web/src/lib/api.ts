@@ -591,7 +591,21 @@ export async function sendMessage(
 		thinkingLevel?: string;
 		attachments?: File[];
 	},
-): Promise<{ userMessage: Message; runId: string; attachments?: AttachmentSummary[] }> {
+): Promise<{
+	userMessage: Message;
+	/** Null when the message was action-only (`![EZ:*]` tokens with no
+	 *  surrounding prose) — the LLM call is skipped server-side so
+	 *  there's no run to stream. Callers MUST short-circuit the
+	 *  streaming setup when `runId` is null. */
+	runId: string | null;
+	attachments?: AttachmentSummary[];
+	/** EZ Actions v1: synthetic `role: "ez-action-result"` messages
+	 *  persisted server-side for any `![EZ:*]` tokens in the user
+	 *  message. Empty array when no action tokens were present.
+	 *  Callers should append these to the chat history immediately
+	 *  (parented to the user message) so the cards render inline. */
+	ezActionResults?: Array<{ id: string; role: string; content: string }>;
+}> {
 	const url = `${BASE}/api/conversations/${conversationId}/messages`;
 	let res: Response;
 	if (data.attachments && data.attachments.length > 0) {

@@ -10,6 +10,7 @@
 	import MemoriesCard from "./MemoriesCard.svelte";
 	import AgentChip from "./AgentChip.svelte";
 	import MentionChip from "./MentionChip.svelte";
+	import EzActionCard, { type EzActionCardResult } from "./EzActionCard.svelte";
 	import ProviderIcon from "./ProviderIcon.svelte";
 	import MessageAttachments from "./MessageAttachments.svelte";
 	import { getSegments } from "$lib/mention-logic.js";
@@ -323,6 +324,37 @@
 	// keep the row visually clean.
 	let suppressExtensionBody = $derived(message.role === "extension");
 
+	// Parse the JSON-encoded EzActionResult payload stored in
+	// `message.content` for `role === "ez-action-result"` rows.
+	// Returns null on malformed input so the renderer can fall back
+	// to a minimal "unreadable" pill instead of surfacing a
+	// server-side bug as a blank message row. The shape match is
+	// intentionally lenient — we only require `card.title +
+	// card.body + card.variant` to be present, since those drive the
+	// visual; missing `kind`/`ref` are tolerated.
+	function parseEzActionResult(raw: string): EzActionCardResult | null {
+		try {
+			const parsed = JSON.parse(raw);
+			if (!parsed || typeof parsed !== "object") return null;
+			const c = (parsed as { card?: unknown }).card;
+			if (!c || typeof c !== "object") return null;
+			const card = c as { title?: unknown; body?: unknown; variant?: unknown };
+			if (typeof card.title !== "string") return null;
+			if (typeof card.body !== "string") return null;
+			if (
+				card.variant !== "success" &&
+				card.variant !== "info" &&
+				card.variant !== "warning" &&
+				card.variant !== "error"
+			) {
+				return null;
+			}
+			return parsed as EzActionCardResult;
+		} catch {
+			return null;
+		}
+	}
+
 	function tooltipForMention(mentionName: string): string | undefined {
 		if (!inlineToolCalls?.length) return undefined;
 		const matches = inlineToolCalls.filter(c => c.extensionName === mentionName);
@@ -334,7 +366,22 @@
 	}
 </script>
 
-{#if message.role === "system"}
+{#if message.role === "ez-action-result"}
+	{@const ezResult = parseEzActionResult(message.content)}
+	{#if ezResult}
+		<div class="px-4 py-2" data-message-id={message.id}>
+			<EzActionCard result={ezResult} />
+		</div>
+	{:else}
+		<!-- Malformed payload — surface a minimal error inline so the
+		     row doesn't render as an empty void. The persisted JSON
+		     is always written by the dispatcher / submit handler so
+		     this branch is mostly defensive. -->
+		<div class="flex justify-center py-2" data-message-id={message.id}>
+			<span class="text-xs text-rose-400 italic">EZ action result unreadable.</span>
+		</div>
+	{/if}
+{:else if message.role === "system"}
 	<div class="flex justify-center py-2" data-message-id={message.id}>
 		<span class="text-xs text-[var(--color-text-muted)] italic">{message.content}</span>
 	</div>
