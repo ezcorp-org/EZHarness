@@ -39,7 +39,6 @@ import { sql } from "drizzle-orm";
 let userId: string;
 let userId2: string;
 let extensionId: string;
-let extensionId2: string;
 let conversationId: string;
 let projectId: string;
 
@@ -97,7 +96,6 @@ beforeAll(async () => {
   });
   userId2 = u2.id;
   extensionId = await ensureExtension("ext-cap-1");
-  extensionId2 = await ensureExtension("ext-cap-2");
   projectId = await ensureProject();
   conversationId = await ensureConversation(userId);
 });
@@ -280,7 +278,7 @@ describe("cleanupOldSdkCapabilityCalls — per-capability retention", () => {
 
 describe("schema enforcement", () => {
   test("NOT NULL on_behalf_of: passing null userId throws", async () => {
-    await expect(
+    await (expect(
       insertSdkCapabilityCall({
         extensionId,
         // @ts-expect-error — intentionally violating the type
@@ -290,11 +288,11 @@ describe("schema enforcement", () => {
         success: true,
         durationMs: 1,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow() as unknown as Promise<void>);
   });
 
   test("FK on extension_id: cascade insert with non-existent extensionId rejected", async () => {
-    await expect(
+    await (expect(
       insertSdkCapabilityCall({
         extensionId: "00000000-0000-0000-0000-000000000000",
         onBehalfOf: userId,
@@ -303,7 +301,7 @@ describe("schema enforcement", () => {
         success: true,
         durationMs: 1,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow() as unknown as Promise<void>);
   });
 
   // Sanity: indexes exist (smoke check via system catalog).
@@ -320,5 +318,3 @@ describe("schema enforcement", () => {
   });
 });
 
-// extensionId2 is referenced for completeness in describe scope; mark used.
-void extensionId2;

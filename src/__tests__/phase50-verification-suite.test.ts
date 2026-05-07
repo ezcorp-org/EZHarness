@@ -137,7 +137,7 @@ describe("Phase 50 — migration idempotency", () => {
     const beforeN = ((before as unknown) as { rows: { n: number }[] }).rows[0]?.n ?? 0;
 
     // Re-run migrate. Must not throw.
-    await expect(migrate(db)).resolves.toBeUndefined();
+    await (expect(migrate(db)).resolves.toBeUndefined() as unknown as Promise<void>);
 
     const after = await db.execute(sql`
       SELECT COUNT(*)::int as n FROM information_schema.columns WHERE table_name = 'sdk_capability_calls'
