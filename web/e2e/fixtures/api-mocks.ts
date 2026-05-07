@@ -546,7 +546,64 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 				// path exercises its attachments render.
 				...(attachments.length > 0 ? { attachments } as any : {}),
 			});
-			return route.fulfill({ json: { userMessage: userMsg, runId: "run-stream", attachments } });
+
+			// EZ Actions v1 e2e support: detect `![EZ:*]` tokens in the
+			// content. For each, synthesize a result message; if the
+			// stripped content is whitespace-only, return `runId: null`
+			// (action-only no-LLM mode). Mirrors the real server's
+			// stripEzActionTokens + dispatch loop in
+			// web/src/routes/api/conversations/[id]/messages/+server.ts.
+			//
+			// The synthesized result depends on the action name:
+			//   - `distill` → success card with a fake lesson slug for
+			//     ref-link assertions
+			//   - any other name → silent strip (no result message
+			//     persisted; matches real "unknown action" behavior)
+			//
+			// Tests that need to exercise specific decline/error paths
+			// can override this by using page.route() with a more
+			// specific URL pattern BEFORE mockApi runs.
+			const EZ_RE = /!\[EZ:([^\]]+)\]/g;
+			const ezMatches: string[] = [];
+			let ezMatch: RegExpExecArray | null;
+			while ((ezMatch = EZ_RE.exec(content)) !== null) {
+				ezMatches.push(ezMatch[1]!);
+			}
+			const stripped = content.replace(/!\[EZ:[^\]]+\]\s?/g, "");
+			const ezActionResults: Array<{
+				id: string;
+				role: string;
+				content: string;
+			}> = [];
+			let ezResultIdx = 0;
+			for (const name of ezMatches) {
+				if (name !== "distill") continue; // unknown → silent strip
+				const synthResult = {
+					kind: "success",
+					card: {
+						title: "Lesson captured",
+						body: `e2e-mock lesson body (action: ${name})`,
+						variant: "success",
+					},
+					ref: { kind: "lesson", slug: "e2e-mock-slug" },
+				};
+				ezActionResults.push({
+					id: `ez-result-${++ezResultIdx}`,
+					role: "ez-action-result",
+					content: JSON.stringify(synthResult),
+				});
+			}
+			const isActionOnly =
+				ezMatches.length > 0 && stripped.trim().length === 0;
+
+			return route.fulfill({
+				json: {
+					userMessage: userMsg,
+					runId: isActionOnly ? null : "run-stream",
+					attachments,
+					ezActionResults,
+				},
+			});
 		}
 
 		// Attachment bytes — tests that render history images hit this route
@@ -1072,6 +1129,34 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 						description: f.description,
 						kind: "feature" as const,
 						fileCount: f.fileCount,
+					})),
+				});
+			}
+
+			// EZ Actions search — `type=EZ` mirrors the real route's
+			// in-memory registry lookup. Static list scoped to the
+			// in-test action set; substring match on name + description.
+			// No DB / project scope — actions are global.
+			if (type === "EZ") {
+				const allActions = [
+					{
+						name: "distill",
+						description:
+							"Force-trigger lesson distillation on this conversation (bypasses the trigger gate)",
+					},
+				];
+				const matched = q
+					? allActions.filter(
+							(a) =>
+								a.name.toLowerCase().includes(q.toLowerCase()) ||
+								a.description.toLowerCase().includes(q.toLowerCase()),
+						)
+					: allActions;
+				return route.fulfill({
+					json: matched.slice(0, 10).map((a) => ({
+						name: a.name,
+						description: a.description,
+						kind: "EZ" as const,
 					})),
 				});
 			}
