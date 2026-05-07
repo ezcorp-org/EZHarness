@@ -4,7 +4,11 @@
  */
 
 import type { ExtensionManifestV2 } from "./types";
-import { validateManifestV2, validateMcpManifest } from "./manifest";
+import {
+  migrateManifestV2ToV3,
+  validateManifestV2,
+  validateMcpManifest,
+} from "./manifest";
 import { join } from "node:path";
 
 // Route kind:"mcp" manifests to the stricter mcp validator (enforces
@@ -76,7 +80,12 @@ async function loadManifestFromPath(
     throw new Error(`Invalid manifest: ${validation.errors.join(", ")}`);
   }
 
-  return manifest as unknown as ExtensionManifestV2;
+  // Phase 1: every downstream consumer reads v3 shape. v2 manifests
+  // pass through `migrateManifestV2ToV3`, which inherits the
+  // extension-wide cap ceiling onto each tool that didn't author its
+  // own declaration. v3 manifests are returned unchanged.
+  const migrated = migrateManifestV2ToV3(manifest as unknown as ExtensionManifestV2);
+  return migrated;
 }
 
 /**

@@ -34,7 +34,12 @@ describe("loadManifest", () => {
       );
       const manifest = await loadManifest(dir);
       expect(manifest.name).toBe("test-ext");
-      expect(manifest.schemaVersion).toBe(2);
+      // Phase 1: the loader auto-promotes v2 manifests to v3 shape so
+      // every downstream consumer (registry, tool-executor, PDP) sees
+      // per-tool capability declarations. The on-disk manifest is
+      // still v2; the loader marks the result `_inheritedFromV2`.
+      expect(manifest.schemaVersion).toBe(3);
+      expect((manifest as { _inheritedFromV2?: boolean })._inheritedFromV2).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

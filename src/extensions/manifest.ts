@@ -1,5 +1,12 @@
 import { inferPackageType } from "./types";
-import type { SettingsField } from "./types";
+import type {
+  CapabilityDeclaration,
+  ExtensionManifest,
+  ExtensionManifestInternal,
+  ExtensionPermissions,
+  SettingsField,
+  ToolDefinition,
+} from "./types";
 export { inferPackageType };
 
 const SEMVER_REGEX = /^\d+\.\d+\.\d+$/;
@@ -34,6 +41,99 @@ function validateToolsArray(tools: unknown, errors: string[]): void {
       errors.push(`tools[${i}].description is required`);
     if (!t.inputSchema || typeof t.inputSchema !== "object")
       errors.push(`tools[${i}].inputSchema is required`);
+    if (t.capabilities !== undefined) {
+      validateToolCapabilities(`tools[${i}].capabilities`, t.capabilities, errors);
+    }
+  }
+}
+
+/**
+ * Phase 1 v3 per-tool `capabilities` block. Shape is `{network?,
+ * filesystem?, shell?, env?, storage?, custom?}` — see
+ * `CapabilityDeclaration` in `./types.ts`.
+ */
+function validateToolCapabilities(
+  path: string,
+  caps: unknown,
+  errors: string[],
+): void {
+  if (!caps || typeof caps !== "object" || Array.isArray(caps)) {
+    errors.push(`${path} must be an object`);
+    return;
+  }
+  const c = caps as Record<string, unknown>;
+  if (c.network !== undefined) {
+    if (
+      !c.network ||
+      typeof c.network !== "object" ||
+      Array.isArray(c.network) ||
+      !Array.isArray((c.network as Record<string, unknown>).hosts)
+    ) {
+      errors.push(`${path}.network must be { hosts: string[] }`);
+    } else {
+      for (const h of (c.network as { hosts: unknown[] }).hosts) {
+        if (typeof h !== "string") {
+          errors.push(`${path}.network.hosts entries must be strings`);
+          break;
+        }
+      }
+    }
+  }
+  if (c.filesystem !== undefined) {
+    if (
+      !c.filesystem ||
+      typeof c.filesystem !== "object" ||
+      Array.isArray(c.filesystem) ||
+      !Array.isArray((c.filesystem as Record<string, unknown>).paths) ||
+      !Array.isArray((c.filesystem as Record<string, unknown>).mode)
+    ) {
+      errors.push(
+        `${path}.filesystem must be { paths: string[], mode: ("read"|"write")[] }`,
+      );
+    } else {
+      const fs = c.filesystem as { paths: unknown[]; mode: unknown[] };
+      for (const p of fs.paths) {
+        if (typeof p !== "string") {
+          errors.push(`${path}.filesystem.paths entries must be strings`);
+          break;
+        }
+      }
+      for (const m of fs.mode) {
+        if (m !== "read" && m !== "write") {
+          errors.push(`${path}.filesystem.mode entries must be "read" or "write"`);
+          break;
+        }
+      }
+    }
+  }
+  if (c.shell !== undefined && typeof c.shell !== "boolean") {
+    errors.push(`${path}.shell must be a boolean`);
+  }
+  if (c.env !== undefined) {
+    if (!Array.isArray(c.env)) {
+      errors.push(`${path}.env must be a string array`);
+    } else {
+      for (const e of c.env as unknown[]) {
+        if (typeof e !== "string") {
+          errors.push(`${path}.env entries must be strings`);
+          break;
+        }
+      }
+    }
+  }
+  if (c.storage !== undefined && typeof c.storage !== "boolean") {
+    errors.push(`${path}.storage must be a boolean`);
+  }
+  if (c.custom !== undefined) {
+    if (!c.custom || typeof c.custom !== "object" || Array.isArray(c.custom)) {
+      errors.push(`${path}.custom must be a plain object`);
+    } else {
+      for (const [k, v] of Object.entries(c.custom)) {
+        if (typeof v !== "boolean" && !Array.isArray(v)) {
+          errors.push(`${path}.custom.${k} must be a boolean or string array`);
+        }
+      }
+    }
   }
 }
 
@@ -526,7 +626,9 @@ export function validateManifestV2(
   const m = data as Record<string, unknown>;
 
   // Required fields
-  if (m.schemaVersion !== 2) errors.push("schemaVersion must be 2");
+  if (m.schemaVersion !== 2 && m.schemaVersion !== 3) {
+    errors.push(`schemaVersion must be 2 or 3, got ${String(m.schemaVersion)}`);
+  }
   if (!m.name || typeof m.name !== "string") {
     errors.push("name is required and must be a non-empty string");
   } else if (!NAME_REGEX.test(m.name) || m.name.includes("..")) {
@@ -712,4 +814,95 @@ export function generateSlug(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+// ── V2 → V3 Manifest Migration ──────────────────────────────────────
+//
+// Phase 1: every downstream consumer (registry, tool-executor, PDP)
+// works with v3 shape. The loader runs `migrateManifestV2ToV3` after
+// validation so authors can keep writing v2 manifests while the
+// runtime sees per-tool capability declarations.
+//
+// Migration rule: each tool inherits the extension-wide ceiling
+// (`m.permissions` translated to `CapabilityDeclaration`). Tools that
+// already declared their own `capabilities` keep their authored
+// declaration — the migration NEVER widens an authored cap set.
+
+/**
+ * Promote a v2 manifest to v3-shape with per-tool capability
+ * declarations. v3 manifests pass through with `_inheritedFromV2`
+ * unset.
+ */
+export function migrateManifestV2ToV3(
+  m: ExtensionManifest,
+): ExtensionManifestInternal {
+  if (m.schemaVersion === 3) return m as ExtensionManifestInternal;
+
+  const inherited = deriveCapsFromExtensionPerms(m.permissions);
+
+  // Distribute the inherited cap set to every tool that lacks an
+  // authored declaration. Authored declarations are preserved exactly
+  // — no widening.
+  const tools: ToolDefinition[] = (m.tools ?? []).map((t) => ({
+    ...t,
+    capabilities: t.capabilities ?? inherited,
+  }));
+
+  return {
+    ...m,
+    schemaVersion: 3,
+    tools,
+    _inheritedFromV2: true,
+  };
+}
+
+/**
+ * Translate the extension-wide `permissions` block into a
+ * `CapabilityDeclaration`. Used by `migrateManifestV2ToV3` and made
+ * available for tooling that needs the same translation
+ * (e.g. install-time UI rendering).
+ */
+export function deriveCapsFromExtensionPerms(
+  perms: ExtensionPermissions | ExtensionManifest["permissions"] | undefined,
+): CapabilityDeclaration {
+  const decl: CapabilityDeclaration = {};
+  if (!perms) return decl;
+
+  if (perms.network && perms.network.length > 0) {
+    decl.network = { hosts: [...perms.network] };
+  }
+  if (perms.filesystem && perms.filesystem.length > 0) {
+    // V2 filesystem was a flat allowlist with implicit read+write —
+    // mirror that semantics in v3 by declaring both modes.
+    decl.filesystem = {
+      paths: [...perms.filesystem],
+      mode: ["read", "write"],
+    };
+  }
+  if (perms.shell === true) {
+    decl.shell = true;
+  }
+  if (perms.env && perms.env.length > 0) {
+    decl.env = [...perms.env];
+  }
+  if (perms.storage === true) {
+    decl.storage = true;
+  }
+
+  // Translate the legacy boolean fields to the namespaced custom
+  // namespace so the PDP's `capabilityDeclarationToSet` produces
+  // matching `ezcorp:*` caps.
+  const custom: Record<string, string[] | boolean> = {};
+  if (perms.appendMessages !== undefined) custom.appendMessages = true;
+  if (perms.agentConfig === "read") custom.agentConfig = true;
+  if (perms.spawnAgents) custom.spawnAgents = true;
+  if (perms.taskEvents === true) custom.taskEvents = true;
+  if (perms.eventSubscriptions && perms.eventSubscriptions.length > 0) {
+    custom.eventSubscriptions = [...perms.eventSubscriptions];
+  }
+  if (Object.keys(custom).length > 0) {
+    decl.custom = custom;
+  }
+
+  return decl;
 }
