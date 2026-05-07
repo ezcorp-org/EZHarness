@@ -45,17 +45,40 @@ export async function buildPromptInput(
   userMessage: string,
   options: BuildPromptOptions,
 ): Promise<BuildPromptResult> {
-  // Slash-command expansion runs against the raw userMessage and
+  // EZ-action tokens (`![EZ:name]`) are stripped FIRST so subsequent
+  // expansions (slash commands, file mentions, features, lessons) see
+  // the same prose the LLM will. The token strip is literal — no
+  // expansion, no recursion — and it runs before slash-command
+  // expansion because EZ actions never produce prompt text (they're
+  // side-channel side effects whose results render as separate cards
+  // post-stream). The persisted message keeps the raw tokens; only
+  // the LLM-facing variant has them removed. Mirrors the
+  // `applyCommandExpansion` discipline: persisted text is faithful;
+  // LLM input is the cleaned variant.
+  let text = userMessage;
+  // Strip variant — feeds slash-command expansion AND becomes the
+  // baseline for all subsequent prepended-note expansions (file /
+  // feature / lesson). Those passes parse the ORIGINAL `userMessage`
+  // for THEIR tokens (which are kind-disjoint from EZ), but `text`
+  // (the LLM-facing variant) must be the cleaned version so the LLM
+  // never sees `![EZ:…]`.
+  let strippedUserMessage = userMessage;
+  {
+    const { stripEzActionTokens } = await import("../mention-wiring");
+    const { stripped } = stripEzActionTokens(userMessage);
+    strippedUserMessage = stripped;
+    text = stripped;
+  }
+  // Slash-command expansion runs against the (post-EZ-strip) text and
   // produces the text that goes to the LLM. The persisted message
   // (stored upstream) keeps the raw `/[cmd:name]` tokens so edit /
-  // replay semantics remain stable. Expansion is literal — we do
-  // NOT re-parse the expanded text for other mention kinds (see
+  // replay semantics remain stable. Expansion is literal — we do NOT
+  // re-parse the expanded text for other mention kinds (see
   // expand-command-mentions.test.ts for the injection guards).
-  let text = userMessage;
   if (options.commandResolver) {
     try {
       const { applyCommandExpansion } = await import("../mention-wiring");
-      text = await applyCommandExpansion(userMessage, options.commandResolver);
+      text = await applyCommandExpansion(strippedUserMessage, options.commandResolver);
     } catch { /* Slash-command expansion failure is non-fatal */ }
   }
 

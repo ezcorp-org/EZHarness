@@ -248,6 +248,102 @@ export async function applyFeatureExpansion(
   return blocks.join("\n\n");
 }
 
+// ─── EZ-action token strip ─────────────────────────────────────────
+
+/**
+ * Standalone token regex for `![EZ:name]`. Mirrors `FEATURE_TOKEN_RE`
+ * — sourced from the shared `STRUCTURED_NAME_CHAR_CLASS` constant in
+ * mention-logic.ts so this module's strip never drifts from the
+ * front-end picker regex. The kind alternation in MENTION_REGEX
+ * accepts `agent|ext|team|EZ` under the `!` sigil; this regex pins
+ * the kind to literal `EZ` because we ONLY strip the action tokens —
+ * agent / ext / team mentions are still resolved by
+ * `resolveMentionedAgents` / `wireMentionedExtensions`.
+ *
+ * The `g` flag is ON; consumers should re-instantiate the regex
+ * locally (or copy `.source`) if they need a fresh `lastIndex`.
+ */
+export const EZ_ACTION_TOKEN_RE = new RegExp(
+  `!\\[EZ:(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
+  "g",
+);
+
+/**
+ * Result of stripping `![EZ:*]` tokens from a user message.
+ *
+ * `stripped` is what the LLM should see (tokens removed; surrounding
+ * whitespace collapsed enough to keep prose readable). `actions` is
+ * the source-order list of action names referenced — duplicates kept
+ * (each token fires once independently; per-action dedupe is the
+ * dispatcher's call, not the parser's).
+ *
+ * The `stripped` text retains all OTHER mention sigils untouched —
+ * `@[file:…]`, `/[cmd:…]`, `$[feature:…]`, `%[lesson:…]`, and
+ * `![agent|ext|team:…]` all pass through to be expanded / wired by
+ * their respective passes downstream.
+ */
+export interface StrippedEzTokens {
+  stripped: string;
+  actions: { name: string; start: number; end: number }[];
+}
+
+/**
+ * Pure-text helper: strip `![EZ:*]` tokens from `userMessage`,
+ * returning the cleaned text the LLM should see and the source-order
+ * action list the dispatcher should fire.
+ *
+ * Critical correctness rules:
+ *   - The ORIGINAL message (with tokens intact) is what gets persisted
+ *     in the `messages` table. The caller passes the original to this
+ *     helper to obtain the LLM-facing variant.
+ *   - Strip is LITERAL — no expansion, no recursion. If a token
+ *     references an unknown action name, it's still stripped (the
+ *     dispatcher handles the unknown-name case by silent no-op,
+ *     mirroring how `applyCommandExpansion` handles unknown commands
+ *     by leaving the token verbatim — but for EZ actions we always
+ *     remove from the LLM-facing text because the user clearly meant
+ *     to invoke an action, even if it doesn't exist).
+ *   - Whitespace cleanup: when a token sits surrounded by spaces (or
+ *     between newlines), the strip collapses one of the surrounding
+ *     spaces so the LLM-facing text doesn't end up with double-spaces
+ *     where tokens used to be. Specifically: the regex match is
+ *     extended to consume one trailing whitespace character if
+ *     present. This matches how slash-command expansion's
+ *     `expandCommandMentions` consumes inter-token spaces — the LLM
+ *     text reads naturally either way.
+ *   - The TRIMMED final text is returned so an action-only message
+ *     (e.g. `"![EZ:distill]"` alone) yields `stripped === ""` — the
+ *     dispatcher uses `stripped.trim().length === 0` as its
+ *     "no-LLM mode" predicate.
+ *
+ * Pure function — no IO, no DB. Safe to call from a hot path.
+ */
+export function stripEzActionTokens(userMessage: string): StrippedEzTokens {
+  const re = new RegExp(EZ_ACTION_TOKEN_RE.source, "g");
+  const actions: { name: string; start: number; end: number }[] = [];
+  let m: RegExpExecArray | null;
+  // Walk in source order to capture the action list with offsets.
+  // This is independent of the strip-rebuild loop below so we don't
+  // lose offsets when the strip mutates the string.
+  while ((m = re.exec(userMessage)) !== null) {
+    const name = m[1]!.trim();
+    if (!name) continue;
+    actions.push({ name, start: m.index, end: m.index + m[0].length });
+  }
+  if (actions.length === 0) {
+    return { stripped: userMessage, actions: [] };
+  }
+  // Strip with a regex that also consumes one trailing whitespace if
+  // present, to avoid double-spaces in the LLM-facing text. We do
+  // NOT consume a leading whitespace because the user may have typed
+  // `prefix![EZ:x]` with no space — we want to preserve `prefix`.
+  const stripRe = new RegExp(EZ_ACTION_TOKEN_RE.source + "\\s?", "g");
+  return {
+    stripped: userMessage.replace(stripRe, ""),
+    actions,
+  };
+}
+
 // ─── Lesson-mention expansion ──────────────────────────────────────
 
 /**

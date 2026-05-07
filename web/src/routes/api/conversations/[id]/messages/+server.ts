@@ -17,6 +17,9 @@ import {
   getExtensionMimesByNames,
 } from "$server/db/queries/conversation-extensions";
 import { parseMentions } from "$lib/mention-logic";
+import { stripEzActionTokens } from "$server/runtime/mention-wiring";
+import { getEzAction } from "$server/runtime/ez-actions/registry";
+import type { EzActionResult } from "$server/runtime/ez-actions/types";
 import { validateAttachment } from "$server/chat/attachments/validator";
 import { writeAttachment, deleteForMessage } from "$server/chat/attachments/storage";
 import type { StagedAttachment } from "$server/chat/attachments/content-builder";
@@ -253,6 +256,85 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     });
   }
 
+  // ── EZ Actions dispatch (Phase 3.3) ────────────────────────────
+  // Scan for `![EZ:*]` tokens, fire each action's handler in-process,
+  // and persist a synthetic `ez-action-result` message per outcome.
+  // The actions run BEFORE streamChat so an action-only message
+  // (`stripEzActionTokens(...).stripped.trim() === ""`) can short-
+  // circuit the LLM call entirely — no assistant turn fires for a
+  // pure side-channel invocation. Mixed messages still get the LLM
+  // call (with the tokens stripped from the prompt by build-prompt's
+  // own `stripEzActionTokens` pass).
+  //
+  // Action handlers' OWN auth gates (ownerId match, settings flag)
+  // re-verify per-action; this layer only resolves the action by
+  // name and passes the conversation context. Unknown action names
+  // are silent no-ops (no error message persisted) — mirrors how
+  // `applyCommandExpansion` handles unknown slash commands.
+  const ezStrip = stripEzActionTokens(body.content);
+  const ezResultMessages: Array<{
+    id: string;
+    role: string;
+    content: string;
+  }> = [];
+  for (const ref of ezStrip.actions) {
+    const action = getEzAction(ref.name);
+    if (!action) continue; // silent strip; matches command/feature behavior
+    let result: EzActionResult;
+    try {
+      result = await action.handler({
+        conversationId,
+        userId: user.id,
+        projectId: conv.projectId,
+      });
+    } catch (err) {
+      // A handler that throws (rather than returning an `error`
+      // result) is a bug; capture it as an error result so the user
+      // still sees a card and the conversation history shows what
+      // happened.
+      log.error("EZ action handler threw", { name: ref.name, error: String(err) });
+      result = {
+        kind: "error",
+        card: {
+          title: "Action failed",
+          body: `The "${ref.name}" action threw an unexpected error.`,
+          variant: "error",
+        },
+      };
+    }
+    const persisted = await convQueries.createMessage(conversationId, {
+      role: "ez-action-result",
+      content: JSON.stringify(result),
+      parentMessageId: userMessage.id,
+    });
+    ezResultMessages.push({
+      id: persisted.id,
+      role: persisted.role,
+      content: persisted.content,
+    });
+  }
+
+  // No-LLM mode: action-only message → return without streamChat. The
+  // user message is already persisted (with the original tokens for
+  // history fidelity); the action results are in `ezResultMessages`;
+  // no assistant turn is created so the UI never shows a "Thinking..."
+  // skeleton.
+  if (ezStrip.actions.length > 0 && ezStrip.stripped.trim().length === 0) {
+    log.debug("EZ action-only message — skipping LLM call", {
+      actions: ezStrip.actions.map((a) => a.name),
+    });
+    const userMessageWithAttachmentsAo =
+      attachmentSummaries.length > 0
+        ? { ...userMessage, attachments: attachmentSummaries }
+        : userMessage;
+    return json({
+      userMessage: userMessageWithAttachmentsAo,
+      runId: null,
+      attachments: attachmentSummaries,
+      ezActionResults: ezResultMessages,
+    });
+  }
+
   const executor = getExecutor();
   const runId = crypto.randomUUID();
 
@@ -285,5 +367,13 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     attachmentSummaries.length > 0
       ? { ...userMessage, attachments: attachmentSummaries }
       : userMessage;
-  return json({ userMessage: userMessageWithAttachments, runId, attachments: attachmentSummaries });
+  return json({
+    userMessage: userMessageWithAttachments,
+    runId,
+    attachments: attachmentSummaries,
+    // Mixed messages (action + prose) — `ezActionResults` is empty
+    // when the user message had no `![EZ:…]` tokens, so callers can
+    // unconditionally consume the field without conditionals.
+    ezActionResults: ezResultMessages,
+  });
 };
