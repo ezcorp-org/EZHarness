@@ -1,5 +1,30 @@
 // ── V2 Component Definitions ─────────────────────────────────────
 
+/**
+ * Per-tool capability declaration (Phase 1, manifest schemaVersion 3).
+ *
+ * Tools opt into specific runtime capabilities here; the host's PDP
+ * (`./permission-engine.ts`) intersects the declaration with the
+ * extension-wide grant at every tool call. v2 manifests auto-promote
+ * via `migrateManifestV2ToV3`: each tool inherits the extension-wide
+ * ceiling, and the result is flagged `_inheritedFromV2: true` so the
+ * audit log can distinguish authored vs inherited declarations.
+ *
+ * `custom` accepts namespaced capability names (e.g. `ezcorp:chat:append`)
+ * for caps that don't fit the network/fs/shell/env/storage primitives.
+ * Phase 6 will migrate the legacy boolean fields (`appendMessages`,
+ * `agentConfig`, `taskEvents`, `spawnAgents`, `eventSubscriptions`) onto
+ * this surface.
+ */
+export interface CapabilityDeclaration {
+  network?: { hosts: string[] };
+  filesystem?: { paths: string[]; mode: ("read" | "write")[] };
+  shell?: boolean;
+  env?: string[];
+  storage?: boolean;
+  custom?: Record<string, string[] | boolean>;
+}
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -25,6 +50,14 @@ export interface ToolDefinition {
    * Default `false`.
    */
   requiresUserInput?: boolean;
+  /**
+   * Per-tool capability declaration (Phase 1, manifest v3 only).
+   *
+   * Optional on v2 manifests — `migrateManifestV2ToV3` synthesizes a
+   * declaration from the extension-wide `permissions` block when this
+   * field is absent. The PDP uses the FINAL post-migration value.
+   */
+  capabilities?: CapabilityDeclaration;
 }
 
 export interface SkillDefinition {
@@ -203,10 +236,19 @@ export type SettingsField =
  *  /^[a-z][a-z0-9_]{0,63}$/ (filesystem-safe identifier). */
 export type SettingsSchema = Record<string, SettingsField>;
 
-// ── Extension Manifest V2 ────────────────────────────────────────
+// ── Extension Manifest V2/V3 ──────────────────────────────────────
+//
+// Phase 1 introduces v3, which adds optional per-tool `capabilities` on
+// `ToolDefinition`. The structural shape of the manifest itself is
+// unchanged — only the `schemaVersion` literal widens to `2 | 3`. The
+// validator (`./manifest.ts`) still gates which version is accepted.
+//
+// Loaders run `migrateManifestV2ToV3` after validation so every
+// downstream consumer (registry, tool-executor, PDP) sees v3 shape
+// regardless of the manifest's authored version.
 
 export interface ExtensionManifestV2 {
-  schemaVersion: 2;
+  schemaVersion: 2 | 3;
   name: string; // Also serves as namespace prefix
   version: string; // semver
   description: string;
@@ -337,6 +379,17 @@ export interface ExtensionManifestV2 {
 
 // Backward compat alias -- plan 03 will clean up remaining usages
 export type ExtensionManifest = ExtensionManifestV2;
+
+/**
+ * Internal manifest shape after `migrateManifestV2ToV3` runs. Only the
+ * loader / registry produce this — extension authors never write
+ * `_inheritedFromV2` themselves. The flag drives audit-log
+ * disambiguation between authored v3 declarations and v2-inherited
+ * ones.
+ */
+export interface ExtensionManifestInternal extends ExtensionManifestV2 {
+  _inheritedFromV2?: boolean;
+}
 
 // ── Package Type Inference ───────────────────────────────────────
 
