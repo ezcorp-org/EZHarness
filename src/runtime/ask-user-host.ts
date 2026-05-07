@@ -154,15 +154,13 @@ export async function wireAskUserToolForTurn(
     return;
   }
 
-  // Phase 1: PDP is required at every ToolExecutor site. Resolves the
-  // singleton (initialized at executor boot) — the registry/bus are
-  // re-supplied for first-call safety in test contexts that build a
-  // fresh ask-user wire without a streamChat host.
-  const engine = getPermissionEngine({
-    registry,
-    bus: bus ?? ({} as EventBus<AgentEvents>),
-    db: { _token: "ask-user-host" },
-  });
+  // Phase 1: PDP is required at every ToolExecutor site. The
+  // executor boot in runtime/executor.ts is the canonical initializer
+  // (it has the real bus + registry refs). We pass NO deps here so a
+  // placeholder bus/db can never silently lose to the boot caller in
+  // an init race; the factory throws with a clear message if the
+  // singleton isn't pre-init, making any boot-order regression loud.
+  const engine = getPermissionEngine();
   const toolExec = new ToolExecutor(
     registry,
     engine,

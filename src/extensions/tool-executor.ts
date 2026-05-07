@@ -248,18 +248,35 @@ export class ToolExecutor {
     // Phase 1 PDP gate. Fail-closed if the engine isn't wired —
     // constructor already enforces that, but the typecheck here is
     // additional belt-and-braces.
-    const decision = await this.engine.authorize(
-      {
+    //
+    // Runtime fail-closed: if `engine.authorize` itself throws (DB
+    // blip in `getSetting`, malformed cap, transient bug), convert to
+    // PermissionDeniedError so the caller still rejects rather than
+    // silently allowing the dispatch on the existing try/catch's
+    // success path. The thrown error propagates up the same reject
+    // path as a normal deny.
+    let decision: Awaited<ReturnType<typeof this.engine.authorize>>;
+    try {
+      decision = await this.engine.authorize(
+        {
+          extensionId,
+          userId: this.currentUserId ?? "unknown",
+          conversationId,
+          toolName: originalName,
+          callerExtensionId: _opts?.callerExtensionId,
+          capContext: _opts?.capContext,
+          parentAuditId: _opts?.parentAuditId,
+        },
+        needed,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new PermissionDeniedError(
         extensionId,
-        userId: this.currentUserId ?? "unknown",
-        conversationId,
-        toolName: originalName,
-        callerExtensionId: _opts?.callerExtensionId,
-        capContext: _opts?.capContext,
-        parentAuditId: _opts?.parentAuditId,
-      },
-      needed,
-    );
+        toolName,
+        `engine error: ${msg}`,
+      );
+    }
 
     if (decision.decision === "deny") {
       throw new PermissionDeniedError(extensionId, toolName, decision.reason);

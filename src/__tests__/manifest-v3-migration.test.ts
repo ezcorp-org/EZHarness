@@ -245,6 +245,32 @@ describe("validateManifestV2 — schemaVersion 3 is accepted", () => {
     expect(result.valid).toBe(false);
     expect(result.errors[0]).toContain("schemaVersion must be 2 or 3");
   });
+
+  test("schemaVersion: 1 is rejected BEFORE migration runs", () => {
+    const m = makeManifest({ schemaVersion: 1 as unknown as 2 });
+    const result = validateManifestV2(m);
+    expect(result.valid).toBe(false);
+    // The migration helper would still pass v1 through (it only
+    // branches on `=== 3`), so the contract is that the validator
+    // gates v1 out before any migration call. Any caller that reaches
+    // `migrateManifestV2ToV3` has already passed validation.
+    expect(result.errors.some((e) => e.includes("schemaVersion"))).toBe(true);
+  });
+
+  test("missing schemaVersion is rejected", () => {
+    const raw: Record<string, unknown> = {
+      name: "test-ext",
+      version: "1.0.0",
+      description: "test",
+      author: { name: "tester" },
+      entrypoint: "./index.ts",
+      permissions: {},
+      tools: [],
+    };
+    const result = validateManifestV2(raw);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("schemaVersion"))).toBe(true);
+  });
 });
 
 // ── Type-narrow assertion ───────────────────────────────────────────

@@ -86,11 +86,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
   }
 
-  const engine = getPermissionEngine({
-    registry,
-    bus: getBus(),
-    db: { _token: "tool-invoke-route" },
-  });
+  // PDP singleton — pre-initialized by the executor at boot. Pass no
+  // deps so a placeholder bus/db here can't lose an init race; the
+  // factory throws clearly if the singleton isn't pre-init.
+  const engine = getPermissionEngine();
   const toolExecutor = new ToolExecutor(registry, engine, { bus: getBus() });
   const metadata = { invocationId, source: 'inline' as const };
   let lastResult = { content: [{ type: "text" as const, text: "Unknown error" }], isError: true };

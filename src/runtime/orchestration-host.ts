@@ -33,8 +33,6 @@ import { getPermissionEngine } from "../extensions/permission-engine";
 import type { ExtensionStateMediator } from "../extensions/state-mediator";
 import type { SpawnQuota } from "../extensions/spawn-quota";
 import type { AgentExecutor } from "./executor";
-import type { EventBus } from "./events";
-import type { AgentEvents } from "../types";
 import { logger } from "../logger";
 const log = logger.child("orchestration-host");
 
@@ -256,13 +254,16 @@ export async function wireOrchestrationToolsForTurn(
   //    block builds at executor.ts:828-835 so the extension's reverse-
   //    RPC handlers (storage / agent-configs / spawn-assignment /
   //    cancel-run) are all routable. Phase 1: every ToolExecutor site
-  //    requires the PDP — `getPermissionEngine()` returns the singleton
-  //    initialized at executor boot.
-  const engine = getPermissionEngine({
-    registry,
-    bus: {} as EventBus<AgentEvents>,
-    db: { _token: "orchestration-host" },
-  });
+  //    requires the PDP — `getPermissionEngine()` returns the
+  //    singleton initialized at executor boot. We pass NO deps here:
+  //    the executor boot in runtime/executor.ts is the canonical
+  //    initializer (it has the real bus + registry refs); a stale
+  //    placeholder bus/db here would silently lose if this caller
+  //    won the init race. Phase 6 will tighten this further when the
+  //    engine starts reading from `bus`/`db` directly. The factory
+  //    throws with a clear message if the singleton isn't pre-init,
+  //    making any boot-order regression loud.
+  const engine = getPermissionEngine();
   const toolExec = new ToolExecutor(registry, engine);
   if (stateMediator) toolExec.setStateMediator(stateMediator);
   toolExec.setExecutor(executor);

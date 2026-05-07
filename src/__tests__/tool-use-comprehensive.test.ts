@@ -128,6 +128,32 @@ describe("ToolExecutor", () => {
     ).rejects.toThrow(PermissionDeniedError);
   });
 
+  test("PDP runtime fail-closed: engine.authorize throwing converts to PermissionDeniedError", async () => {
+    // A transient DB outage in `getSetting` (or any other unexpected
+    // authorize() throw) must NOT silently allow the dispatch on the
+    // existing try/catch's success path. The wrapper in
+    // tool-executor.ts:executeToolCall converts the throw into a
+    // PermissionDeniedError, which routes through the same reject
+    // path as a normal deny.
+    const explodingEngine = createStubPermissionEngine();
+    explodingEngine.authorize = async () => {
+      throw new Error("simulated DB outage in getSetting");
+    };
+    const executor = new ToolExecutor(createMockRegistry(), explodingEngine);
+
+    let caught: unknown = null;
+    try {
+      await executor.executeToolCall("read_file", {}, "c", "m");
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(PermissionDeniedError);
+    expect((caught as PermissionDeniedError).reason).toContain("engine error");
+    expect((caught as PermissionDeniedError).reason).toContain(
+      "simulated DB outage",
+    );
+  });
+
   test("PermissionDeniedError has correct extensionId and toolName", () => {
     const err = new PermissionDeniedError("ext-abc", "dangerous_tool");
     expect(err.extensionId).toBe("ext-abc");

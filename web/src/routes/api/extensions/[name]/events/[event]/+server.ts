@@ -312,11 +312,11 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
     let wireError: string | undefined;
     try {
       const proc = await registry.getProcess(ext.id);
-      const engine = getPermissionEngine({
-        registry,
-        bus: getBus(),
-        db: { _token: "events-route" },
-      });
+      // PDP singleton — pre-initialized by the executor at boot. We
+      // pass no deps so a stale `getBus()` ref here can't silently
+      // lose an init race. Boot-order regressions surface as a clear
+      // factory throw.
+      const engine = getPermissionEngine();
       const wirer = new ToolExecutor(registry, engine, { bus: getBus() });
       await wirer.ensureSubprocessRpcWired(ext.id, proc);
     } catch (err) {

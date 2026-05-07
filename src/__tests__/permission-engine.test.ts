@@ -344,6 +344,70 @@ describe("authorize — audit log row per decision", () => {
     const meta = rows[0]!.metadata as Record<string, unknown>;
     expect(meta.toolName).toBe("badnamewithcontrols");
   });
+
+  test("parentAuditId rides through metadata for chain tracking", async () => {
+    const engine = makeEngine({
+      granted: { grantedAt: {}, storage: true },
+    });
+    await engine.authorize(
+      {
+        extensionId: HELLO_EXT,
+        userId: HELLO_USER,
+        conversationId: HELLO_CONV,
+        toolName: "child",
+        parentAuditId: "abc-parent-id",
+      },
+      [{ kind: "storage" }],
+    );
+    const rows = await getTestDb()
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, "ext:perm:allowed"));
+    expect(rows.length).toBe(1);
+    const meta = rows[0]!.metadata as Record<string, unknown>;
+    expect(meta.parentAuditId).toBe("abc-parent-id");
+  });
+});
+
+// ── always-allow read from settings DB ──────────────────────────────
+
+describe("authorize — pre-existing always-allow row read from DB on first call", () => {
+  test("seeded DB row → first authorize returns allow (no prompt) and writes PERM_ALLOWED", async () => {
+    const { upsertSetting } = await import("../db/queries/settings");
+    const { alwaysAllowSettingKey } = await import("../extensions/permissions");
+    // Seed an always-allow row matching the conversation-scope lookup
+    // path the engine uses on first authorize().
+    await upsertSetting(
+      alwaysAllowSettingKey({
+        extensionId: HELLO_EXT,
+        userId: HELLO_USER,
+        scope: "conversation",
+        scopeId: HELLO_CONV,
+        capability: "shell",
+      }),
+      true,
+    );
+
+    const engine = makeEngine({
+      granted: { grantedAt: {}, shell: true },
+    });
+    const decision = await engine.authorize(
+      { extensionId: HELLO_EXT, userId: HELLO_USER, conversationId: HELLO_CONV },
+      [{ kind: "shell" }],
+    );
+    expect(decision.decision).toBe("allow");
+
+    const allowed = await getTestDb()
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, "ext:perm:allowed"));
+    expect(allowed.length).toBe(1);
+    const prompted = await getTestDb()
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, "ext:perm:prompted"));
+    expect(prompted.length).toBe(0);
+  });
 });
 
 // ── capContext override ─────────────────────────────────────────────
