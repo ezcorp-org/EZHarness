@@ -386,6 +386,84 @@ export function intersectPermissions(
   return out;
 }
 
+/**
+ * Translate an `ExtensionPermissions` install-time GRANT blob into a
+ * `CapabilitySet` for runtime intersection. Phase 4's `handlePiInvoke`
+ * uses this on both caller and callee grants before computing
+ * `intersect(callerCaps, calleeCaps)` so the PDP gates against what the
+ * user actually authorized, not the manifest's declaration.
+ *
+ * Mirrors the semantics of `capabilityDeclarationToSet` but consumes
+ * the `ExtensionPermissions` shape (flat arrays + booleans + structured
+ * spawn fields) instead of `CapabilityDeclaration` (nested objects).
+ *
+ * Filesystem mode is treated as read+write at the runtime layer because
+ * the v2 `permissions.filesystem` grant didn't separate modes — Phase 1
+ * already encoded that as `["read","write"]` in
+ * `migrateManifestV2ToV3`. v3 callers that want narrower modes pass
+ * them via the per-tool `capabilities` declaration which the PDP
+ * already enforces.
+ */
+export function grantsToCapabilitySet(
+  grants: ExtensionPermissions | null,
+): CapabilitySet {
+  if (!grants) return [];
+  const caps: Capability[] = [];
+
+  if (grants.network) {
+    for (const host of grants.network) {
+      caps.push({ kind: "network", value: host.toLowerCase() });
+    }
+  }
+
+  if (grants.filesystem) {
+    for (const path of grants.filesystem) {
+      caps.push({ kind: "fs.read", value: path });
+      caps.push({ kind: "fs.list", value: path });
+      caps.push({ kind: "fs.stat", value: path });
+      caps.push({ kind: "fs.write", value: path });
+    }
+  }
+
+  if (grants.shell === true) {
+    caps.push({ kind: "shell" });
+  }
+
+  if (grants.env) {
+    for (const name of grants.env) {
+      caps.push({ kind: "env", value: name });
+    }
+  }
+
+  if (grants.storage === true) {
+    caps.push({ kind: "storage" });
+  }
+
+  if (grants.taskEvents === true) {
+    caps.push({ kind: "ezcorp:tasks:emit" });
+  }
+
+  if (grants.agentConfig === "read") {
+    caps.push({ kind: "ezcorp:agent:config" });
+  }
+
+  if (grants.spawnAgents) {
+    caps.push({ kind: "ezcorp:agent:spawn" });
+  }
+
+  if (grants.eventSubscriptions) {
+    for (const eventName of grants.eventSubscriptions) {
+      caps.push({ kind: "ezcorp:events:subscribe", value: eventName });
+    }
+  }
+
+  if (grants.appendMessages) {
+    caps.push({ kind: "ezcorp:chat:append" });
+  }
+
+  return caps;
+}
+
 /** Map manifest-level custom keys to namespaced capability kinds. */
 function customToKind(key: string): CapabilityKind | null {
   switch (key) {

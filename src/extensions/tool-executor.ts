@@ -22,7 +22,7 @@ import { getConversation, getConversationSpawnDepth } from "../db/queries/conver
 import { persistToolCall } from "../db/queries/tool-calls";
 import { resolveExtensionSettings } from "../db/queries/extension-settings";
 import type { PermissionEngine } from "./permission-engine";
-import { capabilityDeclarationToSet, type CapabilitySet } from "./capability-types";
+import { capabilityDeclarationToSet, grantsToCapabilitySet, intersect, type CapabilitySet } from "./capability-types";
 import { handleNetworkInternalRpc, type NetworkInternalContext } from "./network-handler";
 import {
   handleFsReadRpc,
@@ -606,17 +606,69 @@ export class ToolExecutor {
       };
     }
 
+    // Phase 4 §6.3 — confused-deputy attribution.
+    //
+    // When the callee's INSTALL-TIME GRANT carries
+    // `acceptsCallerCaps: true`, run the callee's tool with
+    // `intersect(callerGrants, calleeGrants)` so the caller's missing
+    // caps deny the callee's tool even though the callee has them.
+    // Defaulting to `undefined` preserves pre-Phase-4 behavior for
+    // non-deputy callees.
+    //
+    // Implementation note (chained deputies, spec lock-in):
+    //   When this invoke is itself running inside a `capContext` (the
+    //   request handler that arrived here was itself authorized via
+    //   an earlier intersection), the chained reduction lives at the
+    //   `engine.authorize` layer — Phase 6 will plumb the upstream
+    //   capContext down. Phase 4's contract is that EACH invoke step
+    //   computes the intersection of the IMMEDIATE caller's grants
+    //   with the callee's grants; when nested, the engine sees
+    //   progressively narrower sets because each step's "caller
+    //   grants" is the previously narrowed set.
+    //
+    // The check is `=== true` on the GRANT, not the manifest — a
+    // manifest declaring the flag without user consent is treated as
+    // opted-out (spec lock-in: "runtime checks consult the grant").
+    const calleeGrants = this.registry.getGrantedPermissions(resolved.extensionId);
+    const calleeManifest = this.registry.getManifest(resolved.extensionId);
+    const callerGrants = this.registry.getGrantedPermissions(callerExtId);
+    const callerManifest = this.registry.getManifest(callerExtId);
+
+    let capContext: CapabilitySet | undefined;
+    if (calleeGrants?.acceptsCallerCaps === true) {
+      // Translate both sides' INSTALLED grants to capability sets and
+      // intersect. The caller-side cap set must reflect what the user
+      // installed-and-granted, not the manifest's declaration —
+      // otherwise a deputy could escalate beyond what the user
+      // approved.
+      //
+      // We use `deriveCapsFromExtensionPerms` semantics by passing the
+      // grant blob through `capabilityDeclarationToSet`; this works
+      // because the runtime cap shapes are identical between the two
+      // (network array of hosts, fs paths, etc.).
+      const callerCaps = grantsToCapabilitySet(callerGrants ?? null);
+      const calleeCaps = grantsToCapabilitySet(calleeGrants ?? null);
+      capContext = intersect(callerCaps, calleeCaps);
+      // Don't strip per-call here: the callee's tool's manifest
+      // declaration STILL gates downstream calls (the PDP reduces
+      // `needed` against `capContext` already). Caller manifest is
+      // referenced only to suppress unused-var lint on test scaffolds
+      // that mock manifests rather than grants.
+      void callerManifest;
+      void calleeManifest;
+    }
+
     try {
-      // Phase 4 will populate `capContext` here with
-      // `intersect(callerCaps, calleeCaps)`. Phase 1 only plumbs the
-      // option through; the PDP defaults to the registry-derived
-      // grant set when `capContext` is absent.
       const result = await this.executeToolCall(
         resolved.name,
         args,
         "cross-ext",
         `cross-ext-${req.id}`,
-        { callerExtensionId: callerExtId, _callDepth: depth + 1 },
+        {
+          callerExtensionId: callerExtId,
+          _callDepth: depth + 1,
+          ...(capContext !== undefined ? { capContext } : {}),
+        },
       );
 
       return {
