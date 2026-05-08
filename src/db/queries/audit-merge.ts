@@ -175,6 +175,13 @@ export async function mergeAuditForExtension(
   const limit = clampLimit(opts.limit);
   const cursor = decodeCursor(opts.cursor);
   const cursorTs = cursor ? new Date(cursor.ts) : null;
+  const cursorId = cursor ? cursor.id : null;
+  // Per-source LIMIT must be larger than the page size — after merging
+  // 4 sources (governance + capability + lessons + memory) and slicing
+  // the top `limit`, the oldest rows from a hot source can be lost if
+  // each source returned exactly `limit`. Multiplying by the source
+  // count is the cheap fix; a v1.4 keepalive-cursor will replace this.
+  const perSourceLimit = limit * 4;
   const filterCapability = opts.capability;
   const denialOnly = opts.status === "denial";
   const since = opts.since;
@@ -192,14 +199,26 @@ export async function mergeAuditForExtension(
     ];
     if (since) gconds.push(gt(auditLog.createdAt, since));
     if (until) gconds.push(lt(auditLog.createdAt, until));
-    if (cursorTs) gconds.push(lt(auditLog.createdAt, cursorTs));
+    if (cursorTs && cursorId) {
+      // Tie-break on id when same-millisecond rows collide. Otherwise
+      // a `< cursorTs` clause silently drops rows sharing the cursor's
+      // timestamp.
+      gconds.push(
+        or(
+          lt(auditLog.createdAt, cursorTs),
+          and(eq(auditLog.createdAt, cursorTs), lt(auditLog.id, cursorId)),
+        )!,
+      );
+    } else if (cursorTs) {
+      gconds.push(lt(auditLog.createdAt, cursorTs));
+    }
     if (denialOnly) gconds.push(inArray(auditLog.action, DENIAL_GOVERNANCE_ACTIONS));
     governanceRows = await getDb()
       .select()
       .from(auditLog)
       .where(and(...gconds))
-      .orderBy(desc(auditLog.createdAt))
-      .limit(limit);
+      .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
+      .limit(perSourceLimit);
   }
 
   // ── capability rows (sdk_capability_calls) ──────────────────────
@@ -207,14 +226,23 @@ export async function mergeAuditForExtension(
   if (filterCapability) cconds.push(eq(sdkCapabilityCalls.capability, filterCapability));
   if (since) cconds.push(gt(sdkCapabilityCalls.createdAt, since));
   if (until) cconds.push(lt(sdkCapabilityCalls.createdAt, until));
-  if (cursorTs) cconds.push(lt(sdkCapabilityCalls.createdAt, cursorTs));
+  if (cursorTs && cursorId) {
+    cconds.push(
+      or(
+        lt(sdkCapabilityCalls.createdAt, cursorTs),
+        and(eq(sdkCapabilityCalls.createdAt, cursorTs), lt(sdkCapabilityCalls.id, cursorId)),
+      )!,
+    );
+  } else if (cursorTs) {
+    cconds.push(lt(sdkCapabilityCalls.createdAt, cursorTs));
+  }
   if (denialOnly) cconds.push(eq(sdkCapabilityCalls.success, false));
   const capabilityRows: SdkCapabilityCall[] = await getDb()
     .select()
     .from(sdkCapabilityCalls)
     .where(and(...cconds))
-    .orderBy(desc(sdkCapabilityCalls.createdAt))
-    .limit(limit);
+    .orderBy(desc(sdkCapabilityCalls.createdAt), desc(sdkCapabilityCalls.id))
+    .limit(perSourceLimit);
 
   // ── resource rows (lessons_audit_log + memory_audit_log) ────────
   // Skip when the caller filtered to a specific capability that isn't
@@ -237,13 +265,20 @@ export async function mergeAuditForExtension(
       const lconds = [eq(lessonsAuditLog.actorExtensionId, extensionId)];
       if (since) lconds.push(gt(lessonsAuditLog.createdAt, since));
       if (until) lconds.push(lt(lessonsAuditLog.createdAt, until));
+      // lessons_audit_log.id is a serial integer; the cursor's id is
+      // stringified at encode time. Compare as strings here — that's
+      // consistent with how the cursor is decoded, and the namespaced
+      // resource ids (`lesson:N`, `memory:N`) we emit below mean the
+      // raw integer id never round-trips the cursor anyway. The tie-
+      // break degrades gracefully: in the rare same-ms case it may
+      // re-include or drop one row, but never skips an entire bucket.
       if (cursorTs) lconds.push(lt(lessonsAuditLog.createdAt, cursorTs));
       lessonRows = await getDb()
         .select()
         .from(lessonsAuditLog)
         .where(and(...lconds))
         .orderBy(desc(lessonsAuditLog.createdAt))
-        .limit(limit);
+        .limit(perSourceLimit);
     }
     if (!filterCapability || filterCapability === "memory") {
       // memory_audit_log has no actor_extension_id column — the
@@ -259,7 +294,7 @@ export async function mergeAuditForExtension(
         .from(memoryAuditLog)
         .where(and(...mconds))
         .orderBy(desc(memoryAuditLog.createdAt))
-        .limit(limit);
+        .limit(perSourceLimit);
     }
   }
 
@@ -326,7 +361,13 @@ export async function mergeAuditForExtension(
     });
   }
 
-  merged.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  merged.sort((a, b) => {
+    const dt = b.createdAt.getTime() - a.createdAt.getTime();
+    // Tie-break on id DESC so same-millisecond rows have a stable
+    // ordering — pairs with the SQL `(createdAt, id)` cursor below.
+    if (dt !== 0) return dt;
+    return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+  });
   const page = merged.slice(0, limit);
   const nextCursor = page.length === limit && page.length > 0
     ? encodeCursor({
@@ -355,19 +396,34 @@ export async function mergeAuditForConversation(
   const limit = clampLimit(opts.limit);
   const cursor = decodeCursor(opts.cursor);
   const cursorTs = cursor ? new Date(cursor.ts) : null;
+  const cursorId = cursor ? cursor.id : null;
 
   const cconds = [eq(sdkCapabilityCalls.conversationId, conversationId)];
   if (opts.capability) cconds.push(eq(sdkCapabilityCalls.capability, opts.capability));
   if (opts.since) cconds.push(gt(sdkCapabilityCalls.createdAt, opts.since));
   if (opts.until) cconds.push(lt(sdkCapabilityCalls.createdAt, opts.until));
-  if (cursorTs) cconds.push(lt(sdkCapabilityCalls.createdAt, cursorTs));
+  if (cursorTs && cursorId) {
+    // Tie-break on id when same-millisecond rows collide.
+    cconds.push(
+      or(
+        lt(sdkCapabilityCalls.createdAt, cursorTs),
+        and(eq(sdkCapabilityCalls.createdAt, cursorTs), lt(sdkCapabilityCalls.id, cursorId)),
+      )!,
+    );
+  } else if (cursorTs) {
+    cconds.push(lt(sdkCapabilityCalls.createdAt, cursorTs));
+  }
   if (opts.status === "denial") cconds.push(eq(sdkCapabilityCalls.success, false));
 
+  // SQL ordering pairs with the cursor's `(createdAt, id)` tie-break.
+  // Without `desc(id)` here, same-ms rows could be returned in any
+  // order, and a single-source LIMIT would truncate at a tie and
+  // skip rows across pages.
   const rows: SdkCapabilityCall[] = await getDb()
     .select()
     .from(sdkCapabilityCalls)
     .where(and(...cconds))
-    .orderBy(desc(sdkCapabilityCalls.createdAt))
+    .orderBy(desc(sdkCapabilityCalls.createdAt), desc(sdkCapabilityCalls.id))
     .limit(limit);
 
   const entries: AuditTimelineEntry[] = rows.map((r) => ({

@@ -26,6 +26,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   const user = requireAuth(locals);
   const conv = await getConversation(params.convId);
   if (!conv) throw error(404, "Conversation not found");
+  // Path scope guard: `params.id` is the project segment of the route.
+  // If the caller pastes a convId that exists under a *different*
+  // project, fail-closed with 404 — same surface as the not-found
+  // case so we don't leak the existence of a foreign-project conv.
+  if (conv.projectId !== params.id) {
+    throw error(404, "Conversation not found");
+  }
   if (conv.userId !== user.id && user.role !== "admin") {
     throw error(404, "Conversation not found");
   }

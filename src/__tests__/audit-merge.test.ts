@@ -329,6 +329,28 @@ test("mergeAuditForConversation only returns conversation-scoped rows", async ()
 	}
 });
 
+test("cursor pagination tie-breaks on id when same-millisecond rows collide", async () => {
+	// Seed two rows with identical createdAt — the merger must surface
+	// both across paginated requests, not silently drop the second.
+	const sameTs = new Date("2026-05-01T15:00:00.000Z");
+	await seedCapability({ capability: "llm", action: "complete", success: true, ts: sameTs });
+	await seedCapability({ capability: "llm", action: "complete", success: true, ts: sameTs });
+
+	const page1 = await mergeAuditForExtension(extensionId, { limit: 1 });
+	expect(page1.entries).toHaveLength(1);
+	expect(page1.nextCursor).not.toBeNull();
+
+	const page2 = await mergeAuditForExtension(extensionId, {
+		limit: 1,
+		cursor: page1.nextCursor!,
+	});
+	expect(page2.entries).toHaveLength(1);
+	// The two pages must surface different rows — without the id
+	// tie-break, page2 would either re-emit page1's row or drop the
+	// second same-ms row entirely.
+	expect(page2.entries[0]!.id).not.toBe(page1.entries[0]!.id);
+});
+
 test("statsForExtension aggregates within range", async () => {
 	const recent = new Date(Date.now() - 1000 * 60 * 30); // 30 min ago
 	const old = new Date(Date.now() - 1000 * 60 * 60 * 48); // 48 h ago

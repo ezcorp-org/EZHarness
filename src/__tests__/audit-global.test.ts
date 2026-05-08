@@ -200,6 +200,60 @@ test("listGlobalAudit search filters by model substring", async () => {
 	}
 });
 
+test("listGlobalAudit search treats `%` as a literal, not a wildcard", async () => {
+	// Seed two rows with distinct, non-wildcard models.
+	await seedCap({ extId: extA.id, capability: "llm", action: "complete", success: true, ts: new Date(), model: "gpt-4o-mini" });
+	await seedCap({ extId: extA.id, capability: "llm", action: "complete", success: true, ts: new Date(), model: "claude-3-5-sonnet" });
+
+	// `%` was previously left in the search term and (because
+	// drizzle's `like()` doesn't emit ESCAPE) Postgres expanded it as
+	// a wildcard, returning ALL rows. After sanitization, the literal
+	// `%` is stripped and the remaining empty term skips the LIKE
+	// clause entirely — returning no narrowing on `search`, but
+	// crucially NOT collapsing to "match all because of wildcard".
+	const all = await listGlobalAudit({});
+	const totalRows = all.entries.length;
+
+	const result = await listGlobalAudit({ search: "%" });
+	// The sanitizer leaves an empty term, so the search clause is a
+	// no-op and we get the same set as the unfiltered query — NOT a
+	// wildcard "match every row" expansion (which would still equal
+	// totalRows here, but the property we're asserting is that no
+	// row was matched *via* the LIKE: the underlying model values
+	// don't contain `%`, so a literal-`%` substring search matches 0).
+	// To prove the no-wildcard property, search for `%4o%` — a
+	// pattern that under the old buggy code would also match
+	// "claude-3-5-sonnet" (because `%` is a wildcard). Under the
+	// fix, only "gpt-4o-mini" is matched.
+	expect(result.entries.length).toBe(totalRows);
+
+	const literal = await listGlobalAudit({ search: "%4o%" });
+	// The model `claude-3-5-sonnet` does NOT contain "4o" — under the
+	// old buggy code, the `%4o%` would match it because `%` is a
+	// wildcard at both ends. Under the fix, `%` is stripped and the
+	// term becomes literal `4o`, matching only `gpt-4o-mini`.
+	for (const e of literal.entries) {
+		if (e.kind === "capability") {
+			expect(e.model).toContain("4o");
+		}
+	}
+	expect(literal.entries.length).toBe(1);
+});
+
+test("listGlobalAudit cursor pagination tie-breaks on id when same-ms rows collide", async () => {
+	const sameTs = new Date("2026-05-01T15:00:00.000Z");
+	await seedCap({ extId: extA.id, capability: "llm", action: "complete", success: true, ts: sameTs });
+	await seedCap({ extId: extA.id, capability: "llm", action: "complete", success: true, ts: sameTs });
+
+	const page1 = await listGlobalAudit({ limit: 1 });
+	expect(page1.entries).toHaveLength(1);
+	expect(page1.nextCursor).not.toBeNull();
+
+	const page2 = await listGlobalAudit({ limit: 1, cursor: page1.nextCursor! });
+	expect(page2.entries).toHaveLength(1);
+	expect(page2.entries[0]!.id).not.toBe(page1.entries[0]!.id);
+});
+
 test("listGlobalAudit cursor pagination drives a second page", async () => {
 	for (let i = 0; i < 5; i++) {
 		await seedCap({

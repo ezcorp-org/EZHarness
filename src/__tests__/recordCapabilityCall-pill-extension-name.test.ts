@@ -100,9 +100,12 @@ function makeCtx(extId: string) {
 		actorExtensionId: extId,
 		onBehalfOf: userId,
 		conversationId,
+		runId: "r-test",
 		parentCallId: null,
 	};
 }
+
+type PillRow = { role: string; content: string };
 
 test("write 3 — pill row carries extensionName from the linked extension", async () => {
 	await recordCapabilityCall({
@@ -119,7 +122,7 @@ test("write 3 — pill row carries extensionName from the linked extension", asy
 		.select()
 		.from(messages)
 		.where(eq(messages.conversationId, conversationId));
-	const pillRow = rows.find((r) => r.role === "capability-event");
+	const pillRow = rows.find((r: PillRow) => r.role === "capability-event");
 	expect(pillRow).toBeTruthy();
 	const payload = JSON.parse(pillRow!.content);
 	expect(payload.__ezcorp_capability_event).toBe(true);
@@ -149,7 +152,7 @@ test("write 3 — extension lookup failure → extensionName=null, row still ins
 		.select()
 		.from(messages)
 		.where(eq(messages.conversationId, conversationId));
-	expect(rows.find((r) => r.role === "capability-event")).toBeUndefined();
+	expect(rows.find((r: PillRow) => r.role === "capability-event")).toBeUndefined();
 });
 
 test("insertChatPill: false → no pill row written even when sdk write succeeded", async () => {
@@ -166,5 +169,5 @@ test("insertChatPill: false → no pill row written even when sdk write succeede
 		.select()
 		.from(messages)
 		.where(eq(messages.conversationId, conversationId));
-	expect(rows.find((r) => r.role === "capability-event")).toBeUndefined();
+	expect(rows.find((r: PillRow) => r.role === "capability-event")).toBeUndefined();
 });

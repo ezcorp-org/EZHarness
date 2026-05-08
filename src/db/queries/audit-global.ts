@@ -13,6 +13,11 @@
  *     UI carries the same disclaimer the per-extension stats strip does)
  */
 import { and, desc, eq, inArray, like, lt, or, sql } from "drizzle-orm";
+// Note: `like` from drizzle-orm emits `LIKE <pattern>` without an
+// `ESCAPE` clause, so backslash-escaped wildcards like `\%` are not
+// interpreted as literals by Postgres. We strip wildcard / escape
+// chars from user input before substring-matching to keep the user's
+// `%` from acting as a wildcard. See `sanitizeSearchTerm` below.
 import { getDb } from "../connection";
 import {
   auditLog,
@@ -56,12 +61,30 @@ function clampLimit(input?: number): number {
   return Math.max(1, Math.min(MAX_LIMIT, Math.floor(input)));
 }
 
+/**
+ * Strip LIKE wildcards (`%`, `_`) and the backslash escape from a
+ * user-supplied search term before wrapping it in `%…%`. Without
+ * this, a `?q=%` would expand to `LIKE '%%%'` and match every row.
+ *
+ * We deliberately strip rather than ESCAPE because:
+ *   1. drizzle's `like()` doesn't emit `ESCAPE '\\'`, so a backslash
+ *      escape is a no-op under Postgres.
+ *   2. No admin user actually wants substring matching on a literal
+ *      `%` in an audit search; the data we're matching against
+ *      (resourceId / errorMessage / model) doesn't contain wildcards
+ *      organically.
+ */
+function sanitizeSearchTerm(input: string): string {
+  return input.replace(/[%_\\]/g, "");
+}
+
 export async function listGlobalAudit(
   opts: GlobalAuditOpts = {},
 ): Promise<{ entries: AuditTimelineEntry[]; nextCursor: string | null }> {
   const limit = clampLimit(opts.limit);
   const cursor = decodeCursor(opts.cursor);
   const cursorTs = cursor ? new Date(cursor.ts) : null;
+  const cursorId = cursor ? cursor.id : null;
 
   // Capability rows
   const cconds = [];
@@ -70,23 +93,44 @@ export async function listGlobalAudit(
   if (opts.action) cconds.push(eq(sdkCapabilityCalls.action, opts.action));
   if (opts.onBehalfOf) cconds.push(eq(sdkCapabilityCalls.onBehalfOf, opts.onBehalfOf));
   if (opts.denialOnly) cconds.push(eq(sdkCapabilityCalls.success, false));
-  if (cursorTs) cconds.push(lt(sdkCapabilityCalls.createdAt, cursorTs));
-  // search: substring against resourceId / errorMessage / model
-  if (opts.search) {
-    const term = `%${opts.search.replace(/[%_]/g, (m) => `\\${m}`)}%`;
+  if (cursorTs && cursorId) {
+    // Tie-break on id when same-millisecond rows collide. The plain
+    // `<` clause silently drops every row sharing the cursor's ts.
     cconds.push(
       or(
-        like(sdkCapabilityCalls.resourceId, term),
-        like(sdkCapabilityCalls.errorMessage, term),
-        like(sdkCapabilityCalls.model, term),
+        lt(sdkCapabilityCalls.createdAt, cursorTs),
+        and(eq(sdkCapabilityCalls.createdAt, cursorTs), lt(sdkCapabilityCalls.id, cursorId)),
       )!,
     );
+  } else if (cursorTs) {
+    cconds.push(lt(sdkCapabilityCalls.createdAt, cursorTs));
   }
+  // search: substring against resourceId / errorMessage / model. Strip
+  // wildcard chars from user input — see `sanitizeSearchTerm`.
+  if (opts.search) {
+    const sanitized = sanitizeSearchTerm(opts.search);
+    if (sanitized.length > 0) {
+      const term = `%${sanitized}%`;
+      cconds.push(
+        or(
+          like(sdkCapabilityCalls.resourceId, term),
+          like(sdkCapabilityCalls.errorMessage, term),
+          like(sdkCapabilityCalls.model, term),
+        )!,
+      );
+    }
+  }
+  // Order by `(createdAt DESC, id DESC)` so same-millisecond rows
+  // have a deterministic position — the JS-side merger below applies
+  // the same composite ordering. Without the id tie-break in SQL the
+  // LIMIT below could truncate AT a tie and skip a row across pages.
+  // Per-source LIMIT bumped to `limit * 2` to give the JS merger
+  // headroom when governance + capability sources share a hot ts.
   const capQuery = getDb()
     .select()
     .from(sdkCapabilityCalls)
-    .orderBy(desc(sdkCapabilityCalls.createdAt))
-    .limit(limit);
+    .orderBy(desc(sdkCapabilityCalls.createdAt), desc(sdkCapabilityCalls.id))
+    .limit(limit * 2);
   const capabilityRows: SdkCapabilityCall[] = cconds.length > 0
     ? await capQuery.where(and(...cconds))
     : await capQuery;
@@ -100,14 +144,23 @@ export async function listGlobalAudit(
     ];
     if (opts.extensionId) gconds.push(eq(auditLog.target, opts.extensionId));
     if (opts.action) gconds.push(eq(auditLog.action, opts.action));
-    if (cursorTs) gconds.push(lt(auditLog.createdAt, cursorTs));
+    if (cursorTs && cursorId) {
+      gconds.push(
+        or(
+          lt(auditLog.createdAt, cursorTs),
+          and(eq(auditLog.createdAt, cursorTs), lt(auditLog.id, cursorId)),
+        )!,
+      );
+    } else if (cursorTs) {
+      gconds.push(lt(auditLog.createdAt, cursorTs));
+    }
     if (opts.denialOnly) gconds.push(inArray(auditLog.action, DENIAL_GOVERNANCE_ACTIONS));
     governanceRows = await getDb()
       .select()
       .from(auditLog)
       .where(and(...gconds))
-      .orderBy(desc(auditLog.createdAt))
-      .limit(limit);
+      .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
+      .limit(limit * 2);
   }
 
   const merged: AuditTimelineEntry[] = [];
@@ -146,7 +199,13 @@ export async function listGlobalAudit(
     });
   }
 
-  merged.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  merged.sort((a, b) => {
+    const dt = b.createdAt.getTime() - a.createdAt.getTime();
+    // Tie-break on id DESC — pairs with the SQL `(createdAt, id)`
+    // cursor so same-millisecond rows have stable cross-page ordering.
+    if (dt !== 0) return dt;
+    return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+  });
   const page = merged.slice(0, limit);
   const nextCursor = page.length === limit && page.length > 0
     ? encodeCursor({
