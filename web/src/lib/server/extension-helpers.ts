@@ -22,6 +22,13 @@
 // name that survives is guaranteed routable by the dispatcher at
 // runtime; unknown names fail closed (no grant) rather than landing in
 // a grant that can never be honored.
+//
+// ── Phase 4 deputy / orchestration flags ──
+// `acceptsCallerCaps` and `escalateChildCaps` are extension-level
+// boolean elevations declared at the manifest's TOP LEVEL (not under
+// `permissions`). The clamp respects the same rule: an admin can only
+// grant what the manifest authored, and the user must explicitly
+// consent — silent declines reset the field to false.
 
 import { capabilityToolsDisabled } from "$server/extensions/capability-flags";
 import { DIRECT_CARRIER_EVENT_TYPES } from "$server/runtime/sse-conversation-filter";
@@ -30,6 +37,7 @@ import type { ExtensionPermissions, ExtensionManifestV2 } from "$server/extensio
 export function clampExtensionPermissions(
   submitted: Partial<ExtensionPermissions>,
   manifest: ExtensionManifestV2["permissions"],
+  manifestTopLevel?: Pick<ExtensionManifestV2, "acceptsCallerCaps" | "escalateChildCaps">,
 ): ExtensionPermissions {
   const clamped: ExtensionPermissions = { grantedAt: {} };
 
@@ -87,6 +95,24 @@ export function clampExtensionPermissions(
       );
       if (allowed.length > 0) clamped.eventSubscriptions = allowed;
     }
+  }
+
+  // Phase 4 deputy / orchestration flags. Both are top-level manifest
+  // declarations gated on user consent: an admin can grant TRUE only
+  // when the manifest declared TRUE. Submission omitting or setting
+  // the field to false leaves the grant absent (treated as opted-out
+  // at runtime).
+  if (
+    submitted.acceptsCallerCaps === true &&
+    manifestTopLevel?.acceptsCallerCaps === true
+  ) {
+    clamped.acceptsCallerCaps = true;
+  }
+  if (
+    submitted.escalateChildCaps === true &&
+    manifestTopLevel?.escalateChildCaps === true
+  ) {
+    clamped.escalateChildCaps = true;
   }
 
   // Preserve any prior grantedAt timestamps the caller passed for permissions

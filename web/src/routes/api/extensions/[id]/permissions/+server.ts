@@ -55,8 +55,17 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
 
   // sec-C4: clamp to manifest — admin cannot grant more than the extension
   // author declared. Anything beyond manifest.permissions is dropped silently.
+  // Phase 4: also pass the manifest's top-level deputy/escalation flags so
+  // the clamp can gate the matching ExtensionPermissions overlay fields.
   const manifestPerms = ext.manifest?.permissions ?? {};
-  const clamped = clampExtensionPermissions(permissions as Partial<ExtensionPermissions>, manifestPerms);
+  const clamped = clampExtensionPermissions(
+    permissions as Partial<ExtensionPermissions>,
+    manifestPerms,
+    {
+      acceptsCallerCaps: ext.manifest?.acceptsCallerCaps,
+      escalateChildCaps: ext.manifest?.escalateChildCaps,
+    },
+  );
 
   const updated = await updateExtension(params.id, { grantedPermissions: clamped });
   await ExtensionRegistry.getInstance().reload();

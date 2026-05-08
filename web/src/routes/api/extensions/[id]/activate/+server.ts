@@ -86,6 +86,10 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 		update.grantedPermissions = clampExtensionPermissions(
 			submittedPerms as Partial<ExtensionPermissions>,
 			manifestPerms,
+			{
+				acceptsCallerCaps: ext.manifest?.acceptsCallerCaps,
+				escalateChildCaps: ext.manifest?.escalateChildCaps,
+			},
 		);
 	}
 
