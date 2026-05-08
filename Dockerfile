@@ -22,6 +22,30 @@ RUN cd web && bun run build
 FROM oven/bun:1-slim
 WORKDIR /app
 
+# Phase 7 (MCP isolation) runtime dependencies. `oven/bun:1-slim` is
+# debian-bookworm and ships without these; the namespace launcher
+# (`src/extensions/mcp-launcher.sh`) needs all three:
+#   - util-linux  →  `unshare`, `prlimit`, `capsh`
+#   - iproute2    →  `ip` (bring up loopback inside the netns)
+#   - iptables    →  `iptables-restore` (apply OUTPUT-DROP DROP-ALL
+#                    inside the netns; defense-in-depth on top of the
+#                    network namespace's own missing upstream interface)
+#
+# Image growth: ~20 MB. We need the runtime binaries in the final image
+# (not just at build time) because each MCP spawn shells out to them.
+#
+# Kernel knob requirement (NOT installable via apt): the host kernel
+# must allow unprivileged user namespace creation. Either set
+# `kernel.unprivileged_userns_clone=1` (legacy) or run the container
+# with `--cap-add=NET_ADMIN`. See `docs/deployment.md` for details.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+       util-linux \
+       iproute2 \
+       iptables \
+       libcap2-bin \
+  && rm -rf /var/lib/apt/lists/*
+
 # Build-time metadata injected by CI (`docker/metadata-action` → build-args).
 # Surfaced as OCI labels for image introspection and as env vars the app
 # reads at runtime (`EZCORP_IMAGE_SHA` is the circuit-breaker key; see
@@ -51,6 +75,12 @@ RUN cd web && bun install --production --frozen-lockfile
 
 # Copy backend source
 COPY --from=builder /app/src ./src
+
+# Phase 7 — make sure the netns launcher script is executable in the
+# runtime image. `git` preserves the +x bit, but `COPY` from a build
+# stage that may have applied tooling (linters etc.) needs an explicit
+# chmod for the final image to spawn it via `unshare ... -- launcher.sh`.
+RUN chmod +x /app/src/extensions/mcp-launcher.sh
 
 # Copy @ezcorp/sdk workspace source — the package's "bun" exports condition
 # points at ./src/index.ts, which runtime needs present since there's no built

@@ -20,6 +20,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
+    # `network_mode: host` is dev-only convenience: it lets the dev's
+    # browser hit the SvelteKit dev server on localhost without port
+    # mapping. Production deployments use isolated container networking
+    # (default Docker bridge / Kubernetes NetworkPolicy) — Phase 7's
+    # MCP namespace + forward-proxy stack is designed to work alongside
+    # that, NOT to depend on host networking. See `docs/deployment.md`
+    # §"Container networking" for the production layout.
     network_mode: host
     environment:
       - DATABASE_URL=postgres://ezcorp:ezcorp@localhost:5432/ezcorp
