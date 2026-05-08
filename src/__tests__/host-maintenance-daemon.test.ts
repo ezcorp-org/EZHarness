@@ -120,7 +120,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   // Defensive: scrub any leaked env vars between tests. A test that
-  // sets EZCORP_DISABLE_PERM_SWEOP="1" for one case would otherwise
+  // sets EZCORP_DISABLE_PERM_SWEEP="1" for one case would otherwise
   // poison every subsequent case.
   delete process.env.EZCORP_DISABLE_PERM_SWEEP;
   delete process.env.EZCORP_PERM_SWEEP_INTERVAL_MS;
@@ -515,6 +515,10 @@ describe("getSweepIntervalMs — env-var parsing", () => {
     // fires at 1.0s and again at 2.0s — but we sleep 1.5s, so 1).
     // We're really asserting "not 15+", which would happen at 100ms.
     expect(tickCount).toBeLessThanOrEqual(2);
+    // Lower-bound guard: catches the regression where the interval
+    // never arms at all (e.g. start() bails silently). At least one
+    // tick MUST fire in a 1.5s window with a 1s clamped interval.
+    expect(tickCount).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -560,22 +564,19 @@ describe("HostMaintenanceDaemon — tick safety", () => {
     daemon.stop();
   });
 
-  test("applySweepResult with per-extension errors → daemon logs and reports them", async () => {
-    // Phase 2's apply step captures per-extension errors and surfaces
-    // them in `outcome.errors`. The daemon must report them via its
-    // TickOutcome and continue. Build the failure case via a synthetic
-    // grant whose row update will conflict — easier route is to seed
-    // a valid aged grant, then prove the daemon's tickOnce returns
-    // outcome with `errors: []` on the happy path (covered above)
-    // and that errors propagate through the wrapper if applySweep
-    // returned them.
+  test("tick after concurrent rewrite — only the still-aged grant applies, no errors", async () => {
+    // CONTEXT: this test was previously misnamed "applySweepResult with
+    // per-extension errors" — it never actually exercised the
+    // `outcome.errors.length > 0` branch in `host-maintenance-daemon.ts`
+    // (the dead-code path validators flagged). What it DOES test is the
+    // happy single-revocation outcome AFTER a concurrent rewrite has
+    // turned ext-skip's grant fresh: tickOnce re-runs runSweep, sees
+    // only ext-good as aged, applies that one, and returns errors:[].
     //
-    // We seed two extensions; one applies cleanly, the other has an
-    // aged grant on a key that runSweep will plan but the underlying
-    // DB row also has a fresh grantedAt for the same key (race
-    // mitigation skips it). This produces `applied: 1, skipped: 1`
-    // — proving the wrapper threads outcome.applied / .skipped /
-    // .errors correctly.
+    // The real per-extension-errors path is covered separately below
+    // by "tickOnce — applySweep per-extension error surfaces in outcome
+    // …", which forces the DB to reject one of two updates so
+    // `outcome.errors` is non-empty and the dead branch is taken.
     const NOW = Date.now();
     await seedExtension({
       id: "ext-good",
@@ -644,6 +645,119 @@ describe("HostMaintenanceDaemon — tick safety", () => {
       .from(extensions)
       .where(eq(extensions.id, "ext-skip"));
     expect(skipRows[0]?.grantedPermissions?.network).toEqual(["api.y"]);
+  });
+
+  test("tickOnce — applySweep per-extension error surfaces in outcome.errors and exercises the warn-branch", async () => {
+    // COVERAGE: this is the test the misnamed "applySweepResult with
+    // per-extension errors" case was supposed to be. It forces
+    // `applySweepResult` to return a non-empty `errors[]` so the daemon
+    // hits the `if (outcome.errors.length > 0)` branch at
+    // host-maintenance-daemon.ts:278-284 — previously dead in tests.
+    //
+    // STRATEGY: inject a DB Proxy via `mock.module("../db/connection")`
+    // that wraps the real test DB and forces the SECOND
+    // `db.update(extensions)` call to reject. Mirrors Phase 2's
+    // partial-failure test in `perm-expiry-sweep.integration.test.ts`.
+    // We re-register `mockDbConnection()` after the test to restore the
+    // real getDb for subsequent cases — see test-pglite.ts.
+    //
+    // We DON'T assert on the log line itself: the daemon's `log`
+    // constant binds to `logger.child("perm-expiry.daemon")` at module
+    // load (before any test-level mock could intervene), so a logger
+    // spy installed in this file would not propagate. Branch coverage
+    // (errors-non-empty taken vs. else-branch) is the auditor's actual
+    // requirement; the log call is implicit on that branch.
+    const NOW = Date.now();
+    await seedExtension({
+      id: "ext-fail-A",
+      name: "fail-A",
+      enabled: true,
+      perms: {
+        network: ["api.a"],
+        grantedAt: { network: NOW - 91 * DAY_MS },
+      },
+    });
+    await seedExtension({
+      id: "ext-fail-B",
+      name: "fail-B",
+      enabled: true,
+      perms: {
+        network: ["api.b"],
+        grantedAt: { network: NOW - 91 * DAY_MS },
+      },
+    });
+
+    const realDb = getDb();
+    const origUpdate = realDb.update.bind(realDb);
+    let extUpdateCalls = 0;
+    const wrappedDb = new Proxy(realDb, {
+      get(target, prop, receiver) {
+        if (prop === "update") {
+          return (table: unknown) => {
+            if (table === extensions) {
+              extUpdateCalls++;
+              if (extUpdateCalls === 2) {
+                return {
+                  set: () => ({
+                    where: () => ({
+                      returning: () =>
+                        Promise.reject(
+                          new Error("simulated DB failure (test stub)"),
+                        ),
+                    }),
+                  }),
+                };
+              }
+            }
+            return origUpdate(table);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+
+    // Swap `getDb` to return the proxy for the duration of this test.
+    // The daemon calls `getDb()` per-tick, so the next tickOnce picks
+    // up the proxy.
+    mock.module("../db/connection", () => ({
+      getDb: () => wrappedDb,
+      getPglite: () => undefined,
+      getDbPath: () => ":memory:",
+      initDb: async () => {},
+      closeDb: async () => {},
+    }));
+
+    try {
+      const daemon = new HostMaintenanceDaemon({
+        wakeIntervalMs: 60_000,
+        skipLockfile: true,
+        now: () => NOW,
+      });
+      await daemon.start();
+      const outcome = await daemon.tickOnce();
+      daemon.stop();
+
+      // The branch we're covering: `outcome.errors.length > 0`.
+      expect(outcome.errors.length).toBe(1);
+      expect(outcome.errors[0]?.reason).toBe("extension-grant-update-failed");
+      expect(outcome.errors[0]?.details).toContain("simulated DB failure");
+      // One extension's update succeeded, the other rejected.
+      expect(outcome.applied).toBe(1);
+      // No skipped-concurrent (the row wasn't rewritten between read and
+      // write — it was rejected by the proxy).
+      expect(outcome.skippedConcurrent).toBe(0);
+      // Audit row is 1:1 with applied — exactly one.
+      expect(outcome.audits).toBe(1);
+      // Iteration order over a Map is insertion order keyed by
+      // extensionId, so the failed extension is whichever is the
+      // SECOND in `byExt`. We don't pin which — only the union.
+      const failedId = outcome.errors[0]!.extensionId;
+      expect(["ext-fail-A", "ext-fail-B"]).toContain(failedId);
+    } finally {
+      // Restore the real getDb so subsequent tests in this file
+      // continue to work against the real test DB.
+      mockDbConnection();
+    }
   });
 
   test("audit row is written for each applied revocation", async () => {

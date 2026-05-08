@@ -23,6 +23,19 @@ let cleanupOldSdkCapabilityCallsMock = mock((_cfg: {
 }) => Promise.resolve(0));
 let getSettingMock = mock((_key: string) => Promise.resolve<unknown>(undefined));
 
+// HostMaintenanceDaemon stub instrumentation. The bootstrap reads
+// `new HostMaintenanceDaemon()` then `.start()`; we capture both so
+// tests can assert (a) the daemon WAS instantiated and (b) the
+// daemon's start() was called once. Per-test swaps to
+// `permSweepDaemonStartMock` cover the failure-isolation paths
+// (start() returns false; start() throws). The instance is recorded
+// so a test can assert `_getPermSweepDaemonForTests()` returned
+// THIS specific stub vs. undefined after a failed-start.
+let permSweepDaemonCtorMock = mock(() => {});
+let permSweepDaemonStartMock = mock(() => Promise.resolve<boolean>(true));
+let permSweepDaemonStopMock = mock(() => {});
+let lastPermSweepDaemonInstance: object | undefined;
+
 // Logger spies. The structured logger writes JSON via process.stdout/stderr.write,
 // bypassing console.* shims, so we mock the logger module itself and assert on
 // (msg, fields) call shape. `child()` returns the same spy object so calls made
@@ -84,13 +97,22 @@ function installModuleMocks(): void {
   // Cap-expiry Phase 3: stub the HostMaintenanceDaemon for the same
   // reason — that daemon's lifecycle / sweep coverage lives in
   // src/__tests__/host-maintenance-daemon.test.ts, and standing it up
-  // here would require a real DB. The stub returns `true` from start()
-  // so the boot block's "started" log fires (mirrors the schedule-
-  // daemon stub above).
+  // here would require a real DB. The stub's constructor + start()
+  // route through capture-mocks (`permSweepDaemonCtorMock`,
+  // `permSweepDaemonStartMock`) so tests can assert the daemon was
+  // instantiated and its start() was called, AND swap start()'s
+  // behavior per-test for failure-isolation cases (false-return,
+  // throw). `lastPermSweepDaemonInstance` records the most recent
+  // `new` so a test can compare against `_getPermSweepDaemonForTests()`.
   mock.module("../extensions/host-maintenance-daemon", () => ({
     HostMaintenanceDaemon: class {
-      start() { return Promise.resolve(true); }
-      stop() {}
+      constructor() {
+        permSweepDaemonCtorMock();
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        lastPermSweepDaemonInstance = this;
+      }
+      start() { return permSweepDaemonStartMock(); }
+      stop() { permSweepDaemonStopMock(); }
     },
   }));
   mock.module("../logger", () => ({ logger: loggerSpy }));
@@ -114,6 +136,10 @@ beforeEach(async () => {
   loggerInfoMock = mock((_msg: string, _extra?: Record<string, unknown>) => {});
   loggerWarnMock = mock((_msg: string, _extra?: Record<string, unknown>) => {});
   loggerErrorMock = mock((_msg: string, _extra?: Record<string, unknown>) => {});
+  permSweepDaemonCtorMock = mock(() => {});
+  permSweepDaemonStartMock = mock(() => Promise.resolve<boolean>(true));
+  permSweepDaemonStopMock = mock(() => {});
+  lastPermSweepDaemonInstance = undefined;
 
   installModuleMocks();
 
@@ -232,6 +258,108 @@ describe("startBackgroundTimers", () => {
     expect(compactionCall.delay).toBe(2 * hourMs);
 
     expect(loggerInfoMock).toHaveBeenCalledWith("Compaction started", { intervalHours: 2 });
+  });
+});
+
+// Cap-expiry Phase 3 — bootstrap wiring for HostMaintenanceDaemon.
+// Validators flagged that nothing in this file actually asserts
+// `permSweepDaemon` is instantiated (must-fix #2) or that the
+// daemon-start failure paths null the singleton handle (must-fix #3,
+// covering `start() === false` AND `start()` rejecting). These tests
+// close that gap by leaning on the constructor / start spies wired
+// into the stub class above.
+describe("startBackgroundTimers — HostMaintenanceDaemon bootstrap", () => {
+  test("happy-path bootstrap: HostMaintenanceDaemon is instantiated and started", async () => {
+    // Default per-test stub: ctor recorded, start() resolves true.
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    // Constructor fired exactly once.
+    expect(permSweepDaemonCtorMock).toHaveBeenCalledTimes(1);
+    // start() called exactly once.
+    expect(permSweepDaemonStartMock).toHaveBeenCalledTimes(1);
+    // The exported test-handle returns the SAME instance that was
+    // constructed — proves the bootstrap stored the daemon, not
+    // dropped it.
+    const exposed = mod._getPermSweepDaemonForTests();
+    expect(exposed).toBeDefined();
+    expect(exposed).toBe(lastPermSweepDaemonInstance as never);
+    // Success log fired ("started"). The boot block emits this only
+    // when start() returned true. The bootstrap's call site is
+    // `log.info("HostMaintenanceDaemon started")` (no fields), but
+    // the spy normalizes the second arg to `undefined` per its
+    // signature, so we match that exact shape.
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      "HostMaintenanceDaemon started",
+      undefined,
+    );
+  });
+
+  test("start() resolving false: handle is dropped, no exception bubbles, rest of boot still ran", async () => {
+    // Failure mode 3a: kill switch or sibling-lockfile path inside
+    // the daemon's start() returns false. The boot block must drop
+    // the handle (set permSweepDaemon = undefined) and CONTINUE — the
+    // surface-audit timer still gets a chance, the unrelated
+    // intervals are intact. The daemon's own `start()` already
+    // logged the reason, so the boot block does NOT double-log.
+    permSweepDaemonStartMock = mock(() => Promise.resolve<boolean>(false));
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    // Constructor and start() each called once.
+    expect(permSweepDaemonCtorMock).toHaveBeenCalledTimes(1);
+    expect(permSweepDaemonStartMock).toHaveBeenCalledTimes(1);
+    // Handle is undefined after the false-return.
+    expect(mod._getPermSweepDaemonForTests()).toBeUndefined();
+    // No "started" log fired (success path didn't run). Match the
+    // exact (msg, undefined) shape the spy normalizes a 1-arg call to.
+    expect(loggerInfoMock).not.toHaveBeenCalledWith(
+      "HostMaintenanceDaemon started",
+      undefined,
+    );
+    // No "Failed to start" warn either — the daemon's own start()
+    // already logged its reason; the bootstrap deliberately doesn't
+    // double-log on a clean false-return.
+    expect(loggerWarnMock).not.toHaveBeenCalledWith(
+      "Failed to start HostMaintenanceDaemon",
+      expect.any(Object) as never,
+    );
+    // The rest of boot still executed — the four prior intervals
+    // (sessions, errors, sdk-capability sweep, compaction) are all
+    // present. (Surface audit defaults to 0h = disabled.)
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("start() rejecting: handle is dropped, log.warn carries the error, no exception bubbles", async () => {
+    // Failure mode 3b: start() throws (e.g. lockfile FS error,
+    // unexpected runtime fault). The boot block's try/catch must
+    // catch it, log a warning that names the daemon, drop the
+    // handle, and CONTINUE — boot doesn't crash on a daemon
+    // pathology.
+    const bootErr = new Error("simulated boot failure");
+    permSweepDaemonStartMock = mock(() => Promise.reject(bootErr));
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    // Crucially: this MUST resolve (no exception bubbles up).
+    await mod.startBackgroundTimers();
+
+    expect(permSweepDaemonCtorMock).toHaveBeenCalledTimes(1);
+    expect(permSweepDaemonStartMock).toHaveBeenCalledTimes(1);
+    // Handle is dropped after the throw.
+    expect(mod._getPermSweepDaemonForTests()).toBeUndefined();
+    // The bootstrap's catch block logs the failure with the error
+    // string (matching background-timers.ts:144).
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      "Failed to start HostMaintenanceDaemon",
+      { error: String(bootErr) },
+    );
+    // Other boot work was unaffected.
+    expect(intervalCalls).toHaveLength(4);
   });
 });
 
