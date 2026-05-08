@@ -299,11 +299,12 @@ describe("PDP integration: ToolExecutor → engine.authorize → auditLog row", 
     expect(ours).toBeDefined();
   });
 
-  test("prompt path: sensitive cap without always-allow → PERM_PROMPTED row + dispatch proceeds (Phase 1 TODO behavior)", async () => {
-    // Phase 1 contract: when the PDP returns `prompt`, the
-    // ToolExecutor falls through to subprocess dispatch (TODO marker
-    // present in tool-executor.ts). The audit row records
-    // PERM_PROMPTED — the only externally-visible signal in Phase 1.
+  test("prompt path (Phase 6): sensitive cap → PERM_PROMPTED row + emits scoped tool:permission_request + awaits gate", async () => {
+    // Phase 6 contract: when the PDP returns `prompt`, the executor
+    // emits `tool:permission_request` (scoped to the originating user
+    // via H7) and awaits a `createExtensionPermissionGate` resolution.
+    // We resolve the gate from the test by calling `resolvePermission`
+    // — same path the SSE-side modal will use in production.
     const captured: CapturedCall[] = [];
     const fakeProc = {
       callTool: async (
@@ -316,8 +317,6 @@ describe("PDP integration: ToolExecutor → engine.authorize → auditLog row", 
       setNotificationHandler: () => {},
       setRequestHandler: () => {},
     };
-    // Manifest declares shell — sensitive cap; no always-allow row in
-    // settings → engine returns prompt.
     const registry = {
       getRegisteredTool: () => ({
         extensionId: EXT_ID,
@@ -352,28 +351,59 @@ describe("PDP integration: ToolExecutor → engine.authorize → auditLog row", 
       },
     } as unknown as ExtensionRegistry;
 
+    // Capture emits so we can extract the promptId.
+    const emits: Array<{ type: string; payload: unknown }> = [];
+    const bus = {
+      emit: (type: string, payload: unknown) => {
+        emits.push({ type, payload });
+      },
+      on: () => () => {},
+    } as unknown as Parameters<typeof createPermissionEngine>[0]["bus"];
+
     const engine = createPermissionEngine({
       registry,
-      bus: { emit: () => {}, on: () => () => {} } as unknown as Parameters<typeof createPermissionEngine>[0]["bus"],
+      bus,
       db: { _token: "int-prompt-test" },
     });
-    const executor = new ToolExecutor(registry, engine);
+    const executor = new ToolExecutor(registry, engine, { bus });
     executor.setCurrentUserId(USER_ID);
 
-    const result = await executor.executeToolCall(
+    // Kick off the call. The executor emits `tool:permission_request`,
+    // then blocks on the gate. We resolve it from a microtask so the
+    // call completes — pretend the user clicked Allow with scope
+    // "session".
+    const callPromise = executor.executeToolCall(
       "scratchpad__run_shell",
       {},
       "conv-int-prompt",
       "msg-int-prompt",
     );
 
-    // Phase 1 TODO: prompt is treated as allow → subprocess receives
-    // the call.
+    // Wait one microtask for the emit to land, then resolve the gate.
+    await new Promise((r) => setTimeout(r, 10));
+    const permEvent = emits.find((e) => e.type === "tool:permission_request");
+    expect(permEvent).toBeDefined();
+    const evtPayload = permEvent!.payload as {
+      userId?: string;
+      extensionId?: string;
+      capabilityKind?: string;
+      toolCallId: string;
+      promptId?: string;
+    };
+    // H7 scoping fields populated.
+    expect(evtPayload.userId).toBe(USER_ID);
+    expect(evtPayload.extensionId).toBe(EXT_ID);
+    expect(evtPayload.capabilityKind).toBe("shell");
+    expect(typeof evtPayload.promptId).toBe("string");
+
+    const { resolvePermission } = await import("../runtime/tools/permissions");
+    resolvePermission(evtPayload.toolCallId, true, "session");
+
+    const result = await callPromise;
     expect(result.isError).toBe(false);
     expect(captured).toHaveLength(1);
 
-    // Audit row is PERM_PROMPTED, NOT PERM_ALLOWED — that's how an
-    // operator can see what would have been gated under Phase 6.
+    // Audit row records PERM_PROMPTED at the prompt time.
     const promptRows = await getTestDb()
       .select()
       .from(auditLog)

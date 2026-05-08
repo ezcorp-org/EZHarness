@@ -24,6 +24,11 @@ import { resolveExtensionSettings } from "../db/queries/extension-settings";
 import type { PermissionEngine } from "./permission-engine";
 import { capabilityDeclarationToSet, grantsToCapabilitySet, intersect, type CapabilitySet } from "./capability-types";
 import { getRuntimeToolContext, withRuntimeToolContext } from "./runtime-tool-context";
+import {
+  createExtensionPermissionGate,
+  type ApprovalResolution,
+} from "../runtime/tools/permissions";
+import { setSensitiveAlwaysAllow } from "./permissions";
 import { handleNetworkInternalRpc, type NetworkInternalContext } from "./network-handler";
 import {
   handleFsReadRpc,
@@ -38,6 +43,53 @@ import {
 } from "./fs-handler";
 
 export const MAX_TOOL_CALLS_PER_TURN = 10;
+
+/**
+ * Phase 6 (finding M3) — process-singleton per-conversation per-turn
+ * counter. A single LLM turn that fans out >10 tool calls in the same
+ * conversation throws on the 11th, preventing runaway loops in a
+ * compromised or buggy extension chain.
+ *
+ * Reset on `run:complete` for the conversation (wired below in
+ * `wireMaxToolCallsCounter`). The counter is in-memory only — process
+ * restart clears it, which is fine; a runaway turn that survives a
+ * restart restarts at zero anyway because `run:complete` would have
+ * fired during shutdown.
+ *
+ * Module-level singleton because `ToolExecutor` is constructed per-turn
+ * by `setup-tools.ts`; a per-instance Map would reset on every turn
+ * and never trigger the cap. The bus subscription (also process
+ * singleton, attached on first `wireMaxToolCallsCounter` call) clears
+ * the count when the run completes.
+ */
+const toolCallsThisTurn = new Map<string, number>();
+let toolCallsCounterWired = false;
+
+/** Test-only: reset the per-turn counter + un-wire the bus listener. */
+export function _resetToolCallsCounterForTests(): void {
+  toolCallsThisTurn.clear();
+  toolCallsCounterWired = false;
+}
+
+/** Read-only test peek at the per-conversation tool call count. */
+export function _getToolCallsThisTurnForTests(conversationId: string): number {
+  return toolCallsThisTurn.get(conversationId) ?? 0;
+}
+
+/**
+ * Phase 6 — error type thrown when a single LLM turn exceeds the
+ * `MAX_TOOL_CALLS_PER_TURN` cap. Carries the conversationId + count so
+ * the audit row + UI surface name the offending conversation.
+ */
+export class MaxToolCallsExceededError extends Error {
+  constructor(public readonly conversationId: string, public readonly count: number) {
+    super(
+      `Max tool calls per turn exceeded for conversation "${conversationId}" ` +
+        `(count=${count}, limit=${MAX_TOOL_CALLS_PER_TURN})`,
+    );
+    this.name = "MaxToolCallsExceededError";
+  }
+}
 
 /**
  * Phase 3: tracks which extensions have already received the
@@ -182,6 +234,26 @@ export class ToolExecutor {
       );
     }
     this.bus = options?.bus;
+    // Phase 6 (M3): wire the per-turn counter to reset on run:complete.
+    // Idempotent — module-level flag ensures a single bus subscription
+    // even though many ToolExecutor instances are constructed per-turn.
+    if (this.bus && !toolCallsCounterWired) {
+      toolCallsCounterWired = true;
+      this.bus.on("run:complete", (data) => {
+        const cid = (data as { conversationId?: string } | null | undefined)?.conversationId;
+        if (cid) toolCallsThisTurn.delete(cid);
+      });
+      // Also clear on cancel/error so a turn aborted mid-flight
+      // doesn't keep its stale count tying up the next turn's budget.
+      this.bus.on("run:cancel", (data) => {
+        const cid = (data as { conversationId?: string } | null | undefined)?.conversationId;
+        if (cid) toolCallsThisTurn.delete(cid);
+      });
+      this.bus.on("run:error", (data) => {
+        const cid = (data as { conversationId?: string } | null | undefined)?.conversationId;
+        if (cid) toolCallsThisTurn.delete(cid);
+      });
+    }
   }
 
   /** Set the state mediator for routing extension notifications. */
@@ -268,6 +340,24 @@ export class ToolExecutor {
     const extensionId = registered.extensionId;
     const originalName = registered.originalName;
 
+    // Phase 6 (M3) — per-conversation per-turn tool-call cap. Increment
+    // BEFORE the PDP gate so a denied call still counts against the
+    // budget; this prevents an attacker who keeps tripping deny from
+    // exhausting the engine and stalling the turn. The bus listener in
+    // the constructor resets the counter on `run:complete`/`:cancel`/
+    // `:error`. Cross-ext synthetic ids (`"cross-ext"` from the legacy
+    // `handlePiInvoke` path — replaced with the real parent
+    // conversationId in the same Phase 6 commit, see M4) DON'T count
+    // against the budget so their nested calls don't double-charge the
+    // parent's quota.
+    if (conversationId && conversationId !== "cross-ext") {
+      const next = (toolCallsThisTurn.get(conversationId) ?? 0) + 1;
+      if (next > MAX_TOOL_CALLS_PER_TURN) {
+        throw new MaxToolCallsExceededError(conversationId, next);
+      }
+      toolCallsThisTurn.set(conversationId, next);
+    }
+
     // Resolve symbolic arg references (e.g. attachment handles → data URIs)
     // BEFORE the PDP check. The post-resolved args are what the
     // subprocess actually receives, so the PDP sees the same shape it
@@ -310,8 +400,11 @@ export class ToolExecutor {
       decision = await this.engine.authorize(
         {
           extensionId,
-          userId: this.currentUserId ?? "unknown",
-          conversationId,
+          // Phase 6: null is the canonical "no user" signal — the
+          // PDP serializes it as JSON null in the audit row instead
+          // of the literal string "unknown".
+          userId: this.currentUserId ?? null,
+          conversationId: conversationId ?? null,
           toolName: originalName,
           callerExtensionId: _opts?.callerExtensionId,
           capContext: _opts?.capContext,
@@ -331,10 +424,107 @@ export class ToolExecutor {
     if (decision.decision === "deny") {
       throw new PermissionDeniedError(extensionId, toolName, decision.reason);
     }
-    // TODO(phase-6): wire UI prompt. Phase 1 treats `prompt` the same
-    // as `allow` so behavior is unchanged from pre-PDP. The audit row
-    // already records `PERM_PROMPTED` so an operator can see what
-    // would have been gated.
+    if (decision.decision === "prompt") {
+      // Phase 6 — sensitive-cap UI gate. The PDP returned a `prompt`
+      // decision (every needed cap is granted, but a sensitive cap
+      // — `shell` or `fs.write` — lacks an always-allow row for the
+      // (user, scope, scopeId, capability) tuple). We open an
+      // extension-scoped permission gate, emit `tool:permission_request`
+      // for the originating user's UI, and AWAIT the user's
+      // `{allowed, scope}` decision. The user's chosen scope is
+      // persisted via `setSensitiveAlwaysAllow` so the next call to
+      // the same sensitive cap inside the same scope auto-allows.
+      //
+      // The PDP path also wrote a `PERM_PROMPTED` audit row before
+      // returning; we don't write a second row here. On user decline
+      // we throw `PermissionDeniedError` to mirror the deny path.
+      const sensitive = decision.sensitive;
+      const capabilityKind: "shell" | "fs.write" =
+        sensitive.kind === "shell" ? "shell" : "fs.write";
+
+      // Surface the prompt to the originating user's UI session only.
+      // `userId` is the H7-scoped delivery key — the SSE filter at
+      // `sse-conversation-filter.ts:shouldDeliverEvent` enforces that
+      // only the matching subscriber sees the event.
+      this.bus?.emit("tool:permission_request", {
+        conversationId,
+        toolCallId: decision.promptId,
+        toolName: originalName,
+        input,
+        userId: this.currentUserId,
+        extensionId,
+        capabilityKind,
+        ...(sensitive.value !== undefined ? { capabilityValue: sensitive.value } : {}),
+        promptId: decision.promptId,
+      });
+
+      let resolution: ApprovalResolution;
+      try {
+        resolution = await createExtensionPermissionGate({
+          promptId: decision.promptId,
+          conversationId,
+          userId: this.currentUserId ?? "",
+          extensionId,
+          toolName: originalName,
+          capabilityKind,
+          ...(sensitive.value !== undefined ? { capabilityValue: sensitive.value } : {}),
+        });
+      } catch (err) {
+        // The gate's promise resolves with `{allowed: false}` on
+        // decline; reaching the catch arm means a transport-level
+        // failure (e.g. server restart). Treat as deny.
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new PermissionDeniedError(
+          extensionId,
+          toolName,
+          `permission gate error: ${msg}`,
+        );
+      }
+
+      if (!resolution.allowed) {
+        throw new PermissionDeniedError(
+          extensionId,
+          toolName,
+          "User declined permission prompt",
+        );
+      }
+
+      // Persist always-allow at the user-chosen scope (default session
+      // — least surprise; the gate falls back to "session" when no
+      // scope is supplied, matching the spec's locked default).
+      const scope = resolution.scope ?? "session";
+      const scopeId =
+        scope === "conversation"
+          ? conversationId
+          : scope === "session"
+            ? `session:${this.currentUserId ?? ""}`
+            : scope === "project"
+              ? // Project scopeId resolution is deferred — we use the
+                // conversationId as a stable key for now; a future
+                // commit can map conversation→project when the PDP
+                // gains project-aware lookups (the cache key already
+                // accommodates it).
+                conversationId
+              : "*";
+      await setSensitiveAlwaysAllow(
+        extensionId,
+        capabilityKind === "shell" ? "shell" : "filesystem",
+        true,
+        this.currentUserId
+          ? { userId: this.currentUserId, scope, scopeId }
+          : undefined,
+      );
+      // Resolve the engine's pending prompt registry so its in-memory
+      // cache reflects the new always-allow row without a DB round-trip
+      // on the next call.
+      try {
+        await this.engine.resolvePrompt(decision.promptId, true, scope, scopeId);
+      } catch {
+        // resolvePrompt is best-effort cache update; persistence is
+        // already on disk via setSensitiveAlwaysAllow above.
+      }
+      // Fall through to dispatch — the user authorized this call.
+    }
 
     // Track current call context for reverse RPC handlers (e.g. ezcorp/storage)
     this.currentConversationId = conversationId;
@@ -671,12 +861,23 @@ export class ToolExecutor {
       capContext = intersect(callerCaps, calleeCaps);
     }
 
+    // Phase 6 (finding M4) — propagate the real parent conversationId
+    // through `ezcorp/invoke`. Pre-Phase-6 we passed the synthetic
+    // `"cross-ext"` sentinel, which broke conversation-scoped checks
+    // (storage scope, always-allow lookups, audit lineage) for any
+    // cross-ext call. The parent's conversationId is whichever scope
+    // we're already wired into — `currentConversationId` (set in
+    // `executeToolCall` immediately before dispatch). We fall back to
+    // a synthetic id only when there's truly no parent (event-driven
+    // dispatch — never observed in production today).
+    const parentConvId = this.currentConversationId ?? `cross-ext-${req.id}`;
+    const messageIdForCross = `cross-ext-${req.id}`;
     try {
       const result = await this.executeToolCall(
         resolved.name,
         args,
-        "cross-ext",
-        `cross-ext-${req.id}`,
+        parentConvId,
+        messageIdForCross,
         {
           callerExtensionId: callerExtId,
           _callDepth: depth + 1,

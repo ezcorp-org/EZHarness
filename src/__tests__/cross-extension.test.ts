@@ -342,6 +342,51 @@ describe("ToolExecutor.handlePiInvoke", () => {
     await executor.handlePiInvoke("caller-ext", req);
     expect(capturedOpts?.callerExtensionId).toBe("caller-ext");
   });
+
+  test("Phase 6 M4: real parent conversationId is propagated (no 'cross-ext' sentinel)", async () => {
+    // Pre-Phase-6: the synthetic `"cross-ext"` conversationId broke
+    // every conversation-scoped check (storage, always-allow, audit
+    // lineage). Phase 6 reads the surrounding `currentConversationId`
+    // (set in `executeToolCall` immediately before dispatch) and
+    // threads it through.
+    const registry = ExtensionRegistry.getInstance();
+    registry.setDepRoutes(new Map([
+      ["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])],
+    ]));
+    registry.registerToolForTest("dep-pkg__doStuff", {
+      name: "dep-pkg__doStuff",
+      originalName: "doStuff",
+      description: "does stuff",
+      inputSchema: { type: "object" },
+      extensionId: "dep-ext-id",
+      extensionName: "dep-pkg",
+    });
+
+    const executor = new ToolExecutor(registry, createStubPermissionEngine());
+    // Simulate that we're already inside a parent dispatch — set the
+    // currentConversationId via the Phase 1 setter the parent
+    // executeToolCall would have populated.
+    // @ts-expect-error - private field write for test parity
+    executor.currentConversationId = "parent-conv-real";
+
+    let capturedConvId: string | undefined;
+    executor.executeToolCall = async (_tn, _in, cid) => {
+      capturedConvId = cid;
+      return { content: [{ type: "text" as const, text: "ok" }], isError: false };
+    };
+
+    const req: JsonRpcRequest = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "ezcorp/invoke",
+      params: { tool: "dep-pkg__doStuff", arguments: {} },
+    };
+
+    await executor.handlePiInvoke("caller-ext", req);
+    // Real parent — NOT the legacy `"cross-ext"` sentinel.
+    expect(capturedConvId).toBe("parent-conv-real");
+    expect(capturedConvId).not.toBe("cross-ext");
+  });
 });
 
 // ── Registry: resolveDepTool edge cases ─────────────────────────────
