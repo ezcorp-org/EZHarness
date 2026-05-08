@@ -23,7 +23,7 @@ function json(data: unknown, status = 200): Response {
 
 /**
  * POST /api/tool-calls/:id/permission
- * Body: { approved: boolean }
+ * Body: { approved: boolean, scope?: "session" | "conversation" | "project" | "forever" }
  *
  * sec-H2: Any authenticated caller could previously approve or deny a
  * pending tool-call permission gate belonging to any other user — the
@@ -32,22 +32,42 @@ function json(data: unknown, status = 200): Response {
  * admin's pending "shell" tool execution. We now look up the gate's
  * owning conversation and reject with 403 unless the caller owns it
  * (or is an instance admin).
+ *
+ * Phase 6: extension-scoped permission requests carry an additional
+ * `scope` field naming the user-chosen always-allow scope (default
+ * `session`). Built-in tool gates ignore the field. The scope value is
+ * validated against the four spec-locked options.
  */
+const VALID_SCOPES = new Set(["session", "conversation", "project", "forever"]);
+
 export async function handleToolPermission(
   req: Request,
   toolCallId: string,
   user: AuthUser,
 ): Promise<Response> {
-  let body: { approved?: boolean };
+  let body: { approved?: boolean; scope?: string };
   try {
     const raw = (await req.json()) as unknown;
-    body = (raw && typeof raw === "object" ? raw : {}) as { approved?: boolean };
+    body = (raw && typeof raw === "object" ? raw : {}) as {
+      approved?: boolean;
+      scope?: string;
+    };
   } catch {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
   if (typeof body.approved !== "boolean") {
     return json({ error: "approved (boolean) is required" }, 400);
+  }
+
+  // Phase 6: optional `scope` field for extension-scoped gates. Reject
+  // unknown values rather than silently downgrading to "session" so a
+  // typo in the UI surfaces immediately.
+  if (body.scope !== undefined && !VALID_SCOPES.has(body.scope)) {
+    return json(
+      { error: `scope must be one of: ${[...VALID_SCOPES].join(", ")}` },
+      400,
+    );
   }
 
   // sec-H2: only enforce ownership when a gate is actually pending. If no
@@ -64,7 +84,11 @@ export async function handleToolPermission(
     }
   }
 
-  resolvePermission(toolCallId, body.approved);
+  resolvePermission(
+    toolCallId,
+    body.approved,
+    body.scope as "session" | "conversation" | "project" | "forever" | undefined,
+  );
   return json({ ok: true });
 }
 

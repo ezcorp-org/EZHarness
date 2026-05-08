@@ -61,6 +61,13 @@ export interface ToolCallState {
 	cardLayout?: 'inline' | 'dock';
 	category?: string;
 	permissionPending?: boolean;
+	/** Phase 6: sensitive capability that triggered an extension-scoped
+	 *  permission prompt. Routes the modal to the four-scope chooser
+	 *  (session/conversation/project/forever) for `shell` and `fs.write`
+	 *  ops on extensions. Built-in tool gates (read/write/execute) leave
+	 *  this undefined and use the legacy two-button modal. */
+	capabilityKind?: 'shell' | 'fs.write';
+	capabilityValue?: string;
 }
 
 /**
@@ -437,12 +444,19 @@ function resolveRunForConversation(conversationId: string): string | undefined {
 	return routingResolveRunForConversation(routingSnapshot(), conversationId);
 }
 
-/** Send permission response (allow/deny) for a pending tool call */
-export async function sendToolPermissionResponse(toolCallId: string, approved: boolean): Promise<void> {
+/** Send permission response (allow/deny) for a pending tool call.
+ *  Phase 6: extension-scoped requests pass the optional `scope` arg
+ *  naming the user-chosen always-allow scope. Built-in tool gates omit
+ *  it (the server route ignores the field on built-in gates). */
+export async function sendToolPermissionResponse(
+	toolCallId: string,
+	approved: boolean,
+	scope?: 'session' | 'conversation' | 'project' | 'forever',
+): Promise<void> {
 	await fetch(`/api/tool-calls/${toolCallId}/permission`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ approved }),
+		body: JSON.stringify(scope ? { approved, scope } : { approved }),
 	});
 }
 
@@ -1000,8 +1014,33 @@ export function initStores() {
 			}
 
 			case "tool:permission_request": {
-				const { conversationId, toolCallId, toolName: permToolName, input: permInput, cardType: permCardType, cardLayout: permCardLayout, category: permCategory } = event.data as {
-					conversationId: string; toolCallId: string; toolName: string; input: unknown; cardType?: string; cardLayout?: string; category?: string;
+				const {
+					conversationId,
+					toolCallId,
+					toolName: permToolName,
+					input: permInput,
+					cardType: permCardType,
+					cardLayout: permCardLayout,
+					category: permCategory,
+					// Phase 6: extension-scoped fields. When `extensionId` is
+					// set, the modal renders the four-scope chooser and uses
+					// `capabilityKind`/`capabilityValue` to describe the
+					// requested operation. Built-in tool gates leave them
+					// undefined and use the legacy two-button modal.
+					extensionId: permExtensionId,
+					capabilityKind: permCapabilityKind,
+					capabilityValue: permCapabilityValue,
+				} = event.data as {
+					conversationId: string;
+					toolCallId: string;
+					toolName: string;
+					input: unknown;
+					cardType?: string;
+					cardLayout?: string;
+					category?: string;
+					extensionId?: string;
+					capabilityKind?: 'shell' | 'fs.write';
+					capabilityValue?: string;
 				};
 				const safePermLayout = permCardLayout === 'dock' ? 'dock' as const : permCardLayout === 'inline' ? 'inline' as const : undefined;
 				// Resolve root run — handles both root conversations and sub-agent conversations
@@ -1012,12 +1051,38 @@ export function initStores() {
 					const idx = calls.findLastIndex((tc) => tc.toolName === permToolName && tc.status === 'running');
 					if (idx >= 0) {
 						const updated = [...calls];
-						updated[idx] = { ...updated[idx]!, id: toolCallId, permissionPending: true, cardType: permCardType, cardLayout: safePermLayout, category: permCategory };
+						updated[idx] = {
+							...updated[idx]!,
+							id: toolCallId,
+							permissionPending: true,
+							cardType: permCardType,
+							cardLayout: safePermLayout,
+							category: permCategory,
+							extensionId: permExtensionId,
+							capabilityKind: permCapabilityKind,
+							capabilityValue: permCapabilityValue,
+						};
 						store.streamingToolCalls = { ...store.streamingToolCalls, [runId]: updated };
 					} else {
 						store.streamingToolCalls = {
 							...store.streamingToolCalls,
-							[runId]: [...calls, { id: toolCallId, toolName: permToolName, status: 'running', input: permInput, startedAt: Date.now(), permissionPending: true, cardType: permCardType, cardLayout: safePermLayout, category: permCategory }],
+							[runId]: [
+								...calls,
+								{
+									id: toolCallId,
+									toolName: permToolName,
+									status: 'running',
+									input: permInput,
+									startedAt: Date.now(),
+									permissionPending: true,
+									cardType: permCardType,
+									cardLayout: safePermLayout,
+									category: permCategory,
+									extensionId: permExtensionId,
+									capabilityKind: permCapabilityKind,
+									capabilityValue: permCapabilityValue,
+								},
+							],
 						};
 					}
 				} else {
