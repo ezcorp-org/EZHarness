@@ -579,23 +579,22 @@ describe("runSweep — always-allow rows", () => {
     expect(r.revocations).toEqual([]);
   });
 
-  test("conversation scope uses per-capability TTL (shell = 30d)", async () => {
+  test("conversation scope is skipped (lifetime-bound, design doc §4.4)", async () => {
+    // Per design doc § 4.4: "conversation is bounded by conversation
+    // lifetime (parallel — sweep doesn't need to age it)". An aged
+    // conversation-scope grant must produce ZERO revocations, even at
+    // 1000 days old. Mirrors the session-scope skip test above.
     const db = makeStubDb({
       ext: [],
       settings: [
         {
           key: "ext:ext-1:user-1:conversation:conv-1:always_allow:shell",
-          value: { allowed: true, grantedAt: NOW - 31 * DAY_MS },
+          value: { allowed: true, grantedAt: NOW - 1000 * DAY_MS },
         },
       ],
     });
     const r = await runSweep({ db, now: NOW });
-    expect(r.revocations).toHaveLength(1);
-    const rev = r.revocations[0]!;
-    if (rev.kind === "always-allow") {
-      expect(rev.scope).toBe("conversation");
-      expect(rev.ttlMs).toBe(30 * DAY_MS);
-    }
+    expect(r.revocations).toEqual([]);
   });
 
   test("project scope uses per-capability TTL (network = 90d)", async () => {

@@ -135,6 +135,15 @@ export interface ExpiryEvent {
 /**
  * Result of {@link runSweep}. Plan-only; no DB mutation has happened
  * yet at this point.
+ *
+ * Note on `audits`: consumers using {@link applySweepResult} should rely
+ * on `ApplyOutcome.audits` (the count of audit rows actually written),
+ * not this field. `SweepResult.audits` is informational for non-applying
+ * callers (e.g. dry-run reporting); the apply path rebuilds the audit
+ * shape internally to honor the audit-only-on-applied invariant — see
+ * the comment block at {@link applySweepResult}, particularly the
+ * `applyAudit` helper. Skipped revocations (race-mitigated) emit no
+ * audit row.
  */
 export interface SweepResult {
   revocations: Revocation[];
@@ -306,6 +315,18 @@ function parseAlwaysAllowKey(
  * onto a {@link CapabilityExpiryKind}. The PDP's always-allow keys use
  * a slightly different namespace than `ExtensionPermissions` — `fs.write`
  * vs `filesystem`, etc. Returns `null` for unknown values.
+ *
+ * Distinct from {@link mapGrantKeyToExpiryKind}: that helper maps
+ * `ExtensionPermissions` field names (e.g. `filesystem`, `network`,
+ * `shell`); this helper maps always-allow capability tokens (e.g.
+ * `fs.write`, `fs.read`, `network`, `shell`). The namespaces genuinely
+ * differ — `parseAlwaysAllowKey` produces tokens carved from the
+ * settings-key tail (`"...:always_allow:fs.write"` → `"fs.write"`),
+ * whereas `grantedPermissions` keys are the field names declared on
+ * `ExtensionPermissions`. Neither type can serve both: e.g. `fs.write`
+ * is a valid always-allow capability but not a grantedPermissions key,
+ * and `taskEvents` is a grantedPermissions key but never appears as an
+ * always-allow capability. Hence two helpers.
  */
 function mapAlwaysAllowCapabilityToExpiryKind(
   capability: string,
@@ -446,7 +467,23 @@ export async function runSweep(inputs: SweepInputs): Promise<SweepResult> {
   for (const row of aaRows) {
     const parsed = parseAlwaysAllowKey(row.key);
     if (!parsed) continue; // legacy unscoped row — never-expires
-    if (parsed.scope === "session") continue; // in-memory only
+    // Per-scope ageing decisions (design doc §4.4 + Phase 1 milestone §A
+    // locked decision):
+    //   • session       — skipped (in-memory only, restart-bound).
+    //   • conversation  — skipped (lifetime-bound; conversation deletion
+    //     orphans the row, but ageing it against a per-capability TTL is
+    //     wrong: the design contract is "lifetime of conv — sweep doesn't
+    //     age it" and orphan cleanup is deferred to v1.5 per design doc
+    //     § 2.7).
+    //   • project       — per-capability TTL. (Design doc § 2.5 originally
+    //     proposed a uniform 30d for project scope, but Phase 1 froze the
+    //     per-capability table as the SOLE source of TTL values to keep
+    //     the matrix small for v1; Phase 4 may add a per-scope override
+    //     knob.)
+    //   • forever       — env-var-driven `foreverTtlMs`
+    //     (`EZCORP_PERM_FOREVER_TTL_DAYS`, default 90d).
+    if (parsed.scope === "session") continue;
+    if (parsed.scope === "conversation") continue;
     const decision = parseAlwaysAllowValue(row.value);
     if (decision !== "allowed") continue; // already denied / malformed
 
@@ -469,13 +506,9 @@ export async function runSweep(inputs: SweepInputs): Promise<SweepResult> {
     const kind = mapAlwaysAllowCapabilityToExpiryKind(parsed.capability);
     if (!kind) continue;
 
-    // For `forever` scope, the TTL is the env-var-driven global; for
-    // every other scope, fall back to the per-capability table.
-    // `conversation` and `project` scopes use the per-capability TTL
-    // (the design doc § 2.5 sets project at 30d, but Phase 1's locked
-    // decision freezes the per-capability table as the SOLE source of
-    // TTL values to keep the matrix small for v1; Phase 4 may add a
-    // per-scope override knob).
+    // Only `project` and `forever` reach here (session + conversation
+    // skipped above). `forever` uses the env-driven global TTL;
+    // `project` uses the per-capability table.
     const baseTtl = ttlConfig[kind];
     if (baseTtl === "never") continue;
     const ttl = parsed.scope === "forever" ? foreverTtlMs : baseTtl;
