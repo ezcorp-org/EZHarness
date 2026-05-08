@@ -128,6 +128,7 @@ const PROVIDER_DEFAULT_MODEL: Record<string, string> = {
   google: "gemini-2.0-flash-lite",
   openai: "gpt-4o-mini",
   anthropic: "claude-haiku-4-5-20250514",
+  ollama: "gemma4:e2b",
 };
 
 function resolveProviderModel(

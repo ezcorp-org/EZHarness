@@ -311,7 +311,7 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     path: "extensions/lessons-distiller",
     permissions: {
       llm: {
-        providers: ["google", "openai", "anthropic"],
+        providers: ["google", "openai", "anthropic", "ollama"],
         maxCallsPerHour: 30,
         maxCallsPerDay: 200,
         maxTokensPerCall: 1024,
@@ -319,6 +319,7 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
           google: ["gemini-2.0-flash-lite"],
           openai: ["gpt-4o-mini"],
           anthropic: ["claude-haiku-4-5-20250514"],
+          ollama: ["gemma4:e2b", "gemma4:latest", "qwen3.6:35b"],
         },
       },
       lessons: {

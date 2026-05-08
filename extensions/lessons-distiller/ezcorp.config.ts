@@ -31,7 +31,7 @@ export default defineExtension({
 
   permissions: {
     llm: {
-      providers: ["google", "openai", "anthropic"],
+      providers: ["google", "openai", "anthropic", "ollama"],
       maxCallsPerHour: 30,
       maxCallsPerDay: 200,
       maxTokensPerCall: 1024,
@@ -39,6 +39,11 @@ export default defineExtension({
         google: ["gemini-2.0-flash-lite"],
         openai: ["gpt-4o-mini"],
         anthropic: ["claude-haiku-4-5-20250514"],
+        // Ollama models are user-installed and listed by `ollama pull`,
+        // so this list is just the host-provided defaults shown to the
+        // distiller settings UI. Custom models work via the
+        // `model` text override.
+        ollama: ["gemma4:e2b", "gemma4:latest", "qwen3.6:35b"],
       },
     },
     lessons: {
@@ -85,6 +90,7 @@ export default defineExtension({
         { value: "google", label: "Google" },
         { value: "openai", label: "OpenAI" },
         { value: "anthropic", label: "Anthropic" },
+        { value: "ollama", label: "Ollama (local)" },
       ],
       default: "google",
     },
@@ -92,7 +98,7 @@ export default defineExtension({
       type: "text",
       label: "Model id (override)",
       description:
-        "Leave blank to use the provider default (gemini-2.0-flash-lite / gpt-4o-mini / claude-haiku-4-5).",
+        "Leave blank to use the provider default (gemini-2.0-flash-lite / gpt-4o-mini / claude-haiku-4-5 / gemma4:e2b for Ollama).",
       default: "",
     },
   },
