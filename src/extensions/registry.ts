@@ -133,10 +133,24 @@ export function buildAllowedEnv(
 
 /**
  * Remove the per-extension TMPDIR. Call during extension removal.
+ *
+ * N2 (validator nit #5): also clears the per-extension deprecation
+ * warning tracker in `tool-executor.ts` so a reinstalled extension
+ * warns afresh on its first legacy `ezcorp/fs` shim call. Lazy
+ * `require` keeps the registry → tool-executor edge dynamic so no
+ * cyclic dependency materializes at module-load.
  */
 export function cleanupExtTmpDir(extensionId: string): void {
   const extTmpDir = join(tmpdir(), "ezcorp-ext", extensionId);
   rmSync(extTmpDir, { recursive: true, force: true });
+  try {
+    const teModule = require("./tool-executor") as {
+      clearFsDeprecationForExtension?: (id: string) => void;
+    };
+    teModule.clearFsDeprecationForExtension?.(extensionId);
+  } catch {
+    /* tool-executor unavailable (rare in tests); nothing to clear. */
+  }
 }
 
 export interface RegisteredTool extends ToolDefinition {

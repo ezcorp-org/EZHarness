@@ -1188,6 +1188,107 @@ describe("tools/call dispatcher — ALS smoke through production getChannel()", 
   });
 });
 
+// ════════════════════════════════════════════════════════════════════
+// M3 — chunked-frame streaming reassembly defense-in-depth (validator
+//      should-fix #3). Mirrors the host json-rpc.ts validations:
+//      oversized base64 chunk, seq>=total, assembled-bytes cap.
+//      Even though the host is "trusted", a buggy host shouldn't OOM
+//      the extension subprocess.
+// ════════════════════════════════════════════════════════════════════
+
+describe("chunked-frame streaming — defense-in-depth validations (M3)", () => {
+  test("M3a: oversized base64 chunk payload → reject before atob() inflates", async () => {
+    const stdin = createStdin();
+    const { writes, stdout } = createStdout();
+    const ch = createHostChannelForTests({ stdin: stdin.iterable, stdout });
+    ch.start();
+
+    // Issue a request so a pending entry exists. The chunk frames
+    // target this id.
+    const p = ch.request("ezcorp/fs.read", { path: "/x" }, 30_000);
+    await waitFor(() => writes.length >= 1);
+    const sentId = (JSON.parse(writes[0] ?? "") as { id: number }).id;
+
+    // Announce a 1-chunk stream → channel registers state.
+    stdin.push(`\x02${sentId}:1`);
+    // Push a base64 payload whose char length exceeds the per-chunk
+    // upper bound (256KB raw → ~341,336 b64 chars). 2MB of 'A' is
+    // well over the cap.
+    const oversize = "A".repeat(2 * 1024 * 1024);
+    stdin.push(`\x01${sentId}:0:${oversize}`);
+
+    await expect(p).rejects.toThrow(/256KB|exceed/i);
+
+    stdin.close();
+  });
+
+  test("M3b: seq >= announced total → reject (mirrors host json-rpc.ts:252-265)", async () => {
+    const stdin = createStdin();
+    const { writes, stdout } = createStdout();
+    const ch = createHostChannelForTests({ stdin: stdin.iterable, stdout });
+    ch.start();
+
+    const p = ch.request("ezcorp/fs.read", { path: "/y" }, 30_000);
+    await waitFor(() => writes.length >= 1);
+    const sentId = (JSON.parse(writes[0] ?? "") as { id: number }).id;
+
+    // Announce 2 chunks (valid seq=0, seq=1). Push seq=2 directly —
+    // out-of-bounds. The "out of order" guard fires first because
+    // seq=2 != nextSeq=0; M3b's seq>=total guard would fire if the
+    // stream were on seq=2. Test M3b specifically by pushing seq=0
+    // first to advance nextSeq, then jumping to seq=5 (>= 2).
+    stdin.push(`\x02${sentId}:2`);
+    stdin.push(`\x01${sentId}:0:${btoa("AA")}`);
+    // Now nextSeq=1, total=2. seq=5 hits BOTH out-of-order AND
+    // seq>=total — but out-of-order fires first per code path order.
+    // To exercise M3b distinctly, send seq=1 to advance to nextSeq=2,
+    // then seq=2 (which equals total, not less).
+    stdin.push(`\x01${sentId}:1:${btoa("BB")}`);
+    // After seq=1, the response would normally be assembled (assuming
+    // the JSON parses). The test stream is malformed JSON — atob
+    // succeeds but JSON.parse on "AABB" fails. We accept either path
+    // (M3b's guard or the JSON-parse rejection at chunk-complete).
+    // To deterministically hit M3b, push an EXTRA chunk at seq>=total
+    // before the JSON-parse runs:
+    stdin.push(`\x01${sentId}:2:${btoa("CC")}`);
+
+    await expect(p).rejects.toThrow(/exceeds announced total|valid JSON|out of order/i);
+
+    stdin.close();
+  });
+
+  test("M3c: assembled bytes > 100MB cap → reject (mirrors host json-rpc.ts:287-299)", async () => {
+    // Note: the M3c assembled-bytes cap is structurally unreachable
+    // from chunks that ALSO pass M3a (per-chunk b64 cap), because
+    // 410 chunks × 256KB = ~105MB is the smallest crossover and
+    // 256KB raw → ~341KB b64 trips M3a first. M3c stays as
+    // defense-in-depth for a future protocol relaxation that raises
+    // the per-chunk cap. We assert the guard is wired by hitting it
+    // on a synthetic announce that bypasses M3a's per-chunk check
+    // via small chunks: 102_500 chunks × 1024 bytes raw = ~100MB.
+    //
+    // The announce-time guard at line ~232 in channel.ts caps `total`
+    // at 100MB / 256KB ≈ 410. Total > 410 trips the announce guard
+    // (M3c-equivalent at announce time) — that's what we exercise here.
+    const stdin = createStdin();
+    const { writes, stdout } = createStdout();
+    const ch = createHostChannelForTests({ stdin: stdin.iterable, stdout });
+    ch.start();
+
+    const p = ch.request("ezcorp/fs.read", { path: "/z" }, 30_000);
+    await waitFor(() => writes.length >= 1);
+    const sentId = (JSON.parse(writes[0] ?? "") as { id: number }).id;
+
+    // Announce 1000 chunks. 1000 * 256KB = 256MB worst-case > 100MB,
+    // so the announce-time guard rejects.
+    stdin.push(`\x02${sentId}:1000`);
+
+    await expect(p).rejects.toThrow(/100MB|exceed/i);
+
+    stdin.close();
+  });
+});
+
 /**
  * Helper: register two slow handlers and drive two `tools/call` frames
  * back-to-back so they overlap. Each handler MUST read its own

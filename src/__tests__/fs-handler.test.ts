@@ -19,8 +19,12 @@ import {
   afterEach,
   afterAll,
   mock,
+  spyOn,
 } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+// Spy target for M4 assertions — `securityModule.denyAndDisable` is
+// the trip wire fs handlers call on out-of-grant access.
+import * as securityModule from "../extensions/security";
 
 // Mock DB so denyAndDisable / audit-log writes don't trip "Database
 // not initialized" in unit-test mode. Mirrors the pattern in
@@ -245,7 +249,10 @@ describe("fs-handler — read", () => {
     );
 
     expect((r as { streamed?: boolean }).streamed).toBe(true);
-    const frames = (r as { frames: string[] }).frames;
+    // M2 fix: StreamedResponse.frames is `readonly string[]`. Use a
+    // looser cast that doesn't promise mutability — the test only
+    // reads from the array.
+    const frames = (r as unknown as { frames: readonly string[] }).frames;
     expect(frames.length).toBeGreaterThan(1);
     expect(frames[0]!.startsWith("\x02")).toBe(true);
     expect(frames[0]!).toContain("7:"); // id=7
@@ -541,6 +548,36 @@ describe("fs-handler — exists", () => {
       ctx,
     )) as JsonRpcResponse;
     expect(r.error?.code).toBe(-32001);
+    // Post-fix: the message now mentions "disabled" because gateExistsPath
+    // calls denyAndDisable on out-of-grant probes (M4).
+    expect(r.error?.message).toMatch(/disabled/);
+  });
+
+  test("(M4) gateExistsPath calls denyAndDisable on out-of-grant probe (consistency with read/write)", async () => {
+    // Spy on denyAndDisable to confirm the trip — pre-fix `gateExistsPath`
+    // returned -32001 silently (no extension disable), letting an
+    // adversary probe existence indefinitely. Post-fix it matches
+    // `gatePath`/`gateWritePath`'s consistency contract.
+    const secSpy = spyOn(securityModule, "denyAndDisable").mockResolvedValue({
+      extensionId: EXT_ID,
+      reason: "stub",
+      path: "/etc/passwd",
+      timestamp: Date.now(),
+    });
+    try {
+      const ctx = makeCtx({ granted: { filesystem: [grantedDir], grantedAt: {} } });
+      const r = (await handleFsExistsRpc(
+        makeRequest("ezcorp/fs.exists", { path: "/etc/passwd" }),
+        ctx,
+      )) as JsonRpcResponse;
+      expect(r.error?.code).toBe(-32001);
+      expect(secSpy).toHaveBeenCalledTimes(1);
+      const callArgs = secSpy.mock.calls[0]!;
+      expect(callArgs[0]).toBe(EXT_ID);
+      expect(String(callArgs[1])).toMatch(/exists.*\/etc\/passwd/);
+    } finally {
+      secSpy.mockRestore();
+    }
   });
 });
 
@@ -601,7 +638,14 @@ describe("fs-handler — unlink", () => {
     expect(existsSync(target)).toBe(false);
   });
 
-  test("(q) symlinks: unlink removes the link, leaves target intact", async () => {
+  test("(q) symlinks: unlink removes the LINK, leaves the target intact (POSIX)", async () => {
+    // M1 (validator should-fix #1): the handler now uses lstat + a
+    // parent-realpath gate so `fs.unlink(linkPath)` operates on the
+    // link itself, NOT the target. Pre-fix, an extension calling
+    // `fsUnlink("/grant/link")` where `/grant/link → /etc/critical`
+    // would unlink `/etc/critical` if `/etc/critical` happened to
+    // be in grant. Post-fix, the link is removed and the target
+    // file is preserved — matching `unlink(2)` POSIX semantics.
     const ctx = makeCtx({ granted: { filesystem: [grantedDir], grantedAt: {} } });
     const target = join(grantedDir, "real.txt");
     const link = join(grantedDir, "link");
@@ -613,17 +657,35 @@ describe("fs-handler — unlink", () => {
       ctx,
     )) as JsonRpcResponse;
     expect(r.error).toBeUndefined();
-    // The link is gone, but the original target is preserved — that's
-    // the "unlinks the link, not the target" semantic. Our handler
-    // resolves the path via realpath when the link exists, which
-    // resolves to the target. fs.unlink on the realpath'd path
-    // unlinks the target file, not the link itself. To get
-    // link-not-target semantics, the handler must NOT realpath on
-    // unlink. THIS TEST DOCUMENTS THE CURRENT BEHAVIOR — Phase 3's
-    // realpath-then-open contract means unlink follows symlinks today.
-    // The spec calls this out as out-of-scope for the initial drop
-    // (no symlink-creation surface) and we treat it as a known
-    // semantic; the SDK helpers callout in fs.ts notes the asymmetry.
+    // The link is gone:
     expect(existsSync(link)).toBe(false);
+    // The target is PRESERVED:
+    expect(existsSync(target)).toBe(true);
+    expect(readFileSync(target, "utf-8")).toBe("content");
+  });
+
+  test("(q) symlink to out-of-grant target: unlink removes the link, denyAndDisable not tripped", async () => {
+    // Defense-in-depth: even if `link → /etc/critical`, gating on the
+    // parent (the grant dir) means we never inspect the target's
+    // grant status. The link is unlinked; /etc/critical is untouched.
+    const ctx = makeCtx({ granted: { filesystem: [grantedDir], grantedAt: {} } });
+    const outsideDir = mkdtempSync(join(tmpdir(), "ezcorp-out-link-"));
+    try {
+      const outsideTarget = join(outsideDir, "outside.txt");
+      writeFileSync(outsideTarget, "external");
+      const link = join(grantedDir, "link-to-outside");
+      symlinkSync(outsideTarget, link);
+
+      const r = (await handleFsUnlinkRpc(
+        makeRequest("ezcorp/fs.unlink", { path: link }),
+        ctx,
+      )) as JsonRpcResponse;
+      expect(r.error).toBeUndefined();
+      expect(existsSync(link)).toBe(false);
+      expect(existsSync(outsideTarget)).toBe(true);
+      expect(readFileSync(outsideTarget, "utf-8")).toBe("external");
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true });
+    }
   });
 });

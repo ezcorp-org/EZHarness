@@ -23,6 +23,14 @@ import { withToolContext } from "./tool-context";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+// Phase 3 chunked-frame caps (mirrors host's json-rpc.ts).
+const STREAM_CHUNK_MAX_BYTES = 256 * 1024;
+const STREAM_TOTAL_CAP = 100 * 1024 * 1024;
+// Base64 inflates ~33%, so a 256KB raw chunk → ~341,336 base64 chars.
+// Match the host's pre-decode guard so the rejection fires before
+// `atob()` allocates.
+const STREAM_CHUNK_MAX_B64 = (STREAM_CHUNK_MAX_BYTES * 4) / 3 + 4;
+
 // ── JsonRpcError ────────────────────────────────────────────────
 //
 // JSON-RPC 2.0 distinguishes two error classes:
@@ -157,6 +165,13 @@ class HostChannelImpl implements HostChannel {
 
   // Phase 3 chunked-frame state (host → SDK only). Mirror of the
   // host's json-rpc.ts streaming protocol.
+  //
+  // Symmetric to host json-rpc.ts:
+  //   • announce ≤ 100MB worth of chunks (rejected up-front).
+  //   • each chunk's base64 payload ≤ 256KB * 4/3 + 4 (post-encoding
+  //     upper bound for a 256KB raw chunk).
+  //   • assembled bytes ≤ 100MB hard cap.
+  //   • seq must equal nextSeq AND seq < total.
   private streams = new Map<
     number | string,
     { total: number; pieces: string[]; nextSeq: number; assembledBytes: number }
@@ -259,6 +274,26 @@ class HostChannelImpl implements HostChannel {
     const state = this.streams.get(id);
     if (!state) return;
 
+    // M3 (validator should-fix #3): symmetric defense-in-depth with
+    // the host's json-rpc.ts. Even though the host is "trusted", a
+    // bug there shouldn't OOM the extension subprocess.
+
+    // M3a — oversized base64 payload: reject before atob() inflates.
+    if (b64.length > STREAM_CHUNK_MAX_B64) {
+      this.streams.delete(id);
+      const entry = this.pending.get(id);
+      if (entry) {
+        if (entry.timer) clearTimeout(entry.timer);
+        this.pending.delete(id);
+        entry.reject(
+          new Error(
+            `[@ezcorp/sdk] streaming chunk exceeds 256KB cap (id=${id}, seq=${seq}, ${b64.length} b64 chars)`,
+          ),
+        );
+      }
+      return;
+    }
+
     if (seq !== state.nextSeq) {
       this.streams.delete(id);
       const entry = this.pending.get(id);
@@ -268,6 +303,22 @@ class HostChannelImpl implements HostChannel {
         entry.reject(
           new Error(
             `[@ezcorp/sdk] streaming chunk out of order: id=${id}, expected seq=${state.nextSeq}, got ${seq}`,
+          ),
+        );
+      }
+      return;
+    }
+
+    // M3b — seq beyond announced total: reject (mirrors host line 252-265).
+    if (seq >= state.total) {
+      this.streams.delete(id);
+      const entry = this.pending.get(id);
+      if (entry) {
+        if (entry.timer) clearTimeout(entry.timer);
+        this.pending.delete(id);
+        entry.reject(
+          new Error(
+            `[@ezcorp/sdk] streaming chunk seq=${seq} exceeds announced total=${state.total} (id=${id})`,
           ),
         );
       }
@@ -290,6 +341,22 @@ class HostChannelImpl implements HostChannel {
     state.pieces[seq] = piece;
     state.nextSeq = seq + 1;
     state.assembledBytes += piece.length;
+
+    // M3c — running total exceeds 100MB cap (mirrors host line 287-299).
+    if (state.assembledBytes > STREAM_TOTAL_CAP) {
+      this.streams.delete(id);
+      const entry = this.pending.get(id);
+      if (entry) {
+        if (entry.timer) clearTimeout(entry.timer);
+        this.pending.delete(id);
+        entry.reject(
+          new Error(
+            `[@ezcorp/sdk] streaming response exceeds 100MB cap (id=${id}, assembled=${state.assembledBytes})`,
+          ),
+        );
+      }
+      return;
+    }
 
     if (state.nextSeq === state.total) {
       this.streams.delete(id);

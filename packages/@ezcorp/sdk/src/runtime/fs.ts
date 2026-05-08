@@ -25,6 +25,7 @@ import { dirname, join } from "node:path";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 
 import { getChannel, JsonRpcError } from "./channel";
+import { getToolContext } from "./tool-context";
 
 /**
  * Walk up from `from` (default `process.cwd()`) looking for a `.git`
@@ -134,6 +135,12 @@ export async function saveJSON(absPath: string, data: unknown): Promise<void> {
 const FS_TIMEOUT_MS = 30_000;
 /** Streaming reads can be slow on large files; allow more headroom. */
 const FS_READ_TIMEOUT_MS = 120_000;
+/**
+ * Mirror of host's `MAX_BYTES_PER_OP` — kept in sync manually. The
+ * client-side guard (N1) prevents 100MB+ Uint8Array → base64 inflation
+ * from running before the host's same-cap rejection round-trips.
+ */
+const FS_MAX_BYTES_PER_OP = 100 * 1024 * 1024;
 
 function ensureFsAllowed(opName: string): void {
   if (process.env.EZCORP_FS_ALLOWED !== "1") {
@@ -143,6 +150,22 @@ function ensureFsAllowed(opName: string): void {
         "grant the path at install time.",
     );
   }
+}
+
+/**
+ * Pull the active tool name from the SDK's ALS (set by the
+ * `tools/call` dispatcher in channel.ts via `withToolContext`). Used
+ * to forward `_toolName` on every fs RPC so the host can apply
+ * per-tool `capabilities.filesystem.mode` narrowing (M5).
+ *
+ * Returns an empty object when no tool context is active (extension
+ * boot, raw RPC) — the spread leaves the wire params untouched. The
+ * host treats absent `_toolName` as "no narrowing, extension-wide
+ * grant applies".
+ */
+function activeToolNameField(): { _toolName?: string } {
+  const t = getToolContext()?.toolName;
+  return t === undefined ? {} : { _toolName: t };
 }
 
 /**
@@ -167,7 +190,7 @@ export async function fsRead(
   type ReadResult = { encoding: "utf-8" | "binary"; body: string; bytes: number; resolvedPath: string };
   const result = await getChannel().request<ReadResult>(
     "ezcorp/fs.read",
-    { path, encoding },
+    { path, encoding, ...activeToolNameField() },
     FS_READ_TIMEOUT_MS,
   );
   const decoded = Uint8Array.from(atob(result.body), (c) => c.charCodeAt(0));
@@ -189,6 +212,19 @@ export async function fsWrite(
 ): Promise<{ bytes: number; resolvedPath: string }> {
   ensureFsAllowed("fsWrite");
   const isBinary = content instanceof Uint8Array;
+  // N1: pre-base64 size guard. The host enforces the same 100MB
+  // ceiling, but inflating a 100MB+ Uint8Array to base64 client-side
+  // first allocates ~133MB of string before failing — a real OOM
+  // risk on memory-constrained extensions. Check raw byte length up
+  // front so we throw before the allocation.
+  const rawBytes = isBinary
+    ? content.byteLength
+    : new TextEncoder().encode(content as string).byteLength;
+  if (rawBytes > FS_MAX_BYTES_PER_OP) {
+    throw new Error(
+      `[@ezcorp/sdk] fsWrite content exceeds ${FS_MAX_BYTES_PER_OP / (1024 * 1024)}MB limit (${rawBytes} bytes)`,
+    );
+  }
   const wireContent = isBinary
     ? btoa(String.fromCharCode.apply(null, Array.from(content)))
     : (content as string);
@@ -196,6 +232,7 @@ export async function fsWrite(
     path,
     content: wireContent,
     encoding: isBinary ? "binary" : "utf-8",
+    ...activeToolNameField(),
   };
   return getChannel().request<{ bytes: number; resolvedPath: string }>(
     "ezcorp/fs.write",
@@ -218,7 +255,7 @@ export async function fsList(path: string): Promise<FsListEntry[]> {
   ensureFsAllowed("fsList");
   const result = await getChannel().request<{ entries: FsListEntry[] }>(
     "ezcorp/fs.list",
-    { path },
+    { path, ...activeToolNameField() },
     FS_TIMEOUT_MS,
   );
   return result.entries;
@@ -237,7 +274,7 @@ export async function fsStat(path: string): Promise<FsStatResult> {
   ensureFsAllowed("fsStat");
   return getChannel().request<FsStatResult>(
     "ezcorp/fs.stat",
-    { path },
+    { path, ...activeToolNameField() },
     FS_TIMEOUT_MS,
   );
 }
@@ -252,7 +289,7 @@ export async function fsExists(path: string): Promise<boolean> {
   ensureFsAllowed("fsExists");
   const result = await getChannel().request<{ exists: boolean }>(
     "ezcorp/fs.exists",
-    { path },
+    { path, ...activeToolNameField() },
     FS_TIMEOUT_MS,
   );
   return result.exists;
@@ -270,17 +307,24 @@ export async function fsMkdir(
   ensureFsAllowed("fsMkdir");
   return getChannel().request<{ resolvedPath: string }>(
     "ezcorp/fs.mkdir",
-    { path, recursive: opts?.recursive === true },
+    { path, recursive: opts?.recursive === true, ...activeToolNameField() },
     FS_TIMEOUT_MS,
   );
 }
 
-/** Unlink via host-mediated `ezcorp/fs.unlink`. */
+/**
+ * Unlink via host-mediated `ezcorp/fs.unlink`.
+ *
+ * POSIX-correct symlink semantics (M1): the host operates on the
+ * LINK, not the target. Calling `fsUnlink("/grant/link")` where
+ * `link → /etc/critical` removes the link and leaves the target
+ * intact, matching `unlink(2)` semantics.
+ */
 export async function fsUnlink(path: string): Promise<{ resolvedPath: string }> {
   ensureFsAllowed("fsUnlink");
   return getChannel().request<{ resolvedPath: string }>(
     "ezcorp/fs.unlink",
-    { path },
+    { path, ...activeToolNameField() },
     FS_TIMEOUT_MS,
   );
 }

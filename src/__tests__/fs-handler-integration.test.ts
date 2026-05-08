@@ -61,8 +61,13 @@ import { tmpdir } from "node:os";
 
 import { ToolExecutor } from "../extensions/tool-executor";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
+import {
+  handleFsReadRpc,
+  handleFsWriteRpc,
+} from "../extensions/fs-handler";
 import type {
   ExtensionPermissions,
+  ExtensionManifestV2,
   JsonRpcRequest,
   JsonRpcResponse,
 } from "../extensions/types";
@@ -71,13 +76,17 @@ let workDir: string;
 let installDir: string;
 let grantedDir: string;
 
-function makeReg(opts: { granted: ExtensionPermissions; extId?: string }) {
+function makeReg(opts: {
+  granted: ExtensionPermissions;
+  extId?: string;
+  manifest?: ExtensionManifestV2;
+}) {
   const extId = opts.extId ?? "ext-int";
   return {
     getGrantedPermissions: (id: string) =>
       id === extId ? opts.granted : null,
     getInstallPath: (id: string) => (id === extId ? installDir : null),
-    getManifest: () => undefined,
+    getManifest: (id: string) => (id === extId ? opts.manifest : undefined),
     getRegisteredTool: () => null,
     getProcess: async () => ({}),
     getAllTools: () => [],
@@ -282,5 +291,202 @@ describe("fs handler integration — executor dispatcher routes", () => {
     // is 1 (not 2) — no double-counting.
     expect(engine.calls.length).toBe(1);
     expect(engine.calls[0]!.needed[0]!.kind).toBe("fs.read");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// M5 — per-tool mode narrowing via manifest `capabilities.filesystem.mode`
+// ════════════════════════════════════════════════════════════════════
+//
+// Validator should-fix #2: prove the end-to-end mode narrowing path
+// works. The SDK helpers (fsRead/fsWrite/...) forward the active tool
+// name as `_toolName` from `getToolContext()`. The host's fs-handler
+// looks up the manifest tool and rejects when the requested mode
+// (read/write) isn't declared.
+//
+// Pre-Phase-3-edit: `_toolName` was never sent or read; the registry-
+// derived granted set always emitted both `fs.read` AND `fs.write` for
+// any granted path, so per-tool mode narrowing was effectively a no-op.
+// Post-fix, the host's `checkToolMode` short-circuits before the PDP
+// call when the manifest tool's mode array excludes the requested op.
+
+describe("fs handler integration — per-tool mode narrowing (M5)", () => {
+  function makeManifestWithReadOnlyTool(): ExtensionManifestV2 {
+    return {
+      schemaVersion: 3,
+      name: "test-ext-mode",
+      version: "1.0.0",
+      description: "fixture",
+      author: { name: "T" },
+      entrypoint: "./index.ts",
+      tools: [
+        {
+          name: "t1",
+          description: "read-only tool",
+          inputSchema: { type: "object" },
+          // Per-tool capability: read-only filesystem.
+          capabilities: {
+            filesystem: { paths: [], mode: ["read"] },
+          },
+        },
+        {
+          name: "t2",
+          description: "read+write tool",
+          inputSchema: { type: "object" },
+          capabilities: {
+            filesystem: { paths: [], mode: ["read", "write"] },
+          },
+        },
+      ],
+      permissions: {
+        filesystem: [], // populated at runtime via opts.granted
+      },
+    };
+  }
+
+  test("fsWrite via tool t1 (mode: ['read']) is denied with mode-mismatch reason", async () => {
+    const target = join(grantedDir, "out.txt");
+    const manifest = makeManifestWithReadOnlyTool();
+    const ctx = {
+      extensionId: "ext-int",
+      conversationId: "conv",
+      userId: "u",
+      engine: createStubPermissionEngine(),
+      registry: makeReg({
+        granted: { filesystem: [grantedDir], grantedAt: {} },
+        manifest,
+      }) as unknown as Parameters<typeof handleFsWriteRpc>[1]["registry"],
+    };
+
+    const r = (await handleFsWriteRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "ezcorp/fs.write",
+        params: { path: target, content: "x", _toolName: "t1" },
+      },
+      ctx,
+    )) as JsonRpcResponse;
+
+    expect(r.error?.code).toBe(-32001);
+    expect(r.error?.message).toMatch(/mode/i);
+    expect(r.error?.message).toMatch(/t1/);
+    expect(r.error?.message).toMatch(/write/);
+  });
+
+  test("fsRead via tool t1 (mode: ['read']) succeeds — read is in the declared mode list", async () => {
+    const target = join(grantedDir, "in.txt");
+    writeFileSync(target, "ok");
+    const manifest = makeManifestWithReadOnlyTool();
+    const ctx = {
+      extensionId: "ext-int",
+      conversationId: "conv",
+      userId: "u",
+      engine: createStubPermissionEngine(),
+      registry: makeReg({
+        granted: { filesystem: [grantedDir], grantedAt: {} },
+        manifest,
+      }) as unknown as Parameters<typeof handleFsReadRpc>[1]["registry"],
+    };
+
+    const r = (await handleFsReadRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "ezcorp/fs.read",
+        params: { path: target, _toolName: "t1" },
+      },
+      ctx,
+    )) as JsonRpcResponse;
+
+    expect(r.error).toBeUndefined();
+    const result = r.result as { bytes: number };
+    expect(result.bytes).toBe(2);
+  });
+
+  test("fsWrite via tool t2 (mode: ['read', 'write']) succeeds", async () => {
+    const target = join(grantedDir, "via-t2.txt");
+    const manifest = makeManifestWithReadOnlyTool();
+    const ctx = {
+      extensionId: "ext-int",
+      conversationId: "conv",
+      userId: "u",
+      engine: createStubPermissionEngine(),
+      registry: makeReg({
+        granted: { filesystem: [grantedDir], grantedAt: {} },
+        manifest,
+      }) as unknown as Parameters<typeof handleFsWriteRpc>[1]["registry"],
+    };
+
+    const r = (await handleFsWriteRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "ezcorp/fs.write",
+        params: { path: target, content: "ok", _toolName: "t2" },
+      },
+      ctx,
+    )) as JsonRpcResponse;
+
+    expect(r.error).toBeUndefined();
+  });
+
+  test("fsWrite without _toolName: no narrowing (legacy / non-SDK callers)", async () => {
+    // Defensive fallback: extensions that bypass the SDK helper and
+    // send raw JSON-RPC frames don't include `_toolName`. The handler
+    // treats absence as "no per-tool narrowing" — extension-wide
+    // grant applies. This preserves back-compat for the deprecation
+    // window.
+    const target = join(grantedDir, "no-tool.txt");
+    const manifest = makeManifestWithReadOnlyTool();
+    const ctx = {
+      extensionId: "ext-int",
+      conversationId: "conv",
+      userId: "u",
+      engine: createStubPermissionEngine(),
+      registry: makeReg({
+        granted: { filesystem: [grantedDir], grantedAt: {} },
+        manifest,
+      }) as unknown as Parameters<typeof handleFsWriteRpc>[1]["registry"],
+    };
+
+    const r = (await handleFsWriteRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "ezcorp/fs.write",
+        params: { path: target, content: "x" },
+      },
+      ctx,
+    )) as JsonRpcResponse;
+
+    expect(r.error).toBeUndefined();
+  });
+
+  test("fsWrite via tool with no manifest entry: no narrowing (defensive)", async () => {
+    const target = join(grantedDir, "unknown-tool.txt");
+    const manifest = makeManifestWithReadOnlyTool();
+    const ctx = {
+      extensionId: "ext-int",
+      conversationId: "conv",
+      userId: "u",
+      engine: createStubPermissionEngine(),
+      registry: makeReg({
+        granted: { filesystem: [grantedDir], grantedAt: {} },
+        manifest,
+      }) as unknown as Parameters<typeof handleFsWriteRpc>[1]["registry"],
+    };
+
+    const r = (await handleFsWriteRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "ezcorp/fs.write",
+        params: { path: target, content: "x", _toolName: "not-in-manifest" },
+      },
+      ctx,
+    )) as JsonRpcResponse;
+
+    expect(r.error).toBeUndefined();
   });
 });

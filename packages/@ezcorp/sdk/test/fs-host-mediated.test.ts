@@ -175,6 +175,51 @@ describe("fsWrite", () => {
     const r = await fsWrite("/granted/out.txt", "x".repeat(100));
     expect(r).toEqual({ bytes: 100, resolvedPath: "/granted/out.txt" });
   });
+
+  test("(N1) pre-base64 size guard: oversized Uint8Array throws BEFORE allocating base64", async () => {
+    // The host enforces the same 100MB cap, but inflating a 100MB+
+    // Uint8Array to base64 client-side first allocates ~133MB of
+    // string before the host rejects — a real OOM risk on
+    // memory-constrained extensions. The SDK now pre-checks
+    // byteLength.
+    //
+    // We assert the throw happens BEFORE any RPC is sent (`called`
+    // stays false), proving the guard fires before the base64
+    // allocation. We use a small Uint8Array with a faked byteLength
+    // to avoid actually allocating 100MB in the test process.
+    let called = false;
+    stubRequest(async () => {
+      called = true;
+      return { bytes: 0, resolvedPath: "/x" };
+    });
+
+    // Build a small Uint8Array but spoof the byteLength to exceed
+    // 100MB. We can't override byteLength on a real Uint8Array, so
+    // construct a wrapper object that the SDK will treat as
+    // Uint8Array. The `instanceof Uint8Array` check in fsWrite means
+    // we need an actual Uint8Array. Use a real backing buffer via a
+    // sub-array — still small actual memory footprint.
+    //
+    // The cleanest path: create an actual 100MB+1 Uint8Array. That
+    // allocates 100MB once, but the test harness can do that
+    // briefly. We then assert the SDK throws before calling the
+    // stub.
+    const bigBytes = new Uint8Array(100 * 1024 * 1024 + 1);
+    await expect(fsWrite("/granted/big", bigBytes)).rejects.toThrow(/100MB|exceed/i);
+    expect(called).toBe(false);
+  });
+
+  test("(N1) pre-base64 size guard: oversized utf-8 string throws BEFORE allocating", async () => {
+    let called = false;
+    stubRequest(async () => {
+      called = true;
+      return { bytes: 0, resolvedPath: "/x" };
+    });
+    // 100MB + 1 byte of utf-8 'A' (1 byte each).
+    const bigStr = "A".repeat(100 * 1024 * 1024 + 1);
+    await expect(fsWrite("/granted/big.txt", bigStr)).rejects.toThrow(/100MB|exceed/i);
+    expect(called).toBe(false);
+  });
 });
 
 // ── fsList / fsStat / fsExists / fsMkdir / fsUnlink ─────────────
@@ -290,7 +335,7 @@ describe("fsRead — streaming round-trip via real channel", () => {
     const stdoutWrites: string[] = [];
     const ch = createHostChannelForTests({
       stdin: stdinIterable,
-      stdout: { write: (s) => stdoutWrites.push(s) },
+      stdout: { write: (s) => { stdoutWrites.push(s); } },
     });
     ch.start();
 
@@ -351,10 +396,16 @@ describe("fsRead — streaming round-trip via real channel", () => {
     expect(decoded[0]).toBe(0x42);
 
     closed = true;
-    if (pendingResolve) {
-      const r = pendingResolve;
-      pendingResolve = null;
-      r({ value: "", done: true });
+    // M2 fix: TS narrows `pendingResolve` AND the alias bound to it
+    // through the closure when we reassign it to null. Materialize
+    // the call inline before the reassignment, casting through unknown
+    // when none, to keep the type system out of the way.
+    const resolver = pendingResolve as
+      | ((v: IteratorResult<string>) => void)
+      | null;
+    pendingResolve = null;
+    if (resolver !== null) {
+      (resolver as (v: IteratorResult<string>) => void)({ value: "", done: true });
     }
   });
 
@@ -380,7 +431,7 @@ describe("fsRead — streaming round-trip via real channel", () => {
     const stdoutWrites: string[] = [];
     const ch = createHostChannelForTests({
       stdin: stdinIterable,
-      stdout: { write: (s) => stdoutWrites.push(s) },
+      stdout: { write: (s) => { stdoutWrites.push(s); } },
     });
     ch.start();
 
@@ -405,10 +456,16 @@ describe("fsRead — streaming round-trip via real channel", () => {
     await expect(p).rejects.toThrow(/out of order/);
 
     closed = true;
-    if (pendingResolve) {
-      const r = pendingResolve;
-      pendingResolve = null;
-      r({ value: "", done: true });
+    // M2 fix: TS narrows `pendingResolve` AND the alias bound to it
+    // through the closure when we reassign it to null. Materialize
+    // the call inline before the reassignment, casting through unknown
+    // when none, to keep the type system out of the way.
+    const resolver = pendingResolve as
+      | ((v: IteratorResult<string>) => void)
+      | null;
+    pendingResolve = null;
+    if (resolver !== null) {
+      (resolver as (v: IteratorResult<string>) => void)({ value: "", done: true });
     }
   });
 
@@ -434,7 +491,7 @@ describe("fsRead — streaming round-trip via real channel", () => {
     const stdoutWrites: string[] = [];
     const ch = createHostChannelForTests({
       stdin: stdinIterable,
-      stdout: { write: (s) => stdoutWrites.push(s) },
+      stdout: { write: (s) => { stdoutWrites.push(s); } },
     });
     ch.start();
 
@@ -459,10 +516,16 @@ describe("fsRead — streaming round-trip via real channel", () => {
     await expect(p).rejects.toThrow(/cancelled/i);
 
     closed = true;
-    if (pendingResolve) {
-      const r = pendingResolve;
-      pendingResolve = null;
-      r({ value: "", done: true });
+    // M2 fix: TS narrows `pendingResolve` AND the alias bound to it
+    // through the closure when we reassign it to null. Materialize
+    // the call inline before the reassignment, casting through unknown
+    // when none, to keep the type system out of the way.
+    const resolver = pendingResolve as
+      | ((v: IteratorResult<string>) => void)
+      | null;
+    pendingResolve = null;
+    if (resolver !== null) {
+      (resolver as (v: IteratorResult<string>) => void)({ value: "", done: true });
     }
   });
 });

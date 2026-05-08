@@ -37,9 +37,9 @@
  * recognizes it and writes the frames verbatim.
  */
 
-import { realpath } from "node:fs/promises";
+import { realpath, lstat } from "node:fs/promises";
 import * as fs from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname, basename } from "node:path";
 import type { JsonRpcRequest, JsonRpcResponse } from "./types";
 import type { PermissionEngine } from "./permission-engine";
 import type { ExtensionRegistry } from "./registry";
@@ -61,9 +61,54 @@ export const STREAM_THRESHOLD = 1024 * 1024; // 1MB
 
 // JSON-RPC error codes (consistent with network-handler.ts):
 //   -32602  invalid params (missing/malformed)
-//   -32001  permission denied (PDP returned `deny` OR prefix check failed)
+//   -32001  permission denied (PDP returned `deny` OR prefix check failed
+//                              OR per-tool manifest mode mismatch)
 //   -32000  upstream error (filesystem I/O, size cap, etc.)
 //   -32603  internal — registry-not-found / wiring failure
+
+/**
+ * Per-tool mode narrowing (M5).
+ *
+ * The SDK helpers (`@ezcorp/sdk/runtime/fs.fsRead/...`) forward the
+ * active tool name from `getToolContext()` as `_toolName` in the RPC
+ * params. The host looks up the manifest tool's
+ * `capabilities.filesystem.mode` array and denies when the requested
+ * mode (read for read/list/stat/exists; write for write/mkdir/unlink)
+ * isn't declared.
+ *
+ * Resolution rules:
+ *   • `_toolName` absent → no narrowing (legacy callers, raw RPC,
+ *      or extensions that don't go through the SDK helper).
+ *   • `_toolName` present + matching tool found:
+ *       - tool has no `capabilities.filesystem` declaration → no
+ *         narrowing (extension-wide grant applies).
+ *       - tool's mode array includes requested mode → allow.
+ *       - tool's mode array EXCLUDES requested mode → deny -32001
+ *         with a "mode" reason.
+ *   • `_toolName` present but no matching tool in manifest → no
+ *     narrowing (defensive — bad ext-author input shouldn't crash).
+ */
+function checkToolMode(
+  registry: ExtensionRegistry,
+  extensionId: string,
+  toolName: string | undefined,
+  requested: FilesystemMode,
+): { ok: true } | { ok: false; reason: string } {
+  if (!toolName) return { ok: true };
+  const manifest = registry.getManifest(extensionId);
+  if (!manifest?.tools) return { ok: true };
+  const tool = manifest.tools.find((t) => t.name === toolName);
+  if (!tool) return { ok: true };
+  const fsDecl = tool.capabilities?.filesystem;
+  if (!fsDecl) return { ok: true };
+  if (!fsDecl.mode.includes(requested)) {
+    return {
+      ok: false,
+      reason: `tool "${toolName}" capabilities.filesystem.mode does not include "${requested}"`,
+    };
+  }
+  return { ok: true };
+}
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -97,6 +142,7 @@ export async function handleFsReadRpc(
   const params = (req.params ?? {}) as {
     path?: unknown;
     encoding?: unknown;
+    _toolName?: unknown;
   };
   if (typeof params.path !== "string" || params.path.length === 0) {
     return rpcError(req.id, -32602, "Missing path");
@@ -105,6 +151,11 @@ export async function handleFsReadRpc(
     params.encoding === "binary" || params.encoding === "utf-8"
       ? params.encoding
       : "utf-8";
+  const toolName = typeof params._toolName === "string" ? params._toolName : undefined;
+  const modeCheck = checkToolMode(ctx.registry, ctx.extensionId, toolName, "read");
+  if (!modeCheck.ok) {
+    return rpcError(req.id, -32001, `Filesystem access denied: ${modeCheck.reason}`);
+  }
 
   const gate = await gatePath(ctx, params.path, "read", "fs.read");
   if ("error" in gate) return jsonError(req.id, gate.error.code, gate.error.message);
@@ -155,6 +206,7 @@ export async function handleFsWriteRpc(
     path?: unknown;
     content?: unknown;
     encoding?: unknown;
+    _toolName?: unknown;
   };
   if (typeof params.path !== "string" || params.path.length === 0) {
     return rpcError(req.id, -32602, "Missing path");
@@ -166,6 +218,11 @@ export async function handleFsWriteRpc(
     params.encoding === "binary" || params.encoding === "utf-8"
       ? params.encoding
       : "utf-8";
+  const toolName = typeof params._toolName === "string" ? params._toolName : undefined;
+  const modeCheck = checkToolMode(ctx.registry, ctx.extensionId, toolName, "write");
+  if (!modeCheck.ok) {
+    return rpcError(req.id, -32001, `Filesystem access denied: ${modeCheck.reason}`);
+  }
 
   // Decode the content to bytes for the size-cap check.
   let bytes: Uint8Array;
@@ -209,9 +266,14 @@ export async function handleFsListRpc(
   req: JsonRpcRequest,
   ctx: FsHandlerContext,
 ): Promise<FsRpcResponse> {
-  const params = (req.params ?? {}) as { path?: unknown };
+  const params = (req.params ?? {}) as { path?: unknown; _toolName?: unknown };
   if (typeof params.path !== "string" || params.path.length === 0) {
     return rpcError(req.id, -32602, "Missing path");
+  }
+  const toolName = typeof params._toolName === "string" ? params._toolName : undefined;
+  const modeCheck = checkToolMode(ctx.registry, ctx.extensionId, toolName, "read");
+  if (!modeCheck.ok) {
+    return rpcError(req.id, -32001, `Filesystem access denied: ${modeCheck.reason}`);
   }
   const gate = await gatePath(ctx, params.path, "read", "fs.list");
   if ("error" in gate) return jsonError(req.id, gate.error.code, gate.error.message);
@@ -239,9 +301,14 @@ export async function handleFsStatRpc(
   req: JsonRpcRequest,
   ctx: FsHandlerContext,
 ): Promise<FsRpcResponse> {
-  const params = (req.params ?? {}) as { path?: unknown };
+  const params = (req.params ?? {}) as { path?: unknown; _toolName?: unknown };
   if (typeof params.path !== "string" || params.path.length === 0) {
     return rpcError(req.id, -32602, "Missing path");
+  }
+  const toolName = typeof params._toolName === "string" ? params._toolName : undefined;
+  const modeCheck = checkToolMode(ctx.registry, ctx.extensionId, toolName, "read");
+  if (!modeCheck.ok) {
+    return rpcError(req.id, -32001, `Filesystem access denied: ${modeCheck.reason}`);
   }
   const gate = await gatePath(ctx, params.path, "read", "fs.stat");
   if ("error" in gate) return jsonError(req.id, gate.error.code, gate.error.message);
@@ -264,9 +331,14 @@ export async function handleFsExistsRpc(
   req: JsonRpcRequest,
   ctx: FsHandlerContext,
 ): Promise<FsRpcResponse> {
-  const params = (req.params ?? {}) as { path?: unknown };
+  const params = (req.params ?? {}) as { path?: unknown; _toolName?: unknown };
   if (typeof params.path !== "string" || params.path.length === 0) {
     return rpcError(req.id, -32602, "Missing path");
+  }
+  const toolName = typeof params._toolName === "string" ? params._toolName : undefined;
+  const modeCheck = checkToolMode(ctx.registry, ctx.extensionId, toolName, "read");
+  if (!modeCheck.ok) {
+    return rpcError(req.id, -32001, `Filesystem access denied: ${modeCheck.reason}`);
   }
   // For `exists`, the path may not exist (that's the question). We
   // gate on the PARENT'S realpath so the cap value is meaningful even
@@ -291,11 +363,17 @@ export async function handleFsMkdirRpc(
   const params = (req.params ?? {}) as {
     path?: unknown;
     recursive?: unknown;
+    _toolName?: unknown;
   };
   if (typeof params.path !== "string" || params.path.length === 0) {
     return rpcError(req.id, -32602, "Missing path");
   }
   const recursive = params.recursive === true;
+  const toolName = typeof params._toolName === "string" ? params._toolName : undefined;
+  const modeCheck = checkToolMode(ctx.registry, ctx.extensionId, toolName, "write");
+  if (!modeCheck.ok) {
+    return rpcError(req.id, -32001, `Filesystem access denied: ${modeCheck.reason}`);
+  }
 
   const gate = await gateWritePath(ctx, params.path);
   if ("error" in gate) return jsonError(req.id, gate.error.code, gate.error.message);
@@ -315,19 +393,91 @@ export async function handleFsUnlinkRpc(
   req: JsonRpcRequest,
   ctx: FsHandlerContext,
 ): Promise<FsRpcResponse> {
-  const params = (req.params ?? {}) as { path?: unknown };
+  const params = (req.params ?? {}) as { path?: unknown; _toolName?: unknown };
   if (typeof params.path !== "string" || params.path.length === 0) {
     return rpcError(req.id, -32602, "Missing path");
   }
-  // For unlink, we use lstat-aware path gating: a symlink unlinks the
-  // LINK, not the target. So we resolve the parent (writeGate) and
-  // operate on parent/basename.
-  const gate = await gateWritePath(ctx, params.path);
-  if ("error" in gate) return jsonError(req.id, gate.error.code, gate.error.message);
+  const toolName = typeof params._toolName === "string" ? params._toolName : undefined;
+  const modeCheck = checkToolMode(ctx.registry, ctx.extensionId, toolName, "write");
+  if (!modeCheck.ok) {
+    return rpcError(req.id, -32001, `Filesystem access denied: ${modeCheck.reason}`);
+  }
 
+  // POSIX `unlink(2)` removes the link, not the target. We MUST NOT
+  // realpath the leaf — that would resolve a symlink to its target and
+  // unlink the target instead. Instead:
+  //   1. lstat the leaf to confirm something exists at that path
+  //      (without following symlinks).
+  //   2. gateWritePath the PARENT (realpath the directory only) so the
+  //      grant check is anchored to a canonical parent.
+  //   3. fs.unlink(originalLeafPath) — operates on the link itself.
+  //
+  // This is the M1 fix (validator should-fix #1, lifted from
+  // deferred-items into Phase 3). Pre-fix an extension calling
+  // `fsUnlink("/grant/link")` where `/grant/link → /etc/critical`
+  // (and `/etc/critical` happens to be in grant) would unlink
+  // `/etc/critical` instead of the link.
+  const requestedPath = params.path;
+  const inputPath = requestedPath;
+
+  // 1) Verify the leaf exists via lstat (NOT realpath).
   try {
-    await fs.unlink(gate.resolvedPath);
-    return rpcResult(req.id, { resolvedPath: gate.resolvedPath, removed: true });
+    await lstat(inputPath);
+  } catch {
+    return jsonError(req.id, -32000, `ENOENT: no such file or directory: ${inputPath}`);
+  }
+
+  // 2) Gate on the parent directory's realpath. Build a synthetic
+  //    "<resolvedParent>/<leaf-basename>" target so the grant prefix
+  //    check is canonical without resolving the leaf symlink.
+  const parentPath = dirname(inputPath);
+  const leaf = basename(inputPath);
+  let parentReal: string;
+  try {
+    parentReal = await realpath(parentPath);
+  } catch {
+    return jsonError(req.id, -32000, `ENOENT: parent does not exist: ${parentPath}`);
+  }
+  const linkTarget = join(parentReal, leaf);
+
+  const granted = ctx.registry.getGrantedPermissions(ctx.extensionId);
+  const installPath = ctx.registry.getInstallPath(ctx.extensionId);
+  if (!granted || !installPath) {
+    return jsonError(req.id, -32603, "Extension not found in registry");
+  }
+  const allowed = await checkPrefixForWrite(linkTarget, granted.filesystem ?? [], installPath);
+  if (!allowed) {
+    await denyAndDisable(
+      ctx.extensionId,
+      `Filesystem access denied: unlink on ${requestedPath} (target: ${linkTarget})`,
+      linkTarget,
+    );
+    return jsonError(
+      req.id,
+      -32001,
+      `Filesystem access denied: ${requestedPath} is outside declared permission paths. Extension has been disabled.`,
+    );
+  }
+
+  // PDP gate — kind=fs.write (unlink is a write-side op).
+  const cap: Capability = { kind: "fs.write", value: linkTarget };
+  const decision = await ctx.engine.authorize(
+    {
+      extensionId: ctx.extensionId,
+      userId: ctx.userId,
+      conversationId: ctx.conversationId,
+    },
+    [cap],
+  );
+  if (decision.decision === "deny") {
+    return jsonError(req.id, -32001, `Filesystem access denied: ${decision.reason}`);
+  }
+
+  // 3) Unlink the LINK (not the target). Pass the original input path
+  //    so a symlink resolves to itself, not its target.
+  try {
+    await fs.unlink(inputPath);
+    return rpcResult(req.id, { resolvedPath: linkTarget, removed: true });
   } catch (e) {
     return jsonError(req.id, -32000, ioErrorMsg("unlink", e));
   }
@@ -540,10 +690,20 @@ async function gateExistsPath(
     installPath,
   );
   if (!allowed) {
+    // M4: trip denyAndDisable on out-of-grant existence probes —
+    // consistency with gatePath/gateWritePath. Repeated probes (a
+    // common reconnaissance technique) now disable the extension on
+    // the same threshold as other ops, instead of silently returning
+    // -32001 forever.
+    await denyAndDisable(
+      ctx.extensionId,
+      `Filesystem access denied: exists on ${requestedPath} (target: ${targetPath})`,
+      targetPath,
+    );
     return {
       error: {
         code: -32001,
-        message: `Filesystem access denied: ${requestedPath} is outside declared permission paths.`,
+        message: `Filesystem access denied: ${requestedPath} is outside declared permission paths. Extension has been disabled.`,
       },
     };
   }

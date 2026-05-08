@@ -41,14 +41,28 @@ export const MAX_TOOL_CALLS_PER_TURN = 10;
 /**
  * Phase 3: tracks which extensions have already received the
  * `ezcorp/fs` deprecation warning. The shim emits exactly ONE warn
- * per extension per process — repeat calls are silent. Test files
- * reset via `_resetFsDeprecationWarningsForTests`.
+ * per extension per process — repeat calls are silent.
+ *
+ * Cleared per-extension when the registry's `cleanupExtTmpDir(extId)`
+ * runs (on uninstall) so a reinstalled extension gets a fresh warning
+ * on its next legacy-shim call (validator nit #5 / N2). Cleared
+ * wholesale by `_resetFsDeprecationWarningsForTests` for unit tests.
  */
 const fsDeprecationWarned = new Set<string>();
 
 /** Test-only: clear the deprecation-warning tracker. */
 export function _resetFsDeprecationWarningsForTests(): void {
   fsDeprecationWarned.clear();
+}
+
+/**
+ * Drop the deprecation-warning entry for one extension. Called from
+ * `registry.cleanupExtTmpDir` (uninstall path) so a reinstalled
+ * extension warns afresh on its first legacy-shim call instead of
+ * staying silently in the Set forever.
+ */
+export function clearFsDeprecationForExtension(extensionId: string): void {
+  fsDeprecationWarned.delete(extensionId);
 }
 
 /**
