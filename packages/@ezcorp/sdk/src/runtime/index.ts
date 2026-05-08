@@ -120,3 +120,20 @@ export type { CancelRunResult } from "./cancel-run";
 // ── Phase B per-extension settings ──────────────────────────────
 
 export { getSetting, getAllSettings } from "./settings";
+
+// ── Phase 51 capability surfaces ────────────────────────────────
+
+export {
+  Llm,
+  LlmQuotaError,
+  LlmProviderError,
+  LlmCredentialError,
+  NotImplementedError,
+} from "./llm";
+export type {
+  LlmMessage,
+  LlmCompleteOpts,
+  LlmCompleteResult,
+  LlmUsage,
+  LlmBudgetSnapshot,
+} from "./llm";

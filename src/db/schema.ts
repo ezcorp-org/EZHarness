@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, integer, real, serial, bigint, boolean, index, primaryKey, vector } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, real, serial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { PipelineStep } from "../types";
 import type { MemoryProvenance } from "../memory/types";
@@ -148,6 +148,13 @@ export const memories = pgTable("memories", {
   lastAccessedAt: timestamp("last_accessed_at", { withTimezone: true }).notNull().defaultNow(),
   embedding: vector("embedding", { dimensions: EMBEDDING_DIMENSIONS }),
   provenance: jsonb("provenance").$type<MemoryProvenance>(),
+  // Phase 51: extension-authored memories default `false` so they do
+  // NOT auto-inject into LLM system prompts; host-extracted memories
+  // default `true` (preserves current behavior; existing rows
+  // backfilled to true via migration). Reads filter on this when
+  // building system-prompt context. Column type is boolean NOT NULL
+  // with a server default; the migration below handles legacy rows.
+  injectionEligible: boolean("injection_eligible").notNull().default(true),
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -868,3 +875,85 @@ export const lessonsAuditLog = pgTable("lessons_audit_log", {
 
 export type LessonAuditEntry = typeof lessonsAuditLog.$inferSelect;
 export type NewLessonAuditEntry = typeof lessonsAuditLog.$inferInsert;
+
+// ── Phase 51: ctx.llm — per-extension daily usage rollup ───────────
+//
+// 60s flush from in-process `LlmQuota` counters. The DB row is the
+// durable record so a crash-restart doesn't reset the day's usage.
+// Composite primary key on (extension_id, day) — one row per
+// extension per UTC calendar day.
+export const extensionLlmUsage = pgTable("extension_llm_usage", {
+  extensionId: text("extension_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
+  day: date("day").notNull(),
+  calls: integer("calls").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.extensionId, table.day] }),
+]);
+
+export type ExtensionLlmUsage = typeof extensionLlmUsage.$inferSelect;
+export type NewExtensionLlmUsage = typeof extensionLlmUsage.$inferInsert;
+
+// ── Phase 51: ctx.memory — per-extension daily write rollup ───────
+export const extensionMemoryWritesDaily = pgTable("extension_memory_writes_daily", {
+  extensionId: text("extension_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
+  day: date("day").notNull(),
+  writes: integer("writes").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.extensionId, table.day] }),
+]);
+
+export type ExtensionMemoryWritesDaily = typeof extensionMemoryWritesDaily.$inferSelect;
+
+// ── Phase 51: ctx.lessons — per-extension daily write rollup ──────
+export const extensionLessonsWritesDaily = pgTable("extension_lessons_writes_daily", {
+  extensionId: text("extension_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
+  day: date("day").notNull(),
+  writes: integer("writes").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.extensionId, table.day] }),
+]);
+
+export type ExtensionLessonsWritesDaily = typeof extensionLessonsWritesDaily.$inferSelect;
+
+// ── Phase 51: ctx.schedule — persistent cron registrations ─────────
+export const extensionSchedules = pgTable("extension_schedules", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  extensionId: text("extension_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
+  cron: text("cron").notNull(),
+  nextFireAt: timestamp("next_fire_at", { withTimezone: true, mode: "date" }).notNull(),
+  lastFireAt: timestamp("last_fire_at", { withTimezone: true, mode: "date" }),
+  lastFireStatus: text("last_fire_status").$type<"ok" | "error" | "timeout" | null>(),
+  lastFireId: text("last_fire_id"),
+  enabled: boolean("enabled").notNull().default(true),
+  consecutiveErrors: integer("consecutive_errors").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uniq_ext_schedule").on(table.extensionId, table.cron),
+  index("idx_schedule_ready").on(table.enabled, table.nextFireAt),
+]);
+
+export type ExtensionSchedule = typeof extensionSchedules.$inferSelect;
+export type NewExtensionSchedule = typeof extensionSchedules.$inferInsert;
+
+// ── Phase 51: ctx.schedule — per-fire history ──────────────────────
+export const extensionScheduleFires = pgTable("extension_schedule_fires", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  scheduleId: text("schedule_id").notNull().references(() => extensionSchedules.id, { onDelete: "cascade" }),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true, mode: "date" }).notNull(),
+  firedAt: timestamp("fired_at", { withTimezone: true, mode: "date" }).notNull(),
+  attempt: integer("attempt").notNull().default(0),
+  status: text("status").notNull().$type<"pending" | "running" | "ok" | "error" | "timeout">(),
+  durationMs: integer("duration_ms"),
+  error: text("error"),
+  catchUp: boolean("catch_up").notNull().default(false),
+}, (table) => [
+  index("idx_schedule_fires_pending").on(table.status, table.scheduledAt),
+]);
+
+export type ExtensionScheduleFire = typeof extensionScheduleFires.$inferSelect;
+export type NewExtensionScheduleFire = typeof extensionScheduleFires.$inferInsert;

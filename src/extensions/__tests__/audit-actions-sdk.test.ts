@@ -27,7 +27,9 @@ describe("EXT_AUDIT_ACTIONS SDK_* wire strings", () => {
 describe("EXT_AUDIT_ACTIONS — all SDK_* values share the ext:sdk- prefix", () => {
   test("every SDK_* wire value starts with `ext:sdk-`", () => {
     const sdkEntries = Object.entries(EXT_AUDIT_ACTIONS).filter(([k]) => k.startsWith("SDK_"));
-    expect(sdkEntries.length).toBe(13);
+    // Phase 50 baseline (13) + Phase 51 additions:
+    //   SDK_EVENT_DELIVERED, SDK_SCHEDULE_DISABLED, SDK_LLM_DENIED_AND_DISABLED.
+    expect(sdkEntries.length).toBe(16);
     for (const [, v] of sdkEntries) {
       expect(v.startsWith("ext:sdk-")).toBe(true);
     }

@@ -313,6 +313,55 @@ export interface ExtensionManifestV2 {
      *  a future opt-in tier. Pairs naturally with `messageToolbar`
      *  (toolbar click → subprocess gets event → calls append-message). */
     appendMessages?: { excludedDefault: boolean };
+
+    // ── Phase 51 capability surfaces ────────────────────────────────
+    /** Brokered LLM access via `ctx.llm.complete()`. The token NEVER
+     *  crosses the JSON-RPC boundary in either direction — the host
+     *  resolves credentials and calls `pi-ai`'s `complete()` directly,
+     *  returning ONLY the result. */
+    llm?: {
+      providers: string[];
+      maxCallsPerHour?: number;
+      maxCallsPerDay?: number;
+      maxTokensPerCall?: number;
+      maxTokensPerDay?: number;
+      maxTimeoutMs?: number;
+      allowedModels?: Record<string, string[]>;
+      maxCostCentsPerDay?: number;
+    };
+    /** Read/write access to the user's memory store via `ctx.memory`.
+     *  Extension-authored memories are stamped with provenance and
+     *  default to `injectionEligible: false` so they don't auto-inject
+     *  into LLM system prompts. `selfOnly: true` (the default) keeps
+     *  reads scoped to memories this extension itself authored. */
+    memory?: {
+      access: "read" | "write";
+      maxWritesPerDay?: number;
+      categories?: ("preferences" | "biographical" | "technical" | "decisions_goals")[];
+      selfOnly?: boolean;
+    };
+    /** Read/write access to the lessons corpus via `ctx.lessons`.
+     *  `maxVisibility` is clamped to user|project (no global). Slug
+     *  uniqueness composite includes the author extension so two
+     *  extensions can share a slug for the same user. */
+    lessons?: {
+      access: "read" | "write";
+      maxWritesPerDay?: number;
+      maxVisibility?: "user" | "project";
+    };
+    /** Persistent cron schedules via `ctx.schedule`. All crons are
+     *  declared in the manifest (max 8, min 5-min interval). The daemon
+     *  enforces `maxRunsPerDay`, `maxRunDurationMs`, and the missed-run
+     *  policy. `at-most-once` delivery is the default — extensions
+     *  opt into at-least-once via `maxRetries > 0`. */
+    schedule?: {
+      crons: string[];
+      maxRunsPerDay?: number;
+      maxRunDurationMs?: number;
+      missedRunPolicy?: "skip" | "fire-once" | "fire-all";
+      maxRetries?: number;
+      purpose?: string;
+    };
   };
 
   // Resource limits for subprocess
@@ -429,6 +478,37 @@ export interface ExtensionPermissions {
   /** Grants the `ezcorp/append-message` reverse RPC. See the matching
    *  field on `ExtensionManifestV2.permissions`. */
   appendMessages?: { excludedDefault: boolean };
+
+  // ── Phase 51 capability surfaces (granted = clamped manifest) ───
+  llm?: {
+    providers: string[];
+    maxCallsPerHour: number;
+    maxCallsPerDay: number;
+    maxTokensPerCall?: number;
+    maxTokensPerDay?: number;
+    maxTimeoutMs?: number;
+    allowedModels?: Record<string, string[]>;
+    maxCostCentsPerDay?: number;
+  };
+  memory?: {
+    access: "read" | "write";
+    maxWritesPerDay: number;
+    categories?: ("preferences" | "biographical" | "technical" | "decisions_goals")[];
+    selfOnly: boolean;
+  };
+  lessons?: {
+    access: "read" | "write";
+    maxWritesPerDay: number;
+    maxVisibility: "user" | "project";
+  };
+  schedule?: {
+    crons: string[];
+    maxRunsPerDay: number;
+    maxRunDurationMs: number;
+    missedRunPolicy: "skip" | "fire-once" | "fire-all";
+    maxRetries: number;
+  };
+
   grantedAt: Record<string, number>; // permission key -> timestamp
 }
 

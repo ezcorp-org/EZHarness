@@ -130,6 +130,22 @@ export const EXT_AUDIT_ACTIONS = {
   SDK_EVENT_SUBSCRIBED: "ext:sdk-event-subscribed",
   /** Event delivery rejected (rate-limit, payload denied by allowlist). */
   SDK_EVENT_DELIVERY_REJECTED: "ext:sdk-event-delivery-rejected",
+  /** Sampled audit row written when the dispatcher actually delivered an
+   *  event to a subscribed extension (1-in-N — see
+   *  `global:eventSubscriptionAuditSampleN` setting). */
+  SDK_EVENT_DELIVERED: "ext:sdk-event-delivered",
+  /** Schedule reconciler / daemon flipped a schedule's `enabled` to false
+   *  after 5 consecutive errors. */
+  SDK_SCHEDULE_DISABLED: "ext:sdk-schedule-disabled",
+  /** Install-time governance: extension's manifest declared
+   *  `permissions.env: ["FOO_API_KEY" | "BAR_TOKEN" | "BAZ_SECRET"]`.
+   *  Soft warning today; hard error in v1.4. Migration path is
+   *  `ctx.llm` (host-brokered credentials, key never crosses the
+   *  RPC boundary). */
+  ENV_KEY_LEAK_WARNING: "ext:env-key-leak-warning",
+  /** ctx.llm.complete() denyAndDisable graduation — repeated attempts
+   *  to use an un-granted provider in a 60s window. */
+  SDK_LLM_DENIED_AND_DISABLED: "ext:sdk-llm-denied-and-disabled",
 } as const;
 
 export type ExtAuditAction = typeof EXT_AUDIT_ACTIONS[keyof typeof EXT_AUDIT_ACTIONS];

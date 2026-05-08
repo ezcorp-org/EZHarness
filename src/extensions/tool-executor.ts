@@ -17,6 +17,7 @@ import { handleSpawnAssignmentRpc, type SpawnAssignmentContext } from "./spawn-a
 import { handleCancelRunRpc, type CancelRunContext } from "./cancel-run-handler";
 import { handleAppendMessageRpc, type AppendMessageContext } from "./append-message-handler";
 import { handleFinalizeToolCallRpc, type FinalizeToolCallContext } from "./finalize-tool-call-handler";
+import { handlePiLlmComplete } from "./llm-handler";
 import type { SpawnQuota } from "./spawn-quota";
 import { getConversation, getConversationSpawnDepth } from "../db/queries/conversations";
 import { persistToolCall } from "../db/queries/tool-calls";
@@ -699,12 +700,49 @@ export class ToolExecutor {
       if (req.method === "ezcorp/storage") {
         return this.handlePiStorage(extensionId, req);
       }
+      if (req.method === "ezcorp/llm-complete") {
+        return this.handlePiLlmComplete(extensionId, req);
+      }
       return {
         jsonrpc: "2.0" as const,
         id: req.id,
         error: { code: -32601, message: "Method not found" },
       };
     });
+  }
+
+  /** Phase 51 — `ctx.llm.complete()` reverse-RPC. The token NEVER
+   *  crosses the JSON-RPC boundary; the host resolves credentials and
+   *  invokes pi-ai's `complete()` directly. */
+  async handlePiLlmComplete(
+    extensionId: string,
+    req: JsonRpcRequest,
+  ): Promise<JsonRpcResponse> {
+    const granted = this.registry.getGrantedPermissions(extensionId);
+    if (!granted) {
+      return {
+        jsonrpc: "2.0",
+        id: req.id,
+        error: { code: -32603, message: "Extension not found in registry" },
+      };
+    }
+    const rpcMeta = this.buildHandlerRpcMeta();
+    return handlePiLlmComplete(req, {
+      granted,
+      registeredTool: { extensionId },
+    }, rpcMeta);
+  }
+
+  /** Build the `_meta` payload for Phase 51 capability handlers.
+   *  The values are sourced from the host's per-turn state — NEVER
+   *  from the subprocess — so the trust boundary lives entirely on
+   *  this side. `handler-context.ts:deriveHandlerContext` consumes
+   *  this. */
+  private buildHandlerRpcMeta(): Record<string, unknown> {
+    const meta: Record<string, unknown> = {};
+    if (this.currentUserId) meta.ezOnBehalfOf = this.currentUserId;
+    if (this.currentConversationId) meta.ezConversationId = this.currentConversationId;
+    return meta;
   }
 
   /**
