@@ -349,10 +349,26 @@ export class ExtensionProcess {
     this.transport.onRequest = (req) => {
       handler(req)
         .then((response) => {
-          if (this.proc?.stdin) {
-            const data = JSON.stringify(response) + "\n";
-            (this.proc.stdin as { write(d: string): number }).write(data);
+          if (!this.proc?.stdin) return;
+          const stdin = this.proc.stdin as { write(d: string): number };
+          // Phase 3: handlers may opt into chunked-frame streaming by
+          // returning a `{streamed: true, frames}` envelope. Each frame
+          // is a fully-formed line (announce / chunk / cancel) that
+          // we write verbatim — the host's outbound side does NOT
+          // re-encode them as JSON. Small responses keep using the
+          // single-line legacy format.
+          const maybeStreamed = response as unknown as {
+            streamed?: boolean;
+            frames?: readonly string[];
+          };
+          if (maybeStreamed.streamed === true && Array.isArray(maybeStreamed.frames)) {
+            for (const frame of maybeStreamed.frames) {
+              stdin.write(frame);
+            }
+            return;
           }
+          const data = JSON.stringify(response) + "\n";
+          stdin.write(data);
         })
         .catch((err) => {
           log.error("Reverse-RPC request handler failed", { extensionId: this.extensionId, error: String(err) });
