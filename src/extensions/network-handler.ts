@@ -24,18 +24,11 @@
 import type { JsonRpcRequest, JsonRpcResponse } from "./types";
 import type { PermissionEngine } from "./permission-engine";
 import type { ExtensionRegistry } from "./registry";
-
-const INTERNAL_HOSTS = new Set(["localhost", "::1"]);
-const RFC1918_RANGES: RegExp[] = [
-  /^127\./, // loopback IPv4 (matches all of 127.0.0.0/8)
-  /^10\./,
-  /^192\.168\./,
-  /^172\.(1[6-9]|2\d|3[01])\./,
-  /^169\.254\./, // link-local IPv4
-  /^fc00:/i,
-  /^fd00:/i, // unique local IPv6
-  /^fe80:/i, // link-local IPv6
-];
+// Single source of truth for "internal host" — shared with the
+// in-sandbox fetch wrapper. Pre-extraction drift bug (M1, reviewer C1):
+// this module's lowercase-only normalization disagreed with the
+// wrapper's bracket-strip on `[::1]`-shaped IPv6 inputs.
+import { isInternalHost as _isInternalHost, normalizeHostname } from "./runtime/internal-host";
 
 const TEN_MB = 10 * 1024 * 1024;
 
@@ -99,7 +92,14 @@ export async function handleNetworkInternalRpc(
       userId: ctx.userId,
       conversationId: ctx.conversationId,
     },
-    [{ kind: "network", value: parsed.hostname.toLowerCase() }],
+    // Use the SAME normalization the in-sandbox wrapper uses — strips
+    // IPv6 `[...]` brackets that `URL.hostname` keeps. Pre-extraction
+    // bug: PDP saw `[::1]` while the wrapper saw `::1`, so a manifest
+    // declaring `network: ["::1"]` was denied at the host but allowed
+    // at the wrapper level (which never reached this RPC because
+    // wrapper-side classification matched and routed here). Keeping
+    // both sides on the same value avoids the split-brain.
+    [{ kind: "network", value: normalizeHostname(parsed.hostname) }],
   );
 
   if (decision.decision === "deny") {
@@ -155,19 +155,18 @@ export async function handleNetworkInternalRpc(
 }
 
 /**
- * `isInternalHost(host)` — host-side classification mirror of the
- * sandbox's `INTERNAL_HOST_RE` (network-wrapper.ts). Used for sanity
- * checks (e.g. an extension calling `ezcorp/network.internal` for a
- * public host should be rejected — only the wrapper should route via
- * this RPC, and only for internal hosts).
+ * `isInternalHost(host)` — re-export of the canonical classifier from
+ * `./runtime/internal-host.ts`. Same rule, same regex, same bracket
+ * normalization as the in-sandbox wrapper. Pre-extraction this was a
+ * local variant that did `.toLowerCase()` only — drift-prone. The
+ * shared module guarantees both sides agree.
  *
- * Phase 2 doesn't yet enforce that — the PDP gate alone is enough.
- * Exposed for tests + future enforcement.
+ * Used for tests + future enforcement (an extension calling
+ * `ezcorp/network.internal` for a non-internal host should be
+ * rejected; Phase 2 leaves that to the PDP gate alone).
  */
 export function isInternalHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  if (INTERNAL_HOSTS.has(h)) return true;
-  return RFC1918_RANGES.some((re) => re.test(h));
+  return _isInternalHost(hostname);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────

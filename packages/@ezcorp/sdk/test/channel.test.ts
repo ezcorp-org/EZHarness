@@ -1078,6 +1078,116 @@ describe("tools/call dispatcher — withToolContext ALS binding", () => {
   });
 });
 
+// ── N2: ALS smoke through the REAL getChannel() singleton ──────────
+//
+// Goes end-to-end: spy on Bun.stdin.stream(), call `getChannel().start()`
+// (the production singleton + readLoop), push a real `tools/call`
+// frame, and assert the handler reads ALS context.
+//
+// Caveat: earlier tests in this file install no-op `_setDispatcherRegister`
+// closures as cleanup, which permanently overwrite the production
+// register-arming closure. To exercise the production-equivalent wrap
+// path, this test re-installs a register body that mirrors
+// channel.ts's `ensureDispatcherRegistered()` (lines ~320-367) — same
+// trick the existing `_meta.invocationMetadata` test uses. The drift
+// between this body and channel.ts's is what we're guarding against
+// with the `withToolContext` wrap below; both must change together.
+describe("tools/call dispatcher — ALS smoke through production getChannel()", () => {
+  test("handler dispatched via real channel singleton reads {toolName, conversationId}", async () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c;
+      },
+    });
+    const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(
+      () => stream as ReturnType<typeof Bun.stdin.stream>,
+    );
+    const stdoutWrites: string[] = [];
+    const stdoutSpy = spyOn(process.stdout, "write").mockImplementation((s: unknown) => {
+      stdoutWrites.push(typeof s === "string" ? s : new TextDecoder().decode(s as Uint8Array));
+      return true;
+    });
+
+    try {
+      // Re-install a register that mirrors channel.ts's
+      // `ensureDispatcherRegistered` body — earlier tests overwrote
+      // it to a no-op. Includes the Phase 2 `withToolContext` wrap.
+      _setDispatcherRegister(({ handlers, opts }) => {
+        const ch = getChannel();
+        ch.onRequest("tools/call", async (params) => {
+          const p = (params ?? {}) as Record<string, unknown>;
+          const name = typeof p.name === "string" ? p.name : "";
+          const args = (p.arguments ?? {}) as Record<string, unknown>;
+          const rawMeta = (p._meta ?? {}) as Record<string, unknown>;
+          const handler = handlers[name];
+          if (!handler) throw new JsonRpcError(-32601, `Tool not found: ${name}`);
+          const ezConversationId =
+            typeof rawMeta.ezConversationId === "string" ? rawMeta.ezConversationId : "";
+          return withToolContext(
+            { toolName: name, conversationId: ezConversationId },
+            async () => {
+              try {
+                return await handler(args);
+              } catch (err) {
+                if (opts?.onError) return opts.onError(err, name);
+                const message = err instanceof Error ? err.message : String(err);
+                return toolError(message);
+              }
+            },
+          );
+        });
+      });
+
+      const ch = getChannel();
+      ch.start();
+
+      let captured: { toolName?: string; conversationId?: string } | undefined;
+      createToolDispatcher({
+        probe: async () => {
+          await Promise.resolve();
+          const ctx = getToolContext();
+          captured = {
+            toolName: ctx?.toolName,
+            conversationId: ctx?.conversationId,
+          };
+          return toolResult("ok");
+        },
+      });
+
+      const enc = new TextEncoder();
+      controller.enqueue(
+        enc.encode(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: {
+              name: "probe",
+              arguments: {},
+              _meta: { ezConversationId: "conv-prod-smoke" },
+            },
+          }) + "\n",
+        ),
+      );
+      await waitFor(() => stdoutWrites.length >= 1);
+      controller.close();
+
+      expect(captured).toEqual({
+        toolName: "probe",
+        conversationId: "conv-prod-smoke",
+      });
+
+      // Restore the dispatcher to a no-op so the closure registered
+      // here doesn't see frames from later tests.
+      _setDispatcherRegister(() => {});
+    } finally {
+      stdinSpy.mockRestore();
+      stdoutSpy.mockRestore();
+    }
+  });
+});
+
 /**
  * Helper: register two slow handlers and drive two `tools/call` frames
  * back-to-back so they overlap. Each handler MUST read its own

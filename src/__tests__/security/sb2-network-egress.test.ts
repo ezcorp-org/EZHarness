@@ -317,6 +317,39 @@ describe("sec-SB2/Phase2: WebSocket/EventSource always denied", () => {
       expect(out.stdout).toMatch(/^OK$/m);
     }
   });
+
+  // ── Plain-call form (without `new`) ──────────────────────────────
+  //
+  // `makeCtorDenier` returns a regular function — it's `new`-able AND
+  // plain-callable. Tests above cover `new X(...)`; these confirm
+  // `X(...)` also throws our permission-label message. (Worker /
+  // WebSocket / EventSource are normally `new`-only by spec, but the
+  // denier replaces them with our function — extension code that
+  // accidentally drops the `new` should still trip our deny path, not
+  // a generic "X is not a constructor".)
+  test("WebSocket(...) plain-call (without new) throws our denier", async () => {
+    const out = await runUnderPreload(probeSync(`WebSocket('ws://localhost:1/')`));
+    expect(out.stdout).toMatch(NETWORK_DENY);
+  });
+
+  test("Worker(...) plain-call (without new) throws our denier", async () => {
+    const out = await runUnderPreload(
+      probeSync(`Worker('data:application/javascript,console.log("hi")')`),
+      { networkAllowed: true },
+    );
+    expect(out.stdout).toMatch(/blocked|requires/);
+  });
+
+  test("EventSource(...) plain-call (without new) throws our denier when defined", async () => {
+    const out = await runUnderPreload(
+      probeSync(`if (typeof EventSource !== 'undefined') EventSource('http://x/')`),
+    );
+    if (out.stdout.includes("ERR")) {
+      expect(out.stdout).toMatch(NETWORK_DENY);
+    } else {
+      expect(out.stdout).toMatch(/^OK$/m);
+    }
+  });
 });
 
 describe("sec-SB2/Phase2: Worker constructor always denied (FFI / spawn-graph leak)", () => {
@@ -343,6 +376,83 @@ describe("sec-SB2/Phase2: Bun.dlopen always denied (no FFI permission)", () => {
     // FFI is unconditionally denied — the manifest has no permission
     // surface for it.
     expect(out.stdout).toMatch(/blocked|FFI|never granted/);
+  });
+});
+
+// ── Phase 2: process.binding always denied (auditor C4 / plan pillar 4) ──
+//
+// `process.binding` is Node's internal C++ binding bridge — not part
+// of the public API. Bun implements it as a function that throws
+// "not implemented" for most names (tcp_wrap, udp_wrap, tls_wrap,
+// pipe_wrap, spawn_sync, crypto), BUT `process.binding("fs")` IS
+// reachable in current Bun and returns a real fs primitives object —
+// a clean filesystem escape route past the preload's `Bun.file` /
+// `node:fs` poison. Phase 2 closes this surface unconditionally.
+
+describe("sec-SB2/Phase2: process.binding denylist (architectural-plan pillar 4)", () => {
+  // The denier is a wrap-with-denylist (NOT outright-deny) because
+  // Bun's `require('http')` and other built-in module loaders call
+  // `process.binding` internally during initialization. An
+  // outright-deny breaks `require('http')` even when network IS granted.
+  // Phase 2 instead denies a specific set of names that would grant
+  // capability the manifest doesn't surface — `fs` (filesystem escape),
+  // `natives` (internal-module loader), `util`, `config`. Other names
+  // pass through to Bun's real binding (which throws "not implemented"
+  // for most; this denier overrides only the few that DO return real
+  // objects in current Bun).
+
+  test("process.binding('fs') throws our denier even with network granted", async () => {
+    // Pre-fix this returned a real fs primitives object — extension
+    // could call its read/stat/write methods to bypass the sandbox.
+    const out = await runUnderPreload(
+      probeSync(`process.binding('fs').access`),
+      { networkAllowed: true },
+    );
+    expect(out.stdout).toMatch(/Extension sandbox.*process\.binding.*blocked|internal Node API/);
+    expect(out.stdout).not.toMatch(/^OK$/m);
+  });
+
+  test("process.binding('natives') is denied (would expose internal-module loader)", async () => {
+    const out = await runUnderPreload(
+      probeSync(`process.binding('natives')._http_agent`),
+      { networkAllowed: true },
+    );
+    expect(out.stdout).toMatch(/Extension sandbox.*process\.binding.*blocked|internal Node API/);
+  });
+
+  test("process.binding('util') is denied", async () => {
+    const out = await runUnderPreload(
+      probeSync(`process.binding('util').isDate`),
+      { networkAllowed: true },
+    );
+    expect(out.stdout).toMatch(/Extension sandbox.*process\.binding.*blocked|internal Node API/);
+  });
+
+  test("process.binding('tcp_wrap') still throws (Bun's 'not implemented' surfaces, denylist passes through)", async () => {
+    // Self-defending: tcp_wrap isn't on our denylist (Bun already
+    // throws "not implemented"). A regression that REMOVED Bun's
+    // throw would surface as `OK` here — flagging the new hole.
+    const out = await runUnderPreload(
+      probeSync(`process.binding('tcp_wrap')`),
+      { networkAllowed: true },
+    );
+    expect(out.stdout).toMatch(/not implemented|Extension sandbox.*process\.binding/);
+    expect(out.stdout).not.toMatch(/^OK$/m);
+  });
+
+  test("require('http') still works when network granted (denier doesn't break legitimate require)", async () => {
+    // The reason we use a denylist instead of an outright-deny: Bun's
+    // `require('http')` calls `process.binding` internally during
+    // module init. Outright-deny breaks legitimate require flows.
+    // This test pins that the denylist doesn't regress that.
+    const out = await runUnderPreload(
+      probeSync(
+        `const http = require('http'); ` +
+        `if (typeof http.createServer !== 'function') throw new Error('require broken')`,
+      ),
+      { networkAllowed: true },
+    );
+    expect(out.stdout).toMatch(/^OK$/m);
   });
 });
 

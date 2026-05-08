@@ -116,8 +116,21 @@ describe("E2E: github-stats real ExtensionProcess (server pipeline, empty-allowl
     expect(r.isError).toBe(true);
     const first = r.content[0];
     if (!first || first.type !== "text") throw new Error("expected text content");
-    expect(first.text).toContain("EZCORP_PERMITTED_HOSTS not configured");
-    expect(first.text).toContain("granted network permission");
+    // Phase 2: enforcement moved from the SDK's hand-rolled
+    // `fetchPermitted` guard to the sandbox-preload's `globalThis.fetch`
+    // wrapper. With network NOT granted at the spawn level (no
+    // EZCORP_NETWORK_ALLOWED env), the wrapper installs an outright-deny
+    // stub whose message reads "blocked — extension requires 'network'
+    // permission". When network IS granted but PERMITTED_HOSTS is unset,
+    // the wrapper's per-host check denies with "not in the granted
+    // network allowlist". Either pattern indicates the deny path fired.
+    expect(first.text).toMatch(
+      /not in (EZCORP_PERMITTED_HOSTS|the granted network) allowlist|blocked .* requires 'network' permission/,
+    );
+    // Phase 2: the wrapper's deny message uses "granted network
+    // allowlist" (not "granted network permission" — that was the SDK
+    // helper's wording). Both shapes carry the same intent.
+    expect(first.text).toMatch(/granted network (allowlist|permission)/);
   }, 30_000);
 
   test("user-profile routes through the same fetchPermitted guard — confirms handler-map coverage", async () => {
@@ -128,7 +141,17 @@ describe("E2E: github-stats real ExtensionProcess (server pipeline, empty-allowl
     expect(r.isError).toBe(true);
     const first = r.content[0];
     if (!first || first.type !== "text") throw new Error("expected text content");
-    expect(first.text).toContain("EZCORP_PERMITTED_HOSTS not configured");
+    // Phase 2: enforcement moved from the SDK's hand-rolled
+    // `fetchPermitted` guard to the sandbox-preload's `globalThis.fetch`
+    // wrapper. With network NOT granted at the spawn level (no
+    // EZCORP_NETWORK_ALLOWED env), the wrapper installs an outright-deny
+    // stub whose message reads "blocked — extension requires 'network'
+    // permission". When network IS granted but PERMITTED_HOSTS is unset,
+    // the wrapper's per-host check denies with "not in the granted
+    // network allowlist". Either pattern indicates the deny path fired.
+    expect(first.text).toMatch(
+      /not in (EZCORP_PERMITTED_HOSTS|the granted network) allowlist|blocked .* requires 'network' permission/,
+    );
   }, 30_000);
 
   test("repo-languages routes through the same fetchPermitted guard — all 3 tools wired by createToolDispatcher", async () => {
@@ -139,7 +162,17 @@ describe("E2E: github-stats real ExtensionProcess (server pipeline, empty-allowl
     expect(r.isError).toBe(true);
     const first = r.content[0];
     if (!first || first.type !== "text") throw new Error("expected text content");
-    expect(first.text).toContain("EZCORP_PERMITTED_HOSTS not configured");
+    // Phase 2: enforcement moved from the SDK's hand-rolled
+    // `fetchPermitted` guard to the sandbox-preload's `globalThis.fetch`
+    // wrapper. With network NOT granted at the spawn level (no
+    // EZCORP_NETWORK_ALLOWED env), the wrapper installs an outright-deny
+    // stub whose message reads "blocked — extension requires 'network'
+    // permission". When network IS granted but PERMITTED_HOSTS is unset,
+    // the wrapper's per-host check denies with "not in the granted
+    // network allowlist". Either pattern indicates the deny path fired.
+    expect(first.text).toMatch(
+      /not in (EZCORP_PERMITTED_HOSTS|the granted network) allowlist|blocked .* requires 'network' permission/,
+    );
   }, 30_000);
 
   test("unknown tool returns JSON-RPC 'Tool not found' error; subprocess recovers for a valid call", async () => {
@@ -159,7 +192,9 @@ describe("E2E: github-stats real ExtensionProcess (server pipeline, empty-allowl
     expect(ok.isError).toBe(true);
     const okFirst = ok.content[0];
     if (!okFirst || okFirst.type !== "text") throw new Error("expected text content");
-    expect(okFirst.text).toContain("EZCORP_PERMITTED_HOSTS not configured");
+    expect(okFirst.text).toMatch(
+      /not in (EZCORP_PERMITTED_HOSTS|the granted network) allowlist|blocked .* requires 'network' permission/,
+    );
     expect(proc.isRunning).toBe(true);
   }, 30_000);
 
@@ -172,7 +207,17 @@ describe("E2E: github-stats real ExtensionProcess (server pipeline, empty-allowl
       expect(r.isError).toBe(true);
       const first = r.content[0];
       if (!first || first.type !== "text") throw new Error("expected text content");
-      expect(first.text).toContain("EZCORP_PERMITTED_HOSTS not configured");
+      // Phase 2: enforcement moved from the SDK's hand-rolled
+    // `fetchPermitted` guard to the sandbox-preload's `globalThis.fetch`
+    // wrapper. With network NOT granted at the spawn level (no
+    // EZCORP_NETWORK_ALLOWED env), the wrapper installs an outright-deny
+    // stub whose message reads "blocked — extension requires 'network'
+    // permission". When network IS granted but PERMITTED_HOSTS is unset,
+    // the wrapper's per-host check denies with "not in the granted
+    // network allowlist". Either pattern indicates the deny path fired.
+    expect(first.text).toMatch(
+      /not in (EZCORP_PERMITTED_HOSTS|the granted network) allowlist|blocked .* requires 'network' permission/,
+    );
     }
 
     // Tool-level isError still counts as transport success → resetFailures
@@ -198,7 +243,17 @@ describe("E2E: github-stats real ExtensionProcess (server pipeline, empty-allowl
       expect(r.isError).toBe(true);
       const first = r.content[0];
       if (!first || first.type !== "text") throw new Error("expected text content");
-      expect(first.text).toContain("EZCORP_PERMITTED_HOSTS not configured");
+      // Phase 2: enforcement moved from the SDK's hand-rolled
+    // `fetchPermitted` guard to the sandbox-preload's `globalThis.fetch`
+    // wrapper. With network NOT granted at the spawn level (no
+    // EZCORP_NETWORK_ALLOWED env), the wrapper installs an outright-deny
+    // stub whose message reads "blocked — extension requires 'network'
+    // permission". When network IS granted but PERMITTED_HOSTS is unset,
+    // the wrapper's per-host check denies with "not in the granted
+    // network allowlist". Either pattern indicates the deny path fired.
+    expect(first.text).toMatch(
+      /not in (EZCORP_PERMITTED_HOSTS|the granted network) allowlist|blocked .* requires 'network' permission/,
+    );
     }
     expect(proc.isRunning).toBe(true);
   }, 30_000);

@@ -87,12 +87,21 @@ export function buildAllowedEnv(
   // declaration. A tool with no entry inherits the extension-wide
   // ceiling without further narrowing.
   //
-  // We run `migrateManifestV2ToV3` inline so v2 manifests (no per-tool
-  // capabilities authored) get the same shape — the registry path
-  // already migrates manifests, but `buildAllowedEnv` is also called
-  // from `mcp-sandbox.ts` and `test-helpers.ts`, where the input may
-  // not have been migrated yet.
-  const migrated = migrateManifestV2ToV3(manifest);
+  // Migration: `buildAllowedEnv` is called on every spawn. v3 manifests
+  // pass through with their authored per-tool caps verbatim; v2 inputs
+  // need `migrateManifestV2ToV3` to synthesize per-tool caps from the
+  // extension-wide `permissions`. The migrator is idempotent on v3, but
+  // re-running it allocates a new `tools[]` array on each spawn — N1
+  // perf nit (validator nice-to-have). Short-circuit when the input is
+  // already v3 AND every tool already has an authored `capabilities`
+  // declaration: in that case the migration produces identical output.
+  // The registry's hot path (live spawns) hits this short-circuit;
+  // `mcp-sandbox.ts` / `test-helpers.ts` callers with raw v2 inputs
+  // still pay the migration cost.
+  const isFullyV3 =
+    manifest.schemaVersion === 3 &&
+    (manifest.tools ?? []).every((t) => t.capabilities !== undefined);
+  const migrated = isFullyV3 ? manifest : migrateManifestV2ToV3(manifest);
   const toolCaps: Record<string, string[]> = {};
   for (const tool of migrated.tools ?? []) {
     const hosts = tool.capabilities?.network?.hosts;

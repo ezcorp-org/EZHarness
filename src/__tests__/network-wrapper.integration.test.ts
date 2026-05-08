@@ -81,7 +81,10 @@ beforeAll(() => {
       return new Response("stub-ok", { status: 200 });
     },
   });
-  stubPort = stubServer.port;
+  // `Bun.serve({port:0})` synchronously binds and assigns a real port;
+  // `.port` is typed `number | undefined` for the lazy-binding case.
+  // We just instantiated above, so a non-null assertion here is safe.
+  stubPort = stubServer.port ?? 0;
 });
 
 afterAll(() => {

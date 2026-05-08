@@ -243,6 +243,91 @@ describe("classifyFetch — invalid URLs", () => {
   });
 });
 
+// ── (j) Input-shape narrowing — fetch(URL) / fetch(Request) ────────
+//
+// The wrapper at `sandbox-preload.ts:installFetchWrapper` accepts
+// `string | URL | Request` and extracts a string URL via:
+//   typeof input === "string" ? input
+//     : input instanceof URL ? input.href
+//     : (input as Request).url
+//
+// `classifyFetch` itself only takes a string — by design (pure logic,
+// no Request/URL globals required for the host-side mirror). We mirror
+// the wrapper's narrowing here so a regression in EITHER layer would
+// trip the assertion. The narrowing function itself is a one-line
+// helper duplicated here — keep in sync with sandbox-preload.ts.
+
+function urlOfFetchInput(input: string | URL | Request): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
+describe("(j) fetch input-shape narrowing — string / URL / Request all reach classifyFetch", () => {
+  test("fetch(string) → URL extracted verbatim", () => {
+    const urlStr = urlOfFetchInput("https://api.foo.com/v1/x");
+    expect(urlStr).toBe("https://api.foo.com/v1/x");
+    const decision = classifyFetch(urlStr, {
+      permittedHosts: ["api.foo.com"],
+      toolCaps: NO_TOOL_CAPS,
+    });
+    expect(decision.kind).toBe("external");
+  });
+
+  test("fetch(new URL(...)) → .href extracted, classifier sees the same hostname", () => {
+    const u = new URL("https://api.foo.com/v1/x?q=1");
+    const urlStr = urlOfFetchInput(u);
+    expect(urlStr).toBe("https://api.foo.com/v1/x?q=1");
+    const decision = classifyFetch(urlStr, {
+      permittedHosts: ["api.foo.com"],
+      toolCaps: NO_TOOL_CAPS,
+    });
+    expect(decision.kind).toBe("external");
+  });
+
+  test("fetch(new Request(...)) → .url extracted, classifier sees the same hostname", () => {
+    const r = new Request("https://api.foo.com/v1/x", { method: "POST" });
+    const urlStr = urlOfFetchInput(r);
+    expect(urlStr).toBe("https://api.foo.com/v1/x");
+    const decision = classifyFetch(urlStr, {
+      permittedHosts: ["api.foo.com"],
+      toolCaps: NO_TOOL_CAPS,
+    });
+    expect(decision.kind).toBe("external");
+  });
+
+  test("fetch(URL) for a denied host → deny lane (not bypassed by URL-shape)", () => {
+    const u = new URL("https://evil.com/x");
+    const decision = classifyFetch(urlOfFetchInput(u), {
+      permittedHosts: ["api.foo.com"],
+      toolCaps: NO_TOOL_CAPS,
+    });
+    expect(decision.kind).toBe("deny");
+  });
+
+  test("fetch(Request) for an internal host → internal lane (not bypassed by Request-shape)", () => {
+    const r = new Request("http://localhost:5432/healthz");
+    const decision = classifyFetch(urlOfFetchInput(r), {
+      permittedHosts: ["api.foo.com"],
+      toolCaps: NO_TOOL_CAPS,
+    });
+    expect(decision.kind).toBe("internal");
+  });
+
+  test("fetch(URL) for IPv6 host → bracket-stripped before classification (M1 regression guard)", () => {
+    // The wrapper's `normalizeHostname` strips `[fc00::1]` → `fc00::1`
+    // so the regex matches. A regression in the shared internal-host
+    // module (the one introduced by this commit to fix M1) would let
+    // the URL through to the external lane and land in deny.
+    const u = new URL("http://[fc00::1]/");
+    const decision = classifyFetch(urlOfFetchInput(u), {
+      permittedHosts: [],
+      toolCaps: NO_TOOL_CAPS,
+    });
+    expect(decision.kind).toBe("internal");
+  });
+});
+
 describe("INTERNAL_HOST_RE — direct matrix", () => {
   test("matches every documented internal pattern", () => {
     const internal = [

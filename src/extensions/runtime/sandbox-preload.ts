@@ -197,6 +197,46 @@ if (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") {
   "Worker — extension subprocess cannot spawn workers",
 );
 
+// Phase 2: `process.binding` is Node's internal C++ binding bridge —
+// not part of the public API and never granted to extensions. Bun
+// implements it as a function that throws "not implemented" for most
+// names (tcp_wrap, udp_wrap, tls_wrap, pipe_wrap, spawn_sync, crypto),
+// but several names ARE reachable in current Bun and return real
+// objects:
+//   - `fs`       → fs primitives (filesystem escape past Bun.file / node:fs poison)
+//   - `natives`  → loads internal Node modules by name (escape vector)
+//   - `util`     → introspection (lower risk, but no manifest surface)
+//   - `config`   → build flags (lower risk)
+//
+// Architectural-plan pillar 4 explicitly listed `process.binding` as
+// an escape route to close in Phase 2. The initial implementation
+// missed it (auditor C4).
+//
+// IMPORTANT: we cannot replace `process.binding` outright because
+// Bun's `require('http')` and other built-in module loaders call
+// `process.binding` internally during normal initialization. An
+// outright-deny breaks `require('http')` even when network IS granted.
+// Instead, wrap with a denylist for names that grant capability the
+// manifest doesn't surface. Other names pass through to the real
+// binding (preserving Bun's "not implemented" throws AND the legitimate
+// runtime-internal calls that happen during require).
+if (
+  typeof process !== "undefined" &&
+  typeof (process as { binding?: unknown }).binding === "function"
+) {
+  const DENIED_BINDINGS = new Set<string>(["fs", "natives", "util", "config"]);
+  const procAny = process as unknown as Record<string, unknown>;
+  const origBinding = (procAny.binding as (name: string) => unknown).bind(process);
+  procAny.binding = function patchedBinding(name: string): unknown {
+    if (typeof name === "string" && DENIED_BINDINGS.has(name)) {
+      throw new Error(
+        `Extension sandbox: 'process.binding(${JSON.stringify(name)})' blocked — internal Node API not exposed to extensions`,
+      );
+    }
+    return origBinding(name);
+  };
+}
+
 /**
  * Install the per-host + per-tool fetch allowlist wrapper.
  *

@@ -35,44 +35,14 @@
  * is the sole source of truth for the wrapper.
  */
 
-/**
- * Internal/private host pattern. Matches:
- *   - localhost (literal)
- *   - 127.x.x.x (loopback)
- *   - ::1 (IPv6 loopback)
- *   - 10.x.x.x (RFC-1918 class A)
- *   - 192.168.x.x (RFC-1918 class C)
- *   - 172.16-31.x.x (RFC-1918 class B)
- *   - 169.254.x.x (link-local IPv4)
- *   - fc00:* / fd00:* (unique local IPv6)
- *   - fe80:* (link-local IPv6)
- *
- * IPv6 hosts in URL syntax retain their `[...]` brackets in
- * `URL.hostname` — `new URL("http://[fc00::1]/").hostname === "[fc00::1]"`.
- * Internal callers strip the brackets before pattern-matching via
- * `normalizeHostname`. The regex itself works on the bracket-free form.
- *
- * NOT matched (intentionally):
- *   - 8.8.8.8, 1.1.1.1 — public IPs go through the external lane
- *   - mydomain.local (mDNS) — DNS-resolved at fetch time; if it lands
- *     on a private IP, the host's PDP/network stack governs (Phase 7
- *     adds the kernel-level netns gate for that case)
- */
-export const INTERNAL_HOST_RE =
-  /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|fc00:|fd00:|fe80:|::1$)/i;
-
-/**
- * Strip IPv6 URL-syntax brackets from a hostname, lower-case the rest.
- * `URL.hostname` keeps the `[...]` for IPv6; `INTERNAL_HOST_RE` and the
- * allowlist comparison both expect the bare form.
- */
-export function normalizeHostname(raw: string): string {
-  let h = raw.toLowerCase();
-  if (h.length >= 2 && h.startsWith("[") && h.endsWith("]")) {
-    h = h.slice(1, -1);
-  }
-  return h;
-}
+// Internal-host classification (regex + bracket normalizer) lives in
+// `./internal-host.ts` so this wrapper and the host-side
+// `network-handler.ts` agree on what "internal" means. Re-exported here
+// for back-compat with existing test imports
+// (network-wrapper.test.ts uses `INTERNAL_HOST_RE` / `normalizeHostname`
+// against this module's surface).
+import { INTERNAL_HOST_RE, normalizeHostname } from "./internal-host";
+export { INTERNAL_HOST_RE, normalizeHostname };
 
 /**
  * Outcome of URL classification. The wrapper switches on `kind`:

@@ -241,7 +241,14 @@ describe("E2E web-search (DENY: fetchPermitted guard)", () => {
     const r = await proc.callTool("search-web", { query: "bun" });
     expect(r.isError).toBe(true);
     expect(textOf(r)).toContain("Search failed via jina");
-    expect(textOf(r)).toContain("EZCORP_PERMITTED_HOSTS not configured");
+    // Phase 2: enforcement moved to the sandbox-preload's fetch wrapper.
+    // The wrapper denies with "not in the granted network allowlist"
+    // (per-host check) or "blocked — extension requires 'network'
+    // permission" (no network granted at all). Either pattern proves
+    // the deny path fired.
+    expect(textOf(r)).toMatch(
+      /not in (EZCORP_PERMITTED_HOSTS|the granted network) allowlist|blocked .* requires 'network' permission/,
+    );
   }, 30_000);
 
   test("decoy allowlist → hostname-mismatch toolError surfaces", async () => {

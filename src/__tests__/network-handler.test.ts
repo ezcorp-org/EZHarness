@@ -137,11 +137,15 @@ describe("handleNetworkInternalRpc — PDP gate", () => {
     expect(resp.error?.message).toContain("missing capability network");
   });
 
-  test("PDP receives lowercased hostname (normalization)", async () => {
-    let captured: { value?: string } | undefined;
+  test("PDP receives a {kind:'network', value: lowercased-host} capability tuple", async () => {
+    // N3 (auditor nice-to-have): assert the capability KIND, not just
+    // the value. A typo-induced kind drift (e.g. "net" instead of
+    // "network") would silently cause the PDP to reject every tuple
+    // — caught here.
+    let captured: { kind?: string; value?: string } | undefined;
     const engine: NetworkInternalContext["engine"] = {
       authorize: async (_ctx, needed) => {
-        captured = needed[0] as { value?: string } | undefined;
+        captured = needed[0] as { kind?: string; value?: string } | undefined;
         return { decision: "allow", auditId: "x" };
       },
       resolvePrompt: async () => {},
@@ -154,11 +158,39 @@ describe("handleNetworkInternalRpc — PDP gate", () => {
         // stub fetch so we don't try to dial localhost
       }),
       {
-        fetchImpl: async () =>
-          new Response("ok", { status: 200, statusText: "OK" }),
+        fetchImpl: (async () =>
+          new Response("ok", { status: 200, statusText: "OK" })) as unknown as typeof fetch,
       },
     );
+    expect(captured?.kind).toBe("network");
     expect(captured?.value).toBe("localhost");
+  });
+
+  test("PDP receives bracket-stripped value for IPv6 hosts (M1 regression guard)", async () => {
+    // Pre-extraction the handler did `.toLowerCase()` only — the value
+    // arriving at the PDP for `http://[::1]/` was `[::1]` (with
+    // brackets), while the wrapper-side classification used `::1`
+    // (bracket-stripped). The shared internal-host module fixes this:
+    // both sides now share `normalizeHostname`. A regression that
+    // dropped the strip would surface as `[::1]` here.
+    let captured: { value?: string } | undefined;
+    const engine: NetworkInternalContext["engine"] = {
+      authorize: async (_ctx, needed) => {
+        captured = needed[0] as { value?: string } | undefined;
+        return { decision: "allow", auditId: "x" };
+      },
+      resolvePrompt: async () => {},
+      _resetCacheForTests: () => {},
+    };
+    await handleNetworkInternalRpc(
+      makeReq({ url: "http://[::1]/healthz" }),
+      makeCtx({ engine }),
+      {
+        fetchImpl: (async () =>
+          new Response("ok", { status: 200, statusText: "OK" })) as unknown as typeof fetch,
+      },
+    );
+    expect(captured?.value).toBe("::1");
   });
 
   test("PDP receives correct ctx fields", async () => {
@@ -180,7 +212,8 @@ describe("handleNetworkInternalRpc — PDP gate", () => {
         conversationId: "conv-9",
       }),
       {
-        fetchImpl: async () => new Response("ok", { status: 200, statusText: "OK" }),
+        fetchImpl: (async () =>
+          new Response("ok", { status: 200, statusText: "OK" })) as unknown as typeof fetch,
       },
     );
     expect(capturedCtx?.extensionId).toBe("my-ext");
@@ -197,12 +230,12 @@ describe("handleNetworkInternalRpc — happy path", () => {
       makeReq({ url: "http://localhost:3000/v1/healthz" }),
       makeCtx(),
       {
-        fetchImpl: async () =>
+        fetchImpl: (async () =>
           new Response("hello", {
             status: 200,
             statusText: "OK",
             headers: { "x-trace": "abc", "content-type": "text/plain" },
-          }),
+          })) as unknown as typeof fetch,
       },
     );
     expect(resp.error).toBeUndefined();
@@ -220,12 +253,43 @@ describe("handleNetworkInternalRpc — happy path", () => {
     expect(result.body).toBe("aGVsbG8=");
   });
 
+  test("response headers are lowercased on the wire (N4: Headers#forEach normalization)", async () => {
+    // The handler iterates `resp.headers.forEach((v, k) => …)` to
+    // flatten Headers into a Record. The Fetch spec mandates Headers
+    // to lowercase keys on iteration — this test pins that contract.
+    // A regression that switched to `Object.entries` on the underlying
+    // map (or a non-lowercasing iterator) would surface here.
+    const resp = await handleNetworkInternalRpc(
+      makeReq({ url: "http://localhost/" }),
+      makeCtx(),
+      {
+        fetchImpl: (async () =>
+          new Response("x", {
+            status: 200,
+            statusText: "OK",
+            // Authored with mixed case — Headers spec normalizes on
+            // store, forEach yields lowercase. The wrapper relies on
+            // that for stable downstream lookups.
+            headers: { "X-Custom-Header": "v1", "Content-Type": "application/json" },
+          })) as unknown as typeof fetch,
+      },
+    );
+    const result = resp.result as { headers: Record<string, string> };
+    expect(result.headers["x-custom-header"]).toBe("v1");
+    expect(result.headers["content-type"]).toBe("application/json");
+    // Mixed-case keys MUST NOT be present (would indicate iterator
+    // didn't normalize).
+    expect(result.headers["X-Custom-Header"]).toBeUndefined();
+    expect(result.headers["Content-Type"]).toBeUndefined();
+  });
+
   test("non-200 status echoes through unchanged", async () => {
     const resp = await handleNetworkInternalRpc(
       makeReq({ url: "http://localhost/broken" }),
       makeCtx(),
       {
-        fetchImpl: async () => new Response("nope", { status: 500, statusText: "Internal Server Error" }),
+        fetchImpl: (async () =>
+          new Response("nope", { status: 500, statusText: "Internal Server Error" })) as unknown as typeof fetch,
       },
     );
     const result = resp.result as { status: number; statusText: string };
@@ -238,7 +302,7 @@ describe("handleNetworkInternalRpc — happy path", () => {
     const fetchImpl: typeof fetch = (async (url: string, init?: RequestInit) => {
       captured = { url, init };
       return new Response("", { status: 204, statusText: "No Content" });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     await handleNetworkInternalRpc(
       makeReq({
         url: "http://localhost/api",
@@ -261,7 +325,10 @@ describe("handleNetworkInternalRpc — happy path", () => {
     const resp = await handleNetworkInternalRpc(
       makeReq({ url: "http://localhost/" }),
       makeCtx(),
-      { fetchImpl: async () => new Response("", { status: 200, statusText: "OK" }) },
+      {
+        fetchImpl: (async () =>
+          new Response("", { status: 200, statusText: "OK" })) as unknown as typeof fetch,
+      },
     );
     expect(resp.error).toBeUndefined();
   });
@@ -277,7 +344,7 @@ describe("handleNetworkInternalRpc — error & cap branches", () => {
       {
         fetchImpl: (async () => {
           throw new Error("ECONNREFUSED");
-        }) as typeof fetch,
+        }) as unknown as typeof fetch,
       },
     );
     expect(resp.error?.code).toBe(-32000);
@@ -291,7 +358,8 @@ describe("handleNetworkInternalRpc — error & cap branches", () => {
       makeReq({ url: "http://localhost/big" }),
       makeCtx(),
       {
-        fetchImpl: async () => new Response(big, { status: 200, statusText: "OK" }),
+        fetchImpl: (async () =>
+          new Response(big, { status: 200, statusText: "OK" })) as unknown as typeof fetch,
       },
     );
     expect(resp.error?.code).toBe(-32000);
@@ -304,7 +372,8 @@ describe("handleNetworkInternalRpc — error & cap branches", () => {
       makeReq({ url: "http://localhost/exact" }),
       makeCtx(),
       {
-        fetchImpl: async () => new Response(exact, { status: 200, statusText: "OK" }),
+        fetchImpl: (async () =>
+          new Response(exact, { status: 200, statusText: "OK" })) as unknown as typeof fetch,
       },
     );
     expect(resp.error).toBeUndefined();
