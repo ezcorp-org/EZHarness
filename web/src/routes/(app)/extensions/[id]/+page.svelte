@@ -27,12 +27,19 @@
 				env?: string[];
 			};
 			settings?: SettingsSchema;
+			// Phase 4 deputy / orchestration manifest opt-ins. Both
+			// surface as separate consent checkboxes when the manifest
+			// declares them.
+			acceptsCallerCaps?: boolean;
+			escalateChildCaps?: boolean;
 		};
 		grantedPermissions: {
 			network?: string[];
 			filesystem?: string[];
 			shell?: boolean;
 			env?: string[];
+			acceptsCallerCaps?: boolean;
+			escalateChildCaps?: boolean;
 			grantedAt: Record<string, number>;
 		};
 		createdAt: string;
@@ -50,7 +57,16 @@
 		filesystem: string[];
 		shell: boolean;
 		env: string[];
-	}>({ network: [], filesystem: [], shell: false, env: [] });
+		acceptsCallerCaps: boolean;
+		escalateChildCaps: boolean;
+	}>({
+		network: [],
+		filesystem: [],
+		shell: false,
+		env: [],
+		acceptsCallerCaps: false,
+		escalateChildCaps: false,
+	});
 
 	// Always-allow state for sensitive ops
 	let alwaysAllowShell = $state(false);
@@ -184,6 +200,8 @@
 					filesystem: ext.grantedPermissions.filesystem ?? [],
 					shell: ext.grantedPermissions.shell ?? false,
 					env: ext.grantedPermissions.env ?? [],
+					acceptsCallerCaps: ext.grantedPermissions.acceptsCallerCaps === true,
+					escalateChildCaps: ext.grantedPermissions.escalateChildCaps === true,
 				};
 			}
 		} catch (e) {
@@ -532,6 +550,61 @@
 						{/if}
 					</div>
 				</div>
+
+				<!--
+					Phase 4 deputy / orchestration consent. Each renders only
+					when the manifest actually declares the flag (the runtime
+					gate also requires the user's acceptance, so the
+					checkbox state is the source of truth at install time).
+				-->
+				{#if ext.manifest.acceptsCallerCaps === true}
+					<div class="rounded-md border border-amber-500/40 bg-amber-500/10 p-2">
+						<label class="flex items-start gap-2 text-xs text-[var(--color-text-secondary)]">
+							<input
+								type="checkbox"
+								checked={editPerms.acceptsCallerCaps}
+								onchange={() => (editPerms.acceptsCallerCaps = !editPerms.acceptsCallerCaps)}
+								class="mt-0.5 h-3 w-3"
+							/>
+							<span>
+								<span class="font-medium text-amber-300">Accept caller capabilities (deputy)</span>
+								<span class="ml-2 rounded bg-amber-900/40 px-1 py-0.5 text-xs text-amber-300">Elevated trust</span>
+								<div class="mt-1 text-[var(--color-text-muted)]">
+									This extension's tools run with the
+									intersection of the calling extension's
+									capabilities and its own. Deny if you
+									don't expect this extension to act as a
+									deputy for other extensions via
+									<code>ezcorp/invoke</code>.
+								</div>
+							</span>
+						</label>
+					</div>
+				{/if}
+				{#if ext.manifest.escalateChildCaps === true}
+					<div class="rounded-md border border-amber-500/40 bg-amber-500/10 p-2">
+						<label class="flex items-start gap-2 text-xs text-[var(--color-text-secondary)]">
+							<input
+								type="checkbox"
+								checked={editPerms.escalateChildCaps}
+								onchange={() => (editPerms.escalateChildCaps = !editPerms.escalateChildCaps)}
+								class="mt-0.5 h-3 w-3"
+							/>
+							<span>
+								<span class="font-medium text-amber-300">Escalate child capabilities (orchestrator)</span>
+								<span class="ml-2 rounded bg-amber-900/40 px-1 py-0.5 text-xs text-amber-300">Elevated trust</span>
+								<div class="mt-1 text-[var(--color-text-muted)]">
+									Sub-conversations spawned by this
+									extension are NOT capped by your
+									conversation's capabilities — they run
+									with the spawned extension's own
+									installed grants. Only enable for
+									dedicated orchestration extensions.
+								</div>
+							</span>
+						</label>
+					</div>
+				{/if}
 			</div>
 
 			<button
