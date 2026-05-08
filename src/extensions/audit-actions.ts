@@ -137,6 +137,32 @@ export const EXT_AUDIT_ACTIONS = {
    * `{extensionName, reason, expected, actual}`.
    */
   BUNDLED_MANIFEST_TAMPER: "ext:bundled:manifest-tamper",
+  // ── Phase 7: MCP isolation (forward proxy + Linux netns) ──
+  /**
+   * `mcp-sandbox.ts` successfully started an MCP process inside a
+   * fresh user+net+mount namespace. One row per MCP-extension start.
+   * Metadata: `{extensionName, socketPath, kernel}` — the kernel
+   * field carries `process.platform`+`process.versions.libuv` so a
+   * fleet operator can audit which kernels the netns leg ran on.
+   */
+  MCP_NETNS_CREATED: "ext:mcp:netns-created",
+  /**
+   * The netns probe failed (non-Linux, hardened kernel, or seccomp
+   * profile blocking unshare) so `mcp-sandbox.ts` fell back to the
+   * "HTTPS_PROXY env only" mode. Bypassable by raw-socket libc; the
+   * audit signal lets fleet monitoring identify deployments running
+   * in less-strict mode. Metadata: `{extensionName, reason}` — the
+   * reason string comes verbatim from `probeNetnsAvailability().reason`.
+   */
+  MCP_NETNS_FALLBACK: "ext:mcp:netns-fallback",
+  /**
+   * The per-MCP forward proxy refused a CONNECT request: token
+   * mismatch, hostname not in the manifest's permitted list, byte
+   * quota exhausted, or concurrent-connection cap reached. Metadata:
+   * `{extensionName, hostname, reason}` where reason is one of
+   * `"auth"`, `"host"`, `"quota:bytes"`, `"quota:concurrent"`.
+   */
+  MCP_HOST_BLOCKED: "ext:mcp:host-blocked",
 } as const;
 
 // Re-export the three Phase 1 PDP action codes as named constants for
