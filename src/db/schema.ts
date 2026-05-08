@@ -70,6 +70,23 @@ export const conversations = pgTable("conversations", {
 export const messages = pgTable("messages", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  /**
+   * Free-form role string (no enum). Known values:
+   *  - "user", "assistant", "system" — standard chat turns.
+   *  - "extension" — synthetic placeholder rows for tool-card payloads.
+   *  - "ez-action-result" — JSON-encoded EzActionResult cards.
+   *  - "capability-event" (Phase 52.5) — JSON sentinel inserted by
+   *    `recordCapabilityCall` (write 3). Carries the
+   *    `sdkCapabilityCallId` FK + a redacted summary of the call.
+   *    Stripped from LLM context by `load-history.ts`. Renders inline
+   *    via `CapabilityEventPill`. Visibility is gated client-side via
+   *    `global:showBuiltinCapabilityEvents` /
+   *    `global:showInstalledCapabilityEvents` settings; the row
+   *    itself is ALWAYS inserted so audit replay stays complete.
+   *
+   * No migration is required to add a new value — column is plain
+   * text.
+   */
   role: text("role").notNull(),
   content: text("content").notNull(),
   thinkingContent: text("thinking_content"),

@@ -11,6 +11,7 @@
 	import AgentChip from "./AgentChip.svelte";
 	import MentionChip from "./MentionChip.svelte";
 	import EzActionCard, { type EzActionCardResult } from "./EzActionCard.svelte";
+	import CapabilityEventPill, { parseCapabilityEventContent } from "./CapabilityEventPill.svelte";
 	import ProviderIcon from "./ProviderIcon.svelte";
 	import MessageAttachments from "./MessageAttachments.svelte";
 	import { getSegments } from "$lib/mention-logic.js";
@@ -366,7 +367,22 @@
 	}
 </script>
 
-{#if message.role === "ez-action-result"}
+{#if message.role === "capability-event"}
+	{@const capPayload = parseCapabilityEventContent(message.content)}
+	{#if capPayload}
+		<div class="px-4 py-1" data-message-id={message.id} data-testid="chat-capability-event">
+			<CapabilityEventPill message={{ id: message.id, role: message.role, content: message.content }} />
+		</div>
+	{:else}
+		<!-- Malformed payload — keep the row minimally observable so a
+		     server-side bug doesn't render as a blank turn. The real
+		     audit trail is still in the database; this is just the
+		     pill renderer's fallback. -->
+		<div class="flex justify-center py-2" data-message-id={message.id}>
+			<span class="text-xs italic text-rose-400">Capability event unreadable.</span>
+		</div>
+	{/if}
+{:else if message.role === "ez-action-result"}
 	{@const ezResult = parseEzActionResult(message.content)}
 	{#if ezResult}
 		<div class="px-4 py-2" data-message-id={message.id}>

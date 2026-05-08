@@ -31,6 +31,8 @@
 	import { recordSnapshot, type StreamSnapshot } from "$lib/chat/reconcile-stream.js";
 	import { runReconcileAfterStream } from "$lib/chat/reconcile-after-stream.js";
 	import { filterEmptyAssistantTurns } from "$lib/chat/filter-empty-turns.js";
+	import { shouldShowPill } from "$lib/ez/pill-visibility";
+	import { parseCapabilityEventContent } from "$lib/components/CapabilityEventPill.svelte";
 	import { getHistoricalToolCalls as mapHistoricalToolCalls } from "$lib/chat/historical-tool-calls.js";
 	import {
 		subConvoToAgentCallState,
@@ -282,6 +284,50 @@
 			}
 		} catch {
 			// silent
+		}
+	}
+
+	// Phase 52.5 — pill visibility gating. Server-side row insertion
+	// is unconditional (audit faithfulness); the UI hides what the
+	// user doesn't want to see. Both flags reactive so toggling in
+	// /settings reveals or hides pills without a chat reload.
+	let pillSettings = $state<Record<string, unknown>>({});
+	let extensionsByName = $state<Map<string, { isBundled: boolean }>>(new Map());
+
+	async function loadPillSettings() {
+		try {
+			const [bRes, iRes] = await Promise.all([
+				fetch("/api/settings/global:showBuiltinCapabilityEvents"),
+				fetch("/api/settings/global:showInstalledCapabilityEvents"),
+			]);
+			const next: Record<string, unknown> = {};
+			if (bRes.ok) {
+				const d = await bRes.json();
+				next["global:showBuiltinCapabilityEvents"] = d.value;
+			}
+			if (iRes.ok) {
+				const d = await iRes.json();
+				next["global:showInstalledCapabilityEvents"] = d.value;
+			}
+			pillSettings = next;
+		} catch {
+			// silent — defaults apply
+		}
+	}
+
+	async function loadExtensionBundleMap() {
+		try {
+			const res = await fetch("/api/extensions");
+			if (!res.ok) return;
+			const list = (await res.json()) as Array<{ name?: string; isBundled?: boolean }>;
+			const m = new Map<string, { isBundled: boolean }>();
+			for (const e of list) {
+				if (typeof e.name === "string") m.set(e.name, { isBundled: e.isBundled === true });
+			}
+			extensionsByName = m;
+		} catch {
+			// non-fatal — pills will treat unknown extensions as
+			// non-bundled (default OFF in shouldShowPill).
 		}
 	}
 	let currentConversation = $state<Conversation | null>(null);
@@ -570,14 +616,28 @@
 	// all reactive, so this filter re-evaluates once hydration completes
 	// and the previously-hidden message reappears with its tool/memory
 	// cards.
-	let renderableMessages = $derived(filterEmptyAssistantTurns(messages, {
-		hasHistoricalToolCalls: (id) => getHistoricalToolCalls(id).length > 0,
-		hasHistoricalAgentCalls: (id) => {
-			const agents = getHistoricalAgentCalls(id);
-			return !!agents && agents.length > 0;
-		},
-		isMemoryCardVisible: (id) => memoryCardVisibleMessageIds.has(id),
-	}));
+	let renderableMessages = $derived.by(() => {
+		const filtered = filterEmptyAssistantTurns(messages, {
+			hasHistoricalToolCalls: (id) => getHistoricalToolCalls(id).length > 0,
+			hasHistoricalAgentCalls: (id) => {
+				const agents = getHistoricalAgentCalls(id);
+				return !!agents && agents.length > 0;
+			},
+			isMemoryCardVisible: (id) => memoryCardVisibleMessageIds.has(id),
+		});
+		// Phase 52.5 — apply pill visibility gating client-side.
+		// `capability-event` rows are always inserted by
+		// recordCapabilityCall; the user's settings decide whether
+		// they appear in the chat stream. Audit pages still see all
+		// rows regardless of these toggles.
+		return filtered.filter((m) => {
+			if (m.role !== "capability-event") return true;
+			const payload = parseCapabilityEventContent(m.content);
+			const extensionName = payload?.extensionName ?? null;
+			const ext = extensionName ? extensionsByName.get(extensionName) ?? null : null;
+			return shouldShowPill(m, ext, pillSettings);
+		});
+	});
 
 	let visibleMessages = $derived(computeVisibleMessages(renderableMessages, visibleMessageCount));
 	let hasOlderMessages = $derived(computeHasOlder(renderableMessages.length, visibleMessageCount));
@@ -706,6 +766,8 @@
 		}
 
 		checkObsEnabled();
+		void loadPillSettings();
+		void loadExtensionBundleMap();
 		fetch('/api/tools').then(r => r.ok ? r.json() : null).then(d => { if (d) loadedTools = d.tools; });
 		fetchModes().then(m => { availableModes = m; }).catch(() => {});
 

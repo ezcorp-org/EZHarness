@@ -31,6 +31,7 @@ import {
   type NewSdkCapabilityCall,
 } from "../db/queries/sdk-capability-calls";
 import { insertLessonAuditEntry } from "../db/queries/lessons-audit";
+import { getExtension } from "../db/queries/extensions";
 import { getDb } from "../db/connection";
 import { memoryAuditLog, messages } from "../db/schema";
 import { persistError } from "../db/queries/error-logs";
@@ -186,6 +187,18 @@ export async function recordCapabilityCall(
   // Caller can force-skip with `insertChatPill: false`.
   const shouldPill = spec.insertChatPill !== false && spec.ctx.conversationId !== null;
   if (shouldPill && sdkCapabilityCallId !== "") {
+    // Phase 52.5 — surface the extension name in the pill payload so
+    // the in-chat pill renders "lessons-keeper called gpt-4o-mini"
+    // without a second fetch from the chat page. Resolve via getExtension;
+    // null on lookup failure (audit row still works, pill falls back
+    // to "extension").
+    let extensionName: string | null = null;
+    try {
+      const ext = await getExtension(spec.ctx.actorExtensionId);
+      extensionName = ext?.name ?? null;
+    } catch {
+      // non-fatal — continue with null name.
+    }
     try {
       // Note: `messages` has no `metadata` column today; we encode the
       // pill payload into the `content` field as a JSON blob with a
@@ -208,6 +221,7 @@ export async function recordCapabilityCall(
           costUsd: spec.costUsd,
           model: spec.model,
           provider: spec.provider,
+          extensionName,
         }),
       });
     } catch (err) {
