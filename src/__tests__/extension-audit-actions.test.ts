@@ -42,10 +42,10 @@ describe("extension audit action constants", () => {
       "CAPABILITY_REVOKED",
       "SPAWN_QUOTA_EXCEEDED",
       "EMIT_EVENT_REJECTED",
-      // Phase 2c — server→extension subscription delivery
-      "EVENT_SUBSCRIPTION_DENIED",
       // Phase 4 — ezcorp/cancel-run RPC
       "SPAWN_CANCELLED",
+      // Phase 2c — server→extension subscription delivery
+      "EVENT_SUBSCRIPTION_DENIED",
       // Bundled-grant backfill for eventSubscriptions (auto-heal policy)
       "BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED",
       // Per-extension settings (lazy-foraging-hammock)
@@ -65,6 +65,15 @@ describe("extension audit action constants", () => {
       "SDK_SCHEDULE_REJECTED",
       "SDK_EVENT_SUBSCRIBED",
       "SDK_EVENT_DELIVERY_REJECTED",
+      // Phase 51 — sampled delivery, daemon self-heal, env-key migration
+      "SDK_EVENT_DELIVERED",
+      "SDK_SCHEDULE_DISABLED",
+      "ENV_KEY_LEAK_WARNING",
+      "SDK_LLM_DENIED_AND_DISABLED",
+      "SDK_LESSONS_VISIBILITY_CLAMPED",
+      "SDK_SCHEDULE_FIRE_NOW",
+      "SDK_SCHEDULE_QUOTA_EXCEEDED",
+      "SDK_SCHEDULE_REAPED",
     ]));
   });
 
