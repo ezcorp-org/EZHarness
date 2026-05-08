@@ -53,8 +53,14 @@ import type { ExtensionPermissions } from "./types";
 
 export interface AuthorizeContext {
   extensionId: string;
-  userId: string;
-  conversationId: string;
+  /**
+   * Phase 6: missing user/context becomes JSON `null` in audit rows
+   * instead of the literal string `"unknown"`. The PDP type widens to
+   * `string | null` so callers (`tool-executor.ts`, handlers) can pass
+   * null directly without sentinel translation.
+   */
+  userId: string | null;
+  conversationId: string | null;
   toolName?: string;
   /** Cross-extension call (Phase 4): the original caller's id. */
   callerExtensionId?: string;
@@ -199,8 +205,10 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
 
     // 3. Sensitive-cap gate. If any needed cap is sensitive AND no
     //    always-allow row exists for the (user, scope, scopeId, cap)
-    //    tuple, return `prompt`. Phase 6 wires the UI; Phase 1 callers
-    //    treat `prompt` like `allow` (with a TODO).
+    //    tuple, return `prompt`. Phase 6 wires the UI in
+    //    `tool-executor.ts` — the gate awaits the user's
+    //    `{allowed, scope}` decision and persists the chosen scope via
+    //    `setSensitiveAlwaysAllow`.
     const sensitive = needed.find((c) => SENSITIVE_KINDS.has(c.kind));
     if (sensitive) {
       const allowed = await isAlwaysAllowed(allowCache, ctx, sensitive);
@@ -208,7 +216,7 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
         const promptId = crypto.randomUUID();
         pendingPrompts.set(promptId, {
           extensionId: ctx.extensionId,
-          userId: ctx.userId,
+          userId: ctx.userId ?? "",
           capability: sensitive,
         });
         await writeAuditRow(
@@ -342,9 +350,13 @@ function grantedFromRegistry(
  * accidentally trigger DB queries.
  */
 async function loadConversationOverride(
-  conversationId: string,
+  conversationId: string | null,
   extensionId: string,
 ): Promise<ExtensionPermissions | null> {
+  // Phase 6: null is the canonical "no scope" signal; we still tolerate
+  // legacy `"unknown"` / `"cross-ext"` strings during the migration so
+  // tests that haven't been updated continue to short-circuit. New
+  // callers should pass null.
   if (!conversationId || conversationId === "unknown" || conversationId === "cross-ext") {
     return null;
   }
@@ -363,7 +375,7 @@ async function loadConversationOverride(
  * the audit chain reaches the spawn's root row.
  */
 async function loadSpawnParentAuditId(
-  conversationId: string,
+  conversationId: string | null,
 ): Promise<string | null> {
   if (!conversationId || conversationId === "unknown" || conversationId === "cross-ext") {
     return null;
@@ -387,12 +399,14 @@ function capabilityKeyForSetting(c: Capability): string {
 
 function cacheKeyOf(
   extensionId: string,
-  userId: string,
+  userId: string | null,
   scope: AlwaysAllowScope,
   scopeId: string,
   c: Capability,
 ): string {
-  return `${extensionId}:${userId}:${scope}:${scopeId}:${capabilityKeyForSetting(c)}`;
+  // Phase 6: null userId is encoded as empty in the cache key. Keys are
+  // local to one process; collision-safety is the same as before.
+  return `${extensionId}:${userId ?? ""}:${scope}:${scopeId}:${capabilityKeyForSetting(c)}`;
 }
 
 /**
@@ -407,10 +421,21 @@ async function isAlwaysAllowed(
   ctx: AuthorizeContext,
   cap: Capability,
 ): Promise<boolean> {
-  const candidates: { scope: AlwaysAllowScope; scopeId: string }[] = [
-    { scope: "conversation", scopeId: ctx.conversationId },
-    { scope: "forever", scopeId: "*" },
-  ];
+  // Phase 6: null userId can't have a per-user always-allow row; null
+  // conversationId can't have a conversation-scoped row. Skip those
+  // candidates rather than constructing keys with empty strings.
+  if (!ctx.userId) return false;
+
+  const candidates: { scope: AlwaysAllowScope; scopeId: string }[] = [];
+  if (ctx.conversationId) {
+    candidates.push({ scope: "conversation", scopeId: ctx.conversationId });
+    // Phase 6: also check session scope (cleared on restart) and
+    // project scope (deferred — uses conversationId today; the cache
+    // accommodates a future project lookup).
+    candidates.push({ scope: "session", scopeId: `session:${ctx.userId}` });
+    candidates.push({ scope: "project", scopeId: ctx.conversationId });
+  }
+  candidates.push({ scope: "forever", scopeId: "*" });
 
   for (const c of candidates) {
     const key = cacheKeyOf(ctx.extensionId, ctx.userId, c.scope, c.scopeId, cap);
@@ -457,6 +482,19 @@ async function writeAuditRow(
   reason?: string,
   extra?: Record<string, unknown>,
 ): Promise<void> {
+  // Phase 6 — null userId/conversationId serialize as JSON null in the
+  // metadata row, NOT the literal string "unknown". Empty strings are
+  // also treated as null (legacy callers that haven't migrated to the
+  // null contract). The audit_log column accepts null on both fields,
+  // so analytics consumers see clean nulls rather than sentinel
+  // strings.
+  const conversationId =
+    ctx.conversationId &&
+    ctx.conversationId !== "unknown" &&
+    ctx.conversationId !== "cross-ext"
+      ? ctx.conversationId
+      : null;
+
   const metadata: Record<string, unknown> = {
     auditId,
     toolName: ctx.toolName ? sanitize(ctx.toolName) : undefined,
@@ -465,18 +503,19 @@ async function writeAuditRow(
     reason: reason !== undefined ? sanitize(reason) : undefined,
     parentAuditId: ctx.parentAuditId,
     callerExtensionId: ctx.callerExtensionId,
-    conversationId: ctx.conversationId,
+    conversationId,
     ...extra,
   };
 
-  // Drop undefined keys for a cleaner audit row.
+  // Drop undefined keys for a cleaner audit row. `null` stays — it's
+  // the canonical "no scope" signal for analytics.
   for (const k of Object.keys(metadata)) {
     if (metadata[k] === undefined) delete metadata[k];
   }
 
   try {
     await insertAuditEntry(
-      ctx.userId === "unknown" ? null : ctx.userId,
+      ctx.userId && ctx.userId !== "unknown" ? ctx.userId : null,
       action,
       ctx.extensionId,
       metadata,
