@@ -1,23 +1,86 @@
-import { test, expect, beforeEach, afterAll, describe } from "bun:test";
+import { test, expect, beforeAll, beforeEach, afterAll, describe, spyOn } from "bun:test";
 import { join } from "path";
-import { mkdirSync, rmSync } from "fs";
+import { mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from "fs";
 import {
   loadStore, saveStore, genId, ensureStack, getStackTasks, reindex,
   setStorePath, handleRequest, resolveProjectRoot,
 } from "./index";
 import type { JsonRpcRequest } from "@ezcorp/sdk";
+import { getChannel, JsonRpcError } from "@ezcorp/sdk/runtime";
 
 const TMP_DIR = join("/tmp", `task-stack-test-${Date.now()}`);
 const TMP_PATH = join(TMP_DIR, "task-stack.json");
+
+// ── Phase post-perm-cleanup: in-test fs RPC stub ──────────────────
+//
+// The extension now routes IO through the host's `ezcorp/fs.*`
+// reverse-RPC (host-mediated, sandbox-friendly). Bun unit tests run
+// in-process and have no host attached, so we stub `getChannel().request`
+// for the three methods this extension uses (`read`, `write`, `mkdir`)
+// and route them to real disk IO under `TMP_DIR`. Missing-file ENOENT
+// surfaces as a `JsonRpcError(-32000, "ENOENT: ...")` to match the
+// production host's wire shape — that's what `loadStore` matches on
+// to fall back to the default store. Other unexpected RPC methods
+// throw so test bugs are loud.
+//
+// `EZCORP_FS_ALLOWED=1` satisfies the SDK's pre-flight gate
+// (`ensureFsAllowed`) without granting any real permission — the stub
+// IS the host.
+//
+// Re-installed in beforeEach because the global `src/__tests__/preload.ts`
+// runs `__resetChannelForTests()` after every test (drops the singleton
+// to prevent cross-test leakage). That's the correct hygiene; we just
+// have to re-stub on the fresh channel.
+
+const ORIG_FS_ALLOWED = process.env.EZCORP_FS_ALLOWED;
+
+function installFsStub(): void {
+  const ch = getChannel();
+  spyOn(ch, "request").mockImplementation((async (
+    method: string,
+    params: unknown,
+  ): Promise<unknown> => {
+    const p = (params ?? {}) as Record<string, unknown>;
+    const path = p.path as string;
+    if (method === "ezcorp/fs.read") {
+      if (!existsSync(path)) {
+        // Match the host's error shape (see fs-handler.ts gatePath
+        // ENOENT branch + ioErrorMsg). loadStore matches on this.
+        throw new JsonRpcError(-32000, `ENOENT: no such file or directory: ${path}`);
+      }
+      const text = readFileSync(path, "utf-8");
+      const body = btoa(text);
+      return { encoding: "utf-8", body, bytes: text.length, resolvedPath: path };
+    }
+    if (method === "ezcorp/fs.write") {
+      const content = p.content as string;
+      writeFileSync(path, content);
+      return { bytes: content.length, resolvedPath: path };
+    }
+    if (method === "ezcorp/fs.mkdir") {
+      mkdirSync(path, { recursive: p.recursive === true });
+      return { resolvedPath: path };
+    }
+    throw new Error(`task-stack test stub: unexpected RPC method ${method}`);
+  }) as ReturnType<typeof getChannel>["request"]);
+}
+
+beforeAll(() => {
+  process.env.EZCORP_FS_ALLOWED = "1";
+});
+
+afterAll(() => {
+  if (ORIG_FS_ALLOWED === undefined) delete process.env.EZCORP_FS_ALLOWED;
+  else process.env.EZCORP_FS_ALLOWED = ORIG_FS_ALLOWED;
+  try { rmSync(TMP_DIR, { recursive: true }); } catch {}
+});
 
 beforeEach(() => {
   // Reset store for each test
   try { rmSync(TMP_PATH); } catch {}
   setStorePath(TMP_DIR, TMP_PATH);
-});
-
-afterAll(() => {
-  try { rmSync(TMP_DIR, { recursive: true }); } catch {}
+  // Re-install stub — preload's afterEach drops the channel singleton.
+  installFsStub();
 });
 
 function call(name: string, args: Record<string, unknown> = {}): Promise<any> {

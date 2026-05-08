@@ -1,11 +1,16 @@
 #!/usr/bin/env bun
 // task-stack - Stack-based task management with subtasks, dependencies, and artifacts.
 // Migrated onto @ezcorp/sdk/runtime (fs / lock / rpc wrappers) in Phase 2.3.
+// Migrated to host-mediated fsRead/fsWrite/fsMkdir in Phase post-perm-cleanup
+// — see tasks/post-perm-cleanup.md Phase A. Raw `node:fs` / `Bun.file` are
+// poisoned by the sandbox-preload (Phase 3), so this extension now flows
+// every IO through the `ezcorp/fs.*` reverse-RPC.
 
 import type { JsonRpcRequest, JsonRpcResponse, ToolCallResult } from "@ezcorp/sdk";
 import {
-  atomicRead,
-  saveJSON,
+  fsRead,
+  fsWrite,
+  fsMkdir,
   createMutex,
   createToolDispatcher,
   getChannel,
@@ -15,7 +20,6 @@ import {
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
 import { join, dirname } from "path";
-import { existsSync } from "fs";
 
 // --- Types ---
 
@@ -46,14 +50,43 @@ interface Store {
 // --- Project root detection ---
 //
 // Test-facing helper preserving the original silent-fallback semantics
-// (the SDK's equivalent throws when no `.git` ancestor is found; this
-// wrapper swallows that and returns `from`, which several tests rely on).
+// (the SDK's `findProjectRoot` throws when no `.git` ancestor is found;
+// this wrapper swallows that and returns `from`, which several tests rely on).
+//
+// Resolution order:
+//   1. `EZCORP_PROJECT_ROOT` env var, set by the host at spawn time
+//      (`buildAllowedEnv` in `src/extensions/registry.ts`). This is the
+//      production path — under the Phase 3 sandbox-preload, `node:fs` is
+//      poisoned at module-load, so the extension can't walk for `.git`
+//      itself. The host does the walk once and injects the answer.
+//   2. Lazy `require("node:fs")` `.git` walk for unit tests + ad-hoc CLI
+//      runs where no sandbox is active. Mirrors `loadFsSync()` in
+//      `packages/@ezcorp/sdk/src/runtime/fs.ts` — keeping the require
+//      lazy means the import doesn't trip the poison even when the SDK
+//      module loads inside a sandboxed subprocess.
 
 /** Walk up from `from` to locate a `.git` directory. Falls back to `from` when none is found. */
 export function resolveProjectRoot(from: string = process.cwd()): string {
+  // (1) Host-injected — production fast path.
+  const fromEnv = process.env.EZCORP_PROJECT_ROOT;
+  if (fromEnv && fromEnv.length > 0) return fromEnv;
+
+  // (2) Lazy fs walk — only reached in test / CLI contexts where the
+  // sandbox-preload poison isn't active. A static `import {existsSync}
+  // from "fs"` would fire at module-load time, even for code paths that
+  // never need the walk — so we require it on demand.
+  let fs: typeof import("node:fs");
+  try {
+    fs = require("node:fs") as typeof import("node:fs");
+  } catch {
+    // fs unavailable (subprocess sandbox) and no env hint — return
+    // `from` so callers don't crash; STORE_PATH-dependent code paths
+    // will surface their own error when they actually need IO.
+    return from;
+  }
   let dir = from;
   while (true) {
-    if (existsSync(join(dir, ".git"))) return dir;
+    if (fs.existsSync(join(dir, ".git"))) return dir;
     const parent = dirname(dir);
     if (parent === dir) return from; // reached filesystem root
     dir = parent;
@@ -84,15 +117,38 @@ function defaultStore(): Store {
 }
 
 export async function loadStore(): Promise<Store> {
-  // `atomicRead` returns null on ENOENT, rethrows every other fs error.
-  // We layer JSON.parse on top so a *corrupt* store throws (distinct from
-  // a missing store, which yields defaults) — preserving the invariant
-  // exercised by the "corrupt store does not overwrite with defaults"
-  // test. The SDK's `loadJSON` helper intentionally swallows parse
-  // errors and would break that invariant, so it's not used here.
+  // Phase post-perm-cleanup: routed through `fsRead` (host-mediated). The
+  // host returns a JsonRpcError with code -32000 + an `ENOENT:` message
+  // prefix when the file doesn't exist; we map that to defaults to
+  // preserve the missing-store-defaults invariant. JSON.parse errors are
+  // wrapped as "Failed to load store" so the corrupt-store-throws
+  // invariant ("corrupt store does not overwrite with defaults" test)
+  // still holds.
+  let text: string;
   try {
-    const text = await atomicRead(STORE_PATH);
-    if (text === null) return defaultStore();
+    const result = await fsRead(STORE_PATH);
+    // `fsRead` returns `string | Uint8Array`; encoding default is utf-8
+    // so the host returns a string. Narrow defensively.
+    text = typeof result === "string" ? result : new TextDecoder().decode(result);
+  } catch (err) {
+    // Host-side ENOENT surfaces as JsonRpcError. We treat ANY error
+    // whose message starts with "ENOENT" as "missing → defaults".
+    // JsonRpcError carries the host's message verbatim; plain Error
+    // wrappers from atob/network etc. would have a different prefix.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      err instanceof JsonRpcError &&
+      err.code === -32000 &&
+      msg.startsWith("ENOENT")
+    ) {
+      return defaultStore();
+    }
+    // Non-ENOENT errors (permission denied, host crash, etc.) are
+    // genuine load failures — surface them rather than masking with
+    // defaults.
+    throw new Error(`Failed to load store: ${msg}`);
+  }
+  try {
     return JSON.parse(text) as Store;
   } catch (err) {
     throw new Error(`Failed to load store: ${err instanceof Error ? err.message : String(err)}`);
@@ -100,9 +156,12 @@ export async function loadStore(): Promise<Store> {
 }
 
 export async function saveStore(store: Store): Promise<void> {
-  // `saveJSON` delegates to the SDK's atomic write helper (tmp + rename)
-  // and creates the parent directory on demand.
-  await saveJSON(STORE_PATH, store);
+  // Phase post-perm-cleanup: `fsWrite` does NOT auto-create parent
+  // directories the way the SDK's host-side `saveJSON` did, so we
+  // explicitly mkdir before writing. `recursive: true` is idempotent on
+  // existing paths.
+  await fsMkdir(dirname(STORE_PATH), { recursive: true });
+  await fsWrite(STORE_PATH, JSON.stringify(store, null, 2));
 }
 
 export function genId(): string { return crypto.randomUUID(); }

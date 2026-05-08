@@ -10,6 +10,7 @@ import { eq } from "drizzle-orm";
 import { tmpdir } from "node:os";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { findProjectRoot } from "@ezcorp/sdk/runtime";
 import { McpClient } from "../mcp/client";
 import { buildSandboxedMcpSpec } from "./mcp-sandbox";
 import type { McpProxyHandle } from "./mcp-proxy";
@@ -91,6 +92,23 @@ export function buildAllowedEnv(
   // the granted-network test for symmetry.
   if (grantedPerms.filesystem && grantedPerms.filesystem.length > 0) {
     allowedEnv.EZCORP_FS_ALLOWED = "1";
+  }
+
+  // Phase post-perm-cleanup: EZCORP_PROJECT_ROOT — the project root
+  // the host resolved at spawn time. Bundled extensions like
+  // `task-stack` need to compute their `.ezcorp/extension-data/<name>/`
+  // store path at module-load, but they run inside the Phase 3 sandbox
+  // where `node:fs` is poisoned — they cannot do their own `.git` walk.
+  // The host walks once and injects the answer. `findProjectRoot()`
+  // throws if no `.git` ancestor is found; we swallow that so test
+  // harnesses running outside a git tree don't crash on every spawn.
+  // Subprocesses missing this var fall back to a lazy
+  // `require("node:fs")` walk (only relevant outside the sandbox).
+  try {
+    allowedEnv.EZCORP_PROJECT_ROOT = findProjectRoot();
+  } catch {
+    /* no .git ancestor — leave EZCORP_PROJECT_ROOT unset so the
+       extension's fallback path (or test harness) handles it. */
   }
 
   // Phase 2: EZCORP_TOOL_NETWORK_CAPS — JSON-serialized
