@@ -23,6 +23,7 @@ import { persistToolCall } from "../db/queries/tool-calls";
 import { resolveExtensionSettings } from "../db/queries/extension-settings";
 import type { PermissionEngine } from "./permission-engine";
 import { capabilityDeclarationToSet, type CapabilitySet } from "./capability-types";
+import { handleNetworkInternalRpc, type NetworkInternalContext } from "./network-handler";
 
 export const MAX_TOOL_CALLS_PER_TURN = 10;
 
@@ -708,6 +709,45 @@ export class ToolExecutor {
   }
 
   /**
+   * Handle a `ezcorp/network.internal` reverse RPC request (Phase 2).
+   *
+   * The in-sandbox fetch wrapper (sandbox-preload.ts) forwards every
+   * fetch to a localhost / RFC-1918 / link-local hostname here so the
+   * host PDP can SSRF-gate per-host. Manifests must declare the
+   * specific internal host (e.g. `localhost`) — the engine's existing
+   * `network` capability check enforces that.
+   *
+   * The handler performs the fetch host-side and returns a JSON-shaped
+   * Response (status, headers, base64 body) capped at 10MB. See
+   * network-handler.ts for the full contract.
+   */
+  async handlePiNetworkInternal(
+    extensionId: string,
+    req: JsonRpcRequest,
+  ): Promise<JsonRpcResponse> {
+    const granted = this.registry.getGrantedPermissions(extensionId);
+    if (!granted) {
+      return {
+        jsonrpc: "2.0",
+        id: req.id,
+        error: { code: -32603, message: "Extension not found in registry" },
+      };
+    }
+    const ctx: NetworkInternalContext = {
+      extensionId,
+      conversationId: this.currentConversationId ?? "unknown",
+      userId: this.currentUserId ?? "unknown",
+      // Reuse the Phase 1 PDP singleton — wired at runtime boot. The
+      // ToolExecutor's own `this.engine` field already holds the same
+      // reference, but referring to the singleton keeps the handler
+      // independently testable.
+      engine: this.engine,
+      registry: this.registry,
+    };
+    return handleNetworkInternalRpc(req, ctx);
+  }
+
+  /**
    * Install the reverse-RPC request handler + state-mediator
    * notification handler on this extension's subprocess. Idempotent:
    * `wiredExtensions` is consulted first.
@@ -765,6 +805,9 @@ export class ToolExecutor {
       }
       if (req.method === "ezcorp/finalize-tool-call") {
         return this.handlePiFinalizeToolCall(extensionId, req);
+      }
+      if (req.method === "ezcorp/network.internal") {
+        return this.handlePiNetworkInternal(extensionId, req);
       }
       if (req.method === "ezcorp/storage") {
         return this.handlePiStorage(extensionId, req);
