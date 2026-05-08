@@ -1,6 +1,6 @@
 import { ExtensionProcess, type ExtensionProcessOptions, parseMemoryLimit } from "./subprocess";
 import type { ToolDefinition, ExtensionManifestV2, ExtensionPermissions } from "./types";
-import { satisfiesRange } from "./manifest";
+import { migrateManifestV2ToV3, satisfiesRange } from "./manifest";
 import { verifyPackageChecksums } from "./checksum";
 import { denyAndDisable } from "./security";
 import { listExtensions, updateExtension } from "../db/queries/extensions";
@@ -74,6 +74,34 @@ export function buildAllowedEnv(
   // AND the user granted at least one hostname at install time.
   if (grantedPerms.network && grantedPerms.network.length > 0) {
     allowedEnv.EZCORP_PERMITTED_HOSTS = grantedPerms.network.join(",");
+  }
+
+  // Phase 2: EZCORP_TOOL_NETWORK_CAPS — JSON-serialized
+  // `{toolName: string[]}` mapping, parsed by the in-sandbox fetch
+  // wrapper to enforce per-tool host allowlists narrower than the
+  // extension-wide ceiling. The active tool name is read via the SDK's
+  // `getToolContext()` (ALS).
+  //
+  // The wrapper uses this to intersect the request hostname against
+  // BOTH the extension-wide grant (PERMITTED_HOSTS) AND the per-tool
+  // declaration. A tool with no entry inherits the extension-wide
+  // ceiling without further narrowing.
+  //
+  // We run `migrateManifestV2ToV3` inline so v2 manifests (no per-tool
+  // capabilities authored) get the same shape — the registry path
+  // already migrates manifests, but `buildAllowedEnv` is also called
+  // from `mcp-sandbox.ts` and `test-helpers.ts`, where the input may
+  // not have been migrated yet.
+  const migrated = migrateManifestV2ToV3(manifest);
+  const toolCaps: Record<string, string[]> = {};
+  for (const tool of migrated.tools ?? []) {
+    const hosts = tool.capabilities?.network?.hosts;
+    if (hosts && hosts.length > 0) {
+      toolCaps[tool.name] = hosts.map((h) => h.toLowerCase());
+    }
+  }
+  if (Object.keys(toolCaps).length > 0) {
+    allowedEnv.EZCORP_TOOL_NETWORK_CAPS = JSON.stringify(toolCaps);
   }
 
   return allowedEnv;

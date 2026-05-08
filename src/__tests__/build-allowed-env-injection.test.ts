@@ -214,6 +214,154 @@ function deriveCallTimeoutMs(
     : undefined;
 }
 
+// ── Phase 2: EZCORP_TOOL_NETWORK_CAPS env var (per-tool allowlist) ──
+//
+// `buildAllowedEnv` emits a JSON-serialized `{toolName: string[]}` map
+// that the in-sandbox fetch wrapper consumes. v3 manifests with
+// authored `tool.capabilities.network.hosts` flow through verbatim; v2
+// manifests get migrated inline so each tool inherits the
+// extension-wide grant.
+
+describe("buildAllowedEnv — EZCORP_TOOL_NETWORK_CAPS (Phase 2)", () => {
+  test("v3 manifest with per-tool capabilities → serialized per-tool map", () => {
+    const m: ExtensionManifestV2 = {
+      schemaVersion: 3,
+      name: "phase2-v3",
+      version: "1.0.0",
+      description: "v3 with authored caps",
+      author: { name: "test" },
+      entrypoint: "./index.ts",
+      permissions: { network: ["api.foo.com", "api.bar.com"] },
+      tools: [
+        {
+          name: "foo_only",
+          description: "",
+          inputSchema: {},
+          capabilities: { network: { hosts: ["api.foo.com"] } },
+        },
+        {
+          name: "both",
+          description: "",
+          inputSchema: {},
+          capabilities: { network: { hosts: ["api.foo.com", "api.bar.com"] } },
+        },
+        {
+          name: "no_caps_declared",
+          description: "",
+          inputSchema: {},
+          // No capabilities → inherits extension-wide via v2→v3 migrator
+          // when run through migrateManifestV2ToV3.
+        },
+      ],
+    } as ExtensionManifestV2;
+
+    const out = buildAllowedEnv(
+      m,
+      { network: ["api.foo.com", "api.bar.com"], grantedAt: { network: 1 } },
+      "ext-1",
+    );
+    expect(out.EZCORP_PERMITTED_HOSTS).toBe("api.foo.com,api.bar.com");
+    const map = JSON.parse(out.EZCORP_TOOL_NETWORK_CAPS ?? "{}");
+    expect(map.foo_only).toEqual(["api.foo.com"]);
+    expect(map.both).toEqual(["api.foo.com", "api.bar.com"]);
+    // v3 manifest passes through unchanged — `no_caps_declared` had no
+    // capabilities authored, so it stays absent from the map (the
+    // extension-wide ceiling alone applies, no per-tool narrowing).
+    expect(map.no_caps_declared).toBeUndefined();
+  });
+
+  test("v2 manifest is auto-migrated → every tool inherits extension-wide hosts", () => {
+    const m: ExtensionManifestV2 = {
+      schemaVersion: 2,
+      name: "phase2-v2",
+      version: "1.0.0",
+      description: "v2, no per-tool caps",
+      author: { name: "test" },
+      entrypoint: "./index.ts",
+      permissions: { network: ["api.foo.com"] },
+      tools: [
+        { name: "search", description: "", inputSchema: {} },
+        { name: "fetch_one", description: "", inputSchema: {} },
+      ],
+    } as ExtensionManifestV2;
+
+    const out = buildAllowedEnv(
+      m,
+      { network: ["api.foo.com"], grantedAt: { network: 1 } },
+      "ext-1",
+    );
+    const map = JSON.parse(out.EZCORP_TOOL_NETWORK_CAPS ?? "{}");
+    // v2→v3 migration distributes the extension-wide grant to every
+    // tool that lacks an authored cap declaration.
+    expect(map.search).toEqual(["api.foo.com"]);
+    expect(map.fetch_one).toEqual(["api.foo.com"]);
+  });
+
+  test("manifest with no network permission → env var omitted", () => {
+    const m: ExtensionManifestV2 = {
+      schemaVersion: 2,
+      name: "no-net",
+      version: "1.0.0",
+      description: "",
+      author: { name: "test" },
+      entrypoint: "./index.ts",
+      permissions: {},
+      tools: [{ name: "t1", description: "", inputSchema: {} }],
+    } as ExtensionManifestV2;
+
+    const out = buildAllowedEnv(m, { grantedAt: {} }, "ext-1");
+    expect(out.EZCORP_PERMITTED_HOSTS).toBeUndefined();
+    expect(out.EZCORP_TOOL_NETWORK_CAPS).toBeUndefined();
+  });
+
+  test("manifest with no tools → env var omitted", () => {
+    const m: ExtensionManifestV2 = {
+      schemaVersion: 2,
+      name: "tool-less",
+      version: "1.0.0",
+      description: "",
+      author: { name: "test" },
+      entrypoint: "./index.ts",
+      permissions: { network: ["api.foo.com"] },
+    } as ExtensionManifestV2;
+
+    const out = buildAllowedEnv(
+      m,
+      { network: ["api.foo.com"], grantedAt: { network: 1 } },
+      "ext-1",
+    );
+    expect(out.EZCORP_PERMITTED_HOSTS).toBe("api.foo.com");
+    expect(out.EZCORP_TOOL_NETWORK_CAPS).toBeUndefined();
+  });
+
+  test("hostnames in the per-tool map are lowercased (defense against authored CASE drift)", () => {
+    const m: ExtensionManifestV2 = {
+      schemaVersion: 3,
+      name: "case-test",
+      version: "1.0.0",
+      description: "",
+      author: { name: "test" },
+      entrypoint: "./index.ts",
+      permissions: { network: ["api.foo.com"] },
+      tools: [
+        {
+          name: "t1",
+          description: "",
+          inputSchema: {},
+          capabilities: { network: { hosts: ["API.FOO.com"] } },
+        },
+      ],
+    } as ExtensionManifestV2;
+    const out = buildAllowedEnv(
+      m,
+      { network: ["api.foo.com"], grantedAt: { network: 1 } },
+      "ext-1",
+    );
+    const map = JSON.parse(out.EZCORP_TOOL_NETWORK_CAPS ?? "{}");
+    expect(map.t1).toEqual(["api.foo.com"]);
+  });
+});
+
 describe("registry getProcess — manifest.resources.callTimeoutMs pass-through", () => {
   test("positive number is forwarded as-is", () => {
     const m = makeManifest({ resources: { callTimeoutMs: 180_000 } } as any);
