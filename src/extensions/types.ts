@@ -303,8 +303,14 @@ export interface ExtensionManifestV2 {
      *  `DIRECT_CARRIER_EVENT_TYPES`). Delivery is ALWAYS gated on
      *  conversation-scope: an extension only receives events for
      *  conversations it's wired to via `conversation_extensions`. Unknown
-     *  event names are silently filtered at clamp time. */
-    eventSubscriptions?: string[];
+     *  event names are silently filtered at clamp time.
+     *
+     *  Phase 51.4 added the object form
+     *  `{events: string[], includeFullPayload?: boolean}`. When
+     *  `includeFullPayload: true`, the dispatcher does NOT strip the
+     *  heavy `input`/`output` blobs from `tool:start` /
+     *  `tool:complete` payloads. Default false. */
+    eventSubscriptions?: string[] | { events: string[]; includeFullPayload?: boolean };
     /** Author turns directly via the `ezcorp/append-message` reverse RPC.
      *  Conversation scope is forced by the host (the extension cannot
      *  target another conversation). The host always forces the new

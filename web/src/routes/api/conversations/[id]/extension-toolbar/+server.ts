@@ -65,7 +65,13 @@ async function verifyConversationOwnership(id: string, user: AuthUser) {
 function clampToolbarForManifest(manifest: ExtensionManifestV2): ToolbarItemResponse[] {
   const items = manifest.messageToolbar;
   if (!Array.isArray(items) || items.length === 0) return [];
-  const allowed = new Set(manifest.permissions?.eventSubscriptions ?? []);
+  // Phase 51.4: `eventSubscriptions` may be the legacy string[] OR the
+  // new object form `{events, includeFullPayload}`. Normalize.
+  const rawEvSubs = manifest.permissions?.eventSubscriptions;
+  const evList = Array.isArray(rawEvSubs)
+    ? rawEvSubs
+    : (rawEvSubs?.events ?? []);
+  const allowed = new Set(evList);
   const out: ToolbarItemResponse[] = [];
   for (const it of items as MessageToolbarItem[]) {
     if (!allowed.has(it.event)) continue;

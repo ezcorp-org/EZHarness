@@ -84,7 +84,7 @@ export type {
   TrackedTask,
 } from "./task-events";
 
-export { registerEventHandler } from "./events";
+export { registerEventHandler, Events } from "./events";
 export type { SubscribableEvent, SubscribableEventMap } from "./events";
 
 // ── Phase A1 canvas wrapper ─────────────────────────────────────
