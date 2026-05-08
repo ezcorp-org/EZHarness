@@ -6,6 +6,7 @@
   "private": true,
   "workspaces": ["packages/@ezcorp/*"],
   "scripts": {
+    "postinstall": "bun run --cwd packages/@ezcorp/sdk build",
     "start": "bun run index.ts",
     "dev": "cd web && bun run dev",
     "build": "cd web && bun run build",
