@@ -294,6 +294,46 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
       },
     },
   },
+  {
+    // Phase 53 Stage 1 — bundled port of the legacy lessons distiller
+    // (src/runtime/lessons/distiller.ts). Lives at the milestone-spec'd
+    // path `extensions/<name>/` rather than the docs/examples or
+    // packages/@ezcorp paths used by older bundled extensions. The
+    // `getProjectRoot()`-relative join handles any in-repo path.
+    //
+    // Shipped alongside the legacy implementation; Stage 2 (a separate
+    // commit gated on UAT signoff) deletes the legacy code. The parity
+    // test at `src/__tests__/distiller-port-parity.test.ts` proves both
+    // pipelines produce identical outcomes during Stage 1.
+    name: "lessons-distiller",
+    path: "extensions/lessons-distiller",
+    permissions: {
+      llm: {
+        providers: ["google", "openai", "anthropic"],
+        maxCallsPerHour: 30,
+        maxCallsPerDay: 200,
+        maxTokensPerCall: 1024,
+        allowedModels: {
+          google: ["gemini-2.0-flash-lite"],
+          openai: ["gpt-4o-mini"],
+          anthropic: ["claude-haiku-4-5-20250514"],
+        },
+      },
+      lessons: {
+        access: "write",
+        maxWritesPerDay: 50,
+        maxVisibility: "user",
+      },
+      eventSubscriptions: ["run:complete"],
+      storage: true,
+      grantedAt: {
+        llm: Date.now(),
+        lessons: Date.now(),
+        eventSubscriptions: Date.now(),
+        storage: Date.now(),
+      },
+    },
+  },
 ];
 
 /** Opt-OUT switches: each maps a bundled-extension name to the env var that
@@ -500,6 +540,21 @@ export async function ensureBundledExtensions(): Promise<void> {
     }
   } catch (migrationErr) {
     log.warn("task-tracking storage migration threw during ensureBundledExtensions", {
+      error: String(migrationErr),
+    });
+  }
+
+  // Phase 53 Stage 1: migrate `global:lessonDistillerEnabled` into the
+  // bundled lessons-distiller extension's per-extension `enabled`
+  // setting. Idempotent via a `migrated_at` sentinel; safe on every boot.
+  try {
+    const lessonsDistillerRow = await getExtensionByName("lessons-distiller");
+    if (lessonsDistillerRow) {
+      const { migrateDistillerEnabledSetting } = await import("./migrations/distiller-enabled");
+      await migrateDistillerEnabledSetting(lessonsDistillerRow.id);
+    }
+  } catch (migrationErr) {
+    log.warn("lessons-distiller settings migration threw during ensureBundledExtensions", {
       error: String(migrationErr),
     });
   }

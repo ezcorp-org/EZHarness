@@ -21,6 +21,10 @@ import { handlePiLlmComplete } from "./llm-handler";
 import { handlePiMemory } from "./memory-handler";
 import { handlePiLessons } from "./lessons-handler";
 import { handlePiSchedule } from "./schedule-handler";
+import {
+  handleRuntimeInvoke,
+  isRuntimeInvokeMethod,
+} from "./runtime-invoke-handler";
 import type { ScheduleDaemon } from "./schedule-daemon";
 import type { SpawnQuota } from "./spawn-quota";
 import { getConversation, getConversationSpawnDepth } from "../db/queries/conversations";
@@ -426,6 +430,31 @@ export class ToolExecutor {
         id: req.id,
         error: { code: -32000, message: `Cross-extension call depth limit exceeded (max ${MAX_CALL_DEPTH})` },
       };
+    }
+
+    // Phase 53 — `runtime.<area>.<verb>` invoke methods route through
+    // the host-runtime dispatcher BEFORE the dep-tool table lookup.
+    // These are read-only host helpers (conversation messages, lessons
+    // trigger-gate, per-extension settings) that the lessons-distiller
+    // bundled extension needs without the LLM-facing tool surface.
+    // Cross-extension namespaced tools (`pkg__tool`) are unaffected.
+    if (isRuntimeInvokeMethod(tool)) {
+      const granted = this.registry.getGrantedPermissions(callerExtId);
+      if (!granted) {
+        return {
+          jsonrpc: "2.0",
+          id: req.id,
+          error: { code: -32603, message: "Caller extension not found in registry" },
+        };
+      }
+      const manifest = this.registry.getManifest(callerExtId);
+      const ctx = {
+        extensionId: callerExtId,
+        userId: this.currentUserId ?? null,
+        granted,
+        ...(manifest?.settings ? { settingsSchema: manifest.settings } : {}),
+      };
+      return handleRuntimeInvoke(tool, args, ctx, req);
     }
 
     const resolved = this.registry.resolveDepTool(callerExtId, tool);

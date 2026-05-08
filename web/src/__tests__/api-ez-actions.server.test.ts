@@ -16,6 +16,13 @@
  * Mocks: `getEzAction` (registry), `getConversation` + `createMessage`
  * (DB), and `requireScope` (security middleware) so the test runs
  * pure-handler without a DB or registered action set.
+ *
+ * Note: these tests use the synthetic action name `test-action` so the
+ * generic registry-handler path is exercised. The `distill` action is
+ * special-cased by the route as of Phase 53 (forwards to the bundled
+ * `lessons-distiller` extension's `distill_now` tool); behaviour of the
+ * forwarder is covered by the distiller-port-parity test and the
+ * extension's own unit tests, not here.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
 
@@ -78,7 +85,7 @@ describe("POST /api/ez-actions/[name]", () => {
     try {
       const result = await POST(
         makeEvent({
-          name: "distill",
+          name: "test-action",
           body: { conversationId: "c1" },
           locals: {}, // no user
         }),
@@ -108,13 +115,13 @@ describe("POST /api/ez-actions/[name]", () => {
 
   test("400 missing conversationId in body", async () => {
     mockGetEzAction.mockReturnValue({
-      name: "distill",
+      name: "test-action",
       description: "x",
       handler: vi.fn(),
     });
     const res = await POST(
       makeEvent({
-        name: "distill",
+        name: "test-action",
         body: {}, // missing conversationId
       }),
     );
@@ -125,19 +132,19 @@ describe("POST /api/ez-actions/[name]", () => {
 
   test("400 when body is not JSON", async () => {
     mockGetEzAction.mockReturnValue({
-      name: "distill",
+      name: "test-action",
       description: "x",
       handler: vi.fn(),
     });
     const event = {
-      params: { name: "distill" },
-      request: new Request("http://localhost/api/ez-actions/distill", {
+      params: { name: "test-action" },
+      request: new Request("http://localhost/api/ez-actions/test-action", {
         method: "POST",
         body: "not json",
         headers: { "Content-Type": "application/json" },
       }),
       locals: { user: USER },
-      url: new URL("http://localhost/api/ez-actions/distill"),
+      url: new URL("http://localhost/api/ez-actions/test-action"),
     } as any;
     const res = await POST(event);
     expect(res.status).toBe(400);
@@ -145,7 +152,7 @@ describe("POST /api/ez-actions/[name]", () => {
 
   test("404 conversation not found", async () => {
     mockGetEzAction.mockReturnValue({
-      name: "distill",
+      name: "test-action",
       description: "x",
       handler: vi.fn(),
     });
@@ -153,7 +160,7 @@ describe("POST /api/ez-actions/[name]", () => {
 
     const res = await POST(
       makeEvent({
-        name: "distill",
+        name: "test-action",
         body: { conversationId: "ghost" },
       }),
     );
@@ -163,7 +170,7 @@ describe("POST /api/ez-actions/[name]", () => {
 
   test("404 conversation not owned by caller (collapsed with not-found)", async () => {
     mockGetEzAction.mockReturnValue({
-      name: "distill",
+      name: "test-action",
       description: "x",
       handler: vi.fn(),
     });
@@ -175,7 +182,7 @@ describe("POST /api/ez-actions/[name]", () => {
 
     const res = await POST(
       makeEvent({
-        name: "distill",
+        name: "test-action",
         body: { conversationId: "c1" },
       }),
     );
@@ -193,7 +200,7 @@ describe("POST /api/ez-actions/[name]", () => {
     };
     const handlerSpy = vi.fn().mockResolvedValue(handlerResult);
     mockGetEzAction.mockReturnValue({
-      name: "distill",
+      name: "test-action",
       description: "x",
       handler: handlerSpy,
     });
@@ -210,7 +217,7 @@ describe("POST /api/ez-actions/[name]", () => {
 
     const res = await POST(
       makeEvent({
-        name: "distill",
+        name: "test-action",
         body: { conversationId: "c1" },
       }),
     );
@@ -252,7 +259,7 @@ describe("POST /api/ez-actions/[name]", () => {
       card: { title: "x", body: "y", variant: "success" as const },
     };
     mockGetEzAction.mockReturnValue({
-      name: "distill",
+      name: "test-action",
       description: "x",
       handler: vi.fn().mockResolvedValue(handlerResult),
     });
@@ -276,7 +283,7 @@ describe("POST /api/ez-actions/[name]", () => {
 
     const res = await POST(
       makeEvent({
-        name: "distill",
+        name: "test-action",
         body: { conversationId: "c1" },
       }),
     );
@@ -297,7 +304,7 @@ describe("POST /api/ez-actions/[name]", () => {
       card: { title: "x", body: "y", variant: "success" },
     });
     mockGetEzAction.mockReturnValue({
-      name: "distill",
+      name: "test-action",
       description: "x",
       handler: handlerSpy,
     });
@@ -314,7 +321,7 @@ describe("POST /api/ez-actions/[name]", () => {
 
     await POST(
       makeEvent({
-        name: "distill",
+        name: "test-action",
         body: { conversationId: "c1", projectId: "ATTACKER_PROJECT" },
       }),
     );
@@ -334,7 +341,7 @@ describe("POST /api/ez-actions/[name]", () => {
     // invocation yields a card, never a bare HTTP error. HTTP 5xx is
     // reserved for genuine transport / persistence failures.
     mockGetEzAction.mockReturnValue({
-      name: "distill",
+      name: "test-action",
       description: "x",
       handler: vi.fn().mockRejectedValue(new Error("kaboom")),
     });
@@ -352,7 +359,7 @@ describe("POST /api/ez-actions/[name]", () => {
 
     const res = await POST(
       makeEvent({
-        name: "distill",
+        name: "test-action",
         body: { conversationId: "c1" },
       }),
     );
@@ -390,7 +397,7 @@ describe("POST /api/ez-actions/[name]", () => {
       },
     };
     mockGetEzAction.mockReturnValue({
-      name: "distill",
+      name: "test-action",
       description: "x",
       handler: vi.fn().mockResolvedValue(declineResult),
     });
@@ -407,7 +414,7 @@ describe("POST /api/ez-actions/[name]", () => {
 
     const res = await POST(
       makeEvent({
-        name: "distill",
+        name: "test-action",
         body: { conversationId: "c1" },
       }),
     );

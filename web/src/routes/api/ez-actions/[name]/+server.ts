@@ -34,6 +34,210 @@ import { getConversation, createMessage, getLatestLeaf } from "$server/db/querie
 import { getEzAction } from "$server/runtime/ez-actions/registry";
 import type { EzActionResult } from "$server/runtime/ez-actions/types";
 import type { RequestHandler } from "./$types";
+import { ensureInitialized, getBus } from "$lib/server/context";
+import { ExtensionRegistry } from "$server/extensions/registry";
+import { ToolExecutor } from "$server/extensions/tool-executor";
+
+/**
+ * Phase 53 Stage 1 — forward `!EZ:distill` to the bundled
+ * lessons-distiller extension's `distill_now` tool. The legacy
+ * in-process handler at `src/runtime/ez-actions/distill.ts` stays
+ * registered (the `getEzAction` registry still finds it) so its unit
+ * tests + import graph keep working until Stage 2 deletion. This
+ * forwarder ONLY runs at the HTTP route level; the legacy handler is
+ * not reached for `name === "distill"` during Stage 1.
+ *
+ * The bundled tool returns a JSON envelope `{ __ezDistillerOutcome:
+ * true, outcome: DistillationOutcome }` in the result text. We parse
+ * it and map to the same `EzActionResult` chat-card shape the legacy
+ * handler produces. Mapping is exhaustive across the 7 outcome
+ * variants + the `settings_disabled` decline added by the bundled
+ * implementation.
+ */
+async function forwardDistillToBundled(
+  conversationId: string,
+  userId: string,
+): Promise<EzActionResult> {
+  const registry = ExtensionRegistry.getInstance();
+  const namespacedTool = "lessons-distiller__distill_now";
+
+  let registered = registry.getRegisteredTool(namespacedTool);
+  if (!registered) {
+    await registry.loadFromDb();
+    registered = registry.getRegisteredTool(namespacedTool);
+  }
+  if (!registered) {
+    return {
+      kind: "error",
+      card: {
+        title: "Distiller unavailable",
+        body: "The lessons-distiller extension is not installed. Try restarting the server.",
+        variant: "error",
+      },
+    };
+  }
+
+  const executor = new ToolExecutor(registry, { bus: getBus() });
+  executor.setCurrentUserId(userId);
+  const messageIdSentinel = `ez-action-distill-${Date.now()}`;
+
+  let result;
+  try {
+    result = await executor.executeToolCall(
+      namespacedTool,
+      { conversationId },
+      conversationId,
+      messageIdSentinel,
+    );
+  } catch (err) {
+    return {
+      kind: "error",
+      card: {
+        title: "Distiller failed",
+        body: `Unexpected error: ${err instanceof Error ? err.message : String(err)}`,
+        variant: "error",
+      },
+    };
+  }
+
+  const text = result.content.map((c) => c.text).join("");
+  let envelope: { __ezDistillerOutcome?: unknown; outcome?: unknown } | null = null;
+  try {
+    envelope = JSON.parse(text);
+  } catch {
+    // Fall through — handled below.
+  }
+  if (!envelope || envelope.__ezDistillerOutcome !== true) {
+    return {
+      kind: "error",
+      card: {
+        title: "Distiller failed",
+        body: result.isError
+          ? `Tool returned error: ${text || "(no detail)"}`
+          : "Tool returned an unexpected response shape.",
+        variant: "error",
+      },
+    };
+  }
+
+  const outcome = envelope.outcome as
+    | { kind: "success"; lesson: { title: string; slug: string } }
+    | { kind: "decline"; reason: string; existingSlug?: string; detail?: string }
+    | { kind: "error"; reason: string; detail?: string };
+
+  if (outcome.kind === "success") {
+    return {
+      kind: "success",
+      card: {
+        title: "Lesson captured",
+        body: `${outcome.lesson.title} (slug: ${outcome.lesson.slug})`,
+        variant: "success",
+      },
+      ref: { kind: "lesson", slug: outcome.lesson.slug },
+    };
+  }
+
+  if (outcome.kind === "decline") {
+    switch (outcome.reason) {
+      case "empty_conversation":
+        return {
+          kind: "decline",
+          card: {
+            title: "Not enough context",
+            body: "This conversation has no messages to distill.",
+            variant: "info",
+          },
+        };
+      case "llm_empty":
+        return {
+          kind: "decline",
+          card: {
+            title: "Distiller declined",
+            body: "The model found no reusable insight in the recent messages. Nothing was captured.",
+            variant: "info",
+          },
+        };
+      case "llm_malformed":
+        return {
+          kind: "decline",
+          card: {
+            title: "Distiller declined",
+            body: `The model's response couldn't be parsed: ${outcome.detail ?? "unknown parse error"}`,
+            variant: "warning",
+          },
+        };
+      case "slug_collision":
+        return {
+          kind: "decline",
+          card: {
+            title: "Already captured",
+            body: `A lesson with the slug "${outcome.existingSlug ?? "(unknown)"}" already exists. The previous capture is the authoritative one.`,
+            variant: "info",
+          },
+        };
+      case "settings_disabled":
+        return {
+          kind: "decline",
+          card: {
+            title: "Distiller is disabled",
+            body: "The lessons distiller is turned off in extension settings. Re-enable it on the lessons-distiller extension page.",
+            variant: "warning",
+          },
+        };
+      case "trigger_gate_blocked":
+        // Manual handler always passes skipTriggerGate=true so this
+        // should be unreachable. Surface as error for visibility if it
+        // ever fires (mirrors the legacy handler's branch).
+        return {
+          kind: "error",
+          card: {
+            title: "Distiller failed",
+            body: "Internal error: trigger gate blocked a manual distill request. Please report this bug.",
+            variant: "error",
+          },
+        };
+      default:
+        return {
+          kind: "decline",
+          card: {
+            title: "Distiller declined",
+            body: `Reason: ${outcome.reason}`,
+            variant: "info",
+          },
+        };
+    }
+  }
+
+  // outcome.kind === "error"
+  if (outcome.reason === "llm_error") {
+    return {
+      kind: "error",
+      card: {
+        title: "Distiller failed",
+        body: `LLM call failed: ${outcome.detail ?? "unknown LLM error"}`,
+        variant: "error",
+      },
+    };
+  }
+  if (outcome.reason === "db_error") {
+    return {
+      kind: "error",
+      card: {
+        title: "Distiller failed",
+        body: `Database error: ${outcome.detail ?? "unknown DB error"}`,
+        variant: "error",
+      },
+    };
+  }
+  return {
+    kind: "error",
+    card: {
+      title: "Distiller failed",
+      body: `Internal error: ${outcome.detail ?? outcome.reason}`,
+      variant: "error",
+    },
+  };
+}
 
 export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const scopeErr = requireScope(locals, "read");
@@ -82,14 +286,24 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	// transport / persistence failures.
 	let result: EzActionResult;
 	try {
-		result = await action.handler({
-			conversationId,
-			userId: user.id,
-			// Use the conversation's projectId, NOT the body's. The body
-			// projectId is accepted for client-side convenience but we
-			// never trust it.
-			projectId: conv.projectId,
-		});
+		// Phase 53 Stage 1: `distill` forwards to the bundled
+		// lessons-distiller extension's `distill_now` tool. The legacy
+		// in-process handler (`distillAction.handler`) stays
+		// importable for the deletion gate but is bypassed here. Other
+		// EZ actions still go through the registry handler.
+		if (name === "distill") {
+			await ensureInitialized();
+			result = await forwardDistillToBundled(conversationId, user.id);
+		} else {
+			result = await action.handler({
+				conversationId,
+				userId: user.id,
+				// Use the conversation's projectId, NOT the body's. The body
+				// projectId is accepted for client-side convenience but we
+				// never trust it.
+				projectId: conv.projectId,
+			});
+		}
 	} catch (err) {
 		result = {
 			kind: "error",
