@@ -18,6 +18,7 @@ import {
   JsonRpcError,
 } from "../src/runtime/channel";
 import { _setDispatcherRegister, createToolDispatcher, toolError, toolResult } from "../src/runtime/rpc";
+import { getToolContext, withToolContext } from "../src/runtime/tool-context";
 
 // ── Test stdin/stdout helpers ──────────────────────────────────────
 
@@ -737,7 +738,8 @@ describe("tools/call dispatcher — _meta.invocationMetadata → ctx round-trip"
     ch.start();
 
     // Mirror the production dispatcher body including the Phase 4
-    // §5.1a `_meta.invocationMetadata` → ctx extraction path.
+    // §5.1a `_meta.invocationMetadata` → ctx extraction path AND the
+    // Phase 2 `withToolContext` ALS wrap.
     _setDispatcherRegister(({ handlers, opts }) => {
       ch.onRequest("tools/call", async (params) => {
         const p = (params ?? {}) as Record<string, unknown>;
@@ -751,13 +753,20 @@ describe("tools/call dispatcher — _meta.invocationMetadata → ctx round-trip"
         const ctx = invocationMetadata ? { invocationMetadata } : {};
         const handler = handlers[name];
         if (!handler) throw new JsonRpcError(-32601, `Tool not found: ${name}`);
-        try {
-          return await handler(args, ctx);
-        } catch (err) {
-          if (opts?.onError) return opts.onError(err, name);
-          const message = err instanceof Error ? err.message : String(err);
-          return toolError(message);
-        }
+        const ezConversationId =
+          typeof rawMeta.ezConversationId === "string" ? rawMeta.ezConversationId : "";
+        return withToolContext(
+          { toolName: name, conversationId: ezConversationId },
+          async () => {
+            try {
+              return await handler(args, ctx);
+            } catch (err) {
+              if (opts?.onError) return opts.onError(err, name);
+              const message = err instanceof Error ? err.message : String(err);
+              return toolError(message);
+            }
+          },
+        );
       });
     });
 
@@ -980,3 +989,134 @@ describe("runLoop does not block on concurrent in-flight handler requests", () =
     stdin.close();
   });
 });
+
+// ── Phase 2: tools/call dispatcher binds tool-context via ALS ──────
+//
+// The in-sandbox `globalThis.fetch` wrapper (sandbox-preload.ts) reads
+// the running tool's name from this ALS to enforce per-tool allowlists.
+// If the dispatcher fails to wrap, the wrapper sees `undefined` and
+// per-tool overrides are unreachable — silent regression. This test
+// pins the wiring.
+
+describe("tools/call dispatcher — withToolContext ALS binding", () => {
+  test("handler reads {toolName, conversationId} via getToolContext()", async () => {
+    const stdin = createStdin();
+    const { writes, stdout } = createStdout();
+    const ch = createHostChannelForTests({ stdin: stdin.iterable, stdout });
+    ch.start();
+
+    // Production-equivalent register body — see channel.ts
+    // ensureDispatcherRegistered for the canonical implementation.
+    _setDispatcherRegister(({ handlers, opts }) => {
+      ch.onRequest("tools/call", async (params) => {
+        const p = (params ?? {}) as Record<string, unknown>;
+        const name = typeof p.name === "string" ? p.name : "";
+        const args = (p.arguments ?? {}) as Record<string, unknown>;
+        const rawMeta = (p._meta ?? {}) as Record<string, unknown>;
+        const handler = handlers[name];
+        if (!handler) throw new JsonRpcError(-32601, `Tool not found: ${name}`);
+        const ezConversationId =
+          typeof rawMeta.ezConversationId === "string" ? rawMeta.ezConversationId : "";
+        return withToolContext(
+          { toolName: name, conversationId: ezConversationId },
+          async () => {
+            try {
+              return await handler(args);
+            } catch (err) {
+              if (opts?.onError) return opts.onError(err, name);
+              const message = err instanceof Error ? err.message : String(err);
+              return toolError(message);
+            }
+          },
+        );
+      });
+    });
+
+    const seen: Array<{ toolName?: string; conversationId?: string }> = [];
+    createToolDispatcher({
+      probe: async () => {
+        // Read across an await boundary — exercises ALS propagation
+        // through Bun's Promise scheduler (the day-1 risk).
+        await Promise.resolve();
+        const ctx = getToolContext();
+        seen.push({ toolName: ctx?.toolName, conversationId: ctx?.conversationId });
+        return toolResult("ok");
+      },
+    });
+
+    // 1) `_meta.ezConversationId` is forwarded into ctx.
+    stdin.push(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "probe",
+        arguments: {},
+        _meta: { ezConversationId: "conv-abc" },
+      },
+    }));
+    await waitFor(() => writes.length >= 1);
+    expect(seen[0]).toEqual({ toolName: "probe", conversationId: "conv-abc" });
+
+    // 2) Missing `_meta` → conversationId defaults to "".
+    stdin.push(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "probe", arguments: {} },
+    }));
+    await waitFor(() => writes.length >= 2);
+    expect(seen[1]).toEqual({ toolName: "probe", conversationId: "" });
+
+    // 3) Concurrent dispatches each see their own ctx (ALS isolation).
+    const slow = handlerProbeRace(stdin);
+    await slow.driveTwoConcurrent();
+    expect(slow.captured).toContainEqual({ toolName: "p_a", conversationId: "ca" });
+    expect(slow.captured).toContainEqual({ toolName: "p_b", conversationId: "cb" });
+
+    stdin.close();
+  });
+});
+
+/**
+ * Helper: register two slow handlers and drive two `tools/call` frames
+ * back-to-back so they overlap. Each handler MUST read its own
+ * conversationId via ALS — even though both are in flight at once.
+ */
+function handlerProbeRace(stdin: ControlledStdin) {
+  const captured: Array<{ toolName?: string; conversationId?: string }> = [];
+  createToolDispatcher({
+    p_a: async () => {
+      await new Promise((r) => setTimeout(r, 15));
+      const c = getToolContext();
+      captured.push({ toolName: c?.toolName, conversationId: c?.conversationId });
+      return toolResult("a");
+    },
+    p_b: async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      const c = getToolContext();
+      captured.push({ toolName: c?.toolName, conversationId: c?.conversationId });
+      return toolResult("b");
+    },
+  });
+
+  return {
+    captured,
+    async driveTwoConcurrent() {
+      stdin.push(JSON.stringify({
+        jsonrpc: "2.0",
+        id: 90,
+        method: "tools/call",
+        params: { name: "p_a", arguments: {}, _meta: { ezConversationId: "ca" } },
+      }));
+      stdin.push(JSON.stringify({
+        jsonrpc: "2.0",
+        id: 91,
+        method: "tools/call",
+        params: { name: "p_b", arguments: {}, _meta: { ezConversationId: "cb" } },
+      }));
+      // Wait for both to finish.
+      await new Promise((r) => setTimeout(r, 40));
+    },
+  };
+}

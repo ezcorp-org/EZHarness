@@ -19,6 +19,7 @@
 
 import type { JsonRpcRequest, JsonRpcResponse } from "../types";
 import { _setDispatcherRegister, toolError } from "./rpc";
+import { withToolContext } from "./tool-context";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -342,13 +343,26 @@ function ensureDispatcherRegistered(): void {
       // isError-result. Tool-level errors (handler threw / returned
       // isError:true) keep the result-envelope path below.
       if (!handler) throw new JsonRpcError(-32601, `Tool not found: ${name}`);
-      try {
-        return await handler(args, ctx);
-      } catch (err) {
-        if (opts?.onError) return opts.onError(err, name);
-        const message = err instanceof Error ? err.message : String(err);
-        return toolError(message);
-      }
+      // Phase 2: bind the per-call tool context so the in-sandbox fetch
+      // wrapper (sandbox-preload.ts) can read the active tool name from
+      // ALS. Without this, the wrapper falls back to extension-wide
+      // allowlist only — the per-tool override (`EZCORP_TOOL_NETWORK_CAPS`)
+      // would be unreachable. `ezConversationId` is forwarded by the host
+      // on `_meta`; default to "" when absent (e.g. in tests).
+      const ezConversationId =
+        typeof rawMeta.ezConversationId === "string" ? rawMeta.ezConversationId : "";
+      return withToolContext(
+        { toolName: name, conversationId: ezConversationId },
+        async () => {
+          try {
+            return await handler(args, ctx);
+          } catch (err) {
+            if (opts?.onError) return opts.onError(err, name);
+            const message = err instanceof Error ? err.message : String(err);
+            return toolError(message);
+          }
+        },
+      );
     });
   });
 }
