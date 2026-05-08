@@ -163,6 +163,74 @@ export const EXT_AUDIT_ACTIONS = {
    * `"auth"`, `"host"`, `"quota:bytes"`, `"quota:concurrent"`.
    */
   MCP_HOST_BLOCKED: "ext:mcp:host-blocked",
+  // ── Phase 50: SDK capability tier (Phase 51 handlers write these) ──
+  // These rows accompany the high-volume sdk_capability_calls table:
+  // every SDK call writes a row to sdk_capability_calls AND a row
+  // here, the latter being what governance dashboards filter on.
+  // The `permission` field on ExtensionAuditMetadata is now optional
+  // because SDK_* rows don't carry a permission name — they carry
+  // `capability` instead.
+  /** ctx.llm.complete() succeeded. Metadata: capability='llm',
+   *  provider, model, tokensUsed, costUsd, durationMs, conversationId. */
+  SDK_LLM_CALL: "ext:sdk-llm-call",
+  /** ctx.llm.complete() rejected before issuing the provider request
+   *  (rate-limit, cost cap, un-granted provider). */
+  SDK_LLM_REJECTED: "ext:sdk-llm-rejected",
+  /** ctx.memory.read() / search() / getById(). */
+  SDK_MEMORY_READ: "ext:sdk-memory-read",
+  /** ctx.memory.write() / update() / delete(). */
+  SDK_MEMORY_WRITE: "ext:sdk-memory-write",
+  /** ctx.memory.* rejected (selfOnly violation, category-scope, etc.). */
+  SDK_MEMORY_REJECTED: "ext:sdk-memory-rejected",
+  /** ctx.lessons.read() / search() / getBySlug(). */
+  SDK_LESSONS_READ: "ext:sdk-lessons-read",
+  /** ctx.lessons.write() / update() / delete(). */
+  SDK_LESSONS_WRITE: "ext:sdk-lessons-write",
+  /** ctx.lessons.* rejected (slug collision, visibility scope). */
+  SDK_LESSONS_REJECTED: "ext:sdk-lessons-rejected",
+  /** ctx.schedule.register() — extension declared a recurring or
+   *  delayed fire. */
+  SDK_SCHEDULE_REGISTERED: "ext:sdk-schedule-registered",
+  /** Daemon dispatched a fire callback to the extension. */
+  SDK_SCHEDULE_FIRE: "ext:sdk-schedule-fire",
+  /** ctx.schedule.* rejected (cron parse error, quota, dst-edge). */
+  SDK_SCHEDULE_REJECTED: "ext:sdk-schedule-rejected",
+  /** ctx.events.subscribe() — extension wired a new event listener. */
+  SDK_EVENT_SUBSCRIBED: "ext:sdk-event-subscribed",
+  /** Event delivery rejected (rate-limit, payload denied by allowlist). */
+  SDK_EVENT_DELIVERY_REJECTED: "ext:sdk-event-delivery-rejected",
+  /** Sampled audit row written when the dispatcher actually delivered an
+   *  event to a subscribed extension (1-in-N — see
+   *  `global:eventSubscriptionAuditSampleN` setting). */
+  SDK_EVENT_DELIVERED: "ext:sdk-event-delivered",
+  /** Schedule reconciler / daemon flipped a schedule's `enabled` to false
+   *  after 5 consecutive errors. */
+  SDK_SCHEDULE_DISABLED: "ext:sdk-schedule-disabled",
+  /** Install-time governance: extension's manifest declared
+   *  `permissions.env: ["FOO_API_KEY" | "BAR_TOKEN" | "BAZ_SECRET"]`.
+   *  Soft warning today; hard error in v1.4. Migration path is
+   *  `ctx.llm` (host-brokered credentials, key never crosses the
+   *  RPC boundary). */
+  ENV_KEY_LEAK_WARNING: "ext:env-key-leak-warning",
+  /** ctx.llm.complete() denyAndDisable graduation — repeated attempts
+   *  to use an un-granted provider in a 60s window. */
+  SDK_LLM_DENIED_AND_DISABLED: "ext:sdk-llm-denied-and-disabled",
+  /** ctx.lessons.write() requested visibility above
+   *  `permissions.lessons.maxVisibility` — clamped down to
+   *  the granted ceiling. Soft governance row (call still
+   *  succeeds with the clamped visibility). */
+  SDK_LESSONS_VISIBILITY_CLAMPED: "ext:sdk-lessons-visibility-clamped",
+  /** ctx.schedule.fireNow() — extension explicitly fired a
+   *  declared cron immediately. Counts against
+   *  `permissions.schedule.maxRunsPerDay`. */
+  SDK_SCHEDULE_FIRE_NOW: "ext:sdk-schedule-fire-now",
+  /** ScheduleDaemon refused to dispatch because the day's
+   *  `maxRunsPerDay` cap was exceeded. */
+  SDK_SCHEDULE_QUOTA_EXCEEDED: "ext:sdk-schedule-quota-exceeded",
+  /** ScheduleDaemon reaped a `running` row left over from a
+   *  crash mid-fire. Marked for retry only when
+   *  `maxRetries > 0`. */
+  SDK_SCHEDULE_REAPED: "ext:sdk-schedule-reaped",
 } as const;
 
 // Re-export the three Phase 1 PDP action codes as named constants for
@@ -185,10 +253,18 @@ export type ExtAuditAction = typeof EXT_AUDIT_ACTIONS[keyof typeof EXT_AUDIT_ACT
 /**
  * Metadata shape stored in `audit_log.metadata` for every `ext:*` row.
  * Downstream code (e.g. the detail page) can rely on this contract.
+ *
+ * Phase 50: `permission` is now optional. Permission-tier rows
+ * (PERMISSION_GRANTED, etc.) populate it; SDK_* rows leave it
+ * undefined and populate `capability` instead.
  */
 export type ExtensionAuditMetadata = {
-  /** Which permission field was affected (e.g. "storage", "shell", "network"). */
-  permission: string;
+  /** Which permission field was affected (e.g. "storage", "shell", "network").
+   *  Optional — SDK_* tier rows omit it and use `capability` instead. */
+  permission?: string;
+  /** SDK capability bucket — populated by SDK_* tier rows; undefined on
+   *  permission-tier rows. */
+  capability?: "llm" | "memory" | "lessons" | "schedule" | "events";
   /** Prior value — typically `boolean`, `string[]`, or `undefined`. */
   oldValue: unknown;
   /** Post-change value. For rejected attempts, the VALUE THAT WAS REJECTED. */

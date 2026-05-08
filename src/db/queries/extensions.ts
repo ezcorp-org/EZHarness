@@ -1,4 +1,4 @@
-import { eq, sql, inArray } from "drizzle-orm";
+import { and, eq, sql, inArray } from "drizzle-orm";
 import { getDb } from "../connection";
 import { extensions, type Extension, type NewExtension } from "../schema";
 import type { McpServerDefinition, ExtensionManifestV2, ToolDefinition } from "../../extensions/types";
@@ -55,14 +55,25 @@ export async function getExtensionsByNames(names: string[]): Promise<Map<string,
   return out;
 }
 
-export async function listExtensions(enabledOnly?: boolean): Promise<Extension[]> {
-  if (enabledOnly) {
-    return getDb()
-      .select()
-      .from(extensions)
-      .where(eq(extensions.enabled, true));
-  }
-  return getDb().select().from(extensions);
+export async function listExtensions(
+  enabledOnlyOrOpts?: boolean | { enabledOnly?: boolean; bundled?: boolean },
+): Promise<Extension[]> {
+  // Back-compat: prior signature was `listExtensions(enabledOnly?: boolean)`.
+  // Phase 52 added the bundled filter for the Library tabs split — same
+  // single-arg shape, but admit an options object so call sites can compose
+  // bundled+enabled filters without overloading the boolean position.
+  const opts = typeof enabledOnlyOrOpts === "boolean"
+    ? { enabledOnly: enabledOnlyOrOpts }
+    : (enabledOnlyOrOpts ?? {});
+
+  const conds = [];
+  if (opts.enabledOnly) conds.push(eq(extensions.enabled, true));
+  if (opts.bundled !== undefined) conds.push(eq(extensions.isBundled, opts.bundled));
+
+  const q = getDb().select().from(extensions);
+  if (conds.length === 0) return q;
+  if (conds.length === 1) return q.where(conds[0]!);
+  return q.where(and(...conds));
 }
 
 export async function createExtension(data: NewExtension): Promise<Extension> {

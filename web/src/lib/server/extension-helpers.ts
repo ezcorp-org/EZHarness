@@ -21,7 +21,10 @@
 // submitted ∩ manifest-declared ∩ direct-carrier allowlist. An event
 // name that survives is guaranteed routable by the dispatcher at
 // runtime; unknown names fail closed (no grant) rather than landing in
-// a grant that can never be honored.
+// a grant that can never be honored. Phase 51.4 added the object form
+// `{events, includeFullPayload?}`; both forms are normalized to the
+// array form before the intersection (the dispatcher reads the
+// includeFullPayload flag separately at install time).
 //
 // ── Phase 4 deputy / orchestration flags ──
 // `acceptsCallerCaps` and `escalateChildCaps` are extension-level
@@ -29,10 +32,48 @@
 // `permissions`). The clamp respects the same rule: an admin can only
 // grant what the manifest authored, and the user must explicitly
 // consent — silent declines reset the field to false.
+//
+// ── Phase 51 capability surfaces (llm / memory / lessons / schedule) ──
+// These delegate to the canonical clamp helpers in
+// `src/extensions/clamp-permissions.ts` so the validation logic lives
+// in exactly one place. The five classic permission fields (network /
+// filesystem / shell / env / storage) stay inline here — their clamps
+// are trivial and the test contract on this file already covers them.
 
 import { capabilityToolsDisabled } from "$server/extensions/capability-flags";
 import { DIRECT_CARRIER_EVENT_TYPES } from "$server/runtime/sse-conversation-filter";
 import type { ExtensionPermissions, ExtensionManifestV2 } from "$server/extensions/types";
+import {
+  clampLlmPermission,
+  clampMemoryPermission,
+  clampLessonsPermission,
+  clampSchedulePermission,
+} from "$server/extensions/clamp-permissions";
+
+/** Normalize the manifest's `eventSubscriptions` to the canonical
+ *  array-of-event-names form. Handles the Phase 51.4 object form
+ *  `{events, includeFullPayload?}`. Returns `undefined` if the
+ *  manifest didn't declare event subscriptions. */
+function normalizeManifestEventSubscriptions(
+  field: ExtensionManifestV2["permissions"]["eventSubscriptions"],
+): string[] | undefined {
+  if (Array.isArray(field)) return field;
+  if (field && typeof field === "object" && Array.isArray(field.events)) return field.events;
+  return undefined;
+}
+
+/** Phase 51.4: detect whether a manifest's event-subscription grant
+ *  asked for the full payload (no `tool:start`/`tool:complete` strip).
+ *  The dispatcher reads this at install/registration time via
+ *  `setIncludeFullPayload`. */
+export function manifestEventsIncludeFullPayload(
+  field: ExtensionManifestV2["permissions"]["eventSubscriptions"],
+): boolean {
+  if (field && typeof field === "object" && !Array.isArray(field) && field.includeFullPayload === true) {
+    return true;
+  }
+  return false;
+}
 
 export function clampExtensionPermissions(
   submitted: Partial<ExtensionPermissions>,
@@ -86,15 +127,52 @@ export function clampExtensionPermissions(
     if (submitted.agentConfig === "read" && manifest.agentConfig === "read") {
       clamped.agentConfig = "read";
     }
-    if (Array.isArray(submitted.eventSubscriptions) && Array.isArray(manifest.eventSubscriptions)) {
-      const manifestSet = new Set(manifest.eventSubscriptions);
-      const allowed = submitted.eventSubscriptions.filter(
+    // eventSubscriptions: normalize both manifest object form and
+    // submitted array form to a plain string[] before intersecting.
+    const manifestEvents = normalizeManifestEventSubscriptions(manifest.eventSubscriptions);
+    const submittedEvents = Array.isArray(submitted.eventSubscriptions)
+      ? submitted.eventSubscriptions
+      : (submitted.eventSubscriptions && typeof submitted.eventSubscriptions === "object"
+          && Array.isArray((submitted.eventSubscriptions as { events?: unknown }).events)
+            ? (submitted.eventSubscriptions as { events: string[] }).events
+            : undefined);
+    if (Array.isArray(submittedEvents) && Array.isArray(manifestEvents)) {
+      const manifestSet = new Set(manifestEvents);
+      const allowed = submittedEvents.filter(
         (e) => typeof e === "string"
           && manifestSet.has(e)
           && DIRECT_CARRIER_EVENT_TYPES.has(e as never),
       );
       if (allowed.length > 0) clamped.eventSubscriptions = allowed;
     }
+
+    // ── Phase 51 capability surfaces ────────────────────────────────
+    // Delegate to the canonical clamp helpers. Each helper returns
+    // `undefined` when the manifest didn't declare the surface OR
+    // when the clamp produced a no-op grant; only attach when defined.
+    const llm = clampLlmPermission(
+      submitted.llm,
+      manifest.llm,
+    );
+    if (llm) clamped.llm = llm;
+
+    const memory = clampMemoryPermission(
+      submitted.memory,
+      manifest.memory,
+    );
+    if (memory) clamped.memory = memory;
+
+    const lessons = clampLessonsPermission(
+      submitted.lessons,
+      manifest.lessons,
+    );
+    if (lessons) clamped.lessons = lessons;
+
+    const schedule = clampSchedulePermission(
+      submitted.schedule,
+      manifest.schedule,
+    );
+    if (schedule) clamped.schedule = schedule;
   }
 
   // Phase 4 deputy / orchestration flags. Both are top-level manifest

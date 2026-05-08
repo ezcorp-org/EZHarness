@@ -149,6 +149,11 @@ export async function handleFinalizeToolCallRpc(
   const output = coerceFinalizedOutput(params.output);
   const success = status === "complete";
 
+  // TODO(audit-redaction-phase-2): apply redactForAudit at tool_calls write boundary.
+  // tool_calls.input/output are explicitly OUT of Phase 50 scope (only audit_log
+  // is wrapped). When Phase 2 lands, route `output.content` through redactForAudit
+  // here and at the persistToolCall write site so credential-shaped strings in
+  // tool outputs (e.g. an extension echoing a Bearer header) don't escape.
   await getDb()
     .update(toolCalls)
     .set({

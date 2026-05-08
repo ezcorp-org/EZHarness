@@ -872,6 +872,11 @@ async function writeBundledInstallAudit(
       };
       await insertAuditEntry(null, EXT_AUDIT_ACTIONS.BUNDLED_INSTALLED, extensionId, meta);
     }
+    // Phase 51: governance — emit `ext:env-key-leak-warning` for any
+    // env names that match `*_API_KEY|TOKEN|SECRET`. Migration path:
+    // ctx.llm (host-brokered). Soft today; hard in v1.4.
+    const { emitEnvKeyLeakWarnings } = await import("./clamp-permissions");
+    await emitEnvKeyLeakWarnings(extensionId, permissions.env);
   } catch { /* audit write failure is non-fatal */ }
 }
 

@@ -30,6 +30,8 @@ import { requireRole } from "$server/auth/middleware";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { errorJson } from "$lib/server/http-errors";
 import { clampExtensionPermissions } from "$lib/server/extension-helpers";
+import { emitEnvKeyLeakWarnings } from "$server/extensions/clamp-permissions";
+import { reconcileSchedules } from "$server/extensions/schedule-reconcile";
 import type { ExtensionPermissions } from "$server/extensions/types";
 import type { RequestHandler } from "./$types";
 
@@ -96,6 +98,20 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 	const updated = await updateExtension(params.id, update);
 	await resetFailures(params.id);
 	await ExtensionRegistry.getInstance().reload();
+
+	// Phase 51: install-time governance. Emit env-key-leak warnings for
+	// any credential-shaped env names AND reconcile cron schedules on
+	// activate. Both are fire-and-forget — failures are non-fatal and
+	// must not block enable.
+	try {
+		await emitEnvKeyLeakWarnings(params.id, ext.manifest?.permissions?.env);
+	} catch { /* swallow — audit governance is non-fatal */ }
+	try {
+		const cronList = ext.manifest?.permissions?.schedule?.crons;
+		if (Array.isArray(cronList)) {
+			await reconcileSchedules(params.id, cronList);
+		}
+	} catch { /* swallow — schedule reconcile is non-fatal */ }
 
 	// Best-effort audit log — do not fail the request on logging errors.
 	try {

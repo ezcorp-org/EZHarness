@@ -3,6 +3,18 @@
 	import { addToast } from "$lib/toast.svelte.js";
 	import EmptyState from "$lib/components/EmptyState.svelte";
 	import SkeletonLoader from "$lib/components/SkeletonLoader.svelte";
+	import {
+		ACTIVE_TAB_STORAGE_KEY,
+		type LibraryTab,
+		readActiveTab,
+		writeActiveTab,
+	} from "$lib/extensions/library-tabs";
+
+	interface PageData {
+		bundledExtensions: ExtensionRecord[];
+		installedExtensions: ExtensionRecord[];
+	}
+	const { data }: { data: PageData } = $props();
 
 	interface ExtensionRecord {
 		id: string;
@@ -35,6 +47,7 @@
 			lifecycleHooks?: string[];
 		};
 		grantedPermissions: Record<string, unknown>;
+		isBundled?: boolean;
 	}
 
 	interface ReviewSelection {
@@ -49,9 +62,28 @@
 		agentConfig: boolean;
 	}
 
-	let extensions = $state<ExtensionRecord[]>([]);
-	let loading = $state(true);
+	// SSR-loaded so the first paint already shows cards. `loadExtensions()`
+	// re-fetches via the existing `/api/extensions` endpoint after any
+	// mutation, replacing both lists from a single response keyed by
+	// `isBundled`.
+	let extensions = $state<ExtensionRecord[]>([
+		...data.bundledExtensions,
+		...data.installedExtensions,
+	]);
+	let loading = $state(false);
 	let errorMsg = $state("");
+	// Library tab state — persisted to localStorage via library-tabs helper.
+	// Default "installed" preserves prior behavior for users with no
+	// built-ins (Phase 53 ships them).
+	let activeTab = $state<LibraryTab>("installed");
+	// Filtered views over `extensions` — both tabs share the install form
+	// and the auto-disabled banner, but show only the cards belonging to
+	// the active tab.
+	let bundledExtensions = $derived(extensions.filter((e) => e.isBundled === true));
+	let installedExtensions = $derived(extensions.filter((e) => e.isBundled !== true));
+	let visibleExtensions = $derived(
+		activeTab === "builtins" ? bundledExtensions : installedExtensions,
+	);
 
 	// Install form state
 	let installMode = $state<"local" | "github" | "git" | "mcp">("local");
@@ -98,7 +130,19 @@
 		}
 	}
 
-	onMount(loadExtensions);
+	onMount(() => {
+		// Restore the persisted tab BEFORE the first fetch so the SSR rows
+		// render in the correct tab on first paint when the user has it
+		// pinned to "builtins". `readActiveTab` handles SSR-safety + bad
+		// JSON; default is "installed".
+		activeTab = readActiveTab();
+		void loadExtensions();
+	});
+
+	function selectTab(tab: LibraryTab) {
+		activeTab = tab;
+		writeActiveTab(tab);
+	}
 
 	// Pull a human-readable error out of a non-OK Response. Handles both
 	// `{error}` and `{message}` shapes, appends zod-style `fields`, and falls
@@ -605,26 +649,72 @@
 		{/if}
 	</div>
 
+	<!-- Library tabs (Phase 52.1) — split Built-ins (`isBundled=true`)
+	     from user-Installed extensions. Active tab persists to
+	     localStorage via `writeActiveTab`. -->
+	<div class="border-b border-[var(--color-border)]">
+		<div class="flex gap-2" role="tablist" aria-label="Extensions library">
+			<button
+				role="tab"
+				aria-selected={activeTab === "installed"}
+				aria-controls="ext-tab-panel"
+				data-testid="ext-tab-installed"
+				onclick={() => selectTab("installed")}
+				class="border-b-2 px-3 py-2 text-sm font-medium transition-colors {activeTab === 'installed' ? 'border-blue-500 text-[var(--color-text-primary)]' : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'}"
+			>
+				Installed <span class="ml-1 text-xs text-[var(--color-text-muted)]">{installedExtensions.length}</span>
+			</button>
+			<button
+				role="tab"
+				aria-selected={activeTab === "builtins"}
+				aria-controls="ext-tab-panel"
+				data-testid="ext-tab-builtins"
+				onclick={() => selectTab("builtins")}
+				class="border-b-2 px-3 py-2 text-sm font-medium transition-colors {activeTab === 'builtins' ? 'border-blue-500 text-[var(--color-text-primary)]' : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'}"
+			>
+				Built-ins <span class="ml-1 text-xs text-[var(--color-text-muted)]">{bundledExtensions.length}</span>
+			</button>
+		</div>
+	</div>
+
 	<!-- Extensions List -->
+	<div id="ext-tab-panel" role="tabpanel" data-testid="ext-tab-panel" data-active-tab={activeTab}>
 	{#if loading}
 		<SkeletonLoader type="card-grid" count={6} />
-	{:else if extensions.length === 0}
-		<EmptyState
-			title="No extensions installed"
-			description="Extensions add tools and capabilities to your agents. Browse the marketplace to get started."
-			ctaLabel="Browse Marketplace"
-			ctaHref="/marketplace"
-		>
-			{#snippet icon()}
-				<svg class="h-12 w-12 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a2 2 0 012 2v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a2 2 0 01-2 2h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a2 2 0 01-2-2v-3a1 1 0 00-1-1H3a2 2 0 110-4h1a1 1 0 001-1V8a2 2 0 012-2h3a1 1 0 001-1V4z" />
-				</svg>
-			{/snippet}
-		</EmptyState>
+	{:else if visibleExtensions.length === 0}
+		{#if activeTab === "builtins"}
+			<EmptyState
+				title="No built-in extensions yet"
+				description="First-party features ship here in v1.3 Phase 53. Until then, use the Installed tab to add your own."
+			>
+				{#snippet icon()}
+					<svg class="h-12 w-12 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+					</svg>
+				{/snippet}
+			</EmptyState>
+		{:else}
+			<EmptyState
+				title="No extensions installed"
+				description="Extensions add tools and capabilities to your agents. Browse the marketplace to get started."
+				ctaLabel="Browse Marketplace"
+				ctaHref="/marketplace"
+			>
+				{#snippet icon()}
+					<svg class="h-12 w-12 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a2 2 0 012 2v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a2 2 0 01-2 2h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a2 2 0 01-2-2v-3a1 1 0 00-1-1H3a2 2 0 110-4h1a1 1 0 001-1V8a2 2 0 012-2h3a1 1 0 001-1V4z" />
+					</svg>
+				{/snippet}
+			</EmptyState>
+		{/if}
 	{:else}
 		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-			{#each extensions as ext (ext.id)}
-				<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4">
+			{#each visibleExtensions as ext (ext.id)}
+				<div
+					class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4"
+					data-testid="ext-card"
+					data-ext-id={ext.id}
+				>
 					<div class="mb-2 flex items-start justify-between">
 						<a href="/extensions/{ext.id}" class="group">
 							<div class="flex items-center gap-2">
@@ -676,20 +766,31 @@
 									Refresh
 								</button>
 							{/if}
-							{#if confirmDeleteId === ext.id}
-								<button
-									onclick={() => uninstall(ext.id)}
-									class="rounded-md bg-red-600 px-2 py-1 text-xs text-white transition-colors hover:bg-red-500"
-								>
-									Confirm
-								</button>
+							{#if !ext.isBundled}
+								{#if confirmDeleteId === ext.id}
+									<button
+										onclick={() => uninstall(ext.id)}
+										class="rounded-md bg-red-600 px-2 py-1 text-xs text-white transition-colors hover:bg-red-500"
+									>
+										Confirm
+									</button>
+								{:else}
+									<button
+										onclick={() => { confirmDeleteId = ext.id; setTimeout(() => { if (confirmDeleteId === ext.id) confirmDeleteId = null; }, 3000); }}
+										class="rounded-md px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-900/30"
+									>
+										Uninstall
+									</button>
+								{/if}
 							{:else}
-								<button
-									onclick={() => { confirmDeleteId = ext.id; setTimeout(() => { if (confirmDeleteId === ext.id) confirmDeleteId = null; }, 3000); }}
-									class="rounded-md px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-900/30"
+								<!-- Bundled extensions are not user-uninstallable. Settings stay editable. -->
+								<span
+									class="rounded-md bg-[var(--color-surface-tertiary)] px-2 py-1 text-xs text-[var(--color-text-muted)]"
+									title="Built-in — uninstall is not available"
+									data-testid="ext-card-builtin-badge"
 								>
-									Uninstall
-								</button>
+									Built-in
+								</span>
 							{/if}
 						</div>
 					</div>
@@ -697,6 +798,7 @@
 			{/each}
 		</div>
 	{/if}
+	</div>
 </div>
 
 {#if reviewExt}

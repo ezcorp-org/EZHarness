@@ -1,0 +1,41 @@
+{
+  "_comment": "Phase 53 golden-file parity test fixture for the lessons distiller. The Phase 53 port (lessons-distiller as a bundled extension on ctx.llm + ctx.lessons) MUST produce the same lesson body when fed this conversation as the legacy host-side distiller does today. Diff is asserted character-by-character at distiller-parity.test.ts.",
+  "version": 1,
+  "phase": "51.6",
+  "captured_at": "2026-05-08T00:00:00Z",
+  "run_complete_event": {
+    "runId": "run-parity-distiller-001",
+    "conversationId": "conv-parity-distiller-001",
+    "finalContent": "I'll fix the SQL injection by switching to a parameterized query."
+  },
+  "recent_messages": [
+    {
+      "id": "msg-001",
+      "role": "user",
+      "content": "Why is my login form returning a 500 error when the email contains an apostrophe?"
+    },
+    {
+      "id": "msg-002",
+      "role": "assistant",
+      "content": "That's a SQL injection vulnerability — the apostrophe is being interpreted as a string terminator in your query. Let me look at your auth code."
+    },
+    {
+      "id": "msg-003",
+      "role": "user",
+      "content": "Yeah, I'm building the WHERE clause with string concatenation. I know it's bad."
+    },
+    {
+      "id": "msg-004",
+      "role": "assistant",
+      "content": "Right — never concat user input into SQL. Use parameterized queries. Here's the fix:\n\n```ts\nconst rows = await db.select().from(users).where(eq(users.email, email));\n```\n\nDrizzle handles escaping automatically. The tests should pass now and you've eliminated the SQLi class of bugs entirely."
+    },
+    {
+      "id": "msg-005",
+      "role": "user",
+      "content": "Tests pass. [lesson]"
+    }
+  ],
+  "expected_lesson_slug": "use-parameterized-queries-for-user-input",
+  "expected_lesson_title": "Use parameterized queries for user input",
+  "_phase_53_notes": "When the bundled distiller extension lands, this fixture's `recent_messages` is fed to ctx.llm.complete() with the same DISTILLATION_SYSTEM_PROMPT the legacy distiller uses. The returned lesson must match `expected_lesson_slug` and the body must contain the parameterized-query guidance. Tolerance: title may vary in wording within +/-3 words; body must include the keyword 'parameterized'."
+}

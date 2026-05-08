@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 2,
+  "name": "sdk-capability-test-ext",
+  "version": "0.1.0",
+  "description": "Phase 51 integration fixture — declares all 5 SDK capability surfaces (llm / memory / lessons / schedule / events) so the cross-capability integration test has a real on-disk manifest to point at. Phase 53 will reuse this fixture as the bundled-extensions golden-file.",
+  "author": { "name": "ezcorp-test-fixture" },
+  "entrypoint": "./extension.ts",
+  "tools": [],
+  "permissions": {
+    "llm": {
+      "providers": ["anthropic", "openai"],
+      "maxCallsPerHour": 60,
+      "maxCallsPerDay": 500,
+      "maxTokensPerCall": 4096,
+      "maxTimeoutMs": 60000,
+      "allowedModels": {
+        "anthropic": ["claude-sonnet-*", "claude-opus-*"],
+        "openai": ["gpt-4*"]
+      }
+    },
+    "memory": {
+      "access": "write",
+      "maxWritesPerDay": 100,
+      "categories": ["technical", "decisions_goals"],
+      "selfOnly": true
+    },
+    "lessons": {
+      "access": "write",
+      "maxWritesPerDay": 50,
+      "maxVisibility": "user"
+    },
+    "schedule": {
+      "crons": ["*/5 * * * *"],
+      "maxRunsPerDay": 24,
+      "maxRunDurationMs": 300000,
+      "missedRunPolicy": "fire-once",
+      "maxRetries": 0
+    },
+    "eventSubscriptions": {
+      "events": ["run:complete"],
+      "includeFullPayload": false
+    }
+  },
+  "tags": ["test-fixture", "phase-51"],
+  "category": "Other"
+}

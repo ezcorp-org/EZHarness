@@ -265,6 +265,111 @@ describe("clampExtensionPermissions — capability tier", () => {
   });
 });
 
+describe("clampExtensionPermissions — Phase 51 capability surfaces (C1)", () => {
+  test("manifest declares llm → submitted llm flows through", () => {
+    const submitted: Partial<ExtensionPermissions> = {
+      llm: {
+        providers: ["anthropic"],
+        maxCallsPerHour: 60,
+        maxCallsPerDay: 500,
+      },
+    };
+    const manifest: ExtensionManifestV2["permissions"] = {
+      llm: {
+        providers: ["anthropic"],
+        maxCallsPerHour: 60,
+        maxCallsPerDay: 500,
+      },
+    };
+    const out = clampExtensionPermissions(submitted, manifest);
+    expect(out.llm).toBeDefined();
+    expect(out.llm?.providers).toEqual(["anthropic"]);
+    expect(out.llm?.maxCallsPerHour).toBe(60);
+  });
+
+  test("submitted llm narrows manifest providers", () => {
+    const submitted: Partial<ExtensionPermissions> = {
+      llm: { providers: ["openai", "evil"], maxCallsPerHour: 100, maxCallsPerDay: 1000 },
+    };
+    const manifest: ExtensionManifestV2["permissions"] = {
+      llm: { providers: ["openai", "anthropic"], maxCallsPerHour: 60, maxCallsPerDay: 500 },
+    };
+    const out = clampExtensionPermissions(submitted, manifest);
+    expect(out.llm?.providers).toEqual(["openai"]);
+    expect(out.llm?.maxCallsPerHour).toBe(60); // clamped to manifest
+  });
+
+  test("manifest declares memory → submitted memory flows through with selfOnly default true", () => {
+    const submitted: Partial<ExtensionPermissions> = {
+      memory: { access: "write", maxWritesPerDay: 100, selfOnly: true },
+    };
+    const manifest: ExtensionManifestV2["permissions"] = {
+      memory: { access: "write", maxWritesPerDay: 100 },
+    };
+    const out = clampExtensionPermissions(submitted, manifest);
+    expect(out.memory?.access).toBe("write");
+    expect(out.memory?.selfOnly).toBe(true);
+  });
+
+  test("manifest declares lessons → submitted lessons flows through with maxVisibility clamp", () => {
+    const submitted: Partial<ExtensionPermissions> = {
+      lessons: { access: "write", maxWritesPerDay: 50, maxVisibility: "project" },
+    };
+    const manifest: ExtensionManifestV2["permissions"] = {
+      lessons: { access: "write", maxWritesPerDay: 50, maxVisibility: "user" },
+    };
+    const out = clampExtensionPermissions(submitted, manifest);
+    expect(out.lessons?.maxVisibility).toBe("user"); // clamped down
+  });
+
+  test("manifest declares schedule → crons flow through (clamped to manifest)", () => {
+    const submitted: Partial<ExtensionPermissions> = {
+      schedule: {
+        crons: ["*/5 * * * *", "* * * * *"], // second is sub-5-min — drop
+        maxRunsPerDay: 24, maxRunDurationMs: 300_000,
+        missedRunPolicy: "fire-once", maxRetries: 0,
+      },
+    };
+    const manifest: ExtensionManifestV2["permissions"] = {
+      schedule: {
+        crons: ["*/5 * * * *"],
+        maxRunsPerDay: 24, maxRunDurationMs: 300_000,
+        missedRunPolicy: "fire-once", maxRetries: 0,
+      },
+    };
+    const out = clampExtensionPermissions(submitted, manifest);
+    // Manifest is source of truth — only the manifest's cron survives.
+    expect(out.schedule?.crons).toEqual(["*/5 * * * *"]);
+  });
+
+  test("kill-switch suppresses Phase 51 capability surfaces too", () => {
+    process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"] = "1";
+    const submitted: Partial<ExtensionPermissions> = {
+      llm: { providers: ["anthropic"], maxCallsPerHour: 60, maxCallsPerDay: 500 },
+      memory: { access: "write", maxWritesPerDay: 100, selfOnly: true },
+      lessons: { access: "write", maxWritesPerDay: 50, maxVisibility: "user" },
+      schedule: {
+        crons: ["*/5 * * * *"], maxRunsPerDay: 24, maxRunDurationMs: 300_000,
+        missedRunPolicy: "fire-once", maxRetries: 0,
+      },
+    };
+    const manifest: ExtensionManifestV2["permissions"] = {
+      llm: { providers: ["anthropic"], maxCallsPerHour: 60, maxCallsPerDay: 500 },
+      memory: { access: "write", maxWritesPerDay: 100 },
+      lessons: { access: "write", maxWritesPerDay: 50, maxVisibility: "user" },
+      schedule: {
+        crons: ["*/5 * * * *"], maxRunsPerDay: 24, maxRunDurationMs: 300_000,
+        missedRunPolicy: "fire-once", maxRetries: 0,
+      },
+    };
+    const out = clampExtensionPermissions(submitted, manifest);
+    expect(out.llm).toBeUndefined();
+    expect(out.memory).toBeUndefined();
+    expect(out.lessons).toBeUndefined();
+    expect(out.schedule).toBeUndefined();
+  });
+});
+
 describe("clampExtensionPermissions — grantedAt passthrough", () => {
   test("preserves number-valued grantedAt entries; drops non-numbers", () => {
     const submitted: Partial<ExtensionPermissions> = {

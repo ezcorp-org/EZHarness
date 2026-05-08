@@ -345,8 +345,14 @@ export interface ExtensionManifestV2 {
      *  `DIRECT_CARRIER_EVENT_TYPES`). Delivery is ALWAYS gated on
      *  conversation-scope: an extension only receives events for
      *  conversations it's wired to via `conversation_extensions`. Unknown
-     *  event names are silently filtered at clamp time. */
-    eventSubscriptions?: string[];
+     *  event names are silently filtered at clamp time.
+     *
+     *  Phase 51.4 added the object form
+     *  `{events: string[], includeFullPayload?: boolean}`. When
+     *  `includeFullPayload: true`, the dispatcher does NOT strip the
+     *  heavy `input`/`output` blobs from `tool:start` /
+     *  `tool:complete` payloads. Default false. */
+    eventSubscriptions?: string[] | { events: string[]; includeFullPayload?: boolean };
     /** Author turns directly via the `ezcorp/append-message` reverse RPC.
      *  Conversation scope is forced by the host (the extension cannot
      *  target another conversation). The host always forces the new
@@ -355,6 +361,55 @@ export interface ExtensionManifestV2 {
      *  a future opt-in tier. Pairs naturally with `messageToolbar`
      *  (toolbar click → subprocess gets event → calls append-message). */
     appendMessages?: { excludedDefault: boolean };
+
+    // ── Phase 51 capability surfaces ────────────────────────────────
+    /** Brokered LLM access via `ctx.llm.complete()`. The token NEVER
+     *  crosses the JSON-RPC boundary in either direction — the host
+     *  resolves credentials and calls `pi-ai`'s `complete()` directly,
+     *  returning ONLY the result. */
+    llm?: {
+      providers: string[];
+      maxCallsPerHour?: number;
+      maxCallsPerDay?: number;
+      maxTokensPerCall?: number;
+      maxTokensPerDay?: number;
+      maxTimeoutMs?: number;
+      allowedModels?: Record<string, string[]>;
+      maxCostCentsPerDay?: number;
+    };
+    /** Read/write access to the user's memory store via `ctx.memory`.
+     *  Extension-authored memories are stamped with provenance and
+     *  default to `injectionEligible: false` so they don't auto-inject
+     *  into LLM system prompts. `selfOnly: true` (the default) keeps
+     *  reads scoped to memories this extension itself authored. */
+    memory?: {
+      access: "read" | "write";
+      maxWritesPerDay?: number;
+      categories?: ("preferences" | "biographical" | "technical" | "decisions_goals")[];
+      selfOnly?: boolean;
+    };
+    /** Read/write access to the lessons corpus via `ctx.lessons`.
+     *  `maxVisibility` is clamped to user|project (no global). Slug
+     *  uniqueness composite includes the author extension so two
+     *  extensions can share a slug for the same user. */
+    lessons?: {
+      access: "read" | "write";
+      maxWritesPerDay?: number;
+      maxVisibility?: "user" | "project";
+    };
+    /** Persistent cron schedules via `ctx.schedule`. All crons are
+     *  declared in the manifest (max 8, min 5-min interval). The daemon
+     *  enforces `maxRunsPerDay`, `maxRunDurationMs`, and the missed-run
+     *  policy. `at-most-once` delivery is the default — extensions
+     *  opt into at-least-once via `maxRetries > 0`. */
+    schedule?: {
+      crons: string[];
+      maxRunsPerDay?: number;
+      maxRunDurationMs?: number;
+      missedRunPolicy?: "skip" | "fire-once" | "fire-all";
+      maxRetries?: number;
+      purpose?: string;
+    };
   };
 
   // Resource limits for subprocess
@@ -524,6 +579,37 @@ export interface ExtensionPermissions {
    */
   acceptsCallerCaps?: boolean;
   escalateChildCaps?: boolean;
+
+  // ── Phase 51 capability surfaces (granted = clamped manifest) ───
+  llm?: {
+    providers: string[];
+    maxCallsPerHour: number;
+    maxCallsPerDay: number;
+    maxTokensPerCall?: number;
+    maxTokensPerDay?: number;
+    maxTimeoutMs?: number;
+    allowedModels?: Record<string, string[]>;
+    maxCostCentsPerDay?: number;
+  };
+  memory?: {
+    access: "read" | "write";
+    maxWritesPerDay: number;
+    categories?: ("preferences" | "biographical" | "technical" | "decisions_goals")[];
+    selfOnly: boolean;
+  };
+  lessons?: {
+    access: "read" | "write";
+    maxWritesPerDay: number;
+    maxVisibility: "user" | "project";
+  };
+  schedule?: {
+    crons: string[];
+    maxRunsPerDay: number;
+    maxRunDurationMs: number;
+    missedRunPolicy: "skip" | "fire-once" | "fire-all";
+    maxRetries: number;
+  };
+
   grantedAt: Record<string, number>; // permission key -> timestamp
 }
 

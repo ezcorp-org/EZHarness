@@ -26,7 +26,7 @@ describe("extension audit action constants", () => {
     }
   });
 
-  test("constant set is exhaustive — covers every audit-emit site through Phase 5", () => {
+  test("constant set is exhaustive — covers every audit-emit site through Phase 7 + SDK Phase 50/51", () => {
     const keys = new Set(Object.keys(EXT_AUDIT_ACTIONS));
     expect(keys).toEqual(new Set([
       // Original Phase 1 (admin-driven grant/revoke + bundled lifecycle)
@@ -63,6 +63,29 @@ describe("extension audit action constants", () => {
       "MCP_NETNS_CREATED",
       "MCP_NETNS_FALLBACK",
       "MCP_HOST_BLOCKED",
+      // Phase 50 — SDK capability tier (audit-actions for Phase 51 handlers)
+      "SDK_LLM_CALL",
+      "SDK_LLM_REJECTED",
+      "SDK_MEMORY_READ",
+      "SDK_MEMORY_WRITE",
+      "SDK_MEMORY_REJECTED",
+      "SDK_LESSONS_READ",
+      "SDK_LESSONS_WRITE",
+      "SDK_LESSONS_REJECTED",
+      "SDK_SCHEDULE_REGISTERED",
+      "SDK_SCHEDULE_FIRE",
+      "SDK_SCHEDULE_REJECTED",
+      "SDK_EVENT_SUBSCRIBED",
+      "SDK_EVENT_DELIVERY_REJECTED",
+      // Phase 51 — sampled delivery, daemon self-heal, env-key migration
+      "SDK_EVENT_DELIVERED",
+      "SDK_SCHEDULE_DISABLED",
+      "ENV_KEY_LEAK_WARNING",
+      "SDK_LLM_DENIED_AND_DISABLED",
+      "SDK_LESSONS_VISIBILITY_CLAMPED",
+      "SDK_SCHEDULE_FIRE_NOW",
+      "SDK_SCHEDULE_QUOTA_EXCEEDED",
+      "SDK_SCHEDULE_REAPED",
     ]));
   });
 

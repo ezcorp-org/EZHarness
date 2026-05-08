@@ -1048,4 +1048,190 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
       ON lessons(project_id, slug)
       WHERE visibility IN ('project', 'global')
   `);
+
+  // ── Phase 50: Audit foundation ─────────────────────────────────────
+  // See src/db/migrations/add-sdk-capability-audit.ts for rationale.
+  // Lands `sdk_capability_calls` (high-volume per-call SDK audit),
+  // `lessons_audit_log` (mirrors memory_audit_log shape), and the
+  // `lessons.author_extension_id` column (so Phase 51 ctx.lessons
+  // doesn't need a follow-up migration). All idempotent (CREATE IF
+  // NOT EXISTS, ADD COLUMN IF NOT EXISTS).
+
+  // sdk_capability_calls — see schema.ts `sdkCapabilityCalls`
+  //
+  // FK note: `on_behalf_of` is NOT NULL with ON DELETE RESTRICT.
+  // The defensive ALTER below upgrades any dev databases created with
+  // the previous (inconsistent) ON DELETE SET NULL spec; fresh installs
+  // land with RESTRICT directly.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS sdk_capability_calls (
+      id TEXT PRIMARY KEY,
+      extension_id TEXT NOT NULL REFERENCES extensions(id) ON DELETE CASCADE,
+      on_behalf_of TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+      parent_call_id TEXT,
+      capability TEXT NOT NULL,
+      action TEXT NOT NULL,
+      resource_type TEXT,
+      resource_id TEXT,
+      before JSONB,
+      after JSONB,
+      success BOOLEAN NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      error_code TEXT,
+      error_message TEXT,
+      tokens_used INTEGER,
+      cost_usd REAL,
+      provider TEXT,
+      model TEXT,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_ext_created ON sdk_capability_calls(extension_id, created_at DESC)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_conv_created ON sdk_capability_calls(conversation_id, created_at DESC) WHERE conversation_id IS NOT NULL`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_user_capability_created ON sdk_capability_calls(on_behalf_of, capability, created_at DESC)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_created ON sdk_capability_calls(created_at DESC)`);
+
+  // Defensive FK upgrade for sdk_capability_calls.on_behalf_of
+  // (validator CR-2): the previous spec declared ON DELETE SET NULL,
+  // which is internally inconsistent with the NOT NULL column
+  // constraint — user-delete would FK-violate. Move to ON DELETE
+  // RESTRICT (audit-trail semantic — admin must scrub PII separately).
+  // Idempotent: drops the constraint by its Postgres-default name then
+  // re-adds. Fresh installs already created the constraint with
+  // RESTRICT via the CREATE TABLE above; this ALTER is then a no-op
+  // ADD on top of a DROP (the CREATE TABLE constraint will already be
+  // dropped here, so we re-add it under the same name).
+  await db.execute(sql`
+    ALTER TABLE sdk_capability_calls
+      DROP CONSTRAINT IF EXISTS sdk_capability_calls_on_behalf_of_fkey
+  `);
+  await db.execute(sql`
+    ALTER TABLE sdk_capability_calls
+      ADD CONSTRAINT sdk_capability_calls_on_behalf_of_fkey
+      FOREIGN KEY (on_behalf_of) REFERENCES users(id) ON DELETE RESTRICT
+  `);
+
+  // lessons_audit_log — mirrors memory_audit_log shape
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS lessons_audit_log (
+      id SERIAL PRIMARY KEY,
+      lesson_id TEXT NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
+      action TEXT NOT NULL,
+      previous_body TEXT,
+      new_body TEXT,
+      previous_frontmatter JSONB,
+      new_frontmatter JSONB,
+      actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      actor_extension_id TEXT REFERENCES extensions(id) ON DELETE SET NULL,
+      reason TEXT,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_lessons_audit_lesson_created ON lessons_audit_log(lesson_id, created_at DESC)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_lessons_audit_actor_ext_created ON lessons_audit_log(actor_extension_id, created_at DESC)`);
+
+  // lessons.author_extension_id — additive column, idempotent
+  await db.execute(sql`
+    ALTER TABLE lessons
+      ADD COLUMN IF NOT EXISTS author_extension_id TEXT REFERENCES extensions(id) ON DELETE SET NULL
+  `);
+
+  // ── Phase 51: SDK capability surfaces ──────────────────────────────
+  // (1) memories.injection_eligible — extension-authored memories will
+  //     set this `false`; legacy rows backfill `true` so today's
+  //     auto-inject behavior is preserved exactly.
+  await db.execute(sql`
+    ALTER TABLE memories
+      ADD COLUMN IF NOT EXISTS injection_eligible BOOLEAN NOT NULL DEFAULT TRUE
+  `);
+
+  // (2) extension_llm_usage — per-extension daily call/token rollup.
+  //     60s flush from in-process `LlmQuota`; PK on (extension_id, day).
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS extension_llm_usage (
+      extension_id TEXT NOT NULL REFERENCES extensions(id) ON DELETE CASCADE,
+      day DATE NOT NULL,
+      calls INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (extension_id, day)
+    )
+  `);
+
+  // (3) extension_memory_writes_daily — same shape, memory-write quota.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS extension_memory_writes_daily (
+      extension_id TEXT NOT NULL REFERENCES extensions(id) ON DELETE CASCADE,
+      day DATE NOT NULL,
+      writes INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (extension_id, day)
+    )
+  `);
+
+  // (4) extension_lessons_writes_daily — same shape, lesson-write quota.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS extension_lessons_writes_daily (
+      extension_id TEXT NOT NULL REFERENCES extensions(id) ON DELETE CASCADE,
+      day DATE NOT NULL,
+      writes INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (extension_id, day)
+    )
+  `);
+
+  // (5) extension_schedules — persistent cron registrations + state.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS extension_schedules (
+      id TEXT PRIMARY KEY,
+      extension_id TEXT NOT NULL REFERENCES extensions(id) ON DELETE CASCADE,
+      cron TEXT NOT NULL,
+      next_fire_at TIMESTAMP WITH TIME ZONE NOT NULL,
+      last_fire_at TIMESTAMP WITH TIME ZONE,
+      last_fire_status TEXT,
+      last_fire_id TEXT,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      consecutive_errors INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_schedule ON extension_schedules(extension_id, cron)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_schedule_ready ON extension_schedules(enabled, next_fire_at) WHERE enabled = TRUE`);
+
+  // (6) extension_schedule_fires — per-fire history.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS extension_schedule_fires (
+      id TEXT PRIMARY KEY,
+      schedule_id TEXT NOT NULL REFERENCES extension_schedules(id) ON DELETE CASCADE,
+      scheduled_at TIMESTAMP WITH TIME ZONE NOT NULL,
+      fired_at TIMESTAMP WITH TIME ZONE NOT NULL,
+      attempt INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      duration_ms INTEGER,
+      error TEXT,
+      catch_up BOOLEAN NOT NULL DEFAULT FALSE
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_schedule_fires_pending ON extension_schedule_fires(status, scheduled_at)`);
+
+  // (7) Composite slug uniqueness for lessons. Replace the legacy
+  //     partial indexes on (project_id, owner_id, slug) and
+  //     (project_id, slug) with versions that include
+  //     `COALESCE(author_extension_id, '')` so two extensions can
+  //     each own a `code-review-best-practices` slug for the same
+  //     user without collision. Drop legacy first (idempotent).
+  await db.execute(sql`DROP INDEX IF EXISTS idx_lessons_user_slug_unique`);
+  await db.execute(sql`DROP INDEX IF EXISTS idx_lessons_shared_slug_unique`);
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_lessons_user_slug_unique
+    ON lessons (project_id, owner_id, COALESCE(author_extension_id, ''), slug)
+    WHERE visibility = 'user'
+  `);
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_lessons_shared_slug_unique
+    ON lessons (project_id, COALESCE(author_extension_id, ''), slug, visibility)
+    WHERE visibility IN ('project', 'global')
+  `);
 }

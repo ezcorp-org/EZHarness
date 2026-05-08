@@ -96,7 +96,7 @@ export type {
   TrackedTask,
 } from "./task-events";
 
-export { registerEventHandler } from "./events";
+export { registerEventHandler, Events } from "./events";
 export type { SubscribableEvent, SubscribableEventMap } from "./events";
 
 // ── Phase A1 canvas wrapper ─────────────────────────────────────
@@ -132,3 +132,41 @@ export type { CancelRunResult } from "./cancel-run";
 // ── Phase B per-extension settings ──────────────────────────────
 
 export { getSetting, getAllSettings } from "./settings";
+
+// ── Phase 51 capability surfaces ────────────────────────────────
+
+export {
+  Llm,
+  LlmQuotaError,
+  LlmProviderError,
+  LlmCredentialError,
+  NotImplementedError,
+} from "./llm";
+export type {
+  LlmMessage,
+  LlmCompleteOpts,
+  LlmCompleteResult,
+  LlmUsage,
+  LlmBudgetSnapshot,
+} from "./llm";
+
+export { Memory } from "./memory";
+export type {
+  MemoryRecord,
+  MemoryWriteInput,
+  MemoryListOpts,
+  MemoryCategory,
+  MemoryConfidence,
+  MemoryStatus,
+} from "./memory";
+
+export { Lessons } from "./lessons";
+export type {
+  LessonRecord,
+  LessonInput,
+  LessonsListOpts,
+  LessonVisibility,
+} from "./lessons";
+
+export { Schedule } from "./schedule";
+export type { ScheduleHandler, ScheduleHandlerContext } from "./schedule";

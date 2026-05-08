@@ -918,8 +918,13 @@ export function deriveCapsFromExtensionPerms(
   if (perms.taskEvents === true) {
     custom[NAMESPACE_MAP.taskEvents] = true;
   }
-  if (perms.eventSubscriptions && perms.eventSubscriptions.length > 0) {
-    custom[NAMESPACE_MAP.eventSubscriptions] = [...perms.eventSubscriptions];
+  // eventSubscriptions accepts both the legacy string[] form and the
+  // Phase 51.4 `{events, includeFullPayload?}` object form. Normalize
+  // to a string[] before propagating to the namespaced cap declaration.
+  const subs = perms.eventSubscriptions;
+  const subsList = Array.isArray(subs) ? subs : subs?.events;
+  if (subsList && subsList.length > 0) {
+    custom[NAMESPACE_MAP.eventSubscriptions] = [...subsList];
   }
   if (Object.keys(custom).length > 0) {
     decl.custom = custom;

@@ -13,6 +13,14 @@ let startDecayTimerMock = mock(() => () => {});
 let runCompactionMock = mock(() => Promise.resolve());
 let deleteExpiredSessionsMock = mock(() => Promise.resolve());
 let cleanupOldErrorsMock = mock((_retainDays: number) => Promise.resolve());
+let cleanupOldSdkCapabilityCallsMock = mock((_cfg: {
+  llmDays: number;
+  memoryDays: number;
+  lessonsDays: number;
+  scheduleDays: number;
+  eventsDays?: number;
+  force?: boolean;
+}) => Promise.resolve(0));
 let getSettingMock = mock((_key: string) => Promise.resolve<unknown>(undefined));
 
 // Logger spies. The structured logger writes JSON via process.stdout/stderr.write,
@@ -44,8 +52,34 @@ function installModuleMocks(): void {
   mock.module("../db/queries/error-logs", () => ({
     cleanupOldErrors: (retainDays: number) => cleanupOldErrorsMock(retainDays),
   }));
+  mock.module("../db/queries/sdk-capability-calls", () => ({
+    cleanupOldSdkCapabilityCalls: (cfg: {
+      llmDays: number;
+      memoryDays: number;
+      lessonsDays: number;
+      scheduleDays: number;
+      eventsDays?: number;
+      force?: boolean;
+    }) => cleanupOldSdkCapabilityCallsMock(cfg),
+    // The timer also imports `clampDays` — mirror the production
+    // behavior so a 0 setting is clamped to 1 (validator CR-3).
+    clampDays: (value: number) => {
+      if (!Number.isFinite(value)) return 30;
+      return Math.max(1, Math.min(3650, Math.floor(value)));
+    },
+  }));
   mock.module("../db/queries/settings", () => ({
     getSetting: (key: string) => getSettingMock(key),
+  }));
+  // Phase 51: stub the ScheduleDaemon so the background-timers test
+  // exercise stays focused on its own scope (decay / compaction /
+  // cleanups). The daemon has its own dedicated suite at
+  // src/extensions/__tests__/schedule-daemon.test.ts.
+  mock.module("../extensions/schedule-daemon", () => ({
+    ScheduleDaemon: class {
+      start() { return Promise.resolve(true); }
+      stop() {}
+    },
   }));
   mock.module("../logger", () => ({ logger: loggerSpy }));
 }
@@ -56,6 +90,14 @@ beforeEach(async () => {
   runCompactionMock = mock(() => Promise.resolve());
   deleteExpiredSessionsMock = mock(() => Promise.resolve());
   cleanupOldErrorsMock = mock((_retainDays: number) => Promise.resolve());
+  cleanupOldSdkCapabilityCallsMock = mock((_cfg: {
+    llmDays: number;
+    memoryDays: number;
+    lessonsDays: number;
+    scheduleDays: number;
+    eventsDays?: number;
+    force?: boolean;
+  }) => Promise.resolve(0));
   getSettingMock = mock((_key: string) => Promise.resolve<unknown>(undefined));
   loggerInfoMock = mock((_msg: string, _extra?: Record<string, unknown>) => {});
   loggerWarnMock = mock((_msg: string, _extra?: Record<string, unknown>) => {});
@@ -84,7 +126,7 @@ afterEach(() => {
 // ── Tests ────────────────────────────────────────────────────────
 
 describe("startBackgroundTimers", () => {
-  test("first call schedules decay + 2 cleanup intervals + compaction interval", async () => {
+  test("first call schedules decay + 3 cleanup intervals + compaction interval", async () => {
     getSettingMock = mock((_key: string) => Promise.resolve<unknown>(undefined));
     installModuleMocks();
 
@@ -95,12 +137,14 @@ describe("startBackgroundTimers", () => {
     // which we stubbed — it would return 0 but the mock still counts the call)
     expect(startDecayTimerMock).toHaveBeenCalledTimes(1);
 
-    // Three setIntervals are registered directly: sessions, error-logs, compaction
-    expect(intervalCalls).toHaveLength(3);
+    // Four setIntervals are registered directly: sessions, error-logs,
+    // sdk-capability-calls retention sweep (Phase 50), compaction.
+    expect(intervalCalls).toHaveLength(4);
     const hourMs = 60 * 60 * 1000;
     expect(intervalCalls[0]!.delay).toBe(hourMs);          // sessions hourly
     expect(intervalCalls[1]!.delay).toBe(hourMs);          // error-logs hourly
-    expect(intervalCalls[2]!.delay).toBe(6 * hourMs);      // compaction 6h default
+    expect(intervalCalls[2]!.delay).toBe(hourMs);          // sdk-capability sweep hourly
+    expect(intervalCalls[3]!.delay).toBe(6 * hourMs);      // compaction 6h default
 
     // Success logs fired with structured fields
     expect(loggerInfoMock).toHaveBeenCalledWith("Decay sweep started", { intervalHours: 1 });
@@ -117,7 +161,7 @@ describe("startBackgroundTimers", () => {
 
     // All three calls combined should still equal the first-call results
     expect(startDecayTimerMock).toHaveBeenCalledTimes(1);
-    expect(intervalCalls).toHaveLength(3);
+    expect(intervalCalls).toHaveLength(4);
   });
 
   test("decay timer failure is logged but compaction still starts", async () => {
@@ -133,8 +177,9 @@ describe("startBackgroundTimers", () => {
       { error: String(new Error("boom")) },
     );
 
-    // Compaction block still ran — 3 setIntervals (sessions, errors, compaction)
-    expect(intervalCalls).toHaveLength(3);
+    // Compaction block still ran — 4 setIntervals (sessions, errors,
+    // sdk-capability sweep, compaction)
+    expect(intervalCalls).toHaveLength(4);
     expect(loggerInfoMock).toHaveBeenCalledWith("Compaction started", { intervalHours: 6 });
   });
 
@@ -148,9 +193,10 @@ describe("startBackgroundTimers", () => {
     // Decay did start
     expect(startDecayTimerMock).toHaveBeenCalledTimes(1);
 
-    // Two cleanup intervals were registered before the compaction block threw;
-    // no compaction interval was added
-    expect(intervalCalls).toHaveLength(2);
+    // Three cleanup intervals were registered before the compaction
+    // block threw (sessions, error-logs, sdk-capability sweep); no
+    // compaction interval was added
+    expect(intervalCalls).toHaveLength(3);
 
     expect(loggerWarnMock).toHaveBeenCalledWith(
       "Failed to start compaction timer",
@@ -170,9 +216,101 @@ describe("startBackgroundTimers", () => {
     await startBackgroundTimers();
 
     const hourMs = 60 * 60 * 1000;
-    const compactionCall = intervalCalls[2]!;
+    const compactionCall = intervalCalls[3]!;
     expect(compactionCall.delay).toBe(2 * hourMs);
 
     expect(loggerInfoMock).toHaveBeenCalledWith("Compaction started", { intervalHours: 2 });
+  });
+});
+
+// CA-1: Phase 50 retention-sweep wiring — the timer reads the four
+// `global:sdk*RetentionDays` settings each tick, clamps each value to
+// [1, 3650] (CR-3), and calls cleanupOldSdkCapabilityCalls with the
+// clamped per-capability config. No `force` flag is set — production
+// MUST NOT opt into the implicit-on-zero purge.
+describe("startBackgroundTimers — Phase 50 sdk-capability retention sweep", () => {
+  test("hourly tick reads settings and calls cleanupOldSdkCapabilityCalls with defaults", async () => {
+    // No setting → use the documented defaults 90/30/30/90.
+    getSettingMock = mock((_key: string) => Promise.resolve<unknown>(undefined));
+    installModuleMocks();
+
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    // Sweep is the third interval registered (after sessions + errors).
+    const sweepCall = intervalCalls[2]!;
+    const hourMs = 60 * 60 * 1000;
+    expect(sweepCall.delay).toBe(hourMs);
+
+    // Fast-forward: invoke the tick callback directly, then await any
+    // microtasks the inner async IIFE schedules.
+    sweepCall.fn();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(cleanupOldSdkCapabilityCallsMock).toHaveBeenCalledTimes(1);
+    const arg = cleanupOldSdkCapabilityCallsMock.mock.calls[0]![0]!;
+    expect(arg.llmDays).toBe(90);
+    expect(arg.memoryDays).toBe(30);
+    expect(arg.lessonsDays).toBe(30);
+    expect(arg.scheduleDays).toBe(90);
+    // CR-3: production MUST NOT pass `force: true`.
+    expect(arg.force).toBeUndefined();
+  });
+
+  test("hourly tick clamps a stray 0 setting to 1 (CR-3 — no implicit purge)", async () => {
+    // Admin sets memory retention to 0 — the clamp at the read site
+    // must floor it to 1 BEFORE the cleanup function sees it.
+    getSettingMock = mock((key: string) => {
+      if (key === "global:sdkMemoryRetentionDays") return Promise.resolve<unknown>(0);
+      return Promise.resolve<unknown>(undefined);
+    });
+    installModuleMocks();
+
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    intervalCalls[2]!.fn();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(cleanupOldSdkCapabilityCallsMock).toHaveBeenCalledTimes(1);
+    const arg = cleanupOldSdkCapabilityCallsMock.mock.calls[0]![0]!;
+    expect(arg.memoryDays).toBe(1); // clamped, NOT 0
+    expect(arg.force).toBeUndefined();
+  });
+
+  test("hourly tick clamps an oversize 99999 setting to 3650 (CR-3 ceiling)", async () => {
+    getSettingMock = mock((key: string) => {
+      if (key === "global:sdkLlmRetentionDays") return Promise.resolve<unknown>(99999);
+      return Promise.resolve<unknown>(undefined);
+    });
+    installModuleMocks();
+
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    intervalCalls[2]!.fn();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const arg = cleanupOldSdkCapabilityCallsMock.mock.calls[0]![0]!;
+    expect(arg.llmDays).toBe(3650);
+  });
+
+  test("cleanup throw in tick is logged but does not crash the timer", async () => {
+    cleanupOldSdkCapabilityCallsMock = mock(() => Promise.reject(new Error("db down")));
+    installModuleMocks();
+
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    intervalCalls[2]!.fn();
+    // Two microtask flushes: one for the inner async IIFE, one for the
+    // .catch() handler that follows.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      "sdk-capability-calls cleanup failed",
+      { error: String(new Error("db down")) },
+    );
   });
 });

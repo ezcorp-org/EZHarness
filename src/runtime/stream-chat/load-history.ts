@@ -269,6 +269,13 @@ export async function loadHistory(
     // EZ action result rows are UI-only — never send the JSON-encoded
     // EzActionResult payload to the LLM. Spec invariant.
     if (m.role === "ez-action-result") return null;
+    // Phase 50 capability-event rows are the chat-pill renderings of an
+    // sdk_capability_calls row (recordCapabilityCall write 3). The
+    // content is a JSON sentinel for the UI's pill component, NOT a
+    // turn the model should see — falling through to the user-message
+    // mapper below would inject the JSON sentinel as a fake user turn.
+    // Spec invariant: filter at the source, same shape as ez-action-result.
+    if (m.role === "capability-event") return null;
     if (m.role === "assistant") {
       return {
         role: "assistant" as const,

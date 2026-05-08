@@ -330,6 +330,13 @@
 				<p class="mt-1 text-sm text-[var(--color-text-secondary)]">{ext.description}</p>
 			</div>
 			<div class="flex items-center gap-3">
+				<a
+					href={`/extensions/${ext.id}/audit`}
+					class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]"
+					data-testid="extension-detail-audit-link"
+				>
+					Audit
+				</a>
 				{#if ext.checksumVerified}
 					<span class="rounded-full bg-green-900/40 px-2 py-0.5 text-xs text-green-400">Verified</span>
 				{:else}

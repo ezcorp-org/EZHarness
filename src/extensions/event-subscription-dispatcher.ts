@@ -68,6 +68,10 @@ export class EventSubscriptionDispatcher {
   /** event type → set of extensionIds subscribed to it. Mirror of
    *  `subscriptions` so `dispatch` can fan out without a full-map scan. */
   private readonly eventToExtensions = new Map<SubscribableEvent, Set<string>>();
+  /** Phase 51.4: per-extension `includeFullPayload` flag.
+   *  When true, the dispatcher does NOT strip `input`/`output` from
+   *  `tool:start` / `tool:complete` payloads. Default false. */
+  private readonly includeFullPayload = new Map<string, boolean>();
   /** bus.on() unsubscribers, populated by `start()`. */
   private readonly unsubscribers: Array<() => void> = [];
   /** Token-bucket limiter — 50 ops/sec per extensionId by default. */
@@ -77,6 +81,13 @@ export class EventSubscriptionDispatcher {
   private readonly lastOverflowAudit = new Map<string, number>();
   private readonly overflowAuditMs: number;
   private started = false;
+  /** Phase 51.4: sample-N for the `ext:sdk-event-delivered` audit row.
+   *  1-in-N events get audited. Reads from
+   *  `global:eventSubscriptionAuditSampleN` (default 100). The hash
+   *  function `{extensionId, eventType, ts}` makes inclusion
+   *  reproducible — useful for tests asserting the firing pattern.
+   *  Tests inject a fixed value via `setAuditSampleN`. */
+  private auditSampleN = 100;
 
   constructor(
     private readonly bus: EventBus<AgentEvents>,
@@ -107,6 +118,20 @@ export class EventSubscriptionDispatcher {
    * Defense-in-depth — the manifest clamp at install time should
    * already have rejected them.
    */
+  /** Phase 51.4: override the sample-N for tests. Production reads
+   *  this from the `global:eventSubscriptionAuditSampleN` setting. */
+  setAuditSampleN(n: number): void {
+    this.auditSampleN = Math.max(1, Math.floor(n));
+  }
+
+  /** Phase 51.4: register the per-extension `includeFullPayload` flag
+   *  derived at install time from the manifest's object-form
+   *  `eventSubscriptions: {events, includeFullPayload}`. Default
+   *  false. */
+  setIncludeFullPayload(extensionId: string, value: boolean): void {
+    this.includeFullPayload.set(extensionId, value);
+  }
+
   registerExtension(extensionId: string, eventTypes: string[]): void {
     // Defensive: tests pass a stub registry that may not implement
     // `getManifest`. Treat missing as "no manifest", which short-circuits
@@ -294,10 +319,15 @@ export class EventSubscriptionDispatcher {
       }
       if (!proc) continue;
       try {
+        const allowFull = this.includeFullPayload.get(extId) === true;
         proc.sendNotification(
           `ezcorp/event/${eventType}`,
-          sanitize(eventType, payload),
+          sanitize(eventType, payload, allowFull),
         );
+        // Phase 51.4 sampled audit. Reproducible 1-in-N inclusion
+        // keyed on the {extensionId, eventType, ts} tuple — a test
+        // can mock the timestamp and assert deterministic firing.
+        this.maybeAuditDelivery(extId, eventType);
       } catch (err) {
         // sendNotification already swallows internally; belt-and-suspenders.
         log.debug("sendNotification threw despite internal swallow", {
@@ -307,6 +337,34 @@ export class EventSubscriptionDispatcher {
         });
       }
     }
+  }
+
+  /** Phase 51.4 — sampled audit hook. Reproducible 1-in-N selector
+   *  keyed on `{extensionId, eventType, ts}`. */
+  private maybeAuditDelivery(extensionId: string, eventType: string): void {
+    if (this.auditSampleN <= 1) {
+      // Sample everything (test mode).
+    } else {
+      const tup = `${extensionId}|${eventType}|${Date.now()}`;
+      let h = 0x811c9dc5;
+      for (let i = 0; i < tup.length; i++) {
+        h ^= tup.charCodeAt(i);
+        h = Math.imul(h, 0x01000193);
+      }
+      if ((h >>> 0) % this.auditSampleN !== 0) return;
+    }
+    insertAuditEntry(
+      null,
+      EXT_AUDIT_ACTIONS.SDK_EVENT_DELIVERED,
+      extensionId,
+      {
+        capability: "events",
+        oldValue: undefined,
+        newValue: eventType,
+        actor: "system",
+        reason: `sampled-1-in-${this.auditSampleN}`,
+      },
+    ).catch(() => {});
   }
 
   private maybeAuditOverflow(extensionId: string, eventType: string): void {
@@ -330,14 +388,32 @@ export class EventSubscriptionDispatcher {
   }
 }
 
-// ── sanitize() seam ─────────────────────────────────────────────────
+// ── sanitize() seam (Phase 51.4 hardened) ───────────────────────────
 //
-// Pass-through for now. Kept as a named function so future work can
-// strip fields (e.g. host-owned bookkeeping not meant for extensions)
-// at a single choke point. The 13 direct-carrier event types are
-// already flat and safe — none embed user secrets or credentials —
-// so stripping isn't needed at 2c ship time.
+// For `tool:start` and `tool:complete` we strip the heavy `input` /
+// `output` blobs unless the extension's grant explicitly includes
+// `includeFullPayload: true`. Other direct-carrier events are passed
+// through unchanged.
+//
+// Phase 51.4 added `includeFullPayload` to the grant shape — extensions
+// must opt in via the manifest object form
+// `{events: [...], includeFullPayload: true}`. When the host clamps
+// at install time, the flag flows through into `registerExtension`'s
+// `payloadAllowlist` map; lookup is per-extension at sanitize time.
+const HEAVY_PAYLOAD_EVENTS = new Set(["tool:start", "tool:complete"]);
 
-function sanitize(_eventType: string, payload: unknown): Record<string, unknown> {
-  return (payload ?? {}) as Record<string, unknown>;
+function sanitize(
+  eventType: string,
+  payload: unknown,
+  includeFullPayload: boolean,
+): Record<string, unknown> {
+  const obj = (payload ?? {}) as Record<string, unknown>;
+  if (!HEAVY_PAYLOAD_EVENTS.has(eventType) || includeFullPayload) {
+    return obj;
+  }
+  // Strip the heavy blobs but keep everything else (id, conversationId,
+  // toolName, status, etc.).
+  const { input, output, ...rest } = obj;
+  void input; void output;
+  return rest;
 }

@@ -53,3 +53,21 @@ export function registerEventHandler<E extends SubscribableEvent>(
     },
   );
 }
+
+/**
+ * Phase 51.4 — `Events` class facade. Thin wrapper around
+ * `registerEventHandler` for ergonomic parity with the other
+ * capability surfaces (Memory, Lessons, Llm). Functionally identical
+ * to the standalone function; use whichever you prefer.
+ *
+ *   const events = new Events();
+ *   events.on("tool:complete", async (payload) => {...});
+ */
+export class Events {
+  on<E extends SubscribableEvent>(
+    event: E,
+    handler: (payload: SubscribableEventMap[E]) => Promise<void> | void,
+  ): void {
+    registerEventHandler(event, handler);
+  }
+}
