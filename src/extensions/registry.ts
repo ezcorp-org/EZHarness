@@ -12,6 +12,8 @@ import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { McpClient } from "../mcp/client";
 import { buildSandboxedMcpSpec } from "./mcp-sandbox";
+import type { McpProxyHandle } from "./mcp-proxy";
+import { getPermissionEngine } from "./permission-engine";
 
 /** Async resolver that produces a fresh env map on each spawn — exported
  *  so callers can type their resolver fns consistently without pulling in
@@ -175,6 +177,12 @@ export class ExtensionRegistry {
   private processes = new Map<string, ExtensionProcess>();
   /** extension id -> McpClient (for kind:"mcp" extensions) */
   private mcpClients = new Map<string, McpClient>();
+  /** Phase 7: extension id -> per-MCP forward-proxy handle. Populated
+   *  in `getMcpClient` after `buildSandboxedMcpSpec` starts the proxy;
+   *  torn down in `killAll` and on `getMcpClient`'s connect-failure
+   *  branch. The proxy listens on the per-MCP UDS (Linux netns) or
+   *  loopback port (fallback) and gates outbound HTTPS via PDP. */
+  private mcpProxies = new Map<string, McpProxyHandle>();
   /** extension id -> manifest */
   private manifests = new Map<string, ExtensionManifestV2>();
   /** extension id -> install path */
@@ -576,6 +584,13 @@ export class ExtensionRegistry {
       void client.close().catch(() => {});
     }
     this.mcpClients.clear();
+    // Phase 7: tear down every per-MCP forward proxy. Stopping the
+    // proxy unlinks its UDS (when applicable) so a subsequent boot or
+    // re-load doesn't trip EADDRINUSE.
+    for (const proxy of this.mcpProxies.values()) {
+      void proxy.stop().catch(() => {});
+    }
+    this.mcpProxies.clear();
   }
 
   /**
@@ -594,14 +609,55 @@ export class ExtensionRegistry {
 
     // Audit finding #1: route stdio spawns through the sandbox envelope
     // (prlimit + bounded env). http/sse are pass-through — nothing to wrap.
+    //
+    // Phase 7: when the PDP singleton is wired (production boot), pass
+    // a `ctx` so `buildSandboxedMcpSpec` starts the per-MCP forward
+    // proxy and (on Linux) wraps the spawn in `unshare`. The PDP being
+    // unavailable is a test-time signal; we degrade to the pre-Phase-7
+    // prlimit-only spec rather than fail-closed because many existing
+    // unit tests construct registries without going through full boot.
+    let phase7Ctx: { engine: ReturnType<typeof getPermissionEngine>; conversationId: null; userId: null } | undefined;
+    try {
+      phase7Ctx = {
+        engine: getPermissionEngine(),
+        conversationId: null,
+        userId: null,
+      };
+    } catch {
+      // Engine not initialized (test path) — fall through to pre-P7 wrap.
+      phase7Ctx = undefined;
+    }
     const granted = this.grantedPerms.get(extensionId) ?? { grantedAt: {} };
-    const sandboxedSpec = buildSandboxedMcpSpec(server, manifest, granted, extensionId);
+    const { spec: sandboxedSpec, proxyHandle } = await buildSandboxedMcpSpec(
+      server,
+      manifest,
+      granted,
+      extensionId,
+      phase7Ctx,
+    );
+
+    if (proxyHandle) {
+      // Stop any prior proxy for this extension (re-load path) before
+      // recording the new handle.
+      const prior = this.mcpProxies.get(extensionId);
+      if (prior) {
+        void prior.stop().catch(() => {});
+      }
+      this.mcpProxies.set(extensionId, proxyHandle);
+    }
 
     const client = existing ?? new McpClient(sandboxedSpec);
     try {
       await client.connect();
     } catch (err) {
       this.mcpClients.delete(extensionId);
+      // Tear down the proxy we just started — its child process never
+      // came up, so the listener is leaked otherwise.
+      const failedProxy = this.mcpProxies.get(extensionId);
+      if (failedProxy) {
+        void failedProxy.stop().catch(() => {});
+        this.mcpProxies.delete(extensionId);
+      }
       throw err;
     }
     this.mcpClients.set(extensionId, client);
