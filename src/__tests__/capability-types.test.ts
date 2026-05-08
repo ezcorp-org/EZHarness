@@ -14,11 +14,12 @@ import {
   capabilityDeclarationToSet,
   firstMissingCapability,
   intersect,
+  intersectPermissions,
   isSubset,
   type Capability,
   type CapabilitySet,
 } from "../extensions/capability-types";
-import type { CapabilityDeclaration } from "../extensions/types";
+import type { CapabilityDeclaration, ExtensionPermissions } from "../extensions/types";
 
 // ── intersect ────────────────────────────────────────────────────────
 
@@ -316,5 +317,229 @@ describe("capabilityDeclarationToSet", () => {
         {},
       ),
     ).toEqual([]);
+  });
+});
+
+// ── intersectPermissions ────────────────────────────────────────────
+//
+// Phase 4 helper. Operates at the `ExtensionPermissions` shape level
+// so callers can persist the result back into
+// `conversation_extensions.effective_granted_permissions` without
+// flattening to/from `CapabilitySet`.
+
+describe("intersectPermissions — network", () => {
+  test("disjoint network arrays → no network in result", () => {
+    const a: ExtensionPermissions = { network: ["foo.com"], grantedAt: {} };
+    const b: ExtensionPermissions = { network: ["bar.com"], grantedAt: {} };
+    const r = intersectPermissions(a, b);
+    expect(r.network).toBeUndefined();
+  });
+
+  test("full overlap → returns the shared host list (deduped, lowercased)", () => {
+    const a: ExtensionPermissions = { network: ["FOO.com", "bar.com"], grantedAt: {} };
+    const b: ExtensionPermissions = { network: ["foo.com", "bar.com"], grantedAt: {} };
+    const r = intersectPermissions(a, b);
+    expect(r.network).toEqual(["foo.com", "bar.com"]);
+  });
+
+  test("partial overlap → only the shared host(s)", () => {
+    const a: ExtensionPermissions = { network: ["foo.com", "evil.com"], grantedAt: {} };
+    const b: ExtensionPermissions = { network: ["foo.com", "bar.com"], grantedAt: {} };
+    expect(intersectPermissions(a, b).network).toEqual(["foo.com"]);
+  });
+
+  test("one side missing network → result has no network field", () => {
+    const a: ExtensionPermissions = { grantedAt: {} };
+    const b: ExtensionPermissions = { network: ["foo.com"], grantedAt: {} };
+    expect(intersectPermissions(a, b).network).toBeUndefined();
+  });
+});
+
+describe("intersectPermissions — filesystem", () => {
+  test("identical paths → preserved", () => {
+    const a: ExtensionPermissions = { filesystem: ["/data"], grantedAt: {} };
+    const b: ExtensionPermissions = { filesystem: ["/data"], grantedAt: {} };
+    expect(intersectPermissions(a, b).filesystem).toEqual(["/data"]);
+  });
+
+  test("path-prefix intersection: /foo (a) + /foo/bar (b) → /foo/bar wins", () => {
+    const a: ExtensionPermissions = { filesystem: ["/foo"], grantedAt: {} };
+    const b: ExtensionPermissions = { filesystem: ["/foo/bar"], grantedAt: {} };
+    expect(intersectPermissions(a, b).filesystem).toEqual(["/foo/bar"]);
+  });
+
+  test("disjoint paths → no filesystem field", () => {
+    const a: ExtensionPermissions = { filesystem: ["/foo"], grantedAt: {} };
+    const b: ExtensionPermissions = { filesystem: ["/bar"], grantedAt: {} };
+    expect(intersectPermissions(a, b).filesystem).toBeUndefined();
+  });
+
+  test("non-prefix textual overlap (/foo vs /foobar) → no overlap", () => {
+    const a: ExtensionPermissions = { filesystem: ["/foo"], grantedAt: {} };
+    const b: ExtensionPermissions = { filesystem: ["/foobar"], grantedAt: {} };
+    expect(intersectPermissions(a, b).filesystem).toBeUndefined();
+  });
+});
+
+describe("intersectPermissions — shell, env, storage", () => {
+  test("shell AND truth table", () => {
+    const tt = (sa: boolean | undefined, sb: boolean | undefined) =>
+      intersectPermissions(
+        { shell: sa, grantedAt: {} } as ExtensionPermissions,
+        { shell: sb, grantedAt: {} } as ExtensionPermissions,
+      ).shell;
+    expect(tt(true, true)).toBe(true);
+    expect(tt(true, false)).toBeUndefined();
+    expect(tt(false, true)).toBeUndefined();
+    expect(tt(false, false)).toBeUndefined();
+    expect(tt(undefined, true)).toBeUndefined();
+  });
+
+  test("env array intersection", () => {
+    const a: ExtensionPermissions = { env: ["FOO", "BAR"], grantedAt: {} };
+    const b: ExtensionPermissions = { env: ["BAR", "BAZ"], grantedAt: {} };
+    expect(intersectPermissions(a, b).env).toEqual(["BAR"]);
+  });
+
+  test("storage AND truth table", () => {
+    expect(
+      intersectPermissions(
+        { storage: true, grantedAt: {} },
+        { storage: true, grantedAt: {} },
+      ).storage,
+    ).toBe(true);
+    expect(
+      intersectPermissions(
+        { storage: true, grantedAt: {} },
+        { storage: false, grantedAt: {} } as ExtensionPermissions,
+      ).storage,
+    ).toBeUndefined();
+  });
+});
+
+describe("intersectPermissions — capability tier", () => {
+  test("taskEvents AND truth table", () => {
+    const tt = (a: boolean | undefined, b: boolean | undefined) =>
+      intersectPermissions(
+        { taskEvents: a, grantedAt: {} } as ExtensionPermissions,
+        { taskEvents: b, grantedAt: {} } as ExtensionPermissions,
+      ).taskEvents;
+    expect(tt(true, true)).toBe(true);
+    expect(tt(true, false)).toBeUndefined();
+    expect(tt(undefined, true)).toBeUndefined();
+  });
+
+  test("agentConfig: both 'read' → 'read'; only one 'read' → absent", () => {
+    expect(
+      intersectPermissions(
+        { agentConfig: "read", grantedAt: {} },
+        { agentConfig: "read", grantedAt: {} },
+      ).agentConfig,
+    ).toBe("read");
+    expect(
+      intersectPermissions(
+        { agentConfig: "read", grantedAt: {} },
+        { grantedAt: {} },
+      ).agentConfig,
+    ).toBeUndefined();
+  });
+
+  test("spawnAgents: takes min of maxPerHour and maxConcurrent", () => {
+    const r = intersectPermissions(
+      { spawnAgents: { maxPerHour: 10, maxConcurrent: 5 }, grantedAt: {} },
+      { spawnAgents: { maxPerHour: 20, maxConcurrent: 2 }, grantedAt: {} },
+    );
+    expect(r.spawnAgents).toEqual({ maxPerHour: 10, maxConcurrent: 2 });
+  });
+
+  test("spawnAgents: missing on one side → result has no spawnAgents", () => {
+    const r = intersectPermissions(
+      { spawnAgents: { maxPerHour: 10 }, grantedAt: {} },
+      { grantedAt: {} },
+    );
+    expect(r.spawnAgents).toBeUndefined();
+  });
+
+  test("eventSubscriptions: array intersection", () => {
+    const r = intersectPermissions(
+      { eventSubscriptions: ["x:y", "a:b"], grantedAt: {} },
+      { eventSubscriptions: ["a:b", "c:d"], grantedAt: {} },
+    );
+    expect(r.eventSubscriptions).toEqual(["a:b"]);
+  });
+
+  test("appendMessages: AND on excludedDefault", () => {
+    const r1 = intersectPermissions(
+      { appendMessages: { excludedDefault: true }, grantedAt: {} },
+      { appendMessages: { excludedDefault: true }, grantedAt: {} },
+    );
+    expect(r1.appendMessages).toEqual({ excludedDefault: true });
+
+    const r2 = intersectPermissions(
+      { appendMessages: { excludedDefault: true }, grantedAt: {} },
+      { appendMessages: { excludedDefault: false }, grantedAt: {} },
+    );
+    expect(r2.appendMessages).toEqual({ excludedDefault: false });
+  });
+});
+
+describe("intersectPermissions — grantedAt audit trail", () => {
+  test("preserves the OLDER timestamp when both sides have it", () => {
+    const r = intersectPermissions(
+      { network: ["foo.com"], grantedAt: { network: 100 } },
+      { network: ["foo.com"], grantedAt: { network: 50 } },
+    );
+    expect(r.grantedAt.network).toBe(50);
+  });
+
+  test("drops grantedAt entries for fields that didn't survive", () => {
+    const r = intersectPermissions(
+      { shell: true, grantedAt: { shell: 100 } },
+      { grantedAt: { shell: 50 } } as ExtensionPermissions,
+    );
+    expect(r.grantedAt.shell).toBeUndefined();
+  });
+
+  test("uses the surviving side's grantedAt when only one side has a timestamp", () => {
+    const r = intersectPermissions(
+      { network: ["foo.com"], grantedAt: { network: 100 } },
+      { network: ["foo.com"], grantedAt: {} },
+    );
+    expect(r.grantedAt.network).toBe(100);
+  });
+});
+
+describe("intersectPermissions — empty / disjoint", () => {
+  test("two empty permission objects → empty result", () => {
+    const r = intersectPermissions({ grantedAt: {} }, { grantedAt: {} });
+    expect(r).toEqual({ grantedAt: {} });
+  });
+
+  test("one fully populated, the other empty → mostly empty result", () => {
+    const a: ExtensionPermissions = {
+      network: ["foo.com"],
+      filesystem: ["/data"],
+      shell: true,
+      storage: true,
+      env: ["FOO"],
+      taskEvents: true,
+      agentConfig: "read",
+      spawnAgents: { maxPerHour: 5 },
+      eventSubscriptions: ["x:y"],
+      appendMessages: { excludedDefault: true },
+      grantedAt: { shell: 1 },
+    };
+    const r = intersectPermissions(a, { grantedAt: {} });
+    expect(r.network).toBeUndefined();
+    expect(r.filesystem).toBeUndefined();
+    expect(r.shell).toBeUndefined();
+    expect(r.storage).toBeUndefined();
+    expect(r.env).toBeUndefined();
+    expect(r.taskEvents).toBeUndefined();
+    expect(r.agentConfig).toBeUndefined();
+    expect(r.spawnAgents).toBeUndefined();
+    expect(r.eventSubscriptions).toBeUndefined();
+    expect(r.appendMessages).toBeUndefined();
+    expect(r.grantedAt).toEqual({});
   });
 });

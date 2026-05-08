@@ -23,7 +23,7 @@
  * `_args` parameter is reserved for that future work.
  */
 
-import type { CapabilityDeclaration } from "./types";
+import type { CapabilityDeclaration, ExtensionPermissions } from "./types";
 
 export type CapabilityKind =
   | "network"
@@ -206,6 +206,184 @@ export function capabilityDeclarationToSet(
   }
 
   return caps;
+}
+
+/**
+ * Intersect two `ExtensionPermissions` shapes (manifest-level), the way
+ * Phase 4's spawn-assignment uses to clip a child conversation's grants
+ * by the parent's effective grants. Mirrors the semantics of
+ * `intersect(CapabilitySet)` but stays at the manifest-permissions
+ * level so callers can persist the result back into
+ * `conversation_extensions.effective_granted_permissions` without an
+ * intermediate flatten/lift step.
+ *
+ * Per-field rules:
+ *   • `network`     — array intersection, lowercased + deduped
+ *   • `filesystem`  — path-prefix intersection: a path survives only
+ *                     when it has a covering prefix in BOTH sides
+ *                     (mirrors `capabilityCovers` for `fs.*`)
+ *   • `shell`       — boolean AND
+ *   • `env`         — array intersection
+ *   • `storage`     — boolean AND
+ *   • `taskEvents`  — boolean AND
+ *   • `agentConfig` — both sides "read" → "read", else absent
+ *   • `spawnAgents` — min(maxPerHour) + min(maxConcurrent), absent if
+ *                     either side absent (the more restrictive wins)
+ *   • `appendMessages` — both sides present + AND on `excludedDefault`
+ *   • `eventSubscriptions` — array intersection
+ *
+ * `grantedAt` is rebuilt from the keys that survived intersection,
+ * preferring the OLDER timestamp of either side so an audit trail
+ * can't reset its issue date by intersection. The result has `grantedAt`
+ * with only the keys that survived — empty `{}` when nothing did.
+ */
+export function intersectPermissions(
+  a: ExtensionPermissions,
+  b: ExtensionPermissions,
+): ExtensionPermissions {
+  const out: ExtensionPermissions = { grantedAt: {} };
+
+  // network — array intersection (lowercased)
+  if (a.network && b.network) {
+    const bSet = new Set(b.network.map((h) => h.toLowerCase()));
+    const seen = new Set<string>();
+    const list: string[] = [];
+    for (const h of a.network) {
+      const k = h.toLowerCase();
+      if (bSet.has(k) && !seen.has(k)) {
+        seen.add(k);
+        list.push(k);
+      }
+    }
+    if (list.length > 0) out.network = list;
+  }
+
+  // filesystem — path-prefix intersection (a path survives if it's in
+  // BOTH allowlists' prefix-cover relations). The narrower of two
+  // prefix-overlapping paths wins (e.g. `/foo` vs `/foo/bar` →
+  // `/foo/bar`).
+  if (a.filesystem && b.filesystem) {
+    const survivors = new Set<string>();
+    const covers = (g: string, n: string) =>
+      g === n || n.startsWith(g + "/");
+    for (const pa of a.filesystem) {
+      for (const pb of b.filesystem) {
+        if (covers(pa, pb)) survivors.add(pb);
+        else if (covers(pb, pa)) survivors.add(pa);
+      }
+    }
+    if (survivors.size > 0) out.filesystem = [...survivors];
+  }
+
+  // shell — boolean AND
+  if (a.shell === true && b.shell === true) {
+    out.shell = true;
+  }
+
+  // env — array intersection
+  if (a.env && b.env) {
+    const bSet = new Set(b.env);
+    const seen = new Set<string>();
+    const list: string[] = [];
+    for (const e of a.env) {
+      if (bSet.has(e) && !seen.has(e)) {
+        seen.add(e);
+        list.push(e);
+      }
+    }
+    if (list.length > 0) out.env = list;
+  }
+
+  // storage — boolean AND
+  if (a.storage === true && b.storage === true) {
+    out.storage = true;
+  }
+
+  // taskEvents — boolean AND
+  if (a.taskEvents === true && b.taskEvents === true) {
+    out.taskEvents = true;
+  }
+
+  // agentConfig — both must be "read" for "read" to survive
+  if (a.agentConfig === "read" && b.agentConfig === "read") {
+    out.agentConfig = "read";
+  }
+
+  // spawnAgents — both sides must declare; take the min of each
+  // numeric ceiling so the more restrictive wins.
+  if (a.spawnAgents && b.spawnAgents) {
+    const hourly = Math.min(a.spawnAgents.maxPerHour, b.spawnAgents.maxPerHour);
+    const concurrentA = a.spawnAgents.maxConcurrent;
+    const concurrentB = b.spawnAgents.maxConcurrent;
+    let concurrent: number | undefined;
+    if (concurrentA !== undefined && concurrentB !== undefined) {
+      concurrent = Math.min(concurrentA, concurrentB);
+    } else if (concurrentA !== undefined) {
+      concurrent = concurrentA;
+    } else if (concurrentB !== undefined) {
+      concurrent = concurrentB;
+    }
+    if (hourly > 0) {
+      out.spawnAgents = concurrent !== undefined
+        ? { maxPerHour: hourly, maxConcurrent: concurrent }
+        : { maxPerHour: hourly };
+    }
+  }
+
+  // appendMessages — both sides must declare; AND `excludedDefault`
+  // (true ∧ true is the only safe shape — the field's intent is "force
+  // exclude unless both sides agreed otherwise").
+  if (a.appendMessages && b.appendMessages) {
+    out.appendMessages = {
+      excludedDefault:
+        a.appendMessages.excludedDefault === true &&
+        b.appendMessages.excludedDefault === true,
+    };
+  }
+
+  // eventSubscriptions — array intersection (case-sensitive event names)
+  if (a.eventSubscriptions && b.eventSubscriptions) {
+    const bSet = new Set(b.eventSubscriptions);
+    const seen = new Set<string>();
+    const list: string[] = [];
+    for (const e of a.eventSubscriptions) {
+      if (bSet.has(e) && !seen.has(e)) {
+        seen.add(e);
+        list.push(e);
+      }
+    }
+    if (list.length > 0) out.eventSubscriptions = list;
+  }
+
+  // grantedAt — keep keys whose corresponding permission survived;
+  // prefer the older grant timestamp (more conservative audit trail).
+  const aAt = a.grantedAt ?? {};
+  const bAt = b.grantedAt ?? {};
+  for (const key of Object.keys({ ...aAt, ...bAt })) {
+    const survived =
+      (key === "network" && out.network) ||
+      (key === "filesystem" && out.filesystem) ||
+      (key === "shell" && out.shell) ||
+      (key === "env" && out.env) ||
+      (key === "storage" && out.storage) ||
+      (key === "taskEvents" && out.taskEvents) ||
+      (key === "agentConfig" && out.agentConfig) ||
+      (key === "spawnAgents" && out.spawnAgents) ||
+      (key === "appendMessages" && out.appendMessages) ||
+      (key === "eventSubscriptions" && out.eventSubscriptions);
+    if (!survived) continue;
+    const ta = typeof aAt[key] === "number" ? aAt[key] : undefined;
+    const tb = typeof bAt[key] === "number" ? bAt[key] : undefined;
+    if (ta !== undefined && tb !== undefined) {
+      out.grantedAt[key] = Math.min(ta, tb);
+    } else if (ta !== undefined) {
+      out.grantedAt[key] = ta;
+    } else if (tb !== undefined) {
+      out.grantedAt[key] = tb;
+    }
+  }
+
+  return out;
 }
 
 /** Map manifest-level custom keys to namespaced capability kinds. */
