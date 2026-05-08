@@ -21,6 +21,12 @@
  *      `Bun.spawn`).
  */
 
+import {
+  classifyFetch,
+  parsePermittedHosts,
+  parseToolCaps,
+} from "./network-wrapper";
+
 const NETWORK_MODULES = [
   "http",
   "https",
@@ -126,6 +132,16 @@ if (!networkAllowed) {
     BunNs.serve = makeDenier("network", "Bun.serve");
     BunNs.udpSocket = makeDenier("network", "Bun.udpSocket");
   }
+} else {
+  // Network IS granted — but the grant is per-host, not blanket. Wrap
+  // `globalThis.fetch` so every call is gated against the spawn-time
+  // allowlist (`EZCORP_PERMITTED_HOSTS`) AND the per-tool override
+  // (`EZCORP_TOOL_NETWORK_CAPS`) read via the SDK's ALS tool context.
+  //
+  // Internal hosts (localhost / RFC-1918 / link-local) are forwarded
+  // to the host via `ezcorp/network.internal` — the host PDP enforces
+  // and performs the fetch host-side (SSRF carve-out).
+  installFetchWrapper();
 }
 
 // Phase 2: WebSocket / EventSource / Worker are ALWAYS denied in
@@ -180,6 +196,168 @@ if (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") {
   "native",
   "Worker — extension subprocess cannot spawn workers",
 );
+
+/**
+ * Install the per-host + per-tool fetch allowlist wrapper.
+ *
+ * Called only when `EZCORP_NETWORK_ALLOWED=1` — the no-network branch
+ * already replaced `globalThis.fetch` with an outright denier above.
+ *
+ * The wrapper:
+ *   1. Captures the original fetch (the real Bun builtin).
+ *   2. Reads `EZCORP_PERMITTED_HOSTS` + `EZCORP_TOOL_NETWORK_CAPS` once
+ *      at install time. The host populates these at spawn — no live
+ *      reload needed.
+ *   3. For every fetch, classifies via `classifyFetch` and routes:
+ *      - `invalid`  → throw
+ *      - `internal` → reverse-RPC `ezcorp/network.internal`
+ *      - `deny`     → throw with the wrapper's reason
+ *      - `external` → forward to original fetch
+ *
+ * The active tool name is read via the SDK's `getToolContext()` (ALS).
+ * The SDK is part of the extension's own module graph — by the time
+ * the wrapper runs (post-import-time, when the extension calls
+ * `fetch(...)`), the SDK is loaded. We do a dynamic `import(...)` to
+ * keep the preload itself zero-dep on the SDK.
+ */
+function installFetchWrapper(): void {
+  const PERMITTED_HOSTS = parsePermittedHosts(process.env.EZCORP_PERMITTED_HOSTS);
+  const TOOL_CAPS = parseToolCaps(process.env.EZCORP_TOOL_NETWORK_CAPS);
+
+  const originalFetch = globalThis.fetch.bind(globalThis);
+
+  // Lazy import — the SDK is part of the extension's module graph.
+  // First-time fetch pays a one-time import cost; subsequent calls
+  // reuse the cached module. Awaiting this before each fetch keeps the
+  // wrapper tolerant of an extension that calls fetch at module init
+  // (before the SDK has been imported by the extension's main entry).
+  type ToolContextMod = {
+    getToolContext?: () => { toolName?: string } | undefined;
+  };
+  let cachedToolContextMod: ToolContextMod | undefined;
+  let toolContextLoaded = false;
+
+  async function readToolName(): Promise<string | undefined> {
+    if (!toolContextLoaded) {
+      toolContextLoaded = true;
+      try {
+        cachedToolContextMod = (await import(
+          "@ezcorp/sdk/runtime"
+        )) as unknown as ToolContextMod;
+      } catch {
+        // SDK not installed (e.g. a test extension that bypasses the
+        // SDK). Treat as ALS-unset — fall back to extension-wide ceiling.
+        cachedToolContextMod = {};
+      }
+    }
+    return cachedToolContextMod?.getToolContext?.()?.toolName;
+  }
+
+  /**
+   * Dynamically import the SDK channel and call the host-side
+   * `ezcorp/network.internal` handler. Reconstruct a Response from the
+   * `{status, headers, body}` JSON the host returns. The body is
+   * base64-encoded — the host caps response size at 10MB.
+   */
+  async function internalFetchViaRpc(
+    urlStr: string,
+    init?: RequestInit,
+  ): Promise<Response> {
+    const sdk = (await import("@ezcorp/sdk/runtime")) as {
+      getChannel?: () => {
+        request<T>(method: string, params: unknown, timeoutMs?: number): Promise<T>;
+      };
+    };
+    if (!sdk.getChannel) {
+      throw new Error(
+        "Extension sandbox: ezcorp/network.internal requires @ezcorp/sdk to be installed in the extension's module graph",
+      );
+    }
+    const ch = sdk.getChannel();
+    // Forward the init body as-is via JSON-RPC. Bodies that are streams
+    // / FormData / Blob aren't supported on the internal lane in
+    // Phase 2 (the JSON-RPC transport doesn't carry binary frames yet —
+    // Phase 3 adds that). For Phase 2, methods + headers + string bodies
+    // cover the common cases (DB ping, internal API call).
+    const params = {
+      url: urlStr,
+      init: serializeInit(init),
+    };
+    const result = await ch.request<{
+      status: number;
+      statusText: string;
+      headers: Record<string, string>;
+      body: string;
+    }>("ezcorp/network.internal", params);
+    const bytes = Uint8Array.from(atob(result.body), (c) => c.charCodeAt(0));
+    return new Response(bytes, {
+      status: result.status,
+      statusText: result.statusText,
+      headers: result.headers,
+    });
+  }
+
+  function serializeInit(init?: RequestInit): Record<string, unknown> | undefined {
+    if (!init) return undefined;
+    const out: Record<string, unknown> = {};
+    if (init.method) out.method = init.method;
+    if (init.headers) {
+      // Headers may be a Headers instance, plain object, or [k,v][] —
+      // normalize to a plain record.
+      if (init.headers instanceof Headers) {
+        const h: Record<string, string> = {};
+        init.headers.forEach((v, k) => {
+          h[k] = v;
+        });
+        out.headers = h;
+      } else if (Array.isArray(init.headers)) {
+        const h: Record<string, string> = {};
+        for (const pair of init.headers as [string, string][]) {
+          h[pair[0]] = pair[1];
+        }
+        out.headers = h;
+      } else {
+        out.headers = { ...(init.headers as Record<string, string>) };
+      }
+    }
+    if (init.body !== undefined && init.body !== null) {
+      // Phase 2: only string bodies cross the reverse-RPC boundary.
+      // Larger / streaming bodies for internal hosts will land in Phase 3.
+      if (typeof init.body === "string") out.body = init.body;
+    }
+    return out;
+  }
+
+  (globalThis as { fetch: unknown }).fetch = async function wrappedFetch(
+    input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> {
+    const urlStr =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : (input as Request).url;
+
+    const toolName = await readToolName();
+    const decision = classifyFetch(urlStr, {
+      permittedHosts: PERMITTED_HOSTS,
+      toolCaps: TOOL_CAPS,
+      toolName,
+    });
+
+    switch (decision.kind) {
+      case "invalid":
+        throw new Error(decision.reason);
+      case "deny":
+        throw new Error(decision.reason);
+      case "internal":
+        return internalFetchViaRpc(urlStr, init);
+      case "external":
+        return originalFetch(input as Parameters<typeof originalFetch>[0], init);
+    }
+  };
+}
 
 // Monkey-patch require() to throw early with a clear message before the cached
 // (poisoned) module object is ever returned. This catches `require("http")` in
