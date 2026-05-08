@@ -366,23 +366,47 @@ try {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const Module = require("module") as {
     prototype: { require: (id: string) => unknown };
+    createRequire?: (filename: string | URL) => (id: string) => unknown;
   };
+
+  function checkBlockedId(id: string): void {
+    if (!blockedRequireIds.has(id)) return;
+    const bare = id.replace(/^node:/, "");
+    if ((NETWORK_MODULES as readonly string[]).includes(bare)) {
+      makeDenier("network", `${id} module`)();
+    }
+    if ((SHELL_MODULES as readonly string[]).includes(bare)) {
+      makeDenier("shell", `${id} module`)();
+    }
+  }
+
   const originalRequire = Module.prototype.require;
   Module.prototype.require = function patchedRequire(
     this: unknown,
     id: string,
   ): unknown {
-    if (blockedRequireIds.has(id)) {
-      const bare = id.replace(/^node:/, "");
-      if ((NETWORK_MODULES as readonly string[]).includes(bare)) {
-        makeDenier("network", `${id} module`)();
-      }
-      if ((SHELL_MODULES as readonly string[]).includes(bare)) {
-        makeDenier("shell", `${id} module`)();
-      }
-    }
+    checkBlockedId(id);
     return originalRequire.apply(this, [id]);
   };
+
+  // Phase 2: an extension can build a fresh require via
+  // `import { createRequire } from "node:module"; const r = createRequire(import.meta.url);`.
+  // The returned `r` is NOT the patched `Module.prototype.require` —
+  // it's a NEW require closure created from scratch. Without patching
+  // the factory, `r("http")` returns the cached (poisoned) http module
+  // — which still throws on property access, but the require call
+  // ITSELF doesn't throw with our permission-label message.
+  // Patching the factory closes that gap.
+  if (typeof Module.createRequire === "function") {
+    const origCreate = Module.createRequire.bind(Module);
+    Module.createRequire = (filename: string | URL): ((id: string) => unknown) => {
+      const inner = origCreate(filename);
+      return function patchedDerivedRequire(id: string): unknown {
+        checkBlockedId(id);
+        return inner(id);
+      };
+    };
+  }
 } catch {
   /* Module patch is best-effort; poisoned module objects still provide a backstop. */
 }

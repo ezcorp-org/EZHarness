@@ -345,3 +345,64 @@ describe("sec-SB2/Phase2: Bun.dlopen always denied (no FFI permission)", () => {
     expect(out.stdout).toMatch(/blocked|FFI|never granted/);
   });
 });
+
+// ── Phase 2: createRequire factory patch ─────────────────────────
+//
+// `Module.prototype.require` is patched at preload time, but
+// `createRequire(...)` returns a fresh require closure that bypasses
+// the prototype patch. Phase 2 also patches the factory so derived
+// requires throw the same permission-label message.
+//
+// `bun -e` exposes `import.meta.url` but Bun crashes silently when
+// `createRequire(import.meta.url)` is called from a `-e` snippet —
+// pre-existing Bun behavior, not Phase 2 related. Tests use an
+// explicit `file://` URL so the factory patch is exercised directly.
+
+const FAKE_REQUIRE_BASE = `'file://${resolve(import.meta.dir, "../..").replace(/\\/g, "/")}/x.js'`;
+
+describe("sec-SB2/Phase2: createRequire factory derived requires also block", () => {
+  test("createRequire-derived require('http') throws when network not granted", async () => {
+    const out = await runUnderPreload(
+      probeSync(
+        `const { createRequire } = require('node:module'); ` +
+        `const r = createRequire(${FAKE_REQUIRE_BASE}); ` +
+        `r('http').createServer`,
+      ),
+    );
+    expect(out.stdout).toMatch(NETWORK_DENY);
+  });
+
+  test("createRequire-derived require('child_process') throws when shell not granted", async () => {
+    const out = await runUnderPreload(
+      probeSync(
+        `const { createRequire } = require('node:module'); ` +
+        `const r = createRequire(${FAKE_REQUIRE_BASE}); ` +
+        `r('child_process').spawn`,
+      ),
+    );
+    expect(out.stdout).toMatch(/requires 'shell' permission/);
+  });
+
+  test("createRequire-derived require('node:http') is also blocked", async () => {
+    const out = await runUnderPreload(
+      probeSync(
+        `const { createRequire } = require('node:module'); ` +
+        `const r = createRequire(${FAKE_REQUIRE_BASE}); ` +
+        `r('node:http').createServer`,
+      ),
+    );
+    expect(out.stdout).toMatch(NETWORK_DENY);
+  });
+
+  test("createRequire still works for non-blocked modules when network granted", async () => {
+    const out = await runUnderPreload(
+      probeSync(
+        `const { createRequire } = require('node:module'); ` +
+        `const r = createRequire(${FAKE_REQUIRE_BASE}); ` +
+        `if (typeof r('node:path').join !== "function") throw new Error("path.join not a function")`,
+      ),
+      { networkAllowed: true },
+    );
+    expect(out.stdout).toMatch(/^OK$/m);
+  });
+});
