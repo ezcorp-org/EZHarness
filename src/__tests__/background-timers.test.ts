@@ -81,6 +81,18 @@ function installModuleMocks(): void {
       stop() {}
     },
   }));
+  // Cap-expiry Phase 3: stub the HostMaintenanceDaemon for the same
+  // reason — that daemon's lifecycle / sweep coverage lives in
+  // src/__tests__/host-maintenance-daemon.test.ts, and standing it up
+  // here would require a real DB. The stub returns `true` from start()
+  // so the boot block's "started" log fires (mirrors the schedule-
+  // daemon stub above).
+  mock.module("../extensions/host-maintenance-daemon", () => ({
+    HostMaintenanceDaemon: class {
+      start() { return Promise.resolve(true); }
+      stop() {}
+    },
+  }));
   mock.module("../logger", () => ({ logger: loggerSpy }));
 }
 

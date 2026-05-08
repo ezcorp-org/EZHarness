@@ -5,17 +5,26 @@ import { cleanupOldErrors } from "../db/queries/error-logs";
 import { cleanupOldSdkCapabilityCalls, clampDays } from "../db/queries/sdk-capability-calls";
 import { getSetting } from "../db/queries/settings";
 import { ScheduleDaemon } from "../extensions/schedule-daemon";
+import { HostMaintenanceDaemon } from "../extensions/host-maintenance-daemon";
 import { logger } from "../logger";
 
 const log = logger.child("startup.timers");
 
 let started = false;
 let scheduleDaemon: ScheduleDaemon | undefined;
+let permSweepDaemon: HostMaintenanceDaemon | undefined;
 
 /** Test-only handle to the daemon singleton — lets tests assert the
  *  daemon was constructed and tear it down between cases. */
 export function _getScheduleDaemonForTests(): ScheduleDaemon | undefined {
   return scheduleDaemon;
+}
+
+/** Test-only handle to the perm-sweep daemon singleton — lets tests
+ *  assert the daemon was constructed and tear it down between cases.
+ *  Mirror of `_getScheduleDaemonForTests`. */
+export function _getPermSweepDaemonForTests(): HostMaintenanceDaemon | undefined {
+  return permSweepDaemon;
 }
 
 /**
@@ -112,6 +121,30 @@ export async function startBackgroundTimers(): Promise<void> {
     log.warn("Failed to start ScheduleDaemon", { error: String(e) });
   }
 
+  // Cap-expiry Phase 3: HostMaintenanceDaemon — hourly capability-expiry
+  // sweep. Sibling to ScheduleDaemon (host-scoped, not per-extension —
+  // see locked design decision § 2.2). Gated by
+  // `EZCORP_DISABLE_PERM_SWEEP=1` (strict — only the literal "1") for
+  // emergency kill-switch + test environments. Failure-mode contract:
+  // if the daemon fails to start (lockfile sibling, or any other
+  // exception), log + drop the handle; do NOT block the rest of boot.
+  // The per-tick sweep is itself crash-safe (see
+  // `host-maintenance-daemon.ts:tickOnce`).
+  try {
+    permSweepDaemon = new HostMaintenanceDaemon();
+    const ok = await permSweepDaemon.start();
+    if (ok) {
+      log.info("HostMaintenanceDaemon started");
+    } else {
+      // false-return covers both kill-switch and lockfile refusal;
+      // both are already logged inside start() so we don't double-log.
+      permSweepDaemon = undefined;
+    }
+  } catch (e) {
+    log.warn("Failed to start HostMaintenanceDaemon", { error: String(e) });
+    permSweepDaemon = undefined;
+  }
+
   // Surface coverage audit (opt-in via global:auditIntervalHours,
   // default 0 = disabled — audits make LLM calls so we don't surprise
   // users with cost. On-demand runs via the surface-audit agent always
@@ -165,5 +198,9 @@ export function _resetForTests(): void {
   if (scheduleDaemon) {
     scheduleDaemon.stop();
     scheduleDaemon = undefined;
+  }
+  if (permSweepDaemon) {
+    permSweepDaemon.stop();
+    permSweepDaemon = undefined;
   }
 }
