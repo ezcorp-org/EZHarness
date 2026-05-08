@@ -24,8 +24,32 @@ import { resolveExtensionSettings } from "../db/queries/extension-settings";
 import type { PermissionEngine } from "./permission-engine";
 import { capabilityDeclarationToSet, type CapabilitySet } from "./capability-types";
 import { handleNetworkInternalRpc, type NetworkInternalContext } from "./network-handler";
+import {
+  handleFsReadRpc,
+  handleFsWriteRpc,
+  handleFsListRpc,
+  handleFsStatRpc,
+  handleFsExistsRpc,
+  handleFsMkdirRpc,
+  handleFsUnlinkRpc,
+  type FsHandlerContext,
+  type FsRpcResponse,
+} from "./fs-handler";
 
 export const MAX_TOOL_CALLS_PER_TURN = 10;
+
+/**
+ * Phase 3: tracks which extensions have already received the
+ * `ezcorp/fs` deprecation warning. The shim emits exactly ONE warn
+ * per extension per process — repeat calls are silent. Test files
+ * reset via `_resetFsDeprecationWarningsForTests`.
+ */
+const fsDeprecationWarned = new Set<string>();
+
+/** Test-only: clear the deprecation-warning tracker. */
+export function _resetFsDeprecationWarningsForTests(): void {
+  fsDeprecationWarned.clear();
+}
 
 /**
  * Wraps a pi extension tool definition + ToolExecutor into an AgentTool
@@ -418,14 +442,41 @@ export class ToolExecutor {
   }
 
   /**
-   * Handle a ezcorp/fs reverse RPC request from a subprocess.
-   * Mediates filesystem operations through checkFilesystemPermission.
-   * Calls denyAndDisable on violations, disabling the extension.
+   * @deprecated Phase 3: replaced by `ezcorp/fs.{read,write,list,stat,
+   * exists,mkdir,unlink}` host-mediated handlers (`./fs-handler.ts`).
+   * The path-check shim stays for one release so existing extensions
+   * keep working unchanged. Phase 6 deletes it.
+   *
+   * Behavior:
+   *  - Validates params (path, operation).
+   *  - Runs `checkFilesystemPermission` (default mode "read") for the
+   *    same allow/deny decision the old handler returned.
+   *  - On allow: returns `{allowed, resolvedPath}` — IDENTICAL to the
+   *    pre-Phase-3 shape. The subprocess still does the actual IO,
+   *    using the now-poisoned `Bun.file` / `node:fs` primitives — which
+   *    means **bundled extensions still calling this shim will have to
+   *    route their reads through `ezcorp/fs.read` once they're
+   *    migrated**. The shim itself doesn't fail; it just prints a
+   *    warning so authors know to migrate.
+   *  - On deny: same `denyAndDisable` + -32001 as before.
+   *  - One-time `console.warn` per extension on FIRST call only (a
+   *    Set tracks which extensions have already warned). Stops noisy
+   *    repeated warns at runtime; tests reset via
+   *    `_resetDeprecationWarningsForTests`.
    */
   async handlePiFs(
     extensionId: string,
     req: JsonRpcRequest,
   ): Promise<JsonRpcResponse> {
+    if (!fsDeprecationWarned.has(extensionId)) {
+      fsDeprecationWarned.add(extensionId);
+      console.warn(
+        `[ezcorp/fs] deprecated: extension "${extensionId}" called the path-check shim. ` +
+          "Migrate to ezcorp/fs.read | write | list | stat | exists | mkdir | unlink " +
+          "(host-mediated; SDK helpers in @ezcorp/sdk/runtime). " +
+          "This shim is removed in milestone v2.",
+      );
+    }
     const params = (req.params ?? {}) as Record<string, unknown>;
     const operation = params.operation as string;
     const path = params.path as string;
@@ -457,6 +508,54 @@ export class ToolExecutor {
       id: req.id,
       result: { allowed: true, resolvedPath: result.resolvedPath },
     };
+  }
+
+  // ── Phase 3: per-operation `ezcorp/fs.*` handlers ─────────────────
+
+  /** Build the FsHandlerContext shared by every fs.* handler. */
+  private buildFsHandlerCtx(extensionId: string): FsHandlerContext {
+    return {
+      extensionId,
+      conversationId: this.currentConversationId ?? "unknown",
+      userId: this.currentUserId ?? "unknown",
+      engine: this.engine,
+      registry: this.registry,
+    };
+  }
+
+  /** `ezcorp/fs.read` — host-mediated read. Streams >1MB responses. */
+  async handlePiFsRead(extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse> {
+    return handleFsReadRpc(req, this.buildFsHandlerCtx(extensionId));
+  }
+
+  /** `ezcorp/fs.write` — host-mediated write. */
+  async handlePiFsWrite(extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse> {
+    return handleFsWriteRpc(req, this.buildFsHandlerCtx(extensionId));
+  }
+
+  /** `ezcorp/fs.list` — host-mediated directory list. */
+  async handlePiFsList(extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse> {
+    return handleFsListRpc(req, this.buildFsHandlerCtx(extensionId));
+  }
+
+  /** `ezcorp/fs.stat` — host-mediated stat. */
+  async handlePiFsStat(extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse> {
+    return handleFsStatRpc(req, this.buildFsHandlerCtx(extensionId));
+  }
+
+  /** `ezcorp/fs.exists` — host-mediated existence check. */
+  async handlePiFsExists(extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse> {
+    return handleFsExistsRpc(req, this.buildFsHandlerCtx(extensionId));
+  }
+
+  /** `ezcorp/fs.mkdir` — host-mediated mkdir. */
+  async handlePiFsMkdir(extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse> {
+    return handleFsMkdirRpc(req, this.buildFsHandlerCtx(extensionId));
+  }
+
+  /** `ezcorp/fs.unlink` — host-mediated unlink. */
+  async handlePiFsUnlink(extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse> {
+    return handleFsUnlinkRpc(req, this.buildFsHandlerCtx(extensionId));
   }
 
   /**
@@ -785,6 +884,33 @@ export class ToolExecutor {
       if (req.method === "ezcorp/invoke") {
         return this.handlePiInvoke(extensionId, req);
       }
+      // Phase 3: per-operation fs.* handlers come BEFORE the legacy
+      // path-check `ezcorp/fs` shim. Method strings are exact-match
+      // (no fallthrough), so this ordering is just for readability.
+      if (req.method === "ezcorp/fs.read") {
+        return this.handlePiFsRead(extensionId, req) as unknown as Promise<JsonRpcResponse>;
+      }
+      if (req.method === "ezcorp/fs.write") {
+        return this.handlePiFsWrite(extensionId, req) as unknown as Promise<JsonRpcResponse>;
+      }
+      if (req.method === "ezcorp/fs.list") {
+        return this.handlePiFsList(extensionId, req) as unknown as Promise<JsonRpcResponse>;
+      }
+      if (req.method === "ezcorp/fs.stat") {
+        return this.handlePiFsStat(extensionId, req) as unknown as Promise<JsonRpcResponse>;
+      }
+      if (req.method === "ezcorp/fs.exists") {
+        return this.handlePiFsExists(extensionId, req) as unknown as Promise<JsonRpcResponse>;
+      }
+      if (req.method === "ezcorp/fs.mkdir") {
+        return this.handlePiFsMkdir(extensionId, req) as unknown as Promise<JsonRpcResponse>;
+      }
+      if (req.method === "ezcorp/fs.unlink") {
+        return this.handlePiFsUnlink(extensionId, req) as unknown as Promise<JsonRpcResponse>;
+      }
+      // Legacy path-check shim — see `handlePiFs` JSDoc for the
+      // deprecation roadmap. Emits a one-time console.warn per
+      // extension on first call.
       if (req.method === "ezcorp/fs") {
         return this.handlePiFs(extensionId, req);
       }
