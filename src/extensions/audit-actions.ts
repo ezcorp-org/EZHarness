@@ -119,6 +119,24 @@ export const EXT_AUDIT_ACTIONS = {
    *  `{auditId, toolName, capabilityKind, capabilityValue, promptId,
    *  conversationId}`. */
   PERM_PROMPTED: "ext:perm:prompted",
+  // ── Phase 5: Bundled cap-ceiling + manifest tamper detection ──
+  /**
+   * `bundled.ts` install path clamped a user-requested grant to the
+   * hardcoded `bundled-ceiling.ts` ceiling — at least one field was
+   * narrowed by `intersectPermissions`. The persisted grant is the
+   * clamped value; the audit metadata records the diff so an admin
+   * can investigate. Metadata: `{extensionName, requested, effective}`
+   * — both shapes are `ExtensionPermissions` JSON.
+   */
+  BUNDLED_CEILING_CLAMP: "ext:bundled:ceiling-clamp",
+  /**
+   * `bundled.ts` manifest-refresh path detected a mismatch between the
+   * on-disk manifest and `manifest.lock.json` (tool-list, entrypoint,
+   * or version). Extension is disabled; refresh is aborted; runtime
+   * enforcement keeps the prior DB grant. Metadata:
+   * `{extensionName, reason, expected, actual}`.
+   */
+  BUNDLED_MANIFEST_TAMPER: "ext:bundled:manifest-tamper",
 } as const;
 
 // Re-export the three Phase 1 PDP action codes as named constants for
@@ -129,6 +147,12 @@ export const EXT_AUDIT_ACTIONS = {
 export const AUDIT_PERM_ALLOWED = "ext:perm:allowed";
 export const AUDIT_PERM_DENIED = "ext:perm:denied";
 export const AUDIT_PERM_PROMPTED = "ext:perm:prompted";
+
+// Phase 5 named-constant exports — same string values as the
+// `EXT_AUDIT_ACTIONS.BUNDLED_*` keys above; provided for direct import
+// at the call sites in `bundled.ts`.
+export const AUDIT_BUNDLED_CEILING_CLAMP = "ext:bundled:ceiling-clamp";
+export const AUDIT_BUNDLED_MANIFEST_TAMPER = "ext:bundled:manifest-tamper";
 
 export type ExtAuditAction = typeof EXT_AUDIT_ACTIONS[keyof typeof EXT_AUDIT_ACTIONS];
 
