@@ -76,6 +76,21 @@ export function buildAllowedEnv(
     allowedEnv.EZCORP_PERMITTED_HOSTS = grantedPerms.network.join(",");
   }
 
+  // Phase 3: EZCORP_FS_ALLOWED is informational ONLY — the SDK's
+  // fs helpers (`@ezcorp/sdk/runtime/fs.fsRead/...`) read it to
+  // fast-fail with a clean "no filesystem grant" error before
+  // round-tripping to the host's `ezcorp/fs.*` reverse-RPC. The
+  // sandbox-preload deniers fire regardless of this flag — granted
+  // access does NOT unblock raw `Bun.file` / `node:fs` (see
+  // sandbox-preload.ts FS_MODULES block + plan pillar 6). Mirrors
+  // the existing `EZCORP_NETWORK_ALLOWED` / `EZCORP_SHELL_ALLOWED`
+  // pattern at `subprocess.ts:168-169`, but emitted here so the
+  // grant test (`grantedPerms.filesystem.length > 0`) lives next to
+  // the granted-network test for symmetry.
+  if (grantedPerms.filesystem && grantedPerms.filesystem.length > 0) {
+    allowedEnv.EZCORP_FS_ALLOWED = "1";
+  }
+
   // Phase 2: EZCORP_TOOL_NETWORK_CAPS — JSON-serialized
   // `{toolName: string[]}` mapping, parsed by the in-sandbox fetch
   // wrapper to enforce per-tool host allowlists narrower than the

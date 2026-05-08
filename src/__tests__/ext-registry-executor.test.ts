@@ -272,6 +272,36 @@ describe("buildAllowedEnv", () => {
     const env = buildAllowedEnv(manifest, granted, "ext-no-manifest");
     expect(env.API_KEY).toBeUndefined();
   });
+
+  // Phase 3: EZCORP_FS_ALLOWED informational flag emission.
+  test("emits EZCORP_FS_ALLOWED=1 when granted has any filesystem path", () => {
+    const manifest = makeManifest({ permissions: { filesystem: ["/tmp/x"] } });
+    const granted: ExtensionPermissions = {
+      filesystem: ["/tmp/x"],
+      grantedAt: {},
+    };
+    const env = buildAllowedEnv(manifest, granted, "ext-fs-1");
+    expect(env.EZCORP_FS_ALLOWED).toBe("1");
+  });
+
+  test("does NOT emit EZCORP_FS_ALLOWED when granted.filesystem is empty / undefined", () => {
+    const manifest = makeManifest({ permissions: {} });
+    const granted: ExtensionPermissions = { grantedAt: {} };
+    const env = buildAllowedEnv(manifest, granted, "ext-fs-empty");
+    expect(env.EZCORP_FS_ALLOWED).toBeUndefined();
+  });
+
+  test("emits EZCORP_FS_ALLOWED for multi-path grants too", () => {
+    const manifest = makeManifest({
+      permissions: { filesystem: ["/tmp/a", "/tmp/b"] },
+    });
+    const granted: ExtensionPermissions = {
+      filesystem: ["/tmp/a", "/tmp/b"],
+      grantedAt: {},
+    };
+    const env = buildAllowedEnv(manifest, granted, "ext-fs-multi");
+    expect(env.EZCORP_FS_ALLOWED).toBe("1");
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════
