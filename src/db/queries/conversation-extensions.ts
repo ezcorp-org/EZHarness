@@ -1,7 +1,8 @@
 import { getDb } from "../connection";
 import { conversationExtensions } from "../schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { ExtensionRegistry } from "../../extensions/registry";
+import type { ExtensionPermissions } from "../../extensions/types";
 
 export async function getConversationExtensionIds(conversationId: string): Promise<string[]> {
   const rows = await getDb()
@@ -11,9 +12,37 @@ export async function getConversationExtensionIds(conversationId: string): Promi
   return rows.map((r: { extensionId: string }) => r.extensionId);
 }
 
+/**
+ * Phase 4: read the per-conversation effective grant override (if set)
+ * for a given (conversation, extension) pair. Returns `null` when no
+ * override exists — callers should fall back to the extension's
+ * `grantedPermissions` blob.
+ *
+ * The spawn-assignment handler writes here so a sub-conversation's PDP
+ * sees the intersected (parent ∩ child-agent) grants instead of the
+ * extension's full installed grants.
+ */
+export async function getConversationExtensionEffectiveGrants(
+  conversationId: string,
+  extensionId: string,
+): Promise<ExtensionPermissions | null> {
+  const rows = await getDb()
+    .select({
+      effective: conversationExtensions.effectiveGrantedPermissions,
+    })
+    .from(conversationExtensions)
+    .where(
+      and(
+        eq(conversationExtensions.conversationId, conversationId),
+        eq(conversationExtensions.extensionId, extensionId),
+      ),
+    );
+  return rows[0]?.effective ?? null;
+}
+
 export async function addConversationExtensions(
   conversationId: string,
-  entries: { extensionId: string; messageId?: string }[],
+  entries: { extensionId: string; messageId?: string; effectiveGrantedPermissions?: ExtensionPermissions }[],
 ): Promise<void> {
   if (entries.length === 0) return;
   const db = getDb();
@@ -22,6 +51,9 @@ export async function addConversationExtensions(
       conversationId,
       extensionId: e.extensionId,
       addedByMessageId: e.messageId,
+      ...(e.effectiveGrantedPermissions !== undefined
+        ? { effectiveGrantedPermissions: e.effectiveGrantedPermissions }
+        : {}),
     })))
     .onConflictDoNothing();
 }

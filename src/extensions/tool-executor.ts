@@ -832,6 +832,10 @@ export class ToolExecutor {
       bus: this.bus,
       quota: this.spawnQuota,
       spawnDepth,
+      // Phase 4: thread the registry so the handler can compute child
+      // effective grants from each shared extension's installed grants
+      // + manifest, and persist them on conversation_extensions.
+      registry: this.registry,
       ...(this.currentModel !== undefined ? { parentModel: this.currentModel } : {}),
       ...(this.currentProvider !== undefined ? { parentProvider: this.currentProvider } : {}),
     };

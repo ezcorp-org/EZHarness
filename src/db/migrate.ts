@@ -498,6 +498,16 @@ export async function migrate(db: any): Promise<void> {
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conv_ext_conversation ON conversation_extensions(conversation_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conv_ext_extension ON conversation_extensions(extension_id)`);
 
+  // ── Phase 4: per-conversation effective grant override ───────────
+  // Spawn-assignment writes here when the parent's caps need to clip
+  // the child's caps. PDP consults THIS blob in place of
+  // extensions.granted_permissions for tool calls in the
+  // conversation, so a sub-run can't exceed its parent's envelope.
+  await db.execute(sql`
+    ALTER TABLE conversation_extensions
+    ADD COLUMN IF NOT EXISTS effective_granted_permissions JSONB
+  `);
+
   // Seed a virtual "builtin" extension for native tool calls (editFile, etc.)
   await db.execute(sql`
     INSERT INTO extensions (id, name, version, description, manifest, source, install_path, enabled)

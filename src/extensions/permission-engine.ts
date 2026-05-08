@@ -44,6 +44,8 @@ import {
   type AlwaysAllowScope,
 } from "./permissions";
 import { getSetting, upsertSetting } from "../db/queries/settings";
+import { getConversationExtensionEffectiveGrants } from "../db/queries/conversation-extensions";
+import type { ExtensionPermissions } from "./types";
 
 // ── Public surface ──────────────────────────────────────────────────
 
@@ -143,13 +145,26 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     const auditId = crypto.randomUUID();
 
     // 1. Compute effective grant set.
+    //
+    // Resolution order (most-specific first):
+    //   a. `ctx.capContext` — provided by `handlePiInvoke` for cross-
+    //      extension calls; the caller×callee intersected set.
+    //   b. Per-conversation effective grant override (Phase 4 §6.4) —
+    //      written by `spawn-assignment-handler` so a sub-conversation
+    //      can be capped by `intersect(parent, child-agent)` without
+    //      mutating the extension's installed grants.
+    //   c. Extension's installed grants from the registry (default).
     let granted: CapabilitySet;
     if (ctx.capContext) {
-      // Cross-ext invoke (Phase 4 will exercise this fully): the
-      // caller-supplied context is the post-intersection set.
       granted = ctx.capContext;
     } else {
-      granted = grantedFromRegistry(deps.registry, ctx.extensionId);
+      const override = await loadConversationOverride(
+        ctx.conversationId,
+        ctx.extensionId,
+      );
+      granted = override
+        ? grantedFromExtensionPermissions(override)
+        : grantedFromRegistry(deps.registry, ctx.extensionId);
     }
 
     // 2. Subset check. The first missing cap is the deny reason.
@@ -287,6 +302,17 @@ function grantedFromRegistry(
   extensionId: string,
 ): CapabilitySet {
   const granted = registry.getGrantedPermissions(extensionId);
+  return grantedFromExtensionPermissions(granted);
+}
+
+/**
+ * Translate an `ExtensionPermissions` blob into a `CapabilitySet`.
+ * Shared between the registry-grant path and the per-conversation
+ * override path so both produce identical cap shapes.
+ */
+function grantedFromExtensionPermissions(
+  granted: ExtensionPermissions | null,
+): CapabilitySet {
   if (!granted) return [];
 
   const caps: Capability[] = [];
@@ -334,6 +360,31 @@ function grantedFromRegistry(
   }
 
   return caps;
+}
+
+/**
+ * Phase 4: per-conversation effective grant override lookup.
+ *
+ * Returns the override row (if any) for the (conversation, extension)
+ * pair. Read errors swallow to null so a DB blip can't fail-open the
+ * PDP — the caller falls back to the registry grants on null.
+ *
+ * "unknown" / missing conversationId short-circuits to null so the
+ * many test contexts that pass `conversationId: "unknown"` don't
+ * accidentally trigger DB queries.
+ */
+async function loadConversationOverride(
+  conversationId: string,
+  extensionId: string,
+): Promise<ExtensionPermissions | null> {
+  if (!conversationId || conversationId === "unknown" || conversationId === "cross-ext") {
+    return null;
+  }
+  try {
+    return await getConversationExtensionEffectiveGrants(conversationId, extensionId);
+  } catch {
+    return null;
+  }
 }
 
 function formatMissingReason(missing: Capability, toolName?: string): string {

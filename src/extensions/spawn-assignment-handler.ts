@@ -39,7 +39,7 @@ import type { AgentExecutor } from "../runtime/executor";
 import type { SpawnQuota } from "./spawn-quota";
 import {
   getConversationExtensionIds,
-  copyConversationExtensions,
+  addConversationExtensions,
 } from "../db/queries/conversation-extensions";
 import { getSubConversations, setConversationSpawnDepth } from "../db/queries/conversations";
 import { createRateLimiter } from "./rate-limit";
@@ -50,6 +50,8 @@ import { resolveAgentConfigForUser } from "./agent-configs-handler";
 import { startAssignment } from "../runtime/start-assignment";
 import type { TaskAssignment, TaskSnapshot, TrackedTask } from "../runtime/task-tracking-host";
 import { rpcError, rpcResult } from "./json-rpc";
+import { intersectPermissions } from "./capability-types";
+import type { ExtensionRegistry } from "./registry";
 
 const MAX_OPS_PER_SECOND = 50;
 const consumeTokens = createRateLimiter(MAX_OPS_PER_SECOND);
@@ -77,6 +79,14 @@ export interface SpawnAssignmentContext {
   parentProvider?: string;
   /** Current spawn depth — 0 for a top-level conversation. */
   spawnDepth: number;
+  /**
+   * Phase 4: registry handle so the handler can read each shared
+   * extension's installed grants + manifest to compute the child's
+   * effective grants. Optional — when absent (older callers / tests),
+   * the handler falls back to the pre-Phase-4 behavior of copying the
+   * parent's grant rows verbatim. New callers should always supply it.
+   */
+  registry?: ExtensionRegistry;
 }
 
 type DenyReason =
@@ -301,9 +311,107 @@ export async function handleSpawnAssignmentRpc(
     // subscription releases it on run termination.
     ctx.quota.swapReservation(extensionId, assignmentId, agentRunId);
 
-    // Inherit parent's extension wiring into the sub-conversation so the
-    // spawning extension (and its wired siblings) can observe the child.
-    await copyConversationExtensions(ctx.conversationId, subConversationId);
+    // Phase 4 §6.4 — child cap inheritance.
+    //
+    // Before Phase 4 the host blanket-copied parent's wired extensions
+    // into the child via `copyConversationExtensions`. That meant a
+    // sub-conversation could call any tool the parent's extensions
+    // exposed, even if the parent was forbidden from doing so directly
+    // — sibling extensions wired into the parent were observable on
+    // the child without per-spawn opt-in.
+    //
+    // Phase 4 cap-intersects:
+    //   1. Effective extension list = parent's wired extensions ∩
+    //      child agent config's wired extensions. Extensions on only
+    //      one side are dropped — the parent can't promote a tool the
+    //      child agent didn't ask for; the child agent can't reach
+    //      tools the parent isn't itself wired to.
+    //   2. For each shared extension: child's effective grants =
+    //      intersect(parent's grants, child manifest's permissions),
+    //      flattened through `intersectPermissions`.
+    //   3. Escalation: when the SPAWNING extension's GRANT carries
+    //      `escalateChildCaps: true`, skip step 2 — child runs with
+    //      its own installed grants verbatim. This lets dedicated
+    //      orchestration extensions (whose entire purpose is
+    //      delegation) hand off to children with fuller caps than the
+    //      parent itself has, after explicit user consent at install.
+    //
+    // The check is `=== true` on the GRANT (spec lock-in: "runtime
+    // checks consult the grant").
+    const escalating = ctx.grantedPermissions.escalateChildCaps === true;
+    const parentExtIds = await getConversationExtensionIds(ctx.conversationId);
+
+    // Child agent config's wired extensions list. Drizzle stores it as
+    // `extensions` on the agent_configs row; `agentConfig` has the
+    // post-resolve shape.
+    const childExtAllow = new Set<string>(
+      Array.isArray((agentConfig as unknown as { extensions?: string[] }).extensions)
+        ? (agentConfig as unknown as { extensions: string[] }).extensions
+        : [],
+    );
+    const childRefExts =
+      (agentConfig.references as { extensions?: string[] } | null | undefined)?.extensions ?? [];
+    for (const e of childRefExts) childExtAllow.add(e);
+
+    const sharedExts = parentExtIds.filter((extId) => childExtAllow.has(extId));
+
+    if (ctx.registry) {
+      // Compute per-extension effective grants and persist.
+      const entries: Array<{
+        extensionId: string;
+        effectiveGrantedPermissions: ExtensionPermissions;
+      }> = [];
+      for (const sharedExtId of sharedExts) {
+        const parentGrant =
+          ctx.registry.getGrantedPermissions(sharedExtId) ?? { grantedAt: {} };
+        if (escalating) {
+          // Orchestration opt-in: child runs with the extension's
+          // installed grants verbatim — no parent-clip. Use the
+          // existing grant blob as-is.
+          entries.push({
+            extensionId: sharedExtId,
+            effectiveGrantedPermissions: parentGrant,
+          });
+          continue;
+        }
+        const childManifest = ctx.registry.getManifest(sharedExtId);
+        const childManifestPerms =
+          (childManifest?.permissions ?? {}) as ExtensionPermissions;
+        // Mirror the manifest's ceiling-shape onto the
+        // `ExtensionPermissions` shape — `manifest.permissions` is
+        // structurally compatible (modulo the missing `grantedAt`).
+        const ceilingWithGrantedAt: ExtensionPermissions = {
+          ...childManifestPerms,
+          grantedAt: {},
+        };
+        const effective = intersectPermissions(parentGrant, ceilingWithGrantedAt);
+        entries.push({
+          extensionId: sharedExtId,
+          effectiveGrantedPermissions: effective,
+        });
+      }
+      if (entries.length > 0) {
+        await addConversationExtensions(subConversationId, entries);
+      }
+    } else {
+      // Back-compat: registry not threaded in (older test contexts).
+      // Fall back to pre-Phase-4 blanket copy of the parent's wiring;
+      // no effective-grant override is written, so the PDP falls back
+      // to the extension's installed grants. This keeps existing
+      // tests green until they migrate.
+      if (sharedExts.length > 0) {
+        await addConversationExtensions(
+          subConversationId,
+          sharedExts.map((extId) => ({ extensionId: extId })),
+        );
+      } else if (parentExtIds.length > 0) {
+        // No agent-config filter possible — fall back to legacy blanket copy.
+        await addConversationExtensions(
+          subConversationId,
+          parentExtIds.map((extId) => ({ extensionId: extId })),
+        );
+      }
+    }
 
     // Persist spawn depth on the child for recursive-spawn enforcement.
     await setConversationSpawnDepth(subConversationId, ctx.spawnDepth + 1);

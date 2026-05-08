@@ -370,6 +370,16 @@ export const conversationExtensions = pgTable("conversation_extensions", {
     .references(() => extensions.id, { onDelete: "cascade" }),
   addedByMessageId: text("added_by_message_id")
     .references(() => messages.id, { onDelete: "set null" }),
+  /**
+   * Phase 4: per-conversation effective grant override. When set,
+   * the PDP consults THIS blob in place of `extensions.grantedPermissions`
+   * for tool calls in this conversation. Only populated by spawn
+   * assignment when the parent's caps need to clip the child — the
+   * top-level conversation always leaves it null and falls back to
+   * the extension's installed grants.
+   */
+  effectiveGrantedPermissions: jsonb("effective_granted_permissions")
+    .$type<import("../extensions/types").ExtensionPermissions | null>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
