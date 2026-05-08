@@ -1,9 +1,15 @@
-import { test, expect, describe, mock, afterAll } from "bun:test";
+import { test, expect, describe, mock, beforeEach, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { RegisteredTool } from "../extensions/registry";
-import { ToolExecutor, PermissionDeniedError } from "../extensions/tool-executor";
+import { ToolExecutor, PermissionDeniedError, _resetToolCallsCounterForTests } from "../extensions/tool-executor";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 import type { ToolCallResult, ToolDefinition } from "../extensions/types";
+
+// Phase 6's per-conversation tool-call cap is process-global; reuse of
+// conv-1 across the file would otherwise trip MaxToolCallsExceededError.
+beforeEach(() => {
+  _resetToolCallsCounterForTests();
+});
 
 // ── Mock DB (suppress real DB writes) ────────────────────────────────
 
@@ -301,7 +307,13 @@ afterAll(() => restoreModuleMocks());
   test("event bus receives namespaced name on success", async () => {
     const registry = createMockRegistry([searchA]);
     const emitted: Array<{ event: string; data: any }> = [];
-    const bus = { emit: (event: string, data: any) => emitted.push({ event, data }) };
+    // Phase 6 ToolExecutor wires bus.on("run:complete"/...) to clear
+    // its per-conversation tool-call counter; provide a no-op `on` so
+    // the constructor doesn't blow up on `this.bus.on is not a function`.
+    const bus = {
+      emit: (event: string, data: any) => emitted.push({ event, data }),
+      on: () => () => {},
+    };
     const executor = new ToolExecutor(registry as any, createStubPermissionEngine(), { bus: bus as any });
 
     await executor.executeToolCall("ext-a__search", {}, "conv-1", "msg-1");
@@ -321,7 +333,13 @@ afterAll(() => restoreModuleMocks());
     });
 
     const emitted: Array<{ event: string; data: any }> = [];
-    const bus = { emit: (event: string, data: any) => emitted.push({ event, data }) };
+    // Phase 6 ToolExecutor wires bus.on("run:complete"/...) to clear
+    // its per-conversation tool-call counter; provide a no-op `on` so
+    // the constructor doesn't blow up on `this.bus.on is not a function`.
+    const bus = {
+      emit: (event: string, data: any) => emitted.push({ event, data }),
+      on: () => () => {},
+    };
     const executor = new ToolExecutor(registry as any, createStubPermissionEngine(), { bus: bus as any });
 
     await executor.executeToolCall("ext-a__search", {}, "conv-1", "msg-1");

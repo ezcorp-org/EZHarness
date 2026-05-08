@@ -80,6 +80,17 @@ const {
   registerPendingAskUser,
   _resetPendingAskUserForTests,
 } = await import("../runtime/ask-user-registry");
+// Phase 1 fail-closed: wireAskUserToolForTurn calls getPermissionEngine()
+// without deps; the singleton must be pre-initialized before any test
+// runs. Install an allow-all stub so the wrapped tool's authorize()
+// always passes — the test asserts the registry / bus / subscription
+// behavior, not the PDP semantics.
+const { _setPermissionEngineForTests, _resetPermissionEngineForTests } = await import(
+  "../extensions/permission-engine"
+);
+const { createStubPermissionEngine } = await import(
+  "./helpers/permission-engine-stub"
+);
 
 import type { AgentEvents } from "../types";
 import type { ExtensionManifestV2, ExtensionPermissions } from "../extensions/types";
@@ -420,9 +431,14 @@ beforeAll(async () => {
     .onConflictDoNothing();
   await ensureAskUserWired(CONV_ID);
   await ensureAskUserWired(CONV_ID_B);
+  // Install allow-all PDP stub for wireAskUserToolForTurn's bare
+  // getPermissionEngine() call (Phase 1 fail-closed contract).
+  _resetPermissionEngineForTests();
+  _setPermissionEngineForTests(createStubPermissionEngine("allow-all"));
 });
 
 afterAll(async () => {
+  _resetPermissionEngineForTests();
   await closeTestDb();
   restoreModuleMocks();
 });

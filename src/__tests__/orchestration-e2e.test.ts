@@ -139,6 +139,17 @@ mock.module("../db/queries/agent-configs", () => ({
 
 const { ensureOrchestrationWired, wireOrchestrationToolsForTurn, _resetOrchestrationExtensionIdCache } =
   await import("../runtime/orchestration-host");
+// Phase 1 fail-closed contract: wireOrchestrationToolsForTurn calls
+// getPermissionEngine() with no deps and throws if not pre-initialized.
+// We install an allow-all stub once in beforeAll. The real engine is
+// not exercised because the wrapper short-circuits via the
+// extensionToAgentTool path which the test drives end-to-end.
+const { _setPermissionEngineForTests, _resetPermissionEngineForTests } = await import(
+  "../extensions/permission-engine"
+);
+const { createStubPermissionEngine } = await import(
+  "./helpers/permission-engine-stub"
+);
 const { handleEmitTaskEventRpc } = await import("../extensions/task-events-handler");
 const { handleAgentConfigsRpc } = await import("../extensions/agent-configs-handler");
 const { handleSpawnAssignmentRpc } = await import("../extensions/spawn-assignment-handler");
@@ -523,9 +534,17 @@ beforeAll(async () => {
     enabled: true,
     grantedPermissions: GRANTED,
   } as any).onConflictDoNothing();
+  // Install an allow-all PDP stub as the singleton so
+  // wireOrchestrationToolsForTurn's bare getPermissionEngine() call
+  // resolves. The real authorize() path runs through the e2e
+  // subprocess + handlers, so an allow-all stub keeps every spawn /
+  // tool-call decision unblocked.
+  _resetPermissionEngineForTests();
+  _setPermissionEngineForTests(createStubPermissionEngine("allow-all"));
 });
 
 afterAll(async () => {
+  _resetPermissionEngineForTests();
   await closeTestDb();
   restoreModuleMocks();
 });

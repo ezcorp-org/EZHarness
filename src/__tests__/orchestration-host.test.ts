@@ -109,6 +109,16 @@ const {
   wireOrchestrationToolsForTurn,
   _resetOrchestrationExtensionIdCache,
 } = await import("../runtime/orchestration-host");
+// Phase 1 fail-closed contract: every wireOrchestrationToolsForTurn
+// call routes through `getPermissionEngine()` which throws if not
+// pre-initialized. Install an allow-all stub as the singleton so the
+// test exercises the wiring path without wiring a real bus / registry /
+// audit log.
+const {
+  _setPermissionEngineForTests,
+  _resetPermissionEngineForTests,
+} = await import("../extensions/permission-engine");
+const { createStubPermissionEngine } = await import("./helpers/permission-engine-stub");
 const { getDb } = await import("../db/connection");
 const {
   extensions: extensionsTable,
@@ -168,9 +178,16 @@ async function seedConversation(id: string): Promise<void> {
 beforeAll(async () => {
   await setupTestDb();
   await seedFixtures();
+  // Pre-init PDP singleton via the test-only setter so
+  // wireOrchestrationToolsForTurn's bare getPermissionEngine() call
+  // resolves to an allow-all stub. StubToolExecutor short-circuits the
+  // execute path so the engine's authorize() is never actually invoked.
+  _resetPermissionEngineForTests();
+  _setPermissionEngineForTests(createStubPermissionEngine("allow-all"));
 });
 
 afterAll(async () => {
+  _resetPermissionEngineForTests();
   await closeTestDb();
   restoreModuleMocks();
 });

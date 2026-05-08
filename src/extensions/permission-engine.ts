@@ -320,6 +320,20 @@ export function _resetPermissionEngineForTests(): void {
   singletonDeps = null;
 }
 
+/**
+ * Test-only: install an arbitrary PermissionEngine implementation as
+ * the singleton. Bypasses the deps validators so tests can install
+ * stubs (e.g. `createStubPermissionEngine` from
+ * `__tests__/helpers/permission-engine-stub.ts`) without wiring up a
+ * real registry / bus / db. Tests that exercise wiring helpers like
+ * `wireOrchestrationToolsForTurn` (which call the bare `getPermissionEngine()`)
+ * use this to satisfy the fail-closed contract.
+ */
+export function _setPermissionEngineForTests(engine: PermissionEngine): void {
+  singleton = engine;
+  singletonDeps = null;
+}
+
 /** Test-only: peek at the deps the singleton was constructed with. */
 export function _getPermissionEngineDepsForTests(): PermissionEngineDeps | null {
   return singletonDeps;

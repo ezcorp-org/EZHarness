@@ -118,7 +118,9 @@ describe("installFromGit + loadManifest gaps", () => {
 
     expect(result.name).toBe("git-load-ok");
     expect(result.version).toBe("1.0.0");
-    expect(result.manifest.schemaVersion).toBe(2);
+    // Phase 1: loadManifest auto-promotes v2 to v3.
+    expect(result.manifest.schemaVersion).toBe(3);
+    expect((result.manifest as { _inheritedFromV2?: boolean })._inheritedFromV2).toBe(true);
   });
 
   test("fails with clear error when cloned repo has no ezcorp.config.ts", async () => {

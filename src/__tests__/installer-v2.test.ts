@@ -246,13 +246,17 @@ describe("DB storage — v2 manifest shape", () => {
     mockExtensions.clear();
   });
 
-  test("stored manifest has schemaVersion: 2", async () => {
+  test("stored manifest has schemaVersion: 3 (auto-promoted from v2 by migrateManifestV2ToV3 on load)", async () => {
+    // Phase 1: `loadManifest` auto-promotes v2 manifests to v3, marking
+    // them with `_inheritedFromV2: true`. The on-disk file stays v2;
+    // it's the in-memory + DB-stored shape that becomes v3.
     const manifest = makeValidV2Manifest();
     const dir = await setupExtDir(manifest);
     await installFromLocal(dir, defaultPermissions);
 
     expect(lastCreateCall).not.toBeNull();
-    expect(lastCreateCall.manifest.schemaVersion).toBe(2);
+    expect(lastCreateCall.manifest.schemaVersion).toBe(3);
+    expect(lastCreateCall.manifest._inheritedFromV2).toBe(true);
   });
 
   test("stored manifest preserves author object", async () => {

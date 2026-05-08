@@ -9,10 +9,20 @@
  *   handlePiFs, handlePiInvoke, createToolsContext using mock registry + mock process objects.
  */
 
-import { test, expect, describe, afterEach, afterAll, mock, spyOn } from "bun:test";
+import { test, expect, describe, afterEach, afterAll, beforeEach, mock, spyOn } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 afterAll(() => restoreModuleMocks());
+
+// Phase 6 enforces a per-conversation MAX_TOOL_CALLS_PER_TURN cap on a
+// process-singleton counter (`toolCallsThisTurn` in tool-executor.ts).
+// This file's 84 cases all reuse `conversationId: "conv-1"` (or similar
+// fixed ids), which would trip the cap on the 11th case. Reset the
+// counter before every test so each case starts at 0.
+import { _resetToolCallsCounterForTests } from "../extensions/tool-executor";
+beforeEach(() => {
+  _resetToolCallsCounterForTests();
+});
 
 import { join } from "node:path";
 import { tmpdir } from "node:os";

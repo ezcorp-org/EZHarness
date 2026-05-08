@@ -22,10 +22,24 @@
 //     above.
 
 import { dirname, join } from "node:path";
-import { existsSync, mkdirSync, renameSync } from "node:fs";
 
 import { getChannel, JsonRpcError } from "./channel";
 import { getToolContext } from "./tool-context";
+
+// `node:fs` is lazy-loaded (not statically imported) because Phase 3
+// sandbox-preload blocks `require("fs")` to harden the extension
+// subprocess. A static import here would fire at SDK module-load time
+// — even for subprocess code that only calls Phase-3 host-mediated
+// helpers (`fsRead`/`fsWrite`/...) and never touches the legacy
+// host-side helpers below. Lazy-loading keeps the legacy helpers
+// usable on the HOST (where the require-block isn't installed) while
+// avoiding the subprocess crash. See sandbox-preload.ts FS_MODULES.
+function loadFsSync(): typeof import("node:fs") {
+  // Resolved fresh each call — the cost is negligible compared to the
+  // syscall, and avoiding a module-scope cache means we never hold a
+  // poisoned-fs reference if the host ever rebinds the module.
+  return require("node:fs") as typeof import("node:fs");
+}
 
 /**
  * Walk up from `from` (default `process.cwd()`) looking for a `.git`
@@ -38,9 +52,10 @@ import { getToolContext } from "./tool-context";
  * from.
  */
 export function findProjectRoot(from: string = process.cwd()): string {
+  const fs = loadFsSync();
   let dir = from;
   while (true) {
-    if (existsSync(join(dir, ".git"))) return dir;
+    if (fs.existsSync(join(dir, ".git"))) return dir;
     const parent = dirname(dir);
     if (parent === dir) {
       throw new Error(`findProjectRoot: no .git ancestor found starting from ${from}`);
@@ -60,7 +75,7 @@ export function getExtensionDataDir(
 ): string {
   const root = opts?.projectRoot ?? findProjectRoot();
   const dir = join(root, ".ezcorp", "extension-data", extensionName);
-  mkdirSync(dir, { recursive: true });
+  loadFsSync().mkdirSync(dir, { recursive: true });
   return dir;
 }
 
@@ -73,14 +88,15 @@ export async function atomicWrite(
   absPath: string,
   content: string | Uint8Array,
 ): Promise<void> {
-  mkdirSync(dirname(absPath), { recursive: true });
+  const fs = loadFsSync();
+  fs.mkdirSync(dirname(absPath), { recursive: true });
   // randomBytes-ish suffix avoids collision when two concurrent writes to
   // the same path race — renameSync is atomic per-file so the "last writer
   // wins" semantics are preserved.
   const rand = Math.random().toString(36).slice(2, 10);
   const tmp = `${absPath}.tmp-${rand}`;
   await Bun.write(tmp, content);
-  renameSync(tmp, absPath);
+  fs.renameSync(tmp, absPath);
 }
 
 /**

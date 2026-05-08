@@ -1,5 +1,10 @@
-// Minimal JSON-RPC extension that echoes back tool calls
+// Minimal JSON-RPC extension that echoes back tool calls.
+// Uses `Bun.stdout.writer()` rather than `process.stdout.write` because
+// Phase 3 sandbox-preload poisons `node:fs` property access, and Bun's
+// lazy stdio init for `process.stdout.write` triggers an fs property
+// access that throws under the sandbox. `Bun.stdout` is unaffected.
 const decoder = new TextDecoder();
+const stdoutWriter = Bun.stdout.writer();
 
 async function main() {
   const reader = Bun.stdin.stream().getReader();
@@ -21,7 +26,8 @@ async function main() {
             isError: false,
           },
         };
-        process.stdout.write(JSON.stringify(response) + "\n");
+        stdoutWriter.write(JSON.stringify(response) + "\n");
+        await stdoutWriter.flush();
       } catch {}
     }
   }

@@ -521,9 +521,27 @@ async function* bunStdinLines(): AsyncGenerator<string> {
 let singleton: HostChannelImpl | null = null;
 
 function createProductionChannel(): HostChannelImpl {
+  // `process.stdout.write` triggers Bun's lazy lookup of `node:fs`'s
+  // WriteStream constructor for stdio init. Phase 3 sandbox-preload
+  // poisons fs module property access, so the very first stdout write
+  // would throw `Extension sandbox: 'fs module' blocked`. `Bun.stdout`
+  // is a stable Bun primitive (not gated by Phase 3 fs poisoning), so
+  // its writer survives the sandbox. Cached lazily so we don't pay
+  // the writer-creation cost on every JSON-RPC frame.
+  let writer: ReturnType<typeof Bun.stdout.writer> | null = null;
   return new HostChannelImpl({
     stdin: bunStdinLines(),
-    stdout: { write: (s: string): void => { process.stdout.write(s); } },
+    stdout: {
+      write: (s: string): void => {
+        if (!writer) writer = Bun.stdout.writer();
+        writer.write(s);
+        // Best-effort flush — if Bun's writer queue blocks we just
+        // back-pressure the next call rather than awaiting here (the
+        // host reader is line-delimited, so byte-aligned framing is
+        // preserved by writer's internal buffering).
+        void writer.flush();
+      },
+    },
   });
 }
 

@@ -51,7 +51,8 @@ describe("validateManifestV2", () => {
       delete (m as any).schemaVersion;
       const r = validateManifestV2(m);
       expect(r.valid).toBe(false);
-      expect(r.errors).toContain("schemaVersion must be 2");
+      // Phase 1 widened the validator message to accept v2 OR v3.
+      expect(r.errors).toContain("schemaVersion must be 2 or 3, got undefined");
     });
 
     test("missing name", () => {
@@ -91,13 +92,15 @@ describe("validateManifestV2", () => {
     test("string '2' is invalid", () => {
       const r = validateManifestV2(validV2AgentManifest({ schemaVersion: "2" }));
       expect(r.valid).toBe(false);
-      expect(r.errors).toContain("schemaVersion must be 2");
+      // Phase 1: validator accepts v2 OR v3; the error reports the
+      // received value verbatim.
+      expect(r.errors).toContain("schemaVersion must be 2 or 3, got 2");
     });
 
     test("schemaVersion 1 is invalid", () => {
       const r = validateManifestV2(validV2AgentManifest({ schemaVersion: 1 }));
       expect(r.valid).toBe(false);
-      expect(r.errors).toContain("schemaVersion must be 2");
+      expect(r.errors).toContain("schemaVersion must be 2 or 3, got 1");
     });
   });
 
@@ -153,7 +156,8 @@ describe("validateManifestV2", () => {
       const r = validateManifestV2({});
       expect(r.valid).toBe(false);
       expect(r.errors.length).toBeGreaterThanOrEqual(4);
-      expect(r.errors).toContain("schemaVersion must be 2");
+      // Phase 1 widened the message format.
+      expect(r.errors).toContain("schemaVersion must be 2 or 3, got undefined");
       expect(r.errors).toContain("name is required and must be a non-empty string");
       expect(r.errors).toContain("description is required and must be a non-empty string");
       expect(r.errors).toContain("version must be valid semver (e.g., 1.0.0)");

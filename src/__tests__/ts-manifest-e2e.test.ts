@@ -30,14 +30,18 @@ describe("example extensions load via loadManifest", () => {
     test(`${name} loads successfully`, async () => {
       const manifest = await loadManifest(join(EXAMPLES_DIR, name));
       expect(manifest.name).toBe(name);
-      expect(manifest.schemaVersion).toBe(2);
+      // Phase 1: loadManifest auto-promotes v2 → v3 with _inheritedFromV2.
+      expect(manifest.schemaVersion).toBe(3);
+      expect((manifest as { _inheritedFromV2?: boolean })._inheritedFromV2).toBe(true);
     });
   }
 
   test("mock-extension loads successfully", async () => {
     const manifest = await loadManifest(MOCK_EXT_DIR);
     expect(manifest.name).toBe("test-tools");
-    expect(manifest.schemaVersion).toBe(2);
+    // Phase 1: loadManifest auto-promotes v2 → v3 with _inheritedFromV2.
+    expect(manifest.schemaVersion).toBe(3);
+    expect((manifest as { _inheritedFromV2?: boolean })._inheritedFromV2).toBe(true);
   });
 });
 

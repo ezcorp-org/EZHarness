@@ -212,7 +212,10 @@ describe("stripFunctions via loadManifest", () => {
         author: { name: "T" }, permissions: {},
       };\n`);
       const m = await loadManifest(dir);
-      expect(m.tools).toBeUndefined();
+      // Phase 1's migrateManifestV2ToV3 normalizes missing `tools` to
+      // an empty array in the v3 shape. `skills` and `agent` aren't
+      // added by the migration, so they stay undefined.
+      expect(m.tools).toEqual([]);
       expect(m.skills).toBeUndefined();
       expect(m.agent).toBeUndefined();
     } finally {
@@ -333,7 +336,9 @@ describe("loadManifestFresh", () => {
         `export default ${JSON.stringify(BASE)};\n`);
       const m = await loadManifestFresh(dir);
       expect(m.name).toBe("test-ext");
-      expect(m.schemaVersion).toBe(2);
+      // Phase 1: loadManifestFresh auto-promotes v2 → v3.
+      expect(m.schemaVersion).toBe(3);
+      expect((m as { _inheritedFromV2?: boolean })._inheritedFromV2).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -391,7 +396,9 @@ describe("writeConfig", () => {
       await writeConfig(dir, BASE);
       const m = await loadManifestFresh(dir);
       expect(m.name).toBe("test-ext");
-      expect(m.schemaVersion).toBe(2);
+      // Phase 1: loadManifestFresh auto-promotes v2 → v3.
+      expect(m.schemaVersion).toBe(3);
+      expect((m as { _inheritedFromV2?: boolean })._inheritedFromV2).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

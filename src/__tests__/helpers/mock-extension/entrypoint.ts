@@ -1,12 +1,19 @@
 /**
  * Mock extension subprocess for testing.
  * Reads JSON-RPC requests from stdin (newline-delimited), writes responses to stdout.
+ *
+ * NOTE: uses `Bun.stdout.writer()` instead of `process.stdout.write` because
+ * Phase 3's sandbox-preload poisons `node:fs` property access, and Bun's
+ * lazy stdio init for `process.stdout.write` reaches into fs internals on
+ * first call — surfaces as "Transport closed" in extension-runtime tests.
+ * `Bun.stdout` is a stable Bun primitive that survives the fs poison.
  */
 
 import type { JsonRpcRequest, JsonRpcResponse, ToolCallResult } from "../../../extensions/types";
 
 const decoder = new TextDecoder();
 let buffer = "";
+const stdoutWriter = Bun.stdout.writer();
 
 async function main() {
   const reader = Bun.stdin.stream().getReader();
@@ -24,7 +31,8 @@ async function main() {
       try {
         const request: JsonRpcRequest = JSON.parse(line);
         const response = handleRequest(request);
-        process.stdout.write(JSON.stringify(response) + "\n");
+        stdoutWriter.write(JSON.stringify(response) + "\n");
+        await stdoutWriter.flush();
       } catch {
         // Skip malformed lines
       }

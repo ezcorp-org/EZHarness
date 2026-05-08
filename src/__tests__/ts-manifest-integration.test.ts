@@ -88,7 +88,9 @@ describe("installer + loadManifest integration", () => {
 
     expect(result.name).toBe("integ-test-ext");
     expect(result.version).toBe("1.0.0");
-    expect(lastCreateCall.manifest.schemaVersion).toBe(2);
+    // Phase 1: loadManifest auto-promotes v2 to v3 with _inheritedFromV2.
+    expect(lastCreateCall.manifest.schemaVersion).toBe(3);
+    expect(lastCreateCall.manifest._inheritedFromV2).toBe(true);
   });
 
   test("installFromLocal fails when ezcorp.config.ts is missing", async () => {

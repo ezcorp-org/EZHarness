@@ -1,8 +1,15 @@
-import { test, expect, describe, mock } from "bun:test";
+import { test, expect, describe, mock, beforeEach } from "bun:test";
 import type { RegisteredTool } from "../extensions/registry";
-import { ToolExecutor } from "../extensions/tool-executor";
+import { ToolExecutor, _resetToolCallsCounterForTests } from "../extensions/tool-executor";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 import type { ToolCallResult } from "../extensions/types";
+
+// Reset Phase 6's process-global per-conversation tool-call counter so
+// each test starts fresh — otherwise the 11th case on conv-1 trips
+// MaxToolCallsExceededError.
+beforeEach(() => {
+  _resetToolCallsCounterForTests();
+});
 
 // ── Mock Registry ───────────────────────────────────────────────────────
 
@@ -197,7 +204,12 @@ describe("ToolExecutor shared variable injection", () => {
   test("event bus receives original input (not resolved)", async () => {
     const registry = createMockRegistry([fileRefactorTool]);
     const emitted: Array<{ event: string; data: any }> = [];
-    const bus = { emit(event: string, data: any) { emitted.push({ event, data }); } };
+    // Phase 6 ToolExecutor wires bus.on("run:complete"/...) for counter
+    // cleanup; provide a no-op `on` so the constructor doesn't throw.
+    const bus = {
+      emit(event: string, data: any) { emitted.push({ event, data }); },
+      on: () => () => {},
+    };
     const executor = new ToolExecutor(registry as any, createStubPermissionEngine(), { bus: bus as any });
 
     await executor.executeToolCall(
