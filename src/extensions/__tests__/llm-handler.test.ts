@@ -129,8 +129,31 @@ function makeRpcMeta(): Record<string, unknown> {
   return { ezOnBehalfOf: userId, ezConversationId: conversationId };
 }
 
-function makeMockedHandlerCtx(overrides: { granted?: ExtensionPermissions; mockComplete?: () => Promise<unknown> } = {}) {
+interface FakeUpstream {
+  content: Array<{ type: string; text?: string }>;
+  usage?: { input?: number; output?: number; cost?: number };
+  stopReason?: string;
+  model?: string;
+}
+
+function makeMockedHandlerCtx(overrides: { granted?: ExtensionPermissions; mockComplete?: () => Promise<FakeUpstream> } = {}) {
   const granted = overrides.granted ?? makeGranted();
+  const completeFn = async (
+    _piModel: unknown,
+    _body: unknown,
+    opts: { apiKey: string },
+  ): Promise<FakeUpstream> => {
+    // Defensive: assert host received the token but never fed it
+    // back into the response payload.
+    expect(opts.apiKey).toBe(FAKE_API_TOKEN);
+    if (overrides.mockComplete) return overrides.mockComplete();
+    return {
+      content: [{ type: "text", text: "ok" }],
+      usage: { input: 10, output: 20 },
+      stopReason: "stop",
+      model: "claude-sonnet-4",
+    };
+  };
   return {
     granted,
     registeredTool: { extensionId },
@@ -140,18 +163,7 @@ function makeMockedHandlerCtx(overrides: { granted?: ExtensionPermissions; mockC
       piModel: { name: model, provider } as unknown,
     }),
     getCredentialFn: async () => ({ type: "apikey", token: FAKE_API_TOKEN }),
-    completeFn: async (_piModel: unknown, _body: unknown, opts: { apiKey: string }) => {
-      // Defensive: assert host received the token but never fed it
-      // back into the response payload.
-      expect(opts.apiKey).toBe(FAKE_API_TOKEN);
-      if (overrides.mockComplete) return overrides.mockComplete();
-      return {
-        content: [{ type: "text", text: "ok" }],
-        usage: { input: 10, output: 20 },
-        stopReason: "stop",
-        model: "claude-sonnet-4",
-      };
-    },
+    completeFn: completeFn as never,
   };
 }
 
@@ -293,7 +305,9 @@ describe("handlePiLlmComplete — soft-fail ladder", () => {
         provider, model, piModel: {} as unknown,
       }),
       getCredentialFn: async () => { throw new Error("BYOK key missing"); },
-      completeFn: async () => ({ content: [], usage: {}, stopReason: "stop" }),
+      completeFn: (async (): Promise<FakeUpstream> => ({
+        content: [], usage: {}, stopReason: "stop",
+      })) as never,
     };
     const resp = await handlePiLlmComplete(
       {

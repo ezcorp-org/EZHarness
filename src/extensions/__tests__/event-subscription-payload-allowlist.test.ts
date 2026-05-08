@@ -121,6 +121,51 @@ describe("payload allowlist", () => {
     d.stop();
   });
 
+  test("tool:start strips `input` by default (symmetric with tool:complete)", async () => {
+    const bus = new EventBus<AgentEvents>();
+    const proc = mockProc();
+    const d = new EventSubscriptionDispatcher(
+      bus,
+      mockRegistry(new Map([["ext-ts", proc]])),
+      wireLookup({ "c1": ["ext-ts"] }),
+    );
+    d.registerExtension("ext-ts", ["tool:start"]);
+    d.start();
+    bus.emit("tool:start", {
+      conversationId: "c1",
+      extensionId: "ext-ts",
+      toolName: "do-thing",
+      input: { secret: "shh" },
+    } as unknown as AgentEvents["tool:start"]);
+    await new Promise<void>((r) => setTimeout(r, 10));
+    expect(proc.calls.length).toBe(1);
+    expect(proc.calls[0]!.params.input).toBeUndefined();
+    expect(proc.calls[0]!.params.toolName).toBe("do-thing");
+    d.stop();
+  });
+
+  test("tool:start WITH includeFullPayload retains `input`", async () => {
+    const bus = new EventBus<AgentEvents>();
+    const proc = mockProc();
+    const d = new EventSubscriptionDispatcher(
+      bus,
+      mockRegistry(new Map([["ext-ts2", proc]])),
+      wireLookup({ "c1": ["ext-ts2"] }),
+    );
+    d.registerExtension("ext-ts2", ["tool:start"]);
+    d.setIncludeFullPayload("ext-ts2", true);
+    d.start();
+    bus.emit("tool:start", {
+      conversationId: "c1",
+      extensionId: "ext-ts2",
+      toolName: "do-thing",
+      input: { kept: true },
+    } as unknown as AgentEvents["tool:start"]);
+    await new Promise<void>((r) => setTimeout(r, 10));
+    expect(proc.calls[0]!.params.input).toEqual({ kept: true });
+    d.stop();
+  });
+
   test("non-heavy events (run:complete) pass through unchanged", async () => {
     const bus = new EventBus<AgentEvents>();
     const proc = mockProc();

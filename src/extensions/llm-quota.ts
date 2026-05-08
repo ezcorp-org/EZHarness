@@ -11,7 +11,7 @@
 import { logger } from "../logger";
 import { getDb } from "../db/connection";
 import { extensionLlmUsage } from "../db/schema";
-import { sql } from "drizzle-orm";
+import { sql, and, eq } from "drizzle-orm";
 
 const log = logger.child("ext.llm-quota");
 
@@ -53,6 +53,13 @@ export interface LlmQuota {
   /** Force-flush in-process counters to the DB. Called on shutdown
    *  + by the 60s timer. */
   flush(): Promise<void>;
+  /** Hydrate the in-process counter for an extension from the DB.
+   *  Restart-resilience: after a host restart, the first
+   *  `consume()` call would otherwise reset today's counter to zero
+   *  even though `extension_llm_usage` already has the day's
+   *  cumulative count. Tests can invoke this to seed counters
+   *  before invoking `consume()`. */
+  hydrate(extensionId: string): Promise<void>;
   /** Tear down the flush timer. Call on shutdown. */
   dispose(): void;
 }
@@ -86,6 +93,39 @@ export function createLlmQuota(): LlmQuota {
       counters.set(extensionId, entry);
     }
     return entry;
+  }
+
+  /** Restart-resilience: on first lookup of an extension, fetch
+   *  today's row from `extension_llm_usage` so the in-process
+   *  daily counters are seeded with the persisted total. The 60s
+   *  flush already writes — hydration is the missing inverse. */
+  async function hydrateImpl(extensionId: string): Promise<void> {
+    const today = todayUtcString();
+    let entry = counters.get(extensionId);
+    if (entry && entry.day === today && (entry.dailyCalls > 0 || entry.dailyTokens > 0)) {
+      // Already populated for today — don't clobber.
+      return;
+    }
+    try {
+      const rows = await getDb().select().from(extensionLlmUsage).where(and(
+        eq(extensionLlmUsage.extensionId, extensionId),
+        eq(extensionLlmUsage.day, today),
+      ));
+      const seed = rows[0];
+      if (!entry || entry.day !== today) {
+        entry = { hourly: [], dailyCalls: 0, dailyTokens: 0, day: today, dirty: false };
+        counters.set(extensionId, entry);
+      }
+      if (seed) {
+        entry.dailyCalls = seed.calls;
+        entry.dailyTokens = seed.outputTokens;
+        // Don't seed `hourly` — the rolling-hour timestamps aren't
+        // persisted (intentional: a stale rolling-hour after a long
+        // outage is worse than starting fresh).
+      }
+    } catch (err) {
+      log.warn("hydrate-failed", { extensionId, error: String(err) });
+    }
   }
 
   function pruneHourly(entry: ExtCounters, now: number): void {
@@ -187,6 +227,8 @@ export function createLlmQuota(): LlmQuota {
     },
 
     flush: flushImpl,
+
+    hydrate: hydrateImpl,
 
     dispose() {
       clearInterval(timer);

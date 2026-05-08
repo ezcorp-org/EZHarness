@@ -32,6 +32,7 @@ import { handlePiLlmComplete, _resetLlmAbuseTrackerForTests } from "../llm-handl
 import { _resetLlmQuotaForTests } from "../llm-quota";
 import { handlePiMemory, _resetMemoryWriteQuotaForTests } from "../memory-handler";
 import { handlePiLessons, _resetLessonsWriteQuotaForTests } from "../lessons-handler";
+import { handlePiSchedule } from "../schedule-handler";
 import { reconcileSchedules, _wipeSchedulesForTests } from "../schedule-reconcile";
 import { ScheduleDaemon } from "../schedule-daemon";
 import { createUser } from "../../db/queries/users";
@@ -39,7 +40,7 @@ import {
   extensions, conversations, projects,
   sdkCapabilityCalls, messages, errorLogs, auditLog,
   lessons, lessonsAuditLog, memories, memoryAuditLog,
-  extensionSchedules, extensionScheduleFires,
+  extensionScheduleFires,
 } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import type { ExtensionPermissions } from "../types";
@@ -162,19 +163,25 @@ describe("cross-capability integration", () => {
     );
     expect(lessonResp.error).toBeUndefined();
 
-    // 4. ctx.schedule register (via reconciler) — the reconciler is
-    //    not a per-call audit entry by itself. To get an SDK audit
-    //    row, fire the daemon.
+    // 4. ctx.schedule.fireNow() — counts against quota, audited via
+    //    `recordCapabilityCall` (capability="schedule",
+    //    action="fire-now"). Reconcile first so the cron is in
+    //    `extension_schedules`, then fire-now via the host handler.
+    //    This is the spec-literal "5 unique capabilities, 5 rows"
+    //    assertion.
     await reconcileSchedules(extensionId, granted.schedule!.crons);
-    const past = new Date(Date.now() - 60_000);
-    await getTestDb().update(extensionSchedules).set({ nextFireAt: past }).where(eq(extensionSchedules.extensionId, extensionId));
-    const daemon = new ScheduleDaemon();
-    await daemon.tick();
+    const daemon = new ScheduleDaemon({ skipLockfile: true });
+    const schedResp = await handlePiSchedule(
+      { jsonrpc: "2.0", id: 4, method: "ezcorp/schedule",
+        params: { action: "fire-now", cron: "*/5 * * * *" } },
+      { granted, registeredTool: { extensionId }, daemon },
+      rpcMeta(),
+    );
+    expect(schedResp.error).toBeUndefined();
     daemon.stop();
 
-    // 5. ctx.memory.list (the events surface is governance-only —
-    //    no sdk_capability_calls row by design. We use a 2nd memory
-    //    op to round out the 5).
+    // 5. ctx.memory.list — a second memory op so the test exercises
+    //    a read alongside the write. Both write to `sdk_capability_calls`.
     await handlePiMemory(
       { jsonrpc: "2.0", id: 5, method: "ezcorp/memory", params: { action: "list" } },
       { granted, registeredTool: { extensionId } },
@@ -183,12 +190,15 @@ describe("cross-capability integration", () => {
 
     // ── Audit row counts ──
     const sdkRows = await getTestDb().select().from(sdkCapabilityCalls).where(eq(sdkCapabilityCalls.extensionId, extensionId));
-    // 1 LLM + 2 memory (write + list) + 1 lesson = 4. Schedule
-    // dispatch path doesn't go through `recordCapabilityCall` (the
-    // `register` audit shape is the reconciler's responsibility, and
-    // we kept it lean here). The integration test asserts 4 sdk rows
-    // here PLUS the per-resource audit rows below.
-    expect(sdkRows.length).toBeGreaterThanOrEqual(4);
+    // 1 LLM + 2 memory (write + list) + 1 lesson + 1 schedule.fire-now
+    // = 5 rows in sdk_capability_calls (one per capability invocation).
+    // Spec § 51.6.1 mandates 5.
+    expect(sdkRows.length).toBe(5);
+    const capsRecorded = new Set(sdkRows.map((r) => r.capability));
+    expect(capsRecorded.has("llm")).toBe(true);
+    expect(capsRecorded.has("memory")).toBe(true);
+    expect(capsRecorded.has("lessons")).toBe(true);
+    expect(capsRecorded.has("schedule")).toBe(true);
 
     // ── Per-resource audits ──
     const memAudits = await getTestDb().select().from(memoryAuditLog);

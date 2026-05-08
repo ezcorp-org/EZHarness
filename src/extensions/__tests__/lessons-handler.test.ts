@@ -130,6 +130,13 @@ describe("lessons: write", () => {
     expect(resp.error).toBeUndefined();
     const result = resp.result as { lesson: { visibility: string } };
     expect(result.lesson.visibility).toBe("user");
+    // Phase 51.3.5: visibility-clamped audit warning (S2).
+    const audits = await getTestDb().select().from(auditLog).where(eq(auditLog.action, "ext:sdk-lessons-visibility-clamped"));
+    expect(audits.length).toBe(1);
+    expect(audits[0]!.target).toBe(extensionId);
+    const meta = audits[0]!.metadata as { oldValue?: string; newValue?: string };
+    expect(meta.oldValue).toBe("global");
+    expect(meta.newValue).toBe("user");
   });
 
   test("slug collision returns existing row with created=false", async () => {

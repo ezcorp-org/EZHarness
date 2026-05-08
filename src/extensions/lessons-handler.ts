@@ -19,6 +19,8 @@ import { recordCapabilityCall } from "./recordCapabilityCall";
 import { getDb } from "../db/connection";
 import { lessons, extensionLessonsWritesDaily } from "../db/schema";
 import { sql, eq, and } from "drizzle-orm";
+import { insertAuditEntry } from "../db/queries/audit-log";
+import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import type { ExtensionPermissions, JsonRpcRequest, JsonRpcResponse } from "./types";
 
 const log = logger.child("ext.lessons-handler");
@@ -177,7 +179,28 @@ export async function handlePiLessons(
       if (!params.input) return softFail(req, "input required");
       if (!SLUG_RE.test(params.input.slug)) return softFail(req, "invalid-slug");
 
-      const visibility = clampVisibility(params.input.visibility, granted.maxVisibility);
+      const requestedVisibility = params.input.visibility;
+      const visibility = clampVisibility(requestedVisibility, granted.maxVisibility);
+      // Phase 51.3.5 audit: emit a soft governance row when the
+      // requested visibility was higher than the granted ceiling.
+      // Soft outcome — the call still succeeds with the clamped value.
+      if (
+        requestedVisibility !== undefined
+        && requestedVisibility !== visibility
+      ) {
+        await insertAuditEntry(
+          handlerCtx.onBehalfOf,
+          EXT_AUDIT_ACTIONS.SDK_LESSONS_VISIBILITY_CLAMPED,
+          handlerCtx.actorExtensionId,
+          {
+            capability: "lessons",
+            oldValue: requestedVisibility,
+            newValue: visibility,
+            actor: "system",
+            reason: `visibility clamped: requested=${requestedVisibility}, max=${granted.maxVisibility}`,
+          },
+        ).catch(() => {});
+      }
 
       const quota = checkAndConsumeWriteQuota(handlerCtx.actorExtensionId, granted.maxWritesPerDay);
       if (!quota.ok) {

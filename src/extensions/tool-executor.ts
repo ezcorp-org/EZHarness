@@ -20,6 +20,8 @@ import { handleFinalizeToolCallRpc, type FinalizeToolCallContext } from "./final
 import { handlePiLlmComplete } from "./llm-handler";
 import { handlePiMemory } from "./memory-handler";
 import { handlePiLessons } from "./lessons-handler";
+import { handlePiSchedule } from "./schedule-handler";
+import type { ScheduleDaemon } from "./schedule-daemon";
 import type { SpawnQuota } from "./spawn-quota";
 import { getConversation, getConversationSpawnDepth } from "../db/queries/conversations";
 import { persistToolCall } from "../db/queries/tool-calls";
@@ -117,6 +119,7 @@ export class ToolExecutor {
   private currentAgentConfigId?: string;
   private executor?: AgentExecutor;
   private spawnQuota?: SpawnQuota;
+  private scheduleDaemon?: ScheduleDaemon;
   private argsResolver?: ArgsResolver;
 
   constructor(
@@ -172,6 +175,14 @@ export class ToolExecutor {
    *  so hourly/concurrent caps apply across all of a user's turns. */
   setSpawnQuota(quota: SpawnQuota): void {
     this.spawnQuota = quota;
+  }
+
+  /** Wire the shared ScheduleDaemon so `ctx.schedule.fireNow()` can
+   *  share its quota counters + dispatch path. The daemon is owned by
+   *  `src/startup/background-timers.ts`; this setter lets the same
+   *  instance be threaded into every ToolExecutor in the process. */
+  setScheduleDaemon(daemon: ScheduleDaemon): void {
+    this.scheduleDaemon = daemon;
   }
 
   /** Register a pre-call transformer for tool args. Used to substitute
@@ -711,6 +722,9 @@ export class ToolExecutor {
       if (req.method === "ezcorp/lessons") {
         return this.handlePiLessons(extensionId, req);
       }
+      if (req.method === "ezcorp/schedule") {
+        return this.handlePiSchedule(extensionId, req);
+      }
       return {
         jsonrpc: "2.0" as const,
         id: req.id,
@@ -778,6 +792,28 @@ export class ToolExecutor {
     return handlePiLessons(req, {
       granted,
       registeredTool: { extensionId },
+    }, rpcMeta);
+  }
+
+  /** Phase 51 — `ctx.schedule.*` reverse-RPC. Today only `fire-now`
+   *  is supported (manifest-only registration handles the rest). */
+  async handlePiSchedule(
+    extensionId: string,
+    req: JsonRpcRequest,
+  ): Promise<JsonRpcResponse> {
+    const granted = this.registry.getGrantedPermissions(extensionId);
+    if (!granted) {
+      return {
+        jsonrpc: "2.0",
+        id: req.id,
+        error: { code: -32603, message: "Extension not found in registry" },
+      };
+    }
+    const rpcMeta = this.buildHandlerRpcMeta();
+    return handlePiSchedule(req, {
+      granted,
+      registeredTool: { extensionId },
+      ...(this.scheduleDaemon ? { daemon: this.scheduleDaemon } : {}),
     }, rpcMeta);
   }
 

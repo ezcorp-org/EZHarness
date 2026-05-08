@@ -71,6 +71,16 @@ function installModuleMocks(): void {
   mock.module("../db/queries/settings", () => ({
     getSetting: (key: string) => getSettingMock(key),
   }));
+  // Phase 51: stub the ScheduleDaemon so the background-timers test
+  // exercise stays focused on its own scope (decay / compaction /
+  // cleanups). The daemon has its own dedicated suite at
+  // src/extensions/__tests__/schedule-daemon.test.ts.
+  mock.module("../extensions/schedule-daemon", () => ({
+    ScheduleDaemon: class {
+      start() { return Promise.resolve(true); }
+      stop() {}
+    },
+  }));
   mock.module("../logger", () => ({ logger: loggerSpy }));
 }
 

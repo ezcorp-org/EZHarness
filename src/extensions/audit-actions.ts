@@ -146,6 +146,22 @@ export const EXT_AUDIT_ACTIONS = {
   /** ctx.llm.complete() denyAndDisable graduation — repeated attempts
    *  to use an un-granted provider in a 60s window. */
   SDK_LLM_DENIED_AND_DISABLED: "ext:sdk-llm-denied-and-disabled",
+  /** ctx.lessons.write() requested visibility above
+   *  `permissions.lessons.maxVisibility` — clamped down to
+   *  the granted ceiling. Soft governance row (call still
+   *  succeeds with the clamped visibility). */
+  SDK_LESSONS_VISIBILITY_CLAMPED: "ext:sdk-lessons-visibility-clamped",
+  /** ctx.schedule.fireNow() — extension explicitly fired a
+   *  declared cron immediately. Counts against
+   *  `permissions.schedule.maxRunsPerDay`. */
+  SDK_SCHEDULE_FIRE_NOW: "ext:sdk-schedule-fire-now",
+  /** ScheduleDaemon refused to dispatch because the day's
+   *  `maxRunsPerDay` cap was exceeded. */
+  SDK_SCHEDULE_QUOTA_EXCEEDED: "ext:sdk-schedule-quota-exceeded",
+  /** ScheduleDaemon reaped a `running` row left over from a
+   *  crash mid-fire. Marked for retry only when
+   *  `maxRetries > 0`. */
+  SDK_SCHEDULE_REAPED: "ext:sdk-schedule-reaped",
 } as const;
 
 export type ExtAuditAction = typeof EXT_AUDIT_ACTIONS[keyof typeof EXT_AUDIT_ACTIONS];

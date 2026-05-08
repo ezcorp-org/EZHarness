@@ -107,7 +107,10 @@ describe("memory: write", () => {
     expect(resp.error).toBeUndefined();
     const memId = (resp.result as { memory: { id: string } }).memory.id;
     const rows = await getTestDb().select().from(memories).where(eq(memories.id, memId));
-    const prov = rows[0]!.provenance as { extensionId: string };
+    // Cast through `unknown` because Drizzle's inferred provenance
+    // type includes `null` and `MemoryProvenance` doesn't structurally
+    // overlap our local `{ extensionId }` slice.
+    const prov = rows[0]!.provenance as unknown as { extensionId: string };
     expect(prov.extensionId).toBe(extensionId); // NOT evil-ext
   });
 

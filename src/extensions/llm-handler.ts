@@ -181,6 +181,7 @@ export async function handlePiLlmComplete(
   // ── getBudget() short-circuit ────────────────────────────────
   if (params.op === "budget") {
     const quota = ctx.quota ?? getLlmQuota();
+    await quota.hydrate(handlerCtx.actorExtensionId);
     const snapshot = quota.budget(handlerCtx.actorExtensionId, {
       maxCallsPerHour: grantedLlm.maxCallsPerHour,
       maxCallsPerDay: grantedLlm.maxCallsPerDay,
@@ -246,7 +247,7 @@ export async function handlePiLlmComplete(
   }
 
   // ── Model allowlist gate ─────────────────────────────────────
-  if (grantedLlm.allowedModels && grantedLlm.allowedModels[params.provider]) {
+  if (grantedLlm.allowedModels?.[params.provider]) {
     const globs = grantedLlm.allowedModels[params.provider]!;
     const allowed = globs.some((g) => modelMatchesGlob(params.model, g));
     if (!allowed) {
@@ -272,6 +273,10 @@ export async function handlePiLlmComplete(
 
   // ── Quota gate ───────────────────────────────────────────────
   const quota = ctx.quota ?? getLlmQuota();
+  // Hydrate today's persisted counters from `extension_llm_usage` on
+  // first call after a process restart. Cheap when already populated
+  // (early-return inside hydrate); critical for restart-resilience.
+  await quota.hydrate(handlerCtx.actorExtensionId);
   // Always have a concrete token estimate for the quota counter.
   const reqMaxTokens: number =
     clampInt(params.maxTokens, 1, grantedLlm.maxTokensPerCall ?? 4096)

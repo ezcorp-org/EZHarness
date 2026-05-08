@@ -4,11 +4,19 @@ import { deleteExpiredSessions } from "../db/queries/sessions";
 import { cleanupOldErrors } from "../db/queries/error-logs";
 import { cleanupOldSdkCapabilityCalls, clampDays } from "../db/queries/sdk-capability-calls";
 import { getSetting } from "../db/queries/settings";
+import { ScheduleDaemon } from "../extensions/schedule-daemon";
 import { logger } from "../logger";
 
 const log = logger.child("startup.timers");
 
 let started = false;
+let scheduleDaemon: ScheduleDaemon | undefined;
+
+/** Test-only handle to the daemon singleton — lets tests assert the
+ *  daemon was constructed and tear it down between cases. */
+export function _getScheduleDaemonForTests(): ScheduleDaemon | undefined {
+  return scheduleDaemon;
+}
 
 /**
  * Start all background maintenance timers: memory decay sweep, memory
@@ -82,6 +90,28 @@ export async function startBackgroundTimers(): Promise<void> {
     log.warn("Failed to start compaction timer", { error: String(e) });
   }
 
+  // Phase 51.5: ScheduleDaemon — persistent cron driver for `ctx.schedule`.
+  // Singleton owned by background-timers; gated by `EZCORP_DISABLE_SCHEDULE_DAEMON=1`
+  // for ops who want to fence off cron-driven extensions in a given env.
+  // The daemon's PID lockfile is the cross-process sibling-prevention
+  // mechanism — see schedule-daemon.ts.
+  try {
+    if (process.env.EZCORP_DISABLE_SCHEDULE_DAEMON !== "1") {
+      scheduleDaemon = new ScheduleDaemon();
+      const ok = await scheduleDaemon.start();
+      if (ok) {
+        log.info("ScheduleDaemon started");
+      } else {
+        log.warn("ScheduleDaemon refused to start (sibling daemon detected via lockfile)");
+        scheduleDaemon = undefined;
+      }
+    } else {
+      log.info("ScheduleDaemon disabled via EZCORP_DISABLE_SCHEDULE_DAEMON");
+    }
+  } catch (e) {
+    log.warn("Failed to start ScheduleDaemon", { error: String(e) });
+  }
+
   // Surface coverage audit (opt-in via global:auditIntervalHours,
   // default 0 = disabled — audits make LLM calls so we don't surprise
   // users with cost. On-demand runs via the surface-audit agent always
@@ -132,4 +162,8 @@ async function runScheduledSurfaceAudit(): Promise<void> {
 /** Test-only: reset the singleton flag so tests can re-invoke. */
 export function _resetForTests(): void {
   started = false;
+  if (scheduleDaemon) {
+    scheduleDaemon.stop();
+    scheduleDaemon = undefined;
+  }
 }
