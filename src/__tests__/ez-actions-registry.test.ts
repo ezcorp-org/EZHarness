@@ -3,8 +3,14 @@
  *
  * Coverage targets (per plan §2.4):
  *   - listEzActions returns only public fields (no `handler`)
- *   - getEzAction("distill") returns the action
+ *   - getEzAction("distill") returns the metadata stub
  *   - getEzAction("nope") returns null
+ *
+ * Phase 53 Stage 2: the registry's `distill` entry is a metadata stub.
+ * The actual dispatch path is the route forwarder
+ * (`web/src/routes/api/ez-actions/[name]/+server.ts`'s
+ * `forwardDistillToBundled`). The stub's handler throws if invoked —
+ * that's the contract this test locks in (see the throw-on-call test).
  *
  * Pure-data tests; no DB / mock-module needed. Runs under the
  * project's main `bun test` runner.
@@ -63,5 +69,24 @@ describe("EZ actions registry — getEzAction", () => {
     expect(getEzAction("nope")).toBeNull();
     expect(getEzAction("")).toBeNull();
     expect(getEzAction("Distill")).toBeNull(); // case-sensitive
+  });
+
+  test("Phase 53 Stage 2: the `distill` registry handler is a stub that throws", async () => {
+    // The route forwarder bypasses the registry handler for
+    // `name === "distill"` (it dispatches to the bundled
+    // lessons-distiller's `distill_now` tool instead). The registry
+    // entry's `handler` is therefore a defense-in-depth throw — if it
+    // is ever called, the forwarder branch has regressed and the
+    // dispatch path needs a fix, not a silent fallback to wrong
+    // behaviour.
+    const action = getEzAction("distill");
+    expect(action).not.toBeNull();
+    await expect(
+      action!.handler({
+        conversationId: "x",
+        userId: "y",
+        projectId: "z",
+      }),
+    ).rejects.toThrow(/forwarder/i);
   });
 });

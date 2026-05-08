@@ -12,15 +12,36 @@
  *     names get silently stripped too, matching the literal-strip
  *     discipline used for `/[cmd:…]` and `$[feature:…]`)
  *
- * Empty list in Phase 1 — Phase 2 wires the `distill` handler.
+ * Phase 53 Stage 2: the legacy `distillAction` import + handler have
+ * been deleted. The `distill` slot lives on as a metadata-only entry
+ * — it's there so the popover surfacing (`!EZ:` mentions) keeps
+ * showing `distill` to users, but the actual dispatch is handled by
+ * the route forwarder at `/api/ez-actions/[name]/+server.ts`, which
+ * special-cases `name === "distill"` and bypasses the registry's
+ * handler entirely. The stub handler below is a defense-in-depth
+ * throw: if the forwarder branch is ever broken, the dispatch path
+ * fails loudly instead of silently producing wrong-shaped results.
+ *
+ * Future EZ actions register as full `EzAction` entries (with real
+ * handlers) — the `distill` placeholder stays unique to the
+ * forwarder pattern.
  */
 import type { EzAction } from "./types";
-import { distillAction } from "./distill";
 
-// v1 ships exactly one action: `distill`. Adding new actions =
-// append to this array (after writing the handler file + its tests).
-// User-extensible registries are v2.
-const REGISTRY: readonly EzAction[] = [distillAction];
+const distillForwarderEntry: EzAction = {
+  name: "distill",
+  description: "Force-trigger lesson distillation on this conversation.",
+  handler: async () => {
+    // Defense-in-depth — the route forwarder handles `name === "distill"`
+    // before reaching the registry handler. If this throws, the dispatch
+    // route's special-case branch has regressed; surface loudly.
+    throw new Error(
+      "EZ action 'distill' must be served by the forwarder in /api/ez-actions/[name]/+server.ts (see Phase 53 Stage 2). The registry handler is a stub.",
+    );
+  },
+};
+
+const REGISTRY: readonly EzAction[] = [distillForwarderEntry];
 
 /**
  * Public listing for the popover. `handler` is intentionally NOT

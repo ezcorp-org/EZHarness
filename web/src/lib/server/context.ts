@@ -19,7 +19,6 @@ import {
 import { EventSubscriptionDispatcher } from "$server/extensions/event-subscription-dispatcher";
 import { getConversationExtensionIds } from "$server/db/queries/conversation-extensions";
 import { registerExtractionListener } from "$server/memory/extraction";
-import { registerLessonDistillerListener } from "$server/runtime/lessons/distiller";
 import {
   createCommandRegistry,
   type CommandRegistry,
@@ -44,7 +43,6 @@ let eventSubscriptionDispatcher: EventSubscriptionDispatcher | null = null;
 let commandRegistry: CommandRegistry | null = null;
 let pipelines: PipelineDefinition[] = [];
 let extractionUnsub: (() => void) | null = null;
-let lessonDistillerUnsub: (() => void) | null = null;
 let initialized = false;
 
 export async function ensureInitialized(): Promise<void> {
@@ -120,11 +118,12 @@ export async function ensureInitialized(): Promise<void> {
   // Register memory extraction listener (fire-and-forget on run:complete)
   extractionUnsub = registerExtractionListener(bus);
 
-  // Register lessons distiller listener (fire-and-forget on run:complete).
-  // Mirrors the extraction listener — distillation is runtime-internal,
-  // gated by `global:lessonDistillerEnabled` (treated as enabled when
-  // missing). See src/runtime/lessons/distiller.ts.
-  lessonDistillerUnsub = registerLessonDistillerListener(bus);
+  // Lessons distillation runs as a bundled extension as of Phase 53 Stage 2 —
+  // see `extensions/lessons-distiller/index.ts`'s
+  // `registerEventHandler("run:complete", …)`. Conversation→extension
+  // wiring is auto-populated by `autoWireBundledExtensions` (new convs)
+  // and the one-time `migrateLessonsDistillerConversationWiring`
+  // backfill (existing convs).
 
   // Command registry: bridges filesystem roots + userCommands DB rows.
   // Home-dir scanning is gated via env flag so multi-tenant deploys can
@@ -197,8 +196,6 @@ export async function reloadPipelines(): Promise<void> {
 function reset(): void {
   if (extractionUnsub) extractionUnsub();
   extractionUnsub = null;
-  if (lessonDistillerUnsub) lessonDistillerUnsub();
-  lessonDistillerUnsub = null;
   // Tear down executor-owned timers + in-flight runs before dropping
   // the reference; otherwise the orphan-cleanup interval keeps the
   // singleton (and its closures) alive for the lifetime of the process.

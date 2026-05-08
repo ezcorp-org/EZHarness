@@ -612,6 +612,27 @@ export async function ensureBundledExtensions(): Promise<void> {
       error: String(migrationErr),
     });
   }
+
+  // Phase 53 Stage 2: backfill `conversation_extensions` rows for the
+  // bundled lessons-distiller extension across every existing
+  // conversation. Without this, the dispatcher's wired-set gate would
+  // silently drop `run:complete` for legacy conversations after the
+  // host-side listener is removed. Idempotent via a `migrated_at`
+  // sentinel; honours user-driven unwirings (sentinel = no replay).
+  try {
+    const lessonsDistillerRow = await getExtensionByName("lessons-distiller");
+    if (lessonsDistillerRow) {
+      const { migrateLessonsDistillerConversationWiring } = await import(
+        "./migrations/lessons-distiller-conversation-wiring"
+      );
+      await migrateLessonsDistillerConversationWiring(lessonsDistillerRow.id);
+    }
+  } catch (migrationErr) {
+    log.warn(
+      "lessons-distiller wiring migration threw during ensureBundledExtensions",
+      { error: String(migrationErr) },
+    );
+  }
 }
 
 /**

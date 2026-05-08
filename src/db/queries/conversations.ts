@@ -117,7 +117,28 @@ export async function createConversation(
       userId: opts?.userId || null,
     })
     .returning();
-  return rows[0]!;
+  const created = rows[0]!;
+
+  // Phase 53 Stage 2: auto-wire bundled extensions that need to fire
+  // on every conversation (currently just the lessons-distiller).
+  // Failure is logged + swallowed — conversation creation must not
+  // depend on the wiring write succeeding. See
+  // `src/extensions/auto-wire-bundled.ts` for the contract.
+  try {
+    const { autoWireBundledExtensions } = await import(
+      "../../extensions/auto-wire-bundled"
+    );
+    await autoWireBundledExtensions(created.id);
+  } catch (err) {
+    // Defensive — autoWireBundledExtensions itself swallows; this is
+    // belt-and-suspenders for the dynamic-import path.
+    log.warn("auto-wire bundled extensions failed during createConversation", {
+      conversationId: created.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  return created;
 }
 
 export async function createSubConversation(

@@ -40,18 +40,18 @@ import { ToolExecutor } from "$server/extensions/tool-executor";
 import { getPermissionEngine } from "$server/extensions/permission-engine";
 
 /**
- * Phase 53 Stage 1 — forward `!EZ:distill` to the bundled
+ * Phase 53 Stage 2 — forward `!EZ:distill` to the bundled
  * lessons-distiller extension's `distill_now` tool. The legacy
- * in-process handler at `src/runtime/ez-actions/distill.ts` stays
- * registered (the `getEzAction` registry still finds it) so its unit
- * tests + import graph keep working until Stage 2 deletion. This
- * forwarder ONLY runs at the HTTP route level; the legacy handler is
- * not reached for `name === "distill"` during Stage 1.
+ * in-process handler has been deleted; the registry no longer carries
+ * a `distill` entry. The dispatch endpoint below therefore takes a
+ * special path for `name === "distill"`: skip the registry lookup,
+ * run the forwarder directly. Other action names still flow through
+ * the registry and 404 if not found.
  *
  * The bundled tool returns a JSON envelope `{ __ezDistillerOutcome:
  * true, outcome: DistillationOutcome }` in the result text. We parse
  * it and map to the same `EzActionResult` chat-card shape the legacy
- * handler produces. Mapping is exhaustive across the 7 outcome
+ * handler produced. Mapping is exhaustive across the 7 outcome
  * variants + the `settings_disabled` decline added by the bundled
  * implementation.
  */
@@ -262,6 +262,12 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const name = params.name;
 	if (!name) return errorJson(400, "Missing action name");
 
+	// Phase 53 Stage 2: `distill` is registered as a metadata stub —
+	// `getEzAction("distill")` returns the stub entry (whose handler
+	// throws), and the route forwarder below special-cases the name to
+	// dispatch to the bundled lessons-distiller. The registry lookup
+	// stays useful for the popover wire format and 404-gates every
+	// other (real) action name.
 	const action = getEzAction(name);
 	if (!action) return errorJson(404, "No such EZ action");
 
@@ -301,11 +307,12 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	// transport / persistence failures.
 	let result: EzActionResult;
 	try {
-		// Phase 53 Stage 1: `distill` forwards to the bundled
-		// lessons-distiller extension's `distill_now` tool. The legacy
-		// in-process handler (`distillAction.handler`) stays
-		// importable for the deletion gate but is bypassed here. Other
-		// EZ actions still go through the registry handler.
+		// Phase 53 Stage 2: `distill` forwards to the bundled
+		// lessons-distiller extension's `distill_now` tool. The
+		// registry's `distill` entry is a stub (its handler throws —
+		// see `src/runtime/ez-actions/registry.ts`); this branch is
+		// what actually services the manual `!EZ:distill` flow. Other
+		// EZ actions go through the registry handler.
 		if (name === "distill") {
 			await ensureInitialized();
 			result = await forwardDistillToBundled(conversationId, user.id);
