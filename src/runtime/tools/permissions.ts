@@ -57,12 +57,61 @@ export async function getPermissionMode(
 
 // ── Permission Gate ─────────────────────────────────────────────────
 
+import type { AlwaysAllowScope } from "../../extensions/permissions";
+
+/**
+ * Phase 6 — extension-scoped permission gate metadata.
+ *
+ * Built-in tool gates resolve void (resolve() / reject()). Extension
+ * gates additionally need to surface the user's chosen scope (session/
+ * conversation/project/forever) so the resolving caller can persist the
+ * always-allow row at the right scope tuple. We model the resolution
+ * via a discriminated `ApprovalResolution` union — `allowed` flag plus
+ * an optional scope. Built-in gates use the legacy void-resolve path
+ * (no behavior change for existing callers); extension gates use
+ * `createExtensionPermissionGate` which awaits an `ApprovalResolution`.
+ */
+export interface ApprovalResolution {
+  allowed: boolean;
+  /**
+   * User-chosen always-allow scope. Required when `allowed === true` and
+   * the request was extension-scoped; optional / ignored otherwise.
+   */
+  scope?: AlwaysAllowScope;
+}
+
 interface PendingApproval {
   resolve: () => void;
   reject: (err: Error) => void;
   // sec-H2: conversation this gate belongs to, so the HTTP handler that
   // resolves it can verify the caller owns the conversation before acting.
   conversationId?: string;
+  /**
+   * Phase 6: extension-scoped gate marker. When set, the gate was
+   * created by `createExtensionPermissionGate` and the resolver
+   * (`resolvePermission`) MUST be called with a structured payload
+   * (`approved + scope`). The legacy void-resolve `resolvePermission`
+   * path still works on built-in gates whose `extension` field is
+   * undefined.
+   */
+  extension?: ExtensionGateMeta;
+}
+
+interface ExtensionGateMeta {
+  extensionId: string;
+  userId: string;
+  /**
+   * Sensitive capability that triggered the prompt. The resolver uses
+   * this to derive the legacy `shell|filesystem` operation name when
+   * persisting the always-allow row via `setSensitiveAlwaysAllow`.
+   */
+  capabilityKind: "shell" | "fs.write";
+  /**
+   * Resolution promise — extension gates resolve to an
+   * `ApprovalResolution`, not void. Stored separately from the
+   * void-shaped `resolve` so the legacy gate path can stay simple.
+   */
+  resolveDetailed: (r: ApprovalResolution) => void;
 }
 
 const pendingApprovals = new Map<string, PendingApproval>();
@@ -85,6 +134,67 @@ export function createPermissionGate(
 }
 
 /**
+ * Phase 6 — request used to open an extension-scoped permission gate.
+ *
+ * Mirrors the data already on the `tool:permission_request` bus event
+ * for extension calls (`extensionId`, `capabilityKind`, `capabilityValue`)
+ * so the SSE-side modal renders without an extra round-trip.
+ */
+export interface ExtensionPermissionRequest {
+  /** PDP-minted prompt id. Becomes the gate's lookup key. */
+  promptId: string;
+  conversationId: string;
+  userId: string;
+  extensionId: string;
+  toolName: string;
+  /** Sensitive cap kind. Today the engine returns prompt only for
+   *  `shell` and `fs.write` — see `SENSITIVE_KINDS` in capability-types.ts. */
+  capabilityKind: "shell" | "fs.write";
+  /** Sensitive cap value (e.g. concrete path for fs.write). */
+  capabilityValue?: string;
+}
+
+/**
+ * Phase 6 — open a permission gate for an extension-scoped request and
+ * await the user's `{allowed, scope}` decision.
+ *
+ * Reuses the same `pendingApprovals` Map keyed by `promptId` (the PDP
+ * mints one per `decision: "prompt"` return). When the user responds
+ * via the `/api/tool-calls/:id/permission` route, the resolver
+ * (`resolvePermission`) recognizes the extension-gate metadata and
+ * resolves the structured `ApprovalResolution` instead of the legacy
+ * void path.
+ *
+ * The caller (Phase 6 wired in `executeToolCall`'s `prompt` branch)
+ * is responsible for:
+ *   1. Persisting the always-allow row at the chosen scope via
+ *      `setSensitiveAlwaysAllow` — capability kind translates as
+ *      `"shell"` → "shell", `"fs.write"` → "filesystem" (matches
+ *      legacy operation names the persistence layer expects).
+ *   2. Re-running the tool call once `{allowed: true}` arrives.
+ */
+export function createExtensionPermissionGate(
+  req: ExtensionPermissionRequest,
+): Promise<ApprovalResolution> {
+  return new Promise<ApprovalResolution>((resolve, _reject) => {
+    pendingApprovals.set(req.promptId, {
+      // Legacy resolve/reject are no-ops on extension gates — the
+      // structured `resolveDetailed` path drives resolution. We still
+      // populate them so the same Map shape works in `getPendingApproval`.
+      resolve: () => resolve({ allowed: true, scope: "session" }),
+      reject: () => resolve({ allowed: false }),
+      conversationId: req.conversationId,
+      extension: {
+        extensionId: req.extensionId,
+        userId: req.userId,
+        capabilityKind: req.capabilityKind,
+        resolveDetailed: resolve,
+      },
+    });
+  });
+}
+
+/**
  * Returns the conversationId associated with a pending gate, or undefined
  * if no gate is pending (or the gate was created without one).
  * Used by the POST /api/tool-calls/:id/permission handler to authorize the
@@ -98,14 +208,36 @@ export function getPendingApprovalConversation(
 
 /**
  * Resolve a pending permission gate.
- * If approved=true, the gate promise resolves. If false, it rejects with "Permission denied".
- * No-op if the toolCallId is not pending.
+ *
+ * Built-in tool gate (legacy): pass `approved` only. The gate promise
+ * resolves on `true`, rejects with `"Permission denied"` on `false`.
+ *
+ * Extension-scoped gate (Phase 6): pass `approved` + the user-chosen
+ * `scope`. The gate's structured `ApprovalResolution` resolves with the
+ * pair so the caller can persist the always-allow row at the right
+ * scope tuple. Built-in gates ignore `scope`.
+ *
+ * No-op if the gate id is not pending.
  */
-export function resolvePermission(toolCallId: string, approved: boolean): void {
+export function resolvePermission(
+  toolCallId: string,
+  approved: boolean,
+  scope?: AlwaysAllowScope,
+): void {
   const pending = pendingApprovals.get(toolCallId);
   if (!pending) return;
 
   pendingApprovals.delete(toolCallId);
+  if (pending.extension) {
+    // Phase 6: extension gate — resolve with `{allowed, scope}`.
+    const resolution: ApprovalResolution = approved
+      ? { allowed: true, scope: scope ?? "session" }
+      : { allowed: false };
+    pending.extension.resolveDetailed(resolution);
+    return;
+  }
+
+  // Legacy built-in gate path.
   if (approved) {
     pending.resolve();
   } else {
@@ -118,4 +250,17 @@ export function resolvePermission(toolCallId: string, approved: boolean): void {
  */
 export function getPendingApproval(toolCallId: string): boolean {
   return pendingApprovals.has(toolCallId);
+}
+
+/**
+ * Phase 6 — read the extension-gate metadata for a pending prompt id.
+ * Returns `undefined` for unknown ids OR for built-in gates (which lack
+ * the `extension` field). Used by the resolver to translate the
+ * sensitive capability kind into the legacy operation name when
+ * persisting the always-allow row.
+ */
+export function getPendingExtensionGate(
+  promptId: string,
+): ExtensionGateMeta | undefined {
+  return pendingApprovals.get(promptId)?.extension;
 }

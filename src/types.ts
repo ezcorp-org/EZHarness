@@ -254,7 +254,41 @@ export interface AgentEvents {
   "tool:start": { conversationId: string; extensionId: string; toolName: string; input: unknown; timestamp: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string; category?: string };
   "tool:complete": { conversationId: string; extensionId: string; toolName: string; output: unknown; duration: number; success: boolean; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };
   "tool:error": { conversationId: string; extensionId: string; toolName: string; error: string; duration: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };
-  "tool:permission_request": { conversationId: string; toolCallId: string; toolName: string; input: unknown; cardType?: string; cardLayout?: string; category?: string };
+  "tool:permission_request": {
+    conversationId: string;
+    toolCallId: string;
+    toolName: string;
+    input: unknown;
+    cardType?: string;
+    cardLayout?: string;
+    category?: string;
+    /**
+     * Phase 6 H7: owning user id. The SSE filter at
+     * `runtime-events/+server.ts` cross-checks this against the
+     * subscriber so a permission prompt fires only on the originating
+     * user's UI session — never cross-tab / cross-user.
+     */
+    userId?: string;
+    /**
+     * Phase 6: extension-scoped permission request marker. When set,
+     * the event was emitted by the PDP's `prompt` branch in
+     * `tool-executor.ts` and the UI MUST render the four-scope chooser
+     * (session/conversation/project/forever) plus the extension's
+     * display name + capability description.
+     */
+    extensionId?: string;
+    /** Sensitive capability kind that triggered the prompt — `shell`
+     *  or `fs.write`. Used by the modal to render a human-readable
+     *  description of what's being requested. */
+    capabilityKind?: "shell" | "fs.write";
+    /** Sensitive capability value (for `fs.write` it's the concrete
+     *  path). Empty / undefined for `shell`. */
+    capabilityValue?: string;
+    /** PDP prompt id — becomes the `toolCallId` here so the existing
+     *  `/api/tool-calls/:id/permission` route resolves the gate
+     *  unchanged. Mirrors the gate key for clarity. */
+    promptId?: string;
+  };
   "tool:kill": { toolCallId: string };
   "tool:permission_mode_change": { conversationId: string; mode: string };
   "obs:turn": { conversationId: string; messageId?: string; llmDurationMs: number; toolDurationMs: number; totalDurationMs: number; tokenUsage: { input: number; output: number } };
