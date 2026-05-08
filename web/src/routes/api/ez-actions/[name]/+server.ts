@@ -78,7 +78,16 @@ async function forwardDistillToBundled(
     };
   }
 
-  const engine = getPermissionEngine();
+  // Pass deps so cold-start (this is the first PermissionEngine
+  // touch in the boot sequence — no agent has streamed yet) doesn't
+  // throw "not initialized". If another path already initialised the
+  // singleton, this just rebuilds it with equivalent deps; the
+  // factory has no race-sensitive state.
+  const engine = getPermissionEngine({
+    registry,
+    bus: getBus(),
+    db: { _token: "ez-action-distill" },
+  });
   const executor = new ToolExecutor(registry, engine, { bus: getBus() });
   executor.setCurrentUserId(userId);
   // Phase 53.1 audit-fix: Date.now() collides under burst load (two
