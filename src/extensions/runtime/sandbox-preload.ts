@@ -39,6 +39,16 @@ const NETWORK_MODULES = [
 
 const SHELL_MODULES = ["child_process"] as const;
 
+// Phase 3: filesystem primitives are ALWAYS poisoned in the subprocess
+// — granted access flows through `ezcorp/fs.{read,write,list,stat,...}`
+// reverse-RPC, host-mediated. The `EZCORP_FS_ALLOWED` flag is purely
+// informational for SDK helper fast-fail and does NOT toggle the
+// deniers (unlike `network`/`shell` where granted access also unblocks
+// the in-sandbox primitive wrapped by a fetch allowlist). See
+// `tasks/phase-3-filesystem-hardening.md` "Important" note + plan
+// pillar 6.
+const FS_MODULES = ["fs", "fs/promises"] as const;
+
 const networkAllowed = process.env.EZCORP_NETWORK_ALLOWED === "1";
 const shellAllowed = process.env.EZCORP_SHELL_ALLOWED === "1";
 
@@ -178,6 +188,41 @@ if (!shellAllowed) {
     // Bun.$ is a tagged-template shell — same capability as spawn.
     BunNs.$ = makeDenier("shell", "Bun.$");
   }
+}
+
+// Phase 3: fs primitives are ALWAYS poisoned in the subprocess —
+// granted access does NOT unblock raw in-sandbox primitives. All IO
+// flows through `ezcorp/fs.{read,write,list,stat,exists,mkdir,unlink}`
+// reverse-RPC (see `src/extensions/fs-handler.ts`) so the host
+// performs the realpath check + actual IO + audit log emission. This
+// closes the TOCTOU window between the old `ezcorp/fs` path-check and
+// the subprocess's `Bun.file().text()`, AND the bypass where an
+// extension that ignored the SDK helper just called the primitive
+// directly. The new SDK helpers (`@ezcorp/sdk/runtime/fs.fsRead/...`)
+// route to the host-mediated path. See plan pillar 6.
+//
+// The `EZCORP_FS_ALLOWED` env var is informational only — it tells
+// SDK helpers that the reverse-RPC is meaningful for this extension
+// (fail-fast with a clean "no fs grant" error before round-tripping
+// to the host). The deniers below fire regardless of that flag.
+for (const mod of FS_MODULES) {
+  poisonModule(mod, "filesystem");
+  registerBlockedRequire(mod);
+}
+if (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") {
+  const BunNs = (globalThis as unknown as { Bun: Record<string, unknown> }).Bun;
+  BunNs.file = makeDenier(
+    "filesystem",
+    "Bun.file — use @ezcorp/sdk/runtime fsRead / fsExists",
+  );
+  BunNs.write = makeDenier(
+    "filesystem",
+    "Bun.write — use @ezcorp/sdk/runtime fsWrite",
+  );
+  BunNs.glob = makeDenier(
+    "filesystem",
+    "Bun.glob — use @ezcorp/sdk/runtime fsList",
+  );
 }
 
 // Always deny — extension manifest has no concept of FFI or Worker
@@ -417,6 +462,11 @@ try {
     }
     if ((SHELL_MODULES as readonly string[]).includes(bare)) {
       makeDenier("shell", `${id} module`)();
+    }
+    // Phase 3: filesystem modules are unconditionally poisoned (no
+    // granted-permission unblock — see the FS_MODULES block above).
+    if ((FS_MODULES as readonly string[]).includes(bare)) {
+      makeDenier("filesystem", `${id} module`)();
     }
   }
 
