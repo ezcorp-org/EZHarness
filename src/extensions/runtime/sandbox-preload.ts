@@ -46,6 +46,27 @@ function makeDenier(permission: string, what: string): () => never {
 }
 
 /**
+ * Constructor-style denier. Plain functions (not arrow functions) can
+ * be called with `new`, so this is what we use to deny `WebSocket`,
+ * `Worker`, and `EventSource` — the runtime would otherwise throw a
+ * generic "function is not a constructor" error before the body runs,
+ * which doesn't carry our permission-label message.
+ *
+ * Phase 2: only used for class-shaped globals where extension code
+ * reaches via `new X(...)`. Method-shaped APIs (`Bun.connect(...)`,
+ * `fetch(...)`, etc.) keep using `makeDenier` since they're never
+ * `new`-called.
+ */
+function makeCtorDenier(permission: string, what: string): unknown {
+  return function DeniedCtor(): never {
+    throw new Error(
+      `Extension sandbox: '${what}' blocked — extension requires '${permission}' permission ` +
+        `(add to manifest.permissions.${permission} and grant at install time)`,
+    );
+  };
+}
+
+/**
  * Replace every own property of a builtin module object with a throwing getter.
  * This catches `import http from "http"` / `await import("http")` because Bun
  * caches the same module object for both CJS and ESM access.
@@ -92,6 +113,39 @@ if (!networkAllowed) {
     "network",
     "fetch()",
   );
+  // Phase 2: Bun's native socket / server primitives bypass Node's
+  // network modules entirely. An extension granted nothing must not
+  // be able to dial out by reaching for Bun.connect / Bun.listen /
+  // Bun.serve / Bun.udpSocket. WebSocket and EventSource are global
+  // classes for client-side streaming connections — independent of the
+  // Bun namespace — so they're denied on `globalThis`.
+  if (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") {
+    const BunNs = (globalThis as unknown as { Bun: Record<string, unknown> }).Bun;
+    BunNs.connect = makeDenier("network", "Bun.connect");
+    BunNs.listen = makeDenier("network", "Bun.listen");
+    BunNs.serve = makeDenier("network", "Bun.serve");
+    BunNs.udpSocket = makeDenier("network", "Bun.udpSocket");
+  }
+}
+
+// Phase 2: WebSocket / EventSource / Worker are ALWAYS denied in
+// Phase 2, even with `network` granted. They need streaming +
+// Worker-preload-propagation work that's not in Phase 2's scope —
+// see the spec's "Out of scope" section. A future phase may add
+// host-mediated alternatives.
+//
+// These are class-shaped globals — extensions construct with `new X(...)`,
+// so we use `makeCtorDenier` to ensure our permission-label message is
+// what surfaces, not the runtime's generic "function is not a constructor".
+(globalThis as Record<string, unknown>).WebSocket = makeCtorDenier(
+  "network",
+  "WebSocket — host-mediated streaming alternative is a future phase",
+);
+if ((globalThis as Record<string, unknown>).EventSource !== undefined) {
+  (globalThis as Record<string, unknown>).EventSource = makeCtorDenier(
+    "network",
+    "EventSource — host-mediated streaming alternative is a future phase",
+  );
 }
 
 if (!shellAllowed) {
@@ -105,8 +159,27 @@ if (!shellAllowed) {
     const BunNs = (globalThis as unknown as { Bun: Record<string, unknown> }).Bun;
     BunNs.spawn = makeDenier("shell", "Bun.spawn");
     BunNs.spawnSync = makeDenier("shell", "Bun.spawnSync");
+    // Bun.$ is a tagged-template shell — same capability as spawn.
+    BunNs.$ = makeDenier("shell", "Bun.$");
   }
 }
+
+// Always deny — extension manifest has no concept of FFI or Worker
+// permission. FFI gives unrestricted native code execution. Workers
+// spawn fresh module graphs that may not run --preload, breaking the
+// sandbox's invariants. If/when extensions need worker-style parallelism
+// or FFI, a host-mediated alternative will land in a future phase.
+if (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") {
+  const BunNs = (globalThis as unknown as { Bun: Record<string, unknown> }).Bun;
+  BunNs.dlopen = makeDenier(
+    "native",
+    "Bun.dlopen — FFI is never granted to extensions",
+  );
+}
+(globalThis as Record<string, unknown>).Worker = makeCtorDenier(
+  "native",
+  "Worker — extension subprocess cannot spawn workers",
+);
 
 // Monkey-patch require() to throw early with a clear message before the cached
 // (poisoned) module object is ever returned. This catches `require("http")` in

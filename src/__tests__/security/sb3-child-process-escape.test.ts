@@ -203,6 +203,27 @@ describe("sec-SB3: child_process available WITH shell permission (no-op mode)", 
   });
 });
 
+// ── Phase 2: Bun.$ template-literal shell ────────────────────────
+//
+// `Bun.$\`echo hi\`` spawns a real shell — same capability as
+// `Bun.spawn(['sh', '-c', '...'])`. Pre-Phase-2 it was un-gated; Phase 2
+// extends the shell deniers to cover the Bun namespace's `$`.
+
+describe("sec-SB3/Phase2: Bun.$ template-literal shell blocked without shell permission", () => {
+  test("Bun.$ throws with shell-permission error when EZCORP_SHELL_ALLOWED=0", async () => {
+    const out = await runUnderPreload(probeSync(`Bun.$\`echo hi\``));
+    expect(out.stdout).toMatch(SHELL_DENY);
+  });
+
+  test("Bun.$ is restored when EZCORP_SHELL_ALLOWED=1", async () => {
+    const out = await runUnderPreload(
+      probeSync(`if (typeof Bun.$ !== "function") throw new Error("Bun.$ not a function")`),
+      { shellAllowed: true },
+    );
+    expect(out.stdout).toMatch(/^OK$/m);
+  });
+});
+
 describe("sec-SB3: grant/revoke cycle — a fresh subprocess respects a flipped env", () => {
   test("deny → allow → deny across three fresh spawns", async () => {
     // Subprocesses inherit env at spawn time. Permission changes take effect

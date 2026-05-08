@@ -187,3 +187,124 @@ describe("sec-SB2: revoke cycle — a fresh subprocess respects a flipped env", 
     expect(revokedRun.stdout).toMatch(NETWORK_DENY);
   });
 });
+
+// ── Phase 2: Bun-namespace network primitives ────────────────────
+//
+// Pre-Phase-2 the preload only blocked Node's `http/https/net/...`
+// modules and `globalThis.fetch`. An extension could reach `Bun.connect`,
+// `Bun.listen`, `Bun.serve`, or `Bun.udpSocket` to dial out / serve
+// without ever going through the http allowlist — a complete bypass.
+// Phase 2 closes this surface (sandbox-preload.ts).
+
+describe("sec-SB2/Phase2: Bun-namespace network primitives blocked without permission", () => {
+  test("Bun.connect throws with network-permission error", async () => {
+    const out = await runUnderPreload(
+      probeSync(`Bun.connect({ hostname: 'localhost', port: 1, socket: {} })`),
+    );
+    expect(out.stdout).toMatch(NETWORK_DENY);
+  });
+
+  test("Bun.listen throws with network-permission error", async () => {
+    const out = await runUnderPreload(
+      probeSync(`Bun.listen({ hostname: 'localhost', port: 0, socket: {} })`),
+    );
+    expect(out.stdout).toMatch(NETWORK_DENY);
+  });
+
+  test("Bun.serve throws with network-permission error", async () => {
+    const out = await runUnderPreload(probeSync(`Bun.serve({ port: 0, fetch() {} })`));
+    expect(out.stdout).toMatch(NETWORK_DENY);
+  });
+
+  test("Bun.udpSocket throws with network-permission error", async () => {
+    const out = await runUnderPreload(probeSync(`Bun.udpSocket({ socket: {} })`));
+    expect(out.stdout).toMatch(NETWORK_DENY);
+  });
+
+  test("Bun.connect is restored when EZCORP_NETWORK_ALLOWED=1", async () => {
+    const out = await runUnderPreload(
+      probeSync(
+        `if (typeof Bun.connect !== "function") throw new Error("Bun.connect not a function")`,
+      ),
+      { networkAllowed: true },
+    );
+    expect(out.stdout).toMatch(/^OK$/m);
+  });
+
+  test("Bun.serve is restored when EZCORP_NETWORK_ALLOWED=1", async () => {
+    const out = await runUnderPreload(
+      probeSync(
+        `if (typeof Bun.serve !== "function") throw new Error("Bun.serve not a function")`,
+      ),
+      { networkAllowed: true },
+    );
+    expect(out.stdout).toMatch(/^OK$/m);
+  });
+});
+
+// ── Phase 2: streaming-class globals (always denied) ─────────────
+//
+// WebSocket / EventSource / Worker open streams that the in-sandbox
+// fetch wrapper can't gate (they bypass fetch). Phase 2 denies them
+// always — even with `network` granted — until host-mediated streaming
+// lands in a future phase. See the Phase 2 spec's "Out of scope"
+// section.
+
+describe("sec-SB2/Phase2: WebSocket/EventSource always denied", () => {
+  test("WebSocket constructor throws even when network is granted", async () => {
+    const out = await runUnderPreload(
+      probeSync(`new WebSocket('ws://localhost:1/')`),
+      { networkAllowed: true },
+    );
+    expect(out.stdout).toMatch(NETWORK_DENY);
+  });
+
+  test("WebSocket constructor throws when network is NOT granted", async () => {
+    const out = await runUnderPreload(probeSync(`new WebSocket('ws://localhost:1/')`));
+    expect(out.stdout).toMatch(NETWORK_DENY);
+  });
+
+  test("EventSource throws when present (always denied)", async () => {
+    // EventSource is Bun-only globally; if absent in the runtime, the
+    // probe returns "ERR:EventSource is not defined" instead of the
+    // denier message, which is also acceptable (no construction path
+    // exists at all). Either branch closes the surface.
+    const out = await runUnderPreload(
+      probeSync(`if (typeof EventSource !== 'undefined') new EventSource('http://x/')`),
+    );
+    // If EventSource exists, our denier fires; if it doesn't, the
+    // typeof guard short-circuits and "OK" is printed. Either is safe.
+    if (out.stdout.includes("ERR")) {
+      expect(out.stdout).toMatch(NETWORK_DENY);
+    } else {
+      expect(out.stdout).toMatch(/^OK$/m);
+    }
+  });
+});
+
+describe("sec-SB2/Phase2: Worker constructor always denied (FFI / spawn-graph leak)", () => {
+  test("new Worker(...) throws even with network granted", async () => {
+    // Worker is a global class. Pre-Phase-2 there was no block at all;
+    // Phase 2 denies it because Bun's worker doesn't reliably propagate
+    // --preload to the worker's module graph, breaking the sandbox.
+    const out = await runUnderPreload(
+      probeSync(`new Worker('data:application/javascript,console.log("hi")')`),
+      { networkAllowed: true },
+    );
+    // The denier message uses the "native" permission label so a future
+    // phase can introduce a Worker-specific permission.
+    expect(out.stdout).toMatch(/blocked|requires/);
+  });
+});
+
+describe("sec-SB2/Phase2: Bun.dlopen always denied (no FFI permission)", () => {
+  test("Bun.dlopen throws regardless of network permission", async () => {
+    const out = await runUnderPreload(
+      probeSync(`Bun.dlopen('/lib/x.so', {})`),
+      { networkAllowed: true, shellAllowed: true },
+    );
+    // FFI is unconditionally denied — the manifest has no permission
+    // surface for it.
+    expect(out.stdout).toMatch(/blocked|FFI|never granted/);
+  });
+});
