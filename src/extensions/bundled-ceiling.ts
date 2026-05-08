@@ -273,10 +273,34 @@ function canonicalizePerms(p: ExtensionPermissions): string {
   // that don't structurally overlap with `Record<string, unknown>`.
   const asRecord = p as unknown as Record<string, unknown>;
   const keys = Object.keys(asRecord).sort();
+
+  // Boolean tiers are "granted" only when literally `true`. A grant
+  // shape declaring `shell: false` is semantically identical to one
+  // that omits `shell` entirely — both mean "not granted". Drop
+  // false-valued booleans during canonicalization so the
+  // post-intersect comparator doesn't flip the `clamped` flag for a
+  // semantically-no-op shape difference. (Real bundled manifests
+  // like file-refactor / log-analyzer / property-intelligence-agent
+  // declare `shell: false` explicitly; their ceiling doesn't list
+  // shell at all, and `intersectPermissions` returns
+  // `shell: undefined`. Those two shapes ARE equal for ceiling
+  // purposes.)
+  const BOOL_FIELDS = new Set([
+    "shell",
+    "storage",
+    "taskEvents",
+    "acceptsCallerCaps",
+    "escalateChildCaps",
+  ]);
+
   for (const k of keys) {
     const v = asRecord[k];
     if (v === undefined) continue;
+    if (BOOL_FIELDS.has(k) && v === false) continue;
     if (Array.isArray(v)) {
+      // Empty arrays are treated as "not granted" — same equivalence
+      // as empty object {} for grantedAt below.
+      if (v.length === 0) continue;
       // Sort string arrays for order-independence; non-string arrays
       // (none exist on ExtensionPermissions today) pass through.
       const allStrings = v.every((x) => typeof x === "string");
