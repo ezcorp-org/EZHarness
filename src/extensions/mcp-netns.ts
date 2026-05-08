@@ -1,14 +1,23 @@
 /**
- * Linux user+net+mount namespace wrapper for stdio MCP spawns — the
- * Phase 7 kernel-level enforcement leg of the unified permission system.
+ * Linux user+mount namespace wrapper for stdio MCP spawns — the
+ * Phase 7 process-isolation leg of the unified permission system.
  *
  * MCP servers are arbitrary external binaries (Python, Go, Node, Rust)
  * we did NOT write. They speak MCP over stdio. Phase 2's sandbox-preload
- * cannot poison their network modules — they aren't Bun. So we isolate
- * them at the kernel level: every stdio MCP runs inside its own user
- * namespace with only loopback. Outbound traffic to the host's per-MCP
- * forward proxy goes via `HTTPS_PROXY` env; everything else hits an
- * iptables DROP and the netns has no upstream interface anyway.
+ * cannot poison their network modules — they aren't Bun. So we run
+ * each stdio MCP inside its own user (`-U`) and mount (`-m`) namespace,
+ * giving it a clean cap-bounding-set + isolated mount table. Network
+ * isolation is intentionally NOT done via `-n`: the resulting netns
+ * cannot reach the host's loopback proxy without a veth pair (complex)
+ * or `http+unix://...` HTTPS_PROXY (unparseable by stdlib clients).
+ * Instead, the MCP shares the host's network namespace and outbound
+ * HTTPS is gated by per-host PDP at the forward proxy on host loopback.
+ *
+ * Phase 7 fix-pass C2: dropped `-n` from the `unshare` flags. The
+ * netns approach broke the HTTPS_PROXY URL on the supposed-primary
+ * Linux production path. Kernel-level network isolation is deferred
+ * to a future hardening phase; per-host PDP, bearer token,
+ * `prlimit`-bound memory, and namespace-isolated cap-bounding remain.
  *
  * On non-Linux (macOS / Windows dev) namespaces don't exist; the
  * wrapper degrades to "HTTPS_PROXY only" mode, which covers stdlib HTTP
@@ -17,13 +26,16 @@
  * running in less-strict mode.
  *
  * Tied to:
- *   - `mcp-proxy.ts`        — the UDS / loopback proxy this wrapper
+ *   - `mcp-proxy.ts`        — the loopback forward proxy this wrapper
  *                             redirects MCP traffic to
- *   - `mcp-launcher.sh`     — the in-namespace setup script (iptables
- *                             OUTPUT-DROP + privilege drop + exec)
+ *   - `mcp-launcher.sh`     — the in-namespace setup script (cap-drop
+ *                             via capsh + exec). No iptables.
  *   - `mcp-sandbox.ts`      — the caller; appends `unshare ... --` in
  *                             front of the existing `prlimit ...` chain
- *   - `audit-actions.ts`    — `MCP_NETNS_FALLBACK` action code
+ *   - `audit-actions.ts`    — `MCP_NETNS_FALLBACK` action code (kept
+ *                             for back-compat: "fallback" now means
+ *                             "no namespace at all", but the audit
+ *                             stream's name didn't change)
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -78,14 +90,13 @@ function computeProbe(): NetnsCapabilities {
     return { available: false, reason: "not linux" };
   }
 
-  // Bun.which returns null when the binary isn't on PATH. We need all
-  // three for the launcher script to function — `unshare` to enter the
-  // namespace, `ip` to bring up loopback inside, `iptables` to apply
-  // the OUTPUT-DROP DROP-ALL ruleset.
-  for (const bin of ["unshare", "ip", "iptables"]) {
-    if (!Bun.which(bin)) {
-      return { available: false, reason: `missing binary: ${bin}` };
-    }
+  // Bun.which returns null when the binary isn't on PATH. We only need
+  // `unshare` now — Phase 7 fix-pass C2 dropped `-n`, so neither `ip`
+  // (loopback bring-up) nor `iptables` (OUTPUT-DROP) runs in the
+  // launcher. The Dockerfile still installs them as belt-and-suspenders
+  // for any future hardening phase that re-enables netns.
+  if (!Bun.which("unshare")) {
+    return { available: false, reason: "missing binary: unshare" };
   }
 
   // Kernel knob: legacy /proc/sys/kernel/unprivileged_userns_clone (Debian
@@ -118,9 +129,13 @@ function computeProbe(): NetnsCapabilities {
   // a seccomp profile, AppArmor policy, or container runtime blocks
   // the syscall, the proc/sys checks above pass but this fails.
   // `Bun.spawnSync` returns success=false on non-zero exit.
+  //
+  // We probe with the same flags the production wrap uses (`-U -m`
+  // post-fix-pass — no `-n`), so the probe succeeds exactly when the
+  // production path will work.
   try {
     const probe = Bun.spawnSync({
-      cmd: ["unshare", "-U", "-n", "-m", "--map-root-user", "true"],
+      cmd: ["unshare", "-U", "-m", "--map-root-user", "true"],
       stdout: "ignore",
       stderr: "ignore",
     });
@@ -176,17 +191,18 @@ export interface BuildNetnsSpawnArgsResult {
 }
 
 /**
- * Construct the spawn args for an MCP process inside a fresh user+net+mount
+ * Construct the spawn args for an MCP process inside a fresh user+mount
  * namespace. The shape matches what `Bun.spawn(...)` expects:
  *
  *   command: "unshare"
- *   args:    ["-U", "-n", "-m", "--map-root-user", "--",
+ *   args:    ["-U", "-m", "--map-root-user", "--",
  *             "<launcherPath>",
  *             ...<original prlimit + MCP args>]
  *
- * The launcher script is responsible for everything that has to happen
- * inside the namespace: `ip link set lo up`, `iptables-restore` of the
- * OUTPUT-DROP ruleset, `capsh` privilege drop, `exec` of the MCP binary.
+ * The launcher script handles `capsh` privilege drop + `exec` of the
+ * MCP binary. No iptables, no `ip` — the MCP shares the host's network
+ * namespace so it can reach the loopback proxy at
+ * `http://127.0.0.1:<port>` (per Phase 7 fix-pass C2).
  *
  * On non-Linux or unavailable namespaces, returns the original
  * command/args unchanged. The caller (`mcp-sandbox.ts`) then injects
@@ -208,7 +224,6 @@ export function buildNetnsSpawnArgs(
     command: "unshare",
     args: [
       "-U",
-      "-n",
       "-m",
       "--map-root-user",
       "--",

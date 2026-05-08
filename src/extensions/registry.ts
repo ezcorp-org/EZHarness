@@ -567,11 +567,36 @@ export class ExtensionRegistry {
     this.installPaths.set(extId, path);
   }
 
-  /** Re-read DB and rebuild maps. Call after install/uninstall. */
+  /** Re-read DB and rebuild maps. Call after install/uninstall.
+   *
+   *  Phase 7 fix-pass C3: a previous version leaked the per-MCP forward
+   *  proxy on uninstall — `mcpProxies.clear()` only ran in `killAll()`,
+   *  so an uninstalled MCP extension kept a listener (and its bearer
+   *  token in memory) until process exit. We now snapshot the
+   *  pre-reload extension-id set, run the reload, and stop+drop any
+   *  proxy / mcp-client whose extensionId is no longer in the DB.
+   */
   async reload(): Promise<void> {
-    // Kill processes for extensions that may be removed
     this.verifiedSessions.clear();
     await this.loadFromDb();
+
+    // After loadFromDb, `this.manifests` reflects the post-reload set
+    // of extension ids. Compare against the maps that hold live
+    // resources.
+    const liveIds = new Set(this.manifests.keys());
+
+    for (const [extId, proxy] of this.mcpProxies) {
+      if (!liveIds.has(extId)) {
+        void proxy.stop().catch(() => {});
+        this.mcpProxies.delete(extId);
+      }
+    }
+    for (const [extId, client] of this.mcpClients) {
+      if (!liveIds.has(extId)) {
+        void client.close().catch(() => {});
+        this.mcpClients.delete(extId);
+      }
+    }
   }
 
   /** Kill all managed processes and close MCP clients. */

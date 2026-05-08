@@ -25,12 +25,15 @@ import { EXT_AUDIT_ACTIONS } from "./audit-actions";
  *
  * Phase 7 extension: when a `ctx` (PermissionEngine + audit context)
  * is supplied, we additionally:
- *   - On Linux with userns enabled: wrap the spawn in `unshare -U -n -m`
- *     and a launcher script that applies an OUTPUT-DROP iptables ruleset.
- *   - Always: start a per-MCP forward proxy on a UDS (Linux) or
- *     loopback port (fallback) and inject `HTTPS_PROXY` env so the
- *     MCP's outbound HTTPS traffic routes through the proxy. The
- *     proxy gates each CONNECT against the manifest's network grant.
+ *   - On Linux with userns enabled: wrap the spawn in `unshare -U -m`
+ *     and a launcher script that drops CAP_SYS_ADMIN before exec.
+ *     (Phase 7 fix-pass C2: the original `-U -n -m` chain trapped the
+ *     MCP in a netns where the host's loopback proxy was unreachable
+ *     and HTTPS_PROXY URLs were unparseable. Dropped `-n`.)
+ *   - Always: start a per-MCP forward proxy on host loopback (random
+ *     OS-assigned port) and inject `HTTPS_PROXY` env so the MCP's
+ *     outbound HTTPS traffic routes through the proxy. The proxy gates
+ *     each CONNECT against the manifest's network grant.
  *
  * `ctx` is optional. Unit tests that exercise `buildSandboxedMcpSpec`
  * without a real PDP omit it; the function returns the prlimit-only
@@ -107,14 +110,12 @@ export async function buildSandboxedMcpSpec(
   // Phase 7 — production wiring path.
   const netns = probeNetnsAvailability();
 
-  // Where the proxy listens. UDS on Linux netns; loopback otherwise.
-  // The UDS path goes through the namespace's inherited mount table —
-  // when unshare(-m) creates a new mount-ns it copies the parent's
-  // entries, so `/tmp/ezcorp-mcp-<id>.sock` is reachable inside.
-  const socketPath = netns.available
-    ? `/tmp/ezcorp-mcp-${extensionId}.sock`
-    : "127.0.0.1:0"; // OS-assigned port
-
+  // Proxy always listens on host loopback (post-fix-pass C2 — UDS
+  // produces an unparseable `http+unix://...` HTTPS_PROXY URL). The MCP
+  // process shares the host's network namespace (unshare drops `-n`)
+  // so 127.0.0.1:<port> is reachable from inside the user+mount
+  // namespace. Bearer token at the proxy gates rogue same-host
+  // processes; per-host PDP gates the destination.
   const proxyHandle = createMcpProxy({
     extensionId,
     extensionName: manifest.name,
@@ -122,22 +123,28 @@ export async function buildSandboxedMcpSpec(
     userId: ctx.userId,
     permittedHosts: grantedPermissions.network ?? [],
     engine: ctx.engine,
-    isUds: netns.available,
-    socketPath,
+    bindAddress: "127.0.0.1:0",
   });
   await proxyHandle.start();
 
   // Inject HTTPS_PROXY / HTTP_PROXY. The URL embeds the per-instance
   // bearer token so only this MCP can pass the proxy's auth gate.
+  // Lower-case forms are also injected because some HTTP clients
+  // (notably Python's requests + Go's http.DefaultTransport) check the
+  // lower-case env names exclusively.
   const proxyUrl = proxyHandle.proxyUrl();
   env.HTTPS_PROXY = proxyUrl;
   env.HTTP_PROXY = proxyUrl;
   env.https_proxy = proxyUrl;
   env.http_proxy = proxyUrl;
 
-  // Audit either MCP_NETNS_CREATED or MCP_NETNS_FALLBACK exactly once
-  // per spawn so fleet operators can quantify the netns-vs-fallback
-  // ratio and chase down hosts running in less-strict mode.
+  // Audit either MCP_NETNS_CREATED (user+mount namespace entered) or
+  // MCP_NETNS_FALLBACK (no namespace) exactly once per spawn so fleet
+  // operators can quantify which deployments hit the namespace path.
+  // Fire-and-forget on purpose: a DB blip in the audit writer must not
+  // fail-open the spawn — the proxy + namespace are already in place,
+  // the audit row is just a signal. See `auditBlocked` in mcp-proxy.ts
+  // for the same fire-and-forget treatment.
   const auditAction = netns.available
     ? EXT_AUDIT_ACTIONS.MCP_NETNS_CREATED
     : EXT_AUDIT_ACTIONS.MCP_NETNS_FALLBACK;
@@ -152,13 +159,12 @@ export async function buildSandboxedMcpSpec(
       actor: "system",
       extensionName: manifest.name,
       reason: netns.reason ?? null,
-      socketPath,
+      proxyUrl: `127.0.0.1:${new URL(proxyUrl).port}`,
       platform: process.platform,
     },
   ).catch(() => {
-    // DB blip — never fail-open the spawn on a logging error. The
-    // namespace + proxy are already in place; the audit row is just a
-    // signal.
+    // Fire-and-forget — see comment above. Logging an audit row failure
+    // here would itself need a DB write, so we swallow.
   });
 
   // Build the final command/args. On Linux netns, prepend `unshare -U

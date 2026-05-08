@@ -1,52 +1,55 @@
 /**
  * Per-MCP forward proxy — the Phase 7 outbound gate for stdio MCP
- * servers. Listens on a per-extension Unix Domain Socket (Linux netns
- * mode) or a random localhost port (non-Linux fallback). Speaks HTTP/1.1
- * CONNECT only — every legitimate stdlib HTTP client (curl, requests,
- * Go net/http, Node http) does CONNECT-then-tunnel for HTTPS through
- * the `HTTPS_PROXY` env var.
+ * servers. Listens on a per-extension localhost port (random, OS-
+ * assigned). Speaks HTTP/1.1 CONNECT only — every legitimate stdlib
+ * HTTP client (curl, requests, Go net/http, Node http) does CONNECT-
+ * then-tunnel for HTTPS through the `HTTPS_PROXY` env var.
  *
  * What it enforces:
- *   1. Bearer-token auth on every CONNECT. The token is minted at
- *      proxy start and embedded in the `HTTPS_PROXY` URL the MCP
- *      receives via env. Materially equivalent to peer-pid auth for
- *      this threat model — combined with the namespace + iptables
- *      isolation, only the spawned MCP can reach the socket and only
- *      with the token only it knows.
+ *   1. Constant-time bearer-token auth on every CONNECT. The token is
+ *      minted at proxy start and embedded in the `HTTPS_PROXY` URL the
+ *      MCP receives via env. `crypto.timingSafeEqual` closes the
+ *      reviewer-flagged timing oracle (Phase 7 fix-pass C1).
  *   2. Per-host PDP gate. Calls `engine.authorize(...)` with a
  *      `network` capability for the target hostname; deny → 403 +
  *      audit. Allow → continue to the upstream tunnel.
- *   3. Internal-host carve-out. Localhost / RFC-1918 / link-local
- *      hostnames go through Phase 2's `ezcorp/network.internal`
- *      semantics; the PDP authorize() with a `network.internal`
- *      capability gates SSRF.
+ *   3. Internal-host hard deny. localhost / RFC-1918 / link-local
+ *      hostnames are refused outright at the proxy with a 403 +
+ *      `MCP_HOST_BLOCKED reason: "internal"`. SSRF gating no longer
+ *      depends on the manifest including / excluding internal hosts in
+ *      its grant — they're always denied (Phase 7 fix-pass S6).
  *   4. Per-extension byte + connection quotas via `rate-limit.ts`'s
  *      token bucket. 100 MB/min rx+tx; 10 concurrent CONNECTs per
  *      MCP. Exhaustion returns `429` (bytes) or `503` (connections)
- *      and audits `MCP_HOST_BLOCKED` with a `reason: "quota"` field.
+ *      and audits `MCP_HOST_BLOCKED` with a `reason: "quota:*"` field.
  *
  * What it does NOT do:
  *   - Per-call PDP per-byte. The PDP gate fires once per CONNECT, not
  *     once per packet. Matches the spec's "Resolved open questions"
  *     point on per-call PDP.
  *   - HTTP/2 or HTTP/3 CONNECT. HTTP/1.1 only.
- *   - WebSocket forwarding. No legitimate MCP server uses ws today;
- *     the spec defers this.
+ *   - WebSocket forwarding. No legitimate MCP server uses ws today.
  *   - HTTPS termination. The proxy is a transparent byte-pump after
  *     the CONNECT line; the MCP and upstream negotiate TLS end-to-end
  *     so the proxy never sees plaintext.
  *
+ * Phase 7 fix-pass change: dropped UDS support entirely. The Linux
+ * netns originally surrounded the MCP, requiring a UDS bind-mounted
+ * into the namespace — but the resulting `http+unix://...` HTTPS_PROXY
+ * URL is not parseable by curl/requests/Go/Node/Bun, breaking every
+ * legitimate MCP server. We now use loopback (`127.0.0.1:<port>`)
+ * regardless of platform; the URL `http://_:<token>@127.0.0.1:<port>`
+ * is universally accepted. Kernel-level network isolation is deferred;
+ * per-host PDP + bearer token + prlimit + filesystem sandbox remain.
+ *
  * Tied to:
- *   - `mcp-netns.ts`        — Linux namespace probe; on success the
- *                             proxy listens on UDS, otherwise loopback.
- *   - `mcp-launcher.sh`     — bind-mounts the UDS into the namespace.
  *   - `mcp-sandbox.ts`      — invokes `createMcpProxy(...).start()`
  *                             before transport instantiation, threads
  *                             the proxy URL into HTTPS_PROXY env.
  *   - `audit-actions.ts`    — `MCP_HOST_BLOCKED` action code.
  */
 
-import { existsSync, unlinkSync } from "node:fs";
+import { timingSafeEqual } from "node:crypto";
 import type { Socket } from "bun";
 import type { PermissionEngine } from "./permission-engine";
 import type { Capability } from "./capability-types";
@@ -85,12 +88,10 @@ export interface McpProxyConfig {
   /** Phase 1 PDP singleton. Required: a missing engine is fail-closed
    *  per the spec. */
   engine: PermissionEngine;
-  /** When true (Linux netns path), `socketPath` is a UDS path and
-   *  the proxy listens via `Bun.listen({unix})`. When false (fallback),
-   *  `socketPath` is `host:port` and the proxy listens via TCP loopback. */
-  isUds: boolean;
-  /** UDS path or `host:port` string. */
-  socketPath: string;
+  /** Loopback bind address. Format: `host:port`. Pass `port=0` to let
+   *  the OS pick. Always `127.0.0.1` in production; tests may pass a
+   *  fixed port for deterministic teardown. */
+  bindAddress: string;
 }
 
 export interface McpProxyHandle {
@@ -98,15 +99,16 @@ export interface McpProxyHandle {
    *  same listener and are no-ops. */
   start(): Promise<void>;
   /** Tear down the listener and close any active CONNECT tunnels.
-   *  Idempotent. Called from `registry.unloadExtension(...)`. */
+   *  Idempotent. Called from `registry.killAll()` and on uninstall via
+   *  `registry.reload()` (Phase 7 fix-pass C3). */
   stop(): Promise<void>;
   /** Token + URL the MCP process should receive via HTTPS_PROXY env.
    *  Only meaningful after `start()` resolves. */
   proxyUrl(): string;
   bytesTransferred(): { rx: number; tx: number };
   connectionsCount(): number;
-  /** Test-only: force-flush counters so successive tests don't see
-   *  carry-over from a prior simulated connection. */
+  /** Test-only: force-flush counters AND active-tunnel set so a test
+   *  that re-uses the proxy across cases doesn't see carry-over. */
   _resetCountersForTests(): void;
 }
 
@@ -122,6 +124,9 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
   // Per-instance bearer token. The MCP process learns it via the
   // HTTPS_PROXY url; nothing else can mint a valid CONNECT request.
   const token = generateToken();
+  // Pre-encoded token bytes for `timingSafeEqual` — both sides must be
+  // equal-length Buffers, so we cache the constant side here.
+  const tokenBytes = Buffer.from(token, "utf8");
 
   // Quotas. One bytes-budget for rx + tx combined (matches the
   // headline "100MB/min rx+tx" wording in the spec); separate
@@ -135,18 +140,8 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
   let rxBytes = 0;
   let txBytes = 0;
   let totalConnections = 0;
-  let hostPort: { host: string; port: number } | null = null;
-
-  // Format used to build the URL — see `proxyUrl()`. A `_user`
-  // placeholder is used for the URL's userinfo; the password slot
-  // carries the secret token. RFC 7617 wire-form, identical to what
-  // curl / requests / Node http forward as `Proxy-Authorization`.
-  const proxyUrlForUds = (): string =>
-    `http://_:${token}@unix:${config.socketPath}`;
-  const proxyUrlForLoopback = (): string => {
-    if (!hostPort) throw new Error("proxyUrl() before start()");
-    return `http://_:${token}@${hostPort.host}:${hostPort.port}`;
-  };
+  // Concrete bind result captured at start(). Used by `proxyUrl()`.
+  let boundAddress: { host: string; port: number } | null = null;
 
   async function start(): Promise<void> {
     if (listenerHandle) return;
@@ -164,40 +159,25 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
       try { t.close(); } catch { /* socket already torn down */ }
     }
     activeTunnels.clear();
-
-    // Best-effort UDS cleanup — Bun's listener.stop() doesn't unlink
-    // the socket file; leaving it would block re-bind on extension
-    // re-load.
-    if (config.isUds && existsSync(config.socketPath)) {
-      try { unlinkSync(config.socketPath); } catch { /* race */ }
-    }
   }
 
   async function bindListener() {
-    if (config.isUds) {
-      // Pre-clean: an orphan socket from a crashed prior boot would
-      // make `listen({unix})` throw EADDRINUSE.
-      if (existsSync(config.socketPath)) {
-        try { unlinkSync(config.socketPath); } catch { /* race */ }
-      }
-      const listener = Bun.listen({
-        unix: config.socketPath,
-        socket: buildSocketHandler(),
-      });
-      // chmod is best-effort — Bun doesn't expose a UDS-mode option;
-      // we rely on the parent dir's mode + the host's umask. The
-      // namespace bind-mount is the primary access gate.
-      return { close: async () => { listener.stop(true); } };
-    }
-
-    const [host, portStr] = config.socketPath.split(":");
+    // `bindAddress` is always `host:port` (post-fix-pass — UDS removed
+    // because `http+unix://...` HTTPS_PROXY is unparseable by stdlib
+    // HTTP clients). Default host to 127.0.0.1 if unspecified.
+    const [hostPart, portStr] = config.bindAddress.split(":");
     const wantPort = Number.parseInt(portStr ?? "0", 10);
+    const hostname = hostPart || "127.0.0.1";
     const listener = Bun.listen({
-      hostname: host || "127.0.0.1",
+      hostname,
       port: Number.isFinite(wantPort) ? wantPort : 0,
       socket: buildSocketHandler(),
     });
-    hostPort = { host: listener.hostname, port: listener.port };
+    // Capture the OS-assigned port. We deliberately use the configured
+    // hostname (not `listener.hostname`) for the URL: Bun normalizes
+    // the listening address to "0.0.0.0" / "::" in some configs, which
+    // produces an unreachable HTTPS_PROXY URL for the MCP child.
+    boundAddress = { host: hostname, port: listener.port };
     return { close: async () => { listener.stop(true); } };
   }
 
@@ -295,23 +275,44 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
       }
       const { hostname, port, providedToken } = parsed;
 
-      if (providedToken !== token) {
+      // Constant-time token compare. `timingSafeEqual` requires equal
+      // byte-lengths on both sides; an unequal length is itself a
+      // mismatch and short-circuits without leaking the prefix.
+      const providedBytes = Buffer.from(providedToken, "utf8");
+      const tokenOk =
+        providedBytes.byteLength === tokenBytes.byteLength &&
+        timingSafeEqual(providedBytes, tokenBytes);
+      if (!tokenOk) {
         writeStatusAndClose(client, "407 Proxy Authentication Required", "Bad token");
+        // Audit metadata deliberately omits the provided token. The
+        // value is sensitive; an attacker who can read audit logs
+        // shouldn't be able to learn what token a victim used. The
+        // audit row carries `reason: "auth"` and the hostname only.
         void auditBlocked(config, "auth", hostname);
         return;
       }
 
-      // PDP gate. Phase 2's network-handler treats internal hosts via
-      // the same `kind: "network"` capability as external — the routing
-      // distinction (`ezcorp/network.internal` reverse-RPC vs the
-      // in-sandbox wrapper) is RPC-level, not capability-level. We
-      // mirror that: every CONNECT goes through one `network` cap with
-      // the normalized hostname. SSRF gating is a manifest-level
-      // concern (the user grants only the hostnames they want).
-      void isInternalHost; // imported for future per-call PDP semantics
+      // Internal-host hard deny. localhost / RFC-1918 / link-local /
+      // unique-local are refused outright at the proxy regardless of
+      // what the manifest grants. Phase 2's `network.internal`
+      // reverse-RPC handles the legitimate "extension wants to talk
+      // to a host-internal service" case via a separate, manifest-
+      // declared opt-in; the bare `network` grant on an MCP server
+      // never opens that door.
+      const normalized = normalizeHostname(hostname);
+      if (isInternalHost(normalized)) {
+        writeStatusAndClose(
+          client,
+          "403 Forbidden",
+          `Internal host blocked: ${hostname}`,
+        );
+        void auditBlocked(config, "internal", hostname);
+        return;
+      }
+
       const cap: Capability = {
         kind: "network",
-        value: normalizeHostname(hostname),
+        value: normalized,
       };
       let decision;
       try {
@@ -425,7 +426,8 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
   }
 
   function proxyUrl(): string {
-    return config.isUds ? proxyUrlForUds() : proxyUrlForLoopback();
+    if (!boundAddress) throw new Error("proxyUrl() before start()");
+    return `http://_:${token}@${boundAddress.host}:${boundAddress.port}`;
   }
 
   return {
@@ -438,6 +440,11 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
       rxBytes = 0;
       txBytes = 0;
       totalConnections = 0;
+      // Phase 7 fix-pass nit: also clear the active-tunnel set so a
+      // test that re-uses the proxy across cases doesn't trip the
+      // 503-on-11th-connect cap because of leaked refs from a prior
+      // case. Tunnels themselves are still drained by `stop()`.
+      activeTunnels.clear();
     },
   };
 }
