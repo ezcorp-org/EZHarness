@@ -45,6 +45,9 @@ export { fetchPermitted } from "./http";
 export { invoke } from "./invoke";
 export type { InvokeOptions } from "./invoke";
 
+export { withToolContext, getToolContext } from "./tool-context";
+export type { ToolContext } from "./tool-context";
+
 export { PanelBuilder } from "./panel";
 export type {
   PanelColor,
