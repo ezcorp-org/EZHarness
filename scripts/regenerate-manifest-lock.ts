@@ -15,14 +15,22 @@
  * Usage:
  *   bun run scripts/regenerate-manifest-lock.ts            # write
  *   bun run scripts/regenerate-manifest-lock.ts --dry-run  # diff only
+ *   bun run scripts/regenerate-manifest-lock.ts --check    # CI gate
  *
  * The script logs an `added / removed / changed` diff against the
  * existing lockfile so the maintainer's PR description can quote it.
  *
+ * `--check` is for CI: it computes the lockfile in memory, diffs it
+ * against the on-disk file, and exits non-zero (1) if they differ.
+ * That ensures every PR that touches an `ezcorp.config.ts` also
+ * regenerates the lockfile in the same commit. `--dry-run` is for
+ * humans (always exits 0); `--check` is the gate.
+ *
  * Exit codes:
- *   0 — wrote (or in dry-run mode, would write) without errors
- *   1 — read or hash failure on at least one manifest
- *   2 — invocation error (bad flag, etc.)
+ *   0 — wrote (or in dry-run mode) successfully; or `--check` saw no diff
+ *   1 — read/hash failure on at least one manifest;
+ *       OR `--check` saw a diff (lockfile out of date)
+ *   2 — invocation error (bad flag, mutually-exclusive flags, etc.)
  */
 
 import { join } from "node:path";
@@ -177,12 +185,52 @@ function formatDiff(diff: Diff): string {
   return lines.join("\n");
 }
 
+/**
+ * Pure-function form of `--check` mode for unit testing.
+ *
+ * Returns:
+ *   - `{ exitCode: 0 }` when the on-disk lockfile matches the freshly
+ *     computed one (no `added`, `removed`, or `changed` entries).
+ *   - `{ exitCode: 1, message }` when there is ANY drift, with a
+ *     human-readable diff + remediation hint.
+ *
+ * Exported for `src/__tests__/regenerate-manifest-lock.test.ts`.
+ *
+ * `--check` differs from `--dry-run`: dry-run prints the diff and
+ * always exits 0 (it's an informational human tool); `--check` prints
+ * the diff AND exits 1 on any drift (it's a CI gate).
+ */
+export function computeCheckDecision(diff: Diff): { exitCode: 0 | 1; message: string } {
+  const drifted =
+    diff.added.length > 0 || diff.removed.length > 0 || diff.changed.length > 0;
+  if (!drifted) {
+    return { exitCode: 0, message: "Lockfile is up to date." };
+  }
+  const remediation =
+    "manifest.lock.json is out of date. Run `bun run scripts/regenerate-manifest-lock.ts` and commit the result.";
+  return { exitCode: 1, message: `${formatDiff(diff)}\n\n${remediation}` };
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
-  if (args.some((a) => a !== "--dry-run")) {
-    console.error(`unknown flag: ${args.find((a) => a !== "--dry-run")}`);
-    console.error("usage: bun run scripts/regenerate-manifest-lock.ts [--dry-run]");
+  const check = args.includes("--check");
+
+  // `--check` and `--dry-run` are mutually exclusive: dry-run is the
+  // human informational mode (always exits 0), --check is the CI
+  // gate (exits 1 on drift). Combining them would have ambiguous
+  // intent.
+  if (check && dryRun) {
+    console.error("--check and --dry-run are mutually exclusive");
+    console.error("usage: bun run scripts/regenerate-manifest-lock.ts [--dry-run | --check]");
+    process.exit(2);
+  }
+
+  const KNOWN_FLAGS = new Set(["--dry-run", "--check"]);
+  const unknown = args.find((a) => !KNOWN_FLAGS.has(a));
+  if (unknown !== undefined) {
+    console.error(`unknown flag: ${unknown}`);
+    console.error("usage: bun run scripts/regenerate-manifest-lock.ts [--dry-run | --check]");
     process.exit(2);
   }
 
@@ -214,6 +262,18 @@ async function main() {
   console.log(`Lockfile diff vs. ${lockPath}:`);
   console.log(formatDiff(diff));
   console.log(`\n${Object.keys(lockfile.extensions).length} bundled extensions hashed.`);
+
+  if (check) {
+    const { exitCode, message } = computeCheckDecision(diff);
+    if (exitCode === 0) {
+      console.log(message);
+      return;
+    }
+    // Print remediation message to stderr so CI logs separate it
+    // from the diff that already went to stdout.
+    console.error(`\n${message}`);
+    process.exit(exitCode);
+  }
 
   if (dryRun) {
     console.log("[dry-run] not writing manifest.lock.json");

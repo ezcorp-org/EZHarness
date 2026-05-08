@@ -70,3 +70,21 @@ jobs:
       # remain visible (`bun run lint` exits 0 on them) so we can chip
       # away at them without blocking CI.
       - run: bun run lint
+
+  manifest-lock:
+    name: Manifest lockfile drift check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # Phase post-perm-cleanup: re-derives manifest.lock.json from the
+      # bundled extensions' ezcorp.config.ts files and exits non-zero
+      # if the on-disk lockfile differs. Closes the loop where a PR that
+      # edits an ezcorp.config.ts forgets to commit the regenerated
+      # lockfile. To fix locally:
+      #   bun run scripts/regenerate-manifest-lock.ts
+      - run: bun run scripts/regenerate-manifest-lock.ts --check
