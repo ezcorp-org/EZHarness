@@ -11,12 +11,24 @@ const FILES_TO_CHECK = [
 
 describe("cookie rename: pi_session -> ezcorp_session", () => {
   for (const filePath of FILES_TO_CHECK) {
-    test(`${filePath} uses ezcorp_session and not pi_session`, async () => {
+    test(`${filePath} uses ezcorp_session (directly or via setSessionCookie helper) and not pi_session`, async () => {
       const content = await Bun.file(filePath).text();
-      expect(content).toContain("ezcorp_session");
+      // Files either reference the cookie name literally OR route through
+      // the `setSessionCookie` helper (web/src/lib/server/auth/session-cookie.ts)
+      // which owns the cookie name. Helper-routed files no longer contain
+      // the literal "ezcorp_session" but still produce the same Set-Cookie.
+      const usesCookieDirectly = content.includes("ezcorp_session");
+      const usesHelper = content.includes("setSessionCookie");
+      expect(usesCookieDirectly || usesHelper).toBe(true);
       expect(content).not.toContain("pi_session");
     });
   }
+
+  test("setSessionCookie helper sources the ezcorp_session name", async () => {
+    const content = await Bun.file("web/src/lib/server/auth/session-cookie.ts").text();
+    expect(content).toContain("ezcorp_session");
+    expect(content).not.toContain("pi_session");
+  });
 
   test("hooks.server.ts has migration bridge referencing both cookies", async () => {
     const content = await Bun.file("web/src/hooks.server.ts").text();

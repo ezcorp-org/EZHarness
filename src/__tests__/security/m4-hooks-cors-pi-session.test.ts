@@ -219,7 +219,7 @@ describe("sec-M4: pi_session migration bridge has a hard expiry (source)", () =>
     expect(match).not.toBeNull();
     const liveBranch = match![1];
     expect(liveBranch).toMatch(/sessionToken\s*=\s*legacyToken/);
-    expect(liveBranch).toMatch(/cookies\.set\(\s*"ezcorp_session"\s*,\s*legacyToken/);
+    expect(liveBranch).toMatch(/setSessionCookie\(\s*event\.cookies\s*,\s*legacyToken/);
   });
 });
 

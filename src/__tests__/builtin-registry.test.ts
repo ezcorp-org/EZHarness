@@ -3,15 +3,17 @@ import { test, expect, describe } from "bun:test";
 import { getBuiltInToolMetadata, getBuiltInCategories, getBuiltInToolsByCategory } from "../runtime/tools/builtin-registry";
 
 describe("builtin-registry", () => {
-  test("returns 0 tools (registry is empty after Phase 5 commit 4)", () => {
+  test("returns only `ez` category tools (legacy categories all moved to bundled extensions)", () => {
     // Phase 1 moved the 2 scratchpad tools out of the built-in registry
     // into a bundled extension. Phase 3 commit-5 moved the 12
     // task-tracking tools. Phase 4 commit-5 moved `invoke_agent`.
-    // Phase 5 commit 4 moved the last resident, `ask_human`, to the
-    // bundled `orchestration` extension. The built-in registry is now
-    // empty — the module is retained as an API-shape shell.
+    // Phase 5 commit 4 moved the last legacy resident, `ask_human`, to the
+    // bundled `orchestration` extension.
+    // v1.2 Ez Button (Phase 47) re-populated the registry with `ez`-category
+    // tools that are intentionally locked to the in-app Ez concierge mode.
     const tools = getBuiltInToolMetadata();
-    expect(tools).toHaveLength(0);
+    expect(tools.length).toBeGreaterThan(0);
+    expect(tools.every((t) => (t as { category: string }).category === "ez")).toBe(true);
   });
 
   test("scratchpad, task-tracking, invoke_agent, and ask_human are no longer in the built-in registry", () => {
@@ -26,11 +28,10 @@ describe("builtin-registry", () => {
     expect(tools.some((t) => (t as { category: string }).category === "orchestration")).toBe(false);
   });
 
-  test("no categories remain", () => {
+  test("only the `ez` category remains for built-in tools", () => {
     const tools = getBuiltInToolMetadata();
-    // Every remaining tool (there are none) has a category — no residual
-    // categories sneak through.
-    expect(tools.map((t) => t.category)).toEqual([]);
+    const categories = new Set(tools.map((t) => t.category));
+    expect([...categories]).toEqual(["ez"]);
   });
 
   test("no duplicate names", () => {
@@ -39,13 +40,16 @@ describe("builtin-registry", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  test("getBuiltInCategories returns empty — no mentionable built-in categories left", () => {
+  test("getBuiltInCategories returns empty — `ez` tools are not mentionable categories", () => {
+    // The ez-category tools are locked to the in-app Ez concierge mode and
+    // are NOT surfaced as user-mentionable categories. Legacy categories
+    // (task-tracking / scratchpad / orchestration) are gone for good.
     const categories = getBuiltInCategories();
     const names = categories.map((c) => c.name);
     expect(names).not.toContain("task-tracking");
     expect(names).not.toContain("scratchpad");
     expect(names).not.toContain("orchestration");
-    expect(names).toHaveLength(0);
+    expect(names).toEqual([]);
   });
 
   test("getBuiltInToolsByCategory returns empty arrays for every removed category", () => {

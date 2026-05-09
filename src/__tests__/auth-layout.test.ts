@@ -122,15 +122,15 @@ describe("Login page load", () => {
     await expectRedirect(() => loginLoad(event as any), 302, "/");
   });
 
-  test("returns empty object when no session and users exist", async () => {
+  test("returns default returnTo when no session and users exist", async () => {
     await createUser({ email: "user@test.com", passwordHash: "hash", name: "User" });
 
     const event = createMockEvent({ url: "http://localhost/login" });
     const result = await loginLoad(event as any);
-    expect(result).toEqual({});
+    expect(result).toEqual({ returnTo: "/" });
   });
 
-  test("returns empty object when session cookie is invalid and users exist", async () => {
+  test("returns default returnTo when session cookie is invalid and users exist", async () => {
     await createUser({ email: "user@test.com", passwordHash: "hash", name: "User" });
 
     const event = createMockEvent({
@@ -138,7 +138,7 @@ describe("Login page load", () => {
       cookies: { ezcorp_session: "invalid-token-value" },
     });
     const result = await loginLoad(event as any);
-    expect(result).toEqual({});
+    expect(result).toEqual({ returnTo: "/" });
   });
 });
 

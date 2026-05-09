@@ -113,11 +113,11 @@ describe("Login / Setup redirect chain", () => {
     expect(result).toEqual({});
   });
 
-  test("login returns empty object when users exist and no session (no redirect)", async () => {
+  test("login returns default returnTo when users exist and no session (no redirect)", async () => {
     await createUser({ email: "admin@test.local", passwordHash: "h", name: "Admin", role: "admin" });
     const event = createMockEvent({ url: "http://localhost/login" });
     const result = await loginLoad(event as any);
-    expect(result).toEqual({});
+    expect(result).toEqual({ returnTo: "/" });
   });
 
   test("no circular redirect: login->setup only when 0 users, setup->login only when >0 users", async () => {
@@ -137,7 +137,7 @@ describe("Login / Setup redirect chain", () => {
 
     const loginEvent2 = createMockEvent({ url: "http://localhost/login" });
     const loginResult = await loginLoad(loginEvent2 as any);
-    expect(loginResult).toEqual({});
+    expect(loginResult).toEqual({ returnTo: "/" });
   });
 });
 
@@ -166,7 +166,7 @@ describe("Session-based redirects for authenticated users", () => {
       cookies: { ezcorp_session: "garbage-token" },
     });
     const result = await loginLoad(event as any);
-    expect(result).toEqual({});
+    expect(result).toEqual({ returnTo: "/" });
   });
 
   test("login does NOT redirect with an expired session token", async () => {
@@ -176,7 +176,7 @@ describe("Session-based redirects for authenticated users", () => {
       cookies: { ezcorp_session: expiredToken },
     });
     const result = await loginLoad(event as any);
-    expect(result).toEqual({});
+    expect(result).toEqual({ returnTo: "/" });
   });
 
   test("signup redirects to / when user has valid JWT + live session row", async () => {
@@ -248,7 +248,7 @@ describe("sec-C2 loop guard: auth pages honor session row existence", () => {
     });
 
     const result = await loginLoad(event as any);
-    expect(result).toEqual({});
+    expect(result).toEqual({ returnTo: "/" });
   });
 
   test("login clears the stale ezcorp_session cookie when session row is missing", async () => {
@@ -407,11 +407,11 @@ describe("Signup token validation", () => {
 // ── 4. Public paths validation ──────────────────────────────────────
 
 describe("Public paths - auth pages accessible without session", () => {
-  test("/login is accessible (returns data) when users exist and no session", async () => {
+  test("/login is accessible (returns default returnTo) when users exist and no session", async () => {
     await createUser({ email: "user@test.local", passwordHash: "h", name: "User" });
     const event = createMockEvent({ url: "http://localhost/login" });
     const result = await loginLoad(event as any);
-    expect(result).toEqual({});
+    expect(result).toEqual({ returnTo: "/" });
   });
 
   test("/setup is accessible (returns data) when no users exist", async () => {
