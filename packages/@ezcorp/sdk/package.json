@@ -48,7 +48,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -b tsconfig.build.json",
+    "build": "bunx tsc -b tsconfig.build.json",
     "prepare": "bun run build",
     "prepublishOnly": "bun run build",
     "test": "bun test"
