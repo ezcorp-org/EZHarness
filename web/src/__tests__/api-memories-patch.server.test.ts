@@ -356,6 +356,15 @@ describe("PATCH /api/memories/[id] — successful flip", () => {
 			actor: "u1",
 			projectIds: ["proj-a", "proj-b"],
 		});
+		// v1.4 — `projectIds` is the privacy-relevant fan-out field that
+		// downstream governance dashboards filter audits by. `toMatchObject`
+		// above only checks containment; this `toEqual` pins the exact
+		// array shape (string[]) so a future refactor that swaps the
+		// helper for one that returns `[{id: "..."}]` or stringifies the
+		// array breaks here loudly.
+		const meta_ = meta as Record<string, unknown>;
+		expect(Array.isArray(meta_.projectIds)).toBe(true);
+		expect(meta_.projectIds).toEqual(["proj-a", "proj-b"]);
 	});
 
 	test("flipping false -> true writes audit row with reversed old/new (re-include)", async () => {
