@@ -60,6 +60,17 @@ mock.module("../db/queries/settings", () => ({
   getSetting: async () => undefined,
 }));
 
+// attachAttachments (in db/queries/conversations) calls
+// listAttachmentsForMessages, which uses the chain via
+// `db.select().from(...).where(...)` — no `.orderBy()`. The chain mock
+// above only resolves on `.orderBy()`, so the bare `.where()` returns
+// the chain object itself, which awaits to `{}` and breaks
+// `for (const row of rows)`. Mock the attachments query module
+// directly so attachAttachments early-returns on empty rows.
+mock.module("../db/queries/attachments", () => ({
+  listAttachmentsForMessages: async () => [],
+}));
+
 // ── Import subjects after mocks ──────────────────────────────────────
 
 import { truncateOutput, getMessagesWithToolCalls } from "../db/queries/conversations";
