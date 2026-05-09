@@ -188,6 +188,7 @@
 			onkeydown={onKeydown}
 			placeholder={selected && !open ? "" : placeholder}
 			role="combobox"
+			aria-label="Search models"
 			aria-expanded={open}
 			aria-controls="model-picker-listbox"
 			aria-haspopup="listbox"

@@ -294,7 +294,7 @@
 							<button
 								onclick={handleTest}
 								disabled={testTesting}
-								class="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:opacity-50"
+								class="rounded-md bg-amber-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-600 disabled:opacity-50"
 							>
 								{testTesting ? "Starting..." : "Test"}
 							</button>
