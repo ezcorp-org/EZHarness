@@ -484,6 +484,60 @@ export async function handleCompactionTick(): Promise<{ mergedCount: number } | 
   }
 }
 
+// ── Compaction cron derivation ──────────────────────────────────────
+//
+// v1.4 — `compactionIntervalHours` is a per-extension setting (see
+// `ezcorp.config.ts` settings block). The manifest declares the legal
+// set of crons so the SDK's "must be in manifest" gate passes; this
+// helper picks the right one based on the user's chosen value, with
+// a fallback to the default-6h cron for invalid / unset values.
+//
+// The mapping is exhaustive across the manifest's declared crons —
+// any future widening of the cadence set must update both this map
+// AND `permissions.schedule.crons` AND the setting's `options[]`.
+// Pure function so the test suite can pin the boundary cases.
+export const SUPPORTED_COMPACTION_CRONS = {
+  "1": "0 */1 * * *",
+  "3": "0 */3 * * *",
+  "6": "0 */6 * * *",
+  "12": "0 */12 * * *",
+  "24": "0 0 * * *",
+} as const;
+
+export const DEFAULT_COMPACTION_CRON = SUPPORTED_COMPACTION_CRONS["6"];
+
+/** Resolve the compaction cron from a setting value. Accepts string
+ *  or number (the SchemaForm may marshal either depending on UI
+ *  flow). Out-of-range / unsupported values fall back to the
+ *  default 6h cron and the caller logs a warning. */
+export function resolveCompactionCron(
+  intervalHours: unknown,
+): { cron: string; resolvedFrom: string; usedFallback: boolean } {
+  // Normalise to a string — `select` widgets may send the raw
+  // number or its string form.
+  let key: string;
+  if (typeof intervalHours === "string") {
+    key = intervalHours;
+  } else if (typeof intervalHours === "number" && Number.isFinite(intervalHours)) {
+    key = String(Math.floor(intervalHours));
+  } else {
+    return {
+      cron: DEFAULT_COMPACTION_CRON,
+      resolvedFrom: "missing-or-invalid-type",
+      usedFallback: true,
+    };
+  }
+  const matched = (SUPPORTED_COMPACTION_CRONS as Record<string, string>)[key];
+  if (matched) {
+    return { cron: matched, resolvedFrom: key, usedFallback: false };
+  }
+  return {
+    cron: DEFAULT_COMPACTION_CRON,
+    resolvedFrom: key,
+    usedFallback: true,
+  };
+}
+
 // ── Tool dispatcher (none) ──────────────────────────────────────────
 //
 // The manifest declares an empty `tools: []`. Extraction and
@@ -501,8 +555,29 @@ if (import.meta.main) {
   registerEventHandler("run:complete", async (payload) => {
     await handleRunComplete(payload as { run?: unknown; conversationId?: string });
   });
+
+  // v1.4 — resolve the user's compaction cadence at boot. Errors are
+  // swallowed; if `getMySettings()` fails (e.g. host not ready) we
+  // boot with the default 6h cron — same effective behavior as v1.3
+  // pre-Phase 2. Setting changes apply on next host restart.
+  let resolvedCron: string = DEFAULT_COMPACTION_CRON;
+  try {
+    const settings = await runtimeApi.getMySettings();
+    const resolved = resolveCompactionCron(settings.compactionIntervalHours);
+    resolvedCron = resolved.cron;
+    if (resolved.usedFallback) {
+      console.warn("[memory-extractor] compactionIntervalHours fallback to default 6h", {
+        resolvedFrom: resolved.resolvedFrom,
+      });
+    }
+  } catch (err) {
+    console.warn("[memory-extractor] could not read settings at boot; defaulting to 6h", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   const schedule = new Schedule();
-  schedule.on("0 */6 * * *", async () => {
+  schedule.on(resolvedCron, async () => {
     await handleCompactionTick();
   });
   // Even though no tools are declared, the dispatcher still owns the

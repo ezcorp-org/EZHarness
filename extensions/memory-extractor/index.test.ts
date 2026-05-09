@@ -14,6 +14,9 @@ import {
   handleCompactionTick,
   extract,
   EXTRACTION_SYSTEM_PROMPT,
+  resolveCompactionCron,
+  SUPPORTED_COMPACTION_CRONS,
+  DEFAULT_COMPACTION_CRON,
   _setRuntimeApiForTests,
   _resetRuntimeApiForTests,
   type MemoryExtractorRuntimeApi,
@@ -591,5 +594,153 @@ describe("manifest — cross-extension memory dedup invariant", () => {
   // tests bypass the manifest clamp.
   test("permissions.memory.selfOnly is false", () => {
     expect(manifestConfig.permissions?.memory?.selfOnly).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// v1.4 — `compactionIntervalHours` cron derivation.
+//
+// `resolveCompactionCron` is pure; the manifest declares the legal
+// crons; the SDK's `Schedule.on()` would silently drop any cron not
+// declared. These tests pin every supported value + the fallback
+// branches so a future widening (or accidental narrowing) of the
+// allowed set can't silently misregister the cron.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("resolveCompactionCron — supported cadences", () => {
+  test("string '1' → every-1h cron, no fallback", () => {
+    const out = resolveCompactionCron("1");
+    expect(out.cron).toBe("0 */1 * * *");
+    expect(out.usedFallback).toBe(false);
+    expect(out.resolvedFrom).toBe("1");
+  });
+
+  test("string '3' → every-3h cron, no fallback", () => {
+    const out = resolveCompactionCron("3");
+    expect(out.cron).toBe("0 */3 * * *");
+    expect(out.usedFallback).toBe(false);
+  });
+
+  test("string '6' (default) → every-6h cron, no fallback", () => {
+    const out = resolveCompactionCron("6");
+    expect(out.cron).toBe(DEFAULT_COMPACTION_CRON);
+    expect(out.cron).toBe("0 */6 * * *");
+    expect(out.usedFallback).toBe(false);
+  });
+
+  test("string '12' → every-12h cron, no fallback", () => {
+    const out = resolveCompactionCron("12");
+    expect(out.cron).toBe("0 */12 * * *");
+    expect(out.usedFallback).toBe(false);
+  });
+
+  test("string '24' → daily cron, no fallback", () => {
+    const out = resolveCompactionCron("24");
+    expect(out.cron).toBe("0 0 * * *");
+    expect(out.usedFallback).toBe(false);
+  });
+
+  test("number marshaling: numeric 6 → same cron as string '6'", () => {
+    // The SchemaForm widget may serialize select values as numbers
+    // depending on the storage path. The resolver normalizes both.
+    const fromNumber = resolveCompactionCron(6);
+    const fromString = resolveCompactionCron("6");
+    expect(fromNumber.cron).toBe(fromString.cron);
+    expect(fromNumber.usedFallback).toBe(false);
+  });
+
+  test("number marshaling: floor applied to non-integer numbers", () => {
+    // 6.7 floors to 6, hits the supported set. No assertion on the
+    // realism of the value — just locking the floor behavior.
+    const out = resolveCompactionCron(6.7);
+    expect(out.cron).toBe("0 */6 * * *");
+    expect(out.usedFallback).toBe(false);
+    expect(out.resolvedFrom).toBe("6");
+  });
+});
+
+describe("resolveCompactionCron — fallback branches", () => {
+  test("undefined setting → default 6h, fallback flagged", () => {
+    const out = resolveCompactionCron(undefined);
+    expect(out.cron).toBe(DEFAULT_COMPACTION_CRON);
+    expect(out.usedFallback).toBe(true);
+    expect(out.resolvedFrom).toBe("missing-or-invalid-type");
+  });
+
+  test("null setting → default 6h, fallback flagged", () => {
+    const out = resolveCompactionCron(null);
+    expect(out.cron).toBe(DEFAULT_COMPACTION_CRON);
+    expect(out.usedFallback).toBe(true);
+  });
+
+  test("unsupported string '2' → default 6h, fallback flagged with the rejected value", () => {
+    const out = resolveCompactionCron("2");
+    expect(out.cron).toBe(DEFAULT_COMPACTION_CRON);
+    expect(out.usedFallback).toBe(true);
+    expect(out.resolvedFrom).toBe("2");
+  });
+
+  test("unsupported number 168 (legacy max) → default 6h, fallback flagged", () => {
+    // The original spec called for [1..168] integer range but the
+    // architecture's "manifest must declare cron" gate narrows v1.4
+    // to {1, 3, 6, 12, 24}. 168 is the v1.5+ surface; today it
+    // safely falls back rather than silently registering nothing.
+    const out = resolveCompactionCron(168);
+    expect(out.cron).toBe(DEFAULT_COMPACTION_CRON);
+    expect(out.usedFallback).toBe(true);
+  });
+
+  test("zero → default 6h fallback (degenerate cron prevented)", () => {
+    const out = resolveCompactionCron(0);
+    expect(out.cron).toBe(DEFAULT_COMPACTION_CRON);
+    expect(out.usedFallback).toBe(true);
+  });
+
+  test("negative number → default 6h fallback", () => {
+    const out = resolveCompactionCron(-5);
+    expect(out.cron).toBe(DEFAULT_COMPACTION_CRON);
+    expect(out.usedFallback).toBe(true);
+  });
+
+  test("NaN / Infinity → default 6h fallback", () => {
+    expect(resolveCompactionCron(Number.NaN).usedFallback).toBe(true);
+    expect(resolveCompactionCron(Number.POSITIVE_INFINITY).usedFallback).toBe(true);
+  });
+
+  test("non-numeric, non-string types → default 6h fallback", () => {
+    expect(resolveCompactionCron(true).usedFallback).toBe(true);
+    expect(resolveCompactionCron({}).usedFallback).toBe(true);
+    expect(resolveCompactionCron([]).usedFallback).toBe(true);
+  });
+});
+
+describe("SUPPORTED_COMPACTION_CRONS — manifest parity", () => {
+  test("every supported cron is declared in the manifest", () => {
+    // The SDK silently drops `Schedule.on()` for crons not declared
+    // in `permissions.schedule.crons`. If someone adds a value to
+    // SUPPORTED_COMPACTION_CRONS without updating the manifest, the
+    // user's chosen cadence would silently never fire — this test
+    // is the early-warning signal.
+    const declaredCrons = manifestConfig.permissions?.schedule?.crons ?? [];
+    for (const cron of Object.values(SUPPORTED_COMPACTION_CRONS)) {
+      expect(declaredCrons).toContain(cron);
+    }
+  });
+
+  test("manifest's setting `options[]` matches SUPPORTED_COMPACTION_CRONS keys", () => {
+    // Same invariant from the other direction: the user-visible
+    // select widget's options list must align with the resolver's
+    // accepted keys. A divergence would let the UI offer a cadence
+    // the resolver doesn't recognize → silent fallback to 6h.
+    const settings = manifestConfig.settings as
+      | Record<string, { type?: string; options?: { value: string }[] }>
+      | undefined;
+    const compactionSetting = settings?.compactionIntervalHours;
+    expect(compactionSetting).toBeDefined();
+    expect(compactionSetting?.type).toBe("select");
+    const optionValues = (compactionSetting?.options ?? []).map((o) => o.value);
+    expect(optionValues.sort()).toEqual(
+      Object.keys(SUPPORTED_COMPACTION_CRONS).sort(),
+    );
   });
 });

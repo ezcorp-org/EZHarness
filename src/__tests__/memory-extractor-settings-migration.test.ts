@@ -67,8 +67,20 @@ beforeAll(async () => {
         enabled: { type: "boolean", label: "Enabled", default: true },
         compaction_enabled: {
           type: "boolean",
-          label: "Run 6-hour compaction sweep",
+          label: "Run periodic compaction sweep",
           default: true,
+        },
+        compactionIntervalHours: {
+          type: "select",
+          label: "Compaction interval (hours)",
+          options: [
+            { value: "1", label: "Every hour" },
+            { value: "3", label: "Every 3 hours" },
+            { value: "6", label: "Every 6 hours" },
+            { value: "12", label: "Every 12 hours" },
+            { value: "24", label: "Daily" },
+          ],
+          default: "6",
         },
       },
     } as never,
@@ -156,28 +168,131 @@ describe("migrateMemoryExtractorEnabledSetting — idempotency", () => {
   });
 });
 
-describe("migrateMemoryExtractorEnabledSetting — compaction-interval deferral", () => {
-  test("legacy compactionIntervalHours=12 → no error, no per-user write needed for cron", async () => {
-    // Spec-locked v1.3 behavior: custom intervals are deferred to v1.4.
-    // The migration should log a warning and complete without throwing.
+describe("migrateMemoryExtractorEnabledSetting — v1.4 compactionIntervalHours migration", () => {
+  test("legacy=12 (supported) → writes per-user compactionIntervalHours='12'", async () => {
+    // v1.4 inversion of the v1.3 deferred-warning: 12 is in the
+    // supported set {1, 3, 6, 12, 24} so the migration writes it
+    // verbatim per-user.
     await upsertSetting("global:compactionIntervalHours", 12);
 
     await migrateMemoryExtractorEnabledSetting(extensionId);
 
-    // The migration should still write the sentinel even with a
-    // non-default interval present (the interval branch is informational
-    // only, not gated on the sentinel).
+    const a = await getUserSettings(userIdA, extensionId);
+    const b = await getUserSettings(userIdB, extensionId);
+    expect(a.compactionIntervalHours).toBe("12");
+    expect(b.compactionIntervalHours).toBe("12");
+
     const sentinel = await getSetting("global:memoryEnabled.migrated_at");
     expect(typeof sentinel).toBe("string");
   });
 
-  test("legacy compactionIntervalHours=6 (default) → migrates silently", async () => {
+  test("legacy=6 (matches default) → no per-user write (schema default covers it)", async () => {
     await upsertSetting("global:compactionIntervalHours", 6);
     await upsertSetting("global:memoryEnabled", true);
 
     await migrateMemoryExtractorEnabledSetting(extensionId);
 
+    const a = await getUserSettings(userIdA, extensionId);
+    expect(a.compactionIntervalHours).toBeUndefined();
+
     const sentinel = await getSetting("global:memoryEnabled.migrated_at");
     expect(typeof sentinel).toBe("string");
+  });
+
+  test("legacy=4 (unsupported) → clamps to nearest supported value (3)", async () => {
+    // 4 is between 3 and 6; the clamp picks the nearest cadence,
+    // and on ties the smaller (more conservative) wins.
+    await upsertSetting("global:compactionIntervalHours", 4);
+
+    await migrateMemoryExtractorEnabledSetting(extensionId);
+
+    const a = await getUserSettings(userIdA, extensionId);
+    expect(a.compactionIntervalHours).toBe("3");
+  });
+
+  test("legacy=48 (unsupported) → clamps to nearest supported value (24)", async () => {
+    // 48 is well above the supported max (24); clamp to the closest.
+    await upsertSetting("global:compactionIntervalHours", 48);
+
+    await migrateMemoryExtractorEnabledSetting(extensionId);
+
+    const a = await getUserSettings(userIdA, extensionId);
+    expect(a.compactionIntervalHours).toBe("24");
+  });
+
+  test("legacy=0 / negative / non-numeric → no per-user write, no throw", async () => {
+    // The migration must not crash on garbage; it logs and skips the
+    // write so downstream boots stay healthy.
+    await upsertSetting("global:compactionIntervalHours", "garbage" as never);
+
+    await migrateMemoryExtractorEnabledSetting(extensionId);
+
+    const a = await getUserSettings(userIdA, extensionId);
+    expect(a.compactionIntervalHours).toBeUndefined();
+
+    const sentinel = await getSetting("global:memoryEnabled.migrated_at");
+    expect(typeof sentinel).toBe("string");
+  });
+
+  test("idempotency — rerun with sentinel does NOT clobber a hand-edited per-user value", async () => {
+    await upsertSetting("global:compactionIntervalHours", 12);
+    await migrateMemoryExtractorEnabledSetting(extensionId);
+
+    // Hand-edit user A back to 24 (operator changed their mind).
+    await setUserSettings(userIdA, extensionId, { compactionIntervalHours: "24" });
+
+    // Second migration run is a sentinel-skip — must not re-clobber.
+    await migrateMemoryExtractorEnabledSetting(extensionId);
+
+    const a = await getUserSettings(userIdA, extensionId);
+    expect(a.compactionIntervalHours).toBe("24");
+  });
+
+  test("does not clobber a pre-existing per-user compactionIntervalHours during first run", async () => {
+    // User had already set their own value (via SchemaForm) before the
+    // migration runs. The migration must respect that — write only
+    // when the slot is empty.
+    await upsertSetting("global:compactionIntervalHours", 12);
+    await setUserSettings(userIdA, extensionId, { compactionIntervalHours: "24" });
+
+    await migrateMemoryExtractorEnabledSetting(extensionId);
+
+    const a = await getUserSettings(userIdA, extensionId);
+    const b = await getUserSettings(userIdB, extensionId);
+    expect(a.compactionIntervalHours).toBe("24"); // preserved
+    expect(b.compactionIntervalHours).toBe("12"); // migrated
+  });
+});
+
+describe("clampToSupportedCompactionHours — pure helper", () => {
+  test("supported values pass through unchanged", async () => {
+    const { clampToSupportedCompactionHours } = await import(
+      "../extensions/migrations/memory-extractor-enabled"
+    );
+    expect(clampToSupportedCompactionHours(1)).toBe(1);
+    expect(clampToSupportedCompactionHours(3)).toBe(3);
+    expect(clampToSupportedCompactionHours(6)).toBe(6);
+    expect(clampToSupportedCompactionHours(12)).toBe(12);
+    expect(clampToSupportedCompactionHours(24)).toBe(24);
+  });
+
+  test("unsupported values clamp to nearest, ties prefer smaller cadence", async () => {
+    const { clampToSupportedCompactionHours } = await import(
+      "../extensions/migrations/memory-extractor-enabled"
+    );
+    // Tie at 2 (between 1 and 3): smaller cadence (1) wins on equidistant.
+    expect(clampToSupportedCompactionHours(2)).toBe(1);
+    // 4 → 3 (closer than 6).
+    expect(clampToSupportedCompactionHours(4)).toBe(3);
+    // 9 → 6 (equidistant from 6 and 12, smaller wins).
+    expect(clampToSupportedCompactionHours(9)).toBe(6);
+    // 10 → 12 (closer to 12 than 6 — strictly nearer).
+    expect(clampToSupportedCompactionHours(10)).toBe(12);
+    // 18 → 12 (equidistant from 12 and 24, smaller wins).
+    expect(clampToSupportedCompactionHours(18)).toBe(12);
+    // 19 → 24 (closer to 24 than 12).
+    expect(clampToSupportedCompactionHours(19)).toBe(24);
+    // 48 → 24 (max).
+    expect(clampToSupportedCompactionHours(48)).toBe(24);
   });
 });

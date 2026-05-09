@@ -14,23 +14,19 @@
  *     - false                 → write enabled=false per user
  *   global:memoryEnabled.migrated_at = ISO timestamp once done.
  *
- * `global:compactionIntervalHours` is INTENTIONALLY NOT migrated. Per
- * the spec (53.4.4):
- *
- *   > `global:compactionIntervalHours` → if not 6, override the
- *   > schedule. (For v1.3, default-only; custom intervals deferred.)
- *
- * The bundled extension's `Schedule.on("0 0,6,12,18 * * *", ...)` -
- * style 6-hour cron in the manifest is hardcoded for v1.3. (The
- * spelling above intentionally avoids the literal cron `*` `/` `6` `*`
- * pattern so this JSDoc block doesn't accidentally close.) If a user
- * has set the legacy
- * `global:compactionIntervalHours` to a non-default value, this
- * migration logs a warning so operators see the deferred behavior, but
- * does NOT alter the cron — propagating non-default intervals into
- * the manifest would require a manifest re-approval gate that v1.3
- * doesn't ship. v1.4 will surface a per-extension setting for the
- * cadence.
+ * v1.4 — `global:compactionIntervalHours` ALSO migrates now. The
+ * bundled `memory-extractor` extension exposes a per-extension
+ * `compactionIntervalHours` setting (select with options 1, 3, 6, 12,
+ * 24 hours). If the legacy global was set to one of these values, the
+ * migration writes the per-user setting; non-supported legacy values
+ * (e.g. 4 or 48) are clamped to the closest supported cadence with a
+ * log line for traceability. The legacy host-side timer at
+ * `src/startup/background-timers.ts:90` keeps reading the global key
+ * for backward compat — the bundled extension and the legacy timer
+ * are independent compaction drivers (the legacy one wraps
+ * `runCompaction()` directly; the bundled extension does the same via
+ * `runtime.memory.compact`). Marked deprecated in v1.4; removable
+ * once the legacy timer is retired.
  *
  * The migration NEVER deletes the legacy setting — Stage 2 of the
  * deletion commit handles cleanup once the legacy listener is gone.
@@ -60,6 +56,32 @@ const log = logger.child("memory-extractor-settings-migration");
 const LEGACY_KEY = "global:memoryEnabled";
 const SENTINEL_KEY = "global:memoryEnabled.migrated_at";
 const LEGACY_INTERVAL_KEY = "global:compactionIntervalHours";
+
+/** v1.4 — supported per-extension `compactionIntervalHours` values.
+ *  Mirrors `extensions/memory-extractor/ezcorp.config.ts`'s setting
+ *  options. Kept inline (not imported) so the migration doesn't pull
+ *  the bundled extension's runtime entrypoint into a host-side
+ *  module path. */
+const SUPPORTED_HOURS = [1, 3, 6, 12, 24] as const;
+
+/** Clamp a legacy `compactionIntervalHours` value to the closest
+ *  supported cadence. Pure helper; exported for the migration test
+ *  to pin the boundary cases. */
+export function clampToSupportedCompactionHours(legacy: number): number {
+  let best: number = SUPPORTED_HOURS[0];
+  let bestDelta = Math.abs(legacy - best);
+  for (const h of SUPPORTED_HOURS) {
+    const delta = Math.abs(legacy - h);
+    // Strict-less so the smaller cadence wins ties (more conservative
+    // — over-eager compaction is preferred over silent drift toward
+    // a longer interval the user didn't pick).
+    if (delta < bestDelta) {
+      best = h;
+      bestDelta = delta;
+    }
+  }
+  return best;
+}
 
 export async function migrateMemoryExtractorEnabledSetting(
   memoryExtractorExtensionId: string,
@@ -129,18 +151,73 @@ export async function migrateMemoryExtractorEnabledSetting(
       });
     }
 
-    // Compaction-interval no-op branch (spec-locked deferral). Detect
-    // non-default values so operators see the warning, but DO NOT
-    // mutate the manifest's hardcoded cron.
+    // v1.4 — compaction-interval migration. The bundled extension
+    // exposes `compactionIntervalHours` as a select with values
+    // {1, 3, 6, 12, 24}. If the legacy global is set to one of those
+    // (or 6 — the default), write it per-user; otherwise clamp to
+    // the closest supported cadence so the user gets approximately
+    // what they asked for. Sentinel-gated by the same
+    // `global:memoryEnabled.migrated_at` row, so a manual flip of
+    // the per-user value sticks across boots.
     const customInterval = await getSetting(LEGACY_INTERVAL_KEY);
-    if (customInterval != null && Number(customInterval) !== 6) {
-      log.warn(
-        "Legacy compactionIntervalHours non-default — bundled extension still runs at 6h (v1.4 surfaces a per-extension setting)",
-        {
+    if (customInterval != null) {
+      const numeric = Number(customInterval);
+      if (Number.isFinite(numeric) && numeric > 0) {
+        const supported = clampToSupportedCompactionHours(numeric);
+        if (supported !== 6) {
+          // Only write per-user when the value differs from the
+          // schema default — `default: "6"` already covers the 6h
+          // case for users who never had a per-user override.
+          const allUsers = await getDb().select({ id: users.id }).from(users);
+          let migrated = 0;
+          let perUserFailures = 0;
+          for (const u of allUsers) {
+            try {
+              const existing = await getUserSettings(u.id, memoryExtractorExtensionId);
+              // Don't clobber an explicit per-user choice — the
+              // SchemaForm UI may have already persisted one before
+              // the migration runs (rare on the first boot, but
+              // possible after a hand-edit / hand-restore).
+              if (existing.compactionIntervalHours != null) continue;
+              await setUserSettings(u.id, memoryExtractorExtensionId, {
+                ...existing,
+                compactionIntervalHours: String(supported),
+              });
+              migrated += 1;
+            } catch (perUserErr) {
+              perUserFailures += 1;
+              log.warn("per-user compactionIntervalHours migration failed; will retry next boot", {
+                userId: u.id,
+                extensionId: memoryExtractorExtensionId,
+                legacyValue: customInterval,
+                resolvedTo: supported,
+                error: perUserErr instanceof Error ? perUserErr.message : String(perUserErr),
+              });
+            }
+          }
+          log.info("Migrated compactionIntervalHours to per-user extension settings", {
+            legacyValue: customInterval,
+            resolvedTo: supported,
+            userCount: allUsers.length,
+            migratedCount: migrated,
+            failureCount: perUserFailures,
+            extensionId: memoryExtractorExtensionId,
+          });
+          // Bail before sentinel write so the next boot retries the
+          // failures (mirrors the enabled-flag migration pattern).
+          if (perUserFailures > 0) return;
+        } else {
+          log.info("Legacy compactionIntervalHours matches default (6h) — no per-user write", {
+            legacyValue: customInterval,
+            extensionId: memoryExtractorExtensionId,
+          });
+        }
+      } else {
+        log.warn("Legacy compactionIntervalHours not a finite positive number — skipping migration", {
           legacyValue: customInterval,
           extensionId: memoryExtractorExtensionId,
-        },
-      );
+        });
+      }
     }
 
     // Sentinel write — makes step 1 fast on subsequent boots.

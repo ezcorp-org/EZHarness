@@ -69,8 +69,38 @@ export default defineExtension({
     },
     eventSubscriptions: ["run:complete"],
     schedule: {
-      crons: ["0 */6 * * *"],
-      maxRunsPerDay: 4,
+      // v1.4 — manifest declares the full set of legal compaction
+      // cadences so the SDK's "manifest must declare the cron" check
+      // passes regardless of the user's `compactionIntervalHours`
+      // setting. The extension's `index.ts` reads the setting at boot
+      // and registers `Schedule.on(<chosen-cron>, ...)` against
+      // exactly one of these. Any setting value not in this list
+      // falls back to `0 */6 * * *` and logs a warning.
+      //
+      // Why the small fixed set: spec § Phase 2.2 says "manifest
+      // stays declarative as `["0 */<H> * * *"]`" but the SDK
+      // silently drops `Schedule.on()` for crons not in the manifest
+      // (`packages/@ezcorp/sdk/src/runtime/schedule.ts:36`), and the
+      // host's `clampSchedulePermission` slices to 8 max
+      // (`src/extensions/clamp-permissions.ts:228`). v1.4 narrows
+      // the spec's "integer ≥ 1, ≤ 168" range to the {1, 3, 6, 12,
+      // 24} hour set covered by these 5 crons (within the 8-slot
+      // cap). Documented in the Phase 2 commit body. Wider cadences
+      // can land alongside the v1.5+ live-rescheduling work without
+      // a new migration.
+      //
+      // `maxRunsPerDay: 24` covers the every-1h floor (24 fires/day);
+      // bumped from 4 because the user can now opt into hourly
+      // sweeps. The `missedRunPolicy: fire-once` semantics still hold
+      // — at most one catch-up regardless of cadence.
+      crons: [
+        "0 */1 * * *",
+        "0 */3 * * *",
+        "0 */6 * * *",
+        "0 */12 * * *",
+        "0 0 * * *",
+      ],
+      maxRunsPerDay: 24,
       missedRunPolicy: "fire-once",
       purpose: "memory compaction sweep",
     },
@@ -112,10 +142,29 @@ export default defineExtension({
     },
     compaction_enabled: {
       type: "boolean",
-      label: "Run 6-hour compaction sweep",
+      label: "Run periodic compaction sweep",
       description:
         "Periodically merge similar memories. Disable to skip the cron-driven sweep without disabling extraction.",
       default: true,
+    },
+    compactionIntervalHours: {
+      // v1.4 — surfaces the cadence as a per-extension setting. v1
+      // ships a small fixed set; the manifest's declarative cron list
+      // covers exactly these values (see comment on
+      // `permissions.schedule.crons` above). Wider cadences land in
+      // v1.5+ alongside live-rescheduling.
+      type: "select",
+      label: "Compaction interval (hours)",
+      description:
+        "How often the memory compaction sweep runs. Changes apply on next host restart — live re-scheduling lands in v1.5+.",
+      options: [
+        { value: "1", label: "Every hour" },
+        { value: "3", label: "Every 3 hours" },
+        { value: "6", label: "Every 6 hours (default)" },
+        { value: "12", label: "Every 12 hours" },
+        { value: "24", label: "Daily" },
+      ],
+      default: "6",
     },
   },
 });

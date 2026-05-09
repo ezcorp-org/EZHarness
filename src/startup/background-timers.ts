@@ -85,7 +85,19 @@ export async function startBackgroundTimers(): Promise<void> {
     });
   }, 60 * 60 * 1000);
 
-  // Memory compaction (configurable, default 6h)
+  // Memory compaction (configurable, default 6h).
+  //
+  // v1.4 — `global:compactionIntervalHours` is deprecated. The
+  // bundled `memory-extractor` extension now exposes a per-extension
+  // `compactionIntervalHours` setting; the migration at
+  // `src/extensions/migrations/memory-extractor-enabled.ts` translates
+  // any non-default legacy value into the per-user setting. The
+  // legacy host-side timer below (which wraps `runCompaction()`
+  // directly) is kept as a backward-compat parallel driver: deleting
+  // it now would silently disable compaction on hosts that haven't
+  // booted the bundled extension yet. Removable once the bundled
+  // extension is the sole compaction driver — track via the
+  // `lessons-distiller` Stage 2 deletion pattern.
   try {
     const intervalHours = ((await getSetting("global:compactionIntervalHours")) as number) ?? 6;
     const intervalMs = intervalHours * 60 * 60 * 1000;
