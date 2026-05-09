@@ -252,6 +252,20 @@ export const EXT_AUDIT_ACTIONS = {
    *  crash mid-fire. Marked for retry only when
    *  `maxRetries > 0`. */
   SDK_SCHEDULE_REAPED: "ext:sdk-schedule-reaped",
+  /**
+   * v1.4: a user flipped `memories.injection_eligible` for one of
+   * their memories via PATCH /api/memories/[id]. Privacy-relevant —
+   * an excluded memory is suppressed from the LLM system-prompt
+   * injection path (gate already lives in
+   * `src/extensions/memory-handler.ts`, Phase 51). The audit row
+   * carries `{memoryId, oldValue, newValue, actor: <userId>}` plus
+   * a free-form `reason` for forensic continuity.
+   *
+   * Wire-string follows the dotted-notation convention shared with
+   * `SETTINGS_USER_UPDATED` (the closest analogue: a per-user,
+   * privacy-relevant column flip).
+   */
+  MEMORY_INJECTION_ELIGIBILITY_CHANGED: "ext:memory.injection-eligibility.changed",
 } as const;
 
 // Re-export the three Phase 1 PDP action codes as named constants for

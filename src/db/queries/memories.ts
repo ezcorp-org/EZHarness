@@ -255,6 +255,35 @@ export async function updateMemoryStatus(
   });
 }
 
+/**
+ * v1.4: flip the per-memory `injection_eligible` flag.
+ *
+ * Returns the updated row (full shape). Idempotent on same-value
+ * input — callers detect the no-op via the unchanged
+ * `injectionEligible` field and skip the audit row at the API
+ * layer (audit-row writing lives in the route handler so we can
+ * thread `actor` / `userId` from the auth context).
+ *
+ * No write to `memory_audit_log` here: the resource-tier audit
+ * table records content/status changes only. Injection-eligibility
+ * is a governance concern and is audited via the shared
+ * `audit_log` table with the
+ * `MEMORY_INJECTION_ELIGIBILITY_CHANGED` action — wired in the
+ * PATCH handler.
+ */
+export async function updateMemoryInjectionEligibility(
+  id: string,
+  injectionEligible: boolean,
+): Promise<Memory | undefined> {
+  const db = getDb();
+  await db
+    .update(memories)
+    .set({ injectionEligible, updatedAt: new Date() })
+    .where(eq(memories.id, id));
+  const rows = await db.select().from(memories).where(eq(memories.id, id));
+  return rows[0];
+}
+
 export async function deleteMemory(id: string): Promise<void> {
   const db = getDb();
   const existing = await db.select().from(memories).where(eq(memories.id, id));

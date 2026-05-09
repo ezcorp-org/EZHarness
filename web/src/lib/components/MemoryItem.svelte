@@ -26,6 +26,13 @@
 		lastAccessedAt: string;
 		createdAt: string;
 		updatedAt: string;
+		/** v1.4: when false, this memory is suppressed from LLM
+		 *  system-prompt injection (the gate lives in
+		 *  `src/extensions/memory-handler.ts` from Phase 51). The
+		 *  curation tab surfaces a per-row toggle so users can flip
+		 *  this without touching PGlite directly. Always populated
+		 *  by the API (column is `notNull` with default `true`). */
+		injectionEligible: boolean;
 	}
 </script>
 

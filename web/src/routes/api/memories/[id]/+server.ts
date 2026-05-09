@@ -1,11 +1,14 @@
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import type { RequestHandler } from "./$types";
-import { getMemoryById, updateMemory, updateMemoryStatus, deleteMemory, getMemoryProjectIds, setMemoryProjects } from "$server/db/queries/memories";
+import { getMemoryById, updateMemory, updateMemoryStatus, deleteMemory, getMemoryProjectIds, setMemoryProjects, updateMemoryInjectionEligibility } from "$server/db/queries/memories";
+import { insertAuditEntry } from "$server/db/queries/audit-log";
+import { EXT_AUDIT_ACTIONS } from "$server/extensions/audit-actions";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { logger } from "$server/logger";
+import { patchMemorySchema } from "../schema";
 
 const log = logger.child("api.memories");
 
@@ -95,6 +98,86 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
   }
 
   const updated = await getMemoryById(params.id);
+  const projectIds = await getMemoryProjectIds(params.id);
+  return json({ ...updated, projectIds });
+};
+
+/**
+ * v1.4 — PATCH /api/memories/[id]
+ *
+ * Body: `{ injectionEligible: boolean }` (validated via
+ * `patchMemorySchema`; unknown keys 400, missing field 400).
+ *
+ * Auth mirrors GET/PUT: must hold the `read` scope on an API key
+ * (cookie auth bypasses), must be authenticated, must own the row
+ * (or be admin) — ownership-mismatch and missing-row both 404 to
+ * prevent id enumeration (sec-H3 fail-closed).
+ *
+ * Behavior:
+ *   - If `injectionEligible` is already the requested value, return
+ *     200 with the unchanged row. No audit row.
+ *   - Otherwise, flip the column and write an audit row to the
+ *     shared `audit_log` table with action
+ *     `MEMORY_INJECTION_ELIGIBILITY_CHANGED` and metadata
+ *     `{memoryId, oldValue, newValue, actor: <userId>}`.
+ *   - Return the updated row (full shape, including `projectIds`)
+ *     so the client can confirm without a second round-trip.
+ */
+export const PATCH: RequestHandler = async ({ params, request, locals }) => {
+  const scopeErr = requireScope(locals, "read");
+  if (scopeErr) return scopeErr;
+  const user = requireAuth(locals);
+
+  const memory = await getMemoryById(params.id);
+  if (!memory) return errorJson(404, "Memory not found");
+  // sec-H3: fail-closed — unowned rows (null userId) are admin-only,
+  // and cross-user access is collapsed into 404 to prevent id
+  // enumeration (matches GET/PUT/DELETE on this same route).
+  if (memory.userId !== user.id && user.role !== "admin") {
+    return errorJson(404, "Memory not found");
+  }
+
+  const parsed = patchMemorySchema.safeParse(await request.json().catch(() => ({})));
+  if (!parsed.success) {
+    return errorJson(400, "Invalid request body");
+  }
+  const { injectionEligible } = parsed.data;
+
+  // Idempotent same-value PATCH: 200 with the unchanged row, no
+  // audit row written. Privacy-relevant actions only audit on
+  // actual state transitions to avoid noise.
+  if (memory.injectionEligible === injectionEligible) {
+    const projectIds = await getMemoryProjectIds(params.id);
+    return json({ ...memory, projectIds });
+  }
+
+  const oldValue = memory.injectionEligible;
+  const updated = await updateMemoryInjectionEligibility(params.id, injectionEligible);
+  if (!updated) {
+    log.error("memory disappeared between read and write", { memoryId: params.id });
+    return errorJson(404, "Memory not found");
+  }
+
+  // Audit row in the shared `audit_log` table — picked up by the
+  // governance dashboard alongside other `ext:*` actions. The
+  // helper is fire-and-forget on its own DB-error path (see
+  // `insertAuditEntry`'s try/catch); we still `await` to surface
+  // ordering issues but a hiccup won't abort the PATCH.
+  await insertAuditEntry(
+    user.id,
+    EXT_AUDIT_ACTIONS.MEMORY_INJECTION_ELIGIBILITY_CHANGED,
+    params.id,
+    {
+      memoryId: params.id,
+      oldValue,
+      newValue: injectionEligible,
+      actor: user.id,
+      reason: injectionEligible
+        ? "User re-included memory in chat context"
+        : "User excluded memory from chat context",
+    },
+  );
+
   const projectIds = await getMemoryProjectIds(params.id);
   return json({ ...updated, projectIds });
 };

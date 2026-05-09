@@ -12,3 +12,24 @@ export const searchMemoriesQuerySchema = z.object({
 });
 
 export type SearchMemoriesQuery = z.infer<typeof searchMemoriesQuerySchema>;
+
+/**
+ * v1.4 PATCH /api/memories/[id] body shape.
+ *
+ * Single-field for now: `{ injectionEligible: boolean }`. Future
+ * fields land in their own PATCH calls or a future generalized
+ * endpoint — see `tasks/v1.4-memory-injection-eligibility-ui.md`
+ * § Decisions locked in.
+ *
+ * `.strict()` rejects unknown keys with a 400 so a typo'd field
+ * doesn't silently no-op (defense in depth — the handler also
+ * skips fields it doesn't recognize, but the early reject keeps
+ * the contract honest).
+ */
+export const patchMemorySchema = z
+  .object({
+    injectionEligible: z.boolean(),
+  })
+  .strict();
+
+export type PatchMemoryBody = z.infer<typeof patchMemorySchema>;
