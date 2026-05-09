@@ -40,7 +40,7 @@ export interface EzClientToolEvent {
 
 export type DispatchResult =
   | { ok: true; toolName: string; toolCallId: string; detail?: Record<string, unknown> }
-  | { ok: false; toolName: string; toolCallId: string; error: string; code: "no-handler" | "invalid-input" | "rejected" | "unknown-tool" };
+  | { ok: false; toolName: string; toolCallId: string; error: string; code: "no-handler" | "invalid-input" | "rejected" | "unknown-tool" | "coming-soon" };
 
 export interface DispatcherDeps {
   /** Page-level navigator. Pass SvelteKit's `goto` in production. */
@@ -65,17 +65,18 @@ export function isAllowedNavigateTarget(path: unknown): path is string {
 
 export async function dispatch(event: EzClientToolEvent, deps: DispatcherDeps): Promise<DispatchResult> {
   if (event.toolName === "fill_form") {
-    // The page-side form registry was removed alongside the
-    // `<EzContext>` mechanism. `fill_form` always reports "no handler"
-    // until v1.3 reintroduces an on-demand form-discovery design.
-    const input = event.input as { formId?: unknown } | null | undefined;
-    const formId = typeof input?.formId === "string" ? input.formId : "";
+    // The page-side form registry was removed alongside the `<EzContext>`
+    // mechanism and a redesigned page-context system has been deferred
+    // (v1.2 → v1.3 → v1.4). v1.3 release-readiness decision: keep the
+    // tool visible (so the LLM can still mention it as a future
+    // capability) but return a user-facing "coming soon" message rather
+    // than a confusing "no handler" technical error.
     return {
       ok: false,
       toolName: event.toolName,
       toolCallId: event.toolCallId,
-      error: `No handler registered for form '${formId || "<missing>"}'. The current page does not expose this form to Ez.`,
-      code: "no-handler",
+      error: "Filling forms on the current page is coming soon — the page-context redesign is still in development. Try guiding the user with a written explanation of which fields to fill in instead.",
+      code: "coming-soon",
     };
   }
 

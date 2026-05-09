@@ -91,7 +91,7 @@ export function createNavigateToTool(ctx: ClientToolContext): BuiltinToolDef {
     name: "navigate_to",
     label: "navigate_to",
     description:
-      "Navigate the user to an in-app route (e.g. '/marketplace?q=pdf' or '/agents/<id>'). External URLs are rejected. Resolved client-side by the Ez panel.",
+      "[LIMITED — page-context redesign pending] Navigate the user to an in-app route (e.g. '/marketplace?q=pdf' or '/agents/<id>'). External URLs are rejected. Routing-only navigation works, but reasoning about the destination's page state requires the page-context system being redesigned for a future release. Confirm with the user before navigating.",
     category: "ez",
     cardType: "default",
     clientSide: true,

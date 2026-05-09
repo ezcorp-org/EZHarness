@@ -100,7 +100,7 @@ export function createFillFormTool(ctx: ClientToolContext): BuiltinToolDef {
     name: "fill_form",
     label: "fill_form",
     description:
-      "Fill in a form on the page the user is currently looking at. Inputs: formId (from page context) and values (record matching the form's declared schema). Resolved client-side by the Ez panel.",
+      "[COMING SOON — currently disabled] Fill in a form on the page the user is looking at. The page-context registry needed to discover and route to live forms is being redesigned and is not available in v1.3. Calls return a 'feature in development' result. Avoid using this tool until a future release reinstates page-context support.",
     category: "ez",
     cardType: "default",
     clientSide: true,

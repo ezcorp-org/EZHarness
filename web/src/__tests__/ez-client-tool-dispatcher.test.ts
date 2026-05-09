@@ -52,8 +52,8 @@ describe("isAllowedNavigateTarget — same-origin allowlist", () => {
   });
 });
 
-describe("dispatch — fill_form routing (no-handler stub)", () => {
-  test("returns 'no-handler' for any formId — registry was removed", async () => {
+describe("dispatch — fill_form routing (coming-soon stub)", () => {
+  test("returns 'coming-soon' for any formId — page-context redesign pending", async () => {
     const deps = makeDeps();
     const evt: EzClientToolEvent = {
       conversationId: "c", toolCallId: "t1", toolName: "fill_form",
@@ -62,19 +62,19 @@ describe("dispatch — fill_form routing (no-handler stub)", () => {
     const r = await dispatch(evt, deps);
     expect(r.ok).toBe(false);
     if (!r.ok) {
-      expect(r.code).toBe("no-handler");
-      expect(r.error).toContain("agent-new");
+      expect(r.code).toBe("coming-soon");
+      expect(r.error.toLowerCase()).toContain("coming soon");
     }
   });
 
-  test("returns 'no-handler' (with placeholder formId) when input lacks formId", async () => {
+  test("returns 'coming-soon' regardless of formId presence", async () => {
     const deps = makeDeps();
     const r = await dispatch(
       { conversationId: "c", toolCallId: "t", toolName: "fill_form", input: { values: {} } },
       deps,
     );
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.code).toBe("no-handler");
+    if (!r.ok) expect(r.code).toBe("coming-soon");
   });
 });
 
