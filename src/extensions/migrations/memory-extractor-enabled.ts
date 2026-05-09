@@ -16,7 +16,7 @@
  *
  * v1.4 — `global:compactionIntervalHours` ALSO migrates now. The
  * bundled `memory-extractor` extension exposes a per-extension
- * `compactionIntervalHours` setting (select with options 1, 3, 6, 12,
+ * `compaction_interval_hours` setting (select with options 1, 3, 6, 12,
  * 24 hours). If the legacy global was set to one of these values, the
  * migration writes the per-user setting; non-supported legacy values
  * (e.g. 4 or 48) are clamped to the closest supported cadence with a
@@ -57,14 +57,14 @@ const LEGACY_KEY = "global:memoryEnabled";
 const SENTINEL_KEY = "global:memoryEnabled.migrated_at";
 const LEGACY_INTERVAL_KEY = "global:compactionIntervalHours";
 
-/** v1.4 — supported per-extension `compactionIntervalHours` values.
+/** v1.4 — supported per-extension `compaction_interval_hours` values.
  *  Mirrors `extensions/memory-extractor/ezcorp.config.ts`'s setting
  *  options. Kept inline (not imported) so the migration doesn't pull
  *  the bundled extension's runtime entrypoint into a host-side
  *  module path. */
 const SUPPORTED_HOURS = [1, 3, 6, 12, 24] as const;
 
-/** Clamp a legacy `compactionIntervalHours` value to the closest
+/** Clamp a legacy `compaction_interval_hours` value to the closest
  *  supported cadence. Pure helper; exported for the migration test
  *  to pin the boundary cases. */
 export function clampToSupportedCompactionHours(legacy: number): number {
@@ -152,7 +152,7 @@ export async function migrateMemoryExtractorEnabledSetting(
     }
 
     // v1.4 — compaction-interval migration. The bundled extension
-    // exposes `compactionIntervalHours` as a select with values
+    // exposes `compaction_interval_hours` as a select with values
     // {1, 3, 6, 12, 24}. If the legacy global is set to one of those
     // (or 6 — the default), write it per-user; otherwise clamp to
     // the closest supported cadence so the user gets approximately
@@ -178,15 +178,15 @@ export async function migrateMemoryExtractorEnabledSetting(
               // SchemaForm UI may have already persisted one before
               // the migration runs (rare on the first boot, but
               // possible after a hand-edit / hand-restore).
-              if (existing.compactionIntervalHours != null) continue;
+              if (existing.compaction_interval_hours != null) continue;
               await setUserSettings(u.id, memoryExtractorExtensionId, {
                 ...existing,
-                compactionIntervalHours: String(supported),
+                compaction_interval_hours: String(supported),
               });
               migrated += 1;
             } catch (perUserErr) {
               perUserFailures += 1;
-              log.warn("per-user compactionIntervalHours migration failed; will retry next boot", {
+              log.warn("per-user compaction_interval_hours migration failed; will retry next boot", {
                 userId: u.id,
                 extensionId: memoryExtractorExtensionId,
                 legacyValue: customInterval,
@@ -195,7 +195,7 @@ export async function migrateMemoryExtractorEnabledSetting(
               });
             }
           }
-          log.info("Migrated compactionIntervalHours to per-user extension settings", {
+          log.info("Migrated compaction_interval_hours to per-user extension settings", {
             legacyValue: customInterval,
             resolvedTo: supported,
             userCount: allUsers.length,
@@ -207,13 +207,13 @@ export async function migrateMemoryExtractorEnabledSetting(
           // failures (mirrors the enabled-flag migration pattern).
           if (perUserFailures > 0) return;
         } else {
-          log.info("Legacy compactionIntervalHours matches default (6h) — no per-user write", {
+          log.info("Legacy compaction_interval_hours matches default (6h) — no per-user write", {
             legacyValue: customInterval,
             extensionId: memoryExtractorExtensionId,
           });
         }
       } else {
-        log.warn("Legacy compactionIntervalHours not a finite positive number — skipping migration", {
+        log.warn("Legacy compaction_interval_hours not a finite positive number — skipping migration", {
           legacyValue: customInterval,
           extensionId: memoryExtractorExtensionId,
         });

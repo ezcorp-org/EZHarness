@@ -70,7 +70,7 @@ beforeAll(async () => {
           label: "Run periodic compaction sweep",
           default: true,
         },
-        compactionIntervalHours: {
+        compaction_interval_hours: {
           type: "select",
           label: "Compaction interval (hours)",
           options: [
@@ -168,8 +168,8 @@ describe("migrateMemoryExtractorEnabledSetting — idempotency", () => {
   });
 });
 
-describe("migrateMemoryExtractorEnabledSetting — v1.4 compactionIntervalHours migration", () => {
-  test("legacy=12 (supported) → writes per-user compactionIntervalHours='12'", async () => {
+describe("migrateMemoryExtractorEnabledSetting — v1.4 compaction_interval_hours migration", () => {
+  test("legacy=12 (supported) → writes per-user compaction_interval_hours='12'", async () => {
     // v1.4 inversion of the v1.3 deferred-warning: 12 is in the
     // supported set {1, 3, 6, 12, 24} so the migration writes it
     // verbatim per-user.
@@ -179,8 +179,8 @@ describe("migrateMemoryExtractorEnabledSetting — v1.4 compactionIntervalHours 
 
     const a = await getUserSettings(userIdA, extensionId);
     const b = await getUserSettings(userIdB, extensionId);
-    expect(a.compactionIntervalHours).toBe("12");
-    expect(b.compactionIntervalHours).toBe("12");
+    expect(a.compaction_interval_hours).toBe("12");
+    expect(b.compaction_interval_hours).toBe("12");
 
     const sentinel = await getSetting("global:memoryEnabled.migrated_at");
     expect(typeof sentinel).toBe("string");
@@ -193,7 +193,7 @@ describe("migrateMemoryExtractorEnabledSetting — v1.4 compactionIntervalHours 
     await migrateMemoryExtractorEnabledSetting(extensionId);
 
     const a = await getUserSettings(userIdA, extensionId);
-    expect(a.compactionIntervalHours).toBeUndefined();
+    expect(a.compaction_interval_hours).toBeUndefined();
 
     const sentinel = await getSetting("global:memoryEnabled.migrated_at");
     expect(typeof sentinel).toBe("string");
@@ -207,7 +207,7 @@ describe("migrateMemoryExtractorEnabledSetting — v1.4 compactionIntervalHours 
     await migrateMemoryExtractorEnabledSetting(extensionId);
 
     const a = await getUserSettings(userIdA, extensionId);
-    expect(a.compactionIntervalHours).toBe("3");
+    expect(a.compaction_interval_hours).toBe("3");
   });
 
   test("legacy=48 (unsupported) → clamps to nearest supported value (24)", async () => {
@@ -217,7 +217,7 @@ describe("migrateMemoryExtractorEnabledSetting — v1.4 compactionIntervalHours 
     await migrateMemoryExtractorEnabledSetting(extensionId);
 
     const a = await getUserSettings(userIdA, extensionId);
-    expect(a.compactionIntervalHours).toBe("24");
+    expect(a.compaction_interval_hours).toBe("24");
   });
 
   test("legacy=0 / negative / non-numeric → no per-user write, no throw", async () => {
@@ -228,7 +228,7 @@ describe("migrateMemoryExtractorEnabledSetting — v1.4 compactionIntervalHours 
     await migrateMemoryExtractorEnabledSetting(extensionId);
 
     const a = await getUserSettings(userIdA, extensionId);
-    expect(a.compactionIntervalHours).toBeUndefined();
+    expect(a.compaction_interval_hours).toBeUndefined();
 
     const sentinel = await getSetting("global:memoryEnabled.migrated_at");
     expect(typeof sentinel).toBe("string");
@@ -239,28 +239,28 @@ describe("migrateMemoryExtractorEnabledSetting — v1.4 compactionIntervalHours 
     await migrateMemoryExtractorEnabledSetting(extensionId);
 
     // Hand-edit user A back to 24 (operator changed their mind).
-    await setUserSettings(userIdA, extensionId, { compactionIntervalHours: "24" });
+    await setUserSettings(userIdA, extensionId, { compaction_interval_hours: "24" });
 
     // Second migration run is a sentinel-skip — must not re-clobber.
     await migrateMemoryExtractorEnabledSetting(extensionId);
 
     const a = await getUserSettings(userIdA, extensionId);
-    expect(a.compactionIntervalHours).toBe("24");
+    expect(a.compaction_interval_hours).toBe("24");
   });
 
-  test("does not clobber a pre-existing per-user compactionIntervalHours during first run", async () => {
+  test("does not clobber a pre-existing per-user compaction_interval_hours during first run", async () => {
     // User had already set their own value (via SchemaForm) before the
     // migration runs. The migration must respect that — write only
     // when the slot is empty.
     await upsertSetting("global:compactionIntervalHours", 12);
-    await setUserSettings(userIdA, extensionId, { compactionIntervalHours: "24" });
+    await setUserSettings(userIdA, extensionId, { compaction_interval_hours: "24" });
 
     await migrateMemoryExtractorEnabledSetting(extensionId);
 
     const a = await getUserSettings(userIdA, extensionId);
     const b = await getUserSettings(userIdB, extensionId);
-    expect(a.compactionIntervalHours).toBe("24"); // preserved
-    expect(b.compactionIntervalHours).toBe("12"); // migrated
+    expect(a.compaction_interval_hours).toBe("24"); // preserved
+    expect(b.compaction_interval_hours).toBe("12"); // migrated
   });
 });
 

@@ -486,7 +486,7 @@ export async function handleCompactionTick(): Promise<{ mergedCount: number } | 
 
 // ── Compaction cron derivation ──────────────────────────────────────
 //
-// v1.4 — `compactionIntervalHours` is a per-extension setting (see
+// v1.4 — `compaction_interval_hours` is a per-extension setting (see
 // `ezcorp.config.ts` settings block). The manifest declares the legal
 // set of crons so the SDK's "must be in manifest" gate passes; this
 // helper picks the right one based on the user's chosen value, with
@@ -563,10 +563,10 @@ if (import.meta.main) {
   let resolvedCron: string = DEFAULT_COMPACTION_CRON;
   try {
     const settings = await runtimeApi.getMySettings();
-    const resolved = resolveCompactionCron(settings.compactionIntervalHours);
+    const resolved = resolveCompactionCron(settings.compaction_interval_hours);
     resolvedCron = resolved.cron;
     if (resolved.usedFallback) {
-      console.warn("[memory-extractor] compactionIntervalHours fallback to default 6h", {
+      console.warn("[memory-extractor] compaction_interval_hours fallback to default 6h", {
         resolvedFrom: resolved.resolvedFrom,
       });
     }

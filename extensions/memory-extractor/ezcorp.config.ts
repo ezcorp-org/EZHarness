@@ -71,7 +71,7 @@ export default defineExtension({
     schedule: {
       // v1.4 — manifest declares the full set of legal compaction
       // cadences so the SDK's "manifest must declare the cron" check
-      // passes regardless of the user's `compactionIntervalHours`
+      // passes regardless of the user's `compaction_interval_hours`
       // setting. The extension's `index.ts` reads the setting at boot
       // and registers `Schedule.on(<chosen-cron>, ...)` against
       // exactly one of these. Any setting value not in this list
@@ -147,7 +147,7 @@ export default defineExtension({
         "Periodically merge similar memories. Disable to skip the cron-driven sweep without disabling extraction.",
       default: true,
     },
-    compactionIntervalHours: {
+    compaction_interval_hours: {
       // v1.4 — surfaces the cadence as a per-extension setting. v1
       // ships a small fixed set; the manifest's declarative cron list
       // covers exactly these values (see comment on

@@ -598,7 +598,7 @@ describe("manifest — cross-extension memory dedup invariant", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// v1.4 — `compactionIntervalHours` cron derivation.
+// v1.4 — `compaction_interval_hours` cron derivation.
 //
 // `resolveCompactionCron` is pure; the manifest declares the legal
 // crons; the SDK's `Schedule.on()` would silently drop any cron not
@@ -735,7 +735,7 @@ describe("SUPPORTED_COMPACTION_CRONS — manifest parity", () => {
     const settings = manifestConfig.settings as
       | Record<string, { type?: string; options?: { value: string }[] }>
       | undefined;
-    const compactionSetting = settings?.compactionIntervalHours;
+    const compactionSetting = settings?.compaction_interval_hours;
     expect(compactionSetting).toBeDefined();
     expect(compactionSetting?.type).toBe("select");
     const optionValues = (compactionSetting?.options ?? []).map((o) => o.value);
