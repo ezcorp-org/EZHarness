@@ -40,10 +40,19 @@ export async function signJWT(
 ): Promise<string> {
   const header = { alg: "HS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
+  // jti = JWT ID (RFC 7519 §4.1.7). 16 random bytes hex-encoded = 32 chars.
+  // Without it, two JWTs signed in the same second with the same payload
+  // produce identical tokens — and the sessions.token_hash UNIQUE constraint
+  // rejects the second insert (auth-layout-e2e was hitting this). The jti is
+  // for collision avoidance only; verifyJWT does not enforce uniqueness.
+  const jtiBytes = new Uint8Array(16);
+  crypto.getRandomValues(jtiBytes);
+  const jti = Array.from(jtiBytes).map(b => b.toString(16).padStart(2, "0")).join("");
   const fullPayload: JWTPayload = {
     ...payload,
     iat: now,
     exp: now + expiresInSeconds,
+    jti,
   };
 
   const headerB64 = base64UrlEncode(encoder.encode(JSON.stringify(header)));

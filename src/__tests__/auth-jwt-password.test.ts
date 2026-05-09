@@ -72,6 +72,22 @@ describe("signJWT / verifyJWT round-trip", () => {
 		// exp - iat should equal the requested expiry window (60s).
 		expect(decoded!.exp - decoded!.iat).toBe(60);
 	});
+
+	test("two same-second signs produce different tokens (jti collision avoidance)", async () => {
+		// Regression guard: before the jti claim, signJWT(SAMPLE_USER, SECRET)
+		// twice within the same second produced byte-identical tokens
+		// (same iat, same payload), and the sessions.token_hash UNIQUE
+		// constraint then rejected the second insert. With jti present,
+		// each call must produce a distinct token.
+		const t1 = await signJWT(SAMPLE_USER, SECRET);
+		const t2 = await signJWT(SAMPLE_USER, SECRET);
+		expect(t1).not.toBe(t2);
+		const d1 = await verifyJWT(t1, SECRET);
+		const d2 = await verifyJWT(t2, SECRET);
+		expect(d1?.jti).toBeString();
+		expect(d2?.jti).toBeString();
+		expect(d1?.jti).not.toBe(d2?.jti);
+	});
 });
 
 describe("hashPassword / verifyPassword round-trip", () => {
