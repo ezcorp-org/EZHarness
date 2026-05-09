@@ -105,7 +105,12 @@ function makeFixtureManifest() {
 // Track every registry/process we create so afterEach can tear them
 // down — even if a test asserts and short-circuits, the subprocess
 // MUST be killed so the bun-test runner exits cleanly.
-let registry: InstanceType<typeof ExtensionRegistry> | null = null;
+// `ExtensionRegistry` has a private constructor (singleton — see
+// `registry.ts:213`), so `InstanceType<typeof ExtensionRegistry>`
+// fails strict TS with "Cannot assign a private constructor type to a
+// public constructor type" (TS2344). Use the return type of the
+// public `getInstance()` factory instead.
+let registry: ReturnType<typeof ExtensionRegistry.getInstance> | null = null;
 let dispatcher: InstanceType<typeof EventSubscriptionDispatcher> | null = null;
 
 beforeAll(() => {
@@ -121,6 +126,12 @@ afterEach(() => {
     try { registry.killAll(); } catch { /* ignore */ }
     registry = null;
   }
+  // Symmetric with the per-test `resetInstance()` below: drop the
+  // singleton AFTER killAll so the next test (in this file or any
+  // other) gets a fresh registry. Bun's test runner shares the
+  // module graph across files, so a leaked singleton would carry
+  // state between unrelated suites.
+  ExtensionRegistry.resetInstance();
   store.clear();
 });
 
@@ -134,7 +145,13 @@ describe("bootSpawnFlaggedBundledExtensions — real subprocess (Phase 53.6)", (
     store.set(HIJACK_NAME, { id: EXT_ID, name: HIJACK_NAME, enabled: true });
 
     // 2. Real registry, fixture manifest registered via test seams.
-    registry = new ExtensionRegistry();
+    //    `resetInstance()` drops any prior singleton (from another
+    //    test file in the same `bun test` invocation) so we start
+    //    from a known-empty registry. Then `getInstance()` creates a
+    //    fresh one. The constructor is private — singleton API is
+    //    the only public path.
+    ExtensionRegistry.resetInstance();
+    registry = ExtensionRegistry.getInstance();
     registry.setManifestForTest(EXT_ID, makeFixtureManifest());
     registry.setInstallPathForTest(EXT_ID, FIXTURE_DIR);
     registry.setGrantedPermsForTest(EXT_ID, { grantedAt: {} });
