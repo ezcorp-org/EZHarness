@@ -969,6 +969,32 @@ export async function importManifest(
 	return res.json();
 }
 
+// ── Memories ────────────────────────────────────────────────────────
+
+/**
+ * v1.4 — flip a single memory's `injectionEligible` flag via
+ * `PATCH /api/memories/[id]`. Returns the updated row (full
+ * shape, including `projectIds`). Throws via `checkResponse` on
+ * non-2xx so callers can wrap in try/catch for revert-on-error
+ * UX (the curation tab uses optimistic updates).
+ *
+ * The helper is intentionally narrow: only `injectionEligible`
+ * is accepted in v1.4. Future fields go in their own helpers
+ * or a future generalized PATCH.
+ */
+export async function updateMemoryInjectionEligibility(
+	id: string,
+	injectionEligible: boolean,
+): Promise<Record<string, unknown>> {
+	const res = await fetch(`${BASE}/api/memories/${id}`, {
+		method: "PATCH",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ injectionEligible }),
+	});
+	await checkResponse(res);
+	return res.json();
+}
+
 // ── Mentions ────────────────────────────────────────────────────────
 
 export interface MentionResult {

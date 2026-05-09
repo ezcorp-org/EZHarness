@@ -38,6 +38,8 @@
 
 <script lang="ts">
 	import ProjectPicker from "./ProjectPicker.svelte";
+	import { updateMemoryInjectionEligibility } from "$lib/api";
+	import { addToast } from "$lib/toast.svelte";
 
 	let {
 		memory,
@@ -55,6 +57,34 @@
 	let editing = $state(false);
 	let advancedOpen = $state(false);
 	let rootEl: HTMLDivElement | undefined = $state();
+	// Optimistic local mirror of `memory.injectionEligible`. We flip
+	// this immediately on click (so the toggle feels instant) and
+	// revert it inside the catch block when the PATCH fails. The
+	// authoritative state still flows through `onupdated` on success.
+	//
+	// Initialised inside `$effect.pre` rather than the declaration
+	// site to silence Svelte 5's `state_referenced_locally` warning
+	// (the warning fires when `$state(<prop>)` looks like it should
+	// be a `$derived`). The pre-effect runs before any DOM updates,
+	// so the mirror is in sync by first paint.
+	//
+	// IMPORTANT: we only re-sync when the prop ACTUALLY changes
+	// (tracked via `lastSeenProp`). A naïve re-sync would otherwise
+	// clobber the local optimistic state every time anything else
+	// in the component re-renders — including after a successful
+	// toggle (where the prop hasn't been refreshed yet, but the
+	// local state IS authoritative until `onupdated` propagates
+	// through the parent).
+	let injectionEligible = $state(false);
+	let togglingEligibility = $state(false);
+	let lastSeenInjectionEligible: boolean | undefined;
+	$effect.pre(() => {
+		const current = memory.injectionEligible;
+		if (current !== lastSeenInjectionEligible) {
+			lastSeenInjectionEligible = current;
+			injectionEligible = current;
+		}
+	});
 
 	// When this item is the one being focused via ?focus= on the memories page,
 	// auto-expand and scroll it into view. Re-applies whenever the focus prop
@@ -188,6 +218,37 @@
 		}
 	}
 
+	async function toggleInjectionEligibility(event: MouseEvent) {
+		// Don't bubble into the row's collapse/expand click. The toggle
+		// is a discrete affordance — clicking it must not also flip
+		// the row open/closed.
+		event.stopPropagation();
+		if (togglingEligibility) return;
+
+		const nextValue = !injectionEligible;
+		const previousValue = injectionEligible;
+		// Optimistic flip: feels instant. The catch block reverts.
+		injectionEligible = nextValue;
+		togglingEligibility = true;
+		try {
+			const updated = (await updateMemoryInjectionEligibility(
+				memory.id,
+				nextValue,
+			)) as Memory;
+			injectionEligible = updated.injectionEligible;
+			onupdated(updated);
+		} catch (err) {
+			injectionEligible = previousValue;
+			const message =
+				err instanceof Error
+					? err.message
+					: "Failed to update memory injection eligibility";
+			addToast({ type: "error", message });
+		} finally {
+			togglingEligibility = false;
+		}
+	}
+
 	async function changeStatus(newStatus: string) {
 		try {
 			const res = await fetch(`/api/memories/${memory.id}`, {
@@ -209,7 +270,12 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	bind:this={rootEl}
-	class="rounded-lg border bg-[var(--color-surface-secondary)] transition-colors hover:bg-[var(--color-surface-tertiary)] {focusMemoryId === memory.id ? 'border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]/40' : 'border-[var(--color-border)]'}"
+	data-testid="memory-row"
+	data-injection-eligible={injectionEligible}
+	aria-label={injectionEligible
+		? "Memory allowed in chat context"
+		: "This memory is excluded from chat context"}
+	class="rounded-lg border bg-[var(--color-surface-secondary)] transition-colors hover:bg-[var(--color-surface-tertiary)] {focusMemoryId === memory.id ? 'border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]/40' : 'border-[var(--color-border)]'} {!injectionEligible ? 'border-l-4 border-l-amber-300' : ''}"
 >
 	<!-- Collapsed row -->
 	<div
@@ -380,6 +446,40 @@
 					<span class="text-xs text-[var(--color-text-muted)]">Confidence: <span class="text-[var(--color-text-secondary)]">{memory.confidence}</span></span>
 					<span class="ml-3 text-xs text-[var(--color-text-muted)]">Status: <span class="text-[var(--color-text-secondary)]">{memory.status}</span></span>
 					<span class="ml-3 text-xs text-[var(--color-text-muted)]">Updated: <span class="text-[var(--color-text-secondary)]">{relativeTime(memory.updatedAt)}</span></span>
+				</div>
+
+				<!--
+					Injection-eligibility toggle (v1.4). Two-state button
+					with explicit status text — the label IS the
+					affordance. Optimistic flip + revert on error.
+					Visual cue (left-border accent) is applied to the
+					outer row when excluded; the badge here doubles as
+					the click target.
+				-->
+				<div class="mt-3 border-t border-[var(--color-border)] pt-3">
+					<button
+						type="button"
+						onclick={toggleInjectionEligibility}
+						disabled={togglingEligibility}
+						data-testid="injection-eligibility-toggle"
+						data-state={injectionEligible ? "allowed" : "excluded"}
+						aria-label={injectionEligible
+							? "Memory allowed in chat context. Click to exclude."
+							: "This memory is excluded from chat context. Click to allow."}
+						aria-pressed={!injectionEligible}
+						class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:opacity-60
+							{injectionEligible
+							? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
+							: 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'}"
+					>
+						<span
+							aria-hidden="true"
+							class="inline-block h-2 w-2 rounded-full {injectionEligible ? 'bg-emerald-400' : 'bg-amber-400'}"
+						></span>
+						<span data-testid="injection-eligibility-status">
+							{injectionEligible ? "Allowed in chat context" : "Excluded from chat context"}
+						</span>
+					</button>
 				</div>
 
 				<!-- Actions -->
