@@ -40,9 +40,9 @@ async function initPglite(): Promise<void> {
   const { drizzle } = await import("drizzle-orm/pglite");
 
   if (!IS_MEMORY) mkdirSync(DB_PATH, { recursive: true });
-  const dbArg = IS_MEMORY ? undefined : DB_PATH;
+  const dbArg = IS_MEMORY ? ":memory:" : DB_PATH;
 
-  const openPglite = async (path: string | undefined) => {
+  const openPglite = async (path: string) => {
     const pg = new PGlite(path, { extensions: { vector } });
     await pg.waitReady;
     return pg;
