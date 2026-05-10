@@ -53,6 +53,21 @@ services:
       # in-app update banner and the periodic GitHub Releases poll.
       EZCORP_CHECK_UPDATES: "${EZCORP_CHECK_UPDATES:-true}"
       EZCORP_UPDATE_REPO: "${EZCORP_UPDATE_REPO:-ezcorp-org/EZcorp}"
+      # PGlite open-failure policy. Default (unset / 0 / false): when PGlite
+      # fails to open the data directory, the container LEAVES THE DATA
+      # ALONE, writes /app/data/.ezcorp-recovery-needed.json, and reports
+      # /api/ready 503 (state=degraded, reason=data-recovery-needed) so an
+      # operator can restore from a snapshot under /app/data/backups/. See
+      # "Recovering from data-recovery-needed state" in docs/production-guide.md.
+      #
+      # Set to "1" (or "true") ONLY if you accept that any open failure
+      # auto-destroys the data dir (renamed to ezcorp.corrupted.<ts>/ then
+      # re-created empty). Appropriate for: CI / test environments / fresh
+      # installs with no data / self-hosters who have verified offsite
+      # backups. Two production data-loss incidents on 2026-05-10 traced to
+      # the old (always-on) auto-destroy behavior; defaulting off is now
+      # mandatory.
+      EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE: "${EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE:-}"
       # Disable svelte-adapter-bun's idle-connection killer. Default is 10s,
       # which murders SSE connections on /api/runtime-events between
       # heartbeats and shows up as "keeps reconnecting" in the UI. Our

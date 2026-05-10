@@ -189,6 +189,99 @@ The failed DB is retained at `/app/data/ezcorp.failed.<ts>/` for forensic
 inspection. Pre-boot snapshots under `/app/data/backups/pre-boot-*/` can be
 copied out with `docker cp`.
 
+### Recovering from `data-recovery-needed` state
+
+If `/api/ready` returns 503 with `reason: "data-recovery-needed"`,
+PGlite's `open()` itself failed — distinct from a migration failure.
+Possible causes (in observed-frequency order): stale `postmaster.pid`
+left by a SIGKILL (the boot path already removes these automatically,
+so seeing this state usually means something *else* is wrong), partial
+WAL writes from a power loss, a filesystem-level issue, or a future
+PGlite version regression.
+
+The container does **not** auto-destroy the data directory on this
+state — that default was changed after two production data-loss
+incidents on 2026-05-10. Instead, the container:
+
+1. Leaves `/app/data/ezcorp/` untouched.
+2. Writes `/app/data/.ezcorp-recovery-needed.json` with `{ts, imageSha,
+   error, dbPath}` so you can see exactly which boot failed and why.
+3. Flips readiness to `degraded` and keeps `/api/ready` at 503 so your
+   orchestrator's healthcheck loop surfaces the failure.
+
+**Step 1 — inspect the marker and the snapshots:**
+
+```bash
+docker exec <container> cat /app/data/.ezcorp-recovery-needed.json
+docker exec <container> ls -la /app/data/backups/
+# `pre-boot-<sha>-<ts>/` snapshots are taken on every clean boot (3 retained).
+# `ezcorp-db-<ts>/` snapshots are taken every 30 min while healthy (5 retained).
+# Pick the newest pre-boot or ezcorp-db snapshot — that's the rollback target.
+```
+
+**Step 2 — swap in a clean snapshot:**
+
+Stop the app container first so PGlite isn't holding a file handle, then
+rotate the data directory atomically.
+
+```bash
+docker compose -f compose.prod.yml stop app
+
+# Replace this with the snapshot you picked in step 1.
+SNAP=pre-boot-<sha>-<ts>
+
+# Rotate ezcorp/ aside (forensic copy), then restore the snapshot in place.
+docker run --rm \
+  -v ezcorp-prod_ezcorp-data:/d \
+  --user 1000:1000 \
+  oven/bun:1-slim \
+  sh -c "set -eu;
+         test -d /d/backups/$SNAP || { echo missing snapshot; exit 1; };
+         mv /d/ezcorp /d/ezcorp.recovery-pending.$(date -u +%s);
+         cp -a /d/backups/$SNAP /d/ezcorp;
+         rm -f /d/.ezcorp-recovery-needed.json"
+
+docker compose -f compose.prod.yml up -d app
+```
+
+The next clean boot clears the marker automatically; the explicit `rm
+-f` in the recipe just avoids a 5-second window where `/api/ready`
+still reports the old state while the app is starting.
+
+**Step 3 — verify recovery:**
+
+```bash
+curl -fsS http://localhost:4000/api/ready | jq .
+# Expect: { "state": "ready", "since": "<iso>" }
+
+# The forensic copy lives at /app/data/ezcorp.recovery-pending.<ts>/.
+# Once you've confirmed everything works, delete it to reclaim disk.
+docker exec <container> rm -rf /app/data/ezcorp.recovery-pending.*
+```
+
+#### When (and only when) to set `EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE=1`
+
+The legacy auto-rename-and-restart-fresh behavior is preserved behind
+`EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE=1` (or `=true`). When the flag is
+set, an `open()` failure renames the data dir to
+`/app/data/ezcorp.corrupted.<ts>/` and boots into a fresh empty dir.
+
+**Set the flag if** you are running in any of these contexts:
+
+- **CI / ephemeral test environments**: there is no user data to lose
+  and you want a deterministic boot.
+- **Fresh installs**: the data dir is empty so the rename is a no-op,
+  but the second-stage clean boot saves a manual restart on edge-case
+  setup errors.
+- **A self-hoster who has independently verified that all data is
+  backed up offsite**: in that case the cost of an auto-destroy is
+  bounded (you can replay from the offsite backup) and you want the
+  container to self-recover instead of paging an operator.
+
+**Do NOT set the flag on a stock production deployment** — if you do,
+the next transient open failure will destroy user data. The default
+(unset / `0` / `false`) is the safe one.
+
 ## 3. Backups
 
 Two kinds of backups live under `/app/data/backups/`:
