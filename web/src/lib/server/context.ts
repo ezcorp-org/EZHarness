@@ -3,10 +3,14 @@ import { EventBus } from "$server/runtime/events";
 import { AgentExecutor } from "$server/runtime/executor";
 import { PipelineExecutor } from "$server/runtime/pipeline-executor";
 import { loadYamlPipelines } from "$server/runtime/pipeline-loader";
-import { initDb } from "$server/db/connection";
+import { initDb, closeDb } from "$server/db/connection";
 import { validateEnv } from "$server/env-validation";
 import { loadDbPipelines } from "$server/db/queries/pipelines";
 import { startBackups, stopBackups } from "$server/db/backup";
+import {
+  installShutdownHandlers,
+  registerTeardown,
+} from "$lib/server/shutdown";
 import {
   bootSpawnFlaggedBundledExtensions,
   ensureBundledExtensions,
@@ -54,7 +58,20 @@ export async function ensureInitialized(): Promise<void> {
 
   validateEnv();
   await initDb();
+  // Install signal handlers immediately after the DB opens. The first
+  // teardown we register is `closeDb` — and because shutdown runs the
+  // list in LIFO order, that means PGlite is always the LAST thing
+  // closed, after every dependent (executor, dispatchers, daemons) has
+  // already let go of its DB handle. This is the central invariant the
+  // 2026-05-10 stale-postmaster.pid incident demanded.
+  installShutdownHandlers();
+  registerTeardown("pglite-close", async () => {
+    await closeDb();
+  });
   startBackups();
+  registerTeardown("backups", () => {
+    stopBackups();
+  });
   const registry = ExtensionRegistry.getInstance();
   // Provision internal (loopback-only) credentials for allowlisted bundled
   // extensions BEFORE they install + spawn. The registry injects these at
@@ -74,6 +91,24 @@ export async function ensureInitialized(): Promise<void> {
   bus = new EventBus<AgentEvents>();
   executor = new AgentExecutor(agents, bus, { persist: true });
   pipelineExecutor = new PipelineExecutor(executor, bus);
+  // Teardown order matters here: the executor owns the watchdog interval
+  // + in-flight tool runs; it must stop BEFORE the dispatchers it can
+  // emit events on, and BEFORE the registry that owns its extension
+  // subprocesses. Registered LIFO so the call order at shutdown is
+  // executor.destroy() → dispatchers.stop() → registry.killAll() →
+  // backups → pglite.
+  registerTeardown("executor-destroy", () => {
+    executor?.destroy();
+  });
+  registerTeardown("extension-registry-kill-all", () => {
+    // killAll() is sync but it fires-and-forgets async client.close() /
+    // proxy.stop() calls — we don't await those individually. The MCP
+    // proxies and clients run as best-effort cleanup; what matters for
+    // the data-loss guarantee is that subprocesses get SIGKILL via
+    // proc.kill() (sync) so they release their PGlite handles before
+    // our own closeDb() runs.
+    registry.killAll();
+  });
 
   // Wire extension state mediator (validates extension UI state updates)
   stateMediator = new ExtensionStateMediator(bus, (extId) => {
@@ -95,6 +130,9 @@ export async function ensureInitialized(): Promise<void> {
     }
   }
   lifecycleDispatcher.start();
+  registerTeardown("lifecycle-dispatcher", () => {
+    lifecycleDispatcher?.stop();
+  });
 
   // Phase 2c — server→extension bus-event notifications. Mirrors the
   // lifecycle dispatcher's boot shape but reads `eventSubscriptions`
@@ -117,6 +155,9 @@ export async function ensureInitialized(): Promise<void> {
     }
   }
   eventSubscriptionDispatcher.start();
+  registerTeardown("event-subscription-dispatcher", () => {
+    eventSubscriptionDispatcher?.stop();
+  });
 
   // Phase 53 fix — boot-spawn bundled extensions whose ONLY entrypoint
   // is event subscription. `EventSubscriptionDispatcher.dispatch` calls
@@ -206,12 +247,14 @@ export async function ensureInitialized(): Promise<void> {
   const dbPipelines = await loadDbPipelines();
   pipelines = [...yamlPipelines, ...dbPipelines];
 
-  for (const sig of ["SIGTERM", "SIGINT"] as const) {
-    process.on(sig, () => {
-      stopBackups();
-      process.exit(0);
-    });
-  }
+  // Signal-driven teardown lives in `$lib/server/shutdown.ts`. The
+  // adapter (svelte-adapter-bun) emits `sveltekit:shutdown` BEFORE
+  // its `await server.stop(true)`, so HTTP connection drain runs in
+  // parallel with our teardown chain — and PGlite always closes
+  // before the process exits. The pre-2026-05-10 SIGTERM handler
+  // (synchronous `stopBackups(); process.exit(0)`) skipped PGlite
+  // close entirely, which is the root cause `e304cf8`'s lock-file
+  // safety-net papered over and what this commit fixes properly.
 }
 
 export function getExecutor(): AgentExecutor {

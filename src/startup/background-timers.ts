@@ -14,6 +14,19 @@ let started = false;
 let scheduleDaemon: ScheduleDaemon | undefined;
 let permSweepDaemon: HostMaintenanceDaemon | undefined;
 
+/**
+ * Intervals + disposers registered by `startBackgroundTimers()`. Tracked
+ * so `stopBackgroundTimers()` (called from the shutdown orchestrator) can
+ * cancel every timer before PGlite closes — without this, a `setInterval`
+ * firing mid-shutdown would issue a query against a closing PGlite handle
+ * and stall the teardown until the hard-timeout watchdog (25s) kicked in.
+ *
+ * Decay timer goes via `disposers` because `startDecayTimer` returns a
+ * cleanup function. Everything else is a raw `Timer` from `setInterval`.
+ */
+const intervals: Array<ReturnType<typeof setInterval>> = [];
+const disposers: Array<() => void> = [];
+
 /** Test-only handle to the daemon singleton — lets tests assert the
  *  daemon was constructed and tear it down between cases. */
 export function _getScheduleDaemonForTests(): ScheduleDaemon | undefined {
@@ -43,19 +56,22 @@ export async function startBackgroundTimers(): Promise<void> {
 
   // Memory decay (1h)
   try {
-    startDecayTimer();
+    // startDecayTimer returns a disposer (() => clearInterval). Track it
+    // so stopBackgroundTimers() can cancel the recurring sweep — without
+    // this, an in-flight decay query would race PGlite close.
+    disposers.push(startDecayTimer());
     log.info("Decay sweep started", { intervalHours: 1 });
   } catch (e) {
     log.warn("Failed to start decay timer", { error: String(e) });
   }
 
   // Session + error-log cleanup (hourly, 30-day retention on errors)
-  setInterval(() => {
+  intervals.push(setInterval(() => {
     deleteExpiredSessions().catch(() => {});
-  }, 60 * 60 * 1000);
-  setInterval(() => {
+  }, 60 * 60 * 1000));
+  intervals.push(setInterval(() => {
     cleanupOldErrors(30).catch(() => {});
-  }, 60 * 60 * 1000);
+  }, 60 * 60 * 1000));
 
   // Phase 50: SDK capability-call retention sweep (hourly).
   // Per-capability retention thresholds are read on every tick so
@@ -73,7 +89,7 @@ export async function startBackgroundTimers(): Promise<void> {
   // Style mirrors `cleanupOldErrors` above. Failures swallowed —
   // retention is an opportunistic background sweep; an audit row that
   // outlives its window for one tick isn't a correctness problem.
-  setInterval(() => {
+  intervals.push(setInterval(() => {
     (async () => {
       const llmDays = clampDays(Number((await getSetting("global:sdkLlmRetentionDays")) ?? 90));
       const memoryDays = clampDays(Number((await getSetting("global:sdkMemoryRetentionDays")) ?? 30));
@@ -83,7 +99,7 @@ export async function startBackgroundTimers(): Promise<void> {
     })().catch((e: unknown) => {
       log.warn("sdk-capability-calls cleanup failed", { error: String(e) });
     });
-  }, 60 * 60 * 1000);
+  }, 60 * 60 * 1000));
 
   // Memory compaction (configurable, default 6h).
   //
@@ -101,11 +117,11 @@ export async function startBackgroundTimers(): Promise<void> {
   try {
     const intervalHours = ((await getSetting("global:compactionIntervalHours")) as number) ?? 6;
     const intervalMs = intervalHours * 60 * 60 * 1000;
-    setInterval(() => {
+    intervals.push(setInterval(() => {
       runCompaction().catch((e: unknown) => {
         log.error("Compaction error", { error: String(e) });
       });
-    }, intervalMs);
+    }, intervalMs));
     log.info("Compaction started", { intervalHours });
   } catch (e) {
     log.warn("Failed to start compaction timer", { error: String(e) });
@@ -165,11 +181,11 @@ export async function startBackgroundTimers(): Promise<void> {
     const intervalHours = ((await getSetting("global:auditIntervalHours")) as number) ?? 0;
     if (intervalHours > 0) {
       const intervalMs = intervalHours * 60 * 60 * 1000;
-      setInterval(() => {
+      intervals.push(setInterval(() => {
         runScheduledSurfaceAudit().catch((e: unknown) => {
           log.error("Surface audit error", { error: String(e) });
         });
-      }, intervalMs);
+      }, intervalMs));
       log.info("Surface audit started", { intervalHours });
     }
   } catch (e) {
@@ -204,6 +220,60 @@ async function runScheduledSurfaceAudit(): Promise<void> {
   await runScheduledAudit(ctx as never);
 }
 
+/**
+ * Stop every background timer + daemon registered by
+ * `startBackgroundTimers()`. Called from the shutdown orchestrator
+ * BEFORE PGlite close so no in-flight `setInterval` callback issues a
+ * query against a closing DB handle.
+ *
+ * Order: daemons first (they hold lockfiles + their own intervals),
+ * then the raw `setInterval` handles, then the `() => void` disposers
+ * (currently only the decay timer's cleanup). Idempotent — repeated
+ * calls clear an already-empty list.
+ *
+ * NB this clears the module-level `started` guard too, which is what
+ * the test-only `_resetForTests` already did. Calling both
+ * `stopBackgroundTimers()` then `_resetForTests()` is safe.
+ */
+export async function stopBackgroundTimers(): Promise<void> {
+  if (scheduleDaemon) {
+    try {
+      scheduleDaemon.stop();
+    } catch (e) {
+      log.warn("ScheduleDaemon.stop() failed", { error: String(e) });
+    }
+    scheduleDaemon = undefined;
+  }
+  if (permSweepDaemon) {
+    try {
+      permSweepDaemon.stop();
+    } catch (e) {
+      log.warn("HostMaintenanceDaemon.stop() failed", { error: String(e) });
+    }
+    permSweepDaemon = undefined;
+  }
+
+  // Clear every recurring timer. clearInterval is idempotent — calling it
+  // on a fired/cleared timer is a no-op, so we don't need to guard.
+  for (const handle of intervals) clearInterval(handle);
+  intervals.length = 0;
+
+  for (const dispose of disposers) {
+    try {
+      dispose();
+    } catch (e) {
+      log.warn("Background timer disposer failed", { error: String(e) });
+    }
+  }
+  disposers.length = 0;
+
+  // Release the boot-once guard so a subsequent boot (test re-init, hot
+  // restart in dev) can re-arm the timers cleanly. Without resetting,
+  // the next `startBackgroundTimers()` would early-return and the host
+  // would silently run without decay sweeps, retention cleanup, etc.
+  started = false;
+}
+
 /** Test-only: reset the singleton flag so tests can re-invoke. */
 export function _resetForTests(): void {
   started = false;
@@ -215,4 +285,10 @@ export function _resetForTests(): void {
     permSweepDaemon.stop();
     permSweepDaemon = undefined;
   }
+  for (const handle of intervals) clearInterval(handle);
+  intervals.length = 0;
+  for (const dispose of disposers) {
+    try { dispose(); } catch { /* swallow */ }
+  }
+  disposers.length = 0;
 }

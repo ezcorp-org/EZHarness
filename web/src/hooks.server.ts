@@ -9,7 +9,11 @@ import { attachBearerAuth } from "$lib/server/security/bearer-auth";
 import { getMaxPayload, payloadTooLarge } from "$lib/server/security/payload";
 import { getSetting } from "$server/db/queries/settings";
 import { hashToken, lookupSessionByTokenHash, touchSession, rotateSessionToken } from "$server/db/queries/sessions";
-import { startBackgroundTimers } from "$server/startup/background-timers";
+import {
+  startBackgroundTimers,
+  stopBackgroundTimers,
+} from "$server/startup/background-timers";
+import { registerTeardown } from "$lib/server/shutdown";
 import {
   getSessionConfig,
   setSessionCookie,
@@ -23,6 +27,15 @@ if (!process.env.PI_SKIP_INIT) {
   await ensureInitialized();
   // Idempotent — safe across SvelteKit's dev-mode double module evaluation.
   await startBackgroundTimers();
+  // Tear down daemons + intervals BEFORE pglite close. Registered after
+  // start so it lands later in the teardown LIFO than the boot-time
+  // registrations from ensureInitialized() — meaning at shutdown:
+  // stopBackgroundTimers → executor.destroy → dispatchers.stop →
+  // registry.killAll → stopBackups → closeDb. Daemons stop first so no
+  // tick fires a query against a closing PGlite handle.
+  registerTeardown("background-timers", async () => {
+    await stopBackgroundTimers();
+  });
 }
 
 // ── Rate Limiter ──────────────────────────────────────────────────

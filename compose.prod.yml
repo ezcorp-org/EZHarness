@@ -22,6 +22,15 @@ services:
     # locally-built image (e.g. `EZCORP_IMAGE=ezcorp:local`).
     image: "${EZCORP_IMAGE:-ghcr.io/ezcorp-org/ezcorp:latest}"
     restart: unless-stopped
+    # Give the SIGTERM handler 30s to drain HTTP, stop daemons, and close
+    # PGlite before Docker escalates to SIGKILL. The app's internal hard
+    # timeout (`web/src/lib/server/shutdown.ts:HARD_TIMEOUT_MS`) is 25s —
+    # the 5s headroom guarantees a clean exit always lands within Docker's
+    # window. Without this override the default is 10s, which on 2026-05-10
+    # twice caught PGlite mid-flush and left a stale `postmaster.pid` lock
+    # that the next boot mis-classified as data corruption (incident write-up
+    # at `tasks/incident-2026-05-10-stale-pid.md`).
+    stop_grace_period: 30s
     # Load secrets and tunables from the host-side .env.prod (gitignored).
     # `${VAR:?...}` interpolation below makes `docker compose` abort the
     # deploy with a clear error if any required variable is missing —

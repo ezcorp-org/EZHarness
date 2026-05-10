@@ -189,6 +189,25 @@ The failed DB is retained at `/app/data/ezcorp.failed.<ts>/` for forensic
 inspection. Pre-boot snapshots under `/app/data/backups/pre-boot-*/` can be
 copied out with `docker cp`.
 
+### Graceful shutdown
+
+When the container receives SIGTERM (`docker compose stop`,
+`up -d --force-recreate`, host reboot), the app runs an ordered teardown
+chain: it stops accepting new HTTP connections, aborts long-lived
+SSE/long-poll responses via a shared `AbortSignal`, stops every background
+daemon and recurring timer, and finally calls `pglite.close()` so the
+WAL is flushed and `postmaster.pid` is removed cleanly. A clean exit
+returns to Docker within ~5s on a quiet container; the in-app hard
+timeout (`HARD_TIMEOUT_MS = 25s`, see `web/src/lib/server/shutdown.ts`)
+force-exits if any teardown hangs. `compose.prod.yml` sets
+`stop_grace_period: 30s` to give that 25s window 5s of headroom before
+Docker escalates to SIGKILL — so clean exits always land within Docker's
+grace window. Before this contract, an interrupted shutdown could leave
+a stale PGlite lock that the next boot mis-classified as data corruption
+(see `tasks/incident-2026-05-10-stale-pid.md`); a safety-net cleanup in
+`src/db/connection.ts` now removes stale `postmaster.pid` defensively,
+but the graceful path means no lock is written in the first place.
+
 ### Recovering from `data-recovery-needed` state
 
 If `/api/ready` returns 503 with `reason: "data-recovery-needed"`,
