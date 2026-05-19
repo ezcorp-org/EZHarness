@@ -1,0 +1,82 @@
+# dependencies
+node_modules
+
+# output
+out
+dist
+*.tgz
+tasks
+
+# code coverage
+coverage
+*.lcov
+
+# logs
+logs
+*.log
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# dotenv — never commit any .env* file, with one exception: *.example
+# templates are explicitly tracked so contributors know what shape a
+# concrete .env should take (real secrets must NEVER live in those).
+.env
+.env.*
+!.env.*.example
+
+# caches
+.eslintcache
+.cache
+*.tsbuildinfo
+.fallow/
+
+# editors
+.idea
+.vscode
+
+# OS
+.DS_Store
+
+# agent runtime data
+agent/sessions/
+agent/auth.json
+
+# Extension runtime data — every extension stores its persistent state under
+# .ezcorp/extension-data/<ext-name>/ (see docs/extensions/README.md).
+.ezcorp/
+
+# Internal planning docs — milestone plans, phase research, roadmap drafts.
+# Kept locally but not part of the public repo.
+.planning/
+
+# database
+*.db
+ez-corp-db/
+
+# runtime extension installs (installFromGitHub / installFromGit copy here)
+**/data/extensions/
+
+# wrangler
+.wrangler
+
+# pi-ai encryption key + salt (per-install secrets, never commit)
+**/.pi-secret
+**/.pi-salt
+
+# playwright mcp
+.playwright-mcp/
+
+# playwright output (run artifacts, last-run cache, traces)
+test-results/
+
+# test project workspace
+TESTENV/
+web/e2e/.docker-auth.json
+web/e2e/.real-auth.json
+web/e2e/.validate-auth.json
+
+# User-created projects (host-accessible bind mount from docker-compose)
+projects/
+
+# Local git worktrees — checked-out branches under ./worktrees/ for parallel
+# work. Never commit; the actual branches live in the remote.
+worktrees/

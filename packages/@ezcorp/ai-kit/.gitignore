@@ -1,0 +1,7 @@
+dist/
+coverage/
+*.tsbuildinfo
+
+# Test artifacts from `install --project` tests that use the package's own cwd
+.claude.json
+.claude/

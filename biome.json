@@ -1,0 +1,76 @@
+{
+	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	},
+	"files": {
+		"includes": [
+			"**",
+			"!**/node_modules",
+			"!**/dist",
+			"!**/build",
+			"!**/.svelte-kit",
+			"!**/coverage",
+			"!**/data",
+			"!**/test-results",
+			"!**/.ezcorp",
+			"!**/.planning",
+			"!**/.claude",
+			"!**/worktrees",
+			"!**/TESTENV",
+			"!**/projects",
+			"!web/build",
+			"!web/.svelte-kit",
+			"!**/*.min.js",
+			"!**/*.bundle.js",
+			"!bun.lock",
+			"!**/*.svelte",
+			"!**/*.css",
+			"!docs/extensions/examples",
+			"!src/api-registry.ts",
+			"!src/extensions/bundled.ts",
+			"!src/providers/registry.ts",
+			"!src/providers/router.ts",
+			"!src/providers/model-discovery.ts",
+			"!web/src/lib/api.ts",
+			"!web/src/routes/api/models",
+			"!web/src/routes/api/providers/\\[provider\\]/refresh-models"
+		]
+	},
+	"formatter": {
+		"enabled": false
+	},
+	"assist": {
+		"enabled": false
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true,
+			"suspicious": {
+				"noExplicitAny": "off",
+				"noAssignInExpressions": "off",
+				"noImplicitAnyLet": "off",
+				"noThenProperty": "off"
+			},
+			"style": {
+				"noNonNullAssertion": "off",
+				"useNodejsImportProtocol": "off",
+				"useTemplate": "off"
+			},
+			"complexity": {
+				"useLiteralKeys": "off"
+			},
+			"correctness": {
+				"noUnusedFunctionParameters": "off"
+			}
+		}
+	},
+	"javascript": {
+		"formatter": {
+			"enabled": false
+		}
+	}
+}

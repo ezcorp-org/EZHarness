@@ -1,0 +1,422 @@
+// ── Re-exported pi-ai types ──────────────────────────────────────────
+// Downstream code imports from here for convenience
+
+export type {
+  Message,
+  UserMessage,
+  AssistantMessage,
+  ToolResultMessage,
+  TextContent,
+  ThinkingContent,
+  ImageContent,
+  ToolCall,
+  Context,
+  Tool,
+  Usage,
+  AssistantMessageEvent,
+  Model,
+} from "@mariozechner/pi-ai";
+
+export type { KnownProvider } from "@mariozechner/pi-ai";
+
+// ── Provider Name ────────────────────────────────────────────────────
+// Open-ended string to support all 20+ pi-ai providers
+
+export type ProviderName = string;
+
+// ── Capability & Status ──────────────────────────────────────────────
+
+export type AgentCapability = "llm" | "shell" | "file" | "http" | "agent" | "custom";
+
+export type AgentStatus = "idle" | "running" | "success" | "error" | "cancelled";
+
+// ── Logging ──────────────────────────────────────────────────────────
+
+export type LogLevel = "debug" | "info" | "warn" | "error";
+
+export interface AgentLog {
+  timestamp: number;
+  level: LogLevel;
+  message: string;
+}
+
+// ── Provider Interfaces ──────────────────────────────────────────────
+
+export interface ShellResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+export interface ShellOptions {
+  cwd?: string;
+  quiet?: boolean;
+  timeout?: number;
+}
+
+export interface ShellProvider {
+  run(command: string, options?: ShellOptions): Promise<ShellResult>;
+}
+
+export interface FileProvider {
+  read(path: string): Promise<string>;
+  write(path: string, content: string): Promise<void>;
+  exists(path: string): Promise<boolean>;
+}
+
+// ── Agent Context & Result ───────────────────────────────────────────
+
+export interface AgentContext {
+  input: Record<string, unknown>;
+  llm: any; // Code-based agents receive an LLM wrapper; typed as any for flexibility
+  shell: ShellProvider;
+  file: FileProvider;
+  log(message: string, level?: LogLevel): void;
+  signal: AbortSignal;
+  run(agentName: string, input: Record<string, unknown>): Promise<AgentResult>;
+  tools?: {
+    invoke(toolName: string, input: Record<string, unknown>): Promise<unknown>;
+  };
+}
+
+export interface AgentResult {
+  success: boolean;
+  output: unknown;
+  /**
+   * Either a free-form string (legacy/agent-thrown failures) or a
+   * structured discriminator used by the cancel paths. The cancel path
+   * populates `{ code: "cancelled" | "swallowed_abort", message }` so
+   * downstream consumers can distinguish a well-behaved abort (agent
+   * threw on `ctx.signal`) from a swallowed abort (agent resolved
+   * despite the signal). See cancelRun / runAgent in
+   * src/runtime/executor.ts and the parity branch in
+   * src/runtime/stream-chat/finalize.ts.
+   */
+  error?: string | { code: string; message: string };
+}
+
+// ── Input Schema ────────────────────────────────────────────────────
+
+export type InputFieldType = "string" | "text" | "number" | "boolean" | "select" | "file-path" | "custom";
+
+export interface InputField {
+  type: InputFieldType;
+  label: string;
+  description?: string;
+  required?: boolean;
+  default?: unknown;
+  options?: string[];       // for "select" type
+  component?: string;       // for "custom" type: filename in web/src/lib/custom/
+}
+
+export type InputSchema = Record<string, InputField>;
+
+// ── Agent Definition ─────────────────────────────────────────────────
+
+export interface AgentDefinition {
+  name: string;
+  description: string;
+  capabilities: AgentCapability[];
+  inputSchema?: InputSchema;
+  execute(ctx: AgentContext): Promise<AgentResult>;
+}
+
+// ── Agent Run ────────────────────────────────────────────────────────
+
+export interface AgentRun {
+  id: string;
+  agentName: string;
+  projectId?: string;
+  provider?: string;
+  status: AgentStatus;
+  startedAt: number;
+  finishedAt?: number;
+  logs: AgentLog[];
+  result?: AgentResult;
+  memoriesUsed?: { id: string; content: string; category: string }[];
+}
+
+// ── Agent Config (declarative) ──────────────────────────────────────
+
+export interface AgentConfig {
+  name: string;
+  description: string;
+  capabilities: AgentCapability[];
+  inputSchema?: InputSchema;
+  prompt: string;
+  outputFormat?: "text" | "json";
+  provider?: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+}
+
+// ── Pipeline ────────────────────────────────────────────────────────
+
+export interface PipelineStep {
+  name: string;
+  agent: string;
+  input?: Record<string, string>;
+  dependsOn?: string[];
+}
+
+export interface PipelineDefinition {
+  name: string;
+  description: string;
+  inputSchema?: InputSchema;
+  steps: PipelineStep[];
+}
+
+export interface PipelineRun {
+  id: string;
+  pipelineName: string;
+  projectId?: string;
+  status: AgentStatus;
+  startedAt: number;
+  finishedAt?: number;
+  steps: PipelineStepRun[];
+  result?: AgentResult;
+}
+
+export interface PipelineStepRun {
+  stepName: string;
+  runId: string;
+  status: AgentStatus;
+}
+
+// ── Team Member Types ────────────────────────────────────────────────
+
+/** Sentinel value meaning "use the parent conversation's current model/provider." */
+export const CURRENT_MODEL_SENTINEL = "__current__";
+
+export interface TeamMemberOverrides {
+  permissionMode?: "ask" | "auto-edit" | "yolo";
+  toolRestriction?: "all" | "read-only" | "none";
+  modeId?: string;
+  allowedTools?: string[];
+  deniedTools?: string[];
+  provider?: string;
+  model?: string;
+  systemPromptAppend?: string;
+}
+
+export interface TeamMember {
+  agentConfigId: string;
+  overrides?: TeamMemberOverrides;
+  subAgents?: TeamMember[];
+}
+
+/**
+ * Team-level tool scoping applied to every invoked member of the team.
+ * When set (either list non-empty), overrides each member's individual
+ * `toolRestriction` / `allowedTools` / `deniedTools`. Orchestration tools
+ * (invoke_agent, task tracking, scratchpad) are always preserved.
+ */
+export interface TeamToolScope {
+  /** If set & non-empty, only these tool names are available to members. */
+  allowedTools?: string[];
+  /** Tool names always filtered out (applied after allow list). */
+  deniedTools?: string[];
+}
+
+// ── Events ───────────────────────────────────────────────────────────
+
+export interface AgentEvents {
+  [key: string]: unknown;
+  "run:start": { run: AgentRun };
+  "run:log": { runId: string; log: AgentLog };
+  "run:complete": { run: AgentRun; conversationId?: string };
+  "run:error": { run: AgentRun; error: string; conversationId?: string };
+  "run:cancel": { run: AgentRun; conversationId?: string };
+  "run:status": { runId: string; status: string };
+  "run:token": { runId: string; token: string; kind?: "thinking" | "text" };
+  "run:usage": {
+    runId: string;
+    usage: {
+      input: number;
+      output: number;
+      cacheRead: number;
+      cacheWrite: number;
+      totalTokens: number;
+      cost: {
+        input: number;
+        output: number;
+        cacheRead: number;
+        cacheWrite: number;
+        total: number;
+      };
+    };
+  };
+  "pipeline:start": { pipelineRun: PipelineRun };
+  "pipeline:step": { pipelineRun: PipelineRun; step: PipelineStepRun };
+  "pipeline:complete": { pipelineRun: PipelineRun };
+  "pipeline:error": { pipelineRun: PipelineRun; error: string };
+  "tool:start": { conversationId: string; extensionId: string; toolName: string; input: unknown; timestamp: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string; category?: string };
+  "tool:complete": { conversationId: string; extensionId: string; toolName: string; output: unknown; duration: number; success: boolean; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };
+  "tool:error": { conversationId: string; extensionId: string; toolName: string; error: string; duration: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };
+  "tool:permission_request": {
+    conversationId: string;
+    toolCallId: string;
+    toolName: string;
+    input: unknown;
+    cardType?: string;
+    cardLayout?: string;
+    category?: string;
+    /**
+     * Phase 6 H7: owning user id. The SSE filter at
+     * `runtime-events/+server.ts` cross-checks this against the
+     * subscriber so a permission prompt fires only on the originating
+     * user's UI session — never cross-tab / cross-user.
+     */
+    userId?: string;
+    /**
+     * Phase 6: extension-scoped permission request marker. When set,
+     * the event was emitted by the PDP's `prompt` branch in
+     * `tool-executor.ts` and the UI MUST render the four-scope chooser
+     * (session/conversation/project/forever) plus the extension's
+     * display name + capability description.
+     */
+    extensionId?: string;
+    /** Sensitive capability kind that triggered the prompt — `shell`
+     *  or `fs.write`. Used by the modal to render a human-readable
+     *  description of what's being requested. */
+    capabilityKind?: "shell" | "fs.write";
+    /** Sensitive capability value (for `fs.write` it's the concrete
+     *  path). Empty / undefined for `shell`. */
+    capabilityValue?: string;
+    /** PDP prompt id — becomes the `toolCallId` here so the existing
+     *  `/api/tool-calls/:id/permission` route resolves the gate
+     *  unchanged. Mirrors the gate key for clarity. */
+    promptId?: string;
+  };
+  "tool:kill": { toolCallId: string };
+  "tool:permission_mode_change": { conversationId: string; mode: string };
+  /**
+   * agent-install-ux-polish Phase 2 (D3): a lightweight, USER-SCOPED
+   * signal that an agent-driven extension install just succeeded.
+   * Emitted host-side from the `ezcorp/drafts` install path AFTER
+   * `registry.reload()`, best-effort (D6 — emitting it must never
+   * fail or delay the install). Carries NO `conversationId` — it is a
+   * cross-surface "your Library is stale" nudge, scoped to the
+   * installing user ONLY. Delivery is gated by `shouldDeliverEvent`'s
+   * `userId` branch (mirrors `tool:permission_request`'s H7 scoping):
+   * never broadcast, never cross-user.
+   */
+  "extensions:installed": {
+    userId: string;
+    extensionId: string;
+    name: string;
+  };
+  "obs:turn": { conversationId: string; messageId?: string; llmDurationMs: number; toolDurationMs: number; totalDurationMs: number; tokenUsage: { input: number; output: number } };
+  "run:turn_saved": { runId: string; conversationId: string; messageId: string; parentMessageId: string | null; content: string; thinkingContent?: string; final: boolean };
+  "run:turn_text_reset": { runId: string };
+  // ── Multi-Agent Orchestration ──
+  "agent:spawn": {
+    runId: string;
+    agentRunId: string;
+    subConversationId: string;
+    agentName: string;
+    agentConfigId: string;
+    task: string;
+    parentConversationId: string;
+  };
+  "agent:status": {
+    runId: string;
+    subConversationId: string;
+    agentName: string;
+    status: string;
+  };
+  "agent:complete": {
+    runId: string;
+    agentRunId: string;
+    subConversationId: string;
+    agentName: string;
+    agentConfigId: string;
+    success: boolean;
+    resultPreview: string;
+    parentConversationId: string;
+  };
+  // ── ask-user extension: bundled tool for asking the user a question
+  //    (free-text or multiple-choice). Single direction event: the host
+  //    POST endpoint at `/api/ask-user/answer` emits this when the user
+  //    submits a response, and the extension's subscription handler
+  //    resolves the pending gate keyed on `toolCallId`. The question side
+  //    rides on the regular `tool:start` lifecycle (cardType:
+  //    "ask-user-question") — no separate question event is needed.
+  "ask-user:answer": {
+    toolCallId: string;
+    conversationId: string;
+    answer: string;
+  };
+  // ── Ez concierge client-side tools (fill_form, navigate_to). The runtime
+  //    emits this when the LLM calls a `clientSide: true` tool: the panel
+  //    intercepts it via the SSE stream, runs the UI-side resolution
+  //    (form-fill, goto), and POSTs the result back so the LLM continues.
+  //    Wave 2 ships the emit; Wave 3 wires the panel side.
+  "ez:client-tool": {
+    conversationId: string;
+    toolCallId: string;
+    toolName: string;
+    input: unknown;
+  };
+  // ── Task Tracking Panel ──
+  "task:snapshot": {
+    conversationId: string;
+    tasks: Array<{
+      id: string;
+      title: string;
+      description: string;
+      status: "pending" | "active" | "completed" | "failed";
+      agentId?: string;
+      agentName?: string;
+      assignments: Array<{
+        id: string;
+        agentConfigId: string;
+        agentName: string;
+        isTeam: boolean;
+        status: "assigned" | "running" | "completed" | "failed";
+        assignedAt: string;
+        startedAt?: string;
+        completedAt?: string;
+        failedAt?: string;
+        subConversationId?: string;
+        agentRunId?: string;
+        resultPreview?: string;
+      }>;
+      subtasks: Array<{ id: string; title: string; completed: boolean; position: number }>;
+      createdAt: string;
+      startedAt?: string;
+      completedAt?: string;
+      failedAt?: string;
+      failureReason?: string;
+      completionSummary?: string;
+      priority: number;
+    }>;
+    activeTaskId?: string;
+  };
+  "task:assignment_update": {
+    conversationId: string;
+    taskId: string;
+    assignment: {
+      id: string;
+      agentConfigId: string;
+      agentName: string;
+      isTeam: boolean;
+      status: "assigned" | "running" | "completed" | "failed";
+      assignedAt: string;
+      startedAt?: string;
+      completedAt?: string;
+      failedAt?: string;
+      subConversationId?: string;
+      agentRunId?: string;
+      resultPreview?: string;
+    };
+  };
+  // ── Extension Panel State ──
+  "ext:state": {
+    extensionId: string;
+    extensionName: string;
+    state: Record<string, unknown>;
+    timestamp: number;
+  };
+}

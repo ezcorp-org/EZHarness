@@ -1,0 +1,56 @@
+# Pullfrog — reusable workflow that runs the pullfrog/pullfrog action.
+# Called by pullfrog-triggers.yml and via manual workflow_dispatch.
+#
+# To remove Pullfrog entirely: delete both .github/workflows/pullfrog*.yml
+# and the OPENAI_API_KEY repo secret (if not used elsewhere).
+name: Pullfrog
+
+on:
+  workflow_call:
+    inputs:
+      prompt:
+        type: string
+        required: true
+    secrets:
+      OPENAI_API_KEY:
+        required: true
+  workflow_dispatch:
+    inputs:
+      prompt:
+        type: string
+        required: true
+        description: 'Agent prompt'
+
+permissions:
+  contents: read
+
+jobs:
+  pullfrog:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+      issues: write
+      actions: read
+      checks: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Run agent
+        uses: pullfrog/pullfrog@v0
+        with:
+          prompt: ${{ inputs.prompt }}
+          # Pin model in-repo so it doesn't depend on the pullfrog.com console
+          # setting. `openai/gpt-mini` resolves to `openai/gpt-5.4-mini` per
+          # pullfrog/pullfrog's models.ts alias registry.
+          model: openai/gpt-mini
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Force Pullfrog to use the runner-provided GITHUB_TOKEN instead of
+          # exchanging an OIDC token with pullfrog.com's backend. Avoids the
+          # GitHub App install / waitlist requirement. See utils/token.ts in
+          # pullfrog/pullfrog for the GH_TOKEN short-circuit.
+          GH_TOKEN: ${{ github.token }}

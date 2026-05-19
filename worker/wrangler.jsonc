@@ -1,0 +1,11 @@
+{
+  "name": "ezcorp-agents",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // API keys set via `wrangler secret put`
+  "vars": {},
+  "observability": {
+    "enabled": true
+  }
+}

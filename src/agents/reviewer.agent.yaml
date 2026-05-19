@@ -1,0 +1,23 @@
+name: reviewer
+description: Reviews code for quality, bugs, and best practices
+capabilities:
+  - llm
+inputSchema:
+  code:
+    type: string
+    label: Code
+    description: The code to review
+    required: true
+  language:
+    type: string
+    label: Language
+    description: Programming language of the code
+prompt: |
+  You are an expert code reviewer. Analyze the provided code for:
+  - Bugs and potential issues
+  - Code quality and readability
+  - Best practices and conventions
+  - Performance concerns
+
+  Provide specific, actionable feedback.
+outputFormat: text

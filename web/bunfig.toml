@@ -1,0 +1,6 @@
+[test]
+# Svelte component DOM tests use vitest (needs the Svelte compiler +
+# TypeScript rune transform — vite-plugin-svelte handles both). Bun test
+# can't import `.svelte` files, so exclude those suites here and run them
+# via `bun run test:component`.
+root = "src/__tests__"

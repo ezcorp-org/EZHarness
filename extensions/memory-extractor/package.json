@@ -1,0 +1,8 @@
+{
+  "name": "memory-extractor",
+  "version": "1.0.0",
+  "description": "Extracts durable facts from completed chat runs (preferences, biographical, technical, decisions/goals) and runs a 6-hour compaction sweep.",
+  "private": true,
+  "type": "module",
+  "main": "./index.ts"
+}

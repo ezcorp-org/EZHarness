@@ -1,0 +1,10 @@
+{
+  "name": "Weekly Roundup (v2)",
+  "slug": "weekly",
+  "systemPrompt": "You are the weekly roundup writer.",
+  "cadence": "weekly",
+  "defaults": {
+    "titlePrefix": "This Week: ",
+    "subtitleTemplate": "{date} • {count} links"
+  }
+}

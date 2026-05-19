@@ -1,0 +1,1 @@
+First seed body — loaded via {file:...} placeholder at install time.

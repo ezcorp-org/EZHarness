@@ -1,0 +1,2501 @@
+{
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "defaultErrnoRet": 38,
+  "archMap": [
+    {
+      "architecture": "SCMP_ARCH_X86_64",
+      "subArchitectures": [
+        "SCMP_ARCH_X86",
+        "SCMP_ARCH_X32"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_AARCH64",
+      "subArchitectures": [
+        "SCMP_ARCH_ARM"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_MIPS64",
+      "subArchitectures": [
+        "SCMP_ARCH_MIPS",
+        "SCMP_ARCH_MIPS64N32"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_MIPS64N32",
+      "subArchitectures": [
+        "SCMP_ARCH_MIPS",
+        "SCMP_ARCH_MIPS64"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_MIPSEL64",
+      "subArchitectures": [
+        "SCMP_ARCH_MIPSEL",
+        "SCMP_ARCH_MIPSEL64N32"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_MIPSEL64N32",
+      "subArchitectures": [
+        "SCMP_ARCH_MIPSEL",
+        "SCMP_ARCH_MIPSEL64"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_S390X",
+      "subArchitectures": [
+        "SCMP_ARCH_S390"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_RISCV64",
+      "subArchitectures": null
+    }
+  ],
+  "syscalls": [
+    {
+      "names": [
+        "accept"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "accept4"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "access"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "adjtimex"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "alarm"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "bind"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "brk"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "capget"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "capset"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "chdir"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "chmod"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "chown"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "chown32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "clock_adjtime"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "clock_adjtime64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "clock_getres"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "clock_getres_time64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "clock_gettime"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "clock_gettime64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "clock_nanosleep"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "clock_nanosleep_time64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "close"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "close_range"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "connect"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "copy_file_range"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "creat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "dup"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "dup2"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "dup3"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "epoll_create"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "epoll_create1"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "epoll_ctl"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "epoll_ctl_old"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "epoll_pwait"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "epoll_pwait2"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "epoll_wait"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "epoll_wait_old"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "eventfd"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "eventfd2"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "execve"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "execveat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "exit"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "exit_group"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "faccessat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "faccessat2"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fadvise64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fadvise64_64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fallocate"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fanotify_mark"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fchdir"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fchmod"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fchmodat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fchown"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fchown32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fchownat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fcntl"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fcntl64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fdatasync"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fgetxattr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "flistxattr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "flock"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fork"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fremovexattr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fsetxattr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fstat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fstat64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fstatat64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fstatfs"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fstatfs64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fsync"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "ftruncate"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "ftruncate64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "futex"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "futex_time64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "futex_waitv"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "futimesat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getcpu"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getcwd"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getdents"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getdents64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getegid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getegid32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "geteuid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "geteuid32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getgid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getgid32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getgroups"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getgroups32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getitimer"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getpeername"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getpgid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getpgrp"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getpid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getppid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getpriority"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getrandom"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getresgid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getresgid32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getresuid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getresuid32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getrlimit"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "get_robust_list"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getrusage"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getsid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getsockname"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getsockopt"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "get_thread_area"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "gettid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "gettimeofday"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getuid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getuid32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "getxattr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "inotify_add_watch"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "inotify_init"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "inotify_init1"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "inotify_rm_watch"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "io_cancel"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "ioctl"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "io_destroy"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "io_getevents"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "io_pgetevents"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "io_pgetevents_time64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "ioprio_get"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "ioprio_set"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "io_setup"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "io_submit"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "ipc"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "kill"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "landlock_add_rule"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "landlock_create_ruleset"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "landlock_restrict_self"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "lchown"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "lchown32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "lgetxattr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "link"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "linkat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "listen"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "listxattr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "llistxattr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "_llseek"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "lremovexattr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "lseek"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "lsetxattr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "lstat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "lstat64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "madvise"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "membarrier"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "memfd_create"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "memfd_secret"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mincore"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mkdir"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mkdirat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mknod"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mknodat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mlock"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mlock2"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mlockall"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mmap"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mmap2"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mprotect"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mq_getsetattr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mq_notify"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mq_open"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mq_timedreceive"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mq_timedreceive_time64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mq_timedsend"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mq_timedsend_time64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mq_unlink"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mremap"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "msgctl"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "msgget"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "msgrcv"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "msgsnd"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "msync"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "munlock"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "munlockall"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "munmap"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "name_to_handle_at"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "nanosleep"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "newfstatat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "_newselect"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "open"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "openat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "openat2"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "pause"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "pidfd_open"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "pidfd_send_signal"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "pipe"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "pipe2"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "pkey_alloc"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "pkey_free"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "pkey_mprotect"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "poll"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "ppoll"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "ppoll_time64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "prctl"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "pread64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "preadv"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "preadv2"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "prlimit64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "process_mrelease"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "pselect6"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "pselect6_time64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "pwrite64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "pwritev"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "pwritev2"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "read"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "readahead"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "readlink"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "readlinkat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "readv"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "recv"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "recvfrom"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "recvmmsg"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "recvmmsg_time64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "recvmsg"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "remap_file_pages"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "removexattr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "rename"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "renameat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "renameat2"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "restart_syscall"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "rmdir"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "rseq"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "rt_sigaction"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "rt_sigpending"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "rt_sigprocmask"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "rt_sigqueueinfo"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "rt_sigreturn"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "rt_sigsuspend"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "rt_sigtimedwait"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "rt_sigtimedwait_time64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "rt_tgsigqueueinfo"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sched_getaffinity"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sched_getattr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sched_getparam"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sched_get_priority_max"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sched_get_priority_min"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sched_getscheduler"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sched_rr_get_interval"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sched_rr_get_interval_time64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sched_setaffinity"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sched_setattr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sched_setparam"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sched_setscheduler"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sched_yield"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "seccomp"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "select"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "semctl"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "semget"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "semop"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "semtimedop"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "semtimedop_time64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "send"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sendfile"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sendfile64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sendmmsg"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sendmsg"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sendto"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setfsgid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setfsgid32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setfsuid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setfsuid32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setgid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setgid32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setgroups"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setgroups32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setitimer"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setpgid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setpriority"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setregid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setregid32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setresgid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setresgid32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setresuid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setresuid32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setreuid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setreuid32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setrlimit"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "set_robust_list"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setsid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setsockopt"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "set_thread_area"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "set_tid_address"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setuid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setuid32"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setxattr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "shmat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "shmctl"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "shmdt"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "shmget"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "shutdown"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sigaltstack"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "signalfd"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "signalfd4"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sigprocmask"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sigreturn"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "socketcall"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "socketpair"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "splice"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "stat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "stat64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "statfs"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "statfs64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "statx"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "symlink"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "symlinkat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sync"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sync_file_range"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "syncfs"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sysinfo"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "tee"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "tgkill"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "time"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "timer_create"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "timer_delete"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "timer_getoverrun"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "timer_gettime"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "timer_gettime64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "timer_settime"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "timer_settime64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "timerfd_create"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "timerfd_gettime"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "timerfd_gettime64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "timerfd_settime"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "timerfd_settime64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "times"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "tkill"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "truncate"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "truncate64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "ugetrlimit"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "umask"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "uname"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "unlink"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "unlinkat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "utime"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "utimensat"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "utimensat_time64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "utimes"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "vfork"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "vmsplice"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "wait4"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "waitid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "waitpid"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "write"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "writev"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "process_vm_readv"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "process_vm_writev"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "ptrace"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "socket"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "personality"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sync_file_range2"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "swapcontext"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "arm_fadvise64_64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "arm_sync_file_range"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "breakpoint"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "cacheflush"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "set_tls"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "arch_prctl"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "modify_ldt"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "s390_pci_mmio_read"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "s390_pci_mmio_write"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "s390_runtime_instr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "riscv_flush_icache"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "open_by_handle_at"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "bpf"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "clone"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "clone3"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fanotify_init"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fsconfig"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fsmount"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fsopen"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "fspick"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "lookup_dcookie"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mount"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mount_setattr"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "move_mount"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "open_tree"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "perf_event_open"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "quotactl"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "quotactl_fd"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setdomainname"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "sethostname"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "setns"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "syslog"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "umount"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "umount2"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "unshare"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "reboot"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "chroot"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "delete_module"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "init_module"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "finit_module"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "acct"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "kcmp"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "pidfd_getfd"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "process_madvise"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "iopl"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "ioperm"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "settimeofday"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "stime"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "clock_settime"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "clock_settime64"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "vhangup"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "get_mempolicy"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "mbind"
+      ],
+      "action": "SCMP_ACT_LOG"
+    },
+    {
+      "names": [
+        "set_mempolicy"
+      ],
+      "action": "SCMP_ACT_LOG"
+    }
+  ]
+}

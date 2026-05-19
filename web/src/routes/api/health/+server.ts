@@ -1,0 +1,20 @@
+import { json } from "@sveltejs/kit";
+import { buildHealthResponse } from "$server/health";
+import { requireAuth } from "$server/auth/middleware";
+import { errorJson } from "$lib/server/http-errors";
+import type { RequestHandler } from "./$types";
+
+export const GET: RequestHandler = async ({ url, locals }) => {
+  const detail = url.searchParams.get("detail") === "true";
+
+  if (detail) {
+    requireAuth(locals);
+    const user = locals.user as { role?: string } | undefined;
+    if (!user || user.role !== "admin") {
+      return errorJson(401, "Admin access required");
+    }
+  }
+
+  const result = await buildHealthResponse(detail);
+  return json(result);
+};

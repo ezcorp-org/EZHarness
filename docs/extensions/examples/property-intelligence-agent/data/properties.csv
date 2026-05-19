@@ -1,0 +1,11 @@
+property_id,name,address,city,state,type,sqft,units,acquisition_date,book_value,current_noi_ytd,budgeted_noi_ytd
+P001,Oakwood Office Plaza,2400 Camelback Rd,Phoenix,AZ,office,142000,18,2023-03-01,46008000,1058833,1080205
+P002,Midtown Retail Center,1200 S Congress Ave,Austin,TX,retail,88000,22,2021-07-13,26928000,509820,526098
+P003,Riverside Commons,800 Riverside Dr,Nashville,TN,mixed-use,215000,36,2023-01-15,51600000,1080000,1300000
+P004,Crossroads Industrial Park,4500 Trade Center Dr,Dallas,TX,industrial,310000,8,2021-07-16,93000000,2784514,2729466
+P005,Summit Corporate Center,1700 Broadway,Denver,CO,office,198000,24,2022-08-28,75438000,801116,786610
+P006,Cedar Hills Plaza,9400 SW Barbur Blvd,Portland,OR,retail,62000,14,2023-12-21,12028000,331096,335010
+P007,Harbor Logistics Hub,2800 Pier E St,Long Beach,CA,industrial,420000,6,2022-05-15,92820000,4100399,4217430
+P008,Brookside Office Park,6100 Fairview Rd,Charlotte,NC,office,94000,12,2020-11-06,27072000,332023,336471
+P009,Parkview Retail Center,11400 Lake Underhill,Orlando,FL,retail,72000,18,2020-01-28,17208000,558170,557175
+P010,Millbrook Crossing,500 Nicollet Mall,Minneapolis,MN,mixed-use,155000,28,2022-07-07,59830000,1049970,1046875

@@ -1,0 +1,250 @@
+/**
+ * Phase 53.4 Stage 1 — `src/memory/dedup.ts` direct unit test.
+ *
+ * The helper was extracted from `src/memory/extraction.ts` so that
+ * Stage 2's deletion of extraction.ts doesn't break the bundled
+ * memory-extractor's dedup path. This test exercises the moved helper
+ * directly and asserts:
+ *
+ *   1. New fact → INSERT branch creates a memory row (with the
+ *      provenance factory's stamped fields).
+ *   2. Repeat fact → UPDATE branch (dedup hit) reuses the existing id.
+ *   3. The mutex serializes concurrent calls within a project.
+ *   4. Different projects use independent locks (no false serialization
+ *      across projects).
+ *
+ * The mutex serialization assertion uses a deliberately racy two-call
+ * pattern (concurrent Promise.all). Without the mutex, both calls
+ * would pass the similarity check and produce duplicate rows; with
+ * the mutex, the second call sees the inserted row and updates it.
+ */
+import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
+import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
+
+mockDbConnection();
+
+mock.module("../memory/embeddings", () => {
+  function hashCode(s: string): number {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+    return h;
+  }
+  function makeVector(text: string): number[] {
+    const seed = hashCode(text);
+    const vec = new Array(384);
+    for (let i = 0; i < 384; i++) {
+      vec[i] = Math.sin(seed + i) * 0.1;
+    }
+    const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0));
+    return vec.map((v) => v / norm);
+  }
+  return {
+    generateEmbedding: async (text: string) => makeVector(text),
+    generateEmbeddings: async (texts: string[]) => texts.map(makeVector),
+    resetEmbeddingProvider: () => {},
+  };
+});
+
+const {
+  dedupAndWriteMemory,
+  legacyExtractionProvenance,
+  withDedupLock,
+  dedupLockKey,
+} = await import("../memory/dedup");
+const { searchMemories } = await import("../db/queries/memories");
+const { createProject } = await import("../db/queries/projects");
+const { createConversation } = await import("../db/queries/conversations");
+const { getDb } = await import("../db/connection");
+const { sql } = await import("drizzle-orm");
+
+let projectAId: string;
+let projectBId: string;
+let conversationAId: string;
+let conversationBId: string;
+
+beforeAll(async () => {
+  await setupTestDb();
+  const a = await createProject({ name: "dedup-A", path: "/tmp/dedup-a" });
+  const b = await createProject({ name: "dedup-B", path: "/tmp/dedup-b" });
+  projectAId = a.id;
+  projectBId = b.id;
+  const convA = await createConversation(projectAId, { title: "A" });
+  const convB = await createConversation(projectBId, { title: "B" });
+  conversationAId = convA.id;
+  conversationBId = convB.id;
+});
+
+afterAll(async () => {
+  restoreModuleMocks();
+  await closeTestDb();
+});
+
+beforeEach(async () => {
+  // Wipe memories between scenarios so dedup behavior is observable.
+  await getDb().execute(sql`TRUNCATE TABLE memories CASCADE`);
+});
+
+describe("dedupAndWriteMemory — INSERT branch (new fact)", () => {
+  test("first write inserts a row with the provenance factory's fields", async () => {
+    const result = await dedupAndWriteMemory({
+      fact: { content: "User prefers TypeScript", category: "preferences", confidence: "high", messageIds: ["m1"] },
+      conversationId: conversationAId,
+      projectId: projectAId,
+      provenanceFactory: legacyExtractionProvenance,
+    });
+
+    expect(result.action).toBe("inserted");
+    expect(result.memoryId).toBeDefined();
+
+    const rows = await searchMemories({ projectId: projectAId });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.content).toBe("User prefers TypeScript");
+    expect(rows[0]!.category).toBe("preferences");
+  });
+
+  test("custom provenance factory's fields land on the row", async () => {
+    const result = await dedupAndWriteMemory({
+      fact: { content: "Custom-factory fact", category: "technical", confidence: "medium", messageIds: ["m1"] },
+      conversationId: conversationAId,
+      projectId: projectAId,
+      provenanceFactory: (action, fact, conversationId) => ({
+        sourceConversationId: conversationId,
+        sourceMessageIds: fact.messageIds ?? [],
+        extractedAt: new Date(),
+        confidence: fact.confidence ?? "medium",
+        history: [{ action, timestamp: new Date(), reason: "custom-factory" }],
+        // Custom stamps the bundled extension uses:
+        extensionId: "memory-extractor",
+        injectionEligible: true,
+      }),
+    });
+
+    expect(result.action).toBe("inserted");
+    const rows = await searchMemories({ projectId: projectAId });
+    expect(rows).toHaveLength(1);
+    const prov = rows[0]!.provenance as { extensionId?: string; history?: Array<{ reason?: string }> } | null;
+    expect(prov?.extensionId).toBe("memory-extractor");
+    expect(prov?.history?.[0]?.reason).toBe("custom-factory");
+  });
+});
+
+describe("dedupAndWriteMemory — UPDATE branch (similar existing)", () => {
+  test("second write of the same content updates the existing row", async () => {
+    const fact = { content: "Repeated fact for dedup", category: "preferences" as const, confidence: "high" as const, messageIds: ["m1"] };
+
+    const first = await dedupAndWriteMemory({
+      fact,
+      conversationId: conversationAId,
+      projectId: projectAId,
+      provenanceFactory: legacyExtractionProvenance,
+    });
+    expect(first.action).toBe("inserted");
+
+    const second = await dedupAndWriteMemory({
+      fact,
+      conversationId: conversationAId,
+      projectId: projectAId,
+      provenanceFactory: legacyExtractionProvenance,
+    });
+    expect(second.action).toBe("updated");
+    expect(second.memoryId).toBe(first.memoryId);
+
+    // Total rows in projectA still 1 — no duplicates.
+    const rows = await searchMemories({ projectId: projectAId });
+    expect(rows).toHaveLength(1);
+  });
+});
+
+describe("withDedupLock — per-project mutex serialization", () => {
+  test("same project key serializes concurrent operations", async () => {
+    const order: string[] = [];
+    const key = dedupLockKey(projectAId);
+
+    await Promise.all([
+      withDedupLock(key, async () => {
+        order.push("a-start");
+        await new Promise((r) => setTimeout(r, 20));
+        order.push("a-end");
+      }),
+      withDedupLock(key, async () => {
+        order.push("b-start");
+        await new Promise((r) => setTimeout(r, 5));
+        order.push("b-end");
+      }),
+    ]);
+
+    // Either A wholly precedes B or vice-versa — never interleaved.
+    const interleaved =
+      order.join() === "a-start,a-end,b-start,b-end" ||
+      order.join() === "b-start,b-end,a-start,a-end";
+    expect(interleaved).toBe(true);
+  });
+
+  test("different project keys run concurrently (no false serialization)", async () => {
+    const order: string[] = [];
+    const keyA = dedupLockKey(projectAId);
+    const keyB = dedupLockKey(projectBId);
+
+    await Promise.all([
+      withDedupLock(keyA, async () => {
+        order.push("a-start");
+        await new Promise((r) => setTimeout(r, 20));
+        order.push("a-end");
+      }),
+      withDedupLock(keyB, async () => {
+        order.push("b-start");
+        await new Promise((r) => setTimeout(r, 5));
+        order.push("b-end");
+      }),
+    ]);
+
+    // B should complete before A's end — they ran concurrently. The
+    // interleaving "a-start,b-start,b-end,a-end" is the proof.
+    expect(order[0]).toBe("a-start");
+    expect(order[1]).toBe("b-start");
+    expect(order[2]).toBe("b-end");
+    expect(order[3]).toBe("a-end");
+  });
+
+  test("null projectId maps to a single global key", async () => {
+    expect(dedupLockKey(null)).toBe("__global__");
+    expect(dedupLockKey(undefined)).toBe("__global__");
+    expect(dedupLockKey("specific-id")).toBe("specific-id");
+  });
+});
+
+describe("dedupAndWriteMemory — cross-extension visibility", () => {
+  test("dedup considers memories regardless of which extension authored them", async () => {
+    // Insert via "host" provenance (no extensionId).
+    const fact = { content: "Cross-ext shared fact", category: "biographical" as const, confidence: "high" as const, messageIds: [] };
+    const first = await dedupAndWriteMemory({
+      fact,
+      conversationId: conversationAId,
+      projectId: projectAId,
+      provenanceFactory: legacyExtractionProvenance,
+    });
+    expect(first.action).toBe("inserted");
+
+    // Second pass via the bundled-extractor's provenance factory.
+    // Even though the second pass stamps a different extensionId,
+    // the dedup helper's similarity check is cross-extension —
+    // the second call MUST hit the existing row.
+    const second = await dedupAndWriteMemory({
+      fact,
+      conversationId: conversationBId,
+      projectId: projectAId,
+      provenanceFactory: (action, f, cId) => ({
+        sourceConversationId: cId,
+        sourceMessageIds: f.messageIds ?? [],
+        extractedAt: new Date(),
+        confidence: f.confidence ?? "medium",
+        history: [{ action, timestamp: new Date(), reason: "bundled" }],
+        extensionId: "memory-extractor",
+        injectionEligible: true,
+      }),
+    });
+    expect(second.action).toBe("updated");
+    expect(second.memoryId).toBe(first.memoryId);
+  });
+});

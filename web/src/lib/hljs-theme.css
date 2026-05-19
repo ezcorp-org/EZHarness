@@ -1,0 +1,151 @@
+/* Shared highlight.js theme — consumed by chat markdown, diff cards, and any
+   JsonBlock-rendered snippet. Based on Catppuccin:
+     - Dark  → Catppuccin Mocha
+     - Light → Catppuccin Latte (a few tones deepened for WCAG AA)
+   Scoped on `.hljs` globally so any element hljs tags will be themed. */
+
+/* ─── Catppuccin Mocha ─── background #1e1e2e */
+.dark .hljs {
+	background: #1e1e2e;
+	color: #cdd6f4;
+}
+.dark .hljs-comment,
+.dark .hljs-quote {
+	color: #9399b2; /* overlay2 — ~6.5:1, AA */
+	font-style: italic;
+}
+.dark .hljs-keyword,
+.dark .hljs-selector-tag {
+	color: #cba6f7; /* mauve */
+}
+.dark .hljs-type,
+.dark .hljs-built_in {
+	color: #f9e2af; /* yellow */
+}
+.dark .hljs-string,
+.dark .hljs-addition {
+	color: #a6e3a1; /* green */
+}
+.dark .hljs-number,
+.dark .hljs-literal {
+	color: #fab387; /* peach */
+}
+.dark .hljs-title,
+.dark .hljs-section,
+.dark .hljs-function .hljs-title {
+	color: #89b4fa; /* blue */
+}
+.dark .hljs-attr,
+.dark .hljs-variable,
+.dark .hljs-name,
+.dark .hljs-tag,
+.dark .hljs-selector-id,
+.dark .hljs-selector-class {
+	color: #f38ba8; /* red — JSON keys, HTML tags/attrs */
+}
+.dark .hljs-symbol,
+.dark .hljs-bullet,
+.dark .hljs-link,
+.dark .hljs-meta {
+	color: #94e2d5; /* teal */
+}
+.dark .hljs-deletion {
+	color: #eba0ac; /* maroon */
+}
+.dark .hljs-emphasis {
+	font-style: italic;
+}
+.dark .hljs-strong {
+	font-weight: bold;
+}
+
+/* ─── Catppuccin Latte ─── background #eff1f5 */
+:not(.dark) .hljs {
+	background: #eff1f5;
+	color: #4c4f69;
+}
+:not(.dark) .hljs-comment,
+:not(.dark) .hljs-quote {
+	color: #6c6f85; /* subtext0 — ~5.4:1, AA */
+	font-style: italic;
+}
+:not(.dark) .hljs-keyword,
+:not(.dark) .hljs-selector-tag {
+	color: #8839ef; /* mauve — AA */
+}
+:not(.dark) .hljs-type,
+:not(.dark) .hljs-built_in {
+	color: #ad6e0e; /* yellow — deepened from #df8e1d for AA */
+}
+:not(.dark) .hljs-string,
+:not(.dark) .hljs-addition {
+	color: #348622; /* green — deepened from #40a02b for AA */
+}
+:not(.dark) .hljs-number,
+:not(.dark) .hljs-literal {
+	color: #c4490b; /* peach — deepened from #fe640b for AA */
+}
+:not(.dark) .hljs-title,
+:not(.dark) .hljs-section,
+:not(.dark) .hljs-function .hljs-title {
+	color: #1e66f5; /* blue — AA */
+}
+:not(.dark) .hljs-attr,
+:not(.dark) .hljs-variable,
+:not(.dark) .hljs-name,
+:not(.dark) .hljs-tag,
+:not(.dark) .hljs-selector-id,
+:not(.dark) .hljs-selector-class {
+	color: #d20f39; /* red — AA */
+}
+:not(.dark) .hljs-symbol,
+:not(.dark) .hljs-bullet,
+:not(.dark) .hljs-link,
+:not(.dark) .hljs-meta {
+	color: #0e7479; /* teal — deepened from #179299 for AA */
+}
+:not(.dark) .hljs-deletion {
+	color: #b51e3a;
+}
+:not(.dark) .hljs-emphasis {
+	font-style: italic;
+}
+:not(.dark) .hljs-strong {
+	font-weight: bold;
+}
+
+/* Inside diff2html code lines, hljs's own background would clobber the
+   red/green line backgrounds — keep it transparent there. */
+.d2h-code-line-ctn.hljs,
+.d2h-code-side-line.hljs {
+	background: transparent;
+}
+
+/* diff2html ships light-mode text colors by default. In dark mode, lines
+   that aren't touched by hljs (context lines, empty lines, hunk headers,
+   line numbers) otherwise stay black. Re-color them with Catppuccin Mocha
+   so everything reads correctly. */
+.dark .d2h-wrapper,
+.dark .d2h-file-wrapper,
+.dark .d2h-code-line,
+.dark .d2h-code-side-line,
+.dark .d2h-code-line-ctn {
+	color: #cdd6f4;
+}
+.dark .d2h-code-linenumber,
+.dark .d2h-code-side-linenumber {
+	color: #6c7086; /* overlay0 */
+	background-color: transparent;
+}
+.dark .d2h-info,
+.dark .d2h-code-line-prefix {
+	color: #6c7086;
+}
+.dark .d2h-code-line del,
+.dark .d2h-code-side-line del {
+	color: #f38ba8;
+}
+.dark .d2h-code-line ins,
+.dark .d2h-code-side-line ins {
+	color: #a6e3a1;
+}

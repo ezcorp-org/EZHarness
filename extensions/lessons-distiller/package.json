@@ -1,0 +1,8 @@
+{
+  "name": "lessons-distiller",
+  "version": "1.0.0",
+  "description": "Distills durable lessons from completed runs (auto on run:complete and via the manual !EZ:distill action).",
+  "private": true,
+  "type": "module",
+  "main": "./index.ts"
+}

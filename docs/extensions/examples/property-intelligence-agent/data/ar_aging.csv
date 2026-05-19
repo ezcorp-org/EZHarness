@@ -1,0 +1,54 @@
+tenant_name,property_id,lease_id,current,days_30,days_60,days_90_plus,total_outstanding,last_payment_date
+Oakridge Tax Services,P001,L-101,4716,0,0,0,4716,2026-04-09
+Brightpath Engineering,P001,L-102,4584,0,0,0,4584,2026-04-12
+Ironwood Architecture,P001,L-103,10603,0,0,0,10603,2026-04-16
+Caldera Biotech Inc.,P001,L-105,3271,0,0,0,3271,2026-03-30
+The Daily Grocer,P002,L-114,1253,0,0,0,1253,2026-04-16
+Studio Velo Cycling,P002,L-119,2274,0,0,0,2274,2026-04-06
+Mercer & Co. Apparel,P002,L-121,3973,0,0,0,3973,2026-03-30
+Studio Velo Cycling,P002,L-122,2266,0,0,0,2266,2026-03-31
+Copperleaf Home Goods,P003,L-302,305,0,0,0,305,2026-04-01
+Copperleaf Home Goods,P003,L-127,4372,0,0,0,4372,2026-04-12
+Wildflower Wellness,P003,L-128,3394,0,0,0,3394,2026-03-29
+Blue Anchor Coffee Co.,P003,L-129,4281,0,0,0,4281,2026-04-16
+Pivot Health Partners,P003,L-130,2356,0,0,0,2356,2026-04-14
+Pacific Table Bistro,P003,L-132,1847,0,0,0,1847,2026-04-03
+Meridian Consulting Group,P003,L-133,6491,0,0,0,6491,2026-04-07
+Northstar Analytics,P003,L-135,8810,0,0,0,8810,2026-04-08
+Stonefire Pizzeria,P003,L-136,6129,0,0,0,6129,2026-04-05
+Crescent Capital Advisors,P003,L-137,813,0,0,0,813,2026-04-17
+Blue Anchor Coffee Co.,P003,L-140,4784,0,0,0,4784,2026-04-15
+Copperleaf Home Goods,P003,L-141,851,0,0,0,851,2026-04-01
+Harbor & Finch LLP,P003,L-142,1754,0,0,0,1754,2026-04-04
+Summit Fulfillment,P004,L-144,2260,0,0,0,2260,2026-04-05
+Sterling Benefits Group,P005,L-502,2743,0,0,0,2743,2026-04-08
+Brightpath Engineering,P005,L-151,12491,0,0,0,12491,2026-04-06
+Vantage Wealth Management,P005,L-156,89,0,0,0,89,2026-04-03
+Meridian Consulting Group,P005,L-157,13606,0,0,0,13606,2026-03-31
+Pivot Health Partners,P005,L-159,10689,0,0,0,10689,2026-04-01
+Lumen Digital Labs,P005,L-160,1174,0,0,0,1174,2026-03-30
+Sterling Benefits Group,P005,L-162,9654,0,0,0,9654,2026-04-10
+Third Avenue Books,P006,L-163,854,0,0,0,854,2026-03-30
+Lantern & Leaf,P006,L-165,4554,0,0,0,4554,2026-04-11
+Studio Velo Cycling,P006,L-166,5701,0,0,0,5701,2026-03-30
+Atlas Outfitters,P006,L-169,6129,0,0,0,6129,2026-03-29
+Coastal Imports Co.,P007,L-172,27600,0,0,0,27600,2026-03-31
+Pivot Health Partners,P008,L-175,1073,0,0,0,1073,2026-04-01
+Ironwood Architecture,P008,L-177,11072,0,0,0,11072,2026-04-06
+Harbor & Finch LLP,P008,L-180,9681,0,0,0,9681,2026-04-11
+Oakridge Tax Services,P008,L-182,907,0,0,0,907,2026-04-17
+Copperleaf Home Goods,P009,L-184,2997,0,0,0,2997,2026-04-01
+Blue Anchor Coffee Co.,P009,L-185,3636,0,0,0,3636,2026-04-18
+Mercer & Co. Apparel,P009,L-186,4576,0,0,0,4576,2026-04-18
+Stonefire Pizzeria,P009,L-188,1807,0,0,0,1807,2026-04-13
+Stonefire Pizzeria,P010,L-194,6371,0,0,0,6371,2026-04-09
+Copperleaf Home Goods,P010,L-195,6393,0,0,0,6393,2026-03-30
+Mercer & Co. Apparel,P010,L-196,390,0,0,0,390,2026-03-30
+Harbor & Finch LLP,P010,L-198,263,0,0,0,263,2026-04-07
+Blue Anchor Coffee Co.,P010,L-202,3901,0,0,0,3901,2026-04-09
+Lumen Digital Labs,P010,L-203,6397,0,0,0,6397,2026-03-29
+Lumen Digital Labs,P010,L-208,2356,0,0,0,2356,2026-04-01
+Copperleaf Home Goods,P010,L-209,3039,0,0,0,3039,2026-04-03
+Mercer & Co. Apparel,P010,L-211,3558,0,0,0,3558,2026-04-08
+Coastal Imports Co.,P005,L-501,22000,22000,22000,0,66000,2026-02-04
+Apex Logistics Inc.,P007,L-701,0,0,0,47500,47500,2026-01-01

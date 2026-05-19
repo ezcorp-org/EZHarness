@@ -1,0 +1,25 @@
+# @ezcorp/ai-kit
+
+Integration kit for driving the EZCorp backend from any LLM (external harness or in-app agent).
+
+## Start here
+
+- [docs/OVERVIEW.md](docs/OVERVIEW.md): Conceptual model — projects, conversations, mentions, runs, agents, teams, tasks.
+- [docs/quickstart-curl.md](docs/quickstart-curl.md): End-to-end recipe (auth → create conv → send message → stream).
+- [docs/openapi.yaml](docs/openapi.yaml): Machine-readable REST spec.
+- [docs/mentions.md](docs/mentions.md): Normative mention grammar for `!`, `@`, `/` sigils.
+- [docs/events.md](docs/events.md): SSE run event taxonomy.
+
+## Optional: installable surfaces
+
+- MCP server: `bunx @ezcorp/ai-kit mcp` (stdio) or mount `/api/mcp` (Streamable HTTP).
+- Claude Code skills: `bunx @ezcorp/ai-kit install claude-code`.
+- EZCorp extension: `bunx @ezcorp/ai-kit install ezcorp`.
+
+## Auth
+
+Session cookie (`ezcorp_session`, 30-day JWT) OR `Authorization: Bearer ez_<key>` with scope `read` / `chat` / `admin`.
+
+## Entity links
+
+Tool responses for entity-producing tools include a `url` and `markdownLink` alongside the raw IDs — click the link in chat to jump to the new conversation, agent, sub-conversation, or run. URLs use `EZCORP_PUBLIC_URL` (or the `publicUrl` client option), falling back to `EZCORP_BASE_URL`. Set `EZCORP_PUBLIC_URL` on the server when the user-facing origin differs from the API origin (e.g. loopback API + public HTTPS domain).

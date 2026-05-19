@@ -1,0 +1,42 @@
+FROM oven/bun:1
+WORKDIR /app
+
+# Install git (for extension installer tests) and Node.js (for Playwright)
+RUN apt-get update && \
+    apt-get install -y git curl && \
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install root dependencies
+COPY package.json bun.lock ./
+# Workspace package.json required to resolve `workspace:*` specifiers.
+COPY packages/@ezcorp/sdk/package.json packages/@ezcorp/sdk/
+COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
+# `--ignore-scripts`: SDK source + tsconfig haven't been COPY'd yet (only
+# the package.json), so the `prepare` script's tsc build can't succeed.
+# Skip lifecycle here; the SDK is rebuilt as needed once `COPY . .` lands.
+# Bun's "bun" exports condition resolves the SDK's raw .ts at runtime.
+RUN bun install --frozen-lockfile --ignore-scripts
+
+# Install web dependencies
+COPY web/package.json web/bun.lock web/
+RUN cd web && bun install --frozen-lockfile --ignore-scripts
+
+# Install Playwright chromium + system deps
+RUN cd web && bunx playwright install --with-deps chromium
+
+# Copy all source including tests
+COPY . .
+
+# Generate SvelteKit types ($lib alias resolution for web tests)
+RUN cd web && bunx svelte-kit sync
+
+# Pre-build SvelteKit for e2e tests
+RUN cd web && PI_SKIP_INIT=1 bun run build
+
+ENV EZCORP_DB_PATH=:memory:
+ENV CI=1
+ENV PI_SKIP_INIT=1
+
+CMD ["bash", "scripts/docker-test-all.sh"]

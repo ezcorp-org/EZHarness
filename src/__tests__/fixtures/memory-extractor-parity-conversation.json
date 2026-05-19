@@ -1,0 +1,61 @@
+{
+  "_comment": "Phase 53 parity fixture for the memory extractor. The Phase 53 port (memory-extractor as a bundled extension on ctx.llm + ctx.memory) MUST produce the same set of memory facts when fed this conversation as the legacy host-side extractor does. Tolerance: facts must match by `category` + `content` substring (whitespace-insensitive); ordering may differ.",
+  "version": 1,
+  "phase": "51.6",
+  "captured_at": "2026-05-08T00:00:00Z",
+  "run_complete_event": {
+    "runId": "run-parity-memory-001",
+    "conversationId": "conv-parity-memory-001",
+    "finalContent": "Got it — I'll remember you prefer Bun over Node and you're working on EZCorp."
+  },
+  "recent_messages": [
+    {
+      "id": "msg-101",
+      "role": "user",
+      "content": "By the way, my name is Alex Chen and I'm the lead engineer on EZCorp. I prefer Bun over Node.js for everything."
+    },
+    {
+      "id": "msg-102",
+      "role": "assistant",
+      "content": "Got it. I'll remember those preferences for future conversations."
+    },
+    {
+      "id": "msg-103",
+      "role": "user",
+      "content": "Also, the project uses PGlite locally and Postgres in prod. We deploy via single-container Docker."
+    },
+    {
+      "id": "msg-104",
+      "role": "assistant",
+      "content": "Noted — single-container Docker, PGlite dev → Postgres prod migration."
+    }
+  ],
+  "expected_facts": [
+    {
+      "category": "biographical",
+      "content_substring": "Alex Chen",
+      "confidence": "high"
+    },
+    {
+      "category": "biographical",
+      "content_substring": "lead engineer on EZCorp",
+      "confidence": "high"
+    },
+    {
+      "category": "preferences",
+      "content_substring": "Bun",
+      "confidence": "high"
+    },
+    {
+      "category": "technical",
+      "content_substring": "PGlite",
+      "confidence": "medium"
+    },
+    {
+      "category": "technical",
+      "content_substring": "single-container Docker",
+      "confidence": "medium"
+    }
+  ],
+  "_phase_53_notes": "The bundled memory-extractor MUST stamp `provenance.injectionEligible: false` on each created memory (Phase 51.2 invariant), differing from the legacy extractor's default of true. Tests asserting parity should use `content_substring` matches rather than exact strings — the extractor's word choices may vary across LLM calls."
+}

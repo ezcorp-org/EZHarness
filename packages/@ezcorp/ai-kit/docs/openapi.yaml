@@ -1,0 +1,1601 @@
+openapi: 3.1.0
+info:
+  title: EZCorp API
+  version: "1.0"
+  description: |
+    HTTP surface for the EZCorp AI backend. Covers conversations, agents, tasks,
+    streaming runs, mentions, extensions, models, and observability.
+
+    Auth: session cookie `ezcorp_session` OR `Authorization: Bearer ez_<key>`.
+    All routes except `GET /api/health` require auth.
+
+servers:
+  - url: http://localhost:5173
+    description: Local dev
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: ezcorp_session
+    bearerKey:
+      type: http
+      scheme: bearer
+      bearerFormat: ez_<key>
+
+  responses:
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Authentication required.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    UnprocessableEntity:
+      description: Validation error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    # ── Shared primitives ──────────────────────────────────────────────
+    UUID:
+      type: string
+      format: uuid
+
+    ThinkingLevel:
+      type: string
+      enum: [off, minimal, low, medium, high, xhigh]
+
+    PermissionMode:
+      type: string
+      enum: [ask, auto-edit, yolo]
+
+    ProjectId:
+      oneOf:
+        - type: string
+          enum: [global]
+        - type: string
+          format: uuid
+
+    # ── Conversation ───────────────────────────────────────────────────
+    Conversation:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        projectId:
+          $ref: "#/components/schemas/ProjectId"
+        title:
+          type: ["string", "null"]
+        model:
+          type: ["string", "null"]
+        provider:
+          type: ["string", "null"]
+        agentConfigId:
+          type: ["string", "null"]
+          format: uuid
+        parentConversationId:
+          type: ["string", "null"]
+          format: uuid
+        parentMessageId:
+          type: ["string", "null"]
+          format: uuid
+        systemPrompt:
+          type: ["string", "null"]
+        modeId:
+          type: ["string", "null"]
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, projectId, createdAt, updatedAt]
+
+    CreateConversationBody:
+      type: object
+      required: [projectId]
+      properties:
+        projectId:
+          $ref: "#/components/schemas/ProjectId"
+        title:
+          type: string
+          maxLength: 500
+        model:
+          type: string
+          maxLength: 100
+        provider:
+          type: string
+          maxLength: 100
+        agentConfigId:
+          type: string
+          format: uuid
+        test:
+          type: boolean
+        parentConversationId:
+          type: string
+          format: uuid
+        parentMessageId:
+          type: string
+          format: uuid
+
+    UpdateConversationBody:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 500
+        model:
+          type: string
+          maxLength: 100
+        provider:
+          type: string
+          maxLength: 100
+        systemPrompt:
+          type: string
+          maxLength: 50000
+        modeId:
+          type: ["string", "null"]
+          format: uuid
+
+    # ── Message ────────────────────────────────────────────────────────
+    Message:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        conversationId:
+          $ref: "#/components/schemas/UUID"
+        parentMessageId:
+          type: ["string", "null"]
+          format: uuid
+        role:
+          type: string
+          enum: [user, assistant, system, tool]
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, conversationId, role, content, createdAt]
+
+    SendMessageBody:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 100000
+        provider:
+          type: string
+          maxLength: 100
+        model:
+          type: string
+          maxLength: 100
+        parentMessageId:
+          type: string
+          format: uuid
+        editOf:
+          type: string
+          format: uuid
+        permissionMode:
+          $ref: "#/components/schemas/PermissionMode"
+        thinkingLevel:
+          $ref: "#/components/schemas/ThinkingLevel"
+
+    SendMessageResponse:
+      type: object
+      properties:
+        runId:
+          $ref: "#/components/schemas/UUID"
+        messageId:
+          $ref: "#/components/schemas/UUID"
+        conversationId:
+          $ref: "#/components/schemas/UUID"
+      required: [runId, messageId, conversationId]
+
+    # ── AgentConfig ────────────────────────────────────────────────────
+    AgentConfig:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        name:
+          type: string
+        description:
+          type: string
+        prompt:
+          type: string
+        category:
+          type: ["string", "null"]
+          enum: [agent, team, null]
+        model:
+          type: ["string", "null"]
+        provider:
+          type: ["string", "null"]
+        extensions:
+          type: ["array", "null"]
+          items:
+            type: string
+            format: uuid
+        references:
+          type: ["object", "null"]
+          description: For teams, contains `members` (array of agent config IDs) and optional `autoSpinUp` bool.
+          properties:
+            members:
+              type: array
+              items:
+                type: string
+                format: uuid
+            autoSpinUp:
+              type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, name, description, prompt, createdAt, updatedAt]
+
+    CreateAgentBody:
+      type: object
+      required: [name, prompt]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        prompt:
+          type: string
+        category:
+          type: string
+          enum: [agent, team]
+        model:
+          type: string
+        provider:
+          type: string
+        extensions:
+          type: array
+          items:
+            type: string
+            format: uuid
+        references:
+          type: object
+
+    GenerateAgentBody:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [role, content]
+            properties:
+              role:
+                type: string
+                minLength: 1
+              content:
+                type: string
+                minLength: 1
+        provider:
+          type: string
+        model:
+          type: string
+        thinkingLevel:
+          $ref: "#/components/schemas/ThinkingLevel"
+        modeId:
+          type: string
+
+    # ── Task / Assignment ──────────────────────────────────────────────
+    TaskAssignment:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        agentConfigId:
+          $ref: "#/components/schemas/UUID"
+        agentName:
+          type: string
+        isTeam:
+          type: boolean
+        status:
+          type: string
+          enum: [assigned, running, completed, failed]
+        assignedAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: ["string", "null"]
+          format: date-time
+        completedAt:
+          type: ["string", "null"]
+          format: date-time
+        failedAt:
+          type: ["string", "null"]
+          format: date-time
+        subConversationId:
+          type: ["string", "null"]
+          format: uuid
+        agentRunId:
+          type: ["string", "null"]
+          format: uuid
+        resultPreview:
+          type: ["string", "null"]
+      required: [id, agentConfigId, agentName, isTeam, status, assignedAt]
+
+    TrackedTask:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [pending, active, completed, failed]
+        agentId:
+          type: ["string", "null"]
+          format: uuid
+        agentName:
+          type: ["string", "null"]
+        assignments:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskAssignment"
+        subtasks:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                $ref: "#/components/schemas/UUID"
+              title:
+                type: string
+              completed:
+                type: boolean
+              position:
+                type: integer
+            required: [id, title, completed, position]
+        dependsOn:
+          type: ["array", "null"]
+          items:
+            type: string
+            format: uuid
+        priority:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: ["string", "null"]
+          format: date-time
+        completedAt:
+          type: ["string", "null"]
+          format: date-time
+        failedAt:
+          type: ["string", "null"]
+          format: date-time
+        failureReason:
+          type: ["string", "null"]
+        completionSummary:
+          type: ["string", "null"]
+      required: [id, title, description, status, assignments, subtasks, priority, createdAt]
+
+    # ── Run ───────────────────────────────────────────────────────────
+    Run:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        conversationId:
+          $ref: "#/components/schemas/UUID"
+        status:
+          type: string
+          enum: [running, complete, error, cancelled]
+        startedAt:
+          type: integer
+          description: Unix ms timestamp
+        finishedAt:
+          type: ["integer", "null"]
+      required: [id, status, startedAt]
+
+    # ── Project ───────────────────────────────────────────────────────
+    Project:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        name:
+          type: string
+        path:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, name, createdAt]
+
+    # ── Extension ─────────────────────────────────────────────────────
+    Extension:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        name:
+          type: string
+        description:
+          type: string
+        active:
+          type: boolean
+      required: [id, name, active]
+
+    # ── Mention search ────────────────────────────────────────────────
+    MentionResult:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [agent, team, ext, file, dir, cmd]
+        name:
+          type: string
+        id:
+          type: ["string", "null"]
+        description:
+          type: ["string", "null"]
+      required: [kind, name]
+
+    # ── Error ─────────────────────────────────────────────────────────
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+security:
+  - sessionCookie: []
+  - bearerKey: []
+
+paths:
+  # ── Auth ──────────────────────────────────────────────────────────
+  /api/auth/login:
+    post:
+      operationId: login
+      summary: Log in with email + password
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Authenticated; sets `ezcorp_session` cookie.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/auth/logout:
+    post:
+      operationId: logout
+      summary: Invalidate the current session
+      tags: [auth]
+      responses:
+        "200":
+          description: Session cleared.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/auth/me:
+    get:
+      operationId: get_me
+      summary: Return the authenticated user
+      tags: [auth]
+      responses:
+        "200":
+          description: Current user.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    $ref: "#/components/schemas/UUID"
+                  email:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Projects ──────────────────────────────────────────────────────
+  /api/projects:
+    get:
+      operationId: list_projects
+      summary: List all projects
+      tags: [projects]
+      responses:
+        "200":
+          description: Array of projects.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: create_project
+      summary: Create a project
+      tags: [projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                path:
+                  type: string
+      responses:
+        "201":
+          description: Created project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/projects/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+    get:
+      operationId: get_project
+      summary: Get a project by ID
+      tags: [projects]
+      responses:
+        "200":
+          description: Project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      operationId: update_project
+      summary: Update a project
+      tags: [projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                path:
+                  type: string
+      responses:
+        "200":
+          description: Updated project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      operationId: delete_project
+      summary: Delete a project
+      tags: [projects]
+      responses:
+        "204":
+          description: Deleted.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Conversations ─────────────────────────────────────────────────
+  /api/conversations:
+    get:
+      operationId: list_conversations
+      summary: List conversations
+      tags: [conversations]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            $ref: "#/components/schemas/ProjectId"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Array of conversations.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Conversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: start_chat
+      summary: Create a conversation
+      tags: [conversations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConversationBody"
+      responses:
+        "201":
+          description: Created conversation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /api/conversations/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+    get:
+      operationId: get_conversation
+      summary: Get a conversation
+      tags: [conversations]
+      responses:
+        "200":
+          description: Conversation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      operationId: update_conversation
+      summary: Update a conversation
+      tags: [conversations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateConversationBody"
+      responses:
+        "200":
+          description: Updated conversation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      operationId: delete_conversation
+      summary: Delete a conversation
+      tags: [conversations]
+      responses:
+        "204":
+          description: Deleted.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Messages ──────────────────────────────────────────────────────
+  /api/conversations/{id}/messages:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+    get:
+      operationId: get_messages
+      summary: Get messages for a conversation
+      tags: [messages]
+      parameters:
+        - name: leafMessageId
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Return the ancestor chain from root to this leaf.
+        - name: all
+          in: query
+          schema:
+            type: boolean
+          description: Return all messages (tree), not just the leaf path.
+        - name: withToolCalls
+          in: query
+          schema:
+            type: boolean
+          description: Include tool call records in each message.
+      responses:
+        "200":
+          description: Array of messages.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Message"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: send_message
+      summary: Send a message and start a run
+      tags: [messages]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageBody"
+          multipart/form-data:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                  minLength: 1
+                  maxLength: 100000
+                provider:
+                  type: string
+                model:
+                  type: string
+                parentMessageId:
+                  type: string
+                  format: uuid
+                editOf:
+                  type: string
+                  format: uuid
+                permissionMode:
+                  type: string
+                  enum: [ask, auto-edit, yolo]
+                thinkingLevel:
+                  type: string
+                  enum: [off, minimal, low, medium, high, xhigh]
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        "200":
+          description: Run started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendMessageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  # ── Active run ────────────────────────────────────────────────────
+  /api/conversations/{id}/active-run:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+    get:
+      operationId: get_active_run
+      summary: Get the active run for a conversation
+      tags: [runs]
+      responses:
+        "200":
+          description: Active run or null.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: cancel_run
+      summary: Cancel or force-cancel the active run
+      tags: [runs]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [cancel, force-cancel]
+      responses:
+        "200":
+          description: Cancellation accepted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Sub-conversations ─────────────────────────────────────────────
+  /api/conversations/{id}/sub-conversations:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+    get:
+      operationId: list_sub_conversations
+      summary: List sub-conversations spawned by this conversation
+      tags: [conversations]
+      responses:
+        "200":
+          description: Array of child conversations.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Conversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Agent-chat (queued send) ──────────────────────────────────────
+  /api/conversations/{id}/agent-chat:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+    post:
+      operationId: agent_chat
+      summary: Send a message to an agent conversation; queues if agent is mid-run
+      tags: [messages]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+      responses:
+        "200":
+          description: Queued or started.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [queued, started]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Team messages ─────────────────────────────────────────────────
+  /api/conversations/{id}/team/{agentConfigId}/messages:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+      - name: agentConfigId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+    get:
+      operationId: get_team_messages
+      summary: Get messages for a team member's sub-conversation
+      tags: [messages]
+      responses:
+        "200":
+          description: Array of messages.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Message"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Tasks ─────────────────────────────────────────────────────────
+  /api/conversations/{id}/tasks:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+    get:
+      operationId: list_tasks
+      summary: List tasks for a conversation
+      tags: [tasks]
+      responses:
+        "200":
+          description: Array of tasks.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TrackedTask"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/conversations/{id}/tasks/{taskId}/assign:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+    post:
+      operationId: assign_task
+      summary: Assign an agent to a task
+      tags: [tasks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agentConfigId]
+              properties:
+                agentConfigId:
+                  $ref: "#/components/schemas/UUID"
+                subtaskId:
+                  $ref: "#/components/schemas/UUID"
+      responses:
+        "201":
+          description: Assignment created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAssignment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: unassign_task
+      summary: Remove an assignment from a task
+      tags: [tasks]
+      responses:
+        "204":
+          description: Removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/conversations/{id}/tasks/{taskId}/assignments/{assignmentId}/start:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+      - name: assignmentId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+    post:
+      operationId: start_assignment
+      summary: Start a task assignment (spawns sub-conversation)
+      tags: [tasks]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                model:
+                  type: string
+                provider:
+                  type: string
+      responses:
+        "200":
+          description: Assignment started.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subConversationId:
+                    $ref: "#/components/schemas/UUID"
+                  runId:
+                    $ref: "#/components/schemas/UUID"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/conversations/{id}/tasks/{taskId}/messages:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+    get:
+      operationId: get_task_messages
+      summary: Get messages from the sub-conversation of a task assignment
+      tags: [tasks]
+      responses:
+        "200":
+          description: Messages.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Message"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Agent configs ─────────────────────────────────────────────────
+  /api/agent-configs:
+    get:
+      operationId: list_agents
+      summary: List agent configs
+      tags: [agents]
+      responses:
+        "200":
+          description: Array of agent configs.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: create_agent
+      summary: Create an agent config
+      tags: [agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentBody"
+      responses:
+        "201":
+          description: Created agent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /api/agent-configs/generate:
+    post:
+      operationId: generate_agent
+      summary: Generate an agent config via multi-turn LLM wizard
+      tags: [agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateAgentBody"
+      responses:
+        "200":
+          description: |
+            Streamed or completed response containing an `<agent_config>` XML block
+            wrapping a JSON object with agent fields.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                    description: LLM response text; may contain `<agent_config>…</agent_config>`.
+                  done:
+                    type: boolean
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /api/agent-configs/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+    get:
+      operationId: get_agent
+      summary: Get an agent config
+      tags: [agents]
+      responses:
+        "200":
+          description: Agent config.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentConfig"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      operationId: update_agent
+      summary: Update an agent config
+      tags: [agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentBody"
+      responses:
+        "200":
+          description: Updated agent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentConfig"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      operationId: delete_agent
+      summary: Delete an agent config
+      tags: [agents]
+      responses:
+        "204":
+          description: Deleted.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Mentions ──────────────────────────────────────────────────────
+  /api/mentions/search:
+    get:
+      operationId: search_mentions
+      summary: Search mention targets (agents, extensions, files, commands)
+      tags: [mentions]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [agent, team, ext, path, cmd]
+        - name: projectId
+          in: query
+          schema:
+            $ref: "#/components/schemas/ProjectId"
+      responses:
+        "200":
+          description: Array of mention results.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MentionResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Models ────────────────────────────────────────────────────────
+  /api/models:
+    get:
+      operationId: list_models
+      summary: List available models
+      tags: [models]
+      responses:
+        "200":
+          description: Array of model descriptors.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    provider:
+                      type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/models/capabilities:
+    get:
+      operationId: get_model_capabilities
+      summary: Get capabilities map for available models
+      tags: [models]
+      responses:
+        "200":
+          description: Capability map.
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Extensions ───────────────────────────────────────────────────
+  /api/extensions:
+    get:
+      operationId: list_extensions
+      summary: List installed extensions
+      tags: [extensions]
+      responses:
+        "200":
+          description: Array of extensions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Extension"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/extensions/{name}/tools:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: list_extension_tools
+      summary: List tools exposed by an extension
+      tags: [extensions]
+      responses:
+        "200":
+          description: Array of tool descriptors.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    description:
+                      type: string
+                    inputSchema:
+                      type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/extensions/{id}/activate:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+    post:
+      operationId: activate_extension
+      summary: Activate or deactivate an extension
+      tags: [extensions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [active]
+              properties:
+                active:
+                  type: boolean
+      responses:
+        "200":
+          description: Updated extension.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Extension"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Runs ──────────────────────────────────────────────────────────
+  /api/runs:
+    get:
+      operationId: list_runs
+      summary: List runs
+      tags: [runs]
+      responses:
+        "200":
+          description: Array of runs.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Run"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/runs/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+    get:
+      operationId: get_run
+      summary: Get a run by ID
+      tags: [runs]
+      responses:
+        "200":
+          description: Run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Observability ─────────────────────────────────────────────────
+  /api/observability/{conversationId}:
+    parameters:
+      - name: conversationId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+    get:
+      operationId: get_observability
+      summary: Get observability data for a conversation
+      tags: [observability]
+      responses:
+        "200":
+          description: Observability records.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Modes ────────────────────────────────────────────────────────
+  /api/modes:
+    get:
+      operationId: list_modes
+      summary: List available conversation modes
+      tags: [modes]
+      responses:
+        "200":
+          description: Array of modes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      $ref: "#/components/schemas/UUID"
+                    name:
+                      type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Health ────────────────────────────────────────────────────────
+  /api/health:
+    get:
+      operationId: health_check
+      summary: Health check (no auth required)
+      tags: [health]
+      security: []
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+        "503":
+          description: Service unavailable.
+
+  # ── Tool permission ───────────────────────────────────────────────
+  /api/tool-calls/{id}/permission:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/UUID"
+    post:
+      operationId: respond_to_permission
+      summary: Approve or deny a pending tool-call permission request
+      tags: [tools]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [allow, deny]
+                allowPermanently:
+                  type: boolean
+      responses:
+        "200":
+          description: Decision recorded.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Orchestrator human input ─────────────────────────────────────
+  /api/orchestrator/human-input:
+    post:
+      operationId: respond_to_human_input
+      summary: Respond to an orchestrator:human_input event
+      tags: [orchestration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requestId, response]
+              properties:
+                requestId:
+                  $ref: "#/components/schemas/UUID"
+                response:
+                  type: string
+      responses:
+        "200":
+          description: Response delivered.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── SSE stream ────────────────────────────────────────────────────
+  /api/runtime-events:
+    get:
+      operationId: stream_run
+      summary: Open SSE stream for all runtime events
+      tags: [streaming]
+      responses:
+        "200":
+          description: |
+            Server-Sent Events stream. Each event is a JSON-encoded line:
+
+            ```
+            data: {"type":"<event-type>","data":{…}}
+            ```
+
+            Heartbeat lines (`: heartbeat`) are sent every 30 s.
+            See `docs/events.md` for the full event taxonomy.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"

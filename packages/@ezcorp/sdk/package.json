@@ -1,0 +1,61 @@
+{
+  "name": "@ezcorp/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Authoring SDK for ezcorp-ai extensions — types, defineExtension helper, and runtime helpers (fs/lock/rpc/channel).",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ezcorp-org/ezcorp.git",
+    "directory": "packages/@ezcorp/sdk"
+  },
+  "homepage": "https://github.com/ezcorp-org/ezcorp/tree/main/packages/@ezcorp/sdk#readme",
+  "bugs": {
+    "url": "https://github.com/ezcorp-org/ezcorp/issues"
+  },
+  "keywords": [
+    "ezcorp",
+    "extension-sdk",
+    "mcp",
+    "bun",
+    "extensions"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./runtime": {
+      "bun": "./src/runtime/index.ts",
+      "types": "./dist/runtime/index.d.ts",
+      "import": "./dist/runtime/index.js"
+    },
+    "./test": {
+      "bun": "./src/test/index.ts",
+      "types": "./dist/test/index.d.ts",
+      "import": "./dist/test/index.js"
+    },
+    "./entities": {
+      "bun": "./src/entities/index.ts",
+      "types": "./dist/entities/index.d.ts",
+      "import": "./dist/entities/index.js"
+    }
+  },
+  "scripts": {
+    "build": "bunx tsc -b tsconfig.build.json",
+    "prepare": "bun run build",
+    "prepublishOnly": "bun run build",
+    "test": "bun test"
+  }
+}

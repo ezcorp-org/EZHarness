@@ -1,0 +1,6 @@
+{
+  "postTypes": [
+    { "slug": "weekly", "name": "Weekly Roundup", "cadence": "weekly" },
+    { "slug": "monthly", "name": "Monthly Essay", "cadence": "monthly" }
+  ]
+}

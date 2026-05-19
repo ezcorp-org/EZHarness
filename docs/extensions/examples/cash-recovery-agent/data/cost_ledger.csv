@@ -1,0 +1,460 @@
+entry_id,project_id,date,cost_code,category,vendor,amount,description
+C-1000,P-101,2026-02-07,01-100,General Conditions,Ironclad Steel Co.,31442.67,General Conditions — progress 1
+C-1001,P-101,2026-02-09,01-100,General Conditions,Pacific Concrete Supply,17968.89,General Conditions — progress 2
+C-1002,P-101,2026-01-17,09-200,Drywall,Kingfisher Glazing,2627.5,Drywall — progress 3
+C-1003,P-101,2026-02-22,02-300,Earthwork,Ironclad Steel Co.,21533.95,Earthwork — progress 4
+C-1004,P-101,2026-04-15,09-200,Drywall,BlueOak Plumbing,39232.59,Drywall — progress 5
+C-1005,P-101,2026-03-27,06-100,Rough Carpentry,Summit Drywall Partners,48649.36,Rough Carpentry — progress 6
+C-1006,P-101,2026-03-28,05-100,Structural Steel,BlueOak Plumbing,19647.35,Structural Steel — progress 7
+C-1007,P-101,2026-01-30,15-400,Plumbing,Cornerstone Millwork,60411.98,Plumbing — progress 8
+C-1008,P-101,2026-03-01,22-000,Site Utilities,Ironclad Steel Co.,9669.47,Site Utilities — progress 9
+C-1009,P-101,2026-03-09,07-500,Roofing,Ironclad Steel Co.,40535.78,Roofing — progress 10
+C-1010,P-101,2026-01-25,22-000,Site Utilities,Pacific Concrete Supply,19017.29,Site Utilities — progress 11
+C-1011,P-101,2026-02-18,02-300,Earthwork,Summit Drywall Partners,9039.82,Earthwork — progress 12
+C-1012,P-101,2026-01-02,07-500,Roofing,Summit Drywall Partners,38105.48,Roofing — progress 13
+C-1013,P-101,2026-03-14,16-100,Electrical,Kingfisher Glazing,19976.88,Electrical — progress 14
+C-1014,P-101,2026-01-28,22-000,Site Utilities,Summit Drywall Partners,58166.95,Site Utilities — progress 15
+C-1015,P-101,2026-03-17,03-300,Concrete,Apex Earthworks,45686.65,Concrete — progress 16
+C-1016,P-101,2026-01-03,01-100,General Conditions,Pacific Concrete Supply,31730.98,General Conditions — progress 17
+C-1017,P-101,2025-12-26,03-300,Concrete,Brightway Electric,46695.85,Concrete — progress 18
+C-1018,P-101,2026-03-03,03-300,Concrete,Brightway Electric,42997.97,Concrete — progress 19
+C-1019,P-101,2026-02-05,02-300,Earthwork,ProMech HVAC,22149.21,Earthwork — progress 20
+C-1020,P-101,2026-04-06,02-300,Earthwork,Apex Earthworks,24539.76,Earthwork — progress 21
+C-1021,P-101,2026-02-04,02-300,Earthwork,BlueOak Plumbing,59209.49,Earthwork — progress 22
+C-1022,P-101,2026-02-22,03-300,Concrete,Apex Earthworks,4199.78,Concrete — progress 23
+C-1023,P-101,2026-03-18,05-100,Structural Steel,Brightway Electric,22424.55,Structural Steel — progress 24
+C-1024,P-101,2025-12-23,09-200,Drywall,Pacific Concrete Supply,64347.93,Drywall — progress 25
+C-1025,P-101,2026-02-13,05-100,Structural Steel,Riverstone Roofing,26354.21,Structural Steel — progress 26
+C-1026,P-101,2026-01-29,06-100,Rough Carpentry,ProMech HVAC,22826.82,Rough Carpentry — progress 27
+C-1027,P-101,2026-02-21,15-400,Plumbing,Brightway Electric,36170.65,Plumbing — progress 28
+C-1028,P-101,2026-03-13,05-100,Structural Steel,Brightway Electric,21714.65,Structural Steel — progress 29
+C-1029,P-101,2026-04-01,15-400,Plumbing,ProMech HVAC,21035.46,Plumbing — progress 30
+C-1030,P-101,2026-04-16,09-200,Drywall,ProMech HVAC,14373.77,Drywall — progress 31
+C-1031,P-101,2026-01-26,22-000,Site Utilities,Pacific Concrete Supply,53130.68,Site Utilities — progress 32
+C-1032,P-101,2026-01-07,09-200,Drywall,Riverstone Roofing,55199.25,Drywall — progress 33
+C-1033,P-101,2026-04-04,15-400,Plumbing,ProMech HVAC,52752.2,Plumbing — progress 34
+C-1034,P-101,2026-02-15,22-000,Site Utilities,Kingfisher Glazing,32815.74,Site Utilities — progress 35
+C-1035,P-101,2026-01-22,01-100,General Conditions,Summit Drywall Partners,5335.65,General Conditions — progress 36
+C-1036,P-101,2026-01-30,16-100,Electrical,BlueOak Plumbing,64859.99,Electrical — progress 37
+C-1037,P-101,2026-01-11,02-300,Earthwork,Riverstone Roofing,39456.54,Earthwork — progress 38
+C-1038,P-101,2026-01-06,15-400,Plumbing,BlueOak Plumbing,23690.77,Plumbing — progress 39
+C-1039,P-101,2026-03-13,02-300,Earthwork,Ironclad Steel Co.,10714.88,Earthwork — progress 40
+C-1040,P-101,2026-04-11,15-400,Plumbing,Kingfisher Glazing,47910.97,Plumbing — progress 41
+C-1041,P-101,2026-02-25,16-100,Electrical,Pacific Concrete Supply,10254.55,Electrical — progress 42
+C-1042,P-101,2026-04-16,05-100,Structural Steel,Apex Earthworks,29395.38,Structural Steel — progress 43
+C-1043,P-101,2026-01-16,16-100,Electrical,Summit Drywall Partners,13711.18,Electrical — progress 44
+C-1044,P-101,2026-02-27,07-500,Roofing,ProMech HVAC,30484.53,Roofing — progress 45
+C-1045,P-101,2026-03-16,03-300,Concrete,Summit Drywall Partners,33328.7,Concrete — progress 46
+C-1046,P-101,2026-02-15,15-400,Plumbing,Ironclad Steel Co.,28934.41,Plumbing — progress 47
+C-1047,P-101,2026-04-04,22-000,Site Utilities,Riverstone Roofing,5684.33,Site Utilities — progress 48
+C-1048,P-101,2026-02-20,01-100,General Conditions,ProMech HVAC,53580.37,General Conditions — progress 49
+C-1049,P-101,2026-03-25,16-100,Electrical,Cornerstone Millwork,37059.31,Electrical — progress 50
+C-1050,P-101,2026-01-21,15-400,Plumbing,Kingfisher Glazing,52202.4,Plumbing — progress 51
+C-1051,P-101,2026-02-17,03-300,Concrete,Ironclad Steel Co.,5860.94,Concrete — progress 52
+C-1052,P-101,2026-03-21,15-400,Plumbing,Cornerstone Millwork,43989.5,Plumbing — progress 53
+C-1053,P-101,2026-04-19,06-100,Rough Carpentry,Kingfisher Glazing,22631.07,Rough Carpentry — progress 54
+C-1054,P-101,2026-02-16,05-100,Structural Steel,Brightway Electric,61900.05,Structural Steel — progress 55
+C-1055,P-101,2026-02-18,02-300,Earthwork,Summit Drywall Partners,61192.49,Earthwork — progress 56
+C-1056,P-101,2026-01-14,06-100,Rough Carpentry,Summit Drywall Partners,32892.13,Rough Carpentry — progress 57
+C-1057,P-101,2026-01-29,09-200,Drywall,Cornerstone Millwork,36337.49,Drywall — progress 58
+C-1058,P-101,2026-01-20,06-100,Rough Carpentry,Kingfisher Glazing,41679.96,Rough Carpentry — progress 59
+C-1059,P-101,2026-03-06,02-300,Earthwork,Riverstone Roofing,21588.94,Earthwork — progress 60
+C-1060,P-101,2026-03-12,09-200,Drywall,Kingfisher Glazing,54828.93,Drywall — progress 61
+C-1061,P-101,2026-01-29,03-300,Concrete,Riverstone Roofing,19688.72,Concrete — progress 62
+C-1062,P-102,2026-02-05,16-100,Electrical,Pacific Concrete Supply,48556.41,Electrical — progress 1
+C-1063,P-102,2026-01-10,22-000,Site Utilities,Ironclad Steel Co.,36007.66,Site Utilities — progress 2
+C-1064,P-102,2026-02-21,02-300,Earthwork,Riverstone Roofing,44361.56,Earthwork — progress 3
+C-1065,P-102,2026-02-07,16-100,Electrical,Pacific Concrete Supply,34068.66,Electrical — progress 4
+C-1066,P-102,2026-04-10,03-300,Concrete,Kingfisher Glazing,25312.09,Concrete — progress 5
+C-1067,P-102,2026-01-29,01-100,General Conditions,Apex Earthworks,3041.13,General Conditions — progress 6
+C-1068,P-102,2026-03-20,02-300,Earthwork,Kingfisher Glazing,41449.47,Earthwork — progress 7
+C-1069,P-102,2026-03-11,01-100,General Conditions,Riverstone Roofing,41187.9,General Conditions — progress 8
+C-1070,P-102,2026-03-19,05-100,Structural Steel,Riverstone Roofing,47312.52,Structural Steel — progress 9
+C-1071,P-102,2026-02-09,03-300,Concrete,Cornerstone Millwork,51345.55,Concrete — progress 10
+C-1072,P-102,2026-04-08,01-100,General Conditions,Brightway Electric,3098.26,General Conditions — progress 11
+C-1073,P-102,2026-03-25,22-000,Site Utilities,ProMech HVAC,38533,Site Utilities — progress 12
+C-1074,P-102,2026-02-03,01-100,General Conditions,ProMech HVAC,48368.31,General Conditions — progress 13
+C-1075,P-102,2026-03-28,16-100,Electrical,Ironclad Steel Co.,33295.05,Electrical — progress 14
+C-1076,P-102,2026-01-19,07-500,Roofing,Riverstone Roofing,57074.06,Roofing — progress 15
+C-1077,P-102,2025-12-28,03-300,Concrete,BlueOak Plumbing,10417.06,Concrete — progress 16
+C-1078,P-102,2026-03-28,16-100,Electrical,BlueOak Plumbing,16358.5,Electrical — progress 17
+C-1079,P-102,2026-02-08,09-200,Drywall,Summit Drywall Partners,14443.02,Drywall — progress 18
+C-1080,P-102,2026-01-22,01-100,General Conditions,Brightway Electric,62563.18,General Conditions — progress 19
+C-1081,P-102,2026-04-16,06-100,Rough Carpentry,Brightway Electric,46888.5,Rough Carpentry — progress 20
+C-1082,P-102,2026-01-08,07-500,Roofing,Summit Drywall Partners,12847.33,Roofing — progress 21
+C-1083,P-102,2026-03-30,02-300,Earthwork,Cornerstone Millwork,6483.17,Earthwork — progress 22
+C-1084,P-102,2026-03-27,07-500,Roofing,Riverstone Roofing,33768.82,Roofing — progress 23
+C-1085,P-102,2026-01-31,03-300,Concrete,ProMech HVAC,64069.62,Concrete — progress 24
+C-1086,P-102,2026-03-28,09-200,Drywall,Riverstone Roofing,49956.98,Drywall — progress 25
+C-1087,P-102,2026-03-22,07-500,Roofing,ProMech HVAC,3465.85,Roofing — progress 26
+C-1088,P-102,2026-03-01,05-100,Structural Steel,BlueOak Plumbing,33175.49,Structural Steel — progress 27
+C-1089,P-102,2026-04-14,22-000,Site Utilities,Kingfisher Glazing,50125.96,Site Utilities — progress 28
+C-1090,P-102,2026-04-15,09-200,Drywall,Summit Drywall Partners,36281.82,Drywall — progress 29
+C-1091,P-102,2026-02-23,07-500,Roofing,Apex Earthworks,37863.15,Roofing — progress 30
+C-1092,P-102,2026-04-21,15-400,Plumbing,Apex Earthworks,12747.5,Plumbing — progress 31
+C-1093,P-102,2025-12-31,05-100,Structural Steel,Riverstone Roofing,40933.31,Structural Steel — progress 32
+C-1094,P-102,2026-04-16,09-200,Drywall,Riverstone Roofing,32795.01,Drywall — progress 33
+C-1095,P-102,2026-01-21,03-300,Concrete,Cornerstone Millwork,46991.54,Concrete — progress 34
+C-1096,P-102,2026-01-12,07-500,Roofing,Ironclad Steel Co.,1785.25,Roofing — progress 35
+C-1097,P-102,2026-02-19,07-500,Roofing,BlueOak Plumbing,44855.58,Roofing — progress 36
+C-1098,P-102,2026-01-09,15-400,Plumbing,Cornerstone Millwork,64476.73,Plumbing — progress 37
+C-1099,P-102,2026-01-14,22-000,Site Utilities,Ironclad Steel Co.,52962.66,Site Utilities — progress 38
+C-1100,P-102,2025-12-23,01-100,General Conditions,BlueOak Plumbing,32769.14,General Conditions — progress 39
+C-1101,P-102,2026-01-18,06-100,Rough Carpentry,Cornerstone Millwork,54992.88,Rough Carpentry — progress 40
+C-1102,P-102,2026-02-02,05-100,Structural Steel,Apex Earthworks,11011.23,Structural Steel — progress 41
+C-1103,P-102,2026-04-15,03-300,Concrete,ProMech HVAC,16478.44,Concrete — progress 42
+C-1104,P-102,2026-02-04,22-000,Site Utilities,Apex Earthworks,27489.28,Site Utilities — progress 43
+C-1105,P-102,2026-04-20,15-400,Plumbing,Summit Drywall Partners,57120.19,Plumbing — progress 44
+C-1106,P-102,2026-01-04,07-500,Roofing,BlueOak Plumbing,25702.98,Roofing — progress 45
+C-1107,P-102,2026-03-15,07-500,Roofing,Pacific Concrete Supply,35281.92,Roofing — progress 46
+C-1108,P-102,2026-02-09,01-100,General Conditions,Riverstone Roofing,42548.73,General Conditions — progress 47
+C-1109,P-102,2026-02-09,02-300,Earthwork,Pacific Concrete Supply,26255.42,Earthwork — progress 48
+C-1110,P-102,2025-12-25,03-300,Concrete,Summit Drywall Partners,44772.12,Concrete — progress 49
+C-1111,P-102,2026-02-15,15-400,Plumbing,Ironclad Steel Co.,58714.79,Plumbing — progress 50
+C-1112,P-102,2026-04-14,01-100,General Conditions,Ironclad Steel Co.,59196.03,General Conditions — progress 51
+C-1113,P-102,2026-02-18,01-100,General Conditions,Ironclad Steel Co.,48953.02,General Conditions — progress 52
+C-1114,P-103,2026-01-12,06-100,Rough Carpentry,BlueOak Plumbing,13898.3,Rough Carpentry — progress 1
+C-1115,P-103,2026-04-16,15-400,Plumbing,Summit Drywall Partners,39079.51,Plumbing — progress 2
+C-1116,P-103,2026-03-03,09-200,Drywall,Pacific Concrete Supply,27495.19,Drywall — progress 3
+C-1117,P-103,2026-04-05,16-100,Electrical,Cornerstone Millwork,47975.97,Electrical — progress 4
+C-1118,P-103,2025-12-29,07-500,Roofing,BlueOak Plumbing,39254.11,Roofing — progress 5
+C-1119,P-103,2025-12-25,02-300,Earthwork,Cornerstone Millwork,45473.68,Earthwork — progress 6
+C-1120,P-103,2026-02-19,22-000,Site Utilities,ProMech HVAC,15853.38,Site Utilities — progress 7
+C-1121,P-103,2025-12-25,09-200,Drywall,BlueOak Plumbing,63467.62,Drywall — progress 8
+C-1122,P-103,2026-02-08,22-000,Site Utilities,Brightway Electric,17370.59,Site Utilities — progress 9
+C-1123,P-103,2025-12-29,06-100,Rough Carpentry,Brightway Electric,33895.92,Rough Carpentry — progress 10
+C-1124,P-103,2026-03-18,22-000,Site Utilities,Summit Drywall Partners,41212.95,Site Utilities — progress 11
+C-1125,P-103,2026-03-09,07-500,Roofing,Kingfisher Glazing,12399.16,Roofing — progress 12
+C-1126,P-103,2026-02-01,09-200,Drywall,Kingfisher Glazing,58138.66,Drywall — progress 13
+C-1127,P-103,2026-02-27,15-400,Plumbing,BlueOak Plumbing,30296.03,Plumbing — progress 14
+C-1128,P-103,2026-02-05,07-500,Roofing,Apex Earthworks,11913.71,Roofing — progress 15
+C-1129,P-103,2026-03-07,06-100,Rough Carpentry,BlueOak Plumbing,2078.56,Rough Carpentry — progress 16
+C-1130,P-103,2026-03-19,01-100,General Conditions,Pacific Concrete Supply,30649.86,General Conditions — progress 17
+C-1131,P-103,2026-01-26,05-100,Structural Steel,ProMech HVAC,19007.33,Structural Steel — progress 18
+C-1132,P-103,2026-03-11,15-400,Plumbing,Ironclad Steel Co.,31240.96,Plumbing — progress 19
+C-1133,P-103,2026-03-29,06-100,Rough Carpentry,Cornerstone Millwork,58026.25,Rough Carpentry — progress 20
+C-1134,P-103,2026-02-25,03-300,Concrete,Apex Earthworks,43565.03,Concrete — progress 21
+C-1135,P-103,2025-12-30,07-500,Roofing,Cornerstone Millwork,25025.19,Roofing — progress 22
+C-1136,P-103,2026-02-12,03-300,Concrete,Ironclad Steel Co.,3460.72,Concrete — progress 23
+C-1137,P-103,2026-02-16,09-200,Drywall,Summit Drywall Partners,39686.06,Drywall — progress 24
+C-1138,P-103,2026-01-30,09-200,Drywall,Ironclad Steel Co.,59073.14,Drywall — progress 25
+C-1139,P-103,2026-03-25,22-000,Site Utilities,Summit Drywall Partners,26060.64,Site Utilities — progress 26
+C-1140,P-103,2026-02-28,06-100,Rough Carpentry,BlueOak Plumbing,24839.02,Rough Carpentry — progress 27
+C-1141,P-103,2026-01-07,02-300,Earthwork,Riverstone Roofing,16394.88,Earthwork — progress 28
+C-1142,P-103,2026-02-18,16-100,Electrical,Cornerstone Millwork,37705.33,Electrical — progress 29
+C-1143,P-103,2026-03-26,07-500,Roofing,Ironclad Steel Co.,3593.28,Roofing — progress 30
+C-1144,P-103,2026-04-07,06-100,Rough Carpentry,Riverstone Roofing,50222.5,Rough Carpentry — progress 31
+C-1145,P-103,2026-03-07,22-000,Site Utilities,ProMech HVAC,47625.3,Site Utilities — progress 32
+C-1146,P-103,2026-01-22,05-100,Structural Steel,Pacific Concrete Supply,38440.98,Structural Steel — progress 33
+C-1147,P-103,2026-01-10,06-100,Rough Carpentry,Ironclad Steel Co.,8846.15,Rough Carpentry — progress 34
+C-1148,P-103,2026-01-21,09-200,Drywall,Kingfisher Glazing,5310.82,Drywall — progress 35
+C-1149,P-103,2026-03-30,02-300,Earthwork,Riverstone Roofing,15381.03,Earthwork — progress 36
+C-1150,P-103,2026-03-02,01-100,General Conditions,ProMech HVAC,26174.24,General Conditions — progress 37
+C-1151,P-103,2026-02-23,07-500,Roofing,Apex Earthworks,2333.16,Roofing — progress 38
+C-1152,P-103,2026-03-25,03-300,Concrete,Apex Earthworks,13342.58,Concrete — progress 39
+C-1153,P-103,2025-12-25,02-300,Earthwork,Apex Earthworks,57891.96,Earthwork — progress 40
+C-1154,P-103,2026-02-19,02-300,Earthwork,Kingfisher Glazing,14361.83,Earthwork — progress 41
+C-1155,P-103,2026-01-03,22-000,Site Utilities,Ironclad Steel Co.,15409.72,Site Utilities — progress 42
+C-1156,P-103,2025-12-28,15-400,Plumbing,BlueOak Plumbing,41483.4,Plumbing — progress 43
+C-1157,P-103,2026-01-29,16-100,Electrical,Brightway Electric,2169.71,Electrical — progress 44
+C-1158,P-103,2026-02-17,06-100,Rough Carpentry,Cornerstone Millwork,5930.17,Rough Carpentry — progress 45
+C-1159,P-103,2025-12-23,09-200,Drywall,Kingfisher Glazing,14012.83,Drywall — progress 46
+C-1160,P-103,2026-04-17,22-000,Site Utilities,Cornerstone Millwork,22917.22,Site Utilities — progress 47
+C-1161,P-103,2026-01-19,03-300,Concrete,Ironclad Steel Co.,24072.16,Concrete — progress 48
+C-1162,P-103,2026-02-04,09-200,Drywall,Summit Drywall Partners,39666.02,Drywall — progress 49
+C-1163,P-103,2026-04-14,02-300,Earthwork,Riverstone Roofing,45065.98,Earthwork — progress 50
+C-1164,P-103,2026-01-15,05-100,Structural Steel,Cornerstone Millwork,28159.32,Structural Steel — progress 51
+C-1165,P-103,2026-03-29,05-100,Structural Steel,Summit Drywall Partners,40042.42,Structural Steel — progress 52
+C-1166,P-103,2026-03-01,07-500,Roofing,Apex Earthworks,23618.52,Roofing — progress 53
+C-1167,P-103,2026-04-12,15-400,Plumbing,Kingfisher Glazing,42827.24,Plumbing — progress 54
+C-1168,P-103,2026-01-09,07-500,Roofing,Riverstone Roofing,50832.43,Roofing — progress 55
+C-1169,P-104,2026-03-04,03-300,Concrete,Riverstone Roofing,64107.03,Concrete — progress 1
+C-1170,P-104,2026-01-01,22-000,Site Utilities,Kingfisher Glazing,7264.3,Site Utilities — progress 2
+C-1171,P-104,2026-03-20,07-500,Roofing,Apex Earthworks,52226.93,Roofing — progress 3
+C-1172,P-104,2026-03-10,22-000,Site Utilities,Apex Earthworks,5245.38,Site Utilities — progress 4
+C-1173,P-104,2026-02-25,05-100,Structural Steel,Brightway Electric,18178.07,Structural Steel — progress 5
+C-1174,P-104,2026-03-28,01-100,General Conditions,Brightway Electric,46407.71,General Conditions — progress 6
+C-1175,P-104,2026-04-17,16-100,Electrical,Summit Drywall Partners,6914.67,Electrical — progress 7
+C-1176,P-104,2026-02-26,06-100,Rough Carpentry,ProMech HVAC,42361.63,Rough Carpentry — progress 8
+C-1177,P-104,2026-01-18,02-300,Earthwork,Riverstone Roofing,48623.03,Earthwork — progress 9
+C-1178,P-104,2026-03-08,09-200,Drywall,Riverstone Roofing,63990.36,Drywall — progress 10
+C-1179,P-104,2026-03-03,05-100,Structural Steel,Pacific Concrete Supply,44603.17,Structural Steel — progress 11
+C-1180,P-104,2026-02-03,16-100,Electrical,Kingfisher Glazing,37279.24,Electrical — progress 12
+C-1181,P-104,2026-01-03,09-200,Drywall,Kingfisher Glazing,33634.3,Drywall — progress 13
+C-1182,P-104,2026-03-22,01-100,General Conditions,Pacific Concrete Supply,39715.39,General Conditions — progress 14
+C-1183,P-104,2026-01-24,03-300,Concrete,ProMech HVAC,16173.36,Concrete — progress 15
+C-1184,P-104,2025-12-26,07-500,Roofing,Kingfisher Glazing,47248.09,Roofing — progress 16
+C-1185,P-104,2026-03-21,02-300,Earthwork,Ironclad Steel Co.,24361.86,Earthwork — progress 17
+C-1186,P-104,2026-01-25,16-100,Electrical,Brightway Electric,58243.68,Electrical — progress 18
+C-1187,P-104,2026-02-07,15-400,Plumbing,Apex Earthworks,18896.3,Plumbing — progress 19
+C-1188,P-104,2026-02-05,15-400,Plumbing,Riverstone Roofing,34154.43,Plumbing — progress 20
+C-1189,P-104,2025-12-28,02-300,Earthwork,Apex Earthworks,6764.93,Earthwork — progress 21
+C-1190,P-104,2026-01-11,05-100,Structural Steel,ProMech HVAC,8837.54,Structural Steel — progress 22
+C-1191,P-104,2026-02-13,02-300,Earthwork,Summit Drywall Partners,27278.41,Earthwork — progress 23
+C-1192,P-104,2026-04-16,05-100,Structural Steel,Summit Drywall Partners,63324.26,Structural Steel — progress 24
+C-1193,P-104,2026-02-17,03-300,Concrete,Brightway Electric,6758.83,Concrete — progress 25
+C-1194,P-104,2026-03-18,22-000,Site Utilities,ProMech HVAC,43386.5,Site Utilities — progress 26
+C-1195,P-104,2026-03-28,05-100,Structural Steel,BlueOak Plumbing,58783.13,Structural Steel — progress 27
+C-1196,P-104,2026-03-06,16-100,Electrical,Riverstone Roofing,12332.48,Electrical — progress 28
+C-1197,P-104,2026-02-09,06-100,Rough Carpentry,Riverstone Roofing,32441.87,Rough Carpentry — progress 29
+C-1198,P-104,2026-02-01,05-100,Structural Steel,BlueOak Plumbing,45105.22,Structural Steel — progress 30
+C-1199,P-104,2026-04-05,06-100,Rough Carpentry,Ironclad Steel Co.,12420.79,Rough Carpentry — progress 31
+C-1200,P-104,2026-02-17,16-100,Electrical,Riverstone Roofing,18692.62,Electrical — progress 32
+C-1201,P-104,2026-04-13,16-100,Electrical,BlueOak Plumbing,31493.82,Electrical — progress 33
+C-1202,P-104,2026-02-13,09-200,Drywall,Pacific Concrete Supply,55167.49,Drywall — progress 34
+C-1203,P-104,2026-04-21,02-300,Earthwork,Ironclad Steel Co.,51657.69,Earthwork — progress 35
+C-1204,P-104,2026-03-20,05-100,Structural Steel,Pacific Concrete Supply,52813.33,Structural Steel — progress 36
+C-1205,P-104,2026-03-18,15-400,Plumbing,Cornerstone Millwork,48045.67,Plumbing — progress 37
+C-1206,P-104,2026-02-21,02-300,Earthwork,Kingfisher Glazing,59695.78,Earthwork — progress 38
+C-1207,P-104,2026-03-09,03-300,Concrete,BlueOak Plumbing,4884.26,Concrete — progress 39
+C-1208,P-104,2026-03-19,22-000,Site Utilities,Cornerstone Millwork,63355.54,Site Utilities — progress 40
+C-1209,P-104,2026-03-23,16-100,Electrical,Summit Drywall Partners,5450.02,Electrical — progress 41
+C-1210,P-104,2026-02-04,22-000,Site Utilities,Kingfisher Glazing,50011.15,Site Utilities — progress 42
+C-1211,P-104,2025-12-23,02-300,Earthwork,Cornerstone Millwork,56257.43,Earthwork — progress 43
+C-1212,P-104,2026-03-08,09-200,Drywall,Brightway Electric,3670.17,Drywall — progress 44
+C-1213,P-104,2026-01-23,05-100,Structural Steel,Apex Earthworks,44350.64,Structural Steel — progress 45
+C-1214,P-104,2026-03-17,01-100,General Conditions,Cornerstone Millwork,10291.84,General Conditions — progress 46
+C-1215,P-104,2025-12-26,06-100,Rough Carpentry,Apex Earthworks,22450.09,Rough Carpentry — progress 47
+C-1216,P-104,2026-03-25,06-100,Rough Carpentry,Kingfisher Glazing,12012.46,Rough Carpentry — progress 48
+C-1217,P-104,2026-01-27,02-300,Earthwork,Apex Earthworks,54926.7,Earthwork — progress 49
+C-1218,P-104,2026-03-23,05-100,Structural Steel,Cornerstone Millwork,27359.48,Structural Steel — progress 50
+C-1219,P-104,2026-04-03,09-200,Drywall,Cornerstone Millwork,53745.52,Drywall — progress 51
+C-1220,P-104,2025-12-29,16-100,Electrical,Summit Drywall Partners,12706.1,Electrical — progress 52
+C-1221,P-104,2026-01-05,07-500,Roofing,Ironclad Steel Co.,54201.86,Roofing — progress 53
+C-1222,P-104,2026-02-07,06-100,Rough Carpentry,Kingfisher Glazing,9477.83,Rough Carpentry — progress 54
+C-1223,P-104,2026-03-28,01-100,General Conditions,Brightway Electric,3102.04,General Conditions — progress 55
+C-1224,P-104,2025-12-30,02-300,Earthwork,ProMech HVAC,26501.63,Earthwork — progress 56
+C-1225,P-104,2026-02-20,05-100,Structural Steel,Riverstone Roofing,18009.18,Structural Steel — progress 57
+C-1226,P-104,2026-02-23,22-000,Site Utilities,Kingfisher Glazing,35199.51,Site Utilities — progress 58
+C-1227,P-104,2026-02-19,15-400,Plumbing,Summit Drywall Partners,8371.84,Plumbing — progress 59
+C-1228,P-104,2025-12-25,06-100,Rough Carpentry,Riverstone Roofing,15863.58,Rough Carpentry — progress 60
+C-1229,P-104,2026-03-04,06-100,Rough Carpentry,Ironclad Steel Co.,34610.9,Rough Carpentry — progress 61
+C-1230,P-105,2026-01-22,03-300,Concrete,Brightway Electric,2478.04,Concrete — progress 1
+C-1231,P-105,2026-02-28,22-000,Site Utilities,Riverstone Roofing,57476.01,Site Utilities — progress 2
+C-1232,P-105,2026-02-04,05-100,Structural Steel,BlueOak Plumbing,59774.36,Structural Steel — progress 3
+C-1233,P-105,2026-01-13,09-200,Drywall,BlueOak Plumbing,40322.33,Drywall — progress 4
+C-1234,P-105,2026-02-12,05-100,Structural Steel,ProMech HVAC,32397.48,Structural Steel — progress 5
+C-1235,P-105,2026-02-25,03-300,Concrete,Brightway Electric,32793.62,Concrete — progress 6
+C-1236,P-105,2026-03-09,06-100,Rough Carpentry,Ironclad Steel Co.,16781.58,Rough Carpentry — progress 7
+C-1237,P-105,2026-03-01,02-300,Earthwork,Ironclad Steel Co.,43528.77,Earthwork — progress 8
+C-1238,P-105,2026-02-13,03-300,Concrete,Brightway Electric,13135.29,Concrete — progress 9
+C-1239,P-105,2026-02-13,07-500,Roofing,Riverstone Roofing,50462.84,Roofing — progress 10
+C-1240,P-105,2026-01-13,15-400,Plumbing,BlueOak Plumbing,25903.14,Plumbing — progress 11
+C-1241,P-105,2025-12-31,22-000,Site Utilities,BlueOak Plumbing,50593.56,Site Utilities — progress 12
+C-1242,P-105,2026-03-30,03-300,Concrete,Apex Earthworks,9093.9,Concrete — progress 13
+C-1243,P-105,2026-02-22,09-200,Drywall,Kingfisher Glazing,19725.63,Drywall — progress 14
+C-1244,P-105,2026-03-15,07-500,Roofing,Apex Earthworks,65098.79,Roofing — progress 15
+C-1245,P-105,2026-04-20,09-200,Drywall,Pacific Concrete Supply,59917.01,Drywall — progress 16
+C-1246,P-105,2026-04-15,07-500,Roofing,Kingfisher Glazing,19237.76,Roofing — progress 17
+C-1247,P-105,2026-02-08,01-100,General Conditions,BlueOak Plumbing,60932.45,General Conditions — progress 18
+C-1248,P-105,2026-03-13,07-500,Roofing,Kingfisher Glazing,52227.83,Roofing — progress 19
+C-1249,P-105,2026-03-15,03-300,Concrete,Brightway Electric,7616.5,Concrete — progress 20
+C-1250,P-105,2026-01-18,09-200,Drywall,BlueOak Plumbing,39918.12,Drywall — progress 21
+C-1251,P-105,2026-01-23,05-100,Structural Steel,Ironclad Steel Co.,11021.01,Structural Steel — progress 22
+C-1252,P-105,2026-01-19,01-100,General Conditions,Brightway Electric,3678.63,General Conditions — progress 23
+C-1253,P-105,2026-02-22,07-500,Roofing,Cornerstone Millwork,7399.59,Roofing — progress 24
+C-1254,P-105,2026-02-23,07-500,Roofing,Cornerstone Millwork,24976.69,Roofing — progress 25
+C-1255,P-105,2026-02-11,01-100,General Conditions,Ironclad Steel Co.,11170.79,General Conditions — progress 26
+C-1256,P-105,2026-03-30,16-100,Electrical,Brightway Electric,47000.52,Electrical — progress 27
+C-1257,P-105,2026-03-04,16-100,Electrical,Riverstone Roofing,8369.41,Electrical — progress 28
+C-1258,P-105,2025-12-29,07-500,Roofing,Cornerstone Millwork,5155.78,Roofing — progress 29
+C-1259,P-105,2026-02-11,22-000,Site Utilities,Riverstone Roofing,30691.39,Site Utilities — progress 30
+C-1260,P-105,2026-04-09,16-100,Electrical,Cornerstone Millwork,43909.84,Electrical — progress 31
+C-1261,P-105,2025-12-30,15-400,Plumbing,BlueOak Plumbing,28489.77,Plumbing — progress 32
+C-1262,P-105,2026-03-27,03-300,Concrete,ProMech HVAC,43879.49,Concrete — progress 33
+C-1263,P-105,2025-12-30,03-300,Concrete,ProMech HVAC,59122.61,Concrete — progress 34
+C-1264,P-105,2026-03-05,06-100,Rough Carpentry,Apex Earthworks,34051.96,Rough Carpentry — progress 35
+C-1265,P-105,2026-02-26,01-100,General Conditions,Kingfisher Glazing,10556.06,General Conditions — progress 36
+C-1266,P-105,2026-02-19,01-100,General Conditions,Apex Earthworks,50218.4,General Conditions — progress 37
+C-1267,P-105,2026-02-24,15-400,Plumbing,Pacific Concrete Supply,48164.53,Plumbing — progress 38
+C-1268,P-105,2026-01-16,07-500,Roofing,Apex Earthworks,34143.31,Roofing — progress 39
+C-1269,P-105,2026-02-13,03-300,Concrete,Kingfisher Glazing,29842.82,Concrete — progress 40
+C-1270,P-105,2025-12-28,09-200,Drywall,Pacific Concrete Supply,62224.92,Drywall — progress 41
+C-1271,P-105,2026-01-25,09-200,Drywall,Summit Drywall Partners,7244.86,Drywall — progress 42
+C-1272,P-105,2026-04-04,22-000,Site Utilities,ProMech HVAC,62839.9,Site Utilities — progress 43
+C-1273,P-105,2026-02-25,07-500,Roofing,Brightway Electric,17033.4,Roofing — progress 44
+C-1274,P-105,2026-04-09,22-000,Site Utilities,Ironclad Steel Co.,9732.31,Site Utilities — progress 45
+C-1275,P-105,2026-04-01,22-000,Site Utilities,BlueOak Plumbing,28572.45,Site Utilities — progress 46
+C-1276,P-105,2025-12-30,07-500,Roofing,Riverstone Roofing,48832.48,Roofing — progress 47
+C-1277,P-105,2026-04-16,05-100,Structural Steel,Apex Earthworks,8822,Structural Steel — progress 48
+C-1278,P-105,2026-01-20,09-200,Drywall,Summit Drywall Partners,18054.82,Drywall — progress 49
+C-1279,P-105,2026-01-22,03-300,Concrete,Ironclad Steel Co.,61826.01,Concrete — progress 50
+C-1280,P-105,2026-03-11,02-300,Earthwork,Ironclad Steel Co.,35604.68,Earthwork — progress 51
+C-1281,P-105,2026-01-14,22-000,Site Utilities,ProMech HVAC,49731.48,Site Utilities — progress 52
+C-1282,P-105,2026-03-14,05-100,Structural Steel,Ironclad Steel Co.,18443.92,Structural Steel — progress 53
+C-1283,P-105,2026-03-09,03-300,Concrete,Brightway Electric,12938.68,Concrete — progress 54
+C-1284,P-105,2025-12-26,05-100,Structural Steel,Brightway Electric,21754.52,Structural Steel — progress 55
+C-1285,P-105,2026-01-04,09-200,Drywall,Kingfisher Glazing,45608.85,Drywall — progress 56
+C-1286,P-105,2026-02-20,03-300,Concrete,Ironclad Steel Co.,52014.56,Concrete — progress 57
+C-1287,P-106,2026-04-11,22-000,Site Utilities,Apex Earthworks,45544.84,Site Utilities — progress 1
+C-1288,P-106,2026-04-01,06-100,Rough Carpentry,ProMech HVAC,8783.13,Rough Carpentry — progress 2
+C-1289,P-106,2026-03-16,15-400,Plumbing,Pacific Concrete Supply,30445.29,Plumbing — progress 3
+C-1290,P-106,2026-02-06,15-400,Plumbing,Ironclad Steel Co.,46812.91,Plumbing — progress 4
+C-1291,P-106,2026-03-14,07-500,Roofing,Kingfisher Glazing,45297.11,Roofing — progress 5
+C-1292,P-106,2026-02-08,16-100,Electrical,Cornerstone Millwork,39292.58,Electrical — progress 6
+C-1293,P-106,2026-03-30,01-100,General Conditions,Cornerstone Millwork,47716.51,General Conditions — progress 7
+C-1294,P-106,2026-01-08,09-200,Drywall,Kingfisher Glazing,1446.29,Drywall — progress 8
+C-1295,P-106,2026-03-28,01-100,General Conditions,Pacific Concrete Supply,61408.02,General Conditions — progress 9
+C-1296,P-106,2026-02-01,06-100,Rough Carpentry,Cornerstone Millwork,22543.29,Rough Carpentry — progress 10
+C-1297,P-106,2026-01-04,01-100,General Conditions,Brightway Electric,57527.85,General Conditions — progress 11
+C-1298,P-106,2026-01-21,22-000,Site Utilities,Pacific Concrete Supply,33463.98,Site Utilities — progress 12
+C-1299,P-106,2026-01-11,22-000,Site Utilities,Kingfisher Glazing,47457.7,Site Utilities — progress 13
+C-1300,P-106,2026-01-05,09-200,Drywall,Ironclad Steel Co.,36685.31,Drywall — progress 14
+C-1301,P-106,2026-01-11,22-000,Site Utilities,BlueOak Plumbing,3058.48,Site Utilities — progress 15
+C-1302,P-106,2026-02-19,15-400,Plumbing,ProMech HVAC,10081.15,Plumbing — progress 16
+C-1303,P-106,2026-02-04,03-300,Concrete,Riverstone Roofing,7587.53,Concrete — progress 17
+C-1304,P-106,2026-04-04,06-100,Rough Carpentry,BlueOak Plumbing,52856.6,Rough Carpentry — progress 18
+C-1305,P-106,2026-04-18,03-300,Concrete,Apex Earthworks,60354.9,Concrete — progress 19
+C-1306,P-106,2026-03-24,05-100,Structural Steel,Summit Drywall Partners,17376.44,Structural Steel — progress 20
+C-1307,P-106,2025-12-24,15-400,Plumbing,BlueOak Plumbing,45082.79,Plumbing — progress 21
+C-1308,P-106,2026-02-24,01-100,General Conditions,Pacific Concrete Supply,41751.4,General Conditions — progress 22
+C-1309,P-106,2026-04-16,22-000,Site Utilities,Ironclad Steel Co.,52661.35,Site Utilities — progress 23
+C-1310,P-106,2026-02-14,15-400,Plumbing,Ironclad Steel Co.,32439.25,Plumbing — progress 24
+C-1311,P-106,2026-01-12,07-500,Roofing,Cornerstone Millwork,10039.74,Roofing — progress 25
+C-1312,P-106,2026-01-30,16-100,Electrical,Ironclad Steel Co.,41481.58,Electrical — progress 26
+C-1313,P-106,2026-03-19,02-300,Earthwork,Apex Earthworks,16667.91,Earthwork — progress 27
+C-1314,P-106,2026-02-01,03-300,Concrete,Kingfisher Glazing,58395.73,Concrete — progress 28
+C-1315,P-106,2026-01-20,05-100,Structural Steel,Ironclad Steel Co.,57011.73,Structural Steel — progress 29
+C-1316,P-106,2026-03-29,15-400,Plumbing,Summit Drywall Partners,58682.5,Plumbing — progress 30
+C-1317,P-106,2026-03-14,15-400,Plumbing,Summit Drywall Partners,5424.02,Plumbing — progress 31
+C-1318,P-106,2026-04-10,03-300,Concrete,Pacific Concrete Supply,13414.78,Concrete — progress 32
+C-1319,P-106,2026-04-01,16-100,Electrical,Ironclad Steel Co.,29475.6,Electrical — progress 33
+C-1320,P-106,2026-02-08,15-400,Plumbing,BlueOak Plumbing,47218.76,Plumbing — progress 34
+C-1321,P-106,2026-01-15,03-300,Concrete,Riverstone Roofing,51680.29,Concrete — progress 35
+C-1322,P-106,2026-03-09,15-400,Plumbing,Riverstone Roofing,21243.55,Plumbing — progress 36
+C-1323,P-106,2026-03-03,16-100,Electrical,BlueOak Plumbing,31633.05,Electrical — progress 37
+C-1324,P-106,2026-01-16,09-200,Drywall,Pacific Concrete Supply,60657.85,Drywall — progress 38
+C-1325,P-106,2026-01-06,22-000,Site Utilities,Cornerstone Millwork,3381.59,Site Utilities — progress 39
+C-1326,P-106,2026-02-28,09-200,Drywall,Summit Drywall Partners,30053.97,Drywall — progress 40
+C-1327,P-106,2026-03-12,02-300,Earthwork,Kingfisher Glazing,18612.98,Earthwork — progress 41
+C-1328,P-106,2026-02-16,03-300,Concrete,BlueOak Plumbing,46820.64,Concrete — progress 42
+C-1329,P-106,2026-02-06,22-000,Site Utilities,ProMech HVAC,27625.63,Site Utilities — progress 43
+C-1330,P-106,2026-03-14,16-100,Electrical,Kingfisher Glazing,52184.89,Electrical — progress 44
+C-1331,P-106,2026-03-22,01-100,General Conditions,Summit Drywall Partners,38058.77,General Conditions — progress 45
+C-1332,P-106,2026-02-01,02-300,Earthwork,Riverstone Roofing,43030.79,Earthwork — progress 46
+C-1333,P-106,2026-03-06,05-100,Structural Steel,ProMech HVAC,56287.41,Structural Steel — progress 47
+C-1334,P-107,2026-04-16,16-100,Electrical,Riverstone Roofing,44018.85,Electrical — progress 1
+C-1335,P-107,2026-04-08,06-100,Rough Carpentry,Cornerstone Millwork,22106.52,Rough Carpentry — progress 2
+C-1336,P-107,2026-03-21,02-300,Earthwork,Apex Earthworks,3896.56,Earthwork — progress 3
+C-1337,P-107,2026-02-03,01-100,General Conditions,Ironclad Steel Co.,62781.44,General Conditions — progress 4
+C-1338,P-107,2026-04-01,05-100,Structural Steel,Brightway Electric,63251.12,Structural Steel — progress 5
+C-1339,P-107,2026-04-16,01-100,General Conditions,Kingfisher Glazing,64822.92,General Conditions — progress 6
+C-1340,P-107,2025-12-29,06-100,Rough Carpentry,BlueOak Plumbing,56895.19,Rough Carpentry — progress 7
+C-1341,P-107,2026-03-30,16-100,Electrical,Summit Drywall Partners,5467.73,Electrical — progress 8
+C-1342,P-107,2026-03-16,09-200,Drywall,Pacific Concrete Supply,17846.7,Drywall — progress 9
+C-1343,P-107,2026-01-23,02-300,Earthwork,Summit Drywall Partners,44144.58,Earthwork — progress 10
+C-1344,P-107,2026-02-05,09-200,Drywall,Brightway Electric,36478.73,Drywall — progress 11
+C-1345,P-107,2026-04-07,06-100,Rough Carpentry,Pacific Concrete Supply,12195.14,Rough Carpentry — progress 12
+C-1346,P-107,2026-01-04,06-100,Rough Carpentry,Riverstone Roofing,43879.97,Rough Carpentry — progress 13
+C-1347,P-107,2026-01-10,02-300,Earthwork,Cornerstone Millwork,8591.45,Earthwork — progress 14
+C-1348,P-107,2026-01-10,03-300,Concrete,Riverstone Roofing,32328.36,Concrete — progress 15
+C-1349,P-107,2026-01-31,09-200,Drywall,ProMech HVAC,18942.15,Drywall — progress 16
+C-1350,P-107,2026-02-27,03-300,Concrete,Riverstone Roofing,4611.72,Concrete — progress 17
+C-1351,P-107,2026-04-07,22-000,Site Utilities,Summit Drywall Partners,21976.71,Site Utilities — progress 18
+C-1352,P-107,2026-04-16,15-400,Plumbing,Brightway Electric,10301.24,Plumbing — progress 19
+C-1353,P-107,2026-01-25,15-400,Plumbing,ProMech HVAC,63680.11,Plumbing — progress 20
+C-1354,P-107,2026-02-21,03-300,Concrete,Pacific Concrete Supply,53724.8,Concrete — progress 21
+C-1355,P-107,2026-04-06,05-100,Structural Steel,Apex Earthworks,20016.85,Structural Steel — progress 22
+C-1356,P-107,2026-03-26,05-100,Structural Steel,Cornerstone Millwork,22386.93,Structural Steel — progress 23
+C-1357,P-107,2026-03-08,03-300,Concrete,Apex Earthworks,12541.04,Concrete — progress 24
+C-1358,P-107,2026-03-16,22-000,Site Utilities,Kingfisher Glazing,12503.13,Site Utilities — progress 25
+C-1359,P-107,2026-01-30,15-400,Plumbing,Ironclad Steel Co.,28763.23,Plumbing — progress 26
+C-1360,P-107,2026-02-03,15-400,Plumbing,Cornerstone Millwork,45647.53,Plumbing — progress 27
+C-1361,P-107,2026-01-03,05-100,Structural Steel,Brightway Electric,63832.35,Structural Steel — progress 28
+C-1362,P-107,2026-03-25,01-100,General Conditions,Pacific Concrete Supply,63989.57,General Conditions — progress 29
+C-1363,P-107,2026-01-29,07-500,Roofing,BlueOak Plumbing,14265.45,Roofing — progress 30
+C-1364,P-107,2026-03-30,02-300,Earthwork,Summit Drywall Partners,57428.33,Earthwork — progress 31
+C-1365,P-107,2026-03-01,03-300,Concrete,Ironclad Steel Co.,11093.07,Concrete — progress 32
+C-1366,P-107,2026-02-09,09-200,Drywall,ProMech HVAC,2588.44,Drywall — progress 33
+C-1367,P-107,2026-04-06,22-000,Site Utilities,Pacific Concrete Supply,9707.2,Site Utilities — progress 34
+C-1368,P-107,2026-03-20,16-100,Electrical,Cornerstone Millwork,2991.77,Electrical — progress 35
+C-1369,P-107,2025-12-28,09-200,Drywall,Brightway Electric,14935.48,Drywall — progress 36
+C-1370,P-107,2026-02-14,01-100,General Conditions,Apex Earthworks,16784.21,General Conditions — progress 37
+C-1371,P-107,2025-12-27,01-100,General Conditions,Ironclad Steel Co.,41141.09,General Conditions — progress 38
+C-1372,P-107,2026-02-03,03-300,Concrete,Apex Earthworks,36333.76,Concrete — progress 39
+C-1373,P-107,2026-02-25,07-500,Roofing,Apex Earthworks,63045.28,Roofing — progress 40
+C-1374,P-107,2026-02-14,03-300,Concrete,ProMech HVAC,57628.79,Concrete — progress 41
+C-1375,P-107,2026-01-30,09-200,Drywall,Riverstone Roofing,21347.42,Drywall — progress 42
+C-1376,P-107,2025-12-24,22-000,Site Utilities,Apex Earthworks,32086.91,Site Utilities — progress 43
+C-1377,P-107,2026-04-21,01-100,General Conditions,Kingfisher Glazing,2581.11,General Conditions — progress 44
+C-1378,P-107,2026-02-17,02-300,Earthwork,Apex Earthworks,25619.04,Earthwork — progress 45
+C-1379,P-107,2026-04-20,07-500,Roofing,Riverstone Roofing,19886.86,Roofing — progress 46
+C-1380,P-107,2026-04-19,15-400,Plumbing,Pacific Concrete Supply,31342.41,Plumbing — progress 47
+C-1381,P-107,2026-01-14,09-200,Drywall,ProMech HVAC,45815.54,Drywall — progress 48
+C-1382,P-107,2026-01-12,01-100,General Conditions,Cornerstone Millwork,48709.83,General Conditions — progress 49
+C-1383,P-107,2026-03-17,03-300,Concrete,ProMech HVAC,50067.37,Concrete — progress 50
+C-1384,P-107,2026-01-05,22-000,Site Utilities,Summit Drywall Partners,39375.56,Site Utilities — progress 51
+C-1385,P-107,2026-02-05,15-400,Plumbing,ProMech HVAC,11960.79,Plumbing — progress 52
+C-1386,P-107,2026-04-12,15-400,Plumbing,Brightway Electric,62888.09,Plumbing — progress 53
+C-1387,P-107,2026-01-20,03-300,Concrete,ProMech HVAC,60938.15,Concrete — progress 54
+C-1388,P-107,2026-03-23,22-000,Site Utilities,Ironclad Steel Co.,25494.42,Site Utilities — progress 55
+C-1389,P-107,2026-03-13,03-300,Concrete,Kingfisher Glazing,40067.06,Concrete — progress 56
+C-1390,P-107,2026-02-14,09-200,Drywall,Summit Drywall Partners,22813.91,Drywall — progress 57
+C-1391,P-107,2026-01-06,15-400,Plumbing,ProMech HVAC,41755.67,Plumbing — progress 58
+C-1392,P-107,2026-04-13,07-500,Roofing,Cornerstone Millwork,46991.85,Roofing — progress 59
+C-1393,P-107,2026-01-10,09-200,Drywall,Kingfisher Glazing,59356.98,Drywall — progress 60
+C-1394,P-107,2026-04-14,05-100,Structural Steel,BlueOak Plumbing,43077.19,Structural Steel — progress 61
+C-1395,P-107,2026-02-25,02-300,Earthwork,Riverstone Roofing,29933.38,Earthwork — progress 62
+C-1396,P-107,2026-03-30,22-000,Site Utilities,BlueOak Plumbing,3928.07,Site Utilities — progress 63
+C-1397,P-108,2026-01-03,07-500,Roofing,Ironclad Steel Co.,19314.17,Roofing — progress 1
+C-1398,P-108,2026-02-16,05-100,Structural Steel,BlueOak Plumbing,3806.18,Structural Steel — progress 2
+C-1399,P-108,2026-03-08,07-500,Roofing,BlueOak Plumbing,10543.81,Roofing — progress 3
+C-1400,P-108,2026-04-07,03-300,Concrete,Brightway Electric,3062.5,Concrete — progress 4
+C-1401,P-108,2026-04-03,16-100,Electrical,ProMech HVAC,3480.08,Electrical — progress 5
+C-1402,P-108,2026-01-07,01-100,General Conditions,Riverstone Roofing,2659.1,General Conditions — progress 6
+C-1403,P-108,2026-01-01,05-100,Structural Steel,Brightway Electric,57117.96,Structural Steel — progress 7
+C-1404,P-108,2026-04-16,07-500,Roofing,Ironclad Steel Co.,10055.32,Roofing — progress 8
+C-1405,P-108,2026-03-19,09-200,Drywall,Cornerstone Millwork,35614.14,Drywall — progress 9
+C-1406,P-108,2026-03-14,09-200,Drywall,Ironclad Steel Co.,3952.36,Drywall — progress 10
+C-1407,P-108,2026-01-29,16-100,Electrical,Summit Drywall Partners,39920.61,Electrical — progress 11
+C-1408,P-108,2026-04-01,02-300,Earthwork,Pacific Concrete Supply,37736.26,Earthwork — progress 12
+C-1409,P-108,2026-03-09,03-300,Concrete,BlueOak Plumbing,25581.46,Concrete — progress 13
+C-1410,P-108,2026-03-28,06-100,Rough Carpentry,Kingfisher Glazing,10471.04,Rough Carpentry — progress 14
+C-1411,P-108,2026-02-26,16-100,Electrical,Riverstone Roofing,51124.17,Electrical — progress 15
+C-1412,P-108,2026-02-05,03-300,Concrete,Pacific Concrete Supply,38344.04,Concrete — progress 16
+C-1413,P-108,2026-01-12,06-100,Rough Carpentry,Cornerstone Millwork,40340.03,Rough Carpentry — progress 17
+C-1414,P-108,2026-01-29,01-100,General Conditions,Summit Drywall Partners,61075.54,General Conditions — progress 18
+C-1415,P-108,2026-01-13,07-500,Roofing,Pacific Concrete Supply,37151.11,Roofing — progress 19
+C-1416,P-108,2026-01-02,06-100,Rough Carpentry,Apex Earthworks,63077.2,Rough Carpentry — progress 20
+C-1417,P-108,2025-12-26,01-100,General Conditions,Kingfisher Glazing,32444.03,General Conditions — progress 21
+C-1418,P-108,2026-01-16,05-100,Structural Steel,BlueOak Plumbing,53949.81,Structural Steel — progress 22
+C-1419,P-108,2026-03-09,16-100,Electrical,BlueOak Plumbing,61002.33,Electrical — progress 23
+C-1420,P-108,2026-01-28,15-400,Plumbing,BlueOak Plumbing,14229.35,Plumbing — progress 24
+C-1421,P-108,2026-01-02,01-100,General Conditions,BlueOak Plumbing,20647.8,General Conditions — progress 25
+C-1422,P-108,2026-03-06,15-400,Plumbing,ProMech HVAC,50857.76,Plumbing — progress 26
+C-1423,P-108,2025-12-24,06-100,Rough Carpentry,BlueOak Plumbing,8094.68,Rough Carpentry — progress 27
+C-1424,P-108,2026-01-02,09-200,Drywall,Ironclad Steel Co.,23591.99,Drywall — progress 28
+C-1425,P-108,2026-01-30,15-400,Plumbing,Kingfisher Glazing,56746.91,Plumbing — progress 29
+C-1426,P-108,2026-01-31,03-300,Concrete,Riverstone Roofing,37072.45,Concrete — progress 30
+C-1427,P-108,2026-04-09,02-300,Earthwork,Brightway Electric,24667.51,Earthwork — progress 31
+C-1428,P-108,2026-01-27,01-100,General Conditions,Summit Drywall Partners,5946.09,General Conditions — progress 32
+C-1429,P-108,2026-03-05,01-100,General Conditions,BlueOak Plumbing,52669.37,General Conditions — progress 33
+C-1430,P-108,2026-01-28,06-100,Rough Carpentry,Pacific Concrete Supply,17223.64,Rough Carpentry — progress 34
+C-1431,P-108,2026-01-11,09-200,Drywall,Riverstone Roofing,9514.1,Drywall — progress 35
+C-1432,P-108,2026-04-18,06-100,Rough Carpentry,Pacific Concrete Supply,6517.64,Rough Carpentry — progress 36
+C-1433,P-108,2026-04-14,07-500,Roofing,Cornerstone Millwork,51672.17,Roofing — progress 37
+C-1434,P-108,2026-01-05,09-200,Drywall,Brightway Electric,6168.36,Drywall — progress 38
+C-1435,P-108,2026-01-10,16-100,Electrical,Summit Drywall Partners,39172.11,Electrical — progress 39
+C-1436,P-108,2026-01-26,09-200,Drywall,BlueOak Plumbing,54734.22,Drywall — progress 40
+C-1437,P-108,2026-03-15,22-000,Site Utilities,BlueOak Plumbing,44729.6,Site Utilities — progress 41
+C-1438,P-108,2025-12-23,01-100,General Conditions,Cornerstone Millwork,2985.23,General Conditions — progress 42
+C-1439,P-108,2026-04-15,15-400,Plumbing,BlueOak Plumbing,10840.4,Plumbing — progress 43
+C-1440,P-108,2026-03-02,05-100,Structural Steel,Riverstone Roofing,44344.57,Structural Steel — progress 44
+C-1441,P-108,2025-12-29,03-300,Concrete,Apex Earthworks,26736.35,Concrete — progress 45
+C-1442,P-108,2026-02-20,16-100,Electrical,Apex Earthworks,44075.04,Electrical — progress 46
+C-1443,P-108,2026-01-10,15-400,Plumbing,Pacific Concrete Supply,59196.13,Plumbing — progress 47
+C-1444,P-108,2026-03-12,15-400,Plumbing,Ironclad Steel Co.,12150.18,Plumbing — progress 48
+C-1445,P-108,2025-12-25,09-200,Drywall,Ironclad Steel Co.,46990.28,Drywall — progress 49
+C-1446,P-108,2026-01-08,09-200,Drywall,Ironclad Steel Co.,14541.83,Drywall — progress 50
+C-1447,P-108,2026-01-08,15-400,Plumbing,ProMech HVAC,28198.38,Plumbing — progress 51
+C-1448,P-108,2026-03-02,09-200,Drywall,Pacific Concrete Supply,12561.06,Drywall — progress 52
+C-1449,P-108,2026-04-06,05-100,Structural Steel,ProMech HVAC,19818.59,Structural Steel — progress 53
+C-1450,P-108,2026-01-20,03-300,Concrete,ProMech HVAC,25216.11,Concrete — progress 54
+C-1451,P-108,2025-12-24,01-100,General Conditions,Riverstone Roofing,53585.33,General Conditions — progress 55
+C-1452,P-108,2026-03-22,05-100,Structural Steel,Kingfisher Glazing,38641.11,Structural Steel — progress 56
+C-1453,P-108,2026-02-10,02-300,Earthwork,Kingfisher Glazing,4830.11,Earthwork — progress 57
+C-1454,P-108,2026-01-26,16-100,Electrical,Kingfisher Glazing,14660.32,Electrical — progress 58
+C-1455,P-108,2026-03-04,02-300,Earthwork,Apex Earthworks,19494.32,Earthwork — progress 59
+C-1456,P-108,2026-02-17,01-100,General Conditions,Kingfisher Glazing,21141.07,General Conditions — progress 60
+C-1457,P-108,2026-03-26,09-200,Drywall,Riverstone Roofing,62193.56,Drywall — progress 61
+C-1458,P-108,2026-02-20,09-200,Drywall,Kingfisher Glazing,55042.44,Drywall — progress 62

@@ -1,0 +1,4 @@
+customer,invoice_id,project_id,amount,days_outstanding,bucket
+Riverside Health System,INV-40101,P-101,68500,65,61-90
+Riverside Health System,INV-40103,P-101,61800,95,90+
+State DOT — District 4,INV-40102,P-103,54200,80,61-90

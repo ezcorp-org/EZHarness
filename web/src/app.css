@@ -1,0 +1,153 @@
+@import "tailwindcss";
+/* Component-local CSS used to live in `<script>`-level `import` statements
+ * inside Svelte files (DiffCard, DiffSummaryPanel, MarkdownRenderer). That
+ * pattern confused `@tailwindcss/vite` — it followed the CSS imports back
+ * into the .svelte file and tried to parse the whole component as CSS,
+ * choking on TypeScript type annotations. Centralising here sidesteps that
+ * plugin interaction; the styles are global either way. See
+ * https://github.com/tailwindlabs/tailwindcss/issues/16233. */
+@import "./lib/diff2html-patched.css";
+@import "./lib/hljs-theme.css";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-surface: #ffffff;
+  --color-surface-secondary: #f3f4f6;
+  --color-surface-tertiary: #e5e7eb;
+  --color-text-primary: #111827;
+  /* WCAG AA contrast: #4b5563 on #f3f4f6 = 6.18:1, on #ffffff = 7.21:1 (passes 4.5:1) */
+  --color-text-secondary: #4b5563;
+  /* WCAG AA contrast: #57606a on #f3f4f6 = 5.03:1, on #ffffff = 5.85:1 (passes 4.5:1) */
+  --color-text-muted: #57606a;
+  --color-border: #e5e7eb;
+  --color-accent: #3b82f6;
+}
+
+@layer base {
+  .dark {
+    --color-surface: #111827;
+    --color-surface-secondary: #030712;
+    --color-surface-tertiary: #1f2937;
+    --color-text-primary: #ffffff;
+    --color-text-secondary: #d1d5db;
+    /* WCAG AA contrast: #9ca3af on #111827 = 4.64:1 (passes 4.5:1 minimum) */
+    --color-text-muted: #9ca3af;
+    --color-border: #1f2937;
+    --color-accent: #3b82f6;
+  }
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+}
+
+html[data-dev-indicator="1"] img[src="/logo.svg"] {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-line {
+  height: 0.75rem;
+  border-radius: 0.25rem;
+  background: linear-gradient(90deg, var(--color-surface-tertiary) 25%, var(--color-surface-secondary) 50%, var(--color-surface-tertiary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Blur-in image loading: a shimmer placeholder while the bitmap
+   downloads, then the image fades + un-blurs once `load` fires.
+   Shared by chat markdown images, attachment cards, and image-gen
+   cards (wired via $lib/progressive-image.ts).
+
+   The shimmer is a ::before overlay rather than the wrapper's own
+   background-image: the attachment/image-gen containers set their
+   background via the `background` *shorthand* (which resets
+   background-image) and Svelte's scoped specificity would otherwise
+   win — an independent overlay layer sidesteps that entirely. */
+.progressive-img-wrap {
+  position: relative;
+  overflow: hidden;
+}
+.progressive-img-wrap:not(.progressive-img-wrap--loaded) {
+  /* Reserve a visible band: an unloaded <img> has ~0 intrinsic size,
+     so without this the placeholder would collapse to nothing. Cleared
+     by --loaded, after which the wrapper shrink-wraps the real image. */
+  min-width: 6rem;
+  min-height: 6rem;
+}
+.progressive-img-wrap::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image: linear-gradient(90deg, var(--color-surface-tertiary) 25%, var(--color-surface-secondary) 50%, var(--color-surface-tertiary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  transition: opacity 0.35s ease;
+}
+.progressive-img-wrap--loaded::before {
+  opacity: 0;
+  animation: none;
+}
+/* Note: a failed image keeps the shimmer stopped via --loaded. The
+   markdown path additionally collapses the wrapper (--error →
+   display:contents, scoped in MarkdownRenderer) so its fallback span
+   lays out unchanged; component cards have no such fallback and keep
+   their own frame. */
+
+.progressive-img {
+  position: relative;
+  z-index: 1;
+  opacity: 0;
+  filter: blur(16px);
+  transform: scale(1.03);
+  transition: opacity 0.35s ease, filter 0.35s ease, transform 0.35s ease;
+}
+.progressive-img--loaded {
+  opacity: 1;
+  filter: blur(0);
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-line { animation: none; }
+  .progressive-img-wrap::before { animation: none; }
+  .progressive-img {
+    opacity: 1;
+    filter: none;
+    transform: none;
+    transition: none;
+  }
+}
+
+.chat-input-container {
+  margin-bottom: calc(env(safe-area-inset-bottom, 0px) + 1.5rem);
+  padding-bottom: 0.5rem;
+}
+
+/* iOS Safari auto-zooms when a focused input's font-size is < 16px.
+ * Enforce 16px on touch devices to suppress that zoom while preserving
+ * user-initiated pinch-zoom (unlike user-scalable=no, which breaks WCAG 1.4.4). */
+@media (pointer: coarse) {
+  input, textarea, select {
+    font-size: 16px;
+  }
+}
+
+/* WCAG 2.1 AA focus indicators — keyboard-only via :focus-visible */
+:focus-visible {
+  outline: 2px solid var(--color-accent, #60a5fa);
+  outline-offset: 2px;
+}
+
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

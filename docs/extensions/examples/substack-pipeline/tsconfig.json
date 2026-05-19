@@ -1,0 +1,6 @@
+{
+  "// purpose": "LSP anchor — mirrors docs/extensions/examples/substack-pilot/tsconfig.json. Without a tsconfig here, editors fall back to moduleResolution: nodenext and flag bare './lib/foo' imports as TS2835. Extending the root tsconfig keeps the LSP aligned with how `bun test` and `scripts/typecheck.sh` actually resolve modules.",
+  "extends": "../../../../tsconfig.json",
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules"]
+}

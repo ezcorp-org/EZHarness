@@ -1,0 +1,113 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ezcorp
+      POSTGRES_USER: ezcorp
+      POSTGRES_PASSWORD: ezcorp
+    ports:
+      - "5432:5432"
+    volumes:
+      - testenv-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ezcorp"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    # `network_mode: host` is dev-only convenience: it lets the dev's
+    # browser hit the SvelteKit dev server on localhost without port
+    # mapping. Production deployments use isolated container networking
+    # (default Docker bridge / Kubernetes NetworkPolicy) — Phase 7's
+    # MCP namespace + forward-proxy stack is designed to work alongside
+    # that, NOT to depend on host networking. See `docs/deployment.md`
+    # §"Container networking" for the production layout.
+    network_mode: host
+    environment:
+      - DATABASE_URL=postgres://ezcorp:ezcorp@localhost:5432/ezcorp
+      - EZCORP_PORT=3000
+      # ORIGIN must match the URL the browser actually loads — hardcoding
+      # `localhost:3000` while the user accesses via Tailscale (or any
+      # other hostname) makes SvelteKit's url.origin disagree with the
+      # cookie's effective host, which can cascade into "logged out
+      # every few minutes" symptoms when the browser scopes the cookie
+      # to a domain that subsequent requests don't match. Falls back to
+      # localhost for the bare-localhost dev case.
+      - ORIGIN=${EZCORP_PUBLIC_URL:-http://localhost:3000}
+      - HF_HOME=/app/cache/huggingface
+      # Stable encryption keys — credentials survive across re-seeds.
+      # Values loaded from .env (gitignored, never committed).
+      - EZCORP_ENCRYPTION_SECRET=${EZCORP_ENCRYPTION_SECRET}
+      - EZCORP_ENCRYPTION_SALT=${EZCORP_ENCRYPTION_SALT}
+      # Stable JWT secret. If unset, src/auth/jwt.ts auto-generates one
+      # and stores it (encrypted) in the DB. Any transient
+      # decrypt-failure trips the legacy plaintext fallback and silently
+      # rotates the secret — every active JWT then fails verification
+      # and the user is bounced to /login. Pin explicitly.
+      - EZCORP_JWT_SECRET=${EZCORP_JWT_SECRET}
+      # Public origin for clickable deep-links in ai-kit tool responses.
+      - EZCORP_PUBLIC_URL=${EZCORP_PUBLIC_URL:-}
+      # Long-life session for dev parity with prod.
+      - EZCORP_SESSION_LIFETIME_DAYS=${EZCORP_SESSION_LIFETIME_DAYS:-180}
+      - EZCORP_SESSION_REFRESH_AFTER_DAYS=${EZCORP_SESSION_REFRESH_AFTER_DAYS:-7}
+      - EZCORP_SESSION_PREVIOUS_TOKEN_GRACE_SECONDS=${EZCORP_SESSION_PREVIOUS_TOKEN_GRACE_SECONDS:-60}
+      # Inverts the EZCorp logo across the UI (splash, login, error pages)
+      # so it's obvious at a glance that you're hitting the dev stack and
+      # not prod. Read by hooks.server.ts -> transformPageChunk.
+      - EZCORP_DEV_INDICATOR=1
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -f /app/state/.seeded ]; then
+          echo "Seeding database..."
+          bun src/db/seed-marketplace.ts && touch /app/state/.seeded
+          echo "Seeding complete."
+        else
+          echo "Database already seeded, skipping."
+        fi
+        cd web && bunx svelte-kit sync && cd ..
+        exec bun run dev -- --port 3000
+    volumes:
+      - testenv-state:/app/state
+      - model-cache:/app/cache
+      # Persist extension-generated files (openai-image-gen-2 writes PNG/WEBP
+      # here; rehydrator reads them back on subsequent turns so the model
+      # can describe/edit prior images). The dev server runs with
+      # cwd=/app/web (see `cd web && bun run dev` above), so
+      # saveImageToDisk resolves <cwd>/.ezcorp/ to this path. Without the
+      # mount, every container restart wipes the images and the tool-card
+      # URLs 404 silently.
+      - ext-data:/app/web/.ezcorp
+      # NOTE: a `./.env.seed:/app/.env.seed:ro` bind mount used to live
+      # here so re-seeds could restore OAuth tokens. It's gitignored,
+      # so on fresh clones Docker created an empty directory at the
+      # host path and the seed step crashed reading it as a file. If
+      # you actually rely on the seed-restore flow, re-add the line
+      # locally — the seed script (src/db/seed-marketplace.ts) no-ops
+      # cleanly when the file is absent.
+      # Mount source for live reload (Vite HMR)
+      - ./src:/app/src
+      - ./web/src:/app/web/src
+      - ./web/static:/app/web/static
+      - ./web/svelte.config.js:/app/web/svelte.config.js
+      - ./web/vite.config.ts:/app/web/vite.config.ts
+      - ./web/tsconfig.json:/app/web/tsconfig.json
+      - ./docs:/app/docs
+      # User-created projects — accessible on host at ./projects/
+      - ./projects:/app/projects
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  testenv-pgdata:
+  testenv-state:
+  model-cache:
+  ext-data:

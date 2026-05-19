@@ -1,0 +1,9 @@
+project_id,name,customer,contract_value,start_date,end_date,percent_complete,status,pm_name,pm_email
+P-101,Riverside Medical Center,Riverside Health System,14500000,2024-12-28,2026-11-20,0.62,active,Maya Chen,maya.chen@buildco.example
+P-102,Oak Street Apartments,Oakview Development LLC,8200000,2024-10-13,2027-02-04,0.97,active,Derek Patel,derek.patel@buildco.example
+P-103,Highway 40 Bridge Repair,State DOT — District 4,6800000,2025-05-05,2026-12-17,0.88,active,Luis Ramirez,luis.ramirez@buildco.example
+P-104,Summit Tech Campus Phase II,Summit Technologies Inc.,22300000,2025-04-05,2027-01-20,0.41,active,Jordan Blake,jordan.blake@buildco.example
+P-105,Northgate Elementary School,Northgate Unified School District,11100000,2024-10-09,2026-11-29,0.73,active,Priya Natarajan,priya.natarajan@buildco.example
+P-106,Harbor View Hotel Renovation,Harbor View Hospitality,4750000,2025-04-12,2027-04-17,0.98,active,Sam Whitaker,sam.whitaker@buildco.example
+P-107,Cedar Creek Water Treatment,Cedar Creek Municipal Utility,9400000,2024-11-14,2026-10-03,0.55,active,Ethan Park,ethan.park@buildco.example
+P-108,Metro Line 7 Station Fitout,Metro Transit Authority,7950000,2025-04-28,2026-12-08,0.34,active,Alex Rivera,alex.rivera@buildco.example

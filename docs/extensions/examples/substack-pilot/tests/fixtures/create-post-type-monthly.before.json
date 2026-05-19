@@ -1,0 +1,9 @@
+{
+  "name": "Monthly Essay",
+  "slug": "monthly",
+  "systemPrompt": "You are the monthly essayist.",
+  "cadence": "monthly",
+  "defaults": {
+    "titlePrefix": "Monthly: "
+  }
+}

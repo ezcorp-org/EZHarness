@@ -1,0 +1,33 @@
+co_id,project_id,description,amount,status,approved_date,billed_flag,billed_date
+CO-5000,P-101,Field change — Site Utilities,68559,approved,2026-02-12,true,2026-02-22
+CO-5001,P-101,Field change — Rough Carpentry,26958,approved,2026-02-07,true,2026-02-18
+CO-5002,P-102,Field change — General Conditions,47217,approved,2026-04-11,true,2026-04-23
+CO-5003,P-102,Field change — Plumbing,62014,approved,2026-04-13,true,2026-04-19
+CO-5004,P-103,Field change — Site Utilities,49646,approved,2026-03-28,true,2026-04-06
+CO-5005,P-103,Field change — Roofing,68850,approved,2026-03-21,true,2026-04-03
+CO-5006,P-103,Field change — General Conditions,37391,approved,2026-02-21,true,2026-03-07
+CO-5007,P-103,Field change — Structural Steel,38912,pending,,false,
+CO-5008,P-104,Field change — General Conditions,26859,approved,2026-03-22,true,2026-04-02
+CO-5009,P-104,Field change — Drywall,65769,approved,2026-03-10,true,2026-03-14
+CO-5010,P-104,Field change — Earthwork,66746,draft,,false,
+CO-5011,P-104,Field change — Concrete,80099,draft,,false,
+CO-5012,P-104,Field change — Concrete,51449,approved,2026-03-04,true,2026-03-07
+CO-5013,P-105,Field change — Site Utilities,54883,draft,,false,
+CO-5014,P-105,Field change — Concrete,76511,approved,2026-02-25,true,2026-03-04
+CO-5015,P-105,Field change — Plumbing,31932,approved,2026-02-28,true,2026-03-04
+CO-5016,P-106,Field change — Plumbing,32534,approved,2026-04-17,true,2026-05-01
+CO-5017,P-106,Field change — General Conditions,38178,approved,2026-02-13,true,2026-02-27
+CO-5018,P-106,Field change — Drywall,39898,approved,2026-04-11,true,2026-04-23
+CO-5019,P-106,Field change — Drywall,83599,approved,2026-03-23,true,2026-04-06
+CO-5020,P-106,Field change — Electrical,32204,pending,,false,
+CO-5021,P-107,Field change — Electrical,81529,draft,,false,
+CO-5022,P-107,Field change — Rough Carpentry,27072,approved,2026-02-02,true,2026-02-09
+CO-5023,P-107,Field change — Roofing,89716,approved,2026-03-26,true,2026-03-30
+CO-5024,P-107,Field change — Plumbing,31827,approved,2026-02-19,true,2026-02-25
+CO-5025,P-108,Field change — Plumbing,78968,pending,,false,
+CO-5026,P-108,Field change — Earthwork,8885,draft,,false,
+CO-5027,P-108,Field change — Earthwork,29250,pending,,false,
+CO-5028,P-108,Field change — General Conditions,57017,draft,,false,
+CO-9001,P-101,Imaging suite — additional lead shielding per HMC-RFI-18,45000,approved,2026-04-08,false,
+CO-9002,P-104,Owner-directed MEP reroute at Level 3 (Summit CCO-22),32000,approved,2026-04-13,false,
+CO-9003,P-105,Fire alarm upgrade per AHJ comment letter,28000,approved,2026-04-01,false,

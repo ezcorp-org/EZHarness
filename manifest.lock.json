@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-18T00:58:10.301Z",
+  "extensions": {
+    "ai-kit": {
+      "version": "0.1.0",
+      "entrypoint": "./src/mcp/server.ts",
+      "toolsHash": "sha256-FtpOuivDU5IV/QVoEsVy1OZbQaJoayur0U8uBroM+oM="
+    },
+    "ask-user": {
+      "version": "1.0.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-lYerjNPlYIl7x5j3KFMd4s2G2GMtG9rnRf/0MACSZTw="
+    },
+    "claude-design": {
+      "version": "0.1.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-u0CEXzGRrtU8nMcVspIekRiYylOTBXz1pyFAHc66+Yw="
+    },
+    "code-review-delegator": {
+      "version": "1.0.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-A9UOjnlxbtoqYxnNcFcF2Pj1RtiTYC6iMHbkmaPyFmk="
+    },
+    "excel": {
+      "version": "0.1.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-ointQYQvhoYoSjqHqiyMJS8ErsANsdzB9LERecGZKrI="
+    },
+    "extension-author": {
+      "version": "0.1.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-DhMG1XKRdEB2W5kqI3FIIwvGqxPI+R/um5k/O0G28+I="
+    },
+    "file-refactor": {
+      "version": "1.0.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-ZrbtnX6daOf+dmvPn1BpDsozxuS1sftGmUg4qEvxdNE="
+    },
+    "github-stats": {
+      "version": "1.0.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-UdILWKrly+nKrH9EKHY8eKe0g+aDVaephsKN2fPp78I="
+    },
+    "kokoro-tts": {
+      "version": "1.0.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-T1PNoYwrqgwDVLtfmj7L5e0Sq02OEbqHPC8RFhICuUU="
+    },
+    "lessons-distiller": {
+      "version": "1.0.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-glO+sQhrOm8Idmpde4Kpnmp/ajh7tiYyCEBLQbrFk9w="
+    },
+    "log-analyzer": {
+      "version": "1.0.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-dA4GjmXIDg/386a6bCIZmKqHfQ1kQ3TFHZce/am22VY="
+    },
+    "markdown-utils": {
+      "version": "1.0.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-5cI0VNksrUVJgFNO/lOsM7M1pDlMrHYfbMETLOD/z0Q="
+    },
+    "memory-extractor": {
+      "version": "1.0.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-T1PNoYwrqgwDVLtfmj7L5e0Sq02OEbqHPC8RFhICuUU="
+    },
+    "multi-agent-orchestrator": {
+      "version": "1.0.0",
+      "entrypoint": "",
+      "toolsHash": "sha256-T1PNoYwrqgwDVLtfmj7L5e0Sq02OEbqHPC8RFhICuUU="
+    },
+    "openai-image-gen-2": {
+      "version": "1.2.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-HOF7FzIhVtW9OXzj2M4uPkbKTWUvXlFXiqOIch/nqIc="
+    },
+    "orchestration": {
+      "version": "1.2.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-8+9ZRxFlm1WCIOQuJpG+ACwshjyvFTej5mLMR2PesYI="
+    },
+    "price-chart": {
+      "version": "0.1.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-DH1hAGGVjOhP+sEBhiREmnYPOX5lJXw5ybk2rciD3M8="
+    },
+    "project-analyzer": {
+      "version": "1.0.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-dutgaNNWXGQHgFGIZtlN/wTR6xnQaZAtEtYUN1ziPPk="
+    },
+    "property-intelligence-agent": {
+      "version": "1.0.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-5kKfynTWmaVosft3kzpDX0uI7qUE5v+NjPSkvmWFdVM="
+    },
+    "research-agent": {
+      "version": "1.0.0",
+      "entrypoint": "",
+      "toolsHash": "sha256-T1PNoYwrqgwDVLtfmj7L5e0Sq02OEbqHPC8RFhICuUU="
+    },
+    "scratchpad": {
+      "version": "1.0.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-7IBGzpaJWVfxxBXATWD5gt/qnnUyDz84evxn1JH8Too="
+    },
+    "task-stack": {
+      "version": "1.0.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-oxeKik+umu0vGhl8Nc0G7ya8r+XKEIK1kpfQjVBzEM4="
+    },
+    "task-tracking": {
+      "version": "1.0.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-ExYEdSw+2CePLvdtKZugwZb8VrdbCXxwZffOqMdj4aY="
+    },
+    "todo-tracker": {
+      "version": "1.0.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-64NRn7GzgAhgGmRhi9tbSLhEhudyBeUKWYvj5CX+fA8="
+    },
+    "web-search": {
+      "version": "1.0.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-Yy340uViWW1c6M+q5ffmFn2OV7a4HGnQZdxGb9M7stw="
+    }
+  }
+}

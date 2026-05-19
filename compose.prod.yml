@@ -1,0 +1,180 @@
+# Production / self-hosted deployment.
+#
+# Quick start:
+#   1. Copy `.env.prod.example` → `.env.prod` and fill it in.
+#   2. docker compose -f compose.prod.yml up -d
+#   3. Open http://localhost:4000 and create the admin account.
+#
+# See docs/production-guide.md for backups, migration safety, auto-updates,
+# external Postgres, and TLS reverse-proxy setup.
+
+# Distinct project name so this stack and `docker-compose.yml` (dev) don't
+# stomp each other. Without it, both default to `ez-corp-ai` (the directory
+# name) and `docker compose up` against either file recreates the other's
+# `app` container in place.
+name: ezcorp-prod
+
+services:
+  app:
+    # Default: build the image locally from the source tree on first
+    # `up`. The image is tagged `ezcorp:local` and reused on subsequent
+    # ups (the layer cache makes warm builds quick). To switch to a
+    # pre-built registry image once one is published, set
+    # `EZCORP_IMAGE=ghcr.io/ezcorp-org/ezcorp:<tag>` in `.env.prod` —
+    # the `image:` line below will resolve to that tag and Compose will
+    # pull instead of building. `EZCORP_IMAGE=ezcorp:local` also forces
+    # a local-build deploy of a custom tag if you want isolation.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: "${EZCORP_IMAGE:-ezcorp:local}"
+    # Required for the MCP sandboxed launcher: extensions spawn their
+    # MCP servers inside a fresh user+network namespace, which the
+    # kernel only allows for unprivileged processes if either
+    # `sysctl kernel.unprivileged_userns_clone=1` is set on the host
+    # (Debian/Ubuntu default-off) OR the container is granted
+    # NET_ADMIN. Granting the cap is the portable choice — it works
+    # everywhere without host tuning. See Dockerfile:46–49 for the
+    # upstream rationale.
+    cap_add:
+      - NET_ADMIN
+    restart: unless-stopped
+    # Give the SIGTERM handler 30s to drain HTTP, stop daemons, and close
+    # PGlite before Docker escalates to SIGKILL. The app's internal hard
+    # timeout (`web/src/lib/server/shutdown.ts:HARD_TIMEOUT_MS`) is 25s —
+    # the 5s headroom guarantees a clean exit always lands within Docker's
+    # window. Without this override the default is 10s, which on 2026-05-10
+    # twice caught PGlite mid-flush and left a stale `postmaster.pid` lock
+    # that the next boot mis-classified as data corruption (incident write-up
+    # at `tasks/incident-2026-05-10-stale-pid.md`).
+    stop_grace_period: 30s
+    # Load secrets and tunables from the host-side .env.prod (gitignored).
+    # `${VAR:?...}` interpolation below makes `docker compose` abort the
+    # deploy with a clear error if any required variable is missing —
+    # we'd rather fail at boot than silently auto-generate ephemeral
+    # secrets that break decrypts on the next restart.
+    env_file:
+      - .env.prod
+    ports:
+      - "${EZCORP_PORT_HOST:-4000}:3000"
+    environment:
+      EZCORP_PORT: "3000"
+      ORIGIN: "${EZCORP_PUBLIC_URL:?EZCORP_PUBLIC_URL is required — set it in .env.prod (e.g. https://ezcorp.example.com). svelte-adapter-bun defaults the scheme to https without it, which breaks login over plain HTTP.}"
+      EZCORP_PUBLIC_URL: "${EZCORP_PUBLIC_URL:?EZCORP_PUBLIC_URL is required — set it in .env.prod}"
+      EZCORP_ENCRYPTION_SECRET: "${EZCORP_ENCRYPTION_SECRET:?EZCORP_ENCRYPTION_SECRET is required — generate with: openssl rand -base64 32, then set in .env.prod. Rotating this value renders every stored credential unreadable.}"
+      EZCORP_ENCRYPTION_SALT: "${EZCORP_ENCRYPTION_SALT:?EZCORP_ENCRYPTION_SALT is required — generate with: openssl rand -base64 16, then set in .env.prod}"
+      EZCORP_JWT_SECRET: "${EZCORP_JWT_SECRET:?EZCORP_JWT_SECRET is required — generate with: openssl rand -base64 32, then set in .env.prod. Rotating this value invalidates every live session.}"
+      # Force the `Secure` flag on session cookies. Only flip to "true"
+      # when traffic reaches the app over HTTPS — otherwise browsers
+      # silently drop the cookie and login appears broken.
+      FORCE_SECURE_COOKIES: "${FORCE_SECURE_COOKIES:-false}"
+      # Session lifetime tuning — see docs/production-guide.md.
+      # Defaults (90 / 7 / 60) apply if .env.prod doesn't set them; we
+      # forward them explicitly so the container surfaces the live values
+      # to anyone inspecting `docker exec env`.
+      EZCORP_SESSION_LIFETIME_DAYS: "${EZCORP_SESSION_LIFETIME_DAYS:-90}"
+      EZCORP_SESSION_REFRESH_AFTER_DAYS: "${EZCORP_SESSION_REFRESH_AFTER_DAYS:-7}"
+      EZCORP_SESSION_PREVIOUS_TOKEN_GRACE_SECONDS: "${EZCORP_SESSION_PREVIOUS_TOKEN_GRACE_SECONDS:-60}"
+      # External update check (default on). Set to "false" to disable the
+      # in-app update banner and the periodic GitHub Releases poll.
+      EZCORP_CHECK_UPDATES: "${EZCORP_CHECK_UPDATES:-true}"
+      EZCORP_UPDATE_REPO: "${EZCORP_UPDATE_REPO:-ezcorp-org/EZcorp}"
+      # PGlite open-failure policy. Default (unset / 0 / false): when PGlite
+      # fails to open the data directory, the container LEAVES THE DATA
+      # ALONE, writes /app/data/.ezcorp-recovery-needed.json, and reports
+      # /api/ready 503 (state=degraded, reason=data-recovery-needed) so an
+      # operator can restore from a snapshot under /app/data/backups/. See
+      # "Recovering from data-recovery-needed state" in docs/production-guide.md.
+      #
+      # Set to "1" (or "true") ONLY if you accept that any open failure
+      # auto-destroys the data dir (renamed to ezcorp.corrupted.<ts>/ then
+      # re-created empty). Appropriate for: CI / test environments / fresh
+      # installs with no data / self-hosters who have verified offsite
+      # backups. Two production data-loss incidents on 2026-05-10 traced to
+      # the old (always-on) auto-destroy behavior; defaulting off is now
+      # mandatory.
+      EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE: "${EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE:-}"
+      # Disable svelte-adapter-bun's idle-connection killer. Default is 10s,
+      # which murders SSE connections on /api/runtime-events between
+      # heartbeats and shows up as "keeps reconnecting" in the UI. Our
+      # SSE handler emits its own 15s heartbeat to detect dead clients,
+      # and TCP RST handles abandoned sockets, so the adapter-level
+      # axe is redundant and harmful.
+      IDLE_TIMEOUT: "0"
+    volumes:
+      # Single named volume covers both the PGlite data dir (/app/data/ezcorp)
+      # and snapshot backups (/app/data/backups). Surviving `docker compose
+      # down` is automatic; only `docker compose down -v` destroys it.
+      - ezcorp-data:/app/data
+      # Persist extension-generated files (openai-image-gen-2 writes PNG/WEBP
+      # here; rehydrator reads them back on subsequent turns so the model
+      # can describe/edit prior images). WORKDIR=/app in Dockerfile, so
+      # saveImageToDisk resolves <cwd>/.ezcorp/ to this path. Without the
+      # mount, every container restart or image upgrade wipes the files
+      # and tool-card URLs 404 silently.
+      - ext-data:/app/.ezcorp
+    healthcheck:
+      # Liveness probe. Readiness is served separately at /api/ready — hook
+      # that into your orchestrator if you have one.
+      test: ["CMD", "bun", "-e", "const r = await fetch('http://localhost:3000/api/health'); process.exit(r.ok || r.status === 401 ? 0 : 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    labels:
+      # Opt-in marker for the optional Watchtower service below.
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Optional: automatic image updates via Watchtower.
+  #
+  # Only useful once you switch off the default local build and start
+  # pulling a registry-hosted image (set `EZCORP_IMAGE=ghcr.io/...`
+  # above). Watchtower polls the registry every 24 hours and recreates
+  # the `app` container when a new tag is pushed; if you pinned a
+  # specific version tag, it won't update. Has no effect on the
+  # default `build:` flow — rebuilding from source is a manual
+  # `docker compose up -d --build`. Disable by default because
+  # unexpected restarts are worse than missed updates for self-hosters;
+  # the in-app banner keeps you informed either way.
+  # ────────────────────────────────────────────────────────────────────────
+  #
+  # watchtower:
+  #   image: containrrr/watchtower:latest
+  #   restart: unless-stopped
+  #   environment:
+  #     WATCHTOWER_LABEL_ENABLE: "true"
+  #     WATCHTOWER_POLL_INTERVAL: "86400"      # 24h
+  #     WATCHTOWER_CLEANUP: "true"
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Optional: external Postgres (use instead of embedded PGlite once you
+  # outgrow PGlite's single-writer / ~few-GB sweet spot). Uncomment the
+  # service and uncomment DATABASE_URL under `app.environment`.
+  # ────────────────────────────────────────────────────────────────────────
+  #
+  # postgres:
+  #   image: pgvector/pgvector:pg16
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_DB: ezcorp
+  #     POSTGRES_USER: ezcorp
+  #     POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+  #   volumes:
+  #     - ezcorp-pg:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ezcorp"]
+  #     interval: 5s
+  #     retries: 5
+  #
+  # Add under app.environment:
+  #   DATABASE_URL: "postgres://ezcorp:${POSTGRES_PASSWORD}@postgres:5432/ezcorp"
+  # Add under app.depends_on:
+  #   postgres: { condition: service_healthy }
+
+volumes:
+  ezcorp-data:
+  ext-data:
+  # ezcorp-pg:

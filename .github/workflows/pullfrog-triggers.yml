@@ -1,0 +1,95 @@
+# Pullfrog event triggers. Each job is gated on author_association so only
+# repo OWNER / org MEMBER / direct COLLABORATOR can invoke the agent —
+# external contributors and drive-by accounts are ignored.
+# To narrow further, edit the ALLOWED associations in each job's `if:`.
+# To remove a trigger, delete its job. To remove Pullfrog entirely,
+# delete both .github/workflows/pullfrog*.yml files.
+name: Pullfrog triggers
+
+on:
+  issue_comment:
+    types: [created]
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened]
+  pull_request_review:
+    types: [submitted]
+  pull_request_review_comment:
+    types: [created]
+
+# Caller permissions act as the ceiling for the reusable workflow.
+# Pullfrog needs: contents (checkout + read code), pull-requests/issues (comment),
+# actions/checks (read run + check status — required by its MCP token scope).
+# id-token kept for compatibility with the standalone Pullfrog backend path,
+# but unused when GH_TOKEN short-circuit is active.
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+  issues: write
+  actions: read
+  checks: read
+
+jobs:
+  # @pullfrog mention in an issue or PR comment
+  on-issue-comment:
+    if: >
+      github.event_name == 'issue_comment' &&
+      contains(github.event.comment.body, '@pullfrog') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    uses: ./.github/workflows/pullfrog.yml
+    with:
+      prompt: ${{ toJSON(github.event) }}
+    secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+  # @pullfrog mention in a newly-opened issue body
+  on-issue-opened:
+    if: >
+      github.event_name == 'issues' &&
+      contains(github.event.issue.body, '@pullfrog') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)
+    uses: ./.github/workflows/pullfrog.yml
+    with:
+      prompt: ${{ toJSON(github.event) }}
+    secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+  # @pullfrog mention in a PR review body
+  on-pr-review:
+    if: >
+      github.event_name == 'pull_request_review' &&
+      contains(github.event.review.body, '@pullfrog') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association)
+    uses: ./.github/workflows/pullfrog.yml
+    with:
+      prompt: ${{ toJSON(github.event) }}
+    secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+  # @pullfrog mention in an inline PR review comment
+  on-pr-review-comment:
+    if: >
+      github.event_name == 'pull_request_review_comment' &&
+      contains(github.event.comment.body, '@pullfrog') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    uses: ./.github/workflows/pullfrog.yml
+    with:
+      prompt: ${{ toJSON(github.event) }}
+    secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+  # Auto-review every PR opened by a trusted author
+  on-pr-opened-autoreview:
+    if: >
+      github.event_name == 'pull_request' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+    uses: ./.github/workflows/pullfrog.yml
+    with:
+      prompt: |
+        Review PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}.
+        Focus on correctness, security, and clarity. Call out specific files and lines.
+        Be concise — skip nits unless they affect correctness. If the PR looks good, say so briefly.
+    secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
