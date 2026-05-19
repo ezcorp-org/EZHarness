@@ -27,6 +27,11 @@ mock.module("../db/queries/conversations", () => ({
   createSubConversation: async () => ({ id: "sub-int" }),
 }));
 
+// Master kill-switch absent ⇒ feature enabled (the behavior under test).
+mock.module("../db/queries/settings", () => ({
+  getSetting: async () => undefined,
+}));
+
 const { startAssignment } = await import("../runtime/start-assignment");
 const { EventBus } = await import("../runtime/events");
 const { _internals, _resetBindingsForTests } = await import(

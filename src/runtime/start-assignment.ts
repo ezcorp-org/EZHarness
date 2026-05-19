@@ -24,6 +24,7 @@ import type { EventBus } from "./events";
 import type { AgentEvents, TeamMemberOverrides, TeamToolScope } from "../types";
 import { CURRENT_MODEL_SENTINEL } from "../types";
 import { createSubConversation, getSubConversations } from "../db/queries/conversations";
+import { getSetting } from "../db/queries/settings";
 import { dequeue } from "./pending-messages";
 import { logger } from "../logger";
 import type {
@@ -173,7 +174,16 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     orchestrationDepth, autonomousContinuation,
   } = opts;
 
-  const autonomousEnabled = !!autonomousContinuation;
+  // Master kill-switch (Advanced Settings → "Agent goal pinning &
+  // autonomous continuation"). Default-true: absent / null / non-boolean
+  // ⇒ enabled. When OFF, behavior reverts to pre-feature: no pinned
+  // objective in the system prompt and no autonomous self-continuation,
+  // regardless of any per-spawn opt-in. Gating here covers EVERY spawn
+  // path (manual route, spawn-assignment reverse-RPC, future callers).
+  const autonomyFeatureEnabled =
+    (await getSetting("global:agentAutonomyEnabled")) !== false;
+
+  const autonomousEnabled = autonomyFeatureEnabled && !!autonomousContinuation;
   const maxAutoCycles =
     autonomousContinuation?.maxCycles ?? DEFAULT_MAX_AUTONOMOUS_CYCLES;
   let autoCycle = 0;
@@ -266,7 +276,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     const base = overrides?.systemPromptAppend
       ? `${agentConfig.prompt}\n\n${overrides.systemPromptAppend}`
       : agentConfig.prompt;
-    return `${base}\n\n${objectiveBlock}`;
+    return autonomyFeatureEnabled ? `${base}\n\n${objectiveBlock}` : base;
   };
 
   /**

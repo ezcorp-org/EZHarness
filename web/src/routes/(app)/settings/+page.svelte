@@ -28,6 +28,7 @@
 	let customModels = $state<{ modelId: string; provider: string; tier: string; baseUrl?: string }[]>([]);
 	let globalPrompt = $state("");
 	let showObservability = $state(false);
+	let agentAutonomyEnabled = $state(true);
 	// Phase 52.5 — Audit & Visibility settings.
 	let showBuiltinPills = $state(true);
 	let showInstalledPills = $state(false);
@@ -46,6 +47,7 @@
 	let savingCustom = $state(false);
 	let savingPrompt = $state(false);
 	let savingObs = $state(false);
+	let savingAutonomy = $state(false);
 
 	// Custom model form
 	let newModelId = $state("");
@@ -156,6 +158,7 @@
 			ollamaUrl = (settings["provider:ollamaUrl"] as string) ?? "http://localhost:11434";
 			globalPrompt = (settings["global:systemPrompt"] as string) ?? "";
 			showObservability = (settings["global:showObservability"] as boolean) ?? false;
+			agentAutonomyEnabled = settings["global:agentAutonomyEnabled"] !== false;
 			// Phase 52.5 — audit & visibility section. Defaults
 			// match the spec: built-in pills ON, installed pills OFF,
 			// event-delivery audit sample 1-in-100.
@@ -465,6 +468,13 @@
 		showObservability = !showObservability;
 		try { await upsertSetting("global:showObservability", showObservability); }
 		finally { savingObs = false; }
+	}
+
+	async function toggleAgentAutonomy() {
+		savingAutonomy = true;
+		agentAutonomyEnabled = !agentAutonomyEnabled;
+		try { await upsertSetting("global:agentAutonomyEnabled", agentAutonomyEnabled); }
+		finally { savingAutonomy = false; }
 	}
 
 	// Phase 52.5 — Audit & Visibility persistence. Same upsertSetting
@@ -1475,6 +1485,23 @@
 				aria-label="Toggle observability"
 			>
 				<span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 {showObservability ? 'translate-x-5' : 'translate-x-0'}"></span>
+			</button>
+		</div>
+		<div class="mt-4 flex items-center justify-between border-t border-[var(--color-border)] pt-4">
+			<div>
+				<p class="text-sm text-[var(--color-text-primary)] flex items-center gap-2">Agent goal pinning &amp; autonomous continuation <InfoTooltip text="When enabled, spawned sub-agents get their objective pinned into the system prompt every cycle and may opt into self-continuation (re-prompting themselves until done). Turn OFF to revert agents to the prior one-shot behavior — no pinned objective, no autonomous looping, regardless of any per-task opt-in." /></p>
+				<p class="text-xs text-[var(--color-text-secondary)]">Off reverts spawned agents to the prior one-shot behavior across all task/agent spawns.</p>
+			</div>
+			<button
+				onclick={toggleAgentAutonomy}
+				disabled={savingAutonomy}
+				class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none {agentAutonomyEnabled ? 'bg-blue-600' : 'bg-gray-600'}"
+				role="switch"
+				aria-checked={agentAutonomyEnabled}
+				aria-label="Toggle agent goal pinning and autonomous continuation"
+				data-testid="toggle-agent-autonomy"
+			>
+				<span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 {agentAutonomyEnabled ? 'translate-x-5' : 'translate-x-0'}"></span>
 			</button>
 		</div>
 	</div>

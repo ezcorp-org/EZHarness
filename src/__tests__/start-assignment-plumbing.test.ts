@@ -51,6 +51,14 @@ mock.module("../db/queries/conversations", () => ({
   },
 }));
 
+// Master kill-switch (Advanced Settings → global:agentAutonomyEnabled).
+// Default impl returns undefined ⇒ `!== false` ⇒ feature ENABLED, so the
+// existing assertions (objective pinned, autonomous works) hold unchanged.
+let getSettingImpl: (key: string) => Promise<unknown> = async () => undefined;
+mock.module("../db/queries/settings", () => ({
+  getSetting: async (key: string) => getSettingImpl(key),
+}));
+
 // Dynamic import AFTER mocks are installed.
 const {
   startAssignment,
@@ -172,6 +180,7 @@ beforeEach(() => {
   getSubConversationsImpl = async () => [];
   createSubConversationImpl = async () => ({ id: "sub-fresh-created" });
   createSubConversationCalls = [];
+  getSettingImpl = async () => undefined;
 });
 
 // ── 0. Sub-agent prompt — must tell the LLM not to call task_complete ─
@@ -934,5 +943,66 @@ describe("startAssignment — autonomous continuation", () => {
     expect(calls).toHaveLength(1);
     expect(assignment.autonomousCycle).toBeUndefined();
     expect(assignment.status).toBe("assigned"); // idempotent guard held
+  });
+});
+
+// ── 10. Advanced Settings master kill-switch ───────────────────────
+//
+// global:agentAutonomyEnabled === false reverts to pre-feature
+// behavior across ALL spawn paths: no pinned objective in the system
+// prompt, and autonomous self-continuation impossible even when a
+// caller opted in. Gated once inside startAssignment() via getSetting.
+
+describe("startAssignment — global:agentAutonomyEnabled kill-switch", () => {
+  test("OFF: objective NOT pinned on initial cycle (system === base)", async () => {
+    getSettingImpl = async () => false;
+    const { executor, calls } = makeMockExecutor();
+    const opts = baseOpts({ executor, reuseSubConversationId: "sub-ks1" });
+    await startAssignment(opts);
+    expect(calls[0]!.options.system).toBe("you are alice");
+  });
+
+  test("OFF: objective NOT pinned on the user-driven auto-continue cycle", async () => {
+    getSettingImpl = async () => false;
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const opts = baseOpts({ executor, bus, reuseSubConversationId: "sub-ks2" });
+    const { agentRunId } = await startAssignment(opts);
+
+    enqueue("sub-ks2", { messageId: "m", content: "go on", createdAt: new Date().toISOString() });
+    bus.emit("run:complete", {
+      run: { id: agentRunId, agentName: "alice", status: "success", startedAt: Date.now(), logs: [], result: { success: true, output: "x" } },
+      conversationId: "conv-parent",
+    } as AgentEvents["run:complete"]);
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.options.system).toBe("you are alice");
+  });
+
+  test("OFF: autonomous opt-in is suppressed → legacy terminal completion", async () => {
+    getSettingImpl = async () => false;
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-ks3",
+      autonomousContinuation: { maxCycles: 3 },
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    emitComplete(bus, agentRunId, "no sentinel, would have looped if enabled");
+
+    expect(calls).toHaveLength(1); // no autonomous recursion
+    expect(assignment.status).toBe("completed");
+    expect(assignment.autonomousCycle).toBeUndefined();
+  });
+
+  test("explicit true: behaves exactly as enabled (objective pinned)", async () => {
+    getSettingImpl = async () => true;
+    const { executor, calls } = makeMockExecutor();
+    const opts = baseOpts({ executor, reuseSubConversationId: "sub-ks4" });
+    await startAssignment(opts);
+    expect(calls[0]!.options.system).toBe(withObjective("you are alice"));
   });
 });
