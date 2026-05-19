@@ -147,11 +147,11 @@ describe("POST /api/tool-calls/:id/permission", () => {
 });
 
 describe("GET /api/projects/:id/tool-permission-mode", () => {
-  test("returns 'ask' when no setting exists", async () => {
+  test("returns 'yolo' (DEFAULT_PERMISSION_MODE) when no setting exists", async () => {
     const res = await handleGetPermissionMode(getMode("proj-1"), "proj-1");
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ mode: "ask" });
+    expect(await res.json()).toEqual({ mode: "yolo" });
   });
 
   test("returns stored mode when set", async () => {

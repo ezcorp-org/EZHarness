@@ -10,6 +10,7 @@ import {
   resolvePermission,
   getPendingApprovalConversation,
   getPendingExtensionGate,
+  DEFAULT_PERMISSION_MODE,
 } from "../runtime/tools/permissions";
 import type { PermissionMode } from "../runtime/tools/permissions";
 import { getSetting, upsertSetting } from "../db/queries/settings";
@@ -185,7 +186,7 @@ export async function handleGetPermissionMode(_req: Request, projectId: string):
   const stored = await getSetting(`project:${projectId}:tool_permission_mode`);
   const mode = typeof stored === "string" && VALID_MODES.has(stored as PermissionMode)
     ? stored
-    : "ask";
+    : DEFAULT_PERMISSION_MODE;
   return json({ mode });
 }
 

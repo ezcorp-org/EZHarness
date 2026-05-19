@@ -7,6 +7,13 @@ export type PermissionMode = "ask" | "auto-edit" | "yolo";
 
 export const PERMISSION_MODES: PermissionMode[] = ["ask", "auto-edit", "yolo"];
 
+/**
+ * Default mode shown before the per-project setting loads, and the
+ * server-side fallback when a project has no stored mode (fresh install).
+ * Mirrors backend DEFAULT_PERMISSION_MODE in src/runtime/tools/permissions.ts.
+ */
+export const DEFAULT_PERMISSION_MODE: PermissionMode = "yolo";
+
 /** Map permission mode to a CSS color class for the indicator dot */
 export function modeToColor(mode: PermissionMode): string {
 	switch (mode) {

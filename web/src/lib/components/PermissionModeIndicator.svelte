@@ -3,6 +3,7 @@
 	import {
 		type PermissionMode,
 		PERMISSION_MODES,
+		DEFAULT_PERMISSION_MODE,
 		modeToColor,
 		modeToLabel,
 		modeToDescription,
@@ -10,7 +11,7 @@
 
 	let { projectId, conversationId, onmodechange }: { projectId: string; conversationId?: string; onmodechange?: (mode: PermissionMode) => void } = $props();
 
-	let currentMode = $state<PermissionMode>("ask");
+	let currentMode = $state<PermissionMode>(DEFAULT_PERMISSION_MODE);
 	let dropdownOpen = $state(false);
 	let buttonEl: HTMLButtonElement | undefined = $state();
 

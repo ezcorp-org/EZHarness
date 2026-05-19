@@ -21,6 +21,12 @@ export type PermissionMode = "ask" | "auto-edit" | "yolo";
 
 const VALID_MODES = new Set<PermissionMode>(["ask", "auto-edit", "yolo"]);
 
+/**
+ * Default mode for a project with no explicitly-stored
+ * `tool_permission_mode` setting (fresh install / never configured).
+ */
+export const DEFAULT_PERMISSION_MODE: PermissionMode = "yolo";
+
 // ── Permission Matrix ───────────────────────────────────────────────
 
 const AUTO_APPROVE: Record<PermissionMode, Set<ToolCategory>> = {
@@ -40,7 +46,8 @@ export function needsApproval(category: ToolCategory, mode: PermissionMode): boo
 
 /**
  * Get the permission mode for a project.
- * Uses sessionOverride if provided, otherwise looks up stored setting, defaults to "ask".
+ * Uses sessionOverride if provided, otherwise looks up stored setting,
+ * defaults to DEFAULT_PERMISSION_MODE ("yolo").
  */
 export async function getPermissionMode(
   projectId: string,
@@ -52,7 +59,7 @@ export async function getPermissionMode(
   if (typeof stored === "string" && VALID_MODES.has(stored as PermissionMode)) {
     return stored as PermissionMode;
   }
-  return "ask";
+  return DEFAULT_PERMISSION_MODE;
 }
 
 // ── Permission Gate ─────────────────────────────────────────────────
