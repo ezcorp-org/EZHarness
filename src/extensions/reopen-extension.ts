@@ -79,7 +79,12 @@ export async function reopenInstalledAsDraft(
   if (!ext) {
     throw new ReopenError(
       "NOT_FOUND_OR_NOT_MODIFIABLE",
-      "Extension not found, not yours, not enabled for modification, or bundled",
+      'Extension not found, not yours, or modification is not enabled. ' +
+        'To enable it, an admin must open this extension\'s detail page ' +
+        '(Library → click the extension), scroll to the "Settings" ' +
+        'section, and turn ON the "Allow extension to be modified" ' +
+        'checkbox. Built-in (bundled) extensions can never be made ' +
+        'modifiable.',
     );
   }
 

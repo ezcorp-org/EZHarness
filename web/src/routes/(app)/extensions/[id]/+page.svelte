@@ -528,45 +528,6 @@
 			</div>
 		</div>
 
-		{#if ext && (isAdmin && !ext.isBundled || (ext.creatorUserId && ext.creatorUserId === currentUserId))}
-			<div
-				class="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-4 py-3"
-				data-testid="modify-extension-section"
-			>
-				{#if ext.creatorUserId && ext.creatorUserId === currentUserId && ext.modifiable}
-					<button
-						onclick={reopenForEdit}
-						disabled={modifyBusy}
-						data-testid="modify-extension-button"
-						class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
-					>
-						{modifyBusy ? "Opening…" : "Modify this extension"}
-					</button>
-					<span class="text-xs text-[var(--color-text-secondary)]">
-						Re-opens your extension as an editable draft.
-					</span>
-				{:else if ext.creatorUserId && ext.creatorUserId === currentUserId}
-					<span class="text-xs text-[var(--color-text-secondary)]">
-						You created this extension. An admin must enable
-						modification before you can edit it.
-					</span>
-				{/if}
-
-				{#if isAdmin && !ext.isBundled}
-					<label class="ml-auto flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
-						<input
-							type="checkbox"
-							checked={ext.modifiable ?? false}
-							disabled={modifiableBusy}
-							onchange={toggleModifiable}
-							data-testid="modifiable-toggle"
-						/>
-						Allow the creator to modify this extension
-					</label>
-				{/if}
-			</div>
-		{/if}
-
 		{#if successMsg}
 			<div class="rounded-lg bg-green-900/40 px-4 py-2 text-sm text-green-300">{successMsg}</div>
 		{/if}
@@ -713,6 +674,70 @@
 					testid="settings-panel-user"
 				/>
 			{/if}
+
+			<!-- Modification gate. Lives inside the Settings section
+			     (no separate top-of-page banner). `ext` is already
+			     guaranteed truthy here (this section is within the page
+			     body's ext scope and references ext.manifest below), so
+			     no redundant {#if ext} guard. Handlers/state are the
+			     shared reopenForEdit/toggleModifiable — nothing duped. -->
+			<div
+				class="mt-4 flex flex-wrap items-center gap-3 border-t border-[var(--color-border)] pt-4"
+				data-testid="modify-extension-section"
+			>
+				{#if ext.creatorUserId && ext.creatorUserId === currentUserId && ext.modifiable}
+					<button
+						onclick={reopenForEdit}
+						disabled={modifyBusy}
+						data-testid="modify-extension-button"
+						class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
+					>
+						{modifyBusy ? "Opening…" : "Modify this extension"}
+					</button>
+					<span class="text-xs text-[var(--color-text-secondary)]">
+						Re-opens your extension as an editable draft.
+					</span>
+				{:else if ext.creatorUserId && ext.creatorUserId === currentUserId}
+					<span class="text-xs text-[var(--color-text-secondary)]">
+						You created this extension. An admin must enable
+						modification before you can edit it.
+					</span>
+				{/if}
+
+				<!-- Always shown, for EVERY extension. Interactive only for
+				     an admin on a non-bundled extension. Bundled (built-in)
+				     extensions are shipped first-party and can never be
+				     made modifiable — the box is shown disabled with an
+				     explanation rather than the row silently vanishing.
+				     Server enforces the same rules (requireRole admin +
+				     400 for bundled); this is purely the affordance. -->
+				<label
+					class="ml-auto flex items-center gap-2 text-xs text-[var(--color-text-secondary)]"
+					title={ext.isBundled
+						? "Built-in extensions can't be made modifiable"
+						: isAdmin
+							? ""
+							: "Only an admin can change this"}
+				>
+					<input
+						type="checkbox"
+						checked={ext.modifiable ?? false}
+						disabled={modifiableBusy || !isAdmin || ext.isBundled}
+						onchange={toggleModifiable}
+						data-testid="modifiable-toggle"
+					/>
+					<span class:line-through={ext.isBundled}
+						>Allow extension to be modified</span
+					>
+					{#if ext.isBundled}
+						<span class="text-[var(--color-text-tertiary)]"
+							>(built-in — not modifiable)</span
+						>
+					{:else if !isAdmin}
+						<span class="text-[var(--color-text-tertiary)]">(admin only)</span>
+					{/if}
+				</label>
+			</div>
 		</section>
 
 		<!-- Entities (Phase 5 — defineEntity SDK).

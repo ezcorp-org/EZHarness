@@ -78,8 +78,9 @@ test.describe("extension detail — modify gating", () => {
     });
     const btn = page.getByTestId("modify-extension-button");
     await expect(btn).toBeVisible();
-    // No admin toggle for a non-admin owner.
-    await expect(page.getByTestId("modifiable-toggle")).toHaveCount(0);
+    // Toggle is ALWAYS shown now; a non-admin sees it but disabled.
+    await expect(page.getByTestId("modifiable-toggle")).toBeVisible();
+    await expect(page.getByTestId("modifiable-toggle")).toBeDisabled();
 
     const reopenReq = page.waitForRequest(
       (r) =>
@@ -109,13 +110,15 @@ test.describe("extension detail — modify gating", () => {
       timeout: 5000,
     });
     await expect(page.getByTestId("modify-extension-button")).toHaveCount(0);
-    await expect(page.getByTestId("modifiable-toggle")).toHaveCount(0);
+    // Toggle shown but disabled for the non-admin owner.
+    await expect(page.getByTestId("modifiable-toggle")).toBeVisible();
+    await expect(page.getByTestId("modifiable-toggle")).toBeDisabled();
     await expect(
       page.getByText("An admin must enable modification", { exact: false }),
     ).toBeVisible();
   });
 
-  test("non-owner non-admin → no modify section at all", async ({
+  test("non-owner non-admin → section + toggle shown but disabled", async ({
     page,
     mockApi,
   }) => {
@@ -129,11 +132,14 @@ test.describe("extension detail — modify gating", () => {
     });
     await page.goto(`/extensions/${EXT_ID}`);
 
-    // Page loaded (header present) but the gated section is absent.
-    await expect(page.getByText("weather", { exact: false }).first()).toBeVisible({
+    // Always-shown section; the toggle is visible but non-interactive
+    // for a non-admin, and there's no Modify button (not the owner).
+    await expect(page.getByTestId("modify-extension-section")).toBeVisible({
       timeout: 5000,
     });
-    await expect(page.getByTestId("modify-extension-section")).toHaveCount(0);
+    await expect(page.getByTestId("modifiable-toggle")).toBeVisible();
+    await expect(page.getByTestId("modifiable-toggle")).toBeDisabled();
+    await expect(page.getByTestId("modify-extension-button")).toHaveCount(0);
   });
 
   test("admin (not owner) + !bundled → admin toggle visible, no Modify button", async ({
@@ -153,11 +159,13 @@ test.describe("extension detail — modify gating", () => {
     await expect(page.getByTestId("modify-extension-section")).toBeVisible({
       timeout: 5000,
     });
+    // Admin: toggle visible AND interactive.
     await expect(page.getByTestId("modifiable-toggle")).toBeVisible();
+    await expect(page.getByTestId("modifiable-toggle")).toBeEnabled();
     await expect(page.getByTestId("modify-extension-button")).toHaveCount(0);
   });
 
-  test("admin + bundled → no admin toggle (bundled is never modifiable)", async ({
+  test("admin + bundled → section shown, toggle disabled + 'built-in' note", async ({
     page,
     mockApi,
   }) => {
@@ -171,10 +179,16 @@ test.describe("extension detail — modify gating", () => {
     });
     await page.goto(`/extensions/${EXT_ID}`);
 
-    await expect(page.getByText("weather", { exact: false }).first()).toBeVisible({
+    // Always shown now — even for bundled, and even to an admin — but
+    // the toggle is non-interactive with an explanation (server also
+    // 400s a bundled modifiable flip; this is just the affordance).
+    await expect(page.getByTestId("modify-extension-section")).toBeVisible({
       timeout: 5000,
     });
-    await expect(page.getByTestId("modifiable-toggle")).toHaveCount(0);
-    await expect(page.getByTestId("modify-extension-section")).toHaveCount(0);
+    await expect(page.getByTestId("modifiable-toggle")).toBeVisible();
+    await expect(page.getByTestId("modifiable-toggle")).toBeDisabled();
+    await expect(
+      page.getByText("built-in — not modifiable", { exact: false }),
+    ).toBeVisible();
   });
 });
