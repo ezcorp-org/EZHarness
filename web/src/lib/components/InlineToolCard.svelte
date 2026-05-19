@@ -8,6 +8,7 @@
 	import ToolCardRouter from "./tool-cards/ToolCardRouter.svelte";
 	import DockOpenPill from "./tool-cards/DockOpenPill.svelte";
 	import { shouldRenderInDock } from "./tool-cards/utils.js";
+	import { isTimeClockOutput } from "./tool-cards/time-clock-logic.js";
 	import { slide } from "svelte/transition";
 
 	let {
@@ -64,8 +65,12 @@
 
 	let isInterrupted = $derived(call.status === 'error' && call.error === 'interrupted');
 
-	/** When cardType is set, delegate to the specialized card router */
-	let useSpecializedCard = $derived(!!call.cardType && call.status === 'complete');
+	/** When cardType is set, delegate to the specialized card router.
+	 *  Also delegate time-clock-shaped output even if the lifecycle event lost
+	 *  manifest metadata, so TimeClockCard's fallback route can render it. */
+	let useSpecializedCard = $derived(
+		call.status === 'complete' && (!!call.cardType || isTimeClockOutput(call.output)),
+	);
 
 	/** Dock-routing: complete + cardLayout="dock" → render the pill, NOT the card.
 	 *  The dock itself is mounted at app-layout level; the openDock effect below

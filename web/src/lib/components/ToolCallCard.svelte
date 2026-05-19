@@ -6,12 +6,15 @@
 	import ToolCardRouter from "./tool-cards/ToolCardRouter.svelte";
 	import DockOpenPill from "./tool-cards/DockOpenPill.svelte";
 	import { shouldRenderInDock } from "./tool-cards/utils.js";
+	import { isTimeClockOutput } from "./tool-cards/time-clock-logic.js";
 	import MarkdownRenderer from "./MarkdownRenderer.svelte";
 
 	let { toolCall, conversationId, onsendmessage }: { toolCall: ToolCallState; conversationId?: string; onsendmessage?: (message: string) => void } = $props();
 
-	/** Delegate to specialized card renderers when a cardType is set */
-	let useSpecializedCard = $derived(!!toolCall.cardType);
+	/** Delegate to specialized card renderers when a cardType is set.
+	 *  Also delegate time-clock-shaped output even if an older stream/history
+	 *  entry lost the manifest cardType metadata. */
+	let useSpecializedCard = $derived(!!toolCall.cardType || isTimeClockOutput(toolCall.output));
 
 	/** Dock-routing: when complete + cardLayout="dock", render a DockOpenPill instead. */
 	let routeToDock = $derived(shouldRenderInDock(toolCall.cardLayout, toolCall.status));

@@ -56,6 +56,14 @@ describe("getCardComponentName", () => {
 		expect(getCardComponentName("weather-panel", true)).toBe("PermissionGate");
 	});
 
+	test("maps 'time-clock' cardType to TimeClockCard (time-teller extension clock UI)", () => {
+		expect(getCardComponentName("time-clock", false)).toBe("TimeClockCard");
+	});
+
+	test("time-clock still respects permissionPending gate", () => {
+		expect(getCardComponentName("time-clock", true)).toBe("PermissionGate");
+	});
+
 	test("maps 'image-gen-grid' cardType to ImageGenCard (openai-image-gen-2 multi-image grid)", () => {
 		expect(getCardComponentName("image-gen-grid", false)).toBe("ImageGenCard");
 	});

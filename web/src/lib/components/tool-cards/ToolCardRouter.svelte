@@ -14,6 +14,8 @@
 	import PriceChartCard from "./PriceChartCard.svelte";
 	import WeatherCard from "./WeatherCard.svelte";
 	import { parseWeatherPayload } from "./weather-card-logic.js";
+	import TimeClockCard from "./TimeClockCard.svelte";
+	import { isTimeClockOutput } from "./time-clock-logic.js";
 	import ImageGenCard from "./ImageGenCard.svelte";
 	import DefaultCard from "./DefaultCard.svelte";
 	import CollapsibleCard from "./CollapsibleCard.svelte";
@@ -29,6 +31,12 @@
 	let shouldRenderWeatherCard = $derived(
 		cardName === 'WeatherCard' ||
 		(cardName === 'DefaultCard' && toolCall.status === 'complete' && !!parseWeatherPayload(toolCall.output)),
+	);
+
+	// Defensive fallback for time-teller: same rationale as weather above.
+	let shouldRenderTimeClockCard = $derived(
+		cardName === 'TimeClockCard' ||
+		(cardName === 'DefaultCard' && toolCall.status === 'complete' && isTimeClockOutput(toolCall.output)),
 	);
 
 	// `ez-install` only renders EzToolResultCard once the result actually
@@ -79,6 +87,8 @@
 	<PriceChartCard {toolCall} {conversationId} {mode} />
 {:else if shouldRenderWeatherCard}
 	<WeatherCard {toolCall} />
+{:else if shouldRenderTimeClockCard}
+	<TimeClockCard {toolCall} />
 {:else if cardName === 'ImageGenCard'}
 	<ImageGenCard {toolCall} {conversationId} {messageId} {onsendmessage} />
 {:else if cardName === 'EzToolResultCard' && installResult}

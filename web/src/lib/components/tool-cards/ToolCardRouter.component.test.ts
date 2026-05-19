@@ -90,6 +90,106 @@ describe("ToolCardRouter — image-gen-grid routing", () => {
 
 });
 
+describe("ToolCardRouter — time-clock routing", () => {
+	function timeClockPayload() {
+		return {
+			cardType: "time-clock",
+			label: "Current time",
+			formatted: "Monday, May 18, 2026 at 9:40:08 PM UTC",
+			timezone: "UTC",
+			locale: "en-US",
+			iso: "2026-05-18T21:40:08.000Z",
+			currentTimeText: "Current time: Monday, May 18, 2026 at 9:40:08 PM UTC",
+		};
+	}
+
+	test("cardType='time-clock' mounts TimeClockCard", () => {
+		const toolCall: ToolCallState = {
+			id: "tc-clock-1",
+			toolName: "time-teller.tell-time",
+			status: "complete",
+			input: { timezone: "UTC" },
+			startedAt: 0,
+			duration: 50,
+			cardType: "time-clock",
+			output: JSON.stringify(timeClockPayload()),
+		};
+
+		const { getByTestId, queryByTestId } = render(ToolCardRouter, {
+			toolCall,
+			conversationId: "conv-1",
+		});
+
+		expect(getByTestId("time-clock-card")).toBeInTheDocument();
+		expect(queryByTestId("tool-card-default")).toBeNull();
+	});
+
+	test("completed time-clock JSON renders TimeClockCard even when cardType is missing", () => {
+		const toolCall: ToolCallState = {
+			id: "tc-clock-fallback-1",
+			toolName: "time-teller.tell-time",
+			status: "complete",
+			input: { timezone: "UTC" },
+			startedAt: 0,
+			duration: 50,
+			output: JSON.stringify(timeClockPayload()),
+		};
+
+		const { getByTestId, queryByTestId } = render(ToolCardRouter, {
+			toolCall,
+			conversationId: "conv-1",
+		});
+
+		expect(getByTestId("time-clock-card")).toBeInTheDocument();
+		expect(queryByTestId("tool-card-default")).toBeNull();
+	});
+
+	test("ToolCallResult envelope containing time-clock JSON renders TimeClockCard", () => {
+		const toolCall: ToolCallState = {
+			id: "tc-clock-envelope-1",
+			toolName: "time-teller.tell-time",
+			status: "complete",
+			input: { timezone: "UTC" },
+			startedAt: 0,
+			duration: 50,
+			output: { content: [{ type: "text", text: JSON.stringify(timeClockPayload()) }], isError: false },
+		};
+
+		const { getByTestId, queryByTestId } = render(ToolCardRouter, {
+			toolCall,
+			conversationId: "conv-1",
+		});
+
+		expect(getByTestId("time-clock-card")).toBeInTheDocument();
+		expect(queryByTestId("tool-card-default")).toBeNull();
+	});
+
+	test("ToolCallResult top-level cardType renders even if inner payload lacks cardType", () => {
+		const { cardType: _innerCardType, ...payloadWithoutInnerCardType } = timeClockPayload();
+		const toolCall: ToolCallState = {
+			id: "tc-clock-envelope-top-level-1",
+			toolName: "time-teller.tell-time",
+			status: "complete",
+			input: { timezone: "UTC" },
+			startedAt: 0,
+			duration: 50,
+			output: {
+				content: [{ type: "text", text: JSON.stringify(payloadWithoutInnerCardType) }],
+				isError: false,
+				cardType: "time-clock",
+			},
+		};
+
+		const { getByTestId, queryByTestId } = render(ToolCardRouter, {
+			toolCall,
+			conversationId: "conv-1",
+		});
+
+		expect(getByTestId("time-clock-card")).toBeInTheDocument();
+		expect(queryByTestId("tool-card-default")).toBeNull();
+	});
+});
+
 describe("ToolCardRouter — weather fallback routing", () => {
 	test("completed weather-shaped JSON renders WeatherCard even when cardType is missing", () => {
 		const toolCall: ToolCallState = {

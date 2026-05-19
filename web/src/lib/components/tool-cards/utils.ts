@@ -36,6 +36,7 @@ export function getCardComponentName(cardType: string | undefined, permissionPen
 		case 'kokoro-tts-player': return 'KokoroTtsPlayerCard';
 		case 'price-chart': return 'PriceChartCard';
 		case 'weather-panel': return 'WeatherCard';
+		case 'time-clock': return 'TimeClockCard';
 		case 'image-gen-grid': return 'ImageGenCard';
 		// `ez-install` is declared by the bundled extension-author's
 		// `install_draft` tool — routes its result to EzToolResultCard so
