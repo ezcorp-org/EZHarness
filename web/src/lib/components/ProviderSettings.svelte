@@ -57,7 +57,10 @@
 	$effect(() => {
 		load();
 		const cleanup = listenForOAuthResult((result) => {
-			if (result.success) load();
+			if (result.success) {
+				void load();
+				void handleRefreshModels(result.provider);
+			}
 		});
 		return cleanup;
 	});
@@ -72,6 +75,8 @@
 			showKey = { ...showKey, [provider]: false };
 			cardAction = { ...cardAction, [provider]: null };
 			await load();
+			// Newly connected — pull the latest model list straight away.
+			void handleRefreshModels(provider);
 		} catch {
 			errorMsg = `Failed to save key for ${provider}`;
 		} finally {
@@ -117,6 +122,7 @@
 				oauthPending = null;
 				codeInput = "";
 				await load();
+				void handleRefreshModels(result.provider);
 			} else {
 				oauthError = result.error ?? "Unknown error";
 			}

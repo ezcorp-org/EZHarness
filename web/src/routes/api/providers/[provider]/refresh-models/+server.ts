@@ -4,6 +4,7 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { fetchProviderModels } from "$server/providers/model-discovery";
+import { getCredential, type ProviderCredential } from "$server/providers/credentials";
 import { upsertSetting } from "$server/db/queries/settings";
 import { logger } from "$server/logger";
 
@@ -22,7 +23,16 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 	}
 
 	try {
-		const models = await fetchProviderModels(provider);
+		// Best-effort credential: lets us hit the provider's own /v1/models
+		// (authoritative + key-scoped). Missing creds → catalog fallback.
+		let credential: ProviderCredential | undefined;
+		try {
+			credential = await getCredential(provider);
+		} catch {
+			credential = undefined;
+		}
+
+		const models = await fetchProviderModels(provider, credential);
 		await upsertSetting(`provider:discoveredModels:${provider}`, models);
 		return json({
 			success: true,

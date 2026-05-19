@@ -91,7 +91,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings");
 
-			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "OpenAI" });
+			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
 			await expect(card.getByText("Token expired")).toBeVisible();
 			await expect(card.locator(".bg-amber-500").first()).toBeVisible();
 		});
@@ -118,7 +118,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings");
 
-			const openaiCard = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "OpenAI" });
+			const openaiCard = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
 			await expect(openaiCard.getByText("Subscription", { exact: true })).toBeVisible();
 
 			const googleCard = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Google (Gemini)" });
@@ -157,6 +157,59 @@ test.describe("Provider Settings", () => {
 			await card.getByRole("button", { name: "Test" }).click();
 
 			await expect(card.getByText("Invalid API key")).toBeVisible();
+		});
+	});
+
+	// D2. Model Refresh — manual button + auto-fetch on connect
+	test.describe("Model Refresh", () => {
+		test("manual Refresh models button shows Loaded N models", async ({ page, mockApi }) => {
+			await mockApi({
+				providers: threeProviders({ openai: { hasKey: true, source: "byok", oauthSupported: false } }),
+			});
+			await page.goto("/settings");
+
+			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
+			await card.getByRole("button", { name: "Refresh models" }).click();
+
+			await expect(card.getByText("Loaded 3 models")).toBeVisible();
+		});
+
+		test("models auto-fetch right after saving an API key (no manual click)", async ({ page, mockApi }) => {
+			let refreshCalled = false;
+			await mockApi({
+				providers: threeProviders({ openai: { hasKey: true, source: "byok", oauthSupported: false } }),
+			});
+			await page.route("**/api/providers/*/refresh-models", (route) => {
+				refreshCalled = true;
+				return route.fulfill({
+					json: { success: true, count: 7, ids: ["gpt-5.2"], fetchedAt: new Date().toISOString() },
+				});
+			});
+			await page.goto("/settings");
+
+			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
+			await card.getByRole("button", { name: "Update" }).click();
+			await card.getByPlaceholder("sk-...").fill("sk-new-key-123");
+			await card.getByRole("button", { name: "Save", exact: true }).click();
+
+			// The "Loaded N models" chip appears without ever clicking "Refresh models"
+			await expect(card.getByText("Loaded 7 models")).toBeVisible();
+			expect(refreshCalled).toBe(true);
+		});
+
+		test("refresh failure shows Refresh failed", async ({ page, mockApi }) => {
+			await mockApi({
+				providers: threeProviders({ openai: { hasKey: true, source: "byok", oauthSupported: false } }),
+			});
+			await page.route("**/api/providers/*/refresh-models", (route) => {
+				return route.fulfill({ json: { success: false, error: "models.dev returned 503" } });
+			});
+			await page.goto("/settings");
+
+			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
+			await card.getByRole("button", { name: "Refresh models" }).click();
+
+			await expect(card.getByText("Refresh failed")).toBeVisible();
 		});
 	});
 
@@ -249,7 +302,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings");
 
-			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "OpenAI" });
+			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
 			await card.getByRole("button", { name: "Disconnect" }).click();
 
 			await expect(card.getByText("Disconnect OpenAI subscription?")).toBeVisible();
@@ -265,7 +318,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings");
 
-			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "OpenAI" });
+			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
 			await card.getByRole("button", { name: "Disconnect" }).click();
 			await expect(card.getByText("Disconnect OpenAI subscription?")).toBeVisible();
 
@@ -286,7 +339,7 @@ test.describe("Provider Settings", () => {
 			const link = anthropicCard.locator("a[href='https://console.anthropic.com/keys']");
 			await expect(link).toBeVisible();
 
-			const openaiCard = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "OpenAI" });
+			const openaiCard = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
 			await expect(openaiCard.getByText("Get your OpenAI API key")).toBeVisible();
 			const openaiLink = openaiCard.locator("a[href='https://platform.openai.com/api-keys']");
 			await expect(openaiLink).toBeVisible();
@@ -309,7 +362,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings");
 
-			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "OpenAI" });
+			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
 			// The relativeTime for a date 2h ago should contain "ago"
 			const expiryText = card.locator(".text-amber-400");
 			await expect(expiryText.filter({ hasText: "ago" })).toBeVisible();

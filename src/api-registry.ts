@@ -114,7 +114,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   // Providers & Models
   { method: "GET", path: "/api/providers", description: "List configured AI providers", category: "providers" },
   { method: "POST", path: "/api/providers/:provider/test", description: "Test provider connection", category: "providers" },
-  { method: "POST", path: "/api/providers/:provider/refresh-models", description: "Fetch latest model list from the provider's /v1/models endpoint", category: "providers" },
+  { method: "POST", path: "/api/providers/:provider/refresh-models", description: "Fetch latest models from the provider (direct /v1/models, enriched/backed by the models.dev catalog)", category: "providers" },
   { method: "GET", path: "/api/models", description: "List available AI models", category: "providers" },
 
   // Users & Teams

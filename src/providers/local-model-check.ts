@@ -28,22 +28,41 @@ function normalizeUrl(baseUrl: string): string {
 }
 
 /**
+ * Optional request options shared by the discovery helpers. `headers` is
+ * used to attach provider auth (e.g. `Authorization: Bearer …` for OpenAI,
+ * `x-api-key` for Anthropic) so the same /v1/models fetch serves both
+ * unauthenticated local endpoints and authed provider APIs.
+ */
+export interface ModelFetchOptions {
+  headers?: Record<string, string>;
+}
+
+/**
  * Detect whether the endpoint speaks OpenAI-compatible or Ollama API.
  * Tries /v1/models first (covers both OpenAI-compat and Ollama's compat layer),
  * then falls back to /api/tags (native Ollama).
  */
-export async function detectEndpointType(baseUrl: string): Promise<EndpointType | null> {
+export async function detectEndpointType(
+  baseUrl: string,
+  opts?: ModelFetchOptions,
+): Promise<EndpointType | null> {
   const url = normalizeUrl(baseUrl);
 
   try {
-    const res = await fetch(`${url}/v1/models`, { signal: AbortSignal.timeout(5_000) });
+    const res = await fetch(`${url}/v1/models`, {
+      headers: opts?.headers,
+      signal: AbortSignal.timeout(5_000),
+    });
     if (res.ok) return "openai-compatible";
   } catch {
     // fall through
   }
 
   try {
-    const res = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(5_000) });
+    const res = await fetch(`${url}/api/tags`, {
+      headers: opts?.headers,
+      signal: AbortSignal.timeout(5_000),
+    });
     if (res.ok) return "ollama";
   } catch {
     // fall through
@@ -162,8 +181,9 @@ export async function testInference(
  */
 export async function listModels(
   baseUrl: string,
+  opts?: ModelFetchOptions,
 ): Promise<{ models: ModelListEntry[]; endpointType: EndpointType | null; error?: string }> {
-  const endpointType = await detectEndpointType(baseUrl);
+  const endpointType = await detectEndpointType(baseUrl, opts);
   if (!endpointType) {
     return { models: [], endpointType: null, error: "Endpoint not reachable" };
   }
@@ -171,14 +191,20 @@ export async function listModels(
   const url = normalizeUrl(baseUrl);
   try {
     if (endpointType === "openai-compatible") {
-      const res = await fetch(`${url}/v1/models`, { signal: AbortSignal.timeout(5_000) });
+      const res = await fetch(`${url}/v1/models`, {
+        headers: opts?.headers,
+        signal: AbortSignal.timeout(5_000),
+      });
       if (!res.ok) return { models: [], endpointType, error: `GET /v1/models returned ${res.status}` };
       const body = await res.json() as { data?: Array<{ id: string }> };
       return { models: (body.data ?? []).map((m) => ({ id: m.id })), endpointType };
     }
 
     // Ollama native
-    const res = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(5_000) });
+    const res = await fetch(`${url}/api/tags`, {
+      headers: opts?.headers,
+      signal: AbortSignal.timeout(5_000),
+    });
     if (!res.ok) return { models: [], endpointType, error: `GET /api/tags returned ${res.status}` };
     const body = await res.json() as { models?: Array<{ name: string }> };
     return {

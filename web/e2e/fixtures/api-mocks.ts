@@ -832,6 +832,16 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		if (path.match(/^\/api\/providers\/[^/]+\/test$/) && method === "POST") {
 			return route.fulfill({ json: { success: true } });
 		}
+		if (path.match(/^\/api\/providers\/[^/]+\/refresh-models$/) && method === "POST") {
+			return route.fulfill({
+				json: {
+					success: true,
+					count: 3,
+					ids: ["gpt-5.2", "gpt-4o", "o3"],
+					fetchedAt: new Date().toISOString(),
+				},
+			});
+		}
 		// Local model test
 		if (path === "/api/providers/local/test" && method === "POST") {
 			return route.fulfill({ json: { reachable: true, modelAvailable: true, inferenceOk: true, endpointType: "openai-compatible", latencyMs: 150 } });

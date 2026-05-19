@@ -488,3 +488,53 @@ describe("listModels", () => {
     expect(result.error).toContain("network timeout");
   });
 });
+
+// ── Auth header forwarding (reused for provider /v1/models) ──────────
+
+describe("auth header forwarding", () => {
+  test("detectEndpointType forwards opts.headers to fetch", async () => {
+    const seen: Array<Record<string, string> | undefined> = [];
+    mockFetch.mockImplementation((_url: string, init?: RequestInit) => {
+      seen.push(init?.headers as Record<string, string> | undefined);
+      return Promise.resolve(jsonResponse({ data: [] }));
+    });
+
+    await detectEndpointType("https://api.openai.com", {
+      headers: { Authorization: "Bearer sk-x" },
+    });
+
+    expect(seen[0]).toEqual({ Authorization: "Bearer sk-x" });
+  });
+
+  test("listModels forwards opts.headers on both detect + list fetches", async () => {
+    const seen: Array<Record<string, string> | undefined> = [];
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/v1/models")) {
+        seen.push(init?.headers as Record<string, string> | undefined);
+        return Promise.resolve(jsonResponse({ data: [{ id: "gpt-4o" }] }));
+      }
+      return Promise.reject(new Error("not found"));
+    });
+
+    const result = await listModels("https://api.openai.com", {
+      headers: { "x-api-key": "k1" },
+    });
+
+    expect(result.models).toEqual([{ id: "gpt-4o" }]);
+    expect(seen.length).toBe(2); // detect + list
+    expect(seen.every((h) => h?.["x-api-key"] === "k1")).toBe(true);
+  });
+
+  test("listModels still works with no opts (local, unauthenticated)", async () => {
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/v1/models")) {
+        expect(init?.headers).toBeUndefined();
+        return Promise.resolve(jsonResponse({ data: [{ id: "llama3" }] }));
+      }
+      return Promise.reject(new Error("not found"));
+    });
+
+    const result = await listModels("http://localhost:11434");
+    expect(result.models).toEqual([{ id: "llama3" }]);
+  });
+});
