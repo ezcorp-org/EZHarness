@@ -408,11 +408,6 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     permissions: { filesystem: ["$CWD"], shell: true, grantedAt: {} },
   },
   {
-    name: "task-stack",
-    path: "docs/extensions/examples/task-stack",
-    permissions: { filesystem: ["$CWD"], shell: false, grantedAt: {} },
-  },
-  {
     name: "ai-kit",
     path: "packages/@ezcorp/ai-kit",
     // v1.4 envEscapeHatch — `EZCORP_API_KEY` is a host-internal cred
@@ -491,20 +486,6 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     },
   },
   {
-    // Property Intelligence Agent — analyzes a commercial real-estate
-    // portfolio (leases, AR, GL, budgets, work orders, loans, CAM recs,
-    // compliance) and surfaces dollar-quantified risks + opportunities
-    // with drafted follow-ups. Reads 10 bundled CSVs under ./data and
-    // regenerates them in place via the `regenerate-data` tool — hence
-    // the `filesystem: ["$CWD"]` grant. No network, no shell.
-    name: "property-intelligence-agent",
-    path: "docs/extensions/examples/property-intelligence-agent",
-    permissions: {
-      filesystem: ["$CWD"],
-      grantedAt: { filesystem: Date.now() },
-    },
-  },
-  {
     // claude-design — first consumer of the @ezcorp/sdk canvas primitives
     // (Phase B of the design-extension SDK initiative). Reads the project
     // codebase to extract a design system, generates HTML drafts honoring
@@ -532,16 +513,6 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
         network: Date.now(),
       },
     },
-  },
-  {
-    // excel — first consumer of `acceptedAttachmentMimes`. Lets users
-    // drag a `.xlsx` workbook into chat; the host emits a handle-only
-    // `<file>` reference into the prompt and this extension's
-    // `read-spreadsheet` tool fetches sheets/ranges on demand. Pure
-    // in-process parser (ExcelJS); no network, filesystem, or shell.
-    name: "excel",
-    path: "docs/extensions/examples/excel",
-    permissions: { grantedAt: {} },
   },
   {
     // price-chart — demonstrates a fully client-rendered custom card.
@@ -717,70 +688,6 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
         eventSubscriptions: Date.now(),
         schedule: Date.now(),
         storage: Date.now(),
-      },
-    },
-  },
-  {
-    // substack-pilot — manages user-defined Substack post types (system
-    // prompts per cadence) and drafts posts by summarizing URLs and
-    // calling the upstream `substack-mcp` package via stdio MCP. The
-    // tools are LLM-callable (post-type CRUD, summarize_urls,
-    // generate_substack_draft) — spawns lazily on first invocation, no
-    // bootSpawn.
-    //
-    // No `envEscapeHatch`: Substack credentials (publication URL,
-    // session token, user ID) flow from the auto-generated settings
-    // panel into the MCP child's env per-spawn in `lib/substack.ts`.
-    // The manifest declares no `permissions.env`, so the env-leak
-    // install gate at `clamp-permissions.ts:checkEnvKeyLeakInstallGate`
-    // is a no-op for this extension. Verified against substack-mcp@1.0.7
-    // — the contract test in `tests/mcp-real-spawn.test.ts` pins the
-    // tool name, arg shape, and env-passthrough.
-    name: "substack-pilot",
-    path: "docs/extensions/examples/substack-pilot",
-    permissions: {
-      storage: true,
-      shell: true, // spawn `npx -y substack-mcp@latest`
-      network: ["*"], // summarize_urls fetches user-pasted URLs
-      llm: {
-        providers: ["anthropic", "openai"],
-        maxCallsPerHour: 120,
-        maxCallsPerDay: 600,
-        maxTokensPerCall: 2048,
-      },
-      grantedAt: {
-        storage: Date.now(),
-        shell: Date.now(),
-        network: Date.now(),
-        llm: Date.now(),
-      },
-    },
-  },
-  {
-    // substack-pipeline — sibling to substack-pilot. Deterministic
-    // role-prompted stages (summarize → write → revise → illustrate →
-    // cover image) exposed as 3 tools the LLM sequences; the human turn
-    // is the platform's LLM-called `ask_user_question` (NOT cross-ext
-    // invoked — see the extension README "Host limitation"). Spawns
-    // lazily on first tool call, no bootSpawn. Cross-ext invoke targets
-    // (substack-pilot, openai-image-gen-2) are manifest `dependencies`
-    // resolved via `registry.buildDepRoutes`. Grants: `llm` (WRITER +
-    // ILLUSTRATOR) + `storage` (conversation-scoped scratch state
-    // between the 3 tools). No network: URL fetch happens inside
-    // substack-pilot's subprocess under its own grant.
-    name: "substack-pipeline",
-    path: "docs/extensions/examples/substack-pipeline",
-    permissions: {
-      storage: true,
-      llm: {
-        providers: ["anthropic", "openai"],
-        maxCallsPerHour: 120,
-        maxCallsPerDay: 600,
-        maxTokensPerCall: 4096,
-      },
-      grantedAt: {
-        storage: Date.now(),
-        llm: Date.now(),
       },
     },
   },

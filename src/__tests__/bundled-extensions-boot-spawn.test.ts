@@ -222,13 +222,10 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
       "file-refactor",
       "log-analyzer",
       "todo-tracker",
-      "task-stack",
       "ai-kit",
       "web-search",
       "openai-image-gen-2",
-      "property-intelligence-agent",
       "claude-design",
-      "excel",
       "kokoro-tts",
     ];
     for (const name of allBundled) {

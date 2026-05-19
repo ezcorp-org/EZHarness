@@ -1,6 +1,13 @@
 import { json } from "@sveltejs/kit";
-import { getExtensionByName, listExtensions } from "$server/db/queries/extensions";
-import { installFromLocal, installFromGitHub, installFromGit } from "$server/extensions/installer";
+import { getExtension, getExtensionByName, listExtensions } from "$server/db/queries/extensions";
+import {
+  installFromLocal,
+  installFromGitHub,
+  installFromGit,
+  shouldAutoEnableOnInstall,
+} from "$server/extensions/installer";
+import { activateExtension } from "$lib/server/extensions/activate-extension";
+import { logger } from "$server/logger";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { requireAuth, requireRole } from "$server/auth/middleware";
 import { cacheableResponse } from "$server/lib/cache-utils";
@@ -11,6 +18,8 @@ import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS, type ExtensionAuditMetadata } from "$server/extensions/audit-actions";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
+
+const log = logger.child("ext-install");
 
 export const GET: RequestHandler = async ({ request, url, locals }) => {
   const scopeErr = requireScope(locals, "read");
@@ -80,6 +89,32 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
 
     await ExtensionRegistry.getInstance().reload();
+
+    // Auto-enable allowlist: a small set of first-party in-repo
+    // extensions (formerly bundled) restore their "installed + enabled +
+    // declared-perms-granted" posture on install instead of landing
+    // disabled. Full-manifest consent → clampExtensionPermissions clamps
+    // it to itself = exactly the declared permissions. Non-fatal: a
+    // failed auto-enable still leaves a valid disabled install the admin
+    // can flip on manually (mirrors author-install).
+    const row = await getExtension(ext.id);
+    if (row && shouldAutoEnableOnInstall(row.name)) {
+      const activated = await activateExtension(
+        row.id,
+        { submittedPermissions: row.manifest?.permissions ?? {} },
+        admin.id,
+      );
+      if (activated.ok) {
+        ext = activated.extension;
+      } else {
+        log.warn("auto-enable on install failed (installed but disabled)", {
+          extensionId: row.id,
+          name: row.name,
+          status: activated.status,
+          reason: activated.message,
+        });
+      }
+    }
 
     // Audit the install. Permissions are empty at this stage (activate
     // step grants them later) — we record `oldValue=undefined, newValue=undefined`

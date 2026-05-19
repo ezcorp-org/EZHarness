@@ -120,10 +120,30 @@ const mockInstallFromGit = mock(async (_src: string, _perms: any, _opts: any) =>
 	installedRecord({ origin: "git", sourceUrl: _src }),
 );
 
+// Real allowlist contents — kept here as the single in-test source of
+// truth so the installer mock and the assertions stay in lockstep.
+const AUTO_ENABLE_NAMES = [
+	"task-stack",
+	"property-intelligence-agent",
+	"substack-pipeline",
+	"excel",
+	"substack-pilot",
+];
+const autoEnableSet = new Set(AUTO_ENABLE_NAMES);
+
 mock.module("$server/extensions/installer", () => ({
 	installFromLocal: mockInstallFromLocal,
 	installFromGitHub: mockInstallFromGitHub,
 	installFromGit: mockInstallFromGit,
+	AUTO_ENABLE_ON_INSTALL: autoEnableSet,
+	shouldAutoEnableOnInstall: (name: string) => autoEnableSet.has(name),
+}));
+
+// Logger mock — the Library route logs a non-fatal warning when
+// auto-enable fails; keep it a no-op so test output stays clean.
+const mockLogWarn = mock((..._a: unknown[]) => {});
+mock.module("$server/logger", () => ({
+	logger: { child: () => ({ warn: mockLogWarn, info: () => {}, error: () => {} }) },
 }));
 
 // ── Registry mock (reload is a no-op in tests) ───────────────────────────
@@ -164,6 +184,9 @@ const {
 	GET: extGET,
 	DELETE: extDELETE,
 } = await import("../routes/api/extensions/[id]/+server");
+const { activateExtension } = await import(
+	"../lib/server/extensions/activate-extension"
+);
 
 // ── Request helpers ──────────────────────────────────────────────────────
 function installReq(body: unknown) {
@@ -748,5 +771,188 @@ describe("DELETE /api/extensions/:id", () => {
 		expect(res.status).toBe(403);
 		expect(mockKillAll).not.toHaveBeenCalled();
 		expect(mockDeleteExtension).not.toHaveBeenCalled();
+	});
+});
+
+describe("POST /api/extensions — auto-enable allowlist", () => {
+	beforeEach(() => {
+		authUser = { id: "admin-1", email: "admin@test.com", name: "Admin", role: "admin" };
+		apiKeyScopes = undefined;
+		mockInstallFromLocal.mockClear();
+		mockUpdateExtension.mockClear();
+		mockResetFailures.mockClear();
+		mockReload.mockClear();
+		mockInsertAuditEntry.mockClear();
+		mockHasSecurityViolation.mockClear();
+		mockLogWarn.mockClear();
+	});
+
+	test("allow-listed extension → 201 enabled:true with declared manifest perms granted", async () => {
+		extensionStore = {
+			...extensionFixture,
+			name: "excel",
+			manifest: {
+				name: "excel",
+				version: "1.0.0",
+				permissions: { network: ["api.example.com"], shell: true, storage: true },
+			},
+			grantedPermissions: { grantedAt: {} },
+			enabled: false,
+		};
+		const res = await (installPOST(
+			installReq({ source: "local", path: "/tmp/excel" }),
+		) as any);
+		expect(res.status).toBe(201);
+		const body = await res.json();
+		expect(body.enabled).toBe(true);
+		// Full declared manifest perms flow through clampExtensionPermissions
+		// (clamped to itself = identity) — including the substack-pilot-style
+		// shell + network grant.
+		expect(body.grantedPermissions.network).toEqual(["api.example.com"]);
+		expect(body.grantedPermissions.shell).toBe(true);
+		expect(body.grantedPermissions.storage).toBe(true);
+		const patch = (mockUpdateExtension.mock.calls[0] as any[])[1];
+		expect(patch.enabled).toBe(true);
+		expect(patch.grantedPermissions).toEqual(patch.installedPermissions);
+		// Activate path also writes the extension:confirmed audit row.
+		expect(
+			(mockInsertAuditEntry.mock.calls as any[][]).some(
+				(c) => c[1] === "extension:confirmed",
+			),
+		).toBe(true);
+	});
+
+	test("regression: non-allow-listed extension stays disabled (install≠enable invariant)", async () => {
+		extensionStore = {
+			...extensionFixture,
+			name: "sample-ext", // not in AUTO_ENABLE_ON_INSTALL
+			grantedPermissions: { grantedAt: {} },
+			enabled: false,
+		};
+		const res = await (installPOST(
+			installReq({ source: "local", path: "/tmp/ext" }),
+		) as any);
+		expect(res.status).toBe(201);
+		const body = await res.json();
+		expect(body.enabled).toBe(false);
+		expect(body.grantedPermissions).toEqual({ grantedAt: {} });
+		// Auto-enable skipped entirely — no activate side effects.
+		expect(mockUpdateExtension).not.toHaveBeenCalled();
+		expect(mockHasSecurityViolation).not.toHaveBeenCalled();
+	});
+
+	test("allow-listed but activate fails → still 201, left disabled, warning logged", async () => {
+		extensionStore = {
+			...extensionFixture,
+			name: "substack-pilot",
+			manifest: {
+				name: "substack-pilot",
+				version: "1.0.0",
+				permissions: { shell: true },
+			},
+			grantedPermissions: { grantedAt: {} },
+			enabled: false,
+		};
+		mockHasSecurityViolation.mockImplementationOnce(async () => true);
+		const res = await (installPOST(
+			installReq({ source: "local", path: "/tmp/substack-pilot" }),
+		) as any);
+		expect(res.status).toBe(201);
+		const body = await res.json();
+		// Installer return is preserved (disabled) — non-fatal failure.
+		expect(body.enabled).toBe(false);
+		expect(mockUpdateExtension).not.toHaveBeenCalled();
+		expect(mockLogWarn).toHaveBeenCalledTimes(1);
+	});
+
+	test.each(AUTO_ENABLE_NAMES)(
+		"%s auto-enables on install",
+		async (name) => {
+			extensionStore = {
+				...extensionFixture,
+				name,
+				manifest: { name, version: "1.0.0", permissions: { storage: true } },
+				grantedPermissions: { grantedAt: {} },
+				enabled: false,
+			};
+			const res = await (installPOST(
+				installReq({ source: "local", path: `/tmp/${name}` }),
+			) as any);
+			expect(res.status).toBe(201);
+			expect((await res.json()).enabled).toBe(true);
+		},
+	);
+});
+
+describe("activateExtension service (direct)", () => {
+	beforeEach(() => {
+		extensionStore = {
+			...extensionFixture,
+			manifest: {
+				name: "sample-ext",
+				version: "1.0.0",
+				permissions: { network: ["api.example.com"], shell: false },
+			},
+			grantedPermissions: { grantedAt: {} },
+			enabled: false,
+		};
+		mockGetExtension.mockClear();
+		mockUpdateExtension.mockClear();
+		mockResetFailures.mockClear();
+		mockReload.mockClear();
+		mockInsertAuditEntry.mockClear();
+		mockHasSecurityViolation.mockClear();
+	});
+
+	test("unknown id → {ok:false,404}, no side effects", async () => {
+		extensionStore = null;
+		const r = await activateExtension("missing", {}, "admin-1");
+		expect(r).toEqual({ ok: false, status: 404, message: "Not found" });
+		expect(mockHasSecurityViolation).not.toHaveBeenCalled();
+		expect(mockUpdateExtension).not.toHaveBeenCalled();
+	});
+
+	test("security violation → {ok:false,403}, no DB write / reload / audit", async () => {
+		mockHasSecurityViolation.mockImplementationOnce(async () => true);
+		const r = await activateExtension(
+			"ext-1",
+			{ submittedPermissions: { network: ["api.example.com"] } },
+			"admin-1",
+		);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.status).toBe(403);
+		expect(mockUpdateExtension).not.toHaveBeenCalled();
+		expect(mockResetFailures).not.toHaveBeenCalled();
+		expect(mockReload).not.toHaveBeenCalled();
+		expect(mockInsertAuditEntry).not.toHaveBeenCalled();
+	});
+
+	test("submitted perms clamped to manifest + stored as granted & installed", async () => {
+		const r = await activateExtension(
+			"ext-1",
+			{ submittedPermissions: { network: ["api.example.com", "evil.com"], shell: true } },
+			"admin-1",
+		);
+		expect(r.ok).toBe(true);
+		const patch = (mockUpdateExtension.mock.calls[0] as any[])[1];
+		expect(patch.enabled).toBe(true);
+		expect(patch.grantedPermissions.network).toEqual(["api.example.com"]);
+		expect(patch.grantedPermissions.shell).toBeUndefined(); // manifest shell:false
+		expect(patch.installedPermissions).toEqual(patch.grantedPermissions);
+		expect(mockResetFailures).toHaveBeenCalledTimes(1);
+		expect(mockReload).toHaveBeenCalledTimes(1);
+		const audit = (mockInsertAuditEntry.mock.calls[0] as any[]);
+		expect(audit[0]).toBe("admin-1");
+		expect(audit[1]).toBe("extension:confirmed");
+		expect(audit[2]).toBe("ext-1");
+	});
+
+	test("omitted submittedPermissions → only flips enabled, perms untouched", async () => {
+		const r = await activateExtension("ext-1", {}, "admin-1");
+		expect(r.ok).toBe(true);
+		const patch = (mockUpdateExtension.mock.calls[0] as any[])[1];
+		expect(patch.enabled).toBe(true);
+		expect(patch.grantedPermissions).toBeUndefined();
+		expect(patch.installedPermissions).toBeUndefined();
 	});
 });

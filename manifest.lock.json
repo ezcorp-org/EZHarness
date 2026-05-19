@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-18T00:58:10.301Z",
+  "generatedAt": "2026-05-19T00:27:09.188Z",
   "extensions": {
     "ai-kit": {
       "version": "0.1.0",
@@ -22,15 +22,10 @@
       "entrypoint": "./index.ts",
       "toolsHash": "sha256-A9UOjnlxbtoqYxnNcFcF2Pj1RtiTYC6iMHbkmaPyFmk="
     },
-    "excel": {
-      "version": "0.1.0",
-      "entrypoint": "./index.ts",
-      "toolsHash": "sha256-ointQYQvhoYoSjqHqiyMJS8ErsANsdzB9LERecGZKrI="
-    },
     "extension-author": {
       "version": "0.1.0",
       "entrypoint": "./index.ts",
-      "toolsHash": "sha256-DhMG1XKRdEB2W5kqI3FIIwvGqxPI+R/um5k/O0G28+I="
+      "toolsHash": "sha256-eNw2asMgRh7ZOef2lFlROMFM5SzX5WXsFxYonBUhC18="
     },
     "file-refactor": {
       "version": "1.0.0",
@@ -92,11 +87,6 @@
       "entrypoint": "./index.ts",
       "toolsHash": "sha256-dutgaNNWXGQHgFGIZtlN/wTR6xnQaZAtEtYUN1ziPPk="
     },
-    "property-intelligence-agent": {
-      "version": "1.0.0",
-      "entrypoint": "./index.ts",
-      "toolsHash": "sha256-5kKfynTWmaVosft3kzpDX0uI7qUE5v+NjPSkvmWFdVM="
-    },
     "research-agent": {
       "version": "1.0.0",
       "entrypoint": "",
@@ -106,11 +96,6 @@
       "version": "1.0.0",
       "entrypoint": "./index.ts",
       "toolsHash": "sha256-7IBGzpaJWVfxxBXATWD5gt/qnnUyDz84evxn1JH8Too="
-    },
-    "task-stack": {
-      "version": "1.0.0",
-      "entrypoint": "./index.ts",
-      "toolsHash": "sha256-oxeKik+umu0vGhl8Nc0G7ya8r+XKEIK1kpfQjVBzEM4="
     },
     "task-tracking": {
       "version": "1.0.0",

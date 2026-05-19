@@ -25,6 +25,36 @@ import { join } from "node:path";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
+// ── Auto-enable-on-install allowlist ─────────────────────────────────
+
+/**
+ * Extensions that auto-enable (and have their declared manifest
+ * permissions granted) the moment they're installed via the Library /
+ * marketplace API — a deliberate, admin-gated carve-out of the
+ * install≠enable invariant (sec-C3/sec-C4).
+ *
+ * These five used to ship as bundled extensions: installed + enabled +
+ * declared-permissions-granted at boot. They were removed from
+ * `BUNDLED_EXTENSIONS` so they no longer force-install, but the product
+ * expectation is that installing one still lands it ready to use rather
+ * than disabled with empty permissions. All five are first-party,
+ * code-reviewed, in-repo example extensions — the same trust class they
+ * had as bundled entries — so restoring the enabled posture for exactly
+ * these names (and no others) is safe. Every other extension keeps the
+ * explicit `POST /:id/activate` consent step.
+ */
+export const AUTO_ENABLE_ON_INSTALL: ReadonlySet<string> = new Set([
+  "task-stack",
+  "property-intelligence-agent",
+  "substack-pipeline",
+  "excel",
+  "substack-pilot",
+]);
+
+export function shouldAutoEnableOnInstall(name: string): boolean {
+  return AUTO_ENABLE_ON_INSTALL.has(name);
+}
+
 // ── Local Install ───────────────────────────────────────────────────
 
 /**
