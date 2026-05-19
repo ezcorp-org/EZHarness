@@ -2,8 +2,12 @@
 #
 # Quick start:
 #   1. Copy `.env.prod.example` → `.env.prod` and fill it in.
-#   2. docker compose -f compose.prod.yml up -d
-#   3. Open http://localhost:4000 and create the admin account.
+#   2. Pre-create the local data dir with the right owner (ONE TIME):
+#        mkdir -p .ezcorp/data && sudo chown -R 1000:1000 .ezcorp/data
+#      Docker auto-creates a missing bind-mount source as root; the
+#      unprivileged uid-1000 `bun` runtime can't write it otherwise.
+#   3. docker compose -f compose.prod.yml up -d
+#   4. Open http://localhost:4000 and create the admin account.
 #
 # See docs/production-guide.md for backups, migration safety, auto-updates,
 # external Postgres, and TLS reverse-proxy setup.
@@ -102,22 +106,27 @@ services:
       # axe is redundant and harmful.
       IDLE_TIMEOUT: "0"
     volumes:
-      # Named volume covers the LIVE PGlite data dir (/app/data/ezcorp).
-      # Surviving `docker compose down` is automatic; only `docker compose
-      # down -v` destroys it. The live DB dir is INTENTIONALLY left on the
-      # volume — never bind-mount a running PGlite/Postgres data dir
-      # (locking/fsync/uid hazards, zero hand-edit benefit).
-      - ezcorp-data:/app/data
-      # Snapshot backups, scoped-bound to the host so they're reachable
-      # for offsite copy WITHOUT exposing the live DB dir. Layered on top
-      # of the ezcorp-data volume above; /app/data/ezcorp stays
-      # volume-backed. Backups are write-once-read-many (safe to bind).
-      # `.ezcorp/` is gitignored, so the snapshots never enter git.
-      # OWNERSHIP: prod runs as uid 1000 (`bun`); the host dir is
-      # chown'd 1000:1000 / 0700 so the snapshot job can write. The host
-      # login user (uid 1001 here) therefore needs sudo to read them,
-      # and the dev stack (root) must not also bind this path.
-      - ./.ezcorp/backups:/app/data/backups
+      # Local host bind mount for ALL persistent DB state — the live
+      # PGlite data dir (./.ezcorp/data/ezcorp) AND its snapshots
+      # (./.ezcorp/data/backups). One mount covers both because
+      # src/db/backup.ts:getBackupDir() defaults to a sibling of the
+      # DB dir, and EZCORP_DB_PATH=/app/data/ezcorp (Dockerfile).
+      #
+      # Lives in the working tree (`.ezcorp/` is gitignored), so the
+      # data survives `docker compose down`, `down -v`, `--force-recreate`,
+      # image upgrades, and even `docker system prune` — there is no
+      # docker-managed volume to lose. The container reloads this exact
+      # folder on every boot (zero-RPO local persistence).
+      #
+      # OWNERSHIP: prod runs as uid 1000 (`bun`). Docker auto-creates a
+      # missing bind-mount source as root, which the unprivileged
+      # runtime then can't write. Pre-create + chown ONCE before the
+      # first `up` (see the quick-start header above and
+      # docs/production-guide.md "Bind mounts and file ownership"):
+      #   mkdir -p .ezcorp/data && sudo chown -R 1000:1000 .ezcorp/data
+      # The host login user (a different uid) then needs sudo to read
+      # the tree, and the dev stack (root) must not also bind this path.
+      - ./.ezcorp/data:/app/data
       # Persist extension-generated files (openai-image-gen-2 writes PNG/WEBP
       # here; rehydrator reads them back on subsequent turns so the model
       # can describe/edit prior images). WORKDIR=/app in Dockerfile, so
@@ -201,6 +210,8 @@ services:
   #   postgres: { condition: service_healthy }
 
 volumes:
-  ezcorp-data:
+  # ezcorp-data removed: the live DB + snapshots are now a local host
+  # bind mount (./.ezcorp/data → /app/data), not a docker-managed
+  # volume. See the `app.volumes` block above.
   ext-data:
   # ezcorp-pg:

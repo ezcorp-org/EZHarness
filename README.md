@@ -100,15 +100,23 @@ rollback if anything goes wrong.
 
 ### Data persistence
 
-Data is stored in the `ezcorp-data` named volume. It survives container
-restarts and image upgrades; only `docker compose down -v` destroys it.
-
-### Volume migration
-
-If migrating from a previous installation using `pi-data`:
+Data is stored in `./.ezcorp/data/` in the working tree (`.ezcorp/` is
+gitignored), bind-mounted to `/app/data`. It survives `docker compose
+down`, `down -v`, recreate, and image upgrades — there is no
+docker-managed volume to lose. One-time setup before the first `up`:
 
 ```bash
-docker volume create ezcorp-data && docker run --rm -v pi-data:/from -v ezcorp-data:/to alpine cp -a /from/. /to/
+mkdir -p .ezcorp/data && sudo chown -R 1000:1000 .ezcorp/data
+```
+
+### Migrating from an older named-volume deployment
+
+Earlier builds stored data in the `ezcorp-data` Docker volume. Copy it
+into the new local folder (stop the stack first), then fix ownership:
+
+```bash
+docker run --rm -v ezcorp-prod_ezcorp-data:/from -v "$PWD/.ezcorp/data":/to alpine cp -a /from/. /to/
+sudo chown -R 1000:1000 .ezcorp/data
 ```
 
 ### Production deployment

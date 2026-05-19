@@ -44,20 +44,28 @@ break decrypts on the next restart.
 > intended permission posture (`chmod 600`) explicit, and lets you commit
 > `.env.prod.example` as a checklist without ever risking the real file.
 
-### Backing up the data volume
+### Backing up the data
 
-Everything stateful — PGlite database, pre-boot snapshots, periodic backups,
-extension files — lives under the named volume `ezcorp-data`. `docker
-compose down` preserves it; `docker compose down -v` destroys it. To copy
-it off-host:
+The PGlite database and all its snapshots live in the working tree at
+`./.ezcorp/data/` (`ezcorp/` is the live DB, `backups/` the snapshots),
+bind-mounted to `/app/data` in the container. `.ezcorp/` is gitignored.
+It is a plain local folder — it survives `docker compose down`, `down -v`,
+`--force-recreate`, and image upgrades; there is no docker-managed volume
+to lose. Extension-generated files live alongside it under
+`./.ezcorp/extension-data/`.
+
+To copy it off-host, tar the folder directly (stop the app first so
+PGlite isn't mid-write):
 
 ```bash
-docker run --rm -v ezcorp-data:/data -v "$PWD":/backup alpine \
-  tar czf /backup/ezcorp-data-$(date +%Y%m%d).tgz -C /data .
+docker compose -f compose.prod.yml stop app
+sudo tar czf ezcorp-data-$(date +%Y%m%d).tgz .ezcorp/data .ezcorp/extension-data
+docker compose -f compose.prod.yml start app
 ```
 
-Restore by stopping the stack, untarring back into the volume, then
-starting again. See §3 for snapshot-level recovery details.
+Restore by stopping the stack, untarring back over `./.ezcorp/`, fixing
+ownership (`sudo chown -R 1000:1000 .ezcorp/data`), then starting again.
+See §3 for snapshot-level recovery details.
 
 ### Environment variables
 
@@ -86,10 +94,10 @@ deploy with an explanatory error.
 
 > **Never auto-generate the four required secrets in production.** The
 > first-boot fallback writes them to `.pi-secret` / `.pi-salt` inside the
-> data volume — fine for a one-off laptop demo, fatal anywhere else: a
-> volume reset, a `down -v`, or a fresh host all silently mint new
-> secrets and orphan every previously-stored OAuth token. Set them
-> explicitly so the values are reproducible from your secret manager.
+> data dir — fine for a one-off laptop demo, fatal anywhere else: a
+> wiped `./.ezcorp/data`, or a fresh host, silently mints new secrets
+> and orphans every previously-stored OAuth token. Set them explicitly
+> so the values are reproducible from your secret manager.
 
 ### When to flip `FORCE_SECURE_COOKIES`
 
@@ -113,14 +121,19 @@ tuning guidance, and the custom-strategy seam:
 
 ### Bind mounts and file ownership
 
-The container runs as **uid 1000** (the `bun` user). If you bind-mount a host directory instead of using the named volume, it must be writable by uid 1000:
+The container runs as **uid 1000** (the `bun` user). `compose.prod.yml`
+bind-mounts the host folder `./.ezcorp/data` to `/app/data` **by default**,
+so it must be writable by uid 1000. Docker auto-creates a missing
+bind-mount source as **root**, so create it with the right owner once
+before the first `up`:
 
 ```bash
-mkdir -p /srv/ezcorp-data && chown 1000:1000 /srv/ezcorp-data
-docker run -v /srv/ezcorp-data:/app/data ghcr.io/ezcorp-org/ezcorp:latest
+mkdir -p .ezcorp/data && sudo chown -R 1000:1000 .ezcorp/data
 ```
 
-Named volumes (the default in `compose.prod.yml`) inherit ownership from the image, so this only matters for host-path mounts.
+The host login user is typically a different uid, so reading the tree
+afterwards (snapshots, forensic copies) needs `sudo`. A custom host path
+works the same way — point the mount at it and `chown 1000:1000` it.
 
 #### Fixing a pre-existing `ext-data` volume
 
@@ -261,16 +274,16 @@ docker compose -f compose.prod.yml stop app
 # Replace this with the snapshot you picked in step 1.
 SNAP=pre-boot-<sha>-<ts>
 
-# Rotate ezcorp/ aside (forensic copy), then restore the snapshot in place.
-docker run --rm \
-  -v ezcorp-prod_ezcorp-data:/d \
-  --user 1000:1000 \
-  oven/bun:1-slim \
-  sh -c "set -eu;
-         test -d /d/backups/$SNAP || { echo missing snapshot; exit 1; };
-         mv /d/ezcorp /d/ezcorp.recovery-pending.$(date -u +%s);
-         cp -a /d/backups/$SNAP /d/ezcorp;
-         rm -f /d/.ezcorp-recovery-needed.json"
+# Rotate ezcorp/ aside (forensic copy), then restore the snapshot in
+# place. The data is the local ./.ezcorp/data folder — operate on it
+# directly on the host (sudo: the tree is owned by uid 1000).
+sudo sh -c "set -eu;
+  cd .ezcorp/data;
+  test -d backups/$SNAP || { echo missing snapshot; exit 1; };
+  mv ezcorp ezcorp.recovery-pending.\$(date -u +%s);
+  cp -a backups/$SNAP ezcorp;
+  rm -f .ezcorp-recovery-needed.json;
+  chown -R 1000:1000 ezcorp"
 
 docker compose -f compose.prod.yml up -d app
 ```
@@ -326,14 +339,13 @@ Two kinds of backups live under `/app/data/backups/`:
 
 Each is a full directory copy of the PGlite data (cheap — PGlite datasets
 are typically under a few hundred MB). Restore by stopping the container,
-replacing `/app/data/ezcorp/` with the contents of a snapshot, and
+replacing `./.ezcorp/data/ezcorp/` with the contents of a snapshot, and
 restarting.
 
 ```bash
 # Example: restore from the most recent pre-boot snapshot
 docker compose -f compose.prod.yml stop app
-docker run --rm -v ezcorp-data:/data alpine sh -c \
-  "rm -rf /data/ezcorp && cp -a /data/backups/pre-boot-*/ /data/ezcorp"
+sudo sh -c 'cd .ezcorp/data && rm -rf ezcorp && cp -a backups/pre-boot-*/ ezcorp && chown -R 1000:1000 ezcorp'
 docker compose -f compose.prod.yml up -d
 ```
 

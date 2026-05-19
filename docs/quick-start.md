@@ -35,7 +35,7 @@ Open [http://localhost:3000](http://localhost:3000), create your admin account, 
 
 ### Persistence
 
-Data lives in the `ezcorp-data` named Docker volume. It survives `docker compose down` and image upgrades; only `docker compose down -v` destroys it.
+Data lives in `./.ezcorp/data/` in the working tree (`.ezcorp/` is gitignored), bind-mounted to `/app/data` in the container. It survives `docker compose down`, `down -v`, recreate, and image upgrades — nothing docker-managed to lose. One-time setup before the first `up`: `mkdir -p .ezcorp/data && sudo chown -R 1000:1000 .ezcorp/data`.
 
 ### Updates
 
