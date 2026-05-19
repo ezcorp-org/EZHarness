@@ -1,4 +1,5 @@
 import { connectionState } from "./stores/connection";
+import { gatedConnectionState, CONNECTION_GRACE_MS } from "./connection-grace";
 
 export type WSConnectionEvent =
 	| { type: "ws:connected"; data: Record<string, never> }
@@ -71,8 +72,63 @@ export function createWSClient() {
 	let closed = false;
 	let attempt = 0;
 
-	function updateState(state: "connected" | "disconnected" | "reconnecting" | "failed") {
+	// Connection-issue UI (banner + disabled chat input) is gated behind a
+	// grace window: a transient blip shorter than CONNECTION_GRACE_MS never
+	// surfaces, so flaky networks don't flicker the UI. The reconnect/backoff
+	// loop below is unaffected — only what we publish to `connectionState` is
+	// delayed. `problemActive` tracks the current uninterrupted problem;
+	// `graceElapsed` flips once the timer fires (the timer firing IS the
+	// signal that the grace window passed). `lastRaw` is the latest raw
+	// transport state, used when the timer flushes the now-visible state.
+	let problemActive = false;
+	let graceElapsed = false;
+	let graceTimer: ReturnType<typeof setTimeout> | null = null;
+	let lastRaw: "connected" | "disconnected" | "reconnecting" | "failed" = "connected";
+
+	function publish(state: "connected" | "disconnected" | "reconnecting" | "failed") {
 		connectionState.set({ state, attempt, maxAttempts: MAX_ATTEMPTS });
+	}
+
+	function clearGraceTimer() {
+		if (graceTimer) {
+			clearTimeout(graceTimer);
+			graceTimer = null;
+		}
+	}
+
+	function updateState(raw: "connected" | "disconnected" | "reconnecting" | "failed") {
+		lastRaw = raw;
+
+		if (raw === "connected") {
+			problemActive = false;
+			graceElapsed = false;
+			clearGraceTimer();
+			publish("connected");
+			return;
+		}
+
+		// "failed" is only reached after the full reconnect backoff (far
+		// longer than the grace window) and is terminal — surface it now.
+		if (raw === "failed") {
+			clearGraceTimer();
+			publish("failed");
+			return;
+		}
+
+		// "disconnected" | "reconnecting" — gate behind the grace window.
+		if (!problemActive) {
+			problemActive = true;
+			graceElapsed = false;
+			graceTimer = setTimeout(() => {
+				graceTimer = null;
+				graceElapsed = true;
+				if (problemActive) {
+					publish(gatedConnectionState(lastRaw, CONNECTION_GRACE_MS));
+				}
+			}, CONNECTION_GRACE_MS);
+		}
+
+		publish(gatedConnectionState(raw, graceElapsed ? CONNECTION_GRACE_MS : 0));
 	}
 
 	function connect() {
@@ -160,6 +216,7 @@ export function createWSClient() {
 		close() {
 			closed = true;
 			if (reconnectTimer) clearTimeout(reconnectTimer);
+			clearGraceTimer();
 			es?.close();
 		},
 		manualRetry,

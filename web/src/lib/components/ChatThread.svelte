@@ -90,6 +90,11 @@
 		computeAnchor,
 		scrollTopForAnchor,
 	} from "$lib/chat-scroll-restore.js";
+	import {
+		shouldStickToBottom,
+		bottomSlack,
+		STICK_TO_BOTTOM_THRESHOLD_PX,
+	} from "$lib/chat-stick-to-bottom.js";
 	import ChatMessage from "$lib/components/ChatMessage.svelte";
 	import ChatInput from "$lib/components/ChatInput.svelte";
 	import InlineToolCard from "$lib/components/InlineToolCard.svelte";
@@ -306,7 +311,16 @@
 	let loadGeneration = $state(0);
 	let resumedRun = $state(false);
 	let userScrolledUp = $state(false);
+	// Synchronous follow-the-bottom intent for the stick-to-bottom gate.
+	// Tracked from real scroll events (see the persist `onScroll` below) and
+	// set directly on send / jump / open-to-bottom. Distinct from
+	// `userScrolledUp` (async, IntersectionObserver-driven) which now only
+	// drives jump-to-bottom button visibility. Default true = follow until a
+	// real scroll says otherwise; the `initialScrollDone` guard keeps the
+	// gate inert until open-scroll-restore has decided.
+	let stuck = $state(true);
 	let observer: IntersectionObserver | undefined;
+	let stickObserver: ResizeObserver | undefined;
 	let streamedSnapshot = $state<StreamSnapshot>({});
 	let visibleMessageCount = $state(INITIAL_MESSAGE_WINDOW);
 	let topSentinel = $state<HTMLDivElement | undefined>();
@@ -609,6 +623,7 @@
 		error: { get: () => error, set: (v) => { error = v; } },
 		chatOAuthPending: { get: () => chatOAuthPending, set: (v) => { chatOAuthPending = v; } },
 		userScrolledUp: { get: () => userScrolledUp, set: (v) => { userScrolledUp = v; } },
+		stuck: { get: () => stuck, set: (v) => { stuck = v; } },
 		settingsOpen: { get: () => false, set: () => {} },
 		obsOpen: { get: () => false, set: () => {} },
 		editRetryCall: { get: () => editRetryCall, set: (v) => { editRetryCall = v; } },
@@ -1054,10 +1069,43 @@
 				{ root: container, threshold: 0.1 },
 			);
 			observer.observe(sentinel);
+
+			// Stick-to-bottom: any height growth (tokens, tool/agent
+			// cards, post-turn loadMessages/hydrate, async reflow) re-pins
+			// to the bottom while the user is at the bottom. `atBottom` is
+			// measured synchronously before the IntersectionObserver's
+			// async callback can stale-flip `userScrolledUp` from the same
+			// growth, so a genuine "scrolled up to read" still wins.
+			if (typeof ResizeObserver !== "undefined") {
+				const el = container;
+				let rafPending = false;
+				stickObserver = new ResizeObserver(() => {
+					if (
+						!shouldStickToBottom({
+							initialScrollDone,
+							rafPending,
+							anchorWatchActive: stopAnchorWatch !== null,
+							stuck,
+						})
+					) {
+						return;
+					}
+					rafPending = true;
+					requestAnimationFrame(() => {
+						rafPending = false;
+						el.scrollTop = el.scrollHeight;
+					});
+				});
+				stickObserver.observe(el);
+				if (el.firstElementChild) {
+					stickObserver.observe(el.firstElementChild);
+				}
+			}
 		}
 
 		return () => {
 			observer?.disconnect();
+			stickObserver?.disconnect();
 			cleanupOAuth();
 			window.removeEventListener("ez:turn_saved", handleTurnSaved);
 			window.removeEventListener(
@@ -1073,22 +1121,19 @@
 		};
 	});
 
-	// Auto-scroll on new tokens.
-	$effect(() => {
-		void currentStreamingText;
-		if (!userScrolledUp && sentinel) {
-			sentinel.scrollIntoView({
-				behavior: "instant" as ScrollBehavior,
-			});
-		}
-	});
-
 	// Persist scroll position per-conv.
 	$effect(() => {
 		if (!container) return;
 		const el = container;
 		const cid = conversationId;
 		const onScroll = () => {
+			// Synchronous follow-intent. Every real scroll (and the
+			// programmatic pin, which lands at scrollHeight) re-decides
+			// `stuck`: within the threshold of the bottom ⇒ still glued;
+			// further ⇒ the user broke away to read. This is the gate's
+			// only signal — never the async sentinel observer — so a
+			// one-shot large turn insert can't stale-flip it.
+			stuck = bottomSlack(el) < STICK_TO_BOTTOM_THRESHOLD_PX;
 			const anchor = computeAnchor(el);
 			const partial: Parameters<typeof updateCachedScrollState>[1] = {
 				scrollTop: el.scrollTop,
@@ -1140,6 +1185,13 @@
 						)
 					: null;
 			container.scrollTop = anchorTop ?? decision.scrollTop;
+			// We deliberately restored a saved (non-glued) position. Drop
+			// `stuck` *synchronously* so the stick-to-bottom ResizeObserver
+			// can't yank it to the bottom before any scroll event lands.
+			// `userScrolledUp = true` is kept only so the jump-to-bottom
+			// button shows on a restored (non-bottom) thread.
+			stuck = false;
+			userScrolledUp = true;
 			startAnchorReapplyWatch(
 				container,
 				cached?.anchorMessageId,
@@ -1168,6 +1220,7 @@
 		if (sawResumedRunForOpen) return;
 		sawResumedRunForOpen = true;
 		if (!sentinel) return;
+		stuck = true;
 		userScrolledUp = false;
 		sentinel.scrollIntoView({ behavior: "instant" as ScrollBehavior });
 	});
@@ -1803,6 +1856,7 @@
 			<button
 				class="jump-to-bottom"
 				onclick={() => {
+					stuck = true;
 					userScrolledUp = false;
 					sentinel?.scrollIntoView({ behavior: "smooth" });
 				}}

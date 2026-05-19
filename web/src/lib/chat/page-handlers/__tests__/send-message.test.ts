@@ -297,6 +297,7 @@ interface HostState {
 	error: string | null;
 	chatOAuthPending: OAuthPending | null;
 	userScrolledUp: boolean;
+	stuck: boolean;
 	settingsOpen: boolean;
 	obsOpen: boolean;
 	editRetryCall: unknown;
@@ -331,6 +332,7 @@ function makeHost(initial: Partial<HostState> = {}): {
 		error: null,
 		chatOAuthPending: null,
 		userScrolledUp: false,
+		stuck: false,
 		settingsOpen: false,
 		obsOpen: false,
 		editRetryCall: null,
@@ -402,6 +404,10 @@ function makeHost(initial: Partial<HostState> = {}): {
 		userScrolledUp: {
 			get: () => state.userScrolledUp,
 			set: (v) => { state.userScrolledUp = v; },
+		},
+		stuck: {
+			get: () => state.stuck,
+			set: (v) => { state.stuck = v; },
 		},
 		settingsOpen: {
 			get: () => state.settingsOpen,
@@ -549,6 +555,9 @@ describe("handleSend (happy path)", () => {
 		expect(state.resumedRun).toBe(false);
 		expect(state.error).toBeNull();
 		expect(state.userScrolledUp).toBe(false);
+		// Send re-engages stick-to-bottom synchronously (initial false → true)
+		// so the new turn is followed regardless of the async sentinel IO.
+		expect(state.stuck).toBe(true);
 
 		// Optimistic + real user msg + assistant placeholder = 2 (real user
 		// replaces optimistic in place + 1 assistant placeholder).

@@ -170,6 +170,13 @@ export interface SendMessageHost {
 	error: Slot<string | null>;
 	chatOAuthPending: Slot<OAuthPending | null>;
 	userScrolledUp: Slot<boolean>;
+	/**
+	 * Synchronous follow-the-bottom intent for the stick-to-bottom gate.
+	 * Set true on send so a new turn is followed even if the bottom-sentinel
+	 * IntersectionObserver hasn't fired yet (it never gates the pin now —
+	 * see chat-stick-to-bottom.ts).
+	 */
+	stuck: Slot<boolean>;
 	settingsOpen: Slot<boolean>;
 	obsOpen: Slot<boolean>;
 	editRetryCall: Slot<InlineToolCall | null>;
@@ -424,6 +431,7 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		host.activeLeafId.set(optimisticUserMsg.id);
 		host.error.set(null);
 		host.userScrolledUp.set(false);
+		host.stuck.set(true);
 		// Read sentinel fresh inside the rAF — the page binds it via
 		// `bind:this` after the optimistic message renders. Capturing it
 		// at factory time would be `undefined`.

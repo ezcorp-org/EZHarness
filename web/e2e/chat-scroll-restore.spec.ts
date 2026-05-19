@@ -492,4 +492,90 @@ test.describe("chat scroll-restore on open", () => {
 		).toBe(anchorBefore);
 		expect(await isAtBottom(page)).toBe(false);
 	});
+
+	test("staying on a conv: a streamed new turn + run:complete keeps the view pinned to the bottom (user never scrolled)", async ({ page }) => {
+		// The reported bug: at the bottom, when a new turn lands (streamed
+		// tokens then the turn-completion reconcile) the thread stopped
+		// following because the bottom-sentinel IntersectionObserver could
+		// flip the old `userScrolledUp` flag before the ResizeObserver pin.
+		// The fix tracks follow-intent synchronously from scroll events, so
+		// a user who never scrolled stays pinned. (The precise observer-
+		// ordering race is proven deterministically in
+		// chat-stick-to-bottom.integration.test.ts; this guards the real
+		// DOM + ResizeObserver/IntersectionObserver/scroll wiring e2e.)
+		await installFakeTransports(page);
+		await setupApiMocks(page, {
+			projects: [proj],
+			conversations: [convA, convB],
+			messages: longHistoryA,
+			routes: {
+				"active-run": (url: URL) =>
+					url.pathname.includes("/conv-A/active-run")
+						? {
+								runId: "run-A",
+								status: "running",
+								startedAt: "2026-01-01T00:02:00.000Z",
+								partialResponse: "",
+							}
+						: { runId: null },
+			},
+		});
+
+		// Open A; active stream wires up and the open-scroll override lands
+		// us at the bottom. The user does NOT scroll.
+		await page.goto(`/project/proj-1/chat/conv-A`);
+		await expect(page.getByRole("button", { name: /stop/i })).toBeVisible({
+			timeout: 8000,
+		});
+		await expect(page.getByText(/Message A #60/)).toBeVisible({ timeout: 8000 });
+		await page.waitForTimeout(150);
+		expect(
+			await isAtBottom(page),
+			"sanity: an active stream on open must land at the bottom",
+		).toBe(true);
+
+		// A new turn streams in — several token chunks grow the bubble well
+		// past the 80px stick threshold in one turn.
+		for (let i = 0; i < 8; i++) {
+			await pushSse(page, {
+				type: "run:token",
+				data: {
+					runId: "run-A",
+					token:
+						`Streamed line ${i + 1} — long enough that eight of ` +
+						`these comfortably exceed the stick threshold. `,
+				},
+			});
+		}
+		await expect(page.getByText(/Streamed line 8/)).toBeVisible({
+			timeout: 5000,
+		});
+		await page.waitForTimeout(150);
+		expect(
+			await isAtBottom(page),
+			"streamed-turn growth while following must keep the view pinned",
+		).toBe(true);
+
+		// Turn completes → handleAgentComplete reconciles the tree
+		// (loadMessages + hydrate) in one shot. A user who never scrolled
+		// must still be at the bottom.
+		await pushSse(page, {
+			type: "run:complete",
+			data: {
+				run: {
+					id: "run-A",
+					agentName: "test-agent",
+					status: "success",
+					startedAt: "2026-01-01T00:02:00.000Z",
+					finishedAt: "2026-01-01T00:02:30.000Z",
+					logs: [],
+				},
+			},
+		});
+		await page.waitForTimeout(250);
+		expect(
+			await isAtBottom(page),
+			"after the turn-completion reconcile, a user who never scrolled must still be at the bottom (the reported regression)",
+		).toBe(true);
+	});
 });

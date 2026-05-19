@@ -1,4 +1,9 @@
 import { test, expect, describe, mock, beforeEach } from "bun:test";
+import {
+	shouldStickToBottom,
+	bottomSlack,
+	STICK_TO_BOTTOM_THRESHOLD_PX,
+} from "$lib/chat-stick-to-bottom.js";
 
 // ---------------------------------------------------------------------------
 // 1. adjustHeight logic (pure math extracted from ChatInput.svelte)
@@ -122,105 +127,147 @@ describe("jump-to-bottom button behavior", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. Auto-scroll effect
+// 3. Stick-to-bottom gate — exercises the REAL $lib/chat-stick-to-bottom
+//    module that ChatThread.svelte's ResizeObserver calls (no reimplementation,
+//    so call-site drift surfaces as a failure).
 // ---------------------------------------------------------------------------
-describe("auto-scroll effect", () => {
-	test("scrolls when userScrolledUp is false and streaming text changes", () => {
-		const userScrolledUp = false;
-		const scrollIntoView = mock((_opts?: ScrollIntoViewOptions) => {});
-		const sentinel = { scrollIntoView };
+describe("stick-to-bottom gate", () => {
+	const shouldPin = shouldStickToBottom;
 
-		// Simulate the $effect from +page.svelte
-		const runEffect = (streamingText: string | undefined) => {
-			void streamingText; // track dependency
-			if (!userScrolledUp && sentinel) {
-				sentinel.scrollIntoView({ behavior: "instant" as ScrollBehavior });
-			}
-		};
+	const base = {
+		initialScrollDone: true,
+		rafPending: false,
+		anchorWatchActive: false,
+		stuck: true,
+	};
 
-		runEffect("Hello");
-		expect(scrollIntoView).toHaveBeenCalledTimes(1);
-
-		runEffect("Hello world");
-		expect(scrollIntoView).toHaveBeenCalledTimes(2);
+	test("threshold constant is 80px", () => {
+		expect(STICK_TO_BOTTOM_THRESHOLD_PX).toBe(80);
 	});
 
-	test("does NOT scroll when userScrolledUp is true", () => {
-		const userScrolledUp = true;
-		const scrollIntoView = mock((_opts?: ScrollIntoViewOptions) => {});
-		const sentinel = { scrollIntoView };
-
-		const runEffect = (streamingText: string | undefined) => {
-			void streamingText;
-			if (!userScrolledUp && sentinel) {
-				sentinel.scrollIntoView({ behavior: "instant" as ScrollBehavior });
-			}
-		};
-
-		runEffect("Hello");
-		runEffect("Hello world");
-		runEffect("Hello world!");
-		expect(scrollIntoView).toHaveBeenCalledTimes(0);
+	describe("bottomSlack (caller-side stuck classification — no longer a gate input)", () => {
+		test("0 when scrolled to the very bottom", () => {
+			expect(
+				bottomSlack({ scrollHeight: 2400, scrollTop: 1600, clientHeight: 800 }),
+			).toBe(0);
+		});
+		test("positive when above the bottom", () => {
+			expect(
+				bottomSlack({ scrollHeight: 2400, scrollTop: 600, clientHeight: 800 }),
+			).toBe(1000);
+		});
+		test("non-scrollable content yields non-positive slack", () => {
+			expect(
+				bottomSlack({ scrollHeight: 500, scrollTop: 0, clientHeight: 800 }),
+			).toBe(-300);
+		});
+		test("a scroll at the bottom classifies as stuck ⇒ pin", () => {
+			// Mirrors ChatThread's onScroll: stuck = bottomSlack(el) < THRESHOLD.
+			const el = { scrollHeight: 2400, scrollTop: 1600, clientHeight: 800 };
+			const stuck = bottomSlack(el) < STICK_TO_BOTTOM_THRESHOLD_PX;
+			expect(shouldPin({ ...base, stuck })).toBe(true);
+		});
+		test("a scroll far above the bottom classifies as not-stuck ⇒ no pin", () => {
+			const el = { scrollHeight: 5000, scrollTop: 200, clientHeight: 800 };
+			const stuck = bottomSlack(el) < STICK_TO_BOTTOM_THRESHOLD_PX;
+			expect(shouldPin({ ...base, stuck })).toBe(false);
+		});
+		test("threshold boundary: < threshold is stuck, >= threshold is not", () => {
+			const mk = (slack: number) => ({
+				scrollHeight: 1000 + slack,
+				scrollTop: 200,
+				clientHeight: 800,
+			});
+			expect(
+				bottomSlack(mk(STICK_TO_BOTTOM_THRESHOLD_PX - 1)) <
+					STICK_TO_BOTTOM_THRESHOLD_PX,
+			).toBe(true);
+			expect(
+				bottomSlack(mk(STICK_TO_BOTTOM_THRESHOLD_PX)) <
+					STICK_TO_BOTTOM_THRESHOLD_PX,
+			).toBe(false);
+		});
 	});
 
-	test("does NOT scroll when sentinel is undefined", () => {
-		const userScrolledUp = false;
-		// Annotate as a mutable union so TS doesn't narrow to the literal
-		// `undefined` initializer and collapse the truthy branch to `never`.
-		const sentinel: { scrollIntoView: (_opts?: ScrollIntoViewOptions) => void } | undefined =
-			undefined as { scrollIntoView: (_opts?: ScrollIntoViewOptions) => void } | undefined;
-
-		// Should not throw
-		const runEffect = (streamingText: string | undefined) => {
-			void streamingText;
-			void userScrolledUp;
-			if (!userScrolledUp && sentinel) {
-				sentinel.scrollIntoView({ behavior: "instant" as ScrollBehavior });
-			}
-		};
-
-		expect(() => runEffect("test")).not.toThrow();
+	test("pins while the user is following the bottom (stuck)", () => {
+		expect(shouldPin({ ...base, stuck: true })).toBe(true);
 	});
 
-	test("resumes auto-scroll when user clicks jump-to-bottom", () => {
-		let userScrolledUp = true;
-		const scrollIntoView = mock((_opts?: ScrollIntoViewOptions) => {});
-		const sentinel = { scrollIntoView };
-
-		const runEffect = (streamingText: string | undefined) => {
-			void streamingText;
-			if (!userScrolledUp && sentinel) {
-				sentinel.scrollIntoView({ behavior: "instant" as ScrollBehavior });
-			}
-		};
-
-		// While scrolled up, no auto-scroll
-		runEffect("token1");
-		expect(scrollIntoView).toHaveBeenCalledTimes(0);
-
-		// User clicks jump-to-bottom
-		userScrolledUp = false;
-		sentinel.scrollIntoView({ behavior: "smooth" });
-
-		// Now auto-scroll works again
-		runEffect("token2");
-		expect(scrollIntoView).toHaveBeenCalledTimes(2); // smooth + instant
+	test("REGRESSION: a large turn-completion insert while following pins regardless of any async sentinel state", () => {
+		// The bug: a >80px one-shot insert used to be classified via
+		// post-growth `slack` + the async `userScrolledUp` flag, so when the
+		// bottom-sentinel IntersectionObserver fired before the ResizeObserver
+		// pin the new turn was wrongly treated as "user scrolled up" and the
+		// thread did not follow. The gate now reads only `stuck` (tracked
+		// synchronously from real scroll events), so observer ordering can no
+		// longer poison it: while following, it pins — full stop.
+		expect(shouldPin({ ...base, stuck: true })).toBe(true);
 	});
 
-	test("scrollIntoView is called with behavior instant during streaming", () => {
-		const userScrolledUp = false;
-		const scrollIntoView = mock((_opts?: ScrollIntoViewOptions) => {});
-		const sentinel = { scrollIntoView };
+	test("does NOT pin when the user broke away to read (not stuck)", () => {
+		// A real scroll-up sets stuck=false synchronously (ChatThread
+		// onScroll), before any later resize tick — the reading user is
+		// never yanked.
+		expect(shouldPin({ ...base, stuck: false })).toBe(false);
+	});
 
-		const runEffect = (streamingText: string | undefined) => {
-			void streamingText;
-			if (!userScrolledUp && sentinel) {
-				sentinel.scrollIntoView({ behavior: "instant" as ScrollBehavior });
-			}
+	test("does NOT pin before initialScrollDone (defers to open-time scroll-restore)", () => {
+		// Even while following: a RO fire during the open window must be a
+		// no-op so scroll-restore can win.
+		expect(
+			shouldPin({ ...base, initialScrollDone: false }),
+		).toBe(false);
+		expect(
+			shouldPin({
+				initialScrollDone: false,
+				rafPending: false,
+				anchorWatchActive: false,
+				stuck: true,
+			}),
+		).toBe(false);
+	});
+
+	test("does NOT pin while an anchor-restore watch is active (mutually exclusive scroll intents)", () => {
+		// Even while following: while startAnchorReapplyWatch owns the
+		// scroll, the stick observer must stand down so it doesn't trip the
+		// anchor watch's onScroll early-stop (anchor drift).
+		expect(
+			shouldPin({ ...base, anchorWatchActive: true, stuck: true }),
+		).toBe(false);
+	});
+
+	test("does NOT double-schedule while a rAF pin is already pending", () => {
+		expect(shouldPin({ ...base, rafPending: true })).toBe(false);
+	});
+
+	test("open-restore drops stuck so a RO fire can't yank a restored non-bottom position", () => {
+		// Simulate the restore branch: container restored to a non-bottom
+		// scrollTop and `stuck = false` set synchronously alongside the
+		// (now visibility-only) `userScrolledUp = true`.
+		let stuck = true;
+		const restoreToNonBottom = () => {
+			// container.scrollTop = anchorTop ?? decision.scrollTop
+			stuck = false; // the synchronous guard
 		};
+		restoreToNonBottom();
+		expect(
+			shouldPin({
+				initialScrollDone: true,
+				rafPending: false,
+				anchorWatchActive: false,
+				stuck,
+			}),
+		).toBe(false);
+	});
 
-		runEffect("chunk");
-		expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "instant" });
+	test("the rAF pin writes scrollTop = scrollHeight (deterministic, no sentinel scrollIntoView)", () => {
+		const el = { scrollTop: 120, scrollHeight: 2400, clientHeight: 800 };
+		// requestAnimationFrame body from the RO callback:
+		const pin = () => {
+			el.scrollTop = el.scrollHeight;
+		};
+		pin();
+		expect(el.scrollTop).toBe(2400);
 	});
 });
 
@@ -297,7 +344,7 @@ describe("IntersectionObserver setup", () => {
 
 		// Simulate onMount logic
 		const observer = new MockObserver(
-			([entry]) => {
+			() => {
 				// callback
 			},
 			{ root: container, threshold: 0.1 },

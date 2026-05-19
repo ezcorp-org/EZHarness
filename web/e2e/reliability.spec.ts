@@ -10,66 +10,112 @@ async function waitForChatReady(page: Page) {
 	await page.waitForTimeout(300);
 }
 
-/** Simulate WS disconnect: fire close listeners, set readyState=CLOSED. */
-async function simulateDisconnect(page: Page) {
-	await page.evaluate(() => {
-		const listeners = (window as any).__fakeWsListeners;
-		const ws = (window as any).__fakeWs;
-		ws.readyState = 3;
-		for (const fn of listeners.close ?? []) {
-			fn(new CloseEvent("close", { reason: "" }));
-		}
-	});
-}
-
-/** Simulate WS reconnect: fire open listeners, set readyState=OPEN. */
-async function simulateReconnect(page: Page) {
-	await page.evaluate(() => {
-		const listeners = (window as any).__fakeWsListeners;
-		const ws = (window as any).__fakeWs;
-		ws.readyState = 1;
-		for (const fn of listeners.open ?? []) {
-			fn(new Event("open"));
-		}
-	});
-}
-
 /**
- * Simulate enough close events to exhaust MAX_ATTEMPTS (10), reaching "failed" state.
- * Intercepts setTimeout to immediately fire reconnect callbacks.
+ * Self-contained SSE outage harness.
+ *
+ * `ws.ts` talks to the runtime-events stream over EventSource. The shared
+ * `setupWsMock` fake auto-opens every EventSource, so it cannot model a
+ * *sustained* outage (each reconnect instantly succeeds). This installs a
+ * controllable FakeEventSource driven by `__setSseDown`, plus a setTimeout
+ * queue split into two lanes — the 5s connection grace
+ * (CONNECTION_GRACE_MS in src/lib/connection-grace.ts) and the >=1s
+ * reconnect backoff — so each can be advanced independently and
+ * deterministically with no real waits.
+ *
+ * Registered AFTER `mockApi` so its `window.EventSource` / `setTimeout`
+ * overrides win over `setupWsMock`'s.
  */
-async function simulateFailed(page: Page) {
-	await page.evaluate(() => {
-		const listeners = (window as any).__fakeWsListeners;
-		const ws = (window as any).__fakeWs;
-		const origSetTimeout = window.setTimeout.bind(window);
-		const pendingCallbacks: Array<() => void> = [];
+const GRACE_MS = 5000; // keep in sync with CONNECTION_GRACE_MS
 
-		(window as any).setTimeout = (fn: TimerHandler, ...args: any[]) => {
-			if (typeof fn === "function" && args[0] && args[0] >= 1000) {
-				pendingCallbacks.push(fn as () => void);
-				return 999999 as any;
-			}
-			return origSetTimeout(fn, ...args);
+async function installSseOutageHarness(page: Page) {
+	await page.addInitScript((graceMs) => {
+		const instances: any[] = [];
+		let down = false;
+		(window as any).__setSseDown = (v: boolean) => {
+			down = v;
 		};
 
-		ws.readyState = 3;
-		for (const fn of listeners.close ?? []) {
-			fn(new CloseEvent("close", { reason: "" }));
-		}
-
-		for (let i = 0; i < 12; i++) {
-			while (pendingCallbacks.length > 0) {
-				pendingCallbacks.shift()!();
+		class FakeEventSource {
+			onopen: ((e: Event) => void) | null = null;
+			onmessage: ((e: MessageEvent) => void) | null = null;
+			onerror: ((e: Event) => void) | null = null;
+			readyState = 0;
+			url: string;
+			constructor(url: string) {
+				this.url = url;
+				instances.push(this);
+				queueMicrotask(() => {
+					if (down) {
+						this.readyState = 2;
+						this.onerror?.(new Event("error"));
+					} else {
+						this.readyState = 1;
+						this.onopen?.(new Event("open"));
+					}
+				});
 			}
-			ws.readyState = 3;
-			for (const fn of [...(listeners.close ?? [])]) {
-				fn(new CloseEvent("close", { reason: "" }));
+			close() {
+				this.readyState = 2;
 			}
+			addEventListener() {}
+			removeEventListener() {}
 		}
+		(window as any).EventSource = FakeEventSource;
+		(window as any).__fakeES = instances;
 
-		(window as any).setTimeout = origSetTimeout;
+		// Two timer lanes. Each drains one FIFO snapshot per call, so
+		// callbacks enqueued *while* flushing wait for the next pump.
+		const realSetTimeout = window.setTimeout;
+		const graceQ: Array<() => void> = [];
+		const otherQ: Array<() => void> = [];
+		const drain = (q: Array<() => void>) => {
+			const n = q.length;
+			for (let i = 0; i < n; i++) q.shift()!();
+		};
+		(window as any).__fireGrace = () => drain(graceQ);
+		(window as any).__fireReconnect = () => drain(otherQ);
+		(window as any).setTimeout = ((fn: TimerHandler, delay?: number, ...a: any[]) => {
+			if (typeof fn === "function" && (delay ?? 0) >= 1000) {
+				((delay ?? 0) === graceMs ? graceQ : otherQ).push(() => (fn as any)(...a));
+				return 0 as any;
+			}
+			return realSetTimeout(fn as any, delay, ...a);
+		}) as typeof window.setTimeout;
+	}, GRACE_MS);
+}
+
+/** Drop the SSE stream and keep it down (reconnects also error). */
+async function dropSse(page: Page) {
+	await page.evaluate(() => {
+		(window as any).__setSseDown(true);
+		const list = (window as any).__fakeES as any[];
+		const latest = list[list.length - 1];
+		if (latest) {
+			latest.readyState = 2;
+			latest.onerror?.(new Event("error"));
+		}
 	});
+}
+
+/** Fire pending reconnect-backoff timers (each cycle re-errors while down). */
+async function pumpReconnect(page: Page) {
+	await page.evaluate(() => (window as any).__fireReconnect());
+	await page.waitForTimeout(50);
+}
+
+/** Fire the 5s grace timer (surfaces the banner / disabled input). */
+async function elapseGrace(page: Page) {
+	await page.evaluate(() => (window as any).__fireGrace());
+	await page.waitForTimeout(50);
+}
+
+/** Bring the SSE stream back; the next reconnect attempt succeeds. */
+async function restoreSse(page: Page) {
+	await page.evaluate(() => {
+		(window as any).__setSseDown(false);
+		(window as any).__fireReconnect();
+	});
+	await page.waitForTimeout(50);
 }
 
 function chatSetup() {
@@ -78,68 +124,86 @@ function chatSetup() {
 	return { projects: [proj], conversations: [conv] };
 }
 
-// ---- Connection Banner ----
+// ---- Connection Banner + ChatInput grace window ----
 
-test("connection banner shows on disconnect", async ({ page, mockApi }) => {
+test("connection UI stays hidden during the grace window, then surfaces", async ({
+	page,
+	mockApi,
+}) => {
 	await mockApi(chatSetup());
+	await installSseOutageHarness(page);
 	await page.goto("/project/proj-1/chat/conv-1");
 	await waitForChatReady(page);
 
-	await simulateDisconnect(page);
-
-	await expect(page.getByText(/Connection lost\. Reconnecting/)).toBeVisible();
-});
-
-test("connection banner shows Connected flash on reconnect", async ({ page, mockApi }) => {
-	await mockApi(chatSetup());
-	await page.goto("/project/proj-1/chat/conv-1");
-	await waitForChatReady(page);
-
-	await simulateDisconnect(page);
-	await expect(page.getByText(/Connection lost/)).toBeVisible();
-
-	await simulateReconnect(page);
-	await expect(page.getByText("Connected")).toBeVisible();
-});
-
-test("connection banner shows Connection failed with Retry button", async ({ page, mockApi }) => {
-	await mockApi(chatSetup());
-	await page.goto("/project/proj-1/chat/conv-1");
-	await waitForChatReady(page);
-
-	await simulateFailed(page);
-
-	await expect(page.getByText("Connection failed.")).toBeVisible();
-	await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
-});
-
-// ---- ChatInput disabled/enabled ----
-
-test("chat input disabled during disconnect", async ({ page, mockApi }) => {
-	await mockApi(chatSetup());
-	await page.goto("/project/proj-1/chat/conv-1");
-	await waitForChatReady(page);
-
-	await simulateDisconnect(page);
-
+	await dropSse(page);
+	// Still within the grace window — a reconnect cycle has already failed
+	// but the user must see nothing: no banner, input fully usable.
+	await pumpReconnect(page);
+	await expect(page.getByText(/Connection lost/)).toHaveCount(0);
 	const textarea = page.locator("textarea");
+	await expect(textarea).toBeEnabled();
+	await expect(textarea).toHaveAttribute("placeholder", "Send a message...");
+
+	// Grace elapses with the connection still down → now it surfaces.
+	await elapseGrace(page);
+	await expect(page.getByText(/Connection lost\. Reconnecting/)).toBeVisible();
 	await expect(textarea).toBeDisabled();
 	await expect(textarea).toHaveAttribute("placeholder", "Reconnecting...");
 });
 
-test("chat input re-enabled on reconnect", async ({ page, mockApi }) => {
+test("a brief (sub-grace) connection blip never shows any UI", async ({ page, mockApi }) => {
 	await mockApi(chatSetup());
+	await installSseOutageHarness(page);
 	await page.goto("/project/proj-1/chat/conv-1");
 	await waitForChatReady(page);
 
-	await simulateDisconnect(page);
-	await expect(page.locator("textarea")).toBeDisabled();
+	await dropSse(page);
+	// Recover before the grace timer fires.
+	await restoreSse(page);
+	// A late grace timer must be a no-op (already recovered).
+	await elapseGrace(page);
 
-	await simulateReconnect(page);
-
+	await expect(page.getByText(/Connection lost/)).toHaveCount(0);
+	// No green "Connected" flash either — nothing was ever disrupted.
+	await expect(page.getByText("Connected")).toHaveCount(0);
 	const textarea = page.locator("textarea");
 	await expect(textarea).toBeEnabled();
 	await expect(textarea).toHaveAttribute("placeholder", "Send a message...");
+});
+
+test("Connected flash + re-enabled input after a real (post-grace) outage", async ({
+	page,
+	mockApi,
+}) => {
+	await mockApi(chatSetup());
+	await installSseOutageHarness(page);
+	await page.goto("/project/proj-1/chat/conv-1");
+	await waitForChatReady(page);
+
+	await dropSse(page);
+	await elapseGrace(page);
+	await expect(page.getByText(/Connection lost/)).toBeVisible();
+
+	await restoreSse(page);
+	await expect(page.getByText("Connected")).toBeVisible();
+	const textarea = page.locator("textarea");
+	await expect(textarea).toBeEnabled();
+	await expect(textarea).toHaveAttribute("placeholder", "Send a message...");
+});
+
+test("connection banner shows Connection failed with Retry button", async ({ page, mockApi }) => {
+	await mockApi(chatSetup());
+	await installSseOutageHarness(page);
+	await page.goto("/project/proj-1/chat/conv-1");
+	await waitForChatReady(page);
+
+	// Exhaust MAX_ATTEMPTS (10) reconnect cycles → terminal "failed"
+	// (bypasses the grace window since it is unreachable before it).
+	await dropSse(page);
+	for (let i = 0; i < 14; i++) await pumpReconnect(page);
+
+	await expect(page.getByText("Connection failed.")).toBeVisible();
+	await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
 });
 
 // ---- Memory Unavailable ----
