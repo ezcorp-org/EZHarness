@@ -48,6 +48,7 @@ vi.mock("$server/db/queries/projects", () => ({
 
 vi.mock("$lib/server/context", () => ({
   getExecutor: () => ({ streamChat }),
+  getGoalHost: () => null,
 }));
 
 vi.mock("$lib/server/security/resource-quotas", () => ({

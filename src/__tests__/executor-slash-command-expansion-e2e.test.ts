@@ -153,6 +153,7 @@ mock.module("$lib/server/context", () => ({
   getBus: () => ({ emit: () => {}, on: () => () => {} }),
   // buildCommandResolver calls getCommandRegistry() — return our fake.
   getCommandRegistry: () => fakeRegistry,
+  getGoalHost: () => null,
   ensureInitialized: async () => {},
 }));
 

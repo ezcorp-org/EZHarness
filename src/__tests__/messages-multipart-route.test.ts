@@ -32,6 +32,7 @@ mock.module("$lib/server/context", () => ({
   }),
   getBus: () => ({ emit: () => {}, on: () => () => {} }),
   getCommandRegistry: () => ({ listCommands: async () => [] }),
+  getGoalHost: () => null,
   ensureInitialized: async () => {},
 }));
 mock.module("$lib/server/security/validation", () => ({
