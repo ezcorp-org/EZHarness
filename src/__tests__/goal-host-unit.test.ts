@@ -55,8 +55,10 @@ import {
   _resetGoalHostSingleton,
   getGoalHost,
   initGoalHost,
+  type CredentialFn,
   type GoalRecord,
   type PersistedGoal,
+  type ResolveModelFn,
 } from "../runtime/goal-host";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents, AgentRun } from "../types";
@@ -299,15 +301,18 @@ describe("U1 — slash-prefix parser (isGoalCommand + parseGoalCommand)", () => 
     });
   });
 
-  test.each(CLEAR_ALIASES)("`/goal %s` → clear (lowercase)", (alias) => {
+  // `CLEAR_ALIASES` is `readonly string[]` (PRD invariant — host
+  // constant, not mutable). `test.each` wants a mutable array, so
+  // spread into a fresh `string[]` for each cohort.
+  test.each([...CLEAR_ALIASES])("`/goal %s` → clear (lowercase)", (alias: string) => {
     expect(parseGoalCommand(`/goal ${alias}`)).toEqual({ subcommand: "clear" });
   });
 
-  test.each(CLEAR_ALIASES)("`/goal %s` (uppercase) → clear (case-insensitive)", (alias) => {
+  test.each([...CLEAR_ALIASES])("`/goal %s` (uppercase) → clear (case-insensitive)", (alias: string) => {
     expect(parseGoalCommand(`/goal ${alias.toUpperCase()}`)).toEqual({ subcommand: "clear" });
   });
 
-  test.each(CLEAR_ALIASES)("`/goal %s   ` (trailing whitespace) → clear", (alias) => {
+  test.each([...CLEAR_ALIASES])("`/goal %s   ` (trailing whitespace) → clear", (alias: string) => {
     expect(parseGoalCommand(`/goal ${alias}   `)).toEqual({ subcommand: "clear" });
   });
 
@@ -434,8 +439,8 @@ describe("U3 — resolveEvaluatorModel", () => {
     }));
     const getCredential = mock(async () => ({ type: "apikey", token: "k" }));
     const got = await resolveEvaluatorModel("openai", "conv-1", {
-      resolveModel: resolveModel as unknown as Parameters<typeof resolveEvaluatorModel>[2]["resolveModel"],
-      getCredential: getCredential as unknown as Parameters<typeof resolveEvaluatorModel>[2]["getCredential"],
+      resolveModel: resolveModel as unknown as ResolveModelFn,
+      getCredential: getCredential as unknown as CredentialFn,
     });
     expect(got?.provider).toBe("openai");
     expect(got?.model).toBe(CHEAP_MODEL_BY_PROVIDER.openai);
@@ -450,8 +455,8 @@ describe("U3 — resolveEvaluatorModel", () => {
       }));
       const getCredential = mock(async () => ({ type: "apikey", token: "k" }));
       const got = await resolveEvaluatorModel(provider, "c", {
-        resolveModel: resolveModel as unknown as Parameters<typeof resolveEvaluatorModel>[2]["resolveModel"],
-        getCredential: getCredential as unknown as Parameters<typeof resolveEvaluatorModel>[2]["getCredential"],
+        resolveModel: resolveModel as unknown as ResolveModelFn,
+        getCredential: getCredential as unknown as CredentialFn,
       });
       expect(got?.provider).toBe(provider);
       expect(got?.model).toBe(CHEAP_MODEL_BY_PROVIDER[provider]);
@@ -471,8 +476,8 @@ describe("U3 — resolveEvaluatorModel", () => {
       return { type: "apikey", token: "k" };
     });
     const got = await resolveEvaluatorModel("openai", "c", {
-      resolveModel: resolveModel as unknown as Parameters<typeof resolveEvaluatorModel>[2]["resolveModel"],
-      getCredential: getCredential as unknown as Parameters<typeof resolveEvaluatorModel>[2]["getCredential"],
+      resolveModel: resolveModel as unknown as ResolveModelFn,
+      getCredential: getCredential as unknown as CredentialFn,
     });
     // first try (openai) fails; falls to anthropic (top of FALLBACK_PROVIDERS).
     expect(got?.provider).toBe("anthropic");
@@ -486,8 +491,8 @@ describe("U3 — resolveEvaluatorModel", () => {
     });
     const getCredential = mock(async () => ({ type: "apikey", token: "k" }));
     const got = await resolveEvaluatorModel("anthropic", "c", {
-      resolveModel: resolveModel as unknown as Parameters<typeof resolveEvaluatorModel>[2]["resolveModel"],
-      getCredential: getCredential as unknown as Parameters<typeof resolveEvaluatorModel>[2]["getCredential"],
+      resolveModel: resolveModel as unknown as ResolveModelFn,
+      getCredential: getCredential as unknown as CredentialFn,
     });
     expect(got?.provider).not.toBe("anthropic");
     expect(got).not.toBeNull();
@@ -503,8 +508,8 @@ describe("U3 — resolveEvaluatorModel", () => {
       throw new Error("nope");
     });
     const got = await resolveEvaluatorModel("anthropic", "c", {
-      resolveModel: resolveModel as unknown as Parameters<typeof resolveEvaluatorModel>[2]["resolveModel"],
-      getCredential: getCredential as unknown as Parameters<typeof resolveEvaluatorModel>[2]["getCredential"],
+      resolveModel: resolveModel as unknown as ResolveModelFn,
+      getCredential: getCredential as unknown as CredentialFn,
     });
     expect(got).toBeNull();
   });
@@ -517,8 +522,8 @@ describe("U3 — resolveEvaluatorModel", () => {
     }));
     const getCredential = mock(async () => ({ type: "apikey", token: "k" }));
     const got = await resolveEvaluatorModel("xai-grok", "c", {
-      resolveModel: resolveModel as unknown as Parameters<typeof resolveEvaluatorModel>[2]["resolveModel"],
-      getCredential: getCredential as unknown as Parameters<typeof resolveEvaluatorModel>[2]["getCredential"],
+      resolveModel: resolveModel as unknown as ResolveModelFn,
+      getCredential: getCredential as unknown as CredentialFn,
     });
     expect(got?.provider).toBe("anthropic");
   });
@@ -531,8 +536,8 @@ describe("U3 — resolveEvaluatorModel", () => {
     }));
     const getCredential = mock(async () => ({ type: "apikey", token: "k" }));
     const got = await resolveEvaluatorModel(undefined, "c", {
-      resolveModel: resolveModel as unknown as Parameters<typeof resolveEvaluatorModel>[2]["resolveModel"],
-      getCredential: getCredential as unknown as Parameters<typeof resolveEvaluatorModel>[2]["getCredential"],
+      resolveModel: resolveModel as unknown as ResolveModelFn,
+      getCredential: getCredential as unknown as CredentialFn,
     });
     expect(got?.provider).toBe("anthropic");
   });
@@ -882,12 +887,15 @@ describe("FR-13b ensureGoalRecordRehydrated", () => {
       { id: "c1", persisted: h.store.persisted.get("c1")! },
     ];
     await h.host.bootSweep();
-    const rec = h.host.getRecord("c1")!;
-    rec.status = "paused";
+    h.host.getRecord("c1")!.status = "paused";
     h.emitted.length = 0;
 
     await h.host.ensureGoalRecordRehydrated("c1", false);
-    expect(rec.status).toBe("active");
+    // Re-fetch so TS doesn't carry the narrowed `"paused"` literal
+    // type through the await (it has no visibility into the async
+    // mutation the rehydrate helper performs on the same object).
+    const after = h.host.getRecord("c1")!;
+    expect(after.status).toBe("active");
     expect(h.emitted.some((e) => e.state === "active")).toBe(true);
   });
 
