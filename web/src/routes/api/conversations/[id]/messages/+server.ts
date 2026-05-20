@@ -6,7 +6,7 @@ import * as attachmentsDb from "$server/db/queries/attachments";
 import { getProject } from "$server/db/queries/projects";
 import { requireAuth } from "$server/auth/middleware";
 import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
-import { getExecutor } from "$lib/server/context";
+import { getExecutor, getGoalHost } from "$lib/server/context";
 import { createMessageSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import { checkTokenBudget } from "$lib/server/security/resource-quotas";
@@ -20,6 +20,7 @@ import { parseMentions } from "$lib/mention-logic";
 import { stripEzActionTokens } from "$server/runtime/mention-wiring";
 import { getEzAction } from "$server/runtime/ez-actions/registry";
 import type { EzActionResult } from "$server/runtime/ez-actions/types";
+import { isGoalCommand, parseGoalCommand } from "$server/runtime/goal-host";
 import { validateAttachment } from "$server/chat/attachments/validator";
 import { writeAttachment, deleteForMessage } from "$server/chat/attachments/storage";
 import type { StagedAttachment } from "$server/chat/attachments/content-builder";
@@ -139,6 +140,25 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     const result = createMessageSchema.safeParse(await request.json());
     if (!result.success) return validationError(result.error);
     body = { ...result.data, files: [] };
+  }
+
+  // ── /goal: FR-13b lazy GoalRecord rehydrate ───────────────────────
+  // Unconditionally run BEFORE the slash-prefix interceptor AND BEFORE
+  // `streamChat`. Rebuilds the in-memory `GoalRecord` from
+  // `metadata.goal` for conversations whose record was lost across a
+  // restart (or created post-boot). The `isGoalCmd` flag suppresses
+  // the paused→active flip when the POST is itself a `/goal …` command
+  // (I5d) — the parsed subcommand owns resume/clear/replace.
+  const goalIsCmd = isGoalCommand(body.content);
+  const goalHost = getGoalHost();
+  if (goalHost) {
+    try {
+      await goalHost.ensureGoalRecordRehydrated(conversationId, goalIsCmd);
+    } catch (err) {
+      log.warn("goal-host rehydrate failed (continuing)", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   let parentMessageId = body.parentMessageId;
@@ -272,6 +292,94 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       content: body.content,
       parentMessageId,
     });
+  }
+
+  // ── /goal slash-prefix interceptor (PRD §7.2.1, FR-1/2) ───────────
+  //
+  // NEW non-nullary mechanism. NOT an EZ-action (`stripEzActionTokens`
+  // matches only `![EZ:name]`; `EzAction.handler` is nullary + card-
+  // only). Sits at the same route position as the EZ scan but is a
+  // distinct dispatch with its own return paths:
+  //
+  //   - `kind:"card"` (status / clear / >4000 reject): persist a
+  //     `role:"ez-action-result"` row (FR-19 — row convention only,
+  //     NOT the EZ short-circuit at the next block), then return the
+  //     `runId:null` card payload. The goal-host's `handleGoalCommand`
+  //     itself persists the row; we just surface it in the response.
+  //   - `kind:"start-turn"` (set): the goal-host has already written
+  //     `metadata.goal`, created the in-memory `GoalRecord`, and
+  //     emitted `goal:update {state:"active"}`. We DO NOT return — we
+  //     fall through to the existing `streamChat` call so set behaves
+  //     exactly like a normal user turn (FR-2-SET / FR-2-RET), with
+  //     `body.content` (the literal `/goal <condition>` text) as the
+  //     turn's input message.
+  //
+  // The handler is gated on the canonical `isGoalCommand` predicate
+  // (the `/goal` token followed by EOS / whitespace — `/goalpost`
+  // does NOT match). FR-13b's `ensureGoalRecordRehydrated` already
+  // ran above (~line 145) so the in-memory record is in sync with
+  // `metadata.goal` before we dispatch.
+  const goalResultMessages: Array<{ id: string; role: string; content: string }> = [];
+  if (goalIsCmd) {
+    const parsed = parseGoalCommand(body.content);
+    if (!goalHost) {
+      // EZCORP_GOAL_ENABLED off OR init raced. Surface a disabled card
+      // by hand-rolling the same shape `handleGoalCommand` would have
+      // returned — keep the route forgiving rather than crashing chat.
+      const disabledCard: EzActionResult = {
+        kind: "decline",
+        card: {
+          title: "/goal disabled",
+          body: "The /goal feature is disabled on this server.",
+          variant: "warning",
+        },
+      };
+      const row = await convQueries.createMessage(conversationId, {
+        role: "ez-action-result",
+        content: JSON.stringify(disabledCard),
+        parentMessageId: userMessage.id,
+      });
+      return json({
+        userMessage: attachmentSummaries.length > 0
+          ? { ...userMessage, attachments: attachmentSummaries }
+          : userMessage,
+        runId: null,
+        attachments: attachmentSummaries,
+        ezActionResults: [{ id: row.id, role: row.role, content: row.content }],
+      });
+    }
+    const dispatch = await goalHost.handleGoalCommand({
+      subcommand: parsed.subcommand,
+      ...(parsed.condition !== undefined ? { condition: parsed.condition } : {}),
+      conversationId,
+      userId: user.id,
+      projectId: conv.projectId,
+      userMessageId: userMessage.id,
+    });
+    if (dispatch.kind === "card") {
+      // The goal-host returns the persisted row metadata directly
+      // (status/clear/reject persist; disabled doesn't — `row:null`).
+      // When persist failed mid-call the route surfaces the card
+      // inline with a synthetic id so the SSE/UI handlers see a
+      // consistent shape.
+      const echo = dispatch.row ?? {
+        id: crypto.randomUUID(),
+        role: "ez-action-result",
+        content: JSON.stringify(dispatch.result),
+      };
+      goalResultMessages.push(echo);
+      return json({
+        userMessage: attachmentSummaries.length > 0
+          ? { ...userMessage, attachments: attachmentSummaries }
+          : userMessage,
+        runId: null,
+        attachments: attachmentSummaries,
+        ezActionResults: goalResultMessages,
+      });
+    }
+    // kind === "start-turn" → fall through to the normal streamChat
+    // path below; the persisted user row already carries the literal
+    // `/goal <condition>` text for history fidelity (FR-2-RET).
   }
 
   // ── EZ Actions dispatch (Phase 3.3) ────────────────────────────

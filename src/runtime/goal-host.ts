@@ -839,8 +839,14 @@ export interface GoalCommandInput {
   userMessageId: string;
 }
 
+export interface PersistedCardRow {
+  id: string;
+  role: string;
+  content: string;
+}
+
 export type GoalCommandResult =
-  | { kind: "card"; result: EzActionResult }
+  | { kind: "card"; result: EzActionResult; row: PersistedCardRow | null }
   | { kind: "start-turn"; turnMessage: string };
 
 // ── The goal host (single instance owned by ensureInitialized) ────
@@ -1093,7 +1099,11 @@ export class GoalHost {
    */
   async handleGoalCommand(input: GoalCommandInput): Promise<GoalCommandResult> {
     if (!this.enabled) {
-      return { kind: "card", result: buildDisabledCard() };
+      // Disabled-mode card is NOT persisted (we don't want to muddy
+      // the transcript when the operator has the feature off). The
+      // route surfaces the card inline; ezActionResults will carry a
+      // synthetic id.
+      return { kind: "card", result: buildDisabledCard(), row: null };
     }
     if (input.subcommand === "set") {
       return this.handleSet(input);
@@ -1114,10 +1124,9 @@ export class GoalHost {
     if (condition.length > MAX_GOAL_CONDITION_LENGTH) {
       // FR-3: reject, no metadata.goal write, no GoalRecord, no
       // streamChat.
-      return {
-        kind: "card",
-        result: buildRejectTooLongCard(condition.length),
-      };
+      const card = buildRejectTooLongCard(condition.length);
+      const row = await this.persistResultRow(input, card);
+      return { kind: "card", result: card, row };
     }
     const now = this.nowFn();
     const persisted: PersistedGoal = {
@@ -1153,24 +1162,26 @@ export class GoalHost {
       // No goal to clear — silent no-op card. Per spec §5.3 / R11 the
       // record is also absent so the in-flight turn (if any) is
       // un-affected.
-      return { kind: "card", result: buildNoGoalCard() };
+      const card = buildNoGoalCard();
+      const row = await this.persistResultRow(input, card);
+      return { kind: "card", result: card, row };
     }
     // Single op (R11 — clear-vs-disarm single predicate): delete +
     // drop. No `armed:false` two-step.
     await this.deleteGoalFn(input.conversationId);
     this.records.delete(input.conversationId);
     this.emitUpdate(input.conversationId, "off");
-    const persistResult = await this.persistResultRow(input, buildClearedCard(persisted.condition));
-    return { kind: "card", result: persistResult };
+    const card = buildClearedCard(persisted.condition);
+    const row = await this.persistResultRow(input, card);
+    return { kind: "card", result: card, row };
   }
 
   private async handleStatus(input: GoalCommandInput): Promise<GoalCommandResult> {
     const persisted = await readPersistedGoal(input.conversationId);
     if (!persisted) {
-      return {
-        kind: "card",
-        result: buildStatusCard({ state: "none" }),
-      };
+      const card = buildStatusCard({ state: "none" });
+      const row = await this.persistResultRow(input, card);
+      return { kind: "card", result: card, row };
     }
     const record = this.records.get(input.conversationId);
     // Status NEVER auto-resumes a paused goal (I5d / FR-13b). The
@@ -1199,29 +1210,35 @@ export class GoalHost {
       tokenSpendSinceArmed,
       lastReason,
     });
-    const persistResult = await this.persistResultRow(input, card);
-    return { kind: "card", result: persistResult };
+    const row = await this.persistResultRow(input, card);
+    return { kind: "card", result: card, row };
   }
 
   /** Persist an `ez-action-result` row carrying the EzActionResult JSON
    *  (FR-19 — row convention only, not the EZ scan loop). Returns the
-   *  ORIGINAL card (the route serialises this into the response). */
+   *  persisted row metadata, or `null` if the write failed (which the
+   *  route surfaces inline as a synthetic id). */
   private async persistResultRow(
     input: GoalCommandInput,
     card: EzActionResult,
-  ): Promise<EzActionResult> {
+  ): Promise<PersistedCardRow | null> {
     try {
-      await this.createMessageFn(input.conversationId, {
+      const persisted = await this.createMessageFn(input.conversationId, {
         role: "ez-action-result",
         content: JSON.stringify(card),
         parentMessageId: input.userMessageId,
       });
+      return {
+        id: persisted.id,
+        role: persisted.role,
+        content: persisted.content,
+      };
     } catch (err) {
       log.warn("persistResultRow failed (continuing)", {
         error: String((err as Error)?.message ?? err),
       });
+      return null;
     }
-    return card;
   }
 
   // ── run:complete handler — the core loop ──────────────────────────
