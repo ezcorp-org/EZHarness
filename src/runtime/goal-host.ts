@@ -874,6 +874,8 @@ export interface GoalHostOptions {
     conversationId: string,
     armedAt: number,
   ) => Promise<number>;
+  /** Override for tests — defaults to live read of `metadata.goal`. */
+  readGoal?: (conversationId: string) => Promise<PersistedGoal | undefined>;
   /** Override for tests — defaults to live write/delete. */
   writeGoal?: (conversationId: string, goal: PersistedGoal) => Promise<void>;
   /** Override for tests — defaults to live write/delete. */
@@ -905,6 +907,9 @@ export class GoalHost {
     conversationId: string,
     armedAt: number,
   ) => Promise<number>;
+  private readonly readGoalFn: (
+    conversationId: string,
+  ) => Promise<PersistedGoal | undefined>;
   private readonly writeGoalFn: (
     conversationId: string,
     goal: PersistedGoal,
@@ -927,6 +932,7 @@ export class GoalHost {
     this.getMessagesFn = opts.getMessages ?? convQueries.getMessages;
     this.createMessageFn = opts.createMessage ?? convQueries.createMessage;
     this.computeTokenSpendFn = opts.computeTokenSpend ?? computeTokenSpendSinceArmed;
+    this.readGoalFn = opts.readGoal ?? readPersistedGoal;
     this.writeGoalFn = opts.writeGoal ?? writePersistedGoal;
     this.deleteGoalFn = opts.deleteGoal ?? deletePersistedGoal;
     this.scanGoalConversationsFn =
@@ -1048,7 +1054,7 @@ export class GoalHost {
     conversationId: string,
     isGoalCmd: boolean,
   ): Promise<void> {
-    const persisted = await readPersistedGoal(conversationId);
+    const persisted = await this.readGoalFn(conversationId);
     if (!persisted) return; // nothing to rehydrate; no goal armed
     let record = this.records.get(conversationId);
     if (!record) {
@@ -1079,7 +1085,7 @@ export class GoalHost {
 
   /** Public accessor for the canonical armed predicate. */
   async isArmed(conversationId: string): Promise<boolean> {
-    const persisted = await readPersistedGoal(conversationId);
+    const persisted = await this.readGoalFn(conversationId);
     const record = this.records.get(conversationId);
     return isGoalArmed(persisted, record);
   }
@@ -1157,7 +1163,7 @@ export class GoalHost {
   }
 
   private async handleClear(input: GoalCommandInput): Promise<GoalCommandResult> {
-    const persisted = await readPersistedGoal(input.conversationId);
+    const persisted = await this.readGoalFn(input.conversationId);
     if (!persisted) {
       // No goal to clear — silent no-op card. Per spec §5.3 / R11 the
       // record is also absent so the in-flight turn (if any) is
@@ -1177,7 +1183,7 @@ export class GoalHost {
   }
 
   private async handleStatus(input: GoalCommandInput): Promise<GoalCommandResult> {
-    const persisted = await readPersistedGoal(input.conversationId);
+    const persisted = await this.readGoalFn(input.conversationId);
     if (!persisted) {
       const card = buildStatusCard({ state: "none" });
       const row = await this.persistResultRow(input, card);
@@ -1246,7 +1252,7 @@ export class GoalHost {
   private async onRunComplete(data: AgentEvents["run:complete"]): Promise<void> {
     const conversationId = data.conversationId;
     if (!conversationId) return;
-    const persisted = await readPersistedGoal(conversationId);
+    const persisted = await this.readGoalFn(conversationId);
     const record = this.records.get(conversationId);
     if (!isGoalArmed(persisted, record)) return;
     if (record!.inFlightRunId !== data.run.id) {
@@ -1356,7 +1362,7 @@ export class GoalHost {
     }
 
     // Re-entry guard (FR-18 — canonical predicate re-check, in-flight clear).
-    const stillPersisted = await readPersistedGoal(conversationId);
+    const stillPersisted = await this.readGoalFn(conversationId);
     if (!isGoalArmed(stillPersisted, record)) return; // cleared mid-flight (R11)
 
     // Re-enter streamChat (FR-10). Fresh runId; we own the bookkeeping.
@@ -1402,7 +1408,7 @@ export class GoalHost {
     errorText?: string,
   ): Promise<void> {
     if (!conversationId) return;
-    const persisted = await readPersistedGoal(conversationId);
+    const persisted = await this.readGoalFn(conversationId);
     const record = this.records.get(conversationId);
     if (!isGoalArmed(persisted, record)) return;
     if (record!.inFlightRunId === run.id) {

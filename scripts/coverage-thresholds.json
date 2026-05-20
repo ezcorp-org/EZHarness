@@ -14,6 +14,7 @@
   "docs/extensions/examples/*/lib/**": 95,
   "src/runtime/tools/grep.ts": 100,
   "src/runtime/start-assignment.ts": 100,
+  "src/runtime/goal-host.ts": 100,
   "src/runtime/import/staging.ts": 100,
   "src/runtime/import/skill-bundle.ts": 100,
   "web/src/routes/api/import/common.ts": 100,
