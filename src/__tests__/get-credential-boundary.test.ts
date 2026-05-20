@@ -62,6 +62,7 @@ const ALLOWLIST = new Set<string>([
   // into extension subprocesses.
   "web/src/routes/api/models/+server.ts",
   "web/src/routes/api/providers/[provider]/test/+server.ts",
+  "web/src/routes/api/providers/[provider]/refresh-models/+server.ts",
   "web/src/routes/api/agent-configs/generate/+server.ts",
 ]);
 
