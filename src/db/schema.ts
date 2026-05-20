@@ -56,8 +56,24 @@ export const conversations = pgTable("conversations", {
   test: boolean("test").default(false),
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   /** Phase 2d: opaque per-conversation bag for runtime-only flags. Currently
-   *  holds `spawnDepth: number` tracked by spawn-assignment-handler.ts. */
-  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+   *  holds `spawnDepth: number` tracked by spawn-assignment-handler.ts, plus
+   *  the `/goal` feature's `goal` key (compile-time-only, no DB DDL — D3).
+   *
+   *  `goal` shape — see {@link import("../runtime/goal-host").PersistedGoal}:
+   *    `{ condition: string; lastReason: string | null; createdAt: string }`.
+   *  KEY PRESENCE = armed; KEY DELETION = disarm (achieve / clear / cap).
+   *  There is no `armed` boolean on the persisted shape. Paused-ness lives
+   *  ONLY in the in-memory `GoalRecord.status` and is never persisted, so a
+   *  paused goal still has `metadata.goal` present and FR-13b can resume it. */
+  metadata: jsonb("metadata").$type<Record<string, unknown> & {
+    spawnDepth?: number;
+    spawnParentAuditId?: string;
+    goal?: {
+      condition: string;
+      lastReason: string | null;
+      createdAt: string;
+    };
+  }>(),
   /** Phase 48: distinguishes regular per-project chats from the global Ez
    *  concierge conversation (one per user, enforced by a unique partial index
    *  `conversations_user_ez_unique` declared in migrate.ts). Mutating modeId

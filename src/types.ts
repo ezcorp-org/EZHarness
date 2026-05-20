@@ -419,4 +419,23 @@ export interface AgentEvents {
     state: Record<string, unknown>;
     timestamp: number;
   };
+  /**
+   * `/goal` autopilot indicator (PRD §6 FR-20, decision D7). Emitted
+   * by the host-side goal-host (`src/runtime/goal-host.ts`) on every
+   * state transition: arm, evaluator update, pause, achieve, clear.
+   * Phase 1 emits the event; Phase 2 wires SSE delivery
+   * (`runtime-events/+server.ts` `BUS_EVENTS` allowlist +
+   * `sse-conversation-filter.ts` `DIRECT_CARRIER_EVENT_TYPES`) and
+   * the `◎ /goal active|paused` chip in the chat header. The payload
+   * carries `conversationId` so the SSE filter can scope delivery per
+   * subscriber.
+   */
+  "goal:update": {
+    conversationId: string;
+    state: "active" | "paused" | "off";
+    condition?: string;
+    armedAt?: number;
+    turnsEvaluated?: number;
+    lastReason?: string | null;
+  };
 }
