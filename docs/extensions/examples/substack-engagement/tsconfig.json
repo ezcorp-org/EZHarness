@@ -1,0 +1,6 @@
+{
+  "// purpose": "LSP anchor — without a tsconfig in this directory, editors fall back to TS defaults (moduleResolution: nodenext) which then flag bare './lib/foo' imports as TS2835. The root tsconfig uses moduleResolution: bundler + paths for @ezcorp/sdk; extending it here keeps the LSP aligned with how `bun test` and `scripts/typecheck.sh` actually resolve modules.",
+  "extends": "../../../../tsconfig.json",
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules"]
+}
