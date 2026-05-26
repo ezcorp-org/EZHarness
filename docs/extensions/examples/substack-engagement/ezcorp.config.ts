@@ -1,4 +1,101 @@
 import { defineExtension } from "../../../../src/extensions/sdk/define";
+import type { EntityDeclaration } from "@ezcorp/sdk/entities";
+
+// Entities are declared as a separately-typed `const` so their
+// heterogeneous (voice-profile vs follow-up-sequence) shapes are
+// validated against `EntityDeclaration[]` directly. Inlining both into
+// `defineExtension(...)` widens the array element type and trips TS's
+// excess-property check on the manifest's `permissions` block (the SDK's
+// static manifest type lags the host's — `llm`/`schedule` are accepted
+// at runtime via `validateManifestV2`). Extracting keeps inference clean.
+const entities: EntityDeclaration[] = [
+  {
+    type: "voice-profile",
+    label: "Voice Profile",
+    pluralLabel: "Voice Profiles",
+    scope: "user",
+    cascadeOnUninstall: false,
+    schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", minLength: 1, maxLength: 100 },
+        voiceDescription: { type: "string", maxLength: 4000 },
+        doRules: { type: "array", items: { type: "string" } },
+        dontRules: { type: "array", items: { type: "string" } },
+        sampleReplies: { type: "array", items: { type: "string" } },
+      },
+      required: ["name", "voiceDescription"],
+      additionalProperties: false,
+    },
+    preview: "Voice '{name}':\n{voiceDescription}",
+    seed: [
+      {
+        slug: "default",
+        data: {
+          name: "Default Voice",
+          voiceDescription: "{file:./prompts/voice-sample.md}",
+          doRules: [
+            "Ask a genuine follow-up question when it fits.",
+            "Mirror the other person's tone and energy.",
+            "Keep replies to 2-3 sentences.",
+          ],
+          dontRules: [
+            "No corporate filler ('Thanks for your feedback!').",
+            "No over-apologizing.",
+            "No promises you can't keep.",
+          ],
+          sampleReplies: [],
+        },
+      },
+    ],
+  },
+  // Welcome-DM follow-up sequence (user-scoped, single profile).
+  // `scan_subscribers` reads the `default` sequence and schedules a
+  // follow-up row per step (offsets in DAYS for human authoring). When
+  // absent, lib/subscribers.ts falls back to a built-in 3-day + 7-day
+  // sequence. Follow-up rows are drafted LAZILY at due time so they
+  // reflect the latest voice.
+  {
+    type: "follow-up-sequence",
+    label: "Follow-up Sequence",
+    pluralLabel: "Follow-up Sequences",
+    scope: "user",
+    cascadeOnUninstall: false,
+    schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", minLength: 1, maxLength: 100 },
+        steps: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              offsetDays: { type: "number", minimum: 0 },
+              note: { type: "string", maxLength: 500 },
+            },
+            required: ["offsetDays"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["name", "steps"],
+      additionalProperties: false,
+    },
+    preview: "Sequence '{name}'",
+    seed: [
+      {
+        slug: "default",
+        data: {
+          name: "Default Sequence",
+          steps: [
+            { offsetDays: 3, note: "Light 3-day check-in — anything they want more of?" },
+            { offsetDays: 7, note: "7-day nudge — point to one popular past post." },
+          ],
+        },
+      },
+    ],
+  },
+];
 
 // ── substack-engagement ──────────────────────────────────────────
 //
@@ -89,6 +186,14 @@ export default defineExtension({
       },
     },
     {
+      name: "scan_subscribers",
+      description:
+        "Poll for new subscribers (cursor-based diff), draft a welcome DM in " +
+        "the creator's voice for each, and schedule a timed follow-up sequence. " +
+        "Drafts only — never sends.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
       name: "list_queue",
       description:
         "List the review queue. Optionally filter by status " +
@@ -154,54 +259,11 @@ export default defineExtension({
     },
   ],
 
-  // ── Runtime-editable voice profile (user-scoped) ────────────────
-  //
-  // Seeded with a single `default` profile from prompts/voice-sample.md.
-  // The SDK auto-generates list/get/create/update/delete tools and an
-  // editable table on the extension detail page. `lib/voice.ts` reads
-  // the `default` profile and injects its rules into every draft.
-  entities: [
-    {
-      type: "voice-profile",
-      label: "Voice Profile",
-      pluralLabel: "Voice Profiles",
-      scope: "user",
-      cascadeOnUninstall: false,
-      schema: {
-        type: "object",
-        properties: {
-          name: { type: "string", minLength: 1, maxLength: 100 },
-          voiceDescription: { type: "string", maxLength: 4000 },
-          doRules: { type: "array", items: { type: "string" } },
-          dontRules: { type: "array", items: { type: "string" } },
-          sampleReplies: { type: "array", items: { type: "string" } },
-        },
-        required: ["name", "voiceDescription"],
-        additionalProperties: false,
-      },
-      preview: "Voice '{name}':\n{voiceDescription}",
-      seed: [
-        {
-          slug: "default",
-          data: {
-            name: "Default Voice",
-            voiceDescription: "{file:./prompts/voice-sample.md}",
-            doRules: [
-              "Ask a genuine follow-up question when it fits.",
-              "Mirror the other person's tone and energy.",
-              "Keep replies to 2-3 sentences.",
-            ],
-            dontRules: [
-              "No corporate filler ('Thanks for your feedback!').",
-              "No over-apologizing.",
-              "No promises you can't keep.",
-            ],
-            sampleReplies: [],
-          },
-        },
-      ],
-    },
-  ],
+  // Runtime-editable voice profile + welcome-DM follow-up sequence.
+  // Declared above as a typed `const` so the heterogeneous entity shapes
+  // are validated against EntityDeclaration[] without widening the
+  // manifest's inferred type (see the `entities` const's header comment).
+  entities,
 
   skills: [
     {

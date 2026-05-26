@@ -42,11 +42,19 @@ import {
   setDraftConfig,
 } from "./lib/tools";
 import { setQueueStore } from "./lib/review-queue";
+import {
+  scanSubscribers,
+  runDueFollowups,
+  setCursorStore,
+  setSequenceStore,
+} from "./lib/subscribers";
 
 // ── Tool handlers ───────────────────────────────────────────────
 
 const scan_comments: ToolHandler = (args, ctx) =>
   scanComments(args as Record<string, unknown>, ctx as ToolHandlerContext | undefined);
+const scan_subscribers: ToolHandler = (args, ctx) =>
+  scanSubscribers(args as Record<string, unknown>, ctx as ToolHandlerContext | undefined);
 const list_queue: ToolHandler = (args) => listQueue(args as Record<string, unknown>);
 const approve_item: ToolHandler = (args) => approveItem(args as Record<string, unknown>);
 const reject_item: ToolHandler = (args) => rejectItem(args as Record<string, unknown>);
@@ -57,6 +65,7 @@ const open_review_queue: ToolHandler = () => openReviewQueue();
 
 export const tools: Record<string, ToolHandler> = {
   scan_comments,
+  scan_subscribers,
   list_queue,
   approve_item,
   reject_item,
@@ -83,9 +92,10 @@ export const tools: Record<string, ToolHandler> = {
 
 export async function runScheduledScan(): Promise<void> {
   // Each scan is independent; one failing must not abort the others.
-  // Phase 2 adds subscriber polling + due follow-ups; Phase 3 adds the
-  // targeted-Notes scan. They are appended to this list in those phases.
+  // Phase 3 appends the targeted-Notes scan to this list.
   await safe(() => scanComments({}, undefined));
+  await safe(() => scanSubscribers({}, undefined));
+  await safe(() => runDueFollowups());
 }
 
 async function safe(fn: () => Promise<unknown>): Promise<void> {
@@ -121,6 +131,10 @@ export function start(): void {
   // scope that actually exists. Deviation documented in the Phase 1 commit.
   setQueueStore(new Storage("global"));
   setVoiceStore(new Storage("user"));
+  // The subscriber poll cursor shares the ownerless queue store (it must
+  // be cron-reachable too); the follow-up-sequence entity is user-scoped.
+  setCursorStore(new Storage("global"));
+  setSequenceStore(new Storage("user"));
   setLlm(new Llm());
   setDraftConfig({});
 

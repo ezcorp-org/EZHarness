@@ -18,10 +18,11 @@ describe("substack-engagement — manifest shape", () => {
     expect(manifest.entrypoint).toBe("./index.ts");
   });
 
-  test("declares the seven Phase-1+4 tools by name", () => {
+  test("declares all tools by name", () => {
     const names = (manifest.tools ?? []).map((t) => t.name);
     expect(names).toEqual([
       "scan_comments",
+      "scan_subscribers",
       "list_queue",
       "approve_item",
       "reject_item",
@@ -50,18 +51,25 @@ describe("substack-engagement — manifest shape", () => {
     expect(manifest.agent?.prompt).toContain("You draft, you never send");
   });
 
-  test("declares the user-scoped voice-profile entity, seeded from a prompt file", () => {
+  test("declares the user-scoped voice-profile + follow-up-sequence entities", () => {
     const entities = (manifest as { entities?: unknown[] }).entities ?? [];
-    expect(entities).toHaveLength(1);
-    const decl = entities[0] as {
-      type: string;
-      scope: string;
-      seed?: Array<{ slug: string; data: Record<string, unknown> }>;
-    };
-    expect(decl.type).toBe("voice-profile");
-    expect(decl.scope).toBe("user");
-    expect(decl.seed?.[0]?.slug).toBe("default");
-    expect(String(decl.seed?.[0]?.data.voiceDescription)).toContain("{file:");
+    expect(entities).toHaveLength(2);
+    const byType = Object.fromEntries(
+      (entities as Array<{ type: string }>).map((e) => [e.type, e]),
+    ) as Record<
+      string,
+      { type: string; scope: string; seed?: Array<{ slug: string; data: Record<string, unknown> }> }
+    >;
+
+    const voice = byType["voice-profile"]!;
+    expect(voice.scope).toBe("user");
+    expect(voice.seed?.[0]?.slug).toBe("default");
+    expect(String(voice.seed?.[0]?.data.voiceDescription)).toContain("{file:");
+
+    const seq = byType["follow-up-sequence"]!;
+    expect(seq.scope).toBe("user");
+    expect(seq.seed?.[0]?.slug).toBe("default");
+    expect(Array.isArray(seq.seed?.[0]?.data.steps)).toBe(true);
   });
 
   test("bundles the engagement skill via a file ref", () => {

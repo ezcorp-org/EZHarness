@@ -140,6 +140,29 @@ export interface DraftAndEnqueueInput {
 }
 
 /**
+ * Draft a body via the voice seam (no enqueue). The single drafting
+ * primitive — `draftAndEnqueue` and Phase 2's lazy follow-up drafting
+ * both route through here so the voice + LLM + config wiring lives in
+ * exactly one place (DRY).
+ */
+async function draftRowBody(
+  profile: VoiceProfile | null,
+  framework: DraftFramework,
+  context: string,
+): Promise<{ ok: true; body: string } | { ok: false; error: string }> {
+  return draftReply({
+    llm: llm(),
+    provider: _config.provider,
+    model: _config.model,
+    maxTokens: _config.maxTokens,
+    systemPrompt: systemGuidance(profile),
+    voiceProfile: profile,
+    sourceText: context,
+    framework,
+  });
+}
+
+/**
  * Draft a body via the voice seam and enqueue it as pending. Returns the
  * enqueued item, or an error string when the draft fails. Dedupe is the
  * caller's job (it varies per scan tool).
@@ -148,16 +171,7 @@ async function draftAndEnqueue(
   profile: VoiceProfile | null,
   input: DraftAndEnqueueInput,
 ): Promise<{ ok: true; item: QueueItem } | { ok: false; error: string }> {
-  const drafted = await draftReply({
-    llm: llm(),
-    provider: _config.provider,
-    model: _config.model,
-    maxTokens: _config.maxTokens,
-    systemPrompt: systemGuidance(profile),
-    voiceProfile: profile,
-    sourceText: input.context,
-    framework: input.framework,
-  });
+  const drafted = await draftRowBody(profile, input.framework, input.context);
   if (!drafted.ok) return { ok: false, error: drafted.error };
 
   const enqueueInput: Parameters<typeof enqueue>[0] = {
@@ -175,7 +189,7 @@ async function draftAndEnqueue(
 }
 
 // Re-export so Phase 2/3 scan tools share the same drafting path.
-export { draftAndEnqueue, systemGuidance };
+export { draftAndEnqueue, draftRowBody, systemGuidance };
 
 // ── scan_comments ───────────────────────────────────────────────
 

@@ -104,6 +104,13 @@ export function _setClockForTests(now: () => number, genId?: () => string): void
   if (genId) _genId = genId;
 }
 
+/** The current epoch ms from the (test-injectable) clock. Shared by
+ *  callers (e.g. subscribers.ts follow-up scheduling) so `due_at`
+ *  computations and queue `created_at` stamps use ONE clock under test. */
+export function now(): number {
+  return _now();
+}
+
 export function _resetQueueForTests(): void {
   _store = null;
   _idCounter = 0;
