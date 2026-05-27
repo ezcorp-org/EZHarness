@@ -29,6 +29,7 @@ import {
   enqueue,
   list,
   get,
+  update,
   approve,
   reject,
   editBody,
@@ -43,6 +44,14 @@ import {
   type SubstackClient,
   type SendResult,
 } from "./substack-client";
+import {
+  evaluatePacing,
+  recordSend,
+  makeInitialState,
+  type PacingConfig,
+  type PacingState,
+  DEFAULT_PACING,
+} from "./pacing";
 
 // ── Runtime configuration (bound by index.ts from settings/defaults) ─
 
@@ -65,6 +74,76 @@ let _config: DraftConfig = {
 
 export function setDraftConfig(config: Partial<DraftConfig>): void {
   _config = { ..._config, ...config };
+}
+
+// ── Pacing config + state + RNG (Phase 3) ───────────────────────
+//
+// The pacing CONFIG is derived from settings at send time. The STATE
+// (sends today, last send, ramp anchor) persists in the queue store
+// under `pacing-state`. The RNG is injectable so jitter is deterministic
+// under test.
+
+const PACING_STATE_KEY = "pacing-state";
+
+let _pacingConfig: PacingConfig = { ...DEFAULT_PACING };
+let _rng: () => number = Math.random;
+
+export function setPacingConfig(config: Partial<PacingConfig>): void {
+  _pacingConfig = { ..._pacingConfig, ...config };
+}
+
+/** Test-only: deterministic RNG for jitter assertions. */
+export function _setRngForTests(rng: () => number): void {
+  _rng = rng;
+}
+
+// Pacing state persists under `pacing-state` via a raw get/set store
+// seam (it is NOT a QueueItem). index.ts binds it to the same ownerless
+// store as the queue; tests inject a fake.
+let _pacingStore: Pick<QueueStoreLike, "get" | "set"> | null = null;
+
+export function setPacingStore(store: Pick<QueueStoreLike, "get" | "set">): void {
+  _pacingStore = store;
+}
+
+export function _setPacingStoreForTests(
+  store: Pick<QueueStoreLike, "get" | "set"> | null,
+): void {
+  _pacingStore = store;
+}
+
+/** Build a PacingConfig from the manifest settings (numbers with the
+ *  documented defaults). Pure + exported for testability. */
+export function pacingConfigFromSettings(
+  settings: Record<string, unknown>,
+): PacingConfig {
+  const num = (key: string, fallback: number): number =>
+    typeof settings[key] === "number" ? (settings[key] as number) : fallback;
+  return {
+    dailyCap: num("daily_note_cap", DEFAULT_PACING.dailyCap),
+    minIntervalSeconds: num("min_send_interval_seconds", DEFAULT_PACING.minIntervalSeconds),
+    jitterSeconds: num("note_jitter_seconds", DEFAULT_PACING.jitterSeconds),
+    quietHoursStart: num("quiet_hours_start", DEFAULT_PACING.quietHoursStart),
+    quietHoursEnd: num("quiet_hours_end", DEFAULT_PACING.quietHoursEnd),
+    rampStart: num("note_ramp_start", DEFAULT_PACING.rampStart),
+    rampStep: num("note_ramp_step", DEFAULT_PACING.rampStep),
+    tzOffsetMinutes: num("tz_offset_minutes", DEFAULT_PACING.tzOffsetMinutes),
+  };
+}
+
+async function loadPacingState(): Promise<PacingState> {
+  if (!_pacingStore) return makeInitialState();
+  try {
+    const res = await _pacingStore.get<PacingState>(PACING_STATE_KEY);
+    return res.exists && res.value ? res.value : makeInitialState();
+  } catch {
+    return makeInitialState();
+  }
+}
+
+async function savePacingState(state: PacingState): Promise<void> {
+  if (!_pacingStore) return;
+  await _pacingStore.set(PACING_STATE_KEY, state);
 }
 
 // ── LLM seam ────────────────────────────────────────────────────
@@ -310,9 +389,12 @@ export async function editItem(args: Record<string, unknown>): Promise<ToolCallR
 //
 // The hard gate: refuses any item whose status !== "approved". Routes by
 // kind to the right SubstackClient method. On failure, marks the item
-// `failed` with the error; on success, marks it `sent`. Pacing for
-// note-comment is layered in Phase 3 (this base path sends approved
-// reply + welcome-dm items).
+// `failed` with the error; on success, marks it `sent`.
+//
+// Phase 3 pacing: a note-comment must pass the pacing guard
+// (lib/pacing.ts) or it is DEFERRED — left APPROVED with its due_at
+// pushed to the guard's `deferUntil`. It is NEVER force-sent. reply +
+// welcome-dm are not paced (the pacing guard is Notes-specific risk).
 
 export async function sendItem(
   client: SubstackClient,
@@ -368,11 +450,43 @@ export async function sendApproved(
     (i) => (onlyId ? i.id === onlyId : true),
   );
 
+  // Pacing applies to note-comment items only. Load state + config once;
+  // the state is folded forward across allowed sends in this batch so the
+  // min-interval + daily-cap guards see each prior send within the call.
+  const pacingConfig =
+    Object.keys(settings).length > 0 ? pacingConfigFromSettings(settings) : _pacingConfig;
+  let pacingState = await loadPacingState();
+  let pacingDirty = false;
+
   let sent = 0;
   let failed = 0;
-  const results: Array<{ id: string; kind: string; status: string; error?: string }> = [];
+  let deferred = 0;
+  const results: Array<{
+    id: string;
+    kind: string;
+    status: string;
+    error?: string;
+    deferUntil?: number;
+  }> = [];
 
   for (const item of approvedItems) {
+    // Pacing gate for note-comment: defer (keep approved, push due_at) on
+    // any block — never force-send.
+    if (item.kind === "note-comment") {
+      const decision = evaluatePacing(pacingState, pacingConfig, Date.now(), _rng);
+      if (!decision.allow) {
+        await update(item.id, { due_at: decision.deferUntil }); // stays approved
+        deferred++;
+        results.push({
+          id: item.id,
+          kind: item.kind,
+          status: "deferred",
+          deferUntil: decision.deferUntil,
+        });
+        continue;
+      }
+    }
+
     let res: SendResult;
     try {
       res = await sendItem(client, item);
@@ -383,6 +497,10 @@ export async function sendApproved(
       await markSent(item.id);
       sent++;
       results.push({ id: item.id, kind: item.kind, status: "sent" });
+      if (item.kind === "note-comment") {
+        pacingState = recordSend(pacingState, pacingConfig, Date.now());
+        pacingDirty = true;
+      }
     } else {
       await markFailed(item.id, res.error ?? "unknown send error");
       failed++;
@@ -395,8 +513,10 @@ export async function sendApproved(
     }
   }
 
+  if (pacingDirty) await savePacingState(pacingState);
+
   return toolResult(
-    JSON.stringify({ ok: true, sent, failed, results }, null, 2),
+    JSON.stringify({ ok: true, sent, failed, deferred, results }, null, 2),
   );
 }
 

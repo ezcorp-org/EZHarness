@@ -10,13 +10,14 @@
 //   - tools/call → the handlers in `lib/tools.ts` (+ Phase 2/3 modules).
 //   - the `*/15 * * * *` cron → `runScheduledScan` (drafts only, never
 //     sends). The SDK's Schedule class registers the handler; the host's
-//     ScheduleDaemon fires it ownerless (project-scope storage is the
-//     only scope reachable, hence the queue's PROJECT scope).
+//     ScheduleDaemon fires it ownerless — `Storage("global")` is the only
+//     ownerless scope the cron can reach (see the start() comment).
 //
-// Production stores are bound here once: the review queue uses
-// `Storage("project")`, the voice-profile reader uses `Storage("user")`
-// (the entity is user-scoped). The drafting LLM is `new Llm()`. All
-// three are injectable seams so unit tests run channel-free.
+// Production stores are bound here once: the review queue + subscriber
+// cursor + pacing state use ownerless `Storage("global")`; the user-
+// scoped entities (voice-profile, follow-up-sequence, targeted-notes-
+// list) use `Storage("user")`. The drafting LLM is `new Llm()`. Every
+// binding is an injectable seam so unit tests run channel-free.
 
 import {
   createToolDispatcher,
@@ -40,6 +41,8 @@ import {
   setLlm,
   setVoiceStore,
   setDraftConfig,
+  setPacingStore,
+  setPacingConfig,
 } from "./lib/tools";
 import { setQueueStore } from "./lib/review-queue";
 import {
@@ -48,6 +51,7 @@ import {
   setCursorStore,
   setSequenceStore,
 } from "./lib/subscribers";
+import { scanNotes, setNotesStore } from "./lib/notes";
 
 // ── Tool handlers ───────────────────────────────────────────────
 
@@ -55,6 +59,8 @@ const scan_comments: ToolHandler = (args, ctx) =>
   scanComments(args as Record<string, unknown>, ctx as ToolHandlerContext | undefined);
 const scan_subscribers: ToolHandler = (args, ctx) =>
   scanSubscribers(args as Record<string, unknown>, ctx as ToolHandlerContext | undefined);
+const scan_notes: ToolHandler = (args, ctx) =>
+  scanNotes(args as Record<string, unknown>, ctx as ToolHandlerContext | undefined);
 const list_queue: ToolHandler = (args) => listQueue(args as Record<string, unknown>);
 const approve_item: ToolHandler = (args) => approveItem(args as Record<string, unknown>);
 const reject_item: ToolHandler = (args) => rejectItem(args as Record<string, unknown>);
@@ -66,6 +72,7 @@ const open_review_queue: ToolHandler = () => openReviewQueue();
 export const tools: Record<string, ToolHandler> = {
   scan_comments,
   scan_subscribers,
+  scan_notes,
   list_queue,
   approve_item,
   reject_item,
@@ -92,10 +99,10 @@ export const tools: Record<string, ToolHandler> = {
 
 export async function runScheduledScan(): Promise<void> {
   // Each scan is independent; one failing must not abort the others.
-  // Phase 3 appends the targeted-Notes scan to this list.
   await safe(() => scanComments({}, undefined));
   await safe(() => scanSubscribers({}, undefined));
   await safe(() => runDueFollowups());
+  await safe(() => scanNotes({}, undefined));
 }
 
 async function safe(fn: () => Promise<unknown>): Promise<void> {
@@ -131,12 +138,20 @@ export function start(): void {
   // scope that actually exists. Deviation documented in the Phase 1 commit.
   setQueueStore(new Storage("global"));
   setVoiceStore(new Storage("user"));
-  // The subscriber poll cursor shares the ownerless queue store (it must
-  // be cron-reachable too); the follow-up-sequence entity is user-scoped.
+  // The subscriber poll cursor + Notes pacing state share the ownerless
+  // queue store (both must be cron-reachable too); the user-scoped
+  // entities (follow-up-sequence, targeted-notes-list) use user scope.
   setCursorStore(new Storage("global"));
   setSequenceStore(new Storage("user"));
+  setPacingStore(new Storage("global"));
+  setNotesStore(new Storage("user"));
   setLlm(new Llm());
   setDraftConfig({});
+  // Pacing config is recomputed per send from the call's settings; this
+  // sets the cron-time fallback (no settings on an ownerless fire) to the
+  // documented defaults. The cron never SENDS, so pacing is effectively a
+  // no-op there — it gates the human-driven send_approved path.
+  setPacingConfig({});
 
   createToolDispatcher(tools);
 

@@ -95,6 +95,32 @@ const entities: EntityDeclaration[] = [
       },
     ],
   },
+  // Targeted Notes the user wants engaged (Phase 3). `scan_notes` reads
+  // the `default` list's noteRefs, fetches each, and drafts a comment.
+  // Seeded empty — the user adds note refs on the extension detail page.
+  {
+    type: "targeted-notes-list",
+    label: "Targeted Notes List",
+    pluralLabel: "Targeted Notes Lists",
+    scope: "user",
+    cascadeOnUninstall: false,
+    schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", minLength: 1, maxLength: 100 },
+        noteRefs: { type: "array", items: { type: "string" } },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+    preview: "Targeted notes '{name}'",
+    seed: [
+      {
+        slug: "default",
+        data: { name: "Default Targets", noteRefs: [] },
+      },
+    ],
+  },
 ];
 
 // ── substack-engagement ──────────────────────────────────────────
@@ -191,6 +217,15 @@ export default defineExtension({
         "Poll for new subscribers (cursor-based diff), draft a welcome DM in " +
         "the creator's voice for each, and schedule a timed follow-up sequence. " +
         "Drafts only — never sends.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "scan_notes",
+      description:
+        "For each targeted Note (from the targeted-notes-list), fetch it and " +
+        "draft a comment in the creator's voice. Enqueues each as a pending " +
+        "note-comment. Drafts only — sending is pacing-gated and never " +
+        "force-sent.",
       inputSchema: { type: "object", properties: {} },
     },
     {
@@ -350,6 +385,37 @@ export default defineExtension({
       default: -1,
       min: -1,
       max: 23,
+      integer: true,
+    },
+    note_jitter_seconds: {
+      type: "number",
+      label: "Notes-send jitter (seconds)",
+      description: "Random extra spacing (0..N s) added to the min interval between Notes sends.",
+      default: 0,
+      min: 0,
+      integer: true,
+    },
+    note_ramp_start: {
+      type: "number",
+      label: "Notes ramp start (day-0 cap)",
+      description: "Day-0 Notes-send cap; ramps up by the step each day until the daily cap. Set >= cap to disable.",
+      default: 100,
+      min: 0,
+      integer: true,
+    },
+    note_ramp_step: {
+      type: "number",
+      label: "Notes ramp step (per day)",
+      description: "Daily increase to the Notes-send cap during ramp-up.",
+      default: 0,
+      min: 0,
+      integer: true,
+    },
+    tz_offset_minutes: {
+      type: "number",
+      label: "Timezone offset (minutes from UTC)",
+      description: "Local-time offset for quiet hours + daily-cap rollover (e.g. -300 for US Eastern).",
+      default: 0,
       integer: true,
     },
   },

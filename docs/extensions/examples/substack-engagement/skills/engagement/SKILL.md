@@ -77,6 +77,13 @@ defaults above. Edit it on the extension detail page to tune the voice.
 - **`failed` status on a queue item** — the send hit a transport error
   (often an expired session token). The item keeps its draft and records
   the error; the user can refresh the token and re-approve.
+- **`deferred` in a `send_approved` result (note-comment only)** — the
+  pacing guard (daily cap, min interval, quiet hours, gradual ramp) held
+  the send back. The item STAYS approved and its `due_at` is pushed to
+  when it next becomes eligible; it is NEVER force-sent. Tell the user it
+  will send on a later `send_approved` once the window opens — this is the
+  anti-spam rail working, not a failure. Tune the caps/quiet-hours/ramp in
+  settings if they want it faster.
 
 ## What's out of scope (v1)
 

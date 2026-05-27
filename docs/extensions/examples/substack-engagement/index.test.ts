@@ -23,6 +23,7 @@ describe("substack-engagement — manifest shape", () => {
     expect(names).toEqual([
       "scan_comments",
       "scan_subscribers",
+      "scan_notes",
       "list_queue",
       "approve_item",
       "reject_item",
@@ -51,9 +52,9 @@ describe("substack-engagement — manifest shape", () => {
     expect(manifest.agent?.prompt).toContain("You draft, you never send");
   });
 
-  test("declares the user-scoped voice-profile + follow-up-sequence entities", () => {
+  test("declares the three user-scoped entities (voice / follow-up / notes)", () => {
     const entities = (manifest as { entities?: unknown[] }).entities ?? [];
-    expect(entities).toHaveLength(2);
+    expect(entities).toHaveLength(3);
     const byType = Object.fromEntries(
       (entities as Array<{ type: string }>).map((e) => [e.type, e]),
     ) as Record<
@@ -70,6 +71,11 @@ describe("substack-engagement — manifest shape", () => {
     expect(seq.scope).toBe("user");
     expect(seq.seed?.[0]?.slug).toBe("default");
     expect(Array.isArray(seq.seed?.[0]?.data.steps)).toBe(true);
+
+    const notes = byType["targeted-notes-list"]!;
+    expect(notes.scope).toBe("user");
+    expect(notes.seed?.[0]?.slug).toBe("default");
+    expect(Array.isArray(notes.seed?.[0]?.data.noteRefs)).toBe(true);
   });
 
   test("bundles the engagement skill via a file ref", () => {
@@ -95,6 +101,10 @@ describe("substack-engagement — manifest shape", () => {
       "min_send_interval_seconds",
       "quiet_hours_start",
       "quiet_hours_end",
+      "note_jitter_seconds",
+      "note_ramp_start",
+      "note_ramp_step",
+      "tz_offset_minutes",
     ]) {
       expect(keys).toContain(k);
     }
