@@ -141,7 +141,12 @@
 	});
 
 	onDestroy(() => {
-		window.removeEventListener("goal:update", onSseGoalUpdate);
+		// Svelte 5's server renderer invokes onDestroy during SSR teardown,
+		// where `window` is undefined — guard so it doesn't crash the page's
+		// server render (the addEventListener in onMount is client-only).
+		if (typeof window !== "undefined") {
+			window.removeEventListener("goal:update", onSseGoalUpdate);
+		}
 		if (tickHandle !== null) {
 			clearInterval(tickHandle);
 			tickHandle = null;

@@ -26,7 +26,7 @@
 
 import { test, expect } from "./fixtures/test-base.js";
 import type { MockOverrides } from "./fixtures/api-mocks.js";
-import { makeProject, makeConversation } from "./fixtures/data.js";
+import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 const EXT = "substack-engagement";
 
@@ -36,6 +36,26 @@ const conv = makeConversation({
 	projectId: "proj-sub",
 	model: "claude-sonnet-4-6",
 	provider: "anthropic",
+});
+
+// Seed a settled user→assistant turn so the chat view renders WITHOUT a
+// backend (no Docker). We deliberately do NOT assert the empty-state copy
+// ("Send a message to start the conversation") — that path only renders
+// when the real chat backend hydrates, which plain `bun run preview`
+// lacks. Mirrors the no-Docker tool-card siblings (canvas-dock-*).
+const userMsg = makeMessage({
+	id: "m1",
+	conversationId: conv.id,
+	role: "user",
+	content: "show my review queue",
+});
+const assistantMsg = makeMessage({
+	id: "m2",
+	conversationId: conv.id,
+	role: "assistant",
+	content: "Here's your review queue.",
+	parentMessageId: "m1",
+	createdAt: "2026-01-01T00:01:00.000Z",
 });
 
 function reviewPayload(
@@ -50,11 +70,21 @@ function reviewPayload(
 	});
 }
 
-// Mock /api/tool-invoke and record every call. `sendResult` shapes the
-// send_approved JSON output (sent vs deferred).
-async function mockToolInvoke(
+interface ToolInvokeOpts {
+	sendOutput?: string;
+	failSend?: boolean;
+}
+
+// Register the /api/tool-invoke mock + recorder. MUST run AFTER `mockApi`
+// so it wins Playwright's reverse-order (last-registered-first) route
+// resolution against `setupApiMocks`' broad `**/api/**` catch-all —
+// otherwise the catch-all swallows the card's tool calls and `calls`
+// stays empty (mirrors how openai-image-gen-edit-prior registers its
+// ext-files route after mockApi). `sendOutput` shapes the send_approved
+// JSON output (sent vs deferred).
+async function installToolInvokeMock(
 	page: import("@playwright/test").Page,
-	opts: { sendOutput?: string; failSend?: boolean } = {},
+	opts: ToolInvokeOpts = {},
 ) {
 	const calls: Array<{ toolName: string; input: Record<string, unknown> }> = [];
 	await page.route("**/api/tool-invoke", async (route) => {
@@ -83,32 +113,36 @@ async function navigateAndOpenCard(
 	mockApi: (overrides?: MockOverrides) => Promise<void>,
 	emitSse: (e: { type: string; data: unknown }) => Promise<void>,
 	payload: string,
+	toolOpts: ToolInvokeOpts = {},
 ) {
+	// Seed a settled turn so the chat view renders without a backend, then
+	// send a message to establish the streaming run the live tool-card
+	// push path needs (the store maps tool:start/complete → a card only
+	// while a run is streaming for this conversation). Mirrors the
+	// canvas-dock-* siblings: type → Enter → wait for the messages POST,
+	// then push the tool events over SSE. No empty-state assertion, no
+	// "stop" button wait — both depend on the absent chat backend.
 	await mockApi({
 		projects: [proj],
 		conversations: [conv],
-		messages: [],
-		routes: { "active-run": () => ({ runId: null }) },
+		messages: [userMsg, assistantMsg],
 	});
+	// Register the tool-invoke recorder AFTER mockApi so it wins route
+	// resolution (see installToolInvokeMock).
+	const { calls } = await installToolInvokeMock(page, toolOpts);
+
 	await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-	await expect(page.getByText("Send a message to start the conversation")).toBeVisible({
-		timeout: 8000,
-	});
-	await page.addStyleTag({ content: ".ez-button { display: none !important; }" });
-	await page.waitForLoadState("networkidle");
 
 	const textarea = page.locator("textarea").first();
-	await expect(textarea).toBeEnabled({ timeout: 10_000 });
 	await textarea.fill("show my review queue");
+	// Register the response waiter BEFORE pressing Enter so the POST can't
+	// race ahead of the listener.
 	await Promise.all([
 		page.waitForResponse(
-			(r) =>
-				r.url().includes(`/conversations/${conv.id}/messages`) &&
-				r.request().method() === "POST",
+			(r) => r.url().includes("/messages") && r.request().method() === "POST",
 		),
-		page.getByRole("button", { name: "Send message" }).click(),
+		textarea.press("Enter"),
 	]);
-	await expect(page.getByRole("button", { name: /stop/i })).toBeVisible({ timeout: 8000 });
 
 	const invocationId = "inv-open-review";
 	await emitSse({
@@ -136,6 +170,8 @@ async function navigateAndOpenCard(
 			success: true,
 		},
 	});
+
+	return { calls };
 }
 
 test.describe("substack-engagement — review-queue card", () => {
@@ -144,10 +180,7 @@ test.describe("substack-engagement — review-queue card", () => {
 		mockApi,
 		emitSse,
 	}) => {
-		const { calls } = await mockToolInvoke(page, {
-			sendOutput: JSON.stringify({ sent: 1, deferred: 0 }),
-		});
-		await navigateAndOpenCard(
+		const { calls } = await navigateAndOpenCard(
 			page,
 			mockApi,
 			emitSse,
@@ -162,6 +195,7 @@ test.describe("substack-engagement — review-queue card", () => {
 					due_at: null,
 				},
 			]),
+			{ sendOutput: JSON.stringify({ sent: 1, deferred: 0 }) },
 		);
 
 		const card = page.getByTestId("substack-review-card");
@@ -190,8 +224,7 @@ test.describe("substack-engagement — review-queue card", () => {
 		mockApi,
 		emitSse,
 	}) => {
-		const { calls } = await mockToolInvoke(page);
-		await navigateAndOpenCard(
+		const { calls } = await navigateAndOpenCard(
 			page,
 			mockApi,
 			emitSse,
@@ -231,9 +264,6 @@ test.describe("substack-engagement — review-queue card", () => {
 		mockApi,
 		emitSse,
 	}) => {
-		await mockToolInvoke(page, {
-			sendOutput: JSON.stringify({ sent: 0, deferred: 1 }),
-		});
 		await navigateAndOpenCard(
 			page,
 			mockApi,
@@ -249,6 +279,7 @@ test.describe("substack-engagement — review-queue card", () => {
 					due_at: null,
 				},
 			]),
+			{ sendOutput: JSON.stringify({ sent: 0, deferred: 1 }) },
 		);
 
 		await page.getByTestId("review-approve-send").first().click();
@@ -268,7 +299,6 @@ test.describe("substack-engagement — review-queue card", () => {
 		mockApi,
 		emitSse,
 	}) => {
-		await mockToolInvoke(page, { failSend: true });
 		await navigateAndOpenCard(
 			page,
 			mockApi,
@@ -284,6 +314,7 @@ test.describe("substack-engagement — review-queue card", () => {
 					due_at: null,
 				},
 			]),
+			{ failSend: true },
 		);
 
 		await page.getByTestId("review-approve-send").first().click();
@@ -297,7 +328,6 @@ test.describe("substack-engagement — review-queue card", () => {
 	});
 
 	test("empty queue renders the empty state", async ({ page, mockApi, emitSse }) => {
-		await mockToolInvoke(page);
 		await navigateAndOpenCard(page, mockApi, emitSse, reviewPayload([]));
 		await expect(page.getByTestId("review-empty")).toBeVisible({ timeout: 8000 });
 	});
