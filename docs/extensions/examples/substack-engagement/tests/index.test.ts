@@ -184,7 +184,7 @@ describe("runScheduledScan — drafts only, NEVER sends (locked decision #1)", (
   test("does not throw when there is nothing to scan", async () => {
     const { client, sends } = makeRecordingClient();
     _setSubstackClientForTests(client);
-    await expect(runScheduledScan()).resolves.toBeUndefined();
+    expect(await runScheduledScan()).toBeUndefined();
     expect(sends).toHaveLength(0);
     expect(await list()).toHaveLength(0);
   });
@@ -201,7 +201,7 @@ describe("safe() — one failing scan never aborts the others", () => {
     _setSubstackClientForTests(client);
 
     // Must NOT throw — safe() swallows the scan_comments failure.
-    await expect(runScheduledScan()).resolves.toBeUndefined();
+    expect(await runScheduledScan()).toBeUndefined();
 
     // The failing branch was attempted...
     expect(reads).toContain("listOwnPostComments");
