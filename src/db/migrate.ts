@@ -208,6 +208,48 @@ export async function migrate(db: any): Promise<void> {
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_kb_chunks_file_id ON knowledge_base_chunks(file_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_kb_chunks_embedding ON knowledge_base_chunks USING hnsw (embedding vector_cosine_ops)`);
 
+  // ── Phase 63: Message Chunks + Embed Outbox (hybrid chat search) ──
+  // message_chunks mirrors knowledge_base_chunks with the FK retargeted
+  // onto messages. Vector column is `vector(384)` LITERAL (Drizzle can't
+  // bind a vector). HNSW index uses `USING hnsw (embedding
+  // vector_cosine_ops)` verbatim — NOT ivfflat (locked carry-forward;
+  // the `vector` extension registered at PGlite construction builds HNSW
+  // fine, proven by the existing memories HNSW assertion). conversation_id
+  // is DENORMALIZED + dual-CASCADE'd so deleting either the message or the
+  // parent conversation removes the chunk. Each statement is its own
+  // db.execute() call (PGlite executes one statement per call).
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS message_chunks (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      content TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      embedding vector(384),
+      embedding_model_id TEXT NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_message_chunks_message ON message_chunks(message_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_message_chunks_conversation ON message_chunks(conversation_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_message_chunks_embedding ON message_chunks USING hnsw (embedding vector_cosine_ops)`);
+
+  // message_embed_outbox — LEAN, one row per message. message_id is the
+  // PRIMARY KEY (the one-row-per-message guarantee AND the
+  // ON CONFLICT (message_id) upsert target Plan 03 uses). conversation_id
+  // is denormalized + cascaded. status/attempts/timestamps only — no
+  // content-hash / model_id (worker reads current text at drain time).
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS message_embed_outbox (
+      message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+
   // ── Phase 6: Agent Personas ─────────────────────────────────────
   await db.execute(sql`ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS category TEXT`);
   await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS agent_config_id TEXT REFERENCES agent_configs(id) ON DELETE SET NULL`);

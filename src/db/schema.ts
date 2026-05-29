@@ -137,6 +137,53 @@ export const messageAttachments = pgTable("message_attachments", {
 export type MessageAttachment = typeof messageAttachments.$inferSelect;
 export type NewMessageAttachment = typeof messageAttachments.$inferInsert;
 
+// ── Phase 63: Message Chunks (hybrid chat search index) ───────────
+// Durable per-message chunk store mirroring knowledge_base_chunks with
+// the FK retargeted onto messages. Each chunk carries a vector(384)
+// embedding on an HNSW index (NOT ivfflat) and records which model
+// produced it (embedding_model_id). Both message-delete and the
+// chained conversation-delete cascade away a message's chunks.
+//
+// DESIGN — `conversation_id` is DENORMALIZED here (research Open
+// Question #2): Phase 65 SRCH-05 needs per-conversation scoping inside
+// the ANN CTE without a join back to messages. The dual CASCADE
+// precedent is message_attachments.
+
+export const messageChunks = pgTable("message_chunks", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  messageId: text("message_id").notNull().references(() => messages.id, { onDelete: "cascade" }),
+  conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  chunkIndex: integer("chunk_index").notNull(),
+  embedding: vector("embedding", { dimensions: EMBEDDING_DIMENSIONS }),
+  embeddingModelId: text("embedding_model_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_message_chunks_message").on(table.messageId),
+  index("idx_message_chunks_conversation").on(table.conversationId),
+]);
+
+// ── Phase 63: Message Embed Outbox (one row per message) ──────────
+// LEAN per research Open Question #1: message_id PK gives the
+// one-row-per-message guarantee AND the ON CONFLICT (message_id)
+// upsert target Plan 03 uses. status/attempts/timestamps only — NO
+// content-hash / model_id column (the Phase 64 worker reads the
+// current message text at drain time). Defer any hash column to
+// Phase 64 if the worker needs it.
+
+export const messageEmbedOutbox = pgTable("message_embed_outbox", {
+  messageId: text("message_id").primaryKey().references(() => messages.id, { onDelete: "cascade" }),
+  conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  status: text("status").notNull().$type<"pending" | "in_progress" | "failed">().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type MessageChunk = typeof messageChunks.$inferSelect;
+export type NewMessageChunk = typeof messageChunks.$inferInsert;
+export type MessageEmbedOutbox = typeof messageEmbedOutbox.$inferSelect;
+
 export const agentConfigs = pgTable("agent_configs", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull().unique(),
