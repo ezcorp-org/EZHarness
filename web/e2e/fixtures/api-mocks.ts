@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
-import { makeProject, makeAgent, type makeRun, makeConversation, makeMessage, type makePipeline, makeAgentConfig, makeMemory, type makeKBFile, type makeProviderStatus, makeMode, type ModeData, type makeLesson, type ExtensionData } from "./data.js";
+import { makeProject, makeAgent, type makeRun, makeConversation, makeMessage, type makePipeline, makeAgentConfig, makeMemory, type makeKBFile, type makeProviderStatus, makeMode, type ModeData, type makeLesson, type ExtensionData, type makeSearchHit } from "./data.js";
 import { fuzzyScore } from "../../src/lib/fuzzy-match.js";
+import type { SearchMode } from "../../src/lib/api.js";
 
 export interface SubConversationMock {
 	id: string;
@@ -213,6 +214,18 @@ export interface MockOverrides {
 	extensionViolations?: Record<string, Array<{ id: string; rule: string; at: string }>>;
 	/** Active agents list returned by /api/active-agents. */
 	activeAgents?: Array<{ id: string; name: string; status: string }>;
+	/**
+	 * Phase 66 — message-grained hybrid-search fixture for
+	 * `GET /api/search/messages`. Configures the hits + degraded flag a spec
+	 * wants back. `requestedMode`/`servedMode` default to echoing the `mode`
+	 * query param (or "hybrid"); override `servedMode`/`degraded` to exercise
+	 * the degraded-fallback UI. Default (omitted) → empty hits, not degraded.
+	 */
+	searchMessages?: {
+		hits?: ReturnType<typeof makeSearchHit>[];
+		degraded?: boolean;
+		servedMode?: SearchMode;
+	};
 }
 
 const DEFAULT_PROJECT = makeProject({ id: "proj-1", name: "My Project" });
@@ -349,6 +362,9 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 	const extensionViolations = overrides.extensionViolations ?? {};
 	const activeAgents = overrides.activeAgents ?? [];
 
+	// Phase 66 — message-search fixture. Default: empty hits, not degraded.
+	const searchMessages = overrides.searchMessages ?? {};
+
 	await page.route("**/api/**", (route) => {
 		const url = new URL(route.request().url());
 		const path = url.pathname;
@@ -466,6 +482,23 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			const id = path.split("/").pop()!;
 			const run = runs.find((r) => r.id === id);
 			return route.fulfill(run ? { json: run } : { status: 404, json: { error: "Not found" } });
+		}
+
+		// Phase 66 — message-grained hybrid search. The query string
+		// (?projectId=&q=&mode=) is parsed off `url` for the served-mode echo
+		// only; routing matches on the path alone. Returns a
+		// SearchMessagesResponse-shaped body so 66-02/66-03/66-04 specs can
+		// drive the sidebar Messages section + deep-link.
+		if (path === "/api/search/messages" && method === "GET") {
+			const requestedMode = (url.searchParams.get("mode") as SearchMode | null) ?? "hybrid";
+			return route.fulfill({
+				json: {
+					hits: searchMessages.hits ?? [],
+					degraded: searchMessages.degraded ?? false,
+					requestedMode,
+					servedMode: searchMessages.servedMode ?? requestedMode,
+				},
+			});
 		}
 
 		// Conversations

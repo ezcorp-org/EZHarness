@@ -1,4 +1,4 @@
-import type { Agent, Run, Project, Conversation, Message, Pipeline, AgentConfig, ProviderStatus, AttachmentSummary } from "../../src/lib/api.js";
+import type { Agent, Run, Project, Conversation, Message, Pipeline, AgentConfig, ProviderStatus, AttachmentSummary, MessageSearchHit } from "../../src/lib/api.js";
 
 let idCounter = 0;
 const nextId = () => `test-${++idCounter}`;
@@ -119,6 +119,29 @@ export function makeMessage(overrides: Partial<Message> = {}): Message {
 		parentMessageId: null,
 		excluded: false,
 		createdAt: "2026-01-01T00:00:00.000Z",
+		...overrides,
+	};
+}
+
+/**
+ * Phase 66 — message-grained search hit fixture, mirroring the Phase 65
+ * `MessageSearchHit` contract (`src/lib/api.ts`). `createdAt` is a string
+ * (JSON-serialized over the wire). Defaults to a lexical hit with a `<mark>`
+ * highlight so sidebar/snippet specs render the highlight path by default;
+ * override `matchType`/`snippet` for semantic (plain-text) rows.
+ */
+export function makeSearchHit(overrides: Partial<MessageSearchHit> = {}): MessageSearchHit {
+	return {
+		conversationId: overrides.conversationId ?? "conv-1",
+		conversationTitle: "Test Conversation",
+		messageId: overrides.messageId ?? nextId(),
+		role: "user",
+		createdAt: "2026-01-01T00:00:00.000Z",
+		snippet: "a <mark>match</mark> here",
+		matchType: "lexical",
+		rankLexical: 1,
+		rankSemantic: null,
+		score: 0.5,
 		...overrides,
 	};
 }
