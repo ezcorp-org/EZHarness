@@ -56,7 +56,7 @@ describe("chunkByTokens", () => {
     const chunks = chunkByTokens(tokenizer, text);
     expect(chunks.length).toBeGreaterThan(1);
     for (const chunk of chunks) {
-      const tokenCount = chunk.split(/\s+/).filter((w) => w.length > 0).length;
+      const tokenCount = chunk.split(/\s+/).filter((w: string) => w.length > 0).length;
       expect(tokenCount).toBeLessThanOrEqual(CHUNK_TOKENS);
     }
   });

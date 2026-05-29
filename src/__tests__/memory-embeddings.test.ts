@@ -9,7 +9,9 @@ import type { MemoryProvenance } from "../memory/types";
 const extractorCalls: Array<{ text: string; opts: unknown }> = [];
 // A stable fake tokenizer object hung off the pipeline so getTokenizer()
 // can assert it reuses the already-loaded pipeline's tokenizer (no 2nd load).
-const fakeTokenizer = { __fake: "tokenizer" };
+// `model_max_length` starts unset so the test can prove getExtractor() caps it
+// to 256 (the real IDX-06 input-truncation mechanism).
+const fakeTokenizer: { __fake: string; model_max_length?: number } = { __fake: "tokenizer" };
 
 // Mock db/connection and @huggingface/transformers (native libs unavailable on NixOS)
 mockDbConnection();
@@ -201,17 +203,18 @@ describe("embeddings", () => {
     expect(norm).toBeCloseTo(1.0, 1); // within 0.05
   }, 30_000);
 
-  test("generateEmbedding passes {max_length:256, truncation:true} to the extractor", async () => {
+  test("IDX-06: input is capped at 256 tokens via tokenizer.model_max_length, not call opts", async () => {
     extractorCalls.length = 0;
     await generateEmbedding("opts capture");
     expect(extractorCalls.length).toBeGreaterThanOrEqual(1);
+    // The FeatureExtractionPipeline accepts ONLY pooling/normalize/quantize/
+    // precision on the call — max_length/truncation are NOT valid here. The
+    // 256-token input cap (IDX-06) is enforced by getExtractor() setting
+    // model_max_length on the loaded tokenizer; the extractor's internal
+    // tokenize call honors it.
     const lastOpts = extractorCalls[extractorCalls.length - 1]!.opts as Record<string, unknown>;
-    expect(lastOpts).toMatchObject({
-      pooling: "mean",
-      normalize: true,
-      max_length: 256,
-      truncation: true,
-    });
+    expect(lastOpts).toEqual({ pooling: "mean", normalize: true });
+    expect(fakeTokenizer.model_max_length).toBe(256);
   }, 30_000);
 
   test("a 10,000-character input returns a 384-dim vector without throwing", async () => {

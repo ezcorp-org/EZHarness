@@ -28,6 +28,16 @@ async function getExtractor(onProgress?: (message: string) => void): Promise<Fea
     }).then(
       (ext) => {
         _extractor = ext as FeatureExtractionPipeline;
+        // IDX-06 input cap: the FeatureExtractionPipeline tokenizes internally
+        // as tokenizer(texts, { padding: true, truncation: true }), truncating
+        // at the tokenizer's model_max_length. There is NO max_length/truncation
+        // on the extractor call options in @huggingface/transformers v3, so the
+        // type-safe, input-only way to enforce the 256-token cap is to set
+        // model_max_length on the loaded tokenizer once, here. This repairs the
+        // prior silent over-length truncation that degraded both memories and
+        // knowledge_base_chunks. Input-only — we never touch model.maxTokens or
+        // char-slice the string (CLAUDE.md context-compaction invariant).
+        _extractor.tokenizer.model_max_length = 256;
         return _extractor;
       },
       (err) => {
@@ -41,11 +51,11 @@ async function getExtractor(onProgress?: (message: string) => void): Promise<Fea
 
 export async function generateEmbedding(text: string, onProgress?: (message: string) => void): Promise<number[]> {
   const extractor = await getExtractor(onProgress);
-  // Truncate INPUT only via extractor opts (IDX-06 fix). Do NOT shrink any
-  // maxTokens or char-slice the string — see CLAUDE.md context-compaction
-  // invariant. This repairs the prior silent truncation that degraded both
-  // memories and knowledge_base_chunks.
-  const output = await extractor(text, { pooling: "mean", normalize: true, max_length: 256, truncation: true });
+  // Input truncation to 256 tokens is enforced by getExtractor() setting
+  // tokenizer.model_max_length = 256 (IDX-06); the extractor's internal
+  // tokenize call honors it. The call options below are the only ones the
+  // FeatureExtractionPipeline accepts.
+  const output = await extractor(text, { pooling: "mean", normalize: true });
   const raw = Array.from(output.data as Float32Array);
 
   if (raw.length !== EMBEDDING_DIMENSIONS) {
