@@ -955,24 +955,21 @@
 
 	onMount(() => {
 		const initialParam = page.url.searchParams.get("initial");
-		const mParam = page.url.searchParams.get("m");
 		const hasInitial = !!initialParam && initialParam.length > 0;
-		const hasDeepLink = !!mParam && mParam.length > 0;
 		if (hasInitial) {
 			pendingInitial = initialParam;
 		}
-		if (hasDeepLink) {
-			pendingDeepLink = mParam;
-		}
-		// Strip the consumed param(s) so a refresh doesn't re-send `?initial`
-		// or re-pulse `?m=`. `noScroll: true` is REQUIRED — without it the
-		// replace-nav fights the deep-link scroll. Preserve any OTHER params
-		// (e.g. `?initial` when only `m` is consumed, panel-state params) by
-		// rebuilding the querystring minus the keys we consumed.
-		if (hasInitial || hasDeepLink) {
+		// Strip the consumed `?initial` so a refresh doesn't re-send it.
+		// `noScroll: true` is REQUIRED — without it the replace-nav fights the
+		// scroll. Preserve any OTHER params (e.g. a `?m=` deep-link, which is
+		// owned by the reactive deep-link consume effect below) by rebuilding
+		// the querystring minus only the `initial` key. `?m=` is intentionally
+		// NOT handled here — the reactive effect consumes it on both cold load
+		// AND client navigation (sidebar-result click), since this persistent
+		// component does not remount on a same-route conversation switch.
+		if (hasInitial) {
 			const params = new URLSearchParams(page.url.searchParams);
-			if (hasInitial) params.delete("initial");
-			if (hasDeepLink) params.delete("m");
+			params.delete("initial");
 			const qs = params.toString();
 			goto(page.url.pathname + (qs ? `?${qs}` : ""), {
 				replaceState: true,
@@ -1318,6 +1315,38 @@
 		pulseMessageId = null;
 	});
 
+	// ── Deep-link re-arm on client navigation ─────────────────────────
+	// `onMount` only consumes `?m=` on a cold load. When a sidebar search
+	// result is clicked the route does a client-side `goto(...?m=)` that does
+	// NOT remount this persistent component, so the mount-time consume never
+	// re-runs and the deep-link would silently no-op. This reactive effect
+	// mirrors the mount-time consume: whenever a fresh `?m=` appears in the
+	// URL it arms `pendingDeepLink` (the gated effect below applies it) and
+	// strips the param so a reload doesn't re-pulse. Guarded by
+	// `lastConsumedDeepLink` so the strip-nav (which itself changes the URL)
+	// doesn't loop.
+	let lastConsumedDeepLink = $state<string | null>(null);
+	$effect(() => {
+		const mParam = page.url.searchParams.get("m");
+		if (!mParam || mParam.length === 0) {
+			lastConsumedDeepLink = null;
+			return;
+		}
+		if (mParam === lastConsumedDeepLink) return;
+		lastConsumedDeepLink = mParam;
+		pendingDeepLink = mParam;
+		deepLinkApplied = false;
+		// Strip `?m=` (preserving any other params) so a reload doesn't
+		// re-pulse — same contract as the mount-time consume.
+		const params = new URLSearchParams(page.url.searchParams);
+		params.delete("m");
+		const qs = params.toString();
+		goto(page.url.pathname + (qs ? `?${qs}` : ""), {
+			replaceState: true,
+			noScroll: true,
+		});
+	});
+
 	// ── Deep-link action — apply the resolved branch-switch/window-grow,
 	//    scroll to the target, and pulse it. Gated behind the same
 	//    initialScrollDone + populated-tree readiness as the `?initial`
@@ -1331,7 +1360,6 @@
 		if (allMessages.length === 0) return;
 		if (!container) return;
 		const target = pendingDeepLink;
-		deepLinkApplied = true;
 		const el = container;
 		const r = resolveDeepLink(
 			target,
@@ -1340,11 +1368,20 @@
 			visibleMessageCount,
 		);
 		if (!r.found) {
-			// Deleted / wrong-conversation id — silent no-op, mirroring
-			// `?initial` and `@[file:…]` for missing targets.
-			pendingDeepLink = null;
+			// Target not in the current tree. On a client-nav deep-link the
+			// conversation's `allMessages` may still be loading (the gated
+			// guards above can briefly pass with the PREVIOUS conv's messages
+			// still rendered), so only treat this as a silent no-op once the
+			// load has settled — otherwise leave the deep-link armed to retry
+			// when the new tree arrives. A genuinely deleted / wrong-id then
+			// no-ops, mirroring `?initial` and `@[file:…]` for missing targets.
+			if (initialLoadDone) {
+				deepLinkApplied = true;
+				pendingDeepLink = null;
+			}
 			return;
 		}
+		deepLinkApplied = true;
 		void (async () => {
 			if (r.needsBranchSwitch && r.newLeafId) {
 				activeLeafId = r.newLeafId;
