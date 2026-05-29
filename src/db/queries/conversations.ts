@@ -3,6 +3,8 @@ import { getDb } from "../connection";
 import { conversations, messages, toolCalls, runs, conversationExtensions } from "../schema";
 import { listAttachmentsForMessages } from "./attachments";
 import { getSetting } from "./settings";
+import { isEmbedEligible } from "../../memory/message-chunker";
+import { enqueueEmbedJob } from "./message-embed-outbox";
 import { logger } from "../../logger";
 
 const log = logger.child("db.queries.conversations");
@@ -377,29 +379,43 @@ export async function createMessage(
     parentMessageId?: string;
   },
 ): Promise<Message> {
-  const db = getDb();
-  const rows = await db
-    .insert(messages)
-    .values({
-      conversationId,
-      role: data.role,
-      content: data.content,
-      thinkingContent: data.thinkingContent ?? null,
-      model: data.model ?? null,
-      provider: data.provider ?? null,
-      usage: data.usage ?? null,
-      runId: data.runId ?? null,
-      parentMessageId: data.parentMessageId ?? null,
-    })
-    .returning();
+  // Phase 63 IDX-04: the message insert, the conversation touch, AND the
+  // embed-outbox enqueue MUST be one atomic unit — no message without its
+  // embed job, no embed job without its message. This is the codebase's
+  // first db.transaction(). EVERYTHING inside the callback runs on `tx`;
+  // referencing the outer db/getDb() here would escape the transaction and
+  // silently break atomicity (research Pitfall 1). The enqueue is a single
+  // cheap upsert — fine in-tx. NEVER generate embeddings here; that is the
+  // Phase 64 worker's job, off the SSE finalize hot path.
+  return getDb().transaction(async (tx: any) => {
+    const rows = await tx
+      .insert(messages)
+      .values({
+        conversationId,
+        role: data.role,
+        content: data.content,
+        thinkingContent: data.thinkingContent ?? null,
+        model: data.model ?? null,
+        provider: data.provider ?? null,
+        usage: data.usage ?? null,
+        runId: data.runId ?? null,
+        parentMessageId: data.parentMessageId ?? null,
+      })
+      .returning();
+    const msg = rows[0]!;
 
-  // Touch conversation updatedAt
-  await db
-    .update(conversations)
-    .set({ updatedAt: sql`NOW()` })
-    .where(eq(conversations.id, conversationId));
+    // Touch conversation updatedAt (on tx).
+    await tx
+      .update(conversations)
+      .set({ updatedAt: sql`NOW()` })
+      .where(eq(conversations.id, conversationId));
 
-  return rows[0]!;
+    if (isEmbedEligible(data.role, data.content)) {
+      await enqueueEmbedJob(tx, msg.id, conversationId);
+    }
+
+    return msg;
+  });
 }
 
 export async function getMessages(conversationId: string): Promise<Message[]> {
@@ -641,18 +657,31 @@ export async function updateMessageContent(
   messageId: string,
   content: string,
 ): Promise<Message | null> {
-  const db = getDb();
-  const rows = await db
-    .update(messages)
-    .set({ content })
-    .where(and(eq(messages.conversationId, conversationId), eq(messages.id, messageId)))
-    .returning();
-  if (rows.length === 0) return null;
-  await db
-    .update(conversations)
-    .set({ updatedAt: sql`NOW()` })
-    .where(eq(conversations.id, conversationId));
-  return rows[0]!;
+  // Phase 63 IDX-05: a content edit re-enqueues the message for embedding.
+  // Wrapped in a transaction so the content update, conversation touch, and
+  // outbox re-enqueue commit together. The outbox PK upsert means a re-edit
+  // before the worker drains just refreshes the pending job (no duplicate
+  // row). Everything runs on `tx` (research Pitfall 1).
+  return getDb().transaction(async (tx: any) => {
+    const rows = await tx
+      .update(messages)
+      .set({ content })
+      .where(and(eq(messages.conversationId, conversationId), eq(messages.id, messageId)))
+      .returning();
+    if (rows.length === 0) return null;
+    const msg = rows[0]!;
+
+    await tx
+      .update(conversations)
+      .set({ updatedAt: sql`NOW()` })
+      .where(eq(conversations.id, conversationId));
+
+    if (isEmbedEligible(msg.role, content)) {
+      await enqueueEmbedJob(tx, messageId, conversationId);
+    }
+
+    return msg;
+  });
 }
 
 /**
