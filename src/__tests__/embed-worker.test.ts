@@ -35,7 +35,7 @@ let embeddingReady = false;
 let generateEmbeddingImpl: (text: string) => Promise<number[]> = async (_text: string) =>
   Array(384).fill(0.1);
 
-mock.module("../../memory/embeddings", () => ({
+mock.module("../memory/embeddings", () => ({
   isEmbeddingReady: () => embeddingReady,
   generateEmbedding: async (text: string) => generateEmbeddingImpl(text),
   getTokenizer: async () => ({
@@ -47,7 +47,7 @@ mock.module("../../memory/embeddings", () => ({
   warmupEmbeddings: () => {},
 }));
 
-mock.module("../../memory/message-chunker", () => ({
+mock.module("../memory/message-chunker", () => ({
   isEmbedEligible: (role: string, content: string) =>
     ["user", "assistant"].includes(role) && content.trim().length > 0,
   chunkByTokens: (_tok: unknown, text: string) => [text],
