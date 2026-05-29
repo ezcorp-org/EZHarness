@@ -40,11 +40,13 @@ function axisVector(axis: number): number[] {
   return v;
 }
 
-// Query vector: along axis 0. "near" chunks share axis 0 (cosine dist ~0);
-// "far" chunks sit on axis 1 (orthogonal → cosine dist ~1).
+// Query vector: along axis 0. "near" chunks share axis 0 (cosine dist ~0).
+// Lexical-only rows are kept out of the semantic leg via a NULL embedding
+// rather than a "far" vector — pgvector ANN returns nearest-K regardless of
+// absolute distance, so a merely-distant vector would still surface in a tiny
+// seed corpus.
 const QUERY_VECTOR = axisVector(0);
 const NEAR = axisVector(0);
-const FAR = axisVector(1);
 
 /** Raw chunk insert — embedding column needs the ::vector literal, so go raw. */
 async function insertChunk(
@@ -55,17 +57,19 @@ async function insertChunk(
   embedding: number[] | null,
 ): Promise<void> {
   const db = getTestDb();
+  // Raw SQL bypasses drizzle's $defaultFn for `id`, so supply one explicitly.
+  const id = crypto.randomUUID();
   if (embedding === null) {
     await db.execute(sql`
-      INSERT INTO message_chunks (message_id, conversation_id, content, chunk_index, embedding_model_id)
-      VALUES (${messageId}, ${conversationId}, ${content}, ${chunkIndex}, ${EMBEDDING_MODEL_ID})
+      INSERT INTO message_chunks (id, message_id, conversation_id, content, chunk_index, embedding_model_id)
+      VALUES (${id}, ${messageId}, ${conversationId}, ${content}, ${chunkIndex}, ${EMBEDDING_MODEL_ID})
     `);
     return;
   }
   const lit = toVectorLiteral(embedding);
   await db.execute(sql`
-    INSERT INTO message_chunks (message_id, conversation_id, content, chunk_index, embedding, embedding_model_id)
-    VALUES (${messageId}, ${conversationId}, ${content}, ${chunkIndex}, ${sql.raw(lit)}, ${EMBEDDING_MODEL_ID})
+    INSERT INTO message_chunks (id, message_id, conversation_id, content, chunk_index, embedding, embedding_model_id)
+    VALUES (${id}, ${messageId}, ${conversationId}, ${content}, ${chunkIndex}, ${sql.raw(lit)}, ${EMBEDDING_MODEL_ID})
   `);
 }
 
@@ -115,12 +119,14 @@ async function seed(): Promise<Seed> {
     .returning();
   const convAId = convA!.id;
 
-  // lexical-only: shares query terms, but its chunk vector is FAR from Q.
+  // lexical-only: shares query terms, but has NO embedded chunk (NULL embedding),
+  // so the `embedding IS NOT NULL` filter keeps it out of the semantic leg
+  // entirely — the honest lexical-only signal.
   const [lex] = await db
     .insert(messages)
     .values({ conversationId: convAId, role: "user", content: "lexicon hybrid fusion ranking discussion" })
     .returning();
-  await insertChunk(lex!.id, convAId, "lexicon hybrid fusion ranking discussion", 0, FAR);
+  await insertChunk(lex!.id, convAId, "lexicon hybrid fusion ranking discussion", 0, null);
 
   // semantic-only: chunk vector NEAR Q, but NO FTS term overlap with the query.
   const [sem] = await db

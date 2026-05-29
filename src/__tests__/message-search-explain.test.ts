@@ -1,15 +1,19 @@
 /**
  * Phase 65 Plan 01 — SRCH-05 EXPLAIN ANALYZE proof.
  *
- * Seeds ≥100 message_chunks rows across ≥2 conversations in one project, runs
- * `ANALYZE message_chunks` so the planner has real stats, then EXPLAIN ANALYZEs
- * the vector-leg SQL (via the `explainVectorLegSql()` helper exported from the
- * builder, so the plan we assert on is the SAME SQL the builder runs). The plan
- * text must show an `Index Scan` with the tenant `Filter:` predicate applied
- * INSIDE the ANN node, and must NOT contain a top-level `Seq Scan` over
- * message_chunks.
+ * Seeds a corpus large enough that the planner prefers the HNSW index over a
+ * Bitmap/Seq scan (the plan's original "≥100" floor was based on a research
+ * claim that pgvector 0.8.0 picks HNSW by default — live-probing the SHIPPED
+ * PGlite 0.3.16 stack disproved that: the planner only chooses
+ * `idx_message_chunks_embedding` once the table is large AND
+ * `hnsw.iterative_scan` is enabled; ~2k rows clears the cost crossover). Runs
+ * `ANALYZE message_chunks` for real stats, then EXPLAIN ANALYZEs the SAME
+ * single-table ANN SQL the builder runs (via `explainVectorLegSql()`). The plan
+ * must show the tenant `Filter:` predicate applied INSIDE the HNSW
+ * `Index Scan using idx_message_chunks_embedding` node, with NO `Seq Scan` over
+ * message_chunks. See message-search.ts "SRCH-05 HNSW deviation" for why.
  *
- * No mocking — pure SQL against real PGlite (pgvector 0.8.0 default behavior).
+ * No mocking — pure SQL against real PGlite (pgvector 0.8.0).
  */
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
@@ -58,8 +62,8 @@ describe("searchMessages vector leg — EXPLAIN ANALYZE (SRCH-05)", () => {
       convIds.push(conv!.id);
     }
 
-    // ≥100 message_chunks rows
-    for (let i = 0; i < 120; i++) {
+    // Enough rows that the HNSW index beats a bitmap/seq scan (cost crossover).
+    for (let i = 0; i < 2500; i++) {
       const convId = convIds[i % convIds.length]!;
       const [msg] = await db
         .insert(messages)
@@ -67,8 +71,8 @@ describe("searchMessages vector leg — EXPLAIN ANALYZE (SRCH-05)", () => {
         .returning();
       const lit = toVectorLiteral(seededVector(i));
       await db.execute(sql`
-        INSERT INTO message_chunks (message_id, conversation_id, content, chunk_index, embedding, embedding_model_id)
-        VALUES (${msg!.id}, ${convId}, ${`chunk ${i}`}, 0, ${sql.raw(lit)}, ${EMBEDDING_MODEL_ID})
+        INSERT INTO message_chunks (id, message_id, conversation_id, content, chunk_index, embedding, embedding_model_id)
+        VALUES (${crypto.randomUUID()}, ${msg!.id}, ${convId}, ${`chunk ${i}`}, 0, ${sql.raw(lit)}, ${EMBEDDING_MODEL_ID})
       `);
     }
 
@@ -79,8 +83,12 @@ describe("searchMessages vector leg — EXPLAIN ANALYZE (SRCH-05)", () => {
     await closeTestDb();
   });
 
-  test("vector-leg plan applies the tenant filter inside an Index Scan, no top-level Seq Scan", async () => {
+  test("vector-leg plan filters tenant inside the HNSW Index Scan, no Seq Scan over message_chunks", async () => {
     const db = getTestDb();
+    // pgvector 0.8.0 in-filter ANN — required for the tenant-filtered HNSW scan
+    // to be index-driven (see message-search.ts SRCH-05 deviation note).
+    await db.execute(sql`SET hnsw.iterative_scan = 'relaxed_order'`);
+
     const queryVec = seededVector(0);
     const explainSql = explainVectorLegSql({
       projectId,
@@ -92,12 +100,13 @@ describe("searchMessages vector leg — EXPLAIN ANALYZE (SRCH-05)", () => {
       .map((r) => String(Object.values(r)[0]))
       .join("\n");
 
-    // ANN node present
-    expect(planText).toContain("Index Scan");
-    // tenant predicate applied (project scope) — accept either column name shape
-    expect(/Filter:|Index Cond:/i.test(planText)).toBe(true);
+    // The ANN node is the HNSW index scan over message_chunks…
+    expect(planText).toContain("Index Scan using idx_message_chunks_embedding on message_chunks");
+    // …with the tenant predicate applied as a Filter INSIDE that node.
+    expect(/Filter:.*conversation_id/is.test(planText)).toBe(true);
+    // tenant project scope resolved (InitPlan over conversations)
     expect(/project_id/i.test(planText)).toBe(true);
-    // no top-level sequential scan over message_chunks
+    // no sequential scan over message_chunks anywhere in the plan.
     expect(/Seq Scan on message_chunks/i.test(planText)).toBe(false);
   });
 });
