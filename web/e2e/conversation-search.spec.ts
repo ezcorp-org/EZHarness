@@ -1,4 +1,5 @@
-import { test, expect, type Page } from "./fixtures/test-base.js";
+import { test, expect } from "./fixtures/test-base.js";
+import type { Page } from "@playwright/test";
 import { makeProject, makeConversation, makeSearchHit } from "./fixtures/data.js";
 
 /**

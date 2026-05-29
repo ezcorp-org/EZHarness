@@ -1,4 +1,5 @@
-import { test, expect, type Page } from "./fixtures/test-base.js";
+import { test, expect } from "./fixtures/test-base.js";
+import type { Page } from "@playwright/test";
 import { makeProject, makeConversation, makeMessage, makeSearchHit } from "./fixtures/data.js";
 
 /**
@@ -47,7 +48,7 @@ async function openSearch(page: Page) {
 
 /** True when the bubble carrying `data-message-id` currently has `.message-pulse`. */
 function bubbleHasPulse(page: Page, messageId: string): Promise<boolean> {
-	return page.evaluate((id) => {
+	return page.evaluate((id: string) => {
 		const el = document.querySelector(`[data-message-id="${id}"]`);
 		return !!el && el.classList.contains("message-pulse");
 	}, messageId);
@@ -56,7 +57,7 @@ function bubbleHasPulse(page: Page, messageId: string): Promise<boolean> {
 /** Whether a message row is rendered in the DOM (i.e. on the active, windowed path). */
 function messageInDom(page: Page, messageId: string): Promise<boolean> {
 	return page.evaluate(
-		(id) => !!document.querySelector(`[data-message-id="${id}"]`),
+		(id: string) => !!document.querySelector(`[data-message-id="${id}"]`),
 		messageId,
 	);
 }
@@ -176,9 +177,9 @@ test.describe("Sidebar search deep-link (UI-03)", () => {
 		// > INITIAL_WINDOW messages on one active branch; the hit points at an
 		// EARLY message that is OUTSIDE the default last-15 window. The deep-link
 		// must grow the window (no second messages fetch) to reveal it.
-		const total = 30;
+		const total = INITIAL_WINDOW * 2; // 30 — comfortably past the initial window
 		const targetMsgs = chain("target", total, "page");
-		const earlyId = "page-2"; // far outside the last-15 window
+		const earlyId = "page-2"; // far outside the last-INITIAL_WINDOW window
 		await mockApi({
 			projects: [proj],
 			conversations: [hostConv, makeConversation({ id: "target", projectId: "proj-1", title: "Target Conversation" })],
