@@ -83,3 +83,127 @@ export async function clearMessageEmbedState(tx: ClearEmbedTx, messageId: string
   await tx.delete(messageEmbedOutbox).where(eq(messageEmbedOutbox.messageId, messageId));
   await tx.delete(messageChunks).where(eq(messageChunks.messageId, messageId));
 }
+
+// ── Phase 64 Plan 01: EmbedWorker drain helpers ────────────────────────────
+
+/**
+ * Minimal structural handle accepted by the four EmbedWorker drain helpers
+ * (claimBatch, markDone, markFailed, resetAttemptsForPending).
+ *
+ * Mirrors the {@link EmbedJobTx} / {@link ClearEmbedTx} structural-typing
+ * approach — accepts the drizzle db directly (not inside a transaction, since
+ * the worker runs these at arm's length, not inside the caller's tx).
+ *
+ * PITFALL: this module must NEVER call getDb() itself. All helpers accept `db`
+ * as their first parameter so callers control the connection.
+ */
+export type DrainDb = {
+  execute: <T = Record<string, unknown>>(
+    query: SQL<unknown>,
+  ) => Promise<{ rows: T[] } | T[]>;
+  delete: (table: typeof messageEmbedOutbox) => {
+    where: (cond: SQL<unknown> | undefined) => Promise<unknown>;
+  };
+};
+
+/**
+ * Claim up to `batchSize` pending outbox rows and mark them `in_progress`
+ * atomically.
+ *
+ * Uses a subquery UPDATE to avoid UPDATE...LIMIT (unsupported in PGlite).
+ * Only rows with status='pending' AND (next_attempt_after IS NULL OR
+ * next_attempt_after <= NOW()) are eligible. Rows are claimed in
+ * created_at ASC order (FIFO).
+ */
+export async function claimBatch(
+  db: DrainDb,
+  batchSize: number,
+): Promise<Array<{ messageId: string; conversationId: string; attempts: number }>> {
+  const result = await db.execute<{
+    message_id: string;
+    conversation_id: string;
+    attempts: number;
+  }>(sql`
+    UPDATE message_embed_outbox
+    SET status = 'in_progress', updated_at = NOW()
+    WHERE message_id IN (
+      SELECT message_id FROM message_embed_outbox
+      WHERE status = 'pending'
+        AND (next_attempt_after IS NULL OR next_attempt_after <= NOW())
+      ORDER BY created_at ASC
+      LIMIT ${batchSize}
+    )
+    RETURNING message_id, conversation_id, attempts
+  `);
+  const rows = (result as { rows: { message_id: string; conversation_id: string; attempts: number }[] }).rows
+    ?? (result as { message_id: string; conversation_id: string; attempts: number }[]);
+  return rows.map((r) => ({
+    messageId: r.message_id,
+    conversationId: r.conversation_id,
+    attempts: r.attempts,
+  }));
+}
+
+/**
+ * Remove a successfully-processed outbox row. There is no 'done' status in
+ * the schema — clean rows simply exit the table.
+ * Idempotent: deleting an absent row is a no-op.
+ */
+export async function markDone(db: DrainDb, messageId: string): Promise<void> {
+  await db.delete(messageEmbedOutbox).where(eq(messageEmbedOutbox.messageId, messageId));
+}
+
+/**
+ * Record a failed embed attempt.
+ *
+ * - If `nextAttemptAfter` is a Date (retry): sets status='pending' with the
+ *   provided backoff timestamp so claimBatch won't re-claim until that time.
+ * - If `nextAttemptAfter` is null (exhausted): sets status='failed' (terminal).
+ *
+ * Always writes `attempts = newAttempts` to the row.
+ */
+export async function markFailed(
+  db: DrainDb,
+  messageId: string,
+  newAttempts: number,
+  nextAttemptAfter: Date | null,
+): Promise<void> {
+  if (nextAttemptAfter === null) {
+    // Exhausted — final failure state
+    await db.execute(sql`
+      UPDATE message_embed_outbox
+      SET status = 'failed', attempts = ${newAttempts}, updated_at = NOW()
+      WHERE message_id = ${messageId}
+    `);
+  } else {
+    // Retry with backoff — back to pending with a future next_attempt_after
+    await db.execute(sql`
+      UPDATE message_embed_outbox
+      SET status = 'pending', attempts = ${newAttempts},
+          next_attempt_after = ${nextAttemptAfter.toISOString()},
+          updated_at = NOW()
+      WHERE message_id = ${messageId}
+    `);
+  }
+}
+
+/**
+ * Degraded-mode recovery: reset attempts=0 and next_attempt_after=NULL on
+ * all 'pending' rows, making them immediately eligible for claimBatch.
+ *
+ * Scoped to status='pending' ONLY — never touches in_progress rows, which
+ * would corrupt a live worker tick.
+ *
+ * Returns the count of rows reset.
+ */
+export async function resetAttemptsForPending(db: DrainDb): Promise<number> {
+  const result = await db.execute<{ message_id: string }>(sql`
+    UPDATE message_embed_outbox
+    SET attempts = 0, next_attempt_after = NULL, updated_at = NOW()
+    WHERE status = 'pending'
+    RETURNING message_id
+  `);
+  const rows = (result as { rows: { message_id: string }[] }).rows
+    ?? (result as { message_id: string }[]);
+  return rows.length;
+}
