@@ -69,6 +69,7 @@
 		onselectionchange,
 		onedittext,
 		onexclude,
+		pulse = false,
 	}: {
 		message: Message;
 		streamingText?: string;
@@ -120,6 +121,12 @@
 		 *  transcript with a strike-through visual; toggling again re-includes
 		 *  it. Wired by the chat page; works for user + assistant rows. */
 		onexclude?: (message: Message) => void;
+		/** Deep-link highlight pulse. When true, the message's bubble gets the
+		 *  one-shot `.message-pulse` class (see app.css). Driven by ChatThread's
+		 *  `pulseMessageId` after a `?m=` jump; cleared by a timer there. The
+		 *  pulse self-clears visually via the one-shot animation and is disabled
+		 *  under prefers-reduced-motion. */
+		pulse?: boolean;
 	} = $props();
 
 	// Elapsed counter for the main streaming turn. Reused pattern from AgentChip.svelte.
@@ -504,7 +511,7 @@
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<div
 		bind:this={messageRowEl}
-		class="group relative flex gap-3 px-4 py-3 bg-[var(--color-surface-tertiary)]/50 rounded-lg hover:outline hover:outline-1 hover:outline-[var(--color-border)] {selectable ? 'cursor-pointer' : ''} {selectable && selected ? 'outline outline-2 outline-blue-500' : ''}"
+		class="group relative flex gap-3 px-4 py-3 bg-[var(--color-surface-tertiary)]/50 rounded-lg hover:outline hover:outline-1 hover:outline-[var(--color-border)] {selectable ? 'cursor-pointer' : ''} {selectable && selected ? 'outline outline-2 outline-blue-500' : ''} {pulse ? 'message-pulse' : ''}"
 		data-message-id={message.id}
 		data-excluded={message.excluded ? 'true' : undefined}
 		data-toolbar-revealed={toolbarRevealed ? 'true' : undefined}
@@ -560,7 +567,7 @@
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<div
 		bind:this={messageRowEl}
-		class="group relative flex gap-3 px-4 py-3 rounded-lg hover:outline hover:outline-1 hover:outline-[var(--color-border)] {selectable ? 'cursor-pointer' : ''} {selectable && selected ? 'outline outline-2 outline-blue-500' : ''}"
+		class="group relative flex gap-3 px-4 py-3 rounded-lg hover:outline hover:outline-1 hover:outline-[var(--color-border)] {selectable ? 'cursor-pointer' : ''} {selectable && selected ? 'outline outline-2 outline-blue-500' : ''} {pulse ? 'message-pulse' : ''}"
 		data-message-id={message.id}
 		data-excluded={message.excluded ? 'true' : undefined}
 		data-toolbar-revealed={toolbarRevealed ? 'true' : undefined}

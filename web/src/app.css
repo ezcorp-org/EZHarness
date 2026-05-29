@@ -50,6 +50,21 @@ html[data-dev-indicator="1"] img[src="/logo.svg"] {
   100% { background-position: 200% 0; }
 }
 
+/* Deep-link highlight pulse: when a sidebar search result jumps to a
+   message, the target bubble flashes a subtle accent background that
+   fades to transparent over ~1.8s (within the 1.5-2s spec). One-shot
+   (no `infinite`) so the class self-clears visually; ChatThread also
+   drops the `pulse` prop after the timer. Disabled under reduced-motion
+   below, mirroring the shimmer/progressive-image guards. */
+@keyframes message-pulse {
+  0% { background-color: color-mix(in srgb, var(--color-accent) 28%, transparent); }
+  100% { background-color: transparent; }
+}
+
+.message-pulse {
+  animation: message-pulse 1.8s ease-out 1;
+}
+
 .skeleton-line {
   height: 0.75rem;
   border-radius: 0.25rem;
@@ -115,6 +130,7 @@ html[data-dev-indicator="1"] img[src="/logo.svg"] {
 
 @media (prefers-reduced-motion: reduce) {
   .skeleton-line { animation: none; }
+  .message-pulse { animation: none; }
   .progressive-img-wrap::before { animation: none; }
   .progressive-img {
     opacity: 1;
