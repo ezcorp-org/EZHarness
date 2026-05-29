@@ -147,8 +147,12 @@
 		}
 	}
 
-	function handleSelect(id: string) {
-		goto(`/project/${projectId}/chat/${id}`);
+	function handleSelect(id: string, messageId?: string) {
+		// Sidebar search results forward the matched messageId so the thread
+		// can deep-link (scroll + pulse) to it via `?m=`. A plain
+		// title-row select passes no messageId → no stray `?m=` is appended.
+		const base = `/project/${projectId}/chat/${id}`;
+		goto(messageId ? `${base}?m=${encodeURIComponent(messageId)}` : base);
 	}
 
 	async function handleSaveSystemPrompt(systemPrompt: string) {
@@ -228,9 +232,9 @@
 						mobileConvListOpen = false;
 						handleCreate();
 					}}
-					onselect={(id) => {
+					onselect={(id: string, messageId?: string) => {
 						mobileConvListOpen = false;
-						handleSelect(id);
+						handleSelect(id, messageId);
 					}}
 				/>
 			</div>
