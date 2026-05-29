@@ -13,7 +13,7 @@
  * (fix) for the history.
  */
 
-import { describe, test } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
@@ -187,5 +187,17 @@ describe("mock-cleanup coverage (meta-test)", () => {
           `canonical form of each path to the allowlist:\n${lines.join("\n")}`,
       );
     }
+  });
+
+  // IDX-07 regression pin: memory-embeddings.test.ts mock.module()s
+  // "../../memory/embeddings"; if a future refactor drops that path from
+  // MODULE_PATHS, restoreModuleMocks() silently stops re-registering it and
+  // the fake extractor leaks into subsequent test files. The walker above
+  // already catches that, but this explicit assertion names the path so the
+  // failure is unmistakable. (MODULE_PATHS is a private const in the helper,
+  // so we read it from source the same way loadModulePaths() does.)
+  test("IDX-07: '../../memory/embeddings' stays registered in MODULE_PATHS", () => {
+    const modulePaths = loadModulePaths();
+    expect(modulePaths.has("../../memory/embeddings")).toBe(true);
   });
 });
