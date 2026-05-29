@@ -60,8 +60,15 @@ mockDbConnection();
 
 // ── Imports after mock declarations ──
 
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { unlink } from "node:fs/promises";
 import { sql } from "drizzle-orm";
-import { EmbedWorker, runBacklogRecovery } from "../extensions/embed-worker";
+import {
+  EmbedWorker,
+  runBacklogRecovery,
+  _embedWorkerInternals,
+} from "../extensions/embed-worker";
 import {
   enqueueEmbedJob,
 } from "../db/queries/message-embed-outbox";
@@ -385,5 +392,304 @@ describe("EmbedWorker — ING-05: kill switch", () => {
     await worker.start();
     worker.stop();
     expect(() => worker.stop()).not.toThrow();
+  });
+});
+
+// ── Interval-driven tick (lines 250-254) ──────────────────────────────
+//
+// All the ING tests drive tickOnce() directly or use a 60s interval that
+// never fires. This proves the setInterval callback body actually invokes
+// tickOnce() and drains a row — the interval is the real production driver.
+// Mirrors host-maintenance-daemon.test.ts's "interval-driven tick fires".
+
+describe("EmbedWorker — interval-driven tick", () => {
+  test("the armed interval fires tickOnce() and drains a pending message", async () => {
+    const db = getDb();
+    const { conversationId, messageId } = await seedConversationAndMessage();
+    await enqueueEmbedJob(db, messageId, conversationId);
+    embeddingReady = true;
+
+    // 1s floor is the smallest interval the worker allows.
+    const worker = new EmbedWorker({ skipLockfile: true, wakeIntervalMs: 1000 });
+    const ok = await worker.start();
+    expect(ok).toBe(true);
+
+    // Poll up to ~3s for the interval-driven drain (no manual tickOnce()).
+    let drained = false;
+    for (let i = 0; i < 30 && !drained; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const rows = await db
+        .select()
+        .from(messageEmbedOutbox)
+        .where(sql`message_id = ${messageId}`);
+      drained = rows.length === 0;
+    }
+    worker.stop();
+    expect(drained).toBe(true);
+  });
+
+  test("a thrown tick is swallowed by the interval's .catch — daemon keeps ticking", async () => {
+    // First tick throws; subsequent ticks succeed. The interval's outer
+    // .catch must keep the daemon alive so the row eventually drains.
+    const db = getDb();
+    const { conversationId, messageId } = await seedConversationAndMessage();
+    await enqueueEmbedJob(db, messageId, conversationId);
+    embeddingReady = true;
+
+    let calls = 0;
+    generateEmbeddingImpl = async (_text: string) => {
+      calls++;
+      if (calls === 1) throw new Error("transient embed fail");
+      return Array(384).fill(0.1);
+    };
+
+    const worker = new EmbedWorker({ skipLockfile: true, wakeIntervalMs: 1000, maxAttempts: 5 });
+    await worker.start();
+
+    // Force re-claim eligibility each poll (backoff would otherwise gate it)
+    // and wait for the eventual successful drain.
+    let drained = false;
+    for (let i = 0; i < 40 && !drained; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await db.execute(sql`
+        UPDATE message_embed_outbox
+        SET next_attempt_after = NOW() - INTERVAL '1 second'
+        WHERE message_id = ${messageId} AND status = 'pending'
+      `);
+      const rows = await db
+        .select()
+        .from(messageEmbedOutbox)
+        .where(sql`message_id = ${messageId}`);
+      drained = rows.length === 0;
+    }
+    worker.stop();
+    expect(calls).toBeGreaterThanOrEqual(2);
+    expect(drained).toBe(true);
+  });
+});
+
+// ── Re-entrancy guard ─────────────────────────────────────────────────
+
+describe("EmbedWorker — tickOnce re-entrancy guard", () => {
+  test("an overlapping tickOnce() while one is in-flight returns the empty outcome", async () => {
+    const db = getDb();
+    const { conversationId, messageId } = await seedConversationAndMessage();
+    await enqueueEmbedJob(db, messageId, conversationId);
+    embeddingReady = true;
+
+    // Block the first tick inside generateEmbedding until we release it.
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    generateEmbeddingImpl = async (_text: string) => {
+      await gate;
+      return Array(384).fill(0.1);
+    };
+
+    const worker = new EmbedWorker({ skipLockfile: true });
+    const first = worker.tickOnce();
+    // Give the first tick a moment to claim the row and enter generateEmbedding.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Second concurrent tick must early-return without claiming anything.
+    const second = await worker.tickOnce();
+    expect(second).toEqual({ claimed: 0, embedded: 0, failed: 0, skipped: 0 });
+
+    release();
+    const firstOutcome = await first;
+    expect(firstOutcome.embedded).toBe(1);
+  });
+});
+
+// ── Backoff math: computeNextAttemptAfter ──────────────────────────────
+
+describe("EmbedWorker — computeNextAttemptAfter backoff math", () => {
+  const { computeNextAttemptAfter, MAX_BACKOFF_EXPONENT } = _embedWorkerInternals;
+
+  test("delay doubles per attempt and jitter stays within [delay, 1.3*delay]", () => {
+    const now = () => 0;
+    const BASE = 5_000;
+    for (const attempts of [1, 2, 3]) {
+      const delay = BASE * Math.pow(2, attempts);
+      const ms = computeNextAttemptAfter(attempts, now).getTime();
+      // now()=0, so ms === delay + jitter, jitter in [0, 0.3*delay].
+      expect(ms).toBeGreaterThanOrEqual(delay);
+      expect(ms).toBeLessThanOrEqual(delay * 1.3);
+    }
+  });
+
+  test("backoff grows monotonically across attempts (lower bound doubles)", () => {
+    const now = () => 0;
+    const a1 = computeNextAttemptAfter(1, now).getTime();
+    const a2 = computeNextAttemptAfter(2, now).getTime();
+    const a3 = computeNextAttemptAfter(3, now).getTime();
+    // attempt n+1 lower bound (5000*2^(n+1)) exceeds attempt n upper bound
+    // (5000*2^n*1.3), so growth is strictly monotonic regardless of jitter.
+    expect(a2).toBeGreaterThan(a1);
+    expect(a3).toBeGreaterThan(a2);
+  });
+
+  test("extreme attempts clamp the exponent — never produces an Invalid Date", () => {
+    const now = () => 0;
+    const d = computeNextAttemptAfter(1000, now);
+    // Without the clamp, 5000*2^1000 overflows the Date range and
+    // toISOString() throws. With the clamp it caps at 2^MAX_BACKOFF_EXPONENT.
+    expect(Number.isNaN(d.getTime())).toBe(false);
+    expect(() => d.toISOString()).not.toThrow();
+    const capped = 5_000 * Math.pow(2, MAX_BACKOFF_EXPONENT);
+    expect(d.getTime()).toBeLessThanOrEqual(capped * 1.3);
+  });
+});
+
+// ── PID lockfile subsystem ─────────────────────────────────────────────
+//
+// All ING tests pass skipLockfile:true, so the cross-process
+// double-drain-prevention mechanism is otherwise unexercised. Mirrors
+// host-maintenance-daemon.test.ts's "PID lockfile" describe block. Each
+// test uses a unique tmp lockfilePath to avoid collisions.
+
+describe("EmbedWorker — PID lockfile", () => {
+  test("start() writes a lockfile containing this process's PID", async () => {
+    const lockPath = join(tmpdir(), `ezcorp-embed-lock-first-${Date.now()}.pid`);
+    const worker = new EmbedWorker({ wakeIntervalMs: 60_000, lockfilePath: lockPath });
+    const ok = await worker.start();
+    expect(ok).toBe(true);
+
+    const file = Bun.file(lockPath);
+    expect(await file.exists()).toBe(true);
+    expect(parseInt((await file.text()).trim(), 10)).toBe(process.pid);
+
+    worker.stop();
+    await unlink(lockPath).catch(() => {});
+  });
+
+  test("a second worker refuses start() while the first holds the lock", async () => {
+    const lockPath = join(tmpdir(), `ezcorp-embed-lock-sibling-${Date.now()}.pid`);
+    // Pre-write our own (live) PID so sibling-prevention triggers.
+    await Bun.write(lockPath, String(process.pid));
+
+    const second = new EmbedWorker({ wakeIntervalMs: 60_000, lockfilePath: lockPath });
+    expect(await second.start()).toBe(false);
+
+    second.stop();
+    await unlink(lockPath).catch(() => {});
+  });
+
+  test("a stale lockfile (dead PID) is overwritten and start() succeeds", async () => {
+    const lockPath = join(tmpdir(), `ezcorp-embed-lock-stale-${Date.now()}.pid`);
+    await Bun.write(lockPath, "999999999"); // bogus, not alive
+
+    const worker = new EmbedWorker({ wakeIntervalMs: 60_000, lockfilePath: lockPath });
+    expect(await worker.start()).toBe(true);
+    expect(parseInt((await Bun.file(lockPath).text()).trim(), 10)).toBe(process.pid);
+
+    worker.stop();
+    await unlink(lockPath).catch(() => {});
+  });
+
+  test("stop() releases the lockfile so a later worker can start", async () => {
+    const lockPath = join(tmpdir(), `ezcorp-embed-lock-release-${Date.now()}.pid`);
+    const first = new EmbedWorker({ wakeIntervalMs: 60_000, lockfilePath: lockPath });
+    expect(await first.start()).toBe(true);
+    first.stop();
+
+    // stop()'s unlink is fire-and-forget — small wait for it to complete.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const second = new EmbedWorker({ wakeIntervalMs: 60_000, lockfilePath: lockPath });
+    expect(await second.start()).toBe(true);
+    second.stop();
+    await unlink(lockPath).catch(() => {});
+  });
+
+  test("isProcessAlive: own PID alive, bogus/zero/negative not alive", () => {
+    const { isProcessAlive } = _embedWorkerInternals;
+    expect(isProcessAlive(process.pid)).toBe(true);
+    expect(isProcessAlive(999_999_999)).toBe(false);
+    expect(isProcessAlive(0)).toBe(false);
+    expect(isProcessAlive(-1)).toBe(false);
+  });
+});
+
+// ── Env-var parsing helpers ────────────────────────────────────────────
+//
+// Mirrors host-maintenance-daemon.test.ts's "getSweepIntervalMs — env-var
+// parsing" block. Drives the three EZCORP_EMBED_* parsers through
+// unset/empty/invalid/below-floor/valid branches.
+
+describe("EmbedWorker — env-var parsing", () => {
+  const { getEmbedPollIntervalMs, getEmbedBatchSize, getEmbedMaxAttempts } =
+    _embedWorkerInternals;
+
+  afterEach(() => {
+    delete process.env.EZCORP_EMBED_POLL_INTERVAL_MS;
+    delete process.env.EZCORP_EMBED_BATCH_SIZE;
+    delete process.env.EZCORP_EMBED_MAX_ATTEMPTS;
+  });
+
+  describe("getEmbedPollIntervalMs", () => {
+    test("unset → default", () => {
+      delete process.env.EZCORP_EMBED_POLL_INTERVAL_MS;
+      expect(getEmbedPollIntervalMs()).toBe(_embedWorkerInternals.DEFAULT_POLL_MS);
+    });
+    test("empty string → default", () => {
+      process.env.EZCORP_EMBED_POLL_INTERVAL_MS = "";
+      expect(getEmbedPollIntervalMs()).toBe(_embedWorkerInternals.DEFAULT_POLL_MS);
+    });
+    test("non-numeric → default", () => {
+      process.env.EZCORP_EMBED_POLL_INTERVAL_MS = "abc";
+      expect(getEmbedPollIntervalMs()).toBe(_embedWorkerInternals.DEFAULT_POLL_MS);
+    });
+    test("zero / negative → default", () => {
+      process.env.EZCORP_EMBED_POLL_INTERVAL_MS = "0";
+      expect(getEmbedPollIntervalMs()).toBe(_embedWorkerInternals.DEFAULT_POLL_MS);
+      process.env.EZCORP_EMBED_POLL_INTERVAL_MS = "-5";
+      expect(getEmbedPollIntervalMs()).toBe(_embedWorkerInternals.DEFAULT_POLL_MS);
+    });
+    test("Infinity → default (non-finite)", () => {
+      process.env.EZCORP_EMBED_POLL_INTERVAL_MS = "Infinity";
+      expect(getEmbedPollIntervalMs()).toBe(_embedWorkerInternals.DEFAULT_POLL_MS);
+    });
+    test("below floor → clamped to MIN_POLL_MS", () => {
+      process.env.EZCORP_EMBED_POLL_INTERVAL_MS = "100";
+      expect(getEmbedPollIntervalMs()).toBe(_embedWorkerInternals.MIN_POLL_MS);
+    });
+    test("valid above floor → that integer", () => {
+      process.env.EZCORP_EMBED_POLL_INTERVAL_MS = "12000";
+      expect(getEmbedPollIntervalMs()).toBe(12000);
+    });
+  });
+
+  describe("getEmbedBatchSize", () => {
+    test("unset → default", () => {
+      delete process.env.EZCORP_EMBED_BATCH_SIZE;
+      expect(getEmbedBatchSize()).toBe(_embedWorkerInternals.DEFAULT_BATCH_SIZE);
+    });
+    test("invalid / zero → default", () => {
+      process.env.EZCORP_EMBED_BATCH_SIZE = "abc";
+      expect(getEmbedBatchSize()).toBe(_embedWorkerInternals.DEFAULT_BATCH_SIZE);
+      process.env.EZCORP_EMBED_BATCH_SIZE = "0";
+      expect(getEmbedBatchSize()).toBe(_embedWorkerInternals.DEFAULT_BATCH_SIZE);
+    });
+    test("valid → that integer (floored to MIN)", () => {
+      process.env.EZCORP_EMBED_BATCH_SIZE = "20";
+      expect(getEmbedBatchSize()).toBe(20);
+    });
+  });
+
+  describe("getEmbedMaxAttempts", () => {
+    test("unset → default", () => {
+      delete process.env.EZCORP_EMBED_MAX_ATTEMPTS;
+      expect(getEmbedMaxAttempts()).toBe(_embedWorkerInternals.DEFAULT_MAX_ATTEMPTS);
+    });
+    test("invalid / negative → default", () => {
+      process.env.EZCORP_EMBED_MAX_ATTEMPTS = "nope";
+      expect(getEmbedMaxAttempts()).toBe(_embedWorkerInternals.DEFAULT_MAX_ATTEMPTS);
+      process.env.EZCORP_EMBED_MAX_ATTEMPTS = "-3";
+      expect(getEmbedMaxAttempts()).toBe(_embedWorkerInternals.DEFAULT_MAX_ATTEMPTS);
+    });
+    test("valid → that integer (floored to MIN)", () => {
+      process.env.EZCORP_EMBED_MAX_ATTEMPTS = "7";
+      expect(getEmbedMaxAttempts()).toBe(7);
+    });
   });
 });
