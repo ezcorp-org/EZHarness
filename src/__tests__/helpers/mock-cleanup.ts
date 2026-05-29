@@ -119,10 +119,12 @@ const MODULE_PATHS = [
   "../../extensions/runtime/seccomp-loader",
   "../../extensions/schedule-daemon",
   "../../extensions/host-maintenance-daemon",
-  // Phase 64: embed-worker.test.ts uses mock.module to control isEmbeddingReady
-  // and generateEmbedding. Snapshot so restoreModuleMocks() re-registers the
-  // real module in afterAll and the fake extractor never leaks into subsequent
-  // test files.
+  // Phase 64: background-timers.test.ts mocks this module to stub the
+  // EmbedWorker class (start()/stop()) during the bootstrap-wiring suite, so
+  // the real daemon (lockfile + getDb + setInterval) never runs there.
+  // Snapshot so restoreModuleMocks() re-registers the real class in afterAll
+  // and the stub never leaks into subsequent test files (e.g. embed-worker.test.ts,
+  // which imports the REAL EmbedWorker).
   "../../extensions/embed-worker",
   "../../extensions/mcp-sandbox",
   "../../extensions/permission-engine",

@@ -36,6 +36,20 @@ let permSweepDaemonStartMock = mock(() => Promise.resolve<boolean>(true));
 let permSweepDaemonStopMock = mock(() => {});
 let lastPermSweepDaemonInstance: object | undefined;
 
+// EmbedWorker stub instrumentation. Same capture-mock pattern as
+// HostMaintenanceDaemon above: the bootstrap reads `new EmbedWorker()` then
+// `.start()`. The REAL EmbedWorker.start() would acquire a PID lockfile,
+// call getDb() for boot recovery, and arm its own setInterval — none of
+// which belong in this wiring-focused suite (its per-class coverage lives
+// in src/__tests__/embed-worker.test.ts). The stub's start() resolves true
+// and registers NO interval, so the `intervalCalls` length assertions stay
+// at 4. Per-test swaps to `embedWorkerStartMock` cover the failure-isolation
+// paths (start() returns false; start() throws).
+let embedWorkerCtorMock = mock(() => {});
+let embedWorkerStartMock = mock(() => Promise.resolve<boolean>(true));
+let embedWorkerStopMock = mock(() => {});
+let lastEmbedWorkerInstance: object | undefined;
+
 // Logger spies. The structured logger writes JSON via process.stdout/stderr.write,
 // bypassing console.* shims, so we mock the logger module itself and assert on
 // (msg, fields) call shape. `child()` returns the same spy object so calls made
@@ -115,6 +129,21 @@ function installModuleMocks(): void {
       stop() { permSweepDaemonStopMock(); }
     },
   }));
+  // Phase 64: stub the EmbedWorker for the same reason — its per-class
+  // lifecycle/ING coverage lives in src/__tests__/embed-worker.test.ts, and
+  // standing up the real daemon here would acquire a lockfile, hit getDb(),
+  // and arm a 5th setInterval (breaking the intervalCalls length assertions).
+  mock.module("../extensions/embed-worker", () => ({
+    EmbedWorker: class {
+      constructor() {
+        embedWorkerCtorMock();
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        lastEmbedWorkerInstance = this;
+      }
+      start() { return embedWorkerStartMock(); }
+      stop() { embedWorkerStopMock(); }
+    },
+  }));
   mock.module("../logger", () => ({ logger: loggerSpy }));
 }
 
@@ -140,6 +169,10 @@ beforeEach(async () => {
   permSweepDaemonStartMock = mock(() => Promise.resolve<boolean>(true));
   permSweepDaemonStopMock = mock(() => {});
   lastPermSweepDaemonInstance = undefined;
+  embedWorkerCtorMock = mock(() => {});
+  embedWorkerStartMock = mock(() => Promise.resolve<boolean>(true));
+  embedWorkerStopMock = mock(() => {});
+  lastEmbedWorkerInstance = undefined;
 
   installModuleMocks();
 
@@ -360,6 +393,91 @@ describe("startBackgroundTimers — HostMaintenanceDaemon bootstrap", () => {
     );
     // Other boot work was unaffected.
     expect(intervalCalls).toHaveLength(4);
+  });
+});
+
+// Phase 64 — bootstrap wiring for EmbedWorker. Mirrors the
+// HostMaintenanceDaemon bootstrap block above: assert the worker is
+// constructed + started and the handle is exposed, plus the two
+// fail-safe branches (start() resolving false and start() rejecting)
+// both drop the handle without crashing boot. The wiring in
+// background-timers.ts is a verbatim copy of the HostMaintenanceDaemon
+// fail-safe shape, so these tests guard against a regression in that
+// copied boilerplate.
+describe("startBackgroundTimers — EmbedWorker bootstrap", () => {
+  test("happy-path bootstrap: EmbedWorker is instantiated, started, and exposed", async () => {
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(embedWorkerCtorMock).toHaveBeenCalledTimes(1);
+    expect(embedWorkerStartMock).toHaveBeenCalledTimes(1);
+    const exposed = mod._getEmbedWorkerForTests();
+    expect(exposed).toBeDefined();
+    expect(exposed).toBe(lastEmbedWorkerInstance as never);
+    // Success log fired ("started"). 1-arg call normalizes to (msg, undefined).
+    expect(loggerInfoMock).toHaveBeenCalledWith("EmbedWorker started", undefined);
+  });
+
+  test("start() resolving false: handle is dropped, no exception bubbles, rest of boot ran", async () => {
+    // Kill switch / lockfile-sibling refusal returns false. The boot block
+    // drops the handle and continues; the daemon's own start() already
+    // logged the reason so the bootstrap does NOT double-log.
+    embedWorkerStartMock = mock(() => Promise.resolve<boolean>(false));
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(embedWorkerCtorMock).toHaveBeenCalledTimes(1);
+    expect(embedWorkerStartMock).toHaveBeenCalledTimes(1);
+    expect(mod._getEmbedWorkerForTests()).toBeUndefined();
+    expect(loggerInfoMock).not.toHaveBeenCalledWith("EmbedWorker started", undefined);
+    expect(loggerWarnMock).not.toHaveBeenCalledWith(
+      "Failed to start EmbedWorker",
+      expect.any(Object) as never,
+    );
+    // The four prior intervals are intact (boot continued).
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("start() rejecting: handle is dropped, log.warn carries the error, no exception bubbles", async () => {
+    const bootErr = new Error("simulated embed-worker boot failure");
+    embedWorkerStartMock = mock(() => Promise.reject(bootErr));
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    // MUST resolve — the boot block's try/catch swallows the rejection.
+    await mod.startBackgroundTimers();
+
+    expect(embedWorkerCtorMock).toHaveBeenCalledTimes(1);
+    expect(embedWorkerStartMock).toHaveBeenCalledTimes(1);
+    expect(mod._getEmbedWorkerForTests()).toBeUndefined();
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      "Failed to start EmbedWorker",
+      { error: String(bootErr) },
+    );
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("stopBackgroundTimers() and _resetForTests() tear down the worker", async () => {
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+    expect(mod._getEmbedWorkerForTests()).toBeDefined();
+
+    await mod.stopBackgroundTimers();
+    expect(embedWorkerStopMock).toHaveBeenCalledTimes(1);
+    expect(mod._getEmbedWorkerForTests()).toBeUndefined();
+
+    // _resetForTests() on a fresh start also tears the worker down.
+    await mod.startBackgroundTimers();
+    expect(mod._getEmbedWorkerForTests()).toBeDefined();
+    mod._resetForTests();
+    expect(embedWorkerStopMock).toHaveBeenCalledTimes(2);
+    expect(mod._getEmbedWorkerForTests()).toBeUndefined();
   });
 });
 
