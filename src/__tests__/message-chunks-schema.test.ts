@@ -96,8 +96,8 @@ describe("message_chunks + message_embed_outbox schema", () => {
     `)).rows as Array<{ column_name: string; data_type: string; is_nullable: string }>;
 
     expect(rows).toHaveLength(1);
-    expect(rows[0].data_type).toBe("text");
-    expect(rows[0].is_nullable).toBe("NO");
+    expect(rows[0]!.data_type).toBe("text");
+    expect(rows[0]!.is_nullable).toBe("NO");
   });
 
   test("message_chunks.embedding is a vector column that round-trips a 384-element literal", async () => {
@@ -109,12 +109,12 @@ describe("message_chunks + message_embed_outbox schema", () => {
         AND column_name = 'embedding'
     `)).rows as Array<{ udt_name: string }>;
     expect(colRows).toHaveLength(1);
-    expect(colRows[0].udt_name).toBe("vector");
+    expect(colRows[0]!.udt_name).toBe("vector");
 
     const { messageId, chunkId } = await seedChunk(db);
     const read = (await db.execute(sql`SELECT embedding FROM message_chunks WHERE id = ${chunkId}`)).rows as Array<{ embedding: unknown }>;
     expect(read).toHaveLength(1);
-    expect(read[0].embedding).toBeTruthy();
+    expect(read[0]!.embedding).toBeTruthy();
     // Clean up so later CASCADE probes start from a known state.
     await db.execute(sql`DELETE FROM messages WHERE id = ${messageId}`);
   });
@@ -170,8 +170,9 @@ describe("message_chunks + message_embed_outbox schema", () => {
 
     // Defaults: status 'pending', attempts 0.
     const row = (await db.execute(sql`SELECT status, attempts FROM message_embed_outbox WHERE message_id = ${messageId}`)).rows as Array<{ status: string; attempts: number }>;
-    expect(row[0].status).toBe("pending");
-    expect(Number(row[0].attempts)).toBe(0);
+    expect(row).toHaveLength(1);
+    expect(row[0]!.status).toBe("pending");
+    expect(Number(row[0]!.attempts)).toBe(0);
   });
 
   test("message_embed_outbox row is cascaded away with its message", async () => {
@@ -186,6 +187,7 @@ describe("message_chunks + message_embed_outbox schema", () => {
 
     await db.execute(sql`DELETE FROM messages WHERE id = ${messageId}`);
     const rows = (await db.execute(sql`SELECT count(*)::int AS n FROM message_embed_outbox WHERE message_id = ${messageId}`)).rows as Array<{ n: number }>;
-    expect(rows[0].n).toBe(0);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.n).toBe(0);
   });
 });
