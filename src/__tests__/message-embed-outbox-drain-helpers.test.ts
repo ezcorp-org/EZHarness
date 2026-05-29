@@ -19,9 +19,8 @@ import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers
 
 mockDbConnection();
 
-const { claimBatch, markDone, markFailed, resetAttemptsForPending } = await import(
-  "../db/queries/message-embed-outbox"
-);
+const { claimBatch, markDone, markFailed, resetAttemptsForPending, enqueueEmbedJob } =
+  await import("../db/queries/message-embed-outbox");
 
 // ── Seed helpers ─────────────────────────────────────────────────────────────
 
@@ -315,6 +314,76 @@ describe("outbox drain helpers", () => {
       const db = getTestDb();
       const count = await resetAttemptsForPending(db);
       expect(count).toBe(0);
+    });
+  });
+
+  // ── enqueueEmbedJob × next_attempt_after (re-enqueue regression) ─────────────
+  //
+  // Re-enqueueing an edited message that previously failed/backed-off must
+  // CLEAR the stale future next_attempt_after, otherwise claimBatch's
+  // eligibility filter would gate the freshly-pending job until the old
+  // backoff window passed. These would FAIL before the schema/upsert fix.
+
+  describe("enqueueEmbedJob clears stale next_attempt_after on re-enqueue", () => {
+    test("a pending row with a future next_attempt_after becomes immediately claimable after re-enqueue", async () => {
+      const { messageId, conversationId } = await seedOutboxRow({
+        status: "pending",
+        attempts: 2,
+        nextAttemptAfter: new Date(Date.now() + 60_000),
+      });
+      const db = getTestDb();
+
+      // Before re-enqueue: gated by the future backoff stamp.
+      expect((await claimBatch(db, 10)).length).toBe(0);
+
+      // Edit re-enqueues via the upsert path.
+      await enqueueEmbedJob(db, messageId, conversationId);
+
+      const row = await getOutboxRow(messageId);
+      expect(row!.status).toBe("pending");
+      expect(row!.attempts).toBe(0);
+      expect(row!.next_attempt_after).toBeNull();
+
+      // Now immediately claimable.
+      const claimed = await claimBatch(db, 10);
+      expect(claimed.length).toBe(1);
+      expect(claimed[0]!.messageId).toBe(messageId);
+    });
+
+    test("a terminal failed row with a stale stamp is resurrected to a claimable pending row", async () => {
+      const { messageId, conversationId } = await seedOutboxRow({
+        status: "failed",
+        attempts: 3,
+        nextAttemptAfter: new Date(Date.now() + 120_000),
+      });
+      const db = getTestDb();
+
+      await enqueueEmbedJob(db, messageId, conversationId);
+
+      const row = await getOutboxRow(messageId);
+      expect(row!.status).toBe("pending");
+      expect(row!.next_attempt_after).toBeNull();
+      expect((await claimBatch(db, 10)).length).toBe(1);
+    });
+  });
+
+  // ── markFailed terminal-branch hygiene ──────────────────────────────────────
+
+  describe("markFailed terminal branch clears next_attempt_after", () => {
+    test("exhausting a backed-off pending row nulls its next_attempt_after", async () => {
+      const { messageId } = await seedOutboxRow({
+        status: "pending",
+        attempts: 2,
+        nextAttemptAfter: new Date(Date.now() + 30_000),
+      });
+      const db = getTestDb();
+
+      // Exhaust it (nextAttemptAfter = null → terminal).
+      await markFailed(db, messageId, 3, null);
+
+      const row = await getOutboxRow(messageId);
+      expect(row!.status).toBe("failed");
+      expect(row!.next_attempt_after).toBeNull();
     });
   });
 });
