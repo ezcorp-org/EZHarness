@@ -67,9 +67,12 @@ const DEFAULT_LOCKFILE_PATH = ".ezcorp/embed-worker.pid";
 /**
  * Read `EZCORP_EMBED_POLL_INTERVAL_MS` and return a sane poll interval.
  * Mirrors getSweepIntervalMs from host-maintenance-daemon.ts — same
- * defensive parsing contract.
+ * defensive parsing contract. Surfaced for tests via
+ * `_embedWorkerInternals` (mirrors the sibling's internals export) rather
+ * than a lone module-level `export`, keeping it consistent with its
+ * private peers getEmbedBatchSize / getEmbedMaxAttempts.
  */
-export function getEmbedPollIntervalMs(): number {
+function getEmbedPollIntervalMs(): number {
   const raw = process.env.EZCORP_EMBED_POLL_INTERVAL_MS;
   if (raw === undefined || raw === "") return DEFAULT_POLL_MS;
   const n = Number(raw);
@@ -114,9 +117,21 @@ function isDisabledByKillSwitch(): boolean {
 
 // ── Backoff helper ────────────────────────────────────────────────────
 
+/**
+ * Floor on the exponent of the exponential backoff. Without it, an extreme
+ * `EZCORP_EMBED_MAX_ATTEMPTS` misconfiguration could drive `attempts` high
+ * enough that `5000 * 2^attempts` overflows the JS Date range, making
+ * `new Date(...).toISOString()` throw `RangeError('Invalid Date')` inside
+ * markFailed — which would escape the per-row catch, abort the rest of the
+ * batch, and strand already-claimed rows as `in_progress` until restart.
+ * 2^30 * 5s is already ~170 years, well beyond any real retry schedule, so
+ * clamping here is purely defensive with no behavioral impact at sane counts.
+ */
+const MAX_BACKOFF_EXPONENT = 30;
+
 function computeNextAttemptAfter(attempts: number, now: () => number): Date {
   const BASE_DELAY_MS = 5_000;
-  const delay = BASE_DELAY_MS * Math.pow(2, attempts);
+  const delay = BASE_DELAY_MS * Math.pow(2, Math.min(attempts, MAX_BACKOFF_EXPONENT));
   const jitter = Math.random() * delay * 0.3;
   return new Date(now() + delay + jitter);
 }
@@ -193,6 +208,16 @@ export class EmbedWorker {
   private timer?: ReturnType<typeof setInterval>;
   private lockfileOwned = false;
   private _inDegradedMode = false;
+  /**
+   * Re-entrancy guard. The interval fires every wakeIntervalMs (3s default),
+   * but a single drain pass (Transformers.js CPU embedding of a multi-chunk
+   * batch) can exceed that. Without this gate setInterval would launch a
+   * second concurrent tickOnce() while the prior one is still pending,
+   * spawning overlapping drain loops — violating the "sequential drain loop"
+   * contract below and wasting claim/getDb queries. Set on entry, cleared in
+   * finally; an overlapping fire early-returns the empty outcome.
+   */
+  private _ticking = false;
 
   constructor(options?: EmbedWorkerOptions) {
     const requestedInterval = options?.wakeIntervalMs ?? getEmbedPollIntervalMs();
@@ -283,6 +308,10 @@ export class EmbedWorker {
       failed: 0,
       skipped: 0,
     };
+
+    // Re-entrancy guard: a prior tick is still draining — skip this fire.
+    if (this._ticking) return empty;
+    this._ticking = true;
 
     try {
       const db = getDb();
@@ -378,6 +407,8 @@ export class EmbedWorker {
         error: String((err as Error)?.message ?? err),
       });
       return empty;
+    } finally {
+      this._ticking = false;
     }
   }
 }
@@ -428,3 +459,27 @@ async function releaseLockfile(path: string): Promise<void> {
     // Already gone — fine.
   }
 }
+
+/**
+ * Test-only export: lets tests drive the lockfile primitives, env-var
+ * resolution, and backoff math directly without standing up a real daemon
+ * — mirrors `_hostMaintenanceDaemonInternals` in host-maintenance-daemon.ts.
+ */
+export const _embedWorkerInternals = {
+  acquireLockfile,
+  releaseLockfile,
+  isProcessAlive,
+  isDisabledByKillSwitch,
+  computeNextAttemptAfter,
+  getEmbedPollIntervalMs,
+  getEmbedBatchSize,
+  getEmbedMaxAttempts,
+  DEFAULT_POLL_MS,
+  MIN_POLL_MS,
+  DEFAULT_BATCH_SIZE,
+  MIN_BATCH_SIZE,
+  DEFAULT_MAX_ATTEMPTS,
+  MIN_MAX_ATTEMPTS,
+  DEFAULT_LOCKFILE_PATH,
+  MAX_BACKOFF_EXPONENT,
+};
