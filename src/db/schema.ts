@@ -176,6 +176,11 @@ export const messageEmbedOutbox = pgTable("message_embed_outbox", {
   conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
   status: text("status").notNull().$type<"pending" | "in_progress" | "failed">().default("pending"),
   attempts: integer("attempts").notNull().default(0),
+  // Phase 64: backoff gate. NULL = eligible immediately; a future timestamp
+  // gates claimBatch until it passes. No DB default — NULL is the sentinel
+  // (raw ALTER in migrate.ts adds the column; this binding lets the typed
+  // upsert clear a stale stamp on re-enqueue).
+  nextAttemptAfter: timestamp("next_attempt_after", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

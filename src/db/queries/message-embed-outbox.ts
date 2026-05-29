@@ -23,7 +23,12 @@ export type EmbedJobTx = {
     }) => {
       onConflictDoUpdate: (cfg: {
         target: typeof messageEmbedOutbox.messageId;
-        set: { status: "pending"; attempts: number; updatedAt: ReturnType<typeof sql> };
+        set: {
+          status: "pending";
+          attempts: number;
+          nextAttemptAfter: null;
+          updatedAt: ReturnType<typeof sql>;
+        };
       }) => Promise<unknown>;
     };
   };
@@ -36,8 +41,12 @@ export type EmbedJobTx = {
  * `message_id` is the PRIMARY KEY (one row per message), so:
  *   - first call for a message inserts a fresh `pending` row (attempts=0);
  *   - any subsequent call for the SAME message id upserts, resetting
- *     status→`pending`, attempts→0, updated_at→NOW() WITHOUT creating a
- *     duplicate row. This is what makes a content edit re-enqueue cleanly.
+ *     status→`pending`, attempts→0, next_attempt_after→NULL, updated_at→NOW()
+ *     WITHOUT creating a duplicate row. Clearing `next_attempt_after` is
+ *     load-bearing: a row that previously failed/backed-off carries a future
+ *     backoff stamp, and `claimBatch` gates on it — re-enqueueing must wipe it
+ *     so the freshly-edited content is claimable immediately. This is what
+ *     makes a content edit re-enqueue cleanly.
  *
  * `tx` is REQUIRED and must be the caller's transaction handle (see
  * {@link EmbedJobTx}). Never default it to `getDb()`.
@@ -52,7 +61,7 @@ export async function enqueueEmbedJob(
     .values({ messageId, conversationId, status: "pending", attempts: 0 })
     .onConflictDoUpdate({
       target: messageEmbedOutbox.messageId,
-      set: { status: "pending", attempts: 0, updatedAt: sql`NOW()` },
+      set: { status: "pending", attempts: 0, nextAttemptAfter: null, updatedAt: sql`NOW()` },
     });
 }
 
@@ -165,10 +174,13 @@ export async function markFailed(
   nextAttemptAfter: Date | null,
 ): Promise<void> {
   if (nextAttemptAfter === null) {
-    // Exhausted — final failure state
+    // Exhausted — final failure state. Clear next_attempt_after too so a
+    // later re-enqueue (or manual requeue) of this terminal row never
+    // inherits a stale backoff stamp from an earlier retry.
     await db.execute(sql`
       UPDATE message_embed_outbox
-      SET status = 'failed', attempts = ${newAttempts}, updated_at = NOW()
+      SET status = 'failed', attempts = ${newAttempts},
+          next_attempt_after = NULL, updated_at = NOW()
       WHERE message_id = ${messageId}
     `);
   } else {
