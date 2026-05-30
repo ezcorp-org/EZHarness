@@ -53,6 +53,16 @@ export const RRF_K = 60;
 export type SearchMode = "hybrid" | "keyword" | "semantic";
 export type MatchType = "lexical" | "semantic" | "both";
 
+/**
+ * Search scope (Phase 67 Plan 03 — PAL-01/PAL-05):
+ *  - `project` (default): scope to a single `projectId` (the Phase 65 contract).
+ *  - `all`: scope to ALL of the requesting user's projects in one round-trip
+ *    (the "search from anywhere" palette path). Requires `userId`; `projectId`
+ *    is ignored. Cross-user leaks stay impossible — the tenant predicate is
+ *    `c.user_id = userId` instead of `c.project_id = projectId`.
+ */
+export type SearchScope = "project" | "all";
+
 export interface MessageSearchHit {
   conversationId: string;
   conversationTitle: string;
@@ -65,15 +75,23 @@ export interface MessageSearchHit {
   rankLexical: number | null;
   rankSemantic: number | null;
   score: number;
+  /** Owning project of the hit's conversation — enables cross-project deep-link. */
+  projectId: string;
+  /** Display name of the owning project — enables project-header grouping. */
+  projectName: string;
 }
 
 export interface SearchMessagesParams {
-  projectId: string;
+  /** Required when `scope` is `project` (the default). Ignored when `scope=all`. */
+  projectId?: string;
   query: string;
   mode: SearchMode;
   /** Required when the mode needs the semantic leg (hybrid/semantic). */
   queryEmbedding: number[] | null;
+  /** Required when `scope=all`; optional tenant narrowing when `scope=project`. */
   userId?: string;
+  /** `project` (single projectId, default) | `all` (every project of `userId`). */
+  scope?: SearchScope;
   limit?: number;
   offset?: number;
 }
@@ -82,16 +100,43 @@ export interface SearchMessagesParams {
 const HEADLINE_OPTS = "StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15";
 
 /**
+ * Tenant scope predicate for a `conversations c` row (parameterized). Two shapes:
+ *  - `scope=project`: `c.project_id = projectId` (+ optional `c.user_id = userId`)
+ *  - `scope=all`:     `c.user_id = userId` across every project (NO project_id
+ *    predicate). userId is REQUIRED here — the caller guarantees it.
+ * The test-null-safe exclusion is added by every call site, not here, so the
+ * EXPLAIN helper can mirror it verbatim.
+ */
+function tenantPredicate(
+  projectId: string | undefined,
+  userId: string | undefined,
+  scope: SearchScope,
+) {
+  if (scope === "all") {
+    // userId is required for scope=all; guarded at searchMessages() entry.
+    return sql`c.user_id = ${userId}`;
+  }
+  const userFilter = userId ? sql` AND c.user_id = ${userId}` : sql``;
+  return sql`c.project_id = ${projectId}${userFilter}`;
+}
+
+/**
  * Scoped-conversation id set as an `ANY(ARRAY(...))` subquery (parameterized).
  * Resolved once as an InitPlan by the planner so the ANN scan stays
  * single-table — the precondition for the HNSW Index Scan (see header note).
+ * Under `scope=all` the tenant predicate is `c.user_id = userId` (every project),
+ * still a single denormalized `conversation_id = ANY(...)` against the ANN scan —
+ * NO project→conversation join inside the vector leg (Pitfall 5).
  */
-function scopedConvArray(projectId: string, userId: string | undefined) {
-  const userFilter = userId ? sql` AND c.user_id = ${userId}` : sql``;
+function scopedConvArray(
+  projectId: string | undefined,
+  userId: string | undefined,
+  scope: SearchScope,
+) {
   return sql`ANY (ARRAY(
     SELECT c.id FROM conversations c
-    WHERE c.project_id = ${projectId}
-      AND (c.test IS NULL OR c.test = false)${userFilter}
+    WHERE ${tenantPredicate(projectId, userId, scope)}
+      AND (c.test IS NULL OR c.test = false)
   ))`;
 }
 
@@ -107,8 +152,9 @@ function scopedConvArray(projectId: string, userId: string | undefined) {
  */
 function vectorLegInner(
   vectorLiteral: string,
-  projectId: string,
+  projectId: string | undefined,
   userId: string | undefined,
+  scope: SearchScope,
   fetchLimit: number,
 ) {
   return sql`
@@ -118,7 +164,7 @@ function vectorLegInner(
       mc.content AS matched_content
     FROM message_chunks mc
     WHERE mc.embedding IS NOT NULL
-      AND mc.conversation_id = ${scopedConvArray(projectId, userId)}
+      AND mc.conversation_id = ${scopedConvArray(projectId, userId, scope)}
     ORDER BY mc.embedding <=> ${sql.raw(vectorLiteral)}
     LIMIT ${fetchLimit}
   `;
@@ -130,11 +176,11 @@ function vectorLegInner(
  */
 function keywordLegInner(
   query: string,
-  projectId: string,
+  projectId: string | undefined,
   userId: string | undefined,
+  scope: SearchScope,
   fetchLimit: number,
 ) {
-  const userFilter = userId ? sql` AND c.user_id = ${userId}` : sql``;
   return sql`
     SELECT
       m.id AS message_id,
@@ -144,9 +190,8 @@ function keywordLegInner(
       ts_headline('english', m.content, plainto_tsquery('english', ${query}), ${HEADLINE_OPTS}) AS snippet
     FROM messages m
     JOIN conversations c ON c.id = m.conversation_id
-    WHERE c.project_id = ${projectId}
+    WHERE ${tenantPredicate(projectId, userId, scope)}
       AND (c.test IS NULL OR c.test = false)
-      ${userFilter}
       AND m.role IN ('user', 'assistant')
       AND to_tsvector('english', m.content) @@ plainto_tsquery('english', ${query})
     LIMIT ${fetchLimit}
@@ -169,6 +214,8 @@ interface RawRow {
   conversation_title: string;
   role: string;
   created_at: string | Date;
+  project_id: string;
+  project_name: string;
 }
 
 function toHit(row: RawRow): MessageSearchHit {
@@ -198,13 +245,25 @@ function toHit(row: RawRow): MessageSearchHit {
     rankLexical,
     rankSemantic,
     score: Number(row.score),
+    projectId: row.project_id,
+    projectName: row.project_name,
   };
 }
 
 export async function searchMessages(params: SearchMessagesParams): Promise<MessageSearchHit[]> {
   const { projectId, query, mode, queryEmbedding, userId } = params;
+  const scope: SearchScope = params.scope ?? "project";
   const limit = params.limit ?? 20;
   const offset = params.offset ?? 0;
+
+  // Tenant-resolution contract: scope=all resolves the tenant by userId across
+  // every project (cross-user leak guard lives here); scope=project needs a
+  // projectId. Both must have a resolvable tenant or the query is meaningless.
+  if (scope === "all") {
+    if (!userId) return [];
+  } else if (!projectId) {
+    return [];
+  }
 
   // <2-char/whitespace guard — verbatim from searchConversations. No SQL.
   if (!query || query.trim().length < 2) return [];
@@ -230,7 +289,7 @@ export async function searchMessages(params: SearchMessagesParams): Promise<Mess
     // Single lexical CTE; display join attaches conversation + role + createdAt.
     fused = sql`
       WITH keyword_ranked AS (
-        ${keywordLegInner(query, projectId, userId, fetchLimit)}
+        ${keywordLegInner(query, projectId, userId, scope, fetchLimit)}
       )
       SELECT
         k.message_id AS message_id,
@@ -242,10 +301,13 @@ export async function searchMessages(params: SearchMessagesParams): Promise<Mess
         c.id AS conversation_id,
         c.title AS conversation_title,
         m.role AS role,
-        m.created_at AS created_at
+        m.created_at AS created_at,
+        c.project_id AS project_id,
+        p.name AS project_name
       FROM keyword_ranked k
       JOIN messages m ON m.id = k.message_id
       JOIN conversations c ON c.id = m.conversation_id
+      JOIN projects p ON p.id = c.project_id
       ORDER BY score DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
@@ -253,7 +315,7 @@ export async function searchMessages(params: SearchMessagesParams): Promise<Mess
     if (!vectorLiteral) return [];
     fused = sql`
       WITH ann AS (
-        ${vectorLegInner(vectorLiteral, projectId, userId, fetchLimit)}
+        ${vectorLegInner(vectorLiteral, projectId, userId, scope, fetchLimit)}
       ),
       closest AS (
         SELECT DISTINCT ON (a.message_id) a.message_id, a.dist, a.matched_content
@@ -275,10 +337,13 @@ export async function searchMessages(params: SearchMessagesParams): Promise<Mess
         c.id AS conversation_id,
         c.title AS conversation_title,
         m.role AS role,
-        m.created_at AS created_at
+        m.created_at AS created_at,
+        c.project_id AS project_id,
+        p.name AS project_name
       FROM vector_ranked v
       JOIN messages m ON m.id = v.message_id AND m.role IN ('user', 'assistant')
       JOIN conversations c ON c.id = m.conversation_id
+      JOIN projects p ON p.id = c.project_id
       ORDER BY score DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
@@ -287,7 +352,7 @@ export async function searchMessages(params: SearchMessagesParams): Promise<Mess
     if (!vectorLiteral) return [];
     fused = sql`
       WITH ann AS (
-        ${vectorLegInner(vectorLiteral, projectId, userId, fetchLimit)}
+        ${vectorLegInner(vectorLiteral, projectId, userId, scope, fetchLimit)}
       ),
       closest AS (
         SELECT DISTINCT ON (a.message_id) a.message_id, a.dist, a.matched_content
@@ -300,7 +365,7 @@ export async function searchMessages(params: SearchMessagesParams): Promise<Mess
         FROM closest cl
       ),
       keyword_ranked AS (
-        ${keywordLegInner(query, projectId, userId, fetchLimit)}
+        ${keywordLegInner(query, projectId, userId, scope, fetchLimit)}
       ),
       fused AS (
         SELECT
@@ -326,10 +391,13 @@ export async function searchMessages(params: SearchMessagesParams): Promise<Mess
         c.id AS conversation_id,
         c.title AS conversation_title,
         m.role AS role,
-        m.created_at AS created_at
+        m.created_at AS created_at,
+        c.project_id AS project_id,
+        p.name AS project_name
       FROM fused f
       JOIN messages m ON m.id = f.message_id AND m.role IN ('user', 'assistant')
       JOIN conversations c ON c.id = m.conversation_id
+      JOIN projects p ON p.id = c.project_id
       ORDER BY f.score DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
@@ -351,15 +419,25 @@ export async function searchMessages(params: SearchMessagesParams): Promise<Mess
  * does this) — that is the GUC `searchMessages` sets to drive the index scan.
  */
 export function explainVectorLegSql(params: {
-  projectId: string;
+  projectId?: string;
   queryEmbedding: number[];
   userId?: string;
+  scope?: SearchScope;
   limit?: number;
 }): string {
+  const scope: SearchScope = params.scope ?? "project";
   const vectorLiteral = toVectorLiteral(params.queryEmbedding);
   const fetchLimit = (params.limit ?? 20) * 2;
   const esc = (s: string) => s.replace(/'/g, "''");
-  const userFilter = params.userId ? ` AND c.user_id = '${esc(params.userId)}'` : "";
+  // Mirror tenantPredicate() exactly: scope=all → user_id only (every project);
+  // scope=project → project_id (+ optional user_id). Ids are inlined (test-only,
+  // trusted) because EXPLAIN runs the raw string form without sql-tag binding.
+  const tenant =
+    scope === "all"
+      ? `c.user_id = '${esc(params.userId ?? "")}'`
+      : `c.project_id = '${esc(params.projectId ?? "")}'${
+          params.userId ? ` AND c.user_id = '${esc(params.userId)}'` : ""
+        }`;
   return `EXPLAIN ANALYZE
     SELECT
       mc.message_id AS message_id,
@@ -369,8 +447,8 @@ export function explainVectorLegSql(params: {
     WHERE mc.embedding IS NOT NULL
       AND mc.conversation_id = ANY (ARRAY(
         SELECT c.id FROM conversations c
-        WHERE c.project_id = '${esc(params.projectId)}'
-          AND (c.test IS NULL OR c.test = false)${userFilter}
+        WHERE ${tenant}
+          AND (c.test IS NULL OR c.test = false)
       ))
     ORDER BY mc.embedding <=> ${vectorLiteral}
     LIMIT ${fetchLimit}`;

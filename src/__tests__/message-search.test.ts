@@ -75,6 +75,7 @@ async function insertChunk(
 
 interface Seed {
   projectA: string;
+  projectC: string;
   userA: string;
   // message ids by role in the corpus
   lexicalOnly: string;
@@ -86,6 +87,10 @@ interface Seed {
   testConvMsg: string;
   systemMsg: string;
   toolMsg: string;
+  // userA's SECOND project (Project C) — present only under scope=all.
+  userAProjectC: string;
+  // a test=true conversation in Project C — excluded even under scope=all.
+  projectCTestMsg: string;
 }
 
 /**
@@ -98,6 +103,8 @@ async function seed(): Promise<Seed> {
 
   const [pa] = await db.insert(projects).values({ name: "A", path: "/tmp/a" }).returning();
   const [pb] = await db.insert(projects).values({ name: "B", path: "/tmp/b" }).returning();
+  // Project C — also owned by userA — proves scope=all crosses project boundaries.
+  const [pc] = await db.insert(projects).values({ name: "C", path: "/tmp/c" }).returning();
   const [ua] = await db
     .insert(users)
     .values({ email: "ua@x.com", passwordHash: "h", name: "ua" })
@@ -109,6 +116,7 @@ async function seed(): Promise<Seed> {
 
   const projectA = pa!.id;
   const projectB = pb!.id;
+  const projectC = pc!.id;
   const userA = ua!.id;
   const userB = ub!.id;
 
@@ -200,8 +208,31 @@ async function seed(): Promise<Seed> {
     .returning();
   await insertChunk(toolMsg!.id, convSys!.id, "lexicon hybrid fusion tool output", 0, NEAR);
 
+  // ── Project C (userA's SECOND project) — a real hit, present ONLY for scope=all ──
+  const [convC] = await db
+    .insert(conversations)
+    .values({ projectId: projectC, userId: userA, title: "ProjectCTarget", test: false })
+    .returning();
+  const [cMsg] = await db
+    .insert(messages)
+    .values({ conversationId: convC!.id, role: "user", content: "lexicon hybrid fusion in project C" })
+    .returning();
+  await insertChunk(cMsg!.id, convC!.id, "lexicon hybrid fusion in project C", 0, NEAR);
+
+  // ── test=true conversation in Project C — excluded even under scope=all ──
+  const [convCTest] = await db
+    .insert(conversations)
+    .values({ projectId: projectC, userId: userA, title: "ProjectCScratch", test: true })
+    .returning();
+  const [cTestMsg] = await db
+    .insert(messages)
+    .values({ conversationId: convCTest!.id, role: "user", content: "lexicon hybrid fusion in a project C test conversation" })
+    .returning();
+  await insertChunk(cTestMsg!.id, convCTest!.id, "lexicon hybrid fusion in a project C test conversation", 0, NEAR);
+
   return {
     projectA,
+    projectC,
     userA,
     lexicalOnly: lex!.id,
     semanticOnly: sem!.id,
@@ -212,6 +243,8 @@ async function seed(): Promise<Seed> {
     testConvMsg: testMsg!.id,
     systemMsg: sysMsg!.id,
     toolMsg: toolMsg!.id,
+    userAProjectC: cMsg!.id,
+    projectCTestMsg: cTestMsg!.id,
   };
 }
 
@@ -430,5 +463,102 @@ describe("searchMessages — RRF / mode / scoping / snippet / match-type", () =>
     expect(ids).not.toContain(s.testConvMsg);
     expect(ids).not.toContain(s.systemMsg);
     expect(ids).not.toContain(s.toolMsg);
+  });
+
+  test("every hit carries projectId + projectName (cross-project deep-link / grouping)", async () => {
+    const hits = await searchMessages({
+      projectId: s.projectA,
+      userId: s.userA,
+      query: QUERY,
+      mode: "hybrid",
+      queryEmbedding: QUERY_VECTOR,
+    });
+    expect(hits.length).toBeGreaterThan(0);
+    for (const h of hits) {
+      expect(typeof h.projectId).toBe("string");
+      expect(h.projectId).toBe(s.projectA);
+      expect(h.projectName).toBe("A");
+    }
+  });
+
+  // ── PAL-01 / PAL-05: scope=all (cross-project) ──────────────────────────
+  describe("scope=all — cross-project search across the user's projects", () => {
+    test("returns hits from BOTH Project A and Project C in one round-trip", async () => {
+      const hits = await searchMessages({
+        scope: "all",
+        userId: s.userA,
+        query: QUERY,
+        mode: "hybrid",
+        queryEmbedding: QUERY_VECTOR,
+      });
+      const ids = hits.map((h) => h.messageId);
+      // Project A hits…
+      expect(ids).toContain(s.both);
+      // …AND the Project C hit (the cross-project signal) in the SAME result.
+      expect(ids).toContain(s.userAProjectC);
+      // the Project C hit carries Project C's id + name for the deep-link header.
+      const cHit = hits.find((h) => h.messageId === s.userAProjectC)!;
+      expect(cHit.projectId).toBe(s.projectC);
+      expect(cHit.projectName).toBe("C");
+    });
+
+    test("never returns another user's messages (cross-user leak guard)", async () => {
+      const hits = await searchMessages({
+        scope: "all",
+        userId: s.userA,
+        query: QUERY,
+        mode: "hybrid",
+        queryEmbedding: QUERY_VECTOR,
+      });
+      const ids = hits.map((h) => h.messageId);
+      // userB's Project-A conversation AND userB's Project-B conversation never leak.
+      expect(ids).not.toContain(s.crossUser);
+      expect(ids).not.toContain(s.crossProject);
+      // every returned hit belongs to one of userA's projects only.
+      for (const h of hits) expect([s.projectA, s.projectC]).toContain(h.projectId);
+    });
+
+    test("test=true conversations stay excluded under scope=all (both projects)", async () => {
+      const hits = await searchMessages({
+        scope: "all",
+        userId: s.userA,
+        query: QUERY,
+        mode: "hybrid",
+        queryEmbedding: QUERY_VECTOR,
+      });
+      const ids = hits.map((h) => h.messageId);
+      expect(ids).not.toContain(s.testConvMsg);
+      expect(ids).not.toContain(s.projectCTestMsg);
+      // system/tool roles also stay excluded under scope=all.
+      expect(ids).not.toContain(s.systemMsg);
+      expect(ids).not.toContain(s.toolMsg);
+    });
+
+    test("scope=all works for keyword + semantic modes too (projectId/projectName on every hit)", async () => {
+      for (const mode of ["keyword", "semantic"] as const) {
+        const hits = await searchMessages({
+          scope: "all",
+          userId: s.userA,
+          query: QUERY,
+          mode,
+          queryEmbedding: QUERY_VECTOR,
+        });
+        for (const h of hits) {
+          expect(typeof h.projectId).toBe("string");
+          expect(typeof h.projectName).toBe("string");
+          expect([s.projectA, s.projectC]).toContain(h.projectId);
+        }
+      }
+    });
+
+    test("scope=all without userId returns [] (tenant unresolvable, never global)", async () => {
+      const hits = await searchMessages({
+        scope: "all",
+        query: QUERY,
+        mode: "hybrid",
+        queryEmbedding: QUERY_VECTOR,
+      });
+      expect(hits).toEqual([]);
+    });
   });
 });

@@ -40,6 +40,8 @@ function seededVector(i: number): number[] {
 
 describe("searchMessages vector leg — EXPLAIN ANALYZE (SRCH-05)", () => {
   let projectId: string;
+  let projectId2: string;
+  let userId: string;
 
   beforeAll(async () => {
     await setupTestDb();
@@ -47,12 +49,17 @@ describe("searchMessages vector leg — EXPLAIN ANALYZE (SRCH-05)", () => {
 
     const [p] = await db.insert(projects).values({ name: "Explain", path: "/tmp/explain" }).returning();
     projectId = p!.id;
+    // Second project owned by the SAME user — proves the scope=all (user_id)
+    // tenant predicate keeps the HNSW index scan at multi-project scale.
+    const [p2] = await db.insert(projects).values({ name: "Explain2", path: "/tmp/explain2" }).returning();
+    projectId2 = p2!.id;
     const [u] = await db
       .insert(users)
       .values({ email: "explain@x.com", passwordHash: "h", name: "explain" })
       .returning();
+    userId = u!.id;
 
-    // ≥2 conversations
+    // ≥2 conversations across BOTH projects (mostly Project 1, some Project 2).
     const convIds: string[] = [];
     for (let c = 0; c < 3; c++) {
       const [conv] = await db
@@ -61,10 +68,22 @@ describe("searchMessages vector leg — EXPLAIN ANALYZE (SRCH-05)", () => {
         .returning();
       convIds.push(conv!.id);
     }
+    const conv2Ids: string[] = [];
+    for (let c = 0; c < 2; c++) {
+      const [conv] = await db
+        .insert(conversations)
+        .values({ projectId: projectId2, userId: u!.id, title: `p2c${c}`, test: false })
+        .returning();
+      conv2Ids.push(conv!.id);
+    }
 
     // Enough rows that the HNSW index beats a bitmap/seq scan (cost crossover).
+    // ~10% land in Project 2 so the user's project set spans both projects.
     for (let i = 0; i < 2500; i++) {
-      const convId = convIds[i % convIds.length]!;
+      const inP2 = i % 10 === 0;
+      const convId = inP2
+        ? conv2Ids[i % conv2Ids.length]!
+        : convIds[i % convIds.length]!;
       const [msg] = await db
         .insert(messages)
         .values({ conversationId: convId, role: "user", content: `chunked message ${i} content body` })
@@ -107,6 +126,34 @@ describe("searchMessages vector leg — EXPLAIN ANALYZE (SRCH-05)", () => {
     // tenant project scope resolved (InitPlan over conversations)
     expect(/project_id/i.test(planText)).toBe(true);
     // no sequential scan over message_chunks anywhere in the plan.
+    expect(/Seq Scan on message_chunks/i.test(planText)).toBe(false);
+  });
+
+  test("scope=all (multi-project) plan keeps the HNSW Index Scan, no Seq Scan over message_chunks", async () => {
+    const db = getTestDb();
+    await db.execute(sql`SET hnsw.iterative_scan = 'relaxed_order'`);
+
+    const queryVec = seededVector(0);
+    // scope=all resolves the tenant by user_id (every project of the user) —
+    // PAL-01's cross-project path. Must still drive idx_message_chunks_embedding.
+    const explainSql = explainVectorLegSql({
+      scope: "all",
+      userId,
+      queryEmbedding: queryVec,
+      limit: 20,
+    });
+    const result = await db.execute(sql.raw(explainSql));
+    const planText = (result.rows as Array<Record<string, unknown>>)
+      .map((r) => String(Object.values(r)[0]))
+      .join("\n");
+
+    // HNSW index scan over message_chunks…
+    expect(planText).toContain("Index Scan using idx_message_chunks_embedding on message_chunks");
+    // …with the denormalized conversation_id tenant Filter inside that node.
+    expect(/Filter:.*conversation_id/is.test(planText)).toBe(true);
+    // tenant resolved by user_id (the scope=all InitPlan over conversations).
+    expect(/user_id/i.test(planText)).toBe(true);
+    // no sequential scan over message_chunks anywhere in the multi-project plan.
     expect(/Seq Scan on message_chunks/i.test(planText)).toBe(false);
   });
 });
