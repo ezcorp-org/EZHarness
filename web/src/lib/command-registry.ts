@@ -149,17 +149,6 @@ export function buildCommands(activeProjectId: string): Command[] {
 		},
 	];
 
-	const searchCommands: Command[] = [
-		{
-			id: "search-conversations",
-			label: "Search conversations...",
-			group: "Search",
-			action: () => {
-				/* opens nested search sub-view */
-			},
-		},
-	];
-
 	const ezCommands: Command[] = [
 		{
 			id: "ask-ez",
@@ -175,7 +164,6 @@ export function buildCommands(activeProjectId: string): Command[] {
 		...chatContext,
 		...extensionContext,
 		...settingsCommands,
-		...searchCommands,
 		...ezCommands,
 	];
 }

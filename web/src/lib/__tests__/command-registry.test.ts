@@ -122,11 +122,7 @@ function buildCommands(activeProjectId: string): Command[] {
 		{ id: "manage-providers", label: "Manage Providers", action: noop },
 	];
 
-	const searchCommands: Command[] = [
-		{ id: "search-conversations", label: "Search conversations...", action: noop },
-	];
-
-	return [...navigation, ...chatContext, ...extensionContext, ...settingsCommands, ...searchCommands];
+	return [...navigation, ...chatContext, ...extensionContext, ...settingsCommands];
 }
 
 // --- Tests ---

@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { page } from "$app/stores";
 	import { goto } from "$app/navigation";
-	import { searchConversations, type SearchResult } from "$lib/api.js";
-	import MentionText from "./MentionText.svelte";
 	import {
 		type Command,
 		buildCommands,
@@ -36,9 +34,8 @@
 	let activeChildren = $state<Command[] | null>(null);
 	let inputEl = $state<HTMLInputElement | null>(null);
 
-	// Conversation search sub-view state
+	// Message search sub-view state
 	let searchMode = $state(false);
-	let searchResults = $state<SearchResult[]>([]);
 	let searchLoading = $state(false);
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -89,8 +86,8 @@
 	});
 
 	// Flat ordered list for keyboard navigation indexing
-	let flatItems = $derived.by((): (Command | SearchResult)[] => {
-		if (searchMode) return searchResults;
+	let flatItems = $derived.by((): Command[] => {
+		if (searchMode) return [];
 		if (activeChildren) return activeChildren;
 		if (!groupedItems) return [];
 
@@ -109,7 +106,6 @@
 		highlightedIndex = 0;
 		activeChildren = null;
 		searchMode = false;
-		searchResults = [];
 		searchLoading = false;
 		clearTimeout(debounceTimer);
 	}
@@ -128,20 +124,8 @@
 			query = "";
 			return;
 		}
-		if (cmd.id === "search-conversations") {
-			searchMode = true;
-			highlightedIndex = 0;
-			query = "";
-			return;
-		}
 		addRecentCommand(cmd.id);
 		cmd.action();
-		resetState();
-		onclose();
-	}
-
-	function selectSearchResult(result: SearchResult) {
-		goto(`/project/${activeProjectId}/chat/${result.id}`);
 		resetState();
 		onclose();
 	}
@@ -149,7 +133,6 @@
 	function goBack() {
 		if (searchMode) {
 			searchMode = false;
-			searchResults = [];
 			searchLoading = false;
 		} else {
 			activeChildren = null;
@@ -158,31 +141,8 @@
 		highlightedIndex = 0;
 	}
 
-	// Debounced conversation search
-	function doConversationSearch() {
-		clearTimeout(debounceTimer);
-		if (query.length < 2 || !activeProjectId || activeProjectId === "global") {
-			searchResults = [];
-			searchLoading = false;
-			return;
-		}
-		searchLoading = true;
-		debounceTimer = setTimeout(async () => {
-			try {
-				searchResults = await searchConversations(activeProjectId, query);
-			} catch {
-				searchResults = [];
-			}
-			searchLoading = false;
-			highlightedIndex = searchResults.length > 0 ? 0 : 0;
-		}, 300);
-	}
-
 	function handleInput() {
 		highlightedIndex = 0;
-		if (searchMode) {
-			doConversationSearch();
-		}
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -231,11 +191,7 @@
 				e.preventDefault();
 				const item = flatItems[highlightedIndex];
 				if (item) {
-					if (searchMode) {
-						selectSearchResult(item as SearchResult);
-					} else {
-						executeCommand(item as Command);
-					}
+					executeCommand(item as Command);
 				}
 			}
 		}
@@ -316,8 +272,8 @@
 					bind:value={query}
 					oninput={handleInput}
 					type="text"
-					placeholder={searchMode ? "Search conversations..." : "Type a command..."}
-					aria-label={searchMode ? "Search conversations" : "Command palette input"}
+					placeholder="Type a command..."
+					aria-label="Command palette input"
 					class="flex-1 bg-transparent text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none"
 				/>
 				<kbd class="hidden rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)] sm:inline">ESC</kbd>
@@ -326,28 +282,8 @@
 			<!-- Results area -->
 			<div class="max-h-[50vh] overflow-y-auto">
 				{#if searchMode}
-					<!-- Conversation search sub-view -->
-					{#if searchLoading}
-						<div class="px-4 py-6 text-center text-sm text-[var(--color-text-muted)]">Searching...</div>
-					{:else if query.length >= 2 && searchResults.length === 0}
-						<div class="px-4 py-6 text-center text-sm text-[var(--color-text-muted)]">No conversations found</div>
-					{:else if query.length < 2}
-						<div class="px-4 py-6 text-center text-sm text-[var(--color-text-muted)]">Type at least 2 characters to search</div>
-					{:else}
-						{#each searchResults as result, i (result.id)}
-							<button
-								class="flex w-full flex-col gap-1 px-4 py-2.5 text-left transition-colors {i === highlightedIndex ? 'bg-[var(--color-surface-tertiary)]' : 'hover:bg-[var(--color-surface-tertiary)]/50'}"
-								onclick={() => selectSearchResult(result)}
-							>
-								<span class="truncate text-sm font-medium text-[var(--color-text-primary)]"><MentionText text={result.title} /></span>
-								{#if result.snippet}
-									<span class="line-clamp-1 text-xs text-[var(--color-text-muted)] [&_mark]:bg-yellow-500/30 [&_mark]:rounded-sm [&_mark]:px-0.5">
-										{@html result.snippet}
-									</span>
-								{/if}
-							</button>
-						{/each}
-					{/if}
+					<!-- Message search sub-view (replaced in Task 2) -->
+					<div class="px-4 py-6 text-center text-sm text-[var(--color-text-muted)]">No matching messages.</div>
 
 				{:else if activeChildren}
 					<!-- Nested sub-list -->
