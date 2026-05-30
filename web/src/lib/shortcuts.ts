@@ -40,7 +40,11 @@ export function matchShortcut(e: KeyboardEvent, shortcuts: ShortcutBinding[]): s
 	for (const binding of shortcuts) {
 		const metaMatch = (e.ctrlKey || e.metaKey) === binding.meta;
 		const shiftMatch = e.shiftKey === (binding.shift ?? false);
-		const keyMatch = e.key === binding.key;
+		// Case-insensitive key match: a Shift+letter combo reports an UPPERCASE
+		// `e.key` in real browsers (e.g. Cmd+Shift+P → e.key === "P"), while the
+		// bindings store the lowercase letter. Compare case-folded so single-
+		// letter shortcuts resolve regardless of the Shift-induced case.
+		const keyMatch = e.key.toLowerCase() === binding.key.toLowerCase();
 
 		if (metaMatch && shiftMatch && keyMatch) {
 			// Skip non-meta shortcuts when in text fields

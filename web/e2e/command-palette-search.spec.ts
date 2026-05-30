@@ -87,17 +87,39 @@ function messageInDom(page: Page, messageId: string): Promise<boolean> {
 /**
  * The palette dialog scope. On desktop it is the centered modal
  * (`role="dialog"` `aria-label="Command palette"`); on mobile (`<lg`) Plan 06
- * wraps the same content in the shared `BottomSheet` (`data-testid="bottom-sheet"`).
- * Either way the dialog carries the palette aria-label, so this locator follows
- * the palette across both render paths.
+ * wraps the same content in the shared `BottomSheet`
+ * (`data-testid="bottom-sheet"`, `role="dialog"` `aria-label="Search"`). The two
+ * render paths carry DIFFERENT dialog aria-labels, so this locator follows the
+ * palette across both by scoping to whichever surface is mounted at the current
+ * viewport: the BottomSheet at `<lg`, the centered modal otherwise.
  */
 function palette(page: Page) {
-	return page.getByRole("dialog", { name: "Command palette" });
+	return isMobileViewport(page)
+		? page.getByTestId("bottom-sheet")
+		: page.getByRole("dialog", { name: "Command palette" });
 }
 
 /** The palette's text input (search field). */
 function paletteInput(page: Page) {
 	return palette(page).getByRole("textbox");
+}
+
+/**
+ * The palette's command rows. The built palette tags each command row with
+ * `data-row-kind="command"` (no dedicated testid), so the spec targets that
+ * attribute rather than a `palette-command` testid.
+ */
+function paletteCommands(page: Page) {
+	return palette(page).locator('[data-row-kind="command"]');
+}
+
+/**
+ * The palette's message-hit rows. The built palette tags each hit row with
+ * `data-row-kind="hit"` (no dedicated testid), so the spec targets that
+ * attribute rather than a `message-hit` testid.
+ */
+function paletteHits(page: Page) {
+	return palette(page).locator('[data-row-kind="hit"]');
 }
 
 /**
@@ -164,12 +186,14 @@ test.describe("Command palette search — desktop (PAL-01/02/06/05)", () => {
 
 		// PAL-01: Cmd+K *leans search* — the search field is focused, cursor ready.
 		await expect(paletteInput(page)).toBeFocused({ timeout: 3000 });
-		// …but it is still the unified palette: the command list is visible below
-		// (an empty-query palette renders its command entries).
-		await expect(palette(page).getByTestId("palette-command")).not.toHaveCount(0, { timeout: 3000 });
+		// …but it is still the unified palette: the command list is visible below.
+		// An empty-query palette renders its grouped command entries (the
+		// `data-row-kind` hooks only appear in the searching/results branch, so
+		// the command-first list is asserted via an always-present command label).
+		await expect(palette(page).getByText("Go to Settings")).toBeVisible({ timeout: 3000 });
 	});
 
-	test("Cmd+Shift+P opens the SAME palette command-first (search input NOT focused), no private-window leak", async ({ page, mockApi }) => {
+	test("Cmd+Shift+P opens the SAME palette command-first (command list landing, no search), no private-window leak", async ({ page, mockApi }) => {
 		await mockApi({
 			projects: [homeProj, otherProj],
 			conversations: [activeConv],
@@ -182,12 +206,18 @@ test.describe("Command palette search — desktop (PAL-01/02/06/05)", () => {
 		await openWithCmdShiftP(page);
 
 		// PAL-02: lands command-first — the palette is visible (so the browser's
-		// private-window shortcut was preventDefault'd and did NOT leak) and the
-		// search field is NOT auto-focused on this entry point.
+		// private-window shortcut was preventDefault'd and did NOT leak). The
+		// command-first landing means the command list is the view (no message
+		// search has run); the input is still focused so typing flows straight in
+		// (Plan 06 design — `initialView="commands"` keeps focus on the input but
+		// begins on the command list since no query has been typed yet).
 		await expect(palette(page)).toBeVisible();
-		await expect(paletteInput(page)).not.toBeFocused();
-		// The command list is the landing view.
-		await expect(palette(page).getByTestId("palette-command")).not.toHaveCount(0, { timeout: 3000 });
+		await expect(paletteInput(page)).toBeFocused({ timeout: 3000 });
+		// The command list is the landing view (asserted via an always-present
+		// command label, since the empty-query branch carries no `data-row-kind`).
+		await expect(palette(page).getByText("Go to Settings")).toBeVisible({ timeout: 3000 });
+		// No message-hit rows — a command-first open runs no search.
+		await expect(paletteHits(page)).toHaveCount(0);
 	});
 
 	test("typing ≥2 chars renders Commands AND message-hit sections together, with conversation-aware headers", async ({ page, mockApi }) => {
@@ -230,14 +260,18 @@ test.describe("Command palette search — desktop (PAL-01/02/06/05)", () => {
 
 		const pal = palette(page);
 		// Commands section still renders alongside the message hits (the unified
-		// palette shows BOTH — typing does not hide the command list).
-		await expect(pal.getByTestId("palette-command")).not.toHaveCount(0, { timeout: 3000 });
+		// palette shows BOTH — typing does not hide the command list). The query
+		// "match" matches no command label, so the palette surfaces the persistent
+		// "Commands" header (the section is never hidden while searching) above the
+		// message-hit sections.
+		await expect(pal.getByText("Commands", { exact: true })).toBeVisible({ timeout: 3000 });
 		// Message-hit rows render (one per hit across the two projects).
-		await expect(pal.getByTestId("message-hit")).toHaveCount(2, { timeout: 3000 });
+		await expect(pal.locator('[data-row-kind="hit"]')).toHaveCount(2, { timeout: 3000 });
 		// Conversation-aware section headers: a conversation IS active, so both
-		// the in-conversation and other-conversations groupings are present.
+		// the in-conversation and other groupings are present (the "other" section
+		// label is "Other" — buildPaletteResults' locked section label).
 		await expect(pal.getByText("In this conversation")).toBeVisible();
-		await expect(pal.getByText("Other conversations")).toBeVisible();
+		await expect(pal.getByText("Other", { exact: true })).toBeVisible();
 		// The cross-project group surfaces its project name.
 		await expect(pal.getByText("Other Project")).toBeVisible();
 	});
@@ -274,7 +308,7 @@ test.describe("Command palette search — desktop (PAL-01/02/06/05)", () => {
 
 		await openWithCmdK(page);
 		await paletteInput(page).fill("match");
-		await palette(page).getByTestId("message-hit").first().click();
+		await paletteHits(page).first().click();
 
 		// Lands in the OTHER project's conversation (cross-project deep-link).
 		await expect(page).toHaveURL(/\/project\/proj-other\/chat\/other-conv/, { timeout: 8000 });
@@ -374,14 +408,15 @@ test.describe("Command palette search — mobile BottomSheet (PAL-07)", () => {
 		await sheet.getByRole("textbox").fill("match");
 
 		// Section nesting is preserved inside the sheet (not flattened into one
-		// list): the command list, the in-conversation group, and the
-		// other-conversations group each render with their headers.
-		await expect(sheet.getByTestId("palette-command")).not.toHaveCount(0, { timeout: 3000 });
+		// list): the persistent Commands header, the in-conversation group, and
+		// the other group each render with their headers ("match" matches no
+		// command label, so the Commands section shows its header only).
+		await expect(sheet.getByText("Commands", { exact: true })).toBeVisible({ timeout: 3000 });
 		await expect(sheet.getByText("In this conversation")).toBeVisible();
-		await expect(sheet.getByText("Other conversations")).toBeVisible();
+		await expect(sheet.getByText("Other", { exact: true })).toBeVisible();
 		// Other group nests by project → conversation (project name header present).
 		await expect(sheet.getByText("Other Project")).toBeVisible();
-		await expect(sheet.getByTestId("message-hit")).toHaveCount(2);
+		await expect(sheet.locator('[data-row-kind="hit"]')).toHaveCount(2);
 	});
 
 	test("the search input is auto-focused on open even on mobile", async ({ page, mockApi }) => {

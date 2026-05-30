@@ -470,6 +470,7 @@
 	open={commandPaletteOpen}
 	initialView={paletteInitialView}
 	activeProjectId={store.activeProjectId}
+	activeConversationId={activeChatConvId}
 	onclose={() => (commandPaletteOpen = false)}
 />
 

@@ -213,6 +213,17 @@ describe("shortcuts", () => {
 			const eCmdK = makeKeyEvent({ key: "k", metaKey: true });
 			expect(matchShortcut(eCmdK, DEFAULT_SHORTCUTS)).toBe("palette");
 		});
+
+		test("Cmd+Shift+P with UPPERCASE e.key (real-browser shift behavior) still resolves", () => {
+			// Real browsers report `e.key === "P"` (uppercase) when Shift is held,
+			// while the binding stores lowercase "p". The match must be
+			// case-insensitive or the shortcut never fires outside unit tests.
+			const eUpper = makeKeyEvent({ key: "P", metaKey: true, shiftKey: true });
+			expect(matchShortcut(eUpper, DEFAULT_SHORTCUTS)).toBe("palette-commands");
+
+			const eUpperCtrl = makeKeyEvent({ key: "P", ctrlKey: true, shiftKey: true });
+			expect(matchShortcut(eUpperCtrl, DEFAULT_SHORTCUTS)).toBe("palette-commands");
+		});
 	});
 
 	describe("formatShortcut", () => {
