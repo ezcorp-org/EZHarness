@@ -17,12 +17,12 @@ FAILED_FILES=()
 # The import-wizard endpoint tests sit beside their routes (bun:test);
 # include them so their lcov merges and the import paths are gated.
 #
-# The Phase 66 search-helper bun:test suites also join the per-file loop so
+# The Phase 66/67 search-helper bun:test suites also join the per-file loop so
 # their lcov merges and the web/src/lib/search logic paths get gated. Run
 # from the repo root, the loop body below already emits web/-prefixed SF
-# paths, so no cd / SF rewrite is needed. SCOPED to JUST the two target
-# search-helper test files (snippet-sanitize + search-mode) — NOT the whole
-# web/src/__tests__ dir. Widening to the whole dir transitively imports
+# paths, so no cd / SF rewrite is needed. SCOPED to JUST the target
+# search-helper test files (snippet-sanitize + search-mode + palette-results)
+# — NOT the whole web/src/__tests__ dir. Widening to the whole dir transitively imports
 # dozens of unrelated web/src/lib, SDK, and example modules, whose
 # sourcemap-attributed zero-hit DA records inflate the denominator on files
 # already pinned at 100% (web/src/lib/**:90, packages/@ezcorp/sdk/src/**:100,
@@ -37,7 +37,8 @@ mapfile -t FILES < <({
   find web/src/routes/api/import -name "*.test.ts"
   printf '%s\n' \
     web/src/__tests__/snippet-sanitize.test.ts \
-    web/src/__tests__/search-mode.test.ts
+    web/src/__tests__/search-mode.test.ts \
+    web/src/lib/search/__tests__/palette-results.test.ts
 } | sort)
 
 TMPDIR=$(mktemp -d)
