@@ -380,8 +380,18 @@ export const handle: Handle = async ({ event, resolve }) => {
       if (!event.locals.user) {
         let count: number;
         try { count = await getUserCount(); } catch {
-          // DB not initialized (e.g. PI_SKIP_INIT for E2E tests) — skip auth
-          return resolve(event);
+          // DB unreachable. Under PI_SKIP_INIT (E2E) the DB is intentionally
+          // absent, so skip auth and let the request through. In every other
+          // environment a transient DB failure must NOT fail open — doing so
+          // would serve every protected route unauthenticated for the
+          // duration of the outage. Fail closed with 503 instead.
+          if (process.env.PI_SKIP_INIT) {
+            return resolve(event);
+          }
+          return new Response(JSON.stringify({ error: "Service unavailable" }), {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+          });
         }
         if (count === 0) {
           if (url.pathname.startsWith("/api/")) {
