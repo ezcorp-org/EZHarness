@@ -896,8 +896,11 @@ describe("extensionToAgentTool", () => {
 // 6. MAX_TOOL_CALLS_PER_TURN
 // ════════════════════════════════════════════════════════════════════
 
-test("MAX_TOOL_CALLS_PER_TURN is 10", () => {
-  expect(MAX_TOOL_CALLS_PER_TURN).toBe(10);
+test("MAX_TOOL_CALLS_PER_TURN default is 100", () => {
+  // Raised from the original Phase 6 floor of 10 (which killed legitimate
+  // multi-step agentic turns) — see parseMaxToolCallsPerTurn in
+  // tool-executor.ts. Overridable via EZCORP_MAX_TOOL_CALLS_PER_TURN.
+  expect(MAX_TOOL_CALLS_PER_TURN).toBe(100);
 });
 
 // ════════════════════════════════════════════════════════════════════

@@ -60,6 +60,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { ToolExecutor } from "../extensions/tool-executor";
+import {
+  registerCallProvenance,
+  _resetCallProvenanceForTests,
+} from "../extensions/call-provenance";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 import {
   handleFsReadRpc,
@@ -98,7 +102,32 @@ function makeReg(opts: {
   };
 }
 
+/**
+ * Mint a real host-issued reverse-RPC provenance token for `ext-int`
+ * and return the `_meta` block the "subprocess" echoes back. The
+ * executor's `handlePiFs*` methods resolve the caller's identity from
+ * this token (NOT process-wide singletons) and fail fast with -32602 if
+ * it's absent — see `tool-executor.ts:resolveReverseRpcMeta`. The token
+ * `actorExtensionId` MUST equal the resolving extension id to avoid the
+ * tripwire warning. Provenance only feeds the PDP/audit; the path
+ * allowlist is keyed on the extension grant, so this never weakens the
+ * out-of-grant deny assertions.
+ */
+function extIntMeta(): { ezCallId: string } {
+  const ezCallId = registerCallProvenance({
+    onBehalfOf: "u",
+    conversationId: "conv",
+    runId: "run-int",
+    parentCallId: null,
+    actorExtensionId: "ext-int",
+    kind: "tool",
+    ownerless: false,
+  });
+  return { ezCallId };
+}
+
 beforeEach(() => {
+  _resetCallProvenanceForTests();
   workDir = mkdtempSync(join(tmpdir(), "ezcorp-fs-int-"));
   installDir = join(workDir, "install");
   grantedDir = join(workDir, "granted");
@@ -106,6 +135,7 @@ beforeEach(() => {
   mkdirSync(grantedDir, { recursive: true });
 });
 afterEach(() => {
+  _resetCallProvenanceForTests();
   if (workDir) rmSync(workDir, { recursive: true, force: true });
 });
 
@@ -127,7 +157,7 @@ describe("fs handler integration — executor dispatcher routes", () => {
       jsonrpc: "2.0",
       id: 1,
       method: "ezcorp/fs.read",
-      params: { path: target },
+      params: { path: target, _meta: extIntMeta() },
     };
     const r = (await executor.handlePiFsRead("ext-int", req)) as JsonRpcResponse;
 
@@ -163,7 +193,7 @@ describe("fs handler integration — executor dispatcher routes", () => {
         jsonrpc: "2.0",
         id: 1,
         method: "ezcorp/fs.read",
-        params: { path: target },
+        params: { path: target, _meta: extIntMeta() },
       };
       const r = (await executor.handlePiFsRead("ext-int", req)) as JsonRpcResponse;
       expect(r.error?.code).toBe(-32001);
@@ -192,7 +222,7 @@ describe("fs handler integration — executor dispatcher routes", () => {
       jsonrpc: "2.0",
       id: 1,
       method: "ezcorp/fs.read",
-      params: { path: target },
+      params: { path: target, _meta: extIntMeta() },
     };
     const r = (await executor.handlePiFsRead("ext-int", req)) as JsonRpcResponse;
     expect(r.error?.code).toBe(-32001);
@@ -215,7 +245,7 @@ describe("fs handler integration — executor dispatcher routes", () => {
       jsonrpc: "2.0",
       id: 1,
       method: "ezcorp/fs.write",
-      params: { path: target, content: "ROUNDTRIP" },
+      params: { path: target, content: "ROUNDTRIP", _meta: extIntMeta() },
     };
     const w = (await executor.handlePiFsWrite("ext-int", writeReq)) as JsonRpcResponse;
     expect(w.error).toBeUndefined();
@@ -227,7 +257,7 @@ describe("fs handler integration — executor dispatcher routes", () => {
       jsonrpc: "2.0",
       id: 2,
       method: "ezcorp/fs.read",
-      params: { path: target },
+      params: { path: target, _meta: extIntMeta() },
     };
     const r = (await executor.handlePiFsRead("ext-int", readReq)) as JsonRpcResponse;
     expect(r.error).toBeUndefined();
@@ -278,7 +308,7 @@ describe("fs handler integration — executor dispatcher routes", () => {
       jsonrpc: "2.0",
       id: 2,
       method: "ezcorp/fs.read",
-      params: { path: target },
+      params: { path: target, _meta: extIntMeta() },
     };
     const newRes = (await executor.handlePiFsRead("ext-int", newReq)) as JsonRpcResponse;
     const newResult = newRes.result as { bytes: number };

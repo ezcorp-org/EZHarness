@@ -180,6 +180,15 @@ mock.module("../extensions/tool-executor", () => ({
     // leaving toolNames missing task_plan in test 3.
     setArgsResolver() {}
     setCurrentAgentConfigId() {}
+    // Refactor (wire PendingPermission gate into ToolExecutor sites):
+    // `setPermissionChecker` was removed in favor of
+    // `setPendingPermissionGate` (real method at tool-executor.ts:615).
+    // Path-3's `wireHostPendingPermissions(toolExec, host)` in
+    // stream-chat/setup-tools.ts calls this on the per-turn ToolExecutor
+    // BEFORE the convExtIds loop pushes task-tracking tools. Without this
+    // stub the call throws, the non-fatal try/catch at setup-tools.ts:415
+    // swallows it, and task_plan never lands in ctx.agentTools (test 3).
+    setPendingPermissionGate() {}
   },
   extensionToAgentTool: (
     tool: { name: string; description: string; inputSchema: unknown },

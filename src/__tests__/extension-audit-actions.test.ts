@@ -106,6 +106,10 @@ describe("extension audit action constants", () => {
       "MEMORY_INJECTION_ELIGIBILITY_CHANGED",
       // v1.4 — entity-namespace migration audit emit
       "ENTITY_NAMESPACE_MIGRATION",
+      // Per-extension user-modifiable settings toggle
+      "MODIFIABLE_TOGGLED",
+      // Bundled critical-extension auto-reapprove (post-manifest-drift)
+      "BUNDLED_CRITICAL_AUTO_REAPPROVED",
     ]));
   });
 

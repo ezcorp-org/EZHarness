@@ -144,7 +144,7 @@ mock.module("../extensions/tool-executor", () => ({
     setCurrentModel() {}
     setCurrentProvider() {}
     setCurrentAgentConfigId() {}
-    setPermissionChecker() {}
+    setPendingPermissionGate() {}
   },
   extensionToAgentTool: (def: { name: string; description?: string; inputSchema?: any }) => ({
     name: def.name,
