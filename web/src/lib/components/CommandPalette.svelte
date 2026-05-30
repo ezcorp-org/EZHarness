@@ -47,6 +47,10 @@
 	let highlightedIndex = $state(0);
 	let activeChildren = $state<Command[] | null>(null);
 	let inputEl = $state<HTMLInputElement | null>(null);
+	// The scrollable results container. Bound on the shared body snippet so the
+	// SAME ref backs both the desktop modal and the mobile BottomSheet (the
+	// snippet renders once per open). Drives keyboard-nav scroll-into-view.
+	let resultsEl = $state<HTMLElement | null>(null);
 
 	// At <lg the palette renders inside a BottomSheet (which owns its OWN
 	// focus-trap + Escape); the desktop centered modal owns those itself. Gating
@@ -345,6 +349,31 @@
 		}
 	});
 
+	// Keep the keyboard-active row in view. ONE effect (DRY — not per-layout):
+	// the results container is the shared body snippet, so this reacts to the
+	// active index across BOTH the desktop modal and the mobile BottomSheet. A
+	// long result set can push the active row below the fold (or above the top)
+	// as Arrow ↑/↓ moves the index; `block: "nearest"` only scrolls when the row
+	// is actually out of view, avoiding jarring re-centering on every keystroke.
+	// `flatItems.length` is read so the effect re-runs when the list changes
+	// (e.g. search results arrive) and re-aligns the active row.
+	$effect(() => {
+		// Track the active index + list size so Svelte re-runs on either change.
+		const idx = highlightedIndex;
+		void flatItems.length;
+		if (!open || !resultsEl) return;
+		const activeRow = resultsEl.querySelector<HTMLElement>('[data-active="true"]');
+		// Defer to the next frame so the row's `data-active` has been applied to
+		// the DOM before we measure + scroll (the attribute and this effect both
+		// react to the same `highlightedIndex` change). Guard `scrollIntoView` —
+		// jsdom (and other no-layout environments) don't implement it.
+		if (activeRow && typeof activeRow.scrollIntoView === "function") {
+			requestAnimationFrame(() => {
+				if (idx === highlightedIndex) activeRow.scrollIntoView({ block: "nearest" });
+			});
+		}
+	});
+
 	// Helper: index of a row (command OR hit) in the flat nav list. Identity
 	// match — buildPaletteResults emits the SAME object references it renders, so
 	// indexOf maps a rendered row to its keyboard-nav position (headers excluded).
@@ -388,7 +417,7 @@
 			</div>
 
 			<!-- Results area -->
-			<div class="max-h-[50vh] overflow-y-auto">
+			<div bind:this={resultsEl} class="max-h-[50vh] overflow-y-auto">
 				{#if paletteResults}
 					<!-- Unified search: matching commands + cross-project message
 					     hits in ONE keyboard-navigable list. Project / conversation
@@ -475,6 +504,7 @@
 					<!-- Nested sub-list -->
 					{#each activeChildren as cmd, i (cmd.id)}
 						<button
+							data-active={i === highlightedIndex}
 							class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors {i === highlightedIndex ? 'bg-[var(--color-surface-tertiary)]' : 'hover:bg-[var(--color-surface-tertiary)]/50'}"
 							onclick={() => executeCommand(cmd)}
 						>
@@ -494,6 +524,7 @@
 						{#each groupedItems.recent as cmd (cmd.id)}
 							{@const idx = flatIndex(cmd)}
 							<button
+								data-active={idx === highlightedIndex}
 								class="flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors {idx === highlightedIndex ? 'bg-[var(--color-surface-tertiary)]' : 'hover:bg-[var(--color-surface-tertiary)]/50'}"
 								onclick={() => executeCommand(cmd)}
 							>
@@ -517,6 +548,7 @@
 						{#each cmds as cmd (cmd.id)}
 							{@const idx = flatIndex(cmd)}
 							<button
+								data-active={idx === highlightedIndex}
 								class="flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors {idx === highlightedIndex ? 'bg-[var(--color-surface-tertiary)]' : 'hover:bg-[var(--color-surface-tertiary)]/50'}"
 								onclick={() => executeCommand(cmd)}
 							>

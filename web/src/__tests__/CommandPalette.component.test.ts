@@ -233,6 +233,46 @@ describe("CommandPalette — keyboard navigation", () => {
 			}
 		}
 	});
+
+	test("arrow nav scrolls the newly-active row into view (block: 'nearest')", async () => {
+		// jsdom has no layout, so scrollIntoView is unimplemented on the
+		// prototype. Define it as a spy so the palette's guarded call records the
+		// invocation. The scroll is deferred to requestAnimationFrame, so flush a
+		// couple of frames before asserting.
+		const flushRaf = () => new Promise((r) => requestAnimationFrame(() => r(null)));
+		const scrollSpy = vi.fn();
+		const proto = HTMLElement.prototype as unknown as { scrollIntoView?: unknown };
+		const had = Object.prototype.hasOwnProperty.call(proto, "scrollIntoView");
+		const prev = proto.scrollIntoView;
+		proto.scrollIntoView = scrollSpy;
+		try {
+			const { container } = renderPalette();
+			const input = await type(container, "wor");
+			await waitFor(() => expect(searchMessagesMock).toHaveBeenCalled());
+			// Land the active index on a real row, then clear any open/initial calls.
+			await waitFor(() =>
+				expect(container.querySelector("[data-active='true']")).not.toBeNull(),
+			);
+			await flushRaf();
+			scrollSpy.mockClear();
+
+			// Moving the active row must scroll the now-active element into view.
+			await fireEvent.keyDown(input, { key: "ArrowDown" });
+			await flushRaf();
+			await flushRaf();
+
+			expect(scrollSpy).toHaveBeenCalled();
+			// `block: "nearest"` — only scroll when actually out of view, no jumps.
+			expect(scrollSpy).toHaveBeenCalledWith({ block: "nearest" });
+			// The element it was called on is the active row, not a header.
+			const calledOn = scrollSpy.mock.instances[scrollSpy.mock.instances.length - 1] as HTMLElement;
+			expect(calledOn.getAttribute("data-active")).toBe("true");
+			expect(calledOn.getAttribute("data-row-kind")).not.toBe("header");
+		} finally {
+			if (had) proto.scrollIntoView = prev;
+			else delete proto.scrollIntoView;
+		}
+	});
 });
 
 describe("CommandPalette — row-type-aware Enter", () => {

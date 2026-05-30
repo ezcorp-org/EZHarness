@@ -327,6 +327,58 @@ test.describe("Command palette search — desktop (PAL-01/02/06/05)", () => {
 		expect(await bubbleHasPulse(page, targetId)).toBe(false);
 	});
 
+	test("Arrow-key nav scrolls the active row into view in a long result list", async ({ page, mockApi }) => {
+		// Seed enough cross-project hits to overflow the palette's max-h-[50vh]
+		// results container so the last rows start below the fold. Arrowing down
+		// to them must scroll them into view (block: "nearest").
+		const manyHits: CrossProjectHit[] = [];
+		for (let i = 0; i < 30; i++) {
+			manyHits.push(
+				makeCrossProjectHit({
+					projectId: "proj-other",
+					projectName: "Other Project",
+					conversationId: "other-conv",
+					conversationTitle: "Other Conversation",
+					messageId: `hit-${i}`,
+					snippet: `result row ${String(i).padStart(2, "0")} <mark>match</mark>`,
+				}),
+			);
+		}
+		await mockApi({
+			projects: [homeProj, otherProj],
+			conversations: [
+				activeConv,
+				makeConversation({ id: "other-conv", projectId: "proj-other", title: "Other Conversation" }),
+			],
+			messages: [activeMsg],
+			searchMessages: { hits: manyHits },
+		});
+
+		await page.goto(`/project/proj-home/chat/active`);
+		await expect(page.getByText("active landing message")).toBeVisible({ timeout: 8000 });
+
+		await openWithCmdK(page);
+		await paletteInput(page).fill("match");
+
+		const rows = paletteHits(page);
+		await expect(rows).toHaveCount(30, { timeout: 3000 });
+
+		// The last row starts off-screen (below the fold of the scroll container).
+		const lastRow = rows.last();
+		await expect(lastRow).not.toBeInViewport();
+
+		// Arrow down through the whole list; the active row is kept in view, so by
+		// the time the LAST row is active it must have been scrolled into view.
+		// 29 presses move the active index from the first hit (0) to the last (29)
+		// without wrapping. "match" matches no command, so flatItems is hits-only
+		// and index 0 is the first hit row.
+		for (let i = 0; i < 29; i++) {
+			await paletteInput(page).press("ArrowDown");
+		}
+		await expect(palette(page).locator('[data-row-kind="hit"][data-active="true"]')).toHaveText(/result row 29/, { timeout: 3000 });
+		await expect(lastRow).toBeInViewport({ timeout: 3000 });
+	});
+
 	// Reference the constants/helpers shared with the mobile block so a future
 	// refactor that drops one surfaces here, not as a silent dead-code warning.
 	test("seeded message chains exceed the initial window only when intended", async ({ page, mockApi }) => {
