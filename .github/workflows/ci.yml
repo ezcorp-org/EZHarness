@@ -88,3 +88,30 @@ jobs:
       # lockfile. To fix locally:
       #   bun run scripts/regenerate-manifest-lock.ts
       - run: bun run scripts/regenerate-manifest-lock.ts --check
+
+  coverage:
+    name: Per-file coverage gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      # scripts/test-coverage.sh runs a node-vitest --coverage leg for the
+      # vitest-only web/src/lib files (deep-link-resolve + goal-row-logic +
+      # GoalPill). @vitest/coverage-v8 needs node:inspector's Coverage domain,
+      # which Bun does not implement — so node 22 MUST be provisioned before
+      # the gate runs. Mirrors release-sdk.yml's setup-node step.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: bun install --frozen-lockfile
+      - run: cd web && bun install --frozen-lockfile
+      # SvelteKit ./$types codegen so the vitest leg resolves route types.
+      - run: cd web && bunx --bun svelte-kit sync
+      # Per-file coverage gate: bun host/example/web shards + SDK bundle +
+      # node-vitest leg, merged into coverage/lcov.info and checked against
+      # scripts/coverage-thresholds.json. Phase 66 search helpers + the two
+      # reconciled vitest-only component pins are enforced here on every PR.
+      - run: bun run test:coverage
