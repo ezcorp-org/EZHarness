@@ -233,6 +233,47 @@ export async function getEmbedProgress(db: DrainDb): Promise<EmbedProgress> {
   return { backlog, coverage: { eligibleMessages, embeddedMessages } };
 }
 
+// ── Phase 68 Plan 04: backfill throttle env knobs (OPS-02) ──────────────────
+
+/** Default backfill page size (rows enqueued per paced batch). */
+const DEFAULT_BACKFILL_BATCH_SIZE = 100;
+/** Floor on backfill batch size. */
+const MIN_BACKFILL_BATCH_SIZE = 1;
+/** Default sleep (ms) between paced backfill batches — yields traffic. */
+const DEFAULT_BACKFILL_SLEEP_MS = 200;
+/** Floor on backfill sleep (ms); 0 means "no pause". */
+const MIN_BACKFILL_SLEEP_MS = 0;
+
+/**
+ * Resolve `EZCORP_BACKFILL_BATCH_SIZE` into a sane page size. Mirrors the
+ * embed-worker `getEmbedBatchSize` idiom (embed-worker.ts:97-104) VERBATIM:
+ * undefined/empty → default; non-finite/≤0 → default; floor + clamp to MIN.
+ *
+ * Co-located here (rather than in the backfill script) because the Plan-01
+ * RED contract imports it from this module alongside `enqueueEmbedJobIfAbsent`
+ * — keeping the env-parse idiom next to the outbox primitives it paces.
+ */
+export function getBackfillBatchSize(): number {
+  const raw = process.env.EZCORP_BACKFILL_BATCH_SIZE;
+  if (raw === undefined || raw === "") return DEFAULT_BACKFILL_BATCH_SIZE;
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_BACKFILL_BATCH_SIZE;
+  return Math.max(MIN_BACKFILL_BATCH_SIZE, n);
+}
+
+/**
+ * Resolve `EZCORP_BACKFILL_SLEEP_MS` into a sane inter-batch pause. Same
+ * defensive contract as {@link getBackfillBatchSize}: undefined/empty →
+ * default; non-finite/negative → default; floor + clamp to MIN (0 allowed).
+ */
+export function getBackfillSleepMs(): number {
+  const raw = process.env.EZCORP_BACKFILL_SLEEP_MS;
+  if (raw === undefined || raw === "") return DEFAULT_BACKFILL_SLEEP_MS;
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_BACKFILL_SLEEP_MS;
+  return Math.max(MIN_BACKFILL_SLEEP_MS, n);
+}
+
 // ── Phase 64 Plan 01: EmbedWorker drain helpers ────────────────────────────
 
 /**
