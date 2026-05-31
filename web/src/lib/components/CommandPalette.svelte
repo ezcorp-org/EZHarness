@@ -382,6 +382,60 @@
 	}
 </script>
 
+<!-- Per-group leading icon for command rows. Gives commands a visual anchor
+     so they read as "actions you run" — distinct from message-search hits,
+     which carry a role badge + match glyph instead and get NO leading icon.
+     Keyed off the command's `group`; the bolt is the Actions / fallback. -->
+{#snippet groupIcon(cmd: Command)}
+	{#if cmd.group === "Navigate"}
+		<!-- diagonal arrow — "go to" -->
+		<svg class="h-4 w-4 shrink-0 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 17L17 7M9 7h8v8" />
+		</svg>
+	{:else if cmd.group === "Search"}
+		<!-- magnifier -->
+		<svg class="h-4 w-4 shrink-0 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+		</svg>
+	{:else if cmd.group === "Ez"}
+		<!-- sparkle — Ez / AI -->
+		<svg class="h-4 w-4 shrink-0 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3l1.8 5.4a2 2 0 001.8 1.3L21 11l-5.4.3a2 2 0 00-1.8 1.3L12 18l-1.8-5.4a2 2 0 00-1.8-1.3L3 11l5.4-.3a2 2 0 001.8-1.3L12 3z" />
+		</svg>
+	{:else}
+		<!-- lightning bolt — Actions (and any future group) -->
+		<svg class="h-4 w-4 shrink-0 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+		</svg>
+	{/if}
+{/snippet}
+
+<!-- Single command-row renderer — shared by EVERY command surface (unified
+     search section, recent, grouped list, nested children). One source of
+     truth for the leading icon + label + shortcut + sub-menu chevron, so the
+     four lists never drift (DRY). `idx` resolves via flatIndex so keyboard
+     highlight + scroll-into-view stay correct in all contexts. -->
+{#snippet commandRow(cmd: Command)}
+	{@const idx = flatIndex(cmd)}
+	<button
+		data-row-kind="command"
+		data-active={idx === highlightedIndex}
+		class="flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors {idx === highlightedIndex ? 'bg-[var(--color-surface-tertiary)]' : 'hover:bg-[var(--color-surface-tertiary)]/50'}"
+		onclick={() => executeCommand(cmd)}
+	>
+		{@render groupIcon(cmd)}
+		<span class="flex-1 text-[var(--color-text-primary)]">{cmd.label}</span>
+		{#if cmd.shortcut}
+			<kbd class="rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]">{cmd.shortcut}</kbd>
+		{/if}
+		{#if cmd.children}
+			<svg class="h-3 w-3 shrink-0 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+			</svg>
+		{/if}
+	</button>
+{/snippet}
+
 <!-- Palette body — rendered IDENTICALLY inside the desktop modal AND the
      mobile BottomSheet so the section nesting (commands + project/conversation
      groups) is never flattened on mobile (Pitfall 4). -->
@@ -462,18 +516,7 @@
 							{/if}
 							{#each group.rows as row (row.kind === "command" ? row.command.id : row.hit.messageId)}
 								{#if row.kind === "command"}
-									{@const idx = flatIndex(row.command)}
-									<button
-										data-row-kind="command"
-										data-active={idx === highlightedIndex}
-										class="flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors {idx === highlightedIndex ? 'bg-[var(--color-surface-tertiary)]' : 'hover:bg-[var(--color-surface-tertiary)]/50'}"
-										onclick={() => executeCommand(row.command)}
-									>
-										<span class="flex-1 text-[var(--color-text-primary)]">{row.command.label}</span>
-										{#if row.command.shortcut}
-											<kbd class="rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]">{row.command.shortcut}</kbd>
-										{/if}
-									</button>
+									{@render commandRow(row.command)}
 								{:else}
 									{@const idx = flatIndex(row.hit)}
 									<button
@@ -501,15 +544,10 @@
 					{/if}
 
 				{:else if activeChildren}
-					<!-- Nested sub-list -->
-					{#each activeChildren as cmd, i (cmd.id)}
-						<button
-							data-active={i === highlightedIndex}
-							class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors {i === highlightedIndex ? 'bg-[var(--color-surface-tertiary)]' : 'hover:bg-[var(--color-surface-tertiary)]/50'}"
-							onclick={() => executeCommand(cmd)}
-						>
-							<span class="text-[var(--color-text-primary)]">{cmd.label}</span>
-						</button>
+					<!-- Nested sub-list — same renderer as every other command
+					     surface so children get the leading icon too (DRY). -->
+					{#each activeChildren as cmd (cmd.id)}
+						{@render commandRow(cmd)}
 					{/each}
 					{#if activeChildren.length === 0}
 						<div class="px-4 py-6 text-center text-sm text-[var(--color-text-muted)]">No items</div>
@@ -522,22 +560,7 @@
 							Recent
 						</div>
 						{#each groupedItems.recent as cmd (cmd.id)}
-							{@const idx = flatIndex(cmd)}
-							<button
-								data-active={idx === highlightedIndex}
-								class="flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors {idx === highlightedIndex ? 'bg-[var(--color-surface-tertiary)]' : 'hover:bg-[var(--color-surface-tertiary)]/50'}"
-								onclick={() => executeCommand(cmd)}
-							>
-								<span class="flex-1 text-[var(--color-text-primary)]">{cmd.label}</span>
-								{#if cmd.shortcut}
-									<kbd class="rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]">{cmd.shortcut}</kbd>
-								{/if}
-								{#if cmd.children}
-									<svg class="h-3 w-3 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-									</svg>
-								{/if}
-							</button>
+							{@render commandRow(cmd)}
 						{/each}
 					{/if}
 
@@ -546,22 +569,7 @@
 							{groupName}
 						</div>
 						{#each cmds as cmd (cmd.id)}
-							{@const idx = flatIndex(cmd)}
-							<button
-								data-active={idx === highlightedIndex}
-								class="flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors {idx === highlightedIndex ? 'bg-[var(--color-surface-tertiary)]' : 'hover:bg-[var(--color-surface-tertiary)]/50'}"
-								onclick={() => executeCommand(cmd)}
-							>
-								<span class="flex-1 text-[var(--color-text-primary)]">{cmd.label}</span>
-								{#if cmd.shortcut}
-									<kbd class="rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]">{cmd.shortcut}</kbd>
-								{/if}
-								{#if cmd.children}
-									<svg class="h-3 w-3 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-									</svg>
-								{/if}
-							</button>
+							{@render commandRow(cmd)}
 						{/each}
 					{/each}
 

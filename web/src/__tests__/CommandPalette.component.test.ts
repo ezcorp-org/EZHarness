@@ -367,3 +367,43 @@ describe("CommandPalette — empty + degraded states", () => {
 		expect(after).toBe(before);
 	});
 });
+
+describe("CommandPalette — command rows carry a leading icon", () => {
+	test("every command row renders a leading group icon (svg)", () => {
+		// Empty query → grouped command list (no message search).
+		const { container } = renderPalette();
+		const cmdButtons = container.querySelectorAll('[data-row-kind="command"]');
+		expect(cmdButtons.length).toBeGreaterThan(0);
+		for (const btn of cmdButtons) {
+			// The leading group icon is the first child of the row.
+			expect(btn.querySelector("svg")).not.toBeNull();
+		}
+	});
+
+	test("message-hit rows do NOT carry a leading command icon", async () => {
+		const { container } = renderPalette();
+		// eslint-disable-next-line no-console
+		console.log("DEBUG before-type cmd count:", container.querySelectorAll('[data-row-kind="command"]').length);
+		// "go" matches the "Go to …" nav commands (fuzzyMatch is a substring
+		// filter) so commands + hits render together in the unified view.
+		await type(container, "go");
+		// eslint-disable-next-line no-console
+		console.log("DEBUG after-type(go) cmd count:", container.querySelectorAll('[data-row-kind="command"]').length, "any-go-text:", container.textContent?.includes("Go to"));
+		await waitFor(() => expect(searchMessagesMock).toHaveBeenCalled());
+		await waitFor(() =>
+			expect(container.querySelector('[data-row-kind="hit"]')).not.toBeNull(),
+		);
+		// Hits distinguish themselves via role badge + match glyph, never an icon.
+		for (const btn of container.querySelectorAll('[data-row-kind="hit"]')) {
+			expect(btn.querySelector("svg")).toBeNull();
+		}
+		// …while commands in the SAME unified view keep their leading icon.
+		// eslint-disable-next-line no-console
+		console.log("DEBUG rowkinds:", [...container.querySelectorAll("[data-row-kind]")].map((e) => e.getAttribute("data-row-kind")), "query-input:", (container.querySelector("input[type=text]") as HTMLInputElement)?.value);
+		const cmdButtons = container.querySelectorAll('[data-row-kind="command"]');
+		expect(cmdButtons.length).toBeGreaterThan(0);
+		for (const btn of cmdButtons) {
+			expect(btn.querySelector("svg")).not.toBeNull();
+		}
+	});
+});
