@@ -66,6 +66,64 @@ export async function enqueueEmbedJob(
 }
 
 /**
+ * Minimal structural handle accepted by {@link enqueueEmbedJobIfAbsent}. The
+ * DO-NOTHING parallel of {@link EmbedJobTx}: its `.values(...)` chain exposes
+ * `onConflictDoNothing` (NOT `onConflictDoUpdate`). Both the top-level drizzle
+ * db AND a `db.transaction((tx) => …)` callback's `tx` satisfy this shape.
+ *
+ * PITFALL (Phase 63 research Pitfall 1): like {@link EmbedJobTx}, this module
+ * must NEVER call `getDb()` itself — the caller MUST pass its own handle.
+ */
+export type EmbedJobInsertTx = {
+  insert: (table: typeof messageEmbedOutbox) => {
+    values: (v: {
+      messageId: string;
+      conversationId: string;
+      status: "pending";
+      attempts: number;
+    }) => {
+      onConflictDoNothing: (cfg: {
+        target: typeof messageEmbedOutbox.messageId;
+      }) => Promise<unknown>;
+    };
+  };
+};
+
+/**
+ * Gaps-only enqueue: insert a fresh `pending` row for `messageId` ONLY if no
+ * row already exists. This is the {@link enqueueEmbedJob} sibling for backfill
+ * (OPS-01) — they differ in EXACTLY one clause:
+ *   - `enqueueEmbedJob`  → `onConflictDoUpdate` (resets a colliding row to
+ *     pending/attempts=0/no-backoff — the on-edit re-enqueue path).
+ *   - `enqueueEmbedJobIfAbsent` → `onConflictDoNothing` (a colliding row is
+ *     left BYTE-FOR-BYTE unchanged).
+ *
+ * WHY a sibling, not a flag on enqueueEmbedJob (RESEARCH Pattern 2): a
+ * gaps-only backfill must NEVER disturb a row that is already
+ * pending / in_progress / failed / backed-off. Resetting an in-flight or a
+ * deliberately-failed (attempts=3) row would re-process work the worker has
+ * already classified — the whole point of "fill only the true gaps". A
+ * boolean flag would couple the two intents in one body and risk the wrong
+ * conflict clause firing; two small functions keep each intent unambiguous.
+ * `--refresh-stale` (Plan 04) deliberately reuses the DO-UPDATE
+ * {@link enqueueEmbedJob} for the stale subset only — so `enqueueEmbedJob`
+ * itself MUST stay untouched.
+ *
+ * `tx` is REQUIRED and must be the caller's handle (see {@link EmbedJobInsertTx}).
+ * Never default it to `getDb()`.
+ */
+export async function enqueueEmbedJobIfAbsent(
+  tx: EmbedJobInsertTx,
+  messageId: string,
+  conversationId: string,
+): Promise<void> {
+  await tx
+    .insert(messageEmbedOutbox)
+    .values({ messageId, conversationId, status: "pending", attempts: 0 })
+    .onConflictDoNothing({ target: messageEmbedOutbox.messageId });
+}
+
+/**
  * Minimal structural handle accepted by {@link clearMessageEmbedState} — a
  * `.delete(table).where(cond)` chain. Same contract as {@link EmbedJobTx}:
  * the caller passes its own transaction handle so the deletes run INSIDE the
