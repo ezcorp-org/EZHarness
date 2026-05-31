@@ -187,6 +187,174 @@ describe("EmbedWorker — ING-01: drain works", () => {
   });
 });
 
+// ── OPS-03: post-backlog-clear ANALYZE ─────────────────────────────────
+//
+// PGlite has no autovacuum, so after a big backfill drains, the HNSW/FTS
+// planner stats on message_chunks go stale. tickOnce() runs
+// `ANALYZE message_chunks` exactly once after a NON-EMPTY drain that clears
+// the claimable-pending backlog to zero — never on an empty tick, a
+// partial-drain tick that leaves claimable rows, or a degraded tick.
+//
+// Detection: wrap the live db.execute and serialize each call's drizzle
+// queryChunks into a flat string, then look for the literal
+// `ANALYZE message_chunks`. This matches the harness's "real db, observe
+// the SQL it issues" style rather than introducing a new mocking layer.
+
+/** Flatten a drizzle SQL object's static query chunks into a string. */
+function sqlChunkText(arg: unknown): string {
+  const chunks = (arg as { queryChunks?: unknown[] })?.queryChunks;
+  if (!Array.isArray(chunks)) return typeof arg === "string" ? arg : "";
+  let out = "";
+  for (const chunk of chunks) {
+    const value = (chunk as { value?: unknown })?.value;
+    if (Array.isArray(value)) out += value.join(" ");
+    else if (typeof value === "string") out += value;
+  }
+  return out;
+}
+
+/**
+ * Install a spy on the live test db's `execute`, recording every issued
+ * statement's flattened SQL text. Returns the recorder + an uninstaller.
+ * The spy delegates to the real implementation so the drain still runs.
+ */
+function spyOnDbExecute() {
+  const db = getDb() as unknown as { execute: (arg: unknown) => Promise<unknown> };
+  const original = db.execute.bind(db);
+  const statements: string[] = [];
+  db.execute = (arg: unknown) => {
+    statements.push(sqlChunkText(arg));
+    return original(arg);
+  };
+  return {
+    statements,
+    analyzeCount: () =>
+      statements.filter((s) => /ANALYZE\s+message_chunks/i.test(s)).length,
+    restore: () => {
+      db.execute = original as typeof db.execute;
+    },
+  };
+}
+
+describe("EmbedWorker — OPS-03: ANALYZE after backlog-clearing drain", () => {
+  test("a tick that clears the last pending job runs ANALYZE message_chunks once", async () => {
+    const db = getDb();
+    const { conversationId, messageId } = await seedConversationAndMessage();
+    await enqueueEmbedJob(db, messageId, conversationId);
+    embeddingReady = true;
+
+    const spy = spyOnDbExecute();
+    try {
+      const worker = new EmbedWorker({ skipLockfile: true });
+      const outcome = await worker.tickOnce();
+      expect(outcome.embedded).toBe(1);
+      // Backlog is now empty — ANALYZE fires exactly once.
+      expect(spy.analyzeCount()).toBe(1);
+    } finally {
+      spy.restore();
+    }
+  });
+
+  test("an empty tick (nothing claimed) does NOT run ANALYZE", async () => {
+    // No outbox rows seeded — claimBatch returns 0.
+    embeddingReady = true;
+
+    const spy = spyOnDbExecute();
+    try {
+      const worker = new EmbedWorker({ skipLockfile: true });
+      const outcome = await worker.tickOnce();
+      expect(outcome.claimed).toBe(0);
+      expect(spy.analyzeCount()).toBe(0);
+    } finally {
+      spy.restore();
+    }
+  });
+
+  test("a partial drain that leaves claimable rows does NOT run ANALYZE; the later clearing tick does", async () => {
+    const db = getDb();
+    // Two pending jobs, batchSize 1 → first tick drains one, leaves one.
+    const a = await seedConversationAndMessage();
+    const b = await seedConversationAndMessage();
+    await enqueueEmbedJob(db, a.messageId, a.conversationId);
+    await enqueueEmbedJob(db, b.messageId, b.conversationId);
+    embeddingReady = true;
+
+    const worker = new EmbedWorker({ skipLockfile: true, batchSize: 1 });
+
+    // Tick 1: drains one, one claimable row remains → NO ANALYZE.
+    const spy1 = spyOnDbExecute();
+    try {
+      const out1 = await worker.tickOnce();
+      expect(out1.embedded).toBe(1);
+      expect(spy1.analyzeCount()).toBe(0);
+    } finally {
+      spy1.restore();
+    }
+
+    // Tick 2: drains the remainder, backlog now empty → ANALYZE fires once.
+    const spy2 = spyOnDbExecute();
+    try {
+      const out2 = await worker.tickOnce();
+      expect(out2.embedded).toBe(1);
+      expect(spy2.analyzeCount()).toBe(1);
+    } finally {
+      spy2.restore();
+    }
+  });
+
+  test("a degraded tick (embedder not ready) does NOT run ANALYZE", async () => {
+    const db = getDb();
+    const { conversationId, messageId } = await seedConversationAndMessage();
+    await enqueueEmbedJob(db, messageId, conversationId);
+    embeddingReady = false;
+
+    const spy = spyOnDbExecute();
+    try {
+      const worker = new EmbedWorker({ skipLockfile: true });
+      const outcome = await worker.tickOnce();
+      expect(outcome.skipped).toBeGreaterThan(0);
+      expect(spy.analyzeCount()).toBe(0);
+    } finally {
+      spy.restore();
+    }
+  });
+
+  test("ANALYZE failure is swallowed — the drain still succeeds", async () => {
+    const db = getDb();
+    const { conversationId, messageId } = await seedConversationAndMessage();
+    await enqueueEmbedJob(db, messageId, conversationId);
+    embeddingReady = true;
+
+    // Wrap execute so the ANALYZE statement throws, but everything else runs.
+    const rawDb = getDb() as unknown as { execute: (arg: unknown) => Promise<unknown> };
+    const original = rawDb.execute.bind(rawDb);
+    let analyzeAttempted = false;
+    rawDb.execute = (arg: unknown) => {
+      if (/ANALYZE\s+message_chunks/i.test(sqlChunkText(arg))) {
+        analyzeAttempted = true;
+        throw new Error("ANALYZE boom");
+      }
+      return original(arg);
+    };
+    try {
+      const worker = new EmbedWorker({ skipLockfile: true });
+      const outcome = await worker.tickOnce();
+      // The drain itself succeeded despite the ANALYZE throwing.
+      expect(outcome.embedded).toBe(1);
+      expect(analyzeAttempted).toBe(true);
+
+      // outbox row was still drained (markDone ran before ANALYZE).
+      const outboxRows = await db
+        .select()
+        .from(messageEmbedOutbox)
+        .where(sql`message_id = ${messageId}`);
+      expect(outboxRows).toHaveLength(0);
+    } finally {
+      rawDb.execute = original as typeof rawDb.execute;
+    }
+  });
+});
+
 // ── ING-02: Degraded mode ─────────────────────────────────────────────
 
 describe("EmbedWorker — ING-02: degraded mode", () => {
