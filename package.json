@@ -17,6 +17,7 @@
     "test:e2e": "bash scripts/test-e2e.sh",
     "test:sdk": "bun test --cwd packages/@ezcorp/sdk",
     "test:coverage": "bash scripts/test-coverage.sh",
+    "backfill:embeddings": "bun run scripts/backfill-embeddings.ts",
     "verify:backup": "bun run scripts/verify-backup-rollback.ts",
     "verify:edges": "bun run scripts/verify-circuit-breaker-edges.ts",
     "verify:docker": "bash scripts/verify-docker-image.sh",
