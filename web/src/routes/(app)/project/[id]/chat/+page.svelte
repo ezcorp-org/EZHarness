@@ -54,8 +54,13 @@
 		}
 	}
 
-	function handleSelect(id: string) {
-		goto(`/project/${projectId}/chat/${id}`);
+	function handleSelect(id: string, messageId?: string) {
+		// Sidebar search results forward the matched messageId so the thread
+		// can deep-link (scroll + pulse) to it via `?m=`. A plain title-row
+		// select passes no messageId → no stray `?m=` is appended.
+		goto(messageId
+			? `/project/${projectId}/chat/${id}?m=${encodeURIComponent(messageId)}`
+			: `/project/${projectId}/chat/${id}`);
 	}
 </script>
 
