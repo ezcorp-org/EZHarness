@@ -528,6 +528,78 @@ describe("Watchdog pendingPermissions deferral regression (AC5)", () => {
   });
 });
 
+// ── Model-aware idle window (reasoning models) ─────────────────────────
+//
+// The watchdog widens its idle-kill ceiling for reasoning models, keyed
+// off the intrinsic `model.reasoning` flag + the agent's `thinkingLevel`
+// reachable on host.activeAgents.get(runId).state. Non-reasoning runs
+// keep the tight 90s window. Defaults: reasoning→300s, high/xhigh→900s.
+
+/** Minimal fake pi-agent Agent exposing what resolveIdleThreshold reads
+ *  (state.model.reasoning + state.thinkingLevel) plus the abort() the kill
+ *  path invokes on activeAgents. */
+function fakeAgent(reasoning: boolean, thinkingLevel: string): { state: unknown; abort: () => void } {
+  return { state: { model: { reasoning }, thinkingLevel }, abort: () => {} };
+}
+
+describe("Watchdog model-aware idle window (reasoning models)", () => {
+  test("non-reasoning model is killed at the tight 90s window (regression guard)", async () => {
+    const h = makeHarness();
+    h.host.activeAgents.set(RUN_ID, fakeAgent(false, "off") as never);
+    const run = startRun(h);
+
+    await advanceAndTick(95_000); // > 90s, < 300s
+    expect(run.status).toBe("error");
+  });
+
+  test("reasoning + medium stays alive past 90s and is killed only after 300s", async () => {
+    const h = makeHarness();
+    h.host.activeAgents.set(RUN_ID, fakeAgent(true, "medium") as never);
+    const run = startRun(h);
+
+    await advanceAndTick(120_000); // past the 90s non-reasoning window
+    expect(run.status).toBe("running");
+
+    await advanceAndTick(190_000); // total 310s ≥ 300s → KILL
+    expect(run.status).toBe("error");
+    const runError = h.events.find((e) => e.type === "run:error")!;
+    // Generic idle reason, with the real elapsed seconds.
+    expect((runError.data as AgentEvents["run:error"]).error).toMatch(
+      /Watchdog: no activity for \d+s/,
+    );
+  });
+
+  test("reasoning + high gets the widest 900s window", async () => {
+    const h = makeHarness();
+    h.host.activeAgents.set(RUN_ID, fakeAgent(true, "high") as never);
+    const run = startRun(h);
+
+    await advanceAndTick(310_000); // past the 300s medium window
+    expect(run.status).toBe("running");
+
+    await advanceAndTick(600_000); // total 910s ≥ 900s → KILL
+    expect(run.status).toBe("error");
+  });
+
+  test("reasoning + xhigh is treated like high (widest window)", async () => {
+    const h = makeHarness();
+    h.host.activeAgents.set(RUN_ID, fakeAgent(true, "xhigh") as never);
+    const run = startRun(h);
+
+    await advanceAndTick(310_000);
+    expect(run.status).toBe("running"); // would have died at 300s if mis-tiered
+  });
+
+  test("missing activeAgents entry falls back to the 90s window (no crash, no widen)", async () => {
+    const h = makeHarness();
+    // No agent registered for RUN_ID — resolveIdleThreshold must default.
+    const run = startRun(h);
+
+    await advanceAndTick(95_000);
+    expect(run.status).toBe("error");
+  });
+});
+
 // ── Constants ──────────────────────────────────────────────────────────
 
 describe("Public constants", () => {

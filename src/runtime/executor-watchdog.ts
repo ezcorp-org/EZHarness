@@ -7,13 +7,40 @@ import { logger } from "../logger";
 
 const log = logger.child("executor.watchdog");
 
+/** Parse a positive-integer env override, falling back to `fallback` for
+ *  unset / non-numeric / non-positive values. Read once at module load —
+ *  these are process-wide tuning knobs, not per-run. */
+function envIdleMs(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 // Watchdog thresholds (activity-based heartbeat).
 // - WATCHDOG_TICK_MS: how often the watchdog polls activity
 // - WATCHDOG_IDLE_MS: if no progress signal for this long (and no pending permission), kill the run
 // - HEARTBEAT_REFRESH_MS: how often the watchdog refreshes active_runs.last_heartbeat while alive
 const WATCHDOG_TICK_MS = 15_000;
-const WATCHDOG_IDLE_MS = 90_000;
+const WATCHDOG_IDLE_MS = envIdleMs("EZCORP_WATCHDOG_IDLE_MS", 90_000);
 const HEARTBEAT_REFRESH_MS = 30_000;
+
+// Reasoning models (OpenAI gpt-5.x / o-series on the Codex/Responses path,
+// and any other model pi-ai flags `reasoning: true`) routinely go SILENT —
+// no token, no thinking delta — for far longer than the 90s non-reasoning
+// idle window during a reasoning phase. OpenAI does not guarantee a
+// `reasoning_summary` delta for every step, so we can't rely on streamed
+// thinking text to keep the activity clock alive. We therefore widen the
+// idle window for reasoning runs, scaled by the model's *intrinsic*
+// `model.reasoning` flag + the agent's `thinkingLevel` — NEVER a hardcoded
+// model list, so any future reasoning model inherits the right window with
+// zero code changes. Values mirror provider best practice (OpenAI's own SDK
+// default request timeout sits at ~10-15 min for reasoning workloads).
+// Both env-overridable as an ops safety valve; defaults need no touching.
+// - REASONING: minimal/low/medium thinking levels
+// - REASONING_HIGH: high/xhigh thinking levels (deepest, longest gaps)
+const WATCHDOG_IDLE_REASONING_MS = envIdleMs("EZCORP_WATCHDOG_IDLE_REASONING_MS", 300_000);
+const WATCHDOG_IDLE_REASONING_HIGH_MS = envIdleMs("EZCORP_WATCHDOG_IDLE_REASONING_HIGH_MS", 900_000);
 
 /**
  * Default per-call timeout (ms) used when a tool's manifest doesn't declare
@@ -257,6 +284,27 @@ export class WatchdogManager {
     return null;
   }
 
+  /**
+   * Resolve the idle-kill threshold for a run from intrinsic, pi-ai-maintained
+   * model metadata reachable on the Agent the executor already holds:
+   *   - `model.reasoning` (boolean) — set by pi-ai's model registry, so new
+   *     reasoning models are covered automatically with no code change here.
+   *   - `thinkingLevel` — high/xhigh produce the longest silent gaps.
+   *
+   * Non-reasoning runs keep the tight 90s window (unchanged leak detection,
+   * and the `DEFAULT_BUILTIN_CALL_TIMEOUT_MS` pin). Falls back to the
+   * non-reasoning default whenever the Agent (or its model) isn't reachable
+   * — never crash, never widen by accident.
+   */
+  private resolveIdleThreshold(runId: string): number {
+    const st = this.host.activeAgents.get(runId)?.state;
+    if (!st?.model?.reasoning) return WATCHDOG_IDLE_MS;
+    const lvl = st.thinkingLevel;
+    return lvl === "high" || lvl === "xhigh"
+      ? WATCHDOG_IDLE_REASONING_HIGH_MS
+      : WATCHDOG_IDLE_REASONING_MS;
+  }
+
   /** Start the activity-based watchdog for a run. Replaces the old setInterval-based heartbeat.
    *  Ticks every WATCHDOG_TICK_MS. If idle > WATCHDOG_IDLE_MS (with no pending permission),
    *  marks the run interrupted in the DB and emits run:error. Otherwise refreshes
@@ -278,6 +326,10 @@ export class WatchdogManager {
       const now = Date.now();
       const last = this.lastActivityAt.get(runId) ?? run.startedAt;
       const idleMs = now - last;
+      // Model-aware idle ceiling: reasoning models get a wider window (see
+      // resolveIdleThreshold). Resolved every tick so a mid-run setModel /
+      // setThinkingLevel takes effect immediately.
+      const idleThreshold = this.resolveIdleThreshold(runId);
       const deferReason = this.deferralReason(runId, conversationId, now);
       if (deferReason !== null) {
         // Legitimate idle (permission gate or in-flight tool call still
@@ -292,7 +344,7 @@ export class WatchdogManager {
         this.lastHeartbeatWriteAt.set(runId, now);
         return;
       }
-      if (idleMs >= WATCHDOG_IDLE_MS) {
+      if (idleMs >= idleThreshold) {
         // Pick the kill reason: a blown tool callTimeoutMs is more
         // informative than the generic idle line. We grab the first
         // expired tool — there's typically only one in flight at a time,
