@@ -37,7 +37,19 @@
 	let lastUpdated = $state<Date | null>(null);
 	let secondsAgo = $state(0);
 	let isAdmin = $state(false);
-	let loading = $state(true);
+
+	// Per-source loading + error state. Each data source settles
+	// independently so a single slow/hanging endpoint (today
+	// /api/admin/analytics) never blocks the cards backed by the other
+	// endpoints. Each fetch flips ONLY its own flags in a `.finally`,
+	// and `refreshAll` fires them concurrently WITHOUT a shared
+	// Promise.all barrier.
+	let analyticsLoading = $state(true);
+	let systemLoading = $state(true);
+	let embedLoading = $state(true);
+	let analyticsError = $state(false);
+	let systemError = $state(false);
+	let embedError = $state(false);
 
 	async function checkAdmin() {
 		try {
@@ -54,24 +66,61 @@
 	}
 
 	async function fetchAnalytics() {
-		const res = await fetch("/api/admin/analytics?days=30");
-		if (res.ok) analyticsData = await res.json();
+		analyticsError = false;
+		try {
+			const res = await fetch("/api/admin/analytics?days=30");
+			if (res.ok) {
+				analyticsData = await res.json();
+			} else {
+				analyticsError = true;
+			}
+		} catch {
+			analyticsError = true;
+		} finally {
+			analyticsLoading = false;
+		}
 	}
 
 	async function fetchSystem() {
-		const res = await fetch("/api/admin/system");
-		if (res.ok) systemData = await res.json();
+		systemError = false;
+		try {
+			const res = await fetch("/api/admin/system");
+			if (res.ok) {
+				systemData = await res.json();
+			} else {
+				systemError = true;
+			}
+		} catch {
+			systemError = true;
+		} finally {
+			systemLoading = false;
+		}
 	}
 
 	async function fetchEmbedProgress() {
-		const res = await fetch("/api/admin/embed-progress");
-		if (res.ok) embedProgress = await res.json();
+		embedError = false;
+		try {
+			const res = await fetch("/api/admin/embed-progress");
+			if (res.ok) {
+				embedProgress = await res.json();
+			} else {
+				embedError = true;
+			}
+		} catch {
+			embedError = true;
+		} finally {
+			embedLoading = false;
+		}
 	}
 
-	async function refreshAll() {
-		await Promise.all([fetchAnalytics(), fetchSystem(), fetchEmbedProgress()]);
-		lastUpdated = new Date();
-		loading = false;
+	function refreshAll() {
+		// Fire concurrently but do NOT await a shared barrier — each fetch
+		// settles its own card. `lastUpdated` advances as soon as the first
+		// source resolves so the "Updated Ns ago" indicator stays live even
+		// while a slow endpoint is still in flight.
+		void fetchAnalytics().finally(() => (lastUpdated = new Date()));
+		void fetchSystem().finally(() => (lastUpdated = new Date()));
+		void fetchEmbedProgress().finally(() => (lastUpdated = new Date()));
 	}
 
 	function formatBytes(bytes: number): string {
@@ -127,7 +176,7 @@
 		(async () => {
 			await checkAdmin();
 			if (!isAdmin) return;
-			await refreshAll();
+			refreshAll();
 		})();
 
 		return () => {
@@ -257,7 +306,19 @@
 		{ id: "activity" as const, label: "Activity" },
 		{ id: "system" as const, label: "System" },
 	];
+
+	// Overview blends analytics (Total Users) + system (the row counts), so
+	// it waits on both — but every other tab is single-source.
+	let overviewLoading = $derived(analyticsLoading || systemLoading);
+	let overviewError = $derived(analyticsError && systemError);
 </script>
+
+{#snippet sourceError(retry: () => void)}
+	<div class="source-error" data-testid="source-error">
+		<span class="source-error-text">Failed to load. </span>
+		<button class="source-error-retry" onclick={retry}>Retry</button>
+	</div>
+{/snippet}
 
 {#if !isAdmin}
 	<div></div>
@@ -284,10 +345,12 @@
 
 		<!-- Tab content -->
 		<div class="tab-content">
-			{#if loading}
-				<SkeletonLoader type="card-grid" count={4} />
-
-			{:else if activeTab === "overview"}
+			{#if activeTab === "overview"}
+				{#if overviewLoading}
+					<SkeletonLoader type="card-grid" count={4} />
+				{:else if overviewError}
+					{@render sourceError(refreshAll)}
+				{:else}
 				<div class="stat-grid">
 					<div class="stat-card">
 						<div class="stat-value">{totalUsers.toLocaleString()}</div>
@@ -309,8 +372,14 @@
 						<div class="stat-label">Active Agents</div>
 					</div>
 				</div>
+				{/if}
 
 			{:else if activeTab === "usage"}
+				{#if analyticsLoading}
+					<SkeletonLoader type="card-grid" count={4} />
+				{:else if analyticsError}
+					{@render sourceError(fetchAnalytics)}
+				{:else}
 				<!-- Chat Activity Bar Chart -->
 				<div class="section">
 					<h3 class="section-title">Chat Activity (Last 30 Days)</h3>
@@ -569,8 +638,14 @@
 						<p class="empty-text">No model-attributed tool errors in this period.</p>
 					{/if}
 				</div>
+				{/if}
 
 			{:else if activeTab === "activity"}
+				{#if systemLoading}
+					<SkeletonLoader type="card-grid" count={4} />
+				{:else if systemError}
+					{@render sourceError(fetchSystem)}
+				{:else}
 				<div class="section">
 					<h3 class="section-title">Recent Activity</h3>
 					{#if systemData?.activityFeed.length}
@@ -596,9 +671,15 @@
 						<p class="empty-text">No recent activity.</p>
 					{/if}
 				</div>
+				{/if}
 
 			{:else if activeTab === "system"}
-				<!-- Health Cards -->
+				<!-- Health Cards (system source) -->
+				{#if systemLoading}
+					<SkeletonLoader type="card-grid" count={2} />
+				{:else if systemError}
+					{@render sourceError(fetchSystem)}
+				{:else}
 				<div class="stat-grid">
 					<div class="stat-card">
 						<div class="stat-value">{formatBytes(systemData?.health.dbSizeBytes ?? 0)}</div>
@@ -609,11 +690,17 @@
 						<div class="stat-label">Uptime</div>
 					</div>
 				</div>
+				{/if}
 
-				<!-- Embedding Index Progress (read-only, OPS-04) -->
+				<!-- Embedding Index Progress (read-only, OPS-04) — its own
+				     source, so a slow /api/admin/analytics never blocks it. -->
 				<div class="section">
 					<h3 class="section-title">Embedding Index</h3>
-					{#if embedProgress}
+					{#if embedLoading}
+						<SkeletonLoader type="card-grid" count={1} />
+					{:else if embedError}
+						{@render sourceError(fetchEmbedProgress)}
+					{:else if embedProgress}
 						<div
 							class="embed-progress-card rounded-lg border"
 							data-testid="embed-progress-card"
@@ -641,6 +728,7 @@
 					{/if}
 				</div>
 
+				{#if !systemLoading && !systemError}
 				<!-- Table Row Counts -->
 				<div class="section">
 					<h3 class="section-title">Resource Counts</h3>
@@ -699,6 +787,7 @@
 						<p class="empty-text">No recent errors.</p>
 					{/if}
 				</div>
+				{/if}
 			{/if}
 		</div>
 	</div>
@@ -1072,5 +1161,26 @@
 		font-size: 0.875rem;
 		color: var(--color-text-muted);
 		font-style: italic;
+	}
+
+	/* Per-source inline error + retry (replaces an infinite skeleton when a
+	   single endpoint fails so the other cards still render). */
+	.source-error {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.875rem;
+		color: var(--color-text-muted);
+		padding: 0.75rem 0;
+	}
+	.source-error-retry {
+		font-size: 0.8125rem;
+		font-weight: 500;
+		color: var(--color-primary, #3b82f6);
+		background: none;
+		border: none;
+		padding: 0;
+		cursor: pointer;
+		text-decoration: underline;
 	}
 </style>
