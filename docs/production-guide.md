@@ -81,8 +81,8 @@ deploy with an explanatory error.
 | `EZCORP_PUBLIC_URL`           | **Yes**  | Public-facing URL (drives `ORIGIN`). Without it, `svelte-adapter-bun`'s `get_origin()` defaults the scheme to `https` and breaks login over plain HTTP. |
 | `FORCE_SECURE_COOKIES`        | No       | Set to `true` only when traffic reaches the app over HTTPS. Default: `false`.                                   |
 | `EZCORP_PORT_HOST`            | No       | Host port published by Docker (container always listens on 3000). Default: `4000`.                              |
-| `EZCORP_CHECK_UPDATES`        | No       | Set to `false` to disable the in-app update banner and GitHub Releases poll. Default: `true`.                   |
-| `EZCORP_UPDATE_REPO`          | No       | `<owner>/<repo>` for the update check. Default: `ezcorp-org/EZcorp`.                                            |
+| `EZCORP_CHECK_UPDATES`        | No       | Set to `false` to disable the GitHub Releases poll and the bottom-left update notification. Default: `true`. See [update-check.md](update-check.md). |
+| `EZCORP_UPDATE_REPO`          | No       | `<owner>/<repo>` whose GitHub Releases are polled for the update check. Compose default: `ezcorp-org/EZcorp`. Unset (in code) disables the check. See [update-check.md](update-check.md). |
 | `EZCORP_SECRETS_DIR`          | No       | Directory for legacy auto-generated secret fallbacks (`.pi-secret`, `.pi-salt`). Default: parent of `EZCORP_DB_PATH`. |
 | `EZCORP_DB_PATH`              | No       | DB directory inside the container (default: `/app/data/ezcorp`).                                                |
 | `EZCORP_BACKUP_DIR`           | No       | Override the backup directory. Default: sibling `backups/` of the DB dir (`/app/data/backups` under defaults).  |
