@@ -11,7 +11,12 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": false,
-    "verbatimModuleSyntax": false
+    "verbatimModuleSyntax": false,
+    // Explicit — under Bun's isolated linker (>=1.3.14) transitive @types/*
+    // are symlinked into node_modules/.bun, which tsc's automatic @types
+    // discovery misses from a workspace package. Pinning these (plus the
+    // matching direct devDependencies) makes the build deterministic.
+    "types": ["node", "bun"]
   },
   "include": ["src/**/*"],
   "exclude": [

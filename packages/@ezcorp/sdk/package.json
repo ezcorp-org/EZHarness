@@ -57,5 +57,9 @@
     "prepare": "bun run build",
     "prepublishOnly": "bun run build",
     "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^25.6.0"
   }
 }

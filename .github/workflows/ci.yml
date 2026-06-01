@@ -48,6 +48,11 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      # Root deps too: web's *.server.test.ts import backend handlers from
+      # ../src/**, which pull in root-only deps (drizzle-orm, pi-ai). Without
+      # this, vitest fails to resolve those imports. (web/ is not a workspace
+      # member of the root, so its install doesn't cover them.)
+      - run: bun install --frozen-lockfile
       - run: cd web && bun install --frozen-lockfile
       # SvelteKit ./$types codegen so server tests resolve route types.
       - run: cd web && bunx --bun svelte-kit sync
