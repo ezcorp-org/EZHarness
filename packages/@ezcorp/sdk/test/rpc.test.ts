@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
+  _resetDispatcherRegister,
   _setDispatcherRegister,
   createToolDispatcher,
   toolError,
@@ -81,6 +82,11 @@ describe("toolError", () => {
 
 describe("createToolDispatcher (default state)", () => {
   test("throws 'channel not ready' before channel.ts is loaded", () => {
+    // Restore the default register first: when this file runs inside the
+    // bundled SDK shard, a prior file (channel.ts wiring, cancel-run) has
+    // already mutated the module-level `_register`, so the default-throw
+    // branch would otherwise be masked by leaked cross-file state.
+    _resetDispatcherRegister();
     expect(() =>
       createToolDispatcher({
         hello: () => toolResult("hi"),

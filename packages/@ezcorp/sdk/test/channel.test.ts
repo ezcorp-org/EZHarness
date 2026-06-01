@@ -12,6 +12,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
 import {
+  __rearmDispatcherForTests,
   __resetChannelForTests,
   createHostChannelForTests,
   getChannel,
@@ -19,6 +20,7 @@ import {
 } from "../src/runtime/channel";
 import { _setDispatcherRegister, createToolDispatcher, toolError, toolResult } from "../src/runtime/rpc";
 import { getToolContext, withToolContext } from "../src/runtime/tool-context";
+import { spyOnStdoutWriter } from "./_stdout-writer-spy";
 
 // ── Test stdin/stdout helpers ──────────────────────────────────────
 
@@ -479,7 +481,7 @@ describe("__resetChannelForTests", () => {
       },
     });
     const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(() => fakeStream as ReturnType<typeof Bun.stdin.stream>);
-    const stdoutSpy = spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stdout = spyOnStdoutWriter();
 
     try {
       const ch = getChannel();
@@ -490,7 +492,7 @@ describe("__resetChannelForTests", () => {
       await expect(p).rejects.toThrow("channel reset");
     } finally {
       stdinSpy.mockRestore();
-      stdoutSpy.mockRestore();
+      stdout.restore();
     }
   });
 
@@ -535,11 +537,15 @@ describe("production channel wiring", () => {
     });
     const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(() => stream as ReturnType<typeof Bun.stdin.stream>);
 
-    const stdoutWrites: string[] = [];
-    const stdoutSpy = spyOn(process.stdout, "write").mockImplementation((s: unknown) => {
-      stdoutWrites.push(typeof s === "string" ? s : new TextDecoder().decode(s as Uint8Array));
-      return true;
-    });
+    const stdout = spyOnStdoutWriter();
+    const stdoutWrites = stdout.writes;
+
+    // Pin the genuine channel-installed dispatcher register. In the bundled
+    // SDK shard a prior file's teardown may have set `_register` to a no-op,
+    // which would silently swallow the createToolDispatcher() call below and
+    // leave this test's frames unhandled. Re-arming restores the real
+    // `ensureDispatcherRegistered` closure this test means to cover.
+    __rearmDispatcherForTests();
 
     try {
       const ch = getChannel();
@@ -630,7 +636,7 @@ describe("production channel wiring", () => {
       _setDispatcherRegister(() => {});
     } finally {
       stdinSpy.mockRestore();
-      stdoutSpy.mockRestore();
+      stdout.restore();
     }
   });
 
@@ -1103,11 +1109,8 @@ describe("tools/call dispatcher — ALS smoke through production getChannel()", 
     const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(
       () => stream as ReturnType<typeof Bun.stdin.stream>,
     );
-    const stdoutWrites: string[] = [];
-    const stdoutSpy = spyOn(process.stdout, "write").mockImplementation((s: unknown) => {
-      stdoutWrites.push(typeof s === "string" ? s : new TextDecoder().decode(s as Uint8Array));
-      return true;
-    });
+    const stdout = spyOnStdoutWriter();
+    const stdoutWrites = stdout.writes;
 
     try {
       // Re-install a register that mirrors channel.ts's
@@ -1183,7 +1186,7 @@ describe("tools/call dispatcher — ALS smoke through production getChannel()", 
       _setDispatcherRegister(() => {});
     } finally {
       stdinSpy.mockRestore();
-      stdoutSpy.mockRestore();
+      stdout.restore();
     }
   });
 });

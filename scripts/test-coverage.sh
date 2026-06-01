@@ -85,9 +85,17 @@ for ((i=0; i<${#FILES[@]}; i++)); do
 done
 
 # SDK tests bundled into a single shard (no mock.module use).
+# Includes BOTH the top-level test/ suite AND the co-located
+# src/entities/__tests__/ unit suites: the latter are the canonical
+# coverage for entities/{validate,tools,storage,slug}.ts, which the
+# top-level test/ files only touch incidentally (imports, not the
+# validate/store entry points). Without them those entity files drop far
+# below the packages/@ezcorp/sdk/src/**:100 gate. Both dirs are
+# mock.module-free, so bundling preserves the 100% module-load
+# instrumentation parity the SDK baseline relies on.
 SDK_OUT="$TMPDIR/result_sdk"
 SDK_COV="$TMPDIR/cov_sdk"
-SDK_OUTPUT=$(bun test --coverage --coverage-reporter=lcov --coverage-dir="$SDK_COV" ./packages/@ezcorp/sdk/test/ 2>&1) || true
+SDK_OUTPUT=$(bun test --coverage --coverage-reporter=lcov --coverage-dir="$SDK_COV" ./packages/@ezcorp/sdk/test/ ./packages/@ezcorp/sdk/src/entities/__tests__/ 2>&1) || true
 echo "$SDK_OUTPUT" > "$SDK_OUT"
 SDK_PASS=$(echo "$SDK_OUTPUT" | awk '/pass/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="pass") print $j}' | tail -1)
 SDK_FAIL=$(echo "$SDK_OUTPUT" | awk '/fail/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="fail") print $j}' | tail -1)

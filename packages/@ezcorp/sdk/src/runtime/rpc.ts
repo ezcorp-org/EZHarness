@@ -88,15 +88,29 @@ type DispatcherRegistration = {
 
 type RegisterFn = (reg: DispatcherRegistration) => void;
 
-let _register: RegisterFn = () => {
+const _defaultRegister: RegisterFn = () => {
   throw new Error(
     "[@ezcorp/sdk] channel not ready — call getChannel().start() before createToolDispatcher()",
   );
 };
 
+let _register: RegisterFn = _defaultRegister;
+
 /** @internal — channel.ts calls this once at module init. */
 export function _setDispatcherRegister(fn: RegisterFn): void {
   _register = fn;
+}
+
+/**
+ * @internal — test-only. Restores the default "channel not ready" register
+ * so the default-state behaviour can be asserted regardless of which test
+ * files (channel.ts wiring, dispatcher mocks) ran first and mutated the
+ * module-level `_register`. Without this, the SDK suite's per-file order
+ * leaks state across files: a prior file's `_setDispatcherRegister` (or the
+ * channel auto-arm) would mask the default-throw branch.
+ */
+export function _resetDispatcherRegister(): void {
+  _register = _defaultRegister;
 }
 
 /**

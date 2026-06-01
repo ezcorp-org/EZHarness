@@ -679,6 +679,19 @@ export function createHostChannelForTests(opts: {
   return new HostChannelImpl(opts);
 }
 
+/**
+ * @internal — test-only. Force-reinstalls the genuine channel dispatcher
+ * register (the `ensureDispatcherRegistered` closure) onto rpc.ts, even if a
+ * prior test mutated `_register` (e.g. set it to a no-op in teardown). The
+ * bundled SDK shard runs test files in one process, so the module-level
+ * dispatcher state leaks across files; tests that assert against the REAL
+ * channel-installed register call this first to pin it deterministically.
+ */
+export function __rearmDispatcherForTests(): void {
+  _dispatcherRegistered = false;
+  ensureDispatcherRegistered();
+}
+
 /** Drops the singleton and rejects any outstanding pending requests. */
 export function __resetChannelForTests(): void {
   if (singleton) {

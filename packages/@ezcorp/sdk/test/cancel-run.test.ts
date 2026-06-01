@@ -15,6 +15,7 @@ import {
   JsonRpcError,
   type HostChannel,
 } from "../src/runtime/channel";
+import { spyOnStdoutWriter } from "./_stdout-writer-spy";
 
 afterEach(() => {
   __resetChannelForTests();
@@ -147,13 +148,8 @@ describe("cancelRun — wire-level round-trip through getChannel()", () => {
       () => stream as ReturnType<typeof Bun.stdin.stream>,
     );
 
-    const stdoutWrites: string[] = [];
-    const stdoutSpy = spyOn(process.stdout, "write").mockImplementation((s: unknown) => {
-      stdoutWrites.push(
-        typeof s === "string" ? s : new TextDecoder().decode(s as Uint8Array),
-      );
-      return true;
-    });
+    const stdout = spyOnStdoutWriter();
+    const stdoutWrites = stdout.writes;
 
     try {
       // Starts the real HostChannel singleton. Must come AFTER the spies
@@ -198,7 +194,7 @@ describe("cancelRun — wire-level round-trip through getChannel()", () => {
       controller.close();
     } finally {
       stdinSpy.mockRestore();
-      stdoutSpy.mockRestore();
+      stdout.restore();
     }
   });
 
@@ -210,13 +206,8 @@ describe("cancelRun — wire-level round-trip through getChannel()", () => {
     const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(
       () => stream as ReturnType<typeof Bun.stdin.stream>,
     );
-    const stdoutWrites: string[] = [];
-    const stdoutSpy = spyOn(process.stdout, "write").mockImplementation((s: unknown) => {
-      stdoutWrites.push(
-        typeof s === "string" ? s : new TextDecoder().decode(s as Uint8Array),
-      );
-      return true;
-    });
+    const stdout = spyOnStdoutWriter();
+    const stdoutWrites = stdout.writes;
 
     try {
       getChannel().start();
@@ -245,7 +236,7 @@ describe("cancelRun — wire-level round-trip through getChannel()", () => {
       controller.close();
     } finally {
       stdinSpy.mockRestore();
-      stdoutSpy.mockRestore();
+      stdout.restore();
     }
   });
 
@@ -257,13 +248,8 @@ describe("cancelRun — wire-level round-trip through getChannel()", () => {
     const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(
       () => stream as ReturnType<typeof Bun.stdin.stream>,
     );
-    const stdoutWrites: string[] = [];
-    const stdoutSpy = spyOn(process.stdout, "write").mockImplementation((s: unknown) => {
-      stdoutWrites.push(
-        typeof s === "string" ? s : new TextDecoder().decode(s as Uint8Array),
-      );
-      return true;
-    });
+    const stdout = spyOnStdoutWriter();
+    const stdoutWrites = stdout.writes;
 
     try {
       getChannel().start();
@@ -290,7 +276,7 @@ describe("cancelRun — wire-level round-trip through getChannel()", () => {
       controller.close();
     } finally {
       stdinSpy.mockRestore();
-      stdoutSpy.mockRestore();
+      stdout.restore();
     }
   });
 });
