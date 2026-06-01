@@ -1,16 +1,50 @@
 import { goto } from "$app/navigation";
 import { toggleTheme } from "./theme.js";
 import { openEzPanel } from "./ez/panel-store.svelte.js";
+import type { Project } from "./api.js";
 
 export interface Command {
 	id: string;
 	label: string;
-	group: "Navigate" | "Actions" | "Search" | "Ez";
+	group: "Navigate" | "Actions" | "Search" | "Ez" | "Project";
+	// Optional leading glyph. When set it is rendered verbatim as text (e.g. a
+	// project's emoji icon) in place of the group SVG — see CommandPalette's
+	// `commandRow` snippet. Left unset for normal commands (they fall back to
+	// the per-group icon).
 	icon?: string;
 	shortcut?: string;
 	context?: string[];
 	action: () => void;
 	children?: Command[];
+}
+
+// No-op action for commands that exist only to open a sub-menu (their
+// `children` drive navigation; the action never runs). Shared so we don't
+// sprinkle empty closures across the Projects tree.
+const openSubmenu = () => {};
+
+/**
+ * The per-project destination commands shown when a project is chosen from the
+ * Projects sub-menu. Mirrors the in-context navigation commands but is always
+ * scoped to an explicit `projectId` (independent of the active project). Offers
+ * the chat and settings routes — see `web/src/routes/(app)/project/[id]/`.
+ */
+export function buildProjectActions(projectId: string): Command[] {
+	const base = `/project/${projectId}`;
+	return [
+		{
+			id: `project-${projectId}-chat`,
+			label: "Go to Chat",
+			group: "Navigate",
+			action: () => goto(`${base}/chat`),
+		},
+		{
+			id: `project-${projectId}-settings`,
+			label: "Go to Settings",
+			group: "Navigate",
+			action: () => goto(`${base}/settings`),
+		},
+	];
 }
 
 /**
@@ -33,7 +67,10 @@ export function tryParseEzPrefix(query: string): string | null {
 
 // --- Command definitions (factory) ---
 
-export function buildCommands(activeProjectId: string): Command[] {
+export function buildCommands(
+	activeProjectId: string,
+	projects: Project[] = [],
+): Command[] {
 	const isProject = activeProjectId && activeProjectId !== "global";
 	const projectBase = isProject ? `/project/${activeProjectId}` : "";
 
@@ -159,8 +196,33 @@ export function buildCommands(activeProjectId: string): Command[] {
 		},
 	];
 
+	// "Projects" — a two-level drill-down: Projects → a project → that
+	// project's actions (Overview / Chat / Settings). Only present when the
+	// user has projects. Each project carries its own icon (emoji when set,
+	// else the folder fallback rendered by the palette's `Project` group icon).
+	const projectsCommands: Command[] =
+		projects.length > 0
+			? [
+					{
+						id: "projects",
+						label: "Projects",
+						group: "Project",
+						action: openSubmenu,
+						children: projects.map((p) => ({
+							id: `project-${p.id}`,
+							label: p.name,
+							group: "Project" as const,
+							icon: p.icon ?? undefined,
+							action: openSubmenu,
+							children: buildProjectActions(p.id),
+						})),
+					},
+				]
+			: [];
+
 	return [
 		...navigation,
+		...projectsCommands,
 		...chatContext,
 		...extensionContext,
 		...settingsCommands,

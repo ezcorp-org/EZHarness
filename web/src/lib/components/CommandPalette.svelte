@@ -22,6 +22,7 @@
 	import { createFocusTrap } from "$lib/focus-trap.js";
 	import BottomSheet from "./BottomSheet.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte.js";
+	import { store } from "$lib/stores.svelte.js";
 
 	let {
 		open,
@@ -45,7 +46,11 @@
 
 	let query = $state("");
 	let highlightedIndex = $state(0);
-	let activeChildren = $state<Command[] | null>(null);
+	// Sub-menu navigation stack. Each entry is one drilled-in level (its `title`
+	// drives the breadcrumb, its `children` are the rows shown). Empty = top
+	// level. A stack (not a single `activeChildren`) so we can go 2+ levels deep:
+	// Projects → a project → that project's actions.
+	let navStack = $state<{ title: string; children: Command[] }[]>([]);
 	let inputEl = $state<HTMLInputElement | null>(null);
 	// The scrollable results container. Bound on the shared body snippet so the
 	// SAME ref backs both the desktop modal and the mobile BottomSheet (the
@@ -67,13 +72,31 @@
 	// one (last-write-wins on the latest query).
 	let searchToken = 0;
 
+	// The children of the deepest drilled-in level (null at the top level).
+	let currentChildren = $derived(
+		navStack.length > 0 ? navStack[navStack.length - 1].children : null,
+	);
+
 	// `ez:` prefix wins — it must NEVER trigger a message search.
 	let ezPrefill = $derived(tryParseEzPrefix(query));
-	// We're "searching" once the query is ≥2 chars and not an `ez:` command.
-	let isSearching = $derived(ezPrefill === null && query.trim().length >= 2);
+	// We're "searching" once the query is ≥2 chars and not an `ez:` command —
+	// but ONLY at the top level. Inside a sub-menu, typing filters the current
+	// list instead of falling through to global message search.
+	let isSearching = $derived(
+		navStack.length === 0 && ezPrefill === null && query.trim().length >= 2,
+	);
 
-	// Derive commands from current state
-	let allCommands = $derived(buildCommands(activeProjectId));
+	// Sub-menu rows, filtered by the query (reuses the command fuzzy matcher).
+	// null when not in a sub-menu.
+	let submenuItems = $derived.by((): Command[] | null => {
+		if (!currentChildren) return null;
+		return query ? fuzzyMatch(query, currentChildren) : currentChildren;
+	});
+
+	// Derive commands from current state. Projects come from the shared store
+	// (already populated by the sidebar) so the palette can offer a per-project
+	// drill-down without threading a prop through the layout.
+	let allCommands = $derived(buildCommands(activeProjectId, store.projects));
 	let contextCommands = $derived(resolveCommands(allCommands, $page.url.pathname));
 	let recentIds = $derived(getRecentCommands());
 
@@ -85,7 +108,7 @@
 
 	// Group commands by their group field for the empty-query / non-searching view.
 	let groupedItems = $derived.by(() => {
-		if (isSearching || activeChildren) return null;
+		if (isSearching || currentChildren) return null;
 
 		const cmds = matchingCommands;
 
@@ -121,7 +144,7 @@
 	// Flat ordered list for keyboard navigation indexing. Heterogeneous while
 	// searching (commands + hits, headers excluded); commands-only otherwise.
 	let flatItems = $derived.by((): (Command | MessageSearchHit)[] => {
-		if (activeChildren) return activeChildren;
+		if (submenuItems) return submenuItems;
 		if (paletteResults) return paletteResults.flatItems;
 		if (!groupedItems) return [];
 
@@ -147,6 +170,15 @@
 		return "“"; // lexical / keyword match
 	}
 
+	// Project emoji for a hit's owning project, looked up from the shared store
+	// (already populated by the sidebar — same source `buildCommands` uses). null
+	// when the project has no emoji set OR isn't in the store, so the header falls
+	// back to the folder glyph. Cheap linear scan — the project list is small.
+	function projectIconFor(projectId: string | undefined): string | null {
+		if (!projectId) return null;
+		return store.projects.find((p) => p.id === projectId)?.icon ?? null;
+	}
+
 	// Relative-time formatter — Phase 66 parity (ConversationList.svelte).
 	function relativeTime(dateStr: string): string {
 		const diff = Date.now() - new Date(dateStr).getTime();
@@ -162,7 +194,7 @@
 	function resetState() {
 		query = "";
 		highlightedIndex = 0;
-		activeChildren = null;
+		navStack = [];
 		hits = [];
 		searchLoading = false;
 		degraded = false;
@@ -179,7 +211,8 @@
 
 	function executeCommand(cmd: Command) {
 		if (cmd.children && cmd.children.length > 0) {
-			activeChildren = cmd.children;
+			// Drill into this command's sub-menu (push a level onto the stack).
+			navStack.push({ title: cmd.label, children: cmd.children });
 			highlightedIndex = 0;
 			query = "";
 			return;
@@ -201,9 +234,8 @@
 	}
 
 	function goBack() {
-		if (activeChildren) {
-			activeChildren = null;
-		}
+		// Pop one level (back up the sub-menu stack).
+		navStack.pop();
 		query = "";
 		highlightedIndex = 0;
 	}
@@ -257,7 +289,7 @@
 			return;
 		}
 
-		if (e.key === "Backspace" && query === "" && activeChildren) {
+		if (e.key === "Backspace" && query === "" && navStack.length > 0) {
 			e.stopPropagation();
 			goBack();
 			return;
@@ -402,12 +434,39 @@
 		<svg class="h-4 w-4 shrink-0 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
 			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3l1.8 5.4a2 2 0 001.8 1.3L21 11l-5.4.3a2 2 0 00-1.8 1.3L12 18l-1.8-5.4a2 2 0 00-1.8-1.3L3 11l5.4-.3a2 2 0 001.8-1.3L12 3z" />
 		</svg>
+	{:else if cmd.group === "Project"}
+		<!-- folder — projects (matches the sidebar's ProjectPicker fallback) -->
+		<svg class="h-4 w-4 shrink-0 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+		</svg>
 	{:else}
 		<!-- lightning bolt — Actions (and any future group) -->
 		<svg class="h-4 w-4 shrink-0 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
 			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
 		</svg>
 	{/if}
+{/snippet}
+
+<!-- Project badge for a search-result conversation header — the emoji (when
+     the project has one) else the folder fallback (sidebar / ProjectPicker
+     parity), trailed by the project name. Right-aligned via `ml-auto` so each
+     chat group carries a clear project identifier in its top-right corner. -->
+{#snippet projectBadge(projectId: string | undefined, projectName: string)}
+	{@const icon = projectIconFor(projectId)}
+	<span
+		class="ml-auto flex shrink-0 items-center gap-1 text-[10px] text-[var(--color-text-muted)]"
+		data-testid="palette-project-badge"
+		title={projectName}
+	>
+		{#if icon}
+			<span class="text-[11px] leading-none" aria-hidden="true">{icon}</span>
+		{:else}
+			<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+			</svg>
+		{/if}
+		<span class="truncate">{projectName}</span>
+	</span>
 {/snippet}
 
 <!-- Single command-row renderer — shared by EVERY command surface (unified
@@ -423,7 +482,13 @@
 		class="flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors {idx === highlightedIndex ? 'bg-[var(--color-surface-tertiary)]' : 'hover:bg-[var(--color-surface-tertiary)]/50'}"
 		onclick={() => executeCommand(cmd)}
 	>
-		{@render groupIcon(cmd)}
+		{#if cmd.icon}
+			<!-- Custom glyph (e.g. a project's emoji), rendered in the icon slot
+			     in place of the per-group SVG. -->
+			<span class="flex h-4 w-4 shrink-0 items-center justify-center text-sm leading-none" aria-hidden="true">{cmd.icon}</span>
+		{:else}
+			{@render groupIcon(cmd)}
+		{/if}
 		<span class="flex-1 text-[var(--color-text-primary)]">{cmd.label}</span>
 		{#if cmd.shortcut}
 			<kbd class="rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]">{cmd.shortcut}</kbd>
@@ -442,7 +507,7 @@
 {#snippet body()}
 			<!-- Input bar -->
 			<div class="flex items-center gap-3 border-b border-[var(--color-border)] px-4 py-3">
-				{#if activeChildren}
+				{#if navStack.length > 0}
 					<button
 						class="shrink-0 rounded p-0.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
 						onclick={goBack}
@@ -452,6 +517,13 @@
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
 						</svg>
 					</button>
+					<!-- Breadcrumb: which sub-menu level you're in (e.g. a project name). -->
+					<span
+						class="shrink-0 max-w-[45%] truncate text-xs font-medium text-[var(--color-text-secondary)]"
+						data-testid="palette-breadcrumb"
+					>
+						{navStack[navStack.length - 1].title}
+					</span>
 				{:else}
 					<svg class="h-5 w-5 shrink-0 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -463,7 +535,7 @@
 					bind:value={query}
 					oninput={handleInput}
 					type="text"
-					placeholder="Search messages or type a command..."
+					placeholder={navStack.length > 0 ? "Filter…" : "Search messages or type a command..."}
 					aria-label="Command palette input"
 					class="flex-1 bg-transparent text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none"
 				/>
@@ -505,12 +577,12 @@
 						</div>
 						{#each section.groups as group, gi (group.conversationId ?? `cmd-${gi}`)}
 							{#if group.conversationTitle}
-								<div class="flex items-baseline gap-1.5 px-4 pt-1.5 pb-0.5" data-row-kind="header">
-									<span class="truncate text-[11px] font-medium text-[var(--color-text-secondary)]">
+								<div class="flex items-center gap-1.5 px-4 pt-1.5 pb-0.5" data-row-kind="header">
+									<span class="min-w-0 flex-1 truncate text-[11px] font-medium text-[var(--color-text-secondary)]">
 										<MentionText text={group.conversationTitle} />
 									</span>
 									{#if group.projectName}
-										<span class="shrink-0 text-[10px] text-[var(--color-text-muted)]">· {group.projectName}</span>
+										{@render projectBadge(group.projectId, group.projectName)}
 									{/if}
 								</div>
 							{/if}
@@ -543,14 +615,17 @@
 						<div class="px-4 py-6 text-center text-sm text-[var(--color-text-muted)]">No matching messages.</div>
 					{/if}
 
-				{:else if activeChildren}
+				{:else if submenuItems}
 					<!-- Nested sub-list — same renderer as every other command
-					     surface so children get the leading icon too (DRY). -->
-					{#each activeChildren as cmd (cmd.id)}
+					     surface so children get the leading icon too (DRY).
+					     `submenuItems` is the current level filtered by the query. -->
+					{#each submenuItems as cmd (cmd.id)}
 						{@render commandRow(cmd)}
 					{/each}
-					{#if activeChildren.length === 0}
-						<div class="px-4 py-6 text-center text-sm text-[var(--color-text-muted)]">No items</div>
+					{#if submenuItems.length === 0}
+						<div class="px-4 py-6 text-center text-sm text-[var(--color-text-muted)]">
+							{query ? "No matching items" : "No items"}
+						</div>
 					{/if}
 
 				{:else if groupedItems}

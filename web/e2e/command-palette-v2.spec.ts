@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject, makeConversation } from "./fixtures/data.js";
+import { makeProject, makeConversation, makeSearchHit } from "./fixtures/data.js";
 
 // PHASE 61-02 ROUTE PIVOT (Bucket A #4): the historical "/" landing page
 // does NOT render the (app) sidebar/aside — it's a marketing/landing
@@ -190,5 +190,81 @@ test.describe("Command Palette v2", () => {
 		// "Back to project menu" sidebar button that also matches "Back"
 		// via Playwright's default substring `name` semantics.
 		await expect(page.getByRole("button", { name: "Back", exact: true })).toBeVisible();
+	});
+
+	test("Projects command drills down to a project's actions and navigates", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		await page.goto("/extensions");
+		await expect(page.getByRole("heading", { name: "Extensions", exact: true })).toBeVisible();
+		await page.waitForLoadState("networkidle");
+		await page.keyboard.press("Control+k");
+
+		// Scope to the palette dialog so the sidebar's project name doesn't
+		// collide with the in-palette project row.
+		const palette = page.getByRole("dialog", { name: "Command palette" });
+
+		// Level 0 → 1: the Projects command opens the project list.
+		await palette.getByRole("button", { name: "Projects", exact: true }).click();
+		await expect(palette.getByRole("button", { name: proj.name, exact: true })).toBeVisible();
+
+		// Level 1 → 2: a project shows its scoped destinations.
+		await palette.getByRole("button", { name: proj.name, exact: true }).click();
+		await expect(palette.getByRole("button", { name: "Go to Chat", exact: true })).toBeVisible();
+
+		// Choosing an action deep-links to that project's chat.
+		await palette.getByRole("button", { name: "Go to Chat", exact: true }).click();
+		await expect(page).toHaveURL(new RegExp(`/project/${proj.id}/chat`));
+	});
+
+	test("message-search results show each chat's owning-project icon", async ({ page, mockApi }) => {
+		// Two projects: one with an emoji icon, one without (folder fallback).
+		const rocketProj = makeProject({ id: "proj-rocket", name: "Rocket", icon: "🚀" });
+		const plainProj = makeProject({ id: "proj-plain", name: "Plain", icon: null });
+		await mockApi({
+			projects: [rocketProj, plainProj],
+			searchMessages: {
+				hits: [
+					makeSearchHit({
+						messageId: "m-rocket",
+						conversationId: "conv-rocket",
+						conversationTitle: "Rocket Chat",
+						projectId: "proj-rocket",
+						projectName: "Rocket",
+					}),
+					makeSearchHit({
+						messageId: "m-plain",
+						conversationId: "conv-plain",
+						conversationTitle: "Plain Chat",
+						projectId: "proj-plain",
+						projectName: "Plain",
+					}),
+				],
+			},
+		});
+		await page.goto("/extensions");
+		await expect(page.getByRole("heading", { name: "Extensions", exact: true })).toBeVisible();
+		await openPaletteViaButton(page);
+
+		const palette = page.getByRole("dialog", { name: "Command palette" });
+
+		// ≥2 chars triggers cross-project message search.
+		await page.keyboard.type("match");
+
+		// Each conversation group carries a right-aligned project badge.
+		const rocketBadge = palette
+			.locator('[data-testid="palette-project-badge"]')
+			.filter({ hasText: "Rocket" });
+		const plainBadge = palette
+			.locator('[data-testid="palette-project-badge"]')
+			.filter({ hasText: "Plain" });
+
+		await expect(rocketBadge).toBeVisible();
+		// Emoji project → emoji glyph, no folder svg.
+		await expect(rocketBadge).toContainText("🚀");
+		await expect(rocketBadge.locator("svg")).toHaveCount(0);
+
+		// Icon-less project → folder fallback svg.
+		await expect(plainBadge).toBeVisible();
+		await expect(plainBadge.locator("svg")).toHaveCount(1);
 	});
 });
