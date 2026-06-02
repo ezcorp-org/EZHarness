@@ -128,6 +128,21 @@ VITEST_EXIT=0
     src/lib/components/GoalPill.component.test.ts \
     src/lib/components/UpdateBanner.component.test.ts \
     src/__tests__/version-endpoint.server.test.ts \
+    src/__tests__/relative-time.unit.test.ts \
+    src/__tests__/relative-time.test.ts \
+    src/__tests__/http-errors.unit.test.ts \
+    src/__tests__/session-cookie.server.test.ts \
+    src/__tests__/shutdown.server.test.ts \
+    src/__tests__/extension-helpers-clamp.server.test.ts \
+    src/__tests__/conversation-ownership.server.test.ts \
+    src/__tests__/mention-logic.unit.test.ts \
+    src/__tests__/mention-logic-EZ-sigil.unit.test.ts \
+    src/__tests__/mention-logic-feature.unit.test.ts \
+    src/__tests__/mention-logic-lesson-sigil.unit.test.ts \
+    src/lib/__tests__/markdown.unit.test.ts \
+    src/lib/__tests__/safe-redirect.unit.test.ts \
+    src/__tests__/fuzzy-match.unit.test.ts \
+    src/__tests__/chat-input-logic.unit.test.ts \
     --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
     --coverage.reportsDirectory="$VITEST_COV" \
     --coverage.include='src/lib/search/**' \
@@ -135,7 +150,18 @@ VITEST_EXIT=0
     --coverage.include='src/lib/components/GoalPill.svelte' \
     --coverage.include='src/lib/components/UpdateBanner.svelte' \
     --coverage.include='src/lib/components/UpdateBanner.helpers.ts' \
-    --coverage.include='src/routes/api/version/+server.ts' ) || VITEST_EXIT=$?
+    --coverage.include='src/routes/api/version/+server.ts' \
+    --coverage.include='src/lib/utils/relative-time.ts' \
+    --coverage.include='src/lib/server/http-errors.ts' \
+    --coverage.include='src/lib/server/auth/session-cookie.ts' \
+    --coverage.include='src/lib/server/shutdown.ts' \
+    --coverage.include='src/lib/server/extension-helpers.ts' \
+    --coverage.include='src/lib/server/conversation-ownership.ts' \
+    --coverage.include='src/lib/mention-logic.ts' \
+    --coverage.include='src/lib/markdown.ts' \
+    --coverage.include='src/lib/safe-redirect.ts' \
+    --coverage.include='src/lib/fuzzy-match.ts' \
+    --coverage.include='src/lib/chat-input-logic.ts' ) || VITEST_EXIT=$?
 # vitest (run from web/) emits SF paths web/-relative (SF:src/lib/...).
 # Re-root them so merge-lcov.ts resolves them against the repo root and the
 # repo-root-relative threshold keys (web/src/lib/...) match.

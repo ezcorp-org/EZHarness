@@ -42,7 +42,7 @@ export function errorJson(
  *   const id = validateRequired(params.id, "id");
  *   const name = validateRequired(body.name, "name");
  */
-function validateRequired(
+export function validateRequired(
   value: unknown,
   paramName: string,
   status: number = 400,

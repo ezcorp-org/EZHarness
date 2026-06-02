@@ -17,7 +17,7 @@
  *
  * Mirrors the structure of `mention-logic-lesson-sigil.test.ts`.
  */
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe } from "vitest";
 import {
   MENTION_REGEX,
   detectMentionTrigger,

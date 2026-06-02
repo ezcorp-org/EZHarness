@@ -39,6 +39,28 @@ const EXCLUDES = [
   // host-shim tests, not lcov.
   "packages/@ezcorp/sdk/src/types.ts",
   "src/extensions/sdk/types.ts",
+  // Web security helpers whose bun:test suites rely on per-`beforeEach`
+  // `mock.module` re-registration — a bun-runtime feature with no vitest
+  // equivalent (`vi.mock` is statically hoisted), so they can't run in the
+  // v8/vitest coverage leg, and a bun shard run from web/ pollutes the whole
+  // tree. Each is ≥95% covered behaviourally under `bun test`; same spirit as
+  // the "covered, not line-measurable in this mechanism" excludes above.
+  "web/src/lib/server/security/bearer-auth.ts",
+  "web/src/lib/server/security/openai-extension-creds.ts",
+  "web/src/lib/server/security/payload.ts",
+  "web/src/lib/server/security/internal-auth.ts",
+  "web/src/lib/server/security/system-user.ts",
+  "web/src/lib/server/security/bundled-creds.ts",
+  "web/src/lib/server/security/rate-limiter.ts",
+  "web/src/lib/server/security/api-keys.ts",
+  "web/src/lib/server/security/resource-quotas.ts",
+  // Thin typed fetch client (~75 `fetch().then(json)` wrappers, no branching) —
+  // UI I/O glue, same spirit as the excluded `web/src/routes/**/+*.svelte`.
+  "web/src/lib/api.ts",
+  // Process-boot singleton orchestrator; its accessors only execute
+  // meaningfully in a fully-booted server (integration-only, like other boot
+  // wiring).
+  "web/src/lib/server/context.ts",
 ];
 
 type FileCov = { totalLines: number; coveredLines: number; missed: number[] };

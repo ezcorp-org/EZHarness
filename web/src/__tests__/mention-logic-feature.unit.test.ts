@@ -15,7 +15,7 @@
  *   - **No conflict with `!`/`@`/`/`** — the four sigils don't overlap;
  *     mid-text dollars (`$5.00`, `${var}`) don't trigger.
  */
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe } from "vitest";
 import {
   MENTION_REGEX,
   detectMentionTrigger,

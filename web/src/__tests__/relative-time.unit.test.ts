@@ -13,7 +13,7 @@
  */
 
 import { describe, test, expect, vi, afterEach } from "vitest";
-import { humanizeDuration, relativeTime } from "$lib/utils/relative-time";
+import { humanizeDuration, relativeTime, formatTtl } from "$lib/utils/relative-time";
 
 const MIN_MS = 60_000;
 const HOUR_MS = 3600_000;
@@ -118,6 +118,24 @@ describe("relativeTime — directional sibling helper (regression sentinel)", ()
 		expect(relativeTime(NOW - 30_000)).toBe("< 1 min ago");
 	});
 
+	test("future N min → 'in N min' (minutes branch)", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(NOW);
+		expect(relativeTime(NOW + 5 * MIN_MS)).toBe("in 5 min");
+	});
+
+	test("past N min → 'N min ago' (minutes branch)", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(NOW);
+		expect(relativeTime(NOW - 5 * MIN_MS)).toBe("5 min ago");
+	});
+
+	test("future 2 hours → 'in 2h' (hours branch)", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(NOW);
+		expect(relativeTime(NOW + 2 * HOUR_MS)).toBe("in 2h");
+	});
+
 	test("past 2 hours → '2h ago'", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(NOW);
@@ -128,5 +146,30 @@ describe("relativeTime — directional sibling helper (regression sentinel)", ()
 		vi.useFakeTimers();
 		vi.setSystemTime(NOW);
 		expect(relativeTime(NOW - 3 * DAY_MS)).toBe("3d ago");
+	});
+});
+
+// `formatTtl` shares the unit-ladder branches (minute / hour / day) with
+// `relativeTime`, but only the day branch is exercised by the Intl-guarded
+// suite in `relative-time.test.ts`. Lock the minute + hour branches here so
+// the rounding ladder is covered end-to-end. The final `RTF_EN.format` call
+// needs the "en" locale; guard the same way the companion suite does.
+const hasEnLocale = (() => {
+	try {
+		return new Intl.RelativeTimeFormat("en").format(-1, "day").includes("day");
+	} catch {
+		return false;
+	}
+})();
+
+describe.skipIf(!hasEnLocale)("formatTtl — minute and hour ladder branches", () => {
+	test("minute branch (< 1h) returns a non-empty string", () => {
+		expect(formatTtl(5 * MIN_MS, "future")).toMatch(/\S/);
+		expect(formatTtl(5 * MIN_MS, "past")).toMatch(/\S/);
+	});
+
+	test("hour branch (< 1 day) returns a non-empty string", () => {
+		expect(formatTtl(2 * HOUR_MS, "future")).toMatch(/\S/);
+		expect(formatTtl(2 * HOUR_MS, "past")).toMatch(/\S/);
 	});
 });

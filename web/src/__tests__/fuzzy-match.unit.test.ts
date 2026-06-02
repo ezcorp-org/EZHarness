@@ -1,4 +1,4 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe } from "vitest";
 import { fuzzyScore, fuzzyMatches, bestFuzzyScore } from "../lib/fuzzy-match";
 
 describe("fuzzyScore — basics", () => {
