@@ -2,6 +2,7 @@
 	import { renderMarkdown } from "$lib/markdown.js";
 	import { copyToClipboard } from "$lib/clipboard.js";
 	import { highlightDiff } from "$lib/highlight-diff.js";
+	import { loadDiffViewMode, persistDiffViewMode, isUnified } from "$lib/diff-view-mode.js";
 	import { lightbox } from "$lib/image-lightbox.svelte.js";
 	import { attachImageFallbacks } from "$lib/image-error-handler.js";
 	import { attachProgressiveImages } from "$lib/progressive-image.js";
@@ -17,6 +18,28 @@
 	$effect(() => {
 		void html;
 		if (body) highlightDiff(body);
+	});
+
+	// Set one chat diff's view (split <-> unified) by toggling display + the
+	// container's data-view + the button label. Shared by the click handler and
+	// the global-preference restore below.
+	function applyContainerView(container: HTMLElement, unified: boolean) {
+		const sideView = container.querySelector('.diff-view-side') as HTMLElement | null;
+		const unifiedView = container.querySelector('.diff-view-unified') as HTMLElement | null;
+		const toggleBtn = container.querySelector('.diff-toggle-btn') as HTMLElement | null;
+		container.setAttribute('data-view', unified ? 'unified' : 'side-by-side');
+		if (sideView) sideView.style.display = unified ? 'none' : '';
+		if (unifiedView) unifiedView.style.display = unified ? '' : 'none';
+		if (toggleBtn) toggleBtn.textContent = unified ? 'Side-by-side' : 'Unified';
+	}
+
+	// Restore the globally-persisted split/unified preference onto every chat
+	// diff after (re)render. markdown.ts renders them split by default, so this
+	// re-applies the user's last pick on refresh. See $lib/diff-view-mode.ts.
+	$effect(() => {
+		void html;
+		if (!body || !isUnified(loadDiffViewMode())) return; // default render is already split
+		body.querySelectorAll('.diff-container').forEach((c) => applyContainerView(c as HTMLElement, true));
 	});
 
 	// Wire error-fallback + blur-in loading for every rendered chat image.
@@ -58,20 +81,9 @@
 		if (toggleBtn) {
 			const container = toggleBtn.closest('.diff-container') as HTMLElement | null;
 			if (!container) return;
-			const current = container.getAttribute('data-view');
-			const sideView = container.querySelector('.diff-view-side') as HTMLElement | null;
-			const unifiedView = container.querySelector('.diff-view-unified') as HTMLElement | null;
-			if (current === 'side-by-side') {
-				container.setAttribute('data-view', 'unified');
-				if (sideView) sideView.style.display = 'none';
-				if (unifiedView) unifiedView.style.display = '';
-				toggleBtn.textContent = 'Side-by-side';
-			} else {
-				container.setAttribute('data-view', 'side-by-side');
-				if (sideView) sideView.style.display = '';
-				if (unifiedView) unifiedView.style.display = 'none';
-				toggleBtn.textContent = 'Unified';
-			}
+			const nowUnified = container.getAttribute('data-view') !== 'unified';
+			applyContainerView(container, nowUnified);
+			persistDiffViewMode(nowUnified ? 'line-by-line' : 'side-by-side');
 			return;
 		}
 

@@ -5,13 +5,21 @@
 	// diff2html-patched.css + hljs-theme.css are loaded globally via app.css
 	// (Svelte-scoped imports confuse @tailwindcss/vite — issue #16233).
 	import { highlightDiff } from "$lib/highlight-diff.js";
+	import { loadDiffViewMode, persistDiffViewMode, type DiffViewMode } from "$lib/diff-view-mode.js";
 	import CopyButton from "./CopyButton.svelte";
 	import { extractDiffDetails, extractDiffInput, generateDiffText, isNewFile as checkNewFile } from "./utils.js";
 
 	let { toolCall }: { toolCall: ToolCallState } = $props();
 	let expanded = $state(true);
-	let diffView = $state<"side-by-side" | "line-by-line">("side-by-side");
+	// Split/unified is a global personal preference — restore the last pick so a
+	// refresh doesn't snap back to split. See $lib/diff-view-mode.ts.
+	let diffView = $state<DiffViewMode>(loadDiffViewMode());
 	let diffContainer = $state<HTMLElement | undefined>(undefined);
+
+	function setDiffView(mode: DiffViewMode) {
+		diffView = mode;
+		persistDiffViewMode(mode);
+	}
 
 	let filePath = $derived.by((): string => {
 		if (!toolCall.input || typeof toolCall.input !== 'object') return 'unknown file';
@@ -85,11 +93,11 @@
 			<div class="flex items-center gap-2 px-3 py-1 border-t border-[var(--color-border)] bg-[var(--color-surface-secondary)]">
 				<div class="flex rounded border border-[var(--color-border)] text-[10px]">
 					<button
-						onclick={() => diffView = "side-by-side"}
+						onclick={() => setDiffView("side-by-side")}
 						class="px-2 py-0.5 transition-colors {diffView === 'side-by-side' ? 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-primary)]' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'}"
 					>Split</button>
 					<button
-						onclick={() => diffView = "line-by-line"}
+						onclick={() => setDiffView("line-by-line")}
 						class="px-2 py-0.5 transition-colors {diffView === 'line-by-line' ? 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-primary)]' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'}"
 					>Unified</button>
 				</div>

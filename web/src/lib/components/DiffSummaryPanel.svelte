@@ -8,6 +8,7 @@
 	// diff2html-patched.css + hljs-theme.css are loaded globally via app.css
 	// (Svelte-scoped imports confuse @tailwindcss/vite — issue #16233).
 	import { highlightDiff } from "$lib/highlight-diff.js";
+	import { loadDiffViewMode, persistDiffViewMode, type DiffViewMode } from "$lib/diff-view-mode.js";
 
 	let {
 		messages = [],
@@ -44,8 +45,15 @@
 
 	// Collapse state per section: key is "file-{idx}" or "code-{idx}"
 	let expanded = $state<Set<string>>(new Set());
-	let diffView = $state<"side-by-side" | "line-by-line">("side-by-side");
+	// Split/unified is a global personal preference — restore the last pick so a
+	// refresh doesn't snap back to split. See $lib/diff-view-mode.ts.
+	let diffView = $state<DiffViewMode>(loadDiffViewMode());
 	let panelBody = $state<HTMLElement | undefined>(undefined);
+
+	function setDiffView(mode: DiffViewMode) {
+		diffView = mode;
+		persistDiffViewMode(mode);
+	}
 
 	// Re-apply hljs highlighting whenever the set of expanded diffs, the view
 	// mode, or the underlying diff inputs change. Walks every .d2h-file-wrapper
@@ -101,11 +109,11 @@
 			<div class="flex items-center gap-2">
 				<div class="flex rounded border border-[var(--color-border)] text-xs" data-testid="diff-view-toggle">
 					<button
-						onclick={() => diffView = "side-by-side"}
+						onclick={() => setDiffView("side-by-side")}
 						class="px-2 py-1 transition-colors {diffView === 'side-by-side' ? 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-primary)]' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'}"
 					>Split</button>
 					<button
-						onclick={() => diffView = "line-by-line"}
+						onclick={() => setDiffView("line-by-line")}
 						class="px-2 py-1 transition-colors {diffView === 'line-by-line' ? 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-primary)]' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'}"
 					>Unified</button>
 				</div>

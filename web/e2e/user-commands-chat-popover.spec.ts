@@ -166,11 +166,13 @@ test.describe("User-DB commands · chat popover round-trip", () => {
 
 		await typeInto(page, textarea, "/myc");
 		await waitForPopover(page);
-		// Enter selects the highlighted (first) match → inserts
-		// `/[cmd:mycmd-e2e] `.
+		// Enter selects the highlighted (first) match → commits the
+		// `/[cmd:mycmd-e2e]` wire token, which the textarea lays out as the
+		// COMPACT label `/mycmd-e2e ` (the full token still travels on the
+		// wire — see the submit assertion below).
 		await page.keyboard.press("Enter");
 		await page.waitForTimeout(100);
-		await expect(textarea).toHaveValue("/[cmd:mycmd-e2e] ");
+		await expect(textarea).toHaveValue(/^\/mycmd-e2e\s+$/);
 
 		// Type the arg payload and submit.
 		await textarea.pressSequentially("the auth middleware", { delay: 30 });

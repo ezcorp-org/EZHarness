@@ -13,7 +13,8 @@
 	import type { ToolDefinition } from '../../../../src/extensions/types';
 	import { connectionState } from "$lib/stores/connection";
 	import { isChatDisabled, chatPlaceholder } from "$lib/chat-input-logic";
-	import { detectMentionTrigger, insertMentionToken, getSegments, parseMentions, descendIntoFolder, MENTION_REGEX } from "$lib/mention-logic";
+	import { detectMentionTrigger, insertMentionToken, insertCommandLiteral, getSegments, parseMentions, descendIntoFolder, MENTION_REGEX } from "$lib/mention-logic";
+	import { toDisplay, displayTokenText, applyDisplayEdit, displayPosToWire, wirePosToDisplay } from "$lib/mention-display";
 	import { searchMentions } from "$lib/api";
 	import { inlineToolStore } from "$lib/inline-tool-store.svelte.js";
 	import { subConversationStore } from "$lib/sub-conversation-store.svelte.js";
@@ -165,15 +166,43 @@
 		const prevApplied = appliedInitialValue;
 		if (value === "" || value === prevApplied) {
 			value = next;
+			displayValue = toDisplay(next).display;
 			// Resize textarea to fit the new content on next paint.
 			requestAnimationFrame(() => adjustHeight());
 		}
 		appliedInitialValue = next;
 	});
 
+	// `value` is the WIRE string — full `![kind:name]` tokens — and stays the
+	// single source of truth for submit / parsing / overlay segments. The
+	// textarea, however, is bound to `displayValue`: a COMPACT projection
+	// (`!name`) so chips lay out tight against their label instead of leaving a
+	// blank gap the width of the hidden `[kind:` … `]` characters. The two are
+	// kept in sync through `mention-display`. See that module for the full
+	// rationale.
 	let value = $state("");
+	let displayValue = $state("");
 	let textarea: HTMLTextAreaElement | undefined = $state();
 	let overlayEl: HTMLDivElement | undefined = $state();
+
+	/**
+	 * Commit a new WIRE string, refresh the compact `displayValue` the textarea
+	 * renders, and place the caret at the display-space equivalent of
+	 * `wireCursor`. Used by every handler that mutates `value` programmatically
+	 * (mention insertion, folder descent, literal commands, atomic deletion).
+	 */
+	function setWire(newWire: string, wireCursor: number) {
+		value = newWire;
+		const { display, spans } = toDisplay(newWire);
+		displayValue = display;
+		const dCursor = wirePosToDisplay(spans, wireCursor);
+		requestAnimationFrame(() => {
+			if (textarea) {
+				textarea.selectionStart = textarea.selectionEnd = dCursor;
+				textarea.focus();
+			}
+		});
+	}
 
 	// ── Attachment staging (multi-modal uploads) ────────────────────
 	let capabilities = $state<ClientCapabilities | null>(null);
@@ -398,23 +427,22 @@
 			return;
 		}
 
-		// Atomic backspace/delete on mention tokens — remove entire token when cursor is inside or at edges
-		if ((e.key === 'Backspace' || e.key === 'Delete') && textarea) {
+		// Atomic backspace/delete on mention chips — remove the entire WIRE token
+		// when the (display-space) caret is inside or at the chip's edge.
+		if ((e.key === 'Backspace' || e.key === 'Delete') && textarea
+			&& textarea.selectionStart === textarea.selectionEnd) {
 			const pos = textarea.selectionStart;
-			const mentions = parseMentions(value);
-			for (const m of mentions) {
+			const { spans } = toDisplay(value);
+			for (const m of spans) {
 				const inside = e.key === 'Backspace'
-					? (pos > m.start && pos <= m.end)
-					: (pos >= m.start && pos < m.end);
+					? (pos > m.dStart && pos <= m.dEnd)
+					: (pos >= m.dStart && pos < m.dEnd);
 				if (inside) {
 					e.preventDefault();
-					value = value.slice(0, m.start) + value.slice(m.end);
-					requestAnimationFrame(() => {
-						if (textarea) {
-							textarea.selectionStart = textarea.selectionEnd = m.start;
-						}
-					});
-					handleInput();
+					setWire(value.slice(0, m.wStart) + value.slice(m.wEnd), m.wStart);
+					adjustHeight();
+					// Refresh inline-tool + popover state after the deletion.
+					requestAnimationFrame(() => handleInput());
 					return;
 				}
 			}
@@ -426,16 +454,16 @@
 		}
 	}
 
-	/** Snap cursor out of mention tokens — jump to nearest edge */
+	/** Snap cursor out of mention chips — jump to nearest edge (display space) */
 	function snapCursorOutOfMention() {
 		if (!textarea) return;
 		const pos = textarea.selectionStart;
 		if (textarea.selectionStart !== textarea.selectionEnd) return; // selection range, don't snap
-		const mentions = parseMentions(value);
-		for (const m of mentions) {
-			if (pos > m.start && pos < m.end) {
-				const mid = (m.start + m.end) / 2;
-				const target = pos <= mid ? m.start : m.end;
+		const { spans } = toDisplay(value);
+		for (const m of spans) {
+			if (pos > m.dStart && pos < m.dEnd) {
+				const mid = (m.dStart + m.dEnd) / 2;
+				const target = pos <= mid ? m.dStart : m.dEnd;
 				textarea.selectionStart = textarea.selectionEnd = target;
 				return;
 			}
@@ -452,6 +480,27 @@
 
 	function handleInput() {
 		triggerWarmup();
+
+		// The textarea edits the COMPACT display string; project that change
+		// back onto the wire string (`value`). The edit is always in plain text
+		// between chips (tokens are atomic), so `applyDisplayEdit` splices it in
+		// while preserving every wire token. `null` means the edit chewed into a
+		// chip's interior — restore the consistent display and bail.
+		const synced = applyDisplayEdit(value, displayValue);
+		if (synced === null) {
+			displayValue = toDisplay(value).display;
+			return;
+		}
+		value = synced;
+
+		// If the edit introduced raw mention syntax through the text path (e.g.
+		// pasting `![agent:x]`), the textarea would still show that raw form.
+		// Re-project so the textarea snaps to the compact label. For ordinary
+		// typing the two are already equal, so this is a no-op and never
+		// disturbs the caret.
+		const canonical = toDisplay(value).display;
+		if (canonical !== displayValue) displayValue = canonical;
+
 		adjustHeight();
 		syncScroll();
 
@@ -466,7 +515,10 @@
 			}
 		}
 
-		const trigger = detectMentionTrigger(value, textarea.selectionStart);
+		// Trigger detection runs against the display string — the in-progress
+		// query (e.g. `!Code A`) is uncommitted plain text, identical in both
+		// spaces, and the caret is a display-space offset.
+		const trigger = detectMentionTrigger(displayValue, textarea.selectionStart);
 
 		if (!trigger) {
 			if (mentionOpen) {
@@ -493,6 +545,7 @@
 					kind: r.kind,
 					source: r.source,
 					fileCount: r.fileCount,
+					insertText: r.insertText,
 				}));
 			} catch {
 				mentionItems = [];
@@ -502,40 +555,61 @@
 		}, 200);
 	}
 
+	// Current caret as a WIRE offset. The textarea reports a display-space
+	// offset; insertion helpers operate on the wire string, so map across the
+	// committed chips that precede the caret.
+	function wireCaret(): number {
+		if (!textarea) return value.length;
+		return displayPosToWire(toDisplay(value).spans, textarea.selectionStart);
+	}
+
 	function handleMentionSelect(item: MentionItem) {
 		if (!textarea) return;
 
 		// Folder entry → DESCEND (rewrite query to `@<path>/` and re-fire).
 		if (item.kind === 'dir') {
-			const descent = descendIntoFolder(value, textarea.selectionStart, item.name);
-			value = descent.text;
-			requestAnimationFrame(() => {
-				if (textarea) {
-					textarea.selectionStart = textarea.selectionEnd = descent.cursor;
-					textarea.focus();
-					handleInput();
-				}
-			});
+			const descent = descendIntoFolder(value, wireCaret(), item.name);
+			setWire(descent.text, descent.cursor);
 			adjustHeight();
+			// Re-run trigger detection inside the descended folder after the
+			// caret lands (setWire schedules the caret in the prior rAF).
+			requestAnimationFrame(() => handleInput());
 			return;
 		}
 
 		// Synthetic "Use this folder as path" entry → commit as @[dir:…].
 		if (item.kind === 'dir-target') {
-			const result = insertMentionToken(value, textarea.selectionStart, {
+			const result = insertMentionToken(value, wireCaret(), {
 				kind: 'dir',
 				name: item.name,
 			});
-			value = result.text;
+			setWire(result.text, result.cursor);
 			mentionOpen = false;
 			mentionItems = [];
 			mentionTriggerQuery = "";
-			requestAnimationFrame(() => {
-				if (textarea) {
-					textarea.selectionStart = textarea.selectionEnd = result.cursor;
-					textarea.focus();
-				}
-			});
+			adjustHeight();
+			return;
+		}
+
+		// Built-in literal command (e.g. `/goal`): insert the raw text
+		// verbatim instead of a `/[cmd:name]` token, so it reaches the
+		// server-side interceptor as plain text (`isGoalCommand` matches on
+		// `body.content`). Mirrors the `dir-target` commit epilogue above.
+		//
+		// Literal commands render as a compact pill whose width slightly
+		// exceeds its short raw text (e.g. `/goal`), so in the overlay the
+		// pill overflows and visually swallows a single trailing space. We
+		// commit TWO trailing spaces (normalising whatever the entry carried)
+		// so the pill clears the cursor and the user gets a visible gap to
+		// start typing the command's argument. The `/goal` interceptor trims
+		// everything after the token, so the extra space has no wire effect.
+		if (item.insertText) {
+			const literal = item.insertText.trimEnd() + "  ";
+			const result = insertCommandLiteral(value, wireCaret(), literal);
+			setWire(result.text, result.cursor);
+			mentionOpen = false;
+			mentionItems = [];
+			mentionTriggerQuery = "";
 			adjustHeight();
 			return;
 		}
@@ -549,20 +623,14 @@
 			: item.kind === 'command'
 				? 'cmd'
 				: item.kind;
-		const result = insertMentionToken(value, textarea.selectionStart, {
+		const result = insertMentionToken(value, wireCaret(), {
 			kind: kind as 'agent' | 'ext' | 'team' | 'EZ' | 'file' | 'dir' | 'cmd',
 			name: item.name,
 		});
-		value = result.text;
+		setWire(result.text, result.cursor);
 		mentionOpen = false;
 		mentionItems = [];
 		mentionTriggerQuery = "";
-		requestAnimationFrame(() => {
-			if (textarea) {
-				textarea.selectionStart = textarea.selectionEnd = result.cursor;
-				textarea.focus();
-			}
-		});
 		adjustHeight();
 
 		// Auto-open tool form/picker for extension mentions. File mentions are
@@ -599,6 +667,7 @@
 			stagedToolCalls = [];
 		}
 		value = "";
+		displayValue = "";
 		stagedFiles = [];
 		attachmentError = null;
 		mentionOpen = false;
@@ -748,7 +817,7 @@
 					<div class="relative flex-1">
 						<textarea
 							bind:this={textarea}
-							bind:value
+							bind:value={displayValue}
 							oninput={handleInput}
 							onkeydown={handleKeydown}
 							onkeyup={snapCursorOutOfMention}
@@ -776,7 +845,7 @@
 							aria-hidden="true"
 						>
 							{#each segments as seg}
-								{#if seg.type === 'text'}{seg.text}{:else if seg.type === 'mention'}<span class="pointer-events-auto relative inline"><span class="invisible">{seg.raw}</span><span class="absolute inset-0 flex items-center"><MentionChip name={seg.name} kind={seg.kind === 'ext' ? 'extension' : seg.kind === 'cmd' ? 'command' : seg.kind as 'agent' | 'team' | 'file' | 'dir' | 'feature'} status={seg.kind === 'ext' ? getExtensionStatus(seg.name) : undefined} onclick={seg.kind === 'ext' ? () => handleChipClick(seg.name) : undefined} stretch /></span></span>{/if}
+								{#if seg.type === 'text'}{seg.text}{:else if seg.type === 'mention'}<span class="pointer-events-auto relative inline"><span class="invisible">{displayTokenText(seg.kind, seg.name)}</span><span class="absolute inset-0 flex items-center"><MentionChip name={seg.name} kind={seg.kind === 'ext' ? 'extension' : seg.kind === 'cmd' ? 'command' : seg.kind as 'agent' | 'team' | 'file' | 'dir' | 'feature'} status={seg.kind === 'ext' ? getExtensionStatus(seg.name) : undefined} onclick={seg.kind === 'ext' ? () => handleChipClick(seg.name) : undefined} /></span></span>{/if}
 							{/each}
 						</div>
 					</div>

@@ -47,5 +47,6 @@
   "web/src/lib/search/snippet-sanitize.ts": 100,
   "web/src/lib/search/search-mode.ts": 100,
   "web/src/lib/search/palette-results.ts": 100,
+  "web/src/lib/diff-view-mode.ts": 100,
   "web/src/lib/**": 90
 }

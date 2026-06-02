@@ -14,11 +14,12 @@
  * of showing "No diff available".
  */
 
-import { render, cleanup } from "@testing-library/svelte";
-import { afterEach, describe, expect, test } from "vitest";
+import { render, cleanup, fireEvent } from "@testing-library/svelte";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import DiffCard from "./DiffCard.svelte";
 import type { ToolCallState } from "$lib/stores.svelte";
+import { DIFF_VIEW_MODE_KEY } from "$lib/diff-view-mode";
 
 function makeToolCall(overrides: Partial<ToolCallState> = {}): ToolCallState {
 	return {
@@ -125,5 +126,50 @@ describe("DiffCard — post-reload hydration", () => {
 		// No resolvable newContent → no copy button, no "New file" badge.
 		expect(container.querySelector('[aria-label="Copy output"]')).toBeNull();
 		expect(container.textContent).not.toContain("New file");
+	});
+});
+
+describe("DiffCard — split/unified preference persistence", () => {
+	// diff2html emits the two-column `.d2h-file-side-diff` only in side-by-side
+	// mode; line-by-line renders a single column without it. That's the DOM
+	// signal we use to prove which mode rendered.
+	const editCall = (): ToolCallState =>
+		makeToolCall({ input: { file_path: "src/app.ts", old_string: "foo", new_string: "bar" } });
+
+	beforeEach(() => localStorage.clear());
+	afterEach(() => localStorage.clear());
+
+	test("defaults to split when nothing is stored", () => {
+		const { container } = render(DiffCard, { toolCall: editCall() });
+		expect(container.querySelector(".d2h-file-side-diff")).not.toBeNull();
+	});
+
+	test("restores the persisted unified mode on mount (the refresh fix)", () => {
+		localStorage.setItem(DIFF_VIEW_MODE_KEY, "line-by-line");
+		const { container } = render(DiffCard, { toolCall: editCall() });
+		// Unified: side-by-side columns are absent but a diff still rendered.
+		expect(container.querySelector(".d2h-file-side-diff")).toBeNull();
+		expect(container.querySelector(".d2h-wrapper, table")).not.toBeNull();
+	});
+
+	test("clicking Unified switches the view and persists the choice", async () => {
+		const { container, getByRole } = render(DiffCard, { toolCall: editCall() });
+		expect(container.querySelector(".d2h-file-side-diff")).not.toBeNull();
+
+		await fireEvent.click(getByRole("button", { name: "Unified" }));
+
+		expect(localStorage.getItem(DIFF_VIEW_MODE_KEY)).toBe("line-by-line");
+		expect(container.querySelector(".d2h-file-side-diff")).toBeNull();
+	});
+
+	test("clicking Split after Unified persists side-by-side again", async () => {
+		localStorage.setItem(DIFF_VIEW_MODE_KEY, "line-by-line");
+		const { container, getByRole } = render(DiffCard, { toolCall: editCall() });
+		expect(container.querySelector(".d2h-file-side-diff")).toBeNull();
+
+		await fireEvent.click(getByRole("button", { name: "Split" }));
+
+		expect(localStorage.getItem(DIFF_VIEW_MODE_KEY)).toBe("side-by-side");
+		expect(container.querySelector(".d2h-file-side-diff")).not.toBeNull();
 	});
 });

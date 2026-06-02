@@ -9,14 +9,12 @@
 		kind,
 		status,
 		onclick,
-		stretch = false,
 		tooltip,
 	}: {
 		name: string;
 		kind: 'agent' | 'extension' | 'team' | 'EZ' | 'file' | 'dir' | 'command' | 'feature' | 'lesson';
 		status?: 'pending' | 'running' | 'complete' | 'error';
 		onclick?: () => void;
-		stretch?: boolean;
 		tooltip?: string;
 	} = $props();
 
@@ -249,7 +247,7 @@
 <span class="{effectiveTooltip || isCommand || isFeature ? 'relative inline-block' : ''}" bind:this={chipEl}>
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<span
-		class="relative inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium {kind === 'agent'
+		class="relative inline-flex items-center whitespace-nowrap rounded-full border px-1.5 py-0.5 text-xs font-medium {kind === 'agent'
 			? 'border-blue-500/30 bg-blue-500/20 text-blue-300'
 			: kind === 'team'
 				? 'border-indigo-500/30 bg-indigo-500/20 text-indigo-300'
@@ -263,7 +261,7 @@
 								? 'border-pink-500/30 bg-pink-500/20 text-pink-300'
 								: kind === 'lesson'
 									? 'border-sky-500/30 bg-sky-500/20 text-sky-300'
-									: 'border-purple-500/30 bg-purple-500/20 text-purple-300'} {onclick ? 'cursor-pointer hover:brightness-125' : 'cursor-default'} {stretch ? 'w-full justify-center' : ''}"
+									: 'border-purple-500/30 bg-purple-500/20 text-purple-300'} {onclick ? 'cursor-pointer hover:brightness-125' : 'cursor-default'}"
 		onclick={onclick}
 		onkeydown={onclick ? (e) => { if (e.key === 'Enter' || e.key === ' ') onclick?.(); } : undefined}
 		onmouseenter={() => {

@@ -576,6 +576,38 @@ test.describe("Diff Summary Panel", () => {
 		await expect(page.locator('.diff-panel-content .d2h-file-side-diff').first()).toBeVisible({ timeout: 3000 });
 	});
 
+	test("view toggle: Unified choice persists across reload", async ({ page, mockApi }) => {
+		const userMsg = makeMessage({ id: "m1", conversationId: "conv-dp", role: "user", content: "Show diff" });
+		const assistantMsg = makeMessage({
+			id: "m2",
+			conversationId: "conv-dp",
+			role: "assistant",
+			content: DIFF_CONTENT,
+			parentMessageId: "m1",
+			createdAt: "2026-01-01T00:01:00.000Z",
+		});
+
+		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
+
+		await page.locator('[data-testid="diff-panel-btn"]').click();
+		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
+		await page.locator('[data-testid="diff-view-toggle"] button:text("Unified")').click();
+		await expect(page.locator('.diff-panel-content .d2h-file-side-diff').first()).not.toBeVisible();
+
+		// Reload — the panel's open-state persists, so it may already be open;
+		// only click to open it if it isn't. Either way it must come back in
+		// Unified, not Split.
+		await page.reload({ waitUntil: "networkidle" });
+		const panel = page.locator('[data-testid="diff-summary-panel"]');
+		if (!(await panel.isVisible())) {
+			await page.locator('[data-testid="diff-panel-btn"]').click();
+		}
+		await expect(panel).toBeVisible({ timeout: 5000 });
+		await expect(page.locator('.diff-panel-content .d2h-wrapper').first()).toBeVisible({ timeout: 3000 });
+		await expect(page.locator('.diff-panel-content .d2h-file-side-diff').first()).not.toBeVisible();
+	});
+
 	test("diff badge is hidden when no file changes exist", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });

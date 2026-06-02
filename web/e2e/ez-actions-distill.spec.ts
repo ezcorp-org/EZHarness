@@ -101,7 +101,7 @@ test.describe("!EZ:distill — composer popover + chip", () => {
 		await listbox.getByText("!EZ:distill").click();
 
 		// Token inserted into the textarea verbatim, with trailing space.
-		await expect(textarea).toHaveValue(/!\[EZ:distill\]\s$/);
+		await expect(textarea).toHaveValue(/^!EZ:distill\s+$/);
 
 		// Popover closes after selection.
 		await expect(listbox).not.toBeVisible({ timeout: 2000 });
@@ -128,7 +128,7 @@ test.describe("!EZ:distill — submit + result card", () => {
 		// strip the space-only tail before submit so the message is
 		// truly action-only (the strip on the server treats the
 		// trailing space as whitespace-only).
-		await expect(textarea).toHaveValue(/!\[EZ:distill\]\s$/);
+		await expect(textarea).toHaveValue(/^!EZ:distill\s+$/);
 
 		// Submit. Enter on a non-shifted textarea triggers send.
 		await textarea.press("Enter");

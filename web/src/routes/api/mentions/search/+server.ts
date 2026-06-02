@@ -13,6 +13,7 @@ import {
 	EXCLUDED_DIR_NAMES,
 	listFilteredChildren,
 } from "$server/runtime/fs/scan-fs";
+import { parseGoalEnabled } from "$server/runtime/goal-host";
 import type { RequestHandler } from "./$types";
 
 const MAX_RESULTS = 10;
@@ -165,6 +166,11 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		source?: string;
 		body?: string;
 		fileCount?: number;
+		/** For built-in literal commands (e.g. `/goal`): the raw text the
+		 *  composer inserts on selection, in place of a `/[cmd:name]` token.
+		 *  Such commands are handled by a server-side interceptor and must
+		 *  reach `body.content` as literal text. */
+		insertText?: string;
 		/** Phase 4: when the tool was auto-generated from an entity
 		 *  declaration, surface the entity type so the popover can
 		 *  group hand-rolled vs SDK-served tools (the v2 sigil
@@ -192,26 +198,21 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 			projectPath,
 		});
 
+		// Rank registry commands (filesystem + DB). Empty query → natural
+		// order; otherwise fuzzy-rank by name or description.
+		let ranked: typeof cmds;
 		if (!q) {
-			for (const c of cmds.slice(0, MAX_RESULTS)) {
-				results.push({
-					name: c.name,
-					description: c.description,
-					kind: "command",
-					source: c.source,
-					body: c.body,
-				});
+			ranked = cmds;
+		} else {
+			const scored: Array<{ c: typeof cmds[number]; score: number }> = [];
+			for (const c of cmds) {
+				const best = bestFuzzyScore([fuzzyScore(q, c.name), fuzzyScore(q, c.description)]);
+				if (best !== null) scored.push({ c, score: best });
 			}
-			return json(results);
+			scored.sort((a, b) => b.score - a.score);
+			ranked = scored.map((s) => s.c);
 		}
-
-		const scored: Array<{ c: typeof cmds[number]; score: number }> = [];
-		for (const c of cmds) {
-			const best = bestFuzzyScore([fuzzyScore(q, c.name), fuzzyScore(q, c.description)]);
-			if (best !== null) scored.push({ c, score: best });
-		}
-		scored.sort((a, b) => b.score - a.score);
-		for (const { c } of scored.slice(0, MAX_RESULTS)) {
+		for (const c of ranked) {
 			results.push({
 				name: c.name,
 				description: c.description,
@@ -220,7 +221,27 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 				body: c.body,
 			});
 		}
-		return json(results);
+
+		// Surface the built-in `/goal` autopilot as a first-class, discoverable
+		// entry. It's a server-side text interceptor (src/runtime/goal-host.ts),
+		// NOT a registry command, so we inject it here — gated on the SAME
+		// kill-switch the messages route honors, so a disabled server never
+		// advertises it. Selecting it inserts LITERAL `/goal ` via `insertText`
+		// (a `/[cmd:goal]` token would never match `isGoalCommand()`).
+		if (
+			parseGoalEnabled(process.env.EZCORP_GOAL_ENABLED) &&
+			(!q || fuzzyScore(q, "goal") !== null)
+		) {
+			results.unshift({
+				name: "goal",
+				description: "Set an autonomous goal — the AI keeps working until it's met",
+				kind: "command",
+				source: "builtin",
+				insertText: "/goal ",
+			});
+		}
+
+		return json(results.slice(0, MAX_RESULTS));
 	}
 
 	// EZ Actions searches are mutually exclusive with other kinds — the

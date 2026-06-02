@@ -114,7 +114,7 @@ test.describe("Feature mention injection — composer flow", () => {
     await listbox.getByText("$chat-attachments").click();
 
     // Textarea now contains the inserted token.
-    await expect(textarea).toHaveValue(/\$\[feature:chat-attachments\]\s$/);
+    await expect(textarea).toHaveValue(/^\$chat-attachments\s+$/);
 
     // The popover closes after selection.
     await expect(listbox).not.toBeVisible({ timeout: 2000 });

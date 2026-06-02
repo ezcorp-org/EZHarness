@@ -120,5 +120,5 @@ test("slash commands work inside the AgentDetailPanel chat input", async ({
 	// (same behavior as ChatInput: `/` inserts a chip, no body injection).
 	await page.keyboard.press("Enter");
 	await page.waitForTimeout(150);
-	await expect(textarea).toHaveValue("/[cmd:review] ");
+	await expect(textarea).toHaveValue(/^\/review\s+$/);
 });

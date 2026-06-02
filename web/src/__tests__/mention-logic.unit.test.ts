@@ -3,10 +3,12 @@ import {
 	detectMentionTrigger,
 	parseMentions,
 	insertMentionToken,
+	insertCommandLiteral,
 	getSegments,
 	MENTION_REGEX,
 	descendIntoFolder,
 	formatPathDisplay,
+	LITERAL_COMMAND_NAMES,
 } from "../lib/mention-logic";
 
 // ── detectMentionTrigger — `!` sigil (agent/ext/team) ───────────────
@@ -1370,5 +1372,108 @@ describe("mention round-trip — / sigil", () => {
 		const m = mentions[0]!;
 		const after = text.slice(0, m.start) + text.slice(m.end);
 		expect(after).toBe("run  now");
+	});
+});
+
+// ── insertCommandLiteral — built-in literal commands (e.g. /goal) ────
+//
+// Built-in commands handled by a server-side interceptor (the `/goal`
+// autopilot) must be inserted as LITERAL text, never as a `/[cmd:name]`
+// structured token — the interceptor matches on raw `body.content`.
+describe("insertCommandLiteral", () => {
+	test("replaces a partial /-trigger with the literal text", () => {
+		const r = insertCommandLiteral("/go", 3, "/goal ");
+		expect(r.text).toBe("/goal ");
+		expect(r.cursor).toBe(6);
+	});
+
+	test("replaces a /-trigger preceded by whitespace, preserving the prefix", () => {
+		const r = insertCommandLiteral("hey /go", 7, "/goal ");
+		expect(r.text).toBe("hey /goal ");
+		expect(r.cursor).toBe(10);
+	});
+
+	test("preserves text after the cursor", () => {
+		const r = insertCommandLiteral("/go bye", 3, "/goal ");
+		expect(r.text).toBe("/goal  bye");
+		expect(r.cursor).toBe(6);
+	});
+
+	test("replaces a bare `/` trigger (empty query)", () => {
+		const r = insertCommandLiteral("/", 1, "/goal ");
+		expect(r.text).toBe("/goal ");
+	});
+
+	test("never produces a structured /[cmd:…] token", () => {
+		const r = insertCommandLiteral("/g", 2, "/goal ");
+		expect(r.text).not.toContain("[cmd:");
+	});
+
+	test("no-op when the cursor is not in a /-trigger", () => {
+		const r = insertCommandLiteral("hello world", 11, "/goal ");
+		expect(r.text).toBe("hello world");
+		expect(r.cursor).toBe(11);
+	});
+});
+
+// ── getSegments — literal built-in commands (/goal) render as pills ──
+//
+// `/goal` is inserted as LITERAL text (see insertCommandLiteral) rather than
+// a `/[cmd:name]` token, so the overlay would otherwise show it as plain
+// prose — visually inconsistent with token-backed `/` commands. getSegments
+// peels a leading literal built-in command into a `cmd` mention segment so it
+// renders as a command pill. The detection mirrors `isGoalCommand`: the token
+// must LEAD the (left-trimmed) text and be followed by EOS or whitespace.
+describe("getSegments — literal built-in command", () => {
+	test("LITERAL_COMMAND_NAMES lists the built-in `/goal` autopilot", () => {
+		expect(LITERAL_COMMAND_NAMES).toContain("goal");
+	});
+
+	test("pills a bare /goal", () => {
+		expect(getSegments("/goal")).toEqual([
+			{ type: "mention", kind: "cmd", name: "goal", raw: "/goal" },
+		]);
+	});
+
+	test("pills /goal and keeps the trailing condition as text", () => {
+		expect(getSegments("/goal ship the release")).toEqual([
+			{ type: "mention", kind: "cmd", name: "goal", raw: "/goal" },
+			{ type: "text", text: " ship the release" },
+		]);
+	});
+
+	test("pills /goal AND a structured token in the condition", () => {
+		expect(getSegments("/goal review @[file:a.ts]")).toEqual([
+			{ type: "mention", kind: "cmd", name: "goal", raw: "/goal" },
+			{ type: "text", text: " review " },
+			{ type: "mention", kind: "file", name: "a.ts", raw: "@[file:a.ts]" },
+		]);
+	});
+
+	test("preserves leading whitespace before the /goal pill", () => {
+		expect(getSegments("  /goal x")).toEqual([
+			{ type: "text", text: "  " },
+			{ type: "mention", kind: "cmd", name: "goal", raw: "/goal" },
+			{ type: "text", text: " x" },
+		]);
+	});
+
+	test("does NOT pill /goalpost (token must end at EOS or whitespace)", () => {
+		expect(getSegments("/goalpost is here")).toEqual([
+			{ type: "text", text: "/goalpost is here" },
+		]);
+	});
+
+	test("does NOT pill a mid-prose /goal (must lead the message)", () => {
+		expect(getSegments("hey /goal x")).toEqual([
+			{ type: "text", text: "hey /goal x" },
+		]);
+	});
+
+	test("leaves a structured /[cmd:goal] token to the normal token parser", () => {
+		expect(getSegments("/[cmd:goal] x")).toEqual([
+			{ type: "mention", kind: "cmd", name: "goal", raw: "/[cmd:goal]" },
+			{ type: "text", text: " x" },
+		]);
 	});
 });

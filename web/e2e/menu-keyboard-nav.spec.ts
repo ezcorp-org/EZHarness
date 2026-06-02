@@ -89,9 +89,12 @@ test.describe("MentionPopover Tab key selection", () => {
 		// Popover should close
 		await expect(page.locator("#mention-listbox")).not.toBeVisible();
 
-		// Mention token should be inserted
+		// A mention chip should be committed — the textarea lays out the
+		// COMPACT label (`!<name> `, no raw `![kind:…]` brackets); the wire
+		// token renders as a chip in the overlay.
 		const val = await textarea.inputValue();
-		expect(val).toMatch(/!\[(agent|ext|team):/);
+		expect(val).toMatch(/^!\S.*\s$/);
+		expect(val).not.toContain("[");
 	});
 
 	test("Tab selects navigated item (ArrowDown then Tab)", async ({ page, mockApi }) => {
@@ -109,9 +112,10 @@ test.describe("MentionPopover Tab key selection", () => {
 		// Popover should close
 		await expect(page.locator("#mention-listbox")).not.toBeVisible();
 
-		// Should have inserted a mention
+		// Should have inserted a mention — compact label, no raw brackets.
 		const val = await textarea.inputValue();
-		expect(val).toMatch(/!\[(agent|ext|team):/);
+		expect(val).toMatch(/^!\S.*\s$/);
+		expect(val).not.toContain("[");
 	});
 
 	test("Tab does NOT send message while popover is open", async ({ page, mockApi }) => {
@@ -142,7 +146,7 @@ test.describe("MentionPopover Tab key selection", () => {
 		await page.keyboard.press("Tab");
 
 		await expect(listbox).not.toBeVisible();
-		await expect(textarea).toHaveValue(/!\[ext:analyzer\] /);
+		await expect(textarea).toHaveValue(/^!analyzer\s+$/);
 	});
 
 	test("Tab and Enter produce same result in popover", async ({ page, mockApi }) => {

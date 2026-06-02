@@ -2,6 +2,7 @@ import { test, expect, describe, mock, beforeEach, afterEach } from "bun:test";
 import {
 	detectMentionTrigger,
 	insertMentionToken,
+	insertCommandLiteral,
 } from "../lib/mention-logic";
 import { searchMentions, type MentionResult } from "../lib/api";
 
@@ -132,5 +133,22 @@ describe("chat composer → /api/mentions/search URL contract", () => {
 			name: "src/app.ts",
 		});
 		expect(inserted.text).toBe("@[file:src/app.ts] ");
+	});
+
+	test("built-in command round-trip: select /goal → inserts LITERAL text, not a token", () => {
+		// The `/goal` autopilot entry carries `insertText`; the composer's
+		// selection handler delegates to insertCommandLiteral (NOT
+		// insertMentionToken), so the message body reaches the server-side
+		// interceptor as literal `/goal `, which `isGoalCommand` matches.
+		const goalItem: MentionResult = {
+			name: "goal",
+			description: "Set an autonomous goal — the AI keeps working until it's met",
+			kind: "command",
+			source: "builtin",
+			insertText: "/goal ",
+		};
+		const inserted = insertCommandLiteral("/go", 3, goalItem.insertText!);
+		expect(inserted.text).toBe("/goal ");
+		expect(inserted.text).not.toContain("[cmd:");
 	});
 });

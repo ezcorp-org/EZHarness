@@ -27,6 +27,14 @@ vi.mock("$lib/server/context", () => ({
 	getCommandRegistry: () => ({ listCommands: mockListCommands }),
 }));
 
+// The search endpoint advertises the built-in `/goal` command, gated on
+// `parseGoalEnabled`. These tests cover registry-command mapping only; the
+// goal builtin has dedicated coverage in mention-search-cmd-api.test.ts.
+// Mock it OFF so it never injects here (mirrors that file's default).
+vi.mock("$server/runtime/goal-host", () => ({
+	parseGoalEnabled: () => false,
+}));
+
 const { getProject } = await import("$server/db/queries/projects");
 const { GET } = await import("../routes/api/mentions/search/+server");
 

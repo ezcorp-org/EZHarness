@@ -21,6 +21,13 @@
 		 * suffix so users can scan-pick at a glance.
 		 */
 		fileCount?: number;
+		/**
+		 * For built-in literal commands (e.g. `/goal`): the raw text to insert
+		 * into the composer on selection, in place of a `/[cmd:name]` token.
+		 * Present ⇒ the selection handler inserts this literal verbatim so the
+		 * command reaches the server-side interceptor as plain text.
+		 */
+		insertText?: string;
 	};
 </script>
 

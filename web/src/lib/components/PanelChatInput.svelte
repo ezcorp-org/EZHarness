@@ -3,7 +3,8 @@
 	import MentionPopover from "./MentionPopover.svelte";
 	import MentionChip from "./MentionChip.svelte";
 	import type { MentionItem } from "./MentionPopover.svelte";
-	import { detectMentionTrigger, insertMentionToken, getSegments, parseMentions, descendIntoFolder } from "$lib/mention-logic";
+	import { detectMentionTrigger, insertMentionToken, getSegments, descendIntoFolder } from "$lib/mention-logic";
+	import { toDisplay, displayTokenText, applyDisplayEdit, displayPosToWire, wirePosToDisplay } from "$lib/mention-display";
 	import { searchMentions } from "$lib/api";
 	import { store } from "$lib/stores.svelte";
 
@@ -27,11 +28,35 @@
 		onsubmit: (content: string) => Promise<void>;
 	} = $props();
 
+	// `value` is the WIRE string (full `![kind:name]` tokens); the textarea is
+	// bound to a COMPACT projection (`displayValue`) so chips lay out tight
+	// against their label with no blank gap. See `mention-display` for details.
 	let value = $state("");
+	let displayValue = $state("");
 	let textarea: HTMLTextAreaElement | undefined = $state();
 	let overlayEl: HTMLDivElement | undefined = $state();
 	let sending = $state(false);
 	let error = $state("");
+
+	/** Commit a new wire string, refresh the compact display + map the caret. */
+	function setWire(newWire: string, wireCursor: number) {
+		value = newWire;
+		const { display, spans } = toDisplay(newWire);
+		displayValue = display;
+		const dCursor = wirePosToDisplay(spans, wireCursor);
+		requestAnimationFrame(() => {
+			if (textarea) {
+				textarea.selectionStart = textarea.selectionEnd = dCursor;
+				textarea.focus();
+			}
+		});
+	}
+
+	/** Current caret as a WIRE offset (textarea reports display space). */
+	function wireCaret(): number {
+		if (!textarea) return value.length;
+		return displayPosToWire(toDisplay(value).spans, textarea.selectionStart);
+	}
 
 	// Scroll-to-bottom state (driven by parent's sentinel + container)
 	let userScrolledUp = $state(false);
@@ -75,6 +100,7 @@
 		sending = true;
 		error = "";
 		value = "";
+		displayValue = "";
 		mentionOpen = false;
 		mentionItems = [];
 		mentionTriggerQuery = "";
@@ -84,6 +110,7 @@
 		} catch (err) {
 			error = err instanceof Error ? err.message : "Failed to send";
 			value = content;
+			displayValue = toDisplay(content).display;
 		}
 		sending = false;
 	}
@@ -97,23 +124,19 @@
 			return;
 		}
 
-		// Atomic backspace/delete on mention tokens
-		if ((e.key === 'Backspace' || e.key === 'Delete') && textarea) {
+		// Atomic backspace/delete on mention chips (display-space caret → wire token)
+		if ((e.key === 'Backspace' || e.key === 'Delete') && textarea
+			&& textarea.selectionStart === textarea.selectionEnd) {
 			const pos = textarea.selectionStart;
-			const mentions = parseMentions(value);
-			for (const m of mentions) {
+			const { spans } = toDisplay(value);
+			for (const m of spans) {
 				const inside = e.key === 'Backspace'
-					? (pos > m.start && pos <= m.end)
-					: (pos >= m.start && pos < m.end);
+					? (pos > m.dStart && pos <= m.dEnd)
+					: (pos >= m.dStart && pos < m.dEnd);
 				if (inside) {
 					e.preventDefault();
-					value = value.slice(0, m.start) + value.slice(m.end);
-					requestAnimationFrame(() => {
-						if (textarea) {
-							textarea.selectionStart = textarea.selectionEnd = m.start;
-						}
-					});
-					handleInput();
+					setWire(value.slice(0, m.wStart) + value.slice(m.wEnd), m.wStart);
+					requestAnimationFrame(() => handleInput());
 					return;
 				}
 			}
@@ -125,16 +148,16 @@
 		}
 	}
 
-	/** Snap cursor out of mention tokens — jump to nearest edge */
+	/** Snap cursor out of mention chips — jump to nearest edge (display space) */
 	function snapCursorOutOfMention() {
 		if (!textarea) return;
 		const pos = textarea.selectionStart;
 		if (textarea.selectionStart !== textarea.selectionEnd) return;
-		const mentions = parseMentions(value);
-		for (const m of mentions) {
-			if (pos > m.start && pos < m.end) {
-				const mid = (m.start + m.end) / 2;
-				const target = pos <= mid ? m.start : m.end;
+		const { spans } = toDisplay(value);
+		for (const m of spans) {
+			if (pos > m.dStart && pos < m.dEnd) {
+				const mid = (m.dStart + m.dEnd) / 2;
+				const target = pos <= mid ? m.dStart : m.dEnd;
 				textarea.selectionStart = textarea.selectionEnd = target;
 				return;
 			}
@@ -143,13 +166,24 @@
 
 	function handleInput() {
 		if (!textarea) return;
+
+		// Project the compact-display edit back onto the wire string.
+		const synced = applyDisplayEdit(value, displayValue);
+		if (synced === null) {
+			displayValue = toDisplay(value).display;
+			return;
+		}
+		value = synced;
+		const canonical = toDisplay(value).display;
+		if (canonical !== displayValue) displayValue = canonical;
+
 		textarea.style.height = "auto";
 		textarea.style.height = Math.min(textarea.scrollHeight, 120) + "px";
 		syncScroll();
 
 		if (isComposing) return;
 
-		const trigger = detectMentionTrigger(value, textarea.selectionStart);
+		const trigger = detectMentionTrigger(displayValue, textarea.selectionStart);
 
 		if (!trigger) {
 			if (mentionOpen) {
@@ -197,36 +231,24 @@
 		// current `@` trigger to `@<folder>/` so the next search walks into
 		// that folder.
 		if (item.kind === 'dir') {
-			const descent = descendIntoFolder(value, textarea.selectionStart, item.name);
-			value = descent.text;
-			requestAnimationFrame(() => {
-				if (textarea) {
-					textarea.selectionStart = textarea.selectionEnd = descent.cursor;
-					textarea.focus();
-					// Re-fire trigger detection now that the query changed.
-					handleInput();
-				}
-			});
+			const descent = descendIntoFolder(value, wireCaret(), item.name);
+			setWire(descent.text, descent.cursor);
+			// Re-fire trigger detection now that the query changed.
+			requestAnimationFrame(() => handleInput());
 			return;
 		}
 
 		// Synthetic "Use this folder as path" entry: commit the current
 		// descent as a @[dir:…] token.
 		if (item.kind === 'dir-target') {
-			const result = insertMentionToken(value, textarea.selectionStart, {
+			const result = insertMentionToken(value, wireCaret(), {
 				kind: 'dir',
 				name: item.name,
 			});
-			value = result.text;
+			setWire(result.text, result.cursor);
 			mentionOpen = false;
 			mentionItems = [];
 			mentionTriggerQuery = "";
-			requestAnimationFrame(() => {
-				if (textarea) {
-					textarea.selectionStart = textarea.selectionEnd = result.cursor;
-					textarea.focus();
-				}
-			});
 			return;
 		}
 
@@ -238,20 +260,14 @@
 			: item.kind === 'command'
 				? 'cmd'
 				: item.kind;
-		const result = insertMentionToken(value, textarea.selectionStart, {
+		const result = insertMentionToken(value, wireCaret(), {
 			kind: kind as 'agent' | 'ext' | 'team' | 'file' | 'dir' | 'cmd',
 			name: item.name,
 		});
-		value = result.text;
+		setWire(result.text, result.cursor);
 		mentionOpen = false;
 		mentionItems = [];
 		mentionTriggerQuery = "";
-		requestAnimationFrame(() => {
-			if (textarea) {
-				textarea.selectionStart = textarea.selectionEnd = result.cursor;
-				textarea.focus();
-			}
-		});
 		if (textarea) {
 			textarea.style.height = "auto";
 			textarea.style.height = Math.min(textarea.scrollHeight, 120) + "px";
@@ -315,7 +331,7 @@
 			<div class="relative flex-1">
 				<textarea
 					bind:this={textarea}
-					bind:value
+					bind:value={displayValue}
 					oninput={handleInput}
 					onkeydown={handleKeydown}
 					onkeyup={snapCursorOutOfMention}
@@ -342,7 +358,7 @@
 					aria-hidden="true"
 				>
 					{#each segments as seg}
-						{#if seg.type === 'text'}{seg.text}{:else if seg.type === 'mention'}<span class="relative inline"><span class="invisible">{seg.raw}</span><span class="absolute inset-0 flex items-center"><MentionChip name={seg.name} kind={seg.kind === 'ext' ? 'extension' : seg.kind === 'cmd' ? 'command' : seg.kind as 'agent' | 'team' | 'file' | 'dir' | 'feature'} stretch /></span></span>{/if}
+						{#if seg.type === 'text'}{seg.text}{:else if seg.type === 'mention'}<span class="relative inline"><span class="invisible">{displayTokenText(seg.kind, seg.name)}</span><span class="absolute inset-0 flex items-center"><MentionChip name={seg.name} kind={seg.kind === 'ext' ? 'extension' : seg.kind === 'cmd' ? 'command' : seg.kind as 'agent' | 'team' | 'file' | 'dir' | 'feature'} /></span></span>{/if}
 					{/each}
 				</div>
 			</div>

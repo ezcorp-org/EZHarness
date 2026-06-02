@@ -125,7 +125,7 @@ test.describe("Mention System", () => {
 		await expect(page.locator("#mention-listbox")).not.toBeVisible();
 
 		// Textarea should contain the mention token
-		await expect(textarea).toHaveValue(/!\[agent:Code Assistant\] /);
+		await expect(textarea).toHaveValue(/^!Code Assistant\s+$/);
 	});
 
 	test("Enter does NOT send message while popover is open", async ({ page, mockApi }) => {
@@ -166,7 +166,7 @@ test.describe("Mention System", () => {
 		await listbox.getByText("Code Assistant").click();
 
 		await expect(listbox).not.toBeVisible();
-		await expect(textarea).toHaveValue(/!\[agent:Code Assistant\] /);
+		await expect(textarea).toHaveValue(/^!Code Assistant\s+$/);
 	});
 
 	test("mention chip renders in overlay after selection", async ({ page, mockApi }) => {
@@ -190,16 +190,25 @@ test.describe("Mention System", () => {
 		await expect(page.locator("#mention-listbox").getByText("Code Assistant")).toBeVisible({ timeout: 3000 });
 		await page.keyboard.press("Enter");
 
-		// Verify token is inserted
+		// Verify the chip is committed. The textarea lays out the COMPACT
+		// label (`!Code Assistant `); the full `![agent:…]` token lives on the
+		// wire and renders as a chip in the overlay.
 		const valBefore = await textarea.inputValue();
-		expect(valBefore).toMatch(/!\[agent:Code Assistant\] /);
+		expect(valBefore).toMatch(/^!Code Assistant\s+$/);
+		await expect(
+			page.locator('.chat-textarea-overlay [data-mention-kind="agent"]'),
+		).toBeVisible();
 
-		// Cursor is after the trailing space. Move left to be right after "]", then backspace
+		// Cursor is after the trailing space. Move left to sit at the chip's
+		// edge, then backspace deletes the whole chip atomically.
 		await page.keyboard.press("ArrowLeft");
 		await page.keyboard.press("Backspace");
 
 		const valAfter = await textarea.inputValue();
-		expect(valAfter).not.toContain("![agent:Code Assistant]");
+		expect(valAfter).not.toContain("Code Assistant");
+		await expect(
+			page.locator('.chat-textarea-overlay [data-mention-kind="agent"]'),
+		).toHaveCount(0);
 	});
 
 	test("!ext: prefix filters to extensions only", async ({ page, mockApi }) => {
@@ -279,7 +288,7 @@ test.describe("Mention System", () => {
 		await expect(page.locator("#mention-listbox").getByText("Code Assistant")).toBeVisible({ timeout: 3000 });
 		await page.keyboard.press("Enter");
 
-		const chip = page.locator("[aria-hidden='true'] span").filter({ hasText: "!Code Assistant" });
+		const chip = page.locator(".chat-textarea-overlay [data-mention-kind=\"agent\"]");
 		await expect(chip).toBeVisible({ timeout: 3000 });
 		await expect(chip).toHaveClass(/blue/);
 	});
@@ -293,7 +302,7 @@ test.describe("Mention System", () => {
 		await expect(listbox.getByText("analyzer")).toBeVisible({ timeout: 3000 });
 		await page.keyboard.press("Enter");
 
-		const chip = page.locator("[aria-hidden='true'] span").filter({ hasText: "!analyzer" });
+		const chip = page.locator(".chat-textarea-overlay [data-mention-kind=\"extension\"]");
 		await expect(chip).toBeVisible({ timeout: 3000 });
 		await expect(chip).toHaveClass(/purple/);
 	});

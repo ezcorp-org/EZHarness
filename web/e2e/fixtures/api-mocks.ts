@@ -82,9 +82,11 @@ export interface MockOverrides {
 	 * server shape: `name`, `description`, optional `source` namespace,
 	 * optional `body` (raw prompt body — surfaced in the chip's hover
 	 * popover in the chat history). Mock filters by substring on name or
-	 * description.
+	 * description. `insertText` mirrors the real server's built-in literal
+	 * commands (e.g. `/goal`): present ⇒ selecting the entry commits this raw
+	 * text instead of a `/[cmd:name]` token.
 	 */
-	commands?: Array<{ name: string; description: string; source?: string; body?: string }>;
+	commands?: Array<{ name: string; description: string; source?: string; body?: string; insertText?: string }>;
 	/**
 	 * Per-user DB-backed slash commands exposed under /api/user-commands.
 	 * Mutable in-memory: POST appends (with -2 / -3 / … auto-suffix on
@@ -1448,6 +1450,7 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 						kind: "command" as const,
 						source: c.source,
 						body: c.body,
+						...(c.insertText ? { insertText: c.insertText } : {}),
 					}));
 				const list = [...dbList, ...fsList];
 				const filtered = q

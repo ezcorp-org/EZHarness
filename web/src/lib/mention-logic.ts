@@ -275,6 +275,24 @@ export function parseMentions(text: string): MentionToken[] {
 }
 
 /**
+ * Locate the start index (within `before`) of the active trigger span
+ * matched by `triggerRe`, skipping a single leading whitespace char when the
+ * sigil was preceded by space/tab/newline rather than sitting at string
+ * start. Returns null when the trigger isn't active at the cursor.
+ *
+ * Single source of truth for the span math shared by
+ * {@link insertMentionToken}, {@link descendIntoFolder}, and
+ * {@link insertCommandLiteral}.
+ */
+function triggerSpanStart(before: string, triggerRe: RegExp): number | null {
+	const spanMatch = before.match(triggerRe);
+	if (!spanMatch) return null;
+	const firstChar = spanMatch[0][0]!;
+	const leadingWs = firstChar === " " || firstChar === "\t" || firstChar === "\n" ? 1 : 0;
+	return before.length - spanMatch[0].length + leadingWs;
+}
+
+/**
  * Replace the active trigger span (sigil + query) with a structured mention
  * token. The sigil used is derived from the target kind:
  *   kind === "file" | "dir"           → `@[kind:name] ` (path references)
@@ -309,15 +327,8 @@ export function insertMentionToken(
 		: isPercentSigil
 		? /(?:^|\s)%[^\s]*$/
 		: /(?:^|\s)!(?:(?:ext:|agent:|team:|EZ:)?[^\s]*)$/;
-	const spanMatch = before.match(triggerRe);
-	if (!spanMatch) return { text: value, cursor: cursorPos };
-
-	// If the match starts with a whitespace character (because the sigil was
-	// preceded by space/tab/newline rather than being at string start), skip
-	// that char when computing the sigil position.
-	const firstChar = spanMatch[0][0]!;
-	const leadingWs = firstChar === " " || firstChar === "\t" || firstChar === "\n" ? 1 : 0;
-	const atStart = before.length - spanMatch[0].length + leadingWs;
+	const atStart = triggerSpanStart(before, triggerRe);
+	if (atStart === null) return { text: value, cursor: cursorPos };
 
 	const token = isAtSigil
 		? `@[${mention.kind}:${mention.name}] `
@@ -331,6 +342,31 @@ export function insertMentionToken(
 	const after = value.slice(cursorPos);
 	const newText = value.slice(0, atStart) + token + after;
 	return { text: newText, cursor: atStart + token.length };
+}
+
+/**
+ * Replace the active `/` slash-command trigger span with raw literal text
+ * (e.g. `"/goal "`) instead of a structured `/[cmd:name]` token.
+ *
+ * Used for built-in commands handled by a server-side text interceptor that
+ * needs the literal command in the message body — the `/goal` autopilot is
+ * matched by `isGoalCommand()` on `body.content.startsWith("/goal ")`, so it
+ * must NOT be wrapped in an expandable mention token. No-op when there's no
+ * `/` trigger active at the cursor.
+ *
+ * Returns new text and cursor position after the inserted literal.
+ */
+export function insertCommandLiteral(
+	value: string,
+	cursorPos: number,
+	literal: string,
+): { text: string; cursor: number } {
+	const before = value.slice(0, cursorPos);
+	const atStart = triggerSpanStart(before, /(?:^|\s)\/[^\s]*$/);
+	if (atStart === null) return { text: value, cursor: cursorPos };
+	const after = value.slice(cursorPos);
+	const newText = value.slice(0, atStart) + literal + after;
+	return { text: newText, cursor: atStart + literal.length };
 }
 
 /**
@@ -379,12 +415,8 @@ export function descendIntoFolder(
 	folderPath: string,
 ): { text: string; cursor: number } {
 	const before = value.slice(0, cursorPos);
-	const spanMatch = before.match(/(?:^|\s)@[^\s]*$/);
-	if (!spanMatch) return { text: value, cursor: cursorPos };
-
-	const firstChar = spanMatch[0][0]!;
-	const leadingWs = firstChar === " " || firstChar === "\t" || firstChar === "\n" ? 1 : 0;
-	const atStart = before.length - spanMatch[0].length + leadingWs;
+	const atStart = triggerSpanStart(before, /(?:^|\s)@[^\s]*$/);
+	if (atStart === null) return { text: value, cursor: cursorPos };
 
 	const trimmed = folderPath.replace(/\/+$/, "");
 	const insert = `@${trimmed}/`;
@@ -394,9 +426,55 @@ export function descendIntoFolder(
 }
 
 /**
+ * Built-in slash commands that are inserted as LITERAL text (e.g. `/goal `)
+ * instead of a structured `/[cmd:name]` token, because a server-side text
+ * interceptor matches on the raw message body — see {@link insertCommandLiteral}
+ * and `src/runtime/goal-host.ts`'s `isGoalCommand`. {@link getSegments} still
+ * renders them as command pills so they're visually indistinguishable from
+ * token-backed `/` commands in the composer (and chat history). Keep this list
+ * in sync with the `insertText` entries the `/api/mentions/search` route emits.
+ */
+export const LITERAL_COMMAND_NAMES = ["goal"] as const;
+
+// Matches a leading literal built-in command, allowing optional indentation,
+// where the command token is followed by end-of-string or whitespace. Anchored
+// at `^` to mirror `isGoalCommand`: only a command that *leads* the
+// (left-trimmed) message is treated as a command, so `/goalpost` and a mid-prose
+// `/goal` never match — exactly the cases the server also ignores.
+const LEADING_LITERAL_COMMAND_RE = new RegExp(
+	`^(\\s*)\\/(${LITERAL_COMMAND_NAMES.join("|")})(?=$|\\s)`,
+);
+
+/**
  * Split raw text into segments for overlay rendering.
+ *
+ * A leading literal built-in command (e.g. `/goal …`) is peeled off first and
+ * emitted as a `cmd` mention segment so it renders as a command pill, even
+ * though it's stored as raw text rather than a `/[cmd:…]` token. The remainder
+ * is then parsed for structured tokens as usual — so `/goal review @[file:x]`
+ * yields a `/goal` pill *and* a file pill.
  */
 export function getSegments(text: string): Segment[] {
+	const literal = text.match(LEADING_LITERAL_COMMAND_RE);
+	if (literal) {
+		const leadingWs = literal[1]!;
+		const name = literal[2]!;
+		const raw = `/${name}`;
+		const out: Segment[] = [];
+		if (leadingWs) out.push({ type: "text", text: leadingWs });
+		out.push({ type: "mention", kind: "cmd", name, raw });
+		const rest = text.slice(leadingWs.length + raw.length);
+		if (rest.length > 0) out.push(...parseStructuredSegments(rest));
+		return out;
+	}
+	return parseStructuredSegments(text);
+}
+
+/**
+ * Split raw text into text + structured-mention segments via MENTION_REGEX.
+ * The literal-command peel in {@link getSegments} runs before this.
+ */
+function parseStructuredSegments(text: string): Segment[] {
 	const segments: Segment[] = [];
 	const regex = new RegExp(MENTION_REGEX.source, "g");
 	let lastIndex = 0;

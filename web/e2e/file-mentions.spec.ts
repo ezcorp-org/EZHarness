@@ -128,7 +128,7 @@ test.describe("File Mentions (@ sigil)", () => {
 		await expect(page.locator("#mention-listbox").getByText("src/app.ts", { exact: true })).toBeVisible({ timeout: 3000 });
 		await page.keyboard.press("Enter");
 		await expect(page.locator("#mention-listbox")).not.toBeVisible();
-		await expect(textarea).toHaveValue(/@\[file:src\/app\.ts\] /);
+		await expect(textarea).toHaveValue(/^@app\.ts\s+$/);
 	});
 
 	test("file chip has green styling and displays basename", async ({ page, mockApi }) => {
@@ -138,7 +138,7 @@ test.describe("File Mentions (@ sigil)", () => {
 		await expect(page.locator("#mention-listbox").getByText("src/app.ts", { exact: true })).toBeVisible({ timeout: 3000 });
 		await page.keyboard.press("Enter");
 		// Overlay chip shows @{basename} and carries the green color classes.
-		const chip = page.locator("[aria-hidden='true'] span").filter({ hasText: "@app.ts" });
+		const chip = page.locator(".chat-textarea-overlay [data-mention-kind=\"file\"]");
 		await expect(chip).toBeVisible({ timeout: 3000 });
 		await expect(chip).toHaveClass(/green/);
 	});
@@ -158,7 +158,7 @@ test.describe("File Mentions (@ sigil)", () => {
 		await waitForPopover(page);
 		await expect(page.locator("#mention-listbox").getByText("README.md", { exact: true })).toBeVisible({ timeout: 3000 });
 		await page.keyboard.press("Enter");
-		await expect(textarea).toHaveValue(/@\[file:README\.md\] /);
+		await expect(textarea).toHaveValue(/^@README\.md\s+$/);
 
 		// Now type an ! trigger
 		await typeIntoTextarea(page, textarea, "!co");
@@ -303,7 +303,7 @@ test.describe("File Mentions (@ sigil)", () => {
 		// The synthetic entry is index 0; Enter should commit.
 		await page.keyboard.press("Enter");
 		await expect(page.locator("#mention-listbox")).not.toBeVisible();
-		await expect(textarea).toHaveValue(/@\[dir:src\] /);
+		await expect(textarea).toHaveValue(/^@src\/\s+$/);
 	});
 
 	test("selecting a file inside descended view commits @[file:…] with full path", async ({ page, mockApi }) => {
@@ -312,7 +312,7 @@ test.describe("File Mentions (@ sigil)", () => {
 		await waitForPopover(page);
 		await page.locator("#mention-listbox").getByText("src/app.ts", { exact: true }).click();
 		await expect(page.locator("#mention-listbox")).not.toBeVisible();
-		await expect(textarea).toHaveValue(/@\[file:src\/app\.ts\] /);
+		await expect(textarea).toHaveValue(/^@app\.ts\s+$/);
 	});
 
 	test("selecting a subfolder inside descended view descends further", async ({ page, mockApi }) => {
@@ -388,13 +388,19 @@ test.describe("File Mentions (@ sigil)", () => {
 	});
 
 	test("selecting a display-truncated file still inserts the full relative path", async ({ page, mockApi }) => {
-		// Visual truncation must NOT affect what gets stored — the token must
-		// be the complete relative path so the agent can read/resolve it.
+		// Visual truncation must NOT affect what gets stored — the wire token
+		// must be the complete relative path so the agent can read/resolve it.
 		const textarea = await setupAndFocus(page, mockApi);
 		await typeIntoTextarea(page, textarea, "@leaf");
 		await waitForPopover(page);
 		await page.locator("#mention-listbox").getByText("src/.../leaf.ts", { exact: true }).click();
-		await expect(textarea).toHaveValue(/@\[file:src\/nested\/inner\/leaf\.ts\] /);
+		// The textarea lays out only the compact basename…
+		await expect(textarea).toHaveValue(/^@leaf\.ts\s+$/);
+		// …but the committed chip carries the FULL relative path (the wire
+		// token `@[file:src/nested/inner/leaf.ts]`), exposed via the chip's
+		// data attribute. This is the invariant the agent depends on.
+		const chip = page.locator('.chat-textarea-overlay [data-mention-kind="file"]');
+		await expect(chip).toHaveAttribute("data-mention-name", "src/nested/inner/leaf.ts");
 	});
 });
 

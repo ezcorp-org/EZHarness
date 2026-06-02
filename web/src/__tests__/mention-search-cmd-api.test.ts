@@ -69,6 +69,16 @@ mock.module("$server/runtime/tools/builtin-registry", () => ({
 	getBuiltInCategories: () => [],
 }));
 
+// Controllable goal kill-switch. The search endpoint imports
+// `parseGoalEnabled` to decide whether to advertise the built-in `/goal`
+// command in the slash-command menu. Mocked here so tests can toggle it
+// deterministically (without env mutation) AND so importing the endpoint
+// doesn't drag goal-host's full runtime import graph into this test.
+let goalEnabled = false;
+mock.module("$server/runtime/goal-host", () => ({
+	parseGoalEnabled: () => goalEnabled,
+}));
+
 const { GET } = await import("../routes/api/mentions/search/+server");
 
 let projectRoot: string;
@@ -85,6 +95,9 @@ afterAll(async () => {
 
 beforeEach(() => {
 	nextCommands = [];
+	// Default OFF so the existing registry-only assertions are unaffected by
+	// the built-in `/goal` injection; goal-specific tests opt in explicitly.
+	goalEnabled = false;
 });
 
 function cmd(name: string, description = "", body = "body") {
@@ -186,5 +199,58 @@ describe("mentions/search — type=cmd", () => {
 		expect(names).toContain("review");
 		expect(names).toContain("rewrite");
 		expect(names[0] === "review" || names[0] === "rewrite").toBe(true);
+	});
+});
+
+describe("mentions/search — type=cmd — built-in /goal entry", () => {
+	test("injects /goal at the top when enabled and the query matches", async () => {
+		goalEnabled = true;
+		nextCommands = [cmd("deploy", "Deploy app")];
+		const res = await call("/api/mentions/search?type=cmd&q=go&projectId=proj-1");
+		const body = await res.json();
+		expect(body[0]).toMatchObject({
+			name: "goal",
+			kind: "command",
+			source: "builtin",
+			insertText: "/goal ",
+		});
+	});
+
+	test("injects /goal for the empty query", async () => {
+		goalEnabled = true;
+		nextCommands = [cmd("deploy", "Deploy app")];
+		const res = await call("/api/mentions/search?type=cmd&projectId=proj-1");
+		const body = await res.json();
+		expect(
+			body.some(
+				(r: { name: string; insertText?: string }) =>
+					r.name === "goal" && r.insertText === "/goal ",
+			),
+		).toBe(true);
+	});
+
+	test("does NOT inject /goal when the query can't match it", async () => {
+		goalEnabled = true;
+		nextCommands = [cmd("deploy", "Deploy app")];
+		const res = await call("/api/mentions/search?type=cmd&q=deploy&projectId=proj-1");
+		const body = await res.json();
+		expect(body.some((r: { name: string }) => r.name === "goal")).toBe(false);
+	});
+
+	test("does NOT inject /goal when the feature is disabled, even on a matching query", async () => {
+		goalEnabled = false;
+		nextCommands = [cmd("deploy", "Deploy app")];
+		const res = await call("/api/mentions/search?type=cmd&q=goal&projectId=proj-1");
+		const body = await res.json();
+		expect(body.some((r: { name: string }) => r.name === "goal")).toBe(false);
+	});
+
+	test("respects MAX_RESULTS (10) after prepending the built-in entry", async () => {
+		goalEnabled = true;
+		nextCommands = Array.from({ length: 25 }, (_, i) => cmd(`goal${i}`, `d${i}`));
+		const res = await call("/api/mentions/search?type=cmd&q=goal&projectId=proj-1");
+		const body = await res.json();
+		expect(body.length).toBeLessThanOrEqual(10);
+		expect(body[0].name).toBe("goal"); // built-in is surfaced first
 	});
 });

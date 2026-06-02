@@ -23,6 +23,9 @@
  *       returned the streaming shape (FR-2-RET, B2). Distinct from
  *       E1 in what it asserts: E1 pins the CHIP, E8 pins the
  *       STREAMING TURN.
+ *   E9: typing `/` lists the built-in `/goal` command in the
+ *       slash-command popover; selecting it inserts LITERAL `/goal `
+ *       (not a `/[cmd:goal]` token) so the interceptor matches.
  *
  * SSE-only streaming per the project memory note
  * `project_e2e_streaming_uses_sse` — every frame is injected via
@@ -404,5 +407,34 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 			data: { runId: "run-goal-set", token: STREAM_TEXT, kind: "text" },
 		});
 		await expect(page.getByText(STREAM_TEXT)).toBeVisible({ timeout: 4000 });
+	});
+
+	test("E9: typing `/` surfaces the built-in /goal command; selecting it inserts LITERAL `/goal `", async ({
+		page,
+		mockApi,
+	}) => {
+		// Discoverability: `/goal` is a server-side interceptor, not a
+		// registry command, so the mentions/search endpoint injects a
+		// synthetic built-in entry (kind="command", source="builtin",
+		// insertText="/goal "). Selecting it must commit LITERAL text — a
+		// `/[cmd:goal]` token would never match `isGoalCommand()`.
+		await gotoChat(page, mockApi);
+
+		const textarea = page.locator("textarea");
+		await textarea.pressSequentially("/go");
+
+		// The real /api/mentions/search?type=cmd lists the built-in entry.
+		const goalOption = page.locator('[role="option"][data-source="builtin"]');
+		await expect(goalOption).toBeVisible({ timeout: 4000 });
+		await expect(goalOption).toContainText("/goal");
+
+		await goalOption.click();
+
+		// Literal `/goal` lands in the composer (NOT a structured token). The
+		// textarea lays out the `/goal` pill's compact label + display pad +
+		// trailing spaces — a clear gap to type the condition into. The server
+		// interceptor trims after the token, so this has no wire effect.
+		await expect(textarea).toHaveValue(/^\/goal\s+$/);
+		await expect(textarea).not.toHaveValue(/\[cmd:/);
 	});
 });

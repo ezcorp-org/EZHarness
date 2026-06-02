@@ -16,6 +16,10 @@ const commands = [
 	},
 	{ name: "deploy", description: "Deploy the current branch", source: "project:agents" },
 	{ name: "commit", description: "Commit staged changes", source: "user:codex-prompts" },
+	// A built-in literal command (mirrors `/goal`): selecting it commits raw
+	// `insertText` rather than a `/[cmd:name]` token. The short pill it renders
+	// needs an extra trailing space so it doesn't visually swallow the gap.
+	{ name: "goal", description: "Set an autonomous goal", source: "builtin", insertText: "/goal " },
 ];
 
 async function setupAndFocus(page: any, mockApi: any) {
@@ -100,7 +104,83 @@ test.describe("Slash commands", () => {
 		await page.waitForTimeout(150);
 
 		await expect(page.locator("#mention-listbox")).toBeHidden();
-		await expect(textarea).toHaveValue("/[cmd:review] ");
+		// The textarea lays out the COMPACT label `/review ` — NOT the expanded
+		// prompt body (no body injection) and NOT the verbose raw token (which
+		// is kept on the wire and rendered as a chip in the overlay).
+		await expect(textarea).toHaveValue(/^\/review\s+$/);
+		await expect(
+			page.locator('.chat-textarea-overlay [data-mention-kind="command"]'),
+		).toBeVisible();
+	});
+
+	test("selecting a built-in literal command commits the literal + a trailing space gap to type into", async ({
+		page,
+		mockApi,
+	}) => {
+		// Literal commands (insertText, e.g. `/goal`) commit raw text, not a
+		// `/[cmd:name]` token. The committed value ends with TWO spaces: the
+		// short pill overflows its reserved width in the overlay and would
+		// otherwise cover a single trailing space, so the composer adds one
+		// more to leave a visible gap for the user to start typing. The
+		// cursor lands after both spaces. (The server interceptor trims after
+		// the token, so the extra space has no wire effect.)
+		const textarea = await setupAndFocus(page, mockApi);
+		await typeInto(page, textarea, "/goa");
+		await waitForPopover(page);
+		await page.keyboard.press("Enter");
+		await page.waitForTimeout(150);
+
+		await expect(page.locator("#mention-listbox")).toBeHidden();
+		// The textarea lays out the `/goal` pill's compact label plus the
+		// display pad + its literal trailing spaces — a clear gap to type into.
+		await expect(textarea).toHaveValue(/^\/goal\s+$/);
+		// NOT a structured token.
+		await expect(textarea).not.toHaveValue(/\[cmd:/);
+		// Cursor sits at the very end, ready to type the goal text after the gap.
+		const val = await textarea.inputValue();
+		const caret = await textarea.evaluate(
+			(el: HTMLTextAreaElement) => el.selectionStart,
+		);
+		expect(caret).toBe(val.length);
+	});
+
+	test("a leading literal built-in command (/goal) renders as a command pill", async ({
+		page,
+		mockApi,
+	}) => {
+		// `/goal` is inserted as LITERAL text (it's a server-side
+		// interceptor, not a `/[cmd:name]` token — see goal-host.ts), so
+		// without the overlay's literal-command peel it would show as plain
+		// prose. getSegments pills it so it's visually consistent with
+		// token-backed `/` commands. The condition after it stays plain text.
+		const textarea = await setupAndFocus(page, mockApi);
+		await textarea.fill("/goal ship the release");
+		await page.waitForTimeout(100);
+
+		const goalPill = page.locator(
+			"[data-mention-kind='command'][data-mention-name='goal']",
+		);
+		await expect(goalPill).toBeVisible();
+		await expect(goalPill).toContainText("/goal");
+		// The textarea shows the `/goal` pill's compact label + display pad,
+		// then the literal argument text. It stays literal — NOT a structured
+		// token (no `[cmd:` markup).
+		await expect(textarea).toHaveValue(/^\/goal\s+ship the release$/);
+		await expect(textarea).not.toHaveValue(/\[cmd:/);
+	});
+
+	test("/goalpost is NOT pilled — the token must end at EOS or whitespace", async ({
+		page,
+		mockApi,
+	}) => {
+		// Mirrors isGoalCommand: `/goalpost` must not be treated as `/goal`.
+		const textarea = await setupAndFocus(page, mockApi);
+		await textarea.fill("/goalpost is here");
+		await page.waitForTimeout(100);
+
+		await expect(
+			page.locator("[data-mention-kind='command'][data-mention-name='goal']"),
+		).toHaveCount(0);
 	});
 
 	test("popover shows scope + folder badge for each command", async ({

@@ -91,6 +91,35 @@ test.describe("Diff Rendering", () => {
 		await expect(page.locator(".diff-toggle-btn")).toHaveText("Unified");
 	});
 
+	test("view mode persists across reload (global preference)", async ({ page, mockApi }) => {
+		const userMsg = makeMessage({ id: "m1", conversationId: "conv-1", role: "user", content: "Show diff" });
+		const assistantMsg = makeMessage({
+			id: "m2",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: DIFF_CONTENT,
+			parentMessageId: "m1",
+			createdAt: "2026-01-01T00:01:00.000Z",
+		});
+
+		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+
+		const container = page.locator(".diff-container");
+		await expect(container).toBeVisible({ timeout: 5000 });
+		await expect(container).toHaveAttribute("data-view", "side-by-side");
+
+		// Switch to unified, then reload — the choice must survive the refresh.
+		await page.locator(".diff-toggle-btn").click();
+		await expect(container).toHaveAttribute("data-view", "unified");
+
+		await page.reload();
+		const reloaded = page.locator(".diff-container");
+		await expect(reloaded).toBeVisible({ timeout: 5000 });
+		await expect(reloaded).toHaveAttribute("data-view", "unified");
+		await expect(page.locator(".diff-toggle-btn")).toHaveText("Side-by-side");
+	});
+
 	test("file collapse works for multi-file diff", async ({ page, mockApi }) => {
 		const userMsg = makeMessage({ id: "m1", conversationId: "conv-1", role: "user", content: "Show diff" });
 		const assistantMsg = makeMessage({

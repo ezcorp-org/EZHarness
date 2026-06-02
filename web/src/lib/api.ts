@@ -1075,6 +1075,13 @@ export interface MentionResult {
 	 * description so users can scan-pick at a glance.
 	 */
 	fileCount?: number;
+	/**
+	 * For built-in literal commands (e.g. `/goal`): the raw text the composer
+	 * inserts on selection, in place of a `/[cmd:name]` token. These commands
+	 * are handled by a server-side text interceptor and must reach
+	 * `body.content` as literal text rather than an expandable mention token.
+	 */
+	insertText?: string;
 }
 
 // ── Command body cache (for /cmd chip hover popover) ────────────────

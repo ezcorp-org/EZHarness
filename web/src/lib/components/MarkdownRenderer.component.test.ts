@@ -17,9 +17,10 @@
  */
 
 import { render, fireEvent, cleanup, waitFor } from "@testing-library/svelte";
-import { afterEach, describe, test, expect } from "vitest";
+import { afterEach, beforeEach, describe, test, expect } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
+import { DIFF_VIEW_MODE_KEY } from "$lib/diff-view-mode";
 
 afterEach(() => cleanup());
 
@@ -91,5 +92,55 @@ describe("MarkdownRenderer — progressive image integration", () => {
 			content: "just **text**, no pictures",
 		});
 		expect(container.querySelector(".progressive-img-wrap")).toBeNull();
+	});
+});
+
+describe("MarkdownRenderer — diff view-mode persistence", () => {
+	// markdown.ts always emits a chat diff in split mode (data-view="side-by-side")
+	// with both views in the DOM; the component's restore $effect re-applies the
+	// globally-persisted preference, and the toggle button persists new choices.
+	const DIFF_MD = [
+		"```diff",
+		"--- a/src/auth.ts",
+		"+++ b/src/auth.ts",
+		"@@ -1,2 +1,2 @@",
+		"-const ok = false;",
+		"+const ok = true;",
+		"```",
+	].join("\n");
+
+	beforeEach(() => localStorage.clear());
+	afterEach(() => localStorage.clear());
+
+	test("defaults to split when nothing is stored", () => {
+		const { container } = render(MarkdownRenderer, { content: DIFF_MD });
+		expect(container.querySelector(".diff-container")).toHaveAttribute("data-view", "side-by-side");
+	});
+
+	test("restores the persisted unified mode after render (the refresh fix)", async () => {
+		localStorage.setItem(DIFF_VIEW_MODE_KEY, "line-by-line");
+		const { container } = render(MarkdownRenderer, { content: DIFF_MD });
+
+		await waitFor(() => {
+			expect(container.querySelector(".diff-container")).toHaveAttribute("data-view", "unified");
+		});
+		const side = container.querySelector(".diff-view-side") as HTMLElement;
+		const unified = container.querySelector(".diff-view-unified") as HTMLElement;
+		expect(side.style.display).toBe("none");
+		expect(unified.style.display).toBe("");
+	});
+
+	test("clicking the toggle switches the view and persists the choice", async () => {
+		const { container } = render(MarkdownRenderer, { content: DIFF_MD });
+		const containerEl = container.querySelector(".diff-container")!;
+		expect(containerEl).toHaveAttribute("data-view", "side-by-side");
+
+		await fireEvent.click(container.querySelector(".diff-toggle-btn")!);
+		expect(containerEl).toHaveAttribute("data-view", "unified");
+		expect(localStorage.getItem(DIFF_VIEW_MODE_KEY)).toBe("line-by-line");
+
+		await fireEvent.click(container.querySelector(".diff-toggle-btn")!);
+		expect(containerEl).toHaveAttribute("data-view", "side-by-side");
+		expect(localStorage.getItem(DIFF_VIEW_MODE_KEY)).toBe("side-by-side");
 	});
 });
