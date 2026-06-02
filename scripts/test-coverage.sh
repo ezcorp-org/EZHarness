@@ -145,7 +145,7 @@ VITEST_EXIT=0
     src/__tests__/chat-input-logic.unit.test.ts \
     --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
     --coverage.reportsDirectory="$VITEST_COV" \
-    --coverage.include='src/lib/search/**' \
+    --coverage.include='src/lib/search/*.ts' \
     --coverage.include='src/lib/components/goal-row-logic.ts' \
     --coverage.include='src/lib/components/GoalPill.svelte' \
     --coverage.include='src/lib/components/UpdateBanner.svelte' \
