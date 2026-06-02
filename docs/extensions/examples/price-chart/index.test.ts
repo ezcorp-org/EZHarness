@@ -9,6 +9,7 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import {
   tools,
+  start,
   _setFetchersForTests,
   _resetBindingsForTests,
 } from "./index";
@@ -201,5 +202,25 @@ describe("get_crypto_chart happy path", () => {
     expect(expectIsError(out)).toBe(false);
     const payload = JSON.parse(expectText(out));
     expect(payload.name).toBe("Ethereum");
+  });
+
+  test("network error from the crypto fetcher → toolError", async () => {
+    _setFetchersForTests({
+      crypto: async () => {
+        throw new Error("CoinGecko returned HTTP 429 for bitcoin");
+      },
+    });
+    const out = await tools.get_crypto_chart!({ symbol: "BTC" });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toMatch(/Failed to fetch BTC/);
+  });
+});
+
+describe("production boot wiring", () => {
+  test("start() wires the dispatcher + boots the channel without throwing", () => {
+    // start() is idempotent (channel `started` guard) and non-blocking
+    // (runLoop is fire-and-forget), so calling it here is safe and covers
+    // the in-file boot path that `bun run index.ts` exercises in prod.
+    expect(() => start()).not.toThrow();
   });
 });

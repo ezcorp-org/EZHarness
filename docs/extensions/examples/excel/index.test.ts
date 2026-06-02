@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { buildHandlers } from "./index";
+import { buildHandlers, start } from "./index";
 
 async function makeWorkbook(): Promise<Uint8Array> {
   const ExcelJS = (await import("exceljs")) as typeof import("exceljs");
@@ -87,6 +87,30 @@ describe("read-spreadsheet handler", () => {
     expect(result.isError).toBe(true);
   });
 
+  test("mode=range without sheet arg surfaces toolError", async () => {
+    const handlers = buildHandlers();
+    const handler = handlers["read-spreadsheet"]!;
+    const bytes = await makeWorkbook();
+    // sheet omitted → the range-mode `sheet` guard fires before `range`.
+    const result = await handler({ source: dataUri(bytes), mode: "range", range: "A1:B2" });
+    expect(result.isError).toBe(true);
+  });
+
+  test("mode=range with a render-time failure (unknown sheet) surfaces toolError", async () => {
+    const handlers = buildHandlers();
+    const handler = handlers["read-spreadsheet"]!;
+    const bytes = await makeWorkbook();
+    // A non-existent sheet clears the arg guards but makes renderRange throw
+    // an XlsxParseError → exercises the render-phase catch/error branch.
+    const result = await handler({
+      source: dataUri(bytes),
+      mode: "range",
+      sheet: "DoesNotExist",
+      range: "A1:B2",
+    });
+    expect(result.isError).toBe(true);
+  });
+
   test("non-data-URI source surfaces toolError", async () => {
     const handlers = buildHandlers();
     const handler = handlers["read-spreadsheet"]!;
@@ -100,5 +124,13 @@ describe("read-spreadsheet handler", () => {
     const bytes = new TextEncoder().encode("not a workbook");
     const result = await handler({ source: dataUri(bytes), mode: "manifest" });
     expect(result.isError).toBe(true);
+  });
+
+  test("start() wires the dispatcher + boots the channel without throwing", () => {
+    // The production boot path: getChannel() + createToolDispatcher + start.
+    // start() is idempotent (the channel's `started` guard) and non-blocking
+    // (runLoop is fire-and-forget), so invoking it here is safe and covers
+    // the in-file boot wiring.
+    expect(() => start()).not.toThrow();
   });
 });

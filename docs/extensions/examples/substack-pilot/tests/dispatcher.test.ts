@@ -20,4 +20,18 @@ describe("dispatcher tools map", () => {
       expect(manifestNames.has(handlerName)).toBe(true);
     }
   });
+
+  // Invoke the handler arrows themselves (not just assert the map shape):
+  // each forwards to its lib fn, which short-circuits on invalid args with
+  // a toolError BEFORE any network/DB — so this covers the index.ts
+  // handler wiring without external side effects.
+  test("summarize_urls handler forwards to the lib (invalid args → toolError)", async () => {
+    const out = await tools.summarize_urls!({});
+    expect((out as { isError?: boolean }).isError).toBe(true);
+  });
+
+  test("generate_substack_draft handler forwards to the lib (invalid args → toolError)", async () => {
+    const out = await tools.generate_substack_draft!({}, undefined);
+    expect((out as { isError?: boolean }).isError).toBe(true);
+  });
 });

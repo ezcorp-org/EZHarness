@@ -202,6 +202,22 @@ describe("ezcorp ext publish", () => {
       .rejects.toThrow("No publish token found");
   });
 
+  test("rejects if the provided token matches no stored token (Invalid publish token)", async () => {
+    const { publishExtension } = await import("../extensions/sdk/publish");
+    writeManifest();
+    writeEntrypoint();
+    // Stored tokens exist (one publish:token:* entry) but NONE equal the
+    // token we pass — verifyToken scans them, finds no match, and throws.
+    mockGetAllSettings.mockImplementation(() => Promise.resolve({
+      "publish:token:user-1": { token: "some-other-token", createdAt: 1 },
+      // a non-token setting is skipped by the `publish:token:` prefix guard
+      "unrelated:setting": { foo: "bar" },
+    }));
+
+    await expect(publishExtension({ extDir: tempDir, token: "no-such-token", skipTests: true }))
+      .rejects.toThrow("Invalid publish token");
+  });
+
   test("rejects if manifest invalid", async () => {
     const { publishExtension } = await import("../extensions/sdk/publish");
     writeFileSync(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify({ name: "bad" })};\n`);

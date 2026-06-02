@@ -560,5 +560,16 @@ describe("searchMessages — RRF / mode / scoping / snippet / match-type", () =>
       });
       expect(hits).toEqual([]);
     });
+
+    test("scope=project (default) without projectId returns [] (tenant unresolvable)", async () => {
+      const hits = await searchMessages({
+        // no projectId, no scope → defaults to scope=project with no tenant.
+        userId: s.userA,
+        query: QUERY,
+        mode: "hybrid",
+        queryEmbedding: QUERY_VECTOR,
+      });
+      expect(hits).toEqual([]);
+    });
   });
 });

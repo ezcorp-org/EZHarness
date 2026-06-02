@@ -341,4 +341,36 @@ describe("kokoro-tts start() — createCanvas wiring", () => {
     expect(typeof captured[0]!.events.speak).toBe("function");
     expect(typeof captured[0]!.events.save).toBe("function");
   });
+
+  test("the registered speak/save closures forward their payload to the handlers", async () => {
+    const captured: Array<{ events: Record<string, (a: { payload: unknown }) => Promise<void> > }> = [];
+    _setCreateCanvasForTests(((opts: {
+      events: Record<string, (a: { payload: unknown }) => Promise<void>>;
+    }) => {
+      captured.push(opts);
+      return {};
+    }) as never);
+    // Record the reverse-RPC the handlers emit so invoking the closures is
+    // observable (and proves the speak/save event bodies actually run).
+    const calls = makeRecorder();
+    try {
+      start();
+      const ev = captured[0]!.events;
+      // Invoke the registered closures directly — this executes the
+      // `await handleSpeak(payload)` / `await handleSave(payload)` bodies
+      // that the wiring-shape test never reaches.
+      await ev.speak!({
+        payload: { messageId: "msg-x", conversationId: "conv-x", content: "hello" },
+      });
+      await ev.save!({
+        payload: { messageId: "msg-x", toolCallId: "tc-x", attachmentId: "att-x" },
+      });
+    } finally {
+      _resetBindingsForTests();
+    }
+    // speak emits append-message, save emits finalize-tool-call.
+    const methods = calls.map((c) => c.method);
+    expect(methods).toContain("ezcorp/append-message");
+    expect(methods).toContain("ezcorp/finalize-tool-call");
+  });
 });

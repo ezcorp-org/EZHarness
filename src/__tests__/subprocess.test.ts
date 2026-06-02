@@ -207,4 +207,64 @@ main();
     expect(firstRunning).toBe(true);
     expect(secondRunning).toBe(true);
   });
+
+  // ── Reverse-RPC request-handler wiring (wireRequestHandler) ───────────
+  //
+  // The host wires a reverse-RPC handler via setRequestHandler(); the
+  // transport invokes it as `onRequest(req)` whenever the CHILD makes a
+  // call back into the host. These tests drive that `onRequest` callback
+  // directly (the child→host direction is otherwise only reached by the
+  // capability e2e suites) to lock the three response shapes:
+  //   - a resolved single-line JSON-RPC response is written to stdin,
+  //   - a `{streamed,frames}` envelope writes each frame verbatim,
+  //   - a REJECTING host handler is converted to a verbatim -32603 error
+  //     written back to the child (so a host-side throw never re-hangs
+  //     the child waiting on its reverse-RPC).
+  // A fake child proc whose stdin write() is captured (the real Bun
+  // subprocess exposes a readonly stdin we cannot stub), plus a transport
+  // stub that just holds the `onRequest` callback wireRequestHandler sets.
+  function wireFake(handler: (req: any) => Promise<any>): {
+    onRequest: (req: any) => unknown;
+    writes: string[];
+  } {
+    const writes: string[] = [];
+    const e = new ExtensionProcess("test-ext", echoPath, allowedEnv) as any;
+    e.proc = { stdin: { write: (d: string) => (writes.push(d), d.length) } };
+    e.transport = { onRequest: undefined as undefined | ((req: any) => unknown) };
+    e.pendingRequestHandler = handler;
+    e.wireRequestHandler();
+    return { onRequest: e.transport.onRequest, writes };
+  }
+
+  test("reverse-RPC: resolved handler writes a single-line JSON-RPC response to child stdin", async () => {
+    const { onRequest, writes } = wireFake(async (req) => ({
+      jsonrpc: "2.0",
+      id: req.id,
+      result: { ok: true },
+    }));
+    await onRequest({ jsonrpc: "2.0", id: 7, method: "x/host", params: {} });
+    expect(writes).toHaveLength(1);
+    expect(JSON.parse(writes[0]!.trim())).toEqual({ jsonrpc: "2.0", id: 7, result: { ok: true } });
+  });
+
+  test("reverse-RPC: a {streamed,frames} envelope writes each frame verbatim (no re-encode)", async () => {
+    const frames = ["announce-line\n", "chunk-line\n"];
+    const { onRequest, writes } = wireFake(async () => ({ streamed: true, frames }) as any);
+    await onRequest({ jsonrpc: "2.0", id: 8, method: "x/stream", params: {} });
+    expect(writes).toEqual(frames);
+  });
+
+  test("reverse-RPC: a rejecting host handler is converted to a verbatim -32603 written back to the child", async () => {
+    const { onRequest, writes } = wireFake(async () => {
+      throw new Error("host route blew up");
+    });
+    await onRequest({ jsonrpc: "2.0", id: 9, method: "x/boom", params: {} });
+    // Let the rejection settle into the .catch arm.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(writes).toHaveLength(1);
+    const parsed = JSON.parse(writes[0]!.trim());
+    expect(parsed.id).toBe(9);
+    expect(parsed.error.code).toBe(-32603);
+    expect(parsed.error.message).toContain("host route blew up");
+  });
 });

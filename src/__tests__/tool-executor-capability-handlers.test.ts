@@ -13,7 +13,7 @@
 // the handler surface will fail loudly right here rather than via a
 // hard-to-diagnose downstream regression.
 
-import { beforeAll, afterAll, describe, expect, test } from "bun:test";
+import { beforeAll, afterAll, beforeEach, afterEach, describe, expect, test } from "bun:test";
 import { mock } from "bun:test";
 import { setupTestDb, closeTestDb, getTestPglite } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
@@ -42,6 +42,12 @@ import type { ExtensionRegistry } from "../extensions/registry";
 import type { JsonRpcRequest, ExtensionPermissions } from "../extensions/types";
 import type { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
+
+const {
+  registerCallProvenance,
+  registerFireCallProvenance,
+  _resetCallProvenanceForTests,
+} = await import("../extensions/call-provenance");
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
@@ -187,5 +193,142 @@ describe("ToolExecutor.handlePiEmitTaskEvent", () => {
     );
     expect(resp.error?.code).toBe(-32602);
     expect(calls).toHaveLength(0);
+  });
+});
+
+// ── Registry-miss (-32603) arm for every reverse-RPC handler ──────────
+//
+// Each `handlePi*` method opens with a `getGrantedPermissions()` (and for
+// a couple, `getManifest()`) null-guard that returns a -32603
+// "Extension not found in registry". The integration / e2e suites always
+// run with a wired registry, so these guard arms are otherwise never
+// measured. Driving every handler with a null-granting registry locks the
+// guard for the whole surface in one cheap table-driven block.
+describe("ToolExecutor reverse-RPC handlers — registry miss yields -32603", () => {
+  function exec(): InstanceType<typeof ToolExecutor> {
+    return new ToolExecutor(makeRegistry(null), createStubPermissionEngine());
+  }
+  const r = (method: string) => rpc(method, { v: 1 });
+
+  test.each([
+    ["handlePiStorage", "ezcorp/storage"],
+    ["handlePiSpawnAssignment", "ezcorp/spawn-assignment"],
+    ["handlePiCancelRun", "ezcorp/cancel-run"],
+    ["handlePiNetworkInternal", "ezcorp/network.internal"],
+    ["handlePiLlmComplete", "ezcorp/llm.complete"],
+    ["handlePiMemory", "ezcorp/memory"],
+    ["handlePiLessons", "ezcorp/lessons"],
+    ["handlePiSchedule", "ezcorp/schedule"],
+    ["handlePiDrafts", "ezcorp/drafts"],
+    ["handlePiAppendMessage", "ezcorp/append-message"],
+    ["handlePiFinalizeToolCall", "ezcorp/finalize-tool-call"],
+    ["handlePiFs", "ezcorp/fs"],
+  ] as const)("%s → -32603", async (fn, method) => {
+    const e = exec() as unknown as Record<string, (id: string, req: JsonRpcRequest) => Promise<any>>;
+    // handlePiFs (the deprecated path-check shim) needs a path+operation to
+    // clear its earlier -32602 guard and reach the registry-miss arm. The
+    // fs.* sub-handlers (read/write/…) resolve provenance BEFORE the
+    // registry, so they fail at the provenance ladder (-32602), not here —
+    // covered in the provenance-ladder block below.
+    const req = fn === "handlePiFs"
+      ? rpc(method, { path: "/x", operation: "read" })
+      : r(method);
+    const resp = await e[fn]!("missing-ext", req);
+    expect(resp.error?.code).toBe(-32603);
+  });
+});
+
+// ── resolveReverseRpcMeta provenance ladder ───────────────────────────
+//
+// The provenance-resolving handlers (the Phase-51 capability set + fs.*)
+// thread through `resolveReverseRpcMeta`, which returns:
+//   - -32602 when no valid host-issued `ezCallId` is on the wire,
+//   - -32106 for an ownerless background-fire token,
+//   - ok (and dispatches the real handler) for a resolvable user token.
+// These arms are the per-call provenance plumbing the integration suites
+// don't isolate; drive them through one representative handler each.
+describe("ToolExecutor.resolveReverseRpcMeta provenance ladder (via handlePiMemory / fs.read)", () => {
+  function execWith(granted: ExtensionPermissions): InstanceType<typeof ToolExecutor> {
+    return new ToolExecutor(makeRegistry(granted), createStubPermissionEngine());
+  }
+  const GRANT: ExtensionPermissions = { memory: "read", grantedAt: {} } as ExtensionPermissions;
+
+  beforeEach(() => _resetCallProvenanceForTests());
+  afterEach(() => _resetCallProvenanceForTests());
+
+  test("no ezCallId on the wire → -32602 (provenance unresolved, fail fast)", async () => {
+    const resp = await execWith(GRANT).handlePiMemory(
+      EXT_ID,
+      rpc("ezcorp/memory", { v: 1, action: "search", query: "x" }),
+    );
+    expect(resp.error?.code).toBe(-32602);
+  });
+
+  test("ownerless background-fire token → -32106 (clean soft-fail, never a throw)", async () => {
+    const ezCallId = registerFireCallProvenance({
+      onBehalfOf: null,
+      conversationId: null,
+      runId: null,
+      parentCallId: null,
+      actorExtensionId: EXT_ID,
+      kind: "event",
+      ownerless: true,
+    });
+    const resp = await execWith(GRANT).handlePiMemory(
+      EXT_ID,
+      rpc("ezcorp/memory", { v: 1, action: "search", query: "x", _meta: { ezCallId } }),
+    );
+    expect(resp.error?.code).toBe(-32106);
+  });
+
+  test("a resolvable user token clears the provenance gate and dispatches the real handler", async () => {
+    // A valid token whose actorExtensionId MATCHES the resolving ext —
+    // resolveReverseRpcMeta returns ok and the call reaches the memory
+    // handler (which then applies its own permission/validation). The
+    // assertion only needs to prove we got PAST the provenance ladder:
+    // a -32602/-32106 here would mean the gate rejected us.
+    const ezCallId = registerCallProvenance({
+      onBehalfOf: "user-cap",
+      conversationId: CONV_ID,
+      runId: "run-1",
+      parentCallId: null,
+      actorExtensionId: EXT_ID,
+      kind: "tool",
+      ownerless: false,
+    });
+    const resp = await execWith(GRANT).handlePiMemory(
+      EXT_ID,
+      rpc("ezcorp/memory", { v: 1, action: "search", query: "hello world", _meta: { ezCallId } }),
+    );
+    expect(resp.error?.code).not.toBe(-32602);
+    expect(resp.error?.code).not.toBe(-32106);
+  });
+
+  test("a token whose actorExtensionId differs from the resolver still proceeds (tripwire, not enforced)", async () => {
+    // The actorExtensionId mismatch logs a warn but does NOT hard-reject —
+    // exercising line 2330's tripwire branch.
+    const ezCallId = registerCallProvenance({
+      onBehalfOf: "user-cap",
+      conversationId: CONV_ID,
+      runId: null,
+      parentCallId: "parent-1",
+      actorExtensionId: "some-other-ext",
+      kind: "tool",
+      ownerless: false,
+    });
+    const resp = await execWith(GRANT).handlePiMemory(
+      EXT_ID,
+      rpc("ezcorp/memory", { v: 1, action: "search", query: "hi there", _meta: { ezCallId } }),
+    );
+    expect(resp.error?.code).not.toBe(-32602);
+    expect(resp.error?.code).not.toBe(-32106);
+  });
+
+  test("fs.read with no token returns the resolver's verbatim -32602", async () => {
+    const resp = await execWith(GRANT).handlePiFsRead(
+      EXT_ID,
+      rpc("ezcorp/fs.read", { v: 1, path: "notes.txt" }),
+    );
+    expect(resp.error?.code).toBe(-32602);
   });
 });
