@@ -13,7 +13,7 @@ export function spyOnStdoutWriter(): { writes: string[]; restore: () => void } {
   const writes: string[] = [];
   const sink = {
     write(s: string | ArrayBufferView | ArrayBuffer): number {
-      writes.push(typeof s === "string" ? s : new TextDecoder().decode(s as ArrayBufferView));
+      writes.push(typeof s === "string" ? s : new TextDecoder().decode(s as unknown as Uint8Array));
       return 0;
     },
     flush(): number | Promise<number> {
