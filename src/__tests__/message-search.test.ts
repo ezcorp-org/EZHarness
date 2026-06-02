@@ -25,7 +25,7 @@ import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers
 
 mockDbConnection();
 
-const { searchMessages, RRF_K } = await import("../db/queries/message-search");
+const { searchMessages, RRF_K, explainVectorLegSql } = await import("../db/queries/message-search");
 const { EMBEDDING_MODEL_ID } = await import("../memory/embeddings");
 const { projects, users, conversations, messages } = await import("../db/schema");
 const { sql } = await import("drizzle-orm");
@@ -262,6 +262,39 @@ describe("searchMessages — RRF / mode / scoping / snippet / match-type", () =>
 
   test("RRF_K is the documented k=60 tune point", () => {
     expect(RRF_K).toBe(60);
+  });
+
+  // explainVectorLegSql() is the SRCH-05 EXPLAIN helper. Its execution-plan
+  // assertions live in message-search-explain.test.ts (which needs the
+  // ≥2.5k-row index-scale corpus). We exercise its STRING-BUILDING branches
+  // here too — both the scope=project (with/without userId) and scope=all
+  // shapes — so this shard's per-line coverage flips to non-zero. Coverage-
+  // shard parity: the explain shard, run in its own bun process, instruments
+  // the helper's multi-line return-template SPARSELY (bun never emits DA for a
+  // few string-content rows, e.g. the `mc.message_id AS …` lines); this shard
+  // contributes explicit `DA:<line>,0` for those same rows. The merge sums DA
+  // by line across shards, so without a real call here those rows stay 0 and
+  // drag the gate below 100. The assertions below are genuine contract checks
+  // on the emitted SQL — the tenant predicate and ANN shape — not filler.
+  test("explainVectorLegSql emits the project / project+user / all tenant shapes", () => {
+    const project = explainVectorLegSql({ projectId: s.projectA, queryEmbedding: QUERY_VECTOR });
+    expect(project).toContain("EXPLAIN ANALYZE");
+    expect(project).toContain("FROM message_chunks mc");
+    expect(project).toContain(`c.project_id = '${s.projectA}'`);
+    expect(project).not.toContain("c.user_id");
+    expect(project).toContain("ORDER BY mc.embedding <=>");
+
+    const projectUser = explainVectorLegSql({
+      projectId: s.projectA,
+      userId: s.userA,
+      queryEmbedding: QUERY_VECTOR,
+    });
+    expect(projectUser).toContain(`c.project_id = '${s.projectA}'`);
+    expect(projectUser).toContain(`AND c.user_id = '${s.userA}'`);
+
+    const all = explainVectorLegSql({ scope: "all", userId: s.userA, queryEmbedding: QUERY_VECTOR });
+    expect(all).toContain(`c.user_id = '${s.userA}'`);
+    expect(all).not.toContain("c.project_id");
   });
 
   test("SRCH-02: hybrid fuses both legs — the BOTH message tags 'both' and outranks single-leg rows", async () => {

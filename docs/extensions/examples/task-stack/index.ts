@@ -574,13 +574,16 @@ export async function handleRequest(req: JsonRpcRequest): Promise<JsonRpcRespons
 
 // --- Production wiring ---
 //
-// Gated on `import.meta.main` so test imports don't open stdin. Order is
-// load-bearing: `getChannel()` arms the dispatcher registration before
+// Extracted so tests can cover the wiring branch (the `import.meta.main`
+// gate alone is dead under `bun test`). Order is load-bearing:
+// `getChannel()` arms the dispatcher registration before
 // `createToolDispatcher(tools)` supplies the handlers; `ch.start()` then
-// kicks off the stdin read loop.
-
-if (import.meta.main) {
+// kicks off the stdin read loop. Mirrors web-search/index.ts.
+export function start(): void {
   const ch = getChannel();
   createToolDispatcher(tools);
   ch.start();
 }
+
+// Gated on `import.meta.main` so test imports don't open stdin.
+if (import.meta.main) start();

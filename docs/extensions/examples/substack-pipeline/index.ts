@@ -26,8 +26,15 @@ export const tools: Record<string, ToolHandler> = {
   finalize_substack_post,
 };
 
-if (import.meta.main) {
+// Production wiring — extracted so tests can cover the wiring branch
+// (the `import.meta.main` gate alone is dead under `bun test`). Mirrors
+// the `start()` pattern used by substack-pilot/index.ts and
+// substack-engagement/index.ts.
+export function start(): void {
   const ch = getChannel();
   createToolDispatcher(tools);
   ch.start();
 }
+
+// Gated on `import.meta.main` so test imports don't open stdin.
+if (import.meta.main) start();

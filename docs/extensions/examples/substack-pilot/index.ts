@@ -44,9 +44,14 @@ export const tools: Record<string, ToolHandler> = {
 };
 
 // ── Production wiring ───────────────────────────────────────────
-// Gated on `import.meta.main` so test imports don't open stdin.
-if (import.meta.main) {
+// Extracted so tests can cover the wiring branch (the `import.meta.main`
+// gate alone is dead under `bun test`). Mirrors the `start()` pattern
+// used by substack-engagement/index.ts and web-search/index.ts.
+export function start(): void {
   const ch = getChannel();
   createToolDispatcher(tools);
   ch.start();
 }
+
+// Gated on `import.meta.main` so test imports don't open stdin.
+if (import.meta.main) start();

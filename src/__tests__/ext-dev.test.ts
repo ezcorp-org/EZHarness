@@ -13,6 +13,9 @@ let mockDeleteExtensionCalls: string[] = [];
 let mockListExtensionsResult: unknown[] = [];
 let mockReloadCalls = 0;
 let _mockKillAllCalls = 0;
+// When set, the registry's reload() rejects — drives the reload() outer
+// catch block (dev.ts line 65) so the "Reload failed" error path is covered.
+let mockReloadShouldThrow = false;
 
 mock.module("../../src/extensions/installer", () => ({
   installFromLocal: async (...args: unknown[]) => {
@@ -30,7 +33,10 @@ mock.module("../../src/db/queries/extensions", () => ({
 mock.module("../../src/extensions/registry", () => ({
   ExtensionRegistry: {
     getInstance: () => ({
-      reload: async () => { mockReloadCalls++; },
+      reload: async () => {
+        mockReloadCalls++;
+        if (mockReloadShouldThrow) throw new Error("boom: registry reload failed");
+      },
       killAll: () => { _mockKillAllCalls++; },
       getProcess: async () => ({
         kill: () => {},
@@ -68,6 +74,7 @@ beforeEach(() => {
   mockListExtensionsResult = [];
   mockReloadCalls = 0;
   _mockKillAllCalls = 0;
+  mockReloadShouldThrow = false;
 });
 
 async function createTempExtDir(): Promise<string> {
@@ -206,6 +213,89 @@ describe("ezcorp ext dev", () => {
       controller.abort();
       await promise.catch(() => {});
     } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
+  // dev.ts line 65 — the reload() OUTER catch. The inner try/catch only
+  // swallows getProcess()/kill() failures; a throw from registry.reload()
+  // propagates to the outer catch and is logged as "Reload failed". Driving
+  // reload to throw exercises that error branch (the watcher must NOT crash).
+  test("reload failure is caught and logged (dev server stays alive)", async () => {
+    const tmpDir = await createTempExtDir();
+    try {
+      mockReloadShouldThrow = true;
+      const controller = new AbortController();
+      const promise = startDevServer({ extDir: tmpDir, _signal: controller.signal });
+      await new Promise(r => setTimeout(r, 100));
+
+      await Bun.write(`${tmpDir}/index.ts`, 'console.log("trigger reload throw");');
+      await new Promise(r => setTimeout(r, 300));
+
+      // reload() was attempted (and threw → caught), and the server did not die:
+      // a follow-up abort still resolves cleanly through cleanup().
+      expect(mockReloadCalls).toBeGreaterThanOrEqual(1);
+      controller.abort();
+      await promise.catch(() => {});
+    } finally {
+      await cleanup(tmpDir);
+    }
+  });
+
+  // dev.ts lines 116-125 + 134 — the NO-`_signal` production path. Without a
+  // test AbortSignal, startDevServer registers real process SIGINT/SIGTERM
+  // handlers and then parks on `await new Promise(() => {})` (never resolves).
+  // We spy on process.on to capture the registered handlers and stub
+  // process.exit so invoking them runs cleanup() without killing the runner.
+  // The function never returns, so we deliberately do NOT await it.
+  test("no _signal: registers SIGINT/SIGTERM handlers that clean up and exit", async () => {
+    const tmpDir = await createTempExtDir();
+    const realOn = process.on.bind(process);
+    const realExit = process.exit.bind(process);
+    const handlers: Record<string, (...a: unknown[]) => unknown> = {};
+    const exitCodes: Array<number | undefined> = [];
+
+    // Capture only the signal handlers dev.ts registers; delegate everything
+    // else to the real process.on so the test runner is unaffected.
+    (process as unknown as { on: typeof process.on }).on = ((
+      event: string,
+      handler: (...a: unknown[]) => unknown,
+    ) => {
+      if (event === "SIGINT" || event === "SIGTERM") {
+        handlers[event] = handler;
+        return process;
+      }
+      return realOn(event as never, handler as never);
+    }) as typeof process.on;
+
+    (process as unknown as { exit: typeof process.exit }).exit = ((code?: number) => {
+      exitCodes.push(code);
+      // Do NOT actually exit — swallow so the handler body can finish.
+      return undefined as never;
+    }) as typeof process.exit;
+
+    try {
+      // Intentionally un-awaited: the no-signal keep-alive (line 134) never
+      // resolves. Startup runs through the `else` branch registering handlers.
+      void startDevServer({ extDir: tmpDir });
+      await new Promise(r => setTimeout(r, 100));
+
+      expect(typeof handlers.SIGINT).toBe("function");
+      expect(typeof handlers.SIGTERM).toBe("function");
+
+      // Invoke SIGINT → cleanup() runs (removes dev record) then process.exit(0).
+      mockDeleteExtensionCalls = [];
+      await handlers.SIGINT!();
+      expect(mockDeleteExtensionCalls).toContain("dev-ext-id");
+      expect(exitCodes).toContain(0);
+
+      // Invoke SIGTERM → same cleanup + exit path.
+      mockDeleteExtensionCalls = [];
+      await handlers.SIGTERM!();
+      expect(mockDeleteExtensionCalls).toContain("dev-ext-id");
+    } finally {
+      (process as unknown as { on: typeof process.on }).on = realOn;
+      (process as unknown as { exit: typeof process.exit }).exit = realExit;
       await cleanup(tmpDir);
     }
   });

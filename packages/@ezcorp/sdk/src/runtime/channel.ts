@@ -191,10 +191,7 @@ class HostChannelImpl implements HostChannel {
   //     upper bound for a 256KB raw chunk).
   //   • assembled bytes ≤ 100MB hard cap.
   //   • seq must equal nextSeq AND seq < total.
-  private streams = new Map<
-    number | string,
-    { total: number; pieces: string[]; nextSeq: number; assembledBytes: number }
-  >();
+  private streams = new Map<number | string, { total: number; pieces: string[]; nextSeq: number; assembledBytes: number }>();
 
   private async runLoop(): Promise<void> {
     for await (const rawLine of this.stdin) {

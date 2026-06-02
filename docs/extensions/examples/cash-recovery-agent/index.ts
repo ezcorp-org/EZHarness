@@ -649,11 +649,16 @@ export async function handleRequest(req: JsonRpcRequest): Promise<JsonRpcRespons
 // Expose for tests — lets them call handlers without stdin wiring.
 export { tools };
 
-// Production wiring: same order as task-stack — arm channel, register
-// dispatcher, start stdin loop. Gated on import.meta.main so test files
-// can import this module without stealing stdin.
-if (import.meta.main) {
+// Production wiring: arm channel, register dispatcher, start stdin loop.
+// Extracted so tests can cover the wiring branch (the `import.meta.main`
+// gate alone is dead under `bun test`). Mirrors the `start()` pattern
+// used by web-search/index.ts and substack-engagement/index.ts.
+export function start(): void {
   const ch = getChannel();
   createToolDispatcher(tools);
   ch.start();
 }
+
+// Gated on `import.meta.main` so test files can import this module
+// without stealing stdin.
+if (import.meta.main) start();
