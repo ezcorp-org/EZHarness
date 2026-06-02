@@ -297,25 +297,6 @@
 					const updated = await updateConversation(convId, { title });
 					currentConversation = updated;
 				}}
-				ongoalstatus={async () => {
-					// /goal Phase 2 (PRD §5.9): clicking the chip POSTs
-					// `/goal` (no-arg) to the messages route. The slash-
-					// prefix interceptor in `messages/+server.ts` parses
-					// this as the `status` subcommand, returns a status
-					// card (`runId:null`, no LLM turn), and the row
-					// renders inline via the standard `ez-action-result`
-					// branch. We fire-and-forget — the SSE pipeline will
-					// surface the persisted row in the transcript without
-					// us having to touch the message store from here.
-					try {
-						const { sendMessage } = await import("$lib/api.js");
-						await sendMessage(convId, { content: "/goal" });
-					} catch {
-						// Silent — a failed status POST is a non-fatal
-						// UX issue (the chip itself still reflects the
-						// last good SSE frame).
-					}
-				}}
 			/>
 		{/snippet}
 

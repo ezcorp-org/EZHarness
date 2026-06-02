@@ -28,15 +28,7 @@ export type WSRunEvent = {
 		// owning a second EventSource (same pattern as ez:client-tool).
 		// Server-side `shouldDeliverEvent` already guarantees this only
 		// reaches the installing user's session.
-		| "extensions:installed"
-		// /goal Phase 2 (FR-20, D7): conversation-scoped autopilot
-		// indicator. The global subscriber re-dispatches it as a
-		// `goal:update` window CustomEvent so `GoalPill` (mounted in
-		// `ChatHeader`) doesn't need its own EventSource — mirrors
-		// the `ez:client-tool` / `extensions:installed` re-dispatch
-		// pattern. Server-side `shouldDeliverEvent` already scopes
-		// delivery by the event's top-level `conversationId`.
-		| "goal:update";
+		| "extensions:installed";
 	data: Record<string, unknown>;
 };
 

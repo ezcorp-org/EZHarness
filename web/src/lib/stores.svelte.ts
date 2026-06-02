@@ -1298,26 +1298,6 @@ export function initStores() {
 				}
 				break;
 			}
-
-			case "goal:update": {
-				// /goal Phase 2 (FR-20, D7): forward the autopilot-state
-				// transition to whichever surface is listening — today
-				// that's `GoalPill` mounted in `ChatHeader`. Re-dispatch
-				// pattern mirrors `ez:client-tool` / `extensions:installed`
-				// so the pill doesn't own a second EventSource. Server-side
-				// `shouldDeliverEvent` already scoped delivery by the
-				// payload's top-level `conversationId`; the pill double-
-				// checks the id matches the conversation it's mounted on
-				// before applying the update (defense in depth — a stale
-				// SSE connection across a page navigation can otherwise
-				// briefly deliver another conversation's frame).
-				if (typeof window !== "undefined") {
-					window.dispatchEvent(new CustomEvent("goal:update", {
-						detail: event.data,
-					}));
-				}
-				break;
-			}
 		}
 	});
 

@@ -4,7 +4,6 @@
 	import ContextUsageIndicator from "$lib/components/ContextUsageIndicator.svelte";
 	import PermissionModeIndicator from "$lib/components/PermissionModeIndicator.svelte";
 	import ExportMenu from "$lib/components/ExportMenu.svelte";
-	import GoalPill from "$lib/components/GoalPill.svelte";
 	import type { Conversation } from "$lib/api.js";
 	import type { PermissionMode } from "$lib/permission-mode.js";
 	import type { ContextBreakdown, ToolBreakdownEntry } from "$lib/context-usage-logic";
@@ -45,14 +44,6 @@
 		onpermissionmodechange: (mode: PermissionMode | undefined) => void;
 		oncallclick: (callId: string) => void;
 		onrename: (title: string) => void | Promise<void>;
-		/**
-		 * /goal Phase 2: invoked when the user clicks the `◎ /goal …`
-		 * chip. The parent page owns the actual POST so the chip
-		 * remains presentation-only and the existing submit pipeline
-		 * (mention parsing, attachments, etc.) is reused. Optional —
-		 * the chip silently no-ops if the host doesn't wire it.
-		 */
-		ongoalstatus?: () => void;
 	}
 
 	let {
@@ -83,7 +74,6 @@
 		onpermissionmodechange,
 		oncallclick,
 		onrename,
-		ongoalstatus,
 	}: Props = $props();
 
 	let editing = $state(false);
@@ -175,12 +165,6 @@
 	{/if}
 	</div>
 	<div class="flex items-center gap-1 shrink-0 flex-wrap justify-end">
-		<!-- /goal Phase 2 — `◎ /goal active|paused` chip. Renders
-		     nothing when no goal is armed on this conversation. The
-		     pill subscribes to the `goal:update` SSE event for its
-		     own state transitions; initial state hydrates from
-		     `/api/conversations/[id]/goal-state`. -->
-		<GoalPill convId={convId} onstatus={ongoalstatus} />
 		<!-- Context usage -->
 		<ContextUsageIndicator
 			usedTokens={lastTurnInputTokens}
