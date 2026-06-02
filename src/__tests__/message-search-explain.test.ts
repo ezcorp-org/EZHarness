@@ -20,7 +20,7 @@ import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers
 
 mockDbConnection();
 
-const { explainVectorLegSql } = await import("../db/queries/message-search");
+const { explainVectorLegSql, searchMessages } = await import("../db/queries/message-search");
 const { EMBEDDING_MODEL_ID } = await import("../memory/embeddings");
 const { projects, users, conversations, messages } = await import("../db/schema");
 const { sql } = await import("drizzle-orm");
@@ -155,5 +155,93 @@ describe("searchMessages vector leg — EXPLAIN ANALYZE (SRCH-05)", () => {
     expect(/user_id/i.test(planText)).toBe(true);
     // no sequential scan over message_chunks anywhere in the multi-project plan.
     expect(/Seq Scan on message_chunks/i.test(planText)).toBe(false);
+  });
+
+  // ── SRCH-05 end-to-end: run the real searchMessages() at index scale ──
+  //
+  // Coverage-shard parity (NOT just an extra assertion): the per-shard lcov
+  // merge sums DA hits keyed by line number across every shard that imports
+  // this module. This EXPLAIN shard imports message-search.ts and therefore
+  // instruments the *whole* module, emitting explicit `DA:<line>,0` for every
+  // line of searchMessages()'s mode-branch SQL builders (the keyword/semantic/
+  // hybrid CTE blocks, lines 295-403). The message-search.test.ts shard, run in
+  // its own bun process, instruments those same blocks SPARSELY — bun collapses
+  // several multi-line `sql\`…\`` template rows and never emits a DA record for
+  // them at all. The merge then has, for those lines, only this shard's explicit
+  // `,0` to sum, so they show as uncovered even though the runtime is fully
+  // exercised in the other shard — dragging the gate to ~70%.
+  //
+  // Running searchMessages() here (against the same ≥2.5k-row index-scale
+  // corpus the EXPLAIN tests seed) flips this shard's DA for those lines to
+  // non-zero, so the summed merge is non-zero and the gate measures 100%. The
+  // assertions are real end-to-end contract checks, not coverage filler: every
+  // mode returns scoped, deduped, correctly-shaped hits at index scale.
+  test("searchMessages runs every mode end-to-end at index scale (scope=project)", async () => {
+    const queryVec = seededVector(0);
+
+    for (const mode of ["hybrid", "keyword", "semantic"] as const) {
+      const hits = await searchMessages({
+        projectId,
+        userId,
+        query: "chunked message content body",
+        mode,
+        queryEmbedding: queryVec,
+        limit: 10,
+      });
+      // Every hit is scoped to Project 1 (the EXPLAIN corpus' main project)
+      // and carries the full display shape Wave-2 consumes.
+      for (const h of hits) {
+        expect(h.projectId).toBe(projectId);
+        expect(h.projectName).toBe("Explain");
+        expect(typeof h.score).toBe("number");
+        expect(h.role).toBe("user");
+        expect(h.createdAt instanceof Date).toBe(true);
+        if (mode === "keyword") expect(h.matchType).toBe("lexical");
+        if (mode === "semantic") expect(h.matchType).toBe("semantic");
+      }
+      // DISTINCT-ON collapse → no duplicate message ids in any mode.
+      const ids = hits.map((h) => h.messageId);
+      expect(new Set(ids).size).toBe(ids.length);
+    }
+  });
+
+  test("searchMessages scope=all spans both projects at index scale", async () => {
+    const queryVec = seededVector(0);
+    const hits = await searchMessages({
+      scope: "all",
+      userId,
+      query: "chunked message content body",
+      mode: "hybrid",
+      queryEmbedding: queryVec,
+      limit: 50,
+    });
+    // Every hit belongs to one of the user's two projects — never leaks.
+    for (const h of hits) {
+      expect([projectId, projectId2]).toContain(h.projectId);
+      expect(["Explain", "Explain2"]).toContain(h.projectName);
+    }
+  });
+
+  test("searchMessages guard + missing-vector paths return [] at index scale", async () => {
+    const queryVec = seededVector(0);
+    // <2-char guard (no SQL touched).
+    expect(
+      await searchMessages({ projectId, userId, query: "a", mode: "hybrid", queryEmbedding: queryVec }),
+    ).toEqual([]);
+    // scope=project without a projectId → unresolvable tenant.
+    expect(
+      await searchMessages({ userId, query: "chunked", mode: "hybrid", queryEmbedding: queryVec }),
+    ).toEqual([]);
+    // scope=all without a userId → unresolvable tenant (never global).
+    expect(
+      await searchMessages({ scope: "all", query: "chunked", mode: "hybrid", queryEmbedding: queryVec }),
+    ).toEqual([]);
+    // vector modes with a null embedding → [] before any SQL.
+    expect(
+      await searchMessages({ projectId, userId, query: "chunked", mode: "hybrid", queryEmbedding: null }),
+    ).toEqual([]);
+    expect(
+      await searchMessages({ projectId, userId, query: "chunked", mode: "semantic", queryEmbedding: null }),
+    ).toEqual([]);
   });
 });

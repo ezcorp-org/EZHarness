@@ -52,8 +52,20 @@ const RETURN_TYPE_OPEN = /^\s*\)\s*:\s*[A-Z]\w*<?[{<\[]?\s*$/;
 const TYPE_GENERIC_LINE =
   /^\s*(Array|Promise|Record|Map|Set|Partial|Readonly|Pick|Omit|Awaited)<.*>\s*$/;
 
-// String literal as the entire line, optional trailing comma.
-const STRING_LITERAL_ELEMENT = /^\s*"(?:[^"\\]|\\.)*"\s*,?\s*$/;
+// String literal as the entire line, optional trailing comma / concat `+`
+// / semicolon (string-concatenation continuation inside a multi-line
+// expression, e.g. a `throw new Error("…" + "…" + "…")`).
+const STRING_LITERAL_ELEMENT = /^\s*"(?:[^"\\]|\\.)*"\s*[+,;]?\s*$/;
+
+// Leading-`|` type-union continuation: ` | Record<string, unknown>`,
+// ` | undefined;`, ` | "react" | "svelte" | "vue" | "html";`. These are
+// pure type annotations split across lines after an `as`/return-type/union;
+// they emit no JS. Guarded below to reject value expressions containing `=`.
+const UNION_CONTINUATION = /^\s*\|\s/;
+
+// Type-alias declaration: `type Foo = …` / `export type Foo = …`. The
+// declaration itself is erased at compile time (no runtime JS).
+const TYPE_DECL = /^\s*(export\s+)?type\s+\w+\s*=/;
 
 // Backtick template literal on its own line.
 const TEMPLATE_LITERAL_LINE = /^\s*`(?:[^`\\]|\\.)*`\s*[+;,]?\s*$/;
@@ -78,6 +90,13 @@ export function isNoiseLine(text: string): boolean {
   if (TEMPLATE_LITERAL_LINE.test(text)) return true;
   if (SQL_FRAGMENT.test(text)) return true;
   if (SQL_CLOSE.test(text)) return true;
+  if (TYPE_DECL.test(text)) return true;
+  if (UNION_CONTINUATION.test(text)) {
+    // Guard: a line beginning with `|` that contains a value-level `=`
+    // (outside `=>`) or a call `(` is not a type union — keep it.
+    const stripped = text.replace(/=>/g, "");
+    if (!stripped.includes("=") && !stripped.includes("(")) return true;
+  }
   if (TS_FIELD_START.test(text) && ENDS_WITH_TYPE_TERMINATOR.test(text)) {
     // Reject if there's a `=` outside `=>` arrow syntax — that would be
     // a value-assignment, not a type continuation.
