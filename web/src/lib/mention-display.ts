@@ -166,11 +166,17 @@ export function wirePosToDisplay(spans: DisplaySpan[], wPos: number): number {
  * text is spliced into the wire string at the mapped offsets and the rebuilt
  * wire string is returned.
  *
- * Returns `null` when the edit overlaps a mention token's interior (e.g. a
- * range selection that swallowed part of a chip). The caller treats `null` as
- * "reject / resync" — token mutations are expected to go through the explicit
- * insert/delete handlers, not through free-form text edits, so this only
- * guards rare destructive selections.
+ * A deletion/replacement whose window *fully covers* one or more chip labels
+ * (a range selection, a Cmd/Ctrl line-or-word kill, or select-all → delete) is
+ * also accepted: the covered wire tokens are spliced out wholesale, mapping the
+ * window's edges across the remaining chips. Only the chips entirely inside the
+ * window disappear; chips outside it are untouched.
+ *
+ * Returns `null` only when the edit window cuts *partway* into a token's
+ * interior (e.g. a selection boundary that landed mid-chip), which would
+ * corrupt the `![kind:name]` syntax. The caller treats `null` as "reject /
+ * resync" — such partial cuts are expected to go through the explicit
+ * atomic-delete handler, not through free-form text edits.
  */
 export function applyDisplayEdit(oldWire: string, newDisplay: string): string | null {
 	const { display: oldDisplay, spans } = toDisplay(oldWire);
@@ -192,13 +198,15 @@ export function applyDisplayEdit(oldWire: string, newDisplay: string): string | 
 	const editStartD = p;
 	const editEndD = oldDisplay.length - s;
 
-	// Reject edits that intrude into a token's interior. (Touching a boundary
-	// is fine — that's a plain-text edit immediately adjacent to a chip.)
+	// An edit that overlaps a chip is only safe when it *fully* covers that
+	// chip's compact label — then the whole wire token is spliced out below.
+	// A partial cut into a token's interior (a boundary landing mid-chip) would
+	// corrupt the `![kind:name]` syntax, so reject it and let the caller resync.
 	for (const sp of spans) {
-		if (editStartD < sp.dEnd && editEndD > sp.dStart) {
-			const fullyOutside = editEndD <= sp.dStart || editStartD >= sp.dEnd;
-			if (!fullyOutside) return null;
-		}
+		const overlaps = editStartD < sp.dEnd && editEndD > sp.dStart;
+		if (!overlaps) continue;
+		const fullyCovers = editStartD <= sp.dStart && editEndD >= sp.dEnd;
+		if (!fullyCovers) return null;
 	}
 
 	const wStart = displayPosToWire(spans, editStartD);

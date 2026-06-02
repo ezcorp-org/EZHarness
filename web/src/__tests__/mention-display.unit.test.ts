@@ -174,6 +174,62 @@ describe("applyDisplayEdit — translate display edits onto the wire", () => {
 		expect(applyDisplayEdit(wire, "!Code")).toBeNull();
 	});
 
+	// ── Deletions that FULLY cover one or more chips ────────────────────
+	// These back the highlight+delete / Cmd+Delete / select-all behaviors in
+	// the composer: a window that wholly contains a chip label splices the
+	// whole wire token out (vs the old code, which rejected ANY chip overlap).
+
+	test("select-all + delete clears a message containing a chip", () => {
+		const wire = "hello ![agent:Bob] world";
+		expect(applyDisplayEdit(wire, "")).toBe("");
+	});
+
+	test("highlight+delete of exactly one chip's label removes only that token", () => {
+		const wire = "hi ![agent:Bob] there";
+		const { display, spans } = toDisplay(wire);
+		// Delete the chip's compact label (dStart..dEnd), keeping the text around it.
+		const newDisplay = display.slice(0, spans[0]!.dStart) + display.slice(spans[0]!.dEnd);
+		expect(applyDisplayEdit(wire, newDisplay)).toBe("hi  there");
+	});
+
+	test("Cmd+Delete to line start removes a chip plus the text before the caret", () => {
+		const wire = "keep ![agent:Bob] tail";
+		const { display } = toDisplay(wire);
+		// Caret sits right before " tail"; kill-to-line-start deletes everything
+		// up to it, swallowing the leading text AND the chip.
+		const tail = " tail";
+		expect(applyDisplayEdit(wire, tail)).toBe(tail);
+		// Sanity: the killed display window did end at the chip-free tail.
+		expect(display.endsWith(tail)).toBe(true);
+	});
+
+	test("a window covering several chips drops all of their wire tokens", () => {
+		const wire = "a ![agent:A] b /[cmd:deploy] c";
+		const { display, spans } = toDisplay(wire);
+		// Select from just before the first chip to just after the second, delete.
+		const newDisplay = display.slice(0, spans[0]!.dStart) + display.slice(spans[1]!.dEnd);
+		// Both chips and the " b " between them vanish; the surrounding "a " and
+		// " c" are kept verbatim (so the two retained spaces sit adjacent).
+		expect(applyDisplayEdit(wire, newDisplay)).toBe("a  c");
+	});
+
+	test("deleting one of two chips leaves the untouched chip's wire token intact", () => {
+		const wire = "![agent:A] mid /[cmd:deploy]";
+		const { display, spans } = toDisplay(wire);
+		// Remove only the first chip's label.
+		const newDisplay = display.slice(spans[0]!.dEnd);
+		expect(applyDisplayEdit(wire, newDisplay)).toBe(" mid /[cmd:deploy]");
+	});
+
+	test("a selection boundary landing mid-chip is still rejected", () => {
+		const wire = "x ![agent:Bob] y";
+		const { display, spans } = toDisplay(wire);
+		// End the deletion one char into the chip label (after its sigil) — a
+		// partial cut that would corrupt the token, so it must reject.
+		const newDisplay = display.slice(0, spans[0]!.dStart + 1);
+		expect(applyDisplayEdit(wire, newDisplay)).toBeNull();
+	});
+
 	test("round-trips a realistic multi-token message edit", () => {
 		const wire = "ping ![agent:Bot] re @[file:a/b.ts] thanks";
 		const { display } = toDisplay(wire);
