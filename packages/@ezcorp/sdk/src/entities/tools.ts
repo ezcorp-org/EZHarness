@@ -65,6 +65,22 @@ export function snakeCaseToolSegment(label: string): string {
   return snake;
 }
 
+/**
+ * Sanity-check a derived tool name against the host registry's
+ * `TOOL_NAME_REGEX`. Throws on mismatch so a bad manifest is caught at
+ * tools-generation time rather than at dispatch. Extracted so the guard
+ * is directly exercisable — in practice `snakeCaseToolSegment` +
+ * `list_`/`get_`/… prefixing always yields a valid name, making this a
+ * defense-in-depth check the normal generation path never trips.
+ */
+export function assertValidToolName(kind: string, name: string): void {
+  if (!TOOL_NAME_REGEX.test(name)) {
+    throw new Error(
+      `Derived tool name ${JSON.stringify(name)} for "${kind}" is not a valid tool name`,
+    );
+  }
+}
+
 export interface EntityToolNames {
   list: string;
   get: string;
@@ -87,11 +103,7 @@ export function entityToolNames(decl: EntityDeclaration): EntityToolNames {
   // host's registry. Throw early so a bad manifest is caught at
   // tools-generation time rather than at dispatch.
   for (const [k, v] of Object.entries(names)) {
-    if (!TOOL_NAME_REGEX.test(v)) {
-      throw new Error(
-        `Derived tool name ${JSON.stringify(v)} for "${k}" is not a valid tool name`,
-      );
-    }
+    assertValidToolName(k, v);
   }
   return names;
 }

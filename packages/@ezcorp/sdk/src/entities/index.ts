@@ -53,6 +53,7 @@ export {
 } from "./storage";
 
 export {
+  assertValidToolName,
   buildEntityToolDefinitions,
   buildEntityToolHandlers,
   buildEntityToolMap,

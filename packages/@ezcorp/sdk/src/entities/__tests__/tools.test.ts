@@ -15,6 +15,7 @@ import type { ToolCallResult } from "../../types";
 import type { EntityDeclaration } from "../types";
 import type { EntityStoreLike } from "../storage";
 import {
+  assertValidToolName,
   buildEntityToolDefinitions,
   buildEntityToolHandlers,
   buildEntityToolMap,
@@ -104,6 +105,32 @@ describe("snakeCaseToolSegment", () => {
     );
     expect(() => snakeCaseToolSegment("!@#$")).toThrow(
       /Cannot derive tool name/,
+    );
+  });
+});
+
+// ── assertValidToolName (defense-in-depth guard) ────────────────
+
+describe("assertValidToolName", () => {
+  test("accepts a well-formed derived name", () => {
+    expect(() => assertValidToolName("list", "list_post_types")).not.toThrow();
+  });
+
+  test("throws when the name starts with a non-letter", () => {
+    expect(() => assertValidToolName("get", "1_bad")).toThrow(
+      /Derived tool name "1_bad" for "get" is not a valid tool name/,
+    );
+  });
+
+  test("throws when the name contains an illegal character", () => {
+    expect(() => assertValidToolName("create", "create-post")).toThrow(
+      /is not a valid tool name/,
+    );
+  });
+
+  test("throws on an empty name", () => {
+    expect(() => assertValidToolName("delete", "")).toThrow(
+      /is not a valid tool name/,
     );
   });
 });
