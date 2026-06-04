@@ -18,6 +18,7 @@ import { addToast } from "./toast.svelte.js";
 import { inlineToolStore } from "./inline-tool-store.svelte.js";
 import { unreadStore } from "./unread.js";
 import { ContentBlockBuilder, type ContentBlock } from "./content-blocks.js";
+import { appendStreamingToolCall } from "./chat/streaming-tool-calls.js";
 export type { ContentBlock } from "./content-blocks.js";
 import {
 	registerSpawn as routingRegisterSpawn,
@@ -916,21 +917,33 @@ export function initStores() {
 				const runId = Object.entries(store.streamingRunToConversation)
 					.find(([, cId]) => cId === conversationId)?.[0];
 				if (runId) {
-					// Flush any buffered tokens BEFORE inserting tool_ref to preserve text/tool ordering
-					flushTokensForRun(runId);
 					const existing = store.streamingToolCalls[runId] ?? [];
-					store.streamingToolCalls = {
-						...store.streamingToolCalls,
-						[runId]: [...existing, { ...(invocationId ? { id: invocationId } : {}), toolName, status: 'running', input, startedAt: timestamp, extensionId, cardType, cardLayout: safeLayout, category }],
-					};
-					// Insert tool_ref into content blocks
-					const tcBuilder = blockBuilders.get(runId);
-					if (tcBuilder) {
-						tcBuilder.pushToolRef();
-						store.streamingContentBlocks = {
-							...store.streamingContentBlocks,
-							[runId]: tcBuilder.snapshot(),
+					const entry: ToolCallState = { ...(invocationId ? { id: invocationId } : {}), toolName, status: 'running', input, startedAt: timestamp, extensionId, cardType, cardLayout: safeLayout, category };
+					// Dedup by id (symmetric with the resume guard in
+					// stream-resume.svelte.ts): the resume/active-run path may have
+					// already injected a synthetic card for this tool call
+					// (pendingAskUser / pendingPermissions) before the live
+					// tool:start arrives — typically on a WS reconnect while an
+					// ask_user_question gate is open. A blind append would render
+					// the same question card twice. When the id is already present
+					// this is a no-op (and we skip the paired tool_ref push below).
+					const { calls, added } = appendStreamingToolCall(existing, entry);
+					if (added) {
+						// Flush any buffered tokens BEFORE inserting tool_ref to preserve text/tool ordering
+						flushTokensForRun(runId);
+						store.streamingToolCalls = {
+							...store.streamingToolCalls,
+							[runId]: calls,
 						};
+						// Insert tool_ref into content blocks
+						const tcBuilder = blockBuilders.get(runId);
+						if (tcBuilder) {
+							tcBuilder.pushToolRef();
+							store.streamingContentBlocks = {
+								...store.streamingContentBlocks,
+								[runId]: tcBuilder.snapshot(),
+							};
+						}
 					}
 				}
 				break;
