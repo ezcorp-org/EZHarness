@@ -141,6 +141,41 @@ COPY --from=builder /app/src ./src
 # chmod for the final image to spawn it via `unshare ... -- launcher.sh`.
 RUN chmod +x /app/src/extensions/mcp-launcher.sh
 
+# Secure Preview / Phase 3a (uid-based portable isolation) — compile the
+# setuid-root `preview-spawn` helper and install it root:root mode 4755.
+# MUST run AFTER `COPY /app/src ./src` above, otherwise that copy would
+# clobber the compiled binary (it lands under src/runtime/preview/).
+#
+# The non-root app (uid 1000) execs this tiny C helper to launch untrusted
+# dev servers as a per-conversation "preview uid" (90000–99000). Because
+# the binary is setuid-root and the container's root mount is not nosuid
+# (NoNewPrivs=0), the app gains euid=0 just long enough for the helper to
+# setgid+setuid down to the preview uid, drop all caps + supplementary
+# groups, chdir into the conversation workdir, apply a restricted env, and
+# execvp the dev server — with NO container posture change (no privileged,
+# no userns, no extra caps). See tasks/preview-port-exposure.md "Phase 3
+# REDESIGN".
+#
+# Build deps (gcc + libc6-dev) are installed for the duration of this RUN
+# and purged immediately so they never bloat the runtime image — same
+# pattern as the seccomp compile above. The source-of-truth C lives at
+# build/preview-spawn.c (committed, auditable, < 200 lines). The installed
+# binary lands at /app/src/runtime/preview/preview-spawn (matches
+# previewSpawnHelperPath() in preview-spawn.ts).
+#
+# mode 4755 = rwsr-xr-x: setuid bit + world-exec so uid 1000 can invoke it;
+# owned root:root so the setuid actually grants euid=0. The uid-range
+# allowlist is enforced INSIDE the helper (and again on the TS side) so a
+# 4755 binary can ONLY ever drop to a preview uid, never escalate.
+COPY --from=builder /app/build/preview-spawn.c /tmp/preview-spawn.c
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends gcc libc6-dev \
+  && gcc -O2 -Wall -Wextra -o /app/src/runtime/preview/preview-spawn /tmp/preview-spawn.c \
+  && chown root:root /app/src/runtime/preview/preview-spawn \
+  && chmod 4755 /app/src/runtime/preview/preview-spawn \
+  && apt-get purge -y --auto-remove gcc libc6-dev \
+  && rm -rf /var/lib/apt/lists/* /tmp/preview-spawn.c
+
 # Copy @ezcorp/sdk workspace source — the package's "bun" exports condition
 # points at ./src/index.ts, which runtime needs present since there's no built
 # dist/ yet (Phase 3 will add the build step).
