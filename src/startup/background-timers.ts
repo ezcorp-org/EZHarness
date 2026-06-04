@@ -221,6 +221,14 @@ export async function startBackgroundTimers(): Promise<void> {
   // contract as HostMaintenanceDaemon/EmbedWorker: log + drop the handle on
   // a failed start; never block boot. Gated by
   // EZCORP_DISABLE_PREVIEW_WATCHER=1 (handled inside start()).
+  //
+  // NOTE (Phase-3 seam): detection is NOT live yet. No conversation calls
+  // `previewPortWatcher.watch(convId, userId)` here, and NetnsPortSource's
+  // reader is the phase3StubReader (empty). Per-conversation `watch()`
+  // registration (driven by shell-tool use) + live netns `/proc/net/tcp`
+  // enumeration land in Phase 3 — until then the watcher polls an empty
+  // set and never emits. The wiring below proves the daemon stands up;
+  // it does not detect ports on this build.
   try {
     previewPortWatcher = new PreviewPortWatcher({
       source: new NetnsPortSource(),

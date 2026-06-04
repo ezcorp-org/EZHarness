@@ -5,6 +5,7 @@
  * Coverage:
  *   - 401 unauthenticated (requireAuth throws a Response)
  *   - 400 missing conversationId / bad JSON / unknown action / bad port
+ *     (0 and >65535 both rejected)
  *   - "ignore" → 200 non-action, NEVER calls exposeDetectedPort
  *   - "expose" → 200, calls exposeDetectedPort with the SESSION user
  *     (requester-scoped — never a body userId), returns {previewId, code}
@@ -84,6 +85,12 @@ describe("POST /api/preview/consent", () => {
 
   test("400 on a bad port for expose", async () => {
     const res = await run(makeEvent({ body: { conversationId: "c1", port: 0, action: "expose" } }));
+    expect(res.status).toBe(400);
+    expect(mockExpose).not.toHaveBeenCalled();
+  });
+
+  test("400 on a port above 65535 for expose", async () => {
+    const res = await run(makeEvent({ body: { conversationId: "c1", port: 70000, action: "expose" } }));
     expect(res.status).toBe(400);
     expect(mockExpose).not.toHaveBeenCalled();
   });

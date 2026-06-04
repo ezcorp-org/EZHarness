@@ -113,6 +113,15 @@ describe("PreviewPortWatcher — detection rules", () => {
     expect(events[0]!.port).toBe(5173);
   });
 
+  test("infra-port filter: port 0 (built-in) is never surfaced", async () => {
+    const { events, onDetected } = collector();
+    const w = new PreviewPortWatcher({ source, onDetected, stabilizeTicks: 1, skipLockfile: true });
+    w.watch("conv1", "userA");
+    source.set("conv1", [0, 5173]); // 0 is a built-in infra port (DEFAULT_INFRA_PORTS)
+    await w.tickOnce();
+    expect(events.map((e) => e.port)).toEqual([5173]);
+  });
+
   test("infra-port filter: caller-supplied infra ports are merged", async () => {
     const { events, onDetected } = collector();
     const w = new PreviewPortWatcher({
