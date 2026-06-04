@@ -181,9 +181,27 @@ function installModuleMocks(): void {
   }));
   mock.module("../runtime/preview/preview-port-source", () => ({
     NetnsPortSource: class {},
+    ProcPortSource: class {},
   }));
   mock.module("../runtime/preview/preview-consent", () => ({
     decideOnDetection: () => Promise.resolve({ kind: "skipped", reason: "stub" }),
+  }));
+  // Phase 3a: stub the capability probe, the boot lockdown, the detection
+  // bridge, and the bus registry so the watcher bootstrap doesn't reach
+  // /proc, chmod the real .ezcorp/data, or the live bus. Keeping these inert
+  // preserves the intervalCalls length assertions (the watcher stub above
+  // registers NO setInterval) — see the prior background-timers incident.
+  mock.module("../runtime/preview/preview-netns", () => ({
+    previewCapabilities: () => ({ static: true, dynamic: false, mode: "static", reason: "stub" }),
+  }));
+  mock.module("../runtime/preview/preview-uid-pool", () => ({
+    enforceDataDirLockdown: () => ({ ok: false, path: "/stub/.ezcorp/data", reason: "stub" }),
+  }));
+  mock.module("../runtime/preview/preview-detection-bridge", () => ({
+    onPreviewDetected: () => Promise.resolve(),
+  }));
+  mock.module("../runtime/preview/preview-bus-registry", () => ({
+    getRegisteredPreviewBus: () => null,
   }));
   mock.module("../logger", () => ({ logger: loggerSpy }));
 }

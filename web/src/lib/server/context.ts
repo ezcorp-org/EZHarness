@@ -1,5 +1,6 @@
 import { loadAgents } from "$server/runtime/loader";
 import { EventBus } from "$server/runtime/events";
+import { registerPreviewBus } from "$server/runtime/preview/preview-bus-registry";
 import { AgentExecutor } from "$server/runtime/executor";
 import { PipelineExecutor } from "$server/runtime/pipeline-executor";
 import { loadYamlPipelines } from "$server/runtime/pipeline-loader";
@@ -129,6 +130,12 @@ export async function ensureInitialized(): Promise<void> {
   await registry.loadFromDb();
   const agents = await loadAgents(agentsDir, { includeDb: true });
   bus = new EventBus<AgentEvents>();
+  // Phase 3a (Secure Preview): register the live conversation SSE bus so the
+  // backend preview port-watcher (src/startup/background-timers.ts) can push
+  // the requester-scoped consent card / URL onto the originating
+  // conversation's stream. The backend can't import this web bus directly
+  // (import direction), so it reads it back via the bus registry.
+  registerPreviewBus(bus);
   executor = new AgentExecutor(agents, bus, { persist: true });
   pipelineExecutor = new PipelineExecutor(executor, bus);
   // Teardown order matters here: the executor owns the watchdog interval

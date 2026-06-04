@@ -37,21 +37,19 @@ mock.module("../extensions/mcp-netns", () => ({
   computeVethMcpIp: (slot: number) => `10.42.0.${slot * 4 + 2}/30`,
 }));
 
-// The setuid spawn-helper presence gate (uid mode). Default: NOT present,
-// so previewCapabilities() under the default mocks behaves like the old
-// netns-or-static fail-closed (the host has no /app helper). Precedence
-// tests flip this via computePreviewCapabilities's injected deps.
-let helperPresent = false;
-mock.module("../runtime/preview/preview-spawn", () => ({
-  isPreviewSpawnHelperPresent: () => helperPresent,
-}));
+// NOTE: we deliberately do NOT mock.module("../runtime/preview/preview-spawn")
+// here — Bun's mock.module is process-global and would leak the stubbed
+// `isPreviewSpawnHelperPresent` into preview-spawn.test.ts. The host has no
+// installed /app setuid helper, so the REAL `isPreviewSpawnHelperPresent()`
+// returns false; that's exactly the default these tests want (netns-or-
+// static). Precedence branches that need helper-present inject it via
+// computePreviewCapabilities's `helperPresent` dep instead.
 
 const netns = await import("../runtime/preview/preview-netns");
 
 beforeEach(() => {
   netnsAvailable = { available: true, reason: undefined };
   vethAvailable = { available: true, reason: undefined };
-  helperPresent = false;
   slotPool = [];
   nextSlot = 1;
   netns._resetPreviewCapabilitiesForTests();

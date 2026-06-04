@@ -8,8 +8,12 @@ import { ScheduleDaemon } from "../extensions/schedule-daemon";
 import { HostMaintenanceDaemon } from "../extensions/host-maintenance-daemon";
 import { EmbedWorker } from "../extensions/embed-worker";
 import { PreviewPortWatcher } from "../runtime/preview/preview-port-watcher";
-import { NetnsPortSource } from "../runtime/preview/preview-port-source";
-import { decideOnDetection } from "../runtime/preview/preview-consent";
+import { NetnsPortSource, ProcPortSource } from "../runtime/preview/preview-port-source";
+import { previewCapabilities } from "../runtime/preview/preview-netns";
+import { enforceDataDirLockdown } from "../runtime/preview/preview-uid-pool";
+import { onPreviewDetected } from "../runtime/preview/preview-detection-bridge";
+import { getRegisteredPreviewBus } from "../runtime/preview/preview-bus-registry";
+import type { PreviewPortSource } from "../runtime/preview/preview-port-source";
 import { logger } from "../logger";
 
 const log = logger.child("startup.timers");
@@ -222,24 +226,57 @@ export async function startBackgroundTimers(): Promise<void> {
   // a failed start; never block boot. Gated by
   // EZCORP_DISABLE_PREVIEW_WATCHER=1 (handled inside start()).
   //
-  // NOTE (Phase-3 seam): detection is NOT live yet. No conversation calls
-  // `previewPortWatcher.watch(convId, userId)` here, and NetnsPortSource's
-  // reader is the phase3StubReader (empty). Per-conversation `watch()`
-  // registration (driven by shell-tool use) + live netns `/proc/net/tcp`
-  // enumeration land in Phase 3 — until then the watcher polls an empty
-  // set and never emits. The wiring below proves the daemon stands up;
-  // it does not detect ports on this build.
+  // Phase 3a — make dynamic previews RUN. Two boot steps:
+  //   1. KEYSTONE: chmod .ezcorp/data to 0700 so a preview uid (a distinct
+  //      uid with no supplementary groups) can never read the PGlite DB /
+  //      encrypted JWT secret. If this fails we still start the watcher but
+  //      the uid-mode source will be fail-closed by capability detection.
+  //   2. Pick the enumeration SOURCE by capability mode:
+  //        - mode 'uid'   → ProcPortSource (reads /proc/net/tcp{,6}, maps
+  //                         the uid column → conversation via the uid pool),
+  //        - mode 'netns' → NetnsPortSource (hardened; unavailable here),
+  //        - mode 'static'→ NetnsPortSource (yields nothing — logged no-op).
+  //
+  // onDetected routes each requester-scoped detection through
+  // onPreviewDetected, which runs the consent decision (always-expose →
+  // auto-expose, else a consent card) and PUSHES it onto the LIVE
+  // conversation SSE stream via the registered bus (preview-bus-registry —
+  // the web layer registers getBus() at init). Until a bus is registered it
+  // is a logged no-op (fail-safe).
+  //
+  // SEAM (reported): no conversation calls `previewPortWatcher.watch(conv,
+  // user)` from here — that registration is driven by shell/dev-server tool
+  // use in the run loop, plus the spawn-as-preview-uid hook. Those are the
+  // remaining integration points (see preview-spawn-orchestration.ts + the
+  // SUMMARY). The watcher + source + bridge are fully wired and tested; the
+  // per-conversation watch()/spawn trigger is the marked seam.
   try {
+    const caps = previewCapabilities();
+    const lockdown = enforceDataDirLockdown();
+    if (!lockdown.ok) {
+      log.warn("preview .ezcorp/data lockdown not enforced at boot", {
+        path: lockdown.path,
+        reason: lockdown.reason,
+      });
+    }
+    const source: PreviewPortSource =
+      caps.mode === "uid" ? new ProcPortSource() : new NetnsPortSource();
+    log.info("PreviewPortWatcher source selected by capability mode", {
+      mode: caps.mode,
+      source: caps.mode === "uid" ? "ProcPortSource" : "NetnsPortSource",
+      dataDirLocked: lockdown.ok,
+    });
     previewPortWatcher = new PreviewPortWatcher({
-      source: new NetnsPortSource(),
+      source,
       onDetected: (event) => {
-        // Decision routing is fully testable in preview-consent.test.ts;
-        // here we just drive it and swallow failures so a detection can
-        // never crash the daemon tick. The live SSE-stream surfacing of
-        // the card/URL is the host run-loop's job (Phase 2 frontend).
-        void decideOnDetection(event).catch((e: unknown) =>
-          log.warn("preview detection routing failed", { error: String(e) }),
-        );
+        // Route detection → consent decision → live SSE push. Failures are
+        // swallowed inside onPreviewDetected so a detection can never crash
+        // the daemon tick.
+        void onPreviewDetected(event, {
+          getBus: getRegisteredPreviewBus,
+          appHost: () => process.env.EZCORP_PREVIEW_APP_HOST ?? null,
+          secure: () => process.env.FORCE_SECURE_COOKIES === "true",
+        });
       },
     });
     const ok = await previewPortWatcher.start();
