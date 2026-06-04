@@ -28,6 +28,13 @@ export interface StreamChatContext {
   run: AgentRun;
   /** Top-level abort controller for the whole turn. */
   controller: AbortController;
+  /**
+   * Base URL of the resolved model's endpoint. Stashed after model
+   * resolution so the error-finalize path can name the unreachable host
+   * in a friendly provider-connection error (see `friendlyProviderError`).
+   * Undefined until setup resolves the model (or if resolution never ran).
+   */
+  modelBaseUrl: string | undefined;
 
   // ── prompt / tools (mutated during setup phase) ──
   /** System prompt — re-assigned by memory injection + orchestrator-prompt builders. */
@@ -87,6 +94,7 @@ export function createStreamChatContext(
   return {
     run,
     controller,
+    modelBaseUrl: undefined,
     system: undefined,
     agentTools: [],
     toolAbortControllers: new Map(),

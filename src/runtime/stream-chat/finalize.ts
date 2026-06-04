@@ -1,5 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { ProviderUnavailableError } from "../../providers/router";
+import { friendlyProviderError } from "../../providers/provider-error";
 import { logger } from "../../logger";
 import { getDb } from "../../db/connection";
 import { toolCalls } from "../../db/schema";
@@ -175,7 +176,18 @@ export async function finalizeError(
     return;
   }
 
-  const message = err instanceof Error ? err.message : String(err);
+  // Connection-class failures (unreachable Ollama/custom endpoint, refused
+  // socket, DNS miss) otherwise leak the runtime's cryptic raw text — e.g.
+  // "Was there a typo in the url or port?" — straight into the chat bubble.
+  // Rewrite those into a clear, actionable message; everything else passes
+  // through unchanged.
+  const rawMessage = err instanceof Error ? err.message : String(err);
+  const message =
+    friendlyProviderError(err, {
+      provider: run.provider ?? options.provider,
+      model: options.model,
+      baseUrl: ctx.modelBaseUrl,
+    }) ?? rawMessage;
   run.status = "error";
   run.result = { success: false, output: null, error: message };
   run.finishedAt = Date.now();
@@ -248,7 +260,14 @@ export async function finalizeSetupError(
 ): Promise<void> {
   const { run } = ctx;
   if (run.status === "running") {
-    const message = err instanceof Error ? err.message : String(err);
+    // Same connection-error translation as finalizeError — a model that
+    // resolves to an unreachable endpoint can fail in the setup phase too.
+    const message =
+      friendlyProviderError(err, {
+        provider: run.provider ?? options.provider,
+        model: options.model,
+        baseUrl: ctx.modelBaseUrl,
+      }) ?? (err instanceof Error ? err.message : String(err));
     run.status = "error";
     run.result = { success: false, output: null, error: message };
     run.finishedAt = Date.now();

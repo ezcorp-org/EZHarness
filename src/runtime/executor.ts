@@ -469,6 +469,11 @@ export class AgentExecutor {
       credentialConversationId,
     );
 
+    // Stash the resolved endpoint so the error-finalize path can name the
+    // unreachable host in a friendly provider-connection error instead of
+    // leaking the runtime's raw "Was there a typo in the url or port?" text.
+    ctx.modelBaseUrl = resolvedModel.resolved.piModel?.baseUrl;
+
     // Start the activity-based watchdog. Replaces the dumb setInterval heartbeat — it only
     // refreshes last_heartbeat while progress signals are bumping activity, and auto-cancels
     // the run if it stays idle for WATCHDOG_IDLE_MS (90s) with no pending permission.
