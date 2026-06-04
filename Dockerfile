@@ -227,6 +227,15 @@ COPY --from=builder /app/web/build ./web/build
 # chown to the `bun` user so the runtime (which runs unprivileged — see USER
 # below) can write snapshots, backups, and the persistent encryption secret.
 RUN mkdir -p /app/data /app/.ezcorp && chown -R bun:bun /app /app/data /app/.ezcorp
+
+# Re-establish the setuid-root preview-spawn helper AFTER the recursive
+# `chown -R bun:bun /app` above, which would otherwise strip its root
+# ownership (a setuid binary owned by `bun` yields euid=1000 — useless).
+# This restores root:root + the 4755 setuid bit so the helper grants euid=0
+# when uid 1000 execs it. MUST stay after the chown.
+RUN chown root:root /app/src/runtime/preview/preview-spawn \
+  && chmod 4755 /app/src/runtime/preview/preview-spawn
+
 VOLUME /app/data
 VOLUME /app/.ezcorp
 
