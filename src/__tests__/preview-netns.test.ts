@@ -153,6 +153,26 @@ describe("per-conversation netns allocation", () => {
     expect(netns.activePreviewNetnsCount()).toBe(0);
   });
 
+  test("mode-gate: returns null when mode is NOT 'netns' WITHOUT consuming a veth slot", () => {
+    // Phase 3a added the explicit `previewCapabilities().mode !== "netns"`
+    // gate: netns allocation is reserved for the hardened netns mode — uid
+    // mode uses the uid pool, static mode allocates nothing. Here the netns
+    // probe is up but the veth/CAP_NET_ADMIN probe is DOWN, so the resolved
+    // mode is non-netns (static on this host — no setuid helper). The gate
+    // must short-circuit to null BEFORE touching the slot allocator, so the
+    // pool is left untouched (this distinguishes the mode-gate from
+    // slot-exhaustion: a wrongly-gated impl would burn a slot first).
+    netnsAvailable = { available: true, reason: undefined };
+    vethAvailable = { available: false, reason: "no CAP_NET_ADMIN" };
+    netns._resetPreviewCapabilitiesForTests();
+
+    expect(netns.previewCapabilities().mode).not.toBe("netns");
+    expect(netns.allocatePreviewNetns("conv-gated")).toBeNull();
+    expect(netns.activePreviewNetnsCount()).toBe(0);
+    // No slot was consumed — the gate ran before allocVethSlot().
+    expect(slotPool.length).toBe(0);
+  });
+
   test("returns null when the slot pool is exhausted", () => {
     for (let i = 0; i < 60; i++) expect(netns.allocatePreviewNetns(`c-${i}`)).not.toBeNull();
     expect(netns.allocatePreviewNetns("c-overflow")).toBeNull();

@@ -147,12 +147,21 @@ export function previewDataDir(projectRoot?: string): string {
 }
 
 export interface DataDirLockdownResult {
-  /** True when the dir is (now) 0700. */
+  /** True when the dir is (now) 0700 AND owned exclusively by the app uid. */
   ok: boolean;
   /** The path we operated on. */
   path: string;
   /** Reason it could not be locked down (null on success). */
   reason: string | null;
+}
+
+/** The mode/owner fields enforceDataDirLockdown asserts on. `uid` is the
+ *  owning uid of the data dir; we require it to equal the app's own uid so
+ *  the dir is owner-exclusive by CONSTRUCTION, not by trusting the
+ *  Dockerfile chown. */
+export interface DataDirStat {
+  mode: number;
+  uid: number;
 }
 
 /**
@@ -170,18 +179,37 @@ export interface DataDirLockdownResult {
  * NOT throw — a missing data dir on a fresh boot is not an error, but it
  * also doesn't grant the capability until the dir exists + is locked.
  *
- * `chmodFn`/`statFn` are injected for unit tests.
+ * OWNERSHIP is asserted, not assumed. The chmod alone makes the dir 0700,
+ * but 0700 protects secrets ONLY if the OWNER is the app uid — a data dir
+ * owned by some other uid that is 0700 is unreadable to the app and (worse)
+ * its owner could re-open it to a preview uid. Code review flagged the prior
+ * shape as "correct by luck, not construction": it trusted the Dockerfile
+ * chown for ownership. We now `stat` the dir and REFUSE (fail-closed) unless
+ *   - `st_uid === process.getuid()` (the app uid owns it exclusively), AND
+ *   - no group/other read/write/exec bits are set after the chmod.
+ *
+ * `chmodFn`/`statFn`/`getuidFn` are injected for unit tests.
  */
 export function enforceDataDirLockdown(
   projectRoot?: string,
   deps: {
     chmodFn?: (p: string, mode: number) => void;
-    statFn?: (p: string) => { mode: number };
+    statFn?: (p: string) => DataDirStat;
+    getuidFn?: () => number;
   } = {},
 ): DataDirLockdownResult {
   const path = previewDataDir(projectRoot);
   const chmodFn = deps.chmodFn ?? ((p, m) => chmodSync(p, m));
-  const statFn = deps.statFn ?? ((p) => ({ mode: statSync(p).mode }));
+  const statFn =
+    deps.statFn ??
+    ((p) => {
+      const s = statSync(p);
+      return { mode: s.mode, uid: s.uid };
+    });
+  // process.getuid is absent on non-POSIX hosts (Windows); default to a
+  // sentinel that can never match a real owner uid so the assertion
+  // fail-closes rather than throwing.
+  const getuidFn = deps.getuidFn ?? (() => (typeof process.getuid === "function" ? process.getuid() : -1));
 
   // Confirm the dir exists first — a fresh instance may not have created
   // it yet; that's fine (no secrets to protect), just no capability grant.
@@ -201,9 +229,29 @@ export function enforceDataDirLockdown(
     return { ok: false, path, reason };
   }
 
-  // Verify the mode actually took (a no-op chmod on some filesystems).
+  // Verify the mode actually took (a no-op chmod on some filesystems) AND
+  // that ownership is app-uid-exclusive — both are load-bearing for the
+  // keystone, and both are asserted post-chmod against a fresh stat.
   try {
-    const { mode } = statFn(path);
+    const { mode, uid } = statFn(path);
+
+    const appUid = getuidFn();
+    if (uid !== appUid) {
+      const reason = `data dir owned by uid ${uid}, expected app uid ${appUid} — refusing (ownership not app-exclusive)`;
+      log.warn("preview data-dir lockdown FAILED — owner is not the app uid", { path, reason });
+      return { ok: false, path, reason };
+    }
+
+    // No group/other bits at all (read, write, OR exec). 0o077 masks every
+    // group+other permission bit; any set bit means the dir is reachable by
+    // someone other than the owner.
+    const groupOtherBits = mode & 0o077;
+    if (groupOtherBits !== 0) {
+      const reason = `data dir has group/other bits ${groupOtherBits.toString(8)} set after chmod — refusing`;
+      log.warn("preview data-dir lockdown FAILED — group/other bits present", { path, reason });
+      return { ok: false, path, reason };
+    }
+
     const perms = mode & 0o777;
     if (perms !== 0o700) {
       const reason = `data dir is ${perms.toString(8)} after chmod, expected 700`;
@@ -214,6 +262,6 @@ export function enforceDataDirLockdown(
     return { ok: false, path, reason: `re-stat failed: ${(err as Error)?.message ?? String(err)}` };
   }
 
-  log.info("preview data-dir locked down to 0700 (keystone)", { path });
+  log.info("preview data-dir locked down to 0700, app-uid-owned (keystone)", { path });
   return { ok: true, path, reason: null };
 }

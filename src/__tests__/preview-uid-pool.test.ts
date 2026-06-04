@@ -99,13 +99,20 @@ describe("preview uid pool — alloc/reap/exhaustion", () => {
 });
 
 describe("enforceDataDirLockdown — the keystone", () => {
-  test("chmods to 0700 and verifies it stuck (ok)", () => {
+  // The app uid the lockdown asserts ownership against. Injected via
+  // getuidFn so the test is deterministic on every host (CI runs as an
+  // arbitrary uid, root in the dev container, etc).
+  const APP_UID = 1000;
+
+  test("chmods to 0700, app-uid-owned + no group/other bits (ok)", () => {
     let chmodded: { p: string; mode: number } | null = null;
     const res = enforceDataDirLockdown("/proj", {
+      getuidFn: () => APP_UID,
       chmodFn: (p, mode) => {
         chmodded = { p, mode };
       },
-      statFn: (p) => ({ mode: chmodded ? 0o40700 : 0o40755 }),
+      // Owner-only 0700, owned by the app uid after the chmod.
+      statFn: (p) => ({ mode: chmodded ? 0o40700 : 0o40755, uid: APP_UID }),
     });
     expect(res.ok).toBe(true);
     expect(res.reason).toBeNull();
@@ -115,6 +122,7 @@ describe("enforceDataDirLockdown — the keystone", () => {
 
   test("returns ok=false when the data dir does not exist yet (no grant, no throw)", () => {
     const res = enforceDataDirLockdown("/proj", {
+      getuidFn: () => APP_UID,
       statFn: () => {
         throw new Error("ENOENT");
       },
@@ -128,7 +136,8 @@ describe("enforceDataDirLockdown — the keystone", () => {
 
   test("returns ok=false (fail-closed) when chmod throws", () => {
     const res = enforceDataDirLockdown("/proj", {
-      statFn: () => ({ mode: 0o40755 }),
+      getuidFn: () => APP_UID,
+      statFn: () => ({ mode: 0o40755, uid: APP_UID }),
       chmodFn: () => {
         throw new Error("EPERM");
       },
@@ -139,11 +148,56 @@ describe("enforceDataDirLockdown — the keystone", () => {
 
   test("returns ok=false when the mode did not actually take", () => {
     const res = enforceDataDirLockdown("/proj", {
-      statFn: () => ({ mode: 0o40755 }), // never becomes 700
+      getuidFn: () => APP_UID,
+      // chmod no-ops; dir is app-owned with NO group/other bits (so the
+      // ownership + group/other checks pass) but lands at 0600 instead of
+      // 0700 — we fail specifically on the exact-perms assertion.
+      statFn: () => ({ mode: 0o40600, uid: APP_UID }),
       chmodFn: () => {},
     });
     expect(res.ok).toBe(false);
     expect(res.reason).toMatch(/expected 700/);
+  });
+
+  test("returns ok=false (fail-closed) when the data dir is owned by a NON-app uid", () => {
+    // chmod succeeds and the dir is 0700, but it is owned by uid 90001 (a
+    // preview uid / some other account), NOT the app uid. 0700 protects
+    // secrets only when the OWNER is the app — a foreign-owned 0700 dir is
+    // unreadable to the app and its owner could re-open it. Refuse.
+    const res = enforceDataDirLockdown("/proj", {
+      getuidFn: () => APP_UID,
+      statFn: () => ({ mode: 0o40700, uid: 90001 }),
+      chmodFn: () => {},
+    });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/owned by uid 90001/);
+    expect(res.reason).toMatch(/expected app uid 1000/);
+  });
+
+  test("returns ok=false (fail-closed) when group/other bits remain after chmod", () => {
+    // Simulate a filesystem / ACL where the chmod 0700 does not fully strip
+    // group+other: the dir comes back app-owned but group-readable (0740).
+    // Any group/other bit means a non-owner can reach the secrets — refuse.
+    const res = enforceDataDirLockdown("/proj", {
+      getuidFn: () => APP_UID,
+      statFn: () => ({ mode: 0o40740, uid: APP_UID }),
+      chmodFn: () => {},
+    });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/group\/other bits/);
+  });
+
+  test("ownership check runs against process.getuid() by default (no getuidFn injected)", () => {
+    // With no getuidFn override the assertion compares against the real
+    // process uid. We feed a stat owned by that same uid so the happy path
+    // exercises the DEFAULT getuid accessor (covering the production branch).
+    const realUid = typeof process.getuid === "function" ? process.getuid() : -1;
+    const res = enforceDataDirLockdown("/proj", {
+      statFn: () => ({ mode: 0o40700, uid: realUid }),
+      chmodFn: () => {},
+    });
+    expect(res.ok).toBe(true);
+    expect(res.reason).toBeNull();
   });
 
   test("previewDataDir resolves under <root>/.ezcorp/data", () => {
