@@ -143,8 +143,6 @@ RUN chmod +x /app/src/extensions/mcp-launcher.sh
 
 # Secure Preview / Phase 3a (uid-based portable isolation) — compile the
 # setuid-root `preview-spawn` helper and install it root:root mode 4755.
-# MUST run AFTER `COPY /app/src ./src` above, otherwise that copy would
-# clobber the compiled binary (it lands under src/runtime/preview/).
 #
 # The non-root app (uid 1000) execs this tiny C helper to launch untrusted
 # dev servers as a per-conversation "preview uid" (90000–99000). Because
@@ -156,12 +154,17 @@ RUN chmod +x /app/src/extensions/mcp-launcher.sh
 # no userns, no extra caps). See tasks/preview-port-exposure.md "Phase 3
 # REDESIGN".
 #
+# CRITICAL — the binary MUST land OUTSIDE the source tree. App modules
+# import the TS driver extensionless (`import … from "./preview-spawn"`), so
+# an extensionless ELF at src/runtime/preview/preview-spawn SHADOWS
+# preview-spawn.ts in the image: bun parses the ELF as JS and crashes the
+# whole dynamic-preview subsystem at import time. We install at /app/bin/
+# (no .ts siblings) and previewSpawnHelperPath() defaults to that path.
+#
 # Build deps (gcc + libc6-dev) are installed for the duration of this RUN
 # and purged immediately so they never bloat the runtime image — same
 # pattern as the seccomp compile above. The source-of-truth C lives at
-# build/preview-spawn.c (committed, auditable, < 200 lines). The installed
-# binary lands at /app/src/runtime/preview/preview-spawn (matches
-# previewSpawnHelperPath() in preview-spawn.ts).
+# build/preview-spawn.c (committed, auditable, < 200 lines).
 #
 # mode 4755 = rwsr-xr-x: setuid bit + world-exec so uid 1000 can invoke it;
 # owned root:root so the setuid actually grants euid=0. The uid-range
@@ -170,9 +173,10 @@ RUN chmod +x /app/src/extensions/mcp-launcher.sh
 COPY --from=builder /app/build/preview-spawn.c /tmp/preview-spawn.c
 RUN apt-get update \
   && apt-get install -y --no-install-recommends gcc libc6-dev \
-  && gcc -O2 -Wall -Wextra -o /app/src/runtime/preview/preview-spawn /tmp/preview-spawn.c \
-  && chown root:root /app/src/runtime/preview/preview-spawn \
-  && chmod 4755 /app/src/runtime/preview/preview-spawn \
+  && mkdir -p /app/bin \
+  && gcc -O2 -Wall -Wextra -o /app/bin/preview-spawn /tmp/preview-spawn.c \
+  && chown root:root /app/bin/preview-spawn \
+  && chmod 4755 /app/bin/preview-spawn \
   && apt-get purge -y --auto-remove gcc libc6-dev \
   && rm -rf /var/lib/apt/lists/* /tmp/preview-spawn.c
 
@@ -232,9 +236,11 @@ RUN mkdir -p /app/data /app/.ezcorp && chown -R bun:bun /app /app/data /app/.ezc
 # `chown -R bun:bun /app` above, which would otherwise strip its root
 # ownership (a setuid binary owned by `bun` yields euid=1000 — useless).
 # This restores root:root + the 4755 setuid bit so the helper grants euid=0
-# when uid 1000 execs it. MUST stay after the chown.
-RUN chown root:root /app/src/runtime/preview/preview-spawn \
-  && chmod 4755 /app/src/runtime/preview/preview-spawn
+# when uid 1000 execs it. MUST stay after the chown. Path is /app/bin/ (out
+# of the src tree) to avoid shadowing preview-spawn.ts — see the compile
+# step above.
+RUN chown root:root /app/bin/preview-spawn \
+  && chmod 4755 /app/bin/preview-spawn
 
 VOLUME /app/data
 VOLUME /app/.ezcorp

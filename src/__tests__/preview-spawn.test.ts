@@ -1,4 +1,6 @@
 import { test, expect, describe } from "bun:test";
+import { existsSync } from "node:fs";
+import { basename, dirname } from "node:path";
 import {
   PREVIEW_UID_MIN,
   PREVIEW_UID_MAX,
@@ -164,5 +166,67 @@ describe("spawnPreviewServer", () => {
       ),
     ).toThrow(/allowlisted preview range/);
     expect(spawned).toBe(false);
+  });
+});
+
+// Regression guard for the image-only module-shadowing bug (Phase 3a).
+//
+// The compiled setuid helper is installed extensionless. App modules import
+// the TS driver extensionless too (`import … from "./preview-spawn"`). If the
+// binary is installed at `src/runtime/preview/preview-spawn` — the SAME
+// dir+basename as `preview-spawn.ts` — bun resolves the extensionless
+// specifier to the ELF in the built image and parses it as JS, crashing the
+// entire dynamic-preview subsystem at import time. The host worktree has no
+// binary, so this is invisible to host tests/typecheck UNLESS we assert the
+// install LOCATION can never collide with a TS module. That is exactly what
+// these tests do — they constrain `previewSpawnHelperPath()`, the single
+// source of truth the Dockerfile install target must match.
+describe("previewSpawnHelperPath — must not shadow a TS module (image-only bug guard)", () => {
+  // Pin the env to the production default so the guard checks the BAKED-IN
+  // path, not a test override. Restored after.
+  function withDefaultPath<T>(fn: () => T): T {
+    const prev = process.env.EZCORP_PREVIEW_SPAWN_HELPER;
+    delete process.env.EZCORP_PREVIEW_SPAWN_HELPER;
+    try {
+      return fn();
+    } finally {
+      if (prev === undefined) delete process.env.EZCORP_PREVIEW_SPAWN_HELPER;
+      else process.env.EZCORP_PREVIEW_SPAWN_HELPER = prev;
+    }
+  }
+
+  test("default helper path is absolute and lives OUTSIDE the source tree", () => {
+    withDefaultPath(() => {
+      const p = previewSpawnHelperPath();
+      // Absolute (the image bakes it at a fixed location).
+      expect(p.startsWith("/")).toBe(true);
+      // Never under a `src/` directory — a compiled binary must not live
+      // adjacent to TS modules.
+      const dir = dirname(p);
+      expect(dir.endsWith("/src/runtime/preview")).toBe(false);
+      expect(dir.includes("/src/")).toBe(false);
+      expect(dir.endsWith("/src")).toBe(false);
+    });
+  });
+
+  test("no sibling <basename>.ts module exists next to the resolved helper path", () => {
+    withDefaultPath(() => {
+      const p = previewSpawnHelperPath();
+      // A binary that shares dir+basename with a `.ts` file would be
+      // shadowed by bun's extensionless module resolution. Assert no such
+      // sibling exists at the configured location. (In the image /app/bin/
+      // contains only the binary; on the host the dir may not exist at all —
+      // either way there must be no `preview-spawn.ts` beside it.)
+      const siblingTs = `${dirname(p)}/${basename(p)}.ts`;
+      expect(existsSync(siblingTs)).toBe(false);
+    });
+  });
+
+  test("default does NOT equal the known-bad in-tree location", () => {
+    withDefaultPath(() => {
+      // The exact path that caused the boot crash. Hard-pin it as forbidden
+      // so a future edit can't silently reintroduce the collision.
+      expect(previewSpawnHelperPath()).not.toBe("/app/src/runtime/preview/preview-spawn");
+    });
   });
 });

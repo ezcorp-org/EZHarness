@@ -39,11 +39,22 @@ export const PREVIEW_UID_MAX = 99000;
  * The on-disk path of the compiled setuid-root helper. Baked into the
  * image by the Dockerfile build stage at this fixed location; overridable
  * via env for tests / non-standard layouts.
+ *
+ * CRITICAL — must live OUTSIDE the source tree. App modules import the TS
+ * driver extensionless (`import … from "./preview-spawn"`), so a compiled
+ * binary at `src/runtime/preview/preview-spawn` (no extension) SHADOWS
+ * `preview-spawn.ts` in the built image: bun resolves the extensionless
+ * specifier to the ELF binary and tries to parse it as JS → boot-time
+ * `Unexpected … at /app/src/runtime/preview/preview-spawn:1:1`, killing the
+ * entire dynamic-preview subsystem. The default therefore points at
+ * `/app/bin/`, a directory with no `.ts` siblings. (The host worktree has
+ * no binary at all, so this collision is image-only and invisible to host
+ * tests/typecheck — see the regression guard in preview-spawn.test.ts.)
  */
 export function previewSpawnHelperPath(): string {
   const override = process.env.EZCORP_PREVIEW_SPAWN_HELPER;
   if (override && override.trim().length > 0) return override.trim();
-  return "/app/src/runtime/preview/preview-spawn";
+  return "/app/bin/preview-spawn";
 }
 
 /**
