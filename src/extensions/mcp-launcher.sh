@@ -116,6 +116,23 @@ EOF
   # End of Stage 2 setup; fall through to existing bwrap branch.
 fi
 
+# Secure User-Site Preview / Port Exposure (Phase 1) — minimal-bind jail.
+#
+# For UNTRUSTED preview processes (dynamic dev servers — arbitrary code)
+# the `--bind / /` envelope used by the MCP branch below is NOT safe: it
+# exposes `<projectRoot>/.ezcorp/data` (PGlite DB + encrypted JWT secret)
+# to the child. When `EZCORP_PREVIEW_JAIL=1`, the HOST
+# (`src/extensions/preview-jail.ts:buildPreviewJailBwrapArgs`) has already
+# constructed the COMPLETE bwrap argv with an explicit minimal bind set
+# (work dir rw + ro /usr,/bin,/lib + tmpfs /tmp; NO root bind; nothing
+# under .ezcorp/data) and passed it as "$@". We exec it verbatim — the
+# launcher does NOT re-derive the bind set (DRY: the builder is the single
+# source of truth + the unit-tested invariant). This branch is wired but
+# the live dynamic-server spawn that drives it lands in Phase 3.
+if [ "${EZCORP_PREVIEW_JAIL:-0}" = "1" ]; then
+  exec bwrap "$@"
+fi
+
 # Plan 55-02 (MCP-02): optional bubblewrap wrap with a private 64 MB
 # tmpfs at /tmp. Closes the host-/tmp side-channel leak: without this
 # wrap one MCP can read another's scratch files and an MCP can read
