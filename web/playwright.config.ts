@@ -31,7 +31,14 @@ export default defineConfig({
 	],
 	...(!isDocker && {
 		webServer: {
-			command: "PI_SKIP_INIT=1 bun run build && PI_SKIP_INIT=1 bun run preview",
+			// EZCORP_PREVIEW_APP_HOST activates the secure-preview origin
+			// dispatch for `*.preview.localhost` hosts (see
+			// e2e/preview-static.spec.ts). Normal app requests (Host=localhost)
+			// are unaffected — dispatch only fires for the preview subdomain
+			// shape. The DB-free access-denied + bad-code paths are asserted in
+			// plain preview; the full seeded handoff is Docker-gated.
+			command:
+				"PI_SKIP_INIT=1 bun run build && EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview",
 			url: "http://localhost:4173",
 			reuseExistingServer: !process.env.CI,
 		},
