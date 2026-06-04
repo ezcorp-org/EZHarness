@@ -25,7 +25,7 @@
  */
 
 import { resolve } from "node:path";
-import { chmodSync, statSync } from "node:fs";
+import { chmodSync, mkdirSync, statSync } from "node:fs";
 import { logger } from "../../logger";
 
 const log = logger.child("preview.uid-pool");
@@ -175,9 +175,16 @@ export interface DataDirStat {
  * dir) could read secrets. We make the invariant real, not assumed.
  *
  * Fail-closed contract: the caller treats `ok === false` as "do NOT enable
- * uid-mode dynamic previews" (capability mode falls back to static). We do
- * NOT throw — a missing data dir on a fresh boot is not an error, but it
- * also doesn't grant the capability until the dir exists + is locked.
+ * uid-mode dynamic previews" (capability mode falls back to static).
+ *
+ * CREATE-AND-LOCK on a missing dir. A fresh container has no .ezcorp/data
+ * at boot — if we merely no-op'd (the prior shape), PGlite could create the
+ * dir LATER, possibly 0755, leaving the DB + JWT secret group/other-readable
+ * to preview uids (a boot-ordering hole). So when the dir is absent we
+ * `mkdir(0700)` it AS the app uid first, THEN run the same chmod + assertions
+ * below — a missing dir becomes created-and-locked (`ok:true`), not a
+ * capability gap. If the mkdir itself throws (e.g. parent unwritable) we
+ * fail-closed with the reason.
  *
  * OWNERSHIP is asserted, not assumed. The chmod alone makes the dir 0700,
  * but 0700 protects secrets ONLY if the OWNER is the app uid — a data dir
@@ -188,7 +195,7 @@ export interface DataDirStat {
  *   - `st_uid === process.getuid()` (the app uid owns it exclusively), AND
  *   - no group/other read/write/exec bits are set after the chmod.
  *
- * `chmodFn`/`statFn`/`getuidFn` are injected for unit tests.
+ * `chmodFn`/`statFn`/`getuidFn`/`mkdirFn` are injected for unit tests.
  */
 export function enforceDataDirLockdown(
   projectRoot?: string,
@@ -196,6 +203,7 @@ export function enforceDataDirLockdown(
     chmodFn?: (p: string, mode: number) => void;
     statFn?: (p: string) => DataDirStat;
     getuidFn?: () => number;
+    mkdirFn?: (p: string, mode: number) => void;
   } = {},
 ): DataDirLockdownResult {
   const path = previewDataDir(projectRoot);
@@ -206,17 +214,27 @@ export function enforceDataDirLockdown(
       const s = statSync(p);
       return { mode: s.mode, uid: s.uid };
     });
+  const mkdirFn = deps.mkdirFn ?? ((p, m) => {
+    mkdirSync(p, { recursive: true, mode: m });
+  });
   // process.getuid is absent on non-POSIX hosts (Windows); default to a
   // sentinel that can never match a real owner uid so the assertion
   // fail-closes rather than throwing.
   const getuidFn = deps.getuidFn ?? (() => (typeof process.getuid === "function" ? process.getuid() : -1));
 
-  // Confirm the dir exists first — a fresh instance may not have created
-  // it yet; that's fine (no secrets to protect), just no capability grant.
+  // Create-and-lock when the dir is absent. We mkdir 0700 (as the app uid)
+  // so a later PGlite create can't leave a 0755 dir; the chmod + assertions
+  // below then make the lockdown real. mkdir failure → fail-closed.
   try {
     statFn(path);
   } catch {
-    return { ok: false, path, reason: "data dir does not exist yet" };
+    try {
+      mkdirFn(path, 0o700);
+    } catch (err) {
+      const reason = `mkdir 0700 failed: ${(err as Error)?.message ?? String(err)}`;
+      log.warn("preview data-dir lockdown FAILED — could not create data dir", { path, reason });
+      return { ok: false, path, reason };
+    }
   }
 
   try {

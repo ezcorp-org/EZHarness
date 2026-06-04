@@ -42,13 +42,19 @@ describe.skipIf(!DOCKER)("uid keystone — LIVE (DOCKER_TEST=1)", () => {
     );
     const { spawnPreviewServer } = await import("../runtime/preview/preview-spawn");
 
-    // Lock the data dir, then try to read it AS a preview uid via the helper.
+    // Lock the data dir. enforceDataDirLockdown now CREATES it 0700 app-owned
+    // if missing (fresh container), so this is ok:true and the dir exists.
     const lock = enforceDataDirLockdown();
     expect(lock.ok).toBe(true);
 
     const dataDir = previewDataDir();
-    // `cat <dataDir>/<anything>` as uid 90001 must fail (EACCES). We run
-    // `ls -la <dataDir>` — a 0700 app-owned dir denies a foreign uid.
+    // Drop a sentinel file (as the app uid) so the dir is non-empty — makes
+    // the foreign-uid read attempt unambiguous (a preview uid that could
+    // somehow read the dir would see this file).
+    await Bun.write(`${dataDir}/keystone-probe.txt`, "secret");
+
+    // `ls -la <dataDir>` as uid 90001 must fail: a 0700 app-owned dir denies
+    // read+exec to a foreign preview uid (EACCES).
     const proc = spawnPreviewServer({
       uid: 90001,
       workDir: "/tmp",
@@ -80,22 +86,34 @@ describe.skipIf(!DOCKER)("uid keystone — LIVE (DOCKER_TEST=1)", () => {
     const alloc = allocatePreviewUid("conv-live");
     expect(alloc).not.toBeNull();
 
-    // Launch a tiny listener as the preview uid on an ephemeral port.
+    // Launch a tiny listener as the preview uid on an ephemeral port. The
+    // listener self-times-out (1500ms) so the test reaps even though we (uid
+    // 1000) CANNOT kill a process owned by the preview uid.
     const PORT = 58731;
     const server = spawnPreviewServer({
       uid: alloc!.uid,
       workDir: "/tmp",
       command: "bun",
-      args: ["-e", `Bun.serve({ port: ${PORT}, fetch: () => new Response("ok") }); await new Promise(r=>setTimeout(r,3000));`],
+      args: ["-e", `Bun.serve({ port: ${PORT}, fetch: () => new Response("ok") }); await new Promise(r=>setTimeout(r,1500));`],
     });
     // Give the server a moment to bind.
     await new Promise((r) => setTimeout(r, 800));
 
     const src = new ProcPortSource();
     const listeners = src.listListeners("conv-live");
-    server.kill();
-    await server.exited.catch(() => {});
 
+    // ASSERT attribution BEFORE any teardown — the listener's preview uid is
+    // attributed back to its conversation via the /proc/net/tcp uid column.
     expect(listeners.some((l) => l.port === PORT)).toBe(true);
+
+    // Best-effort teardown. Bun.spawn launched the child as the preview uid,
+    // so server.kill() from uid 1000 throws EPERM — that's expected; ignore
+    // it and let the listener's own self-timeout reap the process.
+    try {
+      server.kill();
+    } catch {
+      // EPERM (foreign-uid process) — fine, self-timeout handles it.
+    }
+    await server.exited.catch(() => {});
   });
 });

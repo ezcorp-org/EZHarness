@@ -120,18 +120,49 @@ describe("enforceDataDirLockdown — the keystone", () => {
     expect(chmodded!.mode).toBe(0o700);
   });
 
-  test("returns ok=false when the data dir does not exist yet (no grant, no throw)", () => {
+  test("creates the data dir 0700 app-owned when missing → ok:true (no boot-ordering hole)", () => {
+    // Fresh container: the dir is absent at boot. enforceDataDirLockdown must
+    // mkdir(0700) it AS the app uid, then chmod + assert — turning a missing
+    // dir into created-and-locked, NOT a silent no-op (which would let a
+    // later 0755 PGlite-created dir leak the DB/secret to preview uids).
+    let mkdirCall: { p: string; mode: number } | null = null;
+    let created = false;
+    const res = enforceDataDirLockdown("/proj", {
+      getuidFn: () => APP_UID,
+      mkdirFn: (p, mode) => {
+        mkdirCall = { p, mode };
+        created = true;
+      },
+      // First stat (existence probe) throws ENOENT; after mkdir the re-stat
+      // returns the freshly created 0700 app-owned dir.
+      statFn: () => {
+        if (!created) throw new Error("ENOENT");
+        return { mode: 0o40700, uid: APP_UID };
+      },
+      chmodFn: () => {},
+    });
+    expect(res.ok).toBe(true);
+    expect(res.reason).toBeNull();
+    // mkdir was invoked at the data-dir path with mode 0700.
+    expect(mkdirCall!.p).toBe(previewDataDir("/proj"));
+    expect(mkdirCall!.mode).toBe(0o700);
+  });
+
+  test("returns ok=false (fail-closed) when mkdir throws (e.g. parent unwritable)", () => {
     const res = enforceDataDirLockdown("/proj", {
       getuidFn: () => APP_UID,
       statFn: () => {
         throw new Error("ENOENT");
+      },
+      mkdirFn: () => {
+        throw new Error("EACCES");
       },
       chmodFn: () => {
         throw new Error("should not be called");
       },
     });
     expect(res.ok).toBe(false);
-    expect(res.reason).toMatch(/does not exist/);
+    expect(res.reason).toMatch(/mkdir 0700 failed/);
   });
 
   test("returns ok=false (fail-closed) when chmod throws", () => {
