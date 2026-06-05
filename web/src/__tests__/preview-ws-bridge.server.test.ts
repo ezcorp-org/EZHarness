@@ -29,9 +29,8 @@ vi.mock("$server/db/queries/preview-sessions", async () => {
   return { ...actual, getServablePreview: (...a: any[]) => (getServablePreview as any)(...a) };
 });
 
-const { tryBridgePreviewWebSocket, createPreviewWebSocketHandler } = await import(
-  "$lib/server/preview/ws-bridge"
-);
+const { tryBridgePreviewWebSocket, createPreviewWebSocketHandler, MAX_PREUPSTREAM_QUEUE } =
+  await import("$lib/server/preview/ws-bridge");
 
 const VALID_ID = "abcdefghjkmnpqrstvwxyz0123";
 const APP_HOST = "ezcorp.example.com";
@@ -131,8 +130,120 @@ describe("createPreviewWebSocketHandler — frame relay decisions", () => {
   test("message before upstream-ready buffers; close on an unknown socket is a no-op", () => {
     const handler = createPreviewWebSocketHandler();
     // No open() called → unknown socket. message + close must not throw.
-    const ws = { data: { __preview: true } as any };
+    const ws = { data: { __preview: true } as any, close: () => {} };
     expect(() => handler.message(ws, "frame")).not.toThrow();
     expect(() => handler.close(ws)).not.toThrow();
+  });
+});
+
+// The LIVE relay data-path — previously untested (audit gap 2). A fake
+// upstream (injected via the factory seam) lets us drive the full lifecycle:
+// open → buffer-before-ready → upstream open (flush) → upstream message
+// (→ client send) → upstream close (→ client close 1000), plus the nits
+// (sync ctor throw → 1011; pre-ready queue cap → 1011).
+type Listeners = { open?: () => void; message?: (ev: MessageEvent) => void; close?: () => void; error?: () => void };
+function makeFakeUpstream() {
+  const sent: (string | ArrayBufferLike)[] = [];
+  const l: Listeners = {};
+  let closedWith: { code?: number } | null = null;
+  const ws = {
+    binaryType: "",
+    url: "",
+    send: (d: string | ArrayBufferLike) => { sent.push(d); },
+    close: (code?: number) => { closedWith = { code }; },
+    addEventListener: (type: keyof Listeners, cb: any) => { l[type] = cb; },
+  };
+  return {
+    ws,
+    sent,
+    get closedWith() { return closedWith; },
+    fireOpen: () => l.open?.(),
+    fireMessage: (data: unknown) => l.message?.({ data } as MessageEvent),
+    fireClose: () => l.close?.(),
+    fireError: () => l.error?.(),
+  };
+}
+function makeClient() {
+  const sent: (string | ArrayBufferLike)[] = [];
+  let closedWith: { code?: number; reason?: string } | null = null;
+  return {
+    data: { __preview: true, upstreamUrl: "ws://127.0.0.1:5173/x", previewId: "p" } as any,
+    send: (d: string | ArrayBufferLike) => sent.push(d),
+    close: (code?: number, reason?: string) => { closedWith = { code, reason }; },
+    sent,
+    get closedWith() { return closedWith; },
+  };
+}
+
+describe("createPreviewWebSocketHandler — LIVE relay data-path (fake upstream)", () => {
+  test("full lifecycle: buffer → flush on upstream open → relay both ways → upstream close", () => {
+    const up = makeFakeUpstream();
+    const handler = createPreviewWebSocketHandler(() => up.ws as any);
+    const client = makeClient();
+
+    handler.open(client);
+    // binaryType set on the upstream for binary relay.
+    expect(up.ws.binaryType).toBe("arraybuffer");
+
+    // Client sends BEFORE upstream is ready → queued, not yet forwarded.
+    handler.message(client, "early-frame");
+    expect(up.sent).toHaveLength(0);
+
+    // Upstream connects → queued frames flush in order.
+    up.fireOpen();
+    expect(up.sent).toEqual(["early-frame"]);
+
+    // Subsequent client frames forward immediately.
+    handler.message(client, "live-frame");
+    expect(up.sent).toEqual(["early-frame", "live-frame"]);
+
+    // Upstream → client relay.
+    up.fireMessage("hmr-update");
+    expect(client.sent).toEqual(["hmr-update"]);
+
+    // Upstream close → client gets a clean 1000.
+    up.fireClose();
+    expect(client.closedWith).toMatchObject({ code: 1000 });
+  });
+
+  test("upstream error closes the client 1011", () => {
+    const up = makeFakeUpstream();
+    const handler = createPreviewWebSocketHandler(() => up.ws as any);
+    const client = makeClient();
+    handler.open(client);
+    up.fireError();
+    expect(client.closedWith).toMatchObject({ code: 1011 });
+  });
+
+  test("client close tears down the upstream", () => {
+    const up = makeFakeUpstream();
+    const handler = createPreviewWebSocketHandler(() => up.ws as any);
+    const client = makeClient();
+    handler.open(client);
+    handler.close(client);
+    expect(up.closedWith).not.toBeNull();
+  });
+
+  test("a synchronous upstream-ctor throw closes the client 1011 (no half-open)", () => {
+    const handler = createPreviewWebSocketHandler(() => {
+      throw new Error("bad url");
+    });
+    const client = makeClient();
+    handler.open(client);
+    expect(client.closedWith).toMatchObject({ code: 1011 });
+  });
+
+  test("pre-ready queue cap: a flood before upstream-open tears the socket down 1011", () => {
+    const up = makeFakeUpstream();
+    const handler = createPreviewWebSocketHandler(() => up.ws as any);
+    const client = makeClient();
+    handler.open(client);
+    // Fill the queue to the cap (upstream never fires open).
+    for (let i = 0; i < MAX_PREUPSTREAM_QUEUE; i++) handler.message(client, `f${i}`);
+    expect(client.closedWith).toBeNull(); // still under/at cap
+    // One more overflows → both sockets torn down.
+    handler.message(client, "overflow");
+    expect(client.closedWith).toMatchObject({ code: 1011 });
+    expect(up.closedWith).not.toBeNull();
   });
 });

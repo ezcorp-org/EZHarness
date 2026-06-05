@@ -113,17 +113,52 @@ export async function tryBridgePreviewWebSocket(
 }
 
 /**
+ * Minimal subset of the WHATWG WebSocket the bridge actually uses upstream —
+ * enough for the relay + the injectable test seam. `globalThis.WebSocket`
+ * (Bun's) satisfies it structurally.
+ */
+export interface UpstreamWebSocket {
+  binaryType: string;
+  send(data: string | ArrayBufferLike): void;
+  close(code?: number, reason?: string): void;
+  addEventListener(type: "open" | "close" | "error", cb: () => void): void;
+  addEventListener(type: "message", cb: (ev: MessageEvent) => void): void;
+}
+
+/** Factory for the upstream socket. Defaults to `globalThis.WebSocket`; tests
+ *  inject a fake so the relay data-path can be driven without a live server. */
+export type UpstreamWebSocketFactory = (url: string) => UpstreamWebSocket;
+
+const defaultUpstreamFactory: UpstreamWebSocketFactory = (url) =>
+  new WebSocket(url) as unknown as UpstreamWebSocket;
+
+/**
+ * Cap on frames buffered BEFORE the upstream finishes connecting. A client
+ * that floods the socket pre-upstream-ready could otherwise grow the queue
+ * unbounded (memory DoS). Past the cap we tear the client socket down (1011).
+ */
+export const MAX_PREUPSTREAM_QUEUE = 256;
+
+/**
  * Bun WebSocketHandler that bridges an accepted preview client socket to its
  * pinned loopback upstream. Each client socket lazily opens an upstream
  * `WebSocket(upstreamUrl)`; frames relay both directions; either side closing
  * tears down the other. Only sockets carrying our `__preview` data are
  * handled — any other websocket (the app has none today, but defensively) is
  * left untouched (closed) so this handler can be the single adapter export.
+ *
+ * `upstreamFactory` is injectable so the relay data-path is unit-testable with
+ * a fake upstream (the default constructs a real `globalThis.WebSocket`).
  */
-export function createPreviewWebSocketHandler() {
+export function createPreviewWebSocketHandler(
+  upstreamFactory: UpstreamWebSocketFactory = defaultUpstreamFactory,
+) {
   // Per-client upstream + a small outbound buffer for frames that arrive
   // before the upstream finishes connecting.
-  const upstreams = new WeakMap<object, { ws: WebSocket; ready: boolean; queue: (string | ArrayBufferLike)[] }>();
+  const upstreams = new WeakMap<
+    object,
+    { ws: UpstreamWebSocket; ready: boolean; queue: (string | ArrayBufferLike)[] }
+  >();
 
   return {
     open(ws: { data?: unknown; close(code?: number, reason?: string): void; send(msg: string | ArrayBufferLike): void }) {
@@ -132,16 +167,24 @@ export function createPreviewWebSocketHandler() {
         ws.close(1008, "not a preview socket");
         return;
       }
-      const state = { ws: undefined as unknown as WebSocket, ready: false, queue: [] as (string | ArrayBufferLike)[] };
-      const upstream = new WebSocket(data.upstreamUrl);
+      // The upstream ctor can throw SYNCHRONOUSLY (malformed URL, immediate
+      // refusal). Catch it so we never leave a half-open client socket —
+      // close 1011 and bail (nit D).
+      let upstream: UpstreamWebSocket;
+      try {
+        upstream = upstreamFactory(data.upstreamUrl);
+      } catch {
+        ws.close(1011, "upstream connect failed");
+        return;
+      }
+      const state = { ws: upstream, ready: false, queue: [] as (string | ArrayBufferLike)[] };
       // Bun's WebSocket supports binary; relay both text + binary.
-      (upstream as unknown as { binaryType: string }).binaryType = "arraybuffer";
-      state.ws = upstream;
+      upstream.binaryType = "arraybuffer";
       upstreams.set(ws, state);
 
       upstream.addEventListener("open", () => {
         state.ready = true;
-        for (const frame of state.queue) upstream.send(frame as never);
+        for (const frame of state.queue) upstream.send(frame);
         state.queue.length = 0;
       });
       upstream.addEventListener("message", (ev: MessageEvent) => {
@@ -155,11 +198,27 @@ export function createPreviewWebSocketHandler() {
       });
     },
 
-    message(ws: { data?: unknown }, message: string | ArrayBufferLike) {
+    message(ws: { data?: unknown; close(code?: number, reason?: string): void }, message: string | ArrayBufferLike) {
       const state = upstreams.get(ws as object);
       if (!state) return;
-      if (state.ready) state.ws.send(message as never);
-      else state.queue.push(message);
+      if (state.ready) {
+        state.ws.send(message);
+        return;
+      }
+      // Pre-upstream-ready: buffer, but CAP the queue so a flood before the
+      // upstream connects can't grow memory without bound (nit E). Over the
+      // cap we tear down the client + upstream rather than keep buffering.
+      if (state.queue.length >= MAX_PREUPSTREAM_QUEUE) {
+        try {
+          state.ws.close();
+        } catch {
+          // already closed
+        }
+        upstreams.delete(ws as object);
+        ws.close(1011, "preview upstream buffer overflow");
+        return;
+      }
+      state.queue.push(message);
     },
 
     close(ws: { data?: unknown }) {
