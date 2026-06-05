@@ -62,10 +62,19 @@ let lastEmbedWorkerInstance: object | undefined;
 // source (NetnsPortSource) and consent router (decideOnDetection) the
 // bootstrap also imports are stubbed to inert no-ops so neither pulls in
 // the DB / netns graph.
-let previewWatcherCtorMock = mock(() => {});
+let previewWatcherCtorMock = mock((_opts?: unknown) => {});
 let previewWatcherStartMock = mock(() => Promise.resolve<boolean>(true));
 let previewWatcherStopMock = mock(() => {});
 let lastPreviewWatcherInstance: object | undefined;
+// Phase 3b: capture the ctor CONFIG so tests can assert idleReapTicks parsing
+// + that onIdleReap is wired. The stub records the options object the
+// bootstrap passes to `new PreviewPortWatcher({...})`.
+let lastPreviewWatcherConfig: {
+  idleReapTicks?: number;
+  onIdleReap?: (conversationId: string) => unknown;
+  onDetected?: (event: unknown) => unknown;
+  source?: unknown;
+} | undefined;
 
 // Phase 3a — capability MODE drives the enumeration-source selection in the
 // bootstrap: `caps.mode === "uid" ? new ProcPortSource() : new
@@ -187,8 +196,9 @@ function installModuleMocks(): void {
   // onDetected closure don't reach the DB / netns probes.
   mock.module("../runtime/preview/preview-port-watcher", () => ({
     PreviewPortWatcher: class {
-      constructor() {
-        previewWatcherCtorMock();
+      constructor(opts?: typeof lastPreviewWatcherConfig) {
+        previewWatcherCtorMock(opts);
+        lastPreviewWatcherConfig = opts;
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         lastPreviewWatcherInstance = this;
       }
@@ -257,10 +267,11 @@ beforeEach(async () => {
   embedWorkerStartMock = mock(() => Promise.resolve<boolean>(true));
   embedWorkerStopMock = mock(() => {});
   lastEmbedWorkerInstance = undefined;
-  previewWatcherCtorMock = mock(() => {});
+  previewWatcherCtorMock = mock((_opts?: unknown) => {});
   previewWatcherStartMock = mock(() => Promise.resolve<boolean>(true));
   previewWatcherStopMock = mock(() => {});
   lastPreviewWatcherInstance = undefined;
+  lastPreviewWatcherConfig = undefined;
   // Default capability mode is "static" (the host's fail-closed posture);
   // the ProcPortSource-selection test re-points this to "uid".
   previewCapabilitiesMock = mock(() => ({
@@ -704,6 +715,63 @@ describe("startBackgroundTimers — PreviewPortWatcher bootstrap", () => {
       expect.objectContaining({ mode: "static", source: "NetnsPortSource" }) as never,
     );
     expect(intervalCalls).toHaveLength(4);
+  });
+
+  // Phase 3b — idle-reap wiring (audit nice-to-have F). Assert the bootstrap
+  // (a) passes an onIdleReap handler to the watcher (so idle conversations get
+  // reaped), (b) parses EZCORP_PREVIEW_IDLE_REAP_TICKS per the documented
+  // contract (unset→30, "0"→0-disabled, "abc"→30), and (c) exposes the live
+  // watcher via the production accessor getPreviewPortWatcher(). The watcher
+  // adds NO setInterval, so intervalCalls stays at 4 throughout.
+  describe("idle-reap config wiring", () => {
+    const PRIOR = process.env.EZCORP_PREVIEW_IDLE_REAP_TICKS;
+    afterEach(() => {
+      if (PRIOR === undefined) delete process.env.EZCORP_PREVIEW_IDLE_REAP_TICKS;
+      else process.env.EZCORP_PREVIEW_IDLE_REAP_TICKS = PRIOR;
+    });
+
+    test("wires onIdleReap + defaults idleReapTicks to 30 when the env is unset", async () => {
+      delete process.env.EZCORP_PREVIEW_IDLE_REAP_TICKS;
+      installModuleMocks();
+      const mod = await import("../startup/background-timers");
+      await mod.startBackgroundTimers();
+
+      expect(lastPreviewWatcherConfig).toBeDefined();
+      expect(lastPreviewWatcherConfig!.idleReapTicks).toBe(30);
+      // onIdleReap is wired (a function, not undefined).
+      expect(typeof lastPreviewWatcherConfig!.onIdleReap).toBe("function");
+      expect(intervalCalls).toHaveLength(4);
+    });
+
+    test('idleReapTicks "0" disables idle reaping (parsed to 0)', async () => {
+      process.env.EZCORP_PREVIEW_IDLE_REAP_TICKS = "0";
+      installModuleMocks();
+      const mod = await import("../startup/background-timers");
+      await mod.startBackgroundTimers();
+      expect(lastPreviewWatcherConfig!.idleReapTicks).toBe(0);
+      expect(intervalCalls).toHaveLength(4);
+    });
+
+    test('a non-numeric idleReapTicks ("abc") falls back to 30', async () => {
+      process.env.EZCORP_PREVIEW_IDLE_REAP_TICKS = "abc";
+      installModuleMocks();
+      const mod = await import("../startup/background-timers");
+      await mod.startBackgroundTimers();
+      expect(lastPreviewWatcherConfig!.idleReapTicks).toBe(30);
+      expect(intervalCalls).toHaveLength(4);
+    });
+
+    test("getPreviewPortWatcher() exposes the live watcher (production accessor)", async () => {
+      installModuleMocks();
+      const mod = await import("../startup/background-timers");
+      await mod.startBackgroundTimers();
+      // The production accessor returns the SAME instance the test-only handle
+      // does, and the same one the ctor recorded.
+      const live = mod.getPreviewPortWatcher();
+      expect(live).toBeDefined();
+      expect(live).toBe(mod._getPreviewPortWatcherForTests() as never);
+      expect(live).toBe(lastPreviewWatcherInstance as never);
+    });
   });
 });
 
