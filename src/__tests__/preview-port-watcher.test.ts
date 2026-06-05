@@ -241,6 +241,115 @@ describe("PreviewPortWatcher — lifecycle", () => {
     w.stop();
   });
 
+  test("start() acquires a real lockfile, drives the interval tick, then releases on stop", async () => {
+    const dir = await import("node:fs/promises").then((fs) =>
+      fs.mkdtemp("/tmp/prev-watcher-lock-"),
+    );
+    const lockfilePath = `${dir}/sub/watcher.pid`;
+    const source = new StaticPortSource();
+    source.set("conv1", [5173]);
+    const events: PreviewDetectedEvent[] = [];
+    const w = new PreviewPortWatcher({
+      source,
+      onDetected: (e) => { events.push(e); },
+      stabilizeTicks: 1,
+      // tiny interval (clamped to MIN_POLL_MS=250) so the real timer fires fast
+      wakeIntervalMs: 1,
+      lockfilePath,
+    });
+    w.watch("conv1", "userA");
+    expect(await w.start()).toBe(true);
+    // The PID lockfile now exists and holds our pid (ensureDir created `sub/`).
+    const fs = await import("node:fs/promises");
+    const written = (await Bun.file(lockfilePath).text()).trim();
+    expect(written).toBe(String(process.pid));
+    // Wait for the interval callback (line 229-231) to fire at least once.
+    await new Promise((r) => setTimeout(r, 400));
+    expect(events.length).toBeGreaterThanOrEqual(1);
+    expect(events[0]).toEqual({ userId: "userA", conversationId: "conv1", port: 5173 });
+    w.stop();
+    // stop() releases the lockfile (async, fire-and-forget) — give it a tick.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await Bun.file(lockfilePath).exists()).toBe(false);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  test("a rejecting tick is caught by the interval guard (never crashes the daemon)", async () => {
+    // The interval callback wraps tickOnce() in `.catch()` so a rejected tick
+    // logs + is swallowed rather than becoming an unhandled rejection. tickOnce
+    // can't reject through its own try/finally, so we subclass to force the
+    // rejection and prove the interval's catch arm runs.
+    class RejectingWatcher extends PreviewPortWatcher {
+      override tickOnce(): Promise<void> {
+        return Promise.reject(new Error("tick exploded"));
+      }
+    }
+    const w = new RejectingWatcher({
+      source: new StaticPortSource(),
+      onDetected: () => {},
+      wakeIntervalMs: 1, // clamps to MIN_POLL_MS; fires fast
+      skipLockfile: true,
+    });
+    expect(await w.start()).toBe(true);
+    // Let the interval fire — the rejected tick must be caught, not thrown.
+    await new Promise((r) => setTimeout(r, 400));
+    w.stop();
+  });
+
+  test("start() refuses when a live sibling owns the lockfile", async () => {
+    const dir = await import("node:fs/promises").then((fs) =>
+      fs.mkdtemp("/tmp/prev-watcher-sib-"),
+    );
+    const lockfilePath = `${dir}/watcher.pid`;
+    // Write OUR pid — isProcessAlive(self) is true → acquire must refuse.
+    await Bun.write(lockfilePath, String(process.pid));
+    const w = new PreviewPortWatcher({
+      source: new StaticPortSource(),
+      onDetected: () => {},
+      lockfilePath,
+    });
+    expect(await w.start()).toBe(false);
+    const fs = await import("node:fs/promises");
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  test("lockfile primitives: acquire / stale-pid takeover / isProcessAlive / release", async () => {
+    const { acquireLockfile, releaseLockfile, isProcessAlive } =
+      _previewPortWatcherInternals;
+    const fs = await import("node:fs/promises");
+    const dir = await fs.mkdtemp("/tmp/prev-watcher-prim-");
+    const path = `${dir}/nested/dir/watcher.pid`; // forces ensureDir mkdir -p
+
+    // isProcessAlive: bogus pids are dead, our own pid is alive.
+    expect(isProcessAlive(0)).toBe(false);
+    expect(isProcessAlive(-1)).toBe(false);
+    expect(isProcessAlive(Number.NaN)).toBe(false);
+    expect(isProcessAlive(process.pid)).toBe(true);
+
+    // First acquire creates the file (+ parent dirs) and writes our pid.
+    expect(await acquireLockfile(path)).toBe(true);
+    expect((await Bun.file(path).text()).trim()).toBe(String(process.pid));
+
+    // A file holding a stale (dead) pid is taken over.
+    await Bun.write(path, "999999"); // not a live process
+    expect(await acquireLockfile(path)).toBe(true);
+    expect((await Bun.file(path).text()).trim()).toBe(String(process.pid));
+
+    // A file holding a live pid (ours) is refused.
+    expect(await acquireLockfile(path)).toBe(false);
+
+    // A garbage / non-numeric lockfile body is treated as free (takeover).
+    await Bun.write(path, "not-a-pid");
+    expect(await acquireLockfile(path)).toBe(true);
+
+    // release unlinks; a second release on a missing file is a silent no-op.
+    await releaseLockfile(path);
+    expect(await Bun.file(path).exists()).toBe(false);
+    await releaseLockfile(path); // no throw
+
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
   test("getPollIntervalMs honors env, clamps to floor, and defaults on garbage", () => {
     const { getPollIntervalMs, DEFAULT_POLL_MS, MIN_POLL_MS } = _previewPortWatcherInternals;
     const prev = process.env.EZCORP_PREVIEW_WATCHER_POLL_MS;
