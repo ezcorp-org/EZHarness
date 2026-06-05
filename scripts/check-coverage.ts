@@ -76,6 +76,22 @@ const EXCLUDES = [
   "web/src/lib/server/shutdown.ts",
   "web/src/lib/server/auth/session-cookie.ts",
   "web/src/lib/server/extension-helpers.ts",
+  // Secure-preview SvelteKit dispatch glue. These ARE exhaustively covered by
+  // their vitest `.server.test.ts` suites (dispatch 96.5%, ws-bridge 100% under
+  // the v8 leg), but `web/src/hooks.server.ts` statically imports both, so the
+  // `c2-session-revocation` bun shard (which imports hooks.server.ts to test
+  // the app-origin session path) instruments them with BUN's TypeScript-line
+  // span set. merge-lcov then unions bun's superset of "executable" lines with
+  // the vitest leg's v8 line set — and the bun-only lines have no v8 hit to
+  // offset them, dragging the merged percentage to ~75/83 % even though the
+  // dedicated vitest leg covers every reachable line. The dispatch readFile dep
+  // (`Bun.file().stream()`) is additionally Bun-runtime-only (the vitest/jsdom
+  // leg can't run it). Identical dual-instrumentation hazard to the
+  // mention-logic / context / security excludes above: covered behaviourally
+  // and gated under `Web tests (vitest)`, just not line-measurable in this
+  // merged bun+v8 lcov.
+  "web/src/lib/server/preview/dispatch.ts",
+  "web/src/lib/server/preview/ws-bridge.ts",
   // Scaffold string-template files: lcov counts the interior of the returned
   // template literals as missed lines even when every template function is
   // exercised (`src/__tests__/ext-sdk-types.test.ts`). Identical justification
