@@ -201,7 +201,30 @@ export async function setupTools(
           if (project?.path) {
             const { getBuiltinToolDefs } = await import("../tools");
             const { needsApproval, getPermissionMode, createPermissionGate } = await import("../tools/permissions");
-            const toolDefs = getBuiltinToolDefs(project.path);
+
+            // Secure-preview spawn trigger (Phase 3b): thread the
+            // conversation owner's id + the live port-watcher into the shell
+            // tool so a recognized dev-server command runs under the
+            // conversation's preview uid (fs-isolated + uid-attributed). Only
+            // wired when we have an owning user; the launch itself is
+            // fail-safe (refuses cleanly on a static-mode host).
+            const previewUserId = convRecord?.userId ?? null;
+            const previewWiring = previewUserId
+              ? await (async (): Promise<import("../tools").ShellPreviewWiring> => {
+                  const [{ launchPreviewDevServer }, { getPreviewPortWatcher }] = await Promise.all([
+                    import("../preview/preview-spawn-orchestration"),
+                    import("../../startup/background-timers"),
+                  ]);
+                  return {
+                    conversationId,
+                    userId: previewUserId,
+                    launch: (input) =>
+                      launchPreviewDevServer(input, { watcher: getPreviewPortWatcher() }),
+                  };
+                })()
+              : undefined;
+
+            const toolDefs = getBuiltinToolDefs(project.path, previewWiring);
             for (const def of toolDefs) ctx.builtinToolDefsMap.set(def.name, def);
             const projectId = options.projectId;
 

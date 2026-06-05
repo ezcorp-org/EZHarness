@@ -65,6 +65,17 @@ export function _getPreviewPortWatcherForTests(): PreviewPortWatcher | undefined
 }
 
 /**
+ * Production accessor for the live PreviewPortWatcher singleton (Phase 3b —
+ * the shell-tool spawn trigger needs to register a conversation with the
+ * watcher when it launches a dev server under a preview uid). Returns
+ * undefined when the watcher didn't start (fail-closed host / kill switch);
+ * the launch path then skips watcher registration but still spawns.
+ */
+export function getPreviewPortWatcher(): PreviewPortWatcher | undefined {
+  return previewPortWatcher;
+}
+
+/**
  * Start all background maintenance timers: memory decay sweep, memory
  * compaction, expired-session cleanup, error-log retention.
  *

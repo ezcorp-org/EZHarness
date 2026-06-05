@@ -4,8 +4,41 @@ import type { BuiltinToolDef } from "./types";
 import type { AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
 import { buildStreamTruncationMarker, getToolOutputLimit } from "./output-limits";
 import { logger } from "../../logger";
+import { detectDevServerCommand } from "../preview/dev-command-detection";
 
 const log = logger.child("shell-tool");
+
+/**
+ * Optional preview-launch wiring (Secure User-Site Preview, Phase 3b — the
+ * shell-tool spawn trigger). When the conversation owner runs a long-running
+ * dev-server command AND the host supports uid-mode previews, the shell tool
+ * launches it under the conversation's PREVIEW UID (fs-isolated from
+ * .ezcorp/data, uid-attributed for port detection) instead of the normal
+ * Bun.spawn path. Threaded from `setup-tools.ts` where conversationId +
+ * userId are in scope.
+ *
+ * Fail-safe: when `launch` returns `{ok:false}` (static mode, pool exhausted,
+ * missing helper) the shell tool falls back to the normal execution path, so
+ * a host that can't run uid previews behaves exactly as before. Injected as
+ * one object so tests can drive both the detector outcome (via the command
+ * string) and the launch result deterministically.
+ */
+export interface ShellPreviewWiring {
+  conversationId: string;
+  userId: string;
+  /** The orchestration entry point (defaults wired in setup-tools). Returns
+   *  a process handle on success; the shell tool supervises it like a
+   *  background process. */
+  launch: (input: {
+    conversationId: string;
+    userId: string;
+    workDir: string;
+    command: string;
+    args?: readonly string[];
+  }) =>
+    | { ok: true; uid: number; process: { pid: number; exited: Promise<number>; kill(signal?: number): void } }
+    | { ok: false; reason: string };
+}
 
 // Shell's cap lives in TOOL_OUTPUT_LIMITS (output-limits.ts) — keep this a
 // reference, not a hardcoded value, so the description and runtime agree.
@@ -33,7 +66,7 @@ const DANGEROUS_COMMAND_PATTERNS = [
   /wget.*\|\s*(ba)?sh/,                                  // wget pipe to shell
 ];
 
-export function createShellTool(projectPath: string): BuiltinToolDef {
+export function createShellTool(projectPath: string, preview?: ShellPreviewWiring): BuiltinToolDef {
   return {
     name: "shell",
     label: "shell",
@@ -67,6 +100,58 @@ export function createShellTool(projectPath: string): BuiltinToolDef {
       }
 
       const timeout = validateTimeout(params.timeout);
+
+      // ── Secure-preview spawn trigger (Phase 3b) ─────────────────────────
+      // When this command is a recognized long-running dev server AND the
+      // host can run uid-mode previews, launch it under the conversation's
+      // preview uid (fs-isolated + uid-attributed) via the orchestration. A
+      // refusal (static mode / pool exhausted / missing helper) falls back to
+      // the normal Bun.spawn path below — fail-safe, never a hard failure.
+      if (preview) {
+        const detected = detectDevServerCommand(params.command);
+        if (detected) {
+          const launched = preview.launch({
+            conversationId: preview.conversationId,
+            userId: preview.userId,
+            workDir: projectPath,
+            command: detected.command,
+            args: detected.args,
+          });
+          if (launched.ok) {
+            log.info("shell: dev server launched under preview uid", {
+              conversationId: preview.conversationId,
+              uid: launched.uid,
+              pid: launched.process.pid,
+              command: detected.command,
+            });
+            // The dev server is a long-lived supervised process owned by the
+            // preview uid; we do NOT block the tool call on its exit (it runs
+            // until reaped). Report the launch so the LLM/UI knows it's live.
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text:
+                    `Dev server started under secure preview (pid ${launched.process.pid}). ` +
+                    `A preview link will appear once it starts listening.`,
+                },
+              ],
+              details: {
+                exitCode: 0,
+                stdout: "",
+                stderr: "",
+                streaming: false,
+                preview: { launched: true, uid: launched.uid, pid: launched.process.pid },
+              },
+            };
+          }
+          // Refused — log + fall through to the normal execution path.
+          log.info("shell: preview launch refused, running command normally", {
+            conversationId: preview.conversationId,
+            reason: launched.reason,
+          });
+        }
+      }
 
       try {
         const proc = Bun.spawn(["/bin/sh", "-c", params.command], {
