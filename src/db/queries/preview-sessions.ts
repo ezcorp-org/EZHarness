@@ -297,7 +297,20 @@ export async function reapPreviewsForConversation(
   conversationId: string,
   now: Date = new Date(),
 ): Promise<number> {
-  if (!conversationId) return 0;
+  return (await reapPreviewIdsForConversation(conversationId, now)).length;
+}
+
+/**
+ * Same as `reapPreviewsForConversation` but returns the revoked preview IDs
+ * (not just the count). The reaper uses these to FORGET each preview's
+ * per-id rate-limit/quota accounting so a freed id can't leak memory in the
+ * dynamic-proxy quota maps. Empty array when nothing was reaped.
+ */
+export async function reapPreviewIdsForConversation(
+  conversationId: string,
+  now: Date = new Date(),
+): Promise<string[]> {
+  if (!conversationId) return [];
   const rows = await getDb()
     .update(previewSessions)
     .set({ status: "revoked", revokedAt: now })
@@ -306,7 +319,7 @@ export async function reapPreviewsForConversation(
       eq(previewSessions.status, "active"),
     ))
     .returning({ id: previewSessions.id });
-  return rows.length;
+  return rows.map((r: { id: string }) => r.id);
 }
 
 /**

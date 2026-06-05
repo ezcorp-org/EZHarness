@@ -198,35 +198,75 @@ describe("launchPreviewDevServer (spawn orchestration)", () => {
     expect(launchPreviewDevServer({ conversationId: "c", userId: "u", workDir: "", command: "x" }).ok).toBe(false);
   });
 
-  test("tracks the launched process + killConversationProcesses kills it", () => {
-    let killed = 0;
+  test("tracks the launched process + killConversationProcesses confirms the kill via the helper", async () => {
+    const killArgs: Array<{ uid: number; pgid: number }> = [];
     const res = launchPreviewDevServer(
       { conversationId: "conv-kill", userId: "u1", workDir: "/w", command: "bun", args: ["dev"] },
       {
         capabilities: () => ({ mode: "uid" }),
-        spawn: () => ({ pid: 1, kill: () => { killed++; }, exited: new Promise(() => {}) }),
+        // Capture the uid + pgid (== pid here) the orchestration records.
+        spawn: ({ uid }) => ({ pid: 4242, uid, pgid: 4242, kill: () => {}, exited: new Promise(() => {}) }),
       },
     );
     expect(res.ok).toBe(true);
     expect(trackedProcessCount("conv-kill")).toBe(1);
-    const n = killConversationProcesses("conv-kill");
-    expect(n).toBe(1);
-    expect(killed).toBe(1);
+    // CONFIRMED kill: the injected killPreview resolves true → killed:1.
+    const r = await killConversationProcesses("conv-kill", {
+      killPreview: async (uid, pgid) => { killArgs.push({ uid, pgid }); return true; },
+    });
+    expect(r).toEqual({ killed: 1, unconfirmed: 0 });
+    // Routed through the helper with the captured uid + pgid (not proc.kill()).
+    expect(killArgs).toHaveLength(1);
+    expect(killArgs[0]!.pgid).toBe(4242);
+    if (res.ok) expect(killArgs[0]!.uid).toBe(res.uid);
     expect(trackedProcessCount("conv-kill")).toBe(0);
     // Idempotent — reaping again is a no-op.
-    expect(killConversationProcesses("conv-kill")).toBe(0);
+    expect(await killConversationProcesses("conv-kill")).toEqual({ killed: 0, unconfirmed: 0 });
   });
 
-  test("killConversationProcesses swallows a kill that throws (foreign uid)", () => {
+  test("an UNconfirmed helper kill is reported (drives uid quarantine)", async () => {
     launchPreviewDevServer(
-      { conversationId: "conv-eperm", userId: "u1", workDir: "/w", command: "bun" },
+      { conversationId: "conv-unconf", userId: "u1", workDir: "/w", command: "bun" },
       {
         capabilities: () => ({ mode: "uid" }),
-        spawn: () => ({ pid: 2, kill: () => { throw new Error("EPERM"); }, exited: new Promise(() => {}) }),
+        spawn: ({ uid }) => ({ pid: 7, uid, pgid: 7, kill: () => {}, exited: new Promise(() => {}) }),
       },
     );
-    // Does not throw; the registry is cleared regardless.
-    expect(() => killConversationProcesses("conv-eperm")).not.toThrow();
-    expect(trackedProcessCount("conv-eperm")).toBe(0);
+    const r = await killConversationProcesses("conv-unconf", {
+      killPreview: async () => false, // helper non-zero (EPERM / survived)
+    });
+    expect(r).toEqual({ killed: 0, unconfirmed: 1 });
+    expect(trackedProcessCount("conv-unconf")).toBe(0);
+  });
+
+  test("a process with no captured uid/pgid counts as unconfirmed (fail-closed)", async () => {
+    launchPreviewDevServer(
+      { conversationId: "conv-nouid", userId: "u1", workDir: "/w", command: "bun" },
+      {
+        capabilities: () => ({ mode: "uid" }),
+        // Inject-spawn returns NO uid/pgid → cannot confirm a cross-uid kill.
+        spawn: () => ({ pid: 9, kill: () => {}, exited: new Promise(() => {}) }),
+      },
+    );
+    let helperCalled = false;
+    const r = await killConversationProcesses("conv-nouid", {
+      killPreview: async () => { helperCalled = true; return true; },
+    });
+    expect(helperCalled).toBe(false); // never even attempts (no pgid)
+    expect(r).toEqual({ killed: 0, unconfirmed: 1 });
+  });
+
+  test("a thrown helper kill counts as unconfirmed (does not throw)", async () => {
+    launchPreviewDevServer(
+      { conversationId: "conv-throw", userId: "u1", workDir: "/w", command: "bun" },
+      {
+        capabilities: () => ({ mode: "uid" }),
+        spawn: ({ uid }) => ({ pid: 11, uid, pgid: 11, kill: () => {}, exited: new Promise(() => {}) }),
+      },
+    );
+    const r = await killConversationProcesses("conv-throw", {
+      killPreview: async () => { throw new Error("helper spawn boom"); },
+    });
+    expect(r).toEqual({ killed: 0, unconfirmed: 1 });
   });
 });

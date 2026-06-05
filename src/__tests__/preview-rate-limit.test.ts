@@ -25,6 +25,17 @@ describe("createPreviewQuota — request rate", () => {
     expect(q.allowRequest("p1")).toBe(false); // p1 exhausted
     expect(q.allowRequest("p2")).toBe(true); // p2 independent
   });
+
+  test("forget drops the REQUEST token-bucket too (no per-id leak on reap)", () => {
+    // The request bucket lives in the underlying createRateLimiter map; forget
+    // must reset it as well as the byte window, else a reaped preview leaks an
+    // entry there. After forget the id starts with a fresh full bucket.
+    const q = createPreviewQuota({ maxRequestsPerSecond: 1, now: () => 1000 });
+    expect(q.allowRequest("p1")).toBe(true);
+    expect(q.allowRequest("p1")).toBe(false); // exhausted
+    q.forget("p1");
+    expect(q.allowRequest("p1")).toBe(true); // bucket dropped → fresh
+  });
 });
 
 describe("createPreviewQuota — byte budget", () => {

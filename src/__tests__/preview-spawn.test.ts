@@ -6,6 +6,8 @@ import {
   PREVIEW_UID_MAX,
   isValidPreviewUid,
   buildPreviewSpawnArgv,
+  buildPreviewKillArgv,
+  killPreviewProcess,
   isPreviewSpawnHelperPresent,
   spawnPreviewServer,
   previewSpawnHelperPath,
@@ -165,6 +167,72 @@ describe("spawnPreviewServer", () => {
         },
       ),
     ).toThrow(/allowlisted preview range/);
+    expect(spawned).toBe(false);
+  });
+});
+
+describe("buildPreviewKillArgv — setuid helper --kill mode argv", () => {
+  const helper = "/opt/preview-spawn";
+
+  test("assembles [helper, '--kill', uid, pgid]", () => {
+    expect(buildPreviewKillArgv(90001, 4242, helper)).toEqual([
+      helper,
+      "--kill",
+      "90001",
+      "4242",
+    ]);
+  });
+
+  test("defaults the helper path from previewSpawnHelperPath()", () => {
+    expect(buildPreviewKillArgv(90001, 4242)[0]).toBe(previewSpawnHelperPath());
+  });
+
+  test("throws on an out-of-range uid (defense in depth — TS-side allowlist)", () => {
+    expect(() => buildPreviewKillArgv(0, 100, helper)).toThrow(/allowlisted preview range/);
+    expect(() => buildPreviewKillArgv(1000, 100, helper)).toThrow(/allowlisted preview range/);
+    expect(() => buildPreviewKillArgv(PREVIEW_UID_MAX + 1, 100, helper)).toThrow();
+  });
+
+  test("throws on an invalid pgid (<=1, non-integer)", () => {
+    expect(() => buildPreviewKillArgv(90001, 1, helper)).toThrow(/pgid/);
+    expect(() => buildPreviewKillArgv(90001, 0, helper)).toThrow(/pgid/);
+    expect(() => buildPreviewKillArgv(90001, -5, helper)).toThrow(/pgid/);
+    expect(() => buildPreviewKillArgv(90001, 4.5, helper)).toThrow(/pgid/);
+  });
+});
+
+describe("killPreviewProcess — confirmed-kill via the helper", () => {
+  test("resolves true when the helper exits 0 (confirmed)", async () => {
+    let captured: string[] | null = null;
+    const ok = await killPreviewProcess(90001, 4242, {
+      helperPath: "/opt/preview-spawn",
+      spawn: (argv) => { captured = argv; return { exited: Promise.resolve(0) }; },
+    });
+    expect(ok).toBe(true);
+    expect(captured).not.toBeNull();
+    expect(captured!).toEqual(["/opt/preview-spawn", "--kill", "90001", "4242"]);
+  });
+
+  test("resolves false when the helper exits non-zero (unconfirmed)", async () => {
+    const ok = await killPreviewProcess(90001, 4242, {
+      spawn: () => ({ exited: Promise.resolve(1) }),
+    });
+    expect(ok).toBe(false);
+  });
+
+  test("resolves false (never throws) when the spawn itself throws", async () => {
+    const ok = await killPreviewProcess(90001, 4242, {
+      spawn: () => { throw new Error("ENOENT helper"); },
+    });
+    expect(ok).toBe(false);
+  });
+
+  test("resolves false on an invalid uid/pgid without ever spawning", async () => {
+    let spawned = false;
+    const ok = await killPreviewProcess(0, 4242, {
+      spawn: () => { spawned = true; return { exited: Promise.resolve(0) }; },
+    });
+    expect(ok).toBe(false);
     expect(spawned).toBe(false);
   });
 });

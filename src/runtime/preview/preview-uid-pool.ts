@@ -55,11 +55,24 @@ const allocations = new Map<string, PreviewUidAllocation>();
 const uidToConversation = new Map<number, string>();
 /** Free uids, lazily seeded from the range on first alloc. */
 let freeUids: number[] | null = null;
+/**
+ * Quarantined uids — released from their conversation's allocation but NOT
+ * returned to the free pool because their dev-server tree's kill could not be
+ * CONFIRMED (a possible live orphan still owns the uid). Holding them out of
+ * `freeUids` guarantees a future conversation can never be allocated a uid
+ * that an orphan still owns (the shared-fs/identity reuse hole). Reclaimed
+ * out-of-band (process exits / container teardown); we never auto-recycle a
+ * quarantined uid into the allocatable pool.
+ */
+const quarantinedUids = new Set<number>();
 
 function ensureSeeded(): number[] {
   if (freeUids === null) {
     freeUids = [];
-    for (let u = PREVIEW_UID_MIN; u <= PREVIEW_UID_MAX; u++) freeUids.push(u);
+    // Never seed a quarantined uid (kill-unconfirmed) back into the pool.
+    for (let u = PREVIEW_UID_MIN; u <= PREVIEW_UID_MAX; u++) {
+      if (!quarantinedUids.has(u)) freeUids.push(u);
+    }
   }
   return freeUids;
 }
@@ -120,15 +133,54 @@ export function reapPreviewUid(conversationId: string): boolean {
   return true;
 }
 
+/**
+ * QUARANTINE a conversation's uid (Phase 3b integrity fix): drop both index
+ * entries like `reapPreviewUid`, but DO NOT return the uid to the free pool —
+ * instead hold it in the quarantine set. Called when the conversation's
+ * dev-server kill could NOT be confirmed, so a possible live orphan still owns
+ * the uid; reallocating it would let a new (untrusted) conversation share that
+ * orphan's fs/process identity. Returns true when an allocation was actually
+ * quarantined (false for an unknown conversation). Idempotent.
+ */
+export function quarantinePreviewUid(conversationId: string): boolean {
+  const alloc = allocations.get(conversationId);
+  if (!alloc) return false;
+  allocations.delete(conversationId);
+  uidToConversation.delete(alloc.uid);
+  quarantinedUids.add(alloc.uid);
+  // Defensive: a quarantined uid must never be in the free pool.
+  if (freeUids) {
+    const i = freeUids.indexOf(alloc.uid);
+    if (i >= 0) freeUids.splice(i, 1);
+  }
+  log.warn("preview uid QUARANTINED — kill unconfirmed, uid withheld from pool", {
+    conversationId,
+    uid: alloc.uid,
+    quarantinedCount: quarantinedUids.size,
+  });
+  return true;
+}
+
 /** Number of conversations currently holding a uid allocation. */
 export function activePreviewUidCount(): number {
   return allocations.size;
 }
 
-/** Test-only: clear all allocations + re-seed the free pool. */
+/** Number of uids currently quarantined (kill-unconfirmed). Observability. */
+export function quarantinedPreviewUidCount(): number {
+  return quarantinedUids.size;
+}
+
+/** Is `uid` currently quarantined? (test/observability) */
+export function isPreviewUidQuarantined(uid: number): boolean {
+  return quarantinedUids.has(uid);
+}
+
+/** Test-only: clear all allocations + quarantine + re-seed the free pool. */
 export function _resetPreviewUidPoolForTests(): void {
   allocations.clear();
   uidToConversation.clear();
+  quarantinedUids.clear();
   freeUids = null;
 }
 

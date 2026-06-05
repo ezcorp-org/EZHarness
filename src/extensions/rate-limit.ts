@@ -12,14 +12,23 @@
  * wall-clock time.
  *
  * Extracted from `storage-handler.ts:32-45` for reuse.
+ *
+ * The returned closure carries a `forget(id)` method that drops a single
+ * id's bucket — callers with a bounded, churning id space (e.g. per-preview
+ * accounting that must be released on reap) use it to avoid an unbounded
+ * `buckets` Map. Idempotent; a no-op for an unknown id.
  */
-export function createRateLimiter(
-  maxOpsPerSecond: number,
-): (id: string, count: number) => boolean {
+export interface RateLimiter {
+  (id: string, count: number): boolean;
+  /** Drop a single id's bucket so a freed id doesn't leak memory. */
+  forget(id: string): void;
+}
+
+export function createRateLimiter(maxOpsPerSecond: number): RateLimiter {
   interface Bucket { tokens: number; lastRefill: number; }
   const buckets = new Map<string, Bucket>();
 
-  return function consumeTokens(id: string, count: number): boolean {
+  const consumeTokens = function consumeTokens(id: string, count: number): boolean {
     const now = Date.now();
     let bucket = buckets.get(id);
     if (!bucket) {
@@ -35,5 +44,11 @@ export function createRateLimiter(
     if (bucket.tokens < count) return false;
     bucket.tokens -= count;
     return true;
+  } as RateLimiter;
+
+  consumeTokens.forget = (id: string): void => {
+    buckets.delete(id);
   };
+
+  return consumeTokens;
 }

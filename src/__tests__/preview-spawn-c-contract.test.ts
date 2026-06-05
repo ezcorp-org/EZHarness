@@ -132,4 +132,55 @@ describe("preview-spawn.c source contract — environment + exec", () => {
     expect(code).not.toMatch(/sh\s+-c/);
     expect(code).not.toMatch(/\/bin\/sh/);
   });
+
+  test("setsid()s AFTER the privilege drop, BEFORE exec (group-leader for reaping)", () => {
+    const code = loadCode();
+    const setuidAt = firstIndex(code, /setuid\s*\(\s*\(uid_t\)/);
+    const setsidAt = firstIndex(code, /setsid\s*\(\s*\)/);
+    const execAt = firstIndex(code, /execvp\s*\(/);
+    expect(setsidAt).toBeGreaterThanOrEqual(0);
+    // setsid must come after the uid drop (so the leader runs as the preview
+    // uid) and before exec (so the dev-server image inherits the new pgid).
+    expect(setuidAt).toBeLessThan(setsidAt);
+    expect(setsidAt).toBeLessThan(execAt);
+  });
+});
+
+describe("preview-spawn.c source contract — --kill mode (reaper integrity)", () => {
+  test("dispatches a --kill mode distinct from spawn", () => {
+    const code = loadCode();
+    // The mode switch on argv[1] == "--kill".
+    expect(code).toMatch(/strcmp\s*\(\s*argv\[1\]\s*,\s*"--kill"\s*\)/);
+  });
+
+  test("kill mode RANGE-checks the target uid against the SAME preview allowlist", () => {
+    const code = loadCode();
+    // Both spawn AND kill must refuse a uid outside [MIN, MAX] — assert the
+    // guard appears at least twice (once per mode).
+    const guard = /uid\s*<\s*PREVIEW_UID_MIN\s*\|\|\s*uid\s*>\s*PREVIEW_UID_MAX/g;
+    const matches = code.match(guard) ?? [];
+    expect(matches.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("kill mode verifies the target group leader is OWNED by the preview uid", () => {
+    const code = loadCode();
+    // Reads /proc/<pid>/status to compare the leader's real uid — this is what
+    // stops kill mode from becoming a root-kill-anything primitive.
+    expect(code).toMatch(/\/proc\/%ld\/status/);
+    expect(code).toMatch(/Uid:/);
+    // The ownership comparison: leader_uid != uid → refuse.
+    expect(code).toMatch(/leader_uid\s*!=\s*uid/);
+  });
+
+  test("kill mode signals the process GROUP (kill(-pgid, ...)) — SIGTERM then SIGKILL", () => {
+    const code = loadCode();
+    // Negative pgid = signal the whole group.
+    expect(code).toMatch(/kill\s*\(\s*\(pid_t\)\s*\(\s*-pgid\s*\)\s*,\s*SIGTERM\s*\)/);
+    expect(code).toMatch(/kill\s*\(\s*\(pid_t\)\s*\(\s*-pgid\s*\)\s*,\s*SIGKILL\s*\)/);
+  });
+
+  test("kill mode refuses pgid <= 1 (never whole-session / init)", () => {
+    const code = loadCode();
+    expect(code).toMatch(/pgid\s*<=\s*1/);
+  });
 });

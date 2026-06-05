@@ -109,7 +109,10 @@ export function createPreviewQuota(config: PreviewQuotaConfig = {}): PreviewQuot
     },
 
     forget(previewId: string): void {
+      // Drop BOTH the byte window AND the request token-bucket so a reaped
+      // preview leaves no accounting behind in either map (no per-id leak).
       byteWindows.delete(previewId);
+      requestLimiter.forget(previewId);
     },
   };
 }

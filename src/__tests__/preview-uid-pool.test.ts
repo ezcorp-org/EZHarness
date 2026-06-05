@@ -7,6 +7,9 @@ import {
   getPreviewUid,
   conversationForPreviewUid,
   reapPreviewUid,
+  quarantinePreviewUid,
+  quarantinedPreviewUidCount,
+  isPreviewUidQuarantined,
   activePreviewUidCount,
   enforceDataDirLockdown,
   previewDataDir,
@@ -95,6 +98,53 @@ describe("preview uid pool — alloc/reap/exhaustion", () => {
     reapPreviewUid("c-0");
     const recovered = allocatePreviewUid("overflow");
     expect(recovered).not.toBeNull();
+  });
+});
+
+describe("preview uid pool — quarantine (kill-unconfirmed orphan barrier)", () => {
+  test("quarantine drops the allocation but WITHHOLDS the uid from the pool", () => {
+    const a = allocatePreviewUid("conv-1")!;
+    expect(quarantinePreviewUid("conv-1")).toBe(true);
+    // Allocation + reverse index gone, like reap.
+    expect(getPreviewUid("conv-1")).toBeUndefined();
+    expect(conversationForPreviewUid(a.uid)).toBeUndefined();
+    expect(activePreviewUidCount()).toBe(0);
+    // But the uid is quarantined, NOT free.
+    expect(isPreviewUidQuarantined(a.uid)).toBe(true);
+    expect(quarantinedPreviewUidCount()).toBe(1);
+  });
+
+  test("a quarantined uid is NEVER re-allocated to a future conversation", () => {
+    // Drain the pool down to exactly one free uid, quarantine the only other
+    // allocation, then prove the freshly-allocated conversation does NOT get
+    // the quarantined uid (it would, if quarantine returned it to the pool).
+    const a = allocatePreviewUid("victim")!;
+    quarantinePreviewUid("victim");
+    // Allocate many more and assert none ever reuse the quarantined uid.
+    for (let i = 0; i < 100; i++) {
+      const b = allocatePreviewUid(`c-${i}`);
+      expect(b!.uid).not.toBe(a.uid);
+    }
+    expect(isPreviewUidQuarantined(a.uid)).toBe(true);
+  });
+
+  test("quarantining an unknown conversation is a no-op", () => {
+    expect(quarantinePreviewUid("nope")).toBe(false);
+    expect(quarantinedPreviewUidCount()).toBe(0);
+  });
+
+  test("a quarantined uid stays out even when exhaustion would otherwise reclaim it", () => {
+    // Fill the pool, quarantine one, and confirm the pool effectively shrank
+    // by one (the quarantined uid can never come back).
+    for (let i = 0; i < PREVIEW_UID_POOL_SIZE; i++) {
+      expect(allocatePreviewUid(`c-${i}`)).not.toBeNull();
+    }
+    const q = getPreviewUid("c-0")!;
+    quarantinePreviewUid("c-0");
+    // One slot freed by quarantine? No — quarantine does NOT free a slot.
+    const recovered = allocatePreviewUid("overflow");
+    expect(recovered).toBeNull(); // pool still exhausted (quarantine ≠ free)
+    expect(isPreviewUidQuarantined(q.uid)).toBe(true);
   });
 });
 

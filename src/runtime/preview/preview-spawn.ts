@@ -140,9 +140,18 @@ export function isPreviewSpawnHelperPresent(
   return (info.mode & S_ISUID) !== 0;
 }
 
-/** A handle to a spawned preview process (subset of Bun.Subprocess). */
+/** A handle to a spawned preview process (subset of Bun.Subprocess).
+ *  `uid` + `pgid` are captured at launch so the reaper can route a kill
+ *  through the setuid helper's --kill mode (the app uid cannot signal a
+ *  preview-uid process directly — kill(2) → EPERM across uids). Because the
+ *  helper `setsid()`s after the privilege drop, the spawned process is its
+ *  own group leader, so `pgid === pid`. */
 export interface PreviewProcess {
   pid: number;
+  /** The preview uid this process runs as (set by the orchestration). */
+  uid?: number;
+  /** The process-group id to signal (== pid; the helper is a setsid leader). */
+  pgid?: number;
   kill(signal?: number): void;
   readonly exited: Promise<number>;
 }
@@ -180,9 +189,84 @@ export function spawnPreviewServer(
       const proc = Bun.spawn(a, { stdout: o.stdout, stderr: o.stderr });
       return {
         pid: proc.pid,
+        // The helper setsid()s after the privilege drop, so the spawned
+        // process is its own group leader: pgid === pid. Capture both so the
+        // reaper can group-kill it through the setuid helper's --kill mode.
+        uid: input.uid,
+        pgid: proc.pid,
         kill: (sig?: number) => proc.kill(sig),
         exited: proc.exited,
       };
     });
   return spawn(argv, { stdout: "pipe", stderr: "pipe" });
+}
+
+/**
+ * Build the argv for the setuid helper's KILL mode:
+ *   [helperPath, "--kill", "<uid>", "<pgid>"]
+ *
+ * Pure + fail-closed, mirroring buildPreviewSpawnArgv. The TS-side uid-range
+ * allowlist (defense in depth — the C helper re-checks) is enforced HERE so we
+ * never even shell out to kill outside the preview range. `pgid` must be a
+ * positive integer (a real process-group id). No shell, no interpolation.
+ */
+export function buildPreviewKillArgv(
+  uid: number,
+  pgid: number,
+  helperPath: string = previewSpawnHelperPath(),
+): string[] {
+  if (!isValidPreviewUid(uid)) {
+    throw new Error(
+      `preview-spawn: kill uid ${uid} is outside the allowlisted preview range ` +
+        `[${PREVIEW_UID_MIN}, ${PREVIEW_UID_MAX}]`,
+    );
+  }
+  if (!Number.isInteger(pgid) || pgid <= 1) {
+    throw new Error(`preview-spawn: kill pgid must be an integer > 1: ${pgid}`);
+  }
+  return [helperPath, "--kill", String(uid), String(pgid)];
+}
+
+export interface KillPreviewProcessDeps {
+  /** Injected spawner for the kill helper (defaults to Bun.spawn). Returns a
+   *  handle whose `exited` resolves with the helper's exit code. */
+  spawn?: (argv: string[]) => { exited: Promise<number> };
+  /** Override the helper path (tests). */
+  helperPath?: string;
+}
+
+/**
+ * Kill a preview process GROUP through the setuid helper's --kill mode.
+ * Returns true ONLY when the helper exits 0 (confirmed: the group leader is
+ * gone — either signaled dead or was already gone, both of which mean the
+ * untrusted code is no longer running as this uid). Returns false on any
+ * non-zero exit, a thrown spawn, or invalid args — the caller (reaper) treats
+ * an unconfirmed kill as "do NOT release the uid back to the pool".
+ *
+ * The app uid cannot signal a preview-uid process itself (EPERM); this is the
+ * ONLY path that actually reaps the dev-server tree.
+ */
+export async function killPreviewProcess(
+  uid: number,
+  pgid: number,
+  deps: KillPreviewProcessDeps = {},
+): Promise<boolean> {
+  let argv: string[];
+  try {
+    argv = buildPreviewKillArgv(uid, pgid, deps.helperPath ?? previewSpawnHelperPath());
+  } catch {
+    return false;
+  }
+  const spawn =
+    deps.spawn ??
+    ((a) => {
+      const proc = Bun.spawn(a, { stdout: "ignore", stderr: "pipe" });
+      return { exited: proc.exited };
+    });
+  try {
+    const code = await spawn(argv).exited;
+    return code === 0;
+  } catch {
+    return false;
+  }
 }

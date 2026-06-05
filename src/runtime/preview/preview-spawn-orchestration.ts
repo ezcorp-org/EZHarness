@@ -30,7 +30,7 @@
 import { logger } from "../../logger";
 import { previewCapabilities } from "./preview-netns";
 import { allocatePreviewUid, reapPreviewUid } from "./preview-uid-pool";
-import { spawnPreviewServer, type PreviewProcess } from "./preview-spawn";
+import { spawnPreviewServer, killPreviewProcess, type PreviewProcess } from "./preview-spawn";
 import type { PreviewPortWatcher } from "./preview-port-watcher";
 
 const log = logger.child("preview.spawn-orchestration");
@@ -77,26 +77,65 @@ export function trackedProcessCount(conversationId: string): number {
   return conversationProcesses.get(conversationId)?.size ?? 0;
 }
 
+/** Outcome of killing a conversation's tracked dev-server processes. */
+export interface KillConversationResult {
+  /** Processes whose kill was CONFIRMED (helper exited 0 → tree gone). */
+  killed: number;
+  /** Processes whose kill could NOT be confirmed (helper non-zero / no
+   *  uid+pgid captured / unknown). A non-zero value means the uid MUST be
+   *  quarantined, not released — a live orphan may still own it. */
+  unconfirmed: number;
+}
+
+/** Injectable kill so tests don't shell out to the setuid helper. */
+export interface KillConversationDeps {
+  /** Group-kill a preview process via the setuid helper's --kill mode.
+   *  Resolves true only on a CONFIRMED kill. Defaults to killPreviewProcess. */
+  killPreview?: (uid: number, pgid: number) => Promise<boolean>;
+}
+
 /**
- * Kill + forget every tracked dev-server process for a conversation. Returns
- * the count killed. Idempotent — an unknown conversation is a no-op (0).
- * Kill failures (EPERM on a foreign preview uid; already-dead) are swallowed
- * — the process's own self-exit / the container teardown reaps it regardless.
+ * Kill + forget every tracked dev-server process for a conversation.
+ *
+ * CRITICAL (Phase 3b integrity fix): the reaper runs as the APP uid (1000)
+ * but the dev servers run as a PREVIEW uid (90000+). A direct `proc.kill()`
+ * is a cross-uid `kill(2)` → EPERM (silently swallowed), so the old path
+ * left orphans alive while the reaper happily released the uid back to the
+ * pool — a future conversation could then be allocated that uid OVER a live
+ * orphan that still owns the shared fs/process identity. We now route every
+ * kill through the setuid helper's --kill mode (group-kill by pgid) and
+ * report CONFIRMED vs UNCONFIRMED kills so the reaper can quarantine the uid
+ * until the tree is provably gone.
+ *
+ * Idempotent — an unknown conversation is a no-op ({killed:0,unconfirmed:0}).
  */
-export function killConversationProcesses(conversationId: string): number {
+export async function killConversationProcesses(
+  conversationId: string,
+  deps: KillConversationDeps = {},
+): Promise<KillConversationResult> {
   const set = conversationProcesses.get(conversationId);
-  if (!set) return 0;
+  if (!set) return { killed: 0, unconfirmed: 0 };
+  const killPreview = deps.killPreview ?? killPreviewProcess;
   let killed = 0;
+  let unconfirmed = 0;
   for (const proc of set) {
+    // We need the captured uid + pgid to route through the helper. Without
+    // them we cannot perform (or confirm) a cross-uid kill — count it
+    // unconfirmed so the uid is quarantined rather than blindly released.
+    if (typeof proc.uid !== "number" || typeof proc.pgid !== "number") {
+      unconfirmed++;
+      continue;
+    }
     try {
-      proc.kill();
-      killed++;
+      const ok = await killPreview(proc.uid, proc.pgid);
+      if (ok) killed++;
+      else unconfirmed++;
     } catch {
-      // EPERM (foreign-uid) / already dead — fine.
+      unconfirmed++;
     }
   }
   conversationProcesses.delete(conversationId);
-  return killed;
+  return { killed, unconfirmed };
 }
 
 /** Test-only: clear the process registry. */

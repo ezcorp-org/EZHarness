@@ -86,6 +86,74 @@ describe.skipIf(!DOCKER)("dynamic preview — LIVE e2e (DOCKER_TEST=1)", () => {
   );
 
   test(
+    "reapPreviewConversation: REAL helper --kill actually reaps the tree + confirms",
+    async () => {
+      // The one path that was mock-only: a live cross-uid kill through the
+      // setuid helper's --kill mode. Launch a dev server as a preview uid via
+      // the orchestration (so it's tracked), then reap with REAL deps and
+      // assert (a) the kill was CONFIRMED (processesKilled === 1, uid released
+      // NOT quarantined) AND (b) the process is actually gone.
+      const {
+        launchPreviewDevServer,
+        trackedProcessCount,
+        _resetPreviewProcessesForTests,
+      } = await import("../runtime/preview/preview-spawn-orchestration");
+      const { _resetPreviewUidPoolForTests, isPreviewUidQuarantined } = await import(
+        "../runtime/preview/preview-uid-pool"
+      );
+      const { reapPreviewConversation } = await import("../runtime/preview/preview-reaper");
+      _resetPreviewProcessesForTests();
+      _resetPreviewUidPoolForTests();
+
+      const PORT = 58745;
+      const conv = "conv-reap-live";
+      const launched = launchPreviewDevServer(
+        {
+          conversationId: conv,
+          userId: "u1",
+          workDir: "/tmp",
+          command: "bun",
+          args: [
+            "-e",
+            `Bun.serve({ port: ${PORT}, hostname: "127.0.0.1", fetch: () => new Response("LIVE") });` +
+              `await new Promise(r => setTimeout(r, 30000));`,
+          ],
+        },
+        { capabilities: () => ({ mode: "uid" }) },
+      );
+      expect(launched.ok).toBe(true);
+      if (!launched.ok) return;
+      const { uid, process: server } = launched;
+      expect(trackedProcessCount(conv)).toBe(1);
+
+      // Let it bind so the tree is fully up before we reap.
+      await new Promise((r) => setTimeout(r, 2000));
+
+      const result = await reapPreviewConversation(conv, {
+        // Real kill (helper --kill) + real uid release; stub only the DB
+        // revoke + watcher (no DB / watcher in this harness).
+        revokePreviews: async () => [],
+        unwatch: () => {},
+      });
+
+      expect(result.processesKilled).toBe(1);
+      expect(result.processesUnconfirmed).toBe(0);
+      expect(result.uidReleased).toBe(true);
+      expect(result.uidQuarantined).toBe(false);
+      // The uid was RELEASED (confirmed), not quarantined.
+      expect(isPreviewUidQuarantined(uid)).toBe(false);
+
+      // The process is actually gone: its `exited` resolves promptly.
+      const exited = await Promise.race([
+        server.exited.then(() => "exited" as const),
+        new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 4000)),
+      ]);
+      expect(exited).toBe("exited");
+    },
+    40000,
+  );
+
+  test(
     "WS upstream (ws://127.0.0.1:<port>) connects + echoes a frame",
     async () => {
       const PORT = 58743;
