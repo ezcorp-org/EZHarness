@@ -185,6 +185,25 @@ describe("servePreviewRequest serving path", () => {
     expect(res.status).toBe(404);
     expect(verifyPreviewToken).toHaveBeenCalledWith("sometoken");
   });
+
+  test("a cookie header WITHOUT __ezpreview falls through to no-token 404 (readCookie miss)", async () => {
+    // The Cookie header is present but has no __ezpreview entry — readCookie
+    // must walk every part and return null (its final fall-through), so the
+    // serving path 404s without ever verifying a token.
+    const req = new Request(`http://${VALID_ID}.preview.ezcorp.example.com/index.html`, {
+      headers: { cookie: "other=keep; malformed; another=x" },
+    });
+    const res = await servePreviewRequest(req, { previewId: VALID_ID });
+    expect(res.status).toBe(404);
+    expect(verifyPreviewToken).not.toHaveBeenCalled();
+  });
+
+  // NOTE: the static-serve happy path's `readFile` dep uses `Bun.file(abs)
+  // .stream()` — a Bun-runtime-only API. The web coverage leg runs under
+  // vitest/jsdom (node), where `Bun` is undefined, so that 2-line closure
+  // (dispatch.ts:127-128) cannot be exercised here. It is covered live in the
+  // adapter-bun server (Docker) + the pure resolveStaticFile/handlePreviewRequest
+  // static path is exhaustively unit-tested under src/__tests__/preview-proxy.test.ts.
 });
 
 describe("servePreviewRequest dynamic passthrough (Phase 3a)", () => {
@@ -330,5 +349,27 @@ describe("meterResponseBody (per-preview byte budget)", () => {
     const out = meterResponseBody(streamOf("x"), "preview-xyz", quota);
     await drain(out);
     expect(seen).toEqual(["preview-xyz"]);
+  });
+
+  test("cancelling the metered stream cancels the underlying reader (cleanup)", async () => {
+    let cancelled = false;
+    let cancelReason: unknown;
+    // A source whose cancel records that downstream cancellation propagated.
+    const source = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new TextEncoder().encode("data"));
+      },
+      cancel(reason) {
+        cancelled = true;
+        cancelReason = reason;
+      },
+    });
+    const quota = { allowBytes: () => true };
+    const out = meterResponseBody(source, "p1", quota);
+    const reader = out.getReader();
+    await reader.read(); // pull one chunk so the wrapper is live
+    await reader.cancel("consumer-bailed"); // hits the wrapper's cancel(reason)
+    expect(cancelled).toBe(true);
+    expect(cancelReason).toBe("consumer-bailed");
   });
 });

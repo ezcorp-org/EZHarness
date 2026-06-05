@@ -43,6 +43,20 @@ describe("parseConsentCardResult", () => {
 		expect(parseConsentCardResult({ conversationId: "c1", port: 0 })).toBeNull();
 		expect(parseConsentCardResult({ conversationId: "c1", port: -1 })).toBeNull();
 	});
+
+	test("a content envelope whose joined text is empty falls back to the object itself", () => {
+		// content is an array but no item has a string `text` → joined text is ""
+		// → extractObject returns the outer object (not the unwrap). The object
+		// also carries the real fields directly, so the parse still succeeds.
+		const env = { content: [{ type: "text" }, { foo: 1 }], conversationId: "c3", port: 8080 };
+		expect(parseConsentCardResult(env)).toMatchObject({ conversationId: "c3", port: 8080 });
+	});
+
+	test("a non-object, non-string output (e.g. a number/boolean) returns null", () => {
+		// Exercises extractObject's final fall-through for unsupported types.
+		expect(parseConsentCardResult(42 as unknown)).toBeNull();
+		expect(parseConsentCardResult(true as unknown)).toBeNull();
+	});
 });
 
 describe("buildConsentRequest", () => {

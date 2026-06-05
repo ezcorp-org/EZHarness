@@ -116,6 +116,21 @@ describe("tryBridgePreviewWebSocket", () => {
     );
     expect(res!.status).toBe(400);
   });
+
+  test("a Cookie header without __ezpreview yields a null token → gate rejects (readCookie miss)", async () => {
+    // The upgrade carries a Cookie header, but it has no __ezpreview entry, so
+    // readCookie walks every part and falls through to null. The decision gate
+    // then sees no token and rejects → 403. (verifyToken must never run for a
+    // null token.)
+    const res = await tryBridgePreviewWebSocket(
+      wsRequest({ cookie: "session=abc; junk; foo=bar" }),
+      VALID_ID,
+      APP_HOST,
+      { server: { upgrade: () => true }, request: {} },
+    );
+    expect(res!.status).toBe(403);
+    expect(verifyPreviewToken).not.toHaveBeenCalled();
+  });
 });
 
 describe("createPreviewWebSocketHandler — frame relay decisions", () => {
@@ -133,6 +148,22 @@ describe("createPreviewWebSocketHandler — frame relay decisions", () => {
     const ws = { data: { __preview: true } as any, close: () => {} };
     expect(() => handler.message(ws, "frame")).not.toThrow();
     expect(() => handler.close(ws)).not.toThrow();
+  });
+
+  test("default upstream factory: a malformed upstream URL throws in new WebSocket → 1011", () => {
+    // No factory injected → the DEFAULT factory runs `new WebSocket(url)` for
+    // real. A malformed URL makes the ctor throw synchronously; the open
+    // handler's catch must close the client 1011 (never leave a half-open
+    // socket). This exercises the production default factory closure.
+    const handler = createPreviewWebSocketHandler();
+    let closed: { code?: number } | null = null;
+    const ws = {
+      data: { __preview: true, upstreamUrl: "::::not-a-valid-ws-url::::", previewId: "p" } as any,
+      close: (code?: number) => { closed = { code }; },
+      send: () => {},
+    };
+    handler.open(ws);
+    expect(closed).toEqual({ code: 1011 });
   });
 });
 
