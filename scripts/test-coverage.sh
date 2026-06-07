@@ -148,6 +148,8 @@ VITEST_EXIT=0
     src/__tests__/preview-ws-bridge.server.test.ts \
     src/__tests__/context-register-preview-bus.server.test.ts \
     src/lib/components/tool-cards/preview-consent-card-logic.unit.test.ts \
+    src/__tests__/ExtensionToolSelector.component.test.ts \
+    src/lib/components/__tests__/ModeFormModal.component.test.ts \
     --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
     --coverage.reportsDirectory="$VITEST_COV" \
     --coverage.include='src/lib/search/*.ts' \
@@ -168,7 +170,9 @@ VITEST_EXIT=0
     --coverage.include='src/lib/fuzzy-match.ts' \
     --coverage.include='src/lib/components/tool-cards/preview-consent-card-logic.ts' \
     --coverage.include='src/routes/api/preview/[id]/token/+server.ts' \
-    --coverage.include='src/routes/api/preview/consent/+server.ts' ) || VITEST_EXIT=$?
+    --coverage.include='src/routes/api/preview/consent/+server.ts' \
+    --coverage.include='src/lib/components/ExtensionToolSelector.svelte' \
+    --coverage.include='src/lib/components/ModeFormModal.svelte' ) || VITEST_EXIT=$?
 # vitest (run from web/) emits SF paths web/-relative (SF:src/lib/...).
 # Re-root them so merge-lcov.ts resolves them against the repo root and the
 # repo-root-relative threshold keys (web/src/lib/...) match.
