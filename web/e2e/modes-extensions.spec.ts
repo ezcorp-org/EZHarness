@@ -243,9 +243,13 @@ test.describe("Modes settings — Tools & Extensions picker flow", () => {
 		// Existing selection rendered as pills.
 		await expect(combobox.getByTestId("selected-pill")).toHaveCount(2);
 
-		// Remove Extension A via its pill ×.
+		// Remove Extension A via its pill ×. The remove handler fires on
+		// `mousedown` (SelectedPill.handleMouseDown); a full `.click()` also
+		// triggers svelte-dnd-action's pointer-drag init on the chip row,
+		// which re-syncs the items and swallows the removal. Dispatching
+		// mousedown directly matches the handler without starting a drag.
 		const aPill = combobox.getByTestId("selected-pill").filter({ hasText: "Extension A" });
-		await aPill.getByRole("button", { name: /remove extension a/i }).click();
+		await aPill.getByRole("button", { name: /remove extension a/i }).dispatchEvent("mousedown");
 		await expect(combobox.getByTestId("selected-pill")).toHaveCount(1);
 
 		// Add Extension C from the dropdown.
@@ -274,6 +278,96 @@ test.describe("Modes settings — Tools & Extensions picker flow", () => {
 		await expect(reopenedChips).toContainText("Extension B");
 		await expect(reopenedChips).toContainText("Extension C");
 		await expect(reopenedChips).not.toContainText("Extension A");
+	});
+
+	test("edit flow: deselect a tool → PUT body carries extensionTools subset, persists on reopen", async ({ page, mockApi }) => {
+		// Extension exposing two tools so we can narrow to one. The mock
+		// returns this array verbatim at GET /api/extensions, so the
+		// per-tool selector reads manifest.tools from it.
+		const EXTENSIONS_WITH_TOOLS = [
+			{
+				id: "ext-tools",
+				name: "Toolbox",
+				description: "Two tools",
+				manifest: { tools: [{ name: "alpha", description: "first" }, { name: "beta", description: "second" }] },
+			},
+		];
+		const SEEDED_TOOLS_MODE = makeMode({
+			id: "mode-tools",
+			name: "Tool Subset Mode",
+			slug: "tool-subset-mode",
+			description: "Narrowable tools",
+			systemPromptInstruction: "Only some tools.",
+			toolRestriction: "all",
+			extensionIds: ["ext-tools"],
+			extensionTools: null, // starts as "all tools"
+			builtin: false,
+		});
+
+		const dynamicModes: ModeData[] = [SEEDED_BUILTIN, { ...SEEDED_TOOLS_MODE }];
+
+		await mockApi({
+			projects: [PROJECT],
+			modes: dynamicModes,
+			extensions: EXTENSIONS_WITH_TOOLS,
+		});
+
+		let putBody: Record<string, unknown> | null = null;
+		await page.route("**/api/modes/*", async (route) => {
+			const method = route.request().method();
+			const url = new URL(route.request().url());
+			const id = url.pathname.split("/").pop()!;
+			if (method === "PUT") {
+				putBody = route.request().postDataJSON() as Record<string, unknown>;
+				const idx = dynamicModes.findIndex((m) => m.id === id);
+				if (idx >= 0) {
+					dynamicModes[idx] = { ...dynamicModes[idx]!, ...putBody } as ModeData;
+					return route.fulfill({ json: dynamicModes[idx] });
+				}
+				return route.fulfill({ status: 404, json: { error: "Not found" } });
+			}
+			if (method === "GET") {
+				const mode = dynamicModes.find((m) => m.id === id);
+				return route.fulfill(mode ? { json: mode } : { status: 404, json: { error: "Not found" } });
+			}
+			return route.fallback();
+		});
+		await page.route("**/api/modes", async (route) => {
+			if (route.request().method() === "GET") return route.fulfill({ json: dynamicModes });
+			return route.fallback();
+		});
+
+		await page.goto("/settings#modes");
+		await page.locator(`button[aria-label="View ${SEEDED_TOOLS_MODE.name} mode"]`).click();
+
+		const dialog = page.getByRole("dialog");
+		await expect(dialog).toBeVisible({ timeout: 3000 });
+		await dialog.locator('button[aria-label="Edit mode"]').click();
+		await expect(dialog.locator("h2")).toHaveText("Edit Mode");
+
+		// Both tools start checked (extensionTools null = all tools).
+		const alpha = dialog.getByTestId("tool-ext-tools-alpha");
+		const beta = dialog.getByTestId("tool-ext-tools-beta");
+		await expect(alpha).toBeChecked();
+		await expect(beta).toBeChecked();
+
+		// Deselect beta → narrows to [alpha].
+		await beta.uncheck();
+		await expect(beta).not.toBeChecked();
+
+		await dialog.getByRole("button", { name: "Save Changes" }).click();
+		await expect(dialog).not.toBeVisible({ timeout: 3000 });
+
+		// PUT body carries the subset.
+		expect(putBody).not.toBeNull();
+		expect((putBody as any).extensionTools).toEqual({ "ext-tools": ["alpha"] });
+
+		// Reopen → edit: alpha checked, beta unchecked (persisted).
+		await page.locator(`button[aria-label="View ${SEEDED_TOOLS_MODE.name} mode"]`).click();
+		const dialog2 = page.getByRole("dialog");
+		await dialog2.locator('button[aria-label="Edit mode"]').click();
+		await expect(dialog2.getByTestId("tool-ext-tools-alpha")).toBeChecked();
+		await expect(dialog2.getByTestId("tool-ext-tools-beta")).not.toBeChecked();
 	});
 
 	test("view mode (builtin): Edit button disabled, Tooltip surfaces 'Built-in modes cannot be edited.'", async ({ page, mockApi }) => {

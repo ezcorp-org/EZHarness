@@ -82,6 +82,12 @@ export interface ModeData {
 	 * "{n} extensions" badge for non-builtin modes.
 	 */
 	extensionIds: string[] | null;
+	/**
+	 * Per-extension tool subset (extension id → selected tool names). A key
+	 * absent here (or mapped to an empty array) means all of that extension's
+	 * tools are granted. Null for modes that grant every attached tool.
+	 */
+	extensionTools?: Record<string, string[]> | null;
 	builtin: boolean;
 }
 
@@ -100,6 +106,7 @@ export function makeMode(overrides: Partial<ModeData> = {}): ModeData {
 		temperature: null,
 		toolRestriction: "all",
 		extensionIds: null,
+		extensionTools: null,
 		builtin: false,
 		...overrides,
 	};
