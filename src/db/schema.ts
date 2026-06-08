@@ -203,6 +203,13 @@ export const agentConfigs = pgTable("agent_configs", {
   maxTokens: integer("max_tokens"),
   category: text("category"),
   extensions: jsonb("extensions").$type<string[]>().default([]),
+  /** Per-extension tool subset (extension id → selected tool names), mirroring
+   *  modes.extensionTools. An extension in `extensions` but absent here (or
+   *  mapped to an empty array) contributes ALL its tools when the agent runs;
+   *  a non-empty array narrows it to just those tools. Applied at the agent's
+   *  execution chokepoint (ExtensionRegistry.getToolsForAgent). NULL for
+   *  existing rows preserves prior all-tools behaviour. */
+  extensionTools: jsonb("extension_tools").$type<Record<string, string[]>>(),
   references: jsonb("references").$type<{ agents: string[]; extensions: string[]; members?: import("../types").TeamMember[]; autoSpinUp?: boolean; teamToolScope?: import("../types").TeamToolScope }>().default({ agents: [], extensions: [] }),
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

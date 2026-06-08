@@ -60,6 +60,10 @@ export const createAgentConfigSchema = z.object({
   // agent is @mentioned). Distinct from references.extensions (unused by
   // runtime). Was silently dropped by the query layer before the fix.
   extensions: z.array(z.string().max(200)).max(100).optional(),
+  // Per-extension tool subset (extension id → selected tool names). Keys
+  // absent (or empty arrays) mean "all tools" for that extension; a non-empty
+  // array narrows the agent's surface to just those tools when it runs.
+  extensionTools: z.record(z.string().max(200), z.array(z.string().max(200)).max(500)).optional(),
   references: z.object({
     agents: z.array(z.string()).optional(),
     extensions: z.array(z.string()).optional(),

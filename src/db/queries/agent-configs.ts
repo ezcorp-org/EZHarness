@@ -147,6 +147,7 @@ export async function createAgentConfig(data: Omit<AgentConfig, "capabilities"> 
     maxTokens: data.maxTokens ?? null,
     category: data.category ?? null,
     extensions: (data as { extensions?: string[] }).extensions ?? [],
+    extensionTools: (data as { extensionTools?: Record<string, string[]> }).extensionTools ?? null,
     references: {
       agents: data.references?.agents ?? [],
       extensions: data.references?.extensions ?? [],
@@ -190,6 +191,9 @@ export async function updateAgentConfig(id: string, data: Partial<AgentConfig> &
   if (data.category !== undefined) updates.category = data.category;
   if ((data as { extensions?: string[] }).extensions !== undefined) {
     updates.extensions = (data as { extensions?: string[] }).extensions;
+  }
+  if ((data as { extensionTools?: Record<string, string[]> | null }).extensionTools !== undefined) {
+    updates.extensionTools = (data as { extensionTools?: Record<string, string[]> | null }).extensionTools;
   }
   if (data.references !== undefined) updates.references = {
     agents: data.references?.agents ?? [],

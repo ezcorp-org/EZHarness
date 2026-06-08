@@ -146,4 +146,39 @@ describe("POST /api/agent-configs", () => {
     expect(createAgentConfig).toHaveBeenCalled();
     expect(registerAgent).toHaveBeenCalledTimes(1);
   });
+
+  test("forwards extensions + extensionTools through to the query layer", async () => {
+    vi.mocked(createAgentConfig).mockResolvedValue({
+      id: "cfg-et", name: "a", prompt: "p", description: null, capabilities: [],
+      inputSchema: null, outputFormat: null, provider: null, model: null,
+      temperature: null, maxTokens: null,
+    } as any);
+    const res = await POST(
+      makeEvent({
+        locals: { user },
+        body: {
+          name: "a", prompt: "p",
+          extensions: ["ext-1"],
+          extensionTools: { "ext-1": ["alpha"] },
+        },
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect(createAgentConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extensions: ["ext-1"],
+        extensionTools: { "ext-1": ["alpha"] },
+      }),
+    );
+  });
+
+  test("rejects 400 when extensionTools value is not a string array", async () => {
+    const res = await POST(
+      makeEvent({
+        locals: { user },
+        body: { name: "a", prompt: "p", extensionTools: { "ext-1": "nope" } },
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
 });

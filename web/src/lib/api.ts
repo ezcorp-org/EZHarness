@@ -745,6 +745,10 @@ export interface AgentConfig {
 	maxTokens?: number | null;
 	category?: string | null;
 	extensions?: string[] | null;
+	/** Per-extension tool subset (extension id → selected tool names). A key
+	 *  absent here (or mapped to an empty array) means all of that extension's
+	 *  tools are available when the agent runs. */
+	extensionTools?: Record<string, string[]> | null;
 	references?: { agents: string[]; extensions: string[]; members?: TeamMember[]; autoSpinUp?: boolean; teamToolScope?: TeamToolScope } | null;
 	createdAt: string;
 	updatedAt: string;
@@ -776,6 +780,8 @@ export async function createAgentConfig(data: {
 	maxTokens?: number;
 	inputSchema?: Record<string, unknown>;
 	category?: string | null;
+	extensions?: string[];
+	extensionTools?: Record<string, string[]>;
 }): Promise<AgentConfig> {
 	const res = await fetch(`${BASE}/api/agent-configs`, {
 		method: "POST",
