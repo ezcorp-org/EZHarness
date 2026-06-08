@@ -451,22 +451,35 @@ export class ExtensionRegistry {
     return this.bundledFlags.get(extensionId) === true;
   }
 
-  /** Get all tools assigned to an agent config via its extensions field. */
+  /** Get all tools assigned to an agent config via its extensions field.
+   *  Honors the per-extension tool subset (agentConfigs.extensionTools): an
+   *  attached extension absent from the map (or mapped to an empty array)
+   *  contributes ALL its tools; a non-empty array narrows it to just those.
+   *  Matched defensively against both the namespaced name and the original
+   *  (unnamespaced) name, mirroring the mode filter. */
   async getToolsForAgent(agentConfigId: string): Promise<ToolDefinition[]> {
     const rows = await getDb()
-      .select({ extensions: agentConfigs.extensions })
+      .select({ extensions: agentConfigs.extensions, extensionTools: agentConfigs.extensionTools })
       .from(agentConfigs)
       .where(eq(agentConfigs.id, agentConfigId));
 
     if (!rows[0]) return [];
 
     const extensionIds = (rows[0].extensions as string[] | null) ?? [];
+    const perTool = (rows[0].extensionTools as Record<string, string[]> | null) ?? {};
     const tools: ToolDefinition[] = [];
 
     for (const extId of extensionIds) {
       const extTools = this.extensionTools.get(extId);
-      if (extTools) {
-        tools.push(...extTools.map(({ extensionId, extensionName, originalName, ...t }) => t));
+      if (!extTools) continue;
+      const subset = perTool[extId];
+      for (const rt of extTools) {
+        if (subset && subset.length > 0
+          && !subset.includes(rt.name) && !subset.includes(rt.originalName)) {
+          continue;
+        }
+        const { extensionId, extensionName, originalName, ...t } = rt;
+        tools.push(t);
       }
     }
 
@@ -696,6 +709,12 @@ export class ExtensionRegistry {
   /** Set the install path for an extension (for testing). */
   setInstallPathForTest(extId: string, path: string): void {
     this.installPaths.set(extId, path);
+  }
+
+  /** Set the registered tools for an extension id (for testing). Populates the
+   *  per-extension map that getToolsForAgent / getToolsForExtension read. */
+  setExtensionToolsForTest(extId: string, tools: RegisteredTool[]): void {
+    this.extensionTools.set(extId, tools);
   }
 
   /** Re-read DB and rebuild maps. Call after install/uninstall.

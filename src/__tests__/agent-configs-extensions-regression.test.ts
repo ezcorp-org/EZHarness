@@ -83,3 +83,71 @@ describe("agent_configs.extensions — top-level field persistence (regression)"
     expect(updated?.description).toBe("new desc");
   });
 });
+
+describe("agent_configs.extensionTools — per-tool subset persistence", () => {
+  test("createAgentConfig persists extensionTools map", async () => {
+    const cfg = await createAgentConfig({
+      name: "et-create",
+      description: "",
+      prompt: "P",
+      extensions: ["ext-1"],
+      extensionTools: { "ext-1": ["alpha", "beta"] },
+    } as any);
+    expect(cfg.extensionTools).toEqual({ "ext-1": ["alpha", "beta"] });
+
+    const fetched = await getAgentConfig(cfg.id);
+    expect(fetched?.extensionTools).toEqual({ "ext-1": ["alpha", "beta"] });
+  });
+
+  test("createAgentConfig without extensionTools defaults to null", async () => {
+    const cfg = await createAgentConfig({
+      name: "et-default",
+      description: "",
+      prompt: "P",
+      extensions: ["ext-1"],
+    } as any);
+    expect(cfg.extensionTools).toBeNull();
+    const fetched = await getAgentConfig(cfg.id);
+    expect(fetched?.extensionTools).toBeNull();
+  });
+
+  test("updateAgentConfig replaces the extensionTools map", async () => {
+    const cfg = await createAgentConfig({
+      name: "et-update",
+      description: "",
+      prompt: "P",
+      extensions: ["ext-1"],
+      extensionTools: { "ext-1": ["old"] },
+    } as any);
+    const updated = await updateAgentConfig(cfg.id, {
+      extensionTools: { "ext-1": ["new1", "new2"] },
+    } as any);
+    expect(updated?.extensionTools).toEqual({ "ext-1": ["new1", "new2"] });
+    const refetched = await getAgentConfig(cfg.id);
+    expect(refetched?.extensionTools).toEqual({ "ext-1": ["new1", "new2"] });
+  });
+
+  test("updateAgentConfig leaves extensionTools untouched when not in payload", async () => {
+    const cfg = await createAgentConfig({
+      name: "et-preserve",
+      description: "",
+      prompt: "P",
+      extensions: ["ext-1"],
+      extensionTools: { "ext-1": ["keep"] },
+    } as any);
+    const updated = await updateAgentConfig(cfg.id, { description: "d2" });
+    expect(updated?.extensionTools).toEqual({ "ext-1": ["keep"] });
+  });
+
+  test("updateAgentConfig with extensionTools=null clears it", async () => {
+    const cfg = await createAgentConfig({
+      name: "et-clear",
+      description: "",
+      prompt: "P",
+      extensions: ["ext-1"],
+      extensionTools: { "ext-1": ["x"] },
+    } as any);
+    const updated = await updateAgentConfig(cfg.id, { extensionTools: null } as any);
+    expect(updated?.extensionTools).toBeNull();
+  });
+});
