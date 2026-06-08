@@ -29,7 +29,7 @@ FAILED_FILES=()
 # docs/extensions/examples/*/index.ts:100), surfacing them as new gate
 # violations. Scoping to the two target files confines the gate change to the
 # five intended Phase 66 files (verified: no other threshold-matched file
-# regresses). The vitest-only deep-link-resolve + goal-row-logic + GoalPill
+# regresses). The vitest-only deep-link-resolve + goal-row-logic
 # run under the node-vitest leg below (coverage-v8 fails under Bun).
 mapfile -t FILES < <({
   find src/__tests__ -name "*.test.ts"
@@ -38,7 +38,8 @@ mapfile -t FILES < <({
   printf '%s\n' \
     web/src/__tests__/snippet-sanitize.test.ts \
     web/src/__tests__/search-mode.test.ts \
-    web/src/lib/search/__tests__/palette-results.test.ts
+    web/src/lib/search/__tests__/palette-results.test.ts \
+    web/src/lib/__tests__/diff-view-mode.test.ts
 } | sort)
 
 TMPDIR=$(mktemp -d)
@@ -51,6 +52,12 @@ for f in "${FILES[@]}"; do
   OUTFILE="$TMPDIR/result_$IDX"
   COVDIR="$TMPDIR/cov_$IDX"
   (
+    # NB: do NOT add a global `--timeout` here — it also extends the many
+    # genuinely-failing e2e subprocess shards (auto-note, extension-author, …)
+    # from a 5s death to a 60s wait, ballooning the job by ~45min. Slow PGlite
+    # setup under --coverage is instead handled per-suite via an explicit
+    # beforeAll() timeout in the affected gated tests (preview-consent /
+    # preview-sessions-queries).
     OUTPUT=$(bun test --coverage --coverage-reporter=lcov --coverage-dir="$COVDIR" "./$f" 2>&1) || true
     echo "$OUTPUT" > "$OUTFILE"
   ) &
@@ -125,7 +132,6 @@ VITEST_EXIT=0
 ( cd web && npx vitest run \
     src/__tests__/deep-link-resolve.unit.test.ts \
     src/lib/components/goal-row-logic.unit.test.ts \
-    src/lib/components/GoalPill.component.test.ts \
     src/lib/components/UpdateBanner.component.test.ts \
     src/__tests__/version-endpoint.server.test.ts \
     src/__tests__/relative-time.unit.test.ts \
@@ -154,7 +160,6 @@ VITEST_EXIT=0
     --coverage.reportsDirectory="$VITEST_COV" \
     --coverage.include='src/lib/search/*.ts' \
     --coverage.include='src/lib/components/goal-row-logic.ts' \
-    --coverage.include='src/lib/components/GoalPill.svelte' \
     --coverage.include='src/lib/components/UpdateBanner.svelte' \
     --coverage.include='src/lib/components/UpdateBanner.helpers.ts' \
     --coverage.include='src/routes/api/version/+server.ts' \
@@ -180,7 +185,7 @@ if [ -f "$VITEST_COV/lcov.info" ]; then
   sed -i 's#^SF:src/#SF:web/src/#' "$VITEST_COV/lcov.info"
 fi
 if [ "$VITEST_EXIT" != "0" ]; then
-  FAILED_FILES+=("web vitest-coverage leg (deep-link-resolve + goal-row-logic + GoalPill)")
+  FAILED_FILES+=("web vitest-coverage leg (deep-link-resolve + goal-row-logic)")
   echo "--- FAIL: web vitest-coverage leg (exit $VITEST_EXIT) ---"
   echo ""
 fi

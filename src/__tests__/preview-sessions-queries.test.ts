@@ -72,7 +72,10 @@ beforeAll(async () => {
   SITES_ROOT = join(PROJECT_ROOT, ".ezcorp", "sites");
   VALID_STATIC = join(SITES_ROOT, "site-a");
   await mkdir(VALID_STATIC, { recursive: true });
-});
+  // 30s hook timeout: PGlite setupTestDb() can exceed bun's 5s default under
+  // --coverage instrumentation + PARALLEL contention on the CI runner, which
+  // otherwise crashes this gated suite to 0% coverage (see scripts/test-coverage.sh).
+}, 30_000);
 
 afterAll(async () => {
   await closeTestDb();

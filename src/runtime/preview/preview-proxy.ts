@@ -2,6 +2,11 @@ import { resolve, sep } from "node:path";
 import { realpath, stat } from "node:fs/promises";
 import { isValidPreviewId } from "../../db/queries/preview-sessions";
 
+// `BodyInit` is an ambient undici/DOM global that does not resolve under CI's
+// frozen install (tsconfig lib is ESNext-only). Derive the body type from the
+// available `Response` constructor instead.
+type ResponseBody = NonNullable<ConstructorParameters<typeof Response>[0]>;
+
 /**
  * Host-header allowlist + static reverse-proxy skeleton for the secure
  * preview origin (Secure User-Site Preview / Port Exposure, Phase 1 —
@@ -186,7 +191,7 @@ export interface HandlePreviewRequestDeps {
   /** Read a resolved static file into a Response body. Injected so the
    *  pure handler can be tested without real I/O. `body` is anything
    *  `new Response(...)` accepts (a stream, a Uint8Array, a string). */
-  readFile: (absPath: string) => Promise<{ body: BodyInit; size: number }>;
+  readFile: (absPath: string) => Promise<{ body: ResponseBody; size: number }>;
   /** Bump last-seen on a served request (best-effort, fire-and-forget). */
   touch?: (id: string, userId: string) => Promise<unknown>;
   /** DYNAMIC branch (Phase 3a): proxy an HTTP request to the dev server
@@ -441,7 +446,7 @@ export async function handlePreviewRequest(
   const abs = await resolveStaticFile(row.staticPath, requestPath);
   if (!abs) return notFound();
 
-  let file: { body: BodyInit; size: number };
+  let file: { body: ResponseBody; size: number };
   try {
     file = await deps.readFile(abs);
   } catch {
@@ -451,5 +456,5 @@ export async function handlePreviewRequest(
   const headers = baseHeaders();
   headers.set("Content-Type", contentTypeFor(abs));
   headers.set("Content-Length", String(file.size));
-  return new Response(file.body as unknown as BodyInit, { status: 200, headers });
+  return new Response(file.body as unknown as ResponseBody, { status: 200, headers });
 }
