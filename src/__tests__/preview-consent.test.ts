@@ -41,7 +41,10 @@ beforeAll(async () => {
   const proj = await createProject({ name: "P", path: "/tmp/p-consent" });
   const c = await createConversation(proj.id, { userId: userA });
   convA = c.id;
-});
+  // 30s hook timeout: PGlite setupTestDb() can exceed bun's 5s default under
+  // --coverage instrumentation + PARALLEL contention on the CI runner, which
+  // otherwise crashes this gated suite to 0% coverage (see scripts/test-coverage.sh).
+}, 30_000);
 
 afterAll(async () => {
   await closeTestDb();
