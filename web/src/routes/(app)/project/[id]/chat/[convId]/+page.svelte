@@ -24,6 +24,7 @@
 	import { store, openTeamPanel, type AgentCallState, type TaskPanelTask } from "$lib/stores.svelte.js";
 	import { persistLastModel } from "$lib/last-model.js";
 	import { attachPanelPersistence } from "$lib/chat/page-handlers/panel-persistence.svelte.js";
+	import { decideInheritedMode } from "$lib/chat/page-handlers/inherit-mode.js";
 	import ConversationList from "$lib/components/ConversationList.svelte";
 	import ProjectRail from "$lib/components/ProjectRail.svelte";
 	import ChatThread, { type ChatThreadChrome } from "$lib/components/ChatThread.svelte";
@@ -135,8 +136,27 @@
 
 	function handleModeChange(mode: Mode | null) {
 		selectedMode = mode;
+		lastSyncedModeConvId = convId;
 		updateConversation(convId, { modeId: mode?.id ?? null }).catch(() => {});
 	}
+
+	// First-paint mode inheritance for the composer Tools popover. The pure
+	// decision (when + what to inherit, last-synced bookkeeping) lives in
+	// `decideInheritedMode`; this effect just applies it. Navigating between
+	// conversations re-inherits, but an explicit mid-session `handleModeChange`
+	// (which stamps `lastSyncedModeConvId`) is never clobbered.
+	let lastSyncedModeConvId = $state<string | null>(null);
+	$effect(() => {
+		const decision = decideInheritedMode({
+			currentConversation,
+			availableModes,
+			convId,
+			lastSyncedConvId: lastSyncedModeConvId,
+		});
+		if (!decision.sync) return;
+		lastSyncedModeConvId = decision.syncedConvId;
+		selectedMode = decision.mode;
+	});
 
 	async function handleCreate() {
 		try {
@@ -249,6 +269,9 @@
 		{currentConversation}
 		{availableModes}
 		{selectedMode}
+		oncurrentconversation={(conv) => {
+			currentConversation = conv;
+		}}
 		onmodechange={handleModeChange}
 		onmodecreate={() => {
 			showCreateModeModal = true;

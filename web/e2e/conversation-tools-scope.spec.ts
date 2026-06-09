@@ -80,6 +80,39 @@ test("deselect a tool narrows the conversation; PUT carries the map; Reset clear
 	expect((lastPutBody as any).extensionTools).toBeNull();
 });
 
+test("first paint inherits the conversation's mode → popover shows the inherited tools without picking a mode", async ({ page, mockApi }) => {
+	// The conversation already carries `modeId`; the user has NOT touched the
+	// Mode selector this session. The composer Tools popover must still render
+	// the inherited extension/tools (not the empty "no mode" state) at first
+	// paint — that is the Issue-1 regression this guards.
+	const seededConv = makeConversation({
+		id: "conv-1",
+		projectId: "proj-1",
+		title: "Scoped Chat",
+		modeId: "mode-scoped",
+	});
+
+	await mockApi({
+		projects: [proj],
+		conversations: [seededConv],
+		modes: [mode],
+		extensions: [extension],
+	});
+	await page.goto("/project/proj-1/chat/conv-1");
+	await page.waitForLoadState("networkidle");
+
+	// Open the Tools popover WITHOUT first selecting the mode.
+	await toolsTrigger(page).click();
+	const popover = page.getByTestId("conversation-tools-popover");
+	await expect(popover).toBeVisible();
+
+	// Inherited baseline is shown: not the empty state, both tools present.
+	await expect(page.getByTestId("conversation-tools-empty")).toHaveCount(0);
+	await expect(page.getByTestId("conversation-tools-state")).toContainText("Inherited");
+	await expect(page.getByTestId("conv-tool-ext-tools-alpha")).toBeChecked();
+	await expect(page.getByTestId("conv-tool-ext-tools-beta")).toBeChecked();
+});
+
 test("narrowed selection survives a reload (conversation GET reflects it)", async ({ page, mockApi }) => {
 	await mockApi({
 		projects: [proj],

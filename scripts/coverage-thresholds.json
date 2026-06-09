@@ -67,6 +67,7 @@
   "web/src/lib/components/tool-cards/preview-consent-card-logic.ts": 100,
   "web/src/lib/components/ExtensionToolSelector.svelte": 100,
   "web/src/lib/tool-scope-logic.ts": 100,
+  "web/src/lib/chat/page-handlers/inherit-mode.ts": 100,
   "web/src/routes/api/preview/[id]/token/+server.ts": 100,
   "web/src/routes/api/preview/consent/+server.ts": 100,
   "web/src/lib/**": 90

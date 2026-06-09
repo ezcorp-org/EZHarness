@@ -158,6 +158,15 @@
 		currentConversation?: Conversation | null;
 		availableModes?: Mode[];
 		selectedMode?: Mode | null;
+		/**
+		 * Surfaces the conversation the thread loaded (or optimistically
+		 * mutated) back to the route shell. The page uses it to inherit
+		 * `selectedMode` from `conv.modeId` at first paint — without it the
+		 * page's `currentConversation` stays null until a rename, so the
+		 * composer Tools popover renders its empty "no mode" baseline even
+		 * when the conversation already has a mode with attached extensions.
+		 */
+		oncurrentconversation?: (conv: Conversation | null) => void;
 		onmodechange?: (mode: Mode | null) => void;
 		onmodecreate?: () => void;
 		onagentclick?: (agent: AgentCallState) => void;
@@ -230,6 +239,7 @@
 		currentConversation = null,
 		availableModes = [],
 		selectedMode = null,
+		oncurrentconversation,
 		onmodechange,
 		onmodecreate,
 		onagentclick,
@@ -542,6 +552,12 @@
 	);
 	$effect(() => {
 		currentConv = currentConversation;
+	});
+	// Surface the loaded / optimistically-mutated conversation up to the
+	// route shell so the page can inherit `selectedMode` from `conv.modeId`
+	// at first paint (see `oncurrentconversation` prop docs).
+	$effect(() => {
+		oncurrentconversation?.(currentConv);
 	});
 	const loadMessagesApi = makeLoadMessages({
 		convId,
