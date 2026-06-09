@@ -2,6 +2,7 @@
 	import ModelSelector from "./ModelSelector.svelte";
 	import ThinkingLevelSelector from "./ThinkingLevelSelector.svelte";
 	import ModeSelector from "./ModeSelector.svelte";
+	import ConversationToolsSelector from "./ConversationToolsSelector.svelte";
 	import type { Mode } from "$lib/api";
 	import MentionPopover from "./MentionPopover.svelte";
 	import MentionChip from "./MentionChip.svelte";
@@ -60,6 +61,9 @@
 		disabled = false,
 		lockedMode,
 		placeholder,
+		conversationExtensionTools = null,
+		onextensiontoolschange,
+		onextensiontoolsreset,
 	}: {
 		onsubmit: (content: string, attachments?: File[]) => void;
 		onstop?: () => void;
@@ -118,6 +122,16 @@
 		 * message..." when unset, matching the chat page's behavior.
 		 */
 		placeholder?: string;
+		/**
+		 * Per-conversation tool scoping (extension id → selected tool names),
+		 * or null to inherit the active mode's tools. Drives the 🔧 Tools
+		 * popover in the toolbar; the popover narrows within `selectedMode`'s
+		 * attached extensions. Persisted by the parent via
+		 * `onextensiontoolschange` / `onextensiontoolsreset`.
+		 */
+		conversationExtensionTools?: Record<string, string[]> | null;
+		onextensiontoolschange?: (map: Record<string, string[]>) => void;
+		onextensiontoolsreset?: () => void;
 	} = $props();
 
 	let isLocked = $derived(!!lockedMode);
@@ -738,6 +752,17 @@
 						<div class="flex flex-col">
 							<span class="toolbar-label" data-tip="Behavioral preset that controls system prompt, tool access, and AI behavior">Mode</span>
 							<ModeSelector selected={selectedMode} {modes} onselect={onmodechange} oncreate={onmodecreate} />
+						</div>
+					{/if}
+					{#if !isLocked && (onextensiontoolschange || onextensiontoolsreset)}
+						<div class="flex flex-col">
+							<span class="toolbar-label" data-tip="Scope which of this mode's tools are active for this conversation">Tools</span>
+							<ConversationToolsSelector
+								selectedMode={selectedMode}
+								value={conversationExtensionTools}
+								onchange={(map) => onextensiontoolschange?.(map)}
+								onreset={() => onextensiontoolsreset?.()}
+							/>
 						</div>
 					{/if}
 					{#if !selectedModel}

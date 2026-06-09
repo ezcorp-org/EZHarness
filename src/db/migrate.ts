@@ -1423,4 +1423,11 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
   // here (or mapped to []) contributes ALL its tools at agent execution time.
   // NULL for existing rows preserves prior all-tools behaviour. Idempotent.
   await db.execute(sql`ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS extension_tools JSONB`);
+
+  // Per-conversation tool scoping (mirrors modes / agent_configs
+  // extension_tools). Keyed by extension id → selected tool names. This map
+  // can only NARROW the active mode's allowlist at execution time, never widen
+  // it (see src/runtime/executor.ts). NULL for existing rows preserves prior
+  // behaviour (no narrowing). Idempotent.
+  await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS extension_tools JSONB`);
 }

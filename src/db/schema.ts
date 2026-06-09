@@ -79,6 +79,13 @@ export const conversations = pgTable("conversations", {
    *  `conversations_user_ez_unique` declared in migrate.ts). Mutating modeId
    *  on a kind='ez' row is rejected at the API layer. */
   kind: text("kind").notNull().default("regular").$type<"regular" | "ez">(),
+  /** Per-conversation tool scoping. Keyed by extension id; the value is the
+   *  list of selected tool names for that extension. Mirrors
+   *  modes.extensionTools / agent_configs.extensionTools: an extension absent
+   *  here (or mapped to an empty array) contributes ALL its tools, while a
+   *  non-empty array narrows. Crucially this map can only NARROW the mode's
+   *  allowlist — it never widens it (see src/runtime/executor.ts). */
+  extensionTools: jsonb("extension_tools").$type<Record<string, string[]>>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

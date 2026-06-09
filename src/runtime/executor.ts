@@ -542,6 +542,11 @@ export class AgentExecutor {
             // carries the namespaced name applyToolFilters filters on.
             const perTool = mode.extensionTools ?? {};
             const allowed = new Set<string>();
+            // Tool (namespaced) name → { extId, originalName }. Built while
+            // iterating mode extensions so the per-conversation narrowing pass
+            // below can resolve each allowed tool back to its extension + the
+            // unnamespaced name the conv subset may reference.
+            const toolOwner = new Map<string, { extId: string; originalName: string }>();
             for (const extId of extensionIds) {
               const subset = perTool[extId];
               for (const t of registry.getToolsForExtension(extId)) {
@@ -550,9 +555,35 @@ export class AgentExecutor {
                   subset.includes(t.name) || subset.includes(t.originalName)
                 ) {
                   allowed.add(t.name);
+                  toolOwner.set(t.name, { extId, originalName: t.originalName });
                 }
               }
             }
+
+            // ── Per-conversation narrowing (Phase 4/D) ──
+            // The conversation's extensionTools map can only NARROW the mode's
+            // allowlist, never widen it (a tool not already in `allowed` can't
+            // be re-added). For each allowed tool whose owning extension is a
+            // key in conv.extensionTools with a NON-EMPTY subset, keep it only
+            // if that subset includes its name or originalName. Extensions
+            // absent from the conv map (or with an empty subset) pass through
+            // unchanged — matching the "absent/empty = all" convention.
+            const convPerTool = convRecord?.extensionTools ?? null;
+            if (convPerTool && Object.keys(convPerTool).length > 0) {
+              for (const toolName of [...allowed]) {
+                const owner = toolOwner.get(toolName);
+                if (!owner) continue;
+                const convSubset = convPerTool[owner.extId];
+                if (!convSubset || convSubset.length === 0) continue; // no narrowing
+                if (
+                  !convSubset.includes(toolName) &&
+                  !convSubset.includes(owner.originalName)
+                ) {
+                  allowed.delete(toolName);
+                }
+              }
+            }
+
             ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, {
               toolRestriction: "allowlist",
               allowedTools: [...allowed],

@@ -544,8 +544,14 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		if (path.match(/^\/api\/conversations\/[^/]+$/) && method === "PUT") {
 			const id = path.split("/").pop()!;
 			const body = route.request().postDataJSON();
-			const conv = conversations.find((c) => c.id === id);
-			return route.fulfill({ json: { ...(conv ?? makeConversation({ id })), ...body } });
+			const idx = conversations.findIndex((c) => c.id === id);
+			const merged = { ...(idx >= 0 ? conversations[idx] : makeConversation({ id })), ...body };
+			// Persist into the in-memory list so a subsequent GET (e.g. a page
+			// reload) reflects the update — used by the per-conversation tool
+			// scoping e2e to assert the narrowed map survives a reload.
+			if (idx >= 0) conversations[idx] = merged;
+			else conversations.push(merged);
+			return route.fulfill({ json: merged });
 		}
 		if (path.match(/^\/api\/conversations\/[^/]+$/) && method === "DELETE") {
 			return route.fulfill({ json: { success: true } });

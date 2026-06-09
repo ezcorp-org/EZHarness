@@ -99,7 +99,7 @@ export interface SearchResult {
 
 export async function createConversation(
   projectId: string,
-  opts?: { title?: string; model?: string; provider?: string; agentConfigId?: string; systemPrompt?: string; test?: boolean; userId?: string; parentConversationId?: string; parentMessageId?: string; forkedFromConversationId?: string; forkedFromMessageId?: string },
+  opts?: { title?: string; model?: string; provider?: string; agentConfigId?: string; systemPrompt?: string; test?: boolean; userId?: string; parentConversationId?: string; parentMessageId?: string; forkedFromConversationId?: string; forkedFromMessageId?: string; extensionTools?: Record<string, string[]> | null },
 ): Promise<Conversation> {
   if (!projectId) throw new Error("projectId is required to create a conversation");
   const rows = await getDb()
@@ -117,6 +117,7 @@ export async function createConversation(
       forkedFromMessageId: opts?.forkedFromMessageId || null,
       test: opts?.test ?? false,
       userId: opts?.userId || null,
+      extensionTools: opts?.extensionTools ?? null,
     })
     .returning();
   const created = rows[0]!;
@@ -288,7 +289,7 @@ export async function setConversationSpawnParentAuditId(
 
 export async function updateConversation(
   id: string,
-  data: { title?: string; model?: string; provider?: string; systemPrompt?: string; agentConfigId?: string; modeId?: string | null },
+  data: { title?: string; model?: string; provider?: string; systemPrompt?: string; agentConfigId?: string; modeId?: string | null; extensionTools?: Record<string, string[]> | null },
 ): Promise<Conversation | null> {
   const rows = await getDb()
     .update(conversations)

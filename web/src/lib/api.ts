@@ -333,6 +333,11 @@ export interface Conversation {
 	parentMessageId?: string | null;
 	forkedFromConversationId?: string | null;
 	forkedFromMessageId?: string | null;
+	/** Per-conversation tool scoping (extension id → selected tool names). A
+	 *  key absent (or mapped to an empty array) means all of that extension's
+	 *  tools. This map can only NARROW the active mode's allowlist, never widen
+	 *  it. `null` means "inherit from mode" (no override). */
+	extensionTools?: Record<string, string[]> | null;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -481,7 +486,7 @@ export async function searchConversations(projectId: string, query: string): Pro
 	return res.json();
 }
 
-export async function updateConversation(id: string, data: Partial<{ title: string; model: string; provider: string; systemPrompt: string; modeId: string | null }>): Promise<Conversation> {
+export async function updateConversation(id: string, data: Partial<{ title: string; model: string; provider: string; systemPrompt: string; modeId: string | null; extensionTools: Record<string, string[]> | null }>): Promise<Conversation> {
 	const res = await fetch(`${BASE}/api/conversations/${id}`, {
 		method: "PUT",
 		headers: { "content-type": "application/json" },

@@ -25,6 +25,10 @@ export const updateConversationSchema = z.object({
   provider: z.string().max(100).optional(),
   systemPrompt: z.string().max(50000).optional(),
   modeId: z.string().uuid().nullable().optional(),
+  // Per-conversation tool scoping. `null` clears the override (back to the
+  // mode default); a map narrows the mode's allowlist (never widens — see
+  // src/runtime/executor.ts).
+  extensionTools: z.record(z.string(), z.array(z.string())).nullable().optional(),
 });
 
 export const cloneTurnsSchema = z.object({

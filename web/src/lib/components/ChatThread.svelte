@@ -596,6 +596,19 @@
 		selectedModelContextWindow = cw;
 	}
 
+	// Per-conversation tool scoping (Phase 4/D). The composer's 🔧 Tools
+	// popover narrows the active mode's tools for THIS conversation only.
+	// Persist via updateConversation; optimistically reflect on currentConv so
+	// the popover's count/state update without a refetch.
+	function handleExtensionToolsChange(map: Record<string, string[]>) {
+		if (currentConv) currentConv = { ...currentConv, extensionTools: map };
+		updateConversation(conversationId, { extensionTools: map }).catch(() => {});
+	}
+	function handleExtensionToolsReset() {
+		if (currentConv) currentConv = { ...currentConv, extensionTools: null };
+		updateConversation(conversationId, { extensionTools: null }).catch(() => {});
+	}
+
 	// ── Factory: send-message family (W7) ─────────────────────────────
 	const sendApi = makeSendMessage({
 		convId,
@@ -2072,6 +2085,9 @@
 			modes={availableModes}
 			onmodechange={(m) => onmodechange?.(m)}
 			onmodecreate={() => onmodecreate?.()}
+			conversationExtensionTools={currentConv?.extensionTools ?? null}
+			onextensiontoolschange={handleExtensionToolsChange}
+			onextensiontoolsreset={handleExtensionToolsReset}
 		/>
 	{/if}
 

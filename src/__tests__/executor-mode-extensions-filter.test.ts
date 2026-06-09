@@ -185,6 +185,7 @@ const { createProject } = await import("../db/queries/projects");
 const { createConversation } = await import("../db/queries/conversations");
 const { createAgentConfig } = await import("../db/queries/agent-configs");
 const { createMode } = await import("../db/queries/modes");
+const { updateConversation } = await import("../db/queries/conversations");
 type AgentEvents = import("../types").AgentEvents;
 
 let projectId: string;
@@ -655,5 +656,163 @@ describe("executor mode.extensionIds → allowlist filter", () => {
     const names = nameSet(capturedAgentOpts.initialState.tools);
     expect(names.has("mode_tool_alpha")).toBe(true);
     expect(names.has("mode_tool_beta")).toBe(true);
+  });
+});
+
+// ── Per-conversation narrowing (Phase 4/D) ──────────────────────────────
+//
+// conversation.extensionTools intersects the mode's allowlist. It can only
+// NARROW — a tool not already allowed by the mode can't be re-added. Absent
+// key / empty subset for an extension = no narrowing (all of the mode's
+// contribution for that extension survives).
+describe("executor conversation.extensionTools narrows the mode allowlist", () => {
+  // A fresh conversation per test so each can carry its own extensionTools
+  // without bleeding into the shared topConvId.
+  async function convWith(extensionTools: Record<string, string[]> | null): Promise<string> {
+    const conv = await createConversation(projectId);
+    await updateConversation(conv.id, { extensionTools });
+    return conv.id;
+  }
+
+  test("conv subset narrows a mode allowlist to the chosen tools", async () => {
+    agentToolsMap.set(agentConfigId, [
+      TOOL_DEF("ext-x__tool_a"),
+      TOOL_DEF("ext-x__tool_b"),
+      TOOL_DEF("ext-x__tool_c"),
+    ]);
+    extensionToolsMap.set("ext-conv", [
+      TOOL_DEF("ext-x__tool_a"),
+      TOOL_DEF("ext-x__tool_b"),
+      TOOL_DEF("ext-x__tool_c"),
+    ]);
+
+    const mode = await createMode({
+      name: "Conv Narrow Mode",
+      slug: "conv-narrow-" + Date.now(),
+      systemPromptInstruction: "Mode allows all three.",
+      extensionIds: ["ext-conv"],
+    });
+
+    const convId = await convWith({ "ext-conv": ["ext-x__tool_a"] });
+    const { executor } = createExecutor();
+    await executor.streamChat(convId, "do something", { projectId, agentConfigId, modeId: mode.id });
+
+    const names = nameSet(capturedAgentOpts.initialState.tools);
+    expect(names.has("ext-x__tool_a")).toBe(true);
+    // Narrowed away by the conversation override.
+    expect(names.has("ext-x__tool_b")).toBe(false);
+    expect(names.has("ext-x__tool_c")).toBe(false);
+  });
+
+  test("extension absent from the conv map passes through unchanged", async () => {
+    agentToolsMap.set(agentConfigId, [TOOL_DEF("e1__a"), TOOL_DEF("e2__b")]);
+    extensionToolsMap.set("ext-1", [TOOL_DEF("e1__a")]);
+    extensionToolsMap.set("ext-2", [TOOL_DEF("e2__b")]);
+
+    const mode = await createMode({
+      name: "Conv Partial Mode",
+      slug: "conv-partial-" + Date.now(),
+      systemPromptInstruction: "Two extensions.",
+      extensionIds: ["ext-1", "ext-2"],
+    });
+
+    // Only narrows ext-1; ext-2 is absent from the conv map → unchanged.
+    const convId = await convWith({ "ext-1": ["nonexistent"] });
+    const { executor } = createExecutor();
+    await executor.streamChat(convId, "do something", { projectId, agentConfigId, modeId: mode.id });
+
+    const names = nameSet(capturedAgentOpts.initialState.tools);
+    // ext-1's only tool isn't in the conv subset → removed.
+    expect(names.has("e1__a")).toBe(false);
+    // ext-2 untouched.
+    expect(names.has("e2__b")).toBe(true);
+  });
+
+  test("empty conv subset for an extension = no narrowing", async () => {
+    agentToolsMap.set(agentConfigId, [TOOL_DEF("z__a"), TOOL_DEF("z__b")]);
+    extensionToolsMap.set("ext-z", [TOOL_DEF("z__a"), TOOL_DEF("z__b")]);
+
+    const mode = await createMode({
+      name: "Conv Empty Subset Mode",
+      slug: "conv-empty-" + Date.now(),
+      systemPromptInstruction: "Empty subset.",
+      extensionIds: ["ext-z"],
+    });
+
+    const convId = await convWith({ "ext-z": [] });
+    const { executor } = createExecutor();
+    await executor.streamChat(convId, "do something", { projectId, agentConfigId, modeId: mode.id });
+
+    const names = nameSet(capturedAgentOpts.initialState.tools);
+    expect(names.has("z__a")).toBe(true);
+    expect(names.has("z__b")).toBe(true);
+  });
+
+  test("conv cannot RE-ADD a tool the mode already excluded (narrow-only)", async () => {
+    agentToolsMap.set(agentConfigId, [TOOL_DEF("w__a"), TOOL_DEF("w__b")]);
+    extensionToolsMap.set("ext-w", [TOOL_DEF("w__a"), TOOL_DEF("w__b")]);
+
+    const mode = await createMode({
+      name: "Conv No Widen Mode",
+      slug: "conv-no-widen-" + Date.now(),
+      systemPromptInstruction: "Mode already narrows to w__a.",
+      extensionIds: ["ext-w"],
+      // Mode itself excludes w__b.
+      extensionTools: { "ext-w": ["w__a"] },
+    });
+
+    // Conv tries to "select" w__b — but the mode never allowed it.
+    const convId = await convWith({ "ext-w": ["w__b"] });
+    const { executor } = createExecutor();
+    await executor.streamChat(convId, "do something", { projectId, agentConfigId, modeId: mode.id });
+
+    const names = nameSet(capturedAgentOpts.initialState.tools);
+    // w__a was mode-allowed but the conv subset (w__b) excludes it → removed.
+    expect(names.has("w__a")).toBe(false);
+    // w__b was never mode-allowed; the conv cannot widen it back in.
+    expect(names.has("w__b")).toBe(false);
+  });
+
+  test("conv subset matches the original (unnamespaced) tool name", async () => {
+    agentToolsMap.set(agentConfigId, [TOOL_DEF("conv__alpha"), TOOL_DEF("conv__beta")]);
+    extensionToolsMap.set("ext-cn", [
+      { name: "conv__alpha", originalName: "alpha", description: "a", inputSchema: { type: "object", properties: {}, required: [] } },
+      { name: "conv__beta", originalName: "beta", description: "b", inputSchema: { type: "object", properties: {}, required: [] } },
+    ] as any);
+
+    const mode = await createMode({
+      name: "Conv Orig Name Mode",
+      slug: "conv-orig-" + Date.now(),
+      systemPromptInstruction: "Subset by original name.",
+      extensionIds: ["ext-cn"],
+    });
+
+    const convId = await convWith({ "ext-cn": ["alpha"] });
+    const { executor } = createExecutor();
+    await executor.streamChat(convId, "do something", { projectId, agentConfigId, modeId: mode.id });
+
+    const names = nameSet(capturedAgentOpts.initialState.tools);
+    expect(names.has("conv__alpha")).toBe(true);
+    expect(names.has("conv__beta")).toBe(false);
+  });
+
+  test("null conv extensionTools = no narrowing (full mode surface)", async () => {
+    agentToolsMap.set(agentConfigId, [TOOL_DEF("n__a"), TOOL_DEF("n__b")]);
+    extensionToolsMap.set("ext-n", [TOOL_DEF("n__a"), TOOL_DEF("n__b")]);
+
+    const mode = await createMode({
+      name: "Conv Null Mode",
+      slug: "conv-null-" + Date.now(),
+      systemPromptInstruction: "No conv override.",
+      extensionIds: ["ext-n"],
+    });
+
+    const convId = await convWith(null);
+    const { executor } = createExecutor();
+    await executor.streamChat(convId, "do something", { projectId, agentConfigId, modeId: mode.id });
+
+    const names = nameSet(capturedAgentOpts.initialState.tools);
+    expect(names.has("n__a")).toBe(true);
+    expect(names.has("n__b")).toBe(true);
   });
 });
