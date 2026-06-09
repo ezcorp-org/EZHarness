@@ -48,6 +48,9 @@ export function decideInheritedMode(
 	// Already synced (or an explicit in-session pick already stamped) this id.
 	if (lastSyncedConvId === convId) return { sync: false };
 
+	// A `modeId` that matches no fetched mode resolves to `null` (Default)
+	// intentionally — re-inherit on conversation switch self-heals it; this
+	// is NOT a load-order bug (the mode list is already settled by line 44).
 	const mode = currentConversation.modeId
 		? (availableModes.find((m) => m.id === currentConversation.modeId) ?? null)
 		: null;
