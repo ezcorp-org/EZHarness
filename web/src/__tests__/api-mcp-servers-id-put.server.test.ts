@@ -263,6 +263,62 @@ describe("PUT /api/mcp-servers/[id]", () => {
     expect(lastClientSpec.headers.Authorization).toBe("Bearer NEW");
   });
 
+  test("stdio edit persists a valid config and never carries headers (mergeHeaders stdio branch)", async () => {
+    const tools = [{ name: "echo" }];
+    vi.mocked(getExtension).mockResolvedValueOnce(mcpExtension() as any);
+    mcpListTools.mockResolvedValueOnce(tools as any);
+    vi.mocked(updateMcpExtension).mockResolvedValueOnce({ id: "ext-1", manifest: { tools } } as any);
+
+    const res = await PUT(makeEvent({ locals: adminUser, body: validStdioBody() }));
+    expect(res.status).toBe(200);
+
+    // The throwaway client (and the persisted config) get the stdio spec
+    // verbatim — no `headers` key is synthesized by mergeHeaders.
+    expect(lastClientSpec.transport).toBe("stdio");
+    expect(lastClientSpec.command).toBe("node");
+    expect(lastClientSpec.args).toEqual(["v2.js"]);
+    expect("headers" in lastClientSpec).toBe(false);
+
+    const persisted = vi.mocked(updateMcpExtension).mock.calls[0]![0] as unknown as {
+      server: Record<string, unknown>;
+    };
+    expect(persisted.server).toEqual({
+      transport: "stdio",
+      name: "ext-stdio",
+      command: "node",
+      args: ["v2.js"],
+    });
+    expect("headers" in persisted.server).toBe(false);
+  });
+
+  test("switching an http-with-headers server to stdio drops the stored headers", async () => {
+    // Prior config was http carrying a secret; the edit changes the transport
+    // to stdio. The stdio early-return must NOT graft the old headers on.
+    vi.mocked(getExtension).mockResolvedValueOnce(
+      mcpExtension({
+        manifest: {
+          kind: "mcp",
+          name: "ext-was-http",
+          tools: [],
+          permissions: {},
+          mcpServers: [
+            { transport: "http", name: "ext-was-http", url: "https://old.example/mcp", headers: { Authorization: "Bearer SECRET" } },
+          ],
+        },
+      }) as any,
+    );
+    mcpListTools.mockResolvedValueOnce([] as any);
+    vi.mocked(updateMcpExtension).mockResolvedValueOnce({ id: "ext-1" } as any);
+
+    const res = await PUT(makeEvent({ locals: adminUser, body: validStdioBody() }));
+    expect(res.status).toBe(200);
+    expect("headers" in lastClientSpec).toBe(false);
+    const persisted = vi.mocked(updateMcpExtension).mock.calls[0]![0] as unknown as {
+      server: Record<string, unknown>;
+    };
+    expect("headers" in persisted.server).toBe(false);
+  });
+
   test("falls back to generic message when McpClient throws a non-Error", async () => {
     vi.mocked(getExtension).mockResolvedValueOnce(mcpExtension() as any);
     mcpConnect.mockRejectedValueOnce("pipe closed");
