@@ -25,7 +25,7 @@ const sseSchema = z.object({
   headers: z.record(z.string(), z.string()).optional(),
 });
 
-const mcpServerSpecSchema = z.discriminatedUnion("transport", [stdioSchema, httpSchema, sseSchema]);
+export const mcpServerSpecSchema = z.discriminatedUnion("transport", [stdioSchema, httpSchema, sseSchema]);
 
 export const installMcpServerSchema = z.object({
   name: z.string().min(1),
@@ -34,3 +34,13 @@ export const installMcpServerSchema = z.object({
 });
 
 export type InstallMcpServerInput = z.infer<typeof installMcpServerSchema>;
+
+// Edit-after-install (Phase 3/B). The name is immutable (it's the extension's
+// identity); only the connection config + optional description change. Reuses
+// the same discriminated `server` union as install.
+export const updateMcpServerSchema = z.object({
+  description: z.string().optional(),
+  server: mcpServerSpecSchema,
+});
+
+export type UpdateMcpServerInput = z.infer<typeof updateMcpServerSchema>;

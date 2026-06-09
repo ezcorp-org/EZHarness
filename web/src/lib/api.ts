@@ -496,6 +496,33 @@ export async function deleteConversation(id: string): Promise<void> {
 	await checkResponse(res);
 }
 
+// ── MCP servers ─────────────────────────────────────────────────────
+
+/** A new server connection config for an MCP extension. Mirrors the
+ *  discriminated union accepted by /api/mcp-servers (install + edit). For
+ *  http/sse, a blank header value means "keep the existing secret". */
+export type McpServerSpec =
+	| { transport: "stdio"; name: string; command: string; args?: string[]; env?: Record<string, string> }
+	| { transport: "http"; name: string; url: string; headers?: Record<string, string> }
+	| { transport: "sse"; name: string; url: string; headers?: Record<string, string> };
+
+/** Edit-after-install: re-point an existing MCP extension at a new server
+ *  config. The server re-connects + re-lists tools before persisting; a 502
+ *  (connection failure) leaves the stored config untouched. Returns the
+ *  updated extension record. */
+export async function updateMcpServer(
+	id: string,
+	body: { description?: string; server: McpServerSpec },
+): Promise<unknown> {
+	const res = await fetch(`${BASE}/api/mcp-servers/${id}`, {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body),
+	});
+	await checkResponse(res);
+	return res.json();
+}
+
 /**
  * Fork a subset of turns from an existing conversation into a brand-new one.
  * Server-side also clones associated inline tool calls. Returns the new

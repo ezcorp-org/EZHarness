@@ -227,3 +227,40 @@ export async function installMcpExtension(input: {
     consecutiveFailures: 0,
   } as NewExtension);
 }
+
+/**
+ * Re-point an existing MCP extension at a new server config and refresh its
+ * cached tool list (edit-after-install). Preserves the extension's identity
+ * (name, version, author, permissions) — only the connection (`mcpServers`),
+ * the `tools` snapshot, the optional `description`, and the `source` slug
+ * change. Returns the updated extension, or `null` if the id is missing or
+ * the extension is not an MCP extension.
+ *
+ * The caller is responsible for having already verified connectivity +
+ * pulled `cachedTools` from the *new* config (the install path does the same
+ * with a throwaway client) and for reloading the registry afterwards.
+ */
+export async function updateMcpExtension(input: {
+  id: string;
+  description?: string;
+  server: McpServerDefinition;
+  cachedTools: ToolDefinition[];
+}): Promise<Extension | null> {
+  const existing = await getExtension(input.id);
+  if (!existing) return null;
+  const prevManifest = existing.manifest as ExtensionManifestV2;
+  if (prevManifest.kind !== "mcp") return null;
+
+  const manifest: ExtensionManifestV2 = {
+    ...prevManifest,
+    description: input.description ?? prevManifest.description,
+    mcpServers: [input.server],
+    tools: input.cachedTools,
+  };
+
+  return updateExtension(input.id, {
+    description: manifest.description,
+    manifest,
+    source: `mcp:${input.server.transport}`,
+  });
+}

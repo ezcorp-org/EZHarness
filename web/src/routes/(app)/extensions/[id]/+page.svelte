@@ -11,6 +11,7 @@
 	import ExpiredReapproveModal from "$lib/components/permissions/ExpiredReapproveModal.svelte";
 	import { DEFAULT_TTL_FIRST_USE_MS } from "$lib/components/permissions/expiry-copy";
 	import EntityTable from "$lib/components/EntityTable.svelte";
+	import { updateMcpServer, type McpServerSpec } from "$lib/api";
 
 	// Phase 56: per-capability TTL UI. The picker default seed comes
 	// from the batch-loaded expired-grants response: each row carries
@@ -41,6 +42,14 @@
 			author?: string;
 			entrypoint: string;
 			persistent?: boolean;
+			// MCP-kind extensions carry a connection config (mcpServers[0]) and
+			// `kind:"mcp"`. The Connection panel below renders for these.
+			kind?: "local" | "mcp";
+			mcpServers?: Array<
+				| { transport: "stdio"; name: string; command: string; args?: string[]; env?: Record<string, string> }
+				| { transport: "http"; name: string; url: string; headers?: Record<string, string> }
+				| { transport: "sse"; name: string; url: string; headers?: Record<string, string> }
+			>;
 			tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
 			permissions: {
 				network?: string[];
@@ -489,6 +498,105 @@
 			errorMsg = e instanceof Error ? e.message : "Failed to update";
 		}
 	}
+
+	// ── MCP Connection edit (Phase 3/B) ─────────────────────────────────
+	const isMcp = $derived(ext?.manifest.kind === "mcp");
+	const mcpServer = $derived(ext?.manifest.mcpServers?.[0] ?? null);
+
+	let mcpEditOpen = $state(false);
+	let mcpSaving = $state(false);
+	let mcpToolDelta = $state<{ added: string[]; removed: string[] } | null>(null);
+	// Edit form fields (pre-filled from the current server config on open).
+	let mcpTransport = $state<"stdio" | "http" | "sse">("stdio");
+	let mcpName = $state("");
+	let mcpDescription = $state("");
+	let mcpCommand = $state("");
+	let mcpArgs = $state("");
+	let mcpUrl = $state("");
+	// Header KEYS only are pre-filled; values are left blank (blank = keep
+	// the existing secret). Secrets are never sent to the client.
+	let mcpHeaders = $state("");
+
+	function openMcpEdit() {
+		const s = mcpServer;
+		if (!s) return;
+		mcpToolDelta = null;
+		mcpTransport = s.transport;
+		mcpName = s.name;
+		mcpDescription = ext?.description ?? "";
+		if (s.transport === "stdio") {
+			mcpCommand = s.command;
+			mcpArgs = (s.args ?? []).join(" ");
+			mcpUrl = "";
+			mcpHeaders = "";
+		} else {
+			mcpCommand = "";
+			mcpArgs = "";
+			mcpUrl = s.url;
+			// Pre-fill header keys with blank values so the user sees which
+			// headers exist without exposing the secret. Blank value on save =
+			// keep existing.
+			mcpHeaders = Object.keys(s.headers ?? {})
+				.map((k) => `${k}: `)
+				.join("\n");
+		}
+		mcpEditOpen = true;
+	}
+
+	function parseHeaders(raw: string): Record<string, string> {
+		const out: Record<string, string> = {};
+		for (const line of raw.split(/\r?\n/)) {
+			const idx = line.indexOf(":");
+			if (idx === -1) continue;
+			const k = line.slice(0, idx).trim();
+			const v = line.slice(idx + 1).trim();
+			if (k) out[k] = v;
+		}
+		return out;
+	}
+
+	async function saveMcpEdit() {
+		if (!ext) return;
+		mcpSaving = true;
+		errorMsg = "";
+		mcpToolDelta = null;
+		try {
+			let server: McpServerSpec;
+			if (mcpTransport === "stdio") {
+				if (!mcpCommand.trim()) {
+					errorMsg = "Command is required for stdio transport";
+					return;
+				}
+				const args = mcpArgs.trim() ? mcpArgs.trim().split(/\s+/) : [];
+				server = { transport: "stdio", name: mcpName.trim(), command: mcpCommand.trim(), args };
+			} else {
+				if (!mcpUrl.trim()) {
+					errorMsg = "URL is required for http/sse transport";
+					return;
+				}
+				server = { transport: mcpTransport, name: mcpName.trim(), url: mcpUrl.trim(), headers: parseHeaders(mcpHeaders) };
+			}
+
+			const before = new Set((ext.manifest.tools ?? []).map((t) => t.name));
+			const updated = (await updateMcpServer(ext.id, {
+				description: mcpDescription.trim(),
+				server,
+			})) as { manifest?: { tools?: Array<{ name: string }> } };
+			const afterTools = updated?.manifest?.tools ?? [];
+			const after = new Set(afterTools.map((t) => t.name));
+			mcpToolDelta = {
+				added: [...after].filter((n) => !before.has(n)),
+				removed: [...before].filter((n) => !after.has(n)),
+			};
+			mcpEditOpen = false;
+			showTemporarySuccess("Connection updated");
+			await loadExtension();
+		} catch (e) {
+			errorMsg = e instanceof Error ? e.message : "Failed to update connection";
+		} finally {
+			mcpSaving = false;
+		}
+	}
 </script>
 
 <div class="space-y-6">
@@ -607,6 +715,132 @@
 				<dt class="text-[var(--color-text-muted)]">Install Path</dt>
 				<dd class="font-mono text-xs text-[var(--color-text-secondary)]">{ext.installPath}</dd>
 			</dl>
+
+			<!-- MCP Connection panel (Phase 3/B). Renders only for kind:"mcp".
+			     Shows transport + command/url + header KEYS (never values), and
+			     an Edit-connection panel that "Test & Save"s via PUT. -->
+			{#if isMcp && mcpServer}
+				{@const s = mcpServer}
+				<div class="mt-4 border-t border-[var(--color-border)] pt-4" data-testid="mcp-connection-panel">
+					<div class="mb-2 flex items-center justify-between">
+						<h4 class="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)]">Connection</h4>
+						{#if !mcpEditOpen}
+							<button
+								onclick={openMcpEdit}
+								data-testid="mcp-edit-connection-button"
+								class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]"
+							>
+								Edit connection
+							</button>
+						{/if}
+					</div>
+
+					{#if !mcpEditOpen}
+						<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+							<dt class="text-[var(--color-text-muted)]">Transport</dt>
+							<dd class="text-[var(--color-text-secondary)]" data-testid="mcp-connection-transport">{s.transport}</dd>
+							{#if s.transport === "stdio"}
+								<dt class="text-[var(--color-text-muted)]">Command</dt>
+								<dd class="font-mono text-xs text-[var(--color-text-secondary)] break-all" data-testid="mcp-connection-command">{s.command}{s.args?.length ? " " + s.args.join(" ") : ""}</dd>
+							{:else}
+								<dt class="text-[var(--color-text-muted)]">URL</dt>
+								<dd class="font-mono text-xs text-[var(--color-text-secondary)] break-all" data-testid="mcp-connection-url">{s.url}</dd>
+								<dt class="text-[var(--color-text-muted)]">Headers</dt>
+								<dd class="text-xs text-[var(--color-text-secondary)]" data-testid="mcp-connection-headers">
+									{#if Object.keys(s.headers ?? {}).length}
+										{#each Object.keys(s.headers ?? {}) as key}
+											<code class="mr-1 rounded bg-[var(--color-surface-tertiary)] px-1 py-0.5">{key}</code>
+										{/each}
+									{:else}
+										<span class="text-[var(--color-text-muted)]">None</span>
+									{/if}
+								</dd>
+							{/if}
+						</dl>
+						{#if mcpToolDelta && (mcpToolDelta.added.length || mcpToolDelta.removed.length)}
+							<div class="mt-2 rounded-md border border-blue-800/60 bg-blue-900/20 px-3 py-2 text-xs text-blue-200" data-testid="mcp-tool-delta">
+								{#if mcpToolDelta.added.length}
+									<div><span class="font-medium text-green-300">+{mcpToolDelta.added.length}</span> added: {mcpToolDelta.added.join(", ")}</div>
+								{/if}
+								{#if mcpToolDelta.removed.length}
+									<div><span class="font-medium text-red-300">-{mcpToolDelta.removed.length}</span> removed: {mcpToolDelta.removed.join(", ")}</div>
+								{/if}
+							</div>
+						{/if}
+					{:else}
+						<!-- Edit panel — install field set, pre-filled. -->
+						<div class="space-y-2" data-testid="mcp-edit-panel">
+							<input
+								type="text"
+								bind:value={mcpDescription}
+								placeholder="Description (optional)"
+								class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
+							/>
+							<div class="flex gap-2">
+								<select
+									bind:value={mcpTransport}
+									data-testid="mcp-edit-transport"
+									class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
+								>
+									<option value="stdio">stdio</option>
+									<option value="http">Streamable HTTP</option>
+									<option value="sse">SSE (legacy)</option>
+								</select>
+								{#if mcpTransport === "stdio"}
+									<input
+										type="text"
+										bind:value={mcpCommand}
+										data-testid="mcp-edit-command"
+										placeholder="command (e.g. npx)"
+										class="flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
+									/>
+									<input
+										type="text"
+										bind:value={mcpArgs}
+										data-testid="mcp-edit-args"
+										placeholder="args (space-separated)"
+										class="flex-[2] rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
+									/>
+								{:else}
+									<input
+										type="text"
+										bind:value={mcpUrl}
+										data-testid="mcp-edit-url"
+										placeholder="https://example.com/mcp"
+										class="flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
+									/>
+								{/if}
+							</div>
+							{#if mcpTransport !== "stdio"}
+								<textarea
+									bind:value={mcpHeaders}
+									data-testid="mcp-edit-headers"
+									placeholder="Headers (one per line). Leave a value blank to keep the existing secret."
+									rows="2"
+									class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
+								></textarea>
+							{/if}
+							<div class="flex justify-end gap-2">
+								<button
+									onclick={() => (mcpEditOpen = false)}
+									disabled={mcpSaving}
+									class="rounded-md px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50"
+								>
+									Cancel
+								</button>
+								<button
+									onclick={saveMcpEdit}
+									disabled={mcpSaving}
+									data-testid="mcp-test-save-button"
+									class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+								>
+									{mcpSaving ? "Testing…" : "Test & Save"}
+								</button>
+							</div>
+						</div>
+					{/if}
+				</div>
+			{/if}
 		</div>
 
 		<!-- Tools -->
