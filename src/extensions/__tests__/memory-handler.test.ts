@@ -28,6 +28,7 @@ import { eq } from "drizzle-orm";
 import type { ExtensionPermissions } from "../types";
 
 let userId: string;
+let userId2: string;
 let extensionId: string;
 let extensionId2: string;
 let projectId: string;
@@ -46,6 +47,8 @@ beforeAll(async () => {
   await setupTestDb();
   const u = await createUser({ email: "mem-h@example.com", passwordHash: "h", name: "U", role: "admin", status: "active" });
   userId = u.id;
+  const u2 = await createUser({ email: "mem-h2@example.com", passwordHash: "h", name: "U2", role: "user", status: "active" });
+  userId2 = u2.id;
   extensionId = await ensureExtension("mem-h-ext-1");
   extensionId2 = await ensureExtension("mem-h-ext-2");
   const [proj] = await getTestDb().insert(projects).values({ name: "mem-proj", path: "/tmp/mem" }).returning({ id: projects.id });
@@ -85,6 +88,12 @@ function grantedRead(overrides: Partial<NonNullable<ExtensionPermissions["memory
 
 function rpcMeta(): Record<string, unknown> {
   return { ezOnBehalfOf: userId, ezConversationId: conversationId };
+}
+
+/** Same extension identity, but acting on behalf of a DIFFERENT user —
+ *  the shared-bundled-extension scenario. */
+function rpcMetaUser2(): Record<string, unknown> {
+  return { ezOnBehalfOf: userId2, ezConversationId: conversationId };
 }
 
 let embedderCalls = 0;
@@ -219,5 +228,91 @@ describe("memory: read access guard + selfOnly", () => {
     );
     expect(denied.error?.code).toBe(-32001);
     expect((denied.error?.data as { reason: string }).reason).toBe("not-author");
+  });
+});
+
+describe("memory: cross-user isolation (shared extension identity)", () => {
+  // The SAME extensionId runs on behalf of two different users (the
+  // bundled memory-extractor pattern). User 2 must never read or mutate
+  // user 1's memories even though the extension identity matches.
+  async function writeAsUser1(content: string): Promise<string> {
+    const resp = await handlePiMemory(
+      { jsonrpc: "2.0", id: 50, method: "ezcorp/memory",
+        params: { action: "write", input: { content, category: "technical" } } },
+      { granted: grantedWrite(), registeredTool: { extensionId }, embedFn: fakeEmbed },
+      rpcMeta(),
+    );
+    return (resp.result as { memory: { id: string } }).memory.id;
+  }
+
+  test("list does not return another user's memory", async () => {
+    await writeAsUser1("user1-private");
+    const resp = await handlePiMemory(
+      { jsonrpc: "2.0", id: 51, method: "ezcorp/memory", params: { action: "list" } },
+      { granted: grantedRead(), registeredTool: { extensionId }, embedFn: fakeEmbed },
+      rpcMetaUser2(),
+    );
+    const list = (resp.result as { memories: unknown[] }).memories;
+    expect(list.length).toBe(0);
+  });
+
+  test("list with selfOnly=false still scopes to the acting user", async () => {
+    await writeAsUser1("user1-private");
+    const resp = await handlePiMemory(
+      { jsonrpc: "2.0", id: 52, method: "ezcorp/memory", params: { action: "list" } },
+      { granted: grantedRead({ selfOnly: false }), registeredTool: { extensionId }, embedFn: fakeEmbed },
+      rpcMetaUser2(),
+    );
+    const list = (resp.result as { memories: unknown[] }).memories;
+    expect(list.length).toBe(0);
+  });
+
+  test("get of another user's memory → not-found (opaque)", async () => {
+    const memId = await writeAsUser1("user1-private");
+    const resp = await handlePiMemory(
+      { jsonrpc: "2.0", id: 53, method: "ezcorp/memory", params: { action: "get", id: memId } },
+      { granted: grantedRead(), registeredTool: { extensionId }, embedFn: fakeEmbed },
+      rpcMetaUser2(),
+    );
+    expect(resp.error?.code).toBe(-32001);
+    expect((resp.error?.data as { reason: string }).reason).toBe("not-found");
+  });
+
+  test("update of another user's memory → not-found, content unchanged", async () => {
+    const memId = await writeAsUser1("user1-private");
+    const resp = await handlePiMemory(
+      { jsonrpc: "2.0", id: 54, method: "ezcorp/memory",
+        params: { action: "update", id: memId, patch: { content: "hacked" } } },
+      { granted: grantedWrite(), registeredTool: { extensionId }, embedFn: fakeEmbed },
+      rpcMetaUser2(),
+    );
+    expect(resp.error?.code).toBe(-32001);
+    expect((resp.error?.data as { reason: string }).reason).toBe("not-found");
+    const rows = await getTestDb().select().from(memories).where(eq(memories.id, memId));
+    expect(rows[0]!.content).toBe("user1-private");
+  });
+
+  test("archive of another user's memory → not-found, status unchanged", async () => {
+    const memId = await writeAsUser1("user1-private");
+    const resp = await handlePiMemory(
+      { jsonrpc: "2.0", id: 55, method: "ezcorp/memory", params: { action: "archive", id: memId } },
+      { granted: grantedWrite(), registeredTool: { extensionId }, embedFn: fakeEmbed },
+      rpcMetaUser2(),
+    );
+    expect(resp.error?.code).toBe(-32001);
+    expect((resp.error?.data as { reason: string }).reason).toBe("not-found");
+    const rows = await getTestDb().select().from(memories).where(eq(memories.id, memId));
+    expect(rows[0]!.status).not.toBe("archived");
+  });
+
+  test("owner CAN still get/update/archive their own memory", async () => {
+    const memId = await writeAsUser1("user1-private");
+    const got = await handlePiMemory(
+      { jsonrpc: "2.0", id: 56, method: "ezcorp/memory", params: { action: "get", id: memId } },
+      { granted: grantedRead(), registeredTool: { extensionId }, embedFn: fakeEmbed },
+      rpcMeta(),
+    );
+    expect(got.error).toBeUndefined();
+    expect((got.result as { memory: { id: string } }).memory.id).toBe(memId);
   });
 });

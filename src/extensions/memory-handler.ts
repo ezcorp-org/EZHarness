@@ -140,7 +140,13 @@ export async function handlePiMemory(
 
   switch (params.action) {
     case "list": {
-      const conditions = [];
+      // Always scope to the acting user — memories are per-user PII and
+      // feed LLM context. `selfOnly` narrows further to this extension's
+      // own memories, but is NOT a substitute for the userId filter:
+      // a shared (e.g. bundled) extension identity runs on behalf of
+      // every user, so without this an extension acting for user B would
+      // read user A's memories. `onBehalfOf` is host-stamped, never RPC.
+      const conditions = [eq(memories.userId, handlerCtx.onBehalfOf)];
       if (granted.selfOnly) {
         conditions.push(sql`provenance->>'extensionId' = ${handlerCtx.actorExtensionId}`);
       }
@@ -151,7 +157,7 @@ export async function handlePiMemory(
         conditions.push(eq(memories.category, params.category as never));
       }
       const limit = Math.min(typeof params.limit === "number" ? params.limit : 50, 200);
-      const where = conditions.length === 0 ? undefined : and(...conditions);
+      const where = and(...conditions);
       const rows = await db.select().from(memories).where(where as never).limit(limit);
       await recordCapabilityCall({
         ctx: handlerCtx, capability: "memory", action: "list",
@@ -164,7 +170,12 @@ export async function handlePiMemory(
 
     case "get": {
       if (typeof params.id !== "string") return softFail(req, "id required");
-      const rows = await db.select().from(memories).where(eq(memories.id, params.id));
+      // userId in the WHERE → cross-user fetch returns an opaque
+      // not-found rather than another user's memory.
+      const rows = await db
+        .select()
+        .from(memories)
+        .where(and(eq(memories.id, params.id), eq(memories.userId, handlerCtx.onBehalfOf)));
       if (rows.length === 0) return softFail(req, "not-found");
       const row = rows[0]!;
       const prov = row.provenance as (MemoryProvenance & { extensionId?: string }) | null;
@@ -238,7 +249,10 @@ export async function handlePiMemory(
 
     case "update": {
       if (typeof params.id !== "string") return softFail(req, "id required");
-      const rows = await db.select().from(memories).where(eq(memories.id, params.id));
+      const rows = await db
+        .select()
+        .from(memories)
+        .where(and(eq(memories.id, params.id), eq(memories.userId, handlerCtx.onBehalfOf)));
       if (rows.length === 0) return softFail(req, "not-found");
       const row = rows[0]!;
       const prov = row.provenance as (MemoryProvenance & { extensionId?: string }) | null;
@@ -267,7 +281,10 @@ export async function handlePiMemory(
 
     case "archive": {
       if (typeof params.id !== "string") return softFail(req, "id required");
-      const rows = await db.select().from(memories).where(eq(memories.id, params.id));
+      const rows = await db
+        .select()
+        .from(memories)
+        .where(and(eq(memories.id, params.id), eq(memories.userId, handlerCtx.onBehalfOf)));
       if (rows.length === 0) return softFail(req, "not-found");
       const row = rows[0]!;
       const prov = row.provenance as (MemoryProvenance & { extensionId?: string }) | null;
