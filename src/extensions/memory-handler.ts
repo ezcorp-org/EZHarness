@@ -17,8 +17,8 @@ import { logger } from "../logger";
 import { deriveHandlerContext, type RegisteredToolStub } from "./handler-context";
 import { recordCapabilityCall } from "./recordCapabilityCall";
 import { getDb } from "../db/connection";
-import { memories, extensionMemoryWritesDaily } from "../db/schema";
-import { sql, eq, and } from "drizzle-orm";
+import { memories, extensionMemoryWritesDaily, conversations } from "../db/schema";
+import { sql, eq, and, type SQL } from "drizzle-orm";
 import type { ExtensionPermissions, JsonRpcRequest, JsonRpcResponse } from "./types";
 import type { MemoryProvenance } from "../memory/types";
 
@@ -112,6 +112,24 @@ export function _resetMemoryWriteQuotaForTests(): void {
   writeCounters.clear();
 }
 
+/**
+ * Predicate: the memory belongs to the acting user. Memories are
+ * per-user PII, so every read/mutate path scopes to `onBehalfOf`
+ * (host-stamped, never RPC). Two ownership shapes:
+ *   - `userId` set (extension-written, or a future attributed row) →
+ *     direct match.
+ *   - `userId` NULL but `conversationId` set (host-extracted memories —
+ *     `dedupAndWriteMemory`/compaction don't stamp userId) → derive the
+ *     owner from the source conversation. This keeps host-extracted
+ *     memories visible to THEIR user while still blocking a shared
+ *     (bundled) extension acting for a different user.
+ * A fully-orphaned row (NULL userId AND NULL conversationId) is visible
+ * to no one — acceptable; such rows are unattributable.
+ */
+function ownedByActingUser(userId: string): SQL {
+  return sql`(${memories.userId} = ${userId} OR (${memories.userId} IS NULL AND EXISTS (SELECT 1 FROM ${conversations} WHERE ${conversations.id} = ${memories.conversationId} AND ${conversations.userId} = ${userId})))`;
+}
+
 function softFail(req: JsonRpcRequest, reason: string, code = -32001): JsonRpcResponse {
   return {
     jsonrpc: "2.0",
@@ -142,11 +160,11 @@ export async function handlePiMemory(
     case "list": {
       // Always scope to the acting user — memories are per-user PII and
       // feed LLM context. `selfOnly` narrows further to this extension's
-      // own memories, but is NOT a substitute for the userId filter:
+      // own memories, but is NOT a substitute for the user filter:
       // a shared (e.g. bundled) extension identity runs on behalf of
       // every user, so without this an extension acting for user B would
       // read user A's memories. `onBehalfOf` is host-stamped, never RPC.
-      const conditions = [eq(memories.userId, handlerCtx.onBehalfOf)];
+      const conditions = [ownedByActingUser(handlerCtx.onBehalfOf)];
       if (granted.selfOnly) {
         conditions.push(sql`provenance->>'extensionId' = ${handlerCtx.actorExtensionId}`);
       }
@@ -175,7 +193,7 @@ export async function handlePiMemory(
       const rows = await db
         .select()
         .from(memories)
-        .where(and(eq(memories.id, params.id), eq(memories.userId, handlerCtx.onBehalfOf)));
+        .where(and(eq(memories.id, params.id), ownedByActingUser(handlerCtx.onBehalfOf)));
       if (rows.length === 0) return softFail(req, "not-found");
       const row = rows[0]!;
       const prov = row.provenance as (MemoryProvenance & { extensionId?: string }) | null;
@@ -252,7 +270,7 @@ export async function handlePiMemory(
       const rows = await db
         .select()
         .from(memories)
-        .where(and(eq(memories.id, params.id), eq(memories.userId, handlerCtx.onBehalfOf)));
+        .where(and(eq(memories.id, params.id), ownedByActingUser(handlerCtx.onBehalfOf)));
       if (rows.length === 0) return softFail(req, "not-found");
       const row = rows[0]!;
       const prov = row.provenance as (MemoryProvenance & { extensionId?: string }) | null;
@@ -284,7 +302,7 @@ export async function handlePiMemory(
       const rows = await db
         .select()
         .from(memories)
-        .where(and(eq(memories.id, params.id), eq(memories.userId, handlerCtx.onBehalfOf)));
+        .where(and(eq(memories.id, params.id), ownedByActingUser(handlerCtx.onBehalfOf)));
       if (rows.length === 0) return softFail(req, "not-found");
       const row = rows[0]!;
       const prov = row.provenance as (MemoryProvenance & { extensionId?: string }) | null;

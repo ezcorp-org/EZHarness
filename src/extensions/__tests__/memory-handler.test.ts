@@ -47,7 +47,7 @@ beforeAll(async () => {
   await setupTestDb();
   const u = await createUser({ email: "mem-h@example.com", passwordHash: "h", name: "U", role: "admin", status: "active" });
   userId = u.id;
-  const u2 = await createUser({ email: "mem-h2@example.com", passwordHash: "h", name: "U2", role: "user", status: "active" });
+  const u2 = await createUser({ email: "mem-h2@example.com", passwordHash: "h", name: "U2", role: "member", status: "active" });
   userId2 = u2.id;
   extensionId = await ensureExtension("mem-h-ext-1");
   extensionId2 = await ensureExtension("mem-h-ext-2");
@@ -303,6 +303,52 @@ describe("memory: cross-user isolation (shared extension identity)", () => {
     expect((resp.error?.data as { reason: string }).reason).toBe("not-found");
     const rows = await getTestDb().select().from(memories).where(eq(memories.id, memId));
     expect(rows[0]!.status).not.toBe("archived");
+  });
+
+  test("host-extracted memory (NULL userId) is visible to its conversation's owner, not others", async () => {
+    // Simulate the host extraction pipeline: dedupAndWriteMemory inserts
+    // with conversationId but NO userId. Ownership is derived from the
+    // source conversation (owned by user1 here).
+    const [hostMem] = await getTestDb().insert(memories).values({
+      content: "host-extracted-for-user1",
+      category: "biographical",
+      conversationId, // owned by userId (user1)
+      userId: null,
+      confidence: "medium",
+      provenance: { sourceConversationId: conversationId, sourceMessageIds: [], extractedAt: new Date(), confidence: "medium", history: [] } as never,
+      injectionEligible: true,
+    }).returning();
+    const memId = hostMem!.id;
+
+    // Owner (user1), selfOnly:false → sees it.
+    const ownerList = await handlePiMemory(
+      { jsonrpc: "2.0", id: 60, method: "ezcorp/memory", params: { action: "list" } },
+      { granted: grantedRead({ selfOnly: false }), registeredTool: { extensionId }, embedFn: fakeEmbed },
+      rpcMeta(),
+    );
+    const ownerIds = (ownerList.result as { memories: { id: string }[] }).memories.map((m) => m.id);
+    expect(ownerIds).toContain(memId);
+    const ownerGet = await handlePiMemory(
+      { jsonrpc: "2.0", id: 61, method: "ezcorp/memory", params: { action: "get", id: memId } },
+      { granted: grantedRead({ selfOnly: false }), registeredTool: { extensionId }, embedFn: fakeEmbed },
+      rpcMeta(),
+    );
+    expect(ownerGet.error).toBeUndefined();
+
+    // Different user (user2) → cannot see it.
+    const otherList = await handlePiMemory(
+      { jsonrpc: "2.0", id: 62, method: "ezcorp/memory", params: { action: "list" } },
+      { granted: grantedRead({ selfOnly: false }), registeredTool: { extensionId }, embedFn: fakeEmbed },
+      rpcMetaUser2(),
+    );
+    const otherIds = (otherList.result as { memories: { id: string }[] }).memories.map((m) => m.id);
+    expect(otherIds).not.toContain(memId);
+    const otherGet = await handlePiMemory(
+      { jsonrpc: "2.0", id: 63, method: "ezcorp/memory", params: { action: "get", id: memId } },
+      { granted: grantedRead({ selfOnly: false }), registeredTool: { extensionId }, embedFn: fakeEmbed },
+      rpcMetaUser2(),
+    );
+    expect(otherGet.error?.code).toBe(-32001);
   });
 
   test("owner CAN still get/update/archive their own memory", async () => {
