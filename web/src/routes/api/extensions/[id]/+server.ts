@@ -3,9 +3,23 @@ import { z } from "zod";
 import { errorJson } from "$lib/server/http-errors";
 import { getExtension, updateExtension, deleteExtension } from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
-import { requireAuth } from "$server/auth/middleware";
+import { requireAuth, requireRole } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import type { RequestHandler } from "./$types";
+
+// `requireRole` throws a raw Response that SvelteKit surfaces as a 500;
+// catch it so non-admins get the intended 403 (matches the /activate
+// and /modifiable sibling routes). Returns the Response to short-circuit
+// with, or null when the caller is an admin.
+function requireAdminOr403(locals: App.Locals): Response | null {
+  try {
+    requireRole(locals, "admin");
+    return null;
+  } catch (e) {
+    if (e instanceof Response) return e;
+    throw e;
+  }
+}
 
 // Boundary validation. PATCH only accepts `{ enabled: false }` — the
 // handler explicitly rejects `enabled: true` (that path goes through
@@ -30,6 +44,9 @@ export const PATCH: RequestHandler = async ({ request, params, locals }) => {
   const scopeErr = requireScope(locals, "extensions");
   if (scopeErr) return scopeErr;
   requireAuth(locals);
+  // Disabling an extension is instance-wide; admin-only, like /activate.
+  const adminErr = requireAdminOr403(locals);
+  if (adminErr) return adminErr;
   const parsed = extensionPatchSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
     return errorJson(400, "No valid update fields provided");
@@ -58,6 +75,9 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "extensions");
   if (scopeErr) return scopeErr;
   requireAuth(locals);
+  // Uninstall is destructive and instance-wide; admin-only.
+  const adminErr = requireAdminOr403(locals);
+  if (adminErr) return adminErr;
   const ext = await getExtension(params.id);
   if (!ext) return errorJson(404, "Not found");
 

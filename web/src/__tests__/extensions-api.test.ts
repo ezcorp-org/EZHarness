@@ -626,6 +626,14 @@ describe("PATCH /api/extensions/:id", () => {
 		const res = await runThrowable(() => extPATCH(patchReq("ext-1", { enabled: false })) as any);
 		expect(res.status).toBe(403);
 	});
+
+	test("non-admin cookie user CANNOT disable an extension → 403 (was a back-door)", async () => {
+		authUser = { id: "u2", email: "u2@test.com", name: "U2", role: "member" };
+		apiKeyScopes = undefined;
+		const res = await runThrowable(() => extPATCH(patchReq("ext-1", { enabled: false })) as any);
+		expect(res.status).toBe(403);
+		expect(mockUpdateExtension).not.toHaveBeenCalled();
+	});
 });
 
 describe("GET /api/extensions", () => {
@@ -771,6 +779,16 @@ describe("DELETE /api/extensions/:id", () => {
 		expect(res.status).toBe(403);
 		expect(mockKillAll).not.toHaveBeenCalled();
 		expect(mockDeleteExtension).not.toHaveBeenCalled();
+	});
+
+	test("non-admin cookie user CANNOT delete an extension → 403; no side effects", async () => {
+		authUser = { id: "u2", email: "u2@test.com", name: "U2", role: "member" };
+		apiKeyScopes = undefined;
+		const res = await runThrowable(() => extDELETE(deleteReq("ext-1")) as any);
+		expect(res.status).toBe(403);
+		expect(mockKillAll).not.toHaveBeenCalled();
+		expect(mockDeleteExtension).not.toHaveBeenCalled();
+		expect(mockReload).not.toHaveBeenCalled();
 	});
 });
 
