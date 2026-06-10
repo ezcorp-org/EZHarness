@@ -50,6 +50,14 @@ export function mockDbConnection() {
     getDbPath: () => ":memory:",
     initDb: async () => {},
     closeDb: async () => {},
+    // Route rawQuery to the test PGlite with real bind params. Without this,
+    // the REAL rawQuery runs against the mocked getDb() and takes the
+    // external-Postgres branch (`$client.unsafe`), which drizzle-pglite
+    // doesn't expose.
+    rawQuery: async (sql: string, params: (string | null)[] = []) => {
+      if (!pglite) throw new Error("Test DB not initialized — call setupTestDb() first");
+      return pglite.query(sql, params);
+    },
   }));
 }
 

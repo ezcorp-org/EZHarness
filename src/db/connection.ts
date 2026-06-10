@@ -283,7 +283,18 @@ async function rollbackMigration(err: unknown): Promise<never> {
 }
 
 // Exported for tests
-export const __test = { rollbackMigration };
+export const __test = {
+  rollbackMigration,
+  /**
+   * Directly override module DB state so rawQuery's two code paths (PGlite
+   * bind-params vs Bun.sql `$client.unsafe` bind-params) are unit-testable
+   * without booting initDb()'s full PGlite/Postgres init sequence.
+   */
+  setState(db: Database, pglite: import("@electric-sql/pglite").PGlite | null): void {
+    _db = db;
+    _pglite = pglite;
+  },
+};
 
 async function initPostgres(): Promise<void> {
   const { drizzle } = await import("drizzle-orm/bun-sql");
@@ -430,14 +441,15 @@ export function getPglite(): import("@electric-sql/pglite").PGlite | null {
 /** Execute a raw SQL string with positional $1/$2 params. Works with both PGlite and external Postgres. */
 export async function rawQuery(sql: string, params: (string | null)[] = []): Promise<{ rows: unknown[] }> {
   if (_pglite) return _pglite.query(sql, params);
-  // External Postgres via Bun.sql — use tagged template with raw interpolation
-  const { sql: sqlTag } = await import("drizzle-orm");
-  const result = await getDb().execute(sqlTag.raw(sql.replace(/\$(\d+)/g, (_, i: string) => {
-    const val = params[parseInt(i, 10) - 1] ?? null;
-    return val === null ? "NULL" : `'${val.replace(/'/g, "''")}'`;
-  })));
-  if (Array.isArray(result)) return { rows: result };
-  return result as { rows: unknown[] };
+  // External Postgres via Bun.sql — `sql.unsafe(query, params)` sends the
+  // query text and values separately ($1-style server-side parameter
+  // binding), exactly like the PGlite path above. Never string-inline the
+  // values here: the old quote-doubling rewrite was injectable (backslash /
+  // E'…'-style payloads survive `'' `-escaping) and corrupted non-string
+  // values. drizzle's bun-sql driver exposes the underlying Bun SQL client
+  // as `$client`.
+  const rows = (await getDb().$client.unsafe(sql, params)) as unknown[];
+  return { rows };
 }
 
 export function getDbPath(): string {
