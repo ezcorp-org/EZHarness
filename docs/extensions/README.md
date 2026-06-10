@@ -30,6 +30,8 @@ ezcorp ext dev
 ezcorp ext publish
 ```
 
+> **Note:** there is no installed `ezcorp` binary — the CLI is `src/cli.ts`, invoked from the repo root as `bun src/cli.ts ext …` (or `bun index.ts ext …`). `ezcorp ext …` in these docs is shorthand for that invocation.
+
 See the [Getting Started guide](getting-started.md) for the full walkthrough.
 
 ## Extension Capabilities
@@ -44,7 +46,7 @@ See the [Getting Started guide](getting-started.md) for the full walkthrough.
 | **Shell** | Execute commands | `permissions.shell: true` |
 | **Env Vars** | Read host environment | `permissions.env: ["VAR_NAME"]` |
 | **Storage** | Persistent key-value DB | `permissions.storage: true` |
-| **Lifecycle hooks** | Subscribe to platform events | `permissions.lifecycleHooks: true` |
+| **Lifecycle hooks** | Subscribe to platform events | Top-level `lifecycleHooks: string[]` manifest field (the `permissions.lifecycleHooks` boolean is informational only) |
 | **Canvas cards** | Interactive UI cards with bidirectional events ([guide](canvas-cards.md)) | `tools[].cardType` + `permissions.eventSubscriptions` |
 | **Message toolbar** | Per-turn action icons that route a click to your subprocess ([guide](message-toolbar.md)) | `messageToolbar[]` + `permissions.eventSubscriptions` |
 | **Author turns** | Insert excluded turns via `ezcorp/append-message` (pairs with `messageToolbar`) | `permissions.appendMessages` |
@@ -58,13 +60,13 @@ Extensions are sandboxed with multiple layers of isolation:
 - **Environment isolation** — only 4 env vars passed (`PATH`, `HOME`, `NODE_ENV`, `TMPDIR`); others require explicit grants
 - **Filesystem isolation** — `realpath`-resolved permission checks prevent traversal attacks; violations auto-disable the extension
 - **Storage isolation** — each extension gets its own DB namespace; extension A cannot read extension B's data
-- **Rate limiting** — all RPC channels are rate-limited to prevent abuse
+- **Rate limiting** — several RPC channels are rate-limited (storage, append-message, task events, spawn-assignment, agent-configs, event delivery — 50 ops/s per extension); the `ezcorp/fs.*` and `ezcorp/invoke` channels have no per-second limiter and are bounded by other limits (per-turn tool-call cap, call depth, timeouts)
 - **Auto-disable** — 3 consecutive crashes disables the extension; filesystem violations disable immediately
 - **Checksum verification** — package integrity verified on first load per session
 
 ## Data Storage Convention
 
-See [data-storage.md](data-storage.md) for the full implementation guide, copy-pastable `findProjectRoot()` snippet, `postinstall.ts` pattern, and agent read patterns.
+See [data-storage.md](data-storage.md) for the full implementation guide (the `EZCORP_PROJECT_ROOT` + host-mediated `fsRead`/`fsWrite` pattern for sandboxed tool code), the `postinstall.ts` pattern, and agent read patterns.
 
 Every extension that writes persistent data to the host filesystem MUST put it under:
 
@@ -72,7 +74,7 @@ Every extension that writes persistent data to the host filesystem MUST put it u
 <projectRoot>/.ezcorp/extension-data/<extension-name>/
 ```
 
-where `<projectRoot>` is the nearest ancestor directory containing a `.git/` folder (use a `findProjectRoot()` walker), and `<extension-name>` matches the extension's manifest `name` field.
+where `<projectRoot>` is the nearest ancestor directory containing a `.git/` folder (inside a sandboxed subprocess, read the host-injected `EZCORP_PROJECT_ROOT` env var; host-side scripts may walk for `.git/` themselves), and `<extension-name>` matches the extension's manifest `name` field.
 
 **Why**:
 - One `.gitignore` rule (`.ezcorp/`) covers every extension's state — users never accidentally commit a vault file or task store.

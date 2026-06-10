@@ -39,7 +39,7 @@ export default defineExtension({
 });
 ```
 
-> `schemaVersion` must be the literal number `2`, not the string `"2"`.
+> `schemaVersion` must be the literal number `2` or `3`, not a string.
 
 ---
 
@@ -49,13 +49,14 @@ Every manifest must include these fields. Validation rejects the manifest if any
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `schemaVersion` | `2` (literal number) | Must be exactly `2` |
-| `name` | `string` | Package name. Also serves as the tool namespace prefix (tools register as `name.toolName`). |
+| `schemaVersion` | `2 \| 3` (literal number) | Must be `2` or `3` |
+| `name` | `string` | Package name. Also serves as the tool namespace prefix (tools register as `name__toolName`). |
 | `version` | `string` | Semver format `X.Y.Z`. Validated against `^\d+\.\d+\.\d+$`. |
 | `description` | `string` | Human-readable description. |
 | `author.name` | `string` | Author display name. |
 | `author.id` | `string` | Optional. Author identifier. |
-| `permissions` | `object` | Permission declarations. Can be empty `{}` if no special access needed. |
+
+The `permissions` block is **optional** — the validator only checks it when present (`if (m.permissions !== undefined)`). Omitting it is equivalent to requesting no special access; see [Permissions](#permissions) below.
 
 ---
 
@@ -77,7 +78,7 @@ Callable functions exposed over JSON-RPC.
 
 When `tools[]` is non-empty, `entrypoint` is **required** at the manifest level. The platform spawns a subprocess at the entrypoint and communicates via JSON-RPC over stdio.
 
-Tool names are registered in the platform as `packageName.toolName`. The subprocess receives the original short name in `tools/call` requests.
+Tool names are registered in the platform as `packageName__toolName` (double underscore — dots are rejected by LLM provider tool-name patterns). The subprocess receives the original short name in `tools/call` requests.
 
 ```typescript
 tools: [
@@ -153,17 +154,21 @@ agent: {
 
 ### `mcpServers[]` -- `McpServerDefinition[]`
 
-MCP server endpoints bundled with the extension. Each has its own entrypoint (separate from the package-level `entrypoint`).
+MCP server connections declared by the extension. There is no per-server `entrypoint` field — a `stdio` server is launched from its `command` (+ `args`), while `http`/`sse` servers are remote connections identified by `url`.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | `string` | Yes | Server name. |
-| `description` | `string` | Yes | Human-readable description. |
-| `entrypoint` | `string` | Yes | Script path for this server. |
-| `transport` | `"stdio" \| "http" \| "sse"` | No | Transport protocol. Default: `"stdio"`. |
+| `transport` | `"stdio" \| "http" \| "sse"` | Yes | Transport protocol. No default — the validator rejects a missing or unknown value. |
+| `description` | `string` | No | Human-readable description. |
+| `command` | `string` | `stdio` only | Command to spawn the server. Required for `stdio` transport. |
+| `args` | `string[]` | No (`stdio` only) | Arguments passed to `command`. |
+| `env` | `Record<string, string>` | No (`stdio` only) | Environment variables for the spawned process. |
+| `url` | `string` | `http`/`sse` only | Remote server URL. Required for `http` and `sse` transports. |
+| `headers` | `Record<string, string>` | No (`http`/`sse` only) | HTTP headers sent on connect. |
 
 Pick transport by how the server runs:
-- **`stdio`** — bundled with the extension; the platform spawns it as a subprocess. Default and safest.
+- **`stdio`** — the platform spawns `command` as a subprocess and speaks MCP over its stdio.
 - **`http`** — connects to a remote server over Streamable HTTP (the current MCP network transport). Use for hosted servers.
 - **`sse`** — legacy Server-Sent Events transport. Only use it when the remote server has not migrated to Streamable HTTP.
 
@@ -172,8 +177,9 @@ mcpServers: [
   {
     name: "db-query",
     description: "Execute read-only database queries",
-    entrypoint: "servers/db.ts",
     transport: "stdio",
+    command: "bun",
+    args: ["servers/db.ts"],
   },
 ]
 ```
@@ -401,7 +407,7 @@ panel: {
 | `header` | `title`, `subtitle?` | Section header |
 | `text` | `content`, `variant?` (`"muted"` \| `"default"` \| `"emphasis"`) | Text block |
 | `badge` | `label`, `color?` (`"blue"` \| `"green"` \| `"red"` \| `"yellow"` \| `"purple"` \| `"gray"`) | Colored badge |
-| `progress` | `value` (0-1), `label?` | Progress bar |
+| `progress` | `value` (0-100, clamped server-side), `label?` | Progress bar |
 | `status` | `label`, `state` (`"idle"` \| `"running"` \| `"success"` \| `"error"` \| `"warning"`) | Status indicator |
 | `list` | `items[]` (`label`, `status?`, `detail?`, `badge?`, `badgeColor?`) | List of items with optional status |
 | `kv` | `pairs[]` (`key`, `value`) | Key-value display |
@@ -416,6 +422,7 @@ panel: {
 |-------|------|---------|-------------|
 | `entrypoint` | `string` | none | Path to main JSON-RPC server script. **Required** when `tools[]` is non-empty. |
 | `persistent` | `boolean` | `false` | Keep subprocess alive between calls (no idle timeout). |
+| `lifecycleHooks` | `string[]` | `[]` | Top-level field. Lifecycle hook names the extension subscribes to. See [Lifecycle Hooks](#lifecycle-hooks). |
 | `resources.memory` | `string` | `"512MB"` | Memory limit for subprocess (e.g., `"512MB"`, `"1GB"`). Floor: 512MB. Applied via `prlimit --rss=`. |
 | `resources.storage` | `string` | `"5MB"` | Storage quota for `ezcorp/storage` key-value data (e.g., `"5MB"`, `"50MB"`). Max: 100MB. |
 | `tags` | `string[]` | `[]` | Marketplace categorization tags. |
@@ -545,21 +552,24 @@ Extensions cannot read variables not in their declared list.
 
 ### `lifecycleHooks` -- `boolean`
 
-Controls whether the extension can subscribe to platform lifecycle events.
+A boolean flag in the permissions block, declared for user visibility at install time.
 
 | Detail | |
 |--------|---|
 | **Type** | Boolean |
-| **What it controls** | Whether the extension receives lifecycle event notifications |
+| **What it controls** | Surfaced to the user during install approval. The dispatcher does **not** consult this flag at registration — hook registration is driven by the **top-level** `lifecycleHooks: string[]` manifest field. |
 | **Default** | `false` |
 
-When granted, the extension can declare which hooks to subscribe to in its manifest `permissions.lifecycleHooks` array. Notifications are fire-and-forget — they are sent to the extension's subprocess as JSON-RPC notifications (no response expected), and only if the process is already running.
+The actual subscription list lives at the top level of the manifest (not inside `permissions`):
 
 ```typescript
+lifecycleHooks: ["agent:complete", "run:complete"],
 permissions: {
-  lifecycleHooks: true,
+  lifecycleHooks: true, // informational; shown at install approval
 }
 ```
+
+Notifications are fire-and-forget — they are sent to the extension's subprocess as JSON-RPC notifications (no response expected), and only if the process is already running.
 
 See [Lifecycle Hooks](#lifecycle-hooks) below for available hook names and payload shapes.
 
@@ -639,7 +649,7 @@ permissions: {
 }
 ```
 
-**Conversation scope is forced by the host** — the extension cannot target another conversation, even by passing a different `conversationId` in the params. The host substitutes the caller's wired conversation. This mirrors the same posture as `ezcorp/emit-task-event` (see `src/extensions/types.ts:200`).
+**Conversation scope is forced by the host** — the extension cannot target another conversation. `conversationId` may be omitted (the host uses the caller's wired conversation); if it is passed, it must match that wired conversation or the call fails with a validation error (`conversationId: must match the calling extension's wired conversation`). This mirrors the same posture as `ezcorp/emit-task-event`.
 
 **`excluded: true` is forced** — every appended turn is marked excluded regardless of what the extension passes in the call params. The `excludedDefault` field is reserved for a future opt-in tier where extensions might author included turns; today it is informational only. The host renders an "Excluded from chat context" pill on the new row so users can see at a glance that the turn isn't fed back to the LLM.
 
@@ -649,7 +659,7 @@ See [Reverse RPC: `ezcorp/append-message`](api-reference.md#reverse-rpc-ezcorpap
 
 ## Lifecycle Hooks
 
-Extensions with `permissions.lifecycleHooks: true` can subscribe to platform events. Subscriptions are declared in the manifest `permissions.lifecycleHooks` field. Notifications are delivered as JSON-RPC notifications via `lifecycle/<hookName>` on stdin.
+Extensions subscribe to platform events by listing hook names in the **top-level** `lifecycleHooks: string[]` manifest field (not inside `permissions` — the `permissions.lifecycleHooks` boolean is informational for install approval and is not consulted at registration). Notifications are delivered as JSON-RPC notifications via `lifecycle/<hookName>` on stdin.
 
 Only these hook names are accepted — unknown names are silently ignored:
 
@@ -724,7 +734,9 @@ export default defineExtension({
     {
       name: "analysis-server",
       description: "Standalone analysis MCP server",
-      entrypoint: "servers/analysis.ts",
+      transport: "stdio",
+      command: "bun",
+      args: ["servers/analysis.ts"],
     },
   ],
   scripts: {

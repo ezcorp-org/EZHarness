@@ -119,7 +119,7 @@ There is no schema-version field on settings rows — the resolver always valida
 
 No. The `GET /api/extensions/<id>/settings` response is returned to any authenticated session user, and the `resolved` blob ships into the chat browser bundle as part of the per-conversation hydration. `userValues` is visible to that user; the schema and any defaults are visible to every user who can see the extension's detail page.
 
-For secrets (API keys, OAuth tokens, signed credentials), use the [Storage API](api-reference.md#storage-api) with `encrypted: true` — the value is encrypted at rest with AES-256-GCM and never leaves the subprocess in plaintext.
+For secrets (API keys, OAuth tokens, signed credentials), use the [Storage API](api-reference.md#storage-api) with `encrypted: true` — the value is encrypted at rest with AES-256-GCM. Note that the extension sends the value in plaintext over the stdio RPC channel; the **server** encrypts it before writing to the database (see `src/extensions/storage-handler.ts`).
 
 **Why is there no per-conversation scope?**
 

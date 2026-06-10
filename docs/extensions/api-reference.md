@@ -10,6 +10,8 @@ For manifest field details, see [Manifest Schema Reference](manifest-schema.md).
 
 All extension commands live under `ezcorp ext`.
 
+> **Note:** the repo does not ship an installed `ezcorp` binary (`package.json` declares no `bin`). The CLI is `src/cli.ts` — invoke it from the repo root as `bun src/cli.ts ext …` (or via the root entry, `bun index.ts ext …`). The `ezcorp ext …` form below is shorthand for that invocation.
+
 ### `ezcorp ext init`
 
 Scaffold a new extension project.
@@ -206,6 +208,16 @@ ezcorp ext test ./my-extension --filter "should parse"
 
 ---
 
+### `ezcorp ext verify`
+
+Deterministic, zero-LLM acceptance gate: spins the extension up in a sandbox, runs the manifest's `smokeTest`, and exits `0` iff every step passes.
+
+```
+ezcorp ext verify [dir] [--json]
+```
+
+---
+
 ### `ezcorp ext publish`
 
 Publish an extension to the marketplace.
@@ -331,7 +343,7 @@ Defines a callable tool exposed over JSON-RPC.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | `string` | Yes | Tool name (registered as `packageName.toolName` in platform) |
+| `name` | `string` | Yes | Tool name (registered as `packageName__toolName` in platform — double underscore) |
 | `description` | `string` | Yes | Human-readable description |
 | `inputSchema` | `Record<string, unknown>` | Yes | JSON Schema object defining accepted parameters |
 
@@ -404,21 +416,26 @@ const agent: AgentComponentDefinition = {
 
 ### `McpServerDefinition`
 
-Defines an MCP server endpoint bundled with the extension.
+Defines an MCP server connection declared by the extension. A discriminated union on `transport` — there is no per-server `entrypoint` field.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | `string` | Yes | Server name |
-| `description` | `string` | Yes | Human-readable description |
-| `entrypoint` | `string` | Yes | Script path (separate from package-level entrypoint) |
-| `transport` | `"stdio" \| "sse"` | No | Transport protocol (default: `"stdio"`) |
+| `transport` | `"stdio" \| "http" \| "sse"` | Yes | Transport protocol. No default — missing/unknown values are rejected by the validator. |
+| `description` | `string` | No | Human-readable description |
+| `command` | `string` | `stdio` only | Command to spawn the server (required for `stdio`) |
+| `args` | `string[]` | No (`stdio` only) | Arguments passed to `command` |
+| `env` | `Record<string, string>` | No (`stdio` only) | Environment variables for the spawned process |
+| `url` | `string` | `http`/`sse` only | Remote server URL (required for `http` and `sse`) |
+| `headers` | `Record<string, string>` | No (`http`/`sse` only) | HTTP headers sent on connect |
 
 ```typescript
 const mcp: McpServerDefinition = {
   name: "db-server",
   description: "Database query MCP server",
-  entrypoint: "mcp-server.ts",
-  transport: "stdio"
+  transport: "stdio",
+  command: "bun",
+  args: ["mcp-server.ts"],
 };
 ```
 
@@ -639,7 +656,7 @@ import {
 | `fetchPermitted(url, init?)` | `fetch` that honours the extension's declared `permissions.network` allowlist. |
 | `invoke(extension, tool, args)` | Cross-extension tool call via `ezcorp/invoke` reverse-RPC. |
 | `PanelBuilder` | Fluent builder for UI panel payloads. |
-| `registerLifecycleHook(event, handler)` | Subscribe to `install`, `enable`, `disable`, `uninstall` events. |
+| `registerLifecycleHook(event, handler)` | Subscribe to a `LifecycleEvent`: `agent:spawn`, `agent:complete`, `run:start`, or `run:complete`. |
 | `Storage` | Class wrapper over the `ezcorp/storage` reverse-RPC API (see [Storage API](#storage-api)). |
 
 See the [`getChannel` + `createToolDispatcher` quick-start](../../packages/@ezcorp/sdk/README.md) for a minimal working tool server.
@@ -650,7 +667,7 @@ See the [`getChannel` + `createToolDispatcher` quick-start](../../packages/@ezco
 
 | Limit | Value | Description |
 |-------|-------|-------------|
-| Tool calls per turn | 10 | Maximum number of extension tool calls the platform will make in a single agent turn |
+| Tool calls per turn | 100 (default) | Maximum number of extension tool calls the platform will make in a single agent turn. Overridable via `EZCORP_MAX_TOOL_CALLS_PER_TURN` (positive integer; invalid values fall back to 100). |
 | Cross-extension call depth | 10 | Maximum nesting depth for `ezcorp/invoke` chains (A calls B calls C...) |
 | Idle timeout | 5 minutes | Non-persistent subprocesses are killed after 5 minutes of inactivity |
 | Call timeout | 30 seconds | Maximum time for a single `tools/call` request to complete |

@@ -6,7 +6,7 @@ Build and publish your first EZCorp extension. This guide walks through two exte
 
 - An EZCorp account on your team's hosted instance
 - [Bun](https://bun.sh) installed locally
-- The EZCorp CLI available as `ezcorp` (ships with the platform)
+- A checkout of the EZCorp repo. There is no installed `ezcorp` binary — the CLI is `src/cli.ts`, invoked from the repo root as `bun src/cli.ts ext …` (or `bun index.ts ext …`). Everywhere this guide shows `ezcorp ext …`, read it as shorthand for that invocation.
 
 For self-hosting setup, see [Quick Start](../quick-start.md).
 
@@ -66,8 +66,8 @@ export default defineExtension({
 ```
 
 Key points:
-- `schemaVersion` must be `2` (the number, not a string)
-- `permissions` is always present, even if empty
+- `schemaVersion` must be `2` or `3` (the number, not a string)
+- `permissions` is optional -- the scaffold includes an empty block for clarity
 - No `entrypoint` field -- skills don't need one
 
 ### Add a reference file
@@ -231,7 +231,7 @@ export default defineExtension({
 Key differences from skills:
 - `entrypoint` is required when `tools[]` is non-empty
 - Each tool defines an `inputSchema` describing its parameters
-- Tool names are short -- the platform namespaces them as `packageName.toolName`
+- Tool names are short -- the platform namespaces them as `packageName__toolName` (double underscore)
 
 ### Examine the entrypoint
 
@@ -424,7 +424,7 @@ ezcorp ext install github:your-username/my-first-tool
 ## Troubleshooting
 
 **"Manifest validation failed"**
-Check that `schemaVersion` is `2` (the number, not the string `"2"`). Verify all required fields are present: `name`, `version`, `description`, `author.name`.
+Check that `schemaVersion` is `2` or `3` (the number, not a string). Verify all required fields are present: `name`, `version`, `description`, `author.name`.
 
 **"Missing entrypoint"**
 The `entrypoint` field is only required when your manifest declares `tools[]`. Skills and agents don't need one -- remove it from skill/agent manifests.

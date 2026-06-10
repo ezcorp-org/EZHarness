@@ -4,8 +4,12 @@ EZCorp ships with a layered permission system. This document covers
 the maintainer-facing surface for the **bundled extension** subset:
 the hardcoded capability ceiling and the manifest lockfile.
 
-For the runtime permission model (PDP, capability declarations,
-sandbox poison) see `.permission-system-plan.md` at the repo root.
+For the runtime permission model (the Policy Decision Point,
+per-capability approval, grant expiry, audit trail) see the docs under
+[`docs/permissions/`](../permissions/):
+[four-scope-modal.md](../permissions/four-scope-modal.md),
+[capability-expiry.md](../permissions/capability-expiry.md), and
+[audit-drilldown.md](../permissions/audit-drilldown.md).
 
 ## Bundled extensions vs. user-installed extensions
 

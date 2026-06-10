@@ -30,25 +30,43 @@ Inside that directory the extension owns the layout. Use subdirectories for logi
 
 ## How to Implement
 
-Use this `findProjectRoot()` walker verbatim. Every official example uses the same function -- see `docs/extensions/examples/auto-note/scripts/postinstall.ts` and `docs/extensions/examples/task-stack/index.ts`.
+**Inside a sandboxed tool subprocess you cannot walk the filesystem for `.git` yourself** — the Phase 3 sandbox-preload poisons `node:fs` / `Bun.file` at module load (see `packages/@ezcorp/sdk/src/runtime/fs.ts`). The production pattern has two halves:
+
+1. **Project root:** read the `EZCORP_PROJECT_ROOT` env var. The host does the `.git` walk once and injects the answer at subprocess spawn time (`buildAllowedEnv` in `src/extensions/registry.ts`).
+2. **File IO:** use the SDK's host-mediated helpers — `fsRead`, `fsWrite`, `fsList`, `fsStat`, `fsExists`, `fsMkdir`, `fsUnlink` from `@ezcorp/sdk/runtime`. They call the host's `ezcorp/fs.*` reverse-RPC and are the only supported fs path from extension code.
+
+This is exactly what `docs/extensions/examples/task-stack/index.ts` does — its `resolveProjectRoot()` prefers the env var and only falls back to a lazy `require("node:fs")` walk for unit tests and ad-hoc CLI runs where no sandbox is active:
 
 ```typescript
-import { existsSync } from "fs";
-import { join, dirname } from "path";
+import { join, dirname } from "node:path";
+import { fsRead, fsWrite, fsMkdir } from "@ezcorp/sdk/runtime";
 
-export function findProjectRoot(from: string = process.cwd()): string {
+export function resolveProjectRoot(from: string = process.cwd()): string {
+  // (1) Host-injected — production fast path.
+  const fromEnv = process.env.EZCORP_PROJECT_ROOT;
+  if (fromEnv && fromEnv.length > 0) return fromEnv;
+
+  // (2) Lazy fs walk — test / CLI contexts only (no sandbox active).
+  let fs: typeof import("node:fs");
+  try {
+    fs = require("node:fs") as typeof import("node:fs");
+  } catch {
+    return from; // fs poisoned and no env hint — defer the error to IO time
+  }
   let dir = from;
   while (true) {
-    if (existsSync(join(dir, ".git"))) return dir;
+    if (fs.existsSync(join(dir, ".git"))) return dir;
     const parent = dirname(dir);
-    if (parent === dir) return from; // reached filesystem root, fall back to cwd
+    if (parent === dir) return from; // reached filesystem root
     dir = parent;
   }
 }
 
-const projectRoot = findProjectRoot();
-const DATA_DIR = join(projectRoot, ".ezcorp", "extension-data", "my-extension");
+const DATA_DIR = join(resolveProjectRoot(), ".ezcorp", "extension-data", "my-extension");
+// Then read/write via fsRead(path) / fsWrite(path, contents) — never raw node:fs.
 ```
+
+A raw `node:fs` `.git` walker is still fine **host-side** — in `scripts/postinstall.ts` and other install/build scripts that run outside the sandbox (see the next section), or via the SDK's `findProjectRoot()` helper, which is host-side only.
 
 `.ezcorp/` is already listed in the top-level `.gitignore`, so there is nothing for the extension author to add.
 
@@ -56,7 +74,7 @@ const DATA_DIR = join(projectRoot, ".ezcorp", "extension-data", "my-extension");
 
 ## `postinstall.ts` Pattern
 
-Scaffold the directory in your `scripts/postinstall.ts` so it exists on first run:
+Scaffold the directory in your `scripts/postinstall.ts` so it exists on first run. Postinstall scripts run **host-side** (outside the tool sandbox), so a raw `node:fs` walker is legitimate here:
 
 ```typescript
 #!/usr/bin/env bun
@@ -138,7 +156,7 @@ Single JSON store at the root of its data directory:
   task-stack.json         # all stacks, tasks, subtasks, deps, artifacts
 ```
 
-See `docs/extensions/examples/task-stack/index.ts` for the `findProjectRoot()` + `STORE_PATH` wiring.
+See `docs/extensions/examples/task-stack/index.ts` for the `resolveProjectRoot()` + `STORE_PATH` wiring (env-var first, host-mediated `fsRead`/`fsWrite` for IO).
 
 ### `auto-note`
 
