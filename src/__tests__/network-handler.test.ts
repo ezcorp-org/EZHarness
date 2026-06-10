@@ -418,6 +418,13 @@ describe("isInternalHost", () => {
       "fc00::1",
       "fd00::1",
       "fe80::1",
+      // 0.0.0.0/8 — `0.0.0.0` reaches loopback services on Linux.
+      "0.0.0.0",
+      "0.0.0.1",
+      // CGNAT / RFC-6598 shared address space (100.64.0.0/10).
+      "100.64.0.1",
+      "100.100.0.1",
+      "100.127.255.254",
     ];
     for (const h of internal) {
       expect(isInternalHost(h)).toBe(true);
@@ -433,6 +440,9 @@ describe("isInternalHost", () => {
       "172.15.0.1", // boundary (just outside RFC-1918 class B)
       "172.32.0.1", // boundary (just outside)
       "200.0.0.1",
+      "100.63.0.1", // boundary (just below CGNAT 100.64/10)
+      "100.128.0.1", // boundary (just above CGNAT 100.64/10)
+      "1.0.0.1", // public — must NOT be confused with 0.0.0.0/8
     ];
     for (const h of external) {
       expect(isInternalHost(h)).toBe(false);
@@ -470,5 +480,40 @@ describe("isInternalHost — SEC-05 anchor for localhost", () => {
   test("bare localhost still matches", () => {
     expect(isInternalHost("localhost")).toBe(true);
     expect(isInternalHost("LOCALHOST")).toBe(true);
+  });
+});
+
+// ── IPv4-mapped IPv6 + alternate-encoding loopback bypasses ──────
+//
+// `::ffff:127.0.0.1` (and the hex form `::ffff:7f00:1` that
+// `URL.hostname` normalizes it to) would slip past the IPv4 loopback
+// patterns unless the embedded v4 is decoded and re-tested. `0.0.0.0`
+// and CGNAT addresses are covered by the regex directly.
+
+describe("isInternalHost — IPv4-mapped IPv6 loopback", () => {
+  test("dotted-tail mapped loopback is internal", () => {
+    expect(isInternalHost("::ffff:127.0.0.1")).toBe(true);
+    expect(isInternalHost("[::ffff:127.0.0.1]")).toBe(true);
+  });
+
+  test("hex-tail mapped loopback (URL-normalized form) is internal", () => {
+    // new URL("http://[::ffff:127.0.0.1]/").hostname === "[::ffff:7f00:1]"
+    expect(isInternalHost("::ffff:7f00:1")).toBe(true);
+    expect(isInternalHost("[::ffff:7f00:1]")).toBe(true);
+  });
+
+  test("mapped private-range addresses are internal", () => {
+    expect(isInternalHost("::ffff:10.0.0.1")).toBe(true);
+    expect(isInternalHost("::ffff:169.254.169.254")).toBe(true);
+  });
+
+  test("mapped PUBLIC addresses stay external", () => {
+    expect(isInternalHost("::ffff:8.8.8.8")).toBe(false);
+    expect(isInternalHost("::ffff:0808:0808")).toBe(false); // hex 8.8.8.8
+  });
+
+  test("malformed mapped forms don't throw and stay external", () => {
+    expect(isInternalHost("::ffff:nothex:zz")).toBe(false);
+    expect(isInternalHost("::ffff:")).toBe(false);
   });
 });
