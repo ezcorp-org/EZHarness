@@ -20,7 +20,7 @@ export async function verifyChecksum(filePath: string, expected: string): Promis
 
 // ── Full-package Checksums ───────────────────────────────────────────
 
-/** Top-level names and individual files to exclude from package checksums. */
+/** Path segments (VCS/dependency dirs, tool junk files) excluded from package checksums. */
 const CHECKSUM_EXCLUDE = new Set([
   ".git",
   ".gitignore",
@@ -43,12 +43,13 @@ export async function computePackageChecksums(
   const checksums: Record<string, string> = {};
   const glob = new Bun.Glob("**/*");
 
-  for await (const relPath of glob.scan({ cwd: dir, dot: false })) {
-    // Check each path component against exclusion set
+  for await (const relPath of glob.scan({ cwd: dir, dot: true })) {
+    // Check each path component against exclusion set. Dotfiles NOT in the
+    // exclusion set are hashed — they can carry runtime behavior (e.g. a
+    // required dotfile or a .env read by the entrypoint) and must be covered
+    // by the integrity check.
     const parts = relPath.split("/");
     if (parts.some((p) => CHECKSUM_EXCLUDE.has(p))) continue;
-    // Skip dotfiles (paths starting with .)
-    if (parts.some((p) => p.startsWith("."))) continue;
 
     // Ensure it's a regular file (not directory)
     const fullPath = join(dir, relPath);

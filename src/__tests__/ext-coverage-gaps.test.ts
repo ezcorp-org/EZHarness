@@ -2,7 +2,7 @@
  * Coverage gap tests for extension modules:
  *   - permissions.ts: checkFilesystemPermission (realpath-based)
  *   - permissions.ts: diffPermissions shell branch, alwaysAllowKey format
- *   - checksum.ts: computePackageChecksums (dotfile exclusion edge cases)
+ *   - checksum.ts: computePackageChecksums (dotfile inclusion/exclusion edge cases)
  *   - subprocess.ts: ExtensionProcess constructor options, getSpawnArgs with custom limits
  *   - sdk/test-runner.ts: runExtensionTests (end-to-end with temp dir)
  *   - sdk/test-helpers.ts: createTestExtension, callTool wrapper
@@ -281,22 +281,22 @@ describe("computePackageChecksums additional edge cases", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  test("excludes all dotfiles (files starting with .)", async () => {
+  test("includes dotfiles not in the exclusion set (they affect runtime behavior)", async () => {
     await writeFile(join(tempDir, "index.ts"), "code");
     await writeFile(join(tempDir, ".hidden"), "hidden file");
     await writeFile(join(tempDir, ".env"), "SECRET=123");
 
     const checksums = await computePackageChecksums(tempDir);
-    expect(Object.keys(checksums)).toEqual(["index.ts"]);
+    expect(Object.keys(checksums).sort()).toEqual([".env", ".hidden", "index.ts"]);
   });
 
-  test("excludes nested dotfile directories", async () => {
+  test("includes files inside dot-directories not in the exclusion set", async () => {
     await writeFile(join(tempDir, "index.ts"), "code");
     await mkdir(join(tempDir, ".hidden-dir"), { recursive: true });
     await writeFile(join(tempDir, ".hidden-dir", "secret.ts"), "secret");
 
     const checksums = await computePackageChecksums(tempDir);
-    expect(Object.keys(checksums)).toEqual(["index.ts"]);
+    expect(Object.keys(checksums).sort()).toEqual([".hidden-dir/secret.ts", "index.ts"]);
   });
 
   test("excludes node_modules at any depth", async () => {

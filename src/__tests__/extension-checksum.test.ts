@@ -67,6 +67,22 @@ describe("computePackageChecksums", () => {
     expect(Object.keys(checksums)).toEqual(["index.ts"]);
   });
 
+  test("includes dotfiles not in the exclusion set", async () => {
+    await writeFile(join(tempDir, "index.ts"), "code");
+    await writeFile(join(tempDir, ".npmrc"), "registry=https://evil.example");
+    await mkdir(join(tempDir, ".config"), { recursive: true });
+    await writeFile(join(tempDir, ".config", "x"), "runtime config");
+
+    const checksums = await computePackageChecksums(tempDir);
+
+    expect(Object.keys(checksums).sort()).toEqual([
+      ".config/x",
+      ".npmrc",
+      "index.ts",
+    ]);
+    expect(checksums[".npmrc"]).toMatch(/^[a-f0-9]{64}$/);
+  });
+
   test("includes nested files recursively", async () => {
     await writeFile(join(tempDir, "index.ts"), "root");
     await mkdir(join(tempDir, "lib"), { recursive: true });
@@ -171,6 +187,48 @@ describe("verifyPackageChecksums", () => {
 
     expect(result.valid).toBe(false);
     expect(result.mismatched).toContain("lib.ts");
+  });
+
+  test("detects modified dotfile", async () => {
+    await writeFile(join(tempDir, "index.ts"), "code");
+    await writeFile(join(tempDir, ".npmrc"), "original");
+    const expected = await computePackageChecksums(tempDir);
+
+    // Tamper with the dotfile
+    await writeFile(join(tempDir, ".npmrc"), "tampered");
+
+    const result = await verifyPackageChecksums(tempDir, expected);
+
+    expect(result.valid).toBe(false);
+    expect(result.mismatched).toContain(".npmrc");
+  });
+
+  test("detects added dotfile", async () => {
+    await writeFile(join(tempDir, "index.ts"), "code");
+    const expected = await computePackageChecksums(tempDir);
+
+    // Sneak in a new dotfile after install
+    await writeFile(join(tempDir, ".env"), "SECRET=evil");
+
+    const result = await verifyPackageChecksums(tempDir, expected);
+
+    expect(result.valid).toBe(false);
+    expect(result.mismatched).toContain(".env");
+  });
+
+  test("still ignores changes inside .git and node_modules", async () => {
+    await writeFile(join(tempDir, "index.ts"), "code");
+    const expected = await computePackageChecksums(tempDir);
+
+    await mkdir(join(tempDir, ".git"), { recursive: true });
+    await writeFile(join(tempDir, ".git", "config"), "git config");
+    await mkdir(join(tempDir, "node_modules", "pkg"), { recursive: true });
+    await writeFile(join(tempDir, "node_modules", "pkg", "index.js"), "dep");
+
+    const result = await verifyPackageChecksums(tempDir, expected);
+
+    expect(result.valid).toBe(true);
+    expect(result.mismatched).toEqual([]);
   });
 
   test("detects multiple issues at once", async () => {
