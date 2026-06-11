@@ -23,6 +23,18 @@ let cleanupOldSdkCapabilityCallsMock = mock((_cfg: {
 }) => Promise.resolve(0));
 let getSettingMock = mock((_key: string) => Promise.resolve<unknown>(undefined));
 
+// BriefingDaemon stub instrumentation (Daily Briefing Phase 1). Same
+// capture-mock pattern as the daemons below: the bootstrap reads
+// `new BriefingDaemon()` then `.start()`. The REAL daemon's start()
+// would run a boot tick and arm its own setInterval (breaking the
+// intervalCalls length assertions); its per-class coverage lives in
+// src/__tests__/briefing-daemon.test.ts. Per-test swaps to
+// `briefingDaemonStartMock` cover the failure-isolation paths.
+let briefingDaemonCtorMock = mock(() => {});
+let briefingDaemonStartMock = mock(() => Promise.resolve<boolean>(true));
+let briefingDaemonStopMock = mock(() => {});
+let lastBriefingDaemonInstance: object | undefined;
+
 // HostMaintenanceDaemon stub instrumentation. The bootstrap reads
 // `new HostMaintenanceDaemon()` then `.start()`; we capture both so
 // tests can assert (a) the daemon WAS instantiated and (b) the
@@ -151,6 +163,22 @@ function installModuleMocks(): void {
       stop() {}
     },
   }));
+  // Daily Briefing Phase 1: stub the BriefingDaemon. Its lifecycle /
+  // claim coverage lives in src/__tests__/briefing-daemon.test.ts;
+  // the REAL daemon would run a DB-touching boot tick and arm a 5th
+  // setInterval here (breaking the intervalCalls length assertions —
+  // the prior daemon-wiring incident). The stub registers NO interval.
+  mock.module("../runtime/briefing/daemon", () => ({
+    BriefingDaemon: class {
+      constructor() {
+        briefingDaemonCtorMock();
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        lastBriefingDaemonInstance = this;
+      }
+      start() { return briefingDaemonStartMock(); }
+      stop() { briefingDaemonStopMock(); }
+    },
+  }));
   // Cap-expiry Phase 3: stub the HostMaintenanceDaemon for the same
   // reason — that daemon's lifecycle / sweep coverage lives in
   // src/__tests__/host-maintenance-daemon.test.ts, and standing it up
@@ -259,6 +287,10 @@ beforeEach(async () => {
   loggerInfoMock = mock((_msg: string, _extra?: Record<string, unknown>) => {});
   loggerWarnMock = mock((_msg: string, _extra?: Record<string, unknown>) => {});
   loggerErrorMock = mock((_msg: string, _extra?: Record<string, unknown>) => {});
+  briefingDaemonCtorMock = mock(() => {});
+  briefingDaemonStartMock = mock(() => Promise.resolve<boolean>(true));
+  briefingDaemonStopMock = mock(() => {});
+  lastBriefingDaemonInstance = undefined;
   permSweepDaemonCtorMock = mock(() => {});
   permSweepDaemonStartMock = mock(() => Promise.resolve<boolean>(true));
   permSweepDaemonStopMock = mock(() => {});
@@ -400,6 +432,106 @@ describe("startBackgroundTimers", () => {
     expect(compactionCall.delay).toBe(2 * hourMs);
 
     expect(loggerInfoMock).toHaveBeenCalledWith("Compaction started", { intervalHours: 2 });
+  });
+});
+
+// Daily Briefing Phase 1 — bootstrap wiring for BriefingDaemon.
+// Mirrors the HostMaintenanceDaemon / EmbedWorker blocks below: assert
+// the daemon is constructed + started + exposed, the kill-switch env
+// gate, and the two fail-safe branches (start() resolving false;
+// start() rejecting) — plus the load-bearing assertion that the new
+// daemon adds NO setInterval here (intervalCalls stays at 4).
+describe("startBackgroundTimers — BriefingDaemon bootstrap", () => {
+  const PRIOR = process.env.EZCORP_DISABLE_BRIEFING_DAEMON;
+  afterEach(() => {
+    if (PRIOR === undefined) delete process.env.EZCORP_DISABLE_BRIEFING_DAEMON;
+    else process.env.EZCORP_DISABLE_BRIEFING_DAEMON = PRIOR;
+  });
+
+  test("happy-path bootstrap: BriefingDaemon is instantiated, started, and exposed", async () => {
+    delete process.env.EZCORP_DISABLE_BRIEFING_DAEMON;
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(briefingDaemonCtorMock).toHaveBeenCalledTimes(1);
+    expect(briefingDaemonStartMock).toHaveBeenCalledTimes(1);
+    const exposed = mod._getBriefingDaemonForTests();
+    expect(exposed).toBeDefined();
+    expect(exposed).toBe(lastBriefingDaemonInstance as never);
+    expect(loggerInfoMock).toHaveBeenCalledWith("BriefingDaemon started", undefined);
+    // The daemon stub adds NO setInterval — count unchanged at 4.
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("EZCORP_DISABLE_BRIEFING_DAEMON=1 kill switch: never constructed", async () => {
+    process.env.EZCORP_DISABLE_BRIEFING_DAEMON = "1";
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(briefingDaemonCtorMock).not.toHaveBeenCalled();
+    expect(mod._getBriefingDaemonForTests()).toBeUndefined();
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      "BriefingDaemon disabled via EZCORP_DISABLE_BRIEFING_DAEMON",
+      undefined,
+    );
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("start() resolving false: handle is dropped, rest of boot ran", async () => {
+    delete process.env.EZCORP_DISABLE_BRIEFING_DAEMON;
+    briefingDaemonStartMock = mock(() => Promise.resolve<boolean>(false));
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(briefingDaemonCtorMock).toHaveBeenCalledTimes(1);
+    expect(briefingDaemonStartMock).toHaveBeenCalledTimes(1);
+    expect(mod._getBriefingDaemonForTests()).toBeUndefined();
+    expect(loggerInfoMock).not.toHaveBeenCalledWith("BriefingDaemon started", undefined);
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("start() rejecting: handle is dropped, log.warn carries the error, no exception bubbles", async () => {
+    delete process.env.EZCORP_DISABLE_BRIEFING_DAEMON;
+    const bootErr = new Error("simulated briefing-daemon boot failure");
+    briefingDaemonStartMock = mock(() => Promise.reject(bootErr));
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    // MUST resolve — the boot block's try/catch swallows the rejection.
+    await mod.startBackgroundTimers();
+
+    expect(briefingDaemonCtorMock).toHaveBeenCalledTimes(1);
+    expect(mod._getBriefingDaemonForTests()).toBeUndefined();
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      "Failed to start BriefingDaemon",
+      { error: String(bootErr) },
+    );
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("stopBackgroundTimers() and _resetForTests() tear down the daemon", async () => {
+    delete process.env.EZCORP_DISABLE_BRIEFING_DAEMON;
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+    expect(mod._getBriefingDaemonForTests()).toBeDefined();
+
+    await mod.stopBackgroundTimers();
+    expect(briefingDaemonStopMock).toHaveBeenCalledTimes(1);
+    expect(mod._getBriefingDaemonForTests()).toBeUndefined();
+
+    await mod.startBackgroundTimers();
+    expect(mod._getBriefingDaemonForTests()).toBeDefined();
+    mod._resetForTests();
+    expect(briefingDaemonStopMock).toHaveBeenCalledTimes(2);
+    expect(mod._getBriefingDaemonForTests()).toBeUndefined();
   });
 });
 

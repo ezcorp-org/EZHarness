@@ -5,6 +5,7 @@ import { cleanupOldErrors } from "../db/queries/error-logs";
 import { cleanupOldSdkCapabilityCalls, clampDays } from "../db/queries/sdk-capability-calls";
 import { getSetting } from "../db/queries/settings";
 import { ScheduleDaemon } from "../extensions/schedule-daemon";
+import { BriefingDaemon } from "../runtime/briefing/daemon";
 import { HostMaintenanceDaemon } from "../extensions/host-maintenance-daemon";
 import { EmbedWorker } from "../extensions/embed-worker";
 import { PreviewPortWatcher } from "../runtime/preview/preview-port-watcher";
@@ -20,6 +21,7 @@ const log = logger.child("startup.timers");
 
 let started = false;
 let scheduleDaemon: ScheduleDaemon | undefined;
+let briefingDaemon: BriefingDaemon | undefined;
 let permSweepDaemon: HostMaintenanceDaemon | undefined;
 let embedWorker: EmbedWorker | undefined;
 let previewPortWatcher: PreviewPortWatcher | undefined;
@@ -41,6 +43,12 @@ const disposers: Array<() => void> = [];
  *  daemon was constructed and tear it down between cases. */
 export function _getScheduleDaemonForTests(): ScheduleDaemon | undefined {
   return scheduleDaemon;
+}
+
+/** Test-only handle to the briefing-daemon singleton — mirrors
+ *  `_getScheduleDaemonForTests`. */
+export function _getBriefingDaemonForTests(): BriefingDaemon | undefined {
+  return briefingDaemon;
 }
 
 /** Test-only handle to the perm-sweep daemon singleton — lets tests
@@ -182,6 +190,34 @@ export async function startBackgroundTimers(): Promise<void> {
     }
   } catch (e) {
     log.warn("Failed to start ScheduleDaemon", { error: String(e) });
+  }
+
+  // Daily Briefing Phase 1: BriefingDaemon — per-user scheduled briefing
+  // driver. Sibling to ScheduleDaemon (claim-before-dispatch against
+  // briefing_configs.next_fire_at, fire-once missed-run policy, 3-run
+  // host-wide concurrency cap). Gated by EZCORP_DISABLE_BRIEFING_DAEMON=1
+  // (strict — only the literal "1"). No PID lockfile: this module's
+  // `started` flag is the single-process guard (spec §2). When the web
+  // layer hasn't registered the briefing runtime (executor + bus), the
+  // daemon's tick is a logged no-op that claims nothing — so wiring it
+  // here is safe in every boot order. Same fail-safe contract as the
+  // sibling daemons: log + drop the handle on a failed start; never
+  // block boot.
+  try {
+    if (process.env.EZCORP_DISABLE_BRIEFING_DAEMON !== "1") {
+      briefingDaemon = new BriefingDaemon();
+      const ok = await briefingDaemon.start();
+      if (ok) {
+        log.info("BriefingDaemon started");
+      } else {
+        briefingDaemon = undefined;
+      }
+    } else {
+      log.info("BriefingDaemon disabled via EZCORP_DISABLE_BRIEFING_DAEMON");
+    }
+  } catch (e) {
+    log.warn("Failed to start BriefingDaemon", { error: String(e) });
+    briefingDaemon = undefined;
   }
 
   // Cap-expiry Phase 3: HostMaintenanceDaemon — hourly capability-expiry
@@ -393,6 +429,14 @@ export async function stopBackgroundTimers(): Promise<void> {
     }
     scheduleDaemon = undefined;
   }
+  if (briefingDaemon) {
+    try {
+      briefingDaemon.stop();
+    } catch (e) {
+      log.warn("BriefingDaemon.stop() failed", { error: String(e) });
+    }
+    briefingDaemon = undefined;
+  }
   if (permSweepDaemon) {
     try {
       permSweepDaemon.stop();
@@ -437,6 +481,10 @@ export function _resetForTests(): void {
   if (scheduleDaemon) {
     scheduleDaemon.stop();
     scheduleDaemon = undefined;
+  }
+  if (briefingDaemon) {
+    briefingDaemon.stop();
+    briefingDaemon = undefined;
   }
   if (permSweepDaemon) {
     permSweepDaemon.stop();
