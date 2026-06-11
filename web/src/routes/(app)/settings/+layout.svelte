@@ -43,7 +43,7 @@
 				>
 					{item.label}
 					{#if item.adminOnly}
-						<span class="rounded bg-purple-900 px-1.5 py-0.5 text-[10px] text-purple-300">admin</span>
+						<span class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)]">admin</span>
 					{/if}
 				</a>
 			{/each}

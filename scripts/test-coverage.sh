@@ -165,6 +165,18 @@ VITEST_EXIT=0
     src/lib/components/__tests__/ModeFormModal.component.test.ts \
     src/lib/chat/page-handlers/__tests__/inherit-mode.unit.test.ts \
     src/__tests__/tools-api-mode-scope.server.test.ts \
+    src/lib/settings-nav.unit.test.ts \
+    src/lib/audit-log-view.unit.test.ts \
+    src/lib/settings-models.unit.test.ts \
+    src/lib/save-flash.unit.test.ts \
+    src/lib/admin-guard.unit.test.ts \
+    src/lib/scroll-to-hash.unit.test.ts \
+    src/lib/components/__tests__/AuditLogSection.component.test.ts \
+    src/lib/components/__tests__/CustomModelsSection.component.test.ts \
+    src/lib/components/__tests__/SystemHealth.component.test.ts \
+    src/lib/components/__tests__/UsersSection.component.test.ts \
+    src/lib/components/__tests__/settings-save-model.component.test.ts \
+    src/__tests__/settings-layout.component.test.ts \
     --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
     --coverage.reportsDirectory="$VITEST_COV" \
     --coverage.include='src/lib/search/*.ts' \
@@ -188,7 +200,13 @@ VITEST_EXIT=0
     --coverage.include='src/lib/components/ExtensionToolSelector.svelte' \
     --coverage.include='src/lib/components/ModeFormModal.svelte' \
     --coverage.include='src/lib/chat/page-handlers/inherit-mode.ts' \
-    --coverage.include='src/routes/api/tools/+server.ts' ) || VITEST_EXIT=$?
+    --coverage.include='src/routes/api/tools/+server.ts' \
+    --coverage.include='src/lib/settings-nav.ts' \
+    --coverage.include='src/lib/audit-log-view.ts' \
+    --coverage.include='src/lib/settings-models.ts' \
+    --coverage.include='src/lib/save-flash.svelte.ts' \
+    --coverage.include='src/lib/admin-guard.ts' \
+    --coverage.include='src/lib/scroll-to-hash.ts' ) || VITEST_EXIT=$?
 # vitest (run from web/) emits SF paths web/-relative (SF:src/lib/...).
 # Re-root them so merge-lcov.ts resolves them against the repo root and the
 # repo-root-relative threshold keys (web/src/lib/...) match.

@@ -5,18 +5,23 @@
  *
  * Usage:
  *   const flash = createSaveFlash();
- *   await flash.run(() => upsertSetting(key, value));
- *   // flash.saving while in flight, flash.saved for `timeoutMs` after
+ *   const ok = await flash.run(() => upsertSetting(key, value));
+ *   if (!ok) restoreSnapshot(); // roll back the optimistic mutation
+ *   // flash.saving while in flight, flash.saved for `timeoutMs` after,
+ *   // flash.error after a failed save (until the next run starts)
  */
 export interface SaveFlash {
 	readonly saving: boolean;
 	readonly saved: boolean;
-	run(fn: () => Promise<unknown>): Promise<void>;
+	readonly error: boolean;
+	/** Resolves true on success, false on failure (never rethrows). */
+	run(fn: () => Promise<unknown>): Promise<boolean>;
 }
 
 export function createSaveFlash(timeoutMs = 2000): SaveFlash {
 	let saving = $state(false);
 	let saved = $state(false);
+	let error = $state(false);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 
 	return {
@@ -26,9 +31,13 @@ export function createSaveFlash(timeoutMs = 2000): SaveFlash {
 		get saved() {
 			return saved;
 		},
-		async run(fn: () => Promise<unknown>): Promise<void> {
+		get error() {
+			return error;
+		},
+		async run(fn: () => Promise<unknown>): Promise<boolean> {
 			saving = true;
 			saved = false;
+			error = false;
 			if (timer) clearTimeout(timer);
 			try {
 				await fn();
@@ -36,6 +45,13 @@ export function createSaveFlash(timeoutMs = 2000): SaveFlash {
 				timer = setTimeout(() => {
 					saved = false;
 				}, timeoutMs);
+				return true;
+			} catch {
+				// Surface via the error state — callers roll back their
+				// optimistic mutation on `false`; the control itself is
+				// the retry affordance.
+				error = true;
+				return false;
 			} finally {
 				saving = false;
 			}

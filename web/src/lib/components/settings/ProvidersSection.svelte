@@ -4,7 +4,7 @@
 	import ProviderIcon from "$lib/components/ProviderIcon.svelte";
 	import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
 	import { PROVIDER_META } from "$lib/provider-meta.js";
-	import { partitionCustomModels, type CustomModelEntry } from "$lib/settings-models.js";
+	import { partitionCustomModels, hasModelId, type CustomModelEntry } from "$lib/settings-models.js";
 
 	let {
 		customModels = $bindable(),
@@ -65,7 +65,10 @@
 	}
 
 	async function addOllamaModel(modelId: string) {
-		if (customModels.some((m) => m.modelId === modelId && m.provider === "ollama")) return;
+		// Id-only check across ALL providers (locked decision 6) — same
+		// guard as CustomModelsSection.addCustomModel, so the same model
+		// id can never appear twice on the merged page.
+		if (hasModelId(customModels, modelId)) return;
 		ollamaAddingModel = modelId;
 		const entry = { modelId, provider: "ollama", tier: "balanced" as string, baseUrl: ollamaUrl.trim() };
 		customModels = [...customModels, entry];
@@ -173,7 +176,7 @@
 						<p class="mb-1 text-xs text-[var(--color-text-secondary)]">Available models:</p>
 						<div class="space-y-1">
 							{#each ollamaModels as m}
-								{@const alreadyAdded = ollamaCustomModels.some((cm) => cm.modelId === m.id)}
+								{@const alreadyAdded = hasModelId(customModels, m.id)}
 								<div class="flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-1.5">
 									<span class="flex-1 text-xs text-[var(--color-text-primary)] truncate">{m.name ?? m.id}</span>
 									{#if alreadyAdded}

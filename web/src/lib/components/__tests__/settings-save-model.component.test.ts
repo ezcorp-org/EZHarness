@@ -23,21 +23,28 @@ interface FetchCall {
 }
 let fetchCalls: FetchCall[] = [];
 
-function stubFetch(getJson: (url: string) => unknown = () => ({ ok: true })) {
+function stubFetch(
+	getJson: (url: string) => unknown = () => ({ ok: true }),
+	getStatus: (url: string, method: string) => number = () => 200,
+) {
 	fetchCalls = [];
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 			const url = String(input);
+			const method = init?.method ?? "GET";
 			fetchCalls.push({
 				url,
-				method: init?.method ?? "GET",
+				method,
 				body: init?.body ? JSON.parse(String(init.body)) : undefined,
 			});
-			return Response.json(getJson(url));
+			return Response.json(getJson(url), { status: getStatus(url, method) });
 		}),
 	);
 }
+
+/** All PUTs fail with a 500 — GETs keep working. */
+const failPuts = (_url: string, method: string) => (method === "PUT" ? 500 : 200);
 
 const puts = () => fetchCalls.filter((c) => c.method === "PUT");
 
@@ -113,6 +120,86 @@ describe("AdvancedSection auto-save", () => {
 		});
 		expect(puts()[0]!.url).toContain("/api/settings/global:showObservability");
 		expect(puts()[0]!.body).toEqual({ value: true });
+	});
+});
+
+describe("auto-save failure handling", () => {
+	test("tier: failed PUT rolls back the selection and shows the error indicator", async () => {
+		stubFetch(() => ({ error: "boom" }), failPuts);
+		const { getByText, getByTestId, queryByTestId } = render(DefaultTierSection, {
+			props: { defaultTier: "balanced" },
+		});
+
+		await fireEvent.click(getByText("Powerful"));
+
+		await waitFor(() => {
+			expect(getByTestId("save-indicator-error")).toBeInTheDocument();
+		});
+		expect(queryByTestId("save-indicator-saved")).not.toBeInTheDocument();
+		expect(puts()).toHaveLength(1);
+		// Optimistic mutation rolled back — Balanced is selected again.
+		expect(getByText("Balanced").closest("button")).toHaveClass("bg-blue-600");
+		expect(getByText("Powerful").closest("button")).not.toHaveClass("bg-blue-600");
+	});
+
+	test("tier: retry after a failure succeeds and clears the error", async () => {
+		let putCount = 0;
+		stubFetch(
+			() => ({ ok: true }),
+			(_url, method) => (method === "PUT" && ++putCount === 1 ? 500 : 200),
+		);
+		const { getByText, getByTestId, queryByTestId } = render(DefaultTierSection, {
+			props: { defaultTier: "balanced" },
+		});
+
+		await fireEvent.click(getByText("Powerful"));
+		await waitFor(() => {
+			expect(getByTestId("save-indicator-error")).toBeInTheDocument();
+		});
+
+		// The control itself is the retry affordance: click again.
+		await fireEvent.click(getByText("Powerful"));
+		await waitFor(() => {
+			expect(getByTestId("save-indicator-saved")).toBeInTheDocument();
+		});
+		expect(queryByTestId("save-indicator-error")).not.toBeInTheDocument();
+		expect(getByText("Powerful").closest("button")).toHaveClass("bg-blue-600");
+		expect(puts()).toHaveLength(2);
+	});
+
+	test("order: failed PUT restores the previous order and shows the error indicator", async () => {
+		stubFetch(() => ({ error: "boom" }), failPuts);
+		const { container, getAllByTitle, getByTestId, queryByTestId } = render(PreferenceOrderSection, {
+			props: { preferenceOrder: ["anthropic", "openai", "google"] },
+		});
+
+		const order = () =>
+			Array.from(container.querySelectorAll("span.flex-1")).map((e) => e.textContent);
+		const before = order();
+
+		await fireEvent.click(getAllByTitle("Move down")[0]!);
+
+		await waitFor(() => {
+			expect(getByTestId("save-indicator-error")).toBeInTheDocument();
+		});
+		expect(queryByTestId("save-indicator-saved")).not.toBeInTheDocument();
+		expect(order()).toEqual(before);
+	});
+
+	test("toggle: failed PUT flips the switch back and shows the error indicator", async () => {
+		stubFetch(() => ({ error: "boom" }), failPuts);
+		const { getByLabelText, getByTestId, queryByTestId } = render(AdvancedSection, {
+			props: { showObservability: false, agentAutonomyEnabled: true },
+		});
+
+		const toggle = getByLabelText("Toggle observability");
+		await fireEvent.click(toggle);
+
+		await waitFor(() => {
+			expect(getByTestId("save-indicator-error")).toBeInTheDocument();
+		});
+		expect(queryByTestId("save-indicator-saved")).not.toBeInTheDocument();
+		expect(toggle).toHaveAttribute("aria-checked", "false");
 	});
 });
 

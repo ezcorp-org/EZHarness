@@ -98,6 +98,56 @@ describe("UsersSection pagination", () => {
 	});
 });
 
+describe("UsersSection load failure", () => {
+	test("failed /api/users fetch shows an error state, not the empty message", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) => {
+				const url = String(input);
+				if (url.includes("/api/users")) return Response.json({ error: "boom" }, { status: 500 });
+				if (url.includes("/api/admin/sessions")) return Response.json({ sessions: [] });
+				return Response.json({});
+			}),
+		);
+		const { getByTestId, queryByText } = render(UsersSection, { props: { currentUser } });
+
+		await waitFor(() => {
+			expect(getByTestId("users-load-error")).toHaveTextContent("Failed to load users.");
+		});
+		expect(queryByText("No users found.")).not.toBeInTheDocument();
+	});
+
+	test("Retry recovers once the fetch succeeds", async () => {
+		let usersCalls = 0;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) => {
+				const url = String(input);
+				if (url.includes("/api/users")) {
+					usersCalls += 1;
+					if (usersCalls === 1) return Response.json({ error: "boom" }, { status: 500 });
+					return Response.json({
+						users: [{ id: "u1", email: "alice@corp.io", name: "Alice", role: "member", status: "active" }],
+					});
+				}
+				if (url.includes("/api/admin/sessions")) return Response.json({ sessions: [] });
+				return Response.json({});
+			}),
+		);
+		const { getByTestId, getByText, queryByTestId } = render(UsersSection, { props: { currentUser } });
+
+		await waitFor(() => {
+			expect(getByTestId("users-load-error")).toBeInTheDocument();
+		});
+
+		await fireEvent.click(getByText("Retry"));
+		await waitFor(() => {
+			expect(getByText("Alice")).toBeInTheDocument();
+		});
+		expect(queryByTestId("users-load-error")).not.toBeInTheDocument();
+	});
+});
+
 describe("UsersSection conditional badges", () => {
 	test("default member/active/0-sessions row renders no badges", async () => {
 		stubFetch([{ id: "u1", email: "plain@corp.io", name: "Plain", role: "member", status: "active" }]);

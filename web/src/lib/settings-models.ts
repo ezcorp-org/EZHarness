@@ -33,3 +33,13 @@ export function partitionCustomModels<T extends CustomModelEntry>(
 	}
 	return { ollama, registry };
 }
+
+/**
+ * Id-only duplicate check shared by every add path (Ollama provider
+ * card AND the Custom Models registry). Deliberately ignores the
+ * provider: locked decision 6 says no model id may appear twice on the
+ * page, so "llama3 via openai" blocks adding "llama3 via ollama" too.
+ */
+export function hasModelId(models: CustomModelEntry[], modelId: string): boolean {
+	return models.some((m) => m.modelId === modelId);
+}

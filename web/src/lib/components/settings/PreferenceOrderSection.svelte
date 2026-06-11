@@ -14,10 +14,12 @@
 	async function moveProvider(index: number, direction: -1 | 1) {
 		const newIndex = index + direction;
 		if (newIndex < 0 || newIndex >= preferenceOrder.length) return;
+		const previous = preferenceOrder;
 		const copy = [...preferenceOrder];
 		[copy[index], copy[newIndex]] = [copy[newIndex]!, copy[index]!];
 		preferenceOrder = copy;
-		await flash.run(() => upsertSetting("provider:preferenceOrder", copy));
+		const ok = await flash.run(() => upsertSetting("provider:preferenceOrder", copy));
+		if (!ok) preferenceOrder = previous; // roll back the optimistic mutation
 	}
 </script>
 
@@ -58,6 +60,6 @@
 		{/each}
 	</div>
 	<div class="mt-2 min-h-4">
-		<SaveIndicator saving={flash.saving} saved={flash.saved} />
+		<SaveIndicator saving={flash.saving} saved={flash.saved} error={flash.error} />
 	</div>
 </SettingsSection>

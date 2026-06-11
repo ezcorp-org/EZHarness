@@ -2,7 +2,7 @@
 	import { upsertSetting, testLocalModelConnection, listLocalModels, type LocalModelCheckResult, type LocalModelListEntry } from "$lib/api.js";
 	import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
 	import { PROVIDER_META } from "$lib/provider-meta.js";
-	import { partitionCustomModels, type CustomModelEntry } from "$lib/settings-models.js";
+	import { partitionCustomModels, hasModelId, type CustomModelEntry } from "$lib/settings-models.js";
 
 	let { customModels = $bindable() }: { customModels: CustomModelEntry[] } = $props();
 
@@ -56,7 +56,7 @@
 	async function addCustomModel() {
 		const id = newModelId.trim();
 		if (!id) return;
-		if (customModels.some((m) => m.modelId === id)) return;
+		if (hasModelId(customModels, id)) return;
 		const entry: CustomModelEntry = { modelId: id, provider: newModelProvider, tier: newModelTier };
 		const url = newModelBaseUrl.trim();
 		if (url) entry.baseUrl = url;

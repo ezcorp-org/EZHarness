@@ -19,6 +19,7 @@
 
 	let allUsers = $state<UserEntry[]>([]);
 	let loadingUsers = $state(true);
+	let usersError = $state(false);
 	let copiedResetUserId = $state<string | null>(null);
 
 	// Locked decision 8 — client-side search (list is fully fetched)
@@ -48,13 +49,20 @@
 	let forceLogoutMessage = $state<{ type: "success" | "error"; text: string } | null>(null);
 
 	async function loadUsers() {
+		// Distinguish "fetch failed" from "no users exist" — a failed
+		// request must not masquerade as an empty directory.
 		try {
 			const res = await fetch("/api/users");
 			if (res.ok) {
 				const data = await res.json();
 				allUsers = data.users;
+				usersError = false;
+			} else {
+				usersError = true;
 			}
-		} catch { /* silent */ }
+		} catch {
+			usersError = true;
+		}
 		loadingUsers = false;
 	}
 
@@ -143,6 +151,11 @@
 	{/if}
 	{#if loadingUsers}
 		<p class="text-sm text-[var(--color-text-secondary)]">Loading...</p>
+	{:else if usersError}
+		<p class="text-sm text-red-400" data-testid="users-load-error">
+			Failed to load users.
+			<button onclick={() => loadUsers()} class="ml-1 text-blue-400 hover:text-blue-300 transition-colors">Retry</button>
+		</p>
 	{:else if allUsers.length === 0}
 		<p class="text-sm text-[var(--color-text-secondary)]">No users found.</p>
 	{:else}

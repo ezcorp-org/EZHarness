@@ -21,19 +21,34 @@ describe("createSaveFlash", () => {
 		expect(flash.saved).toBe(false);
 
 		release();
-		await run;
+		await expect(run).resolves.toBe(true);
 		expect(flash.saving).toBe(false);
 		expect(flash.saved).toBe(true);
+		expect(flash.error).toBe(false);
 
 		vi.advanceTimersByTime(2000);
 		expect(flash.saved).toBe(false);
 	});
 
-	test("failure clears saving, never sets saved, and rethrows", async () => {
+	test("failure clears saving, sets error, returns false without rethrowing", async () => {
 		const flash = createSaveFlash();
-		await expect(flash.run(() => Promise.reject(new Error("boom")))).rejects.toThrow("boom");
+		await expect(flash.run(() => Promise.reject(new Error("boom")))).resolves.toBe(false);
 		expect(flash.saving).toBe(false);
 		expect(flash.saved).toBe(false);
+		expect(flash.error).toBe(true);
+	});
+
+	test("retry after failure clears the error and flashes saved", async () => {
+		const flash = createSaveFlash();
+		await flash.run(() => Promise.reject(new Error("boom")));
+		expect(flash.error).toBe(true);
+
+		const retry = flash.run(() => Promise.resolve());
+		// Error clears as soon as the retry starts.
+		expect(flash.error).toBe(false);
+		await expect(retry).resolves.toBe(true);
+		expect(flash.saved).toBe(true);
+		expect(flash.error).toBe(false);
 	});
 
 	test("back-to-back runs reset the clear timer", async () => {

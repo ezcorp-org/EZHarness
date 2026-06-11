@@ -16,13 +16,17 @@
 	const flash = createSaveFlash();
 
 	async function toggleObservability() {
-		showObservability = !showObservability;
-		await flash.run(() => upsertSetting("global:showObservability", showObservability));
+		const previous = showObservability;
+		showObservability = !previous;
+		const ok = await flash.run(() => upsertSetting("global:showObservability", !previous));
+		if (!ok) showObservability = previous; // roll back the optimistic mutation
 	}
 
 	async function toggleAgentAutonomy() {
-		agentAutonomyEnabled = !agentAutonomyEnabled;
-		await flash.run(() => upsertSetting("global:agentAutonomyEnabled", agentAutonomyEnabled));
+		const previous = agentAutonomyEnabled;
+		agentAutonomyEnabled = !previous;
+		const ok = await flash.run(() => upsertSetting("global:agentAutonomyEnabled", !previous));
+		if (!ok) agentAutonomyEnabled = previous; // roll back the optimistic mutation
 	}
 </script>
 
@@ -33,7 +37,7 @@
 	description="Advanced features and debugging tools. Toggles save automatically."
 >
 	<div class="mb-2 flex min-h-4 justify-end">
-		<SaveIndicator saving={flash.saving} saved={flash.saved} />
+		<SaveIndicator saving={flash.saving} saved={flash.saved} error={flash.error} />
 	</div>
 	<div class="flex items-center justify-between">
 		<div>

@@ -14,8 +14,10 @@
 	// confirmation (locked decision 5); the "Save Tier" button is gone.
 	async function selectTier(tier: string) {
 		if (defaultTier === tier) return;
+		const previous = defaultTier;
 		defaultTier = tier;
-		await flash.run(() => upsertSetting("provider:defaultTier", tier));
+		const ok = await flash.run(() => upsertSetting("provider:defaultTier", tier));
+		if (!ok) defaultTier = previous; // roll back the optimistic mutation
 	}
 </script>
 
@@ -38,6 +40,6 @@
 				{tier.charAt(0).toUpperCase() + tier.slice(1)}
 			</button>
 		{/each}
-		<span class="ml-2"><SaveIndicator saving={flash.saving} saved={flash.saved} /></span>
+		<span class="ml-2"><SaveIndicator saving={flash.saving} saved={flash.saved} error={flash.error} /></span>
 	</div>
 </SettingsSection>

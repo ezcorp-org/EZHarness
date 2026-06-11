@@ -30,9 +30,24 @@ const routes = {
 };
 
 test.describe("audit log page", () => {
-	test("grouped row shows ×N and expands to pretty JSON", async ({ page, mockApi }) => {
+	test("grouped row shows ×N and expands to pretty JSON", async ({ page, mockApi, isMobile }) => {
 		await mockApi({ projects: [proj], routes });
 		await page.goto("/settings/admin/audit");
+
+		if (isMobile) {
+			// Mobile renders the grouped log as a MobileCardStack: the ×N
+			// marker is folded into the action text and the first entry's
+			// metadata is inline — there is no row-expander affordance.
+			// (MobileCardStack also keeps a hidden desktop table in the
+			// DOM, so scope to the visible card elements.)
+			const loginCard = page
+				.locator("div.md\\:hidden div.rounded-lg.border")
+				.filter({ hasText: "auth:login ×2" });
+			await expect(loginCard).toBeVisible();
+			await expect(loginCard).toContainText('"ip":"1.1.1.1"');
+			await expect(loginCard).toContainText("2h ago");
+			return;
+		}
 
 		const groupRow = page.getByTestId("audit-group-e1");
 		await expect(groupRow).toBeVisible();
@@ -48,9 +63,25 @@ test.describe("audit log page", () => {
 		await expect(groupRow.locator("td[title]").first()).toHaveText("2h ago");
 	});
 
-	test("filter narrows the log to the selected action", async ({ page, mockApi }) => {
+	test("filter narrows the log to the selected action", async ({ page, mockApi, isMobile }) => {
 		await mockApi({ projects: [proj], routes });
 		await page.goto("/settings/admin/audit");
+
+		if (isMobile) {
+			// Same grouped data on the card stack — the filter select sits
+			// above both layouts, so exercising it on mobile is identical.
+			const cards = page.locator("div.md\\:hidden div.rounded-lg.border");
+			await expect(cards.filter({ hasText: "auth:login ×2" })).toBeVisible();
+
+			await page.getByLabel("Filter audit events").selectOption("user:invited");
+
+			const invitedCard = cards.filter({ hasText: "user:invited" });
+			await expect(invitedCard).toBeVisible();
+			await expect(cards.filter({ hasText: "auth:login ×2" })).toHaveCount(0);
+			// No expander on mobile — the card shows the metadata inline.
+			await expect(invitedCard).toContainText('"reason":"version-bump"');
+			return;
+		}
 
 		await expect(page.getByTestId("audit-group-e1")).toBeVisible();
 

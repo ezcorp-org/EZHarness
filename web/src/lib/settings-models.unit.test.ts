@@ -3,7 +3,7 @@
  * decision 6 — no model id may appear twice on the merged page).
  */
 import { describe, test, expect } from "vitest";
-import { partitionCustomModels, type CustomModelEntry } from "./settings-models";
+import { partitionCustomModels, hasModelId, type CustomModelEntry } from "./settings-models";
 
 const make = (modelId: string, provider: string): CustomModelEntry => ({
 	modelId,
@@ -52,5 +52,24 @@ describe("partitionCustomModels", () => {
 	test("preserves input order within each partition", () => {
 		const models = [make("z", "openai"), make("a", "openai")];
 		expect(partitionCustomModels(models).registry.map((m) => m.modelId)).toEqual(["z", "a"]);
+	});
+});
+
+describe("hasModelId", () => {
+	test("matches an existing id under the same provider", () => {
+		expect(hasModelId([make("llama3", "ollama")], "llama3")).toBe(true);
+	});
+
+	test("cross-provider duplicate: same id under a DIFFERENT provider still blocks", () => {
+		// Locked decision 6 — "llama3" registered via openai must block
+		// adding "llama3" from the Ollama provider card (and vice versa),
+		// otherwise the same id appears twice on the merged page.
+		expect(hasModelId([make("llama3", "openai")], "llama3")).toBe(true);
+		expect(hasModelId([make("llama3", "ollama")], "llama3")).toBe(true);
+	});
+
+	test("unknown id and empty list are not duplicates", () => {
+		expect(hasModelId([make("llama3", "ollama")], "mistral")).toBe(false);
+		expect(hasModelId([], "llama3")).toBe(false);
 	});
 });

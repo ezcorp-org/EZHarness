@@ -21,12 +21,16 @@
 	// flow as the existing observability toggle (one round-trip per
 	// change; no debounce — settings are admin-only writes anyway).
 	async function toggleBuiltinPills() {
-		showBuiltinPills = !showBuiltinPills;
-		await flash.run(() => upsertSetting("global:showBuiltinCapabilityEvents", showBuiltinPills));
+		const previous = showBuiltinPills;
+		showBuiltinPills = !previous;
+		const ok = await flash.run(() => upsertSetting("global:showBuiltinCapabilityEvents", !previous));
+		if (!ok) showBuiltinPills = previous; // roll back the optimistic mutation
 	}
 	async function toggleInstalledPills() {
-		showInstalledPills = !showInstalledPills;
-		await flash.run(() => upsertSetting("global:showInstalledCapabilityEvents", showInstalledPills));
+		const previous = showInstalledPills;
+		showInstalledPills = !previous;
+		const ok = await flash.run(() => upsertSetting("global:showInstalledCapabilityEvents", !previous));
+		if (!ok) showInstalledPills = previous; // roll back the optimistic mutation
 	}
 	async function saveEventAuditSampleN(): Promise<void> {
 		// Clamp to [1, 10000] — same range the dispatcher enforces
@@ -50,7 +54,7 @@
 >
 	<div class="space-y-4">
 		<div class="flex min-h-4 justify-end">
-			<SaveIndicator saving={flash.saving} saved={flash.saved} />
+			<SaveIndicator saving={flash.saving} saved={flash.saved} error={flash.error} />
 		</div>
 		<div class="flex items-center justify-between">
 			<div>
