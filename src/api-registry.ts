@@ -45,6 +45,11 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/conversations/:id/active-run", description: "Cancel active run in conversation", category: "conversations" },
   { method: "GET", path: "/api/search/messages", description: "Hybrid/keyword/semantic message search (RRF)", category: "conversations", responseDescription: "{ hits, degraded, requestedMode, servedMode }" },
 
+  // Daily Briefing
+  { method: "GET", path: "/api/briefing/config", description: "Get the current user's Daily Briefing configuration (defaults when never configured)", category: "briefing" },
+  { method: "PUT", path: "/api/briefing/config", description: "Update the current user's Daily Briefing configuration (cron, timezone, project, instructions, watchlist, model)", category: "briefing" },
+  { method: "POST", path: "/api/briefing/run-now", description: "Trigger an immediate briefing run for the current user (rate-limited 1/5min)", category: "briefing", responseDescription: "{ started: true } (202)" },
+
   // Agent Configs
   { method: "GET", path: "/api/agent-configs", description: "List agent configurations", category: "agents" },
   { method: "POST", path: "/api/agent-configs", description: "Create agent configuration", category: "agents", schemaKey: "createAgentConfigSchema" },
