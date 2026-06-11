@@ -13,7 +13,7 @@
  *   - Banner stays hidden during the in-flight fetch (no flash)
  *   - Banner has NO dismiss control (this is the safety net for users
  *     who skipped Step 1 of onboarding — must not be hideable)
- *   - CTA link target is /settings#providers
+ *   - CTA link target is /settings/models#providers
  */
 
 import "@testing-library/jest-dom/vitest";
@@ -102,10 +102,10 @@ describe("NoProviderBanner", () => {
 		expect(container.querySelector('[aria-label*="close" i]')).toBeNull();
 	});
 
-	test("CTA link points to /settings#providers", async () => {
+	test("CTA link points to /settings/models#providers", async () => {
 		mockFetch({ provider: false });
 		const { findByTestId } = render(NoProviderBanner);
 		const cta = await findByTestId("no-provider-banner-cta");
-		expect(cta.getAttribute("href")).toBe("/settings#providers");
+		expect(cta.getAttribute("href")).toBe("/settings/models#providers");
 	});
 });

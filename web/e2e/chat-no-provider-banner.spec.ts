@@ -34,7 +34,7 @@ test.describe("Chat empty-state — no-provider banner", () => {
 		await expect(banner).toContainText("Connect a provider to start chatting");
 
 		const cta = page.getByTestId("no-provider-banner-cta");
-		await expect(cta).toHaveAttribute("href", "/settings#providers");
+		await expect(cta).toHaveAttribute("href", "/settings/models#providers");
 	});
 
 	test("hides banner when /api/quickstart reports provider:true", async ({ page, mockApi }) => {

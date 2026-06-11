@@ -88,7 +88,7 @@ test.describe("Modes settings — Tools & Extensions picker flow", () => {
 			return route.fallback();
 		});
 
-		await page.goto("/settings#modes");
+		await page.goto("/settings/personalization#modes");
 
 		// Modes section visible.
 		await expect(page.locator("#modes")).toBeVisible({ timeout: 5000 });
@@ -157,7 +157,7 @@ test.describe("Modes settings — Tools & Extensions picker flow", () => {
 			extensions: EXTENSIONS_FIXTURE,
 		});
 
-		await page.goto("/settings#modes");
+		await page.goto("/settings/personalization#modes");
 		// Click the custom card to open VIEW mode (the card itself is the
 		// view trigger; the Edit button is the modal header action).
 		await page.locator(`button[aria-label="View ${SEEDED_CUSTOM.name} mode"]`).click();
@@ -228,7 +228,7 @@ test.describe("Modes settings — Tools & Extensions picker flow", () => {
 			return route.fallback();
 		});
 
-		await page.goto("/settings#modes");
+		await page.goto("/settings/personalization#modes");
 		await page.locator(`button[aria-label="View ${SEEDED_CUSTOM.name} mode"]`).click();
 
 		const dialog = page.getByRole("dialog");
@@ -337,7 +337,7 @@ test.describe("Modes settings — Tools & Extensions picker flow", () => {
 			return route.fallback();
 		});
 
-		await page.goto("/settings#modes");
+		await page.goto("/settings/personalization#modes");
 		await page.locator(`button[aria-label="View ${SEEDED_TOOLS_MODE.name} mode"]`).click();
 
 		const dialog = page.getByRole("dialog");
@@ -377,7 +377,7 @@ test.describe("Modes settings — Tools & Extensions picker flow", () => {
 			extensions: EXTENSIONS_FIXTURE,
 		});
 
-		await page.goto("/settings#modes");
+		await page.goto("/settings/personalization#modes");
 		await page.locator(`button[aria-label="View ${SEEDED_BUILTIN.name} mode"]`).click();
 
 		const dialog = page.getByRole("dialog");

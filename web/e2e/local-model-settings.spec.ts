@@ -14,10 +14,13 @@ test.describe("Local model settings", () => {
 			},
 		});
 
-		await page.goto("/settings");
-		await expect(page.getByText("llama3")).toBeVisible();
-		await expect(page.getByText("http://localhost:11434")).toBeVisible();
-		await expect(page.getByRole("button", { name: "Test" })).toBeVisible();
+		await page.goto("/settings/models");
+		// Settings UX overhaul (locked decision 6): ollama-provider models
+		// render inside the Ollama provider card, not the registry list.
+		const ollamaCard = page.locator("#providers");
+		await expect(ollamaCard.getByText("llama3")).toBeVisible();
+		await expect(page.locator("#settings-ollama-base-url")).toHaveValue("http://localhost:11434");
+		await expect(ollamaCard.getByRole("button", { name: "Test", exact: true })).toBeVisible();
 	});
 
 	test("custom model without baseUrl does not show Test button", async ({ page, mockApi }) => {
@@ -30,7 +33,7 @@ test.describe("Local model settings", () => {
 			},
 		});
 
-		await page.goto("/settings");
+		await page.goto("/settings/models");
 		await expect(page.getByText("gpt-4-turbo")).toBeVisible();
 		// No Test button in the custom models list because there's no baseUrl
 		const localTestButton = page.locator(".space-y-2 button", { hasText: "Test" });
@@ -47,11 +50,10 @@ test.describe("Local model settings", () => {
 			},
 		});
 
-		await page.goto("/settings");
+		await page.goto("/settings/models");
 
-		// Find and click the Test button in the custom models section
-		const customModelsSection = page.locator("text=Custom Models").locator("..");
-		const testButton = customModelsSection.getByRole("button", { name: "Test" });
+		// Ollama models live in the provider card now — Test runs there.
+		const testButton = page.locator("#providers").getByRole("button", { name: "Test", exact: true });
 		await testButton.click();
 
 		// Wait for the result indicators (checkmarks for reachable, model available, inference ok)
@@ -82,10 +84,9 @@ test.describe("Local model settings", () => {
 			},
 		});
 
-		await page.goto("/settings");
+		await page.goto("/settings/models");
 
-		const customModelsSection = page.locator("text=Custom Models").locator("..");
-		const testButton = customModelsSection.getByRole("button", { name: "Test" });
+		const testButton = page.locator("#providers").getByRole("button", { name: "Test", exact: true });
 		await testButton.click();
 
 		// Should show failure indicator for reachable
@@ -97,9 +98,10 @@ test.describe("Local model settings", () => {
 
 	test("base URL input field is present in custom model form", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj] });
-		await page.goto("/settings");
+		await page.goto("/settings/models");
 
 		// The Base URL input field should exist in the custom models form
-		await expect(page.getByPlaceholder("e.g. http://localhost:11434")).toBeVisible();
+		// (scoped — the Ollama provider card has its own Base URL input).
+		await expect(page.locator("#custom-models").getByPlaceholder("e.g. http://localhost:11434")).toBeVisible();
 	});
 });

@@ -130,7 +130,7 @@ export function buildCommands(
 			id: "go-settings",
 			label: "Go to Settings",
 			group: "Navigate",
-			action: () => goto("/settings"),
+			action: () => goto("/settings/models"),
 		},
 	];
 
@@ -186,7 +186,7 @@ export function buildCommands(
 			id: "manage-providers",
 			label: "Manage Providers",
 			group: "Actions",
-			action: () => goto("/settings"),
+			action: () => goto("/settings/models"),
 		},
 	];
 

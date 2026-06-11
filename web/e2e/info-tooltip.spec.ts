@@ -59,7 +59,10 @@ test.describe("InfoTooltip", () => {
 	});
 
 	test.describe("Settings page", () => {
-		test("shows tooltip button next to Providers heading", async ({ page, mockApi }) => {
+		// Settings UX overhaul: the Providers heading never carried a
+		// tooltip (pre-existing red) — assert against the Default Model
+		// Tier heading on the merged models page, which does.
+		test("shows tooltip button next to Default Model Tier heading", async ({ page, mockApi }) => {
 			await mockApi({
 				providers: [
 					makeProviderStatus({ provider: "anthropic" }),
@@ -67,10 +70,10 @@ test.describe("InfoTooltip", () => {
 					makeProviderStatus({ provider: "google" }),
 				],
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
-			const providersHeading = page.locator("h2", { hasText: "Providers" });
-			await expect(providersHeading.locator('button[aria-label="More info"]')).toBeVisible();
+			const tierHeading = page.locator("h2", { hasText: "Default Model Tier" });
+			await expect(tierHeading.locator('button[aria-label="More info"]')).toBeVisible();
 		});
 	});
 

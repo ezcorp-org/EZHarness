@@ -331,12 +331,9 @@ test.describe("Mobile UX", () => {
 			},
 		});
 
-		await page.goto("/settings");
-		// Wait for page to load then scroll to audit section
-		await expect(page.getByRole("heading", { name: "Users" })).toBeVisible({ timeout: 5000 });
-
+		// Settings UX overhaul: the audit log lives on its own admin page.
+		await page.goto("/settings/admin/audit");
 		const auditHeading = page.getByRole("heading", { name: "Audit Log" });
-		await auditHeading.scrollIntoViewIfNeeded();
 		await expect(auditHeading).toBeVisible({ timeout: 5000 });
 
 		// Mobile card stack should show the audit entry within md:hidden container

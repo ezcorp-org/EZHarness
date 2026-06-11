@@ -10,7 +10,7 @@
 <div class="mx-auto flex max-w-3xl flex-col gap-6">
 	<div>
 		<a
-			href="/settings"
+			href="/settings/personalization"
 			class="mb-2 inline-flex items-center gap-1 text-sm text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
 		>
 			<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

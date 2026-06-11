@@ -205,7 +205,7 @@
 					</button>
 				{/if}
 				<a
-					href="/settings#modes"
+					href="/settings/personalization#modes"
 					onclick={() => { close(); }}
 					class="px-3 py-1.5 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors {oncreate ? '' : 'flex-1'}"
 				>

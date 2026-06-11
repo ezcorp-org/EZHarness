@@ -37,7 +37,7 @@ test.describe("Admin Force Logout", () => {
 			routes: defaultRoutes,
 		});
 
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		// Verify user list loads with session count
 		await expect(page.getByText("Member User")).toBeVisible({ timeout: 5000 });
@@ -61,7 +61,7 @@ test.describe("Admin Force Logout", () => {
 			},
 		});
 
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		// User loads but Force Logout is hidden (no sessions)
 		await expect(page.getByText("Member User")).toBeVisible({ timeout: 5000 });

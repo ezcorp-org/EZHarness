@@ -274,7 +274,7 @@ test.describe("Daily Briefing settings page", () => {
 		await mockApi({ projects: [proj] });
 		await page.route("**/api/briefing/config", (route) => route.fulfill({ json: STORED_CONFIG }));
 
-		await page.goto("/settings");
+		await page.goto("/settings/personalization");
 		await expect(page.getByTestId("briefing-settings-link")).toBeVisible();
 		await page.getByTestId("briefing-settings-link").click();
 		await expect(page).toHaveURL(/\/settings\/briefing$/);

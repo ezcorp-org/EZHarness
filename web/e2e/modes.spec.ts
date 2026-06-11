@@ -225,7 +225,7 @@ test.describe("Modes", () => {
 
 		// Verify the Manage link href
 		const manageLink = page.locator(".mode-selector").getByText("Manage");
-		await expect(manageLink).toHaveAttribute("href", "/settings#modes");
+		await expect(manageLink).toHaveAttribute("href", "/settings/personalization#modes");
 	});
 
 	test("New mode button opens create mode modal", async ({ page, mockApi }) => {
@@ -473,7 +473,7 @@ test.describe("Modes on Settings Page", () => {
 			projects: [proj],
 			modes,
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/personalization");
 
 		await expect(page.getByText("Custom Modes")).toBeVisible({ timeout: 5000 });
 		await expect(page.getByText("Create Mode")).toBeVisible();
@@ -489,7 +489,7 @@ test.describe("Modes on Settings Page", () => {
 			projects: [proj],
 			modes,
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/personalization");
 
 		await expect(page.getByText("built-in")).toBeVisible({ timeout: 5000 });
 	});
@@ -505,7 +505,7 @@ test.describe("Modes on Settings Page", () => {
 			projects: [proj],
 			modes,
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/personalization");
 
 		// Phase modes.extensionIds: the inline Edit button was removed —
 		// clicking the card now opens the view modal where Edit is the
@@ -525,7 +525,7 @@ test.describe("Modes on Settings Page", () => {
 			projects: [proj],
 			modes: [makeMode({ id: "builtin-plan", name: "Plan", slug: "plan", builtin: true })],
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/personalization");
 
 		await page.getByText("Create Mode").click();
 
@@ -545,7 +545,7 @@ test.describe("Modes on Settings Page", () => {
 			projects: [proj],
 			modes: [makeMode({ id: "builtin-plan", name: "Plan", slug: "plan", builtin: true })],
 		});
-		await page.goto("/settings#modes");
+		await page.goto("/settings/personalization#modes");
 
 		// The modes section should exist with id="modes"
 		const modesSection = page.locator("#modes");

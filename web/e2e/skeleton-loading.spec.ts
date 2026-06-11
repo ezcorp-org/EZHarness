@@ -88,12 +88,14 @@ test.describe("SkeletonLoader", () => {
 	});
 
 	test("Settings page shows form skeleton while loading", async ({ page }) => {
+		// Settings UX overhaul: /settings is a redirect shim now — the
+		// models page owns the form skeleton, gated on /api/settings.
 		await setupRoutesWithDelay(page, {
-			delayPath: "/api/auth/me",
+			delayPath: "/api/settings",
 			delayMs: 1000,
-			delayJson: { user: { id: "u1", email: "a@b.com", name: "Test", role: "member" } },
+			delayJson: {},
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/models");
 
 		const skeletonLines = page.locator(".skeleton-line");
 		await expect(skeletonLines.first()).toBeVisible();

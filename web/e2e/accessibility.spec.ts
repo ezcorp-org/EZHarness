@@ -14,7 +14,7 @@ const pages = [
 	{ name: "Login", url: "/login", auth: false },
 	{ name: "Dashboard", url: "/", auth: true },
 	// Pre-existing: text-red-400 Delete button fails color-contrast (tracked for future fix)
-	{ name: "Settings", url: "/settings", auth: true, knownRules: ["color-contrast"] },
+	{ name: "Settings", url: "/settings/models", auth: true, knownRules: ["color-contrast"] },
 	{ name: "Agents", url: "/agents", auth: true },
 	{ name: "Account", url: "/account", auth: true },
 	{ name: "API Docs", url: "/docs", auth: true },
@@ -143,7 +143,7 @@ test("heading hierarchy: h1 exists and no heading levels are skipped", async ({ 
 	// Skip pages with known heading gaps: Settings h2->h4, Docs h1->h3,
 	// Agents/Extensions/Pipelines have no h1 at all (tracked for future fix).
 	const skipHeadingCheck = new Set([
-		"/settings",
+		"/settings/models",
 		"/docs",
 		"/agents",
 		"/extensions",

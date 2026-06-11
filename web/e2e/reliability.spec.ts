@@ -265,7 +265,7 @@ test("system health section visible on settings page", async ({ page, mockApi })
 			},
 		},
 	});
-	await page.goto("/settings");
+	await page.goto("/settings/admin");
 
 	await expect(page.getByText("System Health")).toBeVisible();
 	await expect(page.getByText("healthy").first()).toBeVisible();
@@ -285,7 +285,7 @@ test("system health shows degraded state with db down", async ({ page, mockApi }
 			}),
 		},
 	});
-	await page.goto("/settings");
+	await page.goto("/settings/admin");
 
 	await expect(page.getByText("System Health")).toBeVisible();
 	await expect(page.getByText("degraded")).toBeVisible();
@@ -299,7 +299,7 @@ test("system health handles error gracefully", async ({ page, mockApi }) => {
 		route.fulfill({ status: 401, json: { error: "Unauthorized" } });
 	});
 
-	await page.goto("/settings");
+	await page.goto("/settings/admin");
 
 	await expect(page.getByText("System Health")).toBeVisible();
 	await expect(page.getByText("Unable to load health status.")).toBeVisible();

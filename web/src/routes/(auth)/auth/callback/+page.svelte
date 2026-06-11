@@ -92,7 +92,7 @@
 			<h2 class="mb-2 text-lg font-semibold text-[var(--color-text-primary)]">Connection Failed</h2>
 			<p class="mb-4 text-sm text-red-400">{errorMessage}</p>
 			<a
-				href="/settings"
+				href="/settings/models"
 				class="inline-block rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 transition-colors"
 			>
 				Try Again

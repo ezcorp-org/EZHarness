@@ -34,7 +34,7 @@
 			You haven't connected an LLM provider yet. Add an API key or sign in with OAuth to send your first message.
 		</p>
 		<a
-			href="/settings#providers"
+			href="/settings/models#providers"
 			class="mt-3 inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500 transition-colors"
 			data-testid="no-provider-banner-cta"
 		>

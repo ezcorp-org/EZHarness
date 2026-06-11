@@ -15,7 +15,7 @@ import { test, expect } from "./fixtures/test-base.js";
 test.describe("Advanced Settings — agent autonomy kill-switch", () => {
 	test("toggle is visible in the Advanced section", async ({ page, mockApi }) => {
 		await mockApi({ projects: [], extensions: [] });
-		await page.goto("/settings");
+		await page.goto("/settings/personalization");
 
 		const toggle = page.getByTestId("toggle-agent-autonomy");
 		await expect(toggle).toBeVisible();
@@ -39,7 +39,7 @@ test.describe("Advanced Settings — agent autonomy kill-switch", () => {
 			}
 		});
 
-		await page.goto("/settings");
+		await page.goto("/settings/personalization");
 		const toggle = page.getByTestId("toggle-agent-autonomy");
 		await expect(toggle).toHaveAttribute("aria-checked", "true");
 

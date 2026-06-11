@@ -22,7 +22,7 @@ test.describe("Audit & Visibility settings", () => {
 		mockApi,
 	}) => {
 		await mockApi({ projects: [], extensions: [] });
-		await page.goto("/settings");
+		await page.goto("/settings/personalization");
 
 		const section = page.getByTestId("settings-audit-visibility");
 		await expect(section).toBeVisible();
@@ -54,7 +54,7 @@ test.describe("Audit & Visibility settings", () => {
 			}
 		});
 
-		await page.goto("/settings");
+		await page.goto("/settings/personalization");
 		await page.getByTestId("settings-audit-visibility").getByRole("button", { name: /Audit & Visibility/ }).click();
 		await page.getByTestId("toggle-builtin-pills").click();
 
@@ -75,7 +75,7 @@ test.describe("Audit & Visibility settings", () => {
 			}
 		});
 
-		await page.goto("/settings");
+		await page.goto("/settings/personalization");
 		await page.getByTestId("settings-audit-visibility").getByRole("button", { name: /Audit & Visibility/ }).click();
 		const input = page.getByTestId("input-event-audit-sample");
 		await input.fill("999999");
@@ -246,7 +246,7 @@ test.describe("Capability event pills — installed-extension default-hidden + t
 		const messagesFetchCountAfterChat = messagesFetchCount;
 
 		// 2. Navigate to /settings and toggle installed pills ON.
-		await page.goto("/settings");
+		await page.goto("/settings/personalization");
 		await page
 			.getByTestId("settings-audit-visibility")
 			.getByRole("button", { name: /Audit & Visibility/ })

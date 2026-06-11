@@ -19,7 +19,7 @@ test.describe("Provider Settings", () => {
 	test.describe("Accordion & Summary Chips", () => {
 		test("providers section expanded by default with all three names visible", async ({ page, mockApi }) => {
 			await mockApi({ providers: threeProviders() });
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			await expect(page.getByText("Anthropic (Claude)").first()).toBeVisible();
 			await expect(page.getByText("OpenAI").first()).toBeVisible();
@@ -34,7 +34,7 @@ test.describe("Provider Settings", () => {
 					// google: unconfigured                              // gray
 				}),
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			// The accordion header contains summary chips with dots
 			const header = page.locator("button").filter({ hasText: "Providers" });
@@ -45,7 +45,7 @@ test.describe("Provider Settings", () => {
 
 		test("click header collapses section, click again re-expands", async ({ page, mockApi }) => {
 			await mockApi({ providers: threeProviders() });
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const header = page.locator("button").filter({ hasText: "Providers" });
 			// Initially expanded — provider cards visible
@@ -67,7 +67,7 @@ test.describe("Provider Settings", () => {
 			await mockApi({
 				providers: threeProviders({ anthropic: { hasKey: true, source: "byok" } }),
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
 			await expect(card.getByText("Connected")).toBeVisible();
@@ -76,7 +76,7 @@ test.describe("Provider Settings", () => {
 
 		test("unconfigured provider shows gray Not configured", async ({ page, mockApi }) => {
 			await mockApi({ providers: threeProviders() });
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
 			await expect(card.getByText("Not configured")).toBeVisible();
@@ -89,7 +89,7 @@ test.describe("Provider Settings", () => {
 					openai: { oauthConnected: true, oauthExpired: true, oauthSupported: true },
 				}),
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
 			await expect(card.getByText("Token expired")).toBeVisible();
@@ -103,7 +103,7 @@ test.describe("Provider Settings", () => {
 			await mockApi({
 				providers: threeProviders({ anthropic: { hasKey: true, source: "byok" } }),
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
 			await expect(card.getByText("API Key")).toBeVisible();
@@ -116,7 +116,7 @@ test.describe("Provider Settings", () => {
 					google: { hasKey: true, source: "env" },
 				}),
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const openaiCard = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
 			await expect(openaiCard.getByText("Subscription", { exact: true })).toBeVisible();
@@ -132,7 +132,7 @@ test.describe("Provider Settings", () => {
 			await mockApi({
 				providers: threeProviders({ anthropic: { hasKey: true, source: "byok" } }),
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
 			const testBtn = card.getByRole("button", { name: "Test" });
@@ -146,7 +146,7 @@ test.describe("Provider Settings", () => {
 			await mockApi({
 				providers: threeProviders({ anthropic: { hasKey: true, source: "byok" } }),
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			// Override test route to return failure
 			await page.route("**/api/providers/*/test", (route) => {
@@ -166,7 +166,7 @@ test.describe("Provider Settings", () => {
 			await mockApi({
 				providers: threeProviders({ openai: { hasKey: true, source: "byok", oauthSupported: false } }),
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
 			await card.getByRole("button", { name: "Refresh models" }).click();
@@ -185,7 +185,7 @@ test.describe("Provider Settings", () => {
 					json: { success: true, count: 7, ids: ["gpt-5.2"], fetchedAt: new Date().toISOString() },
 				});
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
 			await card.getByRole("button", { name: "Update" }).click();
@@ -204,7 +204,7 @@ test.describe("Provider Settings", () => {
 			await page.route("**/api/providers/*/refresh-models", (route) => {
 				return route.fulfill({ json: { success: false, error: "models.dev returned 503" } });
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
 			await card.getByRole("button", { name: "Refresh models" }).click();
@@ -219,7 +219,7 @@ test.describe("Provider Settings", () => {
 			await mockApi({
 				providers: threeProviders({ anthropic: { hasKey: true, source: "byok" } }),
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
 			await card.getByRole("button", { name: "Update" }).click();
@@ -233,7 +233,7 @@ test.describe("Provider Settings", () => {
 			await mockApi({
 				providers: threeProviders({ anthropic: { hasKey: true, source: "byok" } }),
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
 			await card.getByRole("button", { name: "Update" }).click();
@@ -251,7 +251,7 @@ test.describe("Provider Settings", () => {
 			await mockApi({
 				providers: threeProviders({ anthropic: { hasKey: true, source: "byok" } }),
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
 			await card.getByRole("button", { name: "Remove" }).click();
@@ -265,7 +265,7 @@ test.describe("Provider Settings", () => {
 			await mockApi({
 				providers: threeProviders({ anthropic: { hasKey: true, source: "byok" } }),
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
 			// Wait for the BYOK card to load with Remove button visible
@@ -300,7 +300,7 @@ test.describe("Provider Settings", () => {
 					openai: { oauthConnected: true, oauthSupported: true },
 				}),
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
 			await card.getByRole("button", { name: "Disconnect" }).click();
@@ -316,7 +316,7 @@ test.describe("Provider Settings", () => {
 					openai: { oauthConnected: true, oauthSupported: true },
 				}),
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
 			await card.getByRole("button", { name: "Disconnect" }).click();
@@ -332,7 +332,7 @@ test.describe("Provider Settings", () => {
 	test.describe("Onboarding Hints", () => {
 		test("unconfigured providers show hint text with link to key page", async ({ page, mockApi }) => {
 			await mockApi({ providers: threeProviders() });
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const anthropicCard = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
 			await expect(anthropicCard.getByText("Get your Anthropic API key")).toBeVisible();
@@ -360,7 +360,7 @@ test.describe("Provider Settings", () => {
 					},
 				}),
 			});
-			await page.goto("/settings");
+			await page.goto("/settings/models");
 
 			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
 			// The relativeTime for a date 2h ago should contain "ago"

@@ -68,7 +68,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 			projects: [proj],
 			routes: adminRoutes([]),
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await expect(page.getByRole("heading", { name: "Teams" })).toBeVisible({ timeout: 5000 });
 	});
@@ -78,7 +78,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 			projects: [proj],
 			routes: adminRoutes([]),
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await expect(page.getByText("Create and manage teams")).toBeVisible({ timeout: 5000 });
 	});
@@ -88,7 +88,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 			projects: [proj],
 			routes: adminRoutes([]),
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await expect(page.getByPlaceholder("New team name")).toBeVisible({ timeout: 5000 });
 		await expect(page.getByRole("button", { name: "Create Team" })).toBeVisible();
@@ -99,7 +99,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 			projects: [proj],
 			routes: adminRoutes([]),
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		const createBtn = page.getByRole("button", { name: "Create Team" });
 		await expect(createBtn).toBeVisible({ timeout: 5000 });
@@ -111,7 +111,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 			projects: [proj],
 			routes: adminRoutes([]),
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await page.getByPlaceholder("New team name").fill("Design Team");
 
@@ -124,7 +124,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 			projects: [proj],
 			routes: adminRoutes([]),
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await expect(page.getByText("No teams yet.")).toBeVisible({ timeout: 5000 });
 	});
@@ -139,7 +139,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 			projects: [proj],
 			routes: adminRoutes(teams),
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await expect(page.getByText("Engineering")).toBeVisible({ timeout: 5000 });
 		await expect(page.getByText("Marketing")).toBeVisible();
@@ -157,7 +157,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 			projects: [proj],
 			routes: adminRoutes(teams),
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await expect(page.getByText("Engineering")).toBeVisible({ timeout: 5000 });
 		await expect(page.getByRole("button", { name: "Delete" })).toBeVisible();
@@ -185,7 +185,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 			}
 		});
 
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await expect(page.getByText("Existing Team")).toBeVisible({ timeout: 5000 });
 
@@ -230,7 +230,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 			await route.fulfill({ json: { teams: teamsData } });
 		});
 
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await expect(page.getByText("Delete Me")).toBeVisible({ timeout: 5000 });
 
@@ -261,7 +261,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 				"/api/teams/team-1/members": () => ({ members }),
 			},
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await expect(page.getByText("Engineering")).toBeVisible({ timeout: 5000 });
 		await page.getByTestId("team-expand-team-1").click();
@@ -287,7 +287,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 				"/api/teams/team-1/members": () => ({ members }),
 			},
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await page.getByTestId("team-expand-team-1").click();
 
@@ -315,7 +315,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 				"/api/teams/team-1/members": () => ({ members }),
 			},
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await page.getByTestId("team-expand-team-1").click();
 
@@ -336,7 +336,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 				"/api/teams/team-1/members": () => ({ members: [] }),
 			},
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await page.getByTestId("team-expand-team-1").click();
 
@@ -360,7 +360,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 				"/api/teams/team-1/members": () => ({ members: [] }),
 			},
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await page.getByTestId("team-expand-team-1").click();
 
@@ -384,7 +384,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 				"/api/teams/team-1/members": () => ({ members: [] }),
 			},
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await page.getByTestId("team-expand-team-1").click();
 
@@ -407,7 +407,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 				"/api/teams/team-1/members": () => ({ members: [] }),
 			},
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await page.getByTestId("team-expand-team-1").click();
 
@@ -433,7 +433,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 				"/api/teams/team-1/members": () => ({ members }),
 			},
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		// Expand
 		await page.getByTestId("team-expand-team-1").click();
@@ -455,7 +455,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 			projects: [proj],
 			routes: adminRoutes(teams),
 		});
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await expect(page.getByText("Alpha Team")).toBeVisible({ timeout: 5000 });
 		await expect(page.getByText("Beta Team")).toBeVisible();
@@ -480,7 +480,7 @@ test.describe("Teams API Route Shapes", () => {
 			},
 		});
 
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 		await expect(page.getByText("Eng")).toBeVisible({ timeout: 5000 });
 	});
 
@@ -506,7 +506,7 @@ test.describe("Teams API Route Shapes", () => {
 			},
 		});
 
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 		await page.getByTestId("team-expand-team-1").click();
 
 		await expect(page.getByText(/Charlie/)).toBeVisible({ timeout: 3000 });
@@ -541,7 +541,7 @@ test.describe("Teams API Route Shapes", () => {
 			}
 		});
 
-		await page.goto("/settings");
+		await page.goto("/settings/admin");
 
 		await page.getByPlaceholder("New team name").fill("Product Team");
 		await page.getByRole("button", { name: "Create Team" }).click();
