@@ -109,7 +109,11 @@
 		if (!open) openDropdown(); else computePosition();
 	}
 	function onFocus() { if (!open) openDropdown(); }
-	function onBlur() { setTimeout(closeDropdown, 150); }
+	// Blur-close is a desktop-dropdown idiom only. Below lg the body is
+	// wrapped in a BottomSheet whose focus trap steals focus on mount —
+	// closing on that blur would dismiss the sheet ~150ms after it opens.
+	// The sheet owns its dismissal there (backdrop / close button / ESC).
+	function onBlur() { if (!bp.below) setTimeout(closeDropdown, 150); }
 	function onKeydown(e: KeyboardEvent) {
 		const items = filtered();
 		if (!open || items.length === 0) return;
@@ -118,14 +122,28 @@
 		else if (e.key === "Enter" && highlightIdx >= 0) { e.preventDefault(); toggle(items[highlightIdx]!); }
 		else if (e.key === "Escape") { closeDropdown(); }
 	}
+	// Whether the current pointer gesture STARTED on the input. Opening the
+	// picker on focus mounts the BottomSheet mid-click (below lg), so the
+	// click's release lands on the sheet and the event retargets to a common
+	// ancestor — without this, the very tap that opens the sheet "clicks
+	// outside" and dismisses it instantly.
+	let pressBeganOnInput = false;
+	function onDocPointerDown(e: PointerEvent) {
+		pressBeganOnInput = !!inputEl?.contains(e.target as Node);
+	}
 	function onClickOutside(e: MouseEvent) {
 		if (!open) return;
-		if (inputEl?.contains(e.target as Node)) return;
+		if (pressBeganOnInput) return;
+		const t = e.target as Node | null;
+		if (!t || inputEl?.contains(t)) return;
+		// Inside the BottomSheet the sheet owns dismissal (backdrop / close
+		// button / ESC) — selection taps must not tear it down.
+		if (t instanceof Element && t.closest("[data-testid='bottom-sheet']")) return;
 		closeDropdown();
 	}
 </script>
 
-<svelte:document onclick={onClickOutside} />
+<svelte:document onpointerdown={onDocPointerDown} onclick={onClickOutside} />
 
 <!-- Combobox chrome — pills wrap on their own row(s) above the input; the
      input keeps full chrome width on its own row below. -->

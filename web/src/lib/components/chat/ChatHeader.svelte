@@ -192,7 +192,12 @@
 			{#if toolsOpen}
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div data-testid="tools-backdrop" class="fixed inset-0 z-40" onclick={() => ontoolstoggle(false)} onkeydown={() => {}}></div>
-				<div data-testid="tools-popover" class="absolute right-0 top-full z-50 mt-1 w-[calc(100vw-2rem)] md:w-64 max-w-64 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] shadow-lg max-h-72 overflow-y-auto">
+				<!-- Below md the badge sits ~216px from the left edge, so an
+				     absolute right-0 anchor would push the 16rem popover past
+				     the viewport's left edge. `fixed` with auto top keeps the
+				     vertical static position (just below the badge) while
+				     pinning the horizontal edge to the viewport instead. -->
+				<div data-testid="tools-popover" class="fixed md:absolute right-4 md:right-0 md:top-full z-50 mt-1 w-[calc(100vw-2rem)] md:w-64 max-w-64 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] shadow-lg max-h-72 overflow-y-auto">
 					{#if loadedTools.length === 0}
 						<p class="px-3 py-2 text-xs text-[var(--color-text-muted)]">No tools loaded</p>
 					{:else}

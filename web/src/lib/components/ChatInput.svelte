@@ -961,18 +961,25 @@
 		}
 	}
 
-	/* Send button */
+	/* Send button — 2.5rem below md for the 40px mobile touch target,
+	   2rem on desktop where pointer precision allows the compact pill. */
 	.send-btn {
 		flex-shrink: 0;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 2rem;
-		height: 2rem;
+		width: 2.5rem;
+		height: 2.5rem;
 		border-radius: 50%;
 		border: none;
 		cursor: pointer;
 		transition: all 0.15s;
+	}
+	@media (min-width: 768px) {
+		.send-btn {
+			width: 2rem;
+			height: 2rem;
+		}
 	}
 	.send-btn:active {
 		transform: scale(0.92);

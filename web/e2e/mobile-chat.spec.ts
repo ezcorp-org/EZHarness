@@ -202,14 +202,15 @@ test.describe("Mobile Chat", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Hello from mobile!")).toBeVisible({ timeout: 5000 });
 
-		// The stop button uses `h-10 w-10 md:h-7 md:w-7`. On mobile it should be 40px.
-		// We check by inspecting the send button which shares the same sizing.
+		// `.send-btn` is 2.5rem below the md breakpoint (40px touch target),
+		// 2rem on desktop. We check by inspecting the send button which
+		// shares the same sizing as the stop button.
 		const sendBtn = page.locator("button[title='Send message'], button[title='Select a model first']");
 		await expect(sendBtn).toBeVisible();
 
 		const box = await sendBtn.boundingBox();
 		expect(box).toBeTruthy();
-		// h-10 = 2.5rem = 40px
+		// 2.5rem = 40px
 		expect(box!.height).toBeGreaterThanOrEqual(38); // allow slight rounding
 		expect(box!.width).toBeGreaterThanOrEqual(38);
 	});
@@ -297,7 +298,11 @@ test.describe("Mobile Chat", () => {
 	// ---------------------------------------------------------------
 	// Bonus: Chat list page mobile behavior
 	// ---------------------------------------------------------------
-	test("mobile: chat list page has hamburger and hidden sidebar", async ({ page, mockApi }) => {
+	// The mobile list page (no convId) renders the conversation list
+	// INLINE (ProjectRail + ConversationList behind a "Back to project
+	// menu" button) — there is no "Open conversations" drawer here, that
+	// only exists on the conversation page's ChatHeader.
+	test("mobile: chat list page shows inline conversation list", async ({ page, mockApi }) => {
 		await page.setViewportSize(mobile);
 		await mockApi({
 			projects: [proj],
@@ -305,16 +310,18 @@ test.describe("Mobile Chat", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat`);
 
-		// On the chat list page (no convId), the hamburger should be present
-		const hamburger = page.getByRole("button", { name: "Open conversations" });
-		await expect(hamburger).toBeVisible({ timeout: 5000 });
+		// Back button to the project menu replaces the old drawer hamburger
+		const backBtn = page.getByRole("button", { name: "Back to project menu" });
+		await expect(backBtn).toBeVisible({ timeout: 5000 });
 
-		// Open overlay and verify conversations appear
-		await hamburger.click();
-		const drawer = page.getByTestId("swipe-drawer");
-		await expect(drawer).toBeVisible({ timeout: 3000 });
-		const overlayPanel = page.getByTestId("swipe-drawer-panel");
-		await expect(overlayPanel.getByText("Test Chat")).toBeVisible();
+		// Conversations are listed directly — no overlay needed. The hidden
+		// desktop pane renders a second ConversationList, so filter to the
+		// visible (mobile) instance.
+		await expect(page.getByText("Test Chat").filter({ visible: true })).toBeVisible();
+		await expect(page.getByText("Second Chat").filter({ visible: true })).toBeVisible();
+
+		// The desktop empty-state pane stays hidden at 375px
+		await expect(page.locator("div.hidden.md\\:flex").first()).not.toBeVisible();
 	});
 
 	// ---------------------------------------------------------------

@@ -201,7 +201,7 @@ describe("UI toggle-off gates the extension from assigned agents", () => {
         url: `http://localhost/api/extensions/${extensionId}`,
         params: { id: extensionId },
         body: { enabled: false },
-        user: MEMBER_USER,
+        user: ADMIN_USER,
       }),
     );
     expect(res.status).toBe(200);
@@ -248,7 +248,7 @@ describe("UI toggle-off gates the extension from assigned agents", () => {
         url: `http://localhost/api/extensions/${extensionId}`,
         params: { id: extensionId },
         body: { enabled: false },
-        user: MEMBER_USER,
+        user: ADMIN_USER,
       }),
     );
 
@@ -329,7 +329,7 @@ describe("UI toggle-off gates the extension from assigned agents", () => {
         url: `http://localhost/api/extensions/${extensionId}`,
         params: { id: extensionId },
         body: { enabled: false },
-        user: MEMBER_USER,
+        user: ADMIN_USER,
       }),
     );
 

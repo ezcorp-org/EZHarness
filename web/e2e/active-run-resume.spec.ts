@@ -38,7 +38,7 @@ test.describe("Active Run Resume on Page Refresh", () => {
 		await expect(stopButton).not.toBeVisible();
 	});
 
-	test("active run detected — streaming resumes and tokens appear", async ({ page, mockApi, emitWs }) => {
+	test("active run detected — streaming resumes and tokens appear", async ({ page, mockApi, emitSse }) => {
 		const userMsg = makeMessage({
 			id: "m1",
 			conversationId: "conv-1",
@@ -59,15 +59,15 @@ test.describe("Active Run Resume on Page Refresh", () => {
 		// Wait for the active run check to complete and streaming to start
 		await page.waitForTimeout(500);
 
-		// Simulate tokens arriving via WebSocket
-		await emitWs({ type: "run:token", data: { runId: "run-resume-1", token: "Once upon " } });
-		await emitWs({ type: "run:token", data: { runId: "run-resume-1", token: "a time..." } });
+		// Simulate tokens arriving via SSE (runtime-events EventSource)
+		await emitSse({ type: "run:token", data: { runId: "run-resume-1", token: "Once upon " } });
+		await emitSse({ type: "run:token", data: { runId: "run-resume-1", token: "a time..." } });
 
 		// The streamed text should appear
 		await expect(page.getByText("Once upon a time...")).toBeVisible({ timeout: 3000 });
 	});
 
-	test("active run completes — message reconciles from DB", async ({ page, mockApi, emitWs }) => {
+	test("active run completes — message reconciles from DB", async ({ page, mockApi, emitSse }) => {
 		const userMsg = makeMessage({
 			id: "m1",
 			conversationId: "conv-1",
@@ -108,8 +108,8 @@ test.describe("Active Run Resume on Page Refresh", () => {
 		await page.waitForTimeout(500);
 
 		// Send some tokens then complete
-		await emitWs({ type: "run:token", data: { runId: "run-resume-2", token: "Partial..." } });
-		await emitWs({
+		await emitSse({ type: "run:token", data: { runId: "run-resume-2", token: "Partial..." } });
+		await emitSse({
 			type: "run:complete",
 			data: { run: { id: "run-resume-2", status: "success" }, conversationId: "conv-1" },
 		});
@@ -177,7 +177,7 @@ test.describe("Active Run Resume on Page Refresh", () => {
 		await expect(page.getByText("The history of computing begins with")).toBeVisible({ timeout: 5000 });
 	});
 
-	test("cancel button sends POST to active-run endpoint", async ({ page, mockApi, emitWs }) => {
+	test("cancel button sends POST to active-run endpoint", async ({ page, mockApi, emitSse }) => {
 		const userMsg = makeMessage({
 			id: "m1",
 			conversationId: "conv-1",
@@ -214,7 +214,7 @@ test.describe("Active Run Resume on Page Refresh", () => {
 		await page.waitForTimeout(500);
 
 		// Emit a token so the stop button appears
-		await emitWs({ type: "run:token", data: { runId: "run-cancel-1", token: "Working on it..." } });
+		await emitSse({ type: "run:token", data: { runId: "run-cancel-1", token: "Working on it..." } });
 
 		const stopButton = page.getByRole("button", { name: /stop/i });
 		await expect(stopButton).toBeVisible({ timeout: 5000 });
@@ -260,7 +260,7 @@ test.describe("Active Run Resume on Page Refresh", () => {
 		await expect(page.getByText("Thinking...")).not.toBeVisible();
 	});
 
-	test("streaming run completes via WS — skeleton disappears and message shows", async ({ page, mockApi, emitWs }) => {
+	test("streaming run completes via SSE — skeleton disappears and message shows", async ({ page, mockApi, emitSse }) => {
 		const userMsg = makeMessage({
 			id: "m1",
 			conversationId: "conv-1",
@@ -300,8 +300,8 @@ test.describe("Active Run Resume on Page Refresh", () => {
 		// Should see skeleton while streaming
 		await expect(page.getByText("Thinking...")).toBeVisible({ timeout: 5000 });
 
-		// Now run completes via WS
-		await emitWs({
+		// Now run completes via SSE
+		await emitSse({
 			type: "run:complete",
 			data: { run: { id: "run-active", status: "success", startedAt: Date.now(), finishedAt: Date.now() } },
 		});

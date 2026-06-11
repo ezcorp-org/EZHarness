@@ -18,6 +18,7 @@ import {
   createMockEvent,
   jsonFromResponse,
   MEMBER_USER,
+  ADMIN_USER,
 } from "./helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
@@ -143,7 +144,7 @@ describe("PATCH /api/extensions/[id] — happy paths", () => {
       url: "http://localhost/api/extensions/ext-1",
       params: { id: "ext-1" },
       body: { enabled: false },
-      user: MEMBER_USER,
+      user: ADMIN_USER,
     });
     const res = await call(PATCH, event);
     expect(res.status).toBe(200);
@@ -160,7 +161,7 @@ describe("PATCH /api/extensions/[id] — happy paths", () => {
       url: "http://localhost/api/extensions/ext-1",
       params: { id: "ext-1" },
       body: { enabled: true },
-      user: MEMBER_USER,
+      user: ADMIN_USER,
     });
     const res = await call(PATCH, event);
     const data = await jsonFromResponse(res);
@@ -180,7 +181,7 @@ describe("PATCH /api/extensions/[id] — sad paths", () => {
       url: "http://localhost/api/extensions/missing",
       params: { id: "missing" },
       body: { enabled: false },
-      user: MEMBER_USER,
+      user: ADMIN_USER,
     });
     const res = await call(PATCH, event);
     const data = await jsonFromResponse(res);
@@ -198,7 +199,7 @@ describe("PATCH /api/extensions/[id] — sad paths", () => {
       url: "http://localhost/api/extensions/ext-1",
       params: { id: "ext-1" },
       body: { enabled: false },
-      user: MEMBER_USER,
+      user: ADMIN_USER,
     });
     const res = await call(PATCH, event);
     expect(res.status).toBe(200);
@@ -211,7 +212,7 @@ describe("PATCH /api/extensions/[id] — sad paths", () => {
       url: "http://localhost/api/extensions/ext-1",
       params: { id: "ext-1" },
       body: { somethingElse: "ignored" },
-      user: MEMBER_USER,
+      user: ADMIN_USER,
     });
     const res = await call(PATCH, event);
     const data = await jsonFromResponse(res);
@@ -227,7 +228,7 @@ describe("PATCH /api/extensions/[id] — sad paths", () => {
       url: "http://localhost/api/extensions/ext-1",
       params: { id: "ext-1" },
       body: { enabled: "yes" },
-      user: MEMBER_USER,
+      user: ADMIN_USER,
     });
     const res = await call(PATCH, event);
     expect(res.status).toBe(400);
@@ -245,6 +246,21 @@ describe("PATCH /api/extensions/[id] — sad paths", () => {
     const res = await call(PATCH, event);
     expect(res.status).toBe(401);
     expect(updateCalls).toHaveLength(0);
+  });
+
+  test("non-admin → 403, no DB write (disable is instance-wide, admin-only)", async () => {
+    storedEnabled = true;
+    const event = createMockEvent({
+      method: "PATCH",
+      url: "http://localhost/api/extensions/ext-1",
+      params: { id: "ext-1" },
+      body: { enabled: false },
+      user: MEMBER_USER,
+    });
+    const res = await call(PATCH, event);
+    expect(res.status).toBe(403);
+    expect(updateCalls).toHaveLength(0);
+    expect(reloadCount).toBe(0);
   });
 });
 
@@ -282,7 +298,7 @@ describe("DELETE /api/extensions/[id]", () => {
       method: "DELETE",
       url: "http://localhost/api/extensions/ext-1",
       params: { id: "ext-1" },
-      user: MEMBER_USER,
+      user: ADMIN_USER,
     });
     const res = await call(DELETE, event);
     expect(res.status).toBe(204);
@@ -297,10 +313,24 @@ describe("DELETE /api/extensions/[id]", () => {
       method: "DELETE",
       url: "http://localhost/api/extensions/missing",
       params: { id: "missing" },
-      user: MEMBER_USER,
+      user: ADMIN_USER,
     });
     const res = await call(DELETE, event);
     expect(res.status).toBe(404);
+    expect(deleteCalls).toHaveLength(0);
+    expect(killAllCount).toBe(0);
+    expect(reloadCount).toBe(0);
+  });
+
+  test("non-admin → 403, nothing deleted or killed", async () => {
+    const event = createMockEvent({
+      method: "DELETE",
+      url: "http://localhost/api/extensions/ext-1",
+      params: { id: "ext-1" },
+      user: MEMBER_USER,
+    });
+    const res = await call(DELETE, event);
+    expect(res.status).toBe(403);
     expect(deleteCalls).toHaveLength(0);
     expect(killAllCount).toBe(0);
     expect(reloadCount).toBe(0);

@@ -10,11 +10,13 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 
 const getAllTools = vi.fn(() => [] as Array<{ name: string; description: string }>);
 const getExtensionType = vi.fn((_name: string) => "local");
+const getExtensionDescription = vi.fn((_name: string): string | undefined => undefined);
 vi.mock("$server/extensions/registry", () => ({
   ExtensionRegistry: {
     getInstance: () => ({
       getAllTools,
       getExtensionType,
+      getExtensionDescription,
     }),
   },
 }));
@@ -27,8 +29,10 @@ const getBuiltInToolMetadata = vi.fn(
   () =>
     [] as Array<{ name: string; description: string; category: string }>,
 );
+const getBuiltInCategoryDescription = vi.fn((_cat: string): string | undefined => undefined);
 vi.mock("$server/runtime/tools/builtin-registry", () => ({
   getBuiltInToolMetadata,
+  getBuiltInCategoryDescription,
 }));
 
 const { GET } = await import("../routes/api/tools/+server");

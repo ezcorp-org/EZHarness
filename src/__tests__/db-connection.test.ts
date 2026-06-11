@@ -1,4 +1,4 @@
-import { test, expect, describe, afterAll, mock } from "bun:test";
+import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -118,11 +118,8 @@ describe("connection - PGlite mode (no DATABASE_URL)", () => {
   });
 });
 
-// These tests call closeDb() then re-init, which creates a second PGlite instance.
-// PGlite's vector extension uses a shared temp dir (/tmp/pglite/) for WASM files.
-// After the first instance closes, the shared dir may be cleaned up, causing the
-// second instance's migration to fail. Skip these in CI/Docker environments.
-describe.skipIf(!!process.env.CI)("connection - Postgres mode detection", () => {
+// Source-contract checks on the real module — no PGlite init, safe anywhere.
+describe("connection - Postgres mode detection (source contract)", () => {
   test("getDbPath returns 'external' when DATABASE_URL is set", async () => {
     // The real connection.ts reads DATABASE_URL at module load time.
     // Since this file mocks the module, we verify the contract by reading
@@ -154,6 +151,32 @@ describe.skipIf(!!process.env.CI)("connection - Postgres mode detection", () => 
     expect(source).toContain("await initPostgres()");
     expect(source).toContain("await initPglite()");
   });
+});
+
+// SKIPPED — second in-process PGlite open is unreliable: the first describe
+// already ran a full open/close cycle, and PGlite's vector extension keeps
+// process-shared WASM state (/tmp/pglite/) that a closed instance can tear
+// down, so a fresh open afterwards aborts ("RuntimeError: Aborted()").
+// These four tests previously appeared green LOCALLY only because the prior
+// describe's afterAll deleted EZCORP_DB_PATH, so they silently opened the
+// LIVE deployment database (~/ez-corp/.data/ez-corp-db) — snapshot spam on
+// every test run, and pass/fail flipped with whether the live dir happened
+// to be openable. A test must never touch that dir; with a hermetic temp
+// dir the second-instance abort reproduces deterministically, so the skip
+// is unconditional (it was previously skipIf(CI) for the same root cause).
+// Un-skipping requires running them in their own subprocess (first PGlite
+// instance of the process), like the example e2e-server-pipeline harnesses.
+describe.skip("connection - PGlite re-init lifecycle (second in-process instance)", () => {
+	const pgModeTempDir = mkdtempSync(join(tmpdir(), "pi-conn-pgmode-"));
+	beforeAll(() => {
+		process.env.EZCORP_DB_PATH = join(pgModeTempDir, "pg-mode-db");
+	});
+	afterAll(async () => {
+		const { closeDb } = await import("../db/connection");
+		await closeDb().catch(() => {});
+		rmSync(pgModeTempDir, { recursive: true, force: true });
+		delete process.env.EZCORP_DB_PATH;
+	});
 
   test("getPglite returns non-null in PGlite mode, null contract in Postgres mode", async () => {
     const { getPglite, initDb } = await import("../db/connection");
