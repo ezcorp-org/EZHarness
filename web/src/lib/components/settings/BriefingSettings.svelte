@@ -199,6 +199,10 @@
 	}
 
 	async function runNow() {
+		// Re-entrancy guard: the button is disabled while busy, but a
+		// programmatic/synthetic second click (or a queued event racing the
+		// disabled attribute) must never fire a second POST.
+		if (runNowBusy) return;
 		runNowBusy = true;
 		runNowMessage = null;
 		runNowError = false;

@@ -76,6 +76,42 @@ test.describe("Daily Briefing settings page", () => {
 		expect(putBody).not.toHaveProperty("watchlist");
 	});
 
+	test("saved settings survive a reload — the fresh GET shows the persisted values", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj] });
+
+		// Stateful route: PUT mutates the stored config, GET serves it —
+		// so the post-reload assertions prove the page renders what was
+		// PERSISTED, not leftover client state.
+		let stored: Record<string, unknown> = { ...STORED_CONFIG };
+		await page.route("**/api/briefing/config", async (route) => {
+			if (route.request().method() === "PUT") {
+				stored = { ...stored, ...route.request().postDataJSON() };
+				return route.fulfill({ json: stored });
+			}
+			return route.fulfill({ json: stored });
+		});
+
+		await page.goto("/settings/briefing");
+		await expect(page.getByTestId("briefing-time")).toHaveValue("08:30");
+
+		await page.getByTestId("briefing-time").fill("09:45");
+		await page.getByTestId("briefing-preset").selectOption("weekends");
+		await page.getByTestId("briefing-instructions").fill("Persisted across reloads.");
+		await page.getByTestId("briefing-save").click();
+		await expect(page.getByTestId("briefing-save-success")).toBeVisible();
+
+		await page.reload();
+
+		await expect(page.getByTestId("briefing-time")).toHaveValue("09:45");
+		await expect(page.getByTestId("briefing-preset")).toHaveValue("weekends");
+		await expect(page.getByTestId("briefing-schedule-desc")).toContainText("Weekends at 09:45");
+		await expect(page.getByTestId("briefing-instructions")).toHaveValue("Persisted across reloads.");
+		await expect(page.getByTestId("briefing-timezone")).toHaveValue("Europe/Berlin");
+	});
+
 	test("hand-edited cron is shown read-only as a raw string", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj] });
 		await page.route("**/api/briefing/config", (route) =>

@@ -51,12 +51,16 @@ function makeConfig(overrides: ConfigOverrides = {}) {
 }
 
 /** Install the fetch stub. `config` answers GET; `runNow` answers POST
- *  run-now; PUT echoes the body merged over the config (like the API). */
+ *  run-now (may return a pending promise for in-flight assertions, or
+ *  throw to simulate a network rejection); `put` (when set) overrides
+ *  the default PUT echo and may throw. Otherwise PUT echoes the body
+ *  merged over the config (like the API). */
 function stubFetch(opts: {
 	config?: ConfigOverrides | (() => Response);
 	putStatus?: number;
 	putBody?: unknown;
-	runNow?: () => Response;
+	put?: () => Response;
+	runNow?: () => Response | Promise<Response>;
 } = {}) {
 	fetchCalls = [];
 	vi.stubGlobal(
@@ -85,6 +89,7 @@ function stubFetch(opts: {
 				return new Response(JSON.stringify(makeConfig(opts.config)), { status: 200 });
 			}
 			if (url.includes("/api/briefing/config") && method === "PUT") {
+				if (opts.put) return opts.put();
 				if (opts.putStatus && opts.putStatus >= 400) {
 					return new Response(JSON.stringify(opts.putBody ?? { error: "invalid briefing config" }), {
 						status: opts.putStatus,
@@ -260,10 +265,48 @@ describe("BriefingSettings — save", () => {
 			),
 		);
 	});
+
+	test("network rejection during save surfaces the generic failure message", async () => {
+		stubFetch({
+			config: { createdAt: "2026-06-01T00:00:00.000Z" },
+			put: () => {
+				throw new Error("offline");
+			},
+		});
+		const { container, getByTestId } = render(BriefingSettings, { projects: [] });
+		await waitFor(() => expect(container.querySelector('[data-testid="briefing-save"]')).not.toBeNull());
+
+		await fireEvent.click(getByTestId("briefing-save"));
+		await waitFor(() =>
+			expect(container.querySelector('[data-testid="briefing-save-error"]')?.textContent).toContain(
+				"Failed to save briefing settings.",
+			),
+		);
+		// The save button recovers (finally-block resets `saving`).
+		expect((getByTestId("briefing-save") as HTMLButtonElement).disabled).toBe(false);
+	});
+
+	test("an invalid picker time blocks the save with a message and never PUTs", async () => {
+		stubFetch({ config: { createdAt: "2026-06-01T00:00:00.000Z" } });
+		const { container, getByTestId } = render(BriefingSettings, { projects: [] });
+		await waitFor(() => expect(container.querySelector('[data-testid="briefing-save"]')).not.toBeNull());
+
+		// An empty time (cleared <input type="time">) makes buildBriefingCron
+		// return null — the `!cron` guard must short-circuit before fetch.
+		await fireEvent.input(getInput(container, "briefing-time"), { target: { value: "" } });
+		await fireEvent.click(getByTestId("briefing-save"));
+
+		await waitFor(() =>
+			expect(container.querySelector('[data-testid="briefing-save-error"]')?.textContent).toContain(
+				"Pick a valid time of day.",
+			),
+		);
+		expect(fetchCalls.some((c) => c.method === "PUT")).toBe(false);
+	});
 });
 
 describe("BriefingSettings — run now", () => {
-	async function renderLoaded(runNow: () => Response) {
+	async function renderLoaded(runNow: () => Response | Promise<Response>) {
 		stubFetch({ config: { createdAt: "2026-06-01T00:00:00.000Z" }, runNow });
 		const utils = render(BriefingSettings, { projects: [] });
 		await waitFor(() =>
@@ -344,5 +387,70 @@ describe("BriefingSettings — run now", () => {
 				"kaboom",
 			),
 		);
+	});
+
+	test("network rejection surfaces the generic failure message and recovers", async () => {
+		const { container, getByTestId } = await renderLoaded(() => {
+			throw new Error("offline");
+		});
+		await fireEvent.click(getByTestId("briefing-run-now"));
+		await waitFor(() =>
+			expect(container.querySelector('[data-testid="briefing-run-now-message"]')?.textContent).toContain(
+				"Failed to start the briefing.",
+			),
+		);
+		expect((getByTestId("briefing-run-now") as HTMLButtonElement).disabled).toBe(false);
+	});
+
+	test("double-click while in flight fires exactly one POST (re-entrancy guard)", async () => {
+		let resolveRunNow!: (res: Response) => void;
+		const pending = new Promise<Response>((resolve) => {
+			resolveRunNow = resolve;
+		});
+		const { container, getByTestId } = await renderLoaded(() => pending);
+		const button = getByTestId("briefing-run-now") as HTMLButtonElement;
+
+		await fireEvent.click(button);
+		await waitFor(() => expect(button.textContent).toContain("Starting..."));
+		expect(button.disabled).toBe(true);
+
+		// Second click while the first POST is still in flight. fireEvent
+		// dispatches even on a disabled button (dispatchEvent bypasses the
+		// activation-behaviour suppression), so this exercises the
+		// `if (runNowBusy) return` guard, not just the disabled attribute.
+		await fireEvent.click(button);
+
+		resolveRunNow(new Response(JSON.stringify({ started: true }), { status: 202 }));
+		await waitFor(() =>
+			expect(container.querySelector('[data-testid="briefing-run-now-message"]')?.textContent).toContain(
+				"Briefing started",
+			),
+		);
+		expect(button.disabled).toBe(false);
+
+		const posts = fetchCalls.filter((c) => c.method === "POST" && c.url.includes("/api/briefing/run-now"));
+		expect(posts).toHaveLength(1);
+	});
+});
+
+describe("BriefingSettings — last-run status labels", () => {
+	test.each([
+		["error", "failed"],
+		["skipped", "skipped"],
+		// Unknown statuses (a future server enum value) fall back to the
+		// raw string instead of rendering "undefined".
+		["exploded", "exploded"],
+	])("lastFireStatus %s renders as %s", async (status, label) => {
+		stubFetch({
+			config: {
+				lastFireAt: "2026-06-11T07:00:00.000Z",
+				lastFireStatus: status,
+				createdAt: "2026-06-01T00:00:00.000Z",
+			},
+		});
+		const { getByTestId, container } = render(BriefingSettings, { projects: [] });
+		await waitFor(() => expect(container.querySelector('[data-testid="briefing-last-run"]')).not.toBeNull());
+		expect(getByTestId("briefing-last-run").textContent).toContain(`— ${label}`);
+		expect(getByTestId("briefing-last-run").textContent).toContain("Last run:");
 	});
 });

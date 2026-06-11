@@ -6,6 +6,9 @@
 	 * Hidden when:
 	 *   - the user dismissed it (localStorage, v1 persistence), or
 	 *   - the briefing is already enabled, or
+	 *   - the config carries a `createdAt` (a stored row exists — the user
+	 *     already configured the briefing and chose to disable it; don't
+	 *     re-nudge them), or
 	 *   - the config can't be confirmed as enabled === false (fail-closed:
 	 *     a failed/odd fetch never flashes the card).
 	 */
@@ -22,8 +25,11 @@
 	let dismissed = $state(typeof localStorage !== "undefined" ? loadDismissed() : true);
 	// `null` until the config check answers — the card never renders early.
 	let briefingEnabled = $state<boolean | null>(null);
+	// A stored config row exists (createdAt present) — the user already
+	// visited the settings and made a choice; never re-nudge them.
+	let previouslyConfigured = $state(false);
 
-	let visible = $derived(!dismissed && briefingEnabled === false);
+	let visible = $derived(!dismissed && briefingEnabled === false && !previouslyConfigured);
 
 	$effect(() => {
 		if (dismissed) return; // no fetch when it could never show
@@ -32,6 +38,7 @@
 			.then((config) => {
 				if (config && typeof config.enabled === "boolean") {
 					briefingEnabled = config.enabled;
+					previouslyConfigured = Boolean(config.createdAt);
 				}
 			})
 			.catch(() => {});

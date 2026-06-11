@@ -11,6 +11,9 @@
  *   4. Dismiss hides the card and persists to localStorage
  *   5. Fail-closed: failed fetch / non-boolean payloads (e.g. the e2e
  *      catch-all `{}`) never show the card
+ *   6. Hidden when the config carries a `createdAt` — a stored row means
+ *      the user already configured the briefing (then disabled it), so
+ *      they must not be re-nudged
  */
 
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
@@ -48,6 +51,19 @@ describe("BriefingNudge", () => {
 			"/settings/briefing",
 		);
 		expect(getByTestId("briefing-nudge-link").textContent).toContain("Set up your morning briefing");
+	});
+
+	test("hidden when the config carries createdAt (configured-then-disabled user)", async () => {
+		stubConfig(
+			() =>
+				new Response(
+					JSON.stringify({ enabled: false, createdAt: "2026-06-01T00:00:00.000Z" }),
+					{ status: 200 },
+				),
+		);
+		const { queryByTestId } = render(BriefingNudge);
+		await settle();
+		expect(queryByTestId("briefing-nudge")).toBeNull();
 	});
 
 	test("hidden when the briefing is already enabled", async () => {

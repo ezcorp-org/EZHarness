@@ -4,6 +4,7 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { getConversation } from "$server/db/queries/conversations";
 import { shouldDeliverEvent } from "$server/runtime/sse-conversation-filter";
+import { BUS_EVENTS } from "./bus-events";
 
 /**
  * Server-Sent Events (SSE) endpoint for the runtime event bus.
@@ -29,34 +30,9 @@ import { shouldDeliverEvent } from "$server/runtime/sse-conversation-filter";
  * check.
  */
 
-const BUS_EVENTS = [
-  "run:start", "run:status", "run:log", "run:complete", "run:error", "run:cancel",
-  "run:token", "run:usage", "run:turn_saved", "run:turn_text_reset",
-  "pipeline:start", "pipeline:step", "pipeline:complete", "pipeline:error",
-  "tool:start", "tool:complete", "tool:error", "tool:permission_request",
-  "agent:spawn", "agent:status", "agent:complete",
-  "task:snapshot", "task:assignment_update",
-  "ask-user:answer",
-  // Ez concierge client-side tool delivery (Phase 48 Wave 3). The
-  // runtime emits this when the LLM calls fill_form / navigate_to;
-  // EzPanel intercepts the event and dispatches the resolution to
-  // the page-registered handler / SvelteKit goto. Filtered per
-  // subscriber by conversationId via shouldDeliverEvent.
-  "ez:client-tool",
-  "ext:state",
-  // agent-install-ux-polish Phase 2 (D3): user-scoped live Library
-  // refresh signal. Subscribed here so the bus event reaches the SSE
-  // pipe; `shouldDeliverEvent`'s dedicated userId branch (fail-closed)
-  // enforces single-user delivery — it is NOT conversation-scoped.
-  "extensions:installed",
-  // /goal Phase 2 (FR-20, D7): conversation-scoped autopilot
-  // indicator. The goal-host emits this on every state transition
-  // (arm, evaluator update, pause, achieve, clear); the direct-carrier
-  // filter routes it per subscriber by the payload's top-level
-  // `conversationId`, so user A's chip never updates from user B's
-  // armed conversation.
-  "goal:update",
-] as const;
+// The subscribed event list lives in ./bus-events.ts — SvelteKit rejects
+// non-handler exports from +server.ts, and tests must be able to import
+// the real list to catch events that emit but never reach this pipe.
 
 export const GET: RequestHandler = async ({ locals, url }) => {
   const scopeErr = requireScope(locals, "read");

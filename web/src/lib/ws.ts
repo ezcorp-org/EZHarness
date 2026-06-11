@@ -30,13 +30,14 @@ export type WSRunEvent = {
 		// reaches the installing user's session.
 		| "extensions:installed"
 		// Daily Briefing Phase 2: server-initiated conversation delivery.
-		// Both are USER-scoped by the SSE filter (fail-closed), so an
-		// event arriving here already means "this user owns it". The
-		// global subscriber marks the conversation unread and re-dispatches
-		// `conversation:created` as a window CustomEvent so the sidebar
-		// ConversationList can live-refresh without a second EventSource.
-		| "conversation:created"
-		| "briefing:delivered";
+		// USER-scoped by the SSE filter (fail-closed), so an event arriving
+		// here already means "this user owns it". The global subscriber
+		// marks the conversation unread and re-dispatches it as a window
+		// CustomEvent so the sidebar ConversationList can live-refresh
+		// without a second EventSource. (`briefing:delivered` stays
+		// server-side only — backend bookkeeping/tests consume it, no
+		// client does, so it is intentionally NOT in this union.)
+		| "conversation:created";
 	data: Record<string, unknown>;
 };
 

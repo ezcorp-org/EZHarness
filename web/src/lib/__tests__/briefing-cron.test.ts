@@ -16,6 +16,13 @@ import {
 	PRESET_TO_DOW,
 	type WeekdayPreset,
 } from "../briefing-cron.js";
+// The REAL server-side validator (src/extensions/cron.ts) — the briefing
+// config API gates every PUT through it, so the UI builder and this
+// validator form a cross-module contract: a cron the pickers can write
+// must never be rejected server-side. Imported relatively because this
+// suite runs under `bun test`, which doesn't resolve SvelteKit's
+// `$server` alias.
+import { validateCron } from "../../../../src/extensions/cron.js";
 
 describe("buildBriefingCron", () => {
 	test("daily preset writes a wildcard day-of-week", () => {
@@ -88,6 +95,37 @@ describe("parseBriefingCron", () => {
 		expect(parseBriefingCron("0 7 * * * *")).toBeNull(); // 6 fields
 		expect(parseBriefingCron("")).toBeNull();
 		expect(parseBriefingCron(123 as unknown as string)).toBeNull();
+	});
+});
+
+describe("buildBriefingCron × validateCron cross-contract", () => {
+	test("every cron the UI can write passes server validation and round-trips losslessly", () => {
+		const presets: WeekdayPreset[] = ["daily", "weekdays", "weekends"];
+		const minutes = [0, 1, 5, 30, 59];
+		const pad = (n: number) => String(n).padStart(2, "0");
+
+		for (const preset of presets) {
+			for (let hour = 0; hour < 24; hour++) {
+				for (const minute of minutes) {
+					const time = `${pad(hour)}:${pad(minute)}`;
+					const cron = buildBriefingCron({ time, preset });
+					expect(cron).not.toBeNull();
+
+					// Server contract: validateCron (the briefing config API's
+					// gate) accepts it — including the 5-min-interval rule,
+					// which a literal minute+hour schedule must never trip.
+					const verdict = validateCron(cron!);
+					if (!verdict.ok) {
+						throw new Error(
+							`validateCron rejected UI-written cron '${cron}' (${time} ${preset}): ${verdict.reason}`,
+						);
+					}
+
+					// Lossless round-trip back through the strict parser.
+					expect(parseBriefingCron(cron!)).toEqual({ time, preset });
+				}
+			}
+		}
 	});
 });
 

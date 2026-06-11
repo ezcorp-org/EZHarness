@@ -8,9 +8,13 @@
 
 import { test, expect, describe, vi } from "vitest";
 
+const { busOn } = vi.hoisted(() => ({
+  busOn: vi.fn((_event: string, _handler: (data: unknown) => void) => () => undefined),
+}));
+
 vi.mock("$lib/server/context", () => ({
   getBus: () => ({
-    on: vi.fn(() => () => undefined),
+    on: busOn,
   }),
 }));
 vi.mock("$server/db/queries/conversations", () => ({
@@ -18,6 +22,7 @@ vi.mock("$server/db/queries/conversations", () => ({
 }));
 
 const { GET } = await import("../routes/api/runtime-events/+server");
+const { BUS_EVENTS } = await import("../routes/api/runtime-events/bus-events");
 
 function makeEvent(opts: {
   locals?: Record<string, unknown>;
@@ -75,5 +80,28 @@ describe("GET /api/runtime-events", () => {
     // Stream's start/cancel lifecycle is exercised in integration tests;
     // the bus is fully mocked here so no cleanup is needed.
     expect(res.body).toBeInstanceOf(ReadableStream);
+  });
+
+  // Regression net (Daily Briefing Phase 2 fix loop): the briefing runner
+  // emits `conversation:created` and the SSE filter authorizes it, but the
+  // endpoint only forwards events in BUS_EVENTS — Phase 2 shipped with the
+  // event missing from that array, so live delivery was dead in production
+  // while the e2e mock emitter kept the specs green. Pin both the array
+  // membership AND that the handler actually subscribes every listed event,
+  // so the next direct-carrier event can't silently miss the pipe.
+  test("BUS_EVENTS carries conversation:created and GET subscribes every listed event", async () => {
+    expect(BUS_EVENTS).toContain("conversation:created");
+
+    busOn.mockClear();
+    const res = await GET(makeEvent({ locals: authedUser }));
+    expect(res.status).toBe(200);
+
+    const subscribed = busOn.mock.calls.map((call) => call[0]);
+    expect(new Set(subscribed)).toEqual(new Set(BUS_EVENTS));
+    expect(subscribed).toContain("conversation:created");
+
+    // Tear the stream down so the heartbeat interval and bus
+    // subscriptions don't leak into other tests.
+    await res.body!.cancel();
   });
 });
