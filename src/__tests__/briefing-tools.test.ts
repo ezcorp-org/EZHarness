@@ -208,6 +208,20 @@ describe("get_conversation_summary", () => {
     expect((res.content[0] as { text: string }).text).toMatch(/conversationId is required/);
   });
 
+  test("total transcript is capped at 24k chars, keeping the END", async () => {
+    const convId = await insertConversation({ title: "Huge" });
+    for (let i = 0; i < 14; i++) {
+      await addMessage(convId, "user", `m${i}-${"y".repeat(1_990)}`);
+    }
+    const tool = createGetConversationSummaryTool(ctx());
+    const res = await tool.execute("tc", { conversationId: convId, maxMessages: 14 });
+    const details = res.details as { transcript: string };
+    expect(details.transcript.length).toBeLessThanOrEqual(24_001); // cap + leading ellipsis
+    expect(details.transcript.startsWith("…")).toBe(true);
+    expect(details.transcript).toContain("m13-"); // the end survives
+    expect(details.transcript).not.toContain("m0-"); // the start is dropped
+  });
+
   test("maxMessages keeps the TRAILING turns; long messages are truncated", async () => {
     const convId = await insertConversation({ title: "Long" });
     await addMessage(convId, "user", "first");

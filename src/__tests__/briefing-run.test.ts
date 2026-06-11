@@ -320,6 +320,23 @@ describe("runBriefingForUser", () => {
     expect(await getTestDb().select().from(conversations)).toHaveLength(0);
   });
 
+  test("a throwing cancelRun after timeout is swallowed (run still errors + cleans up)", async () => {
+    const executor = {
+      streamChat() { return new Promise(() => {}); },
+      cancelRun() { throw new Error("cancel exploded"); },
+    } as unknown as BriefingExecutor;
+    const bus = new EventBus<AgentEvents>();
+    const result = await runBriefingForUser(makeConfig(), {}, {
+      executor,
+      bus,
+      now: () => NOW,
+      runTimeoutMs: 20,
+    });
+    expect(result.status).toBe("error");
+    expect(result.error).toMatch(/timed out/);
+    expect(await getTestDb().select().from(conversations)).toHaveLength(0);
+  });
+
   test("a 'successful' run without assistant content is treated as an error + deleted", async () => {
     const { executor } = makeExecutor({ assistantContent: null, status: "success" });
     const bus = new EventBus<AgentEvents>();
@@ -377,6 +394,7 @@ describe("deleteBriefingConversationIfEmpty", () => {
     expect(await deleteBriefingConversationIfEmpty(full!.id)).toBe(false);
     expect(await getConversation(full!.id)).not.toBeNull();
   });
+
 });
 
 // ── notifyBriefingAutoDisabled ────────────────────────────────────
@@ -412,6 +430,19 @@ describe("notifyBriefingAutoDisabled", () => {
     // resolveDeps returns null → the notification still posts, it just
     // can't emit the bus event.
     await notifyBriefingAutoDisabled(makeConfig(), 5);
+    const rows = await getTestDb().select().from(conversations);
+    expect(rows).toHaveLength(1);
+  });
+
+  test("swallows a throwing bus emit (notification already persisted)", async () => {
+    const { executor } = makeExecutor({});
+    const bus = {
+      emit() { throw new Error("bus exploded"); },
+      on() { return () => {}; },
+      off() {},
+      clear() {},
+    } as never;
+    await notifyBriefingAutoDisabled(makeConfig(), 5, { executor, bus });
     const rows = await getTestDb().select().from(conversations);
     expect(rows).toHaveLength(1);
   });

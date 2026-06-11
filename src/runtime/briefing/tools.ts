@@ -214,10 +214,14 @@ export function createGetTaskSnapshotsTool(ctx: BriefingToolContext): BuiltinToo
 
         // Lazy import: the task-tracking host throws when the bundled
         // extension was never installed — degrade to a one-line note
-        // instead of erroring the briefing (spec §8).
+        // instead of erroring the briefing (spec §8). A broken module
+        // graph (failed import OR missing export) degrades the same way.
         let getSnapshot: typeof import("../task-tracking-host").getTaskSnapshotForConversation;
         try {
           ({ getTaskSnapshotForConversation: getSnapshot } = await import("../task-tracking-host"));
+          if (typeof getSnapshot !== "function") {
+            throw new Error("getTaskSnapshotForConversation export missing");
+          }
         } catch (e) {
           log.warn("task-tracking host unavailable", { error: String(e) });
           return ok({ unavailable: true, note: "Task tracking is unavailable on this host." });

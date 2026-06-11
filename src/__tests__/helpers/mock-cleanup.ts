@@ -121,6 +121,12 @@ const MODULE_PATHS = [
   "../../extensions/runtime/internal-host",
   "../../extensions/runtime/seccomp-loader",
   "../../extensions/schedule-daemon",
+  // Daily Briefing Phase 1: background-timers.test.ts stubs the
+  // BriefingDaemon class (start()/stop()) during the bootstrap-wiring
+  // suite so the real daemon (boot tick + setInterval) never runs
+  // there. Snapshot so restoreModuleMocks() re-registers the real
+  // class and the stub never leaks into briefing-daemon.test.ts.
+  "../../runtime/briefing/daemon",
   "../../extensions/host-maintenance-daemon",
   // Phase 64: background-timers.test.ts mocks this module to stub the
   // EmbedWorker class (start()/stop()) during the bootstrap-wiring suite, so

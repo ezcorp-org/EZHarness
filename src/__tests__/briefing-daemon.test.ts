@@ -253,6 +253,27 @@ describe("fire-result bookkeeping", () => {
     expect(next.claimed).toBe(0);
   });
 
+  test("the default onAutoDisable path (lazy notify import) is wired and fail-soft", async () => {
+    // No injected onAutoDisable → the daemon lazily imports
+    // notifyBriefingAutoDisabled. The config has no resolvable project
+    // (no projects exist), so the real notify logs + no-ops — proving
+    // the default wiring without an LLM.
+    await seedConfig({
+      userId: userIds[0]!,
+      nextFireAt: new Date("2026-06-10T07:00:00.000Z"),
+      consecutiveErrors: BRIEFING_AUTO_DISABLE_AFTER - 1,
+    });
+    const daemon = new BriefingDaemon({
+      now: () => NOW,
+      guardTimeoutMs: 5_000,
+      runPipeline: async () => ({ status: "error", error: "boom" }),
+    });
+    const tick = await daemon.tick();
+    await tick.settled; // must not reject
+    const row = await getBriefingConfig(userIds[0]!);
+    expect(row!.enabled).toBe(false);
+  });
+
   test("a throwing onAutoDisable is swallowed (disable already persisted)", async () => {
     await seedConfig({
       userId: userIds[0]!,

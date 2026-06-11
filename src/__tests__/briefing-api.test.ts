@@ -23,7 +23,12 @@ mock.module("$server/db/queries/briefing-configs", () => require("../db/queries/
 mock.module("$server/runtime/briefing/config-validation", () => require("../runtime/briefing/config-validation"));
 mock.module("$server/runtime/briefing/runtime-registry", () => require("../runtime/briefing/runtime-registry"));
 mock.module("$server/runtime/briefing/run", () => require("../runtime/briefing/run"));
-mock.module("$server/logger", () => require("../logger"));
+// In-file restore pattern for `$server/logger` (it has no served
+// top-level namespace in MODULE_PATHS): snapshot the real module,
+// register it, and re-register the SAME exports in afterAll — the
+// mock-cleanup coverage meta-test recognizes the ≥2-mocks form.
+const realLogger = require("../logger");
+mock.module("$server/logger", () => realLogger);
 mock.module("$lib/server/http-errors", () => require("../../web/src/lib/server/http-errors"));
 mock.module("$lib/server/security/api-keys", () => require("../../web/src/lib/server/security/api-keys"));
 mock.module("$lib/server/security/rate-limiter", () => require("../../web/src/lib/server/security/rate-limiter"));
@@ -89,6 +94,10 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
+  // Second registration of the in-file logger snapshot (see the
+  // module-level comment) — keeps the alias pointing at the real
+  // module for any subsequent file in the same process.
+  mock.module("$server/logger", () => realLogger);
   restoreModuleMocks();
   await closeTestDb();
 });
@@ -216,6 +225,21 @@ describe("PUT /api/briefing/config", () => {
     expect(data.nextFireAt).not.toBeNull();
     const row = await getBriefingConfig(userA.id);
     expect(row!.instructions).toBe("short + sharp");
+  });
+
+  test("400 when the merged state fails the upsert's defensive parse (legacy bad cron + partial update)", async () => {
+    // Bypass validation: insert a row with an unparseable stored cron,
+    // then PUT a partial update that doesn't touch cron — the merged
+    // recompute throws and the route folds it into a 400.
+    await getTestDb().insert(briefingConfigs).values({
+      userId: userA.id,
+      enabled: false,
+      cron: "totally not cron",
+      timezone: "UTC",
+    });
+    const res = await call(configPut, createMockEvent({ method: "PUT", body: { enabled: true }, user: userA }));
+    expect(res.status).toBe(400);
+    expect((await jsonFromResponse(res)).error).toMatch(/invalid cron/);
   });
 
   test("200 partial update preserves other fields", async () => {
