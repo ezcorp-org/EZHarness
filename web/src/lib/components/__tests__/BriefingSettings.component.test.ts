@@ -100,6 +100,17 @@ function stubFetch(opts: {
 					{ status: 200 },
 				);
 			}
+			// ModelSearchPicker loads its options on mount (real contract:
+			// GET /api/models returns ModelOption[]).
+			if (url.includes("/api/models") && method === "GET") {
+				return new Response(
+					JSON.stringify([
+						{ provider: "anthropic", model: "claude-fable-5", tier: "frontier", costTier: "high", displayName: "Fable 5", available: true },
+						{ provider: "openai", model: "gpt-5.5", tier: "frontier", costTier: "high", displayName: "GPT-5.5", available: true },
+					]),
+					{ status: 200 },
+				);
+			}
 			return new Response("{}", { status: 200 });
 		}),
 	);
@@ -150,8 +161,11 @@ describe("BriefingSettings — load", () => {
 		expect(getInput(container, "briefing-timezone").value).toBe("Europe/Berlin");
 		expect((getByTestId("briefing-project") as HTMLSelectElement).value).toBe("proj-b");
 		expect((getByTestId("briefing-instructions") as HTMLTextAreaElement).value).toBe("Work stuff only.");
-		expect(getInput(container, "briefing-model").value).toBe("claude-fable-5");
-		expect(getInput(container, "briefing-provider").value).toBe("anthropic");
+		// Stored override renders as the standard picker's selected pill
+		// (display name resolved from /api/models).
+		await waitFor(() =>
+			expect(getByTestId("briefing-model").textContent).toContain("Fable 5"),
+		);
 		expect(getByTestId("briefing-last-run").textContent).toContain("delivered");
 	});
 
@@ -209,7 +223,6 @@ describe("BriefingSettings — save", () => {
 		await fireEvent.input(getInput(container, "briefing-time"), { target: { value: "06:15" } });
 		await fireEvent.change(getByTestId("briefing-preset"), { target: { value: "weekends" } });
 		await fireEvent.input(getByTestId("briefing-instructions"), { target: { value: "Short and sweet" } });
-		await fireEvent.input(getInput(container, "briefing-model"), { target: { value: "   " } });
 		await fireEvent.click(getByTestId("briefing-save"));
 
 		await waitFor(() => expect(container.querySelector('[data-testid="briefing-save-success"]')).not.toBeNull());
@@ -224,6 +237,50 @@ describe("BriefingSettings — save", () => {
 		});
 		// Watchlist is Phase 3 — a Phase 2 save must NOT clobber it.
 		expect(put?.body).not.toHaveProperty("watchlist");
+	});
+
+	test("model override: picking from the standard picker sends model+provider; clearing the pill nulls both", async () => {
+		stubFetch({ config: { createdAt: "2026-06-01T00:00:00.000Z" } });
+		const { container, getByTestId } = render(BriefingSettings, { projects: [] });
+		await waitFor(() => expect(container.querySelector('[data-testid="briefing-save"]')).not.toBeNull());
+
+		// Open the standard ModelSearchPicker and choose GPT-5.5
+		// (options come from the /api/models stub — the real contract).
+		const search = getInput(container, "open-model-search-picker");
+		await fireEvent.focus(search);
+		const option = await waitFor(() => {
+			const btn = Array.from(container.querySelectorAll('#model-picker-listbox button')).find(
+				(b) => b.textContent?.includes("GPT-5.5"),
+			);
+			expect(btn).toBeTruthy();
+			return btn!;
+		});
+		await fireEvent.mouseDown(option);
+		await waitFor(() => expect(getByTestId("briefing-model").textContent).toContain("GPT-5.5"));
+
+		await fireEvent.click(getByTestId("briefing-save"));
+		await waitFor(() => expect(fetchCalls.some((c) => c.method === "PUT")).toBe(true));
+		expect(fetchCalls.find((c) => c.method === "PUT")?.body).toMatchObject({
+			model: "gpt-5.5",
+			provider: "openai",
+		});
+
+		// Clear via the pill's × → the next save nulls the override.
+		// SelectedPill removes on MOUSEDOWN, not click (see the
+		// modes-extensions e2e lesson) — fireEvent.click never fires it.
+		const removeBtn = await waitFor(() => {
+			const btn = getByTestId("briefing-model").querySelector("button[aria-label^='Remove']");
+			expect(btn).toBeTruthy();
+			return btn as HTMLButtonElement;
+		});
+		await fireEvent.mouseDown(removeBtn);
+		fetchCalls = [];
+		await fireEvent.click(getByTestId("briefing-save"));
+		await waitFor(() => expect(fetchCalls.some((c) => c.method === "PUT")).toBe(true));
+		expect(fetchCalls.find((c) => c.method === "PUT")?.body).toMatchObject({
+			model: null,
+			provider: null,
+		});
 	});
 
 	test("a raw (hand-edited) cron is sent back unchanged on save", async () => {
