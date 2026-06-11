@@ -307,6 +307,31 @@ export interface AgentEvents {
     extensionId: string;
     name: string;
   };
+  /**
+   * Daily Briefing Phase 1: a server-initiated conversation was created
+   * on the user's behalf (the briefing pipeline today; any future
+   * server-side creator can reuse it via `source`). USER-scoped like
+   * `extensions:installed` — the SSE filter delivers it ONLY to the
+   * owning `userId` and FAILS CLOSED on a missing/mismatched id, so a
+   * briefing landing in user A's sidebar can never ping user B.
+   * Phase 2 wires the client: sidebar live-insert + unread mark.
+   */
+  "conversation:created": {
+    conversationId: string;
+    projectId: string;
+    userId: string;
+    source: "briefing" | (string & {});
+  };
+  /**
+   * Daily Briefing Phase 1: a briefing run finished successfully and
+   * its conversation carries real assistant content. Same fail-closed
+   * per-user SSE scoping as `conversation:created`.
+   */
+  "briefing:delivered": {
+    userId: string;
+    conversationId: string;
+    projectId: string;
+  };
   "obs:turn": { conversationId: string; messageId?: string; llmDurationMs: number; toolDurationMs: number; totalDurationMs: number; tokenUsage: { input: number; output: number } };
   "run:turn_saved": { runId: string; conversationId: string; messageId: string; parentMessageId: string | null; content: string; thinkingContent?: string; final: boolean };
   "run:turn_text_reset": { runId: string };

@@ -1,6 +1,8 @@
 import { loadAgents } from "$server/runtime/loader";
 import { EventBus } from "$server/runtime/events";
 import { registerPreviewBus } from "$server/runtime/preview/preview-bus-registry";
+import { registerBriefingRuntime } from "$server/runtime/briefing/runtime-registry";
+import { ensureBriefingAgentConfig } from "$server/runtime/briefing/agent-config";
 import { AgentExecutor } from "$server/runtime/executor";
 import { PipelineExecutor } from "$server/runtime/pipeline-executor";
 import { loadYamlPipelines } from "$server/runtime/pipeline-loader";
@@ -138,6 +140,20 @@ export async function ensureInitialized(): Promise<void> {
   registerPreviewBus(bus);
   executor = new AgentExecutor(agents, bus, { persist: true });
   pipelineExecutor = new PipelineExecutor(executor, bus);
+  // Daily Briefing Phase 1: the BriefingDaemon (started later via
+  // startBackgroundTimers in hooks.server.ts) and the run-now route live
+  // in src/ and cannot import this web-layer executor/bus directly —
+  // register them in the briefing runtime registry (same indirection as
+  // registerPreviewBus above). The shared system "Daily Briefing" agent
+  // config is bootstrapped idempotently here, mirroring
+  // ensureBundledExtensions; failure degrades the briefing feature but
+  // must never block boot.
+  registerBriefingRuntime({ executor, bus });
+  try {
+    await ensureBriefingAgentConfig();
+  } catch (briefingBootErr) {
+    console.warn("briefing agent bootstrap failed; daily briefing degraded", briefingBootErr);
+  }
   // Teardown order matters here: the executor owns the watchdog interval
   // + in-flight tool runs; it must stop BEFORE the dispatchers it can
   // emit events on, and BEFORE the registry that owns its extension

@@ -29,11 +29,12 @@ beforeEach(() => __clearMembershipCacheForTests());
 afterEach(() => __clearMembershipCacheForTests());
 
 describe("DIRECT_CARRIER_EVENT_TYPES", () => {
-  test("enumerates the direct-carrier event types (13 from prereqs audit + ask-user:answer + ez:client-tool + extensions:installed + goal:update; Phase 5's orchestrator:human_* removed by ask-user migration)", () => {
-    // 16 entries: 13 from the prereqs audit + ez:client-tool (Phase 48
+  test("enumerates the direct-carrier event types (13 from prereqs audit + ask-user:answer + ez:client-tool + extensions:installed + goal:update + the two briefing events; Phase 5's orchestrator:human_* removed by ask-user migration)", () => {
+    // 18 entries: 13 from the prereqs audit + ez:client-tool (Phase 48
     // Wave 3) + extensions:installed (agent-install-ux-polish Phase 2)
-    // + goal:update (/goal Phase 2, FR-20).
-    expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(16);
+    // + goal:update (/goal Phase 2, FR-20) + conversation:created +
+    // briefing:delivered (Daily Briefing Phase 1).
+    expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(18);
     for (const name of [
       "run:complete", "run:error", "run:cancel", "run:turn_saved",
       "tool:start", "tool:complete", "tool:error",
@@ -43,6 +44,8 @@ describe("DIRECT_CARRIER_EVENT_TYPES", () => {
       "task:snapshot", "task:assignment_update",
       "extensions:installed",
       "goal:update",
+      "conversation:created",
+      "briefing:delivered",
     ]) {
       expect(DIRECT_CARRIER_EVENT_TYPES.has(name as never)).toBe(true);
     }
@@ -400,6 +403,64 @@ describe("shouldDeliverEvent — extensions:installed (user-scoped, fail-closed)
   test("is a recognized direct-carrier event", () => {
     expect(isDirectCarrierEvent("extensions:installed")).toBe(true);
   });
+});
+
+// ── Daily Briefing Phase 1: user-scoped delivery signals ────────────
+//
+// `conversation:created` + `briefing:delivered` carry BOTH a userId
+// and a conversationId, but delivery is gated on the userId branch
+// ONLY (fail-closed) — the conversation-ownership check fails OPEN on
+// DB errors, which is unacceptable for a cross-user briefing leak.
+// The throwing fake proves the branch short-circuits before any
+// conversation lookup despite the payload carrying a conversationId.
+
+describe("shouldDeliverEvent — briefing events (user-scoped, fail-closed)", () => {
+  const neverCalled = async (): Promise<FakeRow> => {
+    throw new Error("getConversation must not be called for briefing events");
+  };
+  const payload = {
+    userId: "user-1",
+    conversationId: "conv-brief",
+    projectId: "proj-1",
+    source: "briefing",
+  };
+
+  for (const eventType of ["conversation:created", "briefing:delivered"] as const) {
+    test(`${eventType}: delivered to the owning user's own session`, async () => {
+      const deliver = await shouldDeliverEvent(eventType, payload, { userId: "user-1" }, neverCalled);
+      expect(deliver).toBe(true);
+    });
+
+    test(`${eventType}: user B never receives user A's event`, async () => {
+      const deliver = await shouldDeliverEvent(eventType, payload, { userId: "user-B" }, neverCalled);
+      expect(deliver).toBe(false);
+    });
+
+    test(`${eventType}: absent userId → dropped (fail-closed, never broadcast)`, async () => {
+      const { userId: _drop, ...withoutUser } = payload;
+      const deliver = await shouldDeliverEvent(eventType, withoutUser, { userId: "user-1" }, neverCalled);
+      expect(deliver).toBe(false);
+    });
+
+    test(`${eventType}: empty-string userId → dropped (fail-closed)`, async () => {
+      const deliver = await shouldDeliverEvent(eventType, { ...payload, userId: "" }, { userId: "user-1" }, neverCalled);
+      expect(deliver).toBe(false);
+    });
+
+    test(`${eventType}: non-string userId → dropped (fail-closed)`, async () => {
+      const deliver = await shouldDeliverEvent(
+        eventType,
+        { ...payload, userId: 42 as unknown as string },
+        { userId: "user-1" },
+        neverCalled,
+      );
+      expect(deliver).toBe(false);
+    });
+
+    test(`${eventType}: is a recognized direct-carrier event`, () => {
+      expect(isDirectCarrierEvent(eventType)).toBe(true);
+    });
+  }
 });
 
 // ── Phase A2: extension-declared event registry ─────────────────────

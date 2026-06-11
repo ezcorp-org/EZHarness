@@ -1,4 +1,4 @@
-import { eq, desc, asc, sql, and, or, isNull, inArray, notInArray } from "drizzle-orm";
+import { eq, ne, desc, asc, sql, and, or, isNull, inArray, notInArray } from "drizzle-orm";
 import { getDb } from "../connection";
 import { conversations, messages, toolCalls, runs, conversationExtensions } from "../schema";
 import { listAttachmentsForMessages } from "./attachments";
@@ -190,6 +190,56 @@ export async function listConversations(
   if (options?.offset !== undefined) query.offset(options.offset);
 
   return query;
+}
+
+/**
+ * Daily Briefing Phase 1 — the user's recent conversations across ALL
+ * projects, for the briefing agent's `list_recent_conversations` tool.
+ *
+ * Sibling of `listConversations` (which is project-scoped — the
+ * briefing mines the user's whole history, so it needs a user-scoped
+ * variant). Shares the same hygiene filters (no test rows, no
+ * sub-conversations) and adds the briefing-specific exclusions:
+ *
+ *   - `kind = 'regular'` only — the Ez concierge thread is noise.
+ *   - `excludeAgentConfigId` — filters out PRIOR BRIEFINGS (locked
+ *     decision §6.6: without this, day 3's "unfinished business"
+ *     becomes recursive briefing soup).
+ *   - `excludeConversationId` — the in-flight briefing conversation
+ *     itself.
+ */
+export async function listRecentConversationsForUser(
+  userId: string,
+  options?: {
+    excludeAgentConfigId?: string | null;
+    excludeConversationId?: string;
+    limit?: number;
+  },
+): Promise<Conversation[]> {
+  if (!userId) throw new Error("userId is required");
+  const conditions = [
+    eq(conversations.userId, userId),
+    or(eq(conversations.test, false), isNull(conversations.test)),
+    isNull(conversations.parentConversationId),
+    eq(conversations.kind, "regular"),
+  ];
+  if (options?.excludeAgentConfigId) {
+    conditions.push(
+      or(
+        isNull(conversations.agentConfigId),
+        ne(conversations.agentConfigId, options.excludeAgentConfigId),
+      ),
+    );
+  }
+  if (options?.excludeConversationId) {
+    conditions.push(ne(conversations.id, options.excludeConversationId));
+  }
+  return getDb()
+    .select()
+    .from(conversations)
+    .where(and(...conditions))
+    .orderBy(desc(conversations.updatedAt))
+    .limit(options?.limit ?? 10);
 }
 
 export async function getTestConversations(agentConfigId: string): Promise<Conversation[]> {

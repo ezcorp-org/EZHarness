@@ -74,6 +74,13 @@ export const DIRECT_CARRIER_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
   // evaluator update, pause, achieve, clear). Direct-carrier handling
   // guarantees user A's goal state never leaks into user B's chip.
   "goal:update",
+  // Daily Briefing Phase 1: server-initiated conversation creation +
+  // delivery signals. Both carry an explicit owning `userId` and are
+  // handled by a dedicated FAIL-CLOSED userId branch in
+  // `shouldDeliverEvent` (mirrors `extensions:installed`) — user B
+  // must never receive user A's briefing event.
+  "conversation:created",
+  "briefing:delivered",
 ]);
 
 // ── Extension-declared event registry ───────────────────────────────
@@ -308,6 +315,22 @@ export async function shouldDeliverEvent(
   // `ctx.userId`; an absent one means a forged / malformed event and
   // is correctly dropped.
   if (eventType === "extensions:installed") {
+    const eventUserId = (payload as { userId?: unknown } | null | undefined)?.userId;
+    return (
+      typeof eventUserId === "string" &&
+      eventUserId.length > 0 &&
+      eventUserId === subscriber.userId
+    );
+  }
+
+  // Daily Briefing Phase 1: `conversation:created` + `briefing:delivered`
+  // are USER-scoped delivery signals. They DO carry a `conversationId`,
+  // but the conversation is brand-new — no subscriber has it as their
+  // active conversation yet, and the userId match is both stricter and
+  // cheaper than the DB-backed conversation-ownership check (which
+  // fails OPEN on DB errors — unacceptable for a cross-user briefing
+  // leak). FAIL CLOSED: missing / empty / mismatched userId → dropped.
+  if (eventType === "conversation:created" || eventType === "briefing:delivered") {
     const eventUserId = (payload as { userId?: unknown } | null | undefined)?.userId;
     return (
       typeof eventUserId === "string" &&

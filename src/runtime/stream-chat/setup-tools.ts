@@ -405,6 +405,36 @@ export async function setupTools(
             });
           }
         }
+
+        // Daily Briefing Phase 1: wire the briefing read tools for any
+        // conversation attached to the system "Daily Briefing" agent
+        // config — the scheduled run AND the user's follow-up turns in
+        // the delivered conversation ("pick that back up" keeps full
+        // tool access). Mirrors the Ez wire-pattern above: inject
+        // BEFORE the allowlist filter runs; fail-soft (a wire failure
+        // degrades to a tool-less briefing turn, never a 500). The
+        // lookup-only `getBriefingAgentConfigId` never CREATES the
+        // agent row — bootstrap happens at web init.
+        try {
+          if (convRecord?.agentConfigId && convRecord.userId) {
+            const { getBriefingAgentConfigId } = await import("../briefing/agent-config");
+            const briefingAgentId = await getBriefingAgentConfigId();
+            if (briefingAgentId && convRecord.agentConfigId === briefingAgentId) {
+              const { wireBriefingToolsForTurn } = await import("../briefing/tools");
+              wireBriefingToolsForTurn({
+                agentTools: ctx.agentTools,
+                builtinToolDefsMap: ctx.builtinToolDefsMap,
+                conversationId,
+                userId: convRecord.userId,
+                briefingAgentConfigId: briefingAgentId,
+              });
+            }
+          }
+        } catch (briefingWireErr) {
+          log.warn("Briefing tools wire failed — briefing tools unavailable this turn", {
+            error: String(briefingWireErr),
+          });
+        }
         await wireMentionedExtensions(conversationId, userMessage, options.parentMessageId ?? run.id);
         const convExtIds = await getConversationExtensionIds(conversationId);
         if (convExtIds.length > 0) {
