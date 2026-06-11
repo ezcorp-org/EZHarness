@@ -4,8 +4,7 @@
 	import ProviderIcon from "$lib/components/ProviderIcon.svelte";
 	import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
 	import { PROVIDER_META } from "$lib/provider-meta.js";
-
-	type CustomModelEntry = { modelId: string; provider: string; tier: string; baseUrl?: string };
+	import { partitionCustomModels, type CustomModelEntry } from "$lib/settings-models.js";
 
 	let {
 		customModels = $bindable(),
@@ -26,7 +25,9 @@
 	let savingOllamaUrl = $state(false);
 	let savingCustom = $state(false);
 
-	const ollamaCustomModels = $derived(customModels.filter((m) => m.provider === "ollama"));
+	// Locked decision 6 — ollama entries render ONLY here; the Custom
+	// Models registry shows the complementary partition.
+	const ollamaCustomModels = $derived(partitionCustomModels(customModels).ollama);
 	const ollamaConnected = $derived(ollamaCustomModels.length > 0);
 
 	function getStatusDotColor(p: ProviderStatus): string {

@@ -2,10 +2,15 @@
 	import { upsertSetting, testLocalModelConnection, listLocalModels, type LocalModelCheckResult, type LocalModelListEntry } from "$lib/api.js";
 	import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
 	import { PROVIDER_META } from "$lib/provider-meta.js";
-
-	type CustomModelEntry = { modelId: string; provider: string; tier: string; baseUrl?: string };
+	import { partitionCustomModels, type CustomModelEntry } from "$lib/settings-models.js";
 
 	let { customModels = $bindable() }: { customModels: CustomModelEntry[] } = $props();
+
+	// Locked decision 6 — ollama-provider entries are managed in the
+	// Ollama provider card; this registry renders the rest so no model
+	// id appears twice on the merged /settings/models page.
+	const registryModels = $derived(partitionCustomModels(customModels).registry);
+	const hiddenOllamaCount = $derived(customModels.length - registryModels.length);
 
 	const TIERS = ["fast", "balanced", "powerful"] as const;
 	const PROVIDERS = ["anthropic", "openai", "google", "ollama"] as const;
@@ -92,9 +97,15 @@
 	tooltip="Register model IDs that aren't in the built-in registry. You must specify which provider serves the model and which tier it belongs to. Custom models appear alongside built-in models in the model selector and follow the same routing rules."
 	description="Add model IDs not in the default registry."
 >
-	{#if customModels.length > 0}
+	{#if hiddenOllamaCount > 0}
+		<p class="mb-3 text-xs text-[var(--color-text-muted)]" data-testid="ollama-managed-note">
+			{hiddenOllamaCount} Ollama model{hiddenOllamaCount === 1 ? " is" : "s are"} managed in the Ollama provider card above.
+		</p>
+	{/if}
+
+	{#if registryModels.length > 0}
 		<div class="mb-4 space-y-2">
-			{#each customModels as cm}
+			{#each registryModels as cm}
 				<div class="flex items-center gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2">
 					<span class="flex-1 text-sm text-[var(--color-text-primary)] truncate">{cm.modelId}</span>
 					<span class="text-xs text-[var(--color-text-secondary)]">{cm.provider}</span>

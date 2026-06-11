@@ -6,8 +6,7 @@
 	import PreferenceOrderSection from "$lib/components/settings/PreferenceOrderSection.svelte";
 	import CustomModelsSection from "$lib/components/settings/CustomModelsSection.svelte";
 	import { scrollToLocationHash } from "$lib/scroll-to-hash.js";
-
-	type CustomModelEntry = { modelId: string; provider: string; tier: string; baseUrl?: string };
+	import type { CustomModelEntry } from "$lib/settings-models.js";
 
 	let pageLoading = $state(true);
 	let defaultTier = $state<string>("balanced");
