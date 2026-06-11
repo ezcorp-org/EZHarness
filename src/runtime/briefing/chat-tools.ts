@@ -1,7 +1,7 @@
 /**
  * Daily Briefing — conversational subscribe tools (Phase 3, spec §5.5).
  *
- * Three host-side tools wired into NORMAL conversations (never the
+ * Host-side tools wired into NORMAL conversations (never the
  * briefing run itself — see setup-tools' gate), so "keep an eye on the
  * Bun 2.0 release for me" lands in the watchlist mid-chat:
  *
@@ -11,6 +11,11 @@
  *     days preset, timezone, instructions) mapped to cron via the SAME
  *     pure module the settings UI uses (web/src/lib/briefing-cron —
  *     direct src→web/src/lib import, the mention-logic convention).
+ *   - `briefing_status()`        — read-only: schedule, last/next fire,
+ *     watchlist, recent briefing conversations. Added after a live
+ *     transcript showed "what's the latest on my briefings?" had no
+ *     affordance — the model flailed through the task-tracking agent
+ *     registry hunting for a "Daily Briefing" agent.
  *
  * Every write is user-scoped (userId resolved from the conversation
  * row), funnels through `validateBriefingConfigInput` (shape/caps/
@@ -45,6 +50,8 @@ import {
   type BriefingSchedule,
   type WeekdayPreset,
 } from "../../../web/src/lib/briefing-cron";
+import { getBriefingAgentConfigId } from "./agent-config";
+import { listRecentConversationsForUser } from "../../db/queries/conversations";
 import { logger } from "../../logger";
 
 const log = logger.child("briefing.chat-tools");
@@ -53,6 +60,7 @@ export const BRIEFING_CHAT_TOOL_NAMES = [
   "briefing_watch",
   "briefing_unwatch",
   "configure_briefing",
+  "briefing_status",
 ] as const;
 
 const MANAGE_HINT = "manage it in Settings → Briefing";
@@ -283,6 +291,92 @@ export function createConfigureBriefingTool(ctx: BriefingChatToolContext): Built
   };
 }
 
+/** Mirrors the settings UI's STATUS_LABELS — keep the wording aligned. */
+const FIRE_STATUS_LABELS: Record<string, string> = {
+  ok: "delivered",
+  error: "failed",
+  skipped: "skipped",
+};
+
+const MAX_STATUS_BRIEFINGS = 5;
+
+export function createBriefingStatusTool(ctx: BriefingChatToolContext): BuiltinToolDef {
+  return {
+    name: "briefing_status",
+    label: "briefing_status",
+    description:
+      "Read-only status of the user's Daily Briefing: whether it's enabled, the schedule, last/next delivery, the watchlist, and their most recent briefing conversations (by title). Use when the user asks about their briefing(s) — \"what's the latest on my briefings\", \"when is my next briefing\", \"what am I watching\".",
+    category: "read",
+    cardType: "default",
+    parameters: Type.Unsafe({ type: "object", properties: {} }),
+    execute: async (_toolCallId, _params: unknown) => {
+      try {
+        const config = await getBriefingConfig(ctx.userId);
+        if (!config) {
+          return ok(
+            `The daily briefing isn't set up yet. Offer to set it up — configure_briefing can enable it with a delivery time, or the user can use Settings → Briefing.`,
+            { configured: false },
+          );
+        }
+
+        const lines: string[] = [];
+        const scheduleDesc = describeBriefingCron(config.cron) ?? `cron "${config.cron}"`;
+        lines.push(
+          `Daily briefing is ${config.enabled ? "enabled" : "disabled"} — ${scheduleDesc}, timezone ${config.timezone}.`,
+        );
+        if (config.lastFireAt) {
+          const label = FIRE_STATUS_LABELS[config.lastFireStatus ?? ""] ?? config.lastFireStatus ?? "unknown";
+          lines.push(`Last run: ${label} at ${config.lastFireAt.toISOString()}.`);
+        } else {
+          lines.push("No briefing has run yet.");
+        }
+        if (config.enabled && config.nextFireAt) {
+          lines.push(`Next run: ${config.nextFireAt.toISOString()}.`);
+        }
+        const watchlist = config.watchlist ?? [];
+        lines.push(
+          watchlist.length === 0
+            ? "Watchlist: empty."
+            : `Watchlist: ${watchlist.map((w) => `"${w.topic}"`).join(", ")}.`,
+        );
+
+        let briefings: Array<{ id: string; title: string; updatedAt: string }> = [];
+        const agentConfigId = await getBriefingAgentConfigId();
+        if (agentConfigId) {
+          const recent = await listRecentConversationsForUser(ctx.userId, {
+            onlyAgentConfigId: agentConfigId,
+            limit: MAX_STATUS_BRIEFINGS,
+          });
+          briefings = recent.map((c) => ({
+            id: c.id,
+            title: c.title ?? "Daily Briefing",
+            updatedAt: c.updatedAt.toISOString(),
+          }));
+        }
+        lines.push(
+          briefings.length === 0
+            ? "No briefing conversations yet."
+            : `Recent briefings: ${briefings.map((b) => `"${b.title}" (${b.updatedAt.slice(0, 10)})`).join(", ")}.`,
+        );
+
+        return ok(lines.join("\n"), {
+          configured: true,
+          enabled: config.enabled,
+          cron: config.cron,
+          timezone: config.timezone,
+          lastFireAt: config.lastFireAt?.toISOString() ?? null,
+          lastFireStatus: config.lastFireStatus ?? null,
+          nextFireAt: config.nextFireAt?.toISOString() ?? null,
+          watchlist: watchlist.map((w) => w.topic),
+          briefings,
+        });
+      } catch (e) {
+        return err((e as Error)?.message ?? String(e));
+      }
+    },
+  };
+}
+
 export interface WireBriefingChatToolsParams {
   /** Per-turn agentTools array (mutated in place). */
   agentTools: AgentTool[];
@@ -305,6 +399,7 @@ export function wireBriefingChatToolsForTurn(params: WireBriefingChatToolsParams
     createBriefingWatchTool(ctx),
     createBriefingUnwatchTool(ctx),
     createConfigureBriefingTool(ctx),
+    createBriefingStatusTool(ctx),
   ];
 
   const existingNames = new Set(agentTools.map((t) => t.name));

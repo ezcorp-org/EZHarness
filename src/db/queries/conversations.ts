@@ -207,12 +207,16 @@ export async function listConversations(
  *     becomes recursive briefing soup).
  *   - `excludeConversationId` — the in-flight briefing conversation
  *     itself.
+ *   - `onlyAgentConfigId` — the INVERSE filter: only conversations run
+ *     by the given agent config. Used by `briefing_status` to list the
+ *     user's recent briefing conversations.
  */
 export async function listRecentConversationsForUser(
   userId: string,
   options?: {
     excludeAgentConfigId?: string | null;
     excludeConversationId?: string;
+    onlyAgentConfigId?: string;
     limit?: number;
   },
 ): Promise<Conversation[]> {
@@ -223,6 +227,9 @@ export async function listRecentConversationsForUser(
     isNull(conversations.parentConversationId),
     eq(conversations.kind, "regular"),
   ];
+  if (options?.onlyAgentConfigId) {
+    conditions.push(eq(conversations.agentConfigId, options.onlyAgentConfigId));
+  }
   if (options?.excludeAgentConfigId) {
     conditions.push(
       or(

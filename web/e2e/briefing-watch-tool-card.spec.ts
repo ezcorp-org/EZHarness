@@ -144,4 +144,28 @@ test.describe("briefing chat-tool confirmation card", () => {
 			page.getByText(/Removed "Bun 2\.0 release" from your briefing watchlist/),
 		).toBeVisible();
 	});
+
+	test("briefing_status renders the multi-line status readout", async ({
+		page,
+		mockApi,
+		emitSse,
+	}) => {
+		await streamToolCall(page, mockApi, emitSse, {
+			toolName: "briefing_status",
+			input: {},
+			output: [
+				"Daily briefing is enabled — Weekdays at 07:00, timezone Europe/Berlin.",
+				"Last run: delivered at 2026-06-11T07:00:00.000Z.",
+				"Next run: 2026-06-12T07:00:00.000Z.",
+				'Watchlist: "Bun 2.0 release".',
+				'Recent briefings: "Daily Briefing — Thu, Jun 11" (2026-06-11).',
+			].join("\n"),
+		});
+
+		const toolName = page.getByText("briefing_status").first();
+		await expect(toolName).toBeVisible();
+		await toolName.locator("xpath=ancestor::button[1]").click();
+		await expect(page.getByText(/Daily briefing is enabled — Weekdays at 07:00/)).toBeVisible();
+		await expect(page.getByText(/Recent briefings: "Daily Briefing — Thu, Jun 11"/)).toBeVisible();
+	});
 });

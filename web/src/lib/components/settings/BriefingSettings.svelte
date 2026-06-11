@@ -9,6 +9,8 @@
 		type WeekdayPreset,
 	} from "$lib/briefing-cron.js";
 	import { relativeTime } from "$lib/utils/relative-time.js";
+	import ModelSearchPicker from "$lib/components/ModelSearchPicker.svelte";
+	import { CURRENT_MODEL_SENTINEL } from "$lib/api";
 
 	/**
 	 * Daily Briefing settings (spec §5.4). Talks to GET/PUT
@@ -67,8 +69,11 @@
 	let timezone = $state("UTC");
 	let projectId = $state<string>("");
 	let instructions = $state("");
-	let model = $state("");
-	let provider = $state("");
+	// Model override — null means "instance default". Uses the app-wide
+	// ModelSearchPicker (same component as AgentConfigForm / ChatInput);
+	// the picker's "Current Chat Model" sentinel has no meaning for a
+	// scheduled run, so selecting it maps back to null here.
+	let selectedModel = $state<{ provider: string; model: string } | null>(null);
 
 	// Watchlist manager state. `watchlistDirty` gates whether the PUT
 	// body carries the watchlist at all — an untouched save omits it so
@@ -135,8 +140,10 @@
 		watchlistSnapshot = config.watchlist ?? [];
 		watchlistDirty = false;
 		watchlistError = null;
-		model = config.model ?? "";
-		provider = config.provider ?? "";
+		selectedModel =
+			config.model && config.provider
+				? { provider: config.provider, model: config.model }
+				: null;
 		lastFireAt = config.lastFireAt;
 		lastFireStatus = config.lastFireStatus;
 
@@ -284,8 +291,8 @@
 					projectId: projectId || null,
 					instructions,
 					...(mergedWatchlist !== null ? { watchlist: mergedWatchlist } : {}),
-					model: model.trim() || null,
-					provider: provider.trim() || null,
+					model: selectedModel?.model ?? null,
+					provider: selectedModel?.provider ?? null,
 				}),
 			});
 			const body = await res.json().catch(() => ({}));
@@ -549,28 +556,20 @@
 				{/if}
 			</div>
 
-			<!-- Model / provider override -->
-			<div class="flex flex-wrap gap-3">
-				<label class="flex flex-col gap-1">
-					<span class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Model override (optional)</span>
-					<input
-						type="text"
-						bind:value={model}
-						data-testid="briefing-model"
-						placeholder="Instance default"
-						class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
-					/>
-				</label>
-				<label class="flex flex-col gap-1">
-					<span class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Provider override (optional)</span>
-					<input
-						type="text"
-						bind:value={provider}
-						data-testid="briefing-provider"
-						placeholder="Instance default"
-						class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
-					/>
-				</label>
+			<!-- Model override — the app-standard model picker -->
+			<div class="flex max-w-md flex-col gap-1" data-testid="briefing-model">
+				<span class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Model override (optional)</span>
+				<ModelSearchPicker
+					selected={selectedModel}
+					placeholder="Search models... (instance default)"
+					onselect={(provider, model) => {
+						selectedModel =
+							provider === CURRENT_MODEL_SENTINEL ? null : { provider, model };
+					}}
+					onclear={() => {
+						selectedModel = null;
+					}}
+				/>
 			</div>
 
 			<!-- Actions -->
