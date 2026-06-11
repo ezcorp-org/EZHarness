@@ -41,7 +41,8 @@ mapfile -t FILES < <({
     web/src/lib/search/__tests__/palette-results.test.ts \
     web/src/lib/__tests__/diff-view-mode.test.ts \
     web/src/lib/__tests__/tool-scope-logic.test.ts \
-    web/src/lib/__tests__/loaded-tools-logic.test.ts
+    web/src/lib/__tests__/loaded-tools-logic.test.ts \
+    web/src/lib/__tests__/briefing-cron.test.ts
 } | sort)
 
 TMPDIR=$(mktemp -d)

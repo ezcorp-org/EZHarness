@@ -60,6 +60,7 @@
   "web/src/lib/search/search-mode.ts": 100,
   "web/src/lib/search/palette-results.ts": 100,
   "web/src/lib/diff-view-mode.ts": 100,
+  "web/src/lib/briefing-cron.ts": 100,
   "src/runtime/preview/dev-command-detection.ts": 100,
   "src/runtime/preview/preview-bus-registry.ts": 100,
   "src/runtime/preview/preview-consent.ts": 100,
