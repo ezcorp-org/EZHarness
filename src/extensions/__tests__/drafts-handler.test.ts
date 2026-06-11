@@ -57,6 +57,12 @@ let installAuthoredDraftImpl: (a: {
 });
 let lastInstallArgs: { draftId: string; userId: string; enable: boolean } | null =
   null;
+// Snapshot the REAL module before mocking so afterAll can re-register
+// it (author-install is kept out of mock-cleanup's MODULE_PATHS — see
+// tool-executor.extensions-installed-emit.test.ts for why eager
+// preload imports of the install graph are not an option).
+const REAL_AUTHOR_INSTALL = { ...(await import("../author-install")) };
+
 mock.module("../author-install", () => ({
   AuthorInstallError: MockAuthorInstallError,
   installAuthoredDraft: (a: { draftId: string; userId: string; enable: boolean }) => {
@@ -135,6 +141,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await closeTestDb();
+  mock.module("../author-install", () => REAL_AUTHOR_INSTALL);
   restoreModuleMocks();
   if (_prevCwd) try { process.chdir(_prevCwd); } catch { /* */ }
   if (_tmpRoot) try { rmSync(_tmpRoot, { recursive: true, force: true }); } catch { /* */ }

@@ -1,6 +1,10 @@
 /**
  * DOM tests for ChatHeader.svelte — covers the double-click-to-rename
- * affordance on the conversation title.
+ * affordance on the conversation title, plus the loaded-tools badge and
+ * popover (count, grouping, type badges, token sums — all derived
+ * in-component from the single `loadedTools` prop; the page passes
+ * `chrome.loadedTools` and nothing else. Regression pin for the
+ * "loaded tools always shows 0" bug where the page hardcoded `[]`).
  *
  * Display mode renders a <span data-testid="chat-title">. Double-clicking
  * swaps it for an inline edit form with Save / Cancel buttons. Clicking
@@ -9,7 +13,7 @@
  * and Cancel both exit without saving.
  */
 
-import { render, fireEvent } from "@testing-library/svelte";
+import { render, fireEvent, waitFor } from "@testing-library/svelte";
 import { describe, test, expect, vi, beforeEach } from "vitest";
 import ChatHeader from "../ChatHeader.svelte";
 import type { Conversation } from "$lib/api.js";
@@ -47,8 +51,6 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
 		contextBreakdown: null,
 		contextToolBreakdown: [],
 		loadedTools: [],
-		toolsByExtension: new Map(),
-		extensionTypeMap: new Map(),
 		toolsOpen: false,
 		diffPanelOpen: false,
 		diffFileCount: 0,
@@ -146,5 +148,120 @@ describe("ChatHeader title rename", () => {
 		expect(onrename).not.toHaveBeenCalled();
 		expect(queryByTestId("chat-title-input")).toBeNull();
 		expect(getByTestId("chat-title")).toHaveTextContent("Original Title");
+	});
+});
+
+const sampleTools = [
+	{ name: "scan", description: "Scan code", extension: "analyzer", extensionType: "extension", extensionDescription: "Static analysis helpers", tokenEstimate: 25 },
+	{ name: "lint", description: "Lint files", extension: "analyzer", extensionType: "extension", extensionDescription: "Static analysis helpers", tokenEstimate: 22 },
+	{ name: "summarize", description: "Summarize text", extension: "markdown-utils", extensionType: "mcp", tokenEstimate: 30 },
+];
+
+describe("ChatHeader loaded-tools badge + popover", () => {
+	function toolButton(container: HTMLElement) {
+		return container.querySelector('button[aria-label^="Loaded tools"]') as HTMLButtonElement;
+	}
+
+	test("badge shows the loadedTools count (not 0)", () => {
+		const { container } = render(ChatHeader, defaultProps({ loadedTools: sampleTools }));
+		expect(toolButton(container)).toHaveTextContent("3");
+	});
+
+	test("badge shows 0 and popover shows empty state with no tools", () => {
+		const { container, getByTestId, getByText } = render(
+			ChatHeader,
+			defaultProps({ loadedTools: [], toolsOpen: true }),
+		);
+		expect(toolButton(container)).toHaveTextContent("0");
+		expect(getByTestId("tools-popover")).toBeInTheDocument();
+		expect(getByText("No tools loaded")).toBeInTheDocument();
+	});
+
+	test("popover groups tools by extension with type badges (derived in-component)", () => {
+		const { getByTestId, getByText } = render(
+			ChatHeader,
+			defaultProps({ loadedTools: sampleTools, toolsOpen: true }),
+		);
+		const popover = getByTestId("tools-popover");
+		expect(popover).toBeInTheDocument();
+		// Group headers + member tools
+		expect(getByText("analyzer")).toBeInTheDocument();
+		expect(getByText("markdown-utils")).toBeInTheDocument();
+		expect(getByText("scan", { exact: false })).toBeInTheDocument();
+		expect(getByText("lint", { exact: false })).toBeInTheDocument();
+		expect(getByText("summarize", { exact: false })).toBeInTheDocument();
+		// Type badges derived from extensionType
+		const badges = [...popover.querySelectorAll('[data-testid="type-badge"]')];
+		expect(badges.map((b) => b.textContent).sort()).toEqual(["extension", "mcp"]);
+	});
+
+	test("popover shows per-group and grand-total token sums", () => {
+		const { getByTestId, getByText } = render(
+			ChatHeader,
+			defaultProps({ loadedTools: sampleTools, toolsOpen: true }),
+		);
+		expect(getByTestId("tools-popover")).toBeInTheDocument();
+		// analyzer group: 25 + 22 = 47; grand total: 77
+		expect(getByText("47")).toBeInTheDocument();
+		expect(getByText("77")).toBeInTheDocument();
+	});
+
+	test("hovering a tool row shows a tooltip with the tool name + description", async () => {
+		const { getByTestId, getAllByTestId, getByRole } = render(
+			ChatHeader,
+			defaultProps({ loadedTools: sampleTools, toolsOpen: true }),
+		);
+		expect(getByTestId("tools-popover")).toBeInTheDocument();
+		const scanRow = getAllByTestId("tool-row").find((r) => r.textContent?.includes("scan"))!;
+		// Tooltip listens on its wrapper span (mouseenter does not bubble).
+		await fireEvent.mouseEnter(scanRow.parentElement!);
+		await waitFor(() => {
+			const tip = getByRole("tooltip");
+			expect(tip).toHaveTextContent("scan");
+			expect(tip).toHaveTextContent("Scan code");
+		});
+	});
+
+	test("hovering an extension group header shows the extension's description", async () => {
+		const { getByTestId, getAllByTestId, getByRole } = render(
+			ChatHeader,
+			defaultProps({ loadedTools: sampleTools, toolsOpen: true }),
+		);
+		expect(getByTestId("tools-popover")).toBeInTheDocument();
+		const analyzerHeader = getAllByTestId("ext-group-header").find((h) =>
+			h.textContent?.includes("analyzer"),
+		)!;
+		await fireEvent.mouseEnter(analyzerHeader.parentElement!);
+		await waitFor(() => {
+			const tip = getByRole("tooltip");
+			expect(tip).toHaveTextContent("analyzer");
+			expect(tip).toHaveTextContent("Static analysis helpers");
+		});
+	});
+
+	test("an extension without a description shows the fallback on group-header hover", async () => {
+		const { getByTestId, getAllByTestId, getByRole } = render(
+			ChatHeader,
+			defaultProps({ loadedTools: sampleTools, toolsOpen: true }),
+		);
+		expect(getByTestId("tools-popover")).toBeInTheDocument();
+		// markdown-utils rows carry no extensionDescription.
+		const mdHeader = getAllByTestId("ext-group-header").find((h) =>
+			h.textContent?.includes("markdown-utils"),
+		)!;
+		await fireEvent.mouseEnter(mdHeader.parentElement!);
+		await waitFor(() => {
+			expect(getByRole("tooltip")).toHaveTextContent("No description provided.");
+		});
+	});
+
+	test("clicking the badge calls ontoolstoggle with the inverted state", async () => {
+		const ontoolstoggle = vi.fn();
+		const { container } = render(
+			ChatHeader,
+			defaultProps({ loadedTools: sampleTools, ontoolstoggle }),
+		);
+		await fireEvent.click(toolButton(container));
+		expect(ontoolstoggle).toHaveBeenCalledWith(true);
 	});
 });

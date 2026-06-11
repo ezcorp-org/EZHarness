@@ -14,7 +14,20 @@
  * The mcp-netns probes shell out to the kernel, so we mock that module to
  * drive the available / unavailable branches deterministically.
  */
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
+
+// The mcp-netns stub below is process-global; without a restore it
+// leaks into mcp-netns-fallback.test.ts (which needs the REAL probes)
+// whenever that file is co-scheduled after this one. Restore is
+// SURGICAL (snapshot + re-register just this module) rather than a
+// restoreModuleMocks() sweep: the sweep re-registers ~70 `$server/*`
+// aliases, and adding a new sweep-caller before phase-2b-e2e.test.ts
+// flips that file's `mock.module("$server/extensions/registry",
+// async …)` registration into a busy-hang.
+const REAL_MCP_NETNS = { ...(await import("../extensions/mcp-netns")) };
+afterAll(() => {
+  mock.module("../extensions/mcp-netns", () => REAL_MCP_NETNS);
+});
 
 // Controllable probe results + a real-ish slot allocator.
 let netnsAvailable = { available: true, reason: undefined as string | undefined };

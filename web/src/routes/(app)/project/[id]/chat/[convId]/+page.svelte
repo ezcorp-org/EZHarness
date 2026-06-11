@@ -63,9 +63,6 @@
 	let pendingSelectedAgentSubConvId = $state<string | null>(null);
 	let convList: ConversationList | undefined = $state();
 
-	const toolsByExtension = new Map<string, never[]>();
-	const extensionTypeMap = new Map<string, string>();
-
 	// Task panel (driven by the thread's chrome state).
 	let taskSnapshot = $derived(store.taskSnapshots[convId] ?? null);
 	let hasAnyTasks = $derived(!!taskSnapshot && taskSnapshot.tasks.length > 0);
@@ -293,9 +290,7 @@
 				selectedModelContextWindow={chrome.selectedModelContextWindow}
 				contextBreakdown={chrome.contextBreakdown}
 				contextToolBreakdown={chrome.contextToolBreakdown}
-				loadedTools={[]}
-				{toolsByExtension}
-				{extensionTypeMap}
+				loadedTools={chrome.loadedTools}
 				{toolsOpen}
 				{diffPanelOpen}
 				diffFileCount={chrome.diffFileCount}

@@ -32,6 +32,25 @@ const EXEMPT_PATTERNS: RegExp[] = [
   /^\$lib\/foo$/,       // JSDoc example inside this meta-test
   /^\.\.\/extensions\/sdk\/test-runner$/,  // one-off, only used by ext-publish.test.ts
   /routes\/api\/extensions\/schema$/,       // request-schema file; only mocked in one security test
+  // c3-extension-install.test.ts stubs activate-extension (both alias
+  // forms). The real module cannot be snapshotted: it imports
+  // `$server/extensions/security` etc., which only resolve under that
+  // file's own mocks, and adding it to MODULE_PATHS would eagerly
+  // import the activation pipeline at preload (see the phase-2b-e2e
+  // hang note in helpers/mock-cleanup.ts). Known residual leak —
+  // benign today because no later test imports the real module.
+  /^\$lib\/server\/extensions\/activate-extension$/,
+  /web\/src\/lib\/server\/extensions\/activate-extension$/,
+  // background-timers.test.ts stubs the preview daemons inert. The
+  // stubs cannot be snapshotted: BOTH an eager preload import (via
+  // MODULE_PATHS) and an in-file `await import(...)` of the real
+  // preview graph flip phase-2b-e2e.test.ts's `$server/*`
+  // registrations into a busy-hang (verified empirically 2026-06-10;
+  // see the phase-2b-e2e note in helpers/mock-cleanup.ts). Known
+  // residual leak — benign at the current suite order: the baseline
+  // full-suite run has zero preview-test failures. Revisit if
+  // preview-*.test.ts start failing in full-directory runs only.
+  /^\.\.\/runtime\/preview\/preview-(port-watcher|port-source|consent|netns|uid-pool|detection-bridge|bus-registry)$/,
 ];
 
 // Paths the cleanup helper snapshots. Keep in sync with MODULE_PATHS +
@@ -86,7 +105,14 @@ function listTestFiles(dir: string): string[] {
 }
 
 function extractMockPaths(source: string): string[] {
-  const matches = source.matchAll(/mock\.module\(\s*"([^"]+)"/g);
+  // Strip `//` line comments first — prose like preview-netns.test.ts's
+  // "we deliberately do NOT mock.module(\"…\")" note must not count as
+  // a real mock target.
+  const code = source
+    .split("\n")
+    .filter((line) => !/^\s*(\/\/|\*)/.test(line))
+    .join("\n");
+  const matches = code.matchAll(/mock\.module\(\s*"([^"]+)"/g);
   return Array.from(matches, (m) => m[1]!);
 }
 
@@ -158,13 +184,30 @@ function isWebLibRelativeCovered(path: string, modulePaths: Set<string>): boolea
 describe("mock-cleanup coverage (meta-test)", () => {
   test("every mock.module target is either snapshotted or exempt", () => {
     const modulePaths = loadModulePaths();
-    const testFiles = listTestFiles(import.meta.dir);
+    // src/extensions/__tests__/ runs in the same bun-test process, so its
+    // mock.module() calls leak the same way — the drafts-handler stub in
+    // tool-executor.extensions-installed-emit.test.ts shipped exactly that
+    // bug because this walker didn't cover the directory.
+    const testFiles = [
+      ...listTestFiles(import.meta.dir),
+      ...listTestFiles(join(import.meta.dir, "..", "extensions", "__tests__")),
+    ];
 
     const missing: Array<{ file: string; path: string }> = [];
 
     for (const file of testFiles) {
       const src = readFileSync(file, "utf8");
-      for (const raw of extractMockPaths(src)) {
+      const paths = extractMockPaths(src);
+      // In-file restore pattern: a file that mock.module()s the same
+      // path twice snapshots the real exports before stubbing and
+      // re-registers them in afterAll (used where the path cannot go
+      // in MODULE_PATHS because an eager preload import of its module
+      // graph hangs phase-2b-e2e — drafts-handler, author-install,
+      // runtime/preview/*). Such paths are covered without a snapshot.
+      const counts = new Map<string, number>();
+      for (const p of paths) counts.set(p, (counts.get(p) ?? 0) + 1);
+      for (const raw of paths) {
+        if ((counts.get(raw) ?? 0) >= 2) continue;
         if (isExempt(raw)) continue;
         if (modulePaths.has(raw)) continue;
         if (isServerPrefixed(raw, SERVER_ALIAS_TOP_LEVELS)) continue;

@@ -133,3 +133,47 @@ describe("applyToolFilters", () => {
     expect(ORCHESTRATION_TOOLS.has("read_file")).toBe(false);
   });
 });
+
+describe("forceDeniedTools — the only layer that strips orchestration tools", () => {
+  test("removes orchestration tools (regular deniedTools cannot)", () => {
+    const out = applyToolFilters(sample(), builtinDefs, {
+      forceDeniedTools: ["invoke_agent"],
+    });
+    const names = out.map((t) => t.name);
+    expect(names).not.toContain("invoke_agent");
+    // Everything else untouched.
+    expect(names).toContain("read_file");
+    expect(names).toContain("extension_widget");
+  });
+
+  test("contrast pin: the same name via deniedTools is preserved", () => {
+    const out = applyToolFilters(sample(), builtinDefs, {
+      deniedTools: ["invoke_agent"],
+    });
+    expect(out.map((t) => t.name)).toContain("invoke_agent");
+  });
+
+  test("applies LAST: a tool surviving the allowlist via orchestration still drops", () => {
+    const out = applyToolFilters(sample(), builtinDefs, {
+      toolRestriction: "allowlist",
+      allowedTools: ["read_file"],
+      forceDeniedTools: ["invoke_agent"],
+    });
+    expect(out.map((t) => t.name)).toEqual(["read_file"]);
+  });
+
+  test("empty / absent forceDeniedTools is a no-op", () => {
+    expect(applyToolFilters(sample(), builtinDefs, { forceDeniedTools: [] })).toHaveLength(6);
+    expect(applyToolFilters(sample(), builtinDefs, {})).toHaveLength(6);
+  });
+
+  test("removes non-orchestration tools too (it is a superset of deny)", () => {
+    const out = applyToolFilters(sample(), builtinDefs, {
+      forceDeniedTools: ["write_file", "extension_widget"],
+    });
+    const names = out.map((t) => t.name);
+    expect(names).not.toContain("write_file");
+    expect(names).not.toContain("extension_widget");
+    expect(names).toContain("invoke_agent");
+  });
+});

@@ -215,3 +215,36 @@ describe("ExtensionRegistry.getExtensionType()", () => {
     expect(registry.getExtensionType("nonexistent")).toBe("extension");
   });
 });
+
+describe("ExtensionRegistry.getExtensionDescription()", () => {
+  beforeEach(() => {
+    ExtensionRegistry.resetInstance();
+  });
+
+  afterEach(() => {
+    ExtensionRegistry.resetInstance();
+  });
+
+  test("returns the manifest description, looked up by manifest NAME", () => {
+    const registry = ExtensionRegistry.getInstance();
+    registry.setManifestForTest("ext-1", {
+      name: "analyzer",
+      version: "1.0.0",
+      permissions: {},
+      description: "Static analysis helpers",
+    } as any);
+    expect(registry.getExtensionDescription("analyzer")).toBe("Static analysis helpers");
+  });
+
+  test("undefined for an unknown extension or an empty description", () => {
+    const registry = ExtensionRegistry.getInstance();
+    expect(registry.getExtensionDescription("ghost")).toBeUndefined();
+    registry.setManifestForTest("ext-2", {
+      name: "bare",
+      version: "1.0.0",
+      permissions: {},
+      description: "",
+    } as any);
+    expect(registry.getExtensionDescription("bare")).toBeUndefined();
+  });
+});

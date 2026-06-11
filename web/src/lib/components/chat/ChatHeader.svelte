@@ -7,14 +7,12 @@
 	import type { Conversation } from "$lib/api.js";
 	import type { PermissionMode } from "$lib/permission-mode.js";
 	import type { ContextBreakdown, ToolBreakdownEntry } from "$lib/context-usage-logic";
-
-	type LoadedTool = {
-		name: string;
-		description: string;
-		extension: string;
-		extensionType?: string;
-		tokenEstimate?: number;
-	};
+	import {
+		groupToolsByExtension,
+		buildExtensionTypeMap,
+		sumTokenEstimates,
+		type LoadedTool,
+	} from "$lib/loaded-tools-logic";
 
 	interface Props {
 		projectId: string;
@@ -25,8 +23,6 @@
 		contextBreakdown: ContextBreakdown | null;
 		contextToolBreakdown: readonly ToolBreakdownEntry[];
 		loadedTools: LoadedTool[];
-		toolsByExtension: Map<string, LoadedTool[]>;
-		extensionTypeMap: Map<string, string>;
 		toolsOpen: boolean;
 		diffPanelOpen: boolean;
 		diffFileCount: number;
@@ -55,8 +51,6 @@
 		contextBreakdown,
 		contextToolBreakdown,
 		loadedTools,
-		toolsByExtension,
-		extensionTypeMap,
 		toolsOpen,
 		diffPanelOpen,
 		diffFileCount,
@@ -75,6 +69,11 @@
 		oncallclick,
 		onrename,
 	}: Props = $props();
+
+	// Popover view state derived from the flat list — single prop in,
+	// grouping/type/token sums computed here (see loaded-tools-logic.ts).
+	let toolsByExtension = $derived(groupToolsByExtension(loadedTools));
+	let extensionTypeMap = $derived(buildExtensionTypeMap(loadedTools));
 
 	let editing = $state(false);
 	let editValue = $state("");
@@ -199,20 +198,29 @@
 					{:else}
 						{#each [...toolsByExtension] as [ext, tools]}
 							{@const extType = extensionTypeMap.get(ext) ?? "extension"}
-							{@const groupTokens = tools.reduce((sum, t) => sum + (t.tokenEstimate ?? 0), 0)}
+							{@const groupTokens = sumTokenEstimates(tools)}
+							{@const extDescription = tools.find((t) => t.extensionDescription)?.extensionDescription}
 							<div class="px-3 py-2">
-							<p class="text-xs font-bold text-[var(--color-text-secondary)] flex items-center gap-1.5">{ext}
+							<div class="flex">
+							<Tooltip position="left" header={ext} text={extDescription || "No description provided."}>
+							<p data-testid="ext-group-header" class="w-full text-xs font-bold text-[var(--color-text-secondary)] flex items-center gap-1.5">{ext}
 									<span data-testid="type-badge" class="uppercase text-[9px] font-semibold px-1 py-0.5 rounded {extType === 'agent' ? 'bg-purple-900/50 text-purple-300' : extType === 'mcp' ? 'bg-blue-900/50 text-blue-300' : 'bg-green-900/50 text-green-300'}">{extType}</span>
 									<span class="text-[var(--color-text-muted)] text-[9px] ml-auto inline-flex items-center gap-0.5">{groupTokens}<svg class="inline h-2.5 w-2.5" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5" fill="none"/><text x="8" y="11.5" text-anchor="middle" font-size="9" font-weight="bold" fill="currentColor">T</text></svg></span>
 								</p>
+							</Tooltip>
+							</div>
 								{#each tools as tool}
-									<p class="text-xs text-[var(--color-text-secondary)] pl-2 py-0.5" title={tool.description}>{tool.name}{#if tool.tokenEstimate}<span class="text-[var(--color-text-muted)] ml-1 inline-flex items-center gap-0.5">~{tool.tokenEstimate}<svg class="inline h-2.5 w-2.5" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5" fill="none"/><text x="8" y="11.5" text-anchor="middle" font-size="9" font-weight="bold" fill="currentColor">T</text></svg></span>{/if}</p>
+									<div class="flex">
+									<Tooltip position="left" header={tool.name} text={tool.description || "No description provided."}>
+									<p data-testid="tool-row" class="text-xs text-[var(--color-text-secondary)] pl-2 py-0.5 w-full">{tool.name}{#if tool.tokenEstimate}<span class="text-[var(--color-text-muted)] ml-1 inline-flex items-center gap-0.5">~{tool.tokenEstimate}<svg class="inline h-2.5 w-2.5" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5" fill="none"/><text x="8" y="11.5" text-anchor="middle" font-size="9" font-weight="bold" fill="currentColor">T</text></svg></span>{/if}</p>
+									</Tooltip>
+									</div>
 								{/each}
 							</div>
 						{/each}
 						<div class="border-t border-[var(--color-border)] px-3 py-2 flex items-center justify-between">
 							<span class="text-xs font-bold text-[var(--color-text-secondary)]">Total</span>
-							<span class="text-[var(--color-text-secondary)] text-[9px] inline-flex items-center gap-0.5">{loadedTools.reduce((sum, t) => sum + (t.tokenEstimate ?? 0), 0)}<svg class="inline h-2.5 w-2.5" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5" fill="none"/><text x="8" y="11.5" text-anchor="middle" font-size="9" font-weight="bold" fill="currentColor">T</text></svg></span>
+							<span class="text-[var(--color-text-secondary)] text-[9px] inline-flex items-center gap-0.5">{sumTokenEstimates(loadedTools)}<svg class="inline h-2.5 w-2.5" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5" fill="none"/><text x="8" y="11.5" text-anchor="middle" font-size="9" font-weight="bold" fill="currentColor">T</text></svg></span>
 						</div>
 					{/if}
 				</div>

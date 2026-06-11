@@ -59,7 +59,7 @@ describe("extension-author bundled wiring", () => {
     expect(result.valid).toBe(true);
   });
 
-  test("on-disk manifest declares all seven tools", async () => {
+  test("on-disk manifest declares all eight tools", async () => {
     const manifest = await loadManifestFresh(EXT_DIR);
     const toolNames = (manifest.tools ?? []).map((t) => t.name).sort();
     expect(toolNames).toEqual([
@@ -67,6 +67,9 @@ describe("extension-author bundled wiring", () => {
       "discard_draft",
       "install_draft",
       "list_drafts",
+      // Added by the admin-gated modify/reopen flow (789d3e1d); its
+      // injection gating is pinned in tool-executor-modify-injection.test.ts.
+      "modify_extension",
       "read_draft",
       "validate_extension",
       "write_draft_file",

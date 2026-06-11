@@ -517,14 +517,17 @@ describe("executor mode.extensionIds → allowlist filter", () => {
     expect(names.has("ext-x__tool_c")).toBe(false);
   });
 
-  test("extensionTools empty array for an attached extension = all its tools", async () => {
+  test("extensionTools EMPTY array for an attached extension = extension OFF (no tools)", async () => {
+    // Semantics changed with the per-extension master toggle: an absent
+    // key still means "all tools", but an explicitly-empty subset now
+    // means the extension is toggled OFF and contributes nothing.
     agentToolsMap.set(agentConfigId, [TOOL_DEF("p_tool"), TOOL_DEF("q_tool")]);
     extensionToolsMap.set("ext-empty", [TOOL_DEF("p_tool"), TOOL_DEF("q_tool")]);
 
     const mode = await createMode({
       name: "Empty Subset Mode",
       slug: "empty-subset-" + Date.now(),
-      systemPromptInstruction: "Empty subset means all.",
+      systemPromptInstruction: "Empty subset means off.",
       extensionIds: ["ext-empty"],
       extensionTools: { "ext-empty": [] },
     });
@@ -537,8 +540,8 @@ describe("executor mode.extensionIds → allowlist filter", () => {
     });
 
     const names = nameSet(capturedAgentOpts.initialState.tools);
-    expect(names.has("p_tool")).toBe(true);
-    expect(names.has("q_tool")).toBe(true);
+    expect(names.has("p_tool")).toBe(false);
+    expect(names.has("q_tool")).toBe(false);
   });
 
   test("extensionTools subset matches the original (unnamespaced) tool name", async () => {
@@ -728,7 +731,10 @@ describe("executor conversation.extensionTools narrows the mode allowlist", () =
     expect(names.has("e2__b")).toBe(true);
   });
 
-  test("empty conv subset for an extension = no narrowing", async () => {
+  test("EMPTY conv subset = master toggle OFF (removes the whole extension)", async () => {
+    // Semantics changed with the per-extension master toggle: a present-
+    // but-empty conv subset now removes ALL of that extension's tools
+    // from the mode allowlist (absent key = no narrowing, unchanged).
     agentToolsMap.set(agentConfigId, [TOOL_DEF("z__a"), TOOL_DEF("z__b")]);
     extensionToolsMap.set("ext-z", [TOOL_DEF("z__a"), TOOL_DEF("z__b")]);
 
@@ -744,8 +750,8 @@ describe("executor conversation.extensionTools narrows the mode allowlist", () =
     await executor.streamChat(convId, "do something", { projectId, agentConfigId, modeId: mode.id });
 
     const names = nameSet(capturedAgentOpts.initialState.tools);
-    expect(names.has("z__a")).toBe(true);
-    expect(names.has("z__b")).toBe(true);
+    expect(names.has("z__a")).toBe(false);
+    expect(names.has("z__b")).toBe(false);
   });
 
   test("conv cannot RE-ADD a tool the mode already excluded (narrow-only)", async () => {
@@ -814,5 +820,123 @@ describe("executor conversation.extensionTools narrows the mode allowlist", () =
     const names = nameSet(capturedAgentOpts.initialState.tools);
     expect(names.has("n__a")).toBe(true);
     expect(names.has("n__b")).toBe(true);
+  });
+});
+
+// ── No-mode narrowing (composer Tools dropdown without a mode) ──────────
+//
+// conversation.extensionTools must narrow the loaded tool surface even when
+// NO mode is set: computeModeToolScope turns each non-empty extension subset
+// into deniedTools for that extension's other registered tools. Extensions
+// absent from the map pass through untouched (narrow-only by construction).
+// This is what makes the composer's per-conversation tool toggles real in
+// modeless chats — the same path the /api/tools listing (header badge) uses.
+describe("executor: no mode — conversation.extensionTools narrows loaded tools", () => {
+  async function convWith(extensionTools: Record<string, string[]> | null): Promise<string> {
+    const conv = await createConversation(projectId);
+    await updateConversation(conv.id, { extensionTools });
+    return conv.id;
+  }
+
+  test("unchecked tool is denied; other extensions pass through untouched", async () => {
+    agentToolsMap.set(agentConfigId, [
+      TOOL_DEF("ext-x__tool_a"),
+      TOOL_DEF("ext-x__tool_b"),
+      TOOL_DEF("ext-y__tool_c"),
+    ]);
+    // The registry knows ext-x's two tools; the conversation keeps only tool_a.
+    extensionToolsMap.set("ext-x-id", [
+      TOOL_DEF("ext-x__tool_a"),
+      TOOL_DEF("ext-x__tool_b"),
+    ]);
+
+    const convId = await convWith({ "ext-x-id": ["ext-x__tool_a"] });
+    const { executor } = createExecutor();
+    await executor.streamChat(convId, "do something", { projectId, agentConfigId });
+
+    const names = nameSet(capturedAgentOpts.initialState.tools);
+    expect(names.has("ext-x__tool_a")).toBe(true);
+    expect(names.has("ext-x__tool_b")).toBe(false); // unchecked in the dropdown
+    expect(names.has("ext-y__tool_c")).toBe(true); // extension absent from the map
+  });
+
+  test("no mode and no conversation narrowing: tools pass through unfiltered", async () => {
+    agentToolsMap.set(agentConfigId, [TOOL_DEF("ext-x__tool_a"), TOOL_DEF("ext-y__tool_c")]);
+
+    const convId = await convWith(null);
+    const { executor } = createExecutor();
+    await executor.streamChat(convId, "do something", { projectId, agentConfigId });
+
+    const names = nameSet(capturedAgentOpts.initialState.tools);
+    expect(names.has("ext-x__tool_a")).toBe(true);
+    expect(names.has("ext-y__tool_c")).toBe(true);
+  });
+});
+
+  test("master toggle OFF ({ext: []}): ALL of that extension's tools are stripped", async () => {
+    agentToolsMap.set(agentConfigId, [
+      TOOL_DEF("ext-x__tool_a"),
+      TOOL_DEF("ext-x__tool_b"),
+      TOOL_DEF("ext-y__tool_c"),
+    ]);
+    extensionToolsMap.set("ext-x-id", [
+      TOOL_DEF("ext-x__tool_a"),
+      TOOL_DEF("ext-x__tool_b"),
+    ]);
+
+    const conv = await createConversation(projectId);
+    await updateConversation(conv.id, { extensionTools: { "ext-x-id": [] } });
+    const { executor } = createExecutor();
+    await executor.streamChat(conv.id, "do something", { projectId, agentConfigId });
+
+    const names = nameSet(capturedAgentOpts.initialState.tools);
+    expect(names.has("ext-x__tool_a")).toBe(false);
+    expect(names.has("ext-x__tool_b")).toBe(false);
+    expect(names.has("ext-y__tool_c")).toBe(true); // other extensions untouched
+  });
+
+// ── Orchestration-tool toggle (ask-user) ─────────────────────────────────
+//
+// ask-user__ask_user_question is in ORCHESTRATION_TOOLS, so mode allowlists
+// and plain denies can never strip it. The conversation's explicit toggle
+// compiles to forceDeniedTools — the ONE layer that removes it.
+describe("executor: explicit conv toggle strips an orchestration tool", () => {
+  test("ask-user survives a mode allowlist, but conv {ask-user: []} removes it", async () => {
+    agentToolsMap.set(agentConfigId, [
+      TOOL_DEF("ext-x__tool_a"),
+      TOOL_DEF("ask-user__ask_user_question"),
+    ]);
+    extensionToolsMap.set("ext-attached2", [TOOL_DEF("ext-x__tool_a")]);
+    extensionToolsMap.set("ext-askuser", [
+      { ...TOOL_DEF("ask-user__ask_user_question"), originalName: "ask_user_question" } as any,
+    ]);
+
+    const mode = await createMode({
+      name: "Orch Toggle Mode",
+      slug: "orch-toggle-" + Date.now(),
+      systemPromptInstruction: "Attaches only ext-attached2.",
+      extensionIds: ["ext-attached2"],
+    });
+
+    // Without a conv toggle: ask-user rides through the allowlist.
+    const convA = await createConversation(projectId);
+    {
+      const { executor } = createExecutor();
+      await executor.streamChat(convA.id, "do something", { projectId, agentConfigId, modeId: mode.id });
+      const names = nameSet(capturedAgentOpts.initialState.tools);
+      expect(names.has("ext-x__tool_a")).toBe(true);
+      expect(names.has("ask-user__ask_user_question")).toBe(true);
+    }
+
+    // With the conversation's explicit master toggle OFF: it is stripped.
+    const convB = await createConversation(projectId);
+    await updateConversation(convB.id, { extensionTools: { "ext-askuser": [] } });
+    {
+      const { executor } = createExecutor();
+      await executor.streamChat(convB.id, "do something", { projectId, agentConfigId, modeId: mode.id });
+      const names = nameSet(capturedAgentOpts.initialState.tools);
+      expect(names.has("ext-x__tool_a")).toBe(true);
+      expect(names.has("ask-user__ask_user_question")).toBe(false);
+    }
   });
 });

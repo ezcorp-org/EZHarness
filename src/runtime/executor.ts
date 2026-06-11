@@ -526,77 +526,28 @@ export class AgentExecutor {
     // with extensionIds=null/empty (e.g. seeded Ez mode) keep their
     // existing toolRestriction='allowlist' + allowedTools behaviour.
     const { applyToolFilters } = await import("./tools/filter");
-    if (options.modeId) {
-      try {
+    try {
+      const { computeModeToolScope } = await import("./tools/mode-tool-scope");
+      let mode = null;
+      if (options.modeId) {
         const { getMode } = await import("../db/queries/modes");
-        const mode = await getMode(options.modeId);
-        if (mode) {
-          const extensionIds = mode.extensionIds ?? [];
-          if (extensionIds.length > 0) {
-            const registry = ExtensionRegistry.getInstance();
-            // Per-extension tool subset: an extension absent from this map (or
-            // mapped to an empty array) contributes ALL its tools; a non-empty
-            // array narrows it to just those tools. Match defensively against
-            // both the namespaced name and the original (unnamespaced) name so
-            // the UI can persist either form; the allowlist set itself always
-            // carries the namespaced name applyToolFilters filters on.
-            const perTool = mode.extensionTools ?? {};
-            const allowed = new Set<string>();
-            // Tool (namespaced) name → { extId, originalName }. Built while
-            // iterating mode extensions so the per-conversation narrowing pass
-            // below can resolve each allowed tool back to its extension + the
-            // unnamespaced name the conv subset may reference.
-            const toolOwner = new Map<string, { extId: string; originalName: string }>();
-            for (const extId of extensionIds) {
-              const subset = perTool[extId];
-              for (const t of registry.getToolsForExtension(extId)) {
-                if (
-                  !subset || subset.length === 0 ||
-                  subset.includes(t.name) || subset.includes(t.originalName)
-                ) {
-                  allowed.add(t.name);
-                  toolOwner.set(t.name, { extId, originalName: t.originalName });
-                }
-              }
-            }
-
-            // ── Per-conversation narrowing (Phase 4/D) ──
-            // The conversation's extensionTools map can only NARROW the mode's
-            // allowlist, never widen it (a tool not already in `allowed` can't
-            // be re-added). For each allowed tool whose owning extension is a
-            // key in conv.extensionTools with a NON-EMPTY subset, keep it only
-            // if that subset includes its name or originalName. Extensions
-            // absent from the conv map (or with an empty subset) pass through
-            // unchanged — matching the "absent/empty = all" convention.
-            const convPerTool = convRecord?.extensionTools ?? null;
-            if (convPerTool && Object.keys(convPerTool).length > 0) {
-              for (const toolName of [...allowed]) {
-                const owner = toolOwner.get(toolName);
-                if (!owner) continue;
-                const convSubset = convPerTool[owner.extId];
-                if (!convSubset || convSubset.length === 0) continue; // no narrowing
-                if (
-                  !convSubset.includes(toolName) &&
-                  !convSubset.includes(owner.originalName)
-                ) {
-                  allowed.delete(toolName);
-                }
-              }
-            }
-
-            ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, {
-              toolRestriction: "allowlist",
-              allowedTools: [...allowed],
-            });
-          } else if (mode.toolRestriction) {
-            ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, {
-              toolRestriction: mode.toolRestriction,
-              allowedTools: mode.allowedTools ?? undefined,
-            });
-          }
-        }
-      } catch { /* Mode lookup failure is non-fatal — keep all tools */ }
-    }
+        mode = (await getMode(options.modeId)) ?? null;
+      }
+      // Shared with the /api/tools listing endpoint — the header badge
+      // shows exactly the surface this filter grants. Allowlist union +
+      // per-extension subset + per-conversation narrow-only intersection
+      // all live in computeModeToolScope. Runs even without a mode: the
+      // conversation's extensionTools map (the composer's Tools toggles)
+      // narrows the loaded set on its own.
+      const scope = computeModeToolScope(
+        mode,
+        convRecord?.extensionTools ?? null,
+        ExtensionRegistry.getInstance(),
+      );
+      if (scope) {
+        ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, scope);
+      }
+    } catch { /* Mode lookup failure is non-fatal — keep all tools */ }
 
     // Apply invocation-level scoping (member override restriction + team-level
     // allow/deny). Takes precedence over mode restriction. allowedTools /

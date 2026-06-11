@@ -5,8 +5,10 @@
 import { test, expect, describe } from "bun:test";
 import {
 	isAllTools,
+	isExtensionOff,
 	isToolChecked,
 	selectedLabel,
+	toggleExtension,
 	toggleTool,
 	selectAllTools,
 	pruneDetached,
@@ -19,11 +21,21 @@ describe("isAllTools", () => {
 	test("true when extension absent from map", () => {
 		expect(isAllTools({}, "ext-1")).toBe(true);
 	});
-	test("true when subset is empty array", () => {
-		expect(isAllTools({ "ext-1": [] }, "ext-1")).toBe(true);
+	test("false when subset is empty array (extension OFF, not all)", () => {
+		expect(isAllTools({ "ext-1": [] }, "ext-1")).toBe(false);
 	});
 	test("false when a strict subset is present", () => {
 		expect(isAllTools({ "ext-1": ["summarize"] }, "ext-1")).toBe(false);
+	});
+});
+
+describe("isExtensionOff", () => {
+	test("true only for a present-but-empty subset", () => {
+		expect(isExtensionOff({ "ext-1": [] }, "ext-1")).toBe(true);
+	});
+	test("false when absent or narrowed", () => {
+		expect(isExtensionOff({}, "ext-1")).toBe(false);
+		expect(isExtensionOff({ "ext-1": ["summarize"] }, "ext-1")).toBe(false);
 	});
 });
 
@@ -37,12 +49,37 @@ describe("isToolChecked", () => {
 		expect(isToolChecked(map, "ext-1", "summarize")).toBe(true);
 		expect(isToolChecked(map, "ext-1", "tldr")).toBe(false);
 	});
+	test("nothing checked when the extension is toggled OFF", () => {
+		const map = { "ext-1": [] };
+		expect(isToolChecked(map, "ext-1", "summarize")).toBe(false);
+		expect(isToolChecked(map, "ext-1", "tldr")).toBe(false);
+	});
+});
+
+describe("toggleExtension", () => {
+	test("toggling from 'all' sets the OFF marker (empty subset)", () => {
+		expect(toggleExtension({}, "ext-1")).toEqual({ "ext-1": [] });
+	});
+	test("toggling from a narrowed subset also turns OFF", () => {
+		expect(toggleExtension({ "ext-1": ["summarize"] }, "ext-1")).toEqual({ "ext-1": [] });
+	});
+	test("toggling from OFF removes the key (back to 'all')", () => {
+		expect(toggleExtension({ "ext-1": [] }, "ext-1")).toEqual({});
+	});
+	test("does not mutate the input and preserves other keys", () => {
+		const start: ToolScopeMap = { "ext-2": ["x"] };
+		const next = toggleExtension(start, "ext-1");
+		expect(next).toEqual({ "ext-1": [], "ext-2": ["x"] });
+		expect(start).toEqual({ "ext-2": ["x"] });
+	});
 });
 
 describe("selectedLabel", () => {
 	test("'All tools' when in default state", () => {
 		expect(selectedLabel({}, "ext-1")).toBe("All tools");
-		expect(selectedLabel({ "ext-1": [] }, "ext-1")).toBe("All tools");
+	});
+	test("'No tools' when the extension is toggled OFF", () => {
+		expect(selectedLabel({ "ext-1": [] }, "ext-1")).toBe("No tools");
 	});
 	test("comma-joined subset (in stored order) when narrowed", () => {
 		expect(selectedLabel({ "ext-1": ["tldr", "summarize"] }, "ext-1")).toBe("tldr, summarize");
@@ -93,6 +130,12 @@ describe("toggleTool", () => {
 		const start: ToolScopeMap = { "ext-1": ["summarize"], "ext-2": ["x"] };
 		const next = toggleTool(start, "ext-1", "summarize", ALL);
 		expect(next).toEqual({ "ext-2": ["x"] });
+	});
+
+	test("checking a tool while the extension is OFF re-enables it as a 1-tool subset", () => {
+		const start: ToolScopeMap = { "ext-1": [] };
+		const next = toggleTool(start, "ext-1", "summarize", ALL);
+		expect(next).toEqual({ "ext-1": ["summarize"] });
 	});
 });
 

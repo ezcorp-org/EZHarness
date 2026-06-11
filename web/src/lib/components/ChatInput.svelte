@@ -62,6 +62,7 @@
 		lockedMode,
 		placeholder,
 		conversationExtensionTools = null,
+		orchestrationTools = [],
 		onextensiontoolschange,
 		onextensiontoolsreset,
 	}: {
@@ -130,6 +131,10 @@
 		 * `onextensiontoolschange` / `onextensiontoolsreset`.
 		 */
 		conversationExtensionTools?: Record<string, string[]> | null;
+		/** Namespaced names of the always-wired orchestration tools (from
+		 *  /api/tools) — the Tools popover lists their extensions even when
+		 *  a mode doesn't attach them. */
+		orchestrationTools?: string[];
 		onextensiontoolschange?: (map: Record<string, string[]>) => void;
 		onextensiontoolsreset?: () => void;
 	} = $props();
@@ -756,10 +761,11 @@
 					{/if}
 					{#if !isLocked && (onextensiontoolschange || onextensiontoolsreset)}
 						<div class="flex flex-col">
-							<span class="toolbar-label" data-tip="Scope which of this mode's tools are active for this conversation">Tools</span>
+							<span class="toolbar-label" data-tip="Scope which tools are active for this conversation">Tools</span>
 							<ConversationToolsSelector
 								selectedMode={selectedMode}
 								value={conversationExtensionTools}
+								{orchestrationTools}
 								onchange={(map) => onextensiontoolschange?.(map)}
 								onreset={() => onextensiontoolsreset?.()}
 							/>

@@ -60,6 +60,14 @@ const CATEGORY_DESCRIPTIONS: Record<string, string> = {
   ez: "In-app concierge tools (Ez)",
 };
 
+/** Description for a built-in category regardless of mentionability —
+ *  the /api/tools listing uses this for the header popover's group-hover
+ *  card (the mention API uses getBuiltInCategories below, which skips
+ *  non-mentionable categories like `ez`). */
+export function getBuiltInCategoryDescription(category: string): string | undefined {
+  return CATEGORY_DESCRIPTIONS[category];
+}
+
 /** Get mentionable built-in categories for the mention search API. */
 export function getBuiltInCategories(): Array<{ name: string; description: string }> {
   const seen = new Set<string>();

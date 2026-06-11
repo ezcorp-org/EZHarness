@@ -63,6 +63,7 @@
 		pickLastTurnUsage,
 	} from "$lib/context-usage-logic";
 	import { buildHistoricalBlocks } from "$lib/content-blocks.js";
+	import type { LoadedTool } from "$lib/loaded-tools-logic";
 	import { recordSnapshot, type StreamSnapshot } from "$lib/chat/reconcile-stream.js";
 	import { runReconcileAfterStream } from "$lib/chat/reconcile-after-stream.js";
 	import { filterEmptyAssistantTurns } from "$lib/chat/filter-empty-turns.js";
@@ -214,6 +215,9 @@
 		lastTurnInputTokens: number | null;
 		contextBreakdown: ReturnType<typeof computeBreakdown>;
 		contextToolBreakdown: ReturnType<typeof computeToolBreakdown>;
+		/** `/api/tools` listing fetched on mount — the header's tool-count
+		 *  badge + popover read this (ChatHeader derives the grouping). */
+		loadedTools: LoadedTool[];
 		diffPanelToolCalls: InlineToolCall[];
 		diffFileCount: number;
 		taskSnapshot: (typeof store.taskSnapshots)[string] | null;
@@ -252,22 +256,53 @@
 		live = $bindable(),
 	}: Props = $props();
 
-	// `loadedTools` is fetched route-side and threaded in so the header
-	// snippet has the tool-count badge data without a duplicate fetch.
-	let loadedTools = $state<
-		Array<{
-			name: string;
-			description: string;
-			extension: string;
-			extensionType?: string;
-			tokenEstimate?: number;
-		}>
-	>([]);
-	onMount(() => {
-		fetch("/api/tools")
+	// `loadedTools` is fetched here and surfaced via `chrome.loadedTools`
+	// so the page's header snippet has the tool-count badge data without
+	// a duplicate fetch. Scoped to the conversation + active mode: the
+	// endpoint applies the SAME mode filter as the executor, so the badge
+	// reflects exactly the tools the runtime would grant. Refetches when
+	// the conversation or the selected mode changes.
+	//
+	// modeId param protocol (race-free with the fire-and-forget PUT that
+	// persists modeId): while `selectedMode` is still null-by-default
+	// (first paint, before the route shell inherits it from conv.modeId;
+	// or the panel variant which never sets it) the param is OMITTED and
+	// the server falls back to the conversation's persisted modeId. Once
+	// a mode has been explicitly present this session, the param is
+	// ALWAYS sent — `modeId=<id>` for a pick, empty `modeId=` for a clear
+	// back to Default — and the server treats it as authoritative.
+	// `seq` guards against an older response clobbering a newer one.
+	let loadedTools = $state<LoadedTool[]>([]);
+	// Namespaced names of the always-wired orchestration tools (ask-user,
+	// scratchpad, …) from the same /api/tools response — the composer's
+	// Tools dropdown lists their extensions even under a mode.
+	let orchestrationTools = $state<string[]>([]);
+	let loadedToolsFetchSeq = 0;
+	let loadedToolsModeExplicit = false;
+	let loadedToolsModeConvId: string | null = null;
+	// Bumped after a conversation tool-scope PUT lands so the badge
+	// refetches the (server-narrowed) listing — see persistExtensionTools.
+	let loadedToolsRefreshNonce = $state(0);
+	$effect(() => {
+		void loadedToolsRefreshNonce;
+		if (loadedToolsModeConvId !== conversationId) {
+			loadedToolsModeConvId = conversationId;
+			loadedToolsModeExplicit = false;
+		}
+		if (selectedMode) loadedToolsModeExplicit = true;
+		const params = new URLSearchParams();
+		if (conversationId) params.set("conversationId", conversationId);
+		if (selectedMode?.id) params.set("modeId", selectedMode.id);
+		else if (loadedToolsModeExplicit) params.set("modeId", "");
+		const qs = params.toString();
+		const seq = ++loadedToolsFetchSeq;
+		fetch(`/api/tools${qs ? `?${qs}` : ""}`)
 			.then((r) => (r.ok ? r.json() : null))
 			.then((d) => {
-				if (d) loadedTools = d.tools;
+				if (d && seq === loadedToolsFetchSeq) {
+					loadedTools = d.tools;
+					orchestrationTools = d.orchestrationTools ?? [];
+				}
 			})
 			.catch(() => {});
 	});
@@ -622,11 +657,17 @@
 	function persistExtensionTools(next: Record<string, string[]> | null) {
 		const prev = currentConv?.extensionTools ?? null;
 		if (currentConv) currentConv = { ...currentConv, extensionTools: next };
-		updateConversation(conversationId, { extensionTools: next }).catch((err) => {
-			if (currentConv) currentConv = { ...currentConv, extensionTools: prev };
-			console.warn("Failed to persist conversation tool scope:", err);
-			addToast({ type: "error", message: "Couldn't save tool selection" });
-		});
+		updateConversation(conversationId, { extensionTools: next })
+			.then(() => {
+				// Refetch the header badge AFTER the scope landed server-side
+				// (the /api/tools listing reads conv.extensionTools from the DB).
+				loadedToolsRefreshNonce++;
+			})
+			.catch((err) => {
+				if (currentConv) currentConv = { ...currentConv, extensionTools: prev };
+				console.warn("Failed to persist conversation tool scope:", err);
+				addToast({ type: "error", message: "Couldn't save tool selection" });
+			});
 	}
 	function handleExtensionToolsChange(map: Record<string, string[]>) {
 		persistExtensionTools(map);
@@ -865,6 +906,7 @@
 		lastTurnInputTokens,
 		contextBreakdown,
 		contextToolBreakdown,
+		loadedTools,
 		diffPanelToolCalls,
 		diffFileCount,
 		taskSnapshot,
@@ -2112,6 +2154,7 @@
 			onmodechange={(m) => onmodechange?.(m)}
 			onmodecreate={() => onmodecreate?.()}
 			conversationExtensionTools={currentConv?.extensionTools ?? null}
+			{orchestrationTools}
 			onextensiontoolschange={handleExtensionToolsChange}
 			onextensiontoolsreset={handleExtensionToolsReset}
 		/>

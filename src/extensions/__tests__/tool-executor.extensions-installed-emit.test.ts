@@ -32,6 +32,14 @@ import {
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 
 // ── Controllable drafts-handler ────────────────────────────────────
+// Snapshot the REAL module before mocking so afterAll can re-register
+// it. drafts-handler is deliberately NOT in mock-cleanup's
+// MODULE_PATHS: eagerly importing the extension-install graph at
+// preload time flips phase-2b-e2e.test.ts's full-app boot into a
+// busy-hang, so the restore must be in-file (this import happens at
+// THIS file's load, exactly like drafts-handler.test.ts's own import).
+const REAL_DRAFTS_HANDLER = { ...(await import("../drafts-handler")) };
+
 let draftsResponse: unknown;
 let lastHandlerArgs: { name: string; reqMethod: string; userId: string } | null =
   null;
@@ -247,4 +255,7 @@ describe("ToolExecutor.handlePiDrafts — extensions:installed emit (Phase 2)", 
   });
 });
 
-afterAll(() => restoreModuleMocks());
+afterAll(() => {
+  mock.module("../drafts-handler", () => REAL_DRAFTS_HANDLER);
+  restoreModuleMocks();
+});

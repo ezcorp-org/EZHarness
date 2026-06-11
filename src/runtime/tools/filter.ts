@@ -1,10 +1,11 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { BuiltinToolDef } from "./types";
-
 /**
  * Orchestration tools that are always preserved even under the most restrictive
  * scoping — agents still need to delegate, coordinate, and ask for input even
  * when all other tools are filtered out.
+ *
+ * ONE exception: `forceDeniedTools` (the conversation's explicit per-tool
+ * toggles from the composer's Tools dropdown) removes them too — that list
+ * is always direct user intent, never a broad mode/team scope.
  */
 export const ORCHESTRATION_TOOLS: ReadonlySet<string> = new Set([
   "invoke_agent",
@@ -47,23 +48,35 @@ export interface ToolFilterOptions {
   allowedTools?: string[];
   /** Tool names to always remove (applied after allow list). Orchestration tools are never removed. */
   deniedTools?: string[];
+  /**
+   * Tool names to remove UNCONDITIONALLY — the only layer that strips
+   * orchestration tools. Reserved for the conversation's explicit per-tool
+   * toggles (computeModeToolScope compiles conv.extensionTools into this);
+   * broad mode/team scopes must use `deniedTools` instead.
+   */
+  forceDeniedTools?: string[];
 }
 
 /**
  * Apply layered tool filters in order: restriction → allow → deny.
  * Orchestration tools are always preserved.
  *
- * @param tools The full set of agent tools to filter
+ * Generic over any `{ name }` shape: the executor passes `AgentTool[]`,
+ * the `/api/tools` listing endpoint passes its metadata rows — both get
+ * the SAME filter semantics, which is what keeps the header badge in
+ * lock-step with the runtime tool surface.
+ *
+ * @param tools The full set of tools to filter (matched by `.name`)
  * @param builtinDefs Map of tool name → builtin def (for category lookup). Extension
  *                    tools that are not in the map are treated as non-read (filtered
  *                    out under "read-only"). Pass an empty map to skip category checks.
  * @param opts Filter options. Any undefined / empty list is a no-op for that layer.
  */
-export function applyToolFilters(
-  tools: AgentTool[],
-  builtinDefs: ReadonlyMap<string, BuiltinToolDef>,
+export function applyToolFilters<T extends { name: string }>(
+  tools: T[],
+  builtinDefs: ReadonlyMap<string, { category: string }>,
   opts: ToolFilterOptions,
-): AgentTool[] {
+): T[] {
   let out = tools;
 
   if (opts.toolRestriction === "read-only") {
@@ -93,6 +106,11 @@ export function applyToolFilters(
   if (opts.deniedTools && opts.deniedTools.length > 0) {
     const deny = new Set(opts.deniedTools);
     out = out.filter((t) => ORCHESTRATION_TOOLS.has(t.name) || !deny.has(t.name));
+  }
+
+  if (opts.forceDeniedTools && opts.forceDeniedTools.length > 0) {
+    const deny = new Set(opts.forceDeniedTools);
+    out = out.filter((t) => !deny.has(t.name));
   }
 
   return out;

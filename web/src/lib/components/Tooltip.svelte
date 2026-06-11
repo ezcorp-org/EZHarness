@@ -4,10 +4,13 @@
 
 	let {
 		text,
+		header,
 		position = 'top',
 		children,
 	}: {
 		text: string;
+		/** Optional bold first line (e.g. a tool name above its description). */
+		header?: string;
 		position?: 'top' | 'bottom' | 'left' | 'right';
 		children: Snippet;
 	} = $props();
@@ -96,6 +99,9 @@
 			style={tipStyle}
 			role="tooltip"
 		>
+			{#if header}
+				<div class="mb-0.5 font-mono font-semibold text-[var(--color-text-primary)]">{header}</div>
+			{/if}
 			{text}
 		</div>
 	{/if}

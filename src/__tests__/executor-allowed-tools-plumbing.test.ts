@@ -35,22 +35,28 @@ function def(name: string, category: BuiltinToolDef["category"]): BuiltinToolDef
 }
 
 describe("executor → applyToolFilters plumbing for mode.allowedTools", () => {
-  test("STATIC: executor.ts forwards mode.allowedTools to applyToolFilters", () => {
-    // Read the executor source. The mode lookup block (around line 418-441)
-    // must contain BOTH `mode.toolRestriction` AND `mode.allowedTools` in
-    // the same applyToolFilters call. The regex tolerates any whitespace
-    // / argument ordering between them.
-    const src = readFileSync(
+  test("STATIC: executor.ts routes getMode through computeModeToolScope into applyToolFilters", () => {
+    // The mode-restriction plumbing was extracted into
+    // src/runtime/tools/mode-tool-scope.ts (shared with the /api/tools
+    // listing endpoint so the header badge can't drift from the runtime
+    // surface). The static pin now spans both files: the executor must
+    // feed the getMode result through computeModeToolScope and apply the
+    // returned scope; the scope module must forward mode.allowedTools
+    // alongside mode.toolRestriction in its legacy fallback.
+    const executorSrc = readFileSync(
       join(import.meta.dir, "..", "runtime", "executor.ts"),
       "utf-8",
     );
-    // Sanity: the file imports applyToolFilters.
-    expect(src).toContain("applyToolFilters");
-    // Sanity: the mode-lookup block exists.
-    expect(src).toContain("getMode");
-    // The plumbing fact: allowedTools sourced from mode.allowedTools is
-    // passed into the filter alongside toolRestriction.
-    expect(/applyToolFilters\([^)]*toolRestriction:\s*mode\.toolRestriction[\s\S]*?allowedTools:\s*mode\.allowedTools/.test(src))
+    expect(executorSrc).toContain("applyToolFilters");
+    expect(executorSrc).toContain("getMode");
+    expect(/computeModeToolScope\(\s*mode/.test(executorSrc)).toBe(true);
+    expect(/applyToolFilters\(ctx\.agentTools,\s*ctx\.builtinToolDefsMap,\s*scope\)/.test(executorSrc)).toBe(true);
+
+    const scopeSrc = readFileSync(
+      join(import.meta.dir, "..", "runtime", "tools", "mode-tool-scope.ts"),
+      "utf-8",
+    );
+    expect(/toolRestriction:\s*mode\.toolRestriction[\s\S]*?allowedTools:\s*mode\.allowedTools/.test(scopeSrc))
       .toBe(true);
   });
 

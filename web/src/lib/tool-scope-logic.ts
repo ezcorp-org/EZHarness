@@ -8,32 +8,45 @@
  *
  * Data model (see `modes.extensionTools` / `agent_configs.extensionTools` /
  * `conversations.extensionTools` in `src/db/schema.ts`, consumed by
- * `src/runtime/executor.ts`): a map of `extensionId -> string[]` of tool
- * names. A key that is **absent**, or maps to an **empty array**, means
- * "all tools" — the default, which also auto-includes tools added to the
- * extension later. Selecting a strict subset persists that subset; checking
- * every tool (or unchecking the last one) collapses back to the "all tools"
- * default by removing the key.
+ * `src/runtime/executor.ts` via `computeModeToolScope`): a map of
+ * `extensionId -> string[]` of tool names.
+ *   - Key **absent** = "all tools" — the default, which also auto-includes
+ *     tools added to the extension later.
+ *   - **Empty array** `[]` = "extension OFF" — none of its tools are
+ *     granted. Written ONLY by the explicit per-extension master toggle
+ *     (`toggleExtension`); the per-tool collapse rule below never produces
+ *     it, so historical maps (which predate the off state) are unaffected.
+ *   - Non-empty array = exactly that subset.
  *
- * The single source of truth for the toggle/collapse rule lives here so the
- * three consuming surfaces cannot drift.
+ * Per-tool collapse rule (unchanged from Phase 4/D): checking every tool —
+ * or unchecking the last one — collapses back to "all tools" by removing
+ * the key. To grant zero tools, use the master toggle (or detach).
+ *
+ * The single source of truth for these rules lives here so the consuming
+ * surfaces cannot drift.
  */
 
 export type ToolScopeMap = Record<string, string[]>;
 
 /**
- * Is this extension currently granting *all* of its tools? True when the
- * extension has no key in the map, or its subset is empty.
+ * Is this extension currently granting *all* of its tools? True only when
+ * the extension has no key in the map (an empty array means OFF, not all).
  */
 export function isAllTools(map: ToolScopeMap, extId: string): boolean {
-	const subset = map[extId];
-	return !subset || subset.length === 0;
+	return !map[extId];
 }
 
 /**
- * Is a specific tool checked for this extension? When the extension is in
- * "all tools" mode every tool reads as checked; otherwise only tools present
- * in the subset are checked.
+ * Is this extension explicitly toggled OFF (present key, empty subset)?
+ */
+export function isExtensionOff(map: ToolScopeMap, extId: string): boolean {
+	const subset = map[extId];
+	return subset !== undefined && subset.length === 0;
+}
+
+/**
+ * Is a specific tool checked for this extension? "All tools" mode reads as
+ * checked; OFF reads as unchecked; otherwise membership in the subset.
  */
 export function isToolChecked(map: ToolScopeMap, extId: string, toolName: string): boolean {
 	if (isAllTools(map, extId)) return true;
@@ -41,12 +54,26 @@ export function isToolChecked(map: ToolScopeMap, extId: string, toolName: string
 }
 
 /**
+ * Master on/off toggle for a whole extension. OFF is encoded as an empty
+ * subset (`[]`); toggling back on removes the key (back to "all tools").
+ * Returns a NEW map.
+ */
+export function toggleExtension(map: ToolScopeMap, extId: string): ToolScopeMap {
+	const result: ToolScopeMap = { ...map };
+	if (isExtensionOff(map, extId)) delete result[extId];
+	else result[extId] = [];
+	return result;
+}
+
+/**
  * Human-readable summary of the current selection for an extension. Used by
  * the readonly view-mode summaries. `"All tools"` when in the default state,
- * otherwise the comma-joined subset (in stored order).
+ * `"No tools"` when toggled off, otherwise the comma-joined subset (in
+ * stored order).
  */
 export function selectedLabel(map: ToolScopeMap, extId: string): string {
 	if (isAllTools(map, extId)) return "All tools";
+	if (isExtensionOff(map, extId)) return "No tools";
 	return map[extId]!.join(", ");
 }
 

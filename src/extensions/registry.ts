@@ -621,6 +621,16 @@ export class ExtensionRegistry {
     return "extension";
   }
 
+  /** Manifest description for an extension, looked up by manifest NAME
+   *  (the `/api/tools` listing groups by name, not id). Undefined when
+   *  the extension is unknown or has no description. */
+  getExtensionDescription(extensionName: string): string | undefined {
+    for (const [, manifest] of this.manifests) {
+      if (manifest.name === extensionName) return manifest.description || undefined;
+    }
+    return undefined;
+  }
+
   /**
    * Resolve a dependency tool for a caller extension.
    * Returns the RegisteredTool if the caller has declared this dependency, null otherwise.
