@@ -206,6 +206,13 @@ describe("configure_briefing", () => {
     expect(row!.nextFireAt).not.toBeNull();
   });
 
+  test('days:"weekends" as INPUT maps to the 0,6 cron field (round-trip with the UI mapping)', async () => {
+    const r = await tool().execute("tc-1", { time: "08:00", days: "weekends" });
+    expect(isError(r)).toBe(false);
+    expect(resultText(r)).toContain("Weekends at 08:00");
+    expect((await getBriefingConfig(userId))!.cron).toBe("0 8 * * 0,6");
+  });
+
   test("partial schedule change merges with the stored schedule (only days given keeps the stored time)", async () => {
     await upsertBriefingConfig(userId, { cron: "30 8 * * 1-5" }); // Weekdays at 08:30
     const r = await tool().execute("tc-1", { days: "daily" });

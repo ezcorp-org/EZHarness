@@ -23,7 +23,11 @@
 	 * conversationally via briefing_watch — are listed with remove
 	 * buttons (curation floor, spec §4.3). PUT sends `watchlist` ONLY
 	 * after the user edits it here, preserving the server's
-	 * merge-on-omit semantics for untouched saves.
+	 * merge-on-omit semantics for untouched saves. A dirty save
+	 * DELTA-MERGES against a fresh GET (added = current − snapshot,
+	 * removed = snapshot − current, sent = (fresh − removed) ∪ added)
+	 * so a topic captured via briefing_watch between page load and
+	 * save is never silently clobbered.
 	 */
 
 	type ProjectOption = { id: string; name: string };
@@ -75,6 +79,13 @@
 	let watchlistDirty = $state(false);
 	let newTopic = $state("");
 	let watchlistError = $state<string | null>(null);
+	// GET-time snapshot the dirty-save delta is computed against. Plain
+	// (non-reactive) — only read inside save(); entries are never mutated
+	// in place, so sharing entry objects with `watchlist` is safe.
+	let watchlistSnapshot: WatchlistEntry[] = [];
+
+	// Server-side dedupe is case-insensitive — mirror it for the merge.
+	const topicKey = (topic: string) => topic.trim().toLowerCase();
 
 	// Hand-edited cron passthrough (read-only display).
 	let rawCron = $state<string | null>(null);
@@ -121,6 +132,7 @@
 		projectId = config.projectId ?? "";
 		instructions = config.instructions;
 		watchlist = config.watchlist ?? [];
+		watchlistSnapshot = config.watchlist ?? [];
 		watchlistDirty = false;
 		watchlistError = null;
 		model = config.model ?? "";
@@ -196,6 +208,48 @@
 		watchlistDirty = true;
 	}
 
+	/**
+	 * Delta-merge the user's watchlist edits onto the server's CURRENT
+	 * list. The UI list is snapshot + edits; sending it wholesale would
+	 * clobber a topic added via the briefing_watch chat tool between
+	 * page load and save. Instead: added = current − snapshot, removed =
+	 * snapshot − current, sent = (fresh − removed) ∪ added, deduped
+	 * case-insensitively (matching the server). Falls back to the local
+	 * list when the fresh GET fails — identical to the pre-merge
+	 * behavior, never worse.
+	 */
+	async function mergeWatchlistForSave(): Promise<WatchlistEntry[]> {
+		const snapshotKeys = new Set(watchlistSnapshot.map((w) => topicKey(w.topic)));
+		const currentKeys = new Set(watchlist.map((w) => topicKey(w.topic)));
+		const added = watchlist.filter((w) => !snapshotKeys.has(topicKey(w.topic)));
+		const removed = new Set(
+			watchlistSnapshot
+				.filter((w) => !currentKeys.has(topicKey(w.topic)))
+				.map((w) => topicKey(w.topic)),
+		);
+
+		let fresh = watchlist;
+		try {
+			const res = await fetch("/api/briefing/config");
+			if (res.ok) {
+				const config = (await res.json()) as BriefingConfigResponse;
+				fresh = config.watchlist ?? [];
+			}
+		} catch {
+			// fall back to the local list (pre-merge behavior)
+		}
+
+		const merged = fresh.filter((w) => !removed.has(topicKey(w.topic)));
+		const mergedKeys = new Set(merged.map((w) => topicKey(w.topic)));
+		for (const entry of added) {
+			if (!mergedKeys.has(topicKey(entry.topic))) {
+				merged.push(entry);
+				mergedKeys.add(topicKey(entry.topic));
+			}
+		}
+		return merged;
+	}
+
 	async function save() {
 		saving = true;
 		saveError = null;
@@ -206,6 +260,20 @@
 				saveError = "Pick a valid time of day.";
 				return;
 			}
+			// Only send the watchlist when the user actually edited it here —
+			// an omitted key preserves the stored list server-side. A dirty
+			// list is delta-merged against the server's current state so
+			// concurrently chat-added topics survive this save.
+			let mergedWatchlist: WatchlistEntry[] | null = null;
+			if (watchlistDirty) {
+				mergedWatchlist = await mergeWatchlistForSave();
+				if (mergedWatchlist.length > MAX_TOPICS) {
+					saveError =
+						`The merged watchlist has ${mergedWatchlist.length} topics (topics added from chat count too) ` +
+						`— the limit is ${MAX_TOPICS}. Remove some topics and save again.`;
+					return;
+				}
+			}
 			const res = await fetch("/api/briefing/config", {
 				method: "PUT",
 				headers: { "Content-Type": "application/json" },
@@ -215,9 +283,7 @@
 					timezone: timezone.trim(),
 					projectId: projectId || null,
 					instructions,
-					// Only send the watchlist when the user actually edited it
-					// here — an omitted key preserves the stored list server-side.
-					...(watchlistDirty ? { watchlist } : {}),
+					...(mergedWatchlist !== null ? { watchlist: mergedWatchlist } : {}),
 					model: model.trim() || null,
 					provider: provider.trim() || null,
 				}),

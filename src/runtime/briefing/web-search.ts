@@ -10,8 +10,13 @@
  *      extension installed AND enabled, and which namespaced tool
  *      names does it expose? Names are derived from the stored
  *      manifest (`<manifest.name>__<tool.name>` — the registry's
- *      namespacing scheme, see ExtensionRegistry.loadFromDb), so a
- *      future tool addition flows through without touching this file.
+ *      namespacing scheme, see ExtensionRegistry.loadFromDb), then
+ *      INTERSECTED with `READ_SAFE_TOOL_NAMES` — only the tools this
+ *      file explicitly knows to be read-only are ever vouched. A
+ *      future manifest tool (or a different extension installed under
+ *      the `web-search` row name) is skipped, never silently admitted
+ *      into the unattended run's read-only escape hatch; widening the
+ *      vouch requires a deliberate edit to the allowlist below.
  *
  *   2. `syncBriefingAgentWebSearch()` — keep the shared "Daily
  *      Briefing" agent config's `extensions` / `extensionTools`
@@ -35,12 +40,26 @@ const log = logger.child("briefing.web-search");
 
 export const WEB_SEARCH_EXTENSION_NAME = "web-search";
 
+/**
+ * Capability gate for the read-only vouch (security review, Phase 3).
+ *
+ * The UNNAMESPACED tool names from the bundled example's manifest
+ * (docs/extensions/examples/web-search/ezcorp.config.ts) that are
+ * known read-only. The vouched set is the intersection of the stored
+ * manifest's tools with this list — a write-capable tool added to the
+ * manifest later (e.g. `save-page`), or any tool from a third-party
+ * extension occupying the `web-search` row name, is never forwarded
+ * to `readOnlyAllowedTools` for the unattended briefing run.
+ */
+export const READ_SAFE_TOOL_NAMES: ReadonlySet<string> = new Set(["search-web", "read-url"]);
+
 export interface BriefingWebSearch {
-  /** Installed + enabled + at least one declared tool. */
+  /** Installed + enabled + at least one read-safe declared tool. */
   available: boolean;
   /** The extension row's id when available (agent-config reference target). */
   extensionId: string | null;
-  /** Namespaced tool names (`web-search__search-web`, …); empty when unavailable. */
+  /** Namespaced READ-SAFE tool names (`web-search__search-web`, …);
+   *  always a subset of READ_SAFE_TOOL_NAMES; empty when unavailable. */
   toolNames: string[];
 }
 
@@ -55,9 +74,16 @@ export async function resolveBriefingWebSearch(): Promise<BriefingWebSearch> {
     const ext = await getExtensionByName(WEB_SEARCH_EXTENSION_NAME);
     if (!ext?.enabled) return UNAVAILABLE;
     const manifestName = ext.manifest?.name ?? WEB_SEARCH_EXTENSION_NAME;
-    const toolNames = (ext.manifest?.tools ?? [])
-      .filter((t) => typeof t?.name === "string" && t.name.length > 0)
-      .map((t) => `${manifestName}__${t.name}`);
+    const declared = (ext.manifest?.tools ?? [])
+      .map((t) => t?.name)
+      .filter((n): n is string => typeof n === "string" && n.length > 0);
+    const skipped = declared.filter((n) => !READ_SAFE_TOOL_NAMES.has(n));
+    if (skipped.length > 0) {
+      log.debug("manifest tools skipped — not on the read-safe vouch allowlist", { skipped });
+    }
+    const toolNames = declared
+      .filter((n) => READ_SAFE_TOOL_NAMES.has(n))
+      .map((n) => `${manifestName}__${n}`);
     if (toolNames.length === 0) return UNAVAILABLE;
     return { available: true, extensionId: ext.id, toolNames };
   } catch (err) {

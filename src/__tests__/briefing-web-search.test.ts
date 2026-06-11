@@ -48,6 +48,7 @@ mock.module("../db/queries/agent-configs", () => ({
 import {
   resolveBriefingWebSearch,
   syncBriefingAgentWebSearch,
+  READ_SAFE_TOOL_NAMES,
   WEB_SEARCH_EXTENSION_NAME,
   type BriefingWebSearch,
 } from "../runtime/briefing/web-search";
@@ -126,6 +127,37 @@ describe("resolveBriefingWebSearch", () => {
     };
     const ws = await resolveBriefingWebSearch();
     expect(ws.toolNames).toEqual(["web-search__search-web"]);
+  });
+
+  test("capability gate: the read-safe allowlist pins exactly the bundled search + read tools", () => {
+    expect([...READ_SAFE_TOOL_NAMES].sort()).toEqual(["read-url", "search-web"]);
+  });
+
+  test("capability gate: a manifest with an extra write-capable tool gets ONLY the read-safe subset vouched", async () => {
+    extRow = {
+      id: "ext-ws-1",
+      enabled: true,
+      manifest: {
+        name: "web-search",
+        tools: [{ name: "search-web" }, { name: "save-page" }, { name: "read-url" }],
+      },
+    };
+    const ws = await resolveBriefingWebSearch();
+    expect(ws.available).toBe(true);
+    expect(ws.toolNames).toEqual(["web-search__search-web", "web-search__read-url"]);
+  });
+
+  test("capability gate: a manifest with ONLY unknown tools → unavailable (nothing safe to vouch)", async () => {
+    extRow = {
+      id: "ext-ws-1",
+      enabled: true,
+      manifest: { name: "web-search", tools: [{ name: "save-page" }, { name: "post-form" }] },
+    };
+    expect(await resolveBriefingWebSearch()).toEqual({
+      available: false,
+      extensionId: null,
+      toolNames: [],
+    });
   });
 
   test("DB throw degrades to unavailable — never throws", async () => {

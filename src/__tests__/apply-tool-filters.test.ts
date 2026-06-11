@@ -80,6 +80,26 @@ describe("applyToolFilters", () => {
       expect(names(out)).toEqual(["invoke_agent"]);
     });
 
+    test("inert under 'allowlist' — vouching never widens an allowlist scope", () => {
+      // The vouch is honored ONLY inside the read-only branch. Under an
+      // allowlist restriction the allowedTools set is the single source
+      // of truth; a vouched name outside it must NOT be resurrected.
+      const out = applyToolFilters(sample(), builtinDefs, {
+        toolRestriction: "allowlist",
+        allowedTools: ["read_file"],
+        readOnlyAllowedTools: ["extension_widget", "write_file"],
+      });
+      expect(names(out)).toEqual(["invoke_agent", "read_file"]);
+    });
+
+    test("inert under a fail-closed 'allowlist' (no allowedTools) — vouching cannot reopen it", () => {
+      const out = applyToolFilters(sample(), builtinDefs, {
+        toolRestriction: "allowlist",
+        readOnlyAllowedTools: ["extension_widget"],
+      });
+      expect(names(out)).toEqual(["invoke_agent"]);
+    });
+
     test("no effect without a restriction (modifier of read-only only)", () => {
       const out = applyToolFilters(sample(), builtinDefs, {
         readOnlyAllowedTools: ["extension_widget"],

@@ -571,6 +571,140 @@ describe("BriefingSettings — watchlist manager (Phase 3)", () => {
 	});
 });
 
+describe("BriefingSettings — watchlist delta-merge on save (chat-added topics survive)", () => {
+	const STORED_WATCHLIST = [
+		{ topic: "Bun 2.0 release", addedAt: "2026-06-01T00:00:00.000Z" },
+		{ topic: "PGlite roadmap", addedAt: "2026-06-02T00:00:00.000Z" },
+	];
+	const CHAT_ADDED = { topic: "Zig 1.0", addedAt: "2026-06-10T00:00:00.000Z" };
+
+	/** Stateful GET: the test mutates `server.watchlist` to simulate a
+	 *  briefing_watch chat tool firing between page load and save. */
+	function renderWithServerList(initial = STORED_WATCHLIST) {
+		const server = { watchlist: initial };
+		stubFetch({
+			config: () =>
+				new Response(
+					JSON.stringify(
+						makeConfig({ watchlist: server.watchlist, createdAt: "2026-06-01T00:00:00.000Z" }),
+					),
+					{ status: 200 },
+				),
+		});
+		const utils = render(BriefingSettings, { projects: [] });
+		return { ...utils, server };
+	}
+
+	async function loaded(container: HTMLElement) {
+		await waitFor(() => expect(container.querySelector('[data-testid="briefing-save"]')).not.toBeNull());
+	}
+
+	test("a topic added via chat between load and save survives a concurrent UI save", async () => {
+		const { container, getByTestId, server } = renderWithServerList();
+		await loaded(container);
+
+		await fireEvent.input(getInput(container, "briefing-watchlist-input"), {
+			target: { value: "EZCorp v1.4" },
+		});
+		await fireEvent.click(getByTestId("briefing-watchlist-add"));
+
+		// briefing_watch fires in another tab/conversation.
+		server.watchlist = [...STORED_WATCHLIST, CHAT_ADDED];
+
+		await fireEvent.click(getByTestId("briefing-save"));
+		await waitFor(() => expect(container.querySelector('[data-testid="briefing-save-success"]')).not.toBeNull());
+
+		const put = fetchCalls.find((c) => c.method === "PUT");
+		expect((put?.body.watchlist as Array<{ topic: string }>).map((w) => w.topic)).toEqual([
+			"Bun 2.0 release",
+			"PGlite roadmap",
+			"Zig 1.0",
+			"EZCorp v1.4",
+		]);
+	});
+
+	test("a UI removal still removes the topic even though the fresh GET still carries it", async () => {
+		const { container, getByTestId, server } = renderWithServerList();
+		await loaded(container);
+
+		// Remove "Bun 2.0 release" in the UI.
+		await fireEvent.click(container.querySelectorAll('[data-testid="briefing-watchlist-remove"]')[0]!);
+		server.watchlist = [...STORED_WATCHLIST, CHAT_ADDED];
+
+		await fireEvent.click(getByTestId("briefing-save"));
+		await waitFor(() => expect(fetchCalls.some((c) => c.method === "PUT")).toBe(true));
+
+		const put = fetchCalls.find((c) => c.method === "PUT");
+		expect((put?.body.watchlist as Array<{ topic: string }>).map((w) => w.topic)).toEqual([
+			"PGlite roadmap",
+			"Zig 1.0",
+		]);
+	});
+
+	test("case-insensitive dedupe: a UI add that raced the same chat-added topic keeps one entry (the server's)", async () => {
+		const { container, getByTestId, server } = renderWithServerList();
+		await loaded(container);
+
+		await fireEvent.input(getInput(container, "briefing-watchlist-input"), {
+			target: { value: "zig 1.0" },
+		});
+		await fireEvent.click(getByTestId("briefing-watchlist-add"));
+		server.watchlist = [...STORED_WATCHLIST, CHAT_ADDED];
+
+		await fireEvent.click(getByTestId("briefing-save"));
+		await waitFor(() => expect(fetchCalls.some((c) => c.method === "PUT")).toBe(true));
+
+		const put = fetchCalls.find((c) => c.method === "PUT");
+		expect((put?.body.watchlist as Array<{ topic: string }>).map((w) => w.topic)).toEqual([
+			"Bun 2.0 release",
+			"PGlite roadmap",
+			"Zig 1.0", // server casing wins; no duplicate "zig 1.0"
+		]);
+	});
+
+	test("a merge that exceeds the 25-topic cap blocks the save with a visible message and never PUTs", async () => {
+		const stored = Array.from({ length: 24 }, (_, i) => ({
+			topic: `topic-${i}`,
+			addedAt: "2026-06-01T00:00:00.000Z",
+		}));
+		const { container, getByTestId, server } = renderWithServerList(stored);
+		await loaded(container);
+
+		// UI add is fine locally (25 = at the cap)…
+		await fireEvent.input(getInput(container, "briefing-watchlist-input"), {
+			target: { value: "ui topic" },
+		});
+		await fireEvent.click(getByTestId("briefing-watchlist-add"));
+		expect(container.querySelector('[data-testid="briefing-watchlist-error"]')).toBeNull();
+
+		// …but chat added one concurrently, so the merge would be 26.
+		server.watchlist = [...stored, { topic: "chat topic", addedAt: "2026-06-10T00:00:00.000Z" }];
+
+		await fireEvent.click(getByTestId("briefing-save"));
+		await waitFor(() =>
+			expect(container.querySelector('[data-testid="briefing-save-error"]')?.textContent).toContain(
+				"the limit is 25",
+			),
+		);
+		expect(fetchCalls.some((c) => c.method === "PUT")).toBe(false);
+		// The save button recovers (finally-block resets `saving`).
+		expect((getByTestId("briefing-save") as HTMLButtonElement).disabled).toBe(false);
+	});
+
+	test("an untouched save performs NO merge fetch and still omits the watchlist key", async () => {
+		const { container, getByTestId } = renderWithServerList();
+		await loaded(container);
+		fetchCalls = [];
+
+		await fireEvent.click(getByTestId("briefing-save"));
+		await waitFor(() => expect(fetchCalls.some((c) => c.method === "PUT")).toBe(true));
+
+		expect(fetchCalls.find((c) => c.method === "PUT")?.body).not.toHaveProperty("watchlist");
+		// No extra GET fired before the PUT — the merge only runs when dirty.
+		expect(fetchCalls.filter((c) => c.method === "GET")).toHaveLength(0);
+	});
+});
+
 describe("BriefingSettings — last-run status labels", () => {
 	test.each([
 		["error", "failed"],
