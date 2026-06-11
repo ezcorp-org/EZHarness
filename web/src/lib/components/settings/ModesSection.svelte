@@ -84,7 +84,9 @@
 								     keep the legacy badge for them. User-authored modes now express
 								     restrictions via attached extensions instead. -->
 								{#if mode.builtin && mode.toolRestriction !== "all"}
-									<span class="rounded bg-amber-900/30 px-1.5 py-0.5 text-[10px] text-amber-400">{mode.toolRestriction === "read-only" ? "read-only" : "no tools"}</span>
+									<!-- Locked decision 10 — theme tokens with accessible contrast,
+									     matching the built-in chip (the amber-on-dark chip was illegible). -->
+									<span class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]">{mode.toolRestriction === "read-only" ? "read-only" : "no tools"}</span>
 								{/if}
 								{#if (mode.extensionIds?.length ?? 0) > 0}
 									<span class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]">

@@ -1,24 +1,23 @@
 <script lang="ts">
 	import { upsertSetting } from "$lib/api.js";
 	import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
+	import SaveIndicator from "$lib/components/settings/SaveIndicator.svelte";
+	import { createSaveFlash } from "$lib/save-flash.svelte.js";
 	import { PROVIDER_META } from "$lib/provider-meta.js";
 
 	let { preferenceOrder = $bindable() }: { preferenceOrder: string[] } = $props();
 
-	let savingOrder = $state(false);
+	const flash = createSaveFlash();
 
-	async function saveOrder() {
-		savingOrder = true;
-		try { await upsertSetting("provider:preferenceOrder", preferenceOrder); }
-		finally { savingOrder = false; }
-	}
-
-	function moveProvider(index: number, direction: -1 | 1) {
+	// Single-control setting — each reorder auto-saves with inline
+	// confirmation (locked decision 5); the "Save Order" button is gone.
+	async function moveProvider(index: number, direction: -1 | 1) {
 		const newIndex = index + direction;
 		if (newIndex < 0 || newIndex >= preferenceOrder.length) return;
 		const copy = [...preferenceOrder];
 		[copy[index], copy[newIndex]] = [copy[newIndex]!, copy[index]!];
 		preferenceOrder = copy;
+		await flash.run(() => upsertSetting("provider:preferenceOrder", copy));
 	}
 </script>
 
@@ -26,7 +25,7 @@
 	id="order"
 	title="Provider Preference Order"
 	tooltip="When multiple providers have keys configured, this determines which provider is tried first for a given tier. If the first provider fails or is unavailable, the next in order is used as a fallback. Reorder to match your preference for cost, speed, or quality."
-	description="Set the order in which providers are tried during routing. Drag or use arrows to reorder."
+	description="Set the order in which providers are tried during routing. Use the arrows to reorder — changes save automatically."
 >
 	<div class="space-y-2">
 		{#each preferenceOrder as provider, i}
@@ -58,11 +57,7 @@
 			</div>
 		{/each}
 	</div>
-	<button
-		onclick={saveOrder}
-		disabled={savingOrder}
-		class="mt-3 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
-	>
-		{savingOrder ? "Saving..." : "Save Order"}
-	</button>
+	<div class="mt-2 min-h-4">
+		<SaveIndicator saving={flash.saving} saved={flash.saved} />
+	</div>
 </SettingsSection>

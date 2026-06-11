@@ -16,12 +16,16 @@
 	async function fetchHealth() {
 		try {
 			const res = await fetch("/api/health?detail=true");
-			if (res.status === 401) {
-				error = true;
-				return;
-			}
 			if (res.ok) {
 				health = await res.json();
+				error = false;
+			} else {
+				// Root cause of the silent-empty card: any non-ok status
+				// other than 401 (403 behind a proxy, 500, 503) left
+				// `health` null with `error` false, so the component
+				// rendered nothing. Every failure now lands in the error
+				// state — no silent-empty state allowed.
+				error = true;
 			}
 		} catch {
 			error = true;
@@ -38,10 +42,10 @@
 </script>
 
 {#if loading}
-	<p class="text-sm text-[var(--color-text-secondary)]">Loading health status...</p>
-{:else if error}
-	<p class="text-sm text-[var(--color-text-secondary)]">Unable to load health status.</p>
-{:else if health}
+	<p class="text-sm text-[var(--color-text-secondary)]" data-testid="health-loading">Loading health status...</p>
+{:else if error || !health}
+	<p class="text-sm text-[var(--color-text-secondary)]" data-testid="health-error">Unable to load health status.</p>
+{:else}
 	<div class="space-y-3">
 		<!-- Overall -->
 		<div class="flex items-center gap-2">

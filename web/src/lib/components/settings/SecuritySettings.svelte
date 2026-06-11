@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import { upsertSetting, fetchSettings } from "$lib/api.js";
+	import SaveIndicator from "$lib/components/settings/SaveIndicator.svelte";
+	import { createSaveFlash } from "$lib/save-flash.svelte.js";
 
 	// Rate limit categories matching hooks.server.ts RATE_LIMITED_ROUTES
 	const RATE_CATEGORIES = [
@@ -20,8 +23,14 @@
 	let dailyTokens = $state(100_000);
 	let quotas = $state<Record<string, number>>({});
 	let authorAutoModifiable = $state(false);
-	let saving = $state(false);
 	let loading = $state(true);
+
+	// Multi-field form (settings UX overhaul, locked decision 5):
+	// explicit Save disabled until dirty against the loaded baseline.
+	let baseline = $state("");
+	const snapshot = () => JSON.stringify({ rateLimits, dailyTokens, quotas, authorAutoModifiable });
+	const dirty = $derived(snapshot() !== baseline);
+	const flash = createSaveFlash();
 
 	async function loadSettings() {
 		loading = true;
@@ -39,23 +48,26 @@
 			}
 			authorAutoModifiable = (settings["extensions:authorAutoModifiable"] as boolean) === true;
 		} catch { /* silent */ }
+		baseline = snapshot();
 		loading = false;
 	}
 
 	async function saveAll() {
-		saving = true;
 		try {
-			await upsertSetting("limits:rateLimit", rateLimits);
-			await upsertSetting("limits:dailyTokens", dailyTokens);
-			for (const q of STORAGE_QUOTAS) {
-				await upsertSetting(`limits:${q.key}`, quotas[q.key]);
-			}
-			await upsertSetting("extensions:authorAutoModifiable", authorAutoModifiable);
-		} catch { /* silent */ }
-		saving = false;
+			await flash.run(async () => {
+				await upsertSetting("limits:rateLimit", rateLimits);
+				await upsertSetting("limits:dailyTokens", dailyTokens);
+				for (const q of STORAGE_QUOTAS) {
+					await upsertSetting(`limits:${q.key}`, quotas[q.key]);
+				}
+				await upsertSetting("extensions:authorAutoModifiable", authorAutoModifiable);
+			});
+			// Only mark clean when the save actually landed.
+			baseline = snapshot();
+		} catch { /* silent — matches prior behavior */ }
 	}
 
-	$effect(() => { loadSettings(); });
+	onMount(() => { loadSettings(); });
 </script>
 
 {#if loading}
@@ -138,12 +150,15 @@
 			</label>
 		</div>
 
-		<button
-			onclick={saveAll}
-			disabled={saving}
-			class="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
-		>
-			{saving ? "Saving..." : "Save Security Settings"}
-		</button>
+		<div class="flex items-center gap-3">
+			<button
+				onclick={saveAll}
+				disabled={!dirty || flash.saving}
+				class="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
+			>
+				{flash.saving ? "Saving..." : "Save Security Settings"}
+			</button>
+			<SaveIndicator saved={flash.saved} />
+		</div>
 	</div>
 {/if}

@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { upsertSetting } from "$lib/api.js";
 	import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
+	import SaveIndicator from "$lib/components/settings/SaveIndicator.svelte";
+	import { createSaveFlash } from "$lib/save-flash.svelte.js";
 
 	let {
 		showBuiltinPills = $bindable(),
@@ -13,22 +15,18 @@
 	} = $props();
 
 	let auditSectionOpen = $state(false);
-	let savingPills = $state(false);
+	const flash = createSaveFlash();
 
 	// Phase 52.5 — Audit & Visibility persistence. Same upsertSetting
 	// flow as the existing observability toggle (one round-trip per
 	// change; no debounce — settings are admin-only writes anyway).
 	async function toggleBuiltinPills() {
-		savingPills = true;
 		showBuiltinPills = !showBuiltinPills;
-		try { await upsertSetting("global:showBuiltinCapabilityEvents", showBuiltinPills); }
-		finally { savingPills = false; }
+		await flash.run(() => upsertSetting("global:showBuiltinCapabilityEvents", showBuiltinPills));
 	}
 	async function toggleInstalledPills() {
-		savingPills = true;
 		showInstalledPills = !showInstalledPills;
-		try { await upsertSetting("global:showInstalledCapabilityEvents", showInstalledPills); }
-		finally { savingPills = false; }
+		await flash.run(() => upsertSetting("global:showInstalledCapabilityEvents", showInstalledPills));
 	}
 	async function saveEventAuditSampleN(): Promise<void> {
 		// Clamp to [1, 10000] — same range the dispatcher enforces
@@ -37,9 +35,7 @@
 		// keyword) or negative values.
 		const clamped = Math.max(1, Math.min(10000, Math.floor(eventAuditSampleN)));
 		eventAuditSampleN = clamped;
-		savingPills = true;
-		try { await upsertSetting("global:eventSubscriptionAuditSampleN", clamped); }
-		finally { savingPills = false; }
+		await flash.run(() => upsertSetting("global:eventSubscriptionAuditSampleN", clamped));
 	}
 </script>
 
@@ -53,6 +49,9 @@
 	testid="settings-audit-visibility"
 >
 	<div class="space-y-4">
+		<div class="flex min-h-4 justify-end">
+			<SaveIndicator saving={flash.saving} saved={flash.saved} />
+		</div>
 		<div class="flex items-center justify-between">
 			<div>
 				<p class="text-sm text-[var(--color-text-primary)]">Show built-in capability events in chat</p>
@@ -60,7 +59,7 @@
 			</div>
 			<button
 				onclick={toggleBuiltinPills}
-				disabled={savingPills}
+				disabled={flash.saving}
 				class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none {showBuiltinPills ? 'bg-blue-600' : 'bg-gray-600'}"
 				role="switch"
 				aria-checked={showBuiltinPills}
@@ -78,7 +77,7 @@
 			</div>
 			<button
 				onclick={toggleInstalledPills}
-				disabled={savingPills}
+				disabled={flash.saving}
 				class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none {showInstalledPills ? 'bg-blue-600' : 'bg-gray-600'}"
 				role="switch"
 				aria-checked={showInstalledPills}

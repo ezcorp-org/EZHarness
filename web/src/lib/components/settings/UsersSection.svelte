@@ -21,6 +21,20 @@
 	let loadingUsers = $state(true);
 	let copiedResetUserId = $state<string | null>(null);
 
+	// Locked decision 8 — client-side search (list is fully fetched)
+	// + 20-row pagination instead of the nested scrollbox.
+	const USERS_PAGE_SIZE = 20;
+	let userQuery = $state("");
+	let visibleCount = $state(USERS_PAGE_SIZE);
+	const filteredUsers = $derived.by(() => {
+		const q = userQuery.trim().toLowerCase();
+		if (!q) return allUsers;
+		return allUsers.filter(
+			(u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q),
+		);
+	});
+	const visibleUsers = $derived(filteredUsers.slice(0, visibleCount));
+
 	let adminSessions = $state<AdminSessionEntry[]>([]);
 	let sessionCountByUser = $derived.by(() => {
 		const counts: Record<string, number> = {};
@@ -132,17 +146,36 @@
 	{:else if allUsers.length === 0}
 		<p class="text-sm text-[var(--color-text-secondary)]">No users found.</p>
 	{:else}
-		<div class="max-h-64 space-y-2 overflow-y-auto">
-			{#each allUsers as u}
+		<input
+			type="search"
+			bind:value={userQuery}
+			oninput={() => { visibleCount = USERS_PAGE_SIZE; }}
+			placeholder="Search by name or email..."
+			aria-label="Search users"
+			data-testid="users-search"
+			class="mb-3 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
+		/>
+		{#if filteredUsers.length === 0}
+			<p class="text-sm text-[var(--color-text-secondary)]">No users match "{userQuery}".</p>
+		{/if}
+		<div class="space-y-2">
+			{#each visibleUsers as u}
 				<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2">
 					<div class="flex flex-wrap items-center gap-2 md:gap-3">
 						<div class="flex-1 min-w-0 basis-full md:basis-auto">
 							<p class="text-sm text-[var(--color-text-primary)] truncate">{u.name}</p>
 							<p class="text-xs text-[var(--color-text-secondary)] truncate">{u.email}</p>
 						</div>
-						<span class="text-xs px-2 py-0.5 rounded-full bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)]" title="Active sessions">{sessionCountByUser[u.id] ?? 0} sessions</span>
-						<span class="text-xs px-2 py-0.5 rounded-full {u.role === 'admin' ? 'bg-purple-900 text-purple-300' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)]'}">{u.role}</span>
-						<span class="text-xs px-2 py-0.5 rounded-full {u.status === 'active' ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}">{u.status}</span>
+						<!-- Locked decision 8 — badge noise: only non-default values render -->
+						{#if (sessionCountByUser[u.id] ?? 0) > 0}
+							<span class="text-xs px-2 py-0.5 rounded-full bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)]" title="Active sessions">{sessionCountByUser[u.id]} sessions</span>
+						{/if}
+						{#if u.role !== "member"}
+							<span class="text-xs px-2 py-0.5 rounded-full {u.role === 'admin' ? 'bg-purple-900 text-purple-300' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)]'}">{u.role}</span>
+						{/if}
+						{#if u.status !== "active"}
+							<span class="text-xs px-2 py-0.5 rounded-full bg-red-900 text-red-300">{u.status}</span>
+						{/if}
 						{#if u.id !== currentUser?.id}
 							<button onclick={() => resetUserPassword(u.id)} class="text-xs text-blue-400 hover:text-blue-300 transition-colors">
 								{copiedResetUserId === u.id ? "Link copied!" : "Reset Password"}
@@ -168,5 +201,14 @@
 				</div>
 			{/each}
 		</div>
+		{#if filteredUsers.length > visibleCount}
+			<button
+				onclick={() => { visibleCount += USERS_PAGE_SIZE; }}
+				data-testid="users-load-more"
+				class="mt-3 rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+			>
+				Load more ({filteredUsers.length - visibleCount} remaining)
+			</button>
+		{/if}
 	{/if}
 </SettingsSection>
