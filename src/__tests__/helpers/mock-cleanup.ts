@@ -133,6 +133,10 @@ const MODULE_PATHS = [
   // never leak into briefing-run / briefing-api / setup-tools suites.
   "../../runtime/briefing/agent-config",
   "../../runtime/briefing/tools",
+  // Daily Briefing Phase 3: briefing-chat-tools-wired-into-setup.test.ts
+  // mocks the chat-tools wire (throw seam for the fail-soft gate test).
+  // Snapshot so the stub never leaks into the chat-tools' own suite.
+  "../../runtime/briefing/chat-tools",
   "../../extensions/host-maintenance-daemon",
   // Phase 64: background-timers.test.ts mocks this module to stub the
   // EmbedWorker class (start()/stop()) during the bootstrap-wiring suite, so

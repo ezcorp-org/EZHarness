@@ -134,6 +134,48 @@ export async function wireBriefingToolsIfBriefingConversation(args: {
 }
 
 /**
+ * Daily Briefing Phase 3: wire the conversational-subscribe tools
+ * (briefing_watch / briefing_unwatch / configure_briefing) for NORMAL
+ * conversations — any turn with an owning user that is NOT attached to
+ * the system "Daily Briefing" agent config. Briefing conversations get
+ * the READ tools (gate above), never the config writers; the scheduled
+ * pipeline run is doubly excluded (briefing agent + its read-only
+ * restriction strips category-'write' tools). Fail-soft: a wire failure
+ * degrades to a turn without the subscribe tools, never a 500.
+ *
+ * Exported standalone so the gate contract (positive, negative,
+ * fail-soft) is unit-testable without driving the whole setupTools
+ * phase — see briefing-chat-tools-wired-into-setup.test.ts.
+ */
+export async function wireBriefingChatToolsIfEligible(args: {
+  agentTools: AgentTool[];
+  builtinToolDefsMap: Map<string, import("../tools/types").BuiltinToolDef>;
+  conversationId: string;
+  convRecord: SetupToolsConvRecord | null;
+}): Promise<void> {
+  const { agentTools, builtinToolDefsMap, conversationId, convRecord } = args;
+  try {
+    if (!convRecord?.userId) return; // no owner → writes could not be attributed
+    if (convRecord.agentConfigId) {
+      const { getBriefingAgentConfigId } = await import("../briefing/agent-config");
+      const briefingAgentId = await getBriefingAgentConfigId();
+      if (briefingAgentId && convRecord.agentConfigId === briefingAgentId) return;
+    }
+    const { wireBriefingChatToolsForTurn } = await import("../briefing/chat-tools");
+    wireBriefingChatToolsForTurn({
+      agentTools,
+      builtinToolDefsMap,
+      conversationId,
+      userId: convRecord.userId,
+    });
+  } catch (briefingChatWireErr) {
+    log.warn("Briefing chat tools wire failed — subscribe tools unavailable this turn", {
+      error: String(briefingChatWireErr),
+    });
+  }
+}
+
+/**
  * Drive the parallel "memory injection + tool loading + model resolution"
  * setup phase. Mutates `ctx.system`, `ctx.agentTools`,
  * `ctx.toolAbortControllers`, `ctx.builtinToolDefsMap`, `ctx.unsubModeChange`,
@@ -453,6 +495,15 @@ export async function setupTools(
         // conversation attached to the system "Daily Briefing" agent
         // config (see wireBriefingToolsIfBriefingConversation).
         await wireBriefingToolsIfBriefingConversation({
+          agentTools: ctx.agentTools,
+          builtinToolDefsMap: ctx.builtinToolDefsMap,
+          conversationId,
+          convRecord,
+        });
+        // Daily Briefing Phase 3: wire the conversational-subscribe
+        // tools for normal (non-briefing) conversations (see
+        // wireBriefingChatToolsIfEligible).
+        await wireBriefingChatToolsIfEligible({
           agentTools: ctx.agentTools,
           builtinToolDefsMap: ctx.builtinToolDefsMap,
           conversationId,
