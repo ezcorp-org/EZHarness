@@ -21,7 +21,7 @@
  * never actually contends there; on external Postgres (Bun.sql) it is
  * the real at-most-once guard across processes.
  */
-import { and, asc, eq, lte } from "drizzle-orm";
+import { and, asc, eq, lte, sql } from "drizzle-orm";
 import { getDb } from "../connection";
 import { briefingConfigs, type BriefingConfig } from "../schema";
 import { parseCron } from "../../extensions/cron";
@@ -205,6 +205,11 @@ export interface BriefingFireOutcome {
  *
  * Returns the post-update outcome, or null when the row vanished
  * (user deleted mid-run — benign).
+ *
+ * Every branch is a SINGLE atomic UPDATE (SQL-side increment /
+ * conditional set, missing-row detection via RETURNING) so an
+ * overlapping run-now + scheduled fire can never lose an error
+ * increment to a read-then-update race.
  */
 export async function recordBriefingFireResult(
   userId: string,
@@ -212,35 +217,44 @@ export async function recordBriefingFireResult(
   now: Date = new Date(),
 ): Promise<BriefingFireOutcome | null> {
   const db = getDb();
-  const existing = await getBriefingConfig(userId);
-  if (!existing) return null;
 
   if (status === "ok") {
-    await db
+    const rows = await db
       .update(briefingConfigs)
       .set({ lastFireStatus: "ok", consecutiveErrors: 0, updatedAt: now })
-      .where(eq(briefingConfigs.userId, userId));
+      .where(eq(briefingConfigs.userId, userId))
+      .returning();
+    if (!rows[0]) return null;
     return { disabled: false, consecutiveErrors: 0 };
   }
 
   if (status === "skipped") {
-    await db
+    const rows = await db
       .update(briefingConfigs)
       .set({ lastFireStatus: "skipped", updatedAt: now })
-      .where(eq(briefingConfigs.userId, userId));
-    return { disabled: false, consecutiveErrors: existing.consecutiveErrors };
+      .where(eq(briefingConfigs.userId, userId))
+      .returning();
+    if (!rows[0]) return null;
+    return { disabled: false, consecutiveErrors: rows[0].consecutiveErrors };
   }
 
-  const newCount = (existing.consecutiveErrors ?? 0) + 1;
-  const disable = newCount >= BRIEFING_AUTO_DISABLE_AFTER;
-  await db
+  // error: increment + auto-disable in one statement. The CASE guards
+  // read the PRE-update column value, so "+ 1" and ">= threshold - 1"
+  // agree on the same snapshot even under concurrent writers.
+  const rows = await db
     .update(briefingConfigs)
     .set({
       lastFireStatus: "error",
-      consecutiveErrors: newCount,
+      consecutiveErrors: sql`${briefingConfigs.consecutiveErrors} + 1`,
+      enabled: sql`CASE WHEN ${briefingConfigs.consecutiveErrors} + 1 >= ${BRIEFING_AUTO_DISABLE_AFTER} THEN false ELSE ${briefingConfigs.enabled} END`,
+      nextFireAt: sql`CASE WHEN ${briefingConfigs.consecutiveErrors} + 1 >= ${BRIEFING_AUTO_DISABLE_AFTER} THEN NULL ELSE ${briefingConfigs.nextFireAt} END`,
       updatedAt: now,
-      ...(disable ? { enabled: false, nextFireAt: null } : {}),
     })
-    .where(eq(briefingConfigs.userId, userId));
-  return { disabled: disable, consecutiveErrors: newCount };
+    .where(eq(briefingConfigs.userId, userId))
+    .returning();
+  if (!rows[0]) return null;
+  return {
+    disabled: rows[0].consecutiveErrors >= BRIEFING_AUTO_DISABLE_AFTER,
+    consecutiveErrors: rows[0].consecutiveErrors,
+  };
 }

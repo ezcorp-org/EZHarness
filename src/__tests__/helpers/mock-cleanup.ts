@@ -127,6 +127,12 @@ const MODULE_PATHS = [
   // there. Snapshot so restoreModuleMocks() re-registers the real
   // class and the stub never leaks into briefing-daemon.test.ts.
   "../../runtime/briefing/daemon",
+  // briefing-tools-wired-into-setup.test.ts mocks the agent-config
+  // lookup (fixed briefing-agent id, no DB) and the tools wire (throw
+  // seam for the fail-soft gate test). Snapshot both so the stubs
+  // never leak into briefing-run / briefing-api / setup-tools suites.
+  "../../runtime/briefing/agent-config",
+  "../../runtime/briefing/tools",
   "../../extensions/host-maintenance-daemon",
   // Phase 64: background-timers.test.ts mocks this module to stub the
   // EmbedWorker class (start()/stop()) during the bootstrap-wiring suite, so

@@ -31,6 +31,7 @@
   "src/runtime/briefing/daemon.ts": 97,
   "src/runtime/briefing/run.ts": 98,
   "src/runtime/briefing/tools.ts": 97,
+  "src/runtime/stream-chat/setup-tools.ts": 84,
   "web/src/routes/api/briefing/config/+server.ts": 100,
   "web/src/routes/api/briefing/run-now/+server.ts": 91,
   "src/update-check.ts": 100,

@@ -16,6 +16,7 @@
  */
 import {
   createAgentConfig,
+  getAgentConfig,
   getAgentConfigByName,
   type DbAgentConfig,
 } from "../../db/queries/agent-configs";
@@ -70,9 +71,19 @@ export async function ensureBriefingAgentConfig(): Promise<DbAgentConfig> {
  * setup-tools calls this on chat turns and must not mint rows there).
  * Cached after the first hit; `null` when the agent was never
  * bootstrapped on this host.
+ *
+ * The cached id is verified against the DB on every call: a
+ * deleted/recreated agent row would otherwise leave a dead id behind
+ * and silently break prior-briefing exclusion (and the setup-tools
+ * gate) until restart. On a miss the cache is invalidated and the
+ * name lookup runs again, picking up a recreated row's fresh id.
  */
 export async function getBriefingAgentConfigId(): Promise<string | null> {
-  if (cachedId) return cachedId;
+  if (cachedId) {
+    const cached = await getAgentConfig(cachedId);
+    if (cached) return cachedId;
+    cachedId = undefined; // row deleted out from under the cache
+  }
   const row = await getAgentConfigByName(BRIEFING_AGENT_NAME);
   if (row) cachedId = row.id;
   return row?.id ?? null;

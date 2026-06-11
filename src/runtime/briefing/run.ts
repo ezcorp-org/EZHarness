@@ -124,10 +124,16 @@ export function buildBriefingSystemPrompt(opts: {
   return lines.join("\n");
 }
 
+/** Prefix every synthetic briefing prompt starts with. The
+ *  empty-failure hygiene check uses it to tell the pipeline's own
+ *  synthetic message apart from a real user reply (which must never
+ *  be deleted). */
+export const SYNTHETIC_PROMPT_PREFIX = "[Scheduled briefing — ";
+
 /** Synthetic user message — embeds the section contract so the agent
  *  doesn't depend on config-table access (spec §5.2.3). */
 export function buildSyntheticPrompt(now: Date, catchUp: boolean): string {
-  const base = `[Scheduled briefing — ${now.toISOString()}]`;
+  const base = `${SYNTHETIC_PROMPT_PREFIX}${now.toISOString()}]`;
   const catchUpNote = catchUp
     ? " This is a catch-up fire: the host was offline at the scheduled time, so briefly note you're catching up on what happened while the user was away."
     : "";
@@ -138,17 +144,30 @@ export function buildSyntheticPrompt(now: Date, catchUp: boolean): string {
 }
 
 /** True when the conversation carries at least one non-empty assistant
- *  message. Used by the empty-failure hygiene path. */
+ *  message — the "did the briefing actually deliver" signal. */
 async function hasAssistantContent(conversationId: string): Promise<boolean> {
   const msgs = await getMessages(conversationId);
   return msgs.some((m) => m.role === "assistant" && m.content.trim().length > 0);
 }
 
-/** Delete the conversation when a failed run left it without assistant
- *  content. Returns true when the conversation was deleted. */
+/** True when the conversation carries content worth preserving: a
+ *  non-empty assistant message OR a real (non-synthetic) user message.
+ *  A user who replied mid-run must never lose that reply to the
+ *  empty-failure hygiene path, even when the run itself errored. */
+async function hasPreservableContent(conversationId: string): Promise<boolean> {
+  const msgs = await getMessages(conversationId);
+  return msgs.some(
+    (m) =>
+      (m.role === "assistant" && m.content.trim().length > 0) ||
+      (m.role === "user" && !m.content.startsWith(SYNTHETIC_PROMPT_PREFIX)),
+  );
+}
+
+/** Delete the conversation when a failed run left it without
+ *  preservable content. Returns true when the conversation was deleted. */
 export async function deleteBriefingConversationIfEmpty(conversationId: string): Promise<boolean> {
   try {
-    if (await hasAssistantContent(conversationId)) return false;
+    if (await hasPreservableContent(conversationId)) return false;
     await deleteConversation(conversationId);
     return true;
   } catch (err) {
@@ -232,6 +251,11 @@ export async function runBriefingForUser(
           agentConfigId: agent.id,
           model: config.model ?? undefined,
           provider: config.provider ?? undefined,
+          // Unattended pipeline runs are read-only (spec §9): no
+          // edit-file/shell on a turn nobody is watching. Follow-up
+          // user turns in the delivered conversation go through the
+          // normal chat route and keep full tool access (spec §3.2).
+          toolRestriction: "read-only",
         })
         .then((run) => ({ kind: "run" as const, run })),
       timeoutPromise,
@@ -259,9 +283,11 @@ export async function runBriefingForUser(
     }
 
     // Defensive: a "successful" run that produced no assistant content
-    // must not leave an empty conversation in the sidebar either.
+    // is still a failed delivery (status stays assistant-gated), but
+    // the deletion goes through the preservation check — a mid-run
+    // user reply keeps the conversation alive.
     if (!(await hasAssistantContent(conversation.id))) {
-      await deleteConversation(conversation.id).catch(() => {});
+      await deleteBriefingConversationIfEmpty(conversation.id);
       return { status: "error", conversationId: conversation.id, error: "run completed without assistant content" };
     }
 

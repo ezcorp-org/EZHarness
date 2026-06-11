@@ -64,7 +64,17 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
   } catch (err) {
     // Defense-in-depth: the validator already gates cron/timezone, so a
     // throw here is a merged-state pathology (e.g. a legacy row whose
-    // stored cron no longer parses combined with a partial update).
-    return errorJson(400, err instanceof Error ? err.message : String(err));
+    // stored cron no longer parses combined with a partial update) or a
+    // referential failure (projectId pointing at a deleted project).
+    // Fixed strings only — never echo raw driver/parser text to the
+    // client. Drizzle wraps driver errors ("Failed query: …") with the
+    // PG error on `cause`, so the FK sniff checks both layers (SQLSTATE
+    // 23503 = foreign_key_violation).
+    const cause = err instanceof Error ? (err.cause as { message?: string; code?: string } | undefined) : undefined;
+    const msg = `${err instanceof Error ? err.message : String(err)} ${cause?.message ?? ""}`;
+    if (cause?.code === "23503" || /foreign key|fkey/i.test(msg)) {
+      return errorJson(400, "unknown project");
+    }
+    return errorJson(400, "invalid briefing config");
   }
 };

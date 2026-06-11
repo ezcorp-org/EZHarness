@@ -3,7 +3,7 @@ import { z } from "zod";
 import { errorJson } from "$lib/server/http-errors";
 import * as agentConfigQueries from "$server/db/queries/agent-configs";
 import { configToAgent } from "$server/runtime/config-to-agent";
-import { requireAuth } from "$server/auth/middleware";
+import { requireAuth, requireRole } from "$server/auth/middleware";
 import { getExecutor } from "$lib/server/context";
 import { requireScope } from "$lib/server/security/api-keys";
 import type { RequestHandler } from "./$types";
@@ -26,6 +26,23 @@ const updateAgentConfigSchema = z.object({
   category: z.string().nullable().optional(),
 }).passthrough();
 
+// NULL-`userId` agent_configs rows are SYSTEM-owned (e.g. the shared
+// "Daily Briefing" agent minted at boot) — they must stay readable by
+// everyone but only admins may mutate or delete them. Without this
+// gate any member could rewrite the system agent's prompt/capabilities
+// (PUT passthrough) or delete-and-recreate it by name to adopt it.
+// `requireRole` throws a raw Response; catch it so non-admins get the
+// intended 403 (mirrors the /api/extensions/[id] sibling route).
+function requireAdminOr403(locals: App.Locals): Response | null {
+  try {
+    requireRole(locals, "admin");
+    return null;
+  } catch (e) {
+    if (e instanceof Response) return e;
+    throw e;
+  }
+}
+
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
@@ -42,7 +59,10 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   const user = requireAuth(locals);
   const config = await agentConfigQueries.getAgentConfig(params.id);
   if (!config) return errorJson(404, "Not found");
-  if (config.userId && config.userId !== user.id) return errorJson(404, "Not found");
+  if (!config.userId) {
+    const adminErr = requireAdminOr403(locals);
+    if (adminErr) return adminErr;
+  } else if (config.userId !== user.id) return errorJson(404, "Not found");
 
   const parsed = updateAgentConfigSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
@@ -76,7 +96,10 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   const user = requireAuth(locals);
   const config = await agentConfigQueries.getAgentConfig(params.id);
   if (!config) return errorJson(404, "Not found");
-  if (config.userId && config.userId !== user.id) return errorJson(404, "Not found");
+  if (!config.userId) {
+    const adminErr = requireAdminOr403(locals);
+    if (adminErr) return adminErr;
+  } else if (config.userId !== user.id) return errorJson(404, "Not found");
 
   await agentConfigQueries.deleteAgentConfig(params.id);
   getExecutor().unregisterAgent(config.name);

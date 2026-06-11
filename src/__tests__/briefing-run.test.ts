@@ -181,6 +181,20 @@ describe("resolveBriefingProject", () => {
   test("returns null when nothing is resolvable (→ skipped)", async () => {
     expect(await resolveBriefingProject(makeConfig({ projectId: null }))).toBeNull();
   });
+
+  test("prior briefings are excluded from the fallback chain — a user whose only recent conversation is a briefing resolves to null", async () => {
+    // Bootstrap the shared agent so the exclusion id resolves, then
+    // park the user's ONLY conversation on it (yesterday's briefing).
+    const { ensureBriefingAgentConfig } = await import("../runtime/briefing/agent-config");
+    const agent = await ensureBriefingAgentConfig();
+    await getTestDb().insert(conversations).values({
+      projectId,
+      title: "Daily Briefing — Tuesday, Jun 9",
+      userId,
+      agentConfigId: agent.id,
+    });
+    expect(await resolveBriefingProject(makeConfig({ projectId: null }))).toBeNull();
+  });
 });
 
 // ── runBriefingForUser ────────────────────────────────────────────
@@ -222,6 +236,9 @@ describe("runBriefingForUser", () => {
     expect(calls[0]!.options.projectId).toBe(projectId);
     expect(calls[0]!.options.agentConfigId).toBe(agents[0]!.id);
     expect(typeof calls[0]!.options.runId).toBe("string");
+    // Security contract (spec §9): the unattended pipeline run is
+    // read-only — no edit-file/shell on a turn nobody is watching.
+    expect(calls[0]!.options.toolRestriction).toBe("read-only");
     const userMsg = msgs.find((m) => m.role === "user");
     expect(calls[0]!.options.parentMessageId).toBe(userMsg!.id);
 
@@ -288,6 +305,34 @@ describe("runBriefingForUser", () => {
     expect(events).toHaveLength(0);
   });
 
+  test("run error after a mid-run USER reply keeps the conversation (the reply is never destroyed)", async () => {
+    // The user replies while the run is still streaming, then the run
+    // errors with no assistant content. delete-if-empty must treat the
+    // real (non-synthetic) user message as preservable content.
+    const executor = {
+      async streamChat(conversationId: string) {
+        await createMessage(conversationId, { role: "user", content: "actually, focus on the launch plan" });
+        return {
+          id: "run-1",
+          agentName: "chat",
+          status: "error",
+          startedAt: Date.now(),
+          logs: [],
+          result: { success: false, output: null, error: "provider exploded" },
+        } as AgentRun;
+      },
+      cancelRun() { return true; },
+    } as unknown as BriefingExecutor;
+    const bus = new EventBus<AgentEvents>();
+
+    const result = await runBriefingForUser(makeConfig(), {}, { executor, bus, now: () => NOW });
+    expect(result.status).toBe("error");
+    const conv = await getConversation(result.conversationId!);
+    expect(conv).not.toBeNull();
+    const msgs = await getMessages(result.conversationId!);
+    expect(msgs.some((m) => m.content === "actually, focus on the launch plan")).toBe(true);
+  });
+
   test("run error WITH partial assistant content keeps the conversation", async () => {
     const { executor } = makeExecutor({ assistantContent: "partial briefing…", status: "error" });
     const bus = new EventBus<AgentEvents>();
@@ -346,6 +391,21 @@ describe("runBriefingForUser", () => {
     expect(await getTestDb().select().from(conversations)).toHaveLength(0);
   });
 
+  test("a 'successful' run with only a user reply still errors but keeps the conversation", async () => {
+    const executor = {
+      async streamChat(conversationId: string) {
+        await createMessage(conversationId, { role: "user", content: "are you there?" });
+        return { id: "run-1", agentName: "chat", status: "success", startedAt: Date.now(), logs: [] } as AgentRun;
+      },
+      cancelRun() { return true; },
+    } as unknown as BriefingExecutor;
+    const bus = new EventBus<AgentEvents>();
+    const result = await runBriefingForUser(makeConfig(), {}, { executor, bus, now: () => NOW });
+    expect(result.status).toBe("error");
+    expect(result.error).toMatch(/without assistant content/);
+    expect(await getConversation(result.conversationId!)).not.toBeNull();
+  });
+
   test("streamChat throwing is folded into an error result + delete-if-empty", async () => {
     const executor = {
       async streamChat() { throw new Error("connection refused"); },
@@ -385,7 +445,7 @@ describe("deleteBriefingConversationIfEmpty", () => {
   test("deletes when there is no assistant content; keeps otherwise", async () => {
     const db = getTestDb();
     const [empty] = await db.insert(conversations).values({ projectId, title: "Empty", userId }).returning();
-    await createMessage(empty!.id, { role: "user", content: "[Scheduled briefing]" });
+    await createMessage(empty!.id, { role: "user", content: buildSyntheticPrompt(NOW, false) });
     expect(await deleteBriefingConversationIfEmpty(empty!.id)).toBe(true);
     expect(await getConversation(empty!.id)).toBeNull();
 
@@ -395,6 +455,20 @@ describe("deleteBriefingConversationIfEmpty", () => {
     expect(await getConversation(full!.id)).not.toBeNull();
   });
 
+  test("a real user reply counts as content; the synthetic prompt alone does not", async () => {
+    const db = getTestDb();
+    // Synthetic prompt only → still "empty".
+    const [synthetic] = await db.insert(conversations).values({ projectId, title: "Synthetic", userId }).returning();
+    await createMessage(synthetic!.id, { role: "user", content: buildSyntheticPrompt(NOW, false) });
+    expect(await deleteBriefingConversationIfEmpty(synthetic!.id)).toBe(true);
+
+    // Synthetic prompt + a real user reply → preserved.
+    const [replied] = await db.insert(conversations).values({ projectId, title: "Replied", userId }).returning();
+    await createMessage(replied!.id, { role: "user", content: buildSyntheticPrompt(NOW, false) });
+    await createMessage(replied!.id, { role: "user", content: "hold on — what about the demo?" });
+    expect(await deleteBriefingConversationIfEmpty(replied!.id)).toBe(false);
+    expect(await getConversation(replied!.id)).not.toBeNull();
+  });
 });
 
 // ── notifyBriefingAutoDisabled ────────────────────────────────────

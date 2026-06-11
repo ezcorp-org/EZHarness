@@ -91,6 +91,49 @@ export interface SetupToolsResult {
 }
 
 /**
+ * Daily Briefing Phase 1: wire the briefing read tools for any
+ * conversation attached to the system "Daily Briefing" agent config —
+ * the scheduled run AND the user's follow-up turns in the delivered
+ * conversation ("pick that back up" keeps full tool access). Mirrors
+ * the Ez wire-pattern: inject BEFORE the allowlist filter runs;
+ * fail-soft (a wire failure degrades to a tool-less briefing turn,
+ * never a 500). The lookup-only `getBriefingAgentConfigId` never
+ * CREATES the agent row — bootstrap happens at web init.
+ *
+ * Exported as a standalone gate so the wiring contract (positive,
+ * negative, and fail-soft paths) is unit-testable without driving the
+ * whole setupTools phase — see briefing-tools-wired-into-setup.test.ts.
+ */
+export async function wireBriefingToolsIfBriefingConversation(args: {
+  agentTools: AgentTool[];
+  builtinToolDefsMap: Map<string, import("../tools/types").BuiltinToolDef>;
+  conversationId: string;
+  convRecord: SetupToolsConvRecord | null;
+}): Promise<void> {
+  const { agentTools, builtinToolDefsMap, conversationId, convRecord } = args;
+  try {
+    if (convRecord?.agentConfigId && convRecord.userId) {
+      const { getBriefingAgentConfigId } = await import("../briefing/agent-config");
+      const briefingAgentId = await getBriefingAgentConfigId();
+      if (briefingAgentId && convRecord.agentConfigId === briefingAgentId) {
+        const { wireBriefingToolsForTurn } = await import("../briefing/tools");
+        wireBriefingToolsForTurn({
+          agentTools,
+          builtinToolDefsMap,
+          conversationId,
+          userId: convRecord.userId,
+          briefingAgentConfigId: briefingAgentId,
+        });
+      }
+    }
+  } catch (briefingWireErr) {
+    log.warn("Briefing tools wire failed — briefing tools unavailable this turn", {
+      error: String(briefingWireErr),
+    });
+  }
+}
+
+/**
  * Drive the parallel "memory injection + tool loading + model resolution"
  * setup phase. Mutates `ctx.system`, `ctx.agentTools`,
  * `ctx.toolAbortControllers`, `ctx.builtinToolDefsMap`, `ctx.unsubModeChange`,
@@ -408,33 +451,13 @@ export async function setupTools(
 
         // Daily Briefing Phase 1: wire the briefing read tools for any
         // conversation attached to the system "Daily Briefing" agent
-        // config — the scheduled run AND the user's follow-up turns in
-        // the delivered conversation ("pick that back up" keeps full
-        // tool access). Mirrors the Ez wire-pattern above: inject
-        // BEFORE the allowlist filter runs; fail-soft (a wire failure
-        // degrades to a tool-less briefing turn, never a 500). The
-        // lookup-only `getBriefingAgentConfigId` never CREATES the
-        // agent row — bootstrap happens at web init.
-        try {
-          if (convRecord?.agentConfigId && convRecord.userId) {
-            const { getBriefingAgentConfigId } = await import("../briefing/agent-config");
-            const briefingAgentId = await getBriefingAgentConfigId();
-            if (briefingAgentId && convRecord.agentConfigId === briefingAgentId) {
-              const { wireBriefingToolsForTurn } = await import("../briefing/tools");
-              wireBriefingToolsForTurn({
-                agentTools: ctx.agentTools,
-                builtinToolDefsMap: ctx.builtinToolDefsMap,
-                conversationId,
-                userId: convRecord.userId,
-                briefingAgentConfigId: briefingAgentId,
-              });
-            }
-          }
-        } catch (briefingWireErr) {
-          log.warn("Briefing tools wire failed — briefing tools unavailable this turn", {
-            error: String(briefingWireErr),
-          });
-        }
+        // config (see wireBriefingToolsIfBriefingConversation).
+        await wireBriefingToolsIfBriefingConversation({
+          agentTools: ctx.agentTools,
+          builtinToolDefsMap: ctx.builtinToolDefsMap,
+          conversationId,
+          convRecord,
+        });
         await wireMentionedExtensions(conversationId, userMessage, options.parentMessageId ?? run.id);
         const convExtIds = await getConversationExtensionIds(conversationId);
         if (convExtIds.length > 0) {

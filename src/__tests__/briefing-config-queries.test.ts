@@ -310,5 +310,22 @@ describe("recordBriefingFireResult", () => {
 
   test("returns null when the row vanished (user deleted mid-run)", async () => {
     expect(await recordBriefingFireResult(userId, "ok", NOW)).toBeNull();
+    expect(await recordBriefingFireResult(userId, "error", NOW)).toBeNull();
+    expect(await recordBriefingFireResult(userId, "skipped", NOW)).toBeNull();
+  });
+
+  test("error increments are atomic — overlapping run-now + scheduled fires never lose a count", async () => {
+    // Both fires record 'error' concurrently. A read-then-update
+    // implementation could read 0 twice and write 1 twice; the SQL-side
+    // increment guarantees the counter lands on 2.
+    await upsertBriefingConfig(userId, { enabled: true }, NOW);
+    const [a, b] = await Promise.all([
+      recordBriefingFireResult(userId, "error", NOW),
+      recordBriefingFireResult(userId, "error", NOW),
+    ]);
+    const counts = [a!.consecutiveErrors, b!.consecutiveErrors].sort();
+    expect(counts).toEqual([1, 2]);
+    const row = await getBriefingConfig(userId);
+    expect(row!.consecutiveErrors).toBe(2);
   });
 });

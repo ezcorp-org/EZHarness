@@ -239,7 +239,19 @@ describe("PUT /api/briefing/config", () => {
     });
     const res = await call(configPut, createMockEvent({ method: "PUT", body: { enabled: true }, user: userA }));
     expect(res.status).toBe(400);
-    expect((await jsonFromResponse(res)).error).toMatch(/invalid cron/);
+    // Fixed string — raw parser/driver text never reaches the client.
+    expect((await jsonFromResponse(res)).error).toBe("invalid briefing config");
+  });
+
+  test("400 'unknown project' when projectId points at a nonexistent project (FK violation mapped)", async () => {
+    const res = await call(configPut, createMockEvent({
+      method: "PUT",
+      body: { enabled: true, projectId: crypto.randomUUID() },
+      user: userA,
+    }));
+    expect(res.status).toBe(400);
+    expect((await jsonFromResponse(res)).error).toBe("unknown project");
+    expect(await getBriefingConfig(userA.id)).toBeNull(); // nothing persisted
   });
 
   test("200 partial update preserves other fields", async () => {

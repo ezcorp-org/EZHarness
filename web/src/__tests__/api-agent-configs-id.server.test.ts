@@ -52,6 +52,11 @@ function makeEvent(opts: {
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };
+const admin = { id: "a1", email: "a@x", name: "a", role: "admin" };
+
+// NULL-userId rows are SYSTEM-owned (e.g. the shared "Daily Briefing"
+// agent minted at boot) — readable by everyone, mutable by admins only.
+const systemConfig = { id: "cfg-sys", userId: null, name: "Daily Briefing" };
 
 async function expectThrown(
   fn: () => Promise<Response> | Response,
@@ -103,6 +108,14 @@ describe("GET /api/agent-configs/[id]", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { id: string };
     expect(body.id).toBe("cfg-1");
+  });
+
+  test("system (NULL-owner) config stays readable by a regular member", async () => {
+    vi.mocked(getAgentConfig).mockResolvedValue(systemConfig as any);
+    const res = await GET(makeEvent({ id: "cfg-sys", locals: { user } }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string };
+    expect(body.id).toBe("cfg-sys");
   });
 });
 
@@ -174,6 +187,30 @@ describe("PUT /api/agent-configs/[id]", () => {
     expect(body.name).toBe("b");
     expect(registerAgent).toHaveBeenCalledTimes(1);
   });
+
+  test("returns 403 when a member PUTs a system (NULL-owner) config", async () => {
+    vi.mocked(getAgentConfig).mockResolvedValue(systemConfig as any);
+    const res = await expectThrown(
+      () => PUT(makeEvent({ id: "cfg-sys", locals: { user }, body: { prompt: "hijacked" } })),
+      403,
+    );
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toMatch(/Insufficient permissions/);
+    expect(updateAgentConfig).not.toHaveBeenCalled();
+  });
+
+  test("admin can still PUT a system (NULL-owner) config", async () => {
+    vi.mocked(getAgentConfig).mockResolvedValue(systemConfig as any);
+    vi.mocked(updateAgentConfig).mockResolvedValue({
+      ...systemConfig,
+      description: "tuned",
+      prompt: "p",
+      capabilities: [],
+    } as any);
+    const res = await PUT(makeEvent({ id: "cfg-sys", locals: { user: admin }, body: { description: "tuned" } }));
+    expect(res.status).toBe(200);
+    expect(updateAgentConfig).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("DELETE /api/agent-configs/[id]", () => {
@@ -214,5 +251,21 @@ describe("DELETE /api/agent-configs/[id]", () => {
     const body = (await res.json()) as { ok: boolean };
     expect(body.ok).toBe(true);
     expect(unregisterAgent).toHaveBeenCalledWith("a");
+  });
+
+  test("returns 403 when a member DELETEs a system (NULL-owner) config (no adopt-by-recreate)", async () => {
+    vi.mocked(getAgentConfig).mockResolvedValue(systemConfig as any);
+    await expectThrown(() => DELETE(makeEvent({ id: "cfg-sys", locals: { user } })), 403);
+    expect(deleteAgentConfig).not.toHaveBeenCalled();
+    expect(unregisterAgent).not.toHaveBeenCalled();
+  });
+
+  test("admin can still DELETE a system (NULL-owner) config", async () => {
+    vi.mocked(getAgentConfig).mockResolvedValue(systemConfig as any);
+    vi.mocked(deleteAgentConfig).mockResolvedValue(true as any);
+    const res = await DELETE(makeEvent({ id: "cfg-sys", locals: { user: admin } }));
+    expect(res.status).toBe(200);
+    expect(deleteAgentConfig).toHaveBeenCalledTimes(1);
+    expect(unregisterAgent).toHaveBeenCalledWith("Daily Briefing");
   });
 });
