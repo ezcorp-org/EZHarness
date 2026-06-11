@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { dismissPickerSheet } from "./fixtures/picker-helpers.js";
 
 test.describe("New Agent Page", () => {
 	test("shows heading, tabs, and back link", async ({ page, mockApi }) => {
@@ -117,6 +118,7 @@ test.describe("New Agent Page", () => {
 		const listbox = page.locator("#extension-picker-listbox");
 		await expect(listbox).toBeVisible({ timeout: 2000 });
 		await listbox.getByRole("button").filter({ hasText: "Toolbox" }).click();
+		await dismissPickerSheet(page);
 
 		// Per-tool selector appears; both tools checked by default.
 		const beta = page.getByTestId("tool-ext-tools-beta");

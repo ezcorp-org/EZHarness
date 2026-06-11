@@ -118,12 +118,17 @@
 		data-testid="bottom-sheet"
 		bind:this={overlayEl}
 	>
+		<!-- Close only once `entering` (one rAF after mount): when a sheet
+		     opens on an input's focus, the tail of that same tap/click lands
+		     on this backdrop while it's still at opacity 0 and would dismiss
+		     the sheet before the user ever sees it. An invisible backdrop
+		     shouldn't act. -->
 		<button
 			type="button"
 			class="absolute inset-0 bg-black/50 transition-opacity duration-300"
 			style:opacity={entering ? 1 : 0}
 			aria-label="Close picker"
-			onclick={onclose}
+			onclick={() => { if (entering) onclose(); }}
 		></button>
 		<div
 			class="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-2xl bg-[var(--color-surface)] transition-transform duration-300"

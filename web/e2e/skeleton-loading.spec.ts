@@ -45,6 +45,10 @@ async function setupRoutesWithDelay(
 		if (path === "/api/providers") return route.fulfill({ json: [] });
 		if (path === "/api/settings") return route.fulfill({ json: {} });
 		if (path === "/api/agents") return route.fulfill({ json: [] });
+		// The agents page Promise.all's fetchAgents() + fetchAgentConfigs();
+		// the generic `{}` fallback below would make the `teamConfigs`
+		// $derived crash on `.filter` and blank the whole card grid.
+		if (path === "/api/agent-configs") return route.fulfill({ json: [] });
 		if (path === "/api/extensions") return route.fulfill({ json: [] });
 		if (path === "/api/tools") return route.fulfill({ json: { tools: [], count: 0 } });
 		if (path === "/api/auth/me") return route.fulfill({ json: { user: { id: "u1", email: "a@b.com", name: "Test", role: "member" } } });
@@ -101,7 +105,12 @@ test.describe("SkeletonLoader", () => {
 		expect(await skeletonLines.count()).toBeGreaterThanOrEqual(4);
 	});
 
-	test("Extensions page shows card-grid skeleton while loading", async ({ page }) => {
+	// Phase 52.1 made the extensions page SSR-first-paint: +page.server.ts
+	// preloads the rows and `loading` starts false, so the initial card-grid
+	// skeleton no longer exists by design. Assert the SSR contract instead —
+	// the library renders immediately, without a skeleton flash, even while
+	// the client-side `/api/extensions` refresh is still in flight.
+	test("Extensions page first paint is SSR — no skeleton while the list refreshes", async ({ page }) => {
 		await setupRoutesWithDelay(page, {
 			delayPath: "/api/extensions",
 			delayMs: 1000,
@@ -109,9 +118,10 @@ test.describe("SkeletonLoader", () => {
 		});
 		await page.goto("/extensions");
 
-		const skeletonLines = page.locator(".skeleton-line");
-		await expect(skeletonLines.first()).toBeVisible();
-		expect(await skeletonLines.count()).toBeGreaterThanOrEqual(6);
+		// Library tabs are visible at first paint (SSR rows, not fetch-gated)
+		await expect(page.getByTestId("ext-tab-installed")).toBeVisible();
+		// …and no loading skeleton is shown for the in-flight refresh
+		await expect(page.locator(".skeleton-line")).toHaveCount(0);
 	});
 
 	test("Account page shows form skeleton while loading", async ({ page }) => {

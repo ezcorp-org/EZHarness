@@ -156,7 +156,11 @@
 		aria-label={title}
 		tabindex={-1}
 	>
-		<div class="w-full max-w-lg rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6 shadow-2xl mx-4">
+		<!-- max-h + overflow: the Tools & Extensions per-tool checklist can
+		     grow the form past the viewport; without a scrollable panel the
+		     footer buttons land off-screen and can't be reached at all
+		     (backdrop is fixed, the page behind doesn't scroll). -->
+		<div class="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6 shadow-2xl mx-4">
 			<div class="flex items-center justify-between mb-4">
 				<h2 class="text-base font-semibold text-[var(--color-text-primary)]">{title}</h2>
 				<div class="flex items-center gap-1">

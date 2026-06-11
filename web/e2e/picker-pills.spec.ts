@@ -37,9 +37,13 @@ test.describe("ExtensionSearchPicker — pills on the agent edit page", () => {
     await expect(combobox).toContainText("analyzer");
     await expect(combobox).toContainText("formatter");
 
-    // Click the × on the first pill (analyzer).
+    // Remove the first pill (analyzer) via its ×. The remove handler fires
+    // on `mousedown` (SelectedPill.handleMouseDown); a full `.click()` also
+    // triggers svelte-dnd-action's pointer-drag init on the chip row, which
+    // re-syncs the items and swallows the removal. Dispatching mousedown
+    // directly matches the handler without starting a drag.
     const analyzerPill = combobox.getByTestId("selected-pill").filter({ hasText: "analyzer" });
-    await analyzerPill.getByRole("button", { name: /remove analyzer/i }).click();
+    await analyzerPill.getByRole("button", { name: /remove analyzer/i }).dispatchEvent("mousedown");
 
     // Pill count drops to 1 and the remaining pill is formatter.
     await expect(combobox.getByTestId("selected-pill")).toHaveCount(1);
@@ -311,7 +315,8 @@ test.describe("Combobox pill semantics — add & remove lifecycle", () => {
     // when there's at least one pill.
     await expect(combobox.getByTestId("selected-extension-chips")).toHaveCount(1);
 
-    await combobox.getByRole("button", { name: /remove only/i }).click();
+    // mousedown, not click — see the drag-init note on the analyzer test.
+    await combobox.getByRole("button", { name: /remove only/i }).dispatchEvent("mousedown");
 
     // After removing the last pill, both the pill and its row container are gone.
     await expect(combobox.getByTestId("selected-pill")).toHaveCount(0);

@@ -77,18 +77,37 @@ describe("BottomSheet", () => {
 		expect(onclose).toHaveBeenCalled();
 	});
 
-	test("backdrop click invokes onclose", async () => {
+	test("backdrop click invokes onclose (after the enter frame)", async () => {
 		const onclose = vi.fn();
 		const { container } = render(BottomSheet, {
 			open: true,
 			onclose,
 			children: makeChildrenSnippet(),
 		});
+		// The backdrop only acts once `entering` flips on the first rAF
+		// after mount — wait that frame out before clicking.
+		await new Promise((r) => requestAnimationFrame(() => r(null)));
 		// Backdrop is the element painted with the bg-black/50 overlay.
 		const backdrop = container.querySelector(".bg-black\\/50");
 		expect(backdrop).not.toBeNull();
 		await fireEvent.click(backdrop as Element);
 		expect(onclose).toHaveBeenCalled();
+	});
+
+	test("backdrop click during the mount frame is ignored (backdrop still invisible)", async () => {
+		// When a sheet opens on an input's focus, the tail of that same tap
+		// lands on the not-yet-faded-in backdrop; acting on it would dismiss
+		// the sheet before the user ever sees it (modes-extensions mobile).
+		const onclose = vi.fn();
+		const { container } = render(BottomSheet, {
+			open: true,
+			onclose,
+			children: makeChildrenSnippet(),
+		});
+		const backdrop = container.querySelector(".bg-black\\/50");
+		expect(backdrop).not.toBeNull();
+		await fireEvent.click(backdrop as Element);
+		expect(onclose).not.toHaveBeenCalled();
 	});
 
 	test("applies padding-bottom: env(safe-area-inset-bottom, 0px) on the panel", () => {

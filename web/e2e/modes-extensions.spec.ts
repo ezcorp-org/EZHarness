@@ -15,6 +15,7 @@
 
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeMode, type ModeData } from "./fixtures/data.js";
+import { dismissPickerSheet } from "./fixtures/picker-helpers.js";
 
 const PROJECT = makeProject({ id: "proj-modes-ext", name: "Modes Ext Project" });
 
@@ -123,6 +124,7 @@ test.describe("Modes settings — Tools & Extensions picker flow", () => {
 		// Pill appears in the combobox chrome.
 		await expect(combobox.getByTestId("selected-pill")).toHaveCount(1);
 		await expect(combobox).toContainText("Extension A");
+		await dismissPickerSheet(page);
 
 		// Submit. The POST body must include extensionIds:["ext-a"]; we
 		// also assert it via a request-spy below.
@@ -258,6 +260,7 @@ test.describe("Modes settings — Tools & Extensions picker flow", () => {
 		await expect(listbox).toBeVisible({ timeout: 2000 });
 		await listbox.getByRole("button").filter({ hasText: "Extension C" }).click();
 		await expect(combobox.getByTestId("selected-pill")).toHaveCount(2);
+		await dismissPickerSheet(page);
 
 		// Save Changes.
 		await dialog.getByRole("button", { name: "Save Changes" }).click();
