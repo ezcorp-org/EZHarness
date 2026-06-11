@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import { fetchModes, deleteMode as apiDeleteMode, type Mode } from "$lib/api.js";
 	import ModeFormModal from "$lib/components/ModeFormModal.svelte";
 	import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
@@ -41,7 +42,7 @@
 		}
 	}
 
-	$effect(() => {
+	onMount(() => {
 		loadModesList();
 	});
 </script>

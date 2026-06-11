@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
 
 	type CurrentUser = { id: string; email: string; name: string; role: "admin" | "member" };
@@ -112,7 +113,7 @@
 		} catch { /* silent */ }
 	}
 
-	$effect(() => {
+	onMount(() => {
 		loadUsers();
 		loadAdminSessions();
 	});

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
 
 	type UserEntry = { id: string; email: string; name: string; role: string; status: string };
@@ -96,7 +97,7 @@
 		}
 	}
 
-	$effect(() => {
+	onMount(() => {
 		loadTeams();
 		loadUsers();
 	});

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
 
 	type InviteEntry = { id: string; email: string | null; token: string; role: string; expiresAt: string; usedAt: string | null };
@@ -45,7 +46,7 @@
 		setTimeout(() => { copiedInviteId = null; }, 2000);
 	}
 
-	$effect(() => {
+	onMount(() => {
 		loadInvites();
 	});
 </script>
