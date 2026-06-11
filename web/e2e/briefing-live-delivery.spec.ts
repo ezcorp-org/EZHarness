@@ -86,7 +86,10 @@ test.describe("Daily Briefing — live sidebar delivery", () => {
 
 		// Open the project chat — baseline sidebar has only the existing chat.
 		await page.goto("/project/proj-a/chat/conv-existing");
-		await expect(page.getByText("Existing chat")).toBeVisible();
+		// Scoped to the sidebar ROW button — bare getByText also matches the
+		// chat header's title once the conversation finishes loading (strict
+		// mode violation, timing-dependent).
+		await expect(page.getByRole("button", { name: /Existing chat/ })).toBeVisible();
 		await expect(page.getByText("Daily Briefing — Thursday, Jun 11")).toHaveCount(0);
 
 		// The briefing run completes server-side: the conversation now exists
@@ -127,7 +130,10 @@ test.describe("Daily Briefing — live sidebar delivery", () => {
 		await routeConversations(page, state);
 
 		await page.goto("/project/proj-a/chat/conv-existing");
-		await expect(page.getByText("Existing chat")).toBeVisible();
+		// Scoped to the sidebar ROW button — bare getByText also matches the
+		// chat header's title once the conversation finishes loading (strict
+		// mode violation, timing-dependent).
+		await expect(page.getByRole("button", { name: /Existing chat/ })).toBeVisible();
 		const fetchesAfterLoad = state.listFetches;
 
 		// Briefing lands in proj-b while the user is looking at proj-a.
@@ -163,7 +169,10 @@ test.describe("Daily Briefing — live sidebar delivery", () => {
 		await routeConversations(page, state);
 
 		await page.goto("/project/proj-a/chat/conv-existing");
-		await expect(page.getByText("Existing chat")).toBeVisible();
+		// Scoped to the sidebar ROW button — bare getByText also matches the
+		// chat header's title once the conversation finishes loading (strict
+		// mode violation, timing-dependent).
+		await expect(page.getByRole("button", { name: /Existing chat/ })).toBeVisible();
 		const fetchesAfterLoad = state.listFetches;
 
 		await emitSse({ type: "run:status", data: { runId: "run-x", status: "running" } });
@@ -182,7 +191,10 @@ test.describe("Daily Briefing — live sidebar delivery", () => {
 		await routeConversations(page, state);
 
 		await page.goto("/project/proj-a/chat/conv-existing");
-		await expect(page.getByText("Existing chat")).toBeVisible();
+		// Scoped to the sidebar ROW button — bare getByText also matches the
+		// chat header's title once the conversation finishes loading (strict
+		// mode violation, timing-dependent).
+		await expect(page.getByRole("button", { name: /Existing chat/ })).toBeVisible();
 
 		await emitSse({
 			type: "conversation:created",
