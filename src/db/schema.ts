@@ -1163,3 +1163,49 @@ export const previewSessions = pgTable("preview_sessions", {
 
 export type PreviewSession = typeof previewSessions.$inferSelect;
 export type NewPreviewSession = typeof previewSessions.$inferInsert;
+
+// ── Daily Briefing (Phase 1) — per-user briefing configuration ──────
+//
+// One config row per user (PK = user_id, locked decision §7.4 of the
+// briefing spec). `next_fire_at` IS the claim target: the BriefingDaemon
+// claims due rows with SELECT … FOR UPDATE SKIP LOCKED and advances
+// next_fire_at to the next cron slot BEFORE dispatching (at-most-once,
+// mirroring extension_schedules). `consecutive_errors` auto-disables the
+// config at 5, mirroring the ScheduleDaemon's invariant.
+//
+// `watchlist` is stored (jsonb) from Phase 1 so the config API surface is
+// stable, but the run pipeline only consumes it in Phase 3 (web-search
+// section).
+
+export const briefingConfigs = pgTable("briefing_configs", {
+  userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  /** 5-field cron, validated by `parseCron` (incl. its 5-minute-interval
+   *  gate). Default 7am daily; the settings UI writes time-of-day +
+   *  weekday presets as cron strings. */
+  cron: text("cron").notNull().default("0 7 * * *"),
+  /** IANA timezone, validated via Intl at the API layer. */
+  timezone: text("timezone").notNull().default("UTC"),
+  /** Where briefing conversations land. Nullable — the pipeline falls
+   *  back to the user's most recently active project, else skips. */
+  projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
+  /** Free-text user instructions — appended verbatim to the briefing
+   *  conversation's system prompt. The instructions ARE the prompt. */
+  instructions: text("instructions").notNull().default(""),
+  watchlist: jsonb("watchlist").notNull().$type<Array<{ topic: string; addedAt: string }>>().default([]),
+  /** NULL → instance default model resolution (resolveModel(undefined)). */
+  model: text("model"),
+  provider: text("provider"),
+  lastFireAt: timestamp("last_fire_at", { withTimezone: true, mode: "date" }),
+  lastFireStatus: text("last_fire_status").$type<"ok" | "error" | "skipped" | null>(),
+  consecutiveErrors: integer("consecutive_errors").notNull().default(0),
+  /** Precomputed next fire instant — THE claim target. NULL while disabled. */
+  nextFireAt: timestamp("next_fire_at", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_briefing_ready").on(table.enabled, table.nextFireAt),
+]);
+
+export type BriefingConfig = typeof briefingConfigs.$inferSelect;
+export type NewBriefingConfig = typeof briefingConfigs.$inferInsert;

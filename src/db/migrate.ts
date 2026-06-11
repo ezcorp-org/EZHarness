@@ -1433,4 +1433,32 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
   // it (see src/runtime/executor.ts). NULL for existing rows preserves prior
   // behaviour (no narrowing). Idempotent.
   await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS extension_tools JSONB`);
+
+  // ── Daily Briefing (Phase 1) — per-user briefing config ──────────
+  // One row per user (PK = user_id). `next_fire_at` is the BriefingDaemon's
+  // claim target (SELECT … FOR UPDATE SKIP LOCKED → advance → dispatch,
+  // at-most-once like extension_schedules). `consecutive_errors`
+  // auto-disables at 5. `watchlist` is stored from Phase 1 but consumed by
+  // the pipeline only in Phase 3. See src/db/migrations/add-briefing-configs.ts
+  // and tasks/daily-briefing.md §4.1. Idempotent.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS briefing_configs (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      cron TEXT NOT NULL DEFAULT '0 7 * * *',
+      timezone TEXT NOT NULL DEFAULT 'UTC',
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      instructions TEXT NOT NULL DEFAULT '',
+      watchlist JSONB NOT NULL DEFAULT '[]',
+      model TEXT,
+      provider TEXT,
+      last_fire_at TIMESTAMP WITH TIME ZONE,
+      last_fire_status TEXT,
+      consecutive_errors INTEGER NOT NULL DEFAULT 0,
+      next_fire_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_briefing_ready ON briefing_configs(enabled, next_fire_at)`);
 }
