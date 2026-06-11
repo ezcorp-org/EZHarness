@@ -133,13 +133,21 @@ async function navigateAndOpenCard(
 
 	await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
+	// Wait for the composer to hydrate before driving it. Under load (a
+	// contending dev server stealing cycles) `.fill()`/Enter can fire
+	// before Svelte wires the submit handler, so the POST never leaves and
+	// `waitForResponse` hangs to timeout — the root of the flake. Gating on
+	// an enabled textarea makes the setup deterministic.
 	const textarea = page.locator("textarea").first();
+	await expect(textarea).toBeEnabled({ timeout: 15_000 });
 	await textarea.fill("show my review queue");
 	// Register the response waiter BEFORE pressing Enter so the POST can't
-	// race ahead of the listener.
+	// race ahead of the listener. Explicit generous timeout so a slow
+	// (CPU-starved) mocked round-trip doesn't fall back to a tighter default.
 	await Promise.all([
 		page.waitForResponse(
 			(r) => r.url().includes("/messages") && r.request().method() === "POST",
+			{ timeout: 15_000 },
 		),
 		textarea.press("Enter"),
 	]);
