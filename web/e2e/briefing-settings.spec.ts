@@ -1,12 +1,13 @@
 /**
- * Daily Briefing Phase 2 e2e — settings page CRUD + Run now handling
- * (spec §5.4 minus the Phase 3 watchlist manager).
+ * Daily Briefing e2e — settings page CRUD + Run now handling +
+ * watchlist manager round-trip (spec §5.4; watchlist per §4.3/§10).
  *
  * Pure render/wiring spec: runs in plain preview via mockApi —
  * `/api/briefing/*` is mocked per-test with page.route registered
  * AFTER mockApi so Playwright matches it first. The combined
  * "Run now → conversation appears live in the sidebar" exit flow
- * lives in briefing-live-delivery.spec.ts.
+ * lives in briefing-live-delivery.spec.ts; the chat-tool confirmation
+ * card lives in briefing-watch-tool-card.spec.ts.
  */
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
@@ -72,8 +73,94 @@ test.describe("Daily Briefing settings page", () => {
 			model: null,
 			provider: null,
 		});
-		// Watchlist is Phase 3 — saving must not clobber it.
+		// An UNTOUCHED watchlist must stay out of the PUT body — the
+		// server's preserve-on-omit semantics keep chat-added topics safe
+		// from unrelated settings saves.
 		expect(putBody).not.toHaveProperty("watchlist");
+	});
+
+	test("watchlist round-trip: stored topics render; remove + add persist through PUT and survive a reload", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj] });
+
+		// Stateful route so the post-reload assertions prove the page
+		// renders what was PERSISTED, not leftover client state.
+		let stored: Record<string, unknown> = {
+			...STORED_CONFIG,
+			watchlist: [
+				{ topic: "Bun 2.0 release", addedAt: "2026-06-01T00:00:00.000Z" },
+				{ topic: "PGlite roadmap", addedAt: "2026-06-02T00:00:00.000Z" },
+			],
+		};
+		const putBodies: Array<Record<string, unknown>> = [];
+		await page.route("**/api/briefing/config", async (route) => {
+			if (route.request().method() === "PUT") {
+				const body = route.request().postDataJSON();
+				putBodies.push(body);
+				stored = { ...stored, ...body };
+				return route.fulfill({ json: stored });
+			}
+			return route.fulfill({ json: stored });
+		});
+
+		await page.goto("/settings/briefing");
+
+		// Stored topics (e.g. captured conversationally) are visible +
+		// individually removable — the curation floor.
+		const items = page.getByTestId("briefing-watchlist-item");
+		await expect(items).toHaveCount(2);
+		await expect(items.nth(0)).toContainText("Bun 2.0 release");
+		await expect(items.nth(1)).toContainText("PGlite roadmap");
+
+		// Remove one, add another, save.
+		await page.getByTestId("briefing-watchlist-remove").first().click();
+		await expect(items).toHaveCount(1);
+		await page.getByTestId("briefing-watchlist-input").fill("EZCorp v1.4 launch");
+		await page.getByTestId("briefing-watchlist-add").click();
+		await expect(items).toHaveCount(2);
+		await page.getByTestId("briefing-save").click();
+		await expect(page.getByTestId("briefing-save-success")).toBeVisible();
+
+		const watchlistPut = putBodies[0]!.watchlist as Array<{ topic: string }>;
+		expect(watchlistPut.map((w) => w.topic)).toEqual(["PGlite roadmap", "EZCorp v1.4 launch"]);
+
+		// Reload → the persisted list (not client state) renders.
+		await page.reload();
+		await expect(items).toHaveCount(2);
+		await expect(items.nth(0)).toContainText("PGlite roadmap");
+		await expect(items.nth(1)).toContainText("EZCorp v1.4 launch");
+
+		// A follow-up save WITHOUT touching the watchlist omits the key
+		// again (the dirty flag reset on the PUT echo / reload).
+		await page.getByTestId("briefing-instructions").fill("unrelated change");
+		await page.getByTestId("briefing-save").click();
+		await expect(page.getByTestId("briefing-save-success")).toBeVisible();
+		expect(putBodies[1]).not.toHaveProperty("watchlist");
+	});
+
+	test("watchlist guards: duplicate topic is rejected inline without losing the list", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj] });
+		await page.route("**/api/briefing/config", (route) =>
+			route.fulfill({
+				json: {
+					...STORED_CONFIG,
+					watchlist: [{ topic: "Bun 2.0 release", addedAt: "2026-06-01T00:00:00.000Z" }],
+				},
+			}),
+		);
+
+		await page.goto("/settings/briefing");
+		await expect(page.getByTestId("briefing-watchlist-item")).toHaveCount(1);
+
+		await page.getByTestId("briefing-watchlist-input").fill("bun 2.0 RELEASE");
+		await page.getByTestId("briefing-watchlist-add").click();
+		await expect(page.getByTestId("briefing-watchlist-error")).toContainText("already on the watchlist");
+		await expect(page.getByTestId("briefing-watchlist-item")).toHaveCount(1);
 	});
 
 	test("saved settings survive a reload — the fresh GET shows the persisted values", async ({
