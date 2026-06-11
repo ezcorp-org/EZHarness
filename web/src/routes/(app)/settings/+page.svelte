@@ -1306,6 +1306,21 @@
 		</button>
 	</div>
 
+	<!-- Daily Briefing (full editor lives on its own page) -->
+	<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
+		<div class="flex items-center justify-between mb-1">
+			<h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Daily Briefing</h2>
+			<a
+				href="/settings/briefing"
+				data-testid="briefing-settings-link"
+				class="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 transition-colors"
+			>
+				Configure
+			</a>
+		</div>
+		<p class="text-xs text-[var(--color-text-secondary)]">A scheduled morning conversation that mines your recent chats, memories, and tasks — set the time, focus, and delivery project.</p>
+	</div>
+
 	<!-- Custom Modes -->
 	<div id="modes" class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
 		<div class="flex items-center justify-between mb-1">
