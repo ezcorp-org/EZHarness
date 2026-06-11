@@ -28,7 +28,15 @@ export type WSRunEvent = {
 		// owning a second EventSource (same pattern as ez:client-tool).
 		// Server-side `shouldDeliverEvent` already guarantees this only
 		// reaches the installing user's session.
-		| "extensions:installed";
+		| "extensions:installed"
+		// Daily Briefing Phase 2: server-initiated conversation delivery.
+		// Both are USER-scoped by the SSE filter (fail-closed), so an
+		// event arriving here already means "this user owns it". The
+		// global subscriber marks the conversation unread and re-dispatches
+		// `conversation:created` as a window CustomEvent so the sidebar
+		// ConversationList can live-refresh without a second EventSource.
+		| "conversation:created"
+		| "briefing:delivered";
 	data: Record<string, unknown>;
 };
 

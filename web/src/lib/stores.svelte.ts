@@ -1311,6 +1311,30 @@ export function initStores() {
 				}
 				break;
 			}
+
+			case "conversation:created": {
+				// Daily Briefing Phase 2 (spec §5.3): a server-initiated
+				// conversation (briefing pipeline today; any future
+				// server-side creator via `source`) landed for THIS user —
+				// the SSE filter is fail-closed per-user, so no ownership
+				// re-check is needed here. Mark it unread (lights the
+				// sidebar dot, project-rail badge, and favicon badge) and
+				// re-dispatch as a window CustomEvent so ConversationList
+				// can refetch the affected project's list without owning a
+				// second EventSource (same pattern as `extensions:installed`).
+				const { conversationId, projectId } = event.data as {
+					conversationId?: string;
+					projectId?: string | null;
+				};
+				if (!conversationId) break;
+				unreadStore.markUnread(conversationId, projectId ?? null);
+				if (typeof window !== "undefined") {
+					window.dispatchEvent(new CustomEvent("conversation:created", {
+						detail: event.data,
+					}));
+				}
+				break;
+			}
 		}
 	});
 

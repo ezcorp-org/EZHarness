@@ -192,6 +192,23 @@
 		if (projectId) loadConversations();
 	});
 
+	// Daily Briefing Phase 2 (spec §5.3): server-initiated conversations
+	// (briefing delivery) must appear in the sidebar WITHOUT navigation or
+	// a manual refresh. The global SSE subscriber (stores.svelte.ts)
+	// re-dispatches the user-scoped `conversation:created` bus event as a
+	// window CustomEvent; refetch when it targets the project this list is
+	// showing. Other projects need no list refresh — their project-rail
+	// badge is already bumped via unreadStore.markUnread in the subscriber.
+	$effect(() => {
+		const currentProjectId = projectId;
+		function onConversationCreated(e: Event) {
+			const detail = (e as CustomEvent).detail as { projectId?: string } | undefined;
+			if (detail?.projectId === currentProjectId) loadConversations();
+		}
+		window.addEventListener("conversation:created", onConversationCreated);
+		return () => window.removeEventListener("conversation:created", onConversationCreated);
+	});
+
 	// Infinite scroll: observe sentinel at list bottom
 	$effect(() => {
 		if (!sentinelEl) return;

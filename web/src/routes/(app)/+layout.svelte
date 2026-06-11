@@ -14,6 +14,7 @@
 	import ToastContainer from "$lib/components/ToastContainer.svelte";
 	import ImageLightbox from "$lib/components/ImageLightbox.svelte";
 	import QuickStartChecklist from "$lib/components/QuickStartChecklist.svelte";
+	import BriefingNudge from "$lib/components/BriefingNudge.svelte";
 	import ConnectionBanner from "$lib/components/chat/ConnectionBanner.svelte";
 	import PullToRefresh from "$lib/components/PullToRefresh.svelte";
 	import SwipeDrawer from "$lib/components/SwipeDrawer.svelte";
@@ -299,6 +300,7 @@
 				</a>
 			{/each}
 			<div class="mt-auto">
+				<BriefingNudge />
 				<QuickStartChecklist />
 				<!-- User menu -->
 				{#if currentUser}
