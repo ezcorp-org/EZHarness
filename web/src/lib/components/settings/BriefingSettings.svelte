@@ -11,18 +11,25 @@
 	import { relativeTime } from "$lib/utils/relative-time.js";
 
 	/**
-	 * Daily Briefing settings (spec §5.4, Phase 2 — watchlist manager is
-	 * Phase 3). Talks to GET/PUT /api/briefing/config and
-	 * POST /api/briefing/run-now.
+	 * Daily Briefing settings (spec §5.4). Talks to GET/PUT
+	 * /api/briefing/config and POST /api/briefing/run-now.
 	 *
 	 * Schedule editing is preset-based: time-of-day + weekday preset map
 	 * to a 5-field cron via $lib/briefing-cron. A cron the UI didn't
 	 * write (hand-edited through the API) is shown read-only instead of
 	 * being mangled through the pickers.
+	 *
+	 * Watchlist manager (Phase 3): topics — including ones captured
+	 * conversationally via briefing_watch — are listed with remove
+	 * buttons (curation floor, spec §4.3). PUT sends `watchlist` ONLY
+	 * after the user edits it here, preserving the server's
+	 * merge-on-omit semantics for untouched saves.
 	 */
 
 	type ProjectOption = { id: string; name: string };
 	let { projects = [] }: { projects?: ProjectOption[] } = $props();
+
+	type WatchlistEntry = { topic: string; addedAt: string };
 
 	type BriefingConfigResponse = {
 		enabled: boolean;
@@ -30,12 +37,21 @@
 		timezone: string;
 		projectId: string | null;
 		instructions: string;
+		watchlist?: WatchlistEntry[];
 		model: string | null;
 		provider: string | null;
 		lastFireAt: string | null;
 		lastFireStatus: "ok" | "error" | "skipped" | null;
 		createdAt?: string;
 	};
+
+	// Mirrors MAX_WATCHLIST_TOPICS / MAX_TOPIC_LENGTH in
+	// src/runtime/briefing/config-validation.ts (the server enforces
+	// them authoritatively on PUT; these only gate the Add button UX —
+	// importing the server module into the client bundle isn't worth a
+	// shared constant).
+	const MAX_TOPICS = 25;
+	const MAX_TOPIC_CHARS = 200;
 
 	let loading = $state(true);
 	let loadError = $state(false);
@@ -49,6 +65,16 @@
 	let instructions = $state("");
 	let model = $state("");
 	let provider = $state("");
+
+	// Watchlist manager state. `watchlistDirty` gates whether the PUT
+	// body carries the watchlist at all — an untouched save omits it so
+	// the server's preserve-on-omit semantics keep working (and a
+	// concurrently chat-added topic is never clobbered by an unrelated
+	// settings save).
+	let watchlist = $state<WatchlistEntry[]>([]);
+	let watchlistDirty = $state(false);
+	let newTopic = $state("");
+	let watchlistError = $state<string | null>(null);
 
 	// Hand-edited cron passthrough (read-only display).
 	let rawCron = $state<string | null>(null);
@@ -94,6 +120,9 @@
 		timezone = config.timezone;
 		projectId = config.projectId ?? "";
 		instructions = config.instructions;
+		watchlist = config.watchlist ?? [];
+		watchlistDirty = false;
+		watchlistError = null;
 		model = config.model ?? "";
 		provider = config.provider ?? "";
 		lastFireAt = config.lastFireAt;
@@ -140,6 +169,33 @@
 		rawCron = null;
 	}
 
+	function addWatchlistTopic() {
+		watchlistError = null;
+		const topic = newTopic.trim();
+		if (!topic) return;
+		if (topic.length > MAX_TOPIC_CHARS) {
+			watchlistError = `Topics are limited to ${MAX_TOPIC_CHARS} characters.`;
+			return;
+		}
+		if (watchlist.length >= MAX_TOPICS) {
+			watchlistError = `You can watch at most ${MAX_TOPICS} topics — remove one first.`;
+			return;
+		}
+		if (watchlist.some((w) => w.topic.toLowerCase() === topic.toLowerCase())) {
+			watchlistError = `"${topic}" is already on the watchlist.`;
+			return;
+		}
+		watchlist = [...watchlist, { topic, addedAt: new Date().toISOString() }];
+		watchlistDirty = true;
+		newTopic = "";
+	}
+
+	function removeWatchlistTopic(topic: string) {
+		watchlistError = null;
+		watchlist = watchlist.filter((w) => w.topic !== topic);
+		watchlistDirty = true;
+	}
+
 	async function save() {
 		saving = true;
 		saveError = null;
@@ -159,6 +215,9 @@
 					timezone: timezone.trim(),
 					projectId: projectId || null,
 					instructions,
+					// Only send the watchlist when the user actually edited it
+					// here — an omitted key preserves the stored list server-side.
+					...(watchlistDirty ? { watchlist } : {}),
 					model: model.trim() || null,
 					provider: provider.trim() || null,
 				}),
@@ -365,6 +424,64 @@
 					Free text — this is appended to the briefing agent's prompt verbatim.
 				</span>
 			</label>
+
+			<!-- Watchlist manager (Phase 3, spec §4.3 curation floor) -->
+			<div class="flex flex-col gap-2">
+				<span class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Watchlist</span>
+				<p class="text-xs text-[var(--color-text-muted)]">
+					Topics your briefing researches overnight — add them here or just ask in any chat
+					("keep an eye on … for me"). Topics are sent to your configured search provider.
+				</p>
+				{#if watchlist.length === 0}
+					<p class="text-sm text-[var(--color-text-secondary)]" data-testid="briefing-watchlist-empty">
+						No topics yet.
+					</p>
+				{:else}
+					<ul class="flex flex-col gap-1">
+						{#each watchlist as entry (entry.topic)}
+							<li
+								class="flex items-center justify-between gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5"
+								data-testid="briefing-watchlist-item"
+							>
+								<span class="text-sm text-[var(--color-text-primary)]">{entry.topic}</span>
+								<button
+									onclick={() => removeWatchlistTopic(entry.topic)}
+									aria-label={`Remove ${entry.topic} from watchlist`}
+									data-testid="briefing-watchlist-remove"
+									class="text-xs text-[var(--color-text-muted)] transition-colors hover:text-red-400"
+								>
+									Remove
+								</button>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+				<div class="flex max-w-md items-center gap-2">
+					<input
+						type="text"
+						bind:value={newTopic}
+						placeholder="e.g. Bun 2.0 release"
+						data-testid="briefing-watchlist-input"
+						onkeydown={(e) => {
+							if (e.key === "Enter") {
+								e.preventDefault();
+								addWatchlistTopic();
+							}
+						}}
+						class="flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
+					/>
+					<button
+						onclick={addWatchlistTopic}
+						data-testid="briefing-watchlist-add"
+						class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-tertiary)]"
+					>
+						Add
+					</button>
+				</div>
+				{#if watchlistError}
+					<p class="text-xs text-amber-500" data-testid="briefing-watchlist-error">{watchlistError}</p>
+				{/if}
+			</div>
 
 			<!-- Model / provider override -->
 			<div class="flex flex-wrap gap-3">

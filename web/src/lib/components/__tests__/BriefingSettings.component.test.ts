@@ -433,6 +433,144 @@ describe("BriefingSettings — run now", () => {
 	});
 });
 
+describe("BriefingSettings — watchlist manager (Phase 3)", () => {
+	const STORED_WATCHLIST = [
+		{ topic: "Bun 2.0 release", addedAt: "2026-06-01T00:00:00.000Z" },
+		{ topic: "PGlite roadmap", addedAt: "2026-06-02T00:00:00.000Z" },
+	];
+
+	async function renderWithWatchlist(watchlist = STORED_WATCHLIST) {
+		stubFetch({ config: { watchlist, createdAt: "2026-06-01T00:00:00.000Z" } });
+		const utils = render(BriefingSettings, { projects: [] });
+		await waitFor(() =>
+			expect(utils.container.querySelector('[data-testid="briefing-save"]')).not.toBeNull(),
+		);
+		return utils;
+	}
+
+	test("renders stored topics (incl. conversationally-captured ones) with remove buttons", async () => {
+		const { container } = await renderWithWatchlist();
+		const items = container.querySelectorAll('[data-testid="briefing-watchlist-item"]');
+		expect(items).toHaveLength(2);
+		expect(items[0]!.textContent).toContain("Bun 2.0 release");
+		expect(items[1]!.textContent).toContain("PGlite roadmap");
+		expect(container.querySelectorAll('[data-testid="briefing-watchlist-remove"]')).toHaveLength(2);
+		expect(container.querySelector('[data-testid="briefing-watchlist-empty"]')).toBeNull();
+	});
+
+	test("empty watchlist shows the empty line", async () => {
+		const { container } = await renderWithWatchlist([]);
+		expect(container.querySelector('[data-testid="briefing-watchlist-empty"]')).not.toBeNull();
+		expect(container.querySelectorAll('[data-testid="briefing-watchlist-item"]')).toHaveLength(0);
+	});
+
+	test("an untouched save OMITS the watchlist key (preserve-on-omit semantics survive)", async () => {
+		const { container, getByTestId } = await renderWithWatchlist();
+		await fireEvent.input(getByTestId("briefing-instructions"), { target: { value: "unrelated edit" } });
+		await fireEvent.click(getByTestId("briefing-save"));
+		await waitFor(() => expect(container.querySelector('[data-testid="briefing-save-success"]')).not.toBeNull());
+
+		const put = fetchCalls.find((c) => c.method === "PUT");
+		expect(put?.body).not.toHaveProperty("watchlist");
+	});
+
+	test("adding a topic marks the list dirty: save PUTs the full new list, then resets the dirty flag from the response", async () => {
+		const { container, getByTestId } = await renderWithWatchlist();
+		await fireEvent.input(getInput(container, "briefing-watchlist-input"), {
+			target: { value: "  EZCorp v1.4  " },
+		});
+		await fireEvent.click(getByTestId("briefing-watchlist-add"));
+
+		// Trimmed, appended, input cleared.
+		const items = container.querySelectorAll('[data-testid="briefing-watchlist-item"]');
+		expect(items).toHaveLength(3);
+		expect(items[2]!.textContent).toContain("EZCorp v1.4");
+		expect(getInput(container, "briefing-watchlist-input").value).toBe("");
+
+		await fireEvent.click(getByTestId("briefing-save"));
+		await waitFor(() => expect(container.querySelector('[data-testid="briefing-save-success"]')).not.toBeNull());
+
+		const put = fetchCalls.find((c) => c.method === "PUT");
+		expect(put?.body.watchlist).toHaveLength(3);
+		expect(put?.body.watchlist[2]).toMatchObject({ topic: "EZCorp v1.4" });
+		expect(typeof put?.body.watchlist[2].addedAt).toBe("string");
+
+		// The PUT echo re-applies the config → dirty flag resets, so a
+		// SECOND unrelated save omits the key again.
+		fetchCalls = [];
+		await fireEvent.click(getByTestId("briefing-save"));
+		await waitFor(() => expect(fetchCalls.some((c) => c.method === "PUT")).toBe(true));
+		expect(fetchCalls.find((c) => c.method === "PUT")?.body).not.toHaveProperty("watchlist");
+	});
+
+	test("Enter in the input adds the topic (no form submit / page nav)", async () => {
+		const { container } = await renderWithWatchlist([]);
+		const input = getInput(container, "briefing-watchlist-input");
+		await fireEvent.input(input, { target: { value: "Keyboard topic" } });
+		await fireEvent.keyDown(input, { key: "Enter" });
+		expect(container.querySelectorAll('[data-testid="briefing-watchlist-item"]')).toHaveLength(1);
+	});
+
+	test("removing a topic PUTs the shrunken list on save", async () => {
+		const { container, getByTestId } = await renderWithWatchlist();
+		const removeButtons = container.querySelectorAll('[data-testid="briefing-watchlist-remove"]');
+		await fireEvent.click(removeButtons[0]!);
+
+		expect(container.querySelectorAll('[data-testid="briefing-watchlist-item"]')).toHaveLength(1);
+
+		await fireEvent.click(getByTestId("briefing-save"));
+		await waitFor(() => expect(fetchCalls.some((c) => c.method === "PUT")).toBe(true));
+		const put = fetchCalls.find((c) => c.method === "PUT");
+		expect(put?.body.watchlist).toEqual([STORED_WATCHLIST[1]]);
+	});
+
+	test("client-side guards: blank ignored, duplicate (case-insensitive) and over-long rejected with a message, cap enforced", async () => {
+		const { container, getByTestId } = await renderWithWatchlist();
+		const input = getInput(container, "briefing-watchlist-input");
+		const add = getByTestId("briefing-watchlist-add");
+
+		// Blank → ignored, no error.
+		await fireEvent.input(input, { target: { value: "   " } });
+		await fireEvent.click(add);
+		expect(container.querySelectorAll('[data-testid="briefing-watchlist-item"]')).toHaveLength(2);
+		expect(container.querySelector('[data-testid="briefing-watchlist-error"]')).toBeNull();
+
+		// Case-insensitive duplicate → message, list unchanged.
+		await fireEvent.input(input, { target: { value: "bun 2.0 RELEASE" } });
+		await fireEvent.click(add);
+		expect(container.querySelector('[data-testid="briefing-watchlist-error"]')?.textContent).toContain(
+			"already on the watchlist",
+		);
+		expect(container.querySelectorAll('[data-testid="briefing-watchlist-item"]')).toHaveLength(2);
+
+		// Over-long → message.
+		await fireEvent.input(input, { target: { value: "x".repeat(201) } });
+		await fireEvent.click(add);
+		expect(container.querySelector('[data-testid="briefing-watchlist-error"]')?.textContent).toContain(
+			"200 characters",
+		);
+
+		// No PUT was fired by any of the rejected adds.
+		expect(fetchCalls.some((c) => c.method === "PUT")).toBe(false);
+	});
+
+	test("cap: a full 25-topic list rejects a 26th with a remove-one-first message", async () => {
+		const full = Array.from({ length: 25 }, (_, i) => ({
+			topic: `topic-${i}`,
+			addedAt: "2026-06-01T00:00:00.000Z",
+		}));
+		const { container, getByTestId } = await renderWithWatchlist(full);
+		await fireEvent.input(getInput(container, "briefing-watchlist-input"), {
+			target: { value: "one too many" },
+		});
+		await fireEvent.click(getByTestId("briefing-watchlist-add"));
+		expect(container.querySelector('[data-testid="briefing-watchlist-error"]')?.textContent).toContain(
+			"remove one first",
+		);
+		expect(container.querySelectorAll('[data-testid="briefing-watchlist-item"]')).toHaveLength(25);
+	});
+});
+
 describe("BriefingSettings — last-run status labels", () => {
 	test.each([
 		["error", "failed"],
