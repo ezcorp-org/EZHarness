@@ -66,6 +66,9 @@ async function expectThrownResponse(
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };
+// PATCH (disable) and DELETE are instance-wide, admin-only since
+// fix(ext-api) c93ea27e — mirror the /activate sibling route.
+const admin = { id: "a1", email: "a@x", name: "a", role: "admin" };
 const ext = {
 	id: "ext-1",
 	name: "weather",
@@ -140,13 +143,26 @@ describe("PATCH /api/extensions/[id]", () => {
 		expect(body.required).toBe("extensions");
 	});
 
+	test("returns 403 for non-admin users", async () => {
+		vi.mocked(getExtension).mockResolvedValue(ext as any);
+		const res = await PATCH(
+			makeEvent({
+				method: "PATCH",
+				body: { enabled: false },
+				locals: { user },
+			}),
+		);
+		expect(res.status).toBe(403);
+		expect(vi.mocked(updateExtension)).not.toHaveBeenCalled();
+	});
+
 	test("returns 404 when extension not found", async () => {
 		vi.mocked(getExtension).mockResolvedValue(null as any);
 		const res = await PATCH(
 			makeEvent({
 				method: "PATCH",
 				body: { enabled: false },
-				locals: { user },
+				locals: { user: admin },
 			}),
 		);
 		expect(res.status).toBe(404);
@@ -160,7 +176,7 @@ describe("PATCH /api/extensions/[id]", () => {
 			makeEvent({
 				method: "PATCH",
 				body: { enabled: true },
-				locals: { user },
+				locals: { user: admin },
 			}),
 		);
 		expect(res.status).toBe(400);
@@ -175,7 +191,7 @@ describe("PATCH /api/extensions/[id]", () => {
 			makeEvent({
 				method: "PATCH",
 				body: {}, // no recognised update field
-				locals: { user },
+				locals: { user: admin },
 			}),
 		);
 		expect(res.status).toBe(400);
@@ -193,7 +209,7 @@ describe("PATCH /api/extensions/[id]", () => {
 			makeEvent({
 				method: "PATCH",
 				body: { enabled: false },
-				locals: { user },
+				locals: { user: admin },
 			}),
 		);
 		expect(res.status).toBe(200);
@@ -232,10 +248,20 @@ describe("DELETE /api/extensions/[id]", () => {
 		expect(res.status).toBe(403);
 	});
 
+	test("returns 403 for non-admin users", async () => {
+		vi.mocked(getExtension).mockResolvedValue(ext as any);
+		const res = await DELETE(
+			makeEvent({ method: "DELETE", locals: { user } }),
+		);
+		expect(res.status).toBe(403);
+		expect(vi.mocked(deleteExtension)).not.toHaveBeenCalled();
+		expect(killAll).not.toHaveBeenCalled();
+	});
+
 	test("returns 404 when extension not found", async () => {
 		vi.mocked(getExtension).mockResolvedValue(null as any);
 		const res = await DELETE(
-			makeEvent({ method: "DELETE", locals: { user } }),
+			makeEvent({ method: "DELETE", locals: { user: admin } }),
 		);
 		expect(res.status).toBe(404);
 		const body = (await res.json()) as { error?: string };
@@ -246,7 +272,7 @@ describe("DELETE /api/extensions/[id]", () => {
 		vi.mocked(getExtension).mockResolvedValue(ext as any);
 		vi.mocked(deleteExtension).mockResolvedValue(true as any);
 		const res = await DELETE(
-			makeEvent({ method: "DELETE", locals: { user } }),
+			makeEvent({ method: "DELETE", locals: { user: admin } }),
 		);
 		expect(res.status).toBe(204);
 		// Side-effects in order
