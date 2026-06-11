@@ -53,6 +53,62 @@ describe("applyToolFilters", () => {
     });
   });
 
+  describe("readOnlyAllowedTools — host-vouched read-safe tools (briefing watchlist)", () => {
+    test("read-only keeps a vouched extension tool; write/execute stay stripped", () => {
+      const out = applyToolFilters(sample(), builtinDefs, {
+        toolRestriction: "read-only",
+        readOnlyAllowedTools: ["extension_widget"],
+      });
+      expect(names(out)).toEqual(["extension_widget", "grep", "invoke_agent", "read_file"]);
+      expect(names(out)).not.toContain("write_file");
+      expect(names(out)).not.toContain("bash_execute");
+    });
+
+    test("empty list is exactly the pre-existing read-only behavior (fail-closed default)", () => {
+      const out = applyToolFilters(sample(), builtinDefs, {
+        toolRestriction: "read-only",
+        readOnlyAllowedTools: [],
+      });
+      expect(names(out)).toEqual(["grep", "invoke_agent", "read_file"]);
+    });
+
+    test("ignored under 'none' — vouching never resurrects tools there", () => {
+      const out = applyToolFilters(sample(), builtinDefs, {
+        toolRestriction: "none",
+        readOnlyAllowedTools: ["extension_widget"],
+      });
+      expect(names(out)).toEqual(["invoke_agent"]);
+    });
+
+    test("no effect without a restriction (modifier of read-only only)", () => {
+      const out = applyToolFilters(sample(), builtinDefs, {
+        readOnlyAllowedTools: ["extension_widget"],
+      });
+      expect(names(out)).toEqual(names(sample()));
+    });
+
+    test("layered: a vouched tool can still be denied downstream", () => {
+      const out = applyToolFilters(sample(), builtinDefs, {
+        toolRestriction: "read-only",
+        readOnlyAllowedTools: ["extension_widget"],
+        deniedTools: ["extension_widget"],
+      });
+      expect(names(out)).toEqual(["grep", "invoke_agent", "read_file"]);
+    });
+
+    test("trust contract pin: a vouched name is kept regardless of builtin category — vouching is the caller's responsibility", () => {
+      // The field is a HOST-CODE trust declaration; the filter does not
+      // second-guess it. Pinned so a future "category override" refactor
+      // is a conscious decision, not an accident.
+      const out = applyToolFilters(sample(), builtinDefs, {
+        toolRestriction: "read-only",
+        readOnlyAllowedTools: ["write_file"],
+      });
+      expect(names(out)).toContain("write_file");
+      expect(names(out)).not.toContain("bash_execute");
+    });
+  });
+
   describe("allowedTools", () => {
     test("keeps only listed tools (plus orchestration, always)", () => {
       const out = applyToolFilters(sample(), builtinDefs, {

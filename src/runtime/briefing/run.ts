@@ -31,6 +31,11 @@ import {
 import { getProject } from "../../db/queries/projects";
 import { ensureBriefingAgentConfig, getBriefingAgentConfigId } from "./agent-config";
 import { getBriefingRuntime, type BriefingRuntime } from "./runtime-registry";
+import {
+  resolveBriefingWebSearch,
+  syncBriefingAgentWebSearch,
+  type BriefingWebSearch,
+} from "./web-search";
 import { logger } from "../../logger";
 
 const log = logger.child("briefing.run");
@@ -89,11 +94,17 @@ export function buildBriefingTitle(now: Date, timezone: string): string {
 }
 
 /** Conversation system prompt: base contract + date/tz + user
- *  instructions (the instructions field IS the prompt — spec §3.1). */
+ *  instructions (the instructions field IS the prompt — spec §3.1).
+ *  Phase 3: a non-empty `watchlist` adds the section-3 contract
+ *  (spec §3.3 — per topic 1-3 findings with source links, quiet
+ *  suppression) when web search is available, or the one-line
+ *  "watchlist skipped" instruction (spec §8) when it is not. */
 export function buildBriefingSystemPrompt(opts: {
   now: Date;
   timezone: string;
   instructions: string;
+  watchlist?: string[];
+  webSearchAvailable?: boolean;
 }): string {
   const dateFmt = new Intl.DateTimeFormat("en-US", {
     timeZone: opts.timezone,
@@ -102,12 +113,27 @@ export function buildBriefingSystemPrompt(opts: {
     month: "long",
     day: "numeric",
   });
-  const lines = [
-    "You are the user's Daily Briefing agent. Compose a short, actionable morning briefing from the user's own conversations and tasks, then stay available — the user can reply and you should pick the work back up.",
-    "",
+  const watchlist = opts.watchlist ?? [];
+  const sectionLines = [
     "Produce these sections in order, SKIPPING any section with nothing to report:",
     "1. **Unfinished business** — 2-4 bullets max. For each: what was happening, where it stopped, a one-line offer to resume. Source from recent conversation transcripts (list_recent_conversations + get_conversation_summary) and your memory context.",
     "2. **Open tasks** — counts plus the 3 most relevant open/active tasks with their conversation context (get_task_snapshots).",
+  ];
+  if (watchlist.length > 0 && opts.webSearchAvailable) {
+    sectionLines.push(
+      "3. **Watchlist** — the user subscribed to these topics: " +
+        watchlist.map((t) => `"${t}"`).join(", ") +
+        ". For each topic, research overnight developments with search-web (and read-url for promising results) and report 1-3 findings, each with a source link. A topic with nothing new gets a one-line \"nothing new\"; if EVERY topic is quiet, suppress the whole section.",
+    );
+  } else if (watchlist.length > 0) {
+    sectionLines.push(
+      "3. **Watchlist** — the user subscribed to watchlist topics, but web search is not available on this host. Add exactly one line noting the watchlist was skipped because web search is unavailable — nothing more.",
+    );
+  }
+  const lines = [
+    "You are the user's Daily Briefing agent. Compose a short, actionable morning briefing from the user's own conversations and tasks, then stay available — the user can reply and you should pick the work back up.",
+    "",
+    ...sectionLines,
     "Finish with a sign-off: ONE suggested next action phrased as a question.",
     "",
     "Rules:",
@@ -130,16 +156,34 @@ export function buildBriefingSystemPrompt(opts: {
  *  be deleted). */
 export const SYNTHETIC_PROMPT_PREFIX = "[Scheduled briefing — ";
 
-/** Synthetic user message — embeds the section contract so the agent
- *  doesn't depend on config-table access (spec §5.2.3). */
-export function buildSyntheticPrompt(now: Date, catchUp: boolean): string {
+/** Synthetic user message — embeds the section contract AND the
+ *  watchlist topics so the agent doesn't depend on config-table access
+ *  (spec §5.2.3). */
+export function buildSyntheticPrompt(
+  now: Date,
+  catchUp: boolean,
+  opts: { watchlist?: string[]; webSearchAvailable?: boolean } = {},
+): string {
   const base = `${SYNTHETIC_PROMPT_PREFIX}${now.toISOString()}]`;
   const catchUpNote = catchUp
     ? " This is a catch-up fire: the host was offline at the scheduled time, so briefly note you're catching up on what happened while the user was away."
     : "";
+  const watchlist = opts.watchlist ?? [];
+  let watchlistNote = "";
+  if (watchlist.length > 0 && opts.webSearchAvailable) {
+    watchlistNote =
+      " Then cover the watchlist topics " +
+      watchlist.map((t) => `"${t}"`).join(", ") +
+      " — research each with search-web (read-url for details) and report 1-3 findings with source links per topic, suppressing the section if every topic is quiet.";
+  } else if (watchlist.length > 0) {
+    watchlistNote =
+      " Web search is unavailable on this host, so note in one line that the watchlist was skipped.";
+  }
   return (
     `${base}${catchUpNote}\n` +
-    "Compose today's briefing now. Mine the user's recent conversations with list_recent_conversations and get_conversation_summary for unfinished business, and get_task_snapshots for open tasks. Skip empty sections; end with one suggested next action as a question."
+    "Compose today's briefing now. Mine the user's recent conversations with list_recent_conversations and get_conversation_summary for unfinished business, and get_task_snapshots for open tasks." +
+    watchlistNote +
+    " Skip empty sections; end with one suggested next action as a question."
   );
 }
 
@@ -213,6 +257,21 @@ export async function runBriefingForUser(
 
     const agent = await ensureBriefingAgentConfig();
 
+    // Phase 3 — watchlist (spec §3.3 / §5.2 / §8). Resolve the
+    // web-search extension and keep the shared agent config's
+    // extension references in sync so setup-tools loads its tools for
+    // this run; both calls are fail-soft (an unavailable extension
+    // degrades to the one-line "watchlist skipped" note).
+    const watchlist = (config.watchlist ?? [])
+      .map((w) => w.topic)
+      .filter((t): t is string => typeof t === "string" && t.length > 0);
+    const webSearch: BriefingWebSearch = await resolveBriefingWebSearch();
+    await syncBriefingAgentWebSearch(agent, webSearch);
+    const watchlistPromptOpts = {
+      watchlist,
+      webSearchAvailable: webSearch.available,
+    };
+
     const conversation = await createConversation(projectId, {
       title: buildBriefingTitle(now, config.timezone),
       userId: config.userId,
@@ -221,13 +280,14 @@ export async function runBriefingForUser(
         now,
         timezone: config.timezone,
         instructions: config.instructions ?? "",
+        ...watchlistPromptOpts,
       }),
       model: config.model ?? undefined,
       provider: config.provider ?? undefined,
     });
     conversationId = conversation.id;
 
-    const syntheticPrompt = buildSyntheticPrompt(now, opts.catchUp === true);
+    const syntheticPrompt = buildSyntheticPrompt(now, opts.catchUp === true, watchlistPromptOpts);
     const userMessage = await createMessage(conversation.id, {
       role: "user",
       content: syntheticPrompt,
@@ -256,6 +316,14 @@ export async function runBriefingForUser(
           // user turns in the delivered conversation go through the
           // normal chat route and keep full tool access (spec §3.2).
           toolRestriction: "read-only",
+          // Phase 3: vouch for the web-search extension's namespaced
+          // tools (read-safe by construction — search + fetch) so the
+          // watchlist section survives the read-only filter, and ONLY
+          // when there are topics to research. Empty otherwise —
+          // fail-closed (see tools/filter.ts readOnlyAllowedTools).
+          ...(watchlist.length > 0 && webSearch.available
+            ? { readOnlyAllowedTools: webSearch.toolNames }
+            : {}),
         })
         .then((run) => ({ kind: "run" as const, run })),
       timeoutPromise,

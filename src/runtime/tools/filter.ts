@@ -55,6 +55,18 @@ export interface ToolFilterOptions {
    * broad mode/team scopes must use `deniedTools` instead.
    */
   forceDeniedTools?: string[];
+  /**
+   * Tool names the CALLER vouches are read-only, honored ONLY inside the
+   * `toolRestriction: 'read-only'` branch. Exists for extension tools,
+   * which carry no builtin category and would otherwise be stripped
+   * wholesale under read-only — the Daily Briefing pipeline passes the
+   * web-search extension's namespaced tool names here so an unattended
+   * run can research watchlist topics (spec §5.2) without re-admitting
+   * any write/execute capability. Fail-closed: empty/absent means the
+   * pre-existing behavior (category === 'read' builtins only). This is a
+   * HOST-CODE trust declaration — never populate it from user input.
+   */
+  readOnlyAllowedTools?: string[];
 }
 
 /**
@@ -80,8 +92,10 @@ export function applyToolFilters<T extends { name: string }>(
   let out = tools;
 
   if (opts.toolRestriction === "read-only") {
+    const readOnlyVouched = new Set(opts.readOnlyAllowedTools ?? []);
     out = out.filter((t) => {
       if (ORCHESTRATION_TOOLS.has(t.name)) return true;
+      if (readOnlyVouched.has(t.name)) return true;
       const def = builtinDefs.get(t.name);
       return def ? def.category === "read" : false;
     });

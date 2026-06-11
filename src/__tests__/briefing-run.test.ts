@@ -33,7 +33,7 @@ import { _resetBriefingAgentCacheForTests, BRIEFING_AGENT_NAME } from "../runtim
 import { createMessage, getMessages, getConversation } from "../db/queries/conversations";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents, AgentRun } from "../types";
-import { users, projects, conversations, messages, agentConfigs, briefingConfigs } from "../db/schema";
+import { users, projects, conversations, messages, agentConfigs, briefingConfigs, extensions } from "../db/schema";
 import type { BriefingConfig } from "../db/queries/briefing-configs";
 import { eq } from "drizzle-orm";
 
@@ -121,6 +121,7 @@ beforeEach(async () => {
   await db.delete(messages);
   await db.delete(conversations);
   await db.delete(agentConfigs);
+  await db.delete(extensions);
   await db.delete(projects);
   await db.delete(users);
 
@@ -160,6 +161,72 @@ describe("prompt/title builders", () => {
     expect(normal).not.toContain("catch-up");
     const catchUp = buildSyntheticPrompt(NOW, true);
     expect(catchUp).toContain("catch-up");
+  });
+
+  // ── Phase 3: watchlist branches (spec §3.3 / §8) ─────────────────
+
+  test("system prompt with watchlist + web search: section-3 contract with topics, findings, source links, quiet suppression", () => {
+    const prompt = buildBriefingSystemPrompt({
+      now: NOW,
+      timezone: "UTC",
+      instructions: "",
+      watchlist: ["Bun 2.0 release", "PGlite roadmap"],
+      webSearchAvailable: true,
+    });
+    expect(prompt).toContain("**Watchlist**");
+    expect(prompt).toContain('"Bun 2.0 release"');
+    expect(prompt).toContain('"PGlite roadmap"');
+    expect(prompt).toContain("1-3 findings");
+    expect(prompt).toContain("source link");
+    expect(prompt).toContain("suppress the whole section");
+    expect(prompt).not.toContain("watchlist was skipped");
+  });
+
+  test("system prompt with watchlist but NO web search: one-line skip instruction (spec §8)", () => {
+    const prompt = buildBriefingSystemPrompt({
+      now: NOW,
+      timezone: "UTC",
+      instructions: "",
+      watchlist: ["Bun 2.0 release"],
+      webSearchAvailable: false,
+    });
+    expect(prompt).toContain("**Watchlist**");
+    expect(prompt).toContain("watchlist was skipped");
+    expect(prompt).toContain("exactly one line");
+    expect(prompt).not.toContain("1-3 findings");
+  });
+
+  test("system prompt with an EMPTY watchlist never mentions a watchlist (Phase 1 contract preserved)", () => {
+    for (const webSearchAvailable of [true, false]) {
+      const prompt = buildBriefingSystemPrompt({
+        now: NOW,
+        timezone: "UTC",
+        instructions: "",
+        watchlist: [],
+        webSearchAvailable,
+      });
+      expect(prompt).not.toContain("Watchlist");
+    }
+  });
+
+  test("synthetic prompt mirrors the three watchlist branches", () => {
+    const researched = buildSyntheticPrompt(NOW, false, {
+      watchlist: ["Bun 2.0 release"],
+      webSearchAvailable: true,
+    });
+    expect(researched).toContain('"Bun 2.0 release"');
+    expect(researched).toContain("search-web");
+    expect(researched).toContain("source links");
+
+    const skipped = buildSyntheticPrompt(NOW, false, {
+      watchlist: ["Bun 2.0 release"],
+      webSearchAvailable: false,
+    });
+    expect(skipped).toContain("watchlist was skipped");
+    expect(skipped).not.toContain("search-web");
+
+    const empty = buildSyntheticPrompt(NOW, false, { watchlist: [] });
+    expect(empty).not.toContain("watchlist");
   });
 });
 
@@ -519,5 +586,136 @@ describe("notifyBriefingAutoDisabled", () => {
     await notifyBriefingAutoDisabled(makeConfig(), 5, { executor, bus });
     const rows = await getTestDb().select().from(conversations);
     expect(rows).toHaveLength(1);
+  });
+});
+
+// ── Phase 3: watchlist pipeline integration (spec §3.3 / §5.2 / §8) ──
+
+describe("runBriefingForUser — watchlist", () => {
+  const WATCHLIST = [
+    { topic: "Bun 2.0 release", addedAt: "2026-06-01T00:00:00.000Z" },
+    { topic: "PGlite roadmap", addedAt: "2026-06-02T00:00:00.000Z" },
+  ];
+  const NAMESPACED = ["web-search__search-web", "web-search__read-url"];
+
+  async function seedWebSearchExtension(enabled = true): Promise<string> {
+    const [row] = await getTestDb()
+      .insert(extensions)
+      .values({
+        name: "web-search",
+        version: "1.0.0",
+        source: "bundled",
+        enabled,
+        manifest: {
+          schemaVersion: 2,
+          name: "web-search",
+          version: "1.0.0",
+          description: "test web-search",
+          entrypoint: "./index.ts",
+          tools: [{ name: "search-web" }, { name: "read-url" }],
+        } as never,
+      })
+      .returning();
+    return row!.id;
+  }
+
+  test("web-search installed+enabled: prompts carry the topics, streamChat is vouched for EXACTLY the namespaced web-search tools, agent refs synced", async () => {
+    const extId = await seedWebSearchExtension();
+    const { executor, calls } = makeExecutor({ assistantContent: "Briefing with research." });
+    const bus = new EventBus<AgentEvents>();
+
+    const result = await runBriefingForUser(
+      makeConfig({ watchlist: WATCHLIST }),
+      {},
+      { executor, bus, now: () => NOW },
+    );
+    expect(result.status).toBe("ok");
+
+    // The unattended run stays read-only; ONLY the web-search names are vouched.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.options.toolRestriction).toBe("read-only");
+    expect(calls[0]!.options.readOnlyAllowedTools).toEqual(NAMESPACED);
+
+    // Synthetic prompt embeds the topics + research instruction.
+    expect(calls[0]!.userMessage).toContain('"Bun 2.0 release"');
+    expect(calls[0]!.userMessage).toContain('"PGlite roadmap"');
+    expect(calls[0]!.userMessage).toContain("search-web");
+
+    // System prompt carries the section-3 contract.
+    const conv = await getConversation(result.conversationId!);
+    expect(conv!.systemPrompt).toContain("**Watchlist**");
+    expect(conv!.systemPrompt).toContain("1-3 findings");
+    expect(conv!.systemPrompt).toContain("source link");
+
+    // The shared agent config now references the extension with the
+    // exact tool subset (what setup-tools' agent-config path loads).
+    const agents = await getTestDb()
+      .select()
+      .from(agentConfigs)
+      .where(eq(agentConfigs.name, BRIEFING_AGENT_NAME));
+    expect(agents[0]!.extensions).toEqual([extId]);
+    expect(agents[0]!.extensionTools).toEqual({ [extId]: NAMESPACED });
+  });
+
+  test("web-search missing: skip-note prompts, NO vouched tools, run still delivers", async () => {
+    const { executor, calls } = makeExecutor({ assistantContent: "Briefing without research." });
+    const bus = new EventBus<AgentEvents>();
+
+    const result = await runBriefingForUser(
+      makeConfig({ watchlist: WATCHLIST }),
+      {},
+      { executor, bus, now: () => NOW },
+    );
+    expect(result.status).toBe("ok");
+    expect(calls[0]!.options.readOnlyAllowedTools).toBeUndefined();
+    expect(calls[0]!.userMessage).toContain("watchlist was skipped");
+    const conv = await getConversation(result.conversationId!);
+    expect(conv!.systemPrompt).toContain("watchlist was skipped");
+  });
+
+  test("web-search DISABLED counts as missing AND scrubs a stale agent reference", async () => {
+    const extId = await seedWebSearchExtension(false);
+    // Pre-seed a stale reference (as if the extension was enabled yesterday).
+    const { ensureBriefingAgentConfig } = await import("../runtime/briefing/agent-config");
+    const agent = await ensureBriefingAgentConfig();
+    const { updateAgentConfig } = await import("../db/queries/agent-configs");
+    await updateAgentConfig(agent.id, {
+      extensions: [extId],
+      extensionTools: { [extId]: NAMESPACED },
+    } as never);
+
+    const { executor, calls } = makeExecutor({ assistantContent: "ok" });
+    const bus = new EventBus<AgentEvents>();
+    const result = await runBriefingForUser(
+      makeConfig({ watchlist: WATCHLIST }),
+      {},
+      { executor, bus, now: () => NOW },
+    );
+    expect(result.status).toBe("ok");
+    expect(calls[0]!.options.readOnlyAllowedTools).toBeUndefined();
+    expect(calls[0]!.userMessage).toContain("watchlist was skipped");
+
+    const agents = await getTestDb()
+      .select()
+      .from(agentConfigs)
+      .where(eq(agentConfigs.name, BRIEFING_AGENT_NAME));
+    expect(agents[0]!.extensions).toEqual([]);
+    expect(agents[0]!.extensionTools).toEqual({});
+  });
+
+  test("EMPTY watchlist: no watchlist prompt content and no vouched tools even when web-search is enabled", async () => {
+    await seedWebSearchExtension();
+    const { executor, calls } = makeExecutor({ assistantContent: "ok" });
+    const bus = new EventBus<AgentEvents>();
+    const result = await runBriefingForUser(
+      makeConfig({ watchlist: [] }),
+      {},
+      { executor, bus, now: () => NOW },
+    );
+    expect(result.status).toBe("ok");
+    expect(calls[0]!.options.readOnlyAllowedTools).toBeUndefined();
+    expect(calls[0]!.userMessage).not.toContain("watchlist");
+    const conv = await getConversation(result.conversationId!);
+    expect(conv!.systemPrompt).not.toContain("Watchlist");
   });
 });
