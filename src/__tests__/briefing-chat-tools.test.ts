@@ -20,6 +20,7 @@ import {
   createBriefingWatchTool,
   createBriefingUnwatchTool,
   createConfigureBriefingTool,
+  createBriefingStatusTool,
   wireBriefingChatToolsForTurn,
   BRIEFING_CHAT_TOOL_NAMES,
 } from "../runtime/briefing/chat-tools";
@@ -28,7 +29,9 @@ import {
   upsertBriefingConfig,
 } from "../db/queries/briefing-configs";
 import { MAX_WATCHLIST_TOPICS, MAX_TOPIC_LENGTH } from "../runtime/briefing/config-validation";
-import { users, briefingConfigs } from "../db/schema";
+import { ensureBriefingAgentConfig } from "../runtime/briefing/agent-config";
+import { users, briefingConfigs, projects, conversations } from "../db/schema";
+import { eq } from "drizzle-orm";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { BuiltinToolDef } from "../runtime/tools/types";
 
@@ -313,7 +316,7 @@ describe("wireBriefingChatToolsForTurn", () => {
     return { agentTools: [], builtinToolDefsMap: new Map() };
   }
 
-  test("registers exactly the three tools with category 'write' (stripped on read-only turns) + default card", () => {
+  test("registers exactly the four tools — writes as category 'write' (stripped on read-only turns), status as 'read' + default cards", () => {
     const turn = freshTurn();
     wireBriefingChatToolsForTurn({
       agentTools: turn.agentTools,
@@ -324,7 +327,7 @@ describe("wireBriefingChatToolsForTurn", () => {
     expect(turn.agentTools.map((t) => t.name).sort()).toEqual([...BRIEFING_CHAT_TOOL_NAMES].sort());
     for (const name of BRIEFING_CHAT_TOOL_NAMES) {
       const def = turn.builtinToolDefsMap.get(name)!;
-      expect(def.category).toBe("write");
+      expect(def.category).toBe(name === "briefing_status" ? "read" : "write");
       expect(def.cardType).toBe("default");
     }
   });
@@ -345,7 +348,124 @@ describe("wireBriefingChatToolsForTurn", () => {
   test("works without a builtinToolDefsMap (optional param)", () => {
     const agentTools: AgentTool[] = [];
     wireBriefingChatToolsForTurn({ agentTools, conversationId: "conv-1", userId });
-    expect(agentTools).toHaveLength(3);
+    expect(agentTools).toHaveLength(BRIEFING_CHAT_TOOL_NAMES.length);
+  });
+});
+
+// ── briefing_status ───────────────────────────────────────────────
+
+describe("briefing_status", () => {
+  const tool = () => createBriefingStatusTool({ userId });
+
+  test("not configured → setup hint, configured:false", async () => {
+    const r = await tool().execute("tc-s1", {});
+    expect(isError(r)).toBe(false);
+    expect(resultText(r)).toContain("isn't set up yet");
+    expect((r.details as { configured?: boolean }).configured).toBe(false);
+  });
+
+  test("configured: schedule description, never-ran, empty watchlist, no briefings", async () => {
+    await upsertBriefingConfig(userId, { enabled: true, cron: "0 7 * * 1-5", timezone: "Europe/Berlin" });
+    const r = await tool().execute("tc-s2", {});
+    const text = resultText(r);
+    expect(text).toContain("enabled");
+    expect(text).toContain("Weekdays at 07:00");
+    expect(text).toContain("Europe/Berlin");
+    expect(text).toContain("No briefing has run yet");
+    expect(text).toContain("Watchlist: empty");
+    expect(text).toContain("No briefing conversations yet");
+    const d = r.details as Record<string, unknown>;
+    expect(d.configured).toBe(true);
+    expect(d.enabled).toBe(true);
+    expect(d.lastFireAt).toBeNull();
+    expect(d.briefings).toEqual([]);
+  });
+
+  test("hand-edited cron falls back to the raw expression; disabled hides next run", async () => {
+    await upsertBriefingConfig(userId, { enabled: false, cron: "15 6 * * 2", timezone: "UTC" });
+    const r = await tool().execute("tc-s3", {});
+    const text = resultText(r);
+    expect(text).toContain('cron "15 6 * * 2"');
+    expect(text).toContain("disabled");
+    expect(text).not.toContain("Next run:");
+  });
+
+  test("last-fire status label, next fire, and watchlist topics surface", async () => {
+    await upsertBriefingConfig(userId, {
+      enabled: true,
+      cron: "0 7 * * *",
+      timezone: "UTC",
+      watchlist: [{ topic: "Bun 2.0", addedAt: "2026-06-01T00:00:00.000Z" }],
+    });
+    await getTestDb()
+      .update(briefingConfigs)
+      .set({
+        lastFireAt: new Date("2026-06-11T07:00:00Z"),
+        lastFireStatus: "error",
+        nextFireAt: new Date("2026-06-12T07:00:00Z"),
+      })
+      .where(eq(briefingConfigs.userId, userId));
+    const r = await tool().execute("tc-s4", {});
+    const text = resultText(r);
+    expect(text).toContain("Last run: failed at 2026-06-11T07:00:00.000Z");
+    expect(text).toContain("Next run: 2026-06-12T07:00:00.000Z");
+    expect(text).toContain('"Bun 2.0"');
+    const d = r.details as Record<string, unknown>;
+    expect(d.lastFireStatus).toBe("error");
+    expect(d.watchlist).toEqual(["Bun 2.0"]);
+  });
+
+  test("unknown fire status falls back to the raw value", async () => {
+    await upsertBriefingConfig(userId, { enabled: true, cron: "0 7 * * *", timezone: "UTC" });
+    await getTestDb()
+      .update(briefingConfigs)
+      .set({ lastFireAt: new Date("2026-06-11T07:00:00Z"), lastFireStatus: "weird" as unknown as "ok" })
+      .where(eq(briefingConfigs.userId, userId));
+    const r = await tool().execute("tc-s5", {});
+    expect(resultText(r)).toContain("Last run: weird at");
+  });
+
+  test("lists only the user's own briefing conversations, newest first, capped at 5", async () => {
+    await upsertBriefingConfig(userId, { enabled: true, cron: "0 7 * * *", timezone: "UTC" });
+    const db = getTestDb();
+    const [other] = await db.insert(users).values({ email: "o@t.local", passwordHash: "x", name: "O" }).returning();
+    const agent = await ensureBriefingAgentConfig();
+    const [project] = await db.insert(projects).values({ name: "p", path: "/tmp/p" }).returning();
+
+    for (let i = 0; i < 7; i++) {
+      await db.insert(conversations).values({
+        projectId: project!.id,
+        title: `Daily Briefing — day ${i}`,
+        userId,
+        agentConfigId: agent.id,
+        updatedAt: new Date(Date.UTC(2026, 5, 1 + i)),
+      });
+    }
+    // Another user's briefing + a regular conversation: both invisible.
+    await db.insert(conversations).values({ projectId: project!.id, title: "theirs", userId: other!.id, agentConfigId: agent.id });
+    await db.insert(conversations).values({ projectId: project!.id, title: "not a briefing", userId });
+
+    const r = await tool().execute("tc-s6", {});
+    expect(isError(r)).toBe(false);
+    const d = r.details as { briefings: Array<{ title: string }> };
+    expect(d.briefings).toHaveLength(5);
+    expect(d.briefings[0]!.title).toBe("Daily Briefing — day 6");
+    const titles = d.briefings.map((b) => b.title);
+    expect(titles).not.toContain("theirs");
+    expect(titles).not.toContain("not a briefing");
+    expect(resultText(r)).toContain("Recent briefings:");
+  });
+
+  test("a corrupted watchlist row folds into a clean tool error (catch arm)", async () => {
+    await upsertBriefingConfig(userId, { enabled: true, cron: "0 7 * * *", timezone: "UTC" });
+    // Bypass the validator to simulate row corruption: jsonb object
+    // instead of array — `.map` inside execute throws.
+    await getTestDb()
+      .update(briefingConfigs)
+      .set({ watchlist: { oops: true } as unknown as Array<{ topic: string; addedAt: string }> })
+      .where(eq(briefingConfigs.userId, userId));
+    const r = await tool().execute("tc-s7", {});
+    expect(isError(r)).toBe(true);
   });
 });
 

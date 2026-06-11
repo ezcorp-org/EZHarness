@@ -6,7 +6,8 @@
  * with the INVERSE gate:
  *
  *   1. A normal conversation (userId present, not the briefing agent)
- *      gets briefing_watch / briefing_unwatch / configure_briefing.
+ *      gets briefing_watch / briefing_unwatch / configure_briefing /
+ *      briefing_status.
  *   2. MANDATORY NEGATIVE: a briefing conversation gets NONE of the
  *      three (the run is unattended; config writers don't belong there).
  *   3. No owning user → no tools (writes could not be attributed).
@@ -74,7 +75,7 @@ function convRecord(overrides: Partial<SetupToolsConvRecord> = {}): SetupToolsCo
 }
 
 describe("wireBriefingChatToolsIfEligible — gate", () => {
-  test("normal conversation (no agent config) → the 3 subscribe tools registered with category 'write'", async () => {
+  test("normal conversation (no agent config) → all briefing chat tools registered; writes 'write', status 'read'", async () => {
     const turn = freshTurn();
     await wireBriefingChatToolsIfEligible({
       agentTools: turn.agentTools,
@@ -84,7 +85,9 @@ describe("wireBriefingChatToolsIfEligible — gate", () => {
     });
     expect(turn.agentTools.map((t) => t.name).sort()).toEqual([...BRIEFING_CHAT_TOOL_NAMES].sort());
     for (const name of BRIEFING_CHAT_TOOL_NAMES) {
-      expect(turn.builtinToolDefsMap.get(name)!.category).toBe("write");
+      expect(turn.builtinToolDefsMap.get(name)!.category).toBe(
+        name === "briefing_status" ? "read" : "write",
+      );
     }
   });
 
@@ -187,7 +190,7 @@ describe("wireBriefingChatToolsIfEligible — gate", () => {
     }
   });
 
-  test("INTEGRATION: a read-only-restricted turn strips the three even when wired (category 'write' defense-in-depth)", async () => {
+  test("INTEGRATION: a read-only-restricted turn strips the write tools even when wired; briefing_status (category 'read') survives", async () => {
     const turn = freshTurn();
     await wireBriefingChatToolsIfEligible({
       agentTools: turn.agentTools,
@@ -195,12 +198,12 @@ describe("wireBriefingChatToolsIfEligible — gate", () => {
       conversationId: "conv-normal",
       convRecord: convRecord(),
     });
-    expect(turn.agentTools).toHaveLength(3);
+    expect(turn.agentTools).toHaveLength(4);
 
     const filtered = applyToolFilters(turn.agentTools, turn.builtinToolDefsMap, {
       toolRestriction: "read-only",
     });
-    expect(filtered).toHaveLength(0);
+    expect(filtered.map((t) => t.name)).toEqual(["briefing_status"]);
   });
 
   test("REGRESSION GUARD: setupTools invokes the chat-tools gate every turn", async () => {
