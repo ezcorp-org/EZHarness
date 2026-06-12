@@ -52,13 +52,34 @@ mock.module("$server/extensions/permission-engine", () => ({
   getPermissionEngine: () => ({}),
 }));
 
-// ── Extension row lookup ────────────────────────────────────────────
+// ── Extension row lookup — DELEGATING stub ──────────────────────────
+// ORDER-COUPLING GUARD (sister file: hub-api.test.ts). The REAL
+// $lib/server/hub-extension-pages module (registered below) first
+// materializes DURING THIS FILE and permanently freezes its imported
+// query bindings to THIS registration — bun never retro-patches an
+// already-imported binding, so a plain fixture stub here would keep
+// serving `mockExt` / `[]` to every LATER file in the same process
+// (hub-api.test.ts's real-DB listing + findEnabledExtensionPage tests
+// fail when this file runs first). Two rules keep this order-safe:
+//   1. DELEGATE: while this file is active the stub serves the fixture;
+//      after afterAll flips the flag, calls fall through to the GENUINE
+//      query functions (whose DB handle resolves per-call, so a later
+//      file's mockDbConnection applies normally).
+//   2. FULL SURFACE: spread the genuine module — bun freezes a
+//      specifier's export SHAPE at first materialization, so a partial
+//      stub breaks later files' named imports with "Export named X not
+//      found".
+import * as realExtensionQueries from "../db/queries/extensions";
+let hubBranchFileActive = true;
 let mockExt: Record<string, unknown> | null = null;
 mock.module("$server/db/queries/extensions", () => ({
-  getExtensionByName: async (_name: string) => mockExt,
+  ...realExtensionQueries,
+  getExtensionByName: async (name: string) =>
+    hubBranchFileActive ? mockExt : realExtensionQueries.getExtensionByName(name),
   // hub-extension-pages also imports the list query (unused by the
   // hub-action branch, but the module must instantiate).
-  listExtensions: async () => [],
+  listExtensions: async () =>
+    hubBranchFileActive ? [] : realExtensionQueries.listExtensions(),
 }));
 
 // Unused-by-the-hub-branch lookups still imported by the route module.
@@ -88,6 +109,9 @@ mock.module("$lib/server/security/api-keys", () => require("../../web/src/lib/se
 mock.module("$server/auth/middleware", () => require("../auth/middleware"));
 mock.module("$lib/server/http-errors", () => require("../../web/src/lib/server/http-errors"));
 mock.module("$lib/server/security/rate-limiter", () => require("../../web/src/lib/server/security/rate-limiter"));
+// REAL module — it materializes during this file and freezes its
+// query bindings to the delegating stub above (see the order-coupling
+// guard comment there before touching either registration).
 mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));
 mock.module("$server/extensions/page-cache", () => require("../extensions/page-cache"));
 const realLogger = require("../logger");
@@ -104,6 +128,12 @@ const { POST, __hubActionRateLimiter } = await import(
 
 afterAll(() => {
   unregisterExtensionEvent("cron-dashboard", "clear-log");
+  // Flip the delegating extension-queries stub to call-through mode:
+  // the real hub-extension-pages instance materialized in THIS file
+  // keeps these stub functions forever (frozen bindings), so this flag
+  // — not restoreModuleMocks — is what un-poisons later files.
+  hubBranchFileActive = false;
+  mockExt = null;
   // In-file ≥2-registration pattern (mock-cleanup meta-test): both
   // factories point at the real modules.
   mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));

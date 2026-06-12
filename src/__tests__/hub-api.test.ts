@@ -27,6 +27,14 @@ mock.module("$lib/server/http-errors", () => require("../../web/src/lib/server/h
 mock.module("$lib/server/security/api-keys", () => require("../../web/src/lib/server/security/api-keys"));
 mock.module("$lib/server/security/rate-limiter", () => require("../../web/src/lib/server/security/rate-limiter"));
 mock.module("$lib/hub", () => require("../../web/src/lib/hub"));
+// ORDER COUPLING (sister file: extension-events-hub-branch.test.ts):
+// when that file runs FIRST in this process, the real
+// hub-extension-pages instance this require() returns was materialized
+// THERE, with its query imports frozen to that file's stub — bun never
+// retro-patches the binding, so this registration cannot fix it. The
+// sister file's stub therefore DELEGATES to the genuine query
+// functions once its afterAll flips its active flag; the real-DB tests
+// below rely on that call-through.
 mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));
 mock.module("../../web/src/routes/api/hub/pages/$types", () => ({}));
 mock.module("../../web/src/routes/api/hub/pages/[id]/$types", () => ({}));
