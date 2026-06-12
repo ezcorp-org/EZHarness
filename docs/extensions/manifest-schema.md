@@ -251,6 +251,28 @@ The host emits the event with payload `{ messageId, conversationId, content, sel
 
 ---
 
+### `pages[]` -- `ExtensionPageDeclaration[]`
+
+Hub tabs contributed by the extension (max **3**). Each declared page becomes a tab at `/hub/ext:<name>:<id>`, rendered host-side from the declarative component tree your subprocess serves via `definePage` (and may refresh via `pushPage`). Declaring a page **is** the grant — no separate permission key. Page actions reuse `permissions.eventSubscriptions`.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | `string` | Yes | Unique within the extension. Must match `/^[a-z0-9][a-z0-9-]{0,31}$/`. |
+| `title` | `string` | Yes | Tab label, ≤ 50 chars. |
+| `icon` | `string` | No | Lucide icon name; unknown names fall back to a generic icon. |
+| `description` | `string` | No | ≤ 200 chars; shown on the extension detail page. |
+
+```typescript
+pages: [
+  { id: "dashboard", title: "Cron Dashboard", icon: "Clock",
+    description: "Scheduled-run history for this extension." },
+],
+```
+
+Full guide (vocabulary, `definePage`/`PageBuilder`/`pushPage`, action contract, limits, security rules): **[Hub Pages](pages.md)**. Worked reference: [`examples/cron-dashboard/`](examples/cron-dashboard/).
+
+---
+
 ### `acceptedAttachmentMimes` -- `string[]`
 
 MIME types this extension can ingest as user-uploaded chat attachments.

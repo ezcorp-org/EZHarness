@@ -13,6 +13,7 @@ Extensions run in isolated subprocesses with strict security boundaries. They co
 - **[Data Storage Convention](data-storage.md)** -- Where extensions write persistent user-visible files
 - **[Canvas Cards](canvas-cards.md)** -- Interactive cards with iframe previews + bidirectional events (`createCanvas`, `ExtensionIframeCard`)
 - **[Message Toolbar](message-toolbar.md)** -- Contribute icons to every turn's action toolbar + author excluded turns via `ezcorp/append-message`
+- **[Hub Pages](pages.md)** -- Contribute a top-level Hub tab rendered from a declarative component tree (`definePage`, `PageBuilder`, `pushPage`)
 - **[Examples](examples/)** -- Working example extensions for common patterns
 
 ## Quick Links
@@ -49,6 +50,7 @@ See the [Getting Started guide](getting-started.md) for the full walkthrough.
 | **Lifecycle hooks** | Subscribe to platform events | Top-level `lifecycleHooks: string[]` manifest field (the `permissions.lifecycleHooks` boolean is informational only) |
 | **Canvas cards** | Interactive UI cards with bidirectional events ([guide](canvas-cards.md)) | `tools[].cardType` + `permissions.eventSubscriptions` |
 | **Message toolbar** | Per-turn action icons that route a click to your subprocess ([guide](message-toolbar.md)) | `messageToolbar[]` + `permissions.eventSubscriptions` |
+| **Hub pages** | Top-level Hub tab rendered from a declarative, server-validated component tree ([guide](pages.md)) | `pages[]` (+ `permissions.eventSubscriptions` for actions) |
 | **Author turns** | Insert excluded turns via `ezcorp/append-message` (pairs with `messageToolbar`) | `permissions.appendMessages` |
 | **Cross-extension calls** | Invoke other extensions' tools | `dependencies` declared in manifest |
 

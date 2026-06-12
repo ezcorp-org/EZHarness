@@ -53,6 +53,10 @@
 				| { transport: "sse"; name: string; url: string; headers?: Record<string, string> }
 			>;
 			tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
+			// Extension Pages Hub — declared Hub tabs. Declaring a page IS
+			// the grant (no permission key), so this list is the user-facing
+			// surface of what the extension adds to /hub.
+			pages?: Array<{ id: string; title: string; icon?: string; description?: string }>;
 			permissions: {
 				network?: string[];
 				filesystem?: string[];
@@ -885,6 +889,38 @@
 				</div>
 			{/if}
 		</div>
+
+		<!-- Hub Pages (Extension Pages Hub) — declaring a page IS the grant,
+		     so this section is where the user sees what the extension adds
+		     to /hub (the install flow auto-approves; there is no separate
+		     review dialog to surface it in). -->
+		{#if ext.manifest.pages?.length}
+			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4" data-testid="extension-pages-section">
+				<h3 class="mb-3 text-sm font-medium text-[var(--color-text-secondary)]">
+					Hub Pages ({ext.manifest.pages.length})
+				</h3>
+				<div class="space-y-2">
+					{#each ext.manifest.pages as page}
+						<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)]/50 p-3">
+							<div class="flex items-center justify-between gap-2">
+								<h4 class="text-sm font-medium text-[var(--color-text-primary)]">{page.title}</h4>
+								{#if ext.enabled}
+									<a
+										href={`/hub/${encodeURIComponent(`ext:${ext.name}:${page.id}`)}`}
+										class="text-xs text-[var(--color-accent)] hover:underline"
+									>
+										Open in Hub →
+									</a>
+								{/if}
+							</div>
+							{#if page.description}
+								<p class="mt-1 text-sm text-[var(--color-text-secondary)]">{page.description}</p>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			</div>
+		{/if}
 
 		<!-- Settings (Slice 4) -->
 		<section
