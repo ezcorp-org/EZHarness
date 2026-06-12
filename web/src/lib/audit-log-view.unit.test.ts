@@ -88,6 +88,8 @@ describe("relativeTime", () => {
 		expect(relativeTime(new Date(now.getTime() - 59_999), now)).toBe("59s ago");
 		expect(relativeTime(new Date(now.getTime() - 60_000), now)).toBe("1m ago");
 		expect(relativeTime(new Date(now.getTime() - 3_600_000), now)).toBe("1h ago");
+		// hour→day boundary pair: one ms under a day stays in hours.
+		expect(relativeTime(new Date(now.getTime() - (86_400_000 - 1)), now)).toBe("23h ago");
 		expect(relativeTime(new Date(now.getTime() - 86_400_000), now)).toBe("1d ago");
 	});
 

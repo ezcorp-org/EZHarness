@@ -20,6 +20,7 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/svelte";
 import BriefingSettings from "../settings/BriefingSettings.svelte";
+import BriefingCardSection from "../settings/BriefingCardSection.svelte";
 
 interface FetchCall {
 	url: string;
@@ -781,5 +782,14 @@ describe("BriefingSettings — last-run status labels", () => {
 		await waitFor(() => expect(container.querySelector('[data-testid="briefing-last-run"]')).not.toBeNull());
 		expect(getByTestId("briefing-last-run").textContent).toContain(`— ${label}`);
 		expect(getByTestId("briefing-last-run").textContent).toContain("Last run:");
+	});
+});
+
+describe("BriefingCardSection", () => {
+	test("Configure action links to /settings/briefing", () => {
+		const { getByTestId } = render(BriefingCardSection);
+		const link = getByTestId("briefing-settings-link");
+		expect(link).toHaveAttribute("href", "/settings/briefing");
+		expect(link).toHaveTextContent("Configure");
 	});
 });

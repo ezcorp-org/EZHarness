@@ -177,6 +177,13 @@ VITEST_EXIT=0
     src/lib/components/__tests__/SystemHealth.component.test.ts \
     src/lib/components/__tests__/UsersSection.component.test.ts \
     src/lib/components/__tests__/settings-save-model.component.test.ts \
+    src/lib/components/__tests__/InvitesSection.component.test.ts \
+    src/lib/components/__tests__/TeamsSection.component.test.ts \
+    src/lib/components/__tests__/ProvidersSection.component.test.ts \
+    src/lib/components/__tests__/ApiKeyManager.component.test.ts \
+    src/lib/components/__tests__/ModesSection.component.test.ts \
+    src/lib/components/__tests__/SaveIndicator.component.test.ts \
+    src/lib/components/__tests__/SettingsSection.component.test.ts \
     src/__tests__/settings-layout.component.test.ts \
     --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
     --coverage.reportsDirectory="$VITEST_COV" \
@@ -208,7 +215,18 @@ VITEST_EXIT=0
     --coverage.include='src/lib/settings-models.ts' \
     --coverage.include='src/lib/save-flash.svelte.ts' \
     --coverage.include='src/lib/admin-guard.ts' \
-    --coverage.include='src/lib/scroll-to-hash.ts' ) || VITEST_EXIT=$?
+    --coverage.include='src/lib/scroll-to-hash.ts' \
+    --coverage.include='src/lib/components/settings/ProvidersSection.svelte' \
+    --coverage.include='src/lib/components/settings/TeamsSection.svelte' \
+    --coverage.include='src/lib/components/settings/InvitesSection.svelte' \
+    --coverage.include='src/lib/components/settings/ModesSection.svelte' \
+    --coverage.include='src/lib/components/settings/ApiKeyManager.svelte' \
+    --coverage.include='src/lib/components/settings/UsersSection.svelte' \
+    --coverage.include='src/lib/components/settings/SystemHealth.svelte' \
+    --coverage.include='src/lib/components/settings/AuditLogSection.svelte' \
+    --coverage.include='src/lib/components/settings/CustomModelsSection.svelte' \
+    --coverage.include='src/lib/components/settings/SettingsSection.svelte' \
+    --coverage.include='src/lib/components/settings/SaveIndicator.svelte' ) || VITEST_EXIT=$?
 # vitest (run from web/) emits SF paths web/-relative (SF:src/lib/...).
 # Re-root them so merge-lcov.ts resolves them against the repo root and the
 # repo-root-relative threshold keys (web/src/lib/...) match.

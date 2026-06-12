@@ -99,5 +99,16 @@
   "web/src/lib/save-flash.svelte.ts": 95,
   "web/src/lib/admin-guard.ts": 95,
   "web/src/lib/scroll-to-hash.ts": 95,
+  "web/src/lib/components/settings/ProvidersSection.svelte": 95,
+  "web/src/lib/components/settings/TeamsSection.svelte": 95,
+  "web/src/lib/components/settings/InvitesSection.svelte": 95,
+  "web/src/lib/components/settings/ModesSection.svelte": 95,
+  "web/src/lib/components/settings/ApiKeyManager.svelte": 95,
+  "web/src/lib/components/settings/UsersSection.svelte": 95,
+  "web/src/lib/components/settings/SystemHealth.svelte": 95,
+  "web/src/lib/components/settings/AuditLogSection.svelte": 95,
+  "web/src/lib/components/settings/CustomModelsSection.svelte": 95,
+  "web/src/lib/components/settings/SettingsSection.svelte": 95,
+  "web/src/lib/components/settings/SaveIndicator.svelte": 95,
   "web/src/lib/**": 90
 }

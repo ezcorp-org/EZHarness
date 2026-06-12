@@ -175,3 +175,193 @@ describe("UsersSection conditional badges", () => {
 		expect(getByTitle("Active sessions")).toHaveTextContent("1 sessions");
 	});
 });
+
+// ── Action flows (deactivate / reactivate / reset password / force logout) ──
+
+interface FetchCall {
+	url: string;
+	method: string;
+	body?: any;
+}
+
+function stubActionFetch(state: {
+	users: () => unknown[];
+	sessions?: unknown[];
+	failUsersOnce?: boolean;
+	forceLogout?: { status: number; json: Record<string, unknown> };
+}) {
+	const calls: FetchCall[] = [];
+	let usersFailed = false;
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			const url = String(input);
+			const method = init?.method ?? "GET";
+			calls.push({
+				url,
+				method,
+				body: init?.body ? JSON.parse(String(init.body)) : undefined,
+			});
+			if (url.includes("/api/auth/reset-password")) {
+				return Response.json({ resetUrl: "/reset/tok-123" });
+			}
+			if (url.includes("/api/admin/sessions")) {
+				if (method === "DELETE") {
+					const fl = state.forceLogout ?? { status: 200, json: { revokedCount: 2 } };
+					return Response.json(fl.json, { status: fl.status });
+				}
+				return Response.json({ sessions: state.sessions ?? [] });
+			}
+			if (url.includes("/api/users")) {
+				if (method === "PUT") return Response.json({ ok: true });
+				if (state.failUsersOnce && !usersFailed) {
+					usersFailed = true;
+					return Response.json({ error: "boom" }, { status: 500 });
+				}
+				return Response.json({ users: state.users() });
+			}
+			return Response.json({});
+		}),
+	);
+	return calls;
+}
+
+const otherUser = (status = "active") => ({
+	id: "u-other",
+	email: "other@corp.io",
+	name: "Other",
+	role: "member",
+	status,
+});
+
+const otherSession = {
+	id: "s1",
+	userId: "u-other",
+	userName: "Other",
+	userEmail: "other@corp.io",
+	userAgent: null,
+	ipAddress: null,
+	lastActiveAt: null,
+	createdAt: "2026-01-01T00:00:00Z",
+};
+
+describe("UsersSection deactivate / reactivate", () => {
+	test("Deactivate PUTs status inactive and refetches", async () => {
+		let users = [otherUser("active")];
+		const calls = stubActionFetch({ users: () => users });
+		const { getByText } = render(UsersSection, { props: { currentUser } });
+		await waitFor(() => expect(getByText("Deactivate")).toBeInTheDocument());
+
+		users = [otherUser("inactive")];
+		await fireEvent.click(getByText("Deactivate"));
+
+		await waitFor(() => {
+			const put = calls.find((c) => c.method === "PUT");
+			expect(put).toBeTruthy();
+			expect(put!.url).toContain("/api/users/u-other");
+			expect(put!.body).toEqual({ status: "inactive" });
+		});
+		await waitFor(() => expect(getByText("Reactivate")).toBeInTheDocument());
+	});
+
+	test("Reactivate PUTs status active", async () => {
+		let users = [otherUser("inactive")];
+		const calls = stubActionFetch({ users: () => users });
+		const { getByText } = render(UsersSection, { props: { currentUser } });
+		await waitFor(() => expect(getByText("Reactivate")).toBeInTheDocument());
+
+		users = [otherUser("active")];
+		await fireEvent.click(getByText("Reactivate"));
+
+		await waitFor(() => {
+			const put = calls.find((c) => c.method === "PUT");
+			expect(put!.body).toEqual({ status: "active" });
+		});
+	});
+});
+
+describe("UsersSection reset password", () => {
+	test("copies the reset URL to the clipboard and flashes Link copied!", async () => {
+		vi.useFakeTimers();
+		const writeText = vi.fn();
+		Object.defineProperty(navigator, "clipboard", {
+			value: { writeText },
+			configurable: true,
+		});
+		const calls = stubActionFetch({ users: () => [otherUser()] });
+		const { getByText } = render(UsersSection, { props: { currentUser } });
+
+		await vi.advanceTimersByTimeAsync(0); // flush mount fetches
+		expect(getByText("Reset Password")).toBeInTheDocument();
+
+		await fireEvent.click(getByText("Reset Password"));
+		await vi.advanceTimersByTimeAsync(0);
+
+		const post = calls.find((c) => c.url.includes("/api/auth/reset-password"));
+		expect(post!.body).toEqual({ userId: "u-other" });
+		expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/reset/tok-123`);
+		expect(getByText("Link copied!")).toBeInTheDocument();
+
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(getByText("Reset Password")).toBeInTheDocument();
+		vi.useRealTimers();
+	});
+});
+
+describe("UsersSection force logout", () => {
+	test("confirm flow DELETEs the user's sessions and reports the revoked count", async () => {
+		const calls = stubActionFetch({ users: () => [otherUser()], sessions: [otherSession] });
+		const { getByText } = render(UsersSection, { props: { currentUser } });
+		await waitFor(() => expect(getByText("Force Logout")).toBeInTheDocument());
+
+		await fireEvent.click(getByText("Force Logout"));
+		expect(getByText("Confirm?")).toBeInTheDocument();
+		await fireEvent.click(getByText("Yes"));
+
+		await waitFor(() => {
+			const del = calls.find((c) => c.method === "DELETE");
+			expect(del).toBeTruthy();
+			expect(del!.body).toEqual({ userId: "u-other" });
+		});
+		await waitFor(() => expect(getByText("Revoked 2 session(s).")).toBeInTheDocument());
+	});
+
+	test("No dismisses the confirmation without a DELETE", async () => {
+		const calls = stubActionFetch({ users: () => [otherUser()], sessions: [otherSession] });
+		const { getByText, queryByText } = render(UsersSection, { props: { currentUser } });
+		await waitFor(() => expect(getByText("Force Logout")).toBeInTheDocument());
+
+		await fireEvent.click(getByText("Force Logout"));
+		await fireEvent.click(getByText("No"));
+
+		expect(queryByText("Confirm?")).not.toBeInTheDocument();
+		expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+	});
+
+	test("failed DELETE surfaces the server error message", async () => {
+		stubActionFetch({
+			users: () => [otherUser()],
+			sessions: [otherSession],
+			forceLogout: { status: 500, json: { error: "session store down" } },
+		});
+		const { getByText } = render(UsersSection, { props: { currentUser } });
+		await waitFor(() => expect(getByText("Force Logout")).toBeInTheDocument());
+
+		await fireEvent.click(getByText("Force Logout"));
+		await fireEvent.click(getByText("Yes"));
+
+		await waitFor(() => expect(getByText("session store down")).toBeInTheDocument());
+	});
+});
+
+describe("UsersSection load error", () => {
+	test("failed /api/users load shows the error row; Retry recovers", async () => {
+		stubActionFetch({ users: () => [otherUser()], failUsersOnce: true });
+		const { getByText, getByTestId } = render(UsersSection, { props: { currentUser } });
+
+		await waitFor(() => expect(getByTestId("users-load-error")).toBeInTheDocument());
+
+		await fireEvent.click(getByText("Retry"));
+		await waitFor(() => expect(getByText("Other")).toBeInTheDocument());
+	});
+});
