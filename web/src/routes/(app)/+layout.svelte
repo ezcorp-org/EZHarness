@@ -196,6 +196,7 @@
 		...(isGlobalProject
 			? [
 					{ href: "/project/global/chat", label: "Chat" },
+					{ href: "/hub", label: "Hub" },
 					{ href: "/active-agents", label: "Active Agents" },
 					{ href: "/agents", label: "Agents", group: "Build" },
 					{ href: "/commands", label: "Commands", group: "Build" },
@@ -208,6 +209,7 @@
 				]
 			: [
 					{ href: `/project/${store.activeProjectId}/chat`, label: "Chat" },
+					{ href: "/hub", label: "Hub" },
 					{ href: "/memories", label: "Memories" },
 					{ href: `/project/${store.activeProjectId}/settings`, label: "Project Settings" },
 					{ href: "/agents", label: "Agents", group: "Platform" },
