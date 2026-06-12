@@ -231,6 +231,29 @@ export interface MessageToolbarItem {
   event: string;
 }
 
+/**
+ * Hub page contributed by an extension (Extension Pages Hub).
+ *
+ * Each declared page becomes a tab at `/hub/ext:<name>:<id>`, rendered
+ * from a declarative component tree the extension serves over
+ * `ezcorp/page.render` (and may push via `ezcorp/page-state`).
+ * Declaring a page IS the grant — surfaced at install/detail UI like
+ * other components; there is NO separate permission key, so bundled
+ * extensions adopting a page cause no grantedPermissions drift. Page
+ * actions reuse `permissions.eventSubscriptions` (the tree validator
+ * drops action nodes whose event isn't declared there).
+ */
+export interface ExtensionPageDeclaration {
+  /** Unique id within the extension. /^[a-z0-9][a-z0-9-]{0,31}$/ */
+  id: string;
+  /** Tab label. ≤ 50 chars. */
+  title: string;
+  /** lucide-svelte icon name, e.g. "Clock". Unknown names fall back. */
+  icon?: string;
+  /** ≤ 200 chars. */
+  description?: string;
+}
+
 // ── Dependency Types ─────────────────────────────────────────────
 
 export interface DependencySpec {
@@ -357,6 +380,13 @@ export interface ExtensionManifestV2 {
    * by canvas-card events). See `MessageToolbarItem`.
    */
   messageToolbar?: MessageToolbarItem[];
+
+  /**
+   * Hub pages contributed by this extension (max 3). See
+   * `ExtensionPageDeclaration`. Validated by `validatePagesArray`
+   * (./manifest.ts) at admit time.
+   */
+  pages?: ExtensionPageDeclaration[];
 
   /**
    * User-editable configuration declared by the extension. The host renders

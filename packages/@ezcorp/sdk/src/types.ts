@@ -150,6 +150,27 @@ export type SettingsField =
  *  /^[a-z][a-z0-9_]{0,63}$/ (filesystem-safe identifier). */
 export type SettingsSchema = Record<string, SettingsField>;
 
+// ── Hub Pages (Extension Pages Hub) ──────────────────────────────
+
+/**
+ * Hub page contributed by an extension. Each declared page becomes a
+ * tab at `/hub/ext:<name>:<id>`, served by a `definePage({id, render,
+ * actions})` registration (see `@ezcorp/sdk/runtime`'s `definePage` /
+ * `PageBuilder` / `pushPage`). Declaring a page IS the grant — no
+ * separate permission key. Page actions reuse
+ * `permissions.eventSubscriptions`.
+ */
+export interface ExtensionPageDeclaration {
+  /** Unique id within the extension. /^[a-z0-9][a-z0-9-]{0,31}$/ */
+  id: string;
+  /** Tab label. ≤ 50 chars. */
+  title: string;
+  /** lucide-svelte icon name, e.g. "Clock". Unknown names fall back. */
+  icon?: string;
+  /** ≤ 200 chars. */
+  description?: string;
+}
+
 // ── Extension Manifest V2 ────────────────────────────────────────
 
 // `entities` is re-imported from `@ezcorp/sdk/entities` so the same
@@ -215,6 +236,12 @@ export interface ExtensionManifestV2 {
    * identifiers; field declarations are validated at admit time.
    */
   settings?: SettingsSchema;
+
+  /**
+   * Hub pages contributed by this extension (max 3). See
+   * `ExtensionPageDeclaration`.
+   */
+  pages?: ExtensionPageDeclaration[];
 
   /**
    * User-managed entity types declared by the extension. The host

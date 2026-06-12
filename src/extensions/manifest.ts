@@ -307,6 +307,60 @@ function validateMessageToolbarArray(
   }
 }
 
+// ── Hub pages (Extension Pages Hub) ───────────────────────────────
+//
+// Mirrors `validateMessageToolbarArray`'s shape rules: slug ids with
+// dedupe, hard caps on the user-visible strings, and a small max count
+// (a tab strip with more than 3 tabs per extension is a UX smell, and
+// the cap bounds Hub list fan-out).
+
+const PAGE_ID_REGEX = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const MAX_PAGES = 3;
+const MAX_PAGE_TITLE = 50;
+const MAX_PAGE_DESCRIPTION = 200;
+
+export function validatePagesArray(items: unknown, errors: string[]): void {
+  if (!Array.isArray(items)) {
+    errors.push("pages must be an array");
+    return;
+  }
+  if (items.length > MAX_PAGES) {
+    errors.push(`pages must declare at most ${MAX_PAGES} entries`);
+  }
+  const seenIds = new Set<string>();
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i] as Record<string, unknown>;
+    if (!it || typeof it !== "object") {
+      errors.push(`pages[${i}] must be an object`);
+      continue;
+    }
+    if (typeof it.id !== "string" || !PAGE_ID_REGEX.test(it.id)) {
+      errors.push(`pages[${i}].id must match /^[a-z0-9][a-z0-9-]{0,31}$/`);
+    } else if (seenIds.has(it.id)) {
+      errors.push(`pages[${i}].id "${it.id}" is duplicated`);
+    } else {
+      seenIds.add(it.id);
+    }
+    if (!it.title || typeof it.title !== "string") {
+      errors.push(`pages[${i}].title is required and must be a string`);
+    } else if (it.title.length > MAX_PAGE_TITLE) {
+      errors.push(`pages[${i}].title must be at most ${MAX_PAGE_TITLE} characters`);
+    }
+    if (it.icon !== undefined && typeof it.icon !== "string") {
+      errors.push(`pages[${i}].icon must be a string`);
+    }
+    if (it.description !== undefined) {
+      if (typeof it.description !== "string") {
+        errors.push(`pages[${i}].description must be a string`);
+      } else if (it.description.length > MAX_PAGE_DESCRIPTION) {
+        errors.push(
+          `pages[${i}].description must be at most ${MAX_PAGE_DESCRIPTION} characters`,
+        );
+      }
+    }
+  }
+}
+
 // Settings keys are used as filesystem-safe identifiers and as JS-object
 // keys exposed to extension authors — keep them lowercase, no traversal,
 // no leading digit/underscore.
@@ -744,6 +798,7 @@ export function validateManifestV2(
       errors,
     );
   }
+  if (m.pages !== undefined) validatePagesArray(m.pages, errors);
   if (m.settings !== undefined) validateSettingsSchema(m.settings, errors);
   if (m.entities !== undefined) validateEntitiesArray(m, m.entities, errors);
 

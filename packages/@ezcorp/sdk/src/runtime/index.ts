@@ -67,6 +67,19 @@ export type {
   PanelBuilderAction,
 } from "./panel";
 
+export { ComponentListBuilder } from "./component-builder";
+
+export { PageBuilder, definePage, pushPage, __resetPagesForTests } from "./page";
+export type {
+  HubPageTree,
+  PageDefinition,
+  PageActionEvent,
+  PageActionDescriptor,
+  PageStatItem,
+  PageTableRowInput,
+  PageButtonStyle,
+} from "./page";
+
 export { registerLifecycleHook } from "./lifecycle";
 export type { LifecycleEvent } from "./lifecycle";
 
