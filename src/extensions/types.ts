@@ -648,6 +648,31 @@ export interface ExtensionPanelState {
   components: PanelComponent[];
 }
 
+// ── Extension Pages Hub — page component vocabulary ─────────────
+//
+// Defined in `./page-schema.ts` (vocabulary + hand-rolled validator);
+// re-exported here so consumers that already import panel types from
+// this module get the page types from the same place. Type-only
+// re-export — `validatePageTree` itself is imported from page-schema
+// directly to keep this module value-free for the wire types.
+
+export type {
+  HubPageTree,
+  PageNode,
+  PageOnlyNode,
+  PageAction,
+  PageSection,
+  PageHeading,
+  PageMarkdown,
+  PageStats,
+  PageStatItem,
+  PageTable,
+  PageTableRow,
+  PageButton,
+  PageLink,
+  PageEmptyState,
+} from "./page-schema";
+
 // ── JSON-RPC Notification (fire-and-forget, no id) ──────────────
 
 export interface JsonRpcNotification {

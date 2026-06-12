@@ -142,7 +142,15 @@ function validateDivider(): PanelDivider {
 
 // ── Component dispatcher ───────────────────────────────────────────
 
-function validateComponent(raw: unknown): PanelComponent | null {
+/**
+ * Validate a single panel-vocabulary component. Exported so the Hub
+ * page-schema validator (`./page-schema.ts`) can reuse the exact same
+ * wire-shape rules for the nine panel node types — panel node shapes
+ * are IDENTICAL between the bottom panel and Hub pages by design
+ * (Extension Pages Hub locked decision: "panel node wire-shapes
+ * unchanged").
+ */
+export function validateComponent(raw: unknown): PanelComponent | null {
   if (raw == null || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
   if (!KNOWN_TYPES.has(obj.type as PanelComponentType)) return null;
