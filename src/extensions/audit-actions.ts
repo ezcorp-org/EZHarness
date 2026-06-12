@@ -164,6 +164,21 @@ export const EXT_AUDIT_ACTIONS = {
    * actor:"system", reason}`.
    */
   BUNDLED_CRITICAL_AUTO_REAPPROVED: "ext:bundled:critical-auto-reapproved",
+  /**
+   * An admin re-approved a NON-critical bundled extension that the
+   * S6/S9 boot gate had disabled "pending re-approval" after its
+   * on-disk manifest permissions legitimately changed in a release.
+   * `POST /api/extensions/[id]/reapprove-drift` re-grants from the
+   * CURRENT on-disk manifest, clamped to the bundled ceiling
+   * (`bundled-ceiling.ts` stays the hard bound), refreshes the stored
+   * manifest + version, and re-enables the row. The lockfile gate
+   * still applies — a manifest failing `manifest.lock.json`
+   * verification is refused (tampering is NOT healable here).
+   * Metadata: `{extensionName, oldValue: <prior grant>, newValue:
+   * <clamped grant>, actor: <adminUserId>, diffs, ceilingClamped,
+   * reason}`.
+   */
+  BUNDLED_DRIFT_REAPPROVED: "ext:bundled:drift-reapproved",
   // ── Phase 7: MCP isolation (forward proxy + Linux netns) ──
   /**
    * `mcp-sandbox.ts` successfully started an MCP process inside a

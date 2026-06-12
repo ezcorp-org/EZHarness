@@ -431,6 +431,43 @@ engines; the default bridge in both stacks provides it. If a hardened
 deploy later air-gaps the app network, give `searxng` a second
 egress-capable network.
 
+## Upgrade notes — bundled extensions disabled after a release
+
+After upgrading EZCorp, a bundled extension whose manifest permissions
+**legitimately widened** in the new release (e.g. `web-search` gaining
+the keyless DuckDuckGo/SearXNG hosts) appears **disabled** in the
+extensions list. That's the S6/S9 boot drift gate working as designed:
+a non-critical bundled extension whose on-disk permissions or tool list
+changed under a new version is disabled "pending re-approval"
+(`ext:update-blocked` rows in the audit log show exactly what changed).
+
+An admin re-approves the drift via the dedicated endpoint, which
+re-grants from the **current on-disk manifest** (clamped to the
+hardcoded bundled ceiling in `src/extensions/bundled-ceiling.ts` — the
+ceiling stays the hard security bound), refreshes the stored manifest +
+version, re-enables the row, and reloads the registry:
+
+```bash
+# As an admin (session cookie or an API key with the `extensions` scope):
+curl -X POST \
+  -H "Authorization: Bearer $EZCORP_API_KEY" \
+  "$EZCORP_BASE_URL/api/extensions/<extension-id>/reapprove-drift"
+```
+
+The response carries the updated extension row plus a `diffs` summary
+(`[{field, oldValue, newValue}]`) of what was granted. The call is
+idempotent — with no drift it simply refreshes/re-enables and the
+`diffs` array is empty. It can never widen beyond the bundled ceiling,
+and the `manifest.lock.json` gate still applies: a manifest failing the
+lockfile check is refused with 409 (the endpoint heals grant drift, not
+tampering — regenerate the lockfile via
+`bun run scripts/regenerate-manifest-lock.ts` if it's a legitimate
+release artifact gap, see the manifest-lock notes).
+
+A re-approve button in the extensions settings UI is a planned
+follow-up; until then the curl above (or any HTTP client) is the
+sanctioned path.
+
 ## Image size
 
 Phase 7 + Phase 55 add these debian packages to `oven/bun:1-slim`:

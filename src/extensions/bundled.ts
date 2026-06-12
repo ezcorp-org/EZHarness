@@ -745,6 +745,18 @@ export function getCriticalBundledExtensions(): Array<{
   }));
 }
 
+/**
+ * Path (relative to the project root) of a bundled extension's on-disk
+ * source, or `null` for non-bundled names. Consumed by the admin
+ * drift-reapproval heal (`bundled-drift-reapprove.ts`) so it loads the
+ * SAME on-disk manifest the boot path uses. Opt-out env flags are
+ * intentionally ignored — an existing row can be healed regardless of
+ * whether fresh installs are currently suppressed.
+ */
+export function getBundledExtensionPath(name: string): string | null {
+  return BUNDLED_EXTENSIONS.find((e) => e.name === name)?.path ?? null;
+}
+
 /** Names of every extension that ships WITH the EZCorp codebase (bundled),
  *  regardless of opt-out flags. Consulted by ExtensionRegistry at spawn
  *  time to skip the runtime integrity check — bundled extensions live in
