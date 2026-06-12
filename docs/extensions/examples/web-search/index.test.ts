@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-cleanup";
 
 afterAll(() => {
@@ -17,7 +17,7 @@ afterAll(() => {
 // `createToolDispatcher`) is guarded behind `import.meta.main` so
 // importing the module does not open stdin.
 
-let nextResponse: () => Response = () => new Response("{}");
+let nextResponse: (url: string) => Response = () => new Response("{}");
 let fetchCallCount = 0;
 
 mock.module("@ezcorp/sdk/runtime", () => {
@@ -27,9 +27,9 @@ mock.module("@ezcorp/sdk/runtime", () => {
   };
   return {
     ...real,
-    fetchPermitted: (_url: string | URL, _init?: RequestInit) => {
+    fetchPermitted: (url: string | URL, _init?: RequestInit) => {
       fetchCallCount++;
-      return Promise.resolve(nextResponse());
+      return Promise.resolve(nextResponse(String(url)));
     },
     // Production wiring — never called from unit tests because
     // `import.meta.main` is false. Provide stubs so the module imports cleanly.
@@ -38,13 +38,18 @@ mock.module("@ezcorp/sdk/runtime", () => {
   };
 });
 
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCallResult } from "../../../../packages/@ezcorp/sdk/src/types";
 import { DiskCache } from "./cache";
 import { createDeps, makeReadHandler, makeSearchHandler, buildHandlers } from "./index";
 import { RateLimiter } from "./rate-limit";
+
+// Real captured DuckDuckGo lite page (sanitized) — the keyless default
+// provider parses HTML, so handler-level happy paths serve this fixture.
+const DDG_LITE_FIXTURE = readFileSync(join(import.meta.dir, "testdata", "ddg-lite.html"), "utf8");
+const FIXTURE_TOP_LINK = "[Bun — A fast all-in-one JavaScript runtime](https://bun.sh/)";
 
 function textOf(r: ToolCallResult): string {
   const first = r.content[0];
@@ -61,13 +66,15 @@ beforeEach(() => {
   delete process.env.BRAVE_API_KEY;
   delete process.env.EXA_API_KEY;
   delete process.env.SERPAPI_API_KEY;
+  delete process.env.JINA_API_KEY;
+  delete process.env.SEARXNG_BASE_URL;
 });
 
-function makeDeps(opts?: { limit?: number }) {
+function makeDeps(opts?: { limit?: number; limitProvider?: string }) {
   const cache = new DiskCache({ filePath: join(dir, "c.json"), maxEntries: 10 });
   const limiter = new RateLimiter({ windowMs: 60_000, now: () => 0 });
   const deps = createDeps({ cache, limiter });
-  if (opts?.limit !== undefined) limiter.register("jina", opts.limit);
+  if (opts?.limit !== undefined) limiter.register(opts?.limitProvider ?? "duckduckgo", opts.limit);
   return deps;
 }
 
@@ -83,12 +90,12 @@ describe("search-web handler", () => {
     expect(bad2.isError).toBe(true);
   });
 
-  test("happy path: cache miss → 1 fetch; second call hits cache → 0 fetches", async () => {
-    nextResponse = () => new Response(JSON.stringify({ data: [{ title: "T", url: "https://u", description: "D" }] }));
+  test("happy path (keyless default = DuckDuckGo): cache miss → 1 fetch; second call hits cache → 0 fetches", async () => {
+    nextResponse = () => new Response(DDG_LITE_FIXTURE);
     const h = makeSearchHandler(makeDeps());
     const r1 = await h({ query: "bun" });
     expect(r1.isError).toBe(false);
-    expect(textOf(r1)).toContain("[T](https://u)");
+    expect(textOf(r1)).toContain(FIXTURE_TOP_LINK);
     expect(fetchCallCount).toBe(1);
     const r2 = await h({ query: "bun" });
     expect(r2.isError).toBe(false);
@@ -96,14 +103,14 @@ describe("search-web handler", () => {
   });
 
   test("maxResults out of range → clamped to default 5 (no error)", async () => {
-    nextResponse = () => new Response(JSON.stringify({ data: [] }));
+    nextResponse = () => new Response(DDG_LITE_FIXTURE);
     const h = makeSearchHandler(makeDeps());
     const r = await h({ query: "x", maxResults: 999 });
     expect(r.isError).toBe(false);
   });
 
   test("rate-limit tripped returns the exact LIMIT_MSG", async () => {
-    const deps = makeDeps({ limit: 0 });
+    const deps = makeDeps({ limit: 0 }); // caps the default duckduckgo provider
     const h = makeSearchHandler(deps);
     const r = await h({ query: "bun" });
     expect(r.isError).toBe(true);
@@ -117,8 +124,9 @@ describe("search-web handler", () => {
     const h = makeSearchHandler(makeDeps());
     const r = await h({ query: "bun" });
     expect(r.isError).toBe(true);
-    expect(textOf(r)).toContain("Search failed via jina");
+    expect(textOf(r)).toContain("Search failed via duckduckgo");
     expect(textOf(r)).toContain("HTTP 502");
+    expect(fetchCallCount).toBe(2); // lite + in-class html fallback
   });
 
   test("BYOK env switches provider: handler uses Tavily when TAVILY_API_KEY is set", async () => {
@@ -130,6 +138,61 @@ describe("search-web handler", () => {
     const r = await h({ query: "bun" });
     expect(r.isError).toBe(false);
     expect(textOf(r)).toContain("[T](https://t)");
+  });
+
+  test("SEARXNG_BASE_URL env switches provider: handler returns markdown from SearXNG JSON", async () => {
+    process.env.SEARXNG_BASE_URL = "http://localhost:8889";
+    nextResponse = () =>
+      new Response(JSON.stringify({ results: [{ title: "SX", url: "https://sx", content: "C" }] }));
+    const h = makeSearchHandler(makeDeps());
+    const r = await h({ query: "bun" });
+    expect(r.isError).toBe(false);
+    expect(textOf(r)).toContain("[SX](https://sx)");
+    expect(fetchCallCount).toBe(1); // no fallback fired
+  });
+
+  test("SearXNG down → DuckDuckGo fallback result, cached under the FALLBACK's namespace (cache-key pin)", async () => {
+    const errorSpy = spyOn(console, "error").mockImplementation(() => {}); // silence the fallback log
+    process.env.SEARXNG_BASE_URL = "http://localhost:8889";
+    nextResponse = (url) => {
+      if (url.includes("localhost:8889")) throw new Error("ConnectionRefused: Unable to connect");
+      return new Response(DDG_LITE_FIXTURE);
+    };
+    const h = makeSearchHandler(makeDeps());
+    const r1 = await h({ query: "bun" });
+    expect(r1.isError).toBe(false);
+    expect(textOf(r1)).toContain(FIXTURE_TOP_LINK);
+    expect(fetchCallCount).toBe(2); // failed searxng attempt + ddg fetch
+
+    // Same query with DuckDuckGo as the DIRECT provider hits the cache —
+    // proof the fallback result was stored under "duckduckgo", not "searxng".
+    delete process.env.SEARXNG_BASE_URL;
+    const r2 = await h({ query: "bun" });
+    expect(r2.isError).toBe(false);
+    expect(textOf(r2)).toContain(FIXTURE_TOP_LINK);
+    expect(fetchCallCount).toBe(2); // unchanged — served from cache
+
+    // And the "searxng" namespace was NOT poisoned: with SearXNG healthy
+    // again, the same query goes back out to SearXNG (cache miss there).
+    process.env.SEARXNG_BASE_URL = "http://localhost:8889";
+    nextResponse = () =>
+      new Response(JSON.stringify({ results: [{ title: "SX", url: "https://sx", content: "C" }] }));
+    const r3 = await h({ query: "bun" });
+    expect(r3.isError).toBe(false);
+    expect(textOf(r3)).toContain("[SX](https://sx)");
+    expect(fetchCallCount).toBe(3);
+    errorSpy.mockRestore();
+  });
+
+  test("SearXNG HTTP error → NO fallback; error surfaces with searxng tag", async () => {
+    process.env.SEARXNG_BASE_URL = "http://localhost:8889";
+    nextResponse = () => new Response("engine suspended", { status: 503 });
+    const h = makeSearchHandler(makeDeps());
+    const r = await h({ query: "bun" });
+    expect(r.isError).toBe(true);
+    expect(textOf(r)).toContain("Search failed via searxng");
+    expect(textOf(r)).toContain("SearXNG HTTP 503");
+    expect(fetchCallCount).toBe(1); // DuckDuckGo never invoked
   });
 });
 
@@ -183,7 +246,7 @@ describe("read-url handler", () => {
   });
 
   test("rate-limit tripped returns the exact LIMIT_MSG", async () => {
-    const deps = makeDeps({ limit: 0 });
+    const deps = makeDeps({ limit: 0, limitProvider: "jina" }); // reader is always jina
     const h = makeReadHandler(deps);
     const r = await h({ url: "https://e" });
     expect(r.isError).toBe(true);
@@ -217,6 +280,9 @@ describe("buildHandlers / createDeps factory", () => {
     expect(deps.limiter).toBeInstanceOf(RateLimiter);
     // Limiter has jina registered with a finite cap.
     expect(deps.limiter.allow("jina")).toBe(true);
+    // Keyless defaults are registered (unbounded) — see createDeps.
+    expect(deps.limiter.allow("searxng")).toBe(true);
+    expect(deps.limiter.allow("duckduckgo")).toBe(true);
   });
 
   test("WEB_SEARCH_DATA_DIR override reroutes cache path", () => {

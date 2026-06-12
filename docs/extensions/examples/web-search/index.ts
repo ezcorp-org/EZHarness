@@ -13,7 +13,12 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { DiskCache } from "./cache";
 import { formatResults, truncate } from "./markdown";
-import { resolveProviders, type ResolvedProviders } from "./providers";
+import {
+  hasOutcome,
+  resolveProviders,
+  type ResolvedProviders,
+  type SearchOutcome,
+} from "./providers";
 import { RateLimiter } from "./rate-limit";
 
 // ── Tunables ────────────────────────────────────────────────────────
@@ -55,6 +60,10 @@ export function createDeps(overrides: Partial<Deps> = {}): Deps {
   limiter.register("brave", Infinity);
   limiter.register("exa", Infinity);
   limiter.register("serpapi", Infinity);
+  // Keyless defaults: SearXNG is self-hosted (no upstream quota) and the
+  // DDG scrape is bounded by the disk cache + DDG's own throttling.
+  limiter.register("searxng", Infinity);
+  limiter.register("duckduckgo", Infinity);
   const providers = overrides.providers ?? ((): ResolvedProviders => resolveProviders());
   return { cache, limiter, providers };
 }
@@ -74,18 +83,25 @@ export function makeSearchHandler(deps: Deps): ToolHandler {
     const n = typeof maxResults === "number" && maxResults >= 1 && maxResults <= 20
       ? Math.floor(maxResults) : 5;
     const { search } = deps.providers();
-    const key = sha256(`${search.name}:search:${query.trim().toLowerCase()}:${n}`);
-    const hit = await deps.cache.get(key);
+    // The cache key embeds the provider name so e.g. searxng and
+    // duckduckgo results never collide. `searchWithOutcome` (the
+    // connection-error fallback wrapper) reports which provider actually
+    // served, so fallback results cache under the FALLBACK's namespace.
+    const keyFor = (provider: string): string =>
+      sha256(`${provider}:search:${query.trim().toLowerCase()}:${n}`);
+    const hit = await deps.cache.get(keyFor(search.name));
     if (hit !== undefined) return toolResult(hit);
     if (!deps.limiter.allow(search.name)) return toolError(LIMIT_MSG);
-    let results;
+    let outcome: SearchOutcome;
     try {
-      results = await search.search(query, n);
+      outcome = hasOutcome(search)
+        ? await search.searchWithOutcome(query, n)
+        : { providerName: search.name, results: await search.search(query, n) };
     } catch (err) {
       return toolError(`Search failed via ${search.name}: ${(err as Error).message}`);
     }
-    const md = formatResults(results);
-    await deps.cache.set(key, md, SEARCH_TTL_MS);
+    const md = formatResults(outcome.results);
+    await deps.cache.set(keyFor(outcome.providerName), md, SEARCH_TTL_MS);
     return toolResult(md);
   };
 }

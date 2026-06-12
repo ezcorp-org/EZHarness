@@ -1,11 +1,16 @@
 // Pluggable search + URL-reader providers.
 //
-// Default path (keyless) is Jina AI — `s.jina.ai` for search and `r.jina.ai`
-// for URL-to-markdown. BYOK providers (Tavily / Brave / Exa / SerpAPI) take
-// over at call time when their corresponding env var is set. `resolveProviders`
-// is the single selection seam; every tool handler goes through it so that
-// adding an API key to a running subprocess's env takes effect on the next
+// Default path (keyless) is SearXNG (when `SEARXNG_BASE_URL` points at the
+// bundled sidecar or a BYO instance) with DuckDuckGo as the universal
+// keyless fallback. URL reading stays on Jina's keyless `r.jina.ai`. BYOK
+// providers (Tavily / Brave / Exa / SerpAPI / keyed Jina) take over at call
+// time when their corresponding env var is set. `resolveProviders` is the
+// single selection seam; every tool handler goes through it so that adding
+// an API key to a running subprocess's env takes effect on the next
 // invocation with no reinstall.
+//
+// Keyless Jina *search* (`s.jina.ai` without a key) was removed 2026-06:
+// the upstream now returns 401 AuthenticationRequiredError without a key.
 
 import { fetchPermitted } from "@ezcorp/sdk/runtime";
 
@@ -81,7 +86,7 @@ function host(envVar: string, defaultHost: string): string {
   return v && v.length > 0 ? v : defaultHost;
 }
 
-// ── Jina (default, keyless) ─────────────────────────────────────────
+// ── Jina (keyed search; keyless reader) ─────────────────────────────
 
 export class JinaSearch implements SearchProvider {
   readonly name = "jina";
@@ -211,6 +216,219 @@ export class SerpApi implements SearchProvider {
   }
 }
 
+// ── SearXNG (keyless, self-hosted sidecar or BYO instance) ─────────
+
+export class SearXNG implements SearchProvider {
+  readonly name = "searxng";
+  constructor(private readonly baseUrl: string) {}
+  async search(query: string, maxResults: number): Promise<SearchResult[]> {
+    const base = this.baseUrl.replace(/\/+$/, "");
+    const url = `${base}/search?q=${encodeURIComponent(query)}&format=json&safesearch=1`;
+    const body = await doFetch<{ results?: Array<{ title?: string; url?: string; content?: string }> }>(
+      "SearXNG",
+      url,
+      { headers: { accept: "application/json" } },
+    );
+    const results = Array.isArray(body?.results) ? body.results : [];
+    return results.slice(0, maxResults).map((r) => ({
+      title: String(r.title ?? ""),
+      url: String(r.url ?? ""),
+      snippet: String(r.content ?? ""),
+    }));
+  }
+}
+
+// ── DuckDuckGo (keyless, universal fallback) ────────────────────────
+// Scrapes the no-JS endpoints with Bun's built-in HTMLRewriter (locked
+// decision: no new HTML-parsing dependencies). `lite.duckduckgo.com` is
+// primary (simplest markup); `html.duckduckgo.com` is the in-class
+// fallback when lite errors. Without a browsery User-Agent DDG serves a
+// challenge page — it parses to 0 results (no throw; test-pinned).
+
+const DDG_USER_AGENT =
+  "Mozilla/5.0 (X11; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0";
+
+interface DdgSelectors {
+  link: string;
+  snippet: string;
+}
+
+// Captured markup (testdata/ddg-lite.html): results are
+// `<a class='result-link'>` + `<td class='result-snippet'>` pairs.
+const DDG_LITE_SELECTORS: DdgSelectors = { link: "a.result-link", snippet: "td.result-snippet" };
+// Captured markup (testdata/ddg-html.html): `<a class="result__a">` +
+// `<a class="result__snippet">` pairs.
+const DDG_HTML_SELECTORS: DdgSelectors = { link: "a.result__a", snippet: ".result__snippet" };
+
+/**
+ * Minimal HTML-entity decode for the handful of entities DDG's markup
+ * emits. Numeric/named forms first; `&amp;` LAST so `&amp;lt;` correctly
+ * decodes to the literal text `&lt;` rather than `<`.
+ */
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCodePoint(Number.parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(Number(d)))
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
+}
+
+/**
+ * DDG wraps result hrefs in a redirect:
+ *   `//duckduckgo.com/l/?uddg=<encoded-target>&rut=<tracker>`
+ * Unwrap to the target URL; non-redirect hrefs pass through unchanged.
+ */
+export function unwrapDdgRedirect(href: string): string {
+  try {
+    const u = new URL(href.startsWith("//") ? `https:${href}` : href);
+    if (u.hostname.endsWith("duckduckgo.com") && u.pathname.startsWith("/l/")) {
+      const target = u.searchParams.get("uddg");
+      if (target) return target;
+    }
+  } catch {
+    // Relative or malformed href — return as-is below.
+  }
+  return href;
+}
+
+/**
+ * Collect `{ link, snippet }` pairs from a DDG results page. HTMLRewriter
+ * is async-streaming — handlers fire in document order while the
+ * transformed response is consumed, so we drain it fully (`.text()`)
+ * before reading the accumulator (deterministic completion).
+ */
+async function parseDdgResults(html: string, sel: DdgSelectors): Promise<SearchResult[]> {
+  interface Acc {
+    title: string;
+    url: string;
+    snippet: string;
+  }
+  const collected: Acc[] = [];
+  let current: Acc | null = null;
+  const flush = (): void => {
+    if (current && current.url.length > 0 && current.title.trim().length > 0) {
+      collected.push(current);
+    }
+    current = null;
+  };
+  const rewriter = new HTMLRewriter()
+    .on(sel.link, {
+      element(el) {
+        flush(); // a new result anchor closes the previous result
+        const href = decodeEntities(el.getAttribute("href") ?? "");
+        current = { title: "", url: unwrapDdgRedirect(href), snippet: "" };
+      },
+      text(t) {
+        if (current) current.title += t.text;
+      },
+    })
+    .on(sel.snippet, {
+      text(t) {
+        if (current) current.snippet += t.text;
+      },
+    });
+  await rewriter.transform(new Response(html)).text();
+  flush();
+  return collected.map((r) => ({
+    title: decodeEntities(r.title).replace(/\s+/g, " ").trim(),
+    url: r.url,
+    snippet: decodeEntities(r.snippet).replace(/\s+/g, " ").trim(),
+  }));
+}
+
+export class DuckDuckGo implements SearchProvider {
+  readonly name = "duckduckgo";
+  async search(query: string, maxResults: number): Promise<SearchResult[]> {
+    const q = encodeURIComponent(query);
+    const headers = { accept: "text/html", "user-agent": DDG_USER_AGENT };
+    let html: string;
+    let selectors = DDG_LITE_SELECTORS;
+    try {
+      const base = host("DDG_LITE_BASE_URL", "https://lite.duckduckgo.com");
+      html = await doFetch<string>("DuckDuckGo", `${base}/lite/?q=${q}`, { headers, as: "text" });
+    } catch {
+      // Lite endpoint errored (HTTP or connection) — try the html variant
+      // before giving up. If this throws too, the error propagates with
+      // the usual "DuckDuckGo …" tag.
+      const base = host("DDG_HTML_BASE_URL", "https://html.duckduckgo.com");
+      html = await doFetch<string>("DuckDuckGo", `${base}/html/?q=${q}`, { headers, as: "text" });
+      selectors = DDG_HTML_SELECTORS;
+    }
+    const results = await parseDdgResults(html, selectors);
+    return results.slice(0, maxResults);
+  }
+}
+
+// ── Connection-error fallback wrapper ───────────────────────────────
+
+// Connection-class failures (refused / reset / timeout / DNS) plus
+// sandbox-PDP denials — anything that means the primary never gave an
+// HTTP answer. Internal hosts (localhost / RFC-1918, i.e. the SearXNG
+// sidecar) are fetched HOST-side via the `ezcorp/network.internal`
+// reverse-RPC: its PDP deny reads "Network denied: …" and a host-side
+// fetch throw reads "Upstream error: <fetch message>" — both are
+// no-HTTP-answer outcomes. HTTP errors like "SearXNG HTTP 503"
+// deliberately do NOT match: a reachable-but-misconfigured SearXNG
+// should surface its error instead of being silently masked.
+const CONNECTION_ERROR_RE =
+  /connection\s*(refused|closed|reset)|econnrefused|econnreset|timed?\s*out|etimedout|dns|enotfound|eai_again|failed\s*to\s*(open|connect)|unable\s*to\s*(connect|resolve)|network\s*error|fetch\s*failed|socket|allowlist|permitted_hosts|requires\s*'network'\s*permission|network\s*denied|upstream\s*error/i;
+
+export function isConnectionError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = String((err as Error & { code?: unknown }).code ?? "");
+  return CONNECTION_ERROR_RE.test(`${code} ${err.name} ${err.message}`);
+}
+
+/** Which provider actually served the results — drives the cache key. */
+export interface SearchOutcome {
+  providerName: string;
+  results: SearchResult[];
+}
+
+export interface FallbackSearchProvider extends SearchProvider {
+  searchWithOutcome(query: string, maxResults: number): Promise<SearchOutcome>;
+}
+
+export function hasOutcome(p: SearchProvider): p is FallbackSearchProvider {
+  return typeof (p as FallbackSearchProvider).searchWithOutcome === "function";
+}
+
+/**
+ * One-shot connection-error fallback. Each inner provider keeps its own
+ * `name`; `searchWithOutcome` reports which one served so the handler
+ * caches under the right provider namespace (fallback results cache
+ * under the fallback's name — never poisoning the primary's).
+ */
+export function withFallback(primary: SearchProvider, fallback: SearchProvider): FallbackSearchProvider {
+  const searchWithOutcome = async (query: string, maxResults: number): Promise<SearchOutcome> => {
+    let primaryErr: Error;
+    try {
+      return { providerName: primary.name, results: await primary.search(query, maxResults) };
+    } catch (err) {
+      if (!isConnectionError(err)) throw err;
+      primaryErr = err as Error;
+    }
+    console.error(
+      `[web-search] ${primary.name} unreachable (${primaryErr.message}); falling back to ${fallback.name}`,
+    );
+    try {
+      return { providerName: fallback.name, results: await fallback.search(query, maxResults) };
+    } catch (fbErr) {
+      throw new Error(
+        `${primary.name} unreachable (${primaryErr.message}); ${fallback.name} fallback failed: ${(fbErr as Error).message}`,
+      );
+    }
+  };
+  return {
+    name: primary.name,
+    search: async (query, maxResults) => (await searchWithOutcome(query, maxResults)).results,
+    searchWithOutcome,
+  };
+}
+
 // ── Resolver ────────────────────────────────────────────────────────
 
 export interface ResolvedProviders {
@@ -220,9 +438,14 @@ export interface ResolvedProviders {
 
 /**
  * Select providers based on env vars. Precedence (highest first):
- *   TAVILY_API_KEY > BRAVE_API_KEY > EXA_API_KEY > SERPAPI_API_KEY > Jina
+ *   TAVILY_API_KEY > BRAVE_API_KEY > EXA_API_KEY > SERPAPI_API_KEY >
+ *   JINA_API_KEY (keyed Jina search) > SEARXNG_BASE_URL (SearXNG, with a
+ *   one-shot DuckDuckGo fallback on connection-class errors) >
+ *   DuckDuckGo (keyless universal default).
  *
- * URL reading always uses Jina — it's the only keyless keys-to-markdown
+ * Keyless Jina search is GONE — `s.jina.ai` returns 401 without a key.
+ *
+ * URL reading always uses Jina — it's the only keyless HTML-to-markdown
  * service we trust. BYOK readers can be added later.
  */
 export function resolveProviders(env: NodeJS.ProcessEnv = process.env): ResolvedProviders {
@@ -232,5 +455,10 @@ export function resolveProviders(env: NodeJS.ProcessEnv = process.env): Resolved
   if (env.BRAVE_API_KEY)   return { search: new Brave(env.BRAVE_API_KEY),    reader };
   if (env.EXA_API_KEY)     return { search: new Exa(env.EXA_API_KEY),        reader };
   if (env.SERPAPI_API_KEY) return { search: new SerpApi(env.SERPAPI_API_KEY), reader };
-  return { search: new JinaSearch(jinaKey), reader };
+  if (jinaKey)             return { search: new JinaSearch(jinaKey),          reader };
+  const duckduckgo = new DuckDuckGo();
+  if (env.SEARXNG_BASE_URL) {
+    return { search: withFallback(new SearXNG(env.SEARXNG_BASE_URL), duckduckgo), reader };
+  }
+  return { search: duckduckgo, reader };
 }
