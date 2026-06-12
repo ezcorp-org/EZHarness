@@ -27,8 +27,8 @@ import type {
   PageEmptyState,
   PageTable,
   PageStats,
-  PanelKV,
 } from "../extensions/page-schema";
+import type { PanelKV } from "../extensions/types";
 import { _resetBriefingAgentCacheForTests, BRIEFING_AGENT_NAME } from "../runtime/briefing/agent-config";
 import { users, projects, conversations, agentConfigs, briefingConfigs, messages } from "../db/schema";
 

@@ -39,8 +39,8 @@ const log = logger.child("hub.render-pull");
 export const RENDER_PULL_TIMEOUT_MS = 10_000;
 
 export type RenderExtensionPageResult =
-  | { notFound: true; error?: undefined; page?: undefined }
-  | { notFound?: undefined; error: string; page?: undefined }
+  | { notFound: true; error?: undefined; page?: undefined; renderedAt?: undefined; stale?: undefined }
+  | { notFound?: undefined; error: string; page?: undefined; renderedAt?: undefined; stale?: undefined }
   | {
       notFound?: undefined;
       error?: undefined;

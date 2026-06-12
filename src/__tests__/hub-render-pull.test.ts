@@ -130,8 +130,8 @@ describe("renderExtensionPage", () => {
     expect(result.page!.title).toBe("Cron Dashboard");
     // Granted action kept, un-granted action dropped by validation.
     const labels = result.page!.nodes
-      .filter((n) => n.type === "button")
-      .map((n) => (n as { label: string }).label);
+      .filter((n: { type: string }) => n.type === "button")
+      .map((n: { label?: string }) => n.label);
     expect(labels).toEqual(["Clear"]);
     expect(deps.calls).toEqual(["dashboard"]);
     // Cached for the next caller.
@@ -223,7 +223,7 @@ describe("renderExtensionPage", () => {
     const extension = makeExtension({ grantedPermissions: null as never });
     const deps = makeDeps({ findPage: async () => ({ extension, page: PAGE }) });
     const result = await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
-    expect(result.page!.nodes.filter((n) => n.type === "button")).toHaveLength(0);
+    expect(result.page!.nodes.filter((n: { type: string }) => n.type === "button")).toHaveLength(0);
   });
 
   test("default (non-injected) callPage spawns, wires, and requests ezcorp/page.render", async () => {
