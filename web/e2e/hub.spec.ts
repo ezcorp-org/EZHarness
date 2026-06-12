@@ -200,4 +200,178 @@ test.describe("Hub", () => {
 		await expect(page.getByText("No Hub pages yet")).toBeVisible();
 		await expect(page.getByRole("link", { name: "Browse extensions" })).toBeVisible();
 	});
+
+	test("tab switch: title swaps and the new page's render route is pulled ($effect param reload)", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj] });
+		let coreRenders = 0;
+		let extRenders = 0;
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+		await page.route(`**/api/hub/pages/${encodeURIComponent(CORE_ID)}`, (route) => {
+			coreRenders++;
+			return route.fulfill({ json: { page: briefingTree(), renderedAt: Date.now() } });
+		});
+		await page.route(`**/api/hub/pages/${encodeURIComponent(EXT_ID)}`, (route) => {
+			extRenders++;
+			return route.fulfill({ json: { page: cronTree(3), renderedAt: Date.now() } });
+		});
+
+		await page.goto(`/hub/${encodeURIComponent(CORE_ID)}`);
+		await expect(page.getByTestId("hub-page-title")).toHaveText("Daily Briefing");
+		expect(coreRenders).toBe(1);
+
+		// Click the OTHER tab: shallow client-side navigation — the
+		// $effect on page.params.pageId must fire a second render pull.
+		await page.getByTestId("hub-tab").filter({ hasText: "Cron Dashboard" }).click();
+		await expect(page).toHaveURL(/cron-dashboard/);
+		await expect(page.getByTestId("hub-page-title")).toHaveText("Cron Dashboard");
+		await expect(page.getByTestId("hub-node-stats")).toContainText("3");
+		expect(extRenders).toBe(1);
+		expect(coreRenders).toBe(1); // the old tab wasn't re-pulled
+	});
+
+	test("refresh button re-pulls the render endpoint and renders the updated tree", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj] });
+		let renders = 0;
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+		await page.route(`**/api/hub/pages/${encodeURIComponent(CORE_ID)}`, (route) => {
+			renders++;
+			return route.fulfill({
+				json: {
+					page: briefingTree(renders === 1 ? "Last run delivered" : "Fresh after refresh"),
+					renderedAt: Date.now(),
+				},
+			});
+		});
+
+		await page.goto(`/hub/${encodeURIComponent(CORE_ID)}`);
+		await expect(page.getByTestId("hub-node-status")).toContainText("Last run delivered");
+
+		await page.getByTestId("hub-refresh-btn").click();
+		await expect(page.getByTestId("hub-node-status")).toContainText("Fresh after refresh");
+		expect(renders).toBe(2);
+	});
+
+	test("action failure (429 {error}) surfaces a toast; the tree stays unchanged", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj] });
+		// Confirm-free button so the POST dispatches straight from the click.
+		const tree = {
+			title: "Daily Briefing",
+			nodes: [
+				{ type: "status", label: "Last run delivered", state: "success" },
+				{ type: "button", label: "Run now", style: "primary", action: { event: "run-now" } },
+			],
+		};
+		let renders = 0;
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+		await page.route(`**/api/hub/pages/${encodeURIComponent(CORE_ID)}`, (route) => {
+			renders++;
+			return route.fulfill({ json: { page: tree, renderedAt: Date.now() } });
+		});
+		await page.route(`**/api/hub/pages/${encodeURIComponent(CORE_ID)}/actions/run-now`, (route) =>
+			route.fulfill({
+				status: 429,
+				json: { error: "Briefing was already run recently — try again later", retryAfter: 290 },
+			}),
+		);
+
+		await page.goto(`/hub/${encodeURIComponent(CORE_ID)}`);
+		await page.getByTestId("hub-node-button").click();
+
+		// Toast carries the server's {error} verbatim.
+		await expect(
+			page.getByRole("alert").filter({ hasText: "already run recently" }),
+		).toBeVisible({ timeout: 3000 });
+		// Tree unchanged; a FAILED action must not trigger a re-pull.
+		await expect(page.getByTestId("hub-node-status")).toContainText("Last run delivered");
+		expect(renders).toBe(1);
+	});
+
+	test("stale:true render shows the refreshing… indicator", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+		await page.route(`**/api/hub/pages/${encodeURIComponent(EXT_ID)}`, (route) =>
+			route.fulfill({ json: { page: cronTree(2), renderedAt: Date.now() - 90_000, stale: true } }),
+		);
+
+		await page.goto(`/hub/${encodeURIComponent(EXT_ID)}`);
+		await expect(page.getByTestId("hub-page-title")).toHaveText("Cron Dashboard");
+		await expect(page.getByTestId("hub-stale-indicator")).toBeVisible();
+		await expect(page.getByTestId("hub-stale-indicator")).toHaveText("refreshing…");
+	});
+
+	test("loading skeleton shows while the render request is in flight; tab icon renders a lucide svg", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj] });
+		const iconListing = {
+			pages: [{ id: CORE_ID, title: "Daily Briefing", kind: "core", icon: "Sunrise" }],
+		};
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: iconListing }));
+		await page.route(`**/api/hub/pages/${encodeURIComponent(CORE_ID)}`, async (route) => {
+			await new Promise((r) => setTimeout(r, 700));
+			return route.fulfill({ json: { page: briefingTree(), renderedAt: Date.now() } });
+		});
+
+		await page.goto(`/hub/${encodeURIComponent(CORE_ID)}`);
+		// While the render hangs, the skeleton (with its status text) shows.
+		await expect(page.getByText("Loading page…")).toBeVisible();
+		// The `icon` branch mounts a LucideIcon (an inline svg) in the tab.
+		await expect(page.getByTestId("hub-tab").locator("svg")).toBeVisible();
+		// Then the tree replaces the skeleton.
+		await expect(page.getByTestId("hub-page-title")).toHaveText("Daily Briefing");
+		await expect(page.getByText("Loading page…")).toHaveCount(0);
+	});
+
+	test("a slow superseded render can't overwrite the newer tab (fetch-race guard)", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj] });
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+		// The FIRST tab's render is slow; the tab the user switches to is fast.
+		await page.route(`**/api/hub/pages/${encodeURIComponent(CORE_ID)}`, async (route) => {
+			await new Promise((r) => setTimeout(r, 1200));
+			return route.fulfill({ json: { page: briefingTree(), renderedAt: Date.now() } });
+		});
+		await page.route(`**/api/hub/pages/${encodeURIComponent(EXT_ID)}`, (route) =>
+			route.fulfill({ json: { page: cronTree(5), renderedAt: Date.now() } }),
+		);
+
+		await page.goto(`/hub/${encodeURIComponent(CORE_ID)}`);
+		// Switch tabs while the first render is still in flight.
+		await page.getByTestId("hub-tab").filter({ hasText: "Cron Dashboard" }).click();
+		await expect(page.getByTestId("hub-page-title")).toHaveText("Cron Dashboard");
+
+		// Let the stale core response land — it must be DISCARDED.
+		await page.waitForTimeout(1500);
+		await expect(page.getByTestId("hub-page-title")).toHaveText("Cron Dashboard");
+	});
+
+	test("Hub nav link renders on the Global project sidebar (global navLinks branch)", async ({
+		page,
+		mockApi,
+		isMobile,
+	}) => {
+		// Mobile renders the project-menu UI on /project/global — there is
+		// no sidebar (and no hamburger) to host navLinks at this route.
+		test.skip(isMobile, "global project route has no sidebar on mobile");
+		const globalProj = makeProject({ id: "global", name: "Global" });
+		await mockApi({ projects: [globalProj] });
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: { pages: [] } }));
+
+		await page.goto("/project/global");
+		const hubLink = page.getByRole("link", { name: "Hub", exact: true }).first();
+		await expect(hubLink).toBeVisible();
+		await expect(hubLink).toHaveAttribute("href", "/hub");
+	});
 });

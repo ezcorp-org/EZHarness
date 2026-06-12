@@ -138,6 +138,22 @@ describe("renderExtensionPage", () => {
     expect(deps.cache.get("ext-1", "dashboard")).not.toBeNull();
   });
 
+  test("a >64KB subprocess result → {error} envelope, nothing cached (size cap pin)", async () => {
+    // Pin the size ladder end-to-end through the pull path: an
+    // oversized tree must fold into the standard error envelope (it
+    // fails validatePageTree's MAX_PAGE_TREE_BYTES gate), never get
+    // cached, and never throw.
+    const huge = {
+      title: "Huge",
+      nodes: [{ type: "text", content: "x".repeat(70_000) }],
+    };
+    const deps = makeDeps({ callPage: async () => okResponse(huge) });
+    const result = await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
+    expect(result.error).toBe("This page produced invalid content.");
+    expect(result.page).toBeUndefined();
+    expect(deps.cache.get("ext-1", "dashboard")).toBeNull();
+  });
+
   test("fresh cache hit short-circuits the subprocess", async () => {
     const deps = makeDeps();
     await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);

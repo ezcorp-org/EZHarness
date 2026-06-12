@@ -3,7 +3,7 @@
 // No standalone reverse-RPC harness (several example harnesses are
 // known-broken for missing wiring); the page flow is covered by the
 // SDK test-channel pattern here plus the web Playwright hub spec.
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import {
   __resetChannelForTests,
   __resetPagesForTests,
@@ -15,6 +15,7 @@ import {
   HEARTBEAT_CRON,
   MAX_LOG_ENTRIES,
   PAGE_ID,
+  RUN_LOG_KEY,
   _setPushPageForTests,
   _setStoreForTests,
   appendRun,
@@ -23,6 +24,7 @@ import {
   handleScheduleFire,
   register,
   renderDashboard,
+  start,
   type RunEntry,
   type RunLogStore,
 } from "./index";
@@ -207,6 +209,74 @@ describe("register", () => {
       title: string;
     };
     expect(rendered.title).toBe("Cron Dashboard");
+  });
+});
+
+describe("production wiring (Storage-backed store + start)", () => {
+  test("productionStore round-trips the run log through SDK Storage (global scope; non-array value → [])", async () => {
+    // No injected store → the lazy Storage-backed path runs for real;
+    // only the SDK channel request is stubbed (storage.test.ts pattern).
+    let saved: unknown = null;
+    const ch: HostChannel = getChannel();
+    const spy = spyOn(ch, "request");
+    spy.mockImplementation((async (_method: string, params: unknown) => {
+      const p = params as Record<string, unknown>;
+      expect(p.scope).toBe("global");
+      expect(p.key).toBe(RUN_LOG_KEY);
+      if (p.action === "set") {
+        saved = p.value;
+        return { ok: true };
+      }
+      return { value: saved, exists: saved !== null };
+    }) as HostChannel["request"]);
+    try {
+      _setStoreForTests(null); // force the production store
+      _setPushPageForTests(() => {});
+
+      // Nothing stored yet: the non-array host value reads as [].
+      const before = await renderDashboard();
+      const statsBefore = (before.nodes as Array<Record<string, unknown>>).find(
+        (n) => n.type === "stats",
+      ) as { items: Array<{ value: string }> };
+      expect(statsBefore.items[0]!.value).toBe("0");
+
+      // A fire writes through Storage.set; the next read sees it.
+      await handleScheduleFire({
+        cron: HEARTBEAT_CRON,
+        scheduledAt: "2026-06-12T07:05:00.000Z",
+        firedAt: "2026-06-12T07:05:02.000Z",
+        fireId: "f1",
+        catchUp: false,
+        retry: false,
+        attempt: 1,
+      });
+      expect(Array.isArray(saved)).toBe(true);
+      expect((saved as RunEntry[])[0]!.firedAt).toBe("2026-06-12T07:05:02.000Z");
+
+      const after = await renderDashboard();
+      const statsAfter = (after.nodes as Array<Record<string, unknown>>).find(
+        (n) => n.type === "stats",
+      ) as { items: Array<{ value: string }> };
+      expect(statsAfter.items[0]!.value).toBe("1");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("start() registers the handlers and starts the channel", () => {
+    const ch: HostChannel = getChannel();
+    let started = 0;
+    const spy = spyOn(ch, "start");
+    spy.mockImplementation((() => {
+      started++;
+    }) as HostChannel["start"]);
+    try {
+      _setStoreForTests(memoryStore([]));
+      start();
+      expect(started).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

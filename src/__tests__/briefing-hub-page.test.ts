@@ -196,6 +196,25 @@ describe("render", () => {
     expect(titles).not.toContain("Other user briefing");
   });
 
+  test("deep-link hrefs never contain a 'null' project segment", async () => {
+    // conversations.projectId is notNull + CASCADE today (a null can't
+    // be seeded), but the provider defends with a `global` fallback in
+    // case the FK ever moves to set-null. Pin the invariant the UI
+    // depends on: every row href is /project/<segment>/chat/<id> with a
+    // non-"null" segment.
+    const db = getTestDb();
+    const agentId = await seedBriefingAgent();
+    await db.insert(conversations).values({ projectId, userId, title: "B", agentConfigId: agentId });
+
+    const tree = await createBriefingHubPageProvider(deps()).render({ userId });
+    const table = tree.nodes.find((n) => n.type === "table") as PageTable;
+    for (const row of table.rows) {
+      expect(row.href).toMatch(/^\/project\/[^/]+\/chat\/[^/]+$/);
+      expect(row.href).not.toContain("/null/");
+      expect(row.href).not.toContain("/undefined/");
+    }
+  });
+
   test("rendered tree passes validatePageTree with the provider's action names (uniform contract)", async () => {
     const db = getTestDb();
     const agentId = await seedBriefingAgent();

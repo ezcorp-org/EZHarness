@@ -106,8 +106,17 @@ const registryMock = () => ({
 mock.module("$server/extensions/registry", registryMock);
 mock.module("../extensions/registry", registryMock);
 
+// Hub page cache — REAL module (shared singleton), aliased so the
+// handler's `$server/extensions/page-cache` import and this file's
+// relative import observe one cache instance.
+mock.module("$server/extensions/page-cache", () => require("../extensions/page-cache"));
+
 // ── Handler import (AFTER mocks) ─────────────────────────────────
 import { GET, PATCH, DELETE } from "../../web/src/routes/api/extensions/[id]/+server";
+import { getPageCache } from "../extensions/page-cache";
+import type { HubPageTree } from "../extensions/page-schema";
+
+const FAKE_TREE: HubPageTree = { title: "T", nodes: [] };
 
 async function call(
   handler: (ev: any) => unknown,
@@ -122,6 +131,10 @@ async function call(
 }
 
 afterAll(() => {
+  // In-file ≥2-registration pattern (mock-cleanup meta-test): the
+  // factory points at the REAL module, so re-registering keeps
+  // subsequent files in this process clean.
+  mock.module("$server/extensions/page-cache", () => require("../extensions/page-cache"));
   restoreModuleMocks();
 });
 
@@ -134,6 +147,7 @@ beforeEach(() => {
   getExtensionReturnsNull = false;
   violationFlag = false;
   storedEnabled = true;
+  getPageCache().clear();
 });
 
 describe("PATCH /api/extensions/[id] — happy paths", () => {
@@ -152,6 +166,27 @@ describe("PATCH /api/extensions/[id] — happy paths", () => {
     expect(updateCalls[0]!.data.enabled).toBe(false);
     expect(resetFailuresCalls).toHaveLength(0);
     expect(reloadCount).toBe(1);
+  });
+
+  test("disable evicts the extension's cached Hub page trees (other extensions untouched)", async () => {
+    // Extension Pages Hub: the cache TTL is 60s — a disable must not
+    // leave trees that a quick re-enable would serve stale.
+    getPageCache().set("ext-1", "dashboard", FAKE_TREE);
+    getPageCache().set("ext-1", "stats", FAKE_TREE);
+    getPageCache().set("ext-2", "dashboard", FAKE_TREE);
+
+    const event = createMockEvent({
+      method: "PATCH",
+      url: "http://localhost/api/extensions/ext-1",
+      params: { id: "ext-1" },
+      body: { enabled: false },
+      user: ADMIN_USER,
+    });
+    const res = await call(PATCH, event);
+    expect(res.status).toBe(200);
+    expect(getPageCache().get("ext-1", "dashboard")).toBeNull();
+    expect(getPageCache().get("ext-1", "stats")).toBeNull();
+    expect(getPageCache().get("ext-2", "dashboard")).not.toBeNull();
   });
 
   test("enable (enabled:true) via PATCH → 400 (must use /:id/activate)", async () => {
@@ -305,6 +340,22 @@ describe("DELETE /api/extensions/[id]", () => {
     expect(deleteCalls).toEqual(["ext-1"]);
     expect(killAllCount).toBe(1);
     expect(reloadCount).toBe(1);
+  });
+
+  test("uninstall evicts the extension's cached Hub page trees", async () => {
+    getPageCache().set("ext-1", "dashboard", FAKE_TREE);
+    getPageCache().set("ext-2", "dashboard", FAKE_TREE);
+
+    const event = createMockEvent({
+      method: "DELETE",
+      url: "http://localhost/api/extensions/ext-1",
+      params: { id: "ext-1" },
+      user: ADMIN_USER,
+    });
+    const res = await call(DELETE, event);
+    expect(res.status).toBe(204);
+    expect(getPageCache().get("ext-1", "dashboard")).toBeNull();
+    expect(getPageCache().get("ext-2", "dashboard")).not.toBeNull();
   });
 
   test("unknown id → 404, no delete or reload", async () => {

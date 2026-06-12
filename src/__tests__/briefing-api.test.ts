@@ -412,6 +412,25 @@ describe("POST /api/briefing/run-now", () => {
     await __testHooks.lastRun;
   });
 
+  test("the Hub briefing tab renders through the SAME backing config this route writes (default never-ran status)", async () => {
+    // Cross-surface integration (and a coverage-merge attribution pin:
+    // this shard loads hub-page.ts via the mock-cleanup preload, and
+    // its zero-hit line records merge into the gate — exercising the
+    // provider here keeps the gate's view of hub-page.ts honest).
+    const { createBriefingHubPageProvider } = require("../runtime/briefing/hub-page");
+    await upsertBriefingConfig(userA.id, { enabled: true, projectId });
+
+    const provider = createBriefingHubPageProvider({ triggerRunNow: async () => ({ ok: true }) });
+    const tree = await provider.render({ userId: userA.id });
+    const status = tree.nodes.find((n: { type: string }) => n.type === "status") as {
+      label: string;
+      state: string;
+    };
+    // Enabled but never fired → the default "waiting" status branch.
+    expect(status.state).toBe("idle");
+    expect(status.label).toContain("first run");
+  });
+
   test("rate-limit buckets are per-user: user B is unaffected by user A's slot", async () => {
     registerStubRuntime();
     await upsertBriefingConfig(userA.id, { projectId });
@@ -438,6 +457,32 @@ describe("POST /api/briefing/run-now", () => {
     expect(row!.consecutiveErrors).toBe(1);
     // Empty-failure hygiene held: no orphaned conversation.
     expect(await getTestDb().select().from(conversations)).toHaveLength(0);
+  });
+
+  test("a bookkeeping failure (recordBriefingFireResult throws) is folded by the trigger's catch — run resolves undefined", async () => {
+    // runBriefingForUser never throws by contract, so the trigger's
+    // outer catch guards the BOOKKEEPING leg (a DB failure mid-record).
+    // Reproduce it for real: the run pipeline itself never touches
+    // briefing_configs (the config is passed in), so renaming the table
+    // away AFTER the trigger accepted makes ONLY the bookkeeping
+    // UPDATE throw.
+    registerStubRuntime();
+    await upsertBriefingConfig(userA.id, { enabled: true, projectId });
+
+    const { triggerBriefingRunNow } = require("../../web/src/lib/server/briefing-run-now");
+    const result = await triggerBriefingRunNow(userA.id);
+    expect(result).toEqual({ ok: true }); // the 202 already went out
+
+    const { sql } = await import("drizzle-orm");
+    const db = getTestDb();
+    await db.execute(sql`ALTER TABLE briefing_configs RENAME TO briefing_configs_hidden`);
+    try {
+      // The background promise swallows the error and resolves undefined
+      // (fire-and-forget contract — never an unhandled rejection).
+      expect(await __testHooks.lastRun).toBeUndefined();
+    } finally {
+      await db.execute(sql`ALTER TABLE briefing_configs_hidden RENAME TO briefing_configs`);
+    }
   });
 
   test("the 5th consecutive run-now failure auto-disables and posts the notification conversation", async () => {

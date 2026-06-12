@@ -147,6 +147,24 @@ describe("actions", () => {
 		expect(onAction).toHaveBeenCalledExactlyOnceWith(action);
 	});
 
+	test("row with BOTH href and action: anchor click navigates only — no action dispatch (stopPropagation)", async () => {
+		const action = { event: "demo:open" };
+		const { getByTestId, getAllByTestId, onAction } = renderNodes([
+			{
+				type: "table",
+				columns: ["A"],
+				rows: [{ cells: ["both"], href: "/project/p/chat/c", action }],
+			},
+		]);
+		// Clicking the ANCHOR must not bubble to the tr onclick — the
+		// action would otherwise fire mid-navigation.
+		await fireEvent.click(getByTestId("hub-row-link"));
+		expect(onAction).not.toHaveBeenCalled();
+		// Clicking the row OUTSIDE the anchor still dispatches the action.
+		await fireEvent.click(getAllByTestId("hub-table-row")[0]!);
+		expect(onAction).toHaveBeenCalledExactlyOnceWith(action);
+	});
+
 	test("no onAction prop → clicks are inert (no crash)", async () => {
 		const { getByTestId } = render(HubComponentRenderer, {
 			props: { nodes: [{ type: "button", label: "X", action: { event: "e" } }] as PageNode[] },

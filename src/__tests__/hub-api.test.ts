@@ -522,3 +522,40 @@ describe("findEnabledExtensionPage", () => {
     expect(await findEnabledExtensionPage("on-ext", "other")).toBeNull();
   });
 });
+
+describe("$lib/hub client helpers (route-facing contract)", () => {
+  // The deep client coverage lives in web/src/lib/hub.unit.test.ts
+  // (vitest). This shard ALSO loads the real $lib/hub (the routes
+  // import it), and bun attributes executable lines vitest's v8 remap
+  // does not — exercising the helpers here keeps the merged gate's
+  // view of web/src/lib/hub.ts honest (coverage-merge attribution pin).
+  const { parseHubPageId, buildActionRequest, isSafeInternalHref } =
+    require("../../web/src/lib/hub");
+
+  test("buildActionRequest maps core pages to the hub actions route and ext pages to the events route", () => {
+    const core = parseHubPageId("core:briefing");
+    expect(buildActionRequest(core, { event: "run-now" })).toEqual({
+      url: "/api/hub/pages/core%3Abriefing/actions/run-now",
+      body: {},
+    });
+    expect(buildActionRequest(core, { event: "NOT VALID" })).toBeNull();
+
+    const ext = parseHubPageId("ext:cron-dashboard:dashboard");
+    expect(buildActionRequest(ext, { event: "cron-dashboard:clear-log", payload: { a: 1 } })).toEqual({
+      url: "/api/extensions/cron-dashboard/events/clear-log",
+      body: { source: "hub", pageId: "dashboard", payload: { a: 1 } },
+    });
+    // Unprefixed / nested events on extension pages are dropped client-side.
+    expect(buildActionRequest(ext, { event: "other:event" })).toBeNull();
+    expect(buildActionRequest(ext, { event: "cron-dashboard:a:b" })).toBeNull();
+    expect(buildActionRequest(ext, { event: "cron-dashboard:" })).toBeNull();
+  });
+
+  test("isSafeInternalHref mirrors the server validator", () => {
+    expect(isSafeInternalHref("/project/p/chat/c")).toBe(true);
+    expect(isSafeInternalHref("//evil.com")).toBe(false);
+    expect(isSafeInternalHref("https://evil.com")).toBe(false);
+    expect(isSafeInternalHref("/a\\b")).toBe(false);
+    expect(isSafeInternalHref(42)).toBe(false);
+  });
+});
