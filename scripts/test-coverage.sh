@@ -166,6 +166,7 @@ VITEST_EXIT=0
     src/lib/chat/page-handlers/__tests__/inherit-mode.unit.test.ts \
     src/__tests__/tools-api-mode-scope.server.test.ts \
     src/__tests__/api-extensions-id-reapprove-drift.server.test.ts \
+    src/lib/hub.unit.test.ts \
     src/lib/settings-nav.unit.test.ts \
     src/lib/audit-log-view.unit.test.ts \
     src/lib/settings-models.unit.test.ts \
@@ -188,6 +189,7 @@ VITEST_EXIT=0
     --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
     --coverage.reportsDirectory="$VITEST_COV" \
     --coverage.include='src/lib/search/*.ts' \
+    --coverage.include='src/lib/hub.ts' \
     --coverage.include='src/lib/components/goal-row-logic.ts' \
     --coverage.include='src/lib/components/UpdateBanner.svelte' \
     --coverage.include='src/lib/components/UpdateBanner.helpers.ts' \

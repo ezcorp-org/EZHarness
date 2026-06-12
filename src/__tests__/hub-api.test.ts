@@ -32,13 +32,26 @@ mock.module("../../web/src/routes/api/hub/pages/$types", () => ({}));
 mock.module("../../web/src/routes/api/hub/pages/[id]/$types", () => ({}));
 mock.module("../../web/src/routes/api/hub/pages/[id]/actions/[action]/$types", () => ({}));
 
-// ── Handler imports ──────────────────────────────────────────────
-import { GET as listGet } from "../../web/src/routes/api/hub/pages/+server";
-import { GET as renderGet, __rateLimiter as renderLimiter } from "../../web/src/routes/api/hub/pages/[id]/+server";
-import {
-  POST as actionPost,
-  __rateLimiter as actionLimiter,
-} from "../../web/src/routes/api/hub/pages/[id]/actions/[action]/+server";
+// Controllable render-pull fake: the render route's EXT branch is unit
+// tested here against this seam; the real module's branches are covered
+// in hub-render-pull.test.ts.
+let __extRenderResult: unknown = { notFound: true };
+mock.module("$lib/server/hub-render-pull", () => ({
+  renderExtensionPage: async (...args: unknown[]) => {
+    __extRenderCalls.push(args);
+    return __extRenderResult;
+  },
+}));
+const __extRenderCalls: unknown[][] = [];
+
+// ── Handler imports (dynamic — AFTER the mocks bind) ──────────────
+const { GET: listGet } = await import("../../web/src/routes/api/hub/pages/+server");
+const { GET: renderGet, __rateLimiter: renderLimiter } = await import(
+  "../../web/src/routes/api/hub/pages/[id]/+server"
+);
+const { POST: actionPost, __rateLimiter: actionLimiter } = await import(
+  "../../web/src/routes/api/hub/pages/[id]/actions/[action]/+server"
+);
 
 // ── Backing modules ──────────────────────────────────────────────
 import {
@@ -101,6 +114,7 @@ afterAll(async () => {
   // the eager MODULE_PATHS preload.
   mock.module("$lib/hub", () => require("../../web/src/lib/hub"));
   mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));
+  mock.module("$lib/server/hub-render-pull", () => require("../../web/src/lib/server/hub-render-pull"));
   mock.module("$server/logger", () => realLogger);
   restoreModuleMocks();
   await closeTestDb();
@@ -110,6 +124,8 @@ beforeEach(async () => {
   _resetHubPageProvidersForTests();
   renderLimiter.reset();
   actionLimiter.reset();
+  __extRenderResult = { notFound: true };
+  __extRenderCalls.length = 0;
   const db = getTestDb();
   await db.delete(extensions);
   await db.delete(users);
@@ -201,12 +217,36 @@ describe("GET /api/hub/pages/[id]", () => {
     expect((await call(renderGet, event)).status).toBe(403);
   });
 
-  test("404 for malformed ids, unknown providers, and ext ids (Phase 1)", async () => {
+  test("404 for malformed ids, unknown providers, and unresolved ext pages", async () => {
     registerDemoProvider();
     for (const id of ["", "garbage", "core:", "core:UPPER", "core:nope", "ext:cron-dash:page", "core:demo:extra"]) {
       const res = await call(renderGet, createMockEvent({ user: userA, params: { id } }));
       expect(res.status).toBe(404);
     }
+  });
+
+  test("ext branch: success result passes page + renderedAt (+ stale) through", async () => {
+    const tree = { title: "Cron Dashboard", nodes: [] };
+    __extRenderResult = { page: tree, renderedAt: 123, stale: true };
+    const res = await call(renderGet, createMockEvent({ user: userA, params: { id: "ext:cron-dash:dashboard" } }));
+    expect(res.status).toBe(200);
+    expect(await jsonFromResponse(res)).toEqual({ page: tree, renderedAt: 123, stale: true });
+    // The route forwards the parsed segments + session user.
+    expect(__extRenderCalls).toEqual([["cron-dash", "dashboard", userA.id]]);
+
+    // Fresh (non-stale) results omit the stale key.
+    __extRenderResult = { page: tree, renderedAt: 456 };
+    const fresh = await call(renderGet, createMockEvent({ user: userA, params: { id: "ext:cron-dash:dashboard" } }));
+    expect(await jsonFromResponse(fresh)).toEqual({ page: tree, renderedAt: 456 });
+  });
+
+  test("ext branch: render-pull {error} becomes the 200 error envelope", async () => {
+    __extRenderResult = { error: "This page failed to render — try again." };
+    const res = await call(renderGet, createMockEvent({ user: userA, params: { id: "ext:cron-dash:dashboard" } }));
+    expect(res.status).toBe(200);
+    const data = await jsonFromResponse(res);
+    expect(data.error).toContain("failed to render");
+    expect(data.page).toBeUndefined();
   });
 
   test("200 renders + validates a core page (allowed action survives)", async () => {
@@ -352,6 +392,11 @@ describe("POST /api/hub/pages/[id]/actions/[action]", () => {
     expect((await call(actionPost, actionEvent({ body: { payload: "str" } }))).status).toBe(400);
   });
 
+  test("400 for an array request body", async () => {
+    registerDemoProvider();
+    expect((await call(actionPost, actionEvent({ body: ["not-an-object"] }))).status).toBe(400);
+  });
+
   test("200 with a validated fresh tree", async () => {
     registerDemoProvider({
       actions: {
@@ -429,5 +474,51 @@ describe("POST /api/hub/pages/[id]/actions/[action]", () => {
     }
     const blocked = await call(actionPost, actionEvent());
     expect(blocked.status).toBe(429);
+  });
+});
+
+// ── findEnabledExtensionPage (hub-extension-pages lookup) ─────────
+
+describe("findEnabledExtensionPage", () => {
+  const { findEnabledExtensionPage } = require("../../web/src/lib/server/hub-extension-pages");
+
+  test("resolves a declared page on an enabled extension", async () => {
+    const db = getTestDb();
+    await db.insert(extensions).values({
+      name: "cron-dash",
+      version: "1.0.0",
+      source: "local:/x",
+      enabled: true,
+      manifest: makeManifest({ pages: [{ id: "dashboard", title: "Dash" }] }),
+      grantedPermissions: { grantedAt: {} },
+    });
+    const found = await findEnabledExtensionPage("cron-dash", "dashboard");
+    expect(found).not.toBeNull();
+    expect(found!.extension.name).toBe("cron-dash");
+    expect(found!.page).toEqual({ id: "dashboard", title: "Dash" });
+  });
+
+  test("null for unknown extension, disabled extension, and undeclared page", async () => {
+    const db = getTestDb();
+    await db.insert(extensions).values({
+      name: "off-ext",
+      version: "1.0.0",
+      source: "local:/y",
+      enabled: false,
+      manifest: makeManifest({ name: "off-ext", pages: [{ id: "p", title: "P" }] }),
+      grantedPermissions: { grantedAt: {} },
+    });
+    expect(await findEnabledExtensionPage("nope", "p")).toBeNull();
+    expect(await findEnabledExtensionPage("off-ext", "p")).toBeNull();
+
+    await db.insert(extensions).values({
+      name: "on-ext",
+      version: "1.0.0",
+      source: "local:/z",
+      enabled: true,
+      manifest: makeManifest({ name: "on-ext", pages: [{ id: "p", title: "P" }] }),
+      grantedPermissions: { grantedAt: {} },
+    });
+    expect(await findEnabledExtensionPage("on-ext", "other")).toBeNull();
   });
 });

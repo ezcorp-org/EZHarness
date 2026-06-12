@@ -26,10 +26,6 @@
  * wire) are injectable so unit tests drive every branch without real
  * subprocesses.
  */
-import { ExtensionRegistry } from "$server/extensions/registry";
-import { ToolExecutor } from "$server/extensions/tool-executor";
-import { getPermissionEngine } from "$server/extensions/permission-engine";
-import { getBus } from "$lib/server/context";
 import { validatePageTree, type HubPageTree } from "$server/extensions/page-schema";
 import { getPageCache, type ExtensionPageCache } from "$server/extensions/page-cache";
 import type { ExtensionPermissions } from "$server/extensions/types";
@@ -82,11 +78,22 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-/** Production subprocess caller — spawn, wire reverse-RPC, request. */
+/** Production subprocess caller — spawn, wire reverse-RPC, request.
+ *  Collaborators are LATE-BOUND (dynamic imports) so the heavy
+ *  registry/executor module graph loads only when a pull actually
+ *  happens, and test-time module mocks bind regardless of import
+ *  order. */
 async function productionCallPage(
   extension: Extension,
   pageId: string,
 ): Promise<JsonRpcResponse> {
+  const [{ ExtensionRegistry }, { ToolExecutor }, { getPermissionEngine }, { getBus }] =
+    await Promise.all([
+      import("$server/extensions/registry"),
+      import("$server/extensions/tool-executor"),
+      import("$server/extensions/permission-engine"),
+      import("$lib/server/context"),
+    ]);
   const registry = ExtensionRegistry.getInstance();
   const proc = await registry.getProcess(extension.id);
   // Same boot recipe as the events route's messageToolbar branch — the

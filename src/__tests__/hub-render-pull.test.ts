@@ -10,12 +10,38 @@ import { test, expect, describe, mock, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 // $lib/server/context pulls the whole server boot — stub the one
-// accessor the module needs (only the PRODUCTION callPage path uses it,
-// which these tests never invoke).
+// accessor the module needs (the PRODUCTION callPage path reads it).
 mock.module("$lib/server/context", () => ({ getBus: () => null }));
-mock.module("$server/extensions/registry", () => require("../extensions/registry"));
-mock.module("$server/extensions/tool-executor", () => require("../extensions/tool-executor"));
-mock.module("$server/extensions/permission-engine", () => require("../extensions/permission-engine"));
+// Fake the subprocess collaborators so the DEFAULT (non-injected)
+// callPage path is coverable without spawning anything. The fakes
+// record the wiring sequence; `__fakeProcResponse` drives the result.
+const fakeRegistryCalls: string[] = [];
+let __fakeProcResponse: unknown = null;
+mock.module("$server/extensions/registry", () => ({
+  ExtensionRegistry: {
+    getInstance: () => ({
+      getProcess: async (id: string) => {
+        fakeRegistryCalls.push(`getProcess:${id}`);
+        return {
+          call: async (method: string, params: Record<string, unknown>) => {
+            fakeRegistryCalls.push(`call:${method}:${String(params.pageId)}`);
+            return { jsonrpc: "2.0", id: 1, result: __fakeProcResponse };
+          },
+        };
+      },
+    }),
+  },
+}));
+mock.module("$server/extensions/tool-executor", () => ({
+  ToolExecutor: class {
+    async ensureSubprocessRpcWired(id: string) {
+      fakeRegistryCalls.push(`wire:${id}`);
+    }
+  },
+}));
+mock.module("$server/extensions/permission-engine", () => ({
+  getPermissionEngine: () => ({}),
+}));
 mock.module("$server/extensions/page-schema", () => require("../extensions/page-schema"));
 mock.module("$server/extensions/page-cache", () => require("../extensions/page-cache"));
 mock.module("$server/extensions/types", () => require("../extensions/types"));
@@ -26,7 +52,11 @@ mock.module("$server/logger", () => realLogger);
 mock.module("$lib/hub", () => require("../../web/src/lib/hub"));
 mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));
 
-import { renderExtensionPage, type RenderPullDeps } from "../../web/src/lib/server/hub-render-pull";
+// Dynamic import AFTER the mocks above — the fake registry/tool-executor
+// factories must be registered before this module binds its imports
+// (same pattern as extension-events-hub-branch.test.ts).
+const { renderExtensionPage } = await import("../../web/src/lib/server/hub-render-pull");
+import type { RenderPullDeps } from "../../web/src/lib/server/hub-render-pull";
 import { ExtensionPageCache } from "../extensions/page-cache";
 import type { Extension } from "../db/schema";
 import type { JsonRpcResponse } from "../extensions/types";
@@ -194,5 +224,47 @@ describe("renderExtensionPage", () => {
     const deps = makeDeps({ findPage: async () => ({ extension, page: PAGE }) });
     const result = await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
     expect(result.page!.nodes.filter((n) => n.type === "button")).toHaveLength(0);
+  });
+
+  test("default (non-injected) callPage spawns, wires, and requests ezcorp/page.render", async () => {
+    fakeRegistryCalls.length = 0;
+    __fakeProcResponse = VALID_RESULT;
+    const extension = makeExtension();
+    // Inject only the page lookup + a fresh cache — callPage defaults
+    // to the production subprocess path (faked module collaborators).
+    const result = await renderExtensionPage("cron-dashboard", "dashboard", "u1", {
+      findPage: async () => ({ extension, page: PAGE }),
+      cache: new ExtensionPageCache(),
+    });
+    expect(result.page!.title).toBe("Cron Dashboard");
+    expect(fakeRegistryCalls).toEqual([
+      "getProcess:ext-1",
+      "wire:ext-1",
+      "call:ezcorp/page.render:dashboard",
+    ]);
+  });
+
+  test("a cache.set failure in the background refresh is folded by the outer catch", async () => {
+    let now = 1_000;
+    const inner = new ExtensionPageCache(60_000, () => now);
+    let sets = 0;
+    const throwingCache = {
+      get: inner.get.bind(inner),
+      invalidate: inner.invalidate.bind(inner),
+      invalidateExtension: inner.invalidateExtension.bind(inner),
+      clear: inner.clear.bind(inner),
+      set: (extId: string, pageId: string, tree: never) => {
+        sets++;
+        if (sets > 1) throw new Error("cache exploded");
+        inner.set(extId, pageId, tree);
+      },
+    } as unknown as ExtensionPageCache;
+    const deps = makeDeps({ cache: throwingCache });
+    await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
+    now += 60_001;
+    const result = await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
+    expect(result.stale).toBe(true);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(sets).toBe(2); // refresh attempted; its throw was folded, not unhandled
   });
 });
