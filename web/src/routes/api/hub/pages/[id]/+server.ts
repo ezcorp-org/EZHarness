@@ -1,0 +1,84 @@
+/**
+ * GET /api/hub/pages/[id] — render one Hub page for the session user.
+ *
+ * Uniform contract for core AND extension pages: every tree — no
+ * matter who produced it — passes `validatePageTree` before it is
+ * served. Render/validation failures return 200 + `{ error }` (the
+ * client shows an error card with retry); only unknown ids 404 and
+ * rate-limit hits 429.
+ *
+ *   - `core:<provider>`: provider.render(userId); `allowedEvents` =
+ *     the provider's action names.
+ *   - `ext:<name>:<pageId>` (Phase 2): cached subprocess render-pull
+ *     via `$lib/server/hub-render-pull`; `allowedEvents` = the
+ *     extension's granted eventSubscriptions.
+ *
+ * Rate limit: 12 renders/min/user/page.
+ */
+import { json } from "@sveltejs/kit";
+import type { RequestHandler } from "./$types";
+import { errorJson } from "$lib/server/http-errors";
+import { requireAuth } from "$server/auth/middleware";
+import { requireScope } from "$lib/server/security/api-keys";
+import { RateLimiter } from "$lib/server/security/rate-limiter";
+import { getHubPageProvider } from "$server/runtime/hub-pages";
+import { validatePageTree } from "$server/extensions/page-schema";
+import { parseHubPageId } from "$lib/hub";
+import { logger } from "$server/logger";
+
+const log = logger.child("api.hub.render");
+
+/** 12 renders per minute per (user, page). Exported for test isolation. */
+export const __rateLimiter = new RateLimiter(12, 60_000);
+
+export const GET: RequestHandler = async ({ locals, params }) => {
+  const scopeErr = requireScope(locals, "read");
+  if (scopeErr) return scopeErr;
+  const user = requireAuth(locals);
+
+  const parsed = parseHubPageId(params.id ?? "");
+  if (!parsed) return errorJson(404, "Not found");
+
+  const limit = __rateLimiter.check(`hub-render:${user.id}:${params.id}`);
+  if (!limit.allowed) {
+    return errorJson(
+      429,
+      "Too many refreshes — slow down",
+      { retryAfter: limit.retryAfter },
+      { "Retry-After": String(limit.retryAfter ?? 1) },
+    );
+  }
+
+  if (parsed.kind === "ext") {
+    // Phase 2 wires the subprocess render-pull here
+    // ($lib/server/hub-render-pull). Until then extension page ids
+    // are unknown — same 404 as any other unknown id.
+    return errorJson(404, "Not found");
+  }
+
+  const provider = getHubPageProvider(parsed.providerId);
+  if (!provider) return errorJson(404, "Not found");
+
+  let rawTree: unknown;
+  try {
+    rawTree = await provider.render({ userId: user.id });
+  } catch (err) {
+    log.warn("core hub page render failed", {
+      providerId: parsed.providerId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return json({ error: "This page failed to render — try again." });
+  }
+
+  // Core trees ALSO pass validation (uniform contract): a core provider
+  // bug can never ship an unvalidated node to the renderer.
+  const page = validatePageTree(rawTree, {
+    allowedEvents: Object.keys(provider.actions ?? {}),
+  });
+  if (!page) {
+    log.warn("core hub page produced an invalid tree", { providerId: parsed.providerId });
+    return json({ error: "This page produced invalid content." });
+  }
+
+  return json({ page, renderedAt: Date.now() });
+};

@@ -1,0 +1,117 @@
+/**
+ * Extension Pages Hub — pure-logic unit tests for $lib/hub.
+ */
+import { describe, test, expect } from "vitest";
+import {
+	parseHubPageId,
+	buildActionRequest,
+	isSafeInternalHref,
+	type ParsedHubPageId,
+} from "./hub";
+
+describe("parseHubPageId", () => {
+	test("parses core ids", () => {
+		expect(parseHubPageId("core:briefing")).toEqual({ kind: "core", providerId: "briefing" });
+		expect(parseHubPageId("core:a1-b2")).toEqual({ kind: "core", providerId: "a1-b2" });
+	});
+
+	test("parses ext ids", () => {
+		expect(parseHubPageId("ext:cron-dashboard:dashboard")).toEqual({
+			kind: "ext",
+			extension: "cron-dashboard",
+			pageId: "dashboard",
+		});
+		expect(parseHubPageId("ext:my_ext.v2:page-1")).toEqual({
+			kind: "ext",
+			extension: "my_ext.v2",
+			pageId: "page-1",
+		});
+	});
+
+	test("rejects malformed ids", () => {
+		for (const bad of [
+			"",
+			"briefing",
+			"core:",
+			"core:UPPER",
+			"core:has space",
+			"core:briefing:extra",
+			"ext:only-two",
+			"ext::page",
+			"ext:name:",
+			"ext:name:PAGE",
+			"ext:..:page",
+			"other:briefing",
+			`core:${"x".repeat(40)}`,
+			`ext:${"x".repeat(70)}:p`,
+			"x".repeat(200),
+		]) {
+			expect(parseHubPageId(bad)).toBeNull();
+		}
+	});
+
+	test("rejects non-string input defensively", () => {
+		expect(parseHubPageId(undefined as unknown as string)).toBeNull();
+		expect(parseHubPageId(42 as unknown as string)).toBeNull();
+	});
+});
+
+describe("buildActionRequest", () => {
+	const core: ParsedHubPageId = { kind: "core", providerId: "briefing" };
+	const ext: ParsedHubPageId = { kind: "ext", extension: "cron-dashboard", pageId: "dashboard" };
+
+	test("core actions route to the hub actions endpoint", () => {
+		expect(buildActionRequest(core, { event: "run-now" })).toEqual({
+			url: "/api/hub/pages/core%3Abriefing/actions/run-now",
+			body: {},
+		});
+	});
+
+	test("core actions carry the payload when present", () => {
+		expect(buildActionRequest(core, { event: "run-now", payload: { a: 1 } })).toEqual({
+			url: "/api/hub/pages/core%3Abriefing/actions/run-now",
+			body: { payload: { a: 1 } },
+		});
+	});
+
+	test("core actions with non-slug events are refused", () => {
+		expect(buildActionRequest(core, { event: "Run Now" })).toBeNull();
+		expect(buildActionRequest(core, { event: "ns:run" })).toBeNull();
+	});
+
+	test("ext actions route to the extension events endpoint with hub source", () => {
+		expect(
+			buildActionRequest(ext, { event: "cron-dashboard:clear-log", payload: { all: true } }),
+		).toEqual({
+			url: "/api/extensions/cron-dashboard/events/clear-log",
+			body: { source: "hub", pageId: "dashboard", payload: { all: true } },
+		});
+	});
+
+	test("ext actions omit payload key when absent", () => {
+		expect(buildActionRequest(ext, { event: "cron-dashboard:clear-log" })).toEqual({
+			url: "/api/extensions/cron-dashboard/events/clear-log",
+			body: { source: "hub", pageId: "dashboard" },
+		});
+	});
+
+	test("ext actions must be namespaced to the page's extension", () => {
+		expect(buildActionRequest(ext, { event: "other-ext:clear-log" })).toBeNull();
+		expect(buildActionRequest(ext, { event: "clear-log" })).toBeNull();
+		expect(buildActionRequest(ext, { event: "cron-dashboard:" })).toBeNull();
+		expect(buildActionRequest(ext, { event: "cron-dashboard:a:b" })).toBeNull();
+	});
+});
+
+describe("isSafeInternalHref", () => {
+	test("mirrors the server rule", () => {
+		expect(isSafeInternalHref("/project/p/chat/c")).toBe(true);
+		expect(isSafeInternalHref("/")).toBe(true);
+		expect(isSafeInternalHref("//evil.com")).toBe(false);
+		expect(isSafeInternalHref("javascript:alert(1)")).toBe(false);
+		expect(isSafeInternalHref("/a\\b")).toBe(false);
+		expect(isSafeInternalHref("https://x")).toBe(false);
+		expect(isSafeInternalHref("")).toBe(false);
+		expect(isSafeInternalHref(null)).toBe(false);
+	});
+});
