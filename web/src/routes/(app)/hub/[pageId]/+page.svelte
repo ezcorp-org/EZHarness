@@ -44,11 +44,19 @@
 		}
 	}
 
+	// Fetch-race guard: rapid tab switches can resolve an EARLIER (slow)
+	// render response after a LATER one — only the newest request may
+	// write state. Monotonic token captured per call, compared on every
+	// write-back.
+	let loadSeq = 0;
+
 	async function loadPage(id: string) {
+		const seq = ++loadSeq;
 		loading = true;
 		errorMsg = "";
 		try {
 			const res = await fetch(`/api/hub/pages/${encodeURIComponent(id)}`);
+			if (seq !== loadSeq) return; // superseded by a newer load
 			if (res.status === 404) {
 				tree = null;
 				errorMsg = "This page doesn't exist (the extension may be disabled).";
@@ -56,6 +64,7 @@
 			}
 			if (!res.ok) {
 				const body = await res.json().catch(() => null);
+				if (seq !== loadSeq) return;
 				tree = null;
 				errorMsg = body?.error ?? `Failed to load (HTTP ${res.status})`;
 				return;
@@ -65,6 +74,7 @@
 				error?: string;
 				stale?: boolean;
 			};
+			if (seq !== loadSeq) return;
 			if (data.error !== undefined || !data.page) {
 				tree = null;
 				errorMsg = data.error ?? "This page failed to render.";
@@ -73,10 +83,11 @@
 			tree = data.page;
 			stale = data.stale === true;
 		} catch (e) {
+			if (seq !== loadSeq) return;
 			tree = null;
 			errorMsg = e instanceof Error ? e.message : "Failed to load page";
 		} finally {
-			loading = false;
+			if (seq === loadSeq) loading = false;
 		}
 	}
 

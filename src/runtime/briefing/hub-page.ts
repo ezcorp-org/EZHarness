@@ -15,7 +15,9 @@
  * web/.
  *
  * Deep-link shape: `/project/<projectId>/chat/<conversationId>` —
- * verified against ChatThread.svelte / CommandPalette.svelte.
+ * verified against ChatThread.svelte / CommandPalette.svelte. A
+ * missing projectId falls back to the `global` segment (defensive —
+ * the FK is cascade today), matching buildActiveAgentHref.
  */
 import {
   getBriefingConfig,
@@ -66,9 +68,9 @@ function statusNode(config: BriefingConfig): PageNode {
       };
     case "skipped":
       return { type: "status", label: "Last run skipped (nothing to brief)", state: "warning" };
-    default:
-      return { type: "status", label: "Waiting for the first run", state: "idle" };
   }
+  // Enabled but never fired (lastFireStatus null).
+  return { type: "status", label: "Waiting for the first run", state: "idle" };
 }
 
 async function renderBriefingPage(userId: string): Promise<HubPageTree> {
@@ -160,7 +162,12 @@ async function renderBriefingPage(userId: string): Promise<HubPageTree> {
       columns: ["Briefing", "Created"],
       rows: recent.map((conv) => ({
         cells: [conv.title || "Untitled briefing", fmt(conv.createdAt)],
-        href: `/project/${conv.projectId}/chat/${conv.id}`,
+        // `conversations.projectId` is notNull + onDelete CASCADE
+        // today, so this can't be null — but a literal
+        // "/project/null/..." href would be the failure mode if the FK
+        // ever moves to set-null. Defend with the `global` segment
+        // fallback, matching web/src/lib/active-agents-href.ts.
+        href: `/project/${conv.projectId ?? "global"}/chat/${conv.id}`,
       })),
     });
   }

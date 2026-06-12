@@ -45,6 +45,8 @@
 				agentConfig?: "read";
 			};
 			lifecycleHooks?: string[];
+			// Extension Pages Hub — declared Hub tabs (declaring IS the grant).
+			pages?: Array<{ id: string; title: string; icon?: string; description?: string }>;
 		};
 		grantedPermissions: Record<string, unknown>;
 		isBundled?: boolean;
@@ -1114,6 +1116,24 @@
 						{#each ext.manifest.lifecycleHooks as hook}
 							<li>
 								<code class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-xs">{hook}</code>
+							</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
+
+			{#if ext.manifest.pages?.length}
+				<!-- Informational (like lifecycle hooks): declaring a page IS
+				     the grant — enabling the extension enables the Hub tab. -->
+				<div class="mt-4 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-3" data-testid="review-hub-pages">
+					<h4 class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-secondary)]">Hub Pages</h4>
+					<p class="mt-1 text-xs text-[var(--color-text-muted)]">
+						Enabling adds {ext.manifest.pages.length === 1 ? "this tab" : "these tabs"} to the Hub:
+					</p>
+					<ul class="mt-1.5 flex flex-wrap gap-1.5">
+						{#each ext.manifest.pages as hubPage}
+							<li>
+								<code class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-xs">{hubPage.title}</code>
 							</li>
 						{/each}
 					</ul>

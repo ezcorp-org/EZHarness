@@ -96,6 +96,7 @@ Buttons and table rows carry `{ event, payload?, confirm? }`:
 - Your subprocess receives the standard `ezcorp/event/<name>:<event>` notification with `{ source: "hub", pageId, userId, payload? }` — `definePage`'s `actions` map handles it (same wire format as `registerEventHandler`).
 - `confirm` strings are rendered by the HOST in a native confirm dialog before dispatch.
 - No free-form inputs in v1 — named actions with small structured payloads only.
+- **`payload` is attacker-controlled.** The host caps its size and shape, but any authenticated user can POST any payload to your declared events directly — never trust field values. Validate every field in your handler before acting on it (treat it exactly like untrusted HTTP input).
 
 ## 6. Limits & security rules (server-enforced)
 
@@ -105,6 +106,7 @@ Buttons and table rows carry `{ event, payload?, confirm? }`:
 - The only HTML-capable node is `markdown`, sanitized by the host's shared DOMPurify config. Styles are enum variants only — no class/style passthrough.
 - Icons resolve through the host's lucide allowlist with a safe fallback.
 - Renders are per-session (12/min/user/page); the SSE invalidation signal never carries content, so nothing leaks cross-user.
+- **Page trees are SHARED across all users.** Renders and `pushPage` trees are cached per (extension, page) — not per user — and served to every signed-in user. Never `pushPage` (or render) user-specific data into the tree. Per-user data belongs in ACTION responses, keyed by the host-stamped `userId` your handler receives (the host stamps it; clients cannot spoof it).
 
 ## See also
 

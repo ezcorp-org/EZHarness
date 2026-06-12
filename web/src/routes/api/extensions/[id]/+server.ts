@@ -3,6 +3,7 @@ import { z } from "zod";
 import { errorJson } from "$lib/server/http-errors";
 import { getExtension, updateExtension, deleteExtension } from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
+import { getPageCache } from "$server/extensions/page-cache";
 import { requireAuth, requireRole } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import type { RequestHandler } from "./$types";
@@ -65,6 +66,9 @@ export const PATCH: RequestHandler = async ({ request, params, locals }) => {
     }
     const updated = await updateExtension(params.id, { enabled });
     await ExtensionRegistry.getInstance().reload();
+    // Drop the extension's cached Hub page trees (60s TTL) so a
+    // re-enable can't serve content rendered before the disable.
+    getPageCache().invalidateExtension(params.id);
     return json(updated);
   }
 
@@ -91,5 +95,7 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
 
   await deleteExtension(params.id);
   await ExtensionRegistry.getInstance().reload();
+  // An uninstalled extension's cached Hub page trees must not linger.
+  getPageCache().invalidateExtension(params.id);
   return new Response(null, { status: 204 });
 };

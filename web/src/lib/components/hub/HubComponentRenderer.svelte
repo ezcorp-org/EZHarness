@@ -149,7 +149,13 @@
 							{#each row.cells as cell, cellIdx}
 								<td class="px-3 py-2 text-xs text-[var(--color-text-secondary)]">
 									{#if safeHref && cellIdx === 0}
-										<a href={safeHref} class="text-[var(--color-accent)] hover:underline" data-testid="hub-row-link">{cell}</a>
+										<!-- A row may carry BOTH href and action: the anchor must not
+										          bubble to the tr onclick, or the action fires mid-navigation. -->
+										<a
+											href={safeHref}
+											class="text-[var(--color-accent)] hover:underline"
+											data-testid="hub-row-link"
+											onclick={(e) => e.stopPropagation()}>{cell}</a>
 									{:else}
 										{cell}
 									{/if}
