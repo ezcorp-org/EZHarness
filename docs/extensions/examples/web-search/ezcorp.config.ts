@@ -5,8 +5,9 @@ export default defineExtension({
   name: "web-search",
   version: "1.0.0",
   description:
-    "Web search and URL-to-markdown reader. Keyless by default (Jina AI); " +
-    "set TAVILY_API_KEY, BRAVE_API_KEY, EXA_API_KEY, or SERPAPI_API_KEY to upgrade.",
+    "Web search and URL-to-markdown reader. Keyless by default via the bundled " +
+    "SearXNG sidecar (SEARXNG_BASE_URL) with DuckDuckGo fallback; set TAVILY_API_KEY, " +
+    "BRAVE_API_KEY, EXA_API_KEY, or SERPAPI_API_KEY to upgrade.",
   author: { name: "EZCorp" },
   entrypoint: "./index.ts",
   tools: [
@@ -52,11 +53,23 @@ export default defineExtension({
   permissions: {
     network: [
       "r.jina.ai",
-      "s.jina.ai",
+      "s.jina.ai", // keyed Jina search (JINA_API_KEY) still uses it
       "api.tavily.com",
       "api.search.brave.com",
       "api.exa.ai",
       "serpapi.com",
+      // Keyless DuckDuckGo fallback. `duckduckgo.com` itself is needed
+      // for the `//duckduckgo.com/l/?uddg=` redirect shape.
+      "lite.duckduckgo.com",
+      "html.duckduckgo.com",
+      "duckduckgo.com",
+      // SearXNG sidecar. Internal/RFC-1918 hosts route through the
+      // `ezcorp/network.internal` PDP and MUST be declared explicitly.
+      // A custom SEARXNG_BASE_URL hostname outside this set requires
+      // editing this grant (documented in the README).
+      "searxng",
+      "localhost",
+      "127.0.0.1",
     ],
     env: [
       "TAVILY_API_KEY",
@@ -64,6 +77,9 @@ export default defineExtension({
       "EXA_API_KEY",
       "SERPAPI_API_KEY",
       "JINA_API_KEY",
+      // Not credential-shaped (no _API_KEY/TOKEN/SECRET suffix) — just
+      // points the SearXNG provider at the sidecar / a BYO instance.
+      "SEARXNG_BASE_URL",
     ],
     // Disk-backed TTL/LRU cache lives under
     // `<projectRoot>/.ezcorp/extension-data/web-search/cache.json` —

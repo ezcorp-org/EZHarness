@@ -153,6 +153,10 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
   // Web search — fixed allowlist of search providers + their secrets,
   // plus filesystem access so the disk-backed TTL/LRU cache in cache.ts
   // can persist under `<projectRoot>/.ezcorp/extension-data/web-search/`.
+  // Keyless defaults: the SearXNG sidecar (internal hosts `searxng` /
+  // `localhost` / `127.0.0.1` — routed through the network.internal PDP)
+  // and the DuckDuckGo no-JS endpoints (`duckduckgo.com` covers the
+  // `//duckduckgo.com/l/?uddg=` redirect shape).
   "web-search": {
     network: [
       "r.jina.ai",
@@ -161,6 +165,12 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
       "api.search.brave.com",
       "api.exa.ai",
       "serpapi.com",
+      "lite.duckduckgo.com",
+      "html.duckduckgo.com",
+      "duckduckgo.com",
+      "searxng",
+      "localhost",
+      "127.0.0.1",
     ],
     env: [
       "TAVILY_API_KEY",
@@ -168,6 +178,8 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
       "EXA_API_KEY",
       "SERPAPI_API_KEY",
       "JINA_API_KEY",
+      // Not credential-shaped — base URL for the SearXNG sidecar.
+      "SEARXNG_BASE_URL",
     ],
     filesystem: ["$CWD"],
     grantedAt: {},

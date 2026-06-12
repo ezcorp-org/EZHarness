@@ -436,11 +436,21 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     permissions: {
       network: [
         "r.jina.ai",
-        "s.jina.ai",
+        "s.jina.ai", // keyed Jina search (JINA_API_KEY) still uses it
         "api.tavily.com",
         "api.search.brave.com",
         "api.exa.ai",
         "serpapi.com",
+        // Keyless DuckDuckGo fallback (`duckduckgo.com` covers the
+        // `//duckduckgo.com/l/?uddg=` redirect shape).
+        "lite.duckduckgo.com",
+        "html.duckduckgo.com",
+        "duckduckgo.com",
+        // SearXNG sidecar — internal hosts route through the
+        // `ezcorp/network.internal` PDP and MUST be declared.
+        "searxng",
+        "localhost",
+        "127.0.0.1",
       ],
       env: [
         "TAVILY_API_KEY",
@@ -448,6 +458,8 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
         "EXA_API_KEY",
         "SERPAPI_API_KEY",
         "JINA_API_KEY",
+        // Not credential-shaped — base URL for the SearXNG sidecar.
+        "SEARXNG_BASE_URL",
       ],
       // Disk-backed TTL/LRU cache lives under
       // `<projectRoot>/.ezcorp/extension-data/web-search/` — see
