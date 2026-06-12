@@ -105,6 +105,12 @@ services:
       # and TCP RST handles abandoned sockets, so the adapter-level
       # axe is redundant and harmful.
       IDLE_TIMEOUT: "0"
+      # Zero-setup web search: the bundled web-search extension reaches
+      # the SearXNG sidecar over the compose bridge by service name.
+      # Override only when pointing at a BYO SearXNG instance (a custom
+      # hostname also needs the extension's network grant widened — see
+      # docs/deployment.md "Web search sidecar").
+      SEARXNG_BASE_URL: "${SEARXNG_BASE_URL:-http://searxng:8080}"
     volumes:
       # Local host bind mount for ALL persistent DB state — the live
       # PGlite data dir (./.ezcorp/data/ezcorp) AND its snapshots
@@ -159,6 +165,34 @@ services:
     labels:
       # Opt-in marker for the optional Watchtower service below.
       com.centurylinklabs.watchtower.enable: "true"
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Zero-setup web search backend for the bundled web-search extension.
+  #
+  # Always-on with hard resource caps (~140 MB idle; user decision
+  # 2026-06-12 — on-demand spin-up was rejected: it requires docker.sock
+  # exposure, which is host-root-equivalent). Internal-only: NO published
+  # port — the app reaches it as http://searxng:8080 over the compose
+  # bridge, and the web-search extension falls back to keyless DuckDuckGo
+  # when the service is down (so it is NOT a hard dependency).
+  #
+  # SEARXNG_SECRET signs SearXNG's internal tokens; rotating it is
+  # harmless (nothing durable is encrypted with it). The default below
+  # keeps fresh deploys zero-config — set a real value in .env.prod if
+  # you ever publish the port or share the bridge with untrusted
+  # services:  openssl rand -hex 32
+  # ────────────────────────────────────────────────────────────────────────
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    volumes:
+      # Committed config enabling the JSON API (off upstream by default)
+      # and disabling the bot limiter (internal-only service).
+      - ./deploy/searxng:/etc/searxng:ro
+    environment:
+      SEARXNG_SECRET: "${SEARXNG_SECRET:-ezcorp-internal-only-default}"
 
   # ────────────────────────────────────────────────────────────────────────
   # Optional: automatic image updates via Watchtower.

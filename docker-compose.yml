@@ -60,6 +60,10 @@ services:
       # so it's obvious at a glance that you're hitting the dev stack and
       # not prod. Read by hooks.server.ts -> transformPageChunk.
       - EZCORP_DEV_INDICATOR=1
+      # Zero-setup web search: points the bundled web-search extension at
+      # the SearXNG sidecar below. The app is host-network, so Docker DNS
+      # names don't resolve for it — use the localhost-published port.
+      - SEARXNG_BASE_URL=${SEARXNG_BASE_URL:-http://localhost:8889}
     command:
       - sh
       - -c
@@ -117,6 +121,30 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+
+  # Zero-setup web search backend for the bundled web-search extension.
+  # Always-on with hard resource caps (user decision 2026-06-12): an
+  # on-demand spin-up was rejected because it needs docker.sock exposure
+  # to save ~140 MB idle RAM. The app falls back to keyless DuckDuckGo
+  # if this service is down, so it is NOT a hard dependency (no
+  # depends_on). The port publishes on loopback ONLY — the app reaches
+  # it via host networking; nothing off-host can.
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    ports:
+      - "127.0.0.1:8889:8080"
+    volumes:
+      # Committed config enabling the JSON API (off upstream by default)
+      # and disabling the bot limiter (internal-only service).
+      - ./deploy/searxng:/etc/searxng:ro
+    environment:
+      # The image maps SEARXNG_SECRET onto server.secret_key — the real
+      # secret never lives in the committed settings.yml. The dev default
+      # is fine because the port is loopback-only.
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-dev-only-secret}
 
 volumes:
   testenv-pgdata:

@@ -1,0 +1,24 @@
+# SearXNG sidecar configuration for the EZCorp compose stacks.
+#
+# Mounted read-only at /etc/searxng by both docker-compose.yml (dev) and
+# compose.prod.yml. Two deliberate deviations from upstream defaults:
+#
+#   - `search.formats` gains `json`: the bundled web-search extension
+#     consumes `/search?format=json`, which upstream ships DISABLED
+#     (requests for it return 403). BYO SearXNG instances need the same
+#     flag — see docs/deployment.md "Web search sidecar".
+#   - `server.limiter: false`: the bot-protection limiter rate-limits /
+#     challenges clients. This instance is internal-only (loopback-bound
+#     in dev, no published port in prod), so the limiter only ever
+#     punishes the app itself.
+#
+# The instance secret comes from the SEARXNG_SECRET environment variable
+# (the image maps it onto server.secret_key) — never commit a real
+# secret into this file.
+use_default_settings: true
+server:
+  limiter: false
+search:
+  formats:
+    - html
+    - json
