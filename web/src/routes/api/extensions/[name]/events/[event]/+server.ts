@@ -18,7 +18,10 @@ import { ToolExecutor } from "$server/extensions/tool-executor";
 import { getPermissionEngine } from "$server/extensions/permission-engine";
 import { handleAppendMessageRpc } from "$server/extensions/append-message-handler";
 import { handleFinalizeToolCallRpc } from "$server/extensions/finalize-tool-call-handler";
+import { getPageCache } from "$server/extensions/page-cache";
 import type { ExtensionPermissions } from "$server/extensions/types";
+import { RateLimiter } from "$lib/server/security/rate-limiter";
+import { readManifestPages } from "$lib/server/hub-extension-pages";
 import { logger } from "$server/logger";
 
 const log = logger.child("ext-events");
@@ -91,6 +94,28 @@ const eventBodySchema = z
     { message: "Either toolCallId, messageId, or messageIds[] is required" },
   );
 
+// ── Hub page actions (Extension Pages Hub §2.4) ───────────────────
+//
+// Discriminated sibling of the conversation-scoped shape: the Hub's
+// action buttons POST `{source:"hub", pageId, payload?}` — no
+// conversation exists. The manifest-event gate above the body parse
+// applies identically; the branch additionally requires the page to be
+// DECLARED in `manifest.pages` and rate-limits 10 actions/min/user.
+// The subprocess receives the same `ezcorp/event/<ext>:<event>`
+// notification shape `registerEventHandler`/`definePage` handle.
+
+const HUB_PAGE_ID_REGEX = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const HUB_PAYLOAD_MAX_BYTES = 2_048;
+
+const hubEventBodySchema = z.object({
+  source: z.literal("hub"),
+  pageId: z.string().regex(HUB_PAGE_ID_REGEX),
+  payload: z.record(z.string(), z.unknown()).optional(),
+});
+
+/** 10 hub actions per minute per user. Exported for test isolation. */
+export const __hubActionRateLimiter = new RateLimiter(10, 60_000);
+
 // Mirrors `manifest.name` regex. We re-validate URL params in case the
 // router accepted something the regex would reject (defense-in-depth).
 const PARAM_REGEX = /^[a-z0-9][a-z0-9-_.]{0,63}$/;
@@ -121,6 +146,66 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
   // extensions can ship arbitrary user-defined payloads without the
   // host having to know their shape.
   const raw = await request.json().catch(() => null);
+
+  // ── Hub page action branch (Extension Pages Hub §2.4) ───────────
+  if (raw != null && typeof raw === "object" && (raw as Record<string, unknown>).source === "hub") {
+    const hubParsed = hubEventBodySchema.safeParse(raw);
+    if (!hubParsed.success) return errorJson(400, "Invalid body");
+    const { pageId, payload } = hubParsed.data;
+    if (payload !== undefined && JSON.stringify(payload).length > HUB_PAYLOAD_MAX_BYTES) {
+      return errorJson(400, "Invalid body");
+    }
+
+    const ext = await getExtensionByName(name);
+    if (!ext?.enabled) return errorJson(404, "Not found");
+    // Page must be DECLARED — a granted event alone doesn't expose a
+    // hub surface (404, not 403: no declaration-enumeration oracle).
+    if (!readManifestPages(ext.manifest).some((p) => p.id === pageId)) {
+      return errorJson(404, "Not found");
+    }
+
+    const limit = __hubActionRateLimiter.check(`hub-events:${user.id}`);
+    if (!limit.allowed) {
+      return errorJson(
+        429,
+        "Too many actions — slow down",
+        { retryAfter: limit.retryAfter },
+        { "Retry-After": String(limit.retryAfter ?? 1) },
+      );
+    }
+
+    // Spawn + wire: `sendNotification` no-ops on a dead process, so a
+    // failed spawn here must surface (the action would silently vanish).
+    try {
+      const registry = ExtensionRegistry.getInstance();
+      const proc = await registry.getProcess(ext.id);
+      const engine = getPermissionEngine();
+      const wirer = new ToolExecutor(registry, engine, { bus: getBus() });
+      await wirer.ensureSubprocessRpcWired(ext.id, proc);
+      proc.sendNotification(`ezcorp/event/${fullEventName}`, {
+        source: "hub",
+        pageId,
+        userId: user.id,
+        ...(payload !== undefined ? { payload } : {}),
+      });
+    } catch (err) {
+      log.warn("hub action subprocess dispatch failed", {
+        extensionId: ext.id,
+        name,
+        event,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return errorJson(500, "Extension is unavailable");
+    }
+
+    // The action likely mutates page state — drop the cached tree so
+    // the client's follow-up re-fetch (or the extension's own
+    // pushPage) serves fresh content.
+    getPageCache().invalidate(ext.id, pageId);
+
+    return json({ ok: true });
+  }
+
   const parsed = eventBodySchema.safeParse(raw);
   if (!parsed.success) return errorJson(400, "Invalid body");
   const { conversationId, toolCallId, ...userData } = parsed.data;

@@ -181,11 +181,24 @@ export async function ensureInitialized(): Promise<void> {
     registry.killAll();
   });
 
-  // Wire extension state mediator (validates extension UI state updates)
+  // Wire extension state mediator (validates extension UI state updates).
+  // `pageIds` gates `ezcorp/page-state` pushes to DECLARED hub pages;
+  // `eventSubscriptions` comes from the runtime GRANT (not the manifest
+  // request) so revoked events drop out of page-tree action validation
+  // on the next reload — same authority the EventSubscriptionDispatcher
+  // reads.
   stateMediator = new ExtensionStateMediator(bus, (extId) => {
     const manifest = registry.getManifest(extId);
     if (!manifest) return undefined;
-    return { name: manifest.name, panel: manifest.panel };
+    const grantedSubs = registry.getGrantedPermissions(extId)?.eventSubscriptions;
+    return {
+      name: manifest.name,
+      panel: manifest.panel,
+      ...(manifest.pages?.length
+        ? { pageIds: manifest.pages.map((p) => p.id) }
+        : {}),
+      ...(Array.isArray(grantedSubs) ? { eventSubscriptions: grantedSubs } : {}),
+    };
   });
   executor.setStateMediator(stateMediator);
 

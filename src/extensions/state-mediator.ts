@@ -1,6 +1,8 @@
 import type { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 import type { JsonRpcNotification } from "./types";
+import { validatePageTree } from "./page-schema";
+import { getPageCache } from "./page-cache";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -14,6 +16,12 @@ const MAX_STRIP_DEPTH = 10;
 export interface MediatorManifest {
   name: string;
   panel?: { stateSchema?: Record<string, unknown> };
+  /** Declared Hub page ids (`manifest.pages[].id`) — gates
+   *  `ezcorp/page-state` pushes. */
+  pageIds?: string[];
+  /** Granted event subscriptions — `allowedEvents` for page-tree
+   *  validation (action nodes naming undeclared events are dropped). */
+  eventSubscriptions?: string[];
 }
 
 // ── Token-bucket rate limiter (per extension) ───────────────────────
@@ -66,8 +74,11 @@ export class ExtensionStateMediator {
   ) {}
 
   handleNotification(extensionId: string, notification: JsonRpcNotification): void {
-    // Method gate
-    if (notification.method !== "ezcorp/state") return;
+    // Method gate — panel state and Hub page pushes share the size /
+    // rate-limit / manifest ladder but diverge after the gates.
+    const isPanelState = notification.method === "ezcorp/state";
+    const isPageState = notification.method === "ezcorp/page-state";
+    if (!isPanelState && !isPageState) return;
 
     // Params must be a non-null object
     if (!notification.params || typeof notification.params !== "object") return;
@@ -76,11 +87,19 @@ export class ExtensionStateMediator {
     if (JSON.stringify(notification.params).length > MAX_STATE_SIZE_BYTES) return;
 
     // Rate limit — critical section is serialized per-extension to prevent
-    // concurrent callers from double-consuming a single token.
+    // concurrent callers from double-consuming a single token. SHARED
+    // bucket across panel + page pushes: an extension gets 10 UI
+    // updates/second total, not 10 of each.
     if (!this.consumeToken(extensionId)) return;
 
-    // Manifest gate
     const manifest = this.getManifest(extensionId);
+
+    if (isPageState) {
+      this.handlePageState(extensionId, manifest, notification.params);
+      return;
+    }
+
+    // ── ezcorp/state (bottom panel) ───────────────────────────────
     if (!manifest?.panel) return;
 
     // Sanitise string values
@@ -91,6 +110,45 @@ export class ExtensionStateMediator {
       extensionId,
       extensionName: manifest.name,
       state: (sanitised.state ?? sanitised) as Record<string, unknown>,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * `ezcorp/page-state` — extension pushes a fresh Hub page tree
+   * (Extension Pages Hub §2.5, invalidation-signal design).
+   *
+   *   1. Gate on a DECLARED page id (`manifest.pages`).
+   *   2. Run the full `validatePageTree` ladder (same validator the
+   *      render-pull uses; `allowedEvents` = granted
+   *      eventSubscriptions).
+   *   3. Cache the validated tree so the viewers' re-pull is instant.
+   *   4. Emit `ext:page-state` WITHOUT the tree — only
+   *      {extensionId, extensionName, pageId}. The signal leaks
+   *      nothing but "page X changed", so the SSE layer may deliver
+   *      it to every authenticated subscriber.
+   */
+  private handlePageState(
+    extensionId: string,
+    manifest: MediatorManifest | undefined,
+    params: Record<string, unknown>,
+  ): void {
+    if (!manifest) return;
+    const pageId = params.pageId;
+    if (typeof pageId !== "string") return;
+    if (!manifest.pageIds?.includes(pageId)) return;
+
+    const tree = validatePageTree(params.page, {
+      allowedEvents: manifest.eventSubscriptions ?? [],
+    });
+    if (!tree) return;
+
+    getPageCache().set(extensionId, pageId, tree);
+
+    this.bus.emit("ext:page-state", {
+      extensionId,
+      extensionName: manifest.name,
+      pageId,
       timestamp: Date.now(),
     });
   }

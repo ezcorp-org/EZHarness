@@ -445,6 +445,22 @@ export interface AgentEvents {
     timestamp: number;
   };
   /**
+   * Extension Pages Hub §2.5 — content-free invalidation signal.
+   * Emitted by the state mediator after a VALIDATED `ezcorp/page-state`
+   * push. Deliberately carries NO tree content: the payload leaks only
+   * "page X of extension Y changed", so the SSE layer broadcasts it to
+   * every authenticated subscriber (it is NOT in
+   * `DIRECT_CARRIER_EVENT_TYPES`). Hub tabs showing
+   * `ext:<extensionName>:<pageId>` re-pull the render endpoint, which
+   * is session-authed and serves from the freshly-updated page cache.
+   */
+  "ext:page-state": {
+    extensionId: string;
+    extensionName: string;
+    pageId: string;
+    timestamp: number;
+  };
+  /**
    * `/goal` autopilot indicator (PRD §6 FR-20, decision D7). Emitted
    * by the host-side goal-host (`src/runtime/goal-host.ts`) on every
    * state transition: arm, evaluator update, pause, achieve, clear.

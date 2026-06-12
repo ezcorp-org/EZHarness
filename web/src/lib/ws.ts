@@ -21,6 +21,13 @@ export type WSRunEvent = {
 		// pattern the chat page uses.
 		| "ez:client-tool"
 		| "ext:state"
+		// Extension Pages Hub: content-free page invalidation signal. The
+		// global subscriber re-dispatches it as an `ext:page-state` window
+		// CustomEvent so the Hub page can re-pull its render endpoint
+		// without owning a second EventSource (same pattern as
+		// extensions:installed). Carries {extensionId, extensionName,
+		// pageId} only — never tree content.
+		| "ext:page-state"
 		// agent-install-ux-polish Phase 2: user-scoped live Library
 		// refresh. The global subscriber re-dispatches it as an
 		// `extensions:installed` window CustomEvent so the Extensions

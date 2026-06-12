@@ -100,7 +100,12 @@ beforeAll(async () => {
 afterAll(async () => {
   // Second registration of the in-file logger snapshot (see the
   // module-level comment) — keeps the alias pointing at the real
-  // module for any subsequent file in the same process.
+  // module for any subsequent file in the same process. Same in-file
+  // ≥2-registration pattern for briefing-run-now (its factory already
+  // IS the real module, so re-registering is a no-op that satisfies
+  // the mock-cleanup meta-test without eagerly preloading the briefing
+  // run pipeline's module graph at every test-process start).
+  mock.module("$lib/server/briefing-run-now", () => require("../../web/src/lib/server/briefing-run-now"));
   mock.module("$server/logger", () => realLogger);
   restoreModuleMocks();
   await closeTestDb();

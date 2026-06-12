@@ -298,6 +298,22 @@ describe("shouldDeliverEvent — pass-through tier", () => {
     expect(deliver).toBe(true);
   });
 
+  test("passes ext:page-state events (content-free Hub invalidation signal — broadcast by design)", async () => {
+    // Extension Pages Hub §2.5: the mediator strips the page tree
+    // before emitting, so the event leaks only "page X changed" and is
+    // deliberately NOT in DIRECT_CARRIER_EVENT_TYPES. If someone adds
+    // it there, this test fails — the event carries no conversationId/
+    // userId to authorize against and would be silently dropped.
+    const get = makeGetConversation({});
+    const deliver = await shouldDeliverEvent(
+      "ext:page-state",
+      { extensionId: "ext-1", extensionName: "cron-dashboard", pageId: "dashboard", timestamp: 0 },
+      { userId: "user-1" },
+      get,
+    );
+    expect(deliver).toBe(true);
+  });
+
   test("passes agent:* events (subConversationId resolution deferred — Phase 2d follow-up)", async () => {
     const get = makeGetConversation({});
     const deliver = await shouldDeliverEvent(

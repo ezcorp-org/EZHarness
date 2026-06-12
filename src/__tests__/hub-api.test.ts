@@ -95,6 +95,12 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
+  // In-file ≥2-registration pattern (mock-cleanup meta-test): these
+  // factories point at the REAL modules, so re-registering them keeps
+  // subsequent files clean without adding the web-lib module graphs to
+  // the eager MODULE_PATHS preload.
+  mock.module("$lib/hub", () => require("../../web/src/lib/hub"));
+  mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));
   mock.module("$server/logger", () => realLogger);
   restoreModuleMocks();
   await closeTestDb();

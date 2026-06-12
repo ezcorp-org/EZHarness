@@ -1294,6 +1294,22 @@ export function initStores() {
 				break;
 			}
 
+			case "ext:page-state": {
+				// Extension Pages Hub: content-free invalidation signal.
+				// Re-dispatch as a window CustomEvent so the Hub page
+				// ((app)/hub/[pageId]) can re-pull its render endpoint
+				// without owning a second EventSource — same pattern as
+				// `extensions:installed` below. The payload carries only
+				// {extensionId, extensionName, pageId}; the actual tree is
+				// fetched per-session from the authed render route.
+				if (typeof window !== "undefined") {
+					window.dispatchEvent(new CustomEvent("ext:page-state", {
+						detail: event.data,
+					}));
+				}
+				break;
+			}
+
 			case "extensions:installed": {
 				// agent-install-ux-polish Phase 2 (D4): re-dispatch the
 				// user-scoped install signal as a DOM CustomEvent so the

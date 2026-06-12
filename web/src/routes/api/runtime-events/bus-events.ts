@@ -21,6 +21,12 @@ export const BUS_EVENTS = [
   // subscriber by conversationId via shouldDeliverEvent.
   "ez:client-tool",
   "ext:state",
+  // Extension Pages Hub: content-free page invalidation signal
+  // ({extensionId, extensionName, pageId} — never tree content).
+  // Broadcast-safe by design, so it is NOT conversation- or
+  // user-filtered; open Hub tabs re-pull the session-authed render
+  // endpoint on receipt.
+  "ext:page-state",
   // agent-install-ux-polish Phase 2 (D3): user-scoped live Library
   // refresh signal. Subscribed here so the bus event reaches the SSE
   // pipe; `shouldDeliverEvent`'s dedicated userId branch (fail-closed)

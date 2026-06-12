@@ -24,6 +24,7 @@ import { RateLimiter } from "$lib/server/security/rate-limiter";
 import { getHubPageProvider } from "$server/runtime/hub-pages";
 import { validatePageTree } from "$server/extensions/page-schema";
 import { parseHubPageId } from "$lib/hub";
+import { renderExtensionPage } from "$lib/server/hub-render-pull";
 import { logger } from "$server/logger";
 
 const log = logger.child("api.hub.render");
@@ -50,10 +51,14 @@ export const GET: RequestHandler = async ({ locals, params }) => {
   }
 
   if (parsed.kind === "ext") {
-    // Phase 2 wires the subprocess render-pull here
-    // ($lib/server/hub-render-pull). Until then extension page ids
-    // are unknown — same 404 as any other unknown id.
-    return errorJson(404, "Not found");
+    const result = await renderExtensionPage(parsed.extension, parsed.pageId, user.id);
+    if (result.notFound) return errorJson(404, "Not found");
+    if (result.error !== undefined) return json({ error: result.error });
+    return json({
+      page: result.page,
+      renderedAt: result.renderedAt,
+      ...(result.stale ? { stale: true } : {}),
+    });
   }
 
   const provider = getHubPageProvider(parsed.providerId);

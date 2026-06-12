@@ -81,6 +81,12 @@ export const DIRECT_CARRIER_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
   // must never receive user A's briefing event.
   "conversation:created",
   "briefing:delivered",
+  // NOTE — "ext:page-state" (Extension Pages Hub) is INTENTIONALLY
+  // ABSENT: the mediator strips the page tree before emitting, so the
+  // event carries only {extensionId, extensionName, pageId} — a
+  // content-free "page X changed" signal that is safe to broadcast to
+  // every authenticated SSE subscriber. Adding it here would silently
+  // drop it (it carries no conversationId/userId to authorize against).
 ]);
 
 // ── Extension-declared event registry ───────────────────────────────
