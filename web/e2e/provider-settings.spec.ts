@@ -1,6 +1,17 @@
+import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProviderStatus } from "./fixtures/data.js";
 import type { ProviderStatus } from "../src/lib/api.js";
+
+/**
+ * Provider card locator. The theme migrated to CSS variables long ago, so
+ * the legacy `.rounded-lg.bg-gray-900` class pair matches nothing — the
+ * stable shape is `div.rounded-lg.border` (ProviderSettings.svelte card).
+ * `.first()` keeps strict mode happy when an ancestor also matches.
+ */
+function providerCard(page: Page, name: string) {
+	return page.locator("div.rounded-lg.border").filter({ hasText: name }).first();
+}
 
 function threeProviders(overrides?: {
 	anthropic?: Partial<ProviderStatus>;
@@ -36,11 +47,13 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings/models");
 
-			// The accordion header contains summary chips with dots
+			// The accordion header contains summary chips with dots. Gray can
+			// match more than once (unconfigured provider + the Ollama chip
+			// from ProvidersSection's headerExtra) — scope with .first().
 			const header = page.locator("button").filter({ hasText: "Providers" });
-			await expect(header.locator(".bg-green-500")).toBeVisible();
-			await expect(header.locator(".bg-amber-500")).toBeVisible();
-			await expect(header.locator(".bg-gray-500")).toBeVisible();
+			await expect(header.locator(".bg-green-500").first()).toBeVisible();
+			await expect(header.locator(".bg-amber-500").first()).toBeVisible();
+			await expect(header.locator(".bg-gray-500").first()).toBeVisible();
 		});
 
 		test("click header collapses section, click again re-expands", async ({ page, mockApi }) => {
@@ -69,7 +82,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings/models");
 
-			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
+			const card = providerCard(page, "Anthropic (Claude)");
 			await expect(card.getByText("Connected")).toBeVisible();
 			await expect(card.locator(".bg-green-500").first()).toBeVisible();
 		});
@@ -78,7 +91,7 @@ test.describe("Provider Settings", () => {
 			await mockApi({ providers: threeProviders() });
 			await page.goto("/settings/models");
 
-			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
+			const card = providerCard(page, "Anthropic (Claude)");
 			await expect(card.getByText("Not configured")).toBeVisible();
 			await expect(card.locator(".bg-gray-500").first()).toBeVisible();
 		});
@@ -91,7 +104,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings/models");
 
-			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
+			const card = providerCard(page, "OpenAI");
 			await expect(card.getByText("Token expired")).toBeVisible();
 			await expect(card.locator(".bg-amber-500").first()).toBeVisible();
 		});
@@ -105,7 +118,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings/models");
 
-			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
+			const card = providerCard(page, "Anthropic (Claude)");
 			await expect(card.getByText("API Key")).toBeVisible();
 		});
 
@@ -118,10 +131,10 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings/models");
 
-			const openaiCard = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
+			const openaiCard = providerCard(page, "OpenAI");
 			await expect(openaiCard.getByText("Subscription", { exact: true })).toBeVisible();
 
-			const googleCard = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Google (Gemini)" });
+			const googleCard = providerCard(page, "Google (Gemini)");
 			await expect(googleCard.getByText("Env")).toBeVisible();
 		});
 	});
@@ -134,7 +147,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings/models");
 
-			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
+			const card = providerCard(page, "Anthropic (Claude)");
 			const testBtn = card.getByRole("button", { name: "Test" });
 			await testBtn.click();
 
@@ -153,7 +166,7 @@ test.describe("Provider Settings", () => {
 				return route.fulfill({ json: { success: false, error: "Invalid API key" } });
 			});
 
-			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
+			const card = providerCard(page, "Anthropic (Claude)");
 			await card.getByRole("button", { name: "Test" }).click();
 
 			await expect(card.getByText("Invalid API key")).toBeVisible();
@@ -168,7 +181,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings/models");
 
-			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
+			const card = providerCard(page, "OpenAI");
 			await card.getByRole("button", { name: "Refresh models" }).click();
 
 			await expect(card.getByText("Loaded 3 models")).toBeVisible();
@@ -187,7 +200,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings/models");
 
-			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
+			const card = providerCard(page, "OpenAI");
 			await card.getByRole("button", { name: "Update" }).click();
 			await card.getByPlaceholder("sk-...").fill("sk-new-key-123");
 			await card.getByRole("button", { name: "Save", exact: true }).click();
@@ -206,7 +219,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings/models");
 
-			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
+			const card = providerCard(page, "OpenAI");
 			await card.getByRole("button", { name: "Refresh models" }).click();
 
 			await expect(card.getByText("Refresh failed")).toBeVisible();
@@ -221,7 +234,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings/models");
 
-			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
+			const card = providerCard(page, "Anthropic (Claude)");
 			await card.getByRole("button", { name: "Update" }).click();
 
 			await expect(card.getByPlaceholder("sk-ant-...")).toBeVisible();
@@ -235,7 +248,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings/models");
 
-			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
+			const card = providerCard(page, "Anthropic (Claude)");
 			await card.getByRole("button", { name: "Update" }).click();
 			await expect(card.getByPlaceholder("sk-ant-...")).toBeVisible();
 
@@ -253,7 +266,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings/models");
 
-			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
+			const card = providerCard(page, "Anthropic (Claude)");
 			await card.getByRole("button", { name: "Remove" }).click();
 
 			await expect(card.getByText("Remove API key?")).toBeVisible();
@@ -267,7 +280,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings/models");
 
-			const card = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
+			const card = providerCard(page, "Anthropic (Claude)");
 			// Wait for the BYOK card to load with Remove button visible
 			await expect(card.getByRole("button", { name: "Remove" })).toBeVisible();
 
@@ -302,7 +315,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings/models");
 
-			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
+			const card = providerCard(page, "OpenAI");
 			await card.getByRole("button", { name: "Disconnect" }).click();
 
 			await expect(card.getByText("Disconnect OpenAI subscription?")).toBeVisible();
@@ -318,7 +331,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings/models");
 
-			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
+			const card = providerCard(page, "OpenAI");
 			await card.getByRole("button", { name: "Disconnect" }).click();
 			await expect(card.getByText("Disconnect OpenAI subscription?")).toBeVisible();
 
@@ -334,12 +347,12 @@ test.describe("Provider Settings", () => {
 			await mockApi({ providers: threeProviders() });
 			await page.goto("/settings/models");
 
-			const anthropicCard = page.locator(".rounded-lg.bg-gray-900").filter({ hasText: "Anthropic (Claude)" });
+			const anthropicCard = providerCard(page, "Anthropic (Claude)");
 			await expect(anthropicCard.getByText("Get your Anthropic API key")).toBeVisible();
 			const link = anthropicCard.locator("a[href='https://console.anthropic.com/keys']");
 			await expect(link).toBeVisible();
 
-			const openaiCard = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
+			const openaiCard = providerCard(page, "OpenAI");
 			await expect(openaiCard.getByText("Get your OpenAI API key")).toBeVisible();
 			const openaiLink = openaiCard.locator("a[href='https://platform.openai.com/api-keys']");
 			await expect(openaiLink).toBeVisible();
@@ -362,7 +375,7 @@ test.describe("Provider Settings", () => {
 			});
 			await page.goto("/settings/models");
 
-			const card = page.locator("div.rounded-lg.border").filter({ hasText: "OpenAI" }).first();
+			const card = providerCard(page, "OpenAI");
 			// The relativeTime for a date 2h ago should contain "ago"
 			const expiryText = card.locator(".text-amber-400");
 			await expect(expiryText.filter({ hasText: "ago" })).toBeVisible();

@@ -2,29 +2,20 @@ import { test, expect } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
 
 // ============================================================================
-// Phase 61-03 disposition: REPAIR (Bucket A #5)
-// - Settings expand-button hardened via `data-testid="team-expand-{team.id}"`
-//   on (app)/settings/+page.svelte:710 (testid-only SUT addition).
-// - 9 tests below carry FIXME with UN-BLOCKER comments. Two root causes
-//   block them; locator swaps cannot fix either:
-//     (a) `#modes` section also renders a "Delete" button — strict-mode
-//         collision on `getByRole('button', { name: 'Delete' })`.
-//         Affects: L122 (shows Delete button), L168 (deletes a team).
-//     (b) Click on team-expand button fires `toggleTeamExpand(team.id)`,
-//         which sets `expandedTeamId = teamId` and fetches members. In
-//         the test env the reactive `{#if expandedTeamId === team.id}`
-//         block at L714 does NOT re-render after the state flip (same
-//         class of test-env reactivity issue resolved for the Sidebar
-//         describe in 61-01 via /api/account mock — root cause for
-//         teams may be a missing /api/teams/{id}/members default mock
-//         shape mismatch that aborts the effect scheduler mid-flush,
-//         OR the layout's onMount sequence not awaited; INVESTIGATE
-//         in a follow-up plan with `--trace=on` and verify the route
-//         response shape vs the `data.members` consumer at L547).
-//         Affects: L209, L228, L253, L273, L290, L312, L331, L352, L414.
+// Phase 61-03 disposition: REPAIR (Bucket A #5) — root cause (b) RESOLVED.
+// - 2026-06-12: the "team-expand `{#if}` never re-renders" blocker was NOT
+//   a Svelte reactivity issue. SystemHealth.svelte (rendered on the same
+//   /settings/admin page) read `health.db.status` off the api-mocks
+//   catch-all `{}` response and THREW during flush, poisoning the effect
+//   scheduler so later state flips never reached the DOM. Fixed by a
+//   complete default `/api/health` handler in fixtures/api-mocks.ts.
+//   Three expand-dependent tests below are un-skipped with locators scoped
+//   to `#teams` (the sidebar "Add project" button substring-matches
+//   getByRole name "Add"). Remaining fixmes are now unblocked too —
+//   flip them in a follow-up alongside the Delete-button scoping (a).
 // Reference: .planning/phases/59-test-debt-repair/deferred-items.md
 //            § Out-of-scope spec files - #5 teams.spec.ts
-// Filed-on: 2026-05-13 (Phase 61-03)
+// Filed-on: 2026-05-13 (Phase 61-03); root cause found 2026-06-12
 // ============================================================================
 
 // Factory helpers for teams data
@@ -298,11 +289,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 		await expect(page.getByText("owner")).toBeVisible();
 	});
 
-	// UN-BLOCKER CONDITION: team-expand reactive `{#if}` block at L714
-	// re-renders after click (see "clicking team name expands" entry above).
-	// Reference: .planning/phases/59-test-debt-repair/deferred-items.md § teams.spec.ts
-	// Filed-on: 2026-05-13 (Phase 61-03)
-	test.fixme("expanded team shows Remove button for each member", async ({ page, mockApi }) => {
+	test("expanded team shows Remove button for each member", async ({ page, mockApi }) => {
 		const teams = [makeTeam({ id: "team-1", name: "Engineering" })];
 		const members = [
 			makeMember({ id: "m-1", userId: "user-2", userName: "Alice", userEmail: "alice@example.com" }),
@@ -311,15 +298,19 @@ test.describe("Teams — Settings Page (Admin)", () => {
 		await mockApi({
 			projects: [proj],
 			routes: {
-				...adminRoutes(teams),
+				// Route matching is `path.includes(pattern)` in insertion
+				// order — the members pattern MUST precede adminRoutes'
+				// "/api/teams" or the members fetch gets `{ teams }` back.
 				"/api/teams/team-1/members": () => ({ members }),
+				...adminRoutes(teams),
 			},
 		});
 		await page.goto("/settings/admin");
 
 		await page.getByTestId("team-expand-team-1").click();
 
-		await expect(page.getByRole("button", { name: "Remove" })).toBeVisible({ timeout: 3000 });
+		// Scoped to #teams — "Remove" is otherwise ambiguous page-wide.
+		await expect(page.locator("#teams").getByRole("button", { name: "Remove", exact: true })).toBeVisible({ timeout: 3000 });
 	});
 
 	// UN-BLOCKER CONDITION: team-expand reactive `{#if}` block at L714
@@ -343,11 +334,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 		await expect(page.getByText("No members.")).toBeVisible({ timeout: 3000 });
 	});
 
-	// UN-BLOCKER CONDITION: team-expand reactive `{#if}` block at L714
-	// re-renders after click (see "clicking team name expands" entry above).
-	// Reference: .planning/phases/59-test-debt-repair/deferred-items.md § teams.spec.ts
-	// Filed-on: 2026-05-13 (Phase 61-03)
-	test.fixme("expanded team shows Add member form with user selector and role picker", async ({ page, mockApi }) => {
+	test("expanded team shows Add member form with user selector and role picker", async ({ page, mockApi }) => {
 		const teams = [makeTeam({ id: "team-1", name: "Engineering" })];
 		const users = [
 			{ id: "user-2", email: "alice@example.com", name: "Alice", role: "member", status: "active" },
@@ -364,16 +351,14 @@ test.describe("Teams — Settings Page (Admin)", () => {
 
 		await page.getByTestId("team-expand-team-1").click();
 
-		await expect(page.getByLabel("User")).toBeVisible({ timeout: 3000 });
-		await expect(page.getByLabel("Role")).toBeVisible();
-		await expect(page.getByRole("button", { name: "Add" })).toBeVisible();
+		// Scoped to #teams: the Invites section also has a "Role" label and
+		// the sidebar "Add project" button substring-matches name "Add".
+		const teamsSection = page.locator("#teams");
+		await expect(teamsSection.getByLabel("Select user")).toBeVisible({ timeout: 3000 });
+		await expect(teamsSection.getByLabel("Member role")).toBeVisible();
+		await expect(teamsSection.getByRole("button", { name: "Add", exact: true })).toBeVisible();
 	});
 
-	// NOTE: L312 baseline-passes on mobile-chromium (the Add button check
-	// doesn't depend on the team-expand `{#if}` block actually rendering —
-	// the page has another "Add" button reachable via strict-mode-singular
-	// selector on mobile). Left active to preserve baseline; chromium
-	// version was already failing in baseline.
 	test("Add member button is disabled when no user selected", async ({ page, mockApi }) => {
 		const teams = [makeTeam({ id: "team-1", name: "Engineering" })];
 
@@ -388,16 +373,14 @@ test.describe("Teams — Settings Page (Admin)", () => {
 
 		await page.getByTestId("team-expand-team-1").click();
 
-		const addBtn = page.getByRole("button", { name: "Add" });
+		// Scoped to #teams — the sidebar "Add project" button substring-
+		// matches getByRole name "Add" and is always enabled.
+		const addBtn = page.locator("#teams").getByRole("button", { name: "Add", exact: true });
 		await expect(addBtn).toBeVisible({ timeout: 3000 });
 		await expect(addBtn).toBeDisabled();
 	});
 
-	// UN-BLOCKER CONDITION: team-expand reactive `{#if}` block at L714
-	// re-renders after click (see "clicking team name expands" entry above).
-	// Reference: .planning/phases/59-test-debt-repair/deferred-items.md § teams.spec.ts
-	// Filed-on: 2026-05-13 (Phase 61-03)
-	test.fixme("role selector has Viewer, Editor, Owner options", async ({ page, mockApi }) => {
+	test("role selector has Viewer, Editor, Owner options", async ({ page, mockApi }) => {
 		const teams = [makeTeam({ id: "team-1", name: "Engineering" })];
 
 		await mockApi({
@@ -411,11 +394,10 @@ test.describe("Teams — Settings Page (Admin)", () => {
 
 		await page.getByTestId("team-expand-team-1").click();
 
-		const roleSelect = page.getByLabel("Member role");
+		const roleSelect = page.locator("#teams").getByLabel("Member role");
 		await expect(roleSelect).toBeVisible({ timeout: 3000 });
-		await expect(roleSelect.getByText("Viewer")).toBeVisible();
-		await expect(roleSelect.getByText("Editor")).toBeVisible();
-		await expect(roleSelect.getByText("Owner")).toBeVisible();
+		// <option> elements are never "visible" to Playwright — assert text.
+		await expect(roleSelect.locator("option")).toHaveText(["Viewer", "Editor", "Owner"]);
 	});
 
 	// UN-BLOCKER CONDITION: team-expand reactive `{#if}` block at L714

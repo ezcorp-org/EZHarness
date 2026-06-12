@@ -860,6 +860,23 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			]});
 		}
 
+		// System health — SystemHealth.svelte (admin settings) renders
+		// `health.db.status` / `health.embeddings.status` from this payload.
+		// Without a complete default shape the catch-all `{}` fulfillment
+		// makes that render THROW, which poisons Svelte's effect scheduler
+		// and silently blocks every subsequent UI update on the page (this
+		// was the long-standing "team-expand {#if} never re-renders" bug).
+		if (path === "/api/health" && method === "GET") {
+			return route.fulfill({
+				json: {
+					status: "healthy",
+					db: { status: "up" },
+					embeddings: { status: "ready" },
+					providers: {},
+				},
+			});
+		}
+
 		// Providers
 		if (path === "/api/providers" && method === "GET") {
 			return route.fulfill({ json: providers });
@@ -869,6 +886,12 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		}
 		if (path === "/api/providers" && method === "DELETE") {
 			return route.fulfill({ json: { success: true } });
+		}
+		// Local model test — MUST precede the generic /:provider/test matcher
+		// below, otherwise "local" matches [^/]+ and the response gets the
+		// wrong shape ({ success } instead of { reachable, ..., latencyMs }).
+		if (path === "/api/providers/local/test" && method === "POST") {
+			return route.fulfill({ json: { reachable: true, modelAvailable: true, inferenceOk: true, endpointType: "openai-compatible", latencyMs: 150 } });
 		}
 		if (path.match(/^\/api\/providers\/[^/]+\/test$/) && method === "POST") {
 			return route.fulfill({ json: { success: true } });
@@ -882,10 +905,6 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 					fetchedAt: new Date().toISOString(),
 				},
 			});
-		}
-		// Local model test
-		if (path === "/api/providers/local/test" && method === "POST") {
-			return route.fulfill({ json: { reachable: true, modelAvailable: true, inferenceOk: true, endpointType: "openai-compatible", latencyMs: 150 } });
 		}
 		if (path === "/api/auth/oauth/callback" && method === "DELETE") {
 			return route.fulfill({ json: { success: true } });
