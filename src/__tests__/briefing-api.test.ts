@@ -32,6 +32,10 @@ mock.module("$server/logger", () => realLogger);
 mock.module("$lib/server/http-errors", () => require("../../web/src/lib/server/http-errors"));
 mock.module("$lib/server/security/api-keys", () => require("../../web/src/lib/server/security/api-keys"));
 mock.module("$lib/server/security/rate-limiter", () => require("../../web/src/lib/server/security/rate-limiter"));
+// Shared run-now trigger (Extension Pages Hub): the route delegates to
+// this module; alias it to the real web-layer file so the route + the
+// hub action exercise ONE rate bucket in these tests.
+mock.module("$lib/server/briefing-run-now", () => require("../../web/src/lib/server/briefing-run-now"));
 mock.module("../../web/src/routes/api/briefing/config/$types", () => ({}));
 mock.module("../../web/src/routes/api/briefing/run-now/$types", () => ({}));
 
@@ -363,6 +367,44 @@ describe("POST /api/briefing/run-now", () => {
     const body = await jsonFromResponse(second);
     expect(body.retryAfter).toBeGreaterThan(0);
     expect(Number(second.headers.get("Retry-After"))).toBeGreaterThan(0);
+  });
+
+  test("the Hub run-now trigger and the route share ONE rate bucket", async () => {
+    // Extension Pages Hub §1.3: a user must not double-dip the
+    // 1-per-5-minutes window by alternating between the settings button
+    // (this route) and the Hub tab's "Run now" action (which calls
+    // triggerBriefingRunNow directly).
+    const { triggerBriefingRunNow } = require("../../web/src/lib/server/briefing-run-now");
+    registerStubRuntime();
+    await upsertBriefingConfig(userA.id, { projectId });
+
+    const viaHub = await triggerBriefingRunNow(userA.id);
+    expect(viaHub).toEqual({ ok: true });
+    await __testHooks.lastRun;
+
+    const viaRoute = await call(runNowPost, createMockEvent({ method: "POST", user: userA }));
+    expect(viaRoute.status).toBe(429);
+
+    // And the inverse ordering: route first, hub second.
+    __rateLimiter.reset();
+    expect((await call(runNowPost, createMockEvent({ method: "POST", user: userA }))).status).toBe(202);
+    await __testHooks.lastRun;
+    const hubSecond = await triggerBriefingRunNow(userA.id);
+    expect(hubSecond.ok).toBe(false);
+    expect(hubSecond.reason).toBe("rate-limited");
+    expect(hubSecond.retryAfter).toBeGreaterThan(0);
+  });
+
+  test("hub trigger reports unavailable (no runtime) without consuming the rate slot", async () => {
+    const { triggerBriefingRunNow } = require("../../web/src/lib/server/briefing-run-now");
+    // No registerStubRuntime() — runtime gate must fire first.
+    const result = await triggerBriefingRunNow(userA.id);
+    expect(result).toEqual({ ok: false, reason: "unavailable" });
+
+    registerStubRuntime();
+    await upsertBriefingConfig(userA.id, { projectId });
+    expect((await triggerBriefingRunNow(userA.id)).ok).toBe(true);
+    await __testHooks.lastRun;
   });
 
   test("rate-limit buckets are per-user: user B is unaffected by user A's slot", async () => {

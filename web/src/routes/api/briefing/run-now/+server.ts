@@ -8,100 +8,38 @@
  * is keyed by the session user — no parameter to traverse);
  * rate-limited to 1 request per 5 minutes per user.
  *
- * The run itself is fire-and-forget (a briefing can take minutes of
- * LLM time): the route responds 202 and the pipeline's completion is
- * recorded on the config row exactly like a scheduled fire — including
- * the consecutive-errors auto-disable path, so a user hammering a
- * broken provider through run-now sees the same one-time disable
- * notification the daemon would post.
+ * The trigger body lives in `$lib/server/briefing-run-now.ts` so this
+ * route and the Hub briefing tab's "Run now" action share ONE
+ * implementation and ONE rate bucket (Extension Pages Hub spec §1.3) —
+ * this module only maps the trigger result to HTTP. `__rateLimiter` /
+ * `__testHooks` are re-exported for existing test imports.
  */
 import type { RequestHandler } from "./$types";
 import { json } from "@sveltejs/kit";
 import { errorJson } from "$lib/server/http-errors";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
-import { RateLimiter } from "$lib/server/security/rate-limiter";
-import {
-  getBriefingConfig,
-  recordBriefingFireResult,
-  BRIEFING_CONFIG_DEFAULTS,
-  type BriefingConfig,
-} from "$server/db/queries/briefing-configs";
-import { getBriefingRuntime } from "$server/runtime/briefing/runtime-registry";
-import {
-  runBriefingForUser,
-  notifyBriefingAutoDisabled,
-  type BriefingRunResult,
-} from "$server/runtime/briefing/run";
-import { logger } from "$server/logger";
+import { triggerBriefingRunNow } from "$lib/server/briefing-run-now";
 
-const log = logger.child("api.briefing.run-now");
-
-/** 1 run per 5 minutes per user (spec §5.4 / §9). Exported for test
- *  isolation — suites call `__rateLimiter.reset()` in beforeEach. */
-export const __rateLimiter = new RateLimiter(1, 5 * 60_000);
-
-/** Test-only seam: the most recent request's background run promise,
- *  so integration tests can await completion + bookkeeping instead of
- *  polling. Production never reads it. */
-export const __testHooks: { lastRun?: Promise<BriefingRunResult | undefined> } = {};
+export { __rateLimiter, __testHooks } from "$lib/server/briefing-run-now";
 
 export const POST: RequestHandler = async ({ locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
 
-  // Runtime gate BEFORE the rate limiter — a boot-ordering 503 must not
-  // consume the user's single slot for the window.
-  if (!getBriefingRuntime()) {
-    return errorJson(503, "Briefing runtime is not available yet — try again shortly");
-  }
-
-  const limit = __rateLimiter.check(`briefing-run-now:${user.id}`);
-  if (!limit.allowed) {
+  const result = await triggerBriefingRunNow(user.id);
+  if (!result.ok) {
+    if (result.reason === "unavailable") {
+      return errorJson(503, "Briefing runtime is not available yet — try again shortly");
+    }
     return errorJson(
       429,
       "Briefing was already run recently — try again later",
-      { retryAfter: limit.retryAfter },
-      { "Retry-After": String(limit.retryAfter ?? 1) },
+      { retryAfter: result.retryAfter },
+      { "Retry-After": String(result.retryAfter ?? 1) },
     );
   }
-
-  // No stored config is fine for run-now: operate on the defaults
-  // (the project fallback chain inside the pipeline resolves a target,
-  // or the run records 'skipped').
-  const stored = await getBriefingConfig(user.id);
-  const config: BriefingConfig =
-    stored ??
-    ({
-      userId: user.id,
-      ...BRIEFING_CONFIG_DEFAULTS,
-      watchlist: [],
-      lastFireAt: null,
-      lastFireStatus: null,
-      consecutiveErrors: 0,
-      nextFireAt: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    } as BriefingConfig);
-
-  const runPromise = (async (): Promise<BriefingRunResult | undefined> => {
-    const result = await runBriefingForUser(config);
-    // recordBriefingFireResult returns null when no row exists (the
-    // defaults path) — benign, nothing to bookkeep.
-    const outcome = await recordBriefingFireResult(user.id, result.status);
-    if (outcome?.disabled) {
-      await notifyBriefingAutoDisabled(config, outcome.consecutiveErrors);
-    }
-    return result;
-  })().catch((err) => {
-    log.warn("run-now briefing failed", {
-      userId: user.id,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return undefined;
-  });
-  __testHooks.lastRun = runPromise;
 
   return json({ started: true }, { status: 202 });
 };

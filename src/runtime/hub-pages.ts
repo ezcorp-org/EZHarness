@@ -19,6 +19,22 @@ export interface HubPageContext {
   userId: string;
 }
 
+/**
+ * Thrown by provider action handlers to surface a SPECIFIC HTTP status
+ * (429 rate-limited, 503 unavailable, …) through the Hub actions route.
+ * Plain `Error`s from handlers are treated as 500s.
+ */
+export class HubPageActionError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly retryAfter?: number,
+  ) {
+    super(message);
+    this.name = "HubPageActionError";
+  }
+}
+
 export type HubPageActionHandler = (
   ctx: HubPageContext,
   payload?: Record<string, unknown>,

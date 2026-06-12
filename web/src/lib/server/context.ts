@@ -3,6 +3,8 @@ import { EventBus } from "$server/runtime/events";
 import { registerPreviewBus } from "$server/runtime/preview/preview-bus-registry";
 import { registerBriefingRuntime } from "$server/runtime/briefing/runtime-registry";
 import { ensureBriefingAgentConfig } from "$server/runtime/briefing/agent-config";
+import { registerBriefingHubPage } from "$server/runtime/briefing/hub-page";
+import { triggerBriefingRunNow } from "$lib/server/briefing-run-now";
 import { AgentExecutor } from "$server/runtime/executor";
 import { PipelineExecutor } from "$server/runtime/pipeline-executor";
 import { loadYamlPipelines } from "$server/runtime/pipeline-loader";
@@ -154,6 +156,12 @@ export async function ensureInitialized(): Promise<void> {
   } catch (briefingBootErr) {
     console.warn("briefing agent bootstrap failed; daily briefing degraded", briefingBootErr);
   }
+  // Extension Pages Hub: register the briefing core page (`core:briefing`)
+  // next to the briefing runtime registration — same boot site, same
+  // degradation story. The run-now trigger is injected from the web
+  // layer so the Hub action and POST /api/briefing/run-now share ONE
+  // rate bucket ($lib/server/briefing-run-now.ts).
+  registerBriefingHubPage({ triggerRunNow: triggerBriefingRunNow });
   // Teardown order matters here: the executor owns the watchdog interval
   // + in-flight tool runs; it must stop BEFORE the dispatchers it can
   // emit events on, and BEFORE the registry that owns its extension
