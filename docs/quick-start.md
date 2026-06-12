@@ -28,6 +28,7 @@ Open [http://localhost:3000](http://localhost:3000), create your admin account, 
 
 - Pre-built multi-arch image pulled from `ghcr.io/ezcorp-org/ezcorp:latest`
 - Embedded PGlite on `/app/data/ezcorp` (no external database)
+- Zero-setup web search: a SearXNG sidecar container backs the bundled `web-search` extension out of the box (keyless DuckDuckGo fallback when it's down) — no search API keys needed
 - 30-minute interval backups + pre-boot snapshots under `/app/data/backups`
 - `/api/ready` readiness probe (200 when ready, 503 while booting or after a failed migration)
 - In-app update banner polling GitHub Releases once a day
@@ -79,6 +80,8 @@ Use it for hacking; don't run it as a production instance.
 | `EZCORP_CHECK_UPDATES`      | `true`                        | Set `false` to hide the update banner and stop polling GitHub Releases         |
 | `EZCORP_UPDATE_REPO`        | `ezcorp-org/EZcorp`           | Owner/repo for the update check                                                |
 | `EZCORP_SCAN_GLOBAL_COMMANDS` | `1`                         | Set `0` for multi-tenant deploys — disables scanning `~/.claude/` etc. on the server |
+| `SEARXNG_BASE_URL`          | `http://searxng:8080` (prod) / `http://localhost:8889` (dev) | Where the web-search extension finds the SearXNG sidecar             |
+| `SEARXNG_SECRET`            | internal-only default         | SearXNG instance secret; set a real value only if you expose the sidecar      |
 
 Full env var reference: [production-guide.md §1](production-guide.md#1-quick-start-embedded-pglite).
 

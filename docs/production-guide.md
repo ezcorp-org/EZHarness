@@ -88,6 +88,8 @@ deploy with an explanatory error.
 | `EZCORP_BACKUP_DIR`           | No       | Override the backup directory. Default: sibling `backups/` of the DB dir (`/app/data/backups` under defaults).  |
 | `EZCORP_SCAN_GLOBAL_COMMANDS` | No       | Set to `0` to disable slash-command discovery from the server's home dir. **Recommended for multi-tenant.**     |
 | `DATABASE_URL`                | No       | Use external Postgres instead of embedded PGlite (see §5).                                                      |
+| `SEARXNG_BASE_URL`            | No       | Where the bundled web-search extension finds SearXNG. Default: `http://searxng:8080` (the bundled sidecar). Custom hostnames also need the extension's network grant widened — see [deployment.md "Web search sidecar"](deployment.md#web-search-sidecar-searxng). |
+| `SEARXNG_SECRET`              | No       | Instance secret for the SearXNG sidecar. Defaults to a fixed internal-only value (the sidecar publishes no port); set a real one (`openssl rand -hex 32`) if you ever expose it. Rotating it is harmless. |
 | `EZCORP_SESSION_LIFETIME_DAYS`           | No | Session cookie / JWT lifetime in days. Default: `90`.                                                       |
 | `EZCORP_SESSION_REFRESH_AFTER_DAYS`      | No | Sliding-refresh threshold in days — JWT older than this is re-issued inline. Default: `7`.                  |
 | `EZCORP_SESSION_PREVIOUS_TOKEN_GRACE_SECONDS` | No | Grace window in seconds during which the pre-rotation token still validates. Bridges concurrent in-flight requests across a rotation; lowering it under ~30 risks spurious "session_revoked" logouts for users with multiple tabs or active streams. Default: `60`. |

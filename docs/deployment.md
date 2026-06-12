@@ -380,6 +380,56 @@ and update their dashboards before the flip merges.** The
 `audit-actions.ts` JSDoc for `MCP_SECCOMP_VIOLATION` carries both
 values verbatim.
 
+## Web search sidecar (SearXNG)
+
+Both compose stacks ship a `searxng` service so the bundled
+`web-search` extension (and anything built on it, e.g. Daily Briefing
+watchlists) works with **zero API keys** on a fresh install. SearXNG is
+a self-hosted metasearch engine — it fans queries out to upstream
+engines and returns aggregated JSON.
+
+**Resource footprint:** capped at `mem_limit: 256m` / `cpus: 0.5`
+(measured ~140 MB RAM idle, ~0% CPU). `restart: unless-stopped`. The
+caps are deliberate: an on-demand spin-up was considered and rejected —
+it would need docker.sock (or a socket-proxy sidecar) reachable from
+the app, which is host-root-equivalent exposure to save ~140 MB.
+
+**Networking differs per stack:**
+
+| Stack | App networking | SearXNG reachability | `SEARXNG_BASE_URL` default |
+|---|---|---|---|
+| dev (`docker-compose.yml`) | `network_mode: host` | publishes `127.0.0.1:8889` (loopback only) | `http://localhost:8889` |
+| prod (`compose.prod.yml`) | compose bridge | service DNS, **no published port** | `http://searxng:8080` |
+
+**Soft dependency:** the app never hard-depends on the sidecar. If
+SearXNG is down or unreachable (connection refused / timeout / DNS /
+network-permission denial), `search-web` retries once through keyless
+DuckDuckGo and results are cached under the `duckduckgo` namespace.
+HTTP errors from a *reachable* SearXNG surface as-is (misconfig is not
+masked by the fallback).
+
+**Config:** the committed `deploy/searxng/settings.yml` is mounted
+read-only at `/etc/searxng`. It enables `search.formats: [html, json]`
+(the JSON API is OFF in upstream defaults — without it the extension's
+`format=json` requests get 403) and disables the bot limiter
+(internal-only service). The instance secret comes from the
+`SEARXNG_SECRET` env var, never from the committed file.
+
+**Custom-host network grant:** the web-search extension's manifest
+declares the internal hosts `searxng`, `localhost`, and `127.0.0.1`
+(internal/RFC-1918 hosts route through the `ezcorp/network.internal`
+PDP and must be declared explicitly). Pointing `SEARXNG_BASE_URL` at
+any other hostname requires widening the extension's network grant in
+`docs/extensions/examples/web-search/ezcorp.config.ts` AND the bundled
+ceiling in `src/extensions/bundled-ceiling.ts`, then regenerating
+`manifest.lock.json` — otherwise the PDP denies the host and search
+falls back to DuckDuckGo (the deny is logged).
+
+**Egress note:** SearXNG needs outbound internet access to its upstream
+engines; the default bridge in both stacks provides it. If a hardened
+deploy later air-gaps the app network, give `searxng` a second
+egress-capable network.
+
 ## Image size
 
 Phase 7 + Phase 55 add these debian packages to `oven/bun:1-slim`:
