@@ -87,11 +87,19 @@ describe("bundled install: web-search", () => {
       "api.search.brave.com",
       "api.exa.ai",
       "serpapi.com",
+      // Keyless defaults (DDG scrape + SearXNG sidecar) — removing any
+      // of these grants silently breaks zero-setup search, so pin them.
+      "lite.duckduckgo.com",
+      "html.duckduckgo.com",
+      "duckduckgo.com",
+      "searxng",
+      "localhost",
+      "127.0.0.1",
     ];
     for (const host of expected) expect(row.grantedPermissions.network).toContain(host);
   });
 
-  test("grants every optional API-key env var", async () => {
+  test("grants every optional API-key env var (plus the SearXNG base URL)", async () => {
     await ensureBundledExtensions();
     const row = store.get("web-search")!;
     const expected = [
@@ -100,6 +108,8 @@ describe("bundled install: web-search", () => {
       "EXA_API_KEY",
       "SERPAPI_API_KEY",
       "JINA_API_KEY",
+      // Not credential-shaped — base URL pointing at the SearXNG sidecar.
+      "SEARXNG_BASE_URL",
     ];
     for (const key of expected) expect(row.grantedPermissions.env).toContain(key);
   });

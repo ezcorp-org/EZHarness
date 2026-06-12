@@ -157,6 +157,12 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
   // `localhost` / `127.0.0.1` — routed through the network.internal PDP)
   // and the DuckDuckGo no-JS endpoints (`duckduckgo.com` covers the
   // `//duckduckgo.com/l/?uddg=` redirect shape).
+  //
+  // SECURITY NOTE: the loopback grants (`localhost` / `127.0.0.1`) are
+  // HOSTNAME-scoped, not port-scoped — the host-side internal fetch can
+  // reach ANY loopback port, not just the SearXNG sidecar's. That is
+  // acceptable for bundled (first-party) code; port-scoped internal
+  // grants are on the roadmap.
   "web-search": {
     network: [
       "r.jina.ai",

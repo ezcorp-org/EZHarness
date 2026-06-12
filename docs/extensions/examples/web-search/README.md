@@ -37,11 +37,11 @@ URL reading always goes through Jina Reader — it's the only keyless HTML-to-ma
 Point `SEARXNG_BASE_URL` at any SearXNG instance. Two requirements:
 
 1. The instance must enable the JSON API — `search.formats` must include `json` in its `settings.yml` (upstream default is HTML-only; requests for `format=json` return 403). See the committed `deploy/searxng/settings.yml` for the exact shape.
-2. The hostname must be covered by this extension's `permissions.network` grant. The bundled grant covers `searxng`, `localhost`, and `127.0.0.1`. A custom hostname (e.g. `searx.example.internal`) requires adding it to the grant in `ezcorp.config.ts` *and* the bundled ceiling (`src/extensions/bundled-ceiling.ts`), then regenerating `manifest.lock.json`. Until then the PDP denies the host and searches fall back to DuckDuckGo (a deny is logged).
+2. The hostname must be covered by this extension's `permissions.network` grant. The bundled grant covers `searxng`, `localhost`, and `127.0.0.1`. A custom hostname (e.g. `searx.example.internal`) requires adding it to the grant in `ezcorp.config.ts` *and* the bundled ceiling (`src/extensions/bundled-ceiling.ts`), then regenerating `manifest.lock.json`. Until then the PDP denies the host and searches fall back to DuckDuckGo (the deny lands in the audit log as an `ext:perm:denied` row — check there, not stderr).
 
 ## Data locations
 
-- Cache: `<projectRoot>/.ezcorp/extension-data/web-search/cache.json` (sha256 keys, 500-entry LRU, 15 min TTL for search, 60 min TTL for URL reads). Cache keys embed the provider name, so SearXNG and DuckDuckGo results never collide — a fallback result is cached under `duckduckgo`, never poisoning the `searxng` namespace.
+- Cache: `<projectRoot>/.ezcorp/extension-data/web-search/cache.json` (sha256 keys, 500-entry LRU, 15 min TTL for search, 60 min TTL for URL reads). Cache keys embed the provider name, so SearXNG and DuckDuckGo results never collide — a fallback result is cached under `duckduckgo`, never poisoning the `searxng` namespace. On a primary-namespace miss the handler also probes the fallback's namespace, so repeated identical queries during a SearXNG outage serve from cache instead of re-scraping DuckDuckGo.
 - Rate-limit counters: in-memory only; reset when the extension subprocess restarts. SearXNG and DuckDuckGo are unmetered; keyless Jina reads stay capped at 60/hour.
 
 ## Install (manual, for developers)

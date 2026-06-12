@@ -38,6 +38,7 @@ mock.module("@ezcorp/sdk/runtime", () => {
   };
 });
 
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -164,24 +165,49 @@ describe("search-web handler", () => {
     expect(textOf(r1)).toContain(FIXTURE_TOP_LINK);
     expect(fetchCallCount).toBe(2); // failed searxng attempt + ddg fetch
 
-    // Same query with DuckDuckGo as the DIRECT provider hits the cache —
-    // proof the fallback result was stored under "duckduckgo", not "searxng".
-    delete process.env.SEARXNG_BASE_URL;
+    // OUTAGE CONTINUES: the identical query is served FROM the
+    // fallback-namespace cache — exactly one total DDG fetch for the
+    // whole outage window (the cache is DDG's only damper; its limiter
+    // is Infinity).
     const r2 = await h({ query: "bun" });
     expect(r2.isError).toBe(false);
     expect(textOf(r2)).toContain(FIXTURE_TOP_LINK);
-    expect(fetchCallCount).toBe(2); // unchanged — served from cache
+    expect(fetchCallCount).toBe(2); // unchanged — no second searxng attempt, no second ddg scrape
 
-    // And the "searxng" namespace was NOT poisoned: with SearXNG healthy
-    // again, the same query goes back out to SearXNG (cache miss there).
-    process.env.SEARXNG_BASE_URL = "http://localhost:8889";
-    nextResponse = () =>
-      new Response(JSON.stringify({ results: [{ title: "SX", url: "https://sx", content: "C" }] }));
+    // Same query with DuckDuckGo as the DIRECT provider hits the cache —
+    // proof the fallback result was stored under "duckduckgo", not "searxng".
+    delete process.env.SEARXNG_BASE_URL;
     const r3 = await h({ query: "bun" });
     expect(r3.isError).toBe(false);
-    expect(textOf(r3)).toContain("[SX](https://sx)");
-    expect(fetchCallCount).toBe(3);
+    expect(textOf(r3)).toContain(FIXTURE_TOP_LINK);
+    expect(fetchCallCount).toBe(2); // unchanged — served from cache
     errorSpy.mockRestore();
+  });
+
+  test("searxng-namespace cache wins over the fallback namespace when both hold the query", async () => {
+    process.env.SEARXNG_BASE_URL = "http://localhost:8889";
+    const deps = makeDeps();
+    // Seed BOTH namespaces directly (same key derivation as the handler).
+    const keyFor = (provider: string): string =>
+      createHash("sha256").update(`${provider}:search:bun:5`).digest("hex");
+    await deps.cache.set(keyFor("searxng"), "SX-CACHED", 60_000);
+    await deps.cache.set(keyFor("duckduckgo"), "DDG-CACHED", 60_000);
+    const h = makeSearchHandler(deps);
+    const r = await h({ query: "bun" });
+    expect(r.isError).toBe(false);
+    expect(textOf(r)).toBe("SX-CACHED"); // primary namespace preferred
+    expect(fetchCallCount).toBe(0);
+  });
+
+  test("no fallback configured → single cache probe (behavior unchanged)", async () => {
+    nextResponse = () => new Response(DDG_LITE_FIXTURE);
+    const deps = makeDeps(); // no SEARXNG_BASE_URL → bare DuckDuckGo, no wrapper
+    const getSpy = spyOn(deps.cache, "get");
+    const h = makeSearchHandler(deps);
+    const r = await h({ query: "bun" });
+    expect(r.isError).toBe(false);
+    expect(getSpy).toHaveBeenCalledTimes(1); // no second-namespace probe
+    getSpy.mockRestore();
   });
 
   test("SearXNG HTTP error → NO fallback; error surfaces with searxng tag", async () => {

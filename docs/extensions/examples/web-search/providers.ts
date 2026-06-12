@@ -389,6 +389,13 @@ export interface SearchOutcome {
 }
 
 export interface FallbackSearchProvider extends SearchProvider {
+  /**
+   * Name of the wrapped fallback provider. Lets the handler probe the
+   * fallback's cache namespace when the primary-name key misses, so
+   * repeated queries during a primary outage serve from cache instead
+   * of live-fetching the fallback on every call.
+   */
+  readonly fallbackName?: string;
   searchWithOutcome(query: string, maxResults: number): Promise<SearchOutcome>;
 }
 
@@ -424,6 +431,7 @@ export function withFallback(primary: SearchProvider, fallback: SearchProvider):
   };
   return {
     name: primary.name,
+    fallbackName: fallback.name,
     search: async (query, maxResults) => (await searchWithOutcome(query, maxResults)).results,
     searchWithOutcome,
   };

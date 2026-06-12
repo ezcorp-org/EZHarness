@@ -423,7 +423,8 @@ any other hostname requires widening the extension's network grant in
 `docs/extensions/examples/web-search/ezcorp.config.ts` AND the bundled
 ceiling in `src/extensions/bundled-ceiling.ts`, then regenerating
 `manifest.lock.json` — otherwise the PDP denies the host and search
-falls back to DuckDuckGo (the deny is logged).
+falls back to DuckDuckGo (the deny lands in the audit log as an
+`ext:perm:denied` row — check there, not stderr).
 
 **Egress note:** SearXNG needs outbound internet access to its upstream
 engines; the default bridge in both stacks provides it. If a hardened

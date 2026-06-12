@@ -91,6 +91,16 @@ export function makeSearchHandler(deps: Deps): ToolHandler {
       sha256(`${provider}:search:${query.trim().toLowerCase()}:${n}`);
     const hit = await deps.cache.get(keyFor(search.name));
     if (hit !== undefined) return toolResult(hit);
+    // During a primary outage, results land under the fallback's
+    // namespace (see the cache.set below). Probe it too on a primary-key
+    // miss so identical repeated queries inside the TTL serve from cache
+    // instead of live-fetching the fallback every time. Primary-namespace
+    // hits always win (probed first, above).
+    const fallbackName = hasOutcome(search) ? search.fallbackName : undefined;
+    if (fallbackName !== undefined) {
+      const fallbackHit = await deps.cache.get(keyFor(fallbackName));
+      if (fallbackHit !== undefined) return toolResult(fallbackHit);
+    }
     if (!deps.limiter.allow(search.name)) return toolError(LIMIT_MSG);
     let outcome: SearchOutcome;
     try {

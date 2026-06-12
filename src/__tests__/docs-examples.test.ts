@@ -142,9 +142,24 @@ describe("web-search", () => {
       "api.search.brave.com",
       "api.exa.ai",
       "serpapi.com",
+      // Keyless defaults (DDG scrape + SearXNG sidecar) — removing any
+      // of these grants silently breaks zero-setup search, so pin them.
+      "lite.duckduckgo.com",
+      "html.duckduckgo.com",
+      "duckduckgo.com",
+      "searxng",
+      "localhost",
+      "127.0.0.1",
     ]) expect(hosts).toContain(h);
     const envs = m.permissions.env ?? [];
-    for (const k of ["TAVILY_API_KEY", "BRAVE_API_KEY", "EXA_API_KEY", "SERPAPI_API_KEY", "JINA_API_KEY"]) {
+    for (const k of [
+      "TAVILY_API_KEY",
+      "BRAVE_API_KEY",
+      "EXA_API_KEY",
+      "SERPAPI_API_KEY",
+      "JINA_API_KEY",
+      "SEARXNG_BASE_URL",
+    ]) {
       expect(envs).toContain(k);
     }
   });

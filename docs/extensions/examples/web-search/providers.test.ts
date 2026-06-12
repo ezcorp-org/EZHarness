@@ -477,6 +477,13 @@ describe("SearXNG", () => {
     expect(await new SearXNG("http://x").search("q", 5)).toEqual([]);
   });
 
+  test("result entries with missing fields → empty-string tolerance, no throw", async () => {
+    nextResponse = () => new Response(JSON.stringify({ results: [{}] }));
+    expect(await new SearXNG("http://x").search("q", 5)).toEqual([
+      { title: "", url: "", snippet: "" },
+    ]);
+  });
+
   test("malformed JSON throws the dedicated malformed-JSON error", async () => {
     nextResponse = () => new Response("<html>not json</html>", { status: 200 });
     await expect(new SearXNG("http://x").search("q", 5)).rejects.toThrow("SearXNG returned malformed JSON");
@@ -619,6 +626,14 @@ describe("unwrapDdgRedirect", () => {
     expect(unwrapDdgRedirect("https://bun.sh")).toBe("https://bun.sh");
   });
 
+  test("double-encoded uddg → exactly one decode pass (no recursive decoding)", () => {
+    // searchParams.get() applies a single percent-decode; a double-encoded
+    // target must come back still single-encoded, never fully decoded.
+    expect(
+      unwrapDdgRedirect("//duckduckgo.com/l/?uddg=https%253A%252F%252Fbun.sh%252F&rut=0000"),
+    ).toBe("https%3A%2F%2Fbun.sh%2F");
+  });
+
   test("duckduckgo URL without uddg param passes through", () => {
     expect(unwrapDdgRedirect("https://duckduckgo.com/l/?rut=abc")).toBe("https://duckduckgo.com/l/?rut=abc");
   });
@@ -701,6 +716,11 @@ describe("withFallback", () => {
   test("wrapper keeps the primary's name (cache GET namespace)", () => {
     const wrapped = withFallback(fakeProvider("searxng", async () => RESULTS), fakeProvider("duckduckgo", async () => []));
     expect(wrapped.name).toBe("searxng");
+  });
+
+  test("wrapper exposes fallbackName (handler's second cache-probe namespace)", () => {
+    const wrapped = withFallback(fakeProvider("searxng", async () => RESULTS), fakeProvider("duckduckgo", async () => []));
+    expect(wrapped.fallbackName).toBe("duckduckgo");
   });
 
   test("primary success → primary's outcome, fallback untouched", async () => {
