@@ -52,7 +52,7 @@ function dashboardTree(status: string, latest: string) {
 										confirm: 'Cancel run "Bugfix"? This stops the agent.',
 									},
 								}
-							: { href: "/chat/sub-1" }),
+							: {}),
 					},
 				],
 			},
@@ -75,7 +75,10 @@ test.describe("ez-code dashboard", () => {
 		await expect(page.getByTestId("hub-node-table")).toContainText("dispatched");
 	});
 
-	test("terminal run row deep-links to its sub-conversation", async ({ page, mockApi }) => {
+	test("PRIVACY: a terminal run row carries NO /chat deep-link in the shared tree", async ({
+		page,
+		mockApi,
+	}) => {
 		await mockApi({ projects: [proj] });
 		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
 		await page.route(`**/api/hub/pages/${encodeURIComponent(EXT_ID)}`, (route) =>
@@ -83,7 +86,9 @@ test.describe("ez-code dashboard", () => {
 		);
 
 		await page.goto(`/hub/${encodeURIComponent(EXT_ID)}`);
-		await expect(page.getByTestId("hub-row-link")).toHaveAttribute("href", "/chat/sub-1");
+		await expect(page.getByTestId("hub-node-table")).toContainText("completed");
+		// No private sub-conversation deep-link is exposed on the shared page.
+		await expect(page.getByTestId("hub-row-link")).toHaveCount(0);
 	});
 
 	test("B4: dashboard surfaces the task queue (seeds) + agent memory (mulch) sections", async ({
@@ -98,7 +103,7 @@ test.describe("ez-code dashboard", () => {
 				{
 					type: "table",
 					columns: ["Run", "Agent", "Status", "Updated", "Latest event"],
-					rows: [{ cells: ["Nightly", "coder", "✓ completed", "2026-06-13 09:00", "completed"], href: "/chat/sub-1" }],
+					rows: [{ cells: ["Nightly", "coder", "✓ completed", "2026-06-13 09:00", "completed"] }],
 				},
 				{ type: "heading", level: 3, text: "Task queue (seeds)" },
 				{

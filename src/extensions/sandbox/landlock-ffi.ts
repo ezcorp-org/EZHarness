@@ -22,7 +22,7 @@
 
 import { dlopen, FFIType, ptr, toArrayBuffer } from "bun:ffi";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 
 /** x86_64 syscall numbers. */
 export const SYS_landlock_create_ruleset = 444n;
@@ -68,6 +68,20 @@ export const READ_ACCESS =
   LANDLOCK_ACCESS_FS.EXECUTE |
   LANDLOCK_ACCESS_FS.READ_FILE |
   LANDLOCK_ACCESS_FS.READ_DIR;
+
+/**
+ * The access rights that are valid on a NON-directory (regular file, symlink
+ * target, …). Landlock returns EINVAL if a path-beneath rule grants a
+ * directory-only right (READ_DIR / MAKE_* / REMOVE_* / REFER) on a regular
+ * file, so when an allow path is a file we mask the granted access to this
+ * set. (EXECUTE / READ_FILE / WRITE_FILE / TRUNCATE are the file rights.)
+ */
+export const FILE_ACCESS_MASK =
+  LANDLOCK_ACCESS_FS.EXECUTE |
+  LANDLOCK_ACCESS_FS.READ_FILE |
+  LANDLOCK_ACCESS_FS.WRITE_FILE |
+  LANDLOCK_ACCESS_FS.TRUNCATE;
+
 
 /**
  * Write-inclusive access subset granted to READ-WRITE allowlisted paths
@@ -321,6 +335,7 @@ function applyJail(
   rwPaths: readonly string[],
   roPaths: readonly string[],
   abiVersion: number,
+  listPaths: readonly string[] = [],
 ): void {
   if (abiVersion < 1) {
     throw new Error(`landlock: unsupported ABI version ${abiVersion}`);
@@ -336,17 +351,33 @@ function applyJail(
       // what isn't there) — common for optional system dirs that differ
       // across distros (e.g. /nix on NixOS, absent in the container).
       if (!existsSync(p)) continue;
-      const rc = addPathBeneathRule(rulesetFd, p, access & handled);
+      // Landlock EINVALs a directory-only right (READ_DIR / MAKE_* /
+      // REMOVE_* / REFER) granted on a NON-directory. Mask the access to
+      // the file-applicable set when the allow path is a regular file (e.g.
+      // a top-level repo file like `feature.txt`).
+      let access2 = access;
+      try {
+        if (!statSync(p).isDirectory()) access2 = access & FILE_ACCESS_MASK;
+      } catch {
+        // stat raced/failed — fall through with the full access; add_rule
+        // will surface any real problem below.
+      }
+      const rc = addPathBeneathRule(rulesetFd, p, access2 & handled);
       if (rc !== 0) {
         throw new Error(`landlock: add_rule(${p}) failed errno=${errno()}`);
       }
     }
   };
   try {
-    // Grant write-inclusive access to rw paths FIRST, then read-only to ro
-    // paths. A path appearing in both would be additively unioned by the
-    // kernel, but callers keep the sets disjoint (the rw workspace is never
-    // also passed as ro).
+    // "Root" paths FIRST — granted READ-ONLY. These are a git repo root that
+    // CONTAINS `.ezcorp/data`: git must read/scan the whole working tree, so
+    // the root is read-only (NOT writable → the jailed process can't WRITE
+    // under `.ezcorp/data`). Landlock is purely ADDITIVE, so a child rw rule
+    // ADDS write to a granted subtree but the root grant itself stays ro for
+    // the ungranted `.ezcorp/data` sub-tree — denying WRITE there. (Read of
+    // the in-repo convention path remains; the real platform DB is outside
+    // the repo and never granted — see the productionShell comment.)
+    grant(listPaths, READ_ACCESS);
     grant(rwPaths, WRITE_ACCESS);
     grant(roPaths, READ_ACCESS);
     if (setNoNewPrivs() !== 0) {
@@ -387,6 +418,7 @@ export function applyReadWriteJail(
   rwPaths: readonly string[],
   roPaths: readonly string[],
   abiVersion: number,
+  listPaths: readonly string[] = [],
 ): void {
-  applyJail(rwPaths, roPaths, abiVersion);
+  applyJail(rwPaths, roPaths, abiVersion, listPaths);
 }

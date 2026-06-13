@@ -43,22 +43,38 @@ describe("applyLandlockJailSpec — FFI stubbed (no real jail)", () => {
     );
   });
 
-  test("calls applyReadWriteJail with rw + ro split when supported", async () => {
+  test("calls applyReadWriteJail with rw + ro + list (root) split when supported", async () => {
     let rwReceived: string[] | null = null;
     let roReceived: string[] | null = null;
+    let listReceived: string[] | null = null;
     mock.module("../extensions/sandbox/landlock-ffi", () => ({
       landlockAbiVersion: () => 5,
-      applyReadWriteJail: (rw: string[], ro: string[]) => {
+      applyReadWriteJail: (rw: string[], ro: string[], _abi: number, list: string[]) => {
         rwReceived = rw;
         roReceived = ro;
+        listReceived = list;
       },
     }));
     // fresh import so it binds the stubbed FFI
     const mod = await import("../extensions/sandbox/landlock");
-    mod.applyLandlockJailSpec({ ro: ["/usr", "/lib"], rw: ["/w"] });
-    // rw paths grant write; ro paths stay read-only — kept SEPARATE.
+    mod.applyLandlockJailSpec({ ro: ["/usr", "/lib"], rw: ["/w"], list: ["/repo"] });
+    // rw paths grant write; ro paths stay read-only; list = ro "root" paths.
     expect(rwReceived as string[] | null).toEqual(["/w"]);
     expect(roReceived as string[] | null).toEqual(["/usr", "/lib"]);
+    expect(listReceived as string[] | null).toEqual(["/repo"]);
+  });
+
+  test("applyLandlockJailSpec defaults list to [] when absent", async () => {
+    let listReceived: string[] | null = null;
+    mock.module("../extensions/sandbox/landlock-ffi", () => ({
+      landlockAbiVersion: () => 5,
+      applyReadWriteJail: (_rw: string[], _ro: string[], _abi: number, list: string[]) => {
+        listReceived = list;
+      },
+    }));
+    const mod = await import("../extensions/sandbox/landlock");
+    mod.applyLandlockJailSpec({ ro: [], rw: ["/w"] });
+    expect(listReceived as string[] | null).toEqual([]);
   });
 
   afterAll(() => {

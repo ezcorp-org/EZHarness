@@ -36,6 +36,14 @@ import {
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
 import { spawnAssignment, cancelRun } from "@ezcorp/sdk/runtime";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+// Seam B (ez-sandbox) — open_pr jails its git/gh subprocess via the host's
+// buildSandboxArgv so a run's shell can't read/write `.ezcorp/data` (the
+// PGlite DB + JWT secret). A reference example may reach into the host
+// sandbox layer (other examples already import host modules in their config).
+import { buildSandboxArgv } from "../../../../src/extensions/sandbox/build-sandbox-argv";
+import { getSandboxTier } from "../../../../src/extensions/sandbox/capability-probe";
 
 /** Payload of the `task:assignment_update` event (re-derived from the
  *  exported event map — the concrete type isn't re-exported by name). */
@@ -93,15 +101,27 @@ export interface RunRecord {
   events: RunEvent[];
 }
 
-// ── Run store (Storage-backed; injectable for tests) ─────────────────
+// ── Run stores (Storage-backed; injectable for tests) ────────────────
+//
+// PRIVACY (cross-user leak fix): user-dispatched runs are PER-USER and MUST
+// NOT bleed into the shared Hub page tree (which the host caches per
+// (extension,pageId) and serves to ALL users — render() gets no requesting
+// user, see hub-render-pull.ts). So we keep TWO buckets:
+//   - USER scope (Storage("user") → ctx.userId): runs a user dispatched.
+//     Read/written only in the invoking user's tool-call context. NEVER
+//     pushed into the shared tree.
+//   - GLOBAL scope (Storage("global") → null, reachable from ownerless cron
+//     fires): cron-fired/system runs. These are the ONLY runs the shared
+//     dashboard renders, and even then their private `/chat/<sub>` deep-links
+//     are stripped.
 
 export interface RunStore {
   read(): Promise<RunRecord[]>;
   write(runs: RunRecord[]): Promise<void>;
 }
 
-function productionStore(): RunStore {
-  const storage = new Storage("global");
+function storageBackedRunStore(scope: "user" | "global"): RunStore {
+  const storage = new Storage(scope);
   return {
     async read() {
       const result = await storage.get<RunRecord[]>(RUNS_KEY);
@@ -113,14 +133,23 @@ function productionStore(): RunStore {
   };
 }
 
-let store: RunStore | null = null;
-function getStore(): RunStore {
-  if (!store) store = productionStore();
-  return store;
+let userStore: RunStore | null = null;
+let globalStore: RunStore | null = null;
+function getUserStore(): RunStore {
+  if (!userStore) userStore = storageBackedRunStore("user");
+  return userStore;
 }
-/** Test seam: substitute the Storage-backed run store. */
-export function _setStoreForTests(s: RunStore | null): void {
-  store = s;
+function getGlobalStore(): RunStore {
+  if (!globalStore) globalStore = storageBackedRunStore("global");
+  return globalStore;
+}
+/** Test seam: substitute the per-user (tool-context) run store. */
+export function _setUserStoreForTests(s: RunStore | null): void {
+  userStore = s;
+}
+/** Test seam: substitute the global (cron/system) run store. */
+export function _setGlobalStoreForTests(s: RunStore | null): void {
+  globalStore = s;
 }
 
 // Indirections so tests can observe pushes + drive spawn deterministically.
@@ -193,6 +222,19 @@ export function applyAssignmentUpdate(
     ].slice(0, MAX_EVENTS_PER_RUN);
     return { ...r, status, updatedAt: at, events };
   });
+}
+
+/** Whether any run in the list matches the event (by run/assignment/task id).
+ *  Pure — lets the caller skip a store write when the event isn't for this
+ *  bucket. */
+export function runMatches(runs: RunRecord[], evt: TaskAssignmentUpdateEvent): boolean {
+  const a = evt.assignment;
+  return runs.some(
+    (r) =>
+      (!!a.agentRunId && r.id === a.agentRunId) ||
+      r.assignmentId === a.id ||
+      r.taskId === evt.taskId,
+  );
 }
 
 /** A run is steerable/cancellable only while it's still live. Pure. */
@@ -292,9 +334,12 @@ export function buildDashboard(runs: RunRecord[], extras: DashboardExtras = {}):
         r.updatedAt.slice(0, 16).replace("T", " "),
         r.events[0] ? `${r.events[0].status}${r.events[0].note ? ` — ${r.events[0].note}` : ""}` : "—",
       ];
-      // Live runs get a confirm-gated CANCEL action on the row; terminal
-      // runs deep-link to their sub-conversation. (A row carries either an
-      // action OR an href, not both.)
+      // PRIVACY: this tree is the SHARED Hub page (cached + served to all
+      // users). It carries ONLY ownerless cron/system runs (see the store
+      // split) and must NEVER expose a private `/chat/<subConversationId>`
+      // deep-link cross-user. Live runs still get a confirm-gated CANCEL
+      // action (a legitimate system action keyed on the run id); there is no
+      // per-user deep-link href on any row.
       if (isLive(r.status)) {
         return {
           cells,
@@ -305,10 +350,7 @@ export function buildDashboard(runs: RunRecord[], extras: DashboardExtras = {}):
           },
         };
       }
-      return {
-        cells,
-        ...(r.subConversationId ? { href: `/chat/${r.subConversationId}` as const } : {}),
-      };
+      return { cells };
     }),
   );
 
@@ -318,10 +360,13 @@ export function buildDashboard(runs: RunRecord[], extras: DashboardExtras = {}):
 
 // ── Handlers ──────────────────────────────────────────────────────
 
-/** Read runs + memory + tasks and build the dashboard with all sections.
- *  Memory/task reads fail-SOFT (a reverse-RPC blip must not blank the page). */
+/** Read GLOBAL (cron/system) runs + memory + tasks and build the SHARED
+ *  dashboard. Memory/task reads fail-SOFT (a reverse-RPC blip must not blank
+ *  the page). PRIVACY: reads the global store ONLY — user-dispatched runs are
+ *  per-user (user scope) and are NEVER rendered into this shared, cross-user
+ *  cached tree. */
 export async function buildDashboardLive(): Promise<HubPageTree> {
-  const runs = await getStore().read();
+  const runs = await getGlobalStore().read();
   let memories: MemoryRecord[] = [];
   let tasks: TaskRecord[] = [];
   try {
@@ -341,14 +386,27 @@ export async function renderDashboard(): Promise<HubPageTree> {
   return buildDashboardLive();
 }
 
-/** Shared dispatch logic: spawn a sub-agent + persist a run record + push.
- *  Reused by the dispatch_run tool AND the cron trigger handler (B4). */
-export async function dispatchRunCore(input: {
-  agentName: string;
-  task: string;
-  title?: string;
-  autonomousContinuation?: boolean;
-}): Promise<RunRecord> {
+/** Push a fresh SHARED dashboard tree (global/cron runs only). Only called
+ *  from ownerless/system contexts — NEVER from a user tool call (that would
+ *  cache one user's private runs into the shared tree). */
+async function pushSharedDashboard(): Promise<void> {
+  pushPageImpl(PAGE_ID, await buildDashboardLive());
+}
+
+/** Shared dispatch logic: spawn a sub-agent + persist a run record into the
+ *  given store. `push` is true only for ownerless/system (cron) dispatches —
+ *  user tool dispatches write to the per-user store and do NOT push (privacy).
+ */
+export async function dispatchRunCore(
+  input: {
+    agentName: string;
+    task: string;
+    title?: string;
+    autonomousContinuation?: boolean;
+  },
+  store: RunStore,
+  push: boolean,
+): Promise<RunRecord> {
   const handle = await spawnImpl({
     agentName: input.agentName,
     task: input.task,
@@ -369,13 +427,16 @@ export async function dispatchRunCore(input: {
     updatedAt: now,
     events: [{ at: now, status: "dispatched" }],
   };
-  const runs = appendRun(await getStore().read(), record);
-  await getStore().write(runs);
-  pushPageImpl(PAGE_ID, buildDashboard(runs));
+  const runs = appendRun(await store.read(), record);
+  await store.write(runs);
+  if (push) await pushSharedDashboard();
   return record;
 }
 
-/** dispatch_run tool — spawn a sub-agent + persist a run record. */
+/** dispatch_run tool — spawn a sub-agent + persist to the PER-USER store.
+ *  Runs in the invoking user's tool-call context (Storage("user") →
+ *  ctx.userId), so the record is private to that user and is NOT pushed into
+ *  the shared dashboard. */
 export const dispatchRun: ToolHandler = async (args) => {
   const { agentName, task, title, autonomousContinuation } = (args ?? {}) as {
     agentName?: unknown;
@@ -392,12 +453,16 @@ export const dispatchRun: ToolHandler = async (args) => {
 
   let record: RunRecord;
   try {
-    record = await dispatchRunCore({
-      agentName: agentName.trim(),
-      task: task.trim(),
-      ...(typeof title === "string" ? { title } : {}),
-      autonomousContinuation: autonomousContinuation === true,
-    });
+    record = await dispatchRunCore(
+      {
+        agentName: agentName.trim(),
+        task: task.trim(),
+        ...(typeof title === "string" ? { title } : {}),
+        autonomousContinuation: autonomousContinuation === true,
+      },
+      getUserStore(),
+      false, // user-private — never push into the shared tree
+    );
   } catch (err) {
     return toolError(`dispatch_run failed: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -411,10 +476,11 @@ export const dispatchRun: ToolHandler = async (args) => {
   );
 };
 
-/** list_runs tool — read the persisted run records (newest first). */
+/** list_runs tool — read the invoking user's OWN runs (per-user store),
+ *  newest first. */
 export const listRuns: ToolHandler = async (args) => {
   const { limit } = (args ?? {}) as { limit?: unknown };
-  const runs = await getStore().read();
+  const runs = await getUserStore().read();
   const n = typeof limit === "number" && limit > 0 ? Math.floor(limit) : MAX_RUNS;
   const slice = runs.slice(0, n).map((r) => ({
     id: r.id,
@@ -430,15 +496,17 @@ export const listRuns: ToolHandler = async (args) => {
 
 // ── steer_run ─────────────────────────────────────────────────────
 
-/** Shared steer logic: append a steering turn into the run's
- *  sub-conversation, record the steer event, push a fresh tree. Returns the
- *  outcome so both the tool wrapper and tests can assert it. */
+/** Shared steer logic over a given store: append a steering turn into the
+ *  run's sub-conversation, record the steer event, and (for shared/global
+ *  runs only) push a fresh dashboard. Returns the outcome. */
 export async function steerRunById(
   runId: string,
   message: string,
-  parentMessageId?: string,
+  parentMessageId: string | undefined = undefined,
+  store: RunStore = getUserStore(),
+  push = false,
 ): Promise<{ ok: boolean; error?: string }> {
-  const runs = await getStore().read();
+  const runs = await store.read();
   const run = runs.find((r) => r.id === runId);
   if (!run) return { ok: false, error: `no run with id '${runId}'` };
   if (!isLive(run.status)) {
@@ -459,12 +527,12 @@ export async function steerRunById(
     status: "steered",
     note: message.slice(0, 120),
   });
-  await getStore().write(next);
-  pushPageImpl(PAGE_ID, buildDashboard(next));
+  await store.write(next);
+  if (push) await pushSharedDashboard();
   return { ok: true };
 }
 
-/** steer_run tool — inject a steering message into a run's sub-conversation. */
+/** steer_run tool — steer one of the invoking user's OWN runs (user store). */
 export const steerRun: ToolHandler = async (args) => {
   const { runId, message, parentMessageId } = (args ?? {}) as {
     runId?: unknown;
@@ -481,6 +549,8 @@ export const steerRun: ToolHandler = async (args) => {
     runId.trim(),
     message.trim(),
     typeof parentMessageId === "string" && parentMessageId.trim() ? parentMessageId.trim() : undefined,
+    getUserStore(),
+    false,
   );
   if (!res.ok) return toolError(`steer_run failed: ${res.error}`);
   return toolResult(JSON.stringify({ runId, steered: true }));
@@ -488,11 +558,14 @@ export const steerRun: ToolHandler = async (args) => {
 
 // ── cancel_run ────────────────────────────────────────────────────
 
-/** Shared cancel logic: host-side cancel + flip the record to cancelled. */
+/** Shared cancel logic over a given store: host-side cancel + flip the
+ *  record to cancelled (and push for shared/global runs only). */
 export async function cancelRunById(
   runId: string,
+  store: RunStore = getUserStore(),
+  push = false,
 ): Promise<{ ok: boolean; error?: string }> {
-  const runs = await getStore().read();
+  const runs = await store.read();
   const run = runs.find((r) => r.id === runId);
   if (!run) return { ok: false, error: `no run with id '${runId}'` };
   let result: Awaited<ReturnType<typeof cancelRun>>;
@@ -505,18 +578,18 @@ export async function cancelRunById(
     return { ok: false, error: `host rejected cancel: ${result.reason ?? "unknown"}` };
   }
   const next = recordRunEvent(runs, runId, { status: "cancelled" }, "cancelled");
-  await getStore().write(next);
-  pushPageImpl(PAGE_ID, buildDashboard(next));
+  await store.write(next);
+  if (push) await pushSharedDashboard();
   return { ok: true };
 }
 
-/** cancel_run tool — cancel a live run (host enforces ownership). */
+/** cancel_run tool — cancel one of the invoking user's OWN runs (user store). */
 export const cancelRunTool: ToolHandler = async (args) => {
   const { runId } = (args ?? {}) as { runId?: unknown };
   if (typeof runId !== "string" || !runId.trim()) {
     return toolError("'runId' is required and must be a non-empty string");
   }
-  const res = await cancelRunById(runId.trim());
+  const res = await cancelRunById(runId.trim(), getUserStore(), false);
   if (!res.ok) return toolError(`cancel_run failed: ${res.error}`);
   return toolResult(JSON.stringify({ runId, cancelled: true }));
 };
@@ -537,9 +610,67 @@ export type ShellRunner = (
   cwd: string,
 ) => Promise<ShellResult>;
 
-/** Production runner — `Bun.spawn` (the extension holds `shell: true`). */
-const productionShell: ShellRunner = async (cmd, cwd) => {
-  const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+/**
+ * Resolve the per-run jail's rw allowlist for the active project repo: every
+ * TOP-LEVEL repo entry EXCEPT `.ezcorp` (which holds the platform DB + JWT
+ * secret). Landlock can't carve a child out of a granted parent, so we grant
+ * the siblings of `.ezcorp` (incl. `.git`, source dirs) and deliberately omit
+ * `.ezcorp` — git gets the whole working tree; `.ezcorp/data` stays denied.
+ * Falls back to the repo itself if it can't be listed (the builder's
+ * data-dir assertion then fails closed, surfacing the problem rather than
+ * silently exposing the DB).
+ */
+export function repoRwPaths(repo: string): string[] {
+  try {
+    return readdirSync(repo)
+      .filter((e) => e !== ".ezcorp")
+      .map((e) => join(repo, e));
+  } catch {
+    return [repo];
+  }
+}
+
+/**
+ * Production runner — runs `cmd` in the repo cwd UNDER the Seam B sandbox jail
+ * (`buildSandboxArgv`): the repo (minus `.ezcorp`) is read-write, system dirs
+ * read-only, and `.ezcorp/data` is denied. On the advisory tier this is a
+ * plain spawn (documented status-quo). The extension holds `shell: true`.
+ */
+export const productionShell: ShellRunner = async (cmd, cwd) => {
+  // Seam B jail for git/gh. The repo CHILDREN (minus `.ezcorp`) are rw; git
+  // also needs WRITE on the device dir (`/dev/null`, `/dev/tty`), so `/dev` is
+  // rw. The repo ROOT is granted READ-ONLY (`roPaths: [cwd]`) so git can scan
+  // the working tree (`opendir(".")`, index updates) — Landlock is purely
+  // ADDITIVE (a child rule can't subtract a parent's grant), and empirically
+  // git's tree scan needs more than a list-only (READ_DIR) grant on the root.
+  //
+  // Security: this DENIES WRITE under `.ezcorp/data` (the jailed git can't
+  // plant/corrupt the platform DB dir — proven in-container). READ of the
+  // IN-REPO `.ezcorp/data` CONVENTION path remains possible on the landlock
+  // tier (the read-only root parent covers it; Landlock can't carve it out).
+  // That convention path is gitignored; the REAL platform DB + JWT secret in
+  // production live OUTSIDE the project repo (the host DB path — see
+  // mcp-sandbox `getDbMaskDirs`), so they are never granted by this
+  // repo-rooted jail and stay fully denied read AND write.
+  const rwPaths = [...repoRwPaths(cwd), "/dev"];
+  // `listPaths: [cwd]` grants the repo ROOT read-only and is EXEMPT from the
+  // builder's data-dir-ancestor assertion (the root legitimately contains
+  // `.ezcorp/data`). It must NOT be in rw/ro (those would throw).
+  const built = buildSandboxArgv({
+    tier: getSandboxTier(),
+    workspaceDir: rwPaths[0] ?? cwd,
+    projectRoot: cwd,
+    rwPaths: rwPaths.slice(1),
+    listPaths: [cwd],
+    command: cmd[0]!,
+    args: cmd.slice(1),
+  });
+  const proc = Bun.spawn(built.argv, {
+    cwd,
+    env: { ...process.env, ...built.env },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const [stdout, stderr] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -574,8 +705,10 @@ export function branchForRun(runId: string): string {
 export async function openPrForRun(
   runId: string,
   opts: { title?: string; body?: string } = {},
+  store: RunStore = getUserStore(),
+  push = false,
 ): Promise<{ ok: boolean; url?: string; error?: string }> {
-  const runs = await getStore().read();
+  const runs = await store.read();
   const run = runs.find((r) => r.id === runId);
   if (!run) return { ok: false, error: `no run with id '${runId}'` };
 
@@ -588,12 +721,23 @@ export async function openPrForRun(
   const title = (opts.title ?? run.title ?? `ez-code run ${runId}`).trim() || `ez-code run ${runId}`;
   const body = opts.body ?? `Automated PR for ez-code run \`${runId}\` (agent: ${run.agentName}).`;
 
+  // Detect the repo's default branch for the PR base. `git symbolic-ref
+  // refs/remotes/origin/HEAD` prints e.g. `refs/remotes/origin/main`; fall
+  // back to `main` when origin/HEAD isn't set (fresh remote / detached).
+  const headRef = await shellImpl(["git", "symbolic-ref", "refs/remotes/origin/HEAD"], repo);
+  const base =
+    headRef.exitCode === 0
+      ? headRef.stdout.trim().split("/").pop() || "main"
+      : "main";
+
   const steps: string[][] = [
     ["git", "switch", "-c", branch],
     ["git", "add", "-A"],
     ["git", "commit", "-m", title],
     ["git", "push", "-u", "origin", branch],
-    ["gh", "pr", "create", "--title", title, "--body", body, "--head", branch],
+    // --base targets the detected default branch so the PR opens against it
+    // (not whatever gh guesses); --head is our run branch.
+    ["gh", "pr", "create", "--base", base, "--title", title, "--body", body, "--head", branch],
   ];
 
   let prUrl = "";
@@ -612,8 +756,8 @@ export async function openPrForRun(
     status: "pr_opened",
     note: prUrl || branch,
   });
-  await getStore().write(next);
-  pushPageImpl(PAGE_ID, buildDashboard(next));
+  await store.write(next);
+  if (push) await pushSharedDashboard();
   return { ok: true, url: prUrl || undefined };
 }
 
@@ -716,12 +860,19 @@ export async function handleTriggerFire(ctx: ScheduleHandlerContext): Promise<vo
   let dispatched = false;
   for (const t of triggers) {
     try {
-      const record = await dispatchRunCore({
-        agentName: t.agentName,
-        task: t.task,
-        ...(t.title ? { title: t.title } : {}),
-        autonomousContinuation: t.autonomousContinuation === true,
-      });
+      // Cron fires are OWNERLESS/system — dispatch into the GLOBAL store
+      // (Storage("global"), reachable from cron) so they appear on the
+      // shared dashboard. Don't push per-dispatch; one batch push below.
+      const record = await dispatchRunCore(
+        {
+          agentName: t.agentName,
+          task: t.task,
+          ...(t.title ? { title: t.title } : {}),
+          autonomousContinuation: t.autonomousContinuation === true,
+        },
+        getGlobalStore(),
+        false,
+      );
       // Seed a task entry for the dispatched run.
       const tasks = await getTaskStore().read();
       const seed: TaskRecord = {
@@ -737,34 +888,48 @@ export async function handleTriggerFire(ctx: ScheduleHandlerContext): Promise<vo
       // Isolate: a failing trigger must not abort the rest of the batch.
     }
   }
-  if (dispatched) {
-    // dispatchRunCore already pushed per dispatch; one more push reflects the
-    // seeded tasks now visible on the dashboard.
-    pushPageImpl(PAGE_ID, await buildDashboardLive());
-  }
+  if (dispatched) await pushSharedDashboard();
 }
 
 // ── page-action handlers (dashboard buttons) ──────────────────────
+//
+// The dashboard is the SHARED Hub page (global/cron runs only). Its row
+// actions therefore operate on the GLOBAL store and push the shared tree.
 
-/** Dashboard "Cancel" row action → cancel the run named in the payload. */
+/** Dashboard "Cancel" row action → cancel the (global/cron) run named in
+ *  the payload. */
 export async function handleCancelAction(event: PageActionEvent): Promise<void> {
   const runId = (event.payload?.runId as string | undefined) ?? "";
-  if (runId) await cancelRunById(runId);
+  if (runId) await cancelRunById(runId, getGlobalStore(), true);
 }
 
-/** Dashboard steer action → append the payload message to the run. */
+/** Dashboard steer action → steer the (global/cron) run named in the payload. */
 export async function handleSteerAction(event: PageActionEvent): Promise<void> {
   const runId = (event.payload?.runId as string | undefined) ?? "";
   const message = (event.payload?.message as string | undefined) ?? "";
-  if (runId && message) await steerRunById(runId, message);
+  if (runId && message) await steerRunById(runId, message, undefined, getGlobalStore(), true);
 }
 
-/** task:assignment_update handler — update the run + push a fresh tree. */
+/** task:assignment_update handler — update the run wherever it lives (user
+ *  or global store) and push the shared dashboard if a GLOBAL run changed.
+ *  The event carries no user binding, so we update BOTH buckets idempotently;
+ *  only the store containing the run mutates. We push the shared tree only
+ *  when a global run changed (a user-run update must not touch the shared,
+ *  cross-user cached tree). */
 export async function handleAssignmentUpdate(
   evt: TaskAssignmentUpdateEvent,
 ): Promise<void> {
-  const runs = applyAssignmentUpdate(await getStore().read(), evt);
-  await getStore().write(runs);
+  // User store: update silently (no shared push — privacy). Only write when
+  // the run actually lives there, so an unrelated global event doesn't
+  // rewrite the user's bucket.
+  const userBefore = await getUserStore().read();
+  if (runMatches(userBefore, evt)) {
+    await getUserStore().write(applyAssignmentUpdate(userBefore, evt));
+  }
+
+  // Global store: update + push the shared dashboard.
+  const runs = applyAssignmentUpdate(await getGlobalStore().read(), evt);
+  await getGlobalStore().write(runs);
   pushPageImpl(PAGE_ID, buildDashboard(runs));
 }
 

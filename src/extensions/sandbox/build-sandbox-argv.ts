@@ -54,6 +54,10 @@ export interface SandboxArgvInput {
   roPaths?: readonly string[];
   /** Extra read-write paths beyond the workspace (e.g. a private TMPDIR). */
   rwPaths?: readonly string[];
+  /** LIST-only paths (landlock tier): traverse + enumerate, no file-read.
+   *  Used to grant a git repo root that contains `.ezcorp/data` — see
+   *  buildLandlockJailSpec. No effect on the bwrap/advisory tiers. */
+  listPaths?: readonly string[];
   /** Optional seccomp FD index for the bwrap leg (`--seccomp <fd>`). */
   seccompFd?: number | null;
   /** Override the path to the Bun runtime (defaults to "bun"). */
@@ -101,6 +105,7 @@ export function buildSandboxArgv(input: SandboxArgvInput): SandboxArgvResult {
         projectRoot: input.projectRoot,
         roPaths: input.roPaths,
         rwPaths: input.rwPaths,
+        ...(input.listPaths ? { listPaths: input.listPaths } : {}),
       });
       const bun = input.bunPath ?? "bun";
       const shim = input.shimPath ?? defaultShimPath();

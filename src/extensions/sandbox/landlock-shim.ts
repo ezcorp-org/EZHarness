@@ -65,7 +65,14 @@ export function parseSpecFromEnv(
   if (!Array.isArray(spec.ro) || !Array.isArray(spec.rw)) {
     throw new Error(`landlock-shim: malformed spec (need ro[] and rw[])`);
   }
-  return { ro: spec.ro, rw: spec.rw };
+  // Preserve the optional read-only "root" list (data-dir-ancestor-exempt) so
+  // the in-process jail grants the git repo root — dropping it here was why
+  // jailed git couldn't open `.`.
+  return {
+    ro: spec.ro,
+    rw: spec.rw,
+    ...(Array.isArray(spec.list) ? { list: spec.list } : {}),
+  };
 }
 
 /**

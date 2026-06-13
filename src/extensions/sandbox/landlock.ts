@@ -18,8 +18,8 @@
  * (DRY — one definition of "never expose the DB/secret dir").
  */
 
-import { resolve } from "node:path";
-import { assertOutsideDataDir } from "../preview-jail";
+import { resolve, sep } from "node:path";
+import { assertOutsideDataDir, forbiddenDataDir } from "../preview-jail";
 import { applyReadWriteJail, landlockAbiVersion } from "./landlock-ffi";
 
 /** Conventional read-only system dirs a runtime needs to exec. The shim
@@ -49,6 +49,15 @@ export interface LandlockJailInput {
   /** Extra read-write paths beyond the workspace (e.g. a private TMPDIR).
    *  Each is asserted to be outside `.ezcorp/data`. */
   rwPaths?: readonly string[];
+  /** "Root" paths granted READ-ONLY, EXEMPT from the data-dir-ancestor
+   *  assertion. Used for a git repo root that CONTAINS `.ezcorp/data`: git
+   *  must read/scan the whole working tree, so the root is read-only (the
+   *  jailed process therefore cannot WRITE under `.ezcorp/data`). Landlock is
+   *  additive, so rw children add write to their subtree while the ungranted
+   *  `.ezcorp/data` stays read-only (write denied). A list path may BE an
+   *  ancestor of `.ezcorp/data` (that's the point) but must not be the data
+   *  dir or under it. */
+  listPaths?: readonly string[];
 }
 
 /**
@@ -67,6 +76,9 @@ export interface LandlockJailSpec {
   ro: string[];
   /** Read-write allowlist (the workspace + extra rw paths). */
   rw: string[];
+  /** Read-only "root" allowlist (data-dir-ancestor-exempt). Optional —
+   *  absent on the common case; present for the git-repo-root jail. */
+  list?: string[];
 }
 
 /**
@@ -88,15 +100,33 @@ export function buildLandlockJailSpec(input: LandlockJailInput): LandlockJailSpe
 
   const rw = rwInputs.map((p) => resolve(p));
   const ro = roInputs.map((p) => resolve(p));
+  const list = (input.listPaths ?? []).map((p) => resolve(p));
 
-  // Deny-by-default invariant: the DB/secret dir must NEVER be reachable
-  // through ANY granted path (rw or ro). Reuses the single source of truth
-  // from preview-jail.ts.
+  // Deny-by-default invariant: the DB/secret dir must NEVER be reachable for
+  // READ or WRITE through any rw/ro grant. List-only paths are EXEMPT from
+  // the ancestor check (a repo root that contains `.ezcorp/data` is the whole
+  // point — list-only grants traverse, NOT file-read, so the DB stays
+  // unreadable), but a list path must not itself BE the data dir or under it.
   for (const p of [...rw, ...ro]) {
     assertOutsideDataDir(p, input.projectRoot);
   }
+  for (const p of list) {
+    assertListPathNotInsideDataDir(p, input.projectRoot);
+  }
 
-  return { ro, rw };
+  return { ro, rw, ...(list.length > 0 ? { list } : {}) };
+}
+
+/** A list-only path may be an ANCESTOR of `.ezcorp/data` (intended) but must
+ *  not BE the data dir or live UNDER it. */
+function assertListPathNotInsideDataDir(path: string, projectRoot: string): void {
+  const forbidden = forbiddenDataDir(projectRoot);
+  const abs = resolve(path);
+  if (abs === forbidden || abs.startsWith(forbidden + sep)) {
+    throw new Error(
+      `landlock: refusing a list path that IS or is UNDER the data dir: ${abs}`,
+    );
+  }
 }
 
 /**
@@ -121,5 +151,5 @@ export function applyLandlockJailSpec(spec: LandlockJailSpec): void {
     throw new Error(`landlock: not supported here (ABI=${abi})`);
   }
   // Distro-portable: the FFI helper skips non-existent allow paths.
-  applyReadWriteJail(spec.rw, spec.ro, abi);
+  applyReadWriteJail(spec.rw, spec.ro, abi, spec.list ?? []);
 }

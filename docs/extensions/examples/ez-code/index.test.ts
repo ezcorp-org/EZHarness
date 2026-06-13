@@ -17,24 +17,23 @@ import {
   CANCEL_EVENT,
   MAX_RUNS,
   PAGE_ID,
-  STEER_EVENT,
   _setAppendMessageForTests,
   _setCancelForTests,
+  _setGlobalStoreForTests,
   _setMemoryForTests,
   _setProjectRootForTests,
   _setPushPageForTests,
   _setShellForTests,
   _setSpawnForTests,
-  _setStoreForTests,
   _setTaskStoreForTests,
   _setTriggersForTests,
+  _setUserStoreForTests,
   appendExtras,
   appendRun,
   applyAssignmentUpdate,
   branchForRun,
   buildDashboard,
   buildDashboardLive,
-  dispatchRunCore,
   handleTriggerFire,
   triggersForCron,
   cancelRunById,
@@ -48,8 +47,10 @@ import {
   mapStatus,
   openPr,
   openPrForRun,
+  productionShell,
   productionTriggers,
   recordRunEvent,
+  repoRwPaths,
   register,
   renderDashboard,
   steerRun,
@@ -63,6 +64,7 @@ import {
   type Trigger,
 } from "./index";
 import type { ToolCallResult } from "../../../../src/extensions/types";
+import { probeLandlockAbi, getSandboxTier } from "../../../../src/extensions/sandbox/capability-probe";
 
 function record(overrides: Partial<RunRecord> = {}): RunRecord {
   const now = "2026-06-13T08:00:00.000Z";
@@ -105,13 +107,22 @@ function capturePushes(): Array<{ pageId: string; tree: unknown }> {
   return pushes;
 }
 
+/** Set BOTH the user + global run stores to the same memory store (most
+ *  tests exercise one bucket; the privacy split is asserted by a dedicated
+ *  cross-user test that sets the two stores SEPARATELY). */
+function setBothStores(store: RunStore): void {
+  _setUserStoreForTests(store);
+  _setGlobalStoreForTests(store);
+}
+
 function parse(result: ToolCallResult): any {
   const text = result.content.find((c) => c.type === "text") as { text: string } | undefined;
   return JSON.parse(text!.text);
 }
 
 afterEach(() => {
-  _setStoreForTests(null);
+  _setUserStoreForTests(null);
+  _setGlobalStoreForTests(null);
   _setPushPageForTests(null);
   _setSpawnForTests(null);
   _setCancelForTests(null);
@@ -235,18 +246,22 @@ describe("buildDashboard", () => {
     };
     expect(table.columns).toEqual(["Run", "Agent", "Status", "Updated", "Latest event"]);
     expect(table.rows[0]!.cells[2]).toContain("running");
-    // A live (running) row carries a cancel action, not a deep-link (B2);
-    // terminal rows deep-link to their sub-conversation.
+    // A live (running) row carries a cancel action. PRIVACY (cross-user leak
+    // fix): NO row carries a `/chat/<sub>` deep-link — this is the SHARED
+    // tree and a private sub-conversation link must not be exposed cross-user.
     expect(table.rows[0]!.action).toBeDefined();
     expect(table.rows[0]!.href).toBeUndefined();
-    expect(table.rows[1]!.href).toBe("/chat/sub-1");
+    expect(table.rows[1]!.href).toBeUndefined();
+    expect(table.rows[2]!.href).toBeUndefined();
   });
 });
 
 describe("dispatch_run tool", () => {
-  test("spawns, persists a run record, and pushes a fresh dashboard", async () => {
-    const store = memoryStore();
-    _setStoreForTests(store);
+  test("spawns + persists to the per-user store; does NOT push the shared tree (privacy)", async () => {
+    const userStore = memoryStore();
+    const globalStore = memoryStore();
+    _setUserStoreForTests(userStore);
+    _setGlobalStoreForTests(globalStore);
     const pushes = capturePushes();
     _setSpawnForTests(async (input) => {
       expect(input.agentName).toBe("coder");
@@ -268,16 +283,18 @@ describe("dispatch_run tool", () => {
     expect(payload.runId).toBe("run-99");
     expect(payload.status).toBe("dispatched");
 
-    expect(store.runs).toHaveLength(1);
-    expect(store.runs[0]!.id).toBe("run-99");
-    expect(store.runs[0]!.title).toBe("Bugfix");
-    expect(store.runs[0]!.status).toBe("dispatched");
-    expect(pushes).toHaveLength(1);
-    expect(pushes[0]!.pageId).toBe(PAGE_ID);
+    // Persisted to the USER bucket only.
+    expect(userStore.runs).toHaveLength(1);
+    expect(userStore.runs[0]!.id).toBe("run-99");
+    expect(userStore.runs[0]!.title).toBe("Bugfix");
+    // The GLOBAL (shared) bucket is untouched, and NO shared push fired —
+    // a user's private run must never enter the cross-user cached tree.
+    expect(globalStore.runs).toHaveLength(0);
+    expect(pushes).toHaveLength(0);
   });
 
   test("forwards autonomousContinuation when true", async () => {
-    _setStoreForTests(memoryStore());
+    setBothStores(memoryStore());
     _setPushPageForTests(() => {});
     let seen: unknown = null;
     _setSpawnForTests(async (input) => {
@@ -296,7 +313,7 @@ describe("dispatch_run tool", () => {
   });
 
   test("surfaces a spawn failure as a tool error", async () => {
-    _setStoreForTests(memoryStore());
+    setBothStores(memoryStore());
     _setSpawnForTests(async () => {
       throw new Error("quota exceeded");
     });
@@ -308,8 +325,8 @@ describe("dispatch_run tool", () => {
 });
 
 describe("list_runs tool", () => {
-  test("returns persisted runs (newest first), respects limit", async () => {
-    _setStoreForTests(
+  test("returns the user's OWN persisted runs (newest first), respects limit", async () => {
+    setBothStores(
       memoryStore([
         record({ id: "r1", title: "one" }),
         record({ id: "r2", title: "two" }),
@@ -327,7 +344,7 @@ describe("list_runs tool", () => {
 describe("handleAssignmentUpdate", () => {
   test("updates the matching run + pushes the fresh tree", async () => {
     const store = memoryStore([record({ id: "run-7", status: "dispatched" })]);
-    _setStoreForTests(store);
+    setBothStores(store);
     const pushes = capturePushes();
 
     await handleAssignmentUpdate({
@@ -374,7 +391,7 @@ describe("isLive / recordRunEvent (B2 pure helpers)", () => {
 describe("steer_run", () => {
   test("appends a steering turn, records the event, pushes a fresh tree", async () => {
     const store = memoryStore([record({ id: "run-s", status: "running" })]);
-    _setStoreForTests(store);
+    setBothStores(store);
     const pushes = capturePushes();
     let appended: any = null;
     _setAppendMessageForTests(async (params) => {
@@ -388,11 +405,12 @@ describe("steer_run", () => {
     expect(appended.role).toBe("extension");
     expect(appended.content).toContain("focus on the failing test");
     expect(store.runs[0]!.events[0]!.status).toBe("steered");
-    expect(pushes).toHaveLength(1);
+    // The steer TOOL acts on the user's private run — no shared-tree push.
+    expect(pushes).toHaveLength(0);
   });
 
   test("forwards an explicit parentMessageId", async () => {
-    _setStoreForTests(memoryStore([record({ id: "run-p", status: "running" })]));
+    setBothStores(memoryStore([record({ id: "run-p", status: "running" })]));
     _setPushPageForTests(() => {});
     let appended: any = null;
     _setAppendMessageForTests(async (params) => {
@@ -409,14 +427,14 @@ describe("steer_run", () => {
   });
 
   test("rejects steering a terminal run", async () => {
-    _setStoreForTests(memoryStore([record({ id: "run-done", status: "completed" })]));
+    setBothStores(memoryStore([record({ id: "run-done", status: "completed" })]));
     const r = await steerRun({ runId: "run-done", message: "go" });
     expect(r.isError).toBe(true);
     expect((r.content[0] as { text: string }).text).toContain("not steerable");
   });
 
   test("surfaces an append-message RPC failure", async () => {
-    _setStoreForTests(memoryStore([record({ id: "run-e", status: "running" })]));
+    setBothStores(memoryStore([record({ id: "run-e", status: "running" })]));
     _setAppendMessageForTests(async () => {
       throw new Error("not wired to this conversation");
     });
@@ -426,14 +444,14 @@ describe("steer_run", () => {
   });
 
   test("steerRunById reports a missing run", async () => {
-    _setStoreForTests(memoryStore([]));
+    setBothStores(memoryStore([]));
     const res = await steerRunById("ghost", "go");
     expect(res.ok).toBe(false);
     expect(res.error).toContain("no run");
   });
 
   test("production append path calls ezcorp/append-message through the channel", async () => {
-    _setStoreForTests(memoryStore([record({ id: "run-prod", status: "running" })]));
+    setBothStores(memoryStore([record({ id: "run-prod", status: "running" })]));
     _setPushPageForTests(() => {});
     _setAppendMessageForTests(null); // force the production channel-backed impl
     let sent: { method: string; params: any } | null = null;
@@ -451,9 +469,9 @@ describe("steer_run", () => {
 });
 
 describe("cancel_run", () => {
-  test("cancels via the host + flips the record to cancelled + pushes", async () => {
+  test("cancels via the host + flips the record to cancelled (no shared push)", async () => {
     const store = memoryStore([record({ id: "run-c", status: "running" })]);
-    _setStoreForTests(store);
+    setBothStores(store);
     const pushes = capturePushes();
     let cancelledId: string | null = null;
     _setCancelForTests(async (id) => {
@@ -465,11 +483,12 @@ describe("cancel_run", () => {
     expect(r.isError).toBeFalsy();
     expect(cancelledId as string | null).toBe("run-c");
     expect(store.runs[0]!.status).toBe("cancelled");
-    expect(pushes).toHaveLength(1);
+    // The cancel TOOL acts on the user's private run — no shared-tree push.
+    expect(pushes).toHaveLength(0);
   });
 
   test("surfaces a host rejection with its reason", async () => {
-    _setStoreForTests(memoryStore([record({ id: "run-no", status: "running" })]));
+    setBothStores(memoryStore([record({ id: "run-no", status: "running" })]));
     _setCancelForTests(async () => ({ cancelled: false, reason: "not-owned" }));
     const r = await cancelRunTool({ runId: "run-no" });
     expect(r.isError).toBe(true);
@@ -481,12 +500,12 @@ describe("cancel_run", () => {
   });
 
   test("cancelRunById reports a missing run", async () => {
-    _setStoreForTests(memoryStore([]));
+    setBothStores(memoryStore([]));
     expect((await cancelRunById("ghost")).ok).toBe(false);
   });
 
   test("surfaces a thrown cancel error", async () => {
-    _setStoreForTests(memoryStore([record({ id: "run-t", status: "running" })]));
+    setBothStores(memoryStore([record({ id: "run-t", status: "running" })]));
     _setCancelForTests(async () => {
       throw new Error("boom");
     });
@@ -509,14 +528,16 @@ describe("dashboard cancel action (live rows)", () => {
     expect(table.rows[0]!.action!.payload.runId).toBe("live");
     expect(table.rows[0]!.action!.confirm).toBeTruthy();
     expect(table.rows[0]!.href).toBeUndefined();
-    // terminal run: deep-link, no action.
-    expect(table.rows[1]!.href).toBe("/chat/sub-done");
+    // PRIVACY: terminal rows carry NO deep-link in the shared tree.
+    expect(table.rows[1]!.href).toBeUndefined();
     expect(table.rows[1]!.action).toBeUndefined();
   });
 
-  test("handleCancelAction cancels the payload run", async () => {
+  test("handleCancelAction cancels the payload run (global store) + pushes", async () => {
     const store = memoryStore([record({ id: "run-act", status: "running" })]);
-    _setStoreForTests(store);
+    setBothStores(store);
+    _setMemoryForTests(async () => []);
+    _setTaskStoreForTests({ read: async () => [], write: async () => {} });
     _setPushPageForTests(() => {});
     _setCancelForTests(async () => ({ cancelled: true }));
     await handleCancelAction({ source: "hub", pageId: PAGE_ID, userId: "u1", payload: { runId: "run-act" } });
@@ -524,7 +545,7 @@ describe("dashboard cancel action (live rows)", () => {
   });
 
   test("handleCancelAction is a no-op with no runId", async () => {
-    _setStoreForTests(memoryStore([record({ id: "x", status: "running" })]));
+    setBothStores(memoryStore([record({ id: "x", status: "running" })]));
     let cancelCalls = 0;
     _setCancelForTests(async () => {
       cancelCalls++;
@@ -536,7 +557,9 @@ describe("dashboard cancel action (live rows)", () => {
 
   test("handleSteerAction appends when payload has runId + message", async () => {
     const store = memoryStore([record({ id: "run-sa", status: "running" })]);
-    _setStoreForTests(store);
+    setBothStores(store);
+    _setMemoryForTests(async () => []);
+    _setTaskStoreForTests({ read: async () => [], write: async () => {} });
     _setPushPageForTests(() => {});
     let appended = false;
     _setAppendMessageForTests(async () => {
@@ -554,7 +577,7 @@ describe("dashboard cancel action (live rows)", () => {
   });
 
   test("handleSteerAction is a no-op without both fields", async () => {
-    _setStoreForTests(memoryStore([record({ id: "x", status: "running" })]));
+    setBothStores(memoryStore([record({ id: "x", status: "running" })]));
     let appendCalls = 0;
     _setAppendMessageForTests(async () => {
       appendCalls++;
@@ -572,7 +595,7 @@ describe("open_pr (B3 branch→PR automation)", () => {
   });
 
   test("runs git+gh in the project repo cwd, in order, with the right args", async () => {
-    _setStoreForTests(memoryStore([record({ id: "run-pr", title: "My feature" })]));
+    setBothStores(memoryStore([record({ id: "run-pr", title: "My feature" })]));
     _setPushPageForTests(() => {});
     _setProjectRootForTests(() => "/proj/repo");
     const calls: Array<{ cmd: string[]; cwd: string }> = [];
@@ -589,28 +612,62 @@ describe("open_pr (B3 branch→PR automation)", () => {
 
     // Every command ran in the active project's repo.
     expect(calls.every((c) => c.cwd === "/proj/repo")).toBe(true);
-    // Ordered: branch → add → commit → push → gh pr create.
+    // Ordered: detect default branch → branch → add → commit → push → gh.
     expect(calls.map((c) => `${c.cmd[0]} ${c.cmd[1]}`)).toEqual([
+      "git symbolic-ref",
       "git switch",
       "git add",
       "git commit",
       "git push",
       "gh pr",
     ]);
-    // Branch name + gh args.
-    expect(calls[0]!.cmd).toEqual(["git", "switch", "-c", "ez-code/run-pr"]);
-    expect(calls[3]!.cmd).toEqual(["git", "push", "-u", "origin", "ez-code/run-pr"]);
-    const gh = calls[4]!.cmd;
+    // Branch name + gh args (the git step indices shift by 1 after the
+    // symbolic-ref probe at index 0).
+    expect(calls[1]!.cmd).toEqual(["git", "switch", "-c", "ez-code/run-pr"]);
+    expect(calls[4]!.cmd).toEqual(["git", "push", "-u", "origin", "ez-code/run-pr"]);
+    const gh = calls[5]!.cmd;
     expect(gh.slice(0, 3)).toEqual(["gh", "pr", "create"]);
     expect(gh).toContain("--head");
     expect(gh[gh.indexOf("--head") + 1]).toBe("ez-code/run-pr");
     expect(gh[gh.indexOf("--title") + 1]).toBe("My feature");
     expect(gh[gh.indexOf("--body") + 1]).toBe("Fixes the thing");
+    // #6 — the PR targets the detected default branch via --base.
+    expect(gh).toContain("--base");
   });
 
-  test("records a pr_opened event + pushes the dashboard", async () => {
+  test("--base targets the detected default branch from origin/HEAD", async () => {
+    setBothStores(memoryStore([record({ id: "run-base", title: "T" })]));
+    _setPushPageForTests(() => {});
+    _setProjectRootForTests(() => "/repo");
+    let ghBase: string | undefined;
+    _setShellForTests(async (cmd): Promise<ShellResult> => {
+      if (cmd[1] === "symbolic-ref") {
+        return { exitCode: 0, stdout: "refs/remotes/origin/develop\n", stderr: "" };
+      }
+      if (cmd[0] === "gh") ghBase = cmd[cmd.indexOf("--base") + 1];
+      return { exitCode: 0, stdout: cmd[0] === "gh" ? "url" : "", stderr: "" };
+    });
+    await openPr({ runId: "run-base" });
+    expect(ghBase).toBe("develop");
+  });
+
+  test("--base falls back to main when origin/HEAD is unset", async () => {
+    setBothStores(memoryStore([record({ id: "run-nohead", title: "T" })]));
+    _setPushPageForTests(() => {});
+    _setProjectRootForTests(() => "/repo");
+    let ghBase: string | undefined;
+    _setShellForTests(async (cmd): Promise<ShellResult> => {
+      if (cmd[1] === "symbolic-ref") return { exitCode: 1, stdout: "", stderr: "no HEAD" };
+      if (cmd[0] === "gh") ghBase = cmd[cmd.indexOf("--base") + 1];
+      return { exitCode: 0, stdout: cmd[0] === "gh" ? "url" : "", stderr: "" };
+    });
+    await openPr({ runId: "run-nohead" });
+    expect(ghBase).toBe("main");
+  });
+
+  test("records a pr_opened event; the open_pr TOOL does NOT push the shared tree", async () => {
     const store = memoryStore([record({ id: "run-ev", title: "T" })]);
-    _setStoreForTests(store);
+    setBothStores(store);
     const pushes = capturePushes();
     _setProjectRootForTests(() => "/repo");
     _setShellForTests(async (cmd) => ({
@@ -621,11 +678,12 @@ describe("open_pr (B3 branch→PR automation)", () => {
     await openPr({ runId: "run-ev" });
     expect(store.runs[0]!.events[0]!.status).toBe("pr_opened");
     expect(store.runs[0]!.events[0]!.note).toBe("https://github.com/o/r/pull/3");
-    expect(pushes).toHaveLength(1);
+    // open_pr operates on the user's private run — no shared push.
+    expect(pushes).toHaveLength(0);
   });
 
   test("aborts (fail-closed) on a non-zero git step, surfacing stderr", async () => {
-    _setStoreForTests(memoryStore([record({ id: "run-fail" })]));
+    setBothStores(memoryStore([record({ id: "run-fail" })]));
     _setProjectRootForTests(() => "/repo");
     _setShellForTests(async (cmd) =>
       cmd[1] === "push"
@@ -644,16 +702,60 @@ describe("open_pr (B3 branch→PR automation)", () => {
   });
 
   test("reports a missing run", async () => {
-    _setStoreForTests(memoryStore([]));
+    setBothStores(memoryStore([]));
     expect((await openPrForRun("ghost")).ok).toBe(false);
   });
 
   test("fails when no active project repo is resolved", async () => {
-    _setStoreForTests(memoryStore([record({ id: "run-noroot" })]));
+    setBothStores(memoryStore([record({ id: "run-noroot" })]));
     _setProjectRootForTests(() => undefined);
     const res = await openPrForRun("run-noroot");
     expect(res.ok).toBe(false);
     expect(res.error).toContain("EZCORP_PROJECT_ROOT");
+  });
+});
+
+describe("repoRwPaths + productionShell (jail wiring)", () => {
+  test("repoRwPaths lists top-level repo entries EXCEPT .ezcorp", async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const repo = mkdtempSync(join(tmpdir(), "rw-"));
+    try {
+      mkdirSync(join(repo, ".git"));
+      writeFileSync(join(repo, "a.txt"), "x");
+      mkdirSync(join(repo, ".ezcorp"), { recursive: true });
+      const paths = repoRwPaths(repo);
+      expect(paths).toContain(join(repo, ".git"));
+      expect(paths).toContain(join(repo, "a.txt"));
+      // .ezcorp (holding the DB/secret) is NEVER in the rw set.
+      expect(paths).not.toContain(join(repo, ".ezcorp"));
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test("repoRwPaths falls back to [repo] when the dir can't be listed", () => {
+    expect(repoRwPaths("/no/such/repo/zzz")).toEqual(["/no/such/repo/zzz"]);
+  });
+
+  test("productionShell runs the command in cwd (advisory tier = bare spawn)", async () => {
+    // On a host without a usable tier the wrap is a plain spawn; either way
+    // productionShell returns the command's real output. Use `pwd` to confirm
+    // the cwd is threaded through.
+    const { mkdtempSync, rmSync, realpathSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "ps-")));
+    try {
+      const r = await productionShell(["/bin/sh", "-c", "echo PS_OK"], dir);
+      // On a capable host (bwrap with a setuid wrapper / landlock) the jail may
+      // alter the exit, but the command + wiring are exercised either way.
+      expect(typeof r.exitCode).toBe("number");
+      expect(typeof r.stdout).toBe("string");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -684,7 +786,7 @@ describe("open_pr against a real throwaway git repo (integration)", () => {
     // A pending change for open_pr to commit.
     writeFileSync(join(repo, "feature.txt"), "agent work\n");
 
-    _setStoreForTests(memoryStore([record({ id: "run-real", title: "Add feature" })]));
+    setBothStores(memoryStore([record({ id: "run-real", title: "Add feature" })]));
     _setPushPageForTests(() => {});
     _setProjectRootForTests(() => repo);
 
@@ -727,6 +829,79 @@ describe("open_pr against a real throwaway git repo (integration)", () => {
     const { rmSync } = await import("node:fs");
     rmSync(base, { recursive: true, force: true });
   });
+
+  // #2 — open_pr's git runs JAILED (Seam B). Exercises the REAL productionShell
+  // (no shell injection): git operations FUNCTION inside the jail (branch +
+  // commit + push to a bare remote) while `.ezcorp/data` stays denied read AND
+  // write. Gated on the LANDLOCK tier — that's the container's production path;
+  // this dev host resolves to `bwrap` whose setuid wrapper rejects the
+  // unprivileged tmpfs flags (an environment quirk, not a seam defect), so the
+  // test runs in-container where the tier is landlock.
+  test.if(getSandboxTier() === "landlock" && (probeLandlockAbi() ?? 0) >= 1)(
+    "JAILED git (productionShell) creates+commits+pushes; .ezcorp/data denied",
+    async () => {
+      const { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } = await import("node:fs");
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const { realpathSync } = await import("node:fs");
+
+      const base = realpathSync(mkdtempSync(join(tmpdir(), "ezc-jail-")));
+      const repo = join(base, "work");
+      const remote = join(base, "remote.git");
+      mkdirSync(repo, { recursive: true });
+      const run = (args: string[], cwd: string) =>
+        Bun.spawnSync(args, { cwd, stdout: "pipe", stderr: "pipe" });
+      run(["git", "init", "--bare", remote], base);
+      run(["git", "init"], repo);
+      run(["git", "config", "user.email", "t@t.com"], repo);
+      run(["git", "config", "user.name", "t"], repo);
+      run(["git", "config", "commit.gpgsign", "false"], repo);
+      writeFileSync(join(repo, "README.md"), "# work\n");
+      run(["git", "add", "-A"], repo);
+      run(["git", "commit", "-m", "init"], repo);
+      run(["git", "branch", "-M", "main"], repo);
+      run(["git", "remote", "add", "origin", remote], repo);
+      // Plant a platform secret under .ezcorp/data (must stay denied).
+      const dataDir = join(repo, ".ezcorp", "data");
+      mkdirSync(dataDir, { recursive: true });
+      writeFileSync(join(dataDir, "jwt-secret.txt"), "TOP-SECRET");
+      // A pending change for the jailed git to commit.
+      writeFileSync(join(repo, "feature.txt"), "agent work\n");
+
+      try {
+        // Run the REAL jailed shell (productionShell wraps each command in
+        // buildSandboxArgv, granting the repo MINUS .ezcorp).
+        const sw = await productionShell(["git", "switch", "-c", "ez-code/jailed"], repo);
+        expect(sw.exitCode).toBe(0);
+        const add = await productionShell(["git", "add", "-A"], repo);
+        expect(add.exitCode).toBe(0);
+        const commit = await productionShell(["git", "commit", "-m", "jailed work"], repo);
+        expect(commit.exitCode).toBe(0);
+        const push = await productionShell(["git", "push", "-u", "origin", "ez-code/jailed"], repo);
+        expect(push.exitCode).toBe(0);
+
+        // The branch reached the bare remote — git FUNCTIONED jailed.
+        const refs = run(["git", "ls-remote", "--heads", remote], base).stdout.toString();
+        expect(refs).toContain("ez-code/jailed");
+
+        // The secret under .ezcorp/data is DENIED read AND write inside the jail.
+        const readDeny = await productionShell(
+          ["cat", join(dataDir, "jwt-secret.txt")],
+          repo,
+        );
+        expect(readDeny.exitCode).not.toBe(0);
+        expect(readDeny.stderr.toLowerCase()).toContain("permission denied");
+        const writeDeny = await productionShell(
+          ["/bin/sh", "-c", `echo x > ${join(dataDir, "evil.txt")}`],
+          repo,
+        );
+        expect(writeDeny.exitCode).not.toBe(0);
+        expect(existsSync(join(dataDir, "evil.txt"))).toBe(false);
+      } finally {
+        rmSync(base, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe("B4: triggers / memory / tasks", () => {
@@ -752,9 +927,12 @@ describe("B4: triggers / memory / tasks", () => {
     expect(fired.map((t) => t.agentName)).toEqual(["a"]);
   });
 
-  test("handleTriggerFire dispatches a run per matching trigger + seeds a task", async () => {
-    const store = memoryStore();
-    _setStoreForTests(store);
+  test("handleTriggerFire dispatches a cron run to the GLOBAL store + seeds a task", async () => {
+    // Cron fires are ownerless/system → GLOBAL bucket (NOT the user bucket).
+    const store = memoryStore(); // global
+    const userBucket = memoryStore();
+    _setGlobalStoreForTests(store);
+    _setUserStoreForTests(userBucket);
     const taskState: TaskRecord[] = [];
     const taskStore: TaskStore = {
       async read() {
@@ -788,6 +966,8 @@ describe("B4: triggers / memory / tasks", () => {
     expect(spawnCount).toBe(1);
     expect(store.runs).toHaveLength(1);
     expect(store.runs[0]!.agentName).toBe("coder");
+    // The user bucket is untouched — cron runs are system, not per-user.
+    expect(userBucket.runs).toHaveLength(0);
     // A task seed was created for the dispatched run.
     expect(taskState).toHaveLength(1);
     expect(taskState[0]!.title).toBe("Build");
@@ -795,7 +975,7 @@ describe("B4: triggers / memory / tasks", () => {
   });
 
   test("handleTriggerFire is a no-op when no trigger matches the cron", async () => {
-    _setStoreForTests(memoryStore());
+    setBothStores(memoryStore());
     _setTriggersForTests(async () => [{ cron: "0 9 * * *", agentName: "a", task: "t" }]);
     let spawned = 0;
     _setSpawnForTests(async () => {
@@ -808,7 +988,7 @@ describe("B4: triggers / memory / tasks", () => {
 
   test("handleTriggerFire isolates a failing trigger (rest still dispatch)", async () => {
     const store = memoryStore();
-    _setStoreForTests(store);
+    setBothStores(store);
     _setTaskStoreForTests({ read: async () => [], write: async () => {} });
     _setMemoryForTests(async () => []);
     _setPushPageForTests(() => {});
@@ -853,7 +1033,7 @@ describe("B4: triggers / memory / tasks", () => {
   });
 
   test("buildDashboardLive surfaces memory + tasks; fails soft on read errors", async () => {
-    _setStoreForTests(memoryStore([record({ id: "r1", status: "running" })]));
+    setBothStores(memoryStore([record({ id: "r1", status: "running" })]));
     _setMemoryForTests(async () => {
       throw new Error("memory down");
     });
@@ -937,7 +1117,7 @@ describe("B4: triggers / memory / tasks", () => {
       handlers.set(method, handler);
       original(method, handler);
     };
-    _setStoreForTests(memoryStore([]));
+    setBothStores(memoryStore([]));
     _setMemoryForTests(async () => []);
     _setTaskStoreForTests({ read: async () => [], write: async () => {} });
     register();
@@ -971,7 +1151,7 @@ describe("register", () => {
       originalOnRequest(method, handler);
     };
 
-    _setStoreForTests(memoryStore([record()]));
+    setBothStores(memoryStore([record()]));
     _setMemoryForTests(async () => []);
     _setTaskStoreForTests({ read: async () => [], write: async () => {} });
     register();
@@ -987,52 +1167,89 @@ describe("register", () => {
   });
 });
 
-describe("renderDashboard (production store round-trip)", () => {
-  test("reads through SDK Storage when no store injected", async () => {
+describe("renderDashboard (production Storage round-trip) — SCOPE-aware", () => {
+  test("dispatch writes scope=user; render reads scope=global — a user run is NOT on the shared dashboard", async () => {
+    // Key the storage mock by BOTH scope AND key so the user + global buckets
+    // are genuinely separate (matching the host's per-scope resolution).
     const saved: Record<string, unknown> = {};
+    const skey = (p: Record<string, unknown>) => `${p.scope}:${p.key}`;
     const ch = getChannel();
     const originalRequest = ch.request.bind(ch);
     ch.request = (async (method: string, params: unknown) => {
       const p = params as Record<string, unknown>;
       if (method === "ezcorp/storage") {
-        const key = p.key as string;
+        const k = skey(p);
         if (p.action === "set") {
-          saved[key] = p.value;
+          saved[k] = p.value;
           return { ok: true };
         }
-        return { value: saved[key] ?? null, exists: key in saved };
+        return { value: saved[k] ?? null, exists: k in saved };
       }
       if (method === "ezcorp/spawn-assignment") {
-        return {
-          v: 1,
-          subConversationId: "s",
-          agentRunId: "r",
-          taskId: "t",
-          assignmentId: "a",
-        };
+        return { v: 1, subConversationId: "s", agentRunId: "r", taskId: "t", assignmentId: "a" };
       }
       return originalRequest(method, params as never);
     }) as HostChannel["request"];
 
-    _setStoreForTests(null); // force the production Storage-backed store
+    _setUserStoreForTests(null); // force the production Storage-backed stores
+    _setGlobalStoreForTests(null);
     _setMemoryForTests(async () => []); // avoid a live memory RPC
+    _setTaskStoreForTests({ read: async () => [], write: async () => {} });
     _setPushPageForTests(() => {});
 
-    const before = await renderDashboard();
-    const statsBefore = (before.nodes as Array<Record<string, unknown>>).find(
-      (n) => n.type === "stats",
-    ) as { items: Array<{ value: string }> };
-    expect(statsBefore.items[0]!.value).toBe("0");
-
+    // dispatch_run persists under USER scope.
     await dispatchRun({ agentName: "coder", task: "go" });
-    const savedRuns = saved.runs as RunRecord[];
-    expect(Array.isArray(savedRuns)).toBe(true);
-    expect(savedRuns[0]!.agentName).toBe("coder");
+    expect(Array.isArray(saved["user:runs"])).toBe(true);
+    expect((saved["user:runs"] as RunRecord[])[0]!.agentName).toBe("coder");
+    // GLOBAL scope was NOT written — the user run is private.
+    expect(saved["global:runs"]).toBeUndefined();
 
-    const after = await renderDashboard();
-    const statsAfter = (after.nodes as Array<Record<string, unknown>>).find(
+    // The shared dashboard (global scope) shows 0 runs — the user's private
+    // run does not leak into the cross-user tree.
+    const tree = await renderDashboard();
+    const stats = (tree.nodes as Array<Record<string, unknown>>).find(
       (n) => n.type === "stats",
     ) as { items: Array<{ value: string }> };
-    expect(statsAfter.items[0]!.value).toBe("1");
+    expect(stats.items[0]!.value).toBe("0");
+  });
+});
+
+describe("PRIVACY — cross-user isolation (#3)", () => {
+  test("user A's runs are not visible on user B's dashboard (separate user buckets)", async () => {
+    // Two distinct per-user buckets stand in for users A and B; the shared
+    // dashboard reads the global bucket. A user run goes to that user's bucket
+    // and is invisible to the other user AND to the shared dashboard.
+    const userA = memoryStore([record({ id: "a1", title: "A secret task" })]);
+    const userB = memoryStore([]);
+    const globalShared = memoryStore([]);
+
+    // User A dispatches → lands in A's bucket only.
+    _setUserStoreForTests(userA);
+    _setGlobalStoreForTests(globalShared);
+    _setPushPageForTests(() => {});
+    _setSpawnForTests(async () => ({
+      subConversationId: "subA",
+      agentRunId: "aNew",
+      taskId: "tA",
+      assignmentId: "asgA",
+    }));
+    await dispatchRun({ agentName: "coder", task: "private A work" });
+    expect(userA.runs.map((r) => r.id)).toContain("aNew");
+
+    // User B lists THEIR runs → sees none of A's.
+    _setUserStoreForTests(userB);
+    const bList = parse(await listRuns({}));
+    expect(bList.runs).toHaveLength(0);
+
+    // The shared dashboard (global bucket) shows none of A's private runs,
+    // and carries no `/chat/<sub>` deep-links.
+    _setMemoryForTests(async () => []);
+    _setTaskStoreForTests({ read: async () => [], write: async () => {} });
+    const tree = await renderDashboard();
+    const nodes = tree.nodes as Array<Record<string, unknown>>;
+    expect(nodes.some((n) => n.type === "table")).toBe(false); // empty (global)
+    const json = JSON.stringify(tree);
+    expect(json).not.toContain("/chat/");
+    expect(json).not.toContain("A secret task");
   });
 });

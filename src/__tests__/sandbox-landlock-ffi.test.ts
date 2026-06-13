@@ -15,6 +15,8 @@ import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   landlockAbiVersion,
   errno,
@@ -22,8 +24,11 @@ import {
   addPathBeneathRule,
   closeFd,
   setNoNewPrivs,
+  handledAccessForAbi,
   LANDLOCK_ACCESS_FS,
   READ_ACCESS,
+  WRITE_ACCESS,
+  FILE_ACCESS_MASK,
 } from "../extensions/sandbox/landlock-ffi";
 
 const ABI = landlockAbiVersion();
@@ -84,6 +89,48 @@ describe("landlock-ffi — safe syscall wrappers (no restrict_self)", () => {
         LANDLOCK_ACCESS_FS.READ_DIR,
     );
   });
+
+  test("WRITE_ACCESS is read-inclusive + mutating rights (write/make/remove/…)", () => {
+    expect(WRITE_ACCESS & READ_ACCESS).toBe(READ_ACCESS); // superset of read
+    expect(WRITE_ACCESS & LANDLOCK_ACCESS_FS.WRITE_FILE).toBe(LANDLOCK_ACCESS_FS.WRITE_FILE);
+    expect(WRITE_ACCESS & LANDLOCK_ACCESS_FS.MAKE_DIR).toBe(LANDLOCK_ACCESS_FS.MAKE_DIR);
+    expect(WRITE_ACCESS & LANDLOCK_ACCESS_FS.REMOVE_FILE).toBe(LANDLOCK_ACCESS_FS.REMOVE_FILE);
+  });
+
+  test("FILE_ACCESS_MASK is the file-applicable subset (no dir-only rights)", () => {
+    expect(FILE_ACCESS_MASK & LANDLOCK_ACCESS_FS.READ_DIR).toBe(0n);
+    expect(FILE_ACCESS_MASK & LANDLOCK_ACCESS_FS.MAKE_DIR).toBe(0n);
+    expect(FILE_ACCESS_MASK & LANDLOCK_ACCESS_FS.WRITE_FILE).toBe(LANDLOCK_ACCESS_FS.WRITE_FILE);
+    expect(FILE_ACCESS_MASK & LANDLOCK_ACCESS_FS.READ_FILE).toBe(LANDLOCK_ACCESS_FS.READ_FILE);
+  });
+
+  test("handledAccessForAbi grows REFER (v2+) + TRUNCATE (v3+) with the ABI", () => {
+    const v1 = handledAccessForAbi(1);
+    expect(v1 & LANDLOCK_ACCESS_FS.REFER).toBe(0n);
+    expect(v1 & LANDLOCK_ACCESS_FS.TRUNCATE).toBe(0n);
+    const v2 = handledAccessForAbi(2);
+    expect(v2 & LANDLOCK_ACCESS_FS.REFER).toBe(LANDLOCK_ACCESS_FS.REFER);
+    const v3 = handledAccessForAbi(3);
+    expect(v3 & LANDLOCK_ACCESS_FS.TRUNCATE).toBe(LANDLOCK_ACCESS_FS.TRUNCATE);
+    // v1 always handles the core write set.
+    expect(v1 & LANDLOCK_ACCESS_FS.WRITE_FILE).toBe(LANDLOCK_ACCESS_FS.WRITE_FILE);
+  });
+
+  test.if(LANDLOCK_OK)(
+    "addPathBeneathRule grants a write rule on a FILE path (file-mask kept valid)",
+    async () => {
+      // Granting the file-applicable WRITE subset on a regular file must NOT
+      // EINVAL (it would if dir-only bits leaked through).
+      const handled = handledAccessForAbi(ABI);
+      const fd = createRuleset(handled);
+      expect(fd).toBeGreaterThanOrEqual(0);
+      const file = join(DIR, "wfile.txt");
+      await writeFile(file, "x");
+      const rc = addPathBeneathRule(fd, file, WRITE_ACCESS & FILE_ACCESS_MASK & handled);
+      expect(rc).toBe(0);
+      closeFd(fd);
+    },
+  );
 
   // NOTE: setNoNewPrivs() + restrictSelf() + applyReadOnlyJail() are NOT
   // called here on purpose — PR_SET_NO_NEW_PRIVS and restrict_self mutate

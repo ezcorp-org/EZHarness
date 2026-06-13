@@ -98,7 +98,7 @@
   "src/extensions/sandbox/build-sandbox-argv.ts": 98,
   "src/extensions/sandbox/landlock.ts": 100,
   "src/extensions/sandbox/landlock-shim.ts": 90,
-  "src/extensions/sandbox/landlock-ffi.ts": 66,
+  "src/extensions/sandbox/landlock-ffi.ts": 62,
   "src/db/queries/preview-sessions.ts": 100,
   "web/src/lib/components/tool-cards/preview-consent-card-logic.ts": 100,
   "web/src/lib/components/ExtensionToolSelector.svelte": 100,

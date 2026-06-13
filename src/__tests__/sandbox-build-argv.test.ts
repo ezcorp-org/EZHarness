@@ -245,6 +245,42 @@ describe("buildLandlockJailSpec — pure spec + deny invariants", () => {
       }),
     ).toThrow(/ancestor|data dir/);
   });
+
+  test("listPaths: a data-dir ANCESTOR (the repo root) is ALLOWED + appears in spec.list", () => {
+    // The git-repo-root jail: the root contains .ezcorp/data but is read-only,
+    // so it's exempt from the ancestor assertion and lands in `list`.
+    const spec = buildLandlockJailSpec({
+      workspaceDir: WORKSPACE,
+      projectRoot: ROOT,
+      listPaths: [ROOT],
+    });
+    expect(spec.list).toEqual([resolve(ROOT)]);
+  });
+
+  test("listPaths: omitted → spec has no `list` field", () => {
+    const spec = buildLandlockJailSpec({ workspaceDir: WORKSPACE, projectRoot: ROOT });
+    expect(spec.list).toBeUndefined();
+  });
+
+  test("DENY: a list path that IS the data dir fails closed", () => {
+    expect(() =>
+      buildLandlockJailSpec({
+        workspaceDir: WORKSPACE,
+        projectRoot: ROOT,
+        listPaths: [join(ROOT, ".ezcorp", "data")],
+      }),
+    ).toThrow(/data dir/);
+  });
+
+  test("DENY: a list path UNDER the data dir fails closed", () => {
+    expect(() =>
+      buildLandlockJailSpec({
+        workspaceDir: WORKSPACE,
+        projectRoot: ROOT,
+        listPaths: [join(ROOT, ".ezcorp", "data", "sub")],
+      }),
+    ).toThrow(/data dir/);
+  });
 });
 
 describe("applyLandlockJailSpec — live (host has Landlock)", () => {
