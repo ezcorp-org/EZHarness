@@ -89,6 +89,36 @@ describe("PageBuilder page-only components", () => {
     ]);
   });
 
+  test("button with a prompt descriptor emits the prompt on the action", () => {
+    expect(
+      build((b) =>
+        b.button("Rename", { event: "e:rename", prompt: { label: "New name", field: "name" } }),
+      ).nodes,
+    ).toEqual([
+      {
+        type: "button",
+        label: "Rename",
+        action: { event: "e:rename", prompt: { label: "New name", field: "name" } },
+      },
+    ]);
+  });
+
+  test("button without a prompt is prompt-less (additive — no regression)", () => {
+    const action = (build((b) => b.button("Go", { event: "e:go" })).nodes[0] as {
+      action: { prompt?: unknown };
+    }).action;
+    expect(action.prompt).toBeUndefined();
+  });
+
+  test("a prompt rides a table-row action too", () => {
+    const rows = [
+      { cells: ["x"], action: { event: "e:rm", prompt: { label: "Confirm topic" } } },
+    ];
+    expect(build((b) => b.table(["C"], rows)).nodes).toEqual([
+      { type: "table", columns: ["C"], rows },
+    ]);
+  });
+
   test("link", () => {
     expect(build((b) => b.link("Open", "/hub/x")).nodes).toEqual([
       { type: "link", label: "Open", href: "/hub/x" },
