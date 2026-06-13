@@ -40,7 +40,41 @@ export const MAX_ACTION_PAYLOAD_BYTES = 2_048; // 2 KB
 const MAX_STATS_ITEMS = 12;
 const MAX_MARKDOWN_CHARS = 10_000;
 
+/** Prompt limits. `field` is slug-clamped; the rest are truncated. */
+const PROMPT_FIELD_REGEX = /^[a-z0-9][a-z0-9_]{0,31}$/;
+const DEFAULT_PROMPT_FIELD = "value";
+const DEFAULT_PROMPT_MAX_LENGTH = 200;
+const PROMPT_MAX_LENGTH_CAP = 500;
+const PROMPT_LABEL_MAX = 120;
+const PROMPT_SUBMIT_LABEL_MAX = 40;
+
 // ── Page-only node types ───────────────────────────────────────────
+
+/**
+ * Host-rendered single-field text prompt attached to an action. The
+ * extension/provider declares only validated, `<>`-stripped, truncated
+ * strings — never DOM. When the user submits, the typed scalar is merged
+ * client-side into `action.payload[field]` (default `"value"`) and the
+ * action dispatches through its UNCHANGED, already-gated event path.
+ *
+ * SOURCE OF TRUTH for the prompt shape. Mirrored in:
+ *   - `web/src/lib/hub.ts` (`PagePrompt`, frontend renderer/page route)
+ *   - `packages/@ezcorp/sdk/src/runtime/page.ts` (`PagePromptDescriptor`,
+ *     extension-author builder surface)
+ * Keep all three aligned (same convention as the `PageNode` mirrors).
+ */
+export interface PagePrompt {
+  /** Dialog input label (required). */
+  label: string;
+  placeholder?: string;
+  /** Payload key the typed value is merged under. Slug-sanitized
+   *  (`/^[a-z0-9][a-z0-9_]{0,31}$/`); default `"value"`. */
+  field?: string;
+  /** Host clamps the input length; default 200, hard cap 500. */
+  maxLength?: number;
+  /** Submit-button label; default "Submit". */
+  submitLabel?: string;
+}
 
 export interface PageAction {
   /** Namespaced event (`<ext>:<event>`) or core action name. Must be in
@@ -49,6 +83,10 @@ export interface PageAction {
   payload?: Record<string, string | number | boolean>;
   /** Host-rendered confirm-dialog text shown before dispatch. */
   confirm?: string;
+  /** Optional host-rendered text prompt — see `PagePrompt`. A malformed
+   *  prompt is dropped (the action degrades to a plain dispatch); it is
+   *  never fatal to the whole action. Grants ZERO new authority. */
+  prompt?: PagePrompt;
 }
 
 export interface PageSection {
@@ -164,6 +202,44 @@ const BUTTON_STYLES = new Set(["primary", "secondary", "danger"]);
 
 // ── Per-type validators ────────────────────────────────────────────
 
+/**
+ * Validate an action's optional prompt. A malformed prompt returns
+ * `null` so the caller OMITS the field (the action degrades to a plain
+ * dispatch) — never drops the whole action. The input widget is 100%
+ * host-rendered, so we only need scalar, sanitized display strings here.
+ */
+function validatePrompt(raw: unknown): PagePrompt | null {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const p = raw as Record<string, unknown>;
+  if (typeof p.label !== "string") return null; // label is required
+  const label = truncate(p.label, PROMPT_LABEL_MAX);
+  if (label.length === 0) return null; // an empty/all-`<>` label is useless
+
+  const out: PagePrompt = { label };
+
+  if (p.placeholder != null) out.placeholder = truncate(p.placeholder, PROMPT_LABEL_MAX);
+
+  // `field` must be a clean payload-key slug, else fall back to "value"
+  // so it can never collide with or spoof a reserved payload key.
+  out.field =
+    typeof p.field === "string" && PROMPT_FIELD_REGEX.test(p.field)
+      ? p.field
+      : DEFAULT_PROMPT_FIELD;
+
+  // maxLength clamped to [1, 500]; non-numeric → default.
+  const ml = typeof p.maxLength === "number" && Number.isFinite(p.maxLength)
+    ? Math.min(PROMPT_MAX_LENGTH_CAP, Math.max(1, Math.floor(p.maxLength)))
+    : DEFAULT_PROMPT_MAX_LENGTH;
+  out.maxLength = ml;
+
+  if (p.submitLabel != null) {
+    const sl = truncate(p.submitLabel, PROMPT_SUBMIT_LABEL_MAX);
+    if (sl.length > 0) out.submitLabel = sl;
+  }
+
+  return out;
+}
+
 function validateAction(
   raw: unknown,
   allowedEvents: readonly string[],
@@ -188,6 +264,12 @@ function validateAction(
     out.payload = payload;
   }
   if (a.confirm != null) out.confirm = truncate(a.confirm, 300);
+  // A malformed prompt is dropped (omit the field) — never fatal to the
+  // action, which still dispatches as a plain (prompt-less) action.
+  if (a.prompt != null) {
+    const prompt = validatePrompt(a.prompt);
+    if (prompt) out.prompt = prompt;
+  }
   return out;
 }
 
