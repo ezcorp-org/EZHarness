@@ -28,19 +28,28 @@ fails with EACCES.
 
 ## Evidence captured (2026-06-13)
 
-| Environment        | arch | Landlock ABI | probed tier | allowed read | denied read | verdict   |
-| ------------------ | ---- | ------------ | ----------- | ------------ | ----------- | --------- |
-| Host (NixOS 7.0.3) | x64  | 8            | bwrap       | OK           | EACCES      | CONTAINED |
-| ez-corp-ai-app-1   | x64  | 8            | landlock    | OK           | EACCES      | CONTAINED |
-| ezcorp-prod-app-1  | x64  | 8            | landlock    | OK           | EACCES      | CONTAINED |
+Updated for the **write-inclusive** jail (the fix-loop correction — the rw
+workspace must be WRITABLE, not read-only, or git/file-edits EACCES on the
+landlock tier). The self-test now asserts allowed-WRITE + denied-write too:
 
-Raw self-test JSON (container, dev):
+| Environment        | arch | ABI | tier     | rw read | rw WRITE | data read | data write | verdict   |
+| ------------------ | ---- | --- | -------- | ------- | -------- | --------- | ---------- | --------- |
+| Host (NixOS 7.0.3) | x64  | 8   | bwrap    | OK      | OK       | EACCES    | EACCES     | CONTAINED |
+| ez-corp-ai-app-1   | x64  | 8   | landlock | OK      | OK       | EACCES    | EACCES     | CONTAINED |
+
+Raw self-test JSON (container `ez-corp-ai-app-1`, write-inclusive):
 
 ```
 LANDLOCK_SELFTEST_JSON {"arch":"x64","landlockAbi":8,"tier":"landlock",
-"allowedReadOk":true,"deniedReadBlocked":true,"deniedErrno":"EACCES",
-"verdict":"CONTAINED"}
+"allowedReadOk":true,"allowedWriteOk":true,"deniedReadBlocked":true,
+"deniedWriteBlocked":true,"deniedErrno":"EACCES","verdict":"CONTAINED"}
 ```
+
+The original read-only proof is superseded: `applyReadWriteJail(rw, ro, abi)`
+grants a write-inclusive access subset (WRITE_FILE/MAKE_*/REMOVE_*/TRUNCATE/
+REFER, ABI-masked) to rw paths and read/exec only to ro paths; the full write
+set stays in the handled mask so ro paths genuinely lose write and ungranted
+paths lose everything.
 
 ## Why the tier differs host vs container (expected, not a problem)
 

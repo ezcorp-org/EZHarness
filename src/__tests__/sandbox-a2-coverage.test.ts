@@ -31,7 +31,7 @@ describe("applyLandlockJailSpec — FFI stubbed (no real jail)", () => {
   test("throws when ABI < 1 (unsupported)", async () => {
     mock.module("../extensions/sandbox/landlock-ffi", () => ({
       landlockAbiVersion: () => 0,
-      applyReadOnlyJail: () => {
+      applyReadWriteJail: () => {
         throw new Error("should not be called when ABI<1");
       },
     }));
@@ -43,24 +43,30 @@ describe("applyLandlockJailSpec — FFI stubbed (no real jail)", () => {
     );
   });
 
-  test("calls applyReadOnlyJail with rw+ro union when supported", async () => {
-    let received: string[] | null = null;
+  test("calls applyReadWriteJail with rw + ro split when supported", async () => {
+    let rwReceived: string[] | null = null;
+    let roReceived: string[] | null = null;
     mock.module("../extensions/sandbox/landlock-ffi", () => ({
       landlockAbiVersion: () => 5,
-      applyReadOnlyJail: (paths: string[]) => {
-        received = paths;
+      applyReadWriteJail: (rw: string[], ro: string[]) => {
+        rwReceived = rw;
+        roReceived = ro;
       },
     }));
     // fresh import so it binds the stubbed FFI
     const mod = await import("../extensions/sandbox/landlock");
     mod.applyLandlockJailSpec({ ro: ["/usr", "/lib"], rw: ["/w"] });
-    expect(received as string[] | null).toEqual(["/w", "/usr", "/lib"]);
+    // rw paths grant write; ro paths stay read-only — kept SEPARATE.
+    expect(rwReceived as string[] | null).toEqual(["/w"]);
+    expect(roReceived as string[] | null).toEqual(["/usr", "/lib"]);
   });
 
   afterAll(() => {
-    mock.module("../extensions/sandbox/landlock-ffi", () =>
-      require("../extensions/sandbox/landlock-ffi"),
-    );
+    // Restore the REAL FFI module by re-registering its live exports
+    // (snapshot pattern) so sibling suites never see the throwing/stub
+    // version — the documented bun mock.module materialization-freeze fix.
+    const real = require("../extensions/sandbox/landlock-ffi");
+    mock.module("../extensions/sandbox/landlock-ffi", () => ({ ...real }));
   });
 });
 
@@ -96,8 +102,8 @@ describe("runShim — apply stubbed, spawns a trivial child", () => {
   });
 
   afterAll(() => {
-    mock.module("../extensions/sandbox/landlock", () =>
-      require("../extensions/sandbox/landlock"),
-    );
+    // Snapshot-restore the real module (see the landlock-ffi afterAll above).
+    const real = require("../extensions/sandbox/landlock");
+    mock.module("../extensions/sandbox/landlock", () => ({ ...real }));
   });
 });

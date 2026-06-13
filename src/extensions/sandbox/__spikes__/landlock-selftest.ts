@@ -1,10 +1,13 @@
 /**
- * Phase A1 Landlock containment self-test (evidence script, NOT a unit test).
+ * Phase A1/A4 Landlock containment self-test (evidence script, NOT a unit test).
  *
- * Proves, end-to-end, that a Landlock fs-jail applied to THIS process:
- *   (a) lets it read an allowed workspace file,
- *   (b) DENIES reading a "secret" file outside the allowlist (EACCES),
- *   (c) reports the resolved sandbox tier from the capability probe.
+ * Proves, end-to-end, that a write-inclusive Landlock fs-jail applied to THIS
+ * process:
+ *   (a) lets it READ an allowed workspace file,
+ *   (b) lets it WRITE a new file in the allowed workspace (the rw grant),
+ *   (c) DENIES reading a "secret" file outside the allowlist (EACCES),
+ *   (d) DENIES writing under the secret dir (EACCES),
+ *   (e) reports the resolved sandbox tier from the capability probe.
  *
  * Runs identically on the host and inside the app container (the gate is
  * that the container's seccomp profile permits syscalls 444/445/446 and the
@@ -19,17 +22,17 @@
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  probeSandboxCapabilities,
-} from "../capability-probe";
-import { applyReadOnlyJail, landlockAbiVersion } from "../landlock-ffi";
+import { probeSandboxCapabilities } from "../capability-probe";
+import { applyReadWriteJail, landlockAbiVersion } from "../landlock-ffi";
 
 interface Result {
   arch: string;
   landlockAbi: number;
   tier: string;
   allowedReadOk: boolean;
+  allowedWriteOk: boolean;
   deniedReadBlocked: boolean;
+  deniedWriteBlocked: boolean;
   deniedErrno: string | null;
   verdict: "CONTAINED" | "NOT_CONTAINED" | "LANDLOCK_UNSUPPORTED";
   detail?: string;
@@ -39,8 +42,8 @@ function main(): number {
   const caps = probeSandboxCapabilities();
   const abi = landlockAbiVersion();
 
-  // Build two distinct dirs: an ALLOWED workspace and a DENIED "secret" dir
-  // (stand-in for .ezcorp/data — the PGlite DB + JWT secret).
+  // An ALLOWED rw workspace and a DENIED "secret" dir (stand-in for
+  // .ezcorp/data — the PGlite DB + JWT secret).
   const allowedDir = mkdtempSync(join(tmpdir(), "ll-allowed-"));
   const secretDir = mkdtempSync(join(tmpdir(), "ll-secret-"));
   const allowedFile = join(allowedDir, "workspace.txt");
@@ -53,7 +56,9 @@ function main(): number {
     landlockAbi: abi,
     tier: caps.tier,
     allowedReadOk: false,
+    allowedWriteOk: false,
     deniedReadBlocked: false,
+    deniedWriteBlocked: false,
     deniedErrno: null,
     verdict: "NOT_CONTAINED",
   };
@@ -75,51 +80,58 @@ function main(): number {
     return 3;
   }
 
-  // Apply the jail: ONLY the specific allowed workspace dir (+ system dirs
-  // needed to keep the Bun runtime executing) remain readable/executable.
+  // Apply the jail: allowedDir is READ-WRITE; system dirs are read-only.
   // We deliberately do NOT allow `/tmp` broadly — both the workspace and the
   // secret live under /tmp, so a broad /tmp grant would defeat the test.
   // `/nix` is included for the NixOS host (Bun's libc lives there); it is a
   // harmless no-op inside the Debian container.
-  const allow = [
-    allowedDir,
-    "/usr",
-    "/lib",
-    "/lib64",
-    "/bin",
-    "/proc",
-    "/dev",
-    "/etc",
-    "/nix",
-  ];
+  const roDirs = ["/usr", "/lib", "/lib64", "/bin", "/proc", "/dev", "/etc", "/nix"];
   try {
-    applyReadOnlyJail(allow, abi);
+    applyReadWriteJail([allowedDir], roDirs, abi);
   } catch (e) {
-    result.detail = `applyReadOnlyJail threw: ${String(e)}`;
+    result.detail = `applyReadWriteJail threw: ${String(e)}`;
     emit(result);
     return 4;
   }
 
   // (a) allowed read must still succeed
   try {
-    const txt = readFileSync(allowedFile, "utf8");
-    result.allowedReadOk = txt.includes("ALLOWED-OK");
+    result.allowedReadOk = readFileSync(allowedFile, "utf8").includes("ALLOWED-OK");
   } catch (e) {
     result.detail = `allowed read FAILED post-jail: ${String(e)}`;
+  }
+
+  // (b) allowed WRITE must succeed (the rw grant — the production-breaking bug)
+  try {
+    const newFile = join(allowedDir, "agent-wrote.txt");
+    writeFileSync(newFile, "WROTE-IN-WORKSPACE\n");
+    result.allowedWriteOk = readFileSync(newFile, "utf8").includes("WROTE-IN-WORKSPACE");
+  } catch (e) {
+    result.detail = `allowed WRITE FAILED post-jail: ${String(e)}`;
   }
 
   // (c) denied read must now fail with EACCES
   try {
     readFileSync(secretFile, "utf8");
-    result.deniedReadBlocked = false;
     result.detail = "SECRET WAS READABLE AFTER JAIL — containment FAILED";
   } catch (e: any) {
     result.deniedReadBlocked = true;
     result.deniedErrno = e?.code ?? String(e);
   }
 
+  // (d) denied WRITE under the secret dir must fail with EACCES
+  try {
+    writeFileSync(join(secretDir, "evil.txt"), "x");
+    result.detail = "SECRET DIR WAS WRITABLE AFTER JAIL — containment FAILED";
+  } catch {
+    result.deniedWriteBlocked = true;
+  }
+
   result.verdict =
-    result.allowedReadOk && result.deniedReadBlocked
+    result.allowedReadOk &&
+    result.allowedWriteOk &&
+    result.deniedReadBlocked &&
+    result.deniedWriteBlocked
       ? "CONTAINED"
       : "NOT_CONTAINED";
 
@@ -128,18 +140,19 @@ function main(): number {
 }
 
 function emit(r: Result): void {
-  // Machine-readable line first, then a human summary.
   console.log("LANDLOCK_SELFTEST_JSON " + JSON.stringify(r));
   console.log(
     [
-      "── Landlock fs-jail self-test ──",
-      `  arch:              ${r.arch}`,
-      `  landlock ABI:      ${r.landlockAbi}`,
-      `  probed tier:       ${r.tier}`,
-      `  allowed read OK:   ${r.allowedReadOk}`,
-      `  denied read block: ${r.deniedReadBlocked}  (errno=${r.deniedErrno})`,
-      `  VERDICT:           ${r.verdict}`,
-      r.detail ? `  detail:            ${r.detail}` : "",
+      "── Landlock fs-jail self-test (write-inclusive) ──",
+      `  arch:               ${r.arch}`,
+      `  landlock ABI:       ${r.landlockAbi}`,
+      `  probed tier:        ${r.tier}`,
+      `  allowed read OK:    ${r.allowedReadOk}`,
+      `  allowed WRITE OK:   ${r.allowedWriteOk}`,
+      `  denied read block:  ${r.deniedReadBlocked}  (errno=${r.deniedErrno})`,
+      `  denied write block: ${r.deniedWriteBlocked}`,
+      `  VERDICT:            ${r.verdict}`,
+      r.detail ? `  detail:             ${r.detail}` : "",
     ]
       .filter(Boolean)
       .join("\n"),

@@ -63,11 +63,34 @@ export const LANDLOCK_ACCESS_FS = {
   TRUNCATE: 1n << 14n, // ABI v3+
 } as const;
 
-/** Read-only access subset we grant to allowlisted paths. */
+/** Read-only access subset we grant to read-only allowlisted paths. */
 export const READ_ACCESS =
   LANDLOCK_ACCESS_FS.EXECUTE |
   LANDLOCK_ACCESS_FS.READ_FILE |
   LANDLOCK_ACCESS_FS.READ_DIR;
+
+/**
+ * Write-inclusive access subset granted to READ-WRITE allowlisted paths
+ * (e.g. a run's workspace). It is READ_ACCESS plus the full set of
+ * mutating rights so a jailed process can edit files and run git
+ * (switch/add/commit) inside its workspace. REFER (ABI v2+) and TRUNCATE
+ * (ABI v3+) are masked against the detected ABI by the caller — including
+ * them here when the kernel doesn't support them would EINVAL the rule.
+ */
+export const WRITE_ACCESS =
+  READ_ACCESS |
+  LANDLOCK_ACCESS_FS.WRITE_FILE |
+  LANDLOCK_ACCESS_FS.REMOVE_DIR |
+  LANDLOCK_ACCESS_FS.REMOVE_FILE |
+  LANDLOCK_ACCESS_FS.MAKE_CHAR |
+  LANDLOCK_ACCESS_FS.MAKE_DIR |
+  LANDLOCK_ACCESS_FS.MAKE_REG |
+  LANDLOCK_ACCESS_FS.MAKE_SOCK |
+  LANDLOCK_ACCESS_FS.MAKE_FIFO |
+  LANDLOCK_ACCESS_FS.MAKE_BLOCK |
+  LANDLOCK_ACCESS_FS.MAKE_SYM |
+  LANDLOCK_ACCESS_FS.REFER |
+  LANDLOCK_ACCESS_FS.TRUNCATE;
 
 type LibcLib = ReturnType<typeof dlopen<typeof FFI_SYMBOLS>>;
 let lib: LibcLib | null = null;
@@ -262,21 +285,13 @@ export function closeFd(fd: number): void {
 }
 
 /**
- * Apply a read-only Landlock fs jail to the CURRENT process: only paths
- * under `allowedReadPaths` remain readable/executable; every other path
- * loses read/exec access. Throws on any failure (fail-closed).
- *
- * Strips access bits unsupported by the probed ABI so the create call does
- * not EINVAL on older kernels.
+ * The FULL fs-access set this kernel ABI handles (i.e. enforces). Any
+ * access NOT in the handled set is left UNRESTRICTED by Landlock; any
+ * access IN the handled set but NOT granted on a path is DENIED. We always
+ * handle the complete write+read set (masked to the ABI) so that
+ * read-only paths genuinely lose write access and read-write paths gain it.
  */
-export function applyReadOnlyJail(
-  allowedReadPaths: readonly string[],
-  abiVersion: number,
-): void {
-  if (abiVersion < 1) {
-    throw new Error(`landlock: unsupported ABI version ${abiVersion}`);
-  }
-  // Compute the handled set valid for this ABI.
+export function handledAccessForAbi(abiVersion: number): bigint {
   let handled =
     LANDLOCK_ACCESS_FS.EXECUTE |
     LANDLOCK_ACCESS_FS.WRITE_FILE |
@@ -293,22 +308,47 @@ export function applyReadOnlyJail(
     LANDLOCK_ACCESS_FS.MAKE_SYM;
   if (abiVersion >= 2) handled |= LANDLOCK_ACCESS_FS.REFER;
   if (abiVersion >= 3) handled |= LANDLOCK_ACCESS_FS.TRUNCATE;
+  return handled;
+}
 
+/**
+ * Core jail applier: grant `rwAccess`-masked rights to each `rwPaths` entry
+ * and `roAccess`-masked rights to each `roPaths` entry, then restrict_self.
+ * Pre-`restrict_self`, prctl(NO_NEW_PRIVS) is set. Throws (fail-closed) on
+ * any failure. Non-existent allow paths are silent no-ops (distro-portable).
+ */
+function applyJail(
+  rwPaths: readonly string[],
+  roPaths: readonly string[],
+  abiVersion: number,
+): void {
+  if (abiVersion < 1) {
+    throw new Error(`landlock: unsupported ABI version ${abiVersion}`);
+  }
+  const handled = handledAccessForAbi(abiVersion);
   const rulesetFd = createRuleset(handled);
   if (rulesetFd < 0) {
     throw new Error(`landlock: create_ruleset failed errno=${errno()}`);
   }
-  try {
-    for (const p of allowedReadPaths) {
+  const grant = (paths: readonly string[], access: bigint): void => {
+    for (const p of paths) {
       // A non-existent allow path is a no-op (you cannot grant access to
       // what isn't there) — common for optional system dirs that differ
       // across distros (e.g. /nix on NixOS, absent in the container).
       if (!existsSync(p)) continue;
-      const rc = addPathBeneathRule(rulesetFd, p, READ_ACCESS & handled);
+      const rc = addPathBeneathRule(rulesetFd, p, access & handled);
       if (rc !== 0) {
         throw new Error(`landlock: add_rule(${p}) failed errno=${errno()}`);
       }
     }
+  };
+  try {
+    // Grant write-inclusive access to rw paths FIRST, then read-only to ro
+    // paths. A path appearing in both would be additively unioned by the
+    // kernel, but callers keep the sets disjoint (the rw workspace is never
+    // also passed as ro).
+    grant(rwPaths, WRITE_ACCESS);
+    grant(roPaths, READ_ACCESS);
     if (setNoNewPrivs() !== 0) {
       throw new Error(`landlock: prctl(NO_NEW_PRIVS) failed errno=${errno()}`);
     }
@@ -318,4 +358,35 @@ export function applyReadOnlyJail(
   } finally {
     closeFd(rulesetFd);
   }
+}
+
+/**
+ * Apply a READ-ONLY Landlock fs jail to the CURRENT process: only paths
+ * under `allowedReadPaths` remain readable/executable; every other path
+ * loses read/exec access AND all write access. Throws on any failure
+ * (fail-closed).
+ *
+ * Strips access bits unsupported by the probed ABI so the create call does
+ * not EINVAL on older kernels.
+ */
+export function applyReadOnlyJail(
+  allowedReadPaths: readonly string[],
+  abiVersion: number,
+): void {
+  applyJail([], allowedReadPaths, abiVersion);
+}
+
+/**
+ * Apply a READ-WRITE Landlock fs jail to the CURRENT process: `rwPaths`
+ * get write-inclusive access (read/exec/write/make/remove/truncate, masked
+ * to the ABI) so a jailed process can edit files + run git in its
+ * workspace; `roPaths` get read/exec only. Every path NOT in either set
+ * loses all access. Throws on any failure (fail-closed).
+ */
+export function applyReadWriteJail(
+  rwPaths: readonly string[],
+  roPaths: readonly string[],
+  abiVersion: number,
+): void {
+  applyJail(rwPaths, roPaths, abiVersion);
 }

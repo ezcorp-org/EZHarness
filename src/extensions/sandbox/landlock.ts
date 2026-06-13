@@ -20,7 +20,7 @@
 
 import { resolve } from "node:path";
 import { assertOutsideDataDir } from "../preview-jail";
-import { applyReadOnlyJail, landlockAbiVersion } from "./landlock-ffi";
+import { applyReadWriteJail, landlockAbiVersion } from "./landlock-ffi";
 
 /** Conventional read-only system dirs a runtime needs to exec. The shim
  *  skips any that don't exist on the host (distro-portable). `/nix` covers
@@ -55,11 +55,12 @@ export interface LandlockJailInput {
  * A fully-resolved, serializable Landlock jail spec. The shim reconstructs
  * it from JSON (via env) and feeds it to `applyLandlockJailSpec`.
  *
- * NOTE: ABI v1 path-beneath rules cannot express "read-only vs read-write"
- * per-path beyond the access-bit subset; the A1 FFI helper grants the
- * read/exec subset on every allowlisted path. We still track `rw` vs `ro`
- * separately so a future ABI-aware builder (write access on rw paths only)
- * is a drop-in upgrade — and so the deny assertions cover BOTH sets today.
+ * The `rw` and `ro` sets are enforced DIFFERENTLY at apply time: `rw` paths
+ * receive a write-inclusive access grant (read/exec/write/make/remove/
+ * truncate, masked to the kernel ABI) so a jailed process can edit files
+ * and run git inside its workspace; `ro` paths receive read/exec only.
+ * Every path in neither set loses all access. Landlock's path-beneath rules
+ * support this per-path distinction via the granted access bitmask.
  */
 export interface LandlockJailSpec {
   /** Read-only allowlist (system dirs + extra ro paths). */
@@ -99,9 +100,17 @@ export function buildLandlockJailSpec(input: LandlockJailInput): LandlockJailSpe
 }
 
 /**
- * Apply a built jail spec to the CURRENT process. Read/exec is granted on
- * the union of ro+rw; everything else loses access. Throws if Landlock is
- * unsupported here (fail-closed — the caller must have tier-gated first).
+ * Apply a built jail spec to the CURRENT process. `spec.rw` paths get a
+ * WRITE-inclusive grant (read/exec/write/make/remove/truncate, masked to
+ * the kernel ABI) so the jailed process can edit files + run git in its
+ * workspace; `spec.ro` paths get read/exec only. Everything else loses all
+ * access. Throws if Landlock is unsupported here (fail-closed — the caller
+ * must have tier-gated first).
+ *
+ * Landlock ENFORCES every access in the handled set: a handled-but-ungranted
+ * access is DENIED (it is NOT governed by ordinary file permissions). So the
+ * rw/ro distinction is load-bearing — granting only READ on the workspace
+ * would make every write EACCES.
  *
  * Used by the pre-exec shim AFTER it has parsed the spec and BEFORE it
  * execs the inner command.
@@ -111,9 +120,6 @@ export function applyLandlockJailSpec(spec: LandlockJailSpec): void {
   if (abi < 1) {
     throw new Error(`landlock: not supported here (ABI=${abi})`);
   }
-  // The A1 FFI helper grants the read/exec subset on each path and skips
-  // non-existent entries (distro-portable). rw paths are included so the
-  // workspace stays reachable; write access itself is governed by ordinary
-  // file permissions until an ABI-aware write-grant lands.
-  applyReadOnlyJail([...spec.rw, ...spec.ro], abi);
+  // Distro-portable: the FFI helper skips non-existent allow paths.
+  applyReadWriteJail(spec.rw, spec.ro, abi);
 }

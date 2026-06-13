@@ -190,3 +190,68 @@ describe("Seam B — createShellTool per-run workspace jail", () => {
     },
   );
 });
+
+describe("landlock tier — WRITE-inclusive jail (the production-tier fix)", () => {
+  // The landlock-tier fs-jail must grant WRITE to the rw workspace (so git
+  // switch/add/commit + file edits work — Seam B + open_pr) while denying
+  // BOTH read and write of .ezcorp/data. Forces the landlock tier (the
+  // container's production path; this dev host's bwrap is setuid-broken).
+  test.if(LANDLOCK_OK)(
+    "WRITE to the rw workspace SUCCEEDS; read AND write of .ezcorp/data DENIED",
+    async () => {
+      const workspaceDir = join(ROOT, "run-write");
+      await mkdir(workspaceDir, { recursive: true });
+      const dataDir = join(ROOT, ".ezcorp", "data");
+
+      // (a) WRITE a new file in the workspace → must succeed.
+      const newFile = join(workspaceDir, "agent-output.txt");
+      const write = buildSandboxArgv({
+        tier: "landlock",
+        workspaceDir,
+        projectRoot: ROOT,
+        command: "/bin/sh",
+        args: ["-c", `echo WROTE > ${newFile} && cat ${newFile}`],
+      });
+      const pWrite = Bun.spawnSync(write.argv, {
+        cwd: workspaceDir,
+        env: { ...process.env, ...write.env },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(pWrite.exitCode).toBe(0);
+      expect(pWrite.stdout.toString()).toContain("WROTE");
+
+      // (b) READ of .ezcorp/data → denied (EACCES).
+      const readDeny = buildSandboxArgv({
+        tier: "landlock",
+        workspaceDir,
+        projectRoot: ROOT,
+        command: "cat",
+        args: [SECRET],
+      });
+      const pRead = Bun.spawnSync(readDeny.argv, {
+        env: { ...process.env, ...readDeny.env },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(pRead.exitCode).not.toBe(0);
+      expect(pRead.stderr.toString().toLowerCase()).toContain("permission denied");
+
+      // (c) WRITE under .ezcorp/data → denied (EACCES).
+      const writeDeny = buildSandboxArgv({
+        tier: "landlock",
+        workspaceDir,
+        projectRoot: ROOT,
+        command: "/bin/sh",
+        args: ["-c", `echo evil > ${join(dataDir, "evil.txt")}`],
+      });
+      const pWriteDeny = Bun.spawnSync(writeDeny.argv, {
+        env: { ...process.env, ...writeDeny.env },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(pWriteDeny.exitCode).not.toBe(0);
+      expect(pWriteDeny.stderr.toString().toLowerCase()).toContain("permission denied");
+    },
+  );
+});
