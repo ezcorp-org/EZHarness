@@ -155,6 +155,17 @@ export default defineExtension({
     shell: true,
     // gh pr create reaches the GitHub API (and git push over https).
     network: ["api.github.com"],
+    // Cron triggers (Warren's triggers.yaml analog). Each fire reads
+    // .ezcorp/extension-data/ez-code/triggers.json and dispatches the run(s)
+    // configured for the firing cron. The host refuses any cron not listed
+    // here, so the trigger file's crons must be a subset of this set.
+    schedule: {
+      crons: ["0 * * * *", "0 9 * * *"],
+      maxRunsPerDay: 48,
+      purpose:
+        "Fire ez-code triggers from triggers.json — each matching trigger " +
+        "dispatches a coding-agent run on the active project.",
+    },
   },
 
   resources: {

@@ -15,17 +15,23 @@
 // (v1 gap: extensions cannot read agent_runs through the SDK).
 
 import {
+  Memory,
   PageBuilder,
+  Schedule,
   Storage,
   createToolDispatcher,
   definePage,
+  fsExists,
+  fsRead,
   getChannel,
   pushPage,
   registerEventHandler,
   toolError,
   toolResult,
   type HubPageTree,
+  type MemoryRecord,
   type PageActionEvent,
+  type ScheduleHandlerContext,
   type SubscribableEventMap,
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
@@ -41,6 +47,29 @@ export const MAX_RUNS = 100;
 export const MAX_EVENTS_PER_RUN = 50;
 export const CANCEL_EVENT = "ez-code:cancel";
 export const STEER_EVENT = "ez-code:steer";
+export const TRIGGER_CRONS = ["0 * * * *", "0 9 * * *"] as const;
+export const TRIGGERS_PATH = ".ezcorp/extension-data/ez-code/triggers.json";
+export const TASKS_KEY = "tasks";
+export const MAX_TASKS = 50;
+
+/** A cron-trigger entry (Warren triggers.yaml analog). */
+export interface Trigger {
+  cron: string;
+  agentName: string;
+  task: string;
+  title?: string;
+  autonomousContinuation?: boolean;
+  enabled?: boolean;
+}
+
+/** A lightweight self-tracked task/issue (seeds). */
+export interface TaskRecord {
+  id: string;
+  title: string;
+  status: "open" | "closed";
+  createdAt: string;
+  runId?: string;
+}
 
 export type RunStatus = "dispatched" | "running" | "completed" | "failed" | "cancelled";
 
@@ -195,8 +224,39 @@ const STATUS_BADGE: Record<RunStatus, string> = {
   cancelled: "⊘ cancelled",
 };
 
-/** Build the dashboard tree from the run list. Pure. */
-export function buildDashboard(runs: RunRecord[]): HubPageTree {
+/** Optional sidebars surfaced on the dashboard (B4): agent memory (mulch) +
+ *  the task/issue queue (seeds). */
+export interface DashboardExtras {
+  memories?: MemoryRecord[];
+  tasks?: TaskRecord[];
+}
+
+/** Append the memory (mulch) + task (seeds) sections to a page. Pure. */
+export function appendExtras(page: PageBuilder, extras: DashboardExtras): void {
+  const tasks = extras.tasks ?? [];
+  const memories = extras.memories ?? [];
+  if (tasks.length > 0) {
+    page.heading(3, "Task queue (seeds)");
+    page.table(
+      ["Task", "Status", "Created"],
+      tasks.map((t) => ({
+        cells: [t.title, t.status, t.createdAt.slice(0, 16).replace("T", " ")],
+      })),
+    );
+  }
+  if (memories.length > 0) {
+    page.heading(3, "Agent memory (mulch)");
+    page.table(
+      ["Memory", "Category", "Confidence"],
+      memories.map((m) => ({
+        cells: [m.content.slice(0, 80), m.category, m.confidence],
+      })),
+    );
+  }
+}
+
+/** Build the dashboard tree from the run list (+ optional B4 extras). Pure. */
+export function buildDashboard(runs: RunRecord[], extras: DashboardExtras = {}): HubPageTree {
   const active = runs.filter((r) => r.status === "dispatched" || r.status === "running").length;
   const completed = runs.filter((r) => r.status === "completed").length;
   const failed = runs.filter((r) => r.status === "failed").length;
@@ -218,6 +278,7 @@ export function buildDashboard(runs: RunRecord[]): HubPageTree {
       "No runs dispatched yet",
       "Use the `dispatch_run` tool to spawn a coding-agent run on this project.",
     );
+    appendExtras(page, extras);
     return page.build();
   }
 
@@ -251,13 +312,67 @@ export function buildDashboard(runs: RunRecord[]): HubPageTree {
     }),
   );
 
+  appendExtras(page, extras);
   return page.build();
 }
 
 // ── Handlers ──────────────────────────────────────────────────────
 
+/** Read runs + memory + tasks and build the dashboard with all sections.
+ *  Memory/task reads fail-SOFT (a reverse-RPC blip must not blank the page). */
+export async function buildDashboardLive(): Promise<HubPageTree> {
+  const runs = await getStore().read();
+  let memories: MemoryRecord[] = [];
+  let tasks: TaskRecord[] = [];
+  try {
+    memories = await memoryImpl();
+  } catch {
+    /* fail-soft */
+  }
+  try {
+    tasks = await getTaskStore().read();
+  } catch {
+    /* fail-soft */
+  }
+  return buildDashboard(runs, { memories, tasks });
+}
+
 export async function renderDashboard(): Promise<HubPageTree> {
-  return buildDashboard(await getStore().read());
+  return buildDashboardLive();
+}
+
+/** Shared dispatch logic: spawn a sub-agent + persist a run record + push.
+ *  Reused by the dispatch_run tool AND the cron trigger handler (B4). */
+export async function dispatchRunCore(input: {
+  agentName: string;
+  task: string;
+  title?: string;
+  autonomousContinuation?: boolean;
+}): Promise<RunRecord> {
+  const handle = await spawnImpl({
+    agentName: input.agentName,
+    task: input.task,
+    ...(input.title?.trim() ? { title: input.title.trim() } : {}),
+    ...(input.autonomousContinuation ? { autonomousContinuation: {} } : {}),
+  });
+  const now = new Date().toISOString();
+  const record: RunRecord = {
+    id: handle.agentRunId,
+    taskId: handle.taskId,
+    assignmentId: handle.assignmentId,
+    subConversationId: handle.subConversationId,
+    agentName: input.agentName,
+    title: input.title?.trim() ?? "",
+    task: input.task,
+    status: "dispatched",
+    createdAt: now,
+    updatedAt: now,
+    events: [{ at: now, status: "dispatched" }],
+  };
+  const runs = appendRun(await getStore().read(), record);
+  await getStore().write(runs);
+  pushPageImpl(PAGE_ID, buildDashboard(runs));
+  return record;
 }
 
 /** dispatch_run tool — spawn a sub-agent + persist a run record. */
@@ -275,37 +390,17 @@ export const dispatchRun: ToolHandler = async (args) => {
     return toolError("'task' is required and must be a non-empty string");
   }
 
-  let handle: Awaited<ReturnType<typeof spawnAssignment>>;
+  let record: RunRecord;
   try {
-    handle = await spawnImpl({
+    record = await dispatchRunCore({
       agentName: agentName.trim(),
       task: task.trim(),
-      ...(typeof title === "string" && title.trim() ? { title: title.trim() } : {}),
-      ...(autonomousContinuation === true
-        ? { autonomousContinuation: {} }
-        : {}),
+      ...(typeof title === "string" ? { title } : {}),
+      autonomousContinuation: autonomousContinuation === true,
     });
   } catch (err) {
     return toolError(`dispatch_run failed: ${err instanceof Error ? err.message : String(err)}`);
   }
-
-  const now = new Date().toISOString();
-  const record: RunRecord = {
-    id: handle.agentRunId,
-    taskId: handle.taskId,
-    assignmentId: handle.assignmentId,
-    subConversationId: handle.subConversationId,
-    agentName: agentName.trim(),
-    title: typeof title === "string" ? title.trim() : "",
-    task: task.trim(),
-    status: "dispatched",
-    createdAt: now,
-    updatedAt: now,
-    events: [{ at: now, status: "dispatched" }],
-  };
-  const runs = appendRun(await getStore().read(), record);
-  await getStore().write(runs);
-  pushPageImpl(PAGE_ID, buildDashboard(runs));
 
   return toolResult(
     JSON.stringify({
@@ -540,6 +635,115 @@ export const openPr: ToolHandler = async (args) => {
   return toolResult(JSON.stringify({ runId, prUrl: res.url ?? null, opened: true }));
 };
 
+// ── B4: cron triggers + memory (mulch) + tasks (seeds) ────────────
+
+/** Trigger reader (fsRead-backed; injectable for tests). Returns [] when the
+ *  file is absent or malformed (a missing triggers file is a no-op). */
+export type TriggersReader = () => Promise<Trigger[]>;
+export const productionTriggers: TriggersReader = async () => {
+  try {
+    if (!(await fsExists(TRIGGERS_PATH))) return [];
+    const raw = (await fsRead(TRIGGERS_PATH, { encoding: "utf-8" })) as string;
+    const parsed = JSON.parse(raw);
+    const arr = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.triggers) ? parsed.triggers : [];
+    return arr.filter(
+      (t: unknown): t is Trigger =>
+        !!t &&
+        typeof (t as Trigger).cron === "string" &&
+        typeof (t as Trigger).agentName === "string" &&
+        typeof (t as Trigger).task === "string",
+    );
+  } catch {
+    return [];
+  }
+};
+let triggersImpl: TriggersReader = productionTriggers;
+export function _setTriggersForTests(fn: TriggersReader | null): void {
+  triggersImpl = fn ?? productionTriggers;
+}
+
+// Memory (mulch) reader — injectable; defaults to the SDK Memory client.
+export type MemoryReader = () => Promise<MemoryRecord[]>;
+const productionMemory: MemoryReader = () => new Memory().list({ limit: 10 });
+let memoryImpl: MemoryReader = productionMemory;
+export function _setMemoryForTests(fn: MemoryReader | null): void {
+  memoryImpl = fn ?? productionMemory;
+}
+
+// Task (seeds) store — Storage-backed; reuses the run store's seam pattern.
+export interface TaskStore {
+  read(): Promise<TaskRecord[]>;
+  write(tasks: TaskRecord[]): Promise<void>;
+}
+let taskStore: TaskStore | null = null;
+function getTaskStore(): TaskStore {
+  if (!taskStore) {
+    const storage = new Storage("global");
+    taskStore = {
+      async read() {
+        const r = await storage.get<TaskRecord[]>(TASKS_KEY);
+        return Array.isArray(r.value) ? r.value : [];
+      },
+      async write(tasks) {
+        await storage.set(TASKS_KEY, tasks);
+      },
+    };
+  }
+  return taskStore;
+}
+export function _setTaskStoreForTests(s: TaskStore | null): void {
+  taskStore = s;
+}
+
+/**
+ * Select the triggers that fire on a given cron. Pure. A trigger fires when
+ * its cron matches AND it is not explicitly disabled.
+ */
+export function triggersForCron(triggers: Trigger[], cron: string): Trigger[] {
+  return triggers.filter((t) => t.cron === cron && t.enabled !== false);
+}
+
+/**
+ * Cron-fire handler: read triggers.json, dispatch a run for each trigger that
+ * matches the firing cron, and record a `seed` task per dispatch. Pushes the
+ * dashboard once after the batch. Each dispatch failure is isolated (one bad
+ * trigger doesn't abort the rest).
+ */
+export async function handleTriggerFire(ctx: ScheduleHandlerContext): Promise<void> {
+  const triggers = triggersForCron(await triggersImpl(), ctx.cron);
+  if (triggers.length === 0) return;
+
+  let dispatched = false;
+  for (const t of triggers) {
+    try {
+      const record = await dispatchRunCore({
+        agentName: t.agentName,
+        task: t.task,
+        ...(t.title ? { title: t.title } : {}),
+        autonomousContinuation: t.autonomousContinuation === true,
+      });
+      // Seed a task entry for the dispatched run.
+      const tasks = await getTaskStore().read();
+      const seed: TaskRecord = {
+        id: record.id,
+        title: t.title || t.task.slice(0, 60),
+        status: "open",
+        createdAt: record.createdAt,
+        runId: record.id,
+      };
+      await getTaskStore().write([seed, ...tasks].slice(0, MAX_TASKS));
+      dispatched = true;
+    } catch {
+      // Isolate: a failing trigger must not abort the rest of the batch.
+    }
+  }
+  if (dispatched) {
+    // dispatchRunCore already pushed per dispatch; one more push reflects the
+    // seeded tasks now visible on the dashboard.
+    pushPageImpl(PAGE_ID, await buildDashboardLive());
+  }
+}
+
 // ── page-action handlers (dashboard buttons) ──────────────────────
 
 /** Dashboard "Cancel" row action → cancel the run named in the payload. */
@@ -588,6 +792,12 @@ export function register(): void {
   });
   createToolDispatcher(tools);
   registerEventHandler("task:assignment_update", handleAssignmentUpdate);
+  // B4: cron triggers — one handler per declared cron. The host only fires
+  // crons the manifest declared; each fire reads triggers.json + dispatches.
+  const schedule = new Schedule();
+  for (const cron of TRIGGER_CRONS) {
+    schedule.on(cron, handleTriggerFire);
+  }
 }
 
 export function start(): void {

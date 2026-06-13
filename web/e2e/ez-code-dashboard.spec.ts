@@ -86,6 +86,46 @@ test.describe("ez-code dashboard", () => {
 		await expect(page.getByTestId("hub-row-link")).toHaveAttribute("href", "/chat/sub-1");
 	});
 
+	test("B4: dashboard surfaces the task queue (seeds) + agent memory (mulch) sections", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj] });
+		const treeWithExtras = {
+			title: "ez-code",
+			nodes: [
+				{ type: "stats", items: [{ label: "Total runs", value: "1" }] },
+				{
+					type: "table",
+					columns: ["Run", "Agent", "Status", "Updated", "Latest event"],
+					rows: [{ cells: ["Nightly", "coder", "✓ completed", "2026-06-13 09:00", "completed"], href: "/chat/sub-1" }],
+				},
+				{ type: "heading", level: 3, text: "Task queue (seeds)" },
+				{
+					type: "table",
+					columns: ["Task", "Status", "Created"],
+					rows: [{ cells: ["Nightly build", "open", "2026-06-13 09:00"] }],
+				},
+				{ type: "heading", level: 3, text: "Agent memory (mulch)" },
+				{
+					type: "table",
+					columns: ["Memory", "Category", "Confidence"],
+					rows: [{ cells: ["prefers small PRs", "preferences", "high"] }],
+				},
+			],
+		};
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+		await page.route(`**/api/hub/pages/${encodeURIComponent(EXT_ID)}`, (route) =>
+			route.fulfill({ json: { page: treeWithExtras, renderedAt: Date.now() } }),
+		);
+
+		await page.goto(`/hub/${encodeURIComponent(EXT_ID)}`);
+		await expect(page.getByText("Task queue (seeds)")).toBeVisible();
+		await expect(page.getByText("Agent memory (mulch)")).toBeVisible();
+		await expect(page.getByTestId("hub-node-table").filter({ hasText: "Nightly build" })).toBeVisible();
+		await expect(page.getByTestId("hub-node-table").filter({ hasText: "prefers small PRs" })).toBeVisible();
+	});
+
 	test("B2: clicking a live run's cancel → confirm → POSTs the cancel event; SSE re-pull shows cancelled", async ({
 		page,
 		mockApi,
