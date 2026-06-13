@@ -55,7 +55,14 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
     );
   }
 
-  // Body: optional `{ payload }` plain object, ≤ 2KB serialized.
+  // Body: optional `{ payload }` plain object, ≤ 2KB serialized, with
+  // SCALAR-ONLY values (string | number | boolean). The scalar rule is
+  // defense-in-depth at the boundary: it mirrors `validateAction`'s
+  // payload rule (page-schema.ts) so the security claim "a prompt's
+  // typed value stays a sanitized scalar" holds at the edge, not only
+  // because handlers happen to coerce. Nested objects/arrays inside the
+  // payload are rejected outright — no core action needs them, and it
+  // closes any "smuggle structured data through a prompt" vector.
   const raw = await request.json().catch(() => ({}));
   let payload: Record<string, unknown> | undefined;
   if (raw != null && typeof raw === "object" && !Array.isArray(raw)) {
@@ -68,6 +75,12 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
         JSON.stringify(candidate).length > MAX_ACTION_PAYLOAD_BYTES
       ) {
         return errorJson(400, "Invalid payload");
+      }
+      for (const value of Object.values(candidate as Record<string, unknown>)) {
+        const t = typeof value;
+        if (t !== "string" && t !== "number" && t !== "boolean") {
+          return errorJson(400, "Invalid payload");
+        }
       }
       payload = candidate as Record<string, unknown>;
     }

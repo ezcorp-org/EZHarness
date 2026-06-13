@@ -460,6 +460,46 @@ test.describe("Hub", () => {
 		expect(addPosts).toBe(0);
 	});
 
+	test("watchlist: Enter submits the prompt; Escape closes it with no POST", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		let addBody: unknown = null;
+		let addPosts = 0;
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+		await page.route(`**/api/hub/pages/${encodeURIComponent(CORE_ID)}`, (route) =>
+			route.fulfill({ json: { page: watchlistTree([]), renderedAt: Date.now() } }),
+		);
+		await page.route(
+			`**/api/hub/pages/${encodeURIComponent(CORE_ID)}/actions/add-watchlist`,
+			async (route) => {
+				addPosts++;
+				addBody = route.request().postDataJSON();
+				return route.fulfill({
+					json: { ok: true, page: watchlistTree(["Bun 2.0 release"]), renderedAt: Date.now() },
+				});
+			},
+		);
+
+		await page.goto(`/hub/${encodeURIComponent(CORE_ID)}`);
+
+		// Escape closes the dialog without dispatching.
+		await page.getByTestId("hub-node-button").filter({ hasText: "Add to watchlist" }).click();
+		await expect(page.getByTestId("hub-prompt-dialog")).toBeVisible();
+		await page.getByTestId("hub-prompt-input").fill("discarded");
+		await page.getByTestId("hub-prompt-input").press("Escape");
+		await expect(page.getByTestId("hub-prompt-dialog")).toHaveCount(0);
+		await page.waitForTimeout(150);
+		expect(addPosts).toBe(0);
+
+		// Enter submits the same merged payload as clicking Submit.
+		await page.getByTestId("hub-node-button").filter({ hasText: "Add to watchlist" }).click();
+		await page.getByTestId("hub-prompt-input").fill("Bun 2.0 release");
+		await page.getByTestId("hub-prompt-input").press("Enter");
+		await expect(page.getByTestId("hub-prompt-dialog")).toHaveCount(0);
+		await expect(page.getByTestId("hub-node-table")).toContainText("Bun 2.0 release");
+		expect(addPosts).toBe(1);
+		expect(addBody).toEqual({ payload: { topic: "Bun 2.0 release" } });
+	});
+
 	test("watchlist: row remove → confirm dialog → Confirm POSTs remove-watchlist → row gone", async ({
 		page,
 		mockApi,
