@@ -947,7 +947,7 @@ describe("B4: triggers / memory / tasks", () => {
     _setMemoryForTests(async () => []);
     _setPushPageForTests(() => {});
     let spawnCount = 0;
-    _setSpawnForTests(async (input) => {
+    _setSpawnForTests(async (_input) => {
       spawnCount++;
       return {
         subConversationId: `sub-${spawnCount}`,
