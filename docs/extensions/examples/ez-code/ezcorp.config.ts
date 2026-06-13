@@ -60,6 +60,42 @@ export default defineExtension({
         },
       },
     },
+    {
+      name: "steer_run",
+      description:
+        "Inject a steering message into a dispatched run's sub-conversation, " +
+        "nudging the agent mid-flight. Records the steer on the run's event log.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          runId: { type: "string", description: "The run id to steer." },
+          message: {
+            type: "string",
+            description: "The steering instruction to append to the run.",
+          },
+          parentMessageId: {
+            type: "string",
+            description:
+              "Optional id of the message to anchor the steer to (host requires " +
+              "a valid parent in the run's sub-conversation).",
+          },
+        },
+        required: ["runId", "message"],
+      },
+    },
+    {
+      name: "cancel_run",
+      description:
+        "Cancel a live dispatched run (host enforces ownership). Updates the run " +
+        "record to cancelled and refreshes the dashboard.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          runId: { type: "string", description: "The run id to cancel." },
+        },
+        required: ["runId"],
+      },
+    },
   ],
 
   // Hub page declaration (Extension Pages Hub). Declaring the page IS the
@@ -88,6 +124,10 @@ export default defineExtension({
       "ez-code:cancel",
       "ez-code:open-pr",
     ],
+    // steer_run injects a turn into a run's sub-conversation via the
+    // `ezcorp/append-message` reverse RPC. The host always forces
+    // `excluded: true`; `excludedDefault` is reserved for a future tier.
+    appendMessages: { excludedDefault: true },
     // Self-tracked run records + event logs (v1 gap: extensions cannot read
     // agent_runs through the SDK, so we persist our own run history).
     storage: true,

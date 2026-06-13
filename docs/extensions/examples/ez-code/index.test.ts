@@ -14,20 +14,32 @@ import {
   type HostChannel,
 } from "@ezcorp/sdk/runtime";
 import {
+  CANCEL_EVENT,
   MAX_RUNS,
   PAGE_ID,
+  STEER_EVENT,
+  _setAppendMessageForTests,
+  _setCancelForTests,
   _setPushPageForTests,
   _setSpawnForTests,
   _setStoreForTests,
   appendRun,
   applyAssignmentUpdate,
   buildDashboard,
+  cancelRunById,
+  cancelRunTool,
   dispatchRun,
   handleAssignmentUpdate,
+  handleCancelAction,
+  handleSteerAction,
+  isLive,
   listRuns,
   mapStatus,
+  recordRunEvent,
   register,
   renderDashboard,
+  steerRun,
+  steerRunById,
   tools,
   type RunRecord,
   type RunStore,
@@ -84,6 +96,8 @@ afterEach(() => {
   _setStoreForTests(null);
   _setPushPageForTests(null);
   _setSpawnForTests(null);
+  _setCancelForTests(null);
+  _setAppendMessageForTests(null);
   __resetPagesForTests();
   __resetChannelForTests();
 });
@@ -194,12 +208,15 @@ describe("buildDashboard", () => {
     expect(stats.items.find((i) => i.label === "Failed")!.value).toBe("1");
     const table = nodes.find((n) => n.type === "table") as {
       columns: string[];
-      rows: Array<{ cells: string[]; href?: string }>;
+      rows: Array<{ cells: string[]; href?: string; action?: unknown }>;
     };
     expect(table.columns).toEqual(["Run", "Agent", "Status", "Updated", "Latest event"]);
     expect(table.rows[0]!.cells[2]).toContain("running");
-    // sub-conversation deep-link.
-    expect(table.rows[0]!.href).toBe("/chat/sub-1");
+    // A live (running) row carries a cancel action, not a deep-link (B2);
+    // terminal rows deep-link to their sub-conversation.
+    expect(table.rows[0]!.action).toBeDefined();
+    expect(table.rows[0]!.href).toBeUndefined();
+    expect(table.rows[1]!.href).toBe("/chat/sub-1");
   });
 });
 
@@ -311,9 +328,228 @@ describe("handleAssignmentUpdate", () => {
   });
 });
 
+describe("isLive / recordRunEvent (B2 pure helpers)", () => {
+  test("isLive: only dispatched + running are live", () => {
+    expect(isLive("dispatched")).toBe(true);
+    expect(isLive("running")).toBe(true);
+    expect(isLive("completed")).toBe(false);
+    expect(isLive("failed")).toBe(false);
+    expect(isLive("cancelled")).toBe(false);
+  });
+
+  test("recordRunEvent prepends an event + optionally forces status", () => {
+    const before = [record({ id: "r1", status: "running", events: [] })];
+    const after = recordRunEvent(before, "r1", { status: "cancelled" }, "cancelled");
+    expect(after[0]!.status).toBe("cancelled");
+    expect(after[0]!.events[0]!.status).toBe("cancelled");
+    // non-matching id untouched
+    const same = recordRunEvent(before, "nope", { status: "x" });
+    expect(same[0]).toEqual(before[0]!);
+  });
+});
+
+describe("steer_run", () => {
+  test("appends a steering turn, records the event, pushes a fresh tree", async () => {
+    const store = memoryStore([record({ id: "run-s", status: "running" })]);
+    _setStoreForTests(store);
+    const pushes = capturePushes();
+    let appended: any = null;
+    _setAppendMessageForTests(async (params) => {
+      appended = params;
+      return { ok: true };
+    });
+
+    const r = await steerRun({ runId: "run-s", message: "focus on the failing test" });
+    expect(r.isError).toBeFalsy();
+    expect(appended.conversationId).toBe("sub-1");
+    expect(appended.role).toBe("extension");
+    expect(appended.content).toContain("focus on the failing test");
+    expect(store.runs[0]!.events[0]!.status).toBe("steered");
+    expect(pushes).toHaveLength(1);
+  });
+
+  test("forwards an explicit parentMessageId", async () => {
+    _setStoreForTests(memoryStore([record({ id: "run-p", status: "running" })]));
+    _setPushPageForTests(() => {});
+    let appended: any = null;
+    _setAppendMessageForTests(async (params) => {
+      appended = params;
+      return { ok: true };
+    });
+    await steerRun({ runId: "run-p", message: "go", parentMessageId: "msg-42" });
+    expect(appended.parentMessageId).toBe("msg-42");
+  });
+
+  test("validates runId + message", async () => {
+    expect((await steerRun({ message: "x" })).isError).toBe(true);
+    expect((await steerRun({ runId: "r" })).isError).toBe(true);
+  });
+
+  test("rejects steering a terminal run", async () => {
+    _setStoreForTests(memoryStore([record({ id: "run-done", status: "completed" })]));
+    const r = await steerRun({ runId: "run-done", message: "go" });
+    expect(r.isError).toBe(true);
+    expect((r.content[0] as { text: string }).text).toContain("not steerable");
+  });
+
+  test("surfaces an append-message RPC failure", async () => {
+    _setStoreForTests(memoryStore([record({ id: "run-e", status: "running" })]));
+    _setAppendMessageForTests(async () => {
+      throw new Error("not wired to this conversation");
+    });
+    const r = await steerRun({ runId: "run-e", message: "go" });
+    expect(r.isError).toBe(true);
+    expect((r.content[0] as { text: string }).text).toContain("not wired");
+  });
+
+  test("steerRunById reports a missing run", async () => {
+    _setStoreForTests(memoryStore([]));
+    const res = await steerRunById("ghost", "go");
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("no run");
+  });
+
+  test("production append path calls ezcorp/append-message through the channel", async () => {
+    _setStoreForTests(memoryStore([record({ id: "run-prod", status: "running" })]));
+    _setPushPageForTests(() => {});
+    _setAppendMessageForTests(null); // force the production channel-backed impl
+    let sent: { method: string; params: any } | null = null;
+    const ch = getChannel();
+    ch.request = (async (method: string, params: unknown) => {
+      sent = { method, params };
+      return { ok: true };
+    }) as HostChannel["request"];
+
+    const res = await steerRunById("run-prod", "ship it");
+    expect(res.ok).toBe(true);
+    expect(sent!.method).toBe("ezcorp/append-message");
+    expect(sent!.params.content).toContain("ship it");
+  });
+});
+
+describe("cancel_run", () => {
+  test("cancels via the host + flips the record to cancelled + pushes", async () => {
+    const store = memoryStore([record({ id: "run-c", status: "running" })]);
+    _setStoreForTests(store);
+    const pushes = capturePushes();
+    let cancelledId: string | null = null;
+    _setCancelForTests(async (id) => {
+      cancelledId = id;
+      return { cancelled: true };
+    });
+
+    const r = await cancelRunTool({ runId: "run-c" });
+    expect(r.isError).toBeFalsy();
+    expect(cancelledId as string | null).toBe("run-c");
+    expect(store.runs[0]!.status).toBe("cancelled");
+    expect(pushes).toHaveLength(1);
+  });
+
+  test("surfaces a host rejection with its reason", async () => {
+    _setStoreForTests(memoryStore([record({ id: "run-no", status: "running" })]));
+    _setCancelForTests(async () => ({ cancelled: false, reason: "not-owned" }));
+    const r = await cancelRunTool({ runId: "run-no" });
+    expect(r.isError).toBe(true);
+    expect((r.content[0] as { text: string }).text).toContain("not-owned");
+  });
+
+  test("validates runId", async () => {
+    expect((await cancelRunTool({})).isError).toBe(true);
+  });
+
+  test("cancelRunById reports a missing run", async () => {
+    _setStoreForTests(memoryStore([]));
+    expect((await cancelRunById("ghost")).ok).toBe(false);
+  });
+
+  test("surfaces a thrown cancel error", async () => {
+    _setStoreForTests(memoryStore([record({ id: "run-t", status: "running" })]));
+    _setCancelForTests(async () => {
+      throw new Error("boom");
+    });
+    const res = await cancelRunById("run-t");
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("boom");
+  });
+});
+
+describe("dashboard cancel action (live rows)", () => {
+  test("live runs render a confirm-gated cancel action; terminal runs deep-link", () => {
+    const tree = buildDashboard([
+      record({ id: "live", status: "running" }),
+      record({ id: "done", status: "completed", subConversationId: "sub-done" }),
+    ]);
+    const table = (tree.nodes as Array<Record<string, unknown>>).find(
+      (n) => n.type === "table",
+    ) as { rows: Array<{ action?: { event: string; payload?: any; confirm?: string }; href?: string }> };
+    expect(table.rows[0]!.action!.event).toBe(CANCEL_EVENT);
+    expect(table.rows[0]!.action!.payload.runId).toBe("live");
+    expect(table.rows[0]!.action!.confirm).toBeTruthy();
+    expect(table.rows[0]!.href).toBeUndefined();
+    // terminal run: deep-link, no action.
+    expect(table.rows[1]!.href).toBe("/chat/sub-done");
+    expect(table.rows[1]!.action).toBeUndefined();
+  });
+
+  test("handleCancelAction cancels the payload run", async () => {
+    const store = memoryStore([record({ id: "run-act", status: "running" })]);
+    _setStoreForTests(store);
+    _setPushPageForTests(() => {});
+    _setCancelForTests(async () => ({ cancelled: true }));
+    await handleCancelAction({ source: "hub", pageId: PAGE_ID, userId: "u1", payload: { runId: "run-act" } });
+    expect(store.runs[0]!.status).toBe("cancelled");
+  });
+
+  test("handleCancelAction is a no-op with no runId", async () => {
+    _setStoreForTests(memoryStore([record({ id: "x", status: "running" })]));
+    let cancelCalls = 0;
+    _setCancelForTests(async () => {
+      cancelCalls++;
+      return { cancelled: true };
+    });
+    await handleCancelAction({ source: "hub", pageId: PAGE_ID, userId: "u1", payload: {} });
+    expect(cancelCalls).toBe(0);
+  });
+
+  test("handleSteerAction appends when payload has runId + message", async () => {
+    const store = memoryStore([record({ id: "run-sa", status: "running" })]);
+    _setStoreForTests(store);
+    _setPushPageForTests(() => {});
+    let appended = false;
+    _setAppendMessageForTests(async () => {
+      appended = true;
+      return { ok: true };
+    });
+    await handleSteerAction({
+      source: "hub",
+      pageId: PAGE_ID,
+      userId: "u1",
+      payload: { runId: "run-sa", message: "nudge" },
+    });
+    expect(appended).toBe(true);
+    expect(store.runs[0]!.events[0]!.status).toBe("steered");
+  });
+
+  test("handleSteerAction is a no-op without both fields", async () => {
+    _setStoreForTests(memoryStore([record({ id: "x", status: "running" })]));
+    let appendCalls = 0;
+    _setAppendMessageForTests(async () => {
+      appendCalls++;
+      return { ok: true };
+    });
+    await handleSteerAction({ source: "hub", pageId: PAGE_ID, userId: "u1", payload: { runId: "x" } });
+    expect(appendCalls).toBe(0);
+  });
+});
+
 describe("tools registry", () => {
-  test("exposes dispatch_run + list_runs", () => {
-    expect(Object.keys(tools).sort()).toEqual(["dispatch_run", "list_runs"]);
+  test("exposes all four tools", () => {
+    expect(Object.keys(tools).sort()).toEqual([
+      "cancel_run",
+      "dispatch_run",
+      "list_runs",
+      "steer_run",
+    ]);
   });
 });
 

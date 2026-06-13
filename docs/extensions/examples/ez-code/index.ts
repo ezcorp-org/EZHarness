@@ -25,10 +25,11 @@ import {
   toolError,
   toolResult,
   type HubPageTree,
+  type PageActionEvent,
   type SubscribableEventMap,
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
-import { spawnAssignment } from "@ezcorp/sdk/runtime";
+import { spawnAssignment, cancelRun } from "@ezcorp/sdk/runtime";
 
 /** Payload of the `task:assignment_update` event (re-derived from the
  *  exported event map — the concrete type isn't re-exported by name). */
@@ -38,6 +39,8 @@ export const PAGE_ID = "dashboard";
 export const RUNS_KEY = "runs";
 export const MAX_RUNS = 100;
 export const MAX_EVENTS_PER_RUN = 50;
+export const CANCEL_EVENT = "ez-code:cancel";
+export const STEER_EVENT = "ez-code:steer";
 
 export type RunStatus = "dispatched" | "running" | "completed" | "failed" | "cancelled";
 
@@ -100,6 +103,18 @@ let spawnImpl: typeof spawnAssignment = spawnAssignment;
 export function _setSpawnForTests(fn: typeof spawnAssignment | null): void {
   spawnImpl = fn ?? spawnAssignment;
 }
+let cancelImpl: typeof cancelRun = cancelRun;
+export function _setCancelForTests(fn: typeof cancelRun | null): void {
+  cancelImpl = fn ?? cancelRun;
+}
+// append-message has no SDK wrapper — call the reverse RPC directly. The
+// seam lets tests observe the request without a live channel.
+type AppendMessageRpc = (params: Record<string, unknown>) => Promise<unknown>;
+let appendMessageImpl: AppendMessageRpc = (params) =>
+  getChannel().request("ezcorp/append-message", params);
+export function _setAppendMessageForTests(fn: AppendMessageRpc | null): void {
+  appendMessageImpl = fn ?? ((params) => getChannel().request("ezcorp/append-message", params));
+}
 
 // ── Pure helpers ──────────────────────────────────────────────────
 
@@ -151,6 +166,27 @@ export function applyAssignmentUpdate(
   });
 }
 
+/** A run is steerable/cancellable only while it's still live. Pure. */
+export function isLive(status: RunStatus): boolean {
+  return status === "dispatched" || status === "running";
+}
+
+/** Append a free-form event to the matching run (status optionally forced).
+ *  Pure — returns a NEW array. */
+export function recordRunEvent(
+  runs: RunRecord[],
+  runId: string,
+  evt: { status: string; note?: string },
+  forceStatus?: RunStatus,
+): RunRecord[] {
+  const at = new Date().toISOString();
+  return runs.map((r) => {
+    if (r.id !== runId) return r;
+    const events = [{ at, ...evt }, ...r.events].slice(0, MAX_EVENTS_PER_RUN);
+    return { ...r, updatedAt: at, ...(forceStatus ? { status: forceStatus } : {}), events };
+  });
+}
+
 const STATUS_BADGE: Record<RunStatus, string> = {
   dispatched: "● dispatched",
   running: "▶ running",
@@ -187,18 +223,32 @@ export function buildDashboard(runs: RunRecord[]): HubPageTree {
 
   page.table(
     ["Run", "Agent", "Status", "Updated", "Latest event"],
-    runs.map((r) => ({
-      cells: [
+    runs.map((r) => {
+      const cells = [
         r.title || r.id.slice(0, 8),
         r.agentName,
         STATUS_BADGE[r.status],
         r.updatedAt.slice(0, 16).replace("T", " "),
         r.events[0] ? `${r.events[0].status}${r.events[0].note ? ` — ${r.events[0].note}` : ""}` : "—",
-      ],
-      ...(r.subConversationId
-        ? { href: `/chat/${r.subConversationId}` as const }
-        : {}),
-    })),
+      ];
+      // Live runs get a confirm-gated CANCEL action on the row; terminal
+      // runs deep-link to their sub-conversation. (A row carries either an
+      // action OR an href, not both.)
+      if (isLive(r.status)) {
+        return {
+          cells,
+          action: {
+            event: CANCEL_EVENT,
+            payload: { runId: r.id },
+            confirm: `Cancel run "${r.title || r.id.slice(0, 8)}"? This stops the agent.`,
+          },
+        };
+      }
+      return {
+        cells,
+        ...(r.subConversationId ? { href: `/chat/${r.subConversationId}` as const } : {}),
+      };
+    }),
   );
 
   return page.build();
@@ -283,6 +333,114 @@ export const listRuns: ToolHandler = async (args) => {
   return toolResult(JSON.stringify({ runs: slice }));
 };
 
+// ── steer_run ─────────────────────────────────────────────────────
+
+/** Shared steer logic: append a steering turn into the run's
+ *  sub-conversation, record the steer event, push a fresh tree. Returns the
+ *  outcome so both the tool wrapper and tests can assert it. */
+export async function steerRunById(
+  runId: string,
+  message: string,
+  parentMessageId?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const runs = await getStore().read();
+  const run = runs.find((r) => r.id === runId);
+  if (!run) return { ok: false, error: `no run with id '${runId}'` };
+  if (!isLive(run.status)) {
+    return { ok: false, error: `run '${runId}' is ${run.status} — not steerable` };
+  }
+  try {
+    await appendMessageImpl({
+      conversationId: run.subConversationId,
+      ...(parentMessageId ? { parentMessageId } : {}),
+      role: "extension",
+      content: `[ez-code steer] ${message}`,
+      excluded: true,
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+  const next = recordRunEvent(runs, runId, {
+    status: "steered",
+    note: message.slice(0, 120),
+  });
+  await getStore().write(next);
+  pushPageImpl(PAGE_ID, buildDashboard(next));
+  return { ok: true };
+}
+
+/** steer_run tool — inject a steering message into a run's sub-conversation. */
+export const steerRun: ToolHandler = async (args) => {
+  const { runId, message, parentMessageId } = (args ?? {}) as {
+    runId?: unknown;
+    message?: unknown;
+    parentMessageId?: unknown;
+  };
+  if (typeof runId !== "string" || !runId.trim()) {
+    return toolError("'runId' is required and must be a non-empty string");
+  }
+  if (typeof message !== "string" || !message.trim()) {
+    return toolError("'message' is required and must be a non-empty string");
+  }
+  const res = await steerRunById(
+    runId.trim(),
+    message.trim(),
+    typeof parentMessageId === "string" && parentMessageId.trim() ? parentMessageId.trim() : undefined,
+  );
+  if (!res.ok) return toolError(`steer_run failed: ${res.error}`);
+  return toolResult(JSON.stringify({ runId, steered: true }));
+};
+
+// ── cancel_run ────────────────────────────────────────────────────
+
+/** Shared cancel logic: host-side cancel + flip the record to cancelled. */
+export async function cancelRunById(
+  runId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const runs = await getStore().read();
+  const run = runs.find((r) => r.id === runId);
+  if (!run) return { ok: false, error: `no run with id '${runId}'` };
+  let result: Awaited<ReturnType<typeof cancelRun>>;
+  try {
+    result = await cancelImpl(runId);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+  if (!result.cancelled) {
+    return { ok: false, error: `host rejected cancel: ${result.reason ?? "unknown"}` };
+  }
+  const next = recordRunEvent(runs, runId, { status: "cancelled" }, "cancelled");
+  await getStore().write(next);
+  pushPageImpl(PAGE_ID, buildDashboard(next));
+  return { ok: true };
+}
+
+/** cancel_run tool — cancel a live run (host enforces ownership). */
+export const cancelRunTool: ToolHandler = async (args) => {
+  const { runId } = (args ?? {}) as { runId?: unknown };
+  if (typeof runId !== "string" || !runId.trim()) {
+    return toolError("'runId' is required and must be a non-empty string");
+  }
+  const res = await cancelRunById(runId.trim());
+  if (!res.ok) return toolError(`cancel_run failed: ${res.error}`);
+  return toolResult(JSON.stringify({ runId, cancelled: true }));
+};
+
+// ── page-action handlers (dashboard buttons) ──────────────────────
+
+/** Dashboard "Cancel" row action → cancel the run named in the payload. */
+export async function handleCancelAction(event: PageActionEvent): Promise<void> {
+  const runId = (event.payload?.runId as string | undefined) ?? "";
+  if (runId) await cancelRunById(runId);
+}
+
+/** Dashboard steer action → append the payload message to the run. */
+export async function handleSteerAction(event: PageActionEvent): Promise<void> {
+  const runId = (event.payload?.runId as string | undefined) ?? "";
+  const message = (event.payload?.message as string | undefined) ?? "";
+  if (runId && message) await steerRunById(runId, message);
+}
+
 /** task:assignment_update handler — update the run + push a fresh tree. */
 export async function handleAssignmentUpdate(
   evt: TaskAssignmentUpdateEvent,
@@ -297,12 +455,22 @@ export async function handleAssignmentUpdate(
 export const tools: Record<string, ToolHandler> = {
   dispatch_run: dispatchRun,
   list_runs: listRuns,
+  steer_run: steerRun,
+  cancel_run: cancelRunTool,
 };
 
-/** Register the page, tools, and event handler (no stdin side effects —
- *  tests call this against a stubbed channel). */
+/** Register the page (+ its row/button action handlers), tools, and event
+ *  handler (no stdin side effects — tests call this against a stubbed
+ *  channel). */
 export function register(): void {
-  definePage({ id: PAGE_ID, render: renderDashboard });
+  definePage({
+    id: PAGE_ID,
+    render: renderDashboard,
+    actions: {
+      [CANCEL_EVENT]: handleCancelAction,
+      [STEER_EVENT]: handleSteerAction,
+    },
+  });
   createToolDispatcher(tools);
   registerEventHandler("task:assignment_update", handleAssignmentUpdate);
 }
