@@ -35,6 +35,8 @@ import {
   existsSync,
   realpathSync,
   rmSync,
+  mkdirSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -150,6 +152,7 @@ import {
   buildSandboxedMcpSpec,
   _setConntrackOverridesForTests,
   _setProjectRootOverrideForTests,
+  _setSandboxTierOverrideForTests,
 } from "../extensions/mcp-sandbox";
 import {
   assertJailArgsSafe,
@@ -520,28 +523,59 @@ describe("flag on — degraded host is refused", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// CRITICAL fs-confinement fix — default posture (flag OFF). The strict
-// minimal-bind jail must NOT activate (back-compat: `--bind / /`
-// envelope stays), but the data-dir tmpfs mask env var is ALWAYS
-// threaded whenever the bwrap branch is on and the project root is
-// known — the PGlite DB + JWT secret stop being readable without any
-// opt-in.
-describe("flag off — data-dir exclusion is always on; strict jail is not", () => {
-  test("capable host → EZCORP_MCP_DATA_DIR threaded, no FS_JAIL, launcher payload unchanged", async () => {
+// Phase A3 (Seam C) — the minimal-bind fs-jail is now UNCONDITIONAL,
+// tier-gated by the capability probe (no longer requires the
+// EZCORP_MCP_REQUIRE_SANDBOX flag). On a bwrap-capable host the default
+// posture activates EZCORP_MCP_FS_JAIL=1 + the pre-built minimal-bind
+// argv (NO `--bind / /`) — but WITHOUT EZCORP_MCP_REQUIRE_SANDBOX=1, so
+// the launcher's fail-closed raw-exec fallback is NOT armed. This
+// replaces the legacy "mask-only" default leg the prior test encoded.
+describe("default posture (flag off) — fs-jail is unconditional on a capable host", () => {
+  test("bwrap-capable host → FS_JAIL=1 + minimal-bind argv, no REQUIRE_SANDBOX", async () => {
+    _setSandboxTierOverrideForTests("bwrap");
     const spy = fakeIpSpawnSync(() => ({ success: true, exitCode: 0 }));
     try {
       const { spec, proxyHandle } = await build("ext-rs-off-datadir");
       const wrapped = spec as McpServerStdio;
 
+      // Unconditional fs-jail: routed to the launcher's exec-verbatim
+      // minimal-bind branch (NO `--bind / /`).
+      expect(wrapped.env?.EZCORP_MCP_FS_JAIL).toBe("1");
+      // But NOT strict — the operator did not opt into fail-closed.
+      expect(wrapped.env?.EZCORP_MCP_REQUIRE_SANDBOX).toBeUndefined();
+      // The launcher payload is now the pre-built bwrap minimal-bind argv
+      // (the launcher itself does `exec bwrap "$@"`, so the payload starts
+      // with bwrap FLAGS, not the bare prlimit chain).
+      const launcherIdx = wrapped.args!.indexOf("/fake/mcp-launcher.sh");
+      const jailArgv = wrapped.args!.slice(launcherIdx + 1);
+      expect(jailArgv).not.toEqual(["prlimit", ...jailArgv.slice(1)]);
+      expect(jailArgv[0]).toMatch(/^--/); // bwrap flag, not "prlimit"
+      // The minimal-bind argv must never expose the data dir nor root.
+      expect(() => assertJailArgsSafe(jailArgv, JAIL_ROOT)).not.toThrow();
+      // The original inner command is still present at the tail.
+      expect(jailArgv).toContain("prlimit");
+      // No refusal — non-strict, jail built cleanly.
+      expect(refusalRows()).toHaveLength(0);
+
+      await proxyHandle?.stop();
+    } finally {
+      spy.mockRestore();
+      _setSandboxTierOverrideForTests(null);
+    }
+  });
+
+  test("advisory tier (no Landlock/bwrap) → legacy masked path, no FS_JAIL", async () => {
+    _setSandboxTierOverrideForTests("advisory");
+    const spy = fakeIpSpawnSync(() => ({ success: true, exitCode: 0 }));
+    try {
+      const { spec, proxyHandle } = await build("ext-rs-off-advisory");
+      const wrapped = spec as McpServerStdio;
+
+      // No usable tier → fall back to the legacy masked `--bind / /` path.
+      expect(wrapped.env?.EZCORP_MCP_FS_JAIL).toBeUndefined();
       expect(wrapped.env?.EZCORP_MCP_BWRAP_ENABLED).toBe("1");
       expect(wrapped.env?.EZCORP_MCP_DATA_DIR).toBe(expectedDataDirMask(JAIL_ROOT));
-      // The mask covers the REAL DB data dir (not just `.ezcorp/data`).
       expect(wrapped.env?.EZCORP_MCP_DATA_DIR).toContain(forbiddenDataDir(JAIL_ROOT));
-      // Strict leg stays off: no FS_JAIL routing, no REQUIRE_SANDBOX
-      // threading, and the launcher payload is the original prlimit
-      // chain (NOT a pre-built bwrap argv).
-      expect(wrapped.env?.EZCORP_MCP_FS_JAIL).toBeUndefined();
-      expect(wrapped.env?.EZCORP_MCP_REQUIRE_SANDBOX).toBeUndefined();
       const launcherIdx = wrapped.args!.indexOf("/fake/mcp-launcher.sh");
       expect(wrapped.args!.slice(launcherIdx + 1, launcherIdx + 2)).toEqual(["prlimit"]);
       expect(refusalRows()).toHaveLength(0);
@@ -549,6 +583,130 @@ describe("flag off — data-dir exclusion is always on; strict jail is not", () 
       await proxyHandle?.stop();
     } finally {
       spy.mockRestore();
+      _setSandboxTierOverrideForTests(null);
+    }
+  });
+
+  // Phase A3 GATE — landlock tier END-TO-END containment. With netns
+  // unavailable the spec is UNWRAPPED, so buildSandboxedMcpSpec emits
+  // `bun <landlock-shim> -- prlimit ... <cmd>` directly. We spawn that argv
+  // for real and assert a sandboxed MCP process CANNOT read .ezcorp/data
+  // but CAN read its own workspace. Skips where Landlock is unavailable.
+  const LANDLOCK_ABI = (() => {
+    try {
+      // local require to avoid a top-level import cost on non-Linux
+      const { probeLandlockAbi } = require("../extensions/sandbox/capability-probe");
+      return probeLandlockAbi() ?? 0;
+    } catch {
+      return 0;
+    }
+  })();
+
+  test.if(LANDLOCK_ABI >= 1)(
+    "landlock tier → sandboxed MCP DENIED reading .ezcorp/data, ALLOWED its workspace",
+    async () => {
+      _setSandboxTierOverrideForTests("landlock");
+      state.netnsAvailable = false; // force the unwrapped (directly-spawnable) argv
+      const spy = fakeIpSpawnSync(() => ({ success: true, exitCode: 0 }));
+      try {
+        // The MCP's own workspace + a planted secret under .ezcorp/data.
+        const workDir = join(
+          JAIL_ROOT,
+          ".ezcorp",
+          "extension-data",
+          "require-sandbox-probe",
+        );
+        mkdirSync(workDir, { recursive: true });
+        writeFileSync(join(workDir, "ws.txt"), "WORKSPACE-OK");
+        const dataDir = join(JAIL_ROOT, ".ezcorp", "data");
+        mkdirSync(dataDir, { recursive: true });
+        const secret = join(dataDir, "jwt-secret.txt");
+        writeFileSync(secret, "TOP-SECRET");
+
+        // Build a spec whose INNER command is `cat <secret>` → must be denied.
+        const denySpec: McpServerDefinition = {
+          transport: "stdio",
+          name: "p",
+          command: "cat",
+          args: [secret],
+        };
+        const denyBuilt = await buildSandboxedMcpSpec(
+          denySpec,
+          mcpManifest(),
+          { grantedAt: {} },
+          "ext-ll-deny",
+          makeCtx(),
+        );
+        const denyWrapped = denyBuilt.spec as McpServerStdio;
+        // The argv is the shim-wrapped prlimit chain.
+        expect(denyWrapped.command).toBe("bun");
+        expect(denyWrapped.args![0]).toMatch(/landlock-shim\.ts$/);
+        expect(denyWrapped.env?.EZCORP_LANDLOCK_SPEC).toBeDefined();
+        // The spec must NOT grant anything under .ezcorp/data.
+        const llSpec = JSON.parse(denyWrapped.env!.EZCORP_LANDLOCK_SPEC!);
+        for (const p of [...llSpec.ro, ...llSpec.rw]) {
+          expect(p.startsWith(dataDir)).toBe(false);
+        }
+        const pDeny = Bun.spawnSync(
+          [denyWrapped.command, ...(denyWrapped.args ?? [])],
+          { env: { ...process.env, ...denyWrapped.env }, stdout: "pipe", stderr: "pipe" },
+        );
+        expect(pDeny.exitCode).not.toBe(0);
+        expect(pDeny.stderr.toString().toLowerCase()).toContain("permission denied");
+        await denyBuilt.proxyHandle?.stop();
+
+        // And a read of the workspace file SUCCEEDS under the same jail.
+        const allowSpec: McpServerDefinition = {
+          transport: "stdio",
+          name: "p",
+          command: "cat",
+          args: [join(workDir, "ws.txt")],
+        };
+        const allowBuilt = await buildSandboxedMcpSpec(
+          allowSpec,
+          mcpManifest(),
+          { grantedAt: {} },
+          "ext-ll-allow",
+          makeCtx(),
+        );
+        const allowWrapped = allowBuilt.spec as McpServerStdio;
+        const pAllow = Bun.spawnSync(
+          [allowWrapped.command, ...(allowWrapped.args ?? [])],
+          { env: { ...process.env, ...allowWrapped.env }, stdout: "pipe", stderr: "pipe" },
+        );
+        expect(pAllow.exitCode).toBe(0);
+        expect(pAllow.stdout.toString()).toContain("WORKSPACE-OK");
+        await allowBuilt.proxyHandle?.stop();
+      } finally {
+        spy.mockRestore();
+        _setSandboxTierOverrideForTests(null);
+      }
+    },
+  );
+
+  test("landlock tier + netns-wrapped → shim inserted after the launcher path", async () => {
+    _setSandboxTierOverrideForTests("landlock");
+    state.netnsAvailable = true; // wrapped: unshare -U -m -- launcher prlimit ...
+    const spy = fakeIpSpawnSync(() => ({ success: true, exitCode: 0 }));
+    try {
+      const { spec, proxyHandle } = await build("ext-ll-wrapped");
+      const wrapped = spec as McpServerStdio;
+      // No bwrap fs-jail on the landlock tier.
+      expect(wrapped.env?.EZCORP_MCP_FS_JAIL).toBeUndefined();
+      // Landlock spec threaded.
+      expect(wrapped.env?.EZCORP_LANDLOCK_SPEC).toBeDefined();
+      // The shim is inserted immediately after the launcher path so the
+      // inner command runs jailed inside the namespace.
+      const launcherIdx = wrapped.args!.indexOf("/fake/mcp-launcher.sh");
+      expect(wrapped.args![launcherIdx + 1]).toBe("bun");
+      expect(wrapped.args![launcherIdx + 2]).toMatch(/landlock-shim\.ts$/);
+      expect(wrapped.args![launcherIdx + 3]).toBe("--");
+      // The original inner command (prlimit chain) follows the shim.
+      expect(wrapped.args![launcherIdx + 4]).toBe("prlimit");
+      await proxyHandle?.stop();
+    } finally {
+      spy.mockRestore();
+      _setSandboxTierOverrideForTests(null);
     }
   });
 
