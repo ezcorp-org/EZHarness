@@ -20,11 +20,14 @@ import {
   STEER_EVENT,
   _setAppendMessageForTests,
   _setCancelForTests,
+  _setProjectRootForTests,
   _setPushPageForTests,
+  _setShellForTests,
   _setSpawnForTests,
   _setStoreForTests,
   appendRun,
   applyAssignmentUpdate,
+  branchForRun,
   buildDashboard,
   cancelRunById,
   cancelRunTool,
@@ -35,6 +38,8 @@ import {
   isLive,
   listRuns,
   mapStatus,
+  openPr,
+  openPrForRun,
   recordRunEvent,
   register,
   renderDashboard,
@@ -43,6 +48,7 @@ import {
   tools,
   type RunRecord,
   type RunStore,
+  type ShellResult,
 } from "./index";
 import type { ToolCallResult } from "../../../../src/extensions/types";
 
@@ -98,6 +104,8 @@ afterEach(() => {
   _setSpawnForTests(null);
   _setCancelForTests(null);
   _setAppendMessageForTests(null);
+  _setShellForTests(null);
+  _setProjectRootForTests(null);
   __resetPagesForTests();
   __resetChannelForTests();
 });
@@ -542,12 +550,177 @@ describe("dashboard cancel action (live rows)", () => {
   });
 });
 
+describe("open_pr (B3 branch→PR automation)", () => {
+  test("branchForRun slugifies the run id", () => {
+    expect(branchForRun("run-1")).toBe("ez-code/run-1");
+    expect(branchForRun("weird id/with:chars")).toBe("ez-code/weird-id-with-chars");
+  });
+
+  test("runs git+gh in the project repo cwd, in order, with the right args", async () => {
+    _setStoreForTests(memoryStore([record({ id: "run-pr", title: "My feature" })]));
+    _setPushPageForTests(() => {});
+    _setProjectRootForTests(() => "/proj/repo");
+    const calls: Array<{ cmd: string[]; cwd: string }> = [];
+    _setShellForTests(async (cmd, cwd): Promise<ShellResult> => {
+      calls.push({ cmd, cwd });
+      const stdout = cmd[0] === "gh" ? "https://github.com/org/repo/pull/7" : "";
+      return { exitCode: 0, stdout, stderr: "" };
+    });
+
+    const r = await openPr({ runId: "run-pr", body: "Fixes the thing" });
+    const payload = parse(r);
+    expect(payload.opened).toBe(true);
+    expect(payload.prUrl).toBe("https://github.com/org/repo/pull/7");
+
+    // Every command ran in the active project's repo.
+    expect(calls.every((c) => c.cwd === "/proj/repo")).toBe(true);
+    // Ordered: branch → add → commit → push → gh pr create.
+    expect(calls.map((c) => `${c.cmd[0]} ${c.cmd[1]}`)).toEqual([
+      "git switch",
+      "git add",
+      "git commit",
+      "git push",
+      "gh pr",
+    ]);
+    // Branch name + gh args.
+    expect(calls[0]!.cmd).toEqual(["git", "switch", "-c", "ez-code/run-pr"]);
+    expect(calls[3]!.cmd).toEqual(["git", "push", "-u", "origin", "ez-code/run-pr"]);
+    const gh = calls[4]!.cmd;
+    expect(gh.slice(0, 3)).toEqual(["gh", "pr", "create"]);
+    expect(gh).toContain("--head");
+    expect(gh[gh.indexOf("--head") + 1]).toBe("ez-code/run-pr");
+    expect(gh[gh.indexOf("--title") + 1]).toBe("My feature");
+    expect(gh[gh.indexOf("--body") + 1]).toBe("Fixes the thing");
+  });
+
+  test("records a pr_opened event + pushes the dashboard", async () => {
+    const store = memoryStore([record({ id: "run-ev", title: "T" })]);
+    _setStoreForTests(store);
+    const pushes = capturePushes();
+    _setProjectRootForTests(() => "/repo");
+    _setShellForTests(async (cmd) => ({
+      exitCode: 0,
+      stdout: cmd[0] === "gh" ? "https://github.com/o/r/pull/3" : "",
+      stderr: "",
+    }));
+    await openPr({ runId: "run-ev" });
+    expect(store.runs[0]!.events[0]!.status).toBe("pr_opened");
+    expect(store.runs[0]!.events[0]!.note).toBe("https://github.com/o/r/pull/3");
+    expect(pushes).toHaveLength(1);
+  });
+
+  test("aborts (fail-closed) on a non-zero git step, surfacing stderr", async () => {
+    _setStoreForTests(memoryStore([record({ id: "run-fail" })]));
+    _setProjectRootForTests(() => "/repo");
+    _setShellForTests(async (cmd) =>
+      cmd[1] === "push"
+        ? { exitCode: 1, stdout: "", stderr: "remote rejected" }
+        : { exitCode: 0, stdout: "", stderr: "" },
+    );
+    const r = await openPr({ runId: "run-fail" });
+    expect(r.isError).toBe(true);
+    const text = (r.content[0] as { text: string }).text;
+    expect(text).toContain("git push");
+    expect(text).toContain("remote rejected");
+  });
+
+  test("validates runId", async () => {
+    expect((await openPr({})).isError).toBe(true);
+  });
+
+  test("reports a missing run", async () => {
+    _setStoreForTests(memoryStore([]));
+    expect((await openPrForRun("ghost")).ok).toBe(false);
+  });
+
+  test("fails when no active project repo is resolved", async () => {
+    _setStoreForTests(memoryStore([record({ id: "run-noroot" })]));
+    _setProjectRootForTests(() => undefined);
+    const res = await openPrForRun("run-noroot");
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("EZCORP_PROJECT_ROOT");
+  });
+});
+
+describe("open_pr against a real throwaway git repo (integration)", () => {
+  test("creates the branch, commits, 'pushes' to a bare remote, and issues gh pr create", async () => {
+    const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+
+    // Build a real repo with a bare 'origin' so `git push` works offline.
+    const base = mkdtempSync(join(tmpdir(), "ezc-pr-"));
+    const repo = join(base, "work");
+    const remote = join(base, "remote.git");
+    mkdirSync(repo, { recursive: true });
+
+    const git = (args: string[], cwd: string) =>
+      Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+    Bun.spawnSync(["git", "init", "--bare", remote], { stdout: "pipe", stderr: "pipe" });
+    git(["init"], repo);
+    git(["config", "user.email", "t@t.com"], repo);
+    git(["config", "user.name", "t"], repo);
+    git(["config", "commit.gpgsign", "false"], repo);
+    writeFileSync(join(repo, "README.md"), "# work\n");
+    git(["add", "-A"], repo);
+    git(["commit", "-m", "init"], repo);
+    git(["branch", "-M", "main"], repo);
+    git(["remote", "add", "origin", remote], repo);
+    // A pending change for open_pr to commit.
+    writeFileSync(join(repo, "feature.txt"), "agent work\n");
+
+    _setStoreForTests(memoryStore([record({ id: "run-real", title: "Add feature" })]));
+    _setPushPageForTests(() => {});
+    _setProjectRootForTests(() => repo);
+
+    // Real git via Bun.spawn; `gh` is faked (no network / auth in CI).
+    let ghArgs: string[] | null = null;
+    _setShellForTests(async (cmd, cwd): Promise<ShellResult> => {
+      if (cmd[0] === "gh") {
+        ghArgs = cmd;
+        return { exitCode: 0, stdout: "https://github.com/org/repo/pull/42", stderr: "" };
+      }
+      const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+      return {
+        exitCode: p.exitCode,
+        stdout: p.stdout.toString(),
+        stderr: p.stderr.toString(),
+      };
+    });
+
+    const res = await openPrForRun("run-real", { body: "real PR" });
+    expect(res.ok).toBe(true);
+    expect(res.url).toBe("https://github.com/org/repo/pull/42");
+
+    // The branch was actually created + pushed to the bare remote.
+    const branches = Bun.spawnSync(["git", "branch", "--list", "ez-code/run-real"], {
+      cwd: repo,
+      stdout: "pipe",
+    }).stdout.toString();
+    expect(branches).toContain("ez-code/run-real");
+    const remoteRefs = Bun.spawnSync(["git", "ls-remote", "--heads", remote], {
+      stdout: "pipe",
+    }).stdout.toString();
+    expect(remoteRefs).toContain("ez-code/run-real");
+
+    // gh pr create was issued with the run's branch + title.
+    expect(ghArgs).not.toBeNull();
+    expect(ghArgs!).toContain("--head");
+    expect(ghArgs![ghArgs!.indexOf("--head") + 1]).toBe("ez-code/run-real");
+    expect(ghArgs![ghArgs!.indexOf("--title") + 1]).toBe("Add feature");
+
+    const { rmSync } = await import("node:fs");
+    rmSync(base, { recursive: true, force: true });
+  });
+});
+
 describe("tools registry", () => {
-  test("exposes all four tools", () => {
+  test("exposes all five tools", () => {
     expect(Object.keys(tools).sort()).toEqual([
       "cancel_run",
       "dispatch_run",
       "list_runs",
+      "open_pr",
       "steer_run",
     ]);
   });

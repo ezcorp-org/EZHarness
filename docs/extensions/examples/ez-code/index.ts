@@ -426,6 +426,120 @@ export const cancelRunTool: ToolHandler = async (args) => {
   return toolResult(JSON.stringify({ runId, cancelled: true }));
 };
 
+// ── open_pr (branch → commit → push → gh pr create) ───────────────
+
+/** Result of running one shell command. */
+export interface ShellResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+/** Runs a command in a given cwd. Injectable so tests drive git/gh
+ *  deterministically against a throwaway repo + a mocked remote. */
+export type ShellRunner = (
+  cmd: string[],
+  cwd: string,
+) => Promise<ShellResult>;
+
+/** Production runner — `Bun.spawn` (the extension holds `shell: true`). */
+const productionShell: ShellRunner = async (cmd, cwd) => {
+  const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  const exitCode = await proc.exited;
+  return { exitCode, stdout, stderr };
+};
+let shellImpl: ShellRunner = productionShell;
+export function _setShellForTests(fn: ShellRunner | null): void {
+  shellImpl = fn ?? productionShell;
+}
+
+// The active project's git repo root (host-injected at spawn). The per-run
+// git work runs HERE — the active project only, no multi-repo cloning.
+let projectRootImpl: () => string | undefined = () => process.env.EZCORP_PROJECT_ROOT;
+export function _setProjectRootForTests(fn: (() => string | undefined) | null): void {
+  projectRootImpl = fn ?? (() => process.env.EZCORP_PROJECT_ROOT);
+}
+
+/** Branch name for a run. Pure — slugifies the run id. */
+export function branchForRun(runId: string): string {
+  const slug = runId.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 40);
+  return `ez-code/${slug}`;
+}
+
+/**
+ * Shared open-PR logic: under the active project's repo, create the run's
+ * branch, commit the working tree, push to origin, and `gh pr create`.
+ * Returns the PR url (or the gh stdout) on success. Each step fails closed
+ * — a non-zero exit aborts with the captured stderr.
+ */
+export async function openPrForRun(
+  runId: string,
+  opts: { title?: string; body?: string } = {},
+): Promise<{ ok: boolean; url?: string; error?: string }> {
+  const runs = await getStore().read();
+  const run = runs.find((r) => r.id === runId);
+  if (!run) return { ok: false, error: `no run with id '${runId}'` };
+
+  const repo = projectRootImpl();
+  if (!repo) {
+    return { ok: false, error: "EZCORP_PROJECT_ROOT unset — no active project repo" };
+  }
+
+  const branch = branchForRun(runId);
+  const title = (opts.title ?? run.title ?? `ez-code run ${runId}`).trim() || `ez-code run ${runId}`;
+  const body = opts.body ?? `Automated PR for ez-code run \`${runId}\` (agent: ${run.agentName}).`;
+
+  const steps: string[][] = [
+    ["git", "switch", "-c", branch],
+    ["git", "add", "-A"],
+    ["git", "commit", "-m", title],
+    ["git", "push", "-u", "origin", branch],
+    ["gh", "pr", "create", "--title", title, "--body", body, "--head", branch],
+  ];
+
+  let prUrl = "";
+  for (const cmd of steps) {
+    const res = await shellImpl(cmd, repo);
+    if (res.exitCode !== 0) {
+      return {
+        ok: false,
+        error: `\`${cmd.join(" ")}\` failed (exit ${res.exitCode}): ${res.stderr.trim() || res.stdout.trim()}`,
+      };
+    }
+    if (cmd[0] === "gh") prUrl = res.stdout.trim();
+  }
+
+  const next = recordRunEvent(runs, runId, {
+    status: "pr_opened",
+    note: prUrl || branch,
+  });
+  await getStore().write(next);
+  pushPageImpl(PAGE_ID, buildDashboard(next));
+  return { ok: true, url: prUrl || undefined };
+}
+
+/** open_pr tool — branch → commit → push → gh pr create for a run. */
+export const openPr: ToolHandler = async (args) => {
+  const { runId, title, body } = (args ?? {}) as {
+    runId?: unknown;
+    title?: unknown;
+    body?: unknown;
+  };
+  if (typeof runId !== "string" || !runId.trim()) {
+    return toolError("'runId' is required and must be a non-empty string");
+  }
+  const res = await openPrForRun(runId.trim(), {
+    ...(typeof title === "string" ? { title } : {}),
+    ...(typeof body === "string" ? { body } : {}),
+  });
+  if (!res.ok) return toolError(`open_pr failed: ${res.error}`);
+  return toolResult(JSON.stringify({ runId, prUrl: res.url ?? null, opened: true }));
+};
+
 // ── page-action handlers (dashboard buttons) ──────────────────────
 
 /** Dashboard "Cancel" row action → cancel the run named in the payload. */
@@ -457,6 +571,7 @@ export const tools: Record<string, ToolHandler> = {
   list_runs: listRuns,
   steer_run: steerRun,
   cancel_run: cancelRunTool,
+  open_pr: openPr,
 };
 
 /** Register the page (+ its row/button action handlers), tools, and event

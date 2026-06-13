@@ -96,6 +96,23 @@ export default defineExtension({
         required: ["runId"],
       },
     },
+    {
+      name: "open_pr",
+      description:
+        "Open a GitHub pull request for a run's work on the ACTIVE project: " +
+        "creates branch ez-code/<run>, commits the working tree, pushes to origin, " +
+        "and runs `gh pr create`. Returns the PR url. Operates on the active " +
+        "project's git repo only (no multi-repo cloning).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          runId: { type: "string", description: "The run id to open a PR for." },
+          title: { type: "string", description: "PR title (defaults to the run title)." },
+          body: { type: "string", description: "PR body / description." },
+        },
+        required: ["runId"],
+      },
+    },
   ],
 
   // Hub page declaration (Extension Pages Hub). Declaring the page IS the
@@ -134,6 +151,10 @@ export default defineExtension({
     // B3 branch→PR automation runs git/gh under the per-run jailed
     // workspace (ez-sandbox Seam B), scoped to the active project.
     filesystem: ["$CWD"],
+    // open_pr shells out to git + gh in the active project's repo.
+    shell: true,
+    // gh pr create reaches the GitHub API (and git push over https).
+    network: ["api.github.com"],
   },
 
   resources: {
