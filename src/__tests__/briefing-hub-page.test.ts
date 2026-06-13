@@ -14,8 +14,11 @@ import {
   registerBriefingHubPage,
   BRIEFING_HUB_PAGE_ID,
   BRIEFING_RUN_NOW_ACTION,
+  BRIEFING_ADD_WATCHLIST_ACTION,
+  BRIEFING_REMOVE_WATCHLIST_ACTION,
   type BriefingHubPageDeps,
 } from "../runtime/briefing/hub-page";
+import { getBriefingConfig } from "../db/queries/briefing-configs";
 import {
   getHubPageProvider,
   HubPageActionError,
@@ -90,9 +93,20 @@ describe("render", () => {
     expect(kv.pairs).toContainEqual({ key: "Enabled", value: "No" });
     expect(kv.pairs).toContainEqual({ key: "Schedule", value: "0 7 * * *" });
 
-    const empty = tree.nodes.find((n) => n.type === "empty-state") as PageEmptyState;
-    expect(empty.title).toBe("No briefings yet");
+    // Two empty-states now: the watchlist's and the recent-briefings'.
+    const emptyTitles = tree.nodes
+      .filter((n) => n.type === "empty-state")
+      .map((n) => (n as PageEmptyState).title);
+    expect(emptyTitles).toContain("Nothing on your watchlist yet");
+    expect(emptyTitles).toContain("No briefings yet");
     expect(tree.nodes.find((n) => n.type === "table")).toBeUndefined();
+
+    // The "Add to watchlist" button is ALWAYS present (even when empty).
+    const addBtn = tree.nodes.find(
+      (n) => n.type === "button" && (n as PageButton).action.event === BRIEFING_ADD_WATCHLIST_ACTION,
+    ) as PageButton;
+    expect(addBtn).toBeDefined();
+    expect(addBtn.action.prompt!.field).toBe("topic");
   });
 
   test("stored config renders kv summary, stats, watchlist and run-now button", async () => {
@@ -128,12 +142,28 @@ describe("render", () => {
     expect(stats.items.find((i) => i.label === "Last run")!.value).toContain("2026-06-10");
     expect(stats.items.find((i) => i.label === "Next run")!.value).toContain("2026-06-13");
 
-    const button = tree.nodes.find((n) => n.type === "button") as PageButton;
-    expect(button.action.event).toBe(BRIEFING_RUN_NOW_ACTION);
-    expect(button.action.confirm).toBeTruthy();
+    const runNow = tree.nodes.find(
+      (n) => n.type === "button" && (n as PageButton).action.event === BRIEFING_RUN_NOW_ACTION,
+    ) as PageButton;
+    expect(runNow.action.confirm).toBeTruthy();
 
-    const list = tree.nodes.find((n) => n.type === "list") as { items: { label: string }[] };
-    expect(list.items[0]!.label).toBe("release");
+    // Watchlist renders as a table now (Topic / Added) with a confirm-
+    // gated per-row remove action.
+    const watchTable = tree.nodes.find(
+      (n) => n.type === "table" && (n as PageTable).columns[0] === "Topic",
+    ) as PageTable;
+    expect(watchTable.columns).toEqual(["Topic", "Added"]);
+    expect(watchTable.rows[0]!.cells[0]).toBe("release");
+    expect(watchTable.rows[0]!.action!.event).toBe(BRIEFING_REMOVE_WATCHLIST_ACTION);
+    expect(watchTable.rows[0]!.action!.payload).toEqual({ topic: "release" });
+    expect(watchTable.rows[0]!.action!.confirm).toContain("release");
+
+    // The always-present "Add to watchlist" button carries a prompt.
+    const addBtn = tree.nodes.find(
+      (n) => n.type === "button" && (n as PageButton).action.event === BRIEFING_ADD_WATCHLIST_ACTION,
+    ) as PageButton;
+    expect(addBtn.label).toBe("Add to watchlist");
+    expect(addBtn.action.prompt).toMatchObject({ field: "topic", maxLength: 120 });
   });
 
   test("error status surfaces consecutive errors", async () => {
@@ -229,10 +259,25 @@ describe("render", () => {
     expect(validated).not.toBeNull();
     // The run-now button must survive validation (event in allowlist).
     expect(validated!.nodes.some((n) => n.type === "button")).toBe(true);
-    // The table rows' hrefs survive (relative internal links).
-    const table = validated!.nodes.find((n) => n.type === "table") as PageTable;
-    expect(table.rows).toHaveLength(1);
-    expect(table.rows[0]!.href).toStartWith("/project/");
+    // The recent-briefings table rows' hrefs survive (relative links).
+    const briefingsTable = validated!.nodes.find(
+      (n) => n.type === "table" && (n as PageTable).columns[0] === "Briefing",
+    ) as PageTable;
+    expect(briefingsTable.rows).toHaveLength(1);
+    expect(briefingsTable.rows[0]!.href).toStartWith("/project/");
+
+    // The watchlist table's remove action + the Add button's prompt
+    // survive validation too (events in the provider's action allowlist).
+    const watchTable = validated!.nodes.find(
+      (n) => n.type === "table" && (n as PageTable).columns[0] === "Topic",
+    ) as PageTable;
+    expect(watchTable.rows[0]!.action!.event).toBe(BRIEFING_REMOVE_WATCHLIST_ACTION);
+    // The malicious-looking <b>x</b> topic is <>-stripped in the cell.
+    expect(watchTable.rows[0]!.cells[0]).toBe("bx/b");
+    const addBtn = validated!.nodes.find(
+      (n) => n.type === "button" && (n as PageButton).action.event === BRIEFING_ADD_WATCHLIST_ACTION,
+    ) as PageButton;
+    expect(addBtn.action.prompt).toBeDefined();
   });
 });
 
@@ -287,6 +332,93 @@ describe("registerBriefingHubPage", () => {
     const provider = getHubPageProvider(BRIEFING_HUB_PAGE_ID);
     expect(provider).toBeDefined();
     expect(provider!.title).toBe("Daily Briefing");
-    expect(Object.keys(provider!.actions!)).toEqual([BRIEFING_RUN_NOW_ACTION]);
+    expect(Object.keys(provider!.actions!).sort()).toEqual(
+      [BRIEFING_RUN_NOW_ACTION, BRIEFING_ADD_WATCHLIST_ACTION, BRIEFING_REMOVE_WATCHLIST_ACTION].sort(),
+    );
+  });
+});
+
+describe("add-watchlist action", () => {
+  test("appends the prompt-typed topic and re-renders with the new row", async () => {
+    const provider = createBriefingHubPageProvider(deps());
+    const tree = await provider.actions![BRIEFING_ADD_WATCHLIST_ACTION]!(
+      { userId },
+      { topic: "Bun 2.0 release" },
+    );
+    expect(tree!.title).toBe("Daily Briefing");
+    const watchTable = tree!.nodes.find(
+      (n) => n.type === "table" && (n as PageTable).columns[0] === "Topic",
+    ) as PageTable;
+    expect(watchTable.rows.map((r) => r.cells[0])).toContain("Bun 2.0 release");
+    expect((await getBriefingConfig(userId))!.watchlist.map((w) => w.topic)).toContain("Bun 2.0 release");
+  });
+
+  test("a duplicate topic is a no-op success (re-renders, no second row)", async () => {
+    const provider = createBriefingHubPageProvider(deps());
+    await provider.actions![BRIEFING_ADD_WATCHLIST_ACTION]!({ userId }, { topic: "dup" });
+    const tree = await provider.actions![BRIEFING_ADD_WATCHLIST_ACTION]!({ userId }, { topic: "DUP" });
+    expect(tree).toBeDefined();
+    expect((await getBriefingConfig(userId))!.watchlist).toHaveLength(1);
+  });
+
+  test("missing / empty topic → HubPageActionError 400", async () => {
+    const provider = createBriefingHubPageProvider(deps());
+    for (const payload of [undefined, {}, { topic: "" }, { topic: "   " }]) {
+      expect.assertions; // documented intent
+      await expect(
+        provider.actions![BRIEFING_ADD_WATCHLIST_ACTION]!({ userId }, payload),
+      ).rejects.toMatchObject({ status: 400, message: "Topic is required" });
+    }
+  });
+
+  test("cap-25 → HubPageActionError 400 with the validator message", async () => {
+    const db = getTestDb();
+    await db.insert(briefingConfigs).values({
+      userId,
+      watchlist: Array.from({ length: 25 }, (_, i) => ({ topic: `t-${i}`, addedAt: "2026-06-01T00:00:00Z" })),
+    });
+    const provider = createBriefingHubPageProvider(deps());
+    await expect(
+      provider.actions![BRIEFING_ADD_WATCHLIST_ACTION]!({ userId }, { topic: "too many" }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("remove-watchlist action", () => {
+  test("removes the topic and re-renders without the row", async () => {
+    const db = getTestDb();
+    await db.insert(briefingConfigs).values({
+      userId,
+      watchlist: [
+        { topic: "keep", addedAt: "2026-06-01T00:00:00Z" },
+        { topic: "drop", addedAt: "2026-06-02T00:00:00Z" },
+      ],
+    });
+    const provider = createBriefingHubPageProvider(deps());
+    const tree = await provider.actions![BRIEFING_REMOVE_WATCHLIST_ACTION]!({ userId }, { topic: "drop" });
+    const watchTable = tree!.nodes.find(
+      (n) => n.type === "table" && (n as PageTable).columns[0] === "Topic",
+    ) as PageTable;
+    expect(watchTable.rows.map((r) => r.cells[0])).toEqual(["keep"]);
+    expect((await getBriefingConfig(userId))!.watchlist.map((w) => w.topic)).toEqual(["keep"]);
+  });
+
+  test("removing a non-present topic is a no-op success (re-renders)", async () => {
+    const db = getTestDb();
+    await db.insert(briefingConfigs).values({
+      userId,
+      watchlist: [{ topic: "keep", addedAt: "2026-06-01T00:00:00Z" }],
+    });
+    const provider = createBriefingHubPageProvider(deps());
+    const tree = await provider.actions![BRIEFING_REMOVE_WATCHLIST_ACTION]!({ userId }, { topic: "ghost" });
+    expect(tree).toBeDefined();
+    expect((await getBriefingConfig(userId))!.watchlist).toHaveLength(1);
+  });
+
+  test("missing topic → HubPageActionError 400", async () => {
+    const provider = createBriefingHubPageProvider(deps());
+    await expect(
+      provider.actions![BRIEFING_REMOVE_WATCHLIST_ACTION]!({ userId }, {}),
+    ).rejects.toMatchObject({ status: 400, message: "Topic is required" });
   });
 });
