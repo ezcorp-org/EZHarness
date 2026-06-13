@@ -46,6 +46,7 @@
   "src/runtime/briefing/tools.ts": 97,
   "src/runtime/briefing/web-search.ts": 100,
   "src/runtime/briefing/chat-tools.ts": 100,
+  "src/runtime/briefing/watchlist.ts": 100,
   "src/runtime/stream-chat/setup-tools.ts": 84,
   "web/src/routes/api/briefing/config/+server.ts": 100,
   "web/src/routes/api/briefing/run-now/+server.ts": 100,
