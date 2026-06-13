@@ -29,6 +29,14 @@
 	// validated, truncated `confirm` string).
 	let confirmAction = $state<PageAction | null>(null);
 
+	// Host-rendered prompt dialog. The input widget is 100% host-owned;
+	// the extension/provider supplies only the validated, <>-stripped,
+	// truncated `action.prompt` display strings. The typed value is
+	// merged client-side into payload[field] before dispatch — `prompt`
+	// grants the page ZERO new dispatch authority.
+	let promptAction = $state<PageAction | null>(null);
+	let promptValue = $state("");
+
 	async function loadTabs() {
 		try {
 			const res = await fetch("/api/hub/pages");
@@ -92,11 +100,38 @@
 	}
 
 	function requestAction(action: PageAction) {
+		// Precedence: prompt → confirm → dispatch. When BOTH prompt and
+		// confirm are set, the confirm text shows as the prompt dialog body.
+		if (action.prompt) {
+			promptAction = action;
+			promptValue = "";
+			return;
+		}
 		if (action.confirm) {
 			confirmAction = action;
 			return;
 		}
 		void dispatchAction(action);
+	}
+
+	function submitPrompt() {
+		const action = promptAction;
+		if (!action?.prompt) return;
+		const value = promptValue.trim();
+		if (value.length === 0) return; // Submit is disabled, but guard anyway
+		const field = action.prompt.field ?? "value";
+		const merged: PageAction = {
+			...action,
+			payload: { ...action.payload, [field]: value },
+		};
+		promptAction = null;
+		promptValue = "";
+		void dispatchAction(merged);
+	}
+
+	function cancelPrompt() {
+		promptAction = null;
+		promptValue = "";
 	}
 
 	async function dispatchAction(action: PageAction) {
@@ -229,6 +264,60 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Host-rendered prompt dialog (sibling of the confirm dialog). The
+     input is host-owned; only the validated prompt display strings come
+     from the page tree. -->
+{#if promptAction?.prompt}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" data-testid="hub-prompt-dialog">
+		<div class="w-full max-w-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5 shadow-xl">
+			<label class="block text-sm font-semibold text-[var(--color-text-primary)]" for="hub-prompt-input">
+				{promptAction.prompt.label}
+			</label>
+			{#if promptAction.confirm}
+				<p class="mt-1 text-xs text-[var(--color-text-muted)]">{promptAction.confirm}</p>
+			{/if}
+			<input
+				id="hub-prompt-input"
+				type="text"
+				class="mt-3 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
+				data-testid="hub-prompt-input"
+				bind:value={promptValue}
+				placeholder={promptAction.prompt.placeholder ?? ""}
+				maxlength={promptAction.prompt.maxLength ?? 200}
+				autocomplete="off"
+				onkeydown={(e) => {
+					if (e.key === "Enter") {
+						e.preventDefault();
+						submitPrompt();
+					} else if (e.key === "Escape") {
+						e.preventDefault();
+						cancelPrompt();
+					}
+				}}
+			/>
+			<div class="mt-4 flex justify-end gap-2">
+				<button
+					type="button"
+					class="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]"
+					data-testid="hub-prompt-cancel"
+					onclick={cancelPrompt}
+				>
+					Cancel
+				</button>
+				<button
+					type="button"
+					class="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+					data-testid="hub-prompt-submit"
+					disabled={promptValue.trim().length === 0}
+					onclick={submitPrompt}
+				>
+					{promptAction.prompt.submitLabel ?? "Submit"}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <!-- Host-rendered confirm dialog -->
 {#if confirmAction}

@@ -120,6 +120,21 @@ describe("actions", () => {
 		expect(onAction).toHaveBeenCalledExactlyOnceWith(action);
 	});
 
+	test("button with a prompt fires onAction with the prompt-bearing action (renderer doesn't open the dialog)", async () => {
+		const action = {
+			event: "add-watchlist",
+			prompt: { label: "Topic to watch", field: "topic", maxLength: 120 },
+		};
+		const { getByTestId, onAction, queryByTestId } = renderNodes([
+			{ type: "button", label: "Add to watchlist", action },
+		]);
+		await fireEvent.click(getByTestId("hub-node-button"));
+		// The renderer just forwards the action — the HOST page route owns
+		// the prompt dialog, so no dialog appears in the renderer's DOM.
+		expect(onAction).toHaveBeenCalledExactlyOnceWith(action);
+		expect(queryByTestId("hub-prompt-dialog")).toBeNull();
+	});
+
 	test("button styles map to variants", () => {
 		const { getAllByTestId } = renderNodes([
 			{ type: "button", label: "P", action: { event: "e" } },
