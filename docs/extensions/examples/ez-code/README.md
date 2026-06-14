@@ -19,9 +19,26 @@ allowlist is just that worktree (read-write) + the main repo's `.git` dir
 granted on any tier, so `.ezcorp/data` is never in the jail's allowlist —
 reading the platform DB/JWT secret is denied (EACCES), proven in-container.
 The run's pending changes are carried into the worktree without `git stash`
-(enumerated from `git status --porcelain`), so the PR carries exactly the
-intended diff including newly-created files; the worktree is removed on every
-exit path.
+**and without `node:fs`** — every file op runs through the host SHELL
+(subprocesses run OUTSIDE the sandbox preload's `node:fs` poisoning): tracked
+changes via `git diff HEAD --binary | git apply --index` (replays
+modify/delete/rename/symlink/binary), and untracked non-ignored files via
+`git ls-files -o --exclude-standard` + `cp -Pp --parents`. Both passes are
+git-driven, so gitignored `.ezcorp/` is excluded by construction. The PR
+carries exactly the intended diff including newly-created files; the throwaway
+worktree (created via `mktemp -d`) is removed via shell `rm -rf` on every exit
+path.
+
+> Why no `node:fs`? The extension loads inside the sandboxed subprocess, where
+> `src/extensions/runtime/sandbox-preload.ts` ALWAYS poisons `node:fs` /
+> `node:child_process` / `Bun.spawn`. A static `import … from "node:fs"` (or a
+> transitive one via the host sandbox layer) crashes module load on the FIRST
+> spawn — the dashboard render — surfacing "Transport closed" on the Hub tab
+> and every tool. open_pr therefore uses the shell for all file manipulation,
+> and lazily (dynamic-import) loads the host jail builder only when it actually
+> runs. A real-subprocess regression test
+> (`src/__tests__/sandbox-ez-code-render.test.ts`) renders the dashboard under
+> the preload to lock this down.
 
 ## Tools
 

@@ -50,9 +50,9 @@ import {
   materializeChanges,
   openPr,
   openPrForRun,
-  parsePorcelainZ,
   productionTriggers,
   recordRunEvent,
+  shQuote,
   worktreeRwPaths,
   register,
   renderDashboard,
@@ -136,6 +136,16 @@ function fakeHost(
   let worktree: string | null = null;
   _setHostRunnerForTests(async (cmd, _cwd): Promise<ShellResult> => {
     calls.push(cmd);
+    // `mktemp -d` (the worktree temp parent) — return a deterministic stub dir.
+    if (cmd[0] === "sh" && /\bmktemp -d\b/.test(cmd[2] ?? "")) {
+      return { exitCode: 0, stdout: "/tmp/ez-code-wt-stub\n", stderr: "" };
+    }
+    // The shell-driven materializer (`sh -c "git diff … | git apply …"`) — the
+    // unit-level open_pr tests don't assert real file carry (the integration
+    // test does), so report a clean no-op.
+    if (cmd[0] === "sh") return { exitCode: 0, stdout: "", stderr: "" };
+    // `git ls-files -o` (untracked enumeration) — none in the unit path.
+    if (cmd[1] === "ls-files") return { exitCode: 0, stdout: opts.status ?? "", stderr: "" };
     if (cmd[1] === "rev-parse") {
       return { exitCode: 0, stdout: `${opts.gitDir ?? "/proj/repo/.git"}\n`, stderr: "" };
     }
@@ -157,6 +167,19 @@ function fakeHost(
     return { exitCode: 0, stdout: "", stderr: "" };
   });
   return { worktree: () => worktree, calls };
+}
+
+/** A real-shell HostRunner backed by Bun.spawnSync — used to exercise the
+ *  shell-driven (node:fs-free) materializer against a throwaway git repo. */
+function realGitRunner(): (cmd: string[], cwd: string) => Promise<ShellResult> {
+  return async (cmd, cwd) => {
+    const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+    return {
+      exitCode: p.exitCode,
+      stdout: p.stdout.toString(),
+      stderr: p.stderr.toString(),
+    };
+  };
 }
 
 afterEach(() => {
@@ -765,6 +788,10 @@ describe("open_pr (B3 branch→PR automation)", () => {
     const calls: string[][] = [];
     _setHostRunnerForTests(async (cmd): Promise<ShellResult> => {
       calls.push(cmd);
+      if (cmd[0] === "sh" && /\bmktemp -d\b/.test(cmd[2] ?? ""))
+        return { exitCode: 0, stdout: "/tmp/ez-code-wt-stub\n", stderr: "" };
+      if (cmd[0] === "sh") return { exitCode: 0, stdout: "", stderr: "" }; // materialize
+      if (cmd[1] === "ls-files") return { exitCode: 0, stdout: "", stderr: "" };
       if (cmd[1] === "rev-parse") return { exitCode: 0, stdout: "/repo/.git\n", stderr: "" };
       if (cmd[1] === "symbolic-ref")
         return { exitCode: 0, stdout: "refs/remotes/origin/main\n", stderr: "" };
@@ -801,24 +828,14 @@ describe("open_pr (B3 branch→PR automation)", () => {
   });
 });
 
-describe("parsePorcelainZ + worktreeRwPaths (jail wiring)", () => {
-  test("parsePorcelainZ parses modify / add / delete / rename / untracked", () => {
-    // -z NUL-separated; a rename entry is followed by its OLD-path field.
-    const out =
-      " M src/a.ts\0A  src/b.ts\0?? new.txt\0 D gone.txt\0R  src/new.ts\0src/old.ts\0";
-    const entries = parsePorcelainZ(out);
-    expect(entries).toEqual([
-      { kind: "modify", path: "src/a.ts" },
-      { kind: "modify", path: "src/b.ts" },
-      { kind: "modify", path: "new.txt" },
-      { kind: "delete", path: "gone.txt" },
-      { kind: "rename", path: "src/new.ts", oldPath: "src/old.ts" },
-    ]);
-  });
-
-  test("parsePorcelainZ treats an index-side delete (D ) as a deletion", () => {
-    const entries = parsePorcelainZ("D  staged-del.txt\0");
-    expect(entries).toEqual([{ kind: "delete", path: "staged-del.txt" }]);
+describe("shQuote + worktreeRwPaths (jail wiring)", () => {
+  test("shQuote wraps in single quotes and escapes embedded quotes", () => {
+    expect(shQuote("plain")).toBe("'plain'");
+    expect(shQuote("with space")).toBe("'with space'");
+    // An embedded single quote is closed, escaped, and reopened.
+    expect(shQuote("a'b")).toBe(`'a'\\''b'`);
+    // Shell metacharacters are inert inside the single quotes.
+    expect(shQuote("$(rm -rf /)")).toBe("'$(rm -rf /)'");
   });
 
   test("worktreeRwPaths grants ONLY the worktree + .git + /dev (never the repo root)", () => {
@@ -828,70 +845,110 @@ describe("parsePorcelainZ + worktreeRwPaths (jail wiring)", () => {
     expect(paths).not.toContain("/proj/repo");
   });
 
-  test("materializeChanges copies adds/mods, deletes removals, replays renames", async () => {
-    const { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } =
+  // The shell-driven materializer (node:fs-free) is exercised against a REAL
+  // throwaway repo + worktree: modify, untracked-add, delete, rename, AND a
+  // symlink change must all carry, while gitignored `.ezcorp/` must NOT — using
+  // git's own diff/ls-files (which honor `.gitignore`).
+  test("materializeChanges (shell) carries modify/add/delete/rename/symlink; excludes .ezcorp", async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, realpathSync } =
       await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
-    const base = mkdtempSync(join(tmpdir(), "mat-"));
-    const src = join(base, "src");
+    const runner = realGitRunner();
+
+    const base = realpathSync(mkdtempSync(join(tmpdir(), "mat-")));
+    const repo = join(base, "repo");
+    mkdirSync(join(repo, "dir"), { recursive: true });
+    const g = (args: string[]) => Bun.spawnSync(["git", ...args], { cwd: repo });
+    g(["init"]);
+    g(["config", "user.email", "t@t.com"]);
+    g(["config", "user.name", "t"]);
+    g(["config", "commit.gpgsign", "false"]);
+    writeFileSync(join(repo, ".gitignore"), ".ezcorp/\n");
+    writeFileSync(join(repo, "mod.txt"), "ORIGINAL\n");
+    writeFileSync(join(repo, "removed.txt"), "GONE\n");
+    writeFileSync(join(repo, "old.txt"), "RENAME ME\n");
+    writeFileSync(join(repo, "lnk-target.txt"), "T\n");
+    g(["add", "-A"]);
+    g(["commit", "-m", "init"]);
+
+    // Pending run changes (staged + unstaged + untracked + symlink + gitignored).
+    writeFileSync(join(repo, "mod.txt"), "EDITED\n"); // tracked modify
+    rmSync(join(repo, "removed.txt")); // tracked delete
+    g(["mv", "old.txt", "new.txt"]); // tracked rename
+    writeFileSync(join(repo, "added.txt"), "NEW\n"); // untracked add
+    symlinkSync("lnk-target.txt", join(repo, "link")); // untracked symlink
+    const dataDir = join(repo, ".ezcorp", "data");
+    mkdirSync(dataDir, { recursive: true });
+    writeFileSync(join(dataDir, "jwt"), "SECRET\n"); // gitignored — must NOT carry
+
     const wt = join(base, "wt");
-    mkdirSync(join(src, "dir"), { recursive: true });
-    mkdirSync(wt, { recursive: true });
     try {
-      // Source has a new file + a renamed-to file; worktree has the pre-images
-      // (a HEAD checkout would already contain the tracked baseline).
-      writeFileSync(join(src, "added.txt"), "ADDED");
-      writeFileSync(join(src, "dir", "renamed.txt"), "RENAMED");
-      writeFileSync(join(wt, "old.txt"), "OLD");
-      writeFileSync(join(wt, "removed.txt"), "GONE");
-      await materializeChanges(src, wt, [
-        { kind: "modify", path: "added.txt" },
-        { kind: "delete", path: "removed.txt" },
-        { kind: "rename", path: "dir/renamed.txt", oldPath: "old.txt" },
-      ]);
-      expect(readFileSync(join(wt, "added.txt"), "utf8")).toBe("ADDED");
-      expect(existsSync(join(wt, "removed.txt"))).toBe(false);
-      expect(existsSync(join(wt, "old.txt"))).toBe(false); // rename source removed
-      expect(readFileSync(join(wt, "dir", "renamed.txt"), "utf8")).toBe("RENAMED");
+      // Real worktree checkout of HEAD (tracked baseline only).
+      Bun.spawnSync(["git", "worktree", "add", "--detach", wt, "HEAD"], { cwd: repo });
+      const res = await materializeChanges(repo, wt, runner);
+      expect(res.ok).toBe(true);
+
+      // Stage + commit on a branch in the worktree, then inspect the tree.
+      Bun.spawnSync(["git", "switch", "-c", "mat-branch"], { cwd: wt });
+      Bun.spawnSync(["git", "add", "-A"], { cwd: wt });
+      Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "commit", "-m", "materialized"], { cwd: wt });
+
+      const tree = Bun.spawnSync(
+        ["git", "ls-tree", "-r", "mat-branch"],
+        { cwd: wt, stdout: "pipe" },
+      ).stdout.toString();
+      // modify carried:
+      const modBlob = Bun.spawnSync(["git", "show", "mat-branch:mod.txt"], { cwd: wt, stdout: "pipe" })
+        .stdout.toString();
+      expect(modBlob).toBe("EDITED\n");
+      // delete carried:
+      expect(tree).not.toContain("removed.txt");
+      // rename carried (old gone, new present):
+      expect(tree).not.toContain("\told.txt");
+      expect(tree).toContain("new.txt");
+      // untracked add carried:
+      expect(tree).toContain("added.txt");
+      // symlink carried AS a symlink (mode 120000):
+      expect(tree).toMatch(/120000 blob [0-9a-f]+\tlink/);
+      // gitignored .ezcorp/ NEVER carried, and the patch sidecar was cleaned up:
+      expect(tree).not.toContain(".ezcorp");
+      expect(tree).not.toContain("jwt");
+      expect(tree).not.toContain(".ez-code-materialize.patch");
     } finally {
+      Bun.spawnSync(["git", "worktree", "remove", "--force", wt], { cwd: repo });
       rmSync(base, { recursive: true, force: true });
     }
   });
 
-  test("materializeChanges skips a source file that vanished mid-run", async () => {
-    const { mkdtempSync, mkdirSync, rmSync, existsSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const base = mkdtempSync(join(tmpdir(), "mat2-"));
-    const src = join(base, "src");
-    const wt = join(base, "wt");
-    mkdirSync(src, { recursive: true });
-    mkdirSync(wt, { recursive: true });
-    try {
-      await materializeChanges(src, wt, [{ kind: "modify", path: "ghost.txt" }]);
-      expect(existsSync(join(wt, "ghost.txt"))).toBe(false);
-    } finally {
-      rmSync(base, { recursive: true, force: true });
-    }
-  });
-
-  test("materializeChanges preserves a symlink change as a symlink", async () => {
-    const { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, lstatSync } =
+  test("materializeChanges is a clean no-op when there are no pending changes", async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } =
       await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
-    const base = mkdtempSync(join(tmpdir(), "mat3-"));
-    const src = join(base, "src");
+    const runner = realGitRunner();
+    const base = realpathSync(mkdtempSync(join(tmpdir(), "mat-noop-")));
+    const repo = join(base, "repo");
+    mkdirSync(repo, { recursive: true });
+    const g = (args: string[]) => Bun.spawnSync(["git", ...args], { cwd: repo });
+    g(["init"]);
+    g(["config", "user.email", "t@t.com"]);
+    g(["config", "user.name", "t"]);
+    g(["config", "commit.gpgsign", "false"]);
+    writeFileSync(join(repo, "README.md"), "x\n");
+    g(["add", "-A"]);
+    g(["commit", "-m", "init"]);
     const wt = join(base, "wt");
-    mkdirSync(src, { recursive: true });
-    mkdirSync(wt, { recursive: true });
     try {
-      writeFileSync(join(src, "target.txt"), "T");
-      symlinkSync("target.txt", join(src, "link.txt"));
-      await materializeChanges(src, wt, [{ kind: "modify", path: "link.txt" }]);
-      expect(lstatSync(join(wt, "link.txt")).isSymbolicLink()).toBe(true);
+      Bun.spawnSync(["git", "worktree", "add", "--detach", wt, "HEAD"], { cwd: repo });
+      const res = await materializeChanges(repo, wt, runner);
+      expect(res.ok).toBe(true);
+      // The worktree is still clean (empty patch was a no-op; sidecar removed).
+      const status = Bun.spawnSync(["git", "status", "--porcelain"], { cwd: wt, stdout: "pipe" })
+        .stdout.toString();
+      expect(status.trim()).toBe("");
     } finally {
+      Bun.spawnSync(["git", "worktree", "remove", "--force", wt], { cwd: repo });
       rmSync(base, { recursive: true, force: true });
     }
   });

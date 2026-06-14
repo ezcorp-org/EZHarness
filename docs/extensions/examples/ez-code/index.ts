@@ -36,23 +36,31 @@ import {
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
 import { spawnAssignment, cancelRun } from "@ezcorp/sdk/runtime";
-import {
-  copyFileSync,
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readlinkSync,
-  rmSync,
-  symlinkSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+// NOTE: this module loads inside the SANDBOXED subprocess (under
+// `src/extensions/runtime/sandbox-preload.ts`), which ALWAYS poisons
+// `node:fs` / `node:child_process` / Bun.spawn / Bun.file. A static import
+// of `node:fs` here throws "Extension sandbox: 'fs module' blocked" at
+// module-load time — crashing the FIRST spawn (the dashboard render → every
+// tool surfaces "Transport closed"). So open_pr's worktree file manipulation
+// is driven entirely by the SHELL via the unjailed host runner (subprocesses
+// run OUTSIDE the preload poisoning). `node:path` (join/dirname) and the host
+// `mktemp -d`/`rm -rf` shell commands replace all node:fs usage. See the
+// sandbox-preload FS_MODULES block + tasks/phase-3-filesystem-hardening.md.
+import { join } from "node:path";
 // Seam B (ez-sandbox) — open_pr jails its git/gh subprocess via the host's
 // buildSandboxArgv so a run's shell can't read/write `.ezcorp/data` (the
-// PGlite DB + JWT secret). A reference example may reach into the host
-// sandbox layer (other examples already import host modules in their config).
-import { buildSandboxArgv } from "../../../../src/extensions/sandbox/build-sandbox-argv";
-import { getSandboxTier } from "../../../../src/extensions/sandbox/capability-probe";
+// PGlite DB + JWT secret).
+//
+// CRITICAL — these host modules statically import `node:fs` /
+// `node:child_process` (poisoned in the sandboxed subprocess). A STATIC import
+// here pulls them into ez-code's module-load graph, so module load crashes
+// with "Extension sandbox: 'fs module' blocked" on the FIRST spawn (the
+// dashboard render). So they're loaded LAZILY via dynamic `import()` inside
+// `makeProductionShell`'s runner — which only runs when open_pr actually fires
+// (a shell subprocess, OUTSIDE the poisoning), never at module load. Types are
+// imported type-only (erased at runtime, no eager fs evaluation).
+import type { buildSandboxArgv as BuildSandboxArgvFn } from "../../../../src/extensions/sandbox/build-sandbox-argv";
+import type { getSandboxTier as GetSandboxTierFn } from "../../../../src/extensions/sandbox/capability-probe";
 
 /** Payload of the `task:assignment_update` event (re-derived from the
  *  exported event map — the concrete type isn't re-exported by name). */
@@ -660,6 +668,20 @@ export function worktreeRwPaths(worktree: string, gitDir: string): string[] {
  */
 export function makeProductionShell(gitDir?: string, projectRoot?: string): ShellRunner {
   return async (cmd, cwd) => {
+    // Lazily pull in the host sandbox layer ONLY when a jailed shell actually
+    // runs (open_pr). These modules statically import `node:fs` /
+    // `node:child_process`; importing them eagerly at module-load would crash
+    // the subprocess under the preload poison. By the time this runner fires
+    // we're spawning a shell subprocess (outside the poison) — but the dynamic
+    // import itself also keeps the poisoned `node:fs` out of ez-code's
+    // module-load graph entirely.
+    const [{ buildSandboxArgv }, { getSandboxTier }] = (await Promise.all([
+      import("../../../../src/extensions/sandbox/build-sandbox-argv"),
+      import("../../../../src/extensions/sandbox/capability-probe"),
+    ])) as [
+      { buildSandboxArgv: typeof BuildSandboxArgvFn },
+      { getSandboxTier: typeof GetSandboxTierFn },
+    ];
     const rwPaths = gitDir ? worktreeRwPaths(cwd, gitDir) : [cwd, "/dev"];
     const built = buildSandboxArgv({
       tier: getSandboxTier(),
@@ -729,105 +751,113 @@ export function branchForRun(runId: string): string {
   return `ez-code/${slug}`;
 }
 
-/** One parsed `git status --porcelain -z` entry. `kind` is derived from the
- *  two-letter XY status so the materializer can copy / delete / rename
- *  faithfully. `path` is repo-relative (the post-rename path for renames). */
-export interface StatusEntry {
-  kind: "modify" | "delete" | "rename";
-  path: string; // current (post-rename) repo-relative path
-  oldPath?: string; // pre-rename path (rename only)
-}
-
-/**
- * Parse `git status --porcelain -z` output into a faithful change list. The
- * `-z` format is NUL-separated; a rename/copy entry (`R`/`C`) is followed by a
- * SECOND NUL-separated field carrying the OLD path. Gitignored files (incl.
- * `.ezcorp/`) are absent — `--porcelain` excludes them by default. Pure.
- *
- * XY semantics we care about (X=index, Y=worktree):
- *   - `D` in either column → the path was deleted → replicate the deletion.
- *   - `R`/`C` → rename/copy → delete the old path + copy the new one.
- *   - anything else with content (`M`/`A`/`?`/`T`…) → copy the current file.
- */
-export function parsePorcelainZ(out: string): StatusEntry[] {
-  const fields = out.split("\0").filter((f) => f.length > 0);
-  const entries: StatusEntry[] = [];
-  for (let i = 0; i < fields.length; i++) {
-    const rec = fields[i]!;
-    // Format: "XY <path>" (the status is 2 chars + a space, then the path).
-    const xy = rec.slice(0, 2);
-    const path = rec.slice(3);
-    const x = xy[0];
-    const y = xy[1];
-    if (x === "R" || x === "C") {
-      // Rename/copy: the NEXT field is the OLD path.
-      const oldPath = fields[++i] ?? "";
-      entries.push({ kind: "rename", path, oldPath });
-      continue;
-    }
-    if (x === "D" || y === "D") {
-      entries.push({ kind: "delete", path });
-      continue;
-    }
-    entries.push({ kind: "modify", path });
-  }
-  return entries;
+/** Shell-quote a single token for safe interpolation into a `sh -c` string.
+ *  Wraps in single quotes and escapes embedded single quotes. Used so paths
+ *  (which can contain spaces / shell metacharacters) survive the `sh -c`
+ *  pipeline below. Pure. */
+export function shQuote(token: string): string {
+  return `'${token.replace(/'/g, `'\\''`)}'`;
 }
 
 /**
  * Materialize the run's working-tree changes from `srcRepo` into `worktree`
- * WITHOUT git stash. The worktree is a detached checkout of HEAD (tracked
- * files only — gitignored `.ezcorp/` is absent by construction); we layer the
- * run's pending changes on top so the commit carries exactly the intended
- * diff, INCLUDING newly-created untracked (non-ignored) files. Stash-free:
- * the change set comes from `git status --porcelain -z` (which itself excludes
- * gitignored paths) and is replayed by plain filesystem copy/delete.
+ * WITHOUT git stash AND WITHOUT `node:fs` (which is poisoned in the sandboxed
+ * subprocess — see the import-site note). The worktree is a detached checkout
+ * of HEAD (tracked files only — gitignored `.ezcorp/` is absent by
+ * construction); we layer the run's pending changes on top so the commit
+ * carries exactly the intended diff, INCLUDING newly-created untracked
+ * (non-ignored) files.
+ *
+ * Every file operation runs as a SHELL command via the (unjailed) host runner,
+ * which spawns subprocesses OUTSIDE the preload poisoning. Two stash-free
+ * passes, both driven by git itself (so `.ezcorp/` is never touched):
+ *
+ *   1. TRACKED changes (modify / delete / rename / typechange / **symlink** /
+ *      binary): `git -C <repo> diff HEAD --binary` piped into
+ *      `git -C <wt> apply --index --whitespace=nowarn`. The diff is computed
+ *      against HEAD, so it captures the FULL pending tracked delta — staged +
+ *      unstaged — in one patch, and `git apply` replays renames, deletions and
+ *      mode/symlink changes faithfully. Gitignored paths never appear in a
+ *      `git diff` against tracked content, so `.ezcorp/` is excluded.
+ *   2. UNTRACKED, non-ignored files: enumerated with
+ *      `git -C <repo> ls-files -o --exclude-standard -z` (which honors
+ *      `.gitignore`, so `.ezcorp/` is excluded) and copied into the worktree
+ *      with `cp -Pp --parents` (-P preserves symlinks as symlinks; --parents
+ *      recreates the directory prefix).
+ *
+ * An empty diff (no tracked changes) or empty untracked list is a no-op. The
+ * runner is injected so tests drive it against a throwaway repo. Returns
+ * nothing; throws if a shell step fails hard (the caller treats a non-zero
+ * `git apply` as fatal via the returned ShellResult).
  */
 export async function materializeChanges(
   srcRepo: string,
   worktree: string,
-  entries: StatusEntry[],
-): Promise<void> {
-  for (const e of entries) {
-    if (e.kind === "delete") {
-      rmSync(join(worktree, e.path), { force: true });
-      continue;
-    }
-    if (e.kind === "rename") {
-      if (e.oldPath) rmSync(join(worktree, e.oldPath), { force: true });
-      copyInto(srcRepo, worktree, e.path);
-      continue;
-    }
-    copyInto(srcRepo, worktree, e.path);
+  run: HostRunner,
+): Promise<{ ok: boolean; error?: string }> {
+  // Pass 1 — tracked delta (staged + unstaged) vs HEAD, replayed via git apply.
+  // Write the patch to a temp file in the WORKTREE (which is granted rw and is
+  // not poisoned for shell-driven IO), then apply it ONLY when non-empty — an
+  // empty patch file is a portable no-op (older git's `git apply` rejects empty
+  // stdin with "unrecognized input", so we guard with a `-s` size test rather
+  // than relying on `--allow-empty`, which only exists on git ≥ 2.25). The
+  // pipeline is a single `sh -c` so the patch never round-trips through this
+  // (poisoned-fs) process. `${worktree}/.ez-code.patch` is inside the worktree
+  // and is removed before `git add -A` so it never lands in the commit.
+  const patchPath = `${worktree}/.ez-code-materialize.patch`;
+  const diffApply = await run(
+    [
+      "sh",
+      "-c",
+      `git -C ${shQuote(srcRepo)} diff HEAD --binary > ${shQuote(patchPath)} && ` +
+        `if [ -s ${shQuote(patchPath)} ]; then ` +
+        `git -C ${shQuote(worktree)} apply --index --whitespace=nowarn ${shQuote(patchPath)}; ` +
+        `fi; ` +
+        `rc=$?; rm -f ${shQuote(patchPath)}; exit $rc`,
+    ],
+    srcRepo,
+  );
+  if (diffApply.exitCode !== 0) {
+    return {
+      ok: false,
+      error: `materialize (tracked diff apply) failed (exit ${diffApply.exitCode}): ${
+        diffApply.stderr.trim() || diffApply.stdout.trim()
+      }`,
+    };
   }
-}
 
-/** Copy `rel` from `srcRepo` into `worktree`, creating parent dirs. Preserves
- *  symlinks as symlinks (so a symlinked change isn't dereferenced into the
- *  worktree). A source that vanished mid-run is skipped (treated as a no-op,
- *  mirroring git's own tolerance). */
-function copyInto(srcRepo: string, worktree: string, rel: string): void {
-  const src = join(srcRepo, rel);
-  const dst = join(worktree, rel);
-  mkdirSync(dirname(dst), { recursive: true });
-  let stat: ReturnType<typeof lstatSync>;
-  try {
-    stat = lstatSync(src);
-  } catch {
-    return; // vanished — skip
+  // Pass 2 — untracked, non-ignored files. `ls-files -o --exclude-standard`
+  // honors `.gitignore` (so `.ezcorp/` is excluded) and lists ONLY untracked
+  // files (tracked changes were handled by pass 1). `-z` is NUL-separated to
+  // survive paths with spaces/newlines. Each file is copied with `cp -Pp
+  // --parents` so symlinks stay symlinks and the dir prefix is recreated.
+  const list = await run(
+    ["git", "-C", srcRepo, "ls-files", "-o", "--exclude-standard", "-z"],
+    srcRepo,
+  );
+  if (list.exitCode !== 0) {
+    return {
+      ok: false,
+      error: `materialize (ls-files) failed (exit ${list.exitCode}): ${list.stderr.trim()}`,
+    };
   }
-  rmSync(dst, { force: true, recursive: true });
-  if (stat.isSymbolicLink()) {
-    symlinkSync(readlinkSync(src), dst);
-    return;
+  const untracked = list.stdout.split("\0").filter((f) => f.length > 0);
+  for (const rel of untracked) {
+    // `cp --parents` resolves the dir prefix relative to cwd, so we run it
+    // FROM `srcRepo` with the relative path and target the worktree root. A
+    // file that vanished mid-run is tolerated (cp errors are non-fatal here —
+    // mirrors git's own tolerance for a race; the PR simply omits it).
+    const cp = await run(
+      ["sh", "-c", `cp -Pp --parents -- ${shQuote(rel)} ${shQuote(worktree)}/`],
+      srcRepo,
+    );
+    if (cp.exitCode !== 0) {
+      // Non-fatal: log via the error channel but keep going (a vanished /
+      // unreadable untracked file shouldn't abort the whole PR).
+      continue;
+    }
   }
-  if (stat.isDirectory()) {
-    // A directory entry in porcelain output is a submodule boundary; copy
-    // it shallowly (its tracked contents come through as their own entries).
-    mkdirSync(dst, { recursive: true });
-    return;
-  }
-  copyFileSync(src, dst);
+  return { ok: true };
 }
 
 /**
@@ -835,11 +865,14 @@ function copyInto(srcRepo: string, worktree: string, rel: string): void {
  * inside a FRESH git WORKTREE (a detached checkout of HEAD outside the repo)
  * that contains ONLY tracked files — gitignored `.ezcorp/` (PGlite DB + JWT
  * secret) is absent by construction. The run's pending changes are
- * materialized into the worktree stash-free (from `git status --porcelain`),
- * then branch → commit → push → `gh pr create` run there UNDER the Seam B
- * jail, whose allowlist is the worktree + the main repo's `.git` (a SIBLING of
- * `.ezcorp`) — never the repo root. The worktree is removed on every path.
- * Returns the PR url on success; each step fails closed on a non-zero exit.
+ * materialized into the worktree stash-free AND node:fs-free — all file ops
+ * run via the (unjailed) host SHELL (`git diff HEAD --binary | git apply` for
+ * tracked changes + `ls-files -o` + `cp -Pp --parents` for untracked) so the
+ * sandboxed subprocess never touches the poisoned `node:fs`. Then branch →
+ * commit → push → `gh pr create` run UNDER the Seam B jail, whose allowlist is
+ * the worktree + the main repo's `.git` (a SIBLING of `.ezcorp`) — never the
+ * repo root. The worktree (and its temp parent) are removed on every path via
+ * shell `rm -rf`. Returns the PR url on success; each step fails closed.
  */
 export async function openPrForRun(
   runId: string,
@@ -877,8 +910,20 @@ export async function openPrForRun(
   const base =
     headRef.exitCode === 0 ? headRef.stdout.trim().split("/").pop() || "main" : "main";
 
-  // Create the throwaway worktree OUTSIDE the repo (never under `.ezcorp/`).
-  const wtRoot = mkdtempSync(join(tmpdir(), "ez-code-wt-"));
+  // Create the throwaway worktree OUTSIDE the repo (never under `.ezcorp/`),
+  // via a SHELL `mktemp -d` — `node:os.tmpdir()` + `node:fs.mkdtempSync` are
+  // poisoned in the sandboxed subprocess. Capture the created dir from stdout.
+  const mkTmp = await hostRunnerImpl(
+    ["sh", "-c", "mktemp -d 2>/dev/null || mktemp -d -t ez-code-wt"],
+    repo,
+  );
+  if (mkTmp.exitCode !== 0 || !mkTmp.stdout.trim()) {
+    return {
+      ok: false,
+      error: `mktemp -d failed (exit ${mkTmp.exitCode}): ${mkTmp.stderr.trim()}`,
+    };
+  }
+  const wtRoot = mkTmp.stdout.trim();
   const worktree = join(wtRoot, "wt");
   let added = false;
   try {
@@ -894,15 +939,12 @@ export async function openPrForRun(
     }
     added = true;
 
-    // Enumerate the run's pending changes (excludes gitignored `.ezcorp/`).
-    const status = await hostRunnerImpl(["git", "status", "--porcelain", "-z"], repo);
-    if (status.exitCode !== 0) {
-      return {
-        ok: false,
-        error: `git status failed (exit ${status.exitCode}): ${status.stderr.trim()}`,
-      };
+    // Carry the run's pending changes into the worktree, shell-driven (excludes
+    // gitignored `.ezcorp/` by construction — git diff/ls-files honor it).
+    const materialized = await materializeChanges(repo, worktree, hostRunnerImpl);
+    if (!materialized.ok) {
+      return { ok: false, error: materialized.error };
     }
-    await materializeChanges(repo, worktree, parsePorcelainZ(status.stdout));
 
     // The jailed git/gh runner: worktree (RW) + main `.git` (RW) + ro runtime
     // + /dev. The repo ROOT is NEVER granted, so `.ezcorp/data` is denied.
@@ -953,7 +995,9 @@ export async function openPrForRun(
         await hostRunnerImpl(["git", "worktree", "prune"], repo);
       }
     }
-    rmSync(wtRoot, { recursive: true, force: true });
+    // Remove the temp parent via SHELL (`node:fs.rmSync` is poisoned). Best
+    // effort — a leaked tmp dir is harmless and cleanup never throws.
+    await hostRunnerImpl(["rm", "-rf", "--", wtRoot], repo);
   }
 }
 
