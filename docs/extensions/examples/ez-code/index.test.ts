@@ -16,6 +16,8 @@ import {
 import {
   CANCEL_EVENT,
   DEFAULT_CODER_AGENT,
+  DEFAULT_CODER_AGENT_ID,
+  isDefaultCoderRequest,
   MAX_RUNS,
   PAGE_ID,
   resolveDispatchAgentName,
@@ -339,6 +341,21 @@ describe("resolveDispatchAgentName (pure)", () => {
     expect(resolveDispatchAgentName("Code Reviewer")).toBe("Code Reviewer");
     expect(resolveDispatchAgentName("  My Agent  ")).toBe("My Agent");
   });
+
+  test("isDefaultCoderRequest: omitted/blank/alias true; explicit name false", () => {
+    expect(isDefaultCoderRequest(undefined)).toBe(true);
+    expect(isDefaultCoderRequest("")).toBe(true);
+    expect(isDefaultCoderRequest("   ")).toBe(true);
+    expect(isDefaultCoderRequest("coder")).toBe(true);
+    expect(isDefaultCoderRequest("  EZ-CODE ")).toBe(true);
+    expect(isDefaultCoderRequest("Code Reviewer")).toBe(false);
+  });
+
+  test("the fixed coder id is a well-formed lowercase UUID literal", () => {
+    expect(DEFAULT_CODER_AGENT_ID).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+  });
 });
 
 describe("dispatch_run tool", () => {
@@ -391,41 +408,47 @@ describe("dispatch_run tool", () => {
     expect(seen).toEqual({});
   });
 
-  test("defaults agentName to the bundled coder when omitted", async () => {
-    setBothStores(memoryStore());
-    let seen: string | undefined;
+  test("omitted agentName → dispatches the bundled coder BY FIXED ID, record shows friendly name", async () => {
+    const userStore = memoryStore();
+    setBothStores(userStore);
+    let seen: { agentConfigId?: string; agentName?: string } | null = null;
     _setSpawnForTests(async (input) => {
-      seen = input.agentName;
+      seen = { agentConfigId: input.agentConfigId, agentName: input.agentName };
       return { subConversationId: "s", agentRunId: "r", taskId: "t", assignmentId: "a" };
     });
-    // No agentName at all → bundled coder.
+    // No agentName at all → bundled coder, dispatched by id (NOT name).
     const r = await dispatchRun({ task: "Implement the feature" });
     expect(r.isError).toBeFalsy();
-    expect(seen).toBe(DEFAULT_CODER_AGENT);
+    expect(seen!.agentConfigId).toBe(DEFAULT_CODER_AGENT_ID);
+    expect(seen!.agentName).toBeUndefined();
+    // The persisted record still carries the friendly display name.
+    expect(userStore.runs[0]!.agentName).toBe(DEFAULT_CODER_AGENT);
   });
 
-  test("maps the 'coder' alias onto the bundled coder", async () => {
+  test("the 'coder' alias → dispatches the bundled coder BY FIXED ID", async () => {
     setBothStores(memoryStore());
-    let seen: string | undefined;
+    let seen: { agentConfigId?: string; agentName?: string } | null = null;
     _setSpawnForTests(async (input) => {
-      seen = input.agentName;
+      seen = { agentConfigId: input.agentConfigId, agentName: input.agentName };
       return { subConversationId: "s", agentRunId: "r", taskId: "t", assignmentId: "a" };
     });
     const r = await dispatchRun({ agentName: "  Coder ", task: "go" });
     expect(r.isError).toBeFalsy();
-    expect(seen).toBe(DEFAULT_CODER_AGENT);
+    expect(seen!.agentConfigId).toBe(DEFAULT_CODER_AGENT_ID);
+    expect(seen!.agentName).toBeUndefined();
   });
 
-  test("passes an explicit non-alias agent name through verbatim", async () => {
+  test("passes an explicit non-alias agent name through BY NAME (no id)", async () => {
     setBothStores(memoryStore());
-    let seen: string | undefined;
+    let seen: { agentConfigId?: string; agentName?: string } | null = null;
     _setSpawnForTests(async (input) => {
-      seen = input.agentName;
+      seen = { agentConfigId: input.agentConfigId, agentName: input.agentName };
       return { subConversationId: "s", agentRunId: "r", taskId: "t", assignmentId: "a" };
     });
     const r = await dispatchRun({ agentName: "Code Reviewer", task: "review" });
     expect(r.isError).toBeFalsy();
-    expect(seen).toBe("Code Reviewer");
+    expect(seen!.agentName).toBe("Code Reviewer");
+    expect(seen!.agentConfigId).toBeUndefined();
   });
 
   test("validates task (required) and agentName type", async () => {

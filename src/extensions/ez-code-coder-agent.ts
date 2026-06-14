@@ -17,11 +17,28 @@
  * install dispatches to a non-existent "coder" and the handler returns
  * `Agent not found: coder`.
  *
- * Fix: ensure a single well-known SYSTEM agent_config row
- * (`userId: null`, name `ez-code coder`) exists. The companion change in
- * `resolveAgentConfigForUser` falls back to this system row by name when
- * the per-user lookup misses, so EVERY user's `dispatch_run` resolves it
- * (a per-user row would be invisible to other users).
+ * Identify the coder by a FIXED, well-known agent-config ID — NOT by
+ * `userId: null`.
+ *
+ * The first attempt seeded a `userId: null` "system" row and resolved it
+ * by name only when the row was ownerless. That is DEFEATED by the boot
+ * migration at `src/db/migrate.ts:~404`:
+ *
+ *   UPDATE agent_configs SET user_id = (SELECT id FROM users
+ *     WHERE role='admin' ORDER BY created_at LIMIT 1) WHERE user_id IS NULL
+ *
+ * which adopts every ownerless row into the first admin on the next
+ * boot — so the coder is no longer ownerless and a `userId === null`
+ * guard rejects it.
+ *
+ * A fixed id is the correct, secure key:
+ *   - Unforgeable: the create API assigns RANDOM ids, so a user cannot
+ *     mint a row carrying our id. ID wins over a same-named impostor.
+ *   - Survives the backfill: the migration only rewrites `user_id`,
+ *     never `id`.
+ *   - User-agnostic resolution: `getAgentConfig(id)` is `WHERE id = ?`
+ *     (NOT user-scoped), so the coder resolves for EVERY user regardless
+ *     of which admin ended up owning it.
  *
  * The agent itself is a plain LLM coding persona — file-edit + shell
  * ability comes from the host agent runtime on the active project (the
@@ -33,8 +50,9 @@
  */
 
 import {
-  getAgentConfigByName,
+  getAgentConfig,
   createAgentConfig,
+  deleteAgentConfigsByNameExceptId,
   type DbAgentConfig,
 } from "../db/queries/agent-configs";
 import { CURRENT_MODEL_SENTINEL } from "../types";
@@ -43,10 +61,25 @@ import { logger } from "../logger";
 const log = logger.child("ez-code-coder");
 
 /**
- * Canonical name of the bundled coder agent_config row. This is the
- * name `dispatch_run` defaults to and the fallback target in
- * `resolveAgentConfigForUser`. Lowercase, whitespace-trimmed comparison
- * is done by the resolver, so the stored name can be human-friendly.
+ * Fixed, well-known id of the bundled coder agent_config row. This is
+ * the STABLE key the resolver uses (`getAgentConfig(id)`), so the coder
+ * is resolvable for every user and survives the ownerless→admin backfill
+ * in `migrate.ts`. Hardcoded (never generated) so it's identical across
+ * every install. A well-formed UUID (the `id` column is `text`, but
+ * mirroring the UUID shape of every other row keeps the DB uniform); the
+ * `ec0de…` nibbles spell out its ez-code provenance.
+ *
+ * SECURITY: `createAgentConfig` assigns RANDOM ids to user-created rows,
+ * so a user cannot create a row with this id — the id is unforgeable and
+ * always wins over a same-named impostor row.
+ */
+export const EZ_CODE_CODER_AGENT_ID = "ec0de000-c0de-4a9e-b0de-c0de1ec0de00";
+
+/**
+ * Canonical name of the bundled coder agent_config row. Human-friendly;
+ * the resolver matches it case-insensitively / whitespace-trimmed. The
+ * id (not the name) is the authoritative key — the name is for display +
+ * the alias UX.
  */
 export const EZ_CODE_CODER_AGENT_NAME = "ez-code coder";
 
@@ -89,21 +122,51 @@ const CODER_DESCRIPTION =
   "active project to implement a task end-to-end.";
 
 /**
- * Idempotently ensure the bundled coder agent_config row exists as a
- * SYSTEM agent (`userId: null`). Looks up by the canonical name first;
- * creates it only when absent. Returns the row (existing or freshly
- * created).
+ * Idempotently ensure the bundled coder agent_config row exists at the
+ * FIXED id `EZ_CODE_CODER_AGENT_ID`. Returns the row.
  *
- * Wired into the ez-code branch of `ensureBundledExtensions()` so it
- * runs on every boot after the extension row is present — matching the
- * other bundled wiring-migration hooks. Safe to call repeatedly: a
- * second call no-ops on the name match.
+ * Steps:
+ *   1. Dedupe: delete any OTHER row named `ez-code coder` whose id is not
+ *      the fixed id. This cleans up the stale random-id row created by
+ *      the earlier (pre-fixed-id) version of this function in dev DBs, so
+ *      exactly one canonical coder survives.
+ *   2. If the fixed-id row already exists → no-op (return it). The owner
+ *      may have been backfilled to admin by `migrate.ts` — harmless,
+ *      because resolution is by id, not owner.
+ *   3. Otherwise create the row WITH the fixed id.
+ *
+ * Wired into the ez-code branch of `ensureBundledExtensions()` so it runs
+ * on every boot after the extension row is present — matching the other
+ * bundled wiring-migration hooks. Safe to call repeatedly.
  */
 export async function ensureEzCodeCoderAgent(): Promise<DbAgentConfig> {
-  const existing = await getAgentConfigByName(EZ_CODE_CODER_AGENT_NAME);
+  // 1. Dedupe stale same-named rows (different id) from earlier installs.
+  try {
+    const removed = await deleteAgentConfigsByNameExceptId(
+      EZ_CODE_CODER_AGENT_NAME,
+      EZ_CODE_CODER_AGENT_ID,
+    );
+    if (removed > 0) {
+      log.info("Removed stale ez-code coder row(s)", {
+        name: EZ_CODE_CODER_AGENT_NAME,
+        removed,
+      });
+    }
+  } catch (err) {
+    // Non-fatal: dedupe is a cleanup, not a correctness requirement —
+    // the fixed-id row below is what the resolver targets.
+    log.warn("ez-code coder dedupe failed", { error: String(err) });
+  }
+
+  // 2. Fixed-id row already present → no-op.
+  const existing = await getAgentConfig(EZ_CODE_CODER_AGENT_ID);
   if (existing) return existing;
 
+  // 3. Create at the fixed id. Owner is left to default (null) and may be
+  // backfilled to admin by migrate.ts — resolution is by id, so this is
+  // harmless.
   const created = await createAgentConfig({
+    id: EZ_CODE_CODER_AGENT_ID,
     name: EZ_CODE_CODER_AGENT_NAME,
     description: CODER_DESCRIPTION,
     prompt: CODER_PROMPT,
@@ -114,9 +177,6 @@ export async function ensureEzCodeCoderAgent(): Promise<DbAgentConfig> {
     // configured rather than pinning a provider the user may not have.
     provider: CURRENT_MODEL_SENTINEL,
     model: CURRENT_MODEL_SENTINEL,
-    // SYSTEM agent — owned by no user so the resolver's name-fallback can
-    // serve it to every user's dispatch_run.
-    userId: undefined,
   });
   log.info("Created bundled ez-code coder agent", {
     name: EZ_CODE_CODER_AGENT_NAME,

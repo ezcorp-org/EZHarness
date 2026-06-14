@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, and, ne } from "drizzle-orm";
 import { getDb } from "../connection";
 import { agentConfigs } from "../schema";
 import { configToAgent } from "../../runtime/config-to-agent";
@@ -121,9 +121,12 @@ export async function getAgentConfigsByNames(names: string[]): Promise<Map<strin
   return out;
 }
 
-export async function createAgentConfig(data: Omit<AgentConfig, "capabilities"> & { capabilities?: string[]; category?: string | null; userId?: string; references?: { agents?: string[]; extensions?: string[]; members?: TeamMember[]; autoSpinUp?: boolean; teamToolScope?: import("../../types").TeamToolScope } }): Promise<DbAgentConfig> {
+export async function createAgentConfig(data: Omit<AgentConfig, "capabilities"> & { id?: string; capabilities?: string[]; category?: string | null; userId?: string; references?: { agents?: string[]; extensions?: string[]; members?: TeamMember[]; autoSpinUp?: boolean; teamToolScope?: import("../../types").TeamToolScope } }): Promise<DbAgentConfig> {
   const now = new Date();
-  const id = crypto.randomUUID();
+  // Callers may pin a fixed, well-known id (e.g. the bundled ez-code
+  // coder, which must be resolvable by a stable id that survives the
+  // ownerless→admin backfill in migrate.ts). Default: a fresh random id.
+  const id = data.id ?? crypto.randomUUID();
   if (data.references?.members?.length) {
     const memberIds = flattenMemberIds(data.references.members);
     const existing = new Set(data.references.agents ?? []);
@@ -212,6 +215,27 @@ export async function deleteAgentConfig(id: string): Promise<boolean> {
   if (!existing) return false;
   await getDb().delete(agentConfigs).where(eq(agentConfigs.id, id));
   return true;
+}
+
+/**
+ * Delete every `agent_configs` row whose name matches `name` but whose
+ * id is NOT `keepId`. Returns the number of rows removed.
+ *
+ * Used by the bundled ez-code coder's idempotent upsert to clean up a
+ * stale random-id row created by the earlier (pre-fixed-id) version of
+ * `ensureEzCodeCoderAgent`, so exactly one canonical coder row (the
+ * fixed id) survives. Name-scoped + id-excluding, so it never touches a
+ * user's unrelated agents.
+ */
+export async function deleteAgentConfigsByNameExceptId(
+  name: string,
+  keepId: string,
+): Promise<number> {
+  const rows = await getDb()
+    .delete(agentConfigs)
+    .where(and(eq(agentConfigs.name, name), ne(agentConfigs.id, keepId)))
+    .returning();
+  return rows.length;
 }
 
 function dbConfigToAgentConfig(row: DbAgentConfig): AgentConfig {

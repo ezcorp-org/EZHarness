@@ -70,9 +70,12 @@ type TaskAssignmentUpdateEvent = SubscribableEventMap["task:assignment_update"];
  * Canonical name of the bundled coder agent_config row the host ships
  * with ez-code (see `src/extensions/ez-code-coder-agent.ts`). When
  * `dispatch_run` is called WITHOUT an `agentName`, it defaults to this —
- * so the tool works out of the box on a fresh install. The host's
- * `resolveAgentConfigForUser` falls back to this SYSTEM agent by name for
- * every user.
+ * so the tool works out of the box on a fresh install.
+ *
+ * The host's `resolveAgentConfigForUser` treats this name (and the
+ * `coder` / `ez-code` aliases) as a reference to the bundled coder and
+ * resolves it BY ITS FIXED ID — NOT by owner — so it works for every
+ * user even after the boot migration adopts the row into the first admin.
  *
  * Mirrored here as a literal (NOT imported) on purpose: this module loads
  * inside the sandboxed subprocess, and `ez-code-coder-agent.ts`
@@ -81,20 +84,34 @@ type TaskAssignmentUpdateEvent = SubscribableEventMap["task:assignment_update"];
  */
 export const DEFAULT_CODER_AGENT = "ez-code coder";
 
+/**
+ * Fixed, well-known id of the bundled coder — kept in sync (by hand) with
+ * `EZ_CODE_CODER_AGENT_ID` in `src/extensions/ez-code-coder-agent.ts`.
+ * Duplicated as a LITERAL (never imported) so this sandboxed module never
+ * pulls the host DB layer into its load graph. `resolveDispatchAgentName`
+ * passing this id (or the canonical name) both resolve the coder by id
+ * host-side; the id is the most robust form (immune to any name drift).
+ */
+export const DEFAULT_CODER_AGENT_ID = "ec0de000-c0de-4a9e-b0de-c0de1ec0de00";
+
 /** Friendly aliases (case-insensitive) the LLM may pass for the default
- *  coder. All resolve host-side to {@link DEFAULT_CODER_AGENT}; we
+ *  coder. All resolve host-side to the bundled coder (by fixed id); we
  *  normalize them here so a bare `"coder"` always hits the bundled agent
  *  even if a user later creates an unrelated row named "coder". */
 const CODER_ALIASES: ReadonlySet<string> = new Set(["coder", "ez-code", "ez-code coder"]);
+
+/** Whether `agentName` (omitted/blank or a known alias) means "use the
+ *  bundled coder". Pure. */
+export function isDefaultCoderRequest(agentName?: string): boolean {
+  if (typeof agentName !== "string" || !agentName.trim()) return true;
+  return CODER_ALIASES.has(agentName.trim().toLowerCase());
+}
 
 /** Resolve the effective agent name for a dispatch: omitted/blank or a
  *  known alias → the canonical bundled coder; anything else passes
  *  through verbatim (an explicit, user-named agent). Pure. */
 export function resolveDispatchAgentName(agentName?: string): string {
-  if (typeof agentName !== "string" || !agentName.trim()) return DEFAULT_CODER_AGENT;
-  return CODER_ALIASES.has(agentName.trim().toLowerCase())
-    ? DEFAULT_CODER_AGENT
-    : agentName.trim();
+  return isDefaultCoderRequest(agentName) ? DEFAULT_CODER_AGENT : agentName!.trim();
 }
 
 export const PAGE_ID = "dashboard";
@@ -448,6 +465,11 @@ async function pushSharedDashboard(): Promise<void> {
 export async function dispatchRunCore(
   input: {
     agentName: string;
+    /** When set, spawn resolves the agent by this EXACT id (takes
+     *  precedence over `agentName` host-side). Used for the bundled coder
+     *  so it resolves by its fixed, unforgeable id regardless of owner.
+     *  `agentName` is still kept for the run record's display. */
+    agentConfigId?: string;
     task: string;
     title?: string;
     autonomousContinuation?: boolean;
@@ -456,7 +478,9 @@ export async function dispatchRunCore(
   push: boolean,
 ): Promise<RunRecord> {
   const handle = await spawnImpl({
-    agentName: input.agentName,
+    ...(input.agentConfigId
+      ? { agentConfigId: input.agentConfigId }
+      : { agentName: input.agentName }),
     task: input.task,
     ...(input.title?.trim() ? { title: input.title.trim() } : {}),
     ...(input.autonomousContinuation ? { autonomousContinuation: {} } : {}),
@@ -502,12 +526,18 @@ export const dispatchRun: ToolHandler = async (args) => {
     return toolError("'task' is required and must be a non-empty string");
   }
   const resolvedAgent = resolveDispatchAgentName(agentName);
+  // For the bundled coder, dispatch by its FIXED id (unforgeable, owner-
+  // agnostic) rather than the name — most robust resolution. The run
+  // record still shows the friendly `agentName`. An explicit user agent
+  // dispatches by name as before.
+  const useDefaultCoder = isDefaultCoderRequest(agentName);
 
   let record: RunRecord;
   try {
     record = await dispatchRunCore(
       {
         agentName: resolvedAgent,
+        ...(useDefaultCoder ? { agentConfigId: DEFAULT_CODER_AGENT_ID } : {}),
         task: task.trim(),
         ...(typeof title === "string" ? { title } : {}),
         autonomousContinuation: autonomousContinuation === true,

@@ -21,10 +21,10 @@ import type {
 import type { PermissionEngine } from "./permission-engine";
 import {
   listAgentConfigs,
-  getAgentConfigByName,
+  getAgentConfig,
   type DbAgentConfig,
 } from "../db/queries/agent-configs";
-import { isEzCodeCoderAlias, EZ_CODE_CODER_AGENT_NAME } from "./ez-code-coder-agent";
+import { isEzCodeCoderAlias, EZ_CODE_CODER_AGENT_ID } from "./ez-code-coder-agent";
 import { createRateLimiter } from "./rate-limit";
 import { capabilityToolsDisabled } from "./capability-flags";
 import { rpcError, rpcResult } from "./json-rpc";
@@ -74,6 +74,15 @@ export async function resolveAgentConfigForUser(
   userId: string,
   idOrName: string,
 ): Promise<DbAgentConfig | null> {
+  // Fast path: an explicit reference to the bundled coder by its FIXED
+  // id. `getAgentConfig` is `WHERE id = ?` (NOT user-scoped), so this
+  // resolves for every user regardless of which admin owns the row after
+  // the migrate.ts backfill. Checked first so `dispatch_run` may pass the
+  // id directly as `agentConfigId`.
+  if (idOrName === EZ_CODE_CODER_AGENT_ID) {
+    return (await getAgentConfig(EZ_CODE_CODER_AGENT_ID)) ?? null;
+  }
+
   const configs = await listAgentConfigs(userId);
   const needle = idOrName.trim().toLowerCase();
   const userScoped = configs.find(
@@ -81,17 +90,19 @@ export async function resolveAgentConfigForUser(
   );
   if (userScoped) return userScoped;
 
-  // System-agent fallback: the bundled ez-code coder is a `userId: null`
-  // row (see `ez-code-coder-agent.ts`), so it never appears in
-  // `listAgentConfigs(userId)` — which scopes to the user's own + shared
-  // rows. Resolve it by its canonical name for ANY user so a fresh
-  // install's `dispatch_run` works out of the box. A friendly `"coder"`
-  // alias maps to the same row. This is name-only (never id) and only
-  // targets the well-known coder, so it cannot leak another user's
-  // private config.
+  // Bundled-coder fallback: the ez-code coder lives at a FIXED, unforgeable
+  // id (see `ez-code-coder-agent.ts`). It is NOT a user's own/shared row,
+  // so it never appears in `listAgentConfigs(userId)` — and a `userId:
+  // null` guard is wrong because the boot migration (`migrate.ts:~404`)
+  // adopts ownerless rows into the first admin. So for a coder ALIAS
+  // (and the canonical name, which `isEzCodeCoderAlias` also matches),
+  // resolve the coder BY ITS FIXED ID for ANY user. Gated strictly on the
+  // alias set, so only coder aliases reach this branch — it cannot leak
+  // another user's config. Note the user-scoped lookup ran FIRST, so a
+  // user's OWN row literally named "coder" still wins (id is unique +
+  // unforgeable; their row has a different, random id).
   if (isEzCodeCoderAlias(idOrName)) {
-    const systemCoder = await getAgentConfigByName(EZ_CODE_CODER_AGENT_NAME);
-    if (systemCoder && systemCoder.userId === null) return systemCoder;
+    return (await getAgentConfig(EZ_CODE_CODER_AGENT_ID)) ?? null;
   }
 
   return null;
