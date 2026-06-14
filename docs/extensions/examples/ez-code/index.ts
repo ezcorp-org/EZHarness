@@ -36,8 +36,17 @@ import {
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
 import { spawnAssignment, cancelRun } from "@ezcorp/sdk/runtime";
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
+import {
+  copyFileSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 // Seam B (ez-sandbox) — open_pr jails its git/gh subprocess via the host's
 // buildSandboxArgv so a run's shell can't read/write `.ezcorp/data` (the
 // PGlite DB + JWT secret). A reference example may reach into the host
@@ -611,66 +620,90 @@ export type ShellRunner = (
 ) => Promise<ShellResult>;
 
 /**
- * Resolve the per-run jail's rw allowlist for the active project repo: every
- * TOP-LEVEL repo entry EXCEPT `.ezcorp` (which holds the platform DB + JWT
- * secret). Landlock can't carve a child out of a granted parent, so we grant
- * the siblings of `.ezcorp` (incl. `.git`, source dirs) and deliberately omit
- * `.ezcorp` — git gets the whole working tree; `.ezcorp/data` stays denied.
- * Falls back to the repo itself if it can't be listed (the builder's
- * data-dir assertion then fails closed, surfacing the problem rather than
- * silently exposing the DB).
+ * Resolve the per-run jail's rw allowlist for a git WORKTREE checkout: the
+ * worktree itself (RW — git writes the index/branch refs + the commit's tree)
+ * plus the device dir, and the MAIN repo's `.git` dir (RW — a linked worktree
+ * stores its per-worktree metadata under `<mainRepo>/.git/worktrees/<name>`
+ * and commits/pushes write objects + refs into the shared `.git`).
+ *
+ * Crucially the worktree contains ONLY tracked files (gitignored `.ezcorp/` is
+ * absent by construction), and `<mainRepo>/.git` is a SIBLING of `.ezcorp`, so
+ * granting it does NOT grant `.ezcorp`. The repo ROOT is never granted on any
+ * tier — `.ezcorp/data` (PGlite DB + JWT secret) is therefore never in the
+ * jail's allowlist, closing the read-capability residual.
  */
-export function repoRwPaths(repo: string): string[] {
-  try {
-    return readdirSync(repo)
-      .filter((e) => e !== ".ezcorp")
-      .map((e) => join(repo, e));
-  } catch {
-    return [repo];
-  }
+export function worktreeRwPaths(worktree: string, gitDir: string): string[] {
+  return [worktree, gitDir, "/dev"];
 }
 
 /**
- * Production runner — runs `cmd` in the repo cwd UNDER the Seam B sandbox jail
- * (`buildSandboxArgv`): the repo (minus `.ezcorp`) is read-write, system dirs
- * read-only, and `.ezcorp/data` is denied. On the advisory tier this is a
- * plain spawn (documented status-quo). The extension holds `shell: true`.
+ * Production runner — runs `cmd` in `cwd` (an `.ezcorp`-free git worktree)
+ * UNDER the Seam B sandbox jail (`buildSandboxArgv`): the worktree + the main
+ * repo's `.git` dir are read-write, system dirs read-only, and the project
+ * repo ROOT is NEVER granted. On the advisory tier this is a plain spawn
+ * (documented status-quo). The extension holds `shell: true`.
+ *
+ * `gitDir` is the main repo's `.git` directory (the worktree's commits/pushes
+ * write objects + refs there). When omitted (e.g. the advisory smoke path) the
+ * jail grants only the worktree + `/dev`.
+ *
+ * `projectRoot` is the MAIN repo root — used ONLY to compute the forbidden
+ * `.ezcorp/data` path the builder asserts every grant stays clear of. It must
+ * be the repo (whose data dir is the real secret), NOT the worktree (which is
+ * outside the repo and contains no `.ezcorp/`). When omitted it defaults to
+ * the cwd (the advisory smoke path, where cwd is a throwaway dir).
+ *
+ * Security: because the granted set is the worktree (tracked files only) +
+ * `<mainRepo>/.git` (a sibling of `.ezcorp`) — never the repo root — the
+ * in-repo `.ezcorp/data` convention path AND the real platform DB/JWT secret
+ * are outside every grant and stay denied READ and WRITE on all tiers.
  */
-export const productionShell: ShellRunner = async (cmd, cwd) => {
-  // Seam B jail for git/gh. The repo CHILDREN (minus `.ezcorp`) are rw; git
-  // also needs WRITE on the device dir (`/dev/null`, `/dev/tty`), so `/dev` is
-  // rw. The repo ROOT is granted READ-ONLY (`roPaths: [cwd]`) so git can scan
-  // the working tree (`opendir(".")`, index updates) — Landlock is purely
-  // ADDITIVE (a child rule can't subtract a parent's grant), and empirically
-  // git's tree scan needs more than a list-only (READ_DIR) grant on the root.
-  //
-  // Security: this DENIES WRITE under `.ezcorp/data` (the jailed git can't
-  // plant/corrupt the platform DB dir — proven in-container). READ of the
-  // IN-REPO `.ezcorp/data` CONVENTION path remains possible on the landlock
-  // tier (the read-only root parent covers it; Landlock can't carve it out).
-  // That convention path is gitignored; the REAL platform DB + JWT secret in
-  // production live OUTSIDE the project repo (the host DB path — see
-  // mcp-sandbox `getDbMaskDirs`), so they are never granted by this
-  // repo-rooted jail and stay fully denied read AND write.
-  const rwPaths = [...repoRwPaths(cwd), "/dev"];
-  // `listPaths: [cwd]` grants the repo ROOT read-only and is EXEMPT from the
-  // builder's data-dir-ancestor assertion (the root legitimately contains
-  // `.ezcorp/data`). It must NOT be in rw/ro (those would throw).
-  const built = buildSandboxArgv({
-    tier: getSandboxTier(),
-    workspaceDir: rwPaths[0] ?? cwd,
-    projectRoot: cwd,
-    rwPaths: rwPaths.slice(1),
-    listPaths: [cwd],
-    command: cmd[0]!,
-    args: cmd.slice(1),
-  });
-  const proc = Bun.spawn(built.argv, {
-    cwd,
-    env: { ...process.env, ...built.env },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+export function makeProductionShell(gitDir?: string, projectRoot?: string): ShellRunner {
+  return async (cmd, cwd) => {
+    const rwPaths = gitDir ? worktreeRwPaths(cwd, gitDir) : [cwd, "/dev"];
+    const built = buildSandboxArgv({
+      tier: getSandboxTier(),
+      workspaceDir: rwPaths[0] ?? cwd,
+      // The forbidden-data-dir anchor is the MAIN repo (its `.ezcorp/data` is
+      // the secret). Defaults to cwd when no repo is threaded (smoke path).
+      projectRoot: projectRoot ?? cwd,
+      rwPaths: rwPaths.slice(1),
+      command: cmd[0]!,
+      args: cmd.slice(1),
+    });
+    const proc = Bun.spawn(built.argv, {
+      cwd,
+      env: { ...process.env, ...built.env },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const exitCode = await proc.exited;
+    return { exitCode, stdout, stderr };
+  };
+}
+/** Default production runner — jails to the cwd + `/dev` only (no `.git`
+ *  grant). `openPrForRun` builds a `gitDir`-aware runner per run. */
+export const productionShell: ShellRunner = makeProductionShell();
+let shellImpl: ShellRunner = productionShell;
+export function _setShellForTests(fn: ShellRunner | null): void {
+  shellImpl = fn ?? productionShell;
+}
+
+// ── Host-side git orchestration (UNJAILED) ────────────────────────
+//
+// Worktree setup/teardown + change enumeration run as plain host git in the
+// MAIN repo — they are NOT the jailed git/gh that this fix isolates (those run
+// inside the `.ezcorp`-free worktree). Injectable so the integration test can
+// drive a throwaway repo and assert the jail spec without a live host git.
+
+/** Runs a command in `cwd` and returns its result. Plain host spawn. */
+export type HostRunner = (cmd: string[], cwd: string) => Promise<ShellResult>;
+export const productionHostRunner: HostRunner = async (cmd, cwd) => {
+  const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -678,9 +711,9 @@ export const productionShell: ShellRunner = async (cmd, cwd) => {
   const exitCode = await proc.exited;
   return { exitCode, stdout, stderr };
 };
-let shellImpl: ShellRunner = productionShell;
-export function _setShellForTests(fn: ShellRunner | null): void {
-  shellImpl = fn ?? productionShell;
+let hostRunnerImpl: HostRunner = productionHostRunner;
+export function _setHostRunnerForTests(fn: HostRunner | null): void {
+  hostRunnerImpl = fn ?? productionHostRunner;
 }
 
 // The active project's git repo root (host-injected at spawn). The per-run
@@ -696,11 +729,117 @@ export function branchForRun(runId: string): string {
   return `ez-code/${slug}`;
 }
 
+/** One parsed `git status --porcelain -z` entry. `kind` is derived from the
+ *  two-letter XY status so the materializer can copy / delete / rename
+ *  faithfully. `path` is repo-relative (the post-rename path for renames). */
+export interface StatusEntry {
+  kind: "modify" | "delete" | "rename";
+  path: string; // current (post-rename) repo-relative path
+  oldPath?: string; // pre-rename path (rename only)
+}
+
 /**
- * Shared open-PR logic: under the active project's repo, create the run's
- * branch, commit the working tree, push to origin, and `gh pr create`.
- * Returns the PR url (or the gh stdout) on success. Each step fails closed
- * — a non-zero exit aborts with the captured stderr.
+ * Parse `git status --porcelain -z` output into a faithful change list. The
+ * `-z` format is NUL-separated; a rename/copy entry (`R`/`C`) is followed by a
+ * SECOND NUL-separated field carrying the OLD path. Gitignored files (incl.
+ * `.ezcorp/`) are absent — `--porcelain` excludes them by default. Pure.
+ *
+ * XY semantics we care about (X=index, Y=worktree):
+ *   - `D` in either column → the path was deleted → replicate the deletion.
+ *   - `R`/`C` → rename/copy → delete the old path + copy the new one.
+ *   - anything else with content (`M`/`A`/`?`/`T`…) → copy the current file.
+ */
+export function parsePorcelainZ(out: string): StatusEntry[] {
+  const fields = out.split("\0").filter((f) => f.length > 0);
+  const entries: StatusEntry[] = [];
+  for (let i = 0; i < fields.length; i++) {
+    const rec = fields[i]!;
+    // Format: "XY <path>" (the status is 2 chars + a space, then the path).
+    const xy = rec.slice(0, 2);
+    const path = rec.slice(3);
+    const x = xy[0];
+    const y = xy[1];
+    if (x === "R" || x === "C") {
+      // Rename/copy: the NEXT field is the OLD path.
+      const oldPath = fields[++i] ?? "";
+      entries.push({ kind: "rename", path, oldPath });
+      continue;
+    }
+    if (x === "D" || y === "D") {
+      entries.push({ kind: "delete", path });
+      continue;
+    }
+    entries.push({ kind: "modify", path });
+  }
+  return entries;
+}
+
+/**
+ * Materialize the run's working-tree changes from `srcRepo` into `worktree`
+ * WITHOUT git stash. The worktree is a detached checkout of HEAD (tracked
+ * files only — gitignored `.ezcorp/` is absent by construction); we layer the
+ * run's pending changes on top so the commit carries exactly the intended
+ * diff, INCLUDING newly-created untracked (non-ignored) files. Stash-free:
+ * the change set comes from `git status --porcelain -z` (which itself excludes
+ * gitignored paths) and is replayed by plain filesystem copy/delete.
+ */
+export async function materializeChanges(
+  srcRepo: string,
+  worktree: string,
+  entries: StatusEntry[],
+): Promise<void> {
+  for (const e of entries) {
+    if (e.kind === "delete") {
+      rmSync(join(worktree, e.path), { force: true });
+      continue;
+    }
+    if (e.kind === "rename") {
+      if (e.oldPath) rmSync(join(worktree, e.oldPath), { force: true });
+      copyInto(srcRepo, worktree, e.path);
+      continue;
+    }
+    copyInto(srcRepo, worktree, e.path);
+  }
+}
+
+/** Copy `rel` from `srcRepo` into `worktree`, creating parent dirs. Preserves
+ *  symlinks as symlinks (so a symlinked change isn't dereferenced into the
+ *  worktree). A source that vanished mid-run is skipped (treated as a no-op,
+ *  mirroring git's own tolerance). */
+function copyInto(srcRepo: string, worktree: string, rel: string): void {
+  const src = join(srcRepo, rel);
+  const dst = join(worktree, rel);
+  mkdirSync(dirname(dst), { recursive: true });
+  let stat: ReturnType<typeof lstatSync>;
+  try {
+    stat = lstatSync(src);
+  } catch {
+    return; // vanished — skip
+  }
+  rmSync(dst, { force: true, recursive: true });
+  if (stat.isSymbolicLink()) {
+    symlinkSync(readlinkSync(src), dst);
+    return;
+  }
+  if (stat.isDirectory()) {
+    // A directory entry in porcelain output is a submodule boundary; copy
+    // it shallowly (its tracked contents come through as their own entries).
+    mkdirSync(dst, { recursive: true });
+    return;
+  }
+  copyFileSync(src, dst);
+}
+
+/**
+ * Shared open-PR logic. To close the repo-root read residual, git/gh run
+ * inside a FRESH git WORKTREE (a detached checkout of HEAD outside the repo)
+ * that contains ONLY tracked files — gitignored `.ezcorp/` (PGlite DB + JWT
+ * secret) is absent by construction. The run's pending changes are
+ * materialized into the worktree stash-free (from `git status --porcelain`),
+ * then branch → commit → push → `gh pr create` run there UNDER the Seam B
+ * jail, whose allowlist is the worktree + the main repo's `.git` (a SIBLING of
+ * `.ezcorp`) — never the repo root. The worktree is removed on every path.
+ * Returns the PR url on success; each step fails closed on a non-zero exit.
  */
 export async function openPrForRun(
   runId: string,
@@ -721,44 +860,93 @@ export async function openPrForRun(
   const title = (opts.title ?? run.title ?? `ez-code run ${runId}`).trim() || `ez-code run ${runId}`;
   const body = opts.body ?? `Automated PR for ez-code run \`${runId}\` (agent: ${run.agentName}).`;
 
-  // Detect the repo's default branch for the PR base. `git symbolic-ref
-  // refs/remotes/origin/HEAD` prints e.g. `refs/remotes/origin/main`; fall
-  // back to `main` when origin/HEAD isn't set (fresh remote / detached).
-  const headRef = await shellImpl(["git", "symbolic-ref", "refs/remotes/origin/HEAD"], repo);
+  // Resolve the main repo's `.git` dir (host-side; the worktree's git ops
+  // write objects/refs there). `git rev-parse --absolute-git-dir` yields the
+  // absolute path; fall back to `<repo>/.git` if the probe fails.
+  const gitDirProbe = await hostRunnerImpl(["git", "rev-parse", "--absolute-git-dir"], repo);
+  const gitDir =
+    gitDirProbe.exitCode === 0 && gitDirProbe.stdout.trim()
+      ? gitDirProbe.stdout.trim()
+      : join(repo, ".git");
+
+  // Detect the repo's default branch for the PR base (host-side — pure read).
+  const headRef = await hostRunnerImpl(
+    ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
+    repo,
+  );
   const base =
-    headRef.exitCode === 0
-      ? headRef.stdout.trim().split("/").pop() || "main"
-      : "main";
+    headRef.exitCode === 0 ? headRef.stdout.trim().split("/").pop() || "main" : "main";
 
-  const steps: string[][] = [
-    ["git", "switch", "-c", branch],
-    ["git", "add", "-A"],
-    ["git", "commit", "-m", title],
-    ["git", "push", "-u", "origin", branch],
-    // --base targets the detected default branch so the PR opens against it
-    // (not whatever gh guesses); --head is our run branch.
-    ["gh", "pr", "create", "--base", base, "--title", title, "--body", body, "--head", branch],
-  ];
-
-  let prUrl = "";
-  for (const cmd of steps) {
-    const res = await shellImpl(cmd, repo);
-    if (res.exitCode !== 0) {
+  // Create the throwaway worktree OUTSIDE the repo (never under `.ezcorp/`).
+  const wtRoot = mkdtempSync(join(tmpdir(), "ez-code-wt-"));
+  const worktree = join(wtRoot, "wt");
+  let added = false;
+  try {
+    const add = await hostRunnerImpl(
+      ["git", "worktree", "add", "--detach", worktree, "HEAD"],
+      repo,
+    );
+    if (add.exitCode !== 0) {
       return {
         ok: false,
-        error: `\`${cmd.join(" ")}\` failed (exit ${res.exitCode}): ${res.stderr.trim() || res.stdout.trim()}`,
+        error: `git worktree add failed (exit ${add.exitCode}): ${add.stderr.trim() || add.stdout.trim()}`,
       };
     }
-    if (cmd[0] === "gh") prUrl = res.stdout.trim();
-  }
+    added = true;
 
-  const next = recordRunEvent(runs, runId, {
-    status: "pr_opened",
-    note: prUrl || branch,
-  });
-  await store.write(next);
-  if (push) await pushSharedDashboard();
-  return { ok: true, url: prUrl || undefined };
+    // Enumerate the run's pending changes (excludes gitignored `.ezcorp/`).
+    const status = await hostRunnerImpl(["git", "status", "--porcelain", "-z"], repo);
+    if (status.exitCode !== 0) {
+      return {
+        ok: false,
+        error: `git status failed (exit ${status.exitCode}): ${status.stderr.trim()}`,
+      };
+    }
+    await materializeChanges(repo, worktree, parsePorcelainZ(status.stdout));
+
+    // The jailed git/gh runner: worktree (RW) + main `.git` (RW) + ro runtime
+    // + /dev. The repo ROOT is NEVER granted, so `.ezcorp/data` is denied.
+    const jailedShell = makeProductionShell(gitDir, repo);
+    // When tests inject a custom shell, honor it; otherwise use the
+    // gitDir-aware production jail (NOT the default cwd-only runner).
+    const runCmd =
+      shellImpl === productionShell ? jailedShell : shellImpl;
+
+    const steps: string[][] = [
+      ["git", "switch", "-c", branch],
+      ["git", "add", "-A"],
+      ["git", "commit", "-m", title],
+      ["git", "push", "-u", "origin", branch],
+      // --base targets the detected default branch; --head is our run branch.
+      ["gh", "pr", "create", "--base", base, "--title", title, "--body", body, "--head", branch],
+    ];
+
+    let prUrl = "";
+    for (const cmd of steps) {
+      const res = await runCmd(cmd, worktree);
+      if (res.exitCode !== 0) {
+        return {
+          ok: false,
+          error: `\`${cmd.join(" ")}\` failed (exit ${res.exitCode}): ${res.stderr.trim() || res.stdout.trim()}`,
+        };
+      }
+      if (cmd[0] === "gh") prUrl = res.stdout.trim();
+    }
+
+    const next = recordRunEvent(runs, runId, {
+      status: "pr_opened",
+      note: prUrl || branch,
+    });
+    await store.write(next);
+    if (push) await pushSharedDashboard();
+    return { ok: true, url: prUrl || undefined };
+  } finally {
+    // Cleanup on BOTH success and failure — never leak the worktree.
+    if (added) {
+      await hostRunnerImpl(["git", "worktree", "remove", "--force", worktree], repo);
+    }
+    rmSync(wtRoot, { recursive: true, force: true });
+  }
 }
 
 /** open_pr tool — branch → commit → push → gh pr create for a run. */

@@ -20,6 +20,7 @@ import {
   _setAppendMessageForTests,
   _setCancelForTests,
   _setGlobalStoreForTests,
+  _setHostRunnerForTests,
   _setMemoryForTests,
   _setProjectRootForTests,
   _setPushPageForTests,
@@ -44,13 +45,16 @@ import {
   handleSteerAction,
   isLive,
   listRuns,
+  makeProductionShell,
   mapStatus,
+  materializeChanges,
   openPr,
   openPrForRun,
+  parsePorcelainZ,
   productionShell,
   productionTriggers,
   recordRunEvent,
-  repoRwPaths,
+  worktreeRwPaths,
   register,
   renderDashboard,
   steerRun,
@@ -120,6 +124,42 @@ function parse(result: ToolCallResult): any {
   return JSON.parse(text!.text);
 }
 
+/**
+ * Fake the UNJAILED host git orchestration (rev-parse / symbolic-ref / worktree
+ * add+remove / status). Captures the resolved worktree path + records the
+ * worktree-add/remove calls so a test can assert the worktree lifecycle. The
+ * jailed git/gh still flows through the injected `shellImpl` (set separately).
+ */
+function fakeHost(
+  opts: { originHead?: string | null; status?: string; gitDir?: string } = {},
+): { worktree: () => string | null; calls: string[][] } {
+  const calls: string[][] = [];
+  let worktree: string | null = null;
+  _setHostRunnerForTests(async (cmd, _cwd): Promise<ShellResult> => {
+    calls.push(cmd);
+    if (cmd[1] === "rev-parse") {
+      return { exitCode: 0, stdout: `${opts.gitDir ?? "/proj/repo/.git"}\n`, stderr: "" };
+    }
+    if (cmd[1] === "symbolic-ref") {
+      return opts.originHead === null || opts.originHead === undefined
+        ? { exitCode: 1, stdout: "", stderr: "no HEAD" }
+        : { exitCode: 0, stdout: `refs/remotes/origin/${opts.originHead}\n`, stderr: "" };
+    }
+    if (cmd[1] === "worktree" && cmd[2] === "add") {
+      worktree = cmd[4] ?? null; // ["git","worktree","add","--detach",<wt>,"HEAD"]
+      return { exitCode: 0, stdout: "", stderr: "" };
+    }
+    if (cmd[1] === "status") {
+      return { exitCode: 0, stdout: opts.status ?? "", stderr: "" };
+    }
+    if (cmd[1] === "worktree" && cmd[2] === "remove") {
+      return { exitCode: 0, stdout: "", stderr: "" };
+    }
+    return { exitCode: 0, stdout: "", stderr: "" };
+  });
+  return { worktree: () => worktree, calls };
+}
+
 afterEach(() => {
   _setUserStoreForTests(null);
   _setGlobalStoreForTests(null);
@@ -128,6 +168,7 @@ afterEach(() => {
   _setCancelForTests(null);
   _setAppendMessageForTests(null);
   _setShellForTests(null);
+  _setHostRunnerForTests(null);
   _setProjectRootForTests(null);
   _setTriggersForTests(null);
   _setMemoryForTests(null);
@@ -594,10 +635,11 @@ describe("open_pr (B3 branch→PR automation)", () => {
     expect(branchForRun("weird id/with:chars")).toBe("ez-code/weird-id-with-chars");
   });
 
-  test("runs git+gh in the project repo cwd, in order, with the right args", async () => {
+  test("runs git+gh INSIDE the worktree (not the repo), in order, with the right args", async () => {
     setBothStores(memoryStore([record({ id: "run-pr", title: "My feature" })]));
     _setPushPageForTests(() => {});
     _setProjectRootForTests(() => "/proj/repo");
+    const host = fakeHost({ originHead: "main" });
     const calls: Array<{ cmd: string[]; cwd: string }> = [];
     _setShellForTests(async (cmd, cwd): Promise<ShellResult> => {
       calls.push({ cmd, cwd });
@@ -610,40 +652,43 @@ describe("open_pr (B3 branch→PR automation)", () => {
     expect(payload.opened).toBe(true);
     expect(payload.prUrl).toBe("https://github.com/org/repo/pull/7");
 
-    // Every command ran in the active project's repo.
-    expect(calls.every((c) => c.cwd === "/proj/repo")).toBe(true);
-    // Ordered: detect default branch → branch → add → commit → push → gh.
+    // The jailed git/gh all ran INSIDE the per-run worktree, NOT the repo root.
+    const wt = host.worktree();
+    expect(wt).toBeTruthy();
+    expect(calls.every((c) => c.cwd === wt)).toBe(true);
+    expect(calls.every((c) => c.cwd !== "/proj/repo")).toBe(true);
+    // Ordered: branch → add → commit → push → gh (default-branch detection +
+    // worktree setup are HOST-side and don't flow through the jailed shell).
     expect(calls.map((c) => `${c.cmd[0]} ${c.cmd[1]}`)).toEqual([
-      "git symbolic-ref",
       "git switch",
       "git add",
       "git commit",
       "git push",
       "gh pr",
     ]);
-    // Branch name + gh args (the git step indices shift by 1 after the
-    // symbolic-ref probe at index 0).
-    expect(calls[1]!.cmd).toEqual(["git", "switch", "-c", "ez-code/run-pr"]);
-    expect(calls[4]!.cmd).toEqual(["git", "push", "-u", "origin", "ez-code/run-pr"]);
-    const gh = calls[5]!.cmd;
+    expect(calls[0]!.cmd).toEqual(["git", "switch", "-c", "ez-code/run-pr"]);
+    expect(calls[3]!.cmd).toEqual(["git", "push", "-u", "origin", "ez-code/run-pr"]);
+    const gh = calls[4]!.cmd;
     expect(gh.slice(0, 3)).toEqual(["gh", "pr", "create"]);
     expect(gh).toContain("--head");
     expect(gh[gh.indexOf("--head") + 1]).toBe("ez-code/run-pr");
     expect(gh[gh.indexOf("--title") + 1]).toBe("My feature");
     expect(gh[gh.indexOf("--body") + 1]).toBe("Fixes the thing");
-    // #6 — the PR targets the detected default branch via --base.
     expect(gh).toContain("--base");
+    expect(gh[gh.indexOf("--base") + 1]).toBe("main");
+
+    // The worktree lifecycle: add then remove --force (cleanup always runs).
+    expect(host.calls.some((c) => c[1] === "worktree" && c[2] === "add")).toBe(true);
+    expect(host.calls.some((c) => c[1] === "worktree" && c[2] === "remove")).toBe(true);
   });
 
   test("--base targets the detected default branch from origin/HEAD", async () => {
     setBothStores(memoryStore([record({ id: "run-base", title: "T" })]));
     _setPushPageForTests(() => {});
     _setProjectRootForTests(() => "/repo");
+    fakeHost({ originHead: "develop" });
     let ghBase: string | undefined;
     _setShellForTests(async (cmd): Promise<ShellResult> => {
-      if (cmd[1] === "symbolic-ref") {
-        return { exitCode: 0, stdout: "refs/remotes/origin/develop\n", stderr: "" };
-      }
       if (cmd[0] === "gh") ghBase = cmd[cmd.indexOf("--base") + 1];
       return { exitCode: 0, stdout: cmd[0] === "gh" ? "url" : "", stderr: "" };
     });
@@ -655,9 +700,9 @@ describe("open_pr (B3 branch→PR automation)", () => {
     setBothStores(memoryStore([record({ id: "run-nohead", title: "T" })]));
     _setPushPageForTests(() => {});
     _setProjectRootForTests(() => "/repo");
+    fakeHost({ originHead: null });
     let ghBase: string | undefined;
     _setShellForTests(async (cmd): Promise<ShellResult> => {
-      if (cmd[1] === "symbolic-ref") return { exitCode: 1, stdout: "", stderr: "no HEAD" };
       if (cmd[0] === "gh") ghBase = cmd[cmd.indexOf("--base") + 1];
       return { exitCode: 0, stdout: cmd[0] === "gh" ? "url" : "", stderr: "" };
     });
@@ -670,6 +715,7 @@ describe("open_pr (B3 branch→PR automation)", () => {
     setBothStores(store);
     const pushes = capturePushes();
     _setProjectRootForTests(() => "/repo");
+    fakeHost({ originHead: "main" });
     _setShellForTests(async (cmd) => ({
       exitCode: 0,
       stdout: cmd[0] === "gh" ? "https://github.com/o/r/pull/3" : "",
@@ -682,9 +728,10 @@ describe("open_pr (B3 branch→PR automation)", () => {
     expect(pushes).toHaveLength(0);
   });
 
-  test("aborts (fail-closed) on a non-zero git step, surfacing stderr", async () => {
+  test("aborts (fail-closed) on a non-zero git step, surfacing stderr — worktree still removed", async () => {
     setBothStores(memoryStore([record({ id: "run-fail" })]));
     _setProjectRootForTests(() => "/repo");
+    const host = fakeHost({ originHead: "main" });
     _setShellForTests(async (cmd) =>
       cmd[1] === "push"
         ? { exitCode: 1, stdout: "", stderr: "remote rejected" }
@@ -695,6 +742,22 @@ describe("open_pr (B3 branch→PR automation)", () => {
     const text = (r.content[0] as { text: string }).text;
     expect(text).toContain("git push");
     expect(text).toContain("remote rejected");
+    // Cleanup runs on the failure path too.
+    expect(host.calls.some((c) => c[1] === "worktree" && c[2] === "remove")).toBe(true);
+  });
+
+  test("aborts (fail-closed) when git worktree add fails", async () => {
+    setBothStores(memoryStore([record({ id: "run-wtfail" })]));
+    _setProjectRootForTests(() => "/repo");
+    _setHostRunnerForTests(async (cmd): Promise<ShellResult> => {
+      if (cmd[1] === "worktree" && cmd[2] === "add") {
+        return { exitCode: 1, stdout: "", stderr: "fatal: worktree exists" };
+      }
+      return { exitCode: 0, stdout: "/repo/.git\n", stderr: "" };
+    });
+    const res = await openPrForRun("run-wtfail");
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("git worktree add failed");
   });
 
   test("validates runId", async () => {
@@ -715,53 +778,131 @@ describe("open_pr (B3 branch→PR automation)", () => {
   });
 });
 
-describe("repoRwPaths + productionShell (jail wiring)", () => {
-  test("repoRwPaths lists top-level repo entries EXCEPT .ezcorp", async () => {
-    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+describe("parsePorcelainZ + worktreeRwPaths (jail wiring)", () => {
+  test("parsePorcelainZ parses modify / add / delete / rename / untracked", () => {
+    // -z NUL-separated; a rename entry is followed by its OLD-path field.
+    const out =
+      " M src/a.ts\0A  src/b.ts\0?? new.txt\0 D gone.txt\0R  src/new.ts\0src/old.ts\0";
+    const entries = parsePorcelainZ(out);
+    expect(entries).toEqual([
+      { kind: "modify", path: "src/a.ts" },
+      { kind: "modify", path: "src/b.ts" },
+      { kind: "modify", path: "new.txt" },
+      { kind: "delete", path: "gone.txt" },
+      { kind: "rename", path: "src/new.ts", oldPath: "src/old.ts" },
+    ]);
+  });
+
+  test("parsePorcelainZ treats an index-side delete (D ) as a deletion", () => {
+    const entries = parsePorcelainZ("D  staged-del.txt\0");
+    expect(entries).toEqual([{ kind: "delete", path: "staged-del.txt" }]);
+  });
+
+  test("worktreeRwPaths grants ONLY the worktree + .git + /dev (never the repo root)", () => {
+    const paths = worktreeRwPaths("/tmp/ez-code-wt-x/wt", "/proj/repo/.git");
+    expect(paths).toEqual(["/tmp/ez-code-wt-x/wt", "/proj/repo/.git", "/dev"]);
+    // The repo root is never present — `.ezcorp/data` can't be reached.
+    expect(paths).not.toContain("/proj/repo");
+  });
+
+  test("materializeChanges copies adds/mods, deletes removals, replays renames", async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } =
+      await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
-    const repo = mkdtempSync(join(tmpdir(), "rw-"));
+    const base = mkdtempSync(join(tmpdir(), "mat-"));
+    const src = join(base, "src");
+    const wt = join(base, "wt");
+    mkdirSync(join(src, "dir"), { recursive: true });
+    mkdirSync(wt, { recursive: true });
     try {
-      mkdirSync(join(repo, ".git"));
-      writeFileSync(join(repo, "a.txt"), "x");
-      mkdirSync(join(repo, ".ezcorp"), { recursive: true });
-      const paths = repoRwPaths(repo);
-      expect(paths).toContain(join(repo, ".git"));
-      expect(paths).toContain(join(repo, "a.txt"));
-      // .ezcorp (holding the DB/secret) is NEVER in the rw set.
-      expect(paths).not.toContain(join(repo, ".ezcorp"));
+      // Source has a new file + a renamed-to file; worktree has the pre-images
+      // (a HEAD checkout would already contain the tracked baseline).
+      writeFileSync(join(src, "added.txt"), "ADDED");
+      writeFileSync(join(src, "dir", "renamed.txt"), "RENAMED");
+      writeFileSync(join(wt, "old.txt"), "OLD");
+      writeFileSync(join(wt, "removed.txt"), "GONE");
+      await materializeChanges(src, wt, [
+        { kind: "modify", path: "added.txt" },
+        { kind: "delete", path: "removed.txt" },
+        { kind: "rename", path: "dir/renamed.txt", oldPath: "old.txt" },
+      ]);
+      expect(readFileSync(join(wt, "added.txt"), "utf8")).toBe("ADDED");
+      expect(existsSync(join(wt, "removed.txt"))).toBe(false);
+      expect(existsSync(join(wt, "old.txt"))).toBe(false); // rename source removed
+      expect(readFileSync(join(wt, "dir", "renamed.txt"), "utf8")).toBe("RENAMED");
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      rmSync(base, { recursive: true, force: true });
     }
   });
 
-  test("repoRwPaths falls back to [repo] when the dir can't be listed", () => {
-    expect(repoRwPaths("/no/such/repo/zzz")).toEqual(["/no/such/repo/zzz"]);
-  });
-
-  test("productionShell runs the command in cwd (advisory tier = bare spawn)", async () => {
-    // On a host without a usable tier the wrap is a plain spawn; either way
-    // productionShell returns the command's real output. Use `pwd` to confirm
-    // the cwd is threaded through.
-    const { mkdtempSync, rmSync, realpathSync } = await import("node:fs");
+  test("materializeChanges skips a source file that vanished mid-run", async () => {
+    const { mkdtempSync, mkdirSync, rmSync, existsSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), "ps-")));
+    const base = mkdtempSync(join(tmpdir(), "mat2-"));
+    const src = join(base, "src");
+    const wt = join(base, "wt");
+    mkdirSync(src, { recursive: true });
+    mkdirSync(wt, { recursive: true });
     try {
-      const r = await productionShell(["/bin/sh", "-c", "echo PS_OK"], dir);
-      // On a capable host (bwrap with a setuid wrapper / landlock) the jail may
-      // alter the exit, but the command + wiring are exercised either way.
+      await materializeChanges(src, wt, [{ kind: "modify", path: "ghost.txt" }]);
+      expect(existsSync(join(wt, "ghost.txt"))).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test("materializeChanges preserves a symlink change as a symlink", async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, lstatSync } =
+      await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const base = mkdtempSync(join(tmpdir(), "mat3-"));
+    const src = join(base, "src");
+    const wt = join(base, "wt");
+    mkdirSync(src, { recursive: true });
+    mkdirSync(wt, { recursive: true });
+    try {
+      writeFileSync(join(src, "target.txt"), "T");
+      symlinkSync("target.txt", join(src, "link.txt"));
+      await materializeChanges(src, wt, [{ kind: "modify", path: "link.txt" }]);
+      expect(lstatSync(join(wt, "link.txt")).isSymbolicLink()).toBe(true);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test("makeProductionShell threads cmd+cwd through the jail (worktree shape)", async () => {
+    // Mirror production: a worktree workspace + a sibling main `.git` + a
+    // separate project root (whose `.ezcorp/data` is the forbidden anchor).
+    // On a host without a usable tier the wrap is a plain spawn; on a capable
+    // host the jail may alter the exit — the command + wiring are exercised
+    // either way. The repo root is NEVER granted, so the builder's data-dir
+    // assertion passes (the worktree is outside the repo).
+    const { mkdtempSync, mkdirSync, rmSync, realpathSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const base = realpathSync(mkdtempSync(join(tmpdir(), "ps-")));
+    const repo = join(base, "repo");
+    const gitDir = join(repo, ".git");
+    const wt = join(base, "wt");
+    mkdirSync(gitDir, { recursive: true });
+    mkdirSync(wt, { recursive: true });
+    try {
+      const shell = makeProductionShell(gitDir, repo);
+      const r = await shell(["/bin/sh", "-c", "echo PS_OK"], wt);
       expect(typeof r.exitCode).toBe("number");
       expect(typeof r.stdout).toBe("string");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(base, { recursive: true, force: true });
     }
   });
 });
 
 describe("open_pr against a real throwaway git repo (integration)", () => {
-  test("creates the branch, commits, 'pushes' to a bare remote, and issues gh pr create", async () => {
-    const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
+  test("worktree carries the run's changes; .ezcorp/ is absent; PR opened against the bare remote", async () => {
+    const { mkdtempSync, writeFileSync, mkdirSync, existsSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
 
@@ -778,126 +919,165 @@ describe("open_pr against a real throwaway git repo (integration)", () => {
     git(["config", "user.email", "t@t.com"], repo);
     git(["config", "user.name", "t"], repo);
     git(["config", "commit.gpgsign", "false"], repo);
+    // `.ezcorp/` is gitignored (the platform convention) — so worktree
+    // checkouts + `git status --porcelain` never see it.
+    writeFileSync(join(repo, ".gitignore"), ".ezcorp/\n");
     writeFileSync(join(repo, "README.md"), "# work\n");
     git(["add", "-A"], repo);
     git(["commit", "-m", "init"], repo);
     git(["branch", "-M", "main"], repo);
     git(["remote", "add", "origin", remote], repo);
-    // A pending change for open_pr to commit.
-    writeFileSync(join(repo, "feature.txt"), "agent work\n");
+
+    // Plant the platform secret under the gitignored .ezcorp/data dir.
+    const dataDir = join(repo, ".ezcorp", "data");
+    mkdirSync(dataDir, { recursive: true });
+    writeFileSync(join(dataDir, "jwt"), "TOP-SECRET");
+    // The run's pending changes: an UNTRACKED new file + a MODIFIED tracked
+    // file. Both must reach the PR; the secret must NOT.
+    writeFileSync(join(repo, "feature.txt"), "agent work\n"); // untracked
+    writeFileSync(join(repo, "README.md"), "# work\nedited by the agent\n"); // modified
 
     setBothStores(memoryStore([record({ id: "run-real", title: "Add feature" })]));
     _setPushPageForTests(() => {});
     _setProjectRootForTests(() => repo);
 
-    // Real git via Bun.spawn; `gh` is faked (no network / auth in CI).
+    // The host orchestration (worktree add/remove, status, rev-parse) runs as
+    // REAL host git (the default productionHostRunner). The JAILED git/gh runs
+    // real git in the worktree cwd (advisory-equivalent stand-in for the OS
+    // jail, which is tier-gated + covered by the in-container test below); gh
+    // is faked (no network/auth in CI). We capture the worktree path gh ran in.
     let ghArgs: string[] | null = null;
+    let ghCwd: string | null = null;
     _setShellForTests(async (cmd, cwd): Promise<ShellResult> => {
       if (cmd[0] === "gh") {
         ghArgs = cmd;
+        ghCwd = cwd;
         return { exitCode: 0, stdout: "https://github.com/org/repo/pull/42", stderr: "" };
       }
       const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
-      return {
-        exitCode: p.exitCode,
-        stdout: p.stdout.toString(),
-        stderr: p.stderr.toString(),
-      };
+      return { exitCode: p.exitCode, stdout: p.stdout.toString(), stderr: p.stderr.toString() };
     });
 
     const res = await openPrForRun("run-real", { body: "real PR" });
     expect(res.ok).toBe(true);
     expect(res.url).toBe("https://github.com/org/repo/pull/42");
 
-    // The branch was actually created + pushed to the bare remote.
-    const branches = Bun.spawnSync(["git", "branch", "--list", "ez-code/run-real"], {
-      cwd: repo,
-      stdout: "pipe",
-    }).stdout.toString();
-    expect(branches).toContain("ez-code/run-real");
+    // gh ran in the WORKTREE (a tmp dir), NEVER the repo root.
+    expect(ghCwd).toBeTruthy();
+    expect(ghCwd).not.toBe(repo);
+
+    // The branch reached the bare remote, carrying the run's intended diff.
     const remoteRefs = Bun.spawnSync(["git", "ls-remote", "--heads", remote], {
       stdout: "pipe",
     }).stdout.toString();
     expect(remoteRefs).toContain("ez-code/run-real");
 
+    // Inspect the pushed tree: feature.txt (untracked add) + the README edit
+    // are present; `.ezcorp/` is NOT — the worktree never contained it.
+    const lsTree = Bun.spawnSync(
+      ["git", "ls-tree", "-r", "--name-only", "ez-code/run-real"],
+      { cwd: remote, stdout: "pipe" },
+    ).stdout.toString();
+    expect(lsTree).toContain("feature.txt");
+    expect(lsTree).toContain("README.md");
+    expect(lsTree).not.toContain(".ezcorp");
+    expect(lsTree).not.toContain("jwt");
+    // The README edit was carried into the commit.
+    const readmeBlob = Bun.spawnSync(
+      ["git", "show", "ez-code/run-real:README.md"],
+      { cwd: remote, stdout: "pipe" },
+    ).stdout.toString();
+    expect(readmeBlob).toContain("edited by the agent");
+
     // gh pr create was issued with the run's branch + title.
     expect(ghArgs).not.toBeNull();
-    expect(ghArgs!).toContain("--head");
     expect(ghArgs![ghArgs!.indexOf("--head") + 1]).toBe("ez-code/run-real");
     expect(ghArgs![ghArgs!.indexOf("--title") + 1]).toBe("Add feature");
+
+    // The temp worktree was cleaned up (no leak); the host repo's secret is
+    // untouched.
+    expect(existsSync(join(dataDir, "jwt"))).toBe(true);
 
     const { rmSync } = await import("node:fs");
     rmSync(base, { recursive: true, force: true });
   });
 
-  // #2 — open_pr's git runs JAILED (Seam B). Exercises the REAL productionShell
-  // (no shell injection): git operations FUNCTION inside the jail (branch +
-  // commit + push to a bare remote) while `.ezcorp/data` stays denied read AND
-  // write. Gated on the LANDLOCK tier — that's the container's production path;
-  // this dev host resolves to `bwrap` whose setuid wrapper rejects the
-  // unprivileged tmpfs flags (an environment quirk, not a seam defect), so the
-  // test runs in-container where the tier is landlock.
+  // #2 — open_pr's git runs JAILED (Seam B) inside an `.ezcorp`-free worktree.
+  // Exercises the REAL productionShell against a real worktree: git FUNCTIONS
+  // jailed (branch + commit write the worktree + the main `.git`), the jail's
+  // rw set is ONLY the worktree + the main `.git` (NEVER the repo root), and
+  // reading the repo's `.ezcorp/data/jwt` from inside the jail is DENIED
+  // (EACCES). The local `git push` is intentionally NOT exercised under the
+  // jail: in production the push target is `api.github.com` over the network
+  // (egress-gated), NOT a filesystem path — a local bare-remote dir is outside
+  // the jail by design, so we assert the commit landed in the shared `.git`
+  // instead. Gated on the LANDLOCK tier — the container's production path; the
+  // dev host resolves to `bwrap` whose setuid wrapper rejects unprivileged
+  // tmpfs flags (an environment quirk), so this runs in-container.
   test.if(getSandboxTier() === "landlock" && (probeLandlockAbi() ?? 0) >= 1)(
-    "JAILED git (productionShell) creates+commits+pushes; .ezcorp/data denied",
+    "JAILED git in worktree creates+commits (writes the shared .git); repo .ezcorp/data DENIED, root never granted",
     async () => {
-      const { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } = await import("node:fs");
+      const { mkdtempSync, writeFileSync, mkdirSync, rmSync, realpathSync } =
+        await import("node:fs");
       const { tmpdir } = await import("node:os");
       const { join } = await import("node:path");
-      const { realpathSync } = await import("node:fs");
 
       const base = realpathSync(mkdtempSync(join(tmpdir(), "ezc-jail-")));
       const repo = join(base, "work");
-      const remote = join(base, "remote.git");
       mkdirSync(repo, { recursive: true });
       const run = (args: string[], cwd: string) =>
         Bun.spawnSync(args, { cwd, stdout: "pipe", stderr: "pipe" });
-      run(["git", "init", "--bare", remote], base);
       run(["git", "init"], repo);
       run(["git", "config", "user.email", "t@t.com"], repo);
       run(["git", "config", "user.name", "t"], repo);
       run(["git", "config", "commit.gpgsign", "false"], repo);
+      run(["git", "branch", "-M", "main"], repo);
+      writeFileSync(join(repo, ".gitignore"), ".ezcorp/\n");
       writeFileSync(join(repo, "README.md"), "# work\n");
       run(["git", "add", "-A"], repo);
       run(["git", "commit", "-m", "init"], repo);
-      run(["git", "branch", "-M", "main"], repo);
-      run(["git", "remote", "add", "origin", remote], repo);
-      // Plant a platform secret under .ezcorp/data (must stay denied).
+      // Plant a platform secret under the (gitignored) .ezcorp/data dir.
       const dataDir = join(repo, ".ezcorp", "data");
       mkdirSync(dataDir, { recursive: true });
-      writeFileSync(join(dataDir, "jwt-secret.txt"), "TOP-SECRET");
-      // A pending change for the jailed git to commit.
-      writeFileSync(join(repo, "feature.txt"), "agent work\n");
+      writeFileSync(join(dataDir, "jwt"), "TOP-SECRET");
+
+      // Create a worktree by hand (the host orchestration the production path
+      // does), then exercise the REAL jailed shell INSIDE it.
+      const wtRoot = realpathSync(mkdtempSync(join(tmpdir(), "ezc-wt-")));
+      const wt = join(wtRoot, "wt");
+      run(["git", "worktree", "add", "--detach", wt, "HEAD"], repo);
+      // Materialize the untracked change into the worktree (stash-free copy).
+      writeFileSync(join(wt, "feature.txt"), "agent work\n");
+      const gitDir = run(["git", "rev-parse", "--absolute-git-dir"], repo)
+        .stdout.toString()
+        .trim();
+      // The jail grants the worktree + the main `.git` + /dev — NEVER the repo
+      // root. `.ezcorp/data` is therefore outside every grant.
+      const jailed = makeProductionShell(gitDir, repo);
 
       try {
-        // Run the REAL jailed shell (productionShell wraps each command in
-        // buildSandboxArgv, granting the repo MINUS .ezcorp).
-        const sw = await productionShell(["git", "switch", "-c", "ez-code/jailed"], repo);
-        expect(sw.exitCode).toBe(0);
-        const add = await productionShell(["git", "add", "-A"], repo);
-        expect(add.exitCode).toBe(0);
-        const commit = await productionShell(["git", "commit", "-m", "jailed work"], repo);
-        expect(commit.exitCode).toBe(0);
-        const push = await productionShell(["git", "push", "-u", "origin", "ez-code/jailed"], repo);
-        expect(push.exitCode).toBe(0);
+        expect((await jailed(["git", "switch", "-c", "ez-code/jailed"], wt)).exitCode).toBe(0);
+        expect((await jailed(["git", "add", "-A"], wt)).exitCode).toBe(0);
+        expect((await jailed(["git", "commit", "-m", "jailed work"], wt)).exitCode).toBe(0);
 
-        // The branch reached the bare remote — git FUNCTIONED jailed.
-        const refs = run(["git", "ls-remote", "--heads", remote], base).stdout.toString();
-        expect(refs).toContain("ez-code/jailed");
+        // The commit landed in the SHARED `.git` (granted rw) — git FUNCTIONED
+        // jailed without the repo root. The branch is visible from the main
+        // repo, carrying the materialized untracked change.
+        const log = run(["git", "log", "--oneline", "ez-code/jailed"], repo).stdout.toString();
+        expect(log).toContain("jailed work");
+        const tree = run(["git", "ls-tree", "-r", "--name-only", "ez-code/jailed"], repo)
+          .stdout.toString();
+        expect(tree).toContain("feature.txt");
+        expect(tree).not.toContain(".ezcorp");
 
-        // The secret under .ezcorp/data is DENIED read AND write inside the jail.
-        const readDeny = await productionShell(
-          ["cat", join(dataDir, "jwt-secret.txt")],
-          repo,
-        );
+        // The repo's .ezcorp/data/jwt is DENIED read inside the jail (the repo
+        // root was never granted; only the worktree + .git are reachable).
+        const readDeny = await jailed(["cat", join(dataDir, "jwt")], wt);
         expect(readDeny.exitCode).not.toBe(0);
         expect(readDeny.stderr.toLowerCase()).toContain("permission denied");
-        const writeDeny = await productionShell(
-          ["/bin/sh", "-c", `echo x > ${join(dataDir, "evil.txt")}`],
-          repo,
-        );
-        expect(writeDeny.exitCode).not.toBe(0);
-        expect(existsSync(join(dataDir, "evil.txt"))).toBe(false);
       } finally {
+        run(["git", "worktree", "remove", "--force", wt], repo);
+        rmSync(wtRoot, { recursive: true, force: true });
         rmSync(base, { recursive: true, force: true });
       }
     },

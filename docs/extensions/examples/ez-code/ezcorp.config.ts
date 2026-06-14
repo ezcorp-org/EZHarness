@@ -148,10 +148,14 @@ export default defineExtension({
     // Self-tracked run records + event logs (v1 gap: extensions cannot read
     // agent_runs through the SDK, so we persist our own run history).
     storage: true,
-    // B3 branch→PR automation runs git/gh under the per-run jailed
-    // workspace (ez-sandbox Seam B), scoped to the active project.
+    // B3 branch→PR automation runs git/gh inside a fresh `.ezcorp`-free git
+    // WORKTREE (ez-sandbox Seam B), jailed to the worktree + the main repo's
+    // `.git` (a SIBLING of `.ezcorp`) — the repo ROOT is never granted, so
+    // `.ezcorp/data` (PGlite DB + JWT secret) is never in the allowlist.
+    // Scoped to the active project (no multi-repo cloning).
     filesystem: ["$CWD"],
-    // open_pr shells out to git + gh in the active project's repo.
+    // open_pr shells out to git + gh against the active project's repo (via a
+    // throwaway worktree carrying the run's changes; never the repo root).
     shell: true,
     // gh pr create reaches the GitHub API (and git push over https).
     network: ["api.github.com"],

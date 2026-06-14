@@ -10,6 +10,19 @@ shell/tool execution is jailed to a per-run workspace (Landlock in containers,
 bwrap on capable hosts), so a run can never read `.ezcorp/data` (the PGlite DB
 + JWT secret).
 
+`open_pr` (B3) goes further: its git/gh subprocess runs inside a fresh git
+**worktree** checked out OUTSIDE the repo. A worktree contains only tracked
+files, so the gitignored `.ezcorp/` is absent by construction. The jail's
+allowlist is just that worktree (read-write) + the main repo's `.git` dir
+(read-write — a SIBLING of `.ezcorp`, so granting it does not grant
+`.ezcorp`) + read-only runtime libs + `/dev`. The project repo ROOT is never
+granted on any tier, so `.ezcorp/data` is never in the jail's allowlist —
+reading the platform DB/JWT secret is denied (EACCES), proven in-container.
+The run's pending changes are carried into the worktree without `git stash`
+(enumerated from `git status --porcelain`), so the PR carries exactly the
+intended diff including newly-created files; the worktree is removed on every
+exit path.
+
 ## Tools
 
 | Tool | What it does |
@@ -18,7 +31,7 @@ bwrap on capable hosts), so a run can never read `.ezcorp/data` (the PGlite DB
 | `list_runs` | List dispatched runs (newest first) with status + latest event. |
 | `steer_run` *(B2)* | Inject a steering message into a run's sub-conversation (`appendMessages`). |
 | `cancel_run` *(B2)* | Cancel a live run (`cancelRun`) + update its record. |
-| `open_pr` *(B3)* | Under the per-run jailed workspace: `git switch -c ez-code/<run>` → commit → push → `gh pr create`. |
+| `open_pr` *(B3)* | In a fresh `.ezcorp`-free git **worktree**, jailed to the worktree + the main `.git` (never the repo root): `git switch -c ez-code/<run>` → commit → push → `gh pr create`. |
 
 ## Dashboard (Hub page)
 
