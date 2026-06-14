@@ -943,7 +943,15 @@ export async function openPrForRun(
   } finally {
     // Cleanup on BOTH success and failure — never leak the worktree.
     if (added) {
-      await hostRunnerImpl(["git", "worktree", "remove", "--force", worktree], repo);
+      const removed = await hostRunnerImpl(
+        ["git", "worktree", "remove", "--force", worktree],
+        repo,
+      );
+      // Belt-and-suspenders: if `remove` itself failed (e.g. a stuck lock),
+      // prune so no dangling registration accumulates in .git/worktrees/.
+      if (removed.exitCode !== 0) {
+        await hostRunnerImpl(["git", "worktree", "prune"], repo);
+      }
     }
     rmSync(wtRoot, { recursive: true, force: true });
   }

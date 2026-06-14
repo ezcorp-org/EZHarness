@@ -51,7 +51,6 @@ import {
   openPr,
   openPrForRun,
   parsePorcelainZ,
-  productionShell,
   productionTriggers,
   recordRunEvent,
   worktreeRwPaths,
@@ -758,6 +757,30 @@ describe("open_pr (B3 branch→PR automation)", () => {
     const res = await openPrForRun("run-wtfail");
     expect(res.ok).toBe(false);
     expect(res.error).toContain("git worktree add failed");
+  });
+
+  test("prunes when worktree remove fails (belt-and-suspenders cleanup)", async () => {
+    setBothStores(memoryStore([record({ id: "run-prune" })]));
+    _setProjectRootForTests(() => "/repo");
+    const calls: string[][] = [];
+    _setHostRunnerForTests(async (cmd): Promise<ShellResult> => {
+      calls.push(cmd);
+      if (cmd[1] === "rev-parse") return { exitCode: 0, stdout: "/repo/.git\n", stderr: "" };
+      if (cmd[1] === "symbolic-ref")
+        return { exitCode: 0, stdout: "refs/remotes/origin/main\n", stderr: "" };
+      if (cmd[1] === "worktree" && cmd[2] === "add")
+        return { exitCode: 0, stdout: "", stderr: "" };
+      if (cmd[1] === "status") return { exitCode: 0, stdout: "", stderr: "" };
+      // The remove fails (e.g. a stuck lock) → the finally must fall back to prune.
+      if (cmd[1] === "worktree" && cmd[2] === "remove")
+        return { exitCode: 1, stdout: "", stderr: "fatal: worktree is locked" };
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+    _setShellForTests(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    const res = await openPrForRun("run-prune");
+    expect(res.ok).toBe(true);
+    expect(calls.some((c) => c[1] === "worktree" && c[2] === "remove")).toBe(true);
+    expect(calls.some((c) => c[1] === "worktree" && c[2] === "prune")).toBe(true);
   });
 
   test("validates runId", async () => {
