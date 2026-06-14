@@ -29,6 +29,10 @@ import {
   forbiddenDataDir,
   DEFAULT_RO_SYSTEM_DIRS,
 } from "./preview-jail";
+import { getSandboxTier, type SandboxTier } from "./sandbox/capability-probe";
+import { buildLandlockJailSpec } from "./sandbox/landlock";
+import { LANDLOCK_SPEC_ENV } from "./sandbox/landlock-shim";
+import { fileURLToPath } from "node:url";
 import {
   existsSync as realExistsSync,
   readFileSync as realReadFileSync,
@@ -231,6 +235,38 @@ export function _setProjectRootOverrideForTests(
   projectRootOverride = v;
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// Phase A3 (Seam C) — unconditional, tier-gated filesystem jail.
+//
+// Closes the documented default-posture leak: previously the non-strict
+// leg execed `--bind / /` (whole host fs visible) and merely MASKED the
+// DB/secret dir with a tmpfs (a denylist). The fs-jail is now ALWAYS on
+// when the capability probe reports a usable tier — an allowlist that
+// never binds the host root:
+//   - "bwrap"    tier → the existing EZCORP_MCP_FS_JAIL=1 minimal-bind
+//                       launcher branch (reused, no longer strict-only).
+//   - "landlock" tier → wrap the inner command with the Landlock shim
+//                       (works in the Docker container where bwrap's
+//                       unprivileged userns is blocked — Phase A1 finding).
+//   - "advisory" tier → no OS jail available; fall back to the legacy
+//                       masked `--bind / /` path (best-effort, unchanged).
+//
+// EZCORP_MCP_REQUIRE_SANDBOX=1 still hard-FAILS the spawn on any
+// degradation; the difference is the jail no longer DEPENDS on that flag.
+let sandboxTierOverride: SandboxTier | null = null;
+/** Test-only: pin the resolved sandbox tier (bypasses the live probe). */
+export function _setSandboxTierOverrideForTests(t: SandboxTier | null): void {
+  sandboxTierOverride = t;
+}
+function resolveSandboxTier(): SandboxTier {
+  return sandboxTierOverride ?? getSandboxTier();
+}
+
+/** Resolve the colocated Landlock shim path (works under bun + bundling). */
+function landlockShimPath(): string {
+  return fileURLToPath(new URL("./sandbox/landlock-shim.ts", import.meta.url));
+}
+
 /**
  * RO system dirs for the strict MCP jail: the conventional Linux set
  * (filtered to dirs that exist on this host) plus runtime prefixes
@@ -404,6 +440,16 @@ export async function buildSandboxedMcpSpec(
   // restarting the host process) see a consistent decision per call.
   const sandboxRequired = isSandboxRequired();
 
+  // Phase A3 (Seam C) — resolve the OS-isolation tier once per spawn. The
+  // fs-jail is now unconditional whenever a usable tier is present (bwrap
+  // or landlock), not gated behind EZCORP_MCP_REQUIRE_SANDBOX. The flag
+  // still controls fail-CLOSED vs fail-SAFE behavior on degradation.
+  const sandboxTier = resolveSandboxTier();
+  // bwrap-tier fs-jail wanted whenever the tier supports it OR the operator
+  // forced strict mode. The landlock tier is handled separately below (it
+  // can't use the bwrap launcher branch — no userns in the container).
+  const bwrapJailWanted = sandboxRequired || sandboxTier === "bwrap";
+
   // Phase 58 / MCP-05 — Plan 58-03 — pre-spawn conntrack pressure check.
   // Short-circuits BEFORE any proxy or Stage 2 setup work: if the kernel
   // table is >70% full, refuse the spawn + emit MCP_CONNTRACK_HIGH.
@@ -524,56 +570,94 @@ export async function buildSandboxedMcpSpec(
       ? projectRootOverride
       : baseEnv.EZCORP_PROJECT_ROOT ?? null;
   let strictJailArgs: string[] | null = null;
-  if (sandboxRequired) {
+  // Phase A3 — landlock-tier env additions (the shim wrap + spec). Threaded
+  // into `env` near the end so `spec.env` can't override them.
+  let landlockJailEnv: Record<string, string> | null = null;
+  let landlockShimWrap: { bun: string; shim: string } | null = null;
+
+  // Phase A3 — the per-extension writable workspace (the ONLY rw host path
+  // in the jail). Shared by both the bwrap and landlock legs.
+  const computeWorkDir = (root: string): string =>
+    join(root, ".ezcorp", "extension-data", manifest.name);
+
+  if (bwrapJailWanted) {
+    // Project root is REQUIRED to compute the .ezcorp/data exclusion. Under
+    // strict mode a missing root fails CLOSED; otherwise we can't safely
+    // jail, so fall back to the legacy masked path (fail-SAFE).
     if (!jailProjectRoot) {
-      refuseDegradedSpawn({
-        userId: ctx.userId,
-        extensionId,
-        extensionName: manifest.name,
-        capability: "minimal-bind filesystem jail (project root)",
-        reason:
-          "EZCORP_PROJECT_ROOT unresolved (no .git ancestor) — cannot compute the .ezcorp/data exclusion",
-      });
+      if (sandboxRequired) {
+        refuseDegradedSpawn({
+          userId: ctx.userId,
+          extensionId,
+          extensionName: manifest.name,
+          capability: "minimal-bind filesystem jail (project root)",
+          reason:
+            "EZCORP_PROJECT_ROOT unresolved (no .git ancestor) — cannot compute the .ezcorp/data exclusion",
+        });
+      }
+      // else: leave strictJailArgs null → legacy masked --bind / / path.
+    } else {
+      try {
+        // The ONLY writable host path inside the jail: the extension's own
+        // data store (docs/extensions/data-storage.md convention). Created
+        // up front — the builder's canonicalization fails closed on
+        // missing paths.
+        const workDir = computeWorkDir(jailProjectRoot);
+        mkdirSync(workDir, { recursive: true });
+        const extTmpDir = baseEnv.TMPDIR;
+        strictJailArgs = buildMcpJailBwrapArgs({
+          workDir,
+          projectRoot: jailProjectRoot,
+          roSystemDirs: computeMcpJailRoDirs(spec.command),
+          // bwrap reads the BPF blob from FD 3 (the
+          // EZCORP_MCP_BWRAP_SECCOMP_FD convention). A missing blob is
+          // refused by the seccomp gate below before any spawn happens,
+          // so the flag never dangles.
+          seccompFd: 3,
+          // Re-create the per-extension TMPDIR inside the fresh tmpfs so
+          // runtimes that honor TMPDIR keep working.
+          tmpDirs:
+            extTmpDir?.startsWith("/tmp/") ? [extTmpDir] : [],
+          command: prlimitCommand,
+          args: prlimitArgs,
+        });
+        // Runtime guard against a future refactor re-opening the hole.
+        assertJailArgsSafe(strictJailArgs, jailProjectRoot);
+      } catch (err) {
+        if (sandboxRequired) {
+          refuseDegradedSpawn({
+            userId: ctx.userId,
+            extensionId,
+            extensionName: manifest.name,
+            capability: "minimal-bind filesystem jail (bwrap bind set)",
+            reason: (err as Error).message,
+          });
+        }
+        // Non-strict: jail build failed (e.g. missing bin dir) — fall back
+        // to the legacy masked path rather than refuse the spawn.
+        strictJailArgs = null;
+      }
     }
+  } else if (sandboxTier === "landlock" && jailProjectRoot) {
+    // Phase A3 — landlock tier (the Docker container, where bwrap's
+    // unprivileged userns is blocked). Wrap the inner command with the
+    // Landlock shim: it applies an allowlist fs-jail in-process then execs
+    // the inner command (which inherits the restrictions). NOTHING under
+    // .ezcorp/data is granted — buildLandlockJailSpec asserts this.
     try {
-      // The ONLY writable host path inside the jail: the extension's own
-      // data store (docs/extensions/data-storage.md convention). Created
-      // up front — the builder's canonicalization fails closed on
-      // missing paths.
-      const workDir = join(
-        jailProjectRoot,
-        ".ezcorp",
-        "extension-data",
-        manifest.name,
-      );
+      const workDir = computeWorkDir(jailProjectRoot);
       mkdirSync(workDir, { recursive: true });
-      const extTmpDir = baseEnv.TMPDIR;
-      strictJailArgs = buildMcpJailBwrapArgs({
-        workDir,
+      const llSpec = buildLandlockJailSpec({
+        workspaceDir: workDir,
         projectRoot: jailProjectRoot,
-        roSystemDirs: computeMcpJailRoDirs(spec.command),
-        // bwrap reads the BPF blob from FD 3 (the
-        // EZCORP_MCP_BWRAP_SECCOMP_FD convention). A missing blob is
-        // refused by the seccomp gate below before any spawn happens,
-        // so the flag never dangles.
-        seccompFd: 3,
-        // Re-create the per-extension TMPDIR inside the fresh tmpfs so
-        // runtimes that honor TMPDIR keep working.
-        tmpDirs:
-          extTmpDir && extTmpDir.startsWith("/tmp/") ? [extTmpDir] : [],
-        command: prlimitCommand,
-        args: prlimitArgs,
+        roPaths: computeMcpJailRoDirs(spec.command),
       });
-      // Runtime guard against a future refactor re-opening the hole.
-      assertJailArgsSafe(strictJailArgs, jailProjectRoot);
-    } catch (err) {
-      refuseDegradedSpawn({
-        userId: ctx.userId,
-        extensionId,
-        extensionName: manifest.name,
-        capability: "minimal-bind filesystem jail (bwrap bind set)",
-        reason: (err as Error).message,
-      });
+      landlockJailEnv = { [LANDLOCK_SPEC_ENV]: JSON.stringify(llSpec) };
+      landlockShimWrap = { bun: "bun", shim: landlockShimPath() };
+    } catch {
+      // Non-strict landlock build failure → legacy masked path (fail-safe).
+      landlockJailEnv = null;
+      landlockShimWrap = null;
     }
   }
 
@@ -971,25 +1055,54 @@ export async function buildSandboxedMcpSpec(
     }
   }
 
-  // CRITICAL fix — strict-leg activation. Hand the launcher the
-  // pre-built minimal-bind bwrap argv: everything after the launcher
-  // path in the unshare chain is replaced by the jail argv, and
-  // EZCORP_MCP_FS_JAIL=1 routes the launcher to its exec-verbatim
-  // branch. The gates above already guaranteed the full envelope
-  // (netns wrap, bwrap present, kill-switches off, BPF FD open → the
-  // `--seccomp 3` flag in the argv always has a backing FD).
-  // EZCORP_MCP_REQUIRE_SANDBOX is threaded too so the launcher's
-  // raw-exec fallback fails closed even if a future caller bypasses
-  // the host-side gates. Set after the env merge — `spec.env` cannot
-  // override either var.
-  if (sandboxRequired && strictJailArgs !== null && finalSpawn.wrapped) {
+  // CRITICAL fix — minimal-bind fs-jail activation (Phase A3: now
+  // UNCONDITIONAL, tier-gated, no longer requires EZCORP_MCP_REQUIRE_SANDBOX).
+  // Hand the launcher the pre-built minimal-bind bwrap argv: everything
+  // after the launcher path in the unshare chain is replaced by the jail
+  // argv, and EZCORP_MCP_FS_JAIL=1 routes the launcher to its exec-verbatim
+  // branch (which has NO `--bind / /` — the leak this closes). When the
+  // operator forced strict mode, EZCORP_MCP_REQUIRE_SANDBOX is threaded too
+  // so the launcher's raw-exec fallback fails closed. Set after the env
+  // merge — `spec.env` cannot override either var.
+  if (strictJailArgs !== null && finalSpawn.wrapped) {
     env.EZCORP_MCP_FS_JAIL = "1";
-    env.EZCORP_MCP_REQUIRE_SANDBOX = "1";
+    if (sandboxRequired) env.EZCORP_MCP_REQUIRE_SANDBOX = "1";
     const launcherIdx = finalSpawn.args.indexOf(launcherPath);
     finalSpawn.args = [
       ...finalSpawn.args.slice(0, launcherIdx + 1),
       ...strictJailArgs,
     ];
+  } else if (landlockShimWrap !== null && landlockJailEnv !== null) {
+    // Phase A3 — landlock-tier activation (container; no bwrap launcher).
+    // Wrap the INNER command (the prlimit chain) with the Landlock shim:
+    // `bun <shim> -- <prlimit ...>`. The shim applies the allowlist fs-jail
+    // in-process then execs the inner command, which inherits the jail.
+    // Threads EZCORP_LANDLOCK_SPEC after the env merge so `spec.env` can't
+    // override the data-dir exclusion.
+    Object.assign(env, landlockJailEnv);
+    if (finalSpawn.command === prlimitCommand) {
+      // Unwrapped (no netns): prepend the shim to the prlimit chain.
+      finalSpawn.command = landlockShimWrap.bun;
+      finalSpawn.args = [
+        landlockShimWrap.shim,
+        "--",
+        prlimitCommand,
+        ...finalSpawn.args,
+      ];
+    } else {
+      // netns-wrapped: insert the shim right after the launcher path so the
+      // inner command runs jailed inside the namespace.
+      const launcherIdx = finalSpawn.args.indexOf(launcherPath);
+      if (launcherIdx >= 0) {
+        finalSpawn.args = [
+          ...finalSpawn.args.slice(0, launcherIdx + 1),
+          landlockShimWrap.bun,
+          landlockShimWrap.shim,
+          "--",
+          ...finalSpawn.args.slice(launcherIdx + 1),
+        ];
+      }
+    }
   }
 
   // Phase 58 / MCP-05: when Stage 2 wired up, thread the launcher env

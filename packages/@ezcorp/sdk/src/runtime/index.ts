@@ -75,6 +75,7 @@ export type {
   PageDefinition,
   PageActionEvent,
   PageActionDescriptor,
+  PagePromptDescriptor,
   PageStatItem,
   PageTableRowInput,
   PageButtonStyle,

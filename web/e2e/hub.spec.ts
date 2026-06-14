@@ -48,6 +48,46 @@ function briefingTree(label = "Last run delivered") {
 	};
 }
 
+/** A briefing tree with the watchlist table (one row, confirm-gated
+ *  remove) + the always-present prompt-bearing "Add to watchlist". */
+function watchlistTree(topics: string[]) {
+	return {
+		title: "Daily Briefing",
+		nodes: [
+			{ type: "heading", level: 3, text: "Watchlist" },
+			...(topics.length > 0
+				? [
+						{
+							type: "table",
+							columns: ["Topic", "Added"],
+							rows: topics.map((t) => ({
+								cells: [t, "2026-06-12"],
+								action: {
+									event: "remove-watchlist",
+									payload: { topic: t },
+									confirm: `Remove "${t}" from your watchlist?`,
+								},
+							})),
+						},
+					]
+				: [{ type: "empty-state", title: "Nothing on your watchlist yet" }]),
+			{
+				type: "button",
+				label: "Add to watchlist",
+				action: {
+					event: "add-watchlist",
+					prompt: {
+						label: "Topic to watch",
+						placeholder: "e.g. Bun 2.0 release",
+						field: "topic",
+						maxLength: 120,
+					},
+				},
+			},
+		],
+	};
+}
+
 function cronTree(runs: number) {
 	return {
 		title: "Cron Dashboard",
@@ -355,6 +395,139 @@ test.describe("Hub", () => {
 		// Let the stale core response land — it must be DISCARDED.
 		await page.waitForTimeout(1500);
 		await expect(page.getByTestId("hub-page-title")).toHaveText("Cron Dashboard");
+	});
+
+	test("watchlist: Add prompt dialog → type → Submit POSTs {payload:{topic}} → fresh tree shows the row", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj] });
+		let addBody: unknown = null;
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+		await page.route(`**/api/hub/pages/${encodeURIComponent(CORE_ID)}`, (route) =>
+			route.fulfill({ json: { page: watchlistTree([]), renderedAt: Date.now() } }),
+		);
+		await page.route(
+			`**/api/hub/pages/${encodeURIComponent(CORE_ID)}/actions/add-watchlist`,
+			async (route) => {
+				addBody = route.request().postDataJSON();
+				return route.fulfill({
+					json: { ok: true, page: watchlistTree(["Bun 2.0 release"]), renderedAt: Date.now() },
+				});
+			},
+		);
+
+		await page.goto(`/hub/${encodeURIComponent(CORE_ID)}`);
+		await expect(page.getByTestId("hub-node-empty-state")).toContainText("Nothing on your watchlist yet");
+
+		// Open the prompt dialog; Submit is disabled until a value is typed.
+		await page.getByTestId("hub-node-button").filter({ hasText: "Add to watchlist" }).click();
+		await expect(page.getByTestId("hub-prompt-dialog")).toBeVisible();
+		await expect(page.getByTestId("hub-prompt-submit")).toBeDisabled();
+
+		await page.getByTestId("hub-prompt-input").fill("Bun 2.0 release");
+		await expect(page.getByTestId("hub-prompt-submit")).toBeEnabled();
+		await page.getByTestId("hub-prompt-submit").click();
+
+		// The POST carried the merged payload.topic; the fresh tree shows the row.
+		await expect(page.getByTestId("hub-prompt-dialog")).toHaveCount(0);
+		await expect(page.getByTestId("hub-node-table")).toContainText("Bun 2.0 release");
+		expect(addBody).toEqual({ payload: { topic: "Bun 2.0 release" } });
+	});
+
+	test("watchlist: Cancel (and empty value) fire no POST", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		let addPosts = 0;
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+		await page.route(`**/api/hub/pages/${encodeURIComponent(CORE_ID)}`, (route) =>
+			route.fulfill({ json: { page: watchlistTree([]), renderedAt: Date.now() } }),
+		);
+		await page.route(
+			`**/api/hub/pages/${encodeURIComponent(CORE_ID)}/actions/add-watchlist`,
+			(route) => {
+				addPosts++;
+				return route.fulfill({ json: { ok: true } });
+			},
+		);
+
+		await page.goto(`/hub/${encodeURIComponent(CORE_ID)}`);
+		await page.getByTestId("hub-node-button").filter({ hasText: "Add to watchlist" }).click();
+		// Typing then cancelling fires no POST and clears the dialog.
+		await page.getByTestId("hub-prompt-input").fill("discarded");
+		await page.getByTestId("hub-prompt-cancel").click();
+		await expect(page.getByTestId("hub-prompt-dialog")).toHaveCount(0);
+		await page.waitForTimeout(150);
+		expect(addPosts).toBe(0);
+	});
+
+	test("watchlist: Enter submits the prompt; Escape closes it with no POST", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		let addBody: unknown = null;
+		let addPosts = 0;
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+		await page.route(`**/api/hub/pages/${encodeURIComponent(CORE_ID)}`, (route) =>
+			route.fulfill({ json: { page: watchlistTree([]), renderedAt: Date.now() } }),
+		);
+		await page.route(
+			`**/api/hub/pages/${encodeURIComponent(CORE_ID)}/actions/add-watchlist`,
+			async (route) => {
+				addPosts++;
+				addBody = route.request().postDataJSON();
+				return route.fulfill({
+					json: { ok: true, page: watchlistTree(["Bun 2.0 release"]), renderedAt: Date.now() },
+				});
+			},
+		);
+
+		await page.goto(`/hub/${encodeURIComponent(CORE_ID)}`);
+
+		// Escape closes the dialog without dispatching.
+		await page.getByTestId("hub-node-button").filter({ hasText: "Add to watchlist" }).click();
+		await expect(page.getByTestId("hub-prompt-dialog")).toBeVisible();
+		await page.getByTestId("hub-prompt-input").fill("discarded");
+		await page.getByTestId("hub-prompt-input").press("Escape");
+		await expect(page.getByTestId("hub-prompt-dialog")).toHaveCount(0);
+		await page.waitForTimeout(150);
+		expect(addPosts).toBe(0);
+
+		// Enter submits the same merged payload as clicking Submit.
+		await page.getByTestId("hub-node-button").filter({ hasText: "Add to watchlist" }).click();
+		await page.getByTestId("hub-prompt-input").fill("Bun 2.0 release");
+		await page.getByTestId("hub-prompt-input").press("Enter");
+		await expect(page.getByTestId("hub-prompt-dialog")).toHaveCount(0);
+		await expect(page.getByTestId("hub-node-table")).toContainText("Bun 2.0 release");
+		expect(addPosts).toBe(1);
+		expect(addBody).toEqual({ payload: { topic: "Bun 2.0 release" } });
+	});
+
+	test("watchlist: row remove → confirm dialog → Confirm POSTs remove-watchlist → row gone", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj] });
+		let removeBody: unknown = null;
+		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+		await page.route(`**/api/hub/pages/${encodeURIComponent(CORE_ID)}`, (route) =>
+			route.fulfill({ json: { page: watchlistTree(["Bun 2.0 release"]), renderedAt: Date.now() } }),
+		);
+		await page.route(
+			`**/api/hub/pages/${encodeURIComponent(CORE_ID)}/actions/remove-watchlist`,
+			async (route) => {
+				removeBody = route.request().postDataJSON();
+				return route.fulfill({ json: { ok: true, page: watchlistTree([]), renderedAt: Date.now() } });
+			},
+		);
+
+		await page.goto(`/hub/${encodeURIComponent(CORE_ID)}`);
+		await expect(page.getByTestId("hub-node-table")).toContainText("Bun 2.0 release");
+
+		// Clicking the row opens the HOST confirm dialog (not the prompt).
+		await page.getByTestId("hub-table-row").first().click();
+		await expect(page.getByTestId("hub-confirm-dialog")).toContainText("Remove \"Bun 2.0 release\"");
+		await page.getByTestId("hub-confirm-ok").click();
+
+		await expect(page.getByTestId("hub-node-empty-state")).toContainText("Nothing on your watchlist yet");
+		expect(removeBody).toEqual({ payload: { topic: "Bun 2.0 release" } });
 	});
 
 	test("Hub nav link renders on the Global project sidebar (global navLinks branch)", async ({

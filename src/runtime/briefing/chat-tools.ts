@@ -43,6 +43,7 @@ import {
   MAX_TOPIC_LENGTH,
   MAX_WATCHLIST_TOPICS,
 } from "./config-validation";
+import { addWatchlistTopic, removeWatchlistTopic } from "./watchlist";
 import {
   buildBriefingCron,
   parseBriefingCron,
@@ -91,15 +92,6 @@ async function loadWatchlist(userId: string): Promise<{ watchlist: Watchlist; en
   };
 }
 
-/** Persist a watchlist through the shared validator + upsert. Returns
- *  an error string instead of throwing so the tool result stays clean. */
-async function persistWatchlist(userId: string, watchlist: Watchlist): Promise<string | null> {
-  const validated = validateBriefingConfigInput({ watchlist });
-  if (!validated.ok) return validated.error;
-  await upsertBriefingConfig(userId, validated.input);
-  return null;
-}
-
 export function createBriefingWatchTool(ctx: BriefingChatToolContext): BuiltinToolDef {
   return {
     name: "briefing_watch",
@@ -121,17 +113,17 @@ export function createBriefingWatchTool(ctx: BriefingChatToolContext): BuiltinTo
         const topic = typeof p.topic === "string" ? p.topic.trim() : "";
         if (!topic) return err("topic is required");
 
-        const { watchlist, enabled } = await loadWatchlist(ctx.userId);
-        if (watchlist.some((w) => w.topic.toLowerCase() === topic.toLowerCase())) {
+        // `enabled` is needed only for the chat-specific disabled hint;
+        // the add/dedup/validate/persist logic is the shared primitive.
+        const { enabled } = await loadWatchlist(ctx.userId);
+        const result = await addWatchlistTopic(ctx.userId, topic);
+        if (!result.ok) return err(result.error);
+        if (!result.added) {
           return ok(`"${topic}" is already on your briefing watchlist — ${MANAGE_HINT}.`, {
             alreadyWatched: true,
             topic,
           });
         }
-
-        const next = [...watchlist, { topic, addedAt: new Date().toISOString() }];
-        const failure = await persistWatchlist(ctx.userId, next);
-        if (failure) return err(failure);
 
         const enabledHint = enabled
           ? ""
@@ -139,7 +131,7 @@ export function createBriefingWatchTool(ctx: BriefingChatToolContext): BuiltinTo
         log.info("watchlist topic added via chat", { userId: ctx.userId, topic });
         return ok(
           `Added "${topic}" to your briefing watchlist — ${MANAGE_HINT}.${enabledHint}`,
-          { topic, watchlistSize: next.length },
+          { topic, watchlistSize: result.size },
         );
       } catch (e) {
         return err((e as Error)?.message ?? String(e));
@@ -169,6 +161,9 @@ export function createBriefingUnwatchTool(ctx: BriefingChatToolContext): Builtin
         const topic = typeof p.topic === "string" ? p.topic.trim() : "";
         if (!topic) return err("topic is required");
 
+        // Load once for the chat-specific not-found listing + the
+        // matched topic's original casing in the confirmation; the
+        // remove/validate/persist logic is the shared primitive.
         const { watchlist } = await loadWatchlist(ctx.userId);
         const match = watchlist.find((w) => w.topic.toLowerCase() === topic.toLowerCase());
         if (!match) {
@@ -181,14 +176,13 @@ export function createBriefingUnwatchTool(ctx: BriefingChatToolContext): Builtin
           );
         }
 
-        const next = watchlist.filter((w) => w !== match);
-        const failure = await persistWatchlist(ctx.userId, next);
-        if (failure) return err(failure);
+        const result = await removeWatchlistTopic(ctx.userId, match.topic);
+        if (!result.ok) return err(result.error);
 
         log.info("watchlist topic removed via chat", { userId: ctx.userId, topic: match.topic });
         return ok(
           `Removed "${match.topic}" from your briefing watchlist — ${MANAGE_HINT}.`,
-          { topic: match.topic, watchlistSize: next.length },
+          { topic: match.topic, watchlistSize: watchlist.length - 1 },
         );
       } catch (e) {
         return err((e as Error)?.message ?? String(e));

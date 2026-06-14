@@ -7,6 +7,13 @@
  * Types mirror `src/extensions/page-schema.ts` — the frontend can't
  * import from `src/` (same inline-mirror approach as
  * `ExtensionPanel.svelte`). Keep the two files aligned.
+ *
+ * The `PagePrompt` shape is one of THREE aligned mirrors:
+ *   - `src/extensions/page-schema.ts` (`PagePrompt`) = source of truth +
+ *     the single validation enforcement point (`validateAction`),
+ *   - this file (frontend renderer / page-route prompt dialog),
+ *   - `packages/@ezcorp/sdk/src/runtime/page.ts` (`PagePromptDescriptor`).
+ *   Keep all three in sync.
  */
 
 // ── Mirrored page vocabulary types ─────────────────────────────────
@@ -27,10 +34,23 @@ export interface PanelKVNode { type: "kv"; pairs: { key: string; value: string }
 export interface PanelCounterNode { type: "counter"; label: string; value: number; total?: number }
 export interface PanelDividerNode { type: "divider" }
 
+/** Host-rendered single-field text prompt. Mirror of page-schema's
+ *  `PagePrompt` (source of truth) — keep aligned. */
+export interface PagePrompt {
+  label: string;
+  placeholder?: string;
+  /** Payload key the typed value merges under; default "value". */
+  field?: string;
+  /** Host clamps the input length; default 200, hard cap 500. */
+  maxLength?: number;
+  submitLabel?: string;
+}
 export interface PageAction {
   event: string;
   payload?: Record<string, string | number | boolean>;
   confirm?: string;
+  /** Optional host-rendered text prompt collected before dispatch. */
+  prompt?: PagePrompt;
 }
 export interface PageSectionNode { type: "section"; title?: string; nodes: PageNode[] }
 export interface PageHeadingNode { type: "heading"; level: 1 | 2 | 3; text: string }

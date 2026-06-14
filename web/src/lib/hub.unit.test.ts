@@ -7,6 +7,8 @@ import {
 	buildActionRequest,
 	isSafeInternalHref,
 	type ParsedHubPageId,
+	type PageAction,
+	type PagePrompt,
 } from "./hub";
 
 describe("parseHubPageId", () => {
@@ -100,6 +102,52 @@ describe("buildActionRequest", () => {
 		expect(buildActionRequest(ext, { event: "clear-log" })).toBeNull();
 		expect(buildActionRequest(ext, { event: "cron-dashboard:" })).toBeNull();
 		expect(buildActionRequest(ext, { event: "cron-dashboard:a:b" })).toBeNull();
+	});
+});
+
+describe("PagePrompt mirror + prompt-value payload path", () => {
+	const core: ParsedHubPageId = { kind: "core", providerId: "briefing" };
+	const ext: ParsedHubPageId = { kind: "ext", extension: "cron-dashboard", pageId: "dashboard" };
+
+	test("PagePrompt mirror has the page-schema shape (label required, rest optional)", () => {
+		// Compile-time shape pin: a full + a minimal prompt both type-check.
+		const full: PagePrompt = {
+			label: "Topic to watch",
+			placeholder: "e.g. Bun 2.0",
+			field: "topic",
+			maxLength: 120,
+			submitLabel: "Add",
+		};
+		const minimal: PagePrompt = { label: "Topic" };
+		expect(full.field).toBe("topic");
+		expect(minimal.placeholder).toBeUndefined();
+	});
+
+	test("a prompt-bearing CORE action dispatches with the merged payload.topic", () => {
+		// The page route merges the typed value into payload[field] BEFORE
+		// buildActionRequest, so the prompt value rides the standard payload
+		// path — buildActionRequest carries it verbatim.
+		const merged: PageAction = {
+			event: "add-watchlist",
+			prompt: { label: "Topic to watch", field: "topic" },
+			payload: { topic: "Bun 2.0 release" },
+		};
+		expect(buildActionRequest(core, merged)).toEqual({
+			url: "/api/hub/pages/core%3Abriefing/actions/add-watchlist",
+			body: { payload: { topic: "Bun 2.0 release" } },
+		});
+	});
+
+	test("a prompt-bearing EXT action rides the same hub-source payload path", () => {
+		const merged: PageAction = {
+			event: "cron-dashboard:rename",
+			prompt: { label: "New name", field: "name" },
+			payload: { name: "Nightly" },
+		};
+		expect(buildActionRequest(ext, merged)).toEqual({
+			url: "/api/extensions/cron-dashboard/events/rename",
+			body: { source: "hub", pageId: "dashboard", payload: { name: "Nightly" } },
+		});
 	});
 });
 
