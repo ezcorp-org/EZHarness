@@ -1,4 +1,4 @@
-import { eq, inArray, and, ne } from "drizzle-orm";
+import { eq, inArray, and, ne, isNull } from "drizzle-orm";
 import { getDb } from "../connection";
 import { agentConfigs } from "../schema";
 import { configToAgent } from "../../runtime/config-to-agent";
@@ -218,14 +218,23 @@ export async function deleteAgentConfig(id: string): Promise<boolean> {
 }
 
 /**
- * Delete every `agent_configs` row whose name matches `name` but whose
- * id is NOT `keepId`. Returns the number of rows removed.
+ * Delete every OWNERLESS (`user_id IS NULL`) `agent_configs` row whose
+ * name matches `name` but whose id is NOT `keepId`. Returns the number
+ * of rows removed.
  *
  * Used by the bundled ez-code coder's idempotent upsert to clean up a
  * stale random-id row created by the earlier (pre-fixed-id) version of
  * `ensureEzCodeCoderAgent`, so exactly one canonical coder row (the
- * fixed id) survives. Name-scoped + id-excluding, so it never touches a
- * user's unrelated agents.
+ * fixed id) survives.
+ *
+ * The `user_id IS NULL` guard is a safety floor: it can NEVER delete a
+ * user-owned agent — even one a user coincidentally named "ez-code
+ * coder" — so there is no path to silent user data loss (or cascade-
+ * dropping that agent's `agent_shares`). The only rows it removes are
+ * ownerless ones the bundled upsert itself produced. (A pre-fixed-id
+ * stale row that the ownerless→admin boot backfill has already adopted
+ * is left in place — harmless, since coder resolution is by fixed id,
+ * not by name.)
  */
 export async function deleteAgentConfigsByNameExceptId(
   name: string,
@@ -233,7 +242,13 @@ export async function deleteAgentConfigsByNameExceptId(
 ): Promise<number> {
   const rows = await getDb()
     .delete(agentConfigs)
-    .where(and(eq(agentConfigs.name, name), ne(agentConfigs.id, keepId)))
+    .where(
+      and(
+        eq(agentConfigs.name, name),
+        ne(agentConfigs.id, keepId),
+        isNull(agentConfigs.userId),
+      ),
+    )
     .returning();
   return rows.length;
 }

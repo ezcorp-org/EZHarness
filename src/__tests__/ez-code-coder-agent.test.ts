@@ -75,7 +75,10 @@ mock.module("../db/queries/agent-configs", () => ({
   },
   deleteAgentConfigsByNameExceptId: async (name: string, keepId: string) => {
     const before = rows.length;
-    rows = rows.filter((r) => !(r.name === name && r.id !== keepId));
+    // Mirrors the real query: ownerless (userId == null) rows ONLY.
+    rows = rows.filter(
+      (r) => !(r.name === name && r.id !== keepId && r.userId == null),
+    );
     return before - rows.length;
   },
 }));
@@ -131,20 +134,33 @@ describe("ensureEzCodeCoderAgent", () => {
     expect(rows).toHaveLength(1);
   });
 
-  test("dedupes a stale random-id row named 'ez-code coder'", async () => {
-    // Simulate the leftover from the earlier (pre-fixed-id) version.
+  test("dedupes a stale OWNERLESS random-id row named 'ez-code coder'", async () => {
+    // The earlier (pre-fixed-id) version created the coder ownerless.
     rows.push(
       makeRow({
         id: "6e4caaab-stale-random-id",
         name: EZ_CODE_CODER_AGENT_NAME,
-        userId: "admin-1",
+        userId: null,
       }),
     );
     const created = await ensureEzCodeCoderAgent();
-    // The stale row is gone; exactly one canonical row at the fixed id.
+    // The stale ownerless row is gone; exactly one canonical row at the fixed id.
     expect(created.id).toBe(EZ_CODE_CODER_AGENT_ID);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.id).toBe(EZ_CODE_CODER_AGENT_ID);
+  });
+
+  test("does NOT delete a USER-OWNED agent named exactly 'ez-code coder' (no data loss)", async () => {
+    // Safety floor: a user who coincidentally named an agent "ez-code
+    // coder" must never have it silently deleted (nor its shares cascaded)
+    // by the bundled upsert. Owned rows are out of the dedupe's scope.
+    rows.push(
+      makeRow({ id: "u-coder", name: EZ_CODE_CODER_AGENT_NAME, userId: "u-owns" }),
+    );
+    await ensureEzCodeCoderAgent();
+    expect(rows.find((r) => r.id === "u-coder")).toBeDefined();
+    // The canonical fixed-id row still gets created alongside it.
+    expect(rows.find((r) => r.id === EZ_CODE_CODER_AGENT_ID)).toBeDefined();
   });
 
   test("does NOT delete a user's unrelated agent with a different name", async () => {
