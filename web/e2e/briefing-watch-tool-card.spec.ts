@@ -67,10 +67,18 @@ async function streamToolCall(
 	const textarea = page.locator("textarea").first();
 	await expect(textarea).toBeEnabled({ timeout: 15_000 });
 	await textarea.fill("keep an eye on the Bun 2.0 release for me");
+	// Register the response waiter BEFORE pressing Enter so the POST can't
+	// race ahead of the listener. The timeout is the full test budget
+	// (30s) rather than a tighter 15s: when this file's three tests run in
+	// parallel (worse still under --repeat-each), the single mocked dev
+	// server is CPU-starved and the /messages round-trip can exceed 15s,
+	// timing out the waiter even though the POST eventually lands. Matching
+	// the file timeout lets a slow-but-healthy round-trip complete instead
+	// of flaking the setup.
 	await Promise.all([
 		page.waitForResponse(
 			(r) => r.url().includes("/messages") && r.request().method() === "POST",
-			{ timeout: 15_000 },
+			{ timeout: 30_000 },
 		),
 		textarea.press("Enter"),
 	]);
@@ -101,6 +109,17 @@ async function streamToolCall(
 }
 
 test.describe("briefing chat-tool confirmation card", () => {
+	// Run the three cases serially. Each loads a full chat page and drives
+	// a real `/messages` POST against the single mocked dev server; when
+	// they run concurrently (and far worse under --repeat-each) that one
+	// server is CPU-starved and the POST round-trip intermittently exceeds
+	// even a generous waiter timeout, flaking the setup. Serializing this
+	// file removes the intra-file contention (the suite still runs in
+	// parallel with OTHER spec files) and makes the card render
+	// deterministic — the established way to deflake a shared-dev-server
+	// tool-card spec.
+	test.describe.configure({ mode: "serial" });
+
 	test("briefing_watch renders a card with the in-chat confirmation text", async ({
 		page,
 		mockApi,
@@ -164,8 +183,27 @@ test.describe("briefing chat-tool confirmation card", () => {
 
 		const toolName = page.getByText("briefing_status").first();
 		await expect(toolName).toBeVisible();
-		await toolName.locator("xpath=ancestor::button[1]").click();
-		await expect(page.getByText(/Daily briefing is enabled — Weekdays at 07:00/)).toBeVisible();
-		await expect(page.getByText(/Recent briefings: "Daily Briefing — Thu, Jun 11"/)).toBeVisible();
+		// Gate on the expand button being attached + visible before
+		// clicking — mirrors the briefing_watch case above and kills the
+		// render-timing flake where the click raced the card's mount and
+		// the expansion never fired (status was the only one of the three
+		// missing this gate).
+		const headerBtn = toolName.locator("xpath=ancestor::button[1]");
+		await expect(headerBtn).toBeVisible();
+		await headerBtn.click();
+		// The multi-line status output renders inside a single `<pre>`
+		// with `whitespace-pre-wrap`, so a bare `getByText(/…/)` substring
+		// match resolves to BOTH the `<pre>` AND its text-bearing ancestor
+		// → a strict-mode violation (the real, deterministic failure the
+		// status case hit once the card expanded; watch/unwatch dodge it
+		// because their confirmations are single-line). Scope the assertion
+		// to the `<pre>` readout itself so exactly one element matches.
+		const readout = page.locator("pre").filter({
+			hasText: "Daily briefing is enabled — Weekdays at 07:00",
+		});
+		await expect(readout).toBeVisible({ timeout: 10_000 });
+		await expect(readout).toContainText(
+			'Recent briefings: "Daily Briefing — Thu, Jun 11"',
+		);
 	});
 });
