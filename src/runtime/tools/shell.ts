@@ -1,10 +1,13 @@
 import { Type } from "@mariozechner/pi-ai";
+import { mkdirSync } from "node:fs";
 import { validateTimeout } from "./validate";
 import type { BuiltinToolDef } from "./types";
 import type { AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
 import { buildStreamTruncationMarker, getToolOutputLimit } from "./output-limits";
 import { logger } from "../../logger";
 import { detectDevServerCommand } from "../preview/dev-command-detection";
+import { getSandboxTier } from "../../extensions/sandbox/capability-probe";
+import { buildSandboxArgv } from "../../extensions/sandbox/build-sandbox-argv";
 
 const log = logger.child("shell-tool");
 
@@ -40,9 +43,61 @@ export interface ShellPreviewWiring {
     | { ok: false; reason: string };
 }
 
+/**
+ * Phase A4 (Seam B) — per-run OS-isolation for agent shell execution.
+ *
+ * When provided AND the host has a usable sandbox tier, the shell tool jails
+ * every `/bin/sh -c` spawn to the per-run `workspaceDir` (read/write) + the
+ * project's runtime dirs (read-only), so a run's shell CANNOT read
+ * `.ezcorp/data` (the PGlite DB + JWT secret) — the dependency Part B's
+ * isolated runs need. `projectRoot` is used ONLY to compute the data-dir
+ * exclusion (never granted). Omitted by callers without a per-run context;
+ * the shell tool then behaves exactly as before (jail off).
+ *
+ * Fail-safe: a jail-build error logs + falls back to the unjailed spawn — a
+ * host that can't jail behaves as before, never a hard failure.
+ */
+export interface ShellSandboxWiring {
+  /** The per-run writable workspace (the ONLY rw host path in the jail).
+   *  MUST NOT be `.ezcorp/data`, under it, or an ancestor of it. */
+  workspaceDir: string;
+  /** Project root — used ONLY to compute the forbidden `.ezcorp/data` path. */
+  projectRoot: string;
+}
+
 // Shell's cap lives in TOOL_OUTPUT_LIMITS (output-limits.ts) — keep this a
 // reference, not a hardcoded value, so the description and runtime agree.
 const MAX_OUTPUT_BYTES = getToolOutputLimit("shell");
+
+/**
+ * Build the jailed argv for `/bin/sh -c <command>` under the per-run
+ * workspace. Returns the argv + env additions, or null when no jail applies
+ * (no wiring / advisory tier / build failure → fail-safe to the bare spawn).
+ */
+export function resolveShellSandbox(
+  command: string,
+  sandbox: ShellSandboxWiring | undefined,
+): { argv: string[]; env: Record<string, string> } | null {
+  if (!sandbox) return null;
+  const tier = getSandboxTier();
+  if (tier === "advisory") return null;
+  try {
+    mkdirSync(sandbox.workspaceDir, { recursive: true });
+    const built = buildSandboxArgv({
+      tier,
+      workspaceDir: sandbox.workspaceDir,
+      projectRoot: sandbox.projectRoot,
+      command: "/bin/sh",
+      args: ["-c", command],
+    });
+    return { argv: built.argv, env: built.env };
+  } catch (err) {
+    log.warn("shell sandbox skipped (jail build failed)", {
+      error: (err as Error).message,
+    });
+    return null;
+  }
+}
 
 const SENSITIVE_ENV_PATTERNS = /SECRET|TOKEN|PASSWORD|CREDENTIAL|API_KEY|PRIVATE_KEY/i;
 
@@ -66,7 +121,11 @@ const DANGEROUS_COMMAND_PATTERNS = [
   /wget.*\|\s*(ba)?sh/,                                  // wget pipe to shell
 ];
 
-export function createShellTool(projectPath: string, preview?: ShellPreviewWiring): BuiltinToolDef {
+export function createShellTool(
+  projectPath: string,
+  preview?: ShellPreviewWiring,
+  sandbox?: ShellSandboxWiring,
+): BuiltinToolDef {
   return {
     name: "shell",
     label: "shell",
@@ -154,11 +213,20 @@ export function createShellTool(projectPath: string, preview?: ShellPreviewWirin
       }
 
       try {
-        const proc = Bun.spawn(["/bin/sh", "-c", params.command], {
-          cwd: projectPath,
+        // Phase A4 (Seam B) — jail the spawn to the per-run workspace when
+        // wired + a usable tier is present. The jail denies `.ezcorp/data`;
+        // cwd becomes the isolated workspace so the run executes there.
+        const jail = resolveShellSandbox(params.command, sandbox);
+        const spawnArgv = jail ? jail.argv : ["/bin/sh", "-c", params.command];
+        const spawnCwd = jail ? sandbox!.workspaceDir : projectPath;
+        const spawnEnv = jail
+          ? { ...sanitizeEnv(), ...jail.env }
+          : sanitizeEnv();
+        const proc = Bun.spawn(spawnArgv, {
+          cwd: spawnCwd,
           stdout: "pipe",
           stderr: "pipe",
-          env: sanitizeEnv(),
+          env: spawnEnv,
         });
 
         let output = "";

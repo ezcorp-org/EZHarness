@@ -3,13 +3,13 @@ import { createReadFileTool } from "./read-file";
 import { createListFilesTool } from "./list-files";
 import { createReadDirectoryTool } from "./read-directory";
 import { createEditFileTool } from "./edit-file";
-import { createShellTool, type ShellPreviewWiring } from "./shell";
+import { createShellTool, type ShellPreviewWiring, type ShellSandboxWiring } from "./shell";
 import { createGrepTool } from "./grep";
 import { createGlobTool } from "./glob";
 import { describeOutputCap, getToolOutputLimit } from "./output-limits";
 
 export type { BuiltinToolDef, ToolCategory, PermissionMode, CardType } from "./types";
-export type { ShellPreviewWiring } from "./shell";
+export type { ShellPreviewWiring, ShellSandboxWiring } from "./shell";
 
 /**
  * Get all built-in tool definitions with full metadata (category, cardType,
@@ -22,13 +22,17 @@ export type { ShellPreviewWiring } from "./shell";
  * the conversation's preview uid. Omitted by callers without a conversation
  * context (the shell tool then behaves exactly as before).
  */
-export function getBuiltinToolDefs(projectPath: string, preview?: ShellPreviewWiring): BuiltinToolDef[] {
+export function getBuiltinToolDefs(
+  projectPath: string,
+  preview?: ShellPreviewWiring,
+  shellSandbox?: ShellSandboxWiring,
+): BuiltinToolDef[] {
   const defs: BuiltinToolDef[] = [
     createReadFileTool(projectPath),
     createListFilesTool(projectPath),
     createReadDirectoryTool(projectPath),
     createEditFileTool(projectPath),
-    createShellTool(projectPath, preview),
+    createShellTool(projectPath, preview, shellSandbox),
     createGrepTool(projectPath),
     createGlobTool(projectPath),
   ];

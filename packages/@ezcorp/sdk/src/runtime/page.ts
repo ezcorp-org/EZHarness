@@ -28,6 +28,32 @@ import type { PanelColor } from "./component-builder";
 
 // ── Page-only wire shapes ───────────────────────────────────────
 
+/**
+ * Host-rendered single-field text prompt attached to an action. The
+ * host owns the input widget; the extension supplies only display
+ * strings. On submit the typed scalar is merged client-side into
+ * `payload[field]` (default `"value"`) and the action dispatches through
+ * its UNCHANGED, eventSubscriptions-gated path — `prompt` grants NO new
+ * authority.
+ *
+ * Mirror of `PagePrompt` in `src/extensions/page-schema.ts` (the source
+ * of truth + validation point) and `web/src/lib/hub.ts`. Keep the three
+ * aligned. The host re-validates every field (slug-clamps `field`,
+ * clamps `maxLength` to [1,500], `<>`-strips + truncates strings) — these
+ * are author-side hints only.
+ */
+export interface PagePromptDescriptor {
+  /** Dialog input label (required). */
+  label: string;
+  placeholder?: string;
+  /** Payload key the typed value merges under; default "value". Must be
+   *  a `/^[a-z0-9][a-z0-9_]{0,31}$/` slug or the host falls back. */
+  field?: string;
+  /** Input length hint; host clamps to [1,500], default 200. */
+  maxLength?: number;
+  submitLabel?: string;
+}
+
 export interface PageActionDescriptor {
   /** Namespaced event (`<ext>:<event>`) — must be declared in
    *  `permissions.eventSubscriptions`. */
@@ -35,6 +61,8 @@ export interface PageActionDescriptor {
   payload?: Record<string, string | number | boolean>;
   /** Host-rendered confirm dialog text. */
   confirm?: string;
+  /** Optional host-rendered text prompt collected before dispatch. */
+  prompt?: PagePromptDescriptor;
 }
 
 export interface PageStatItem {

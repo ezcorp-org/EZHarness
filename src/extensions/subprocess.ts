@@ -2,9 +2,11 @@ import { JsonRpcTransport } from "./json-rpc";
 import type { JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, ToolCallResult } from "./types";
 import { incrementFailures, disableExtension, resetFailures } from "../db/queries/extensions";
 import { logger } from "../logger";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { getSandboxTier } from "./sandbox/capability-probe";
+import { buildSandboxArgv } from "./sandbox/build-sandbox-argv";
 
 const log = logger.child("extensions/subprocess");
 
@@ -154,7 +156,7 @@ export class ExtensionProcess {
    * canonical form is `bun run --preload <path> <ext>`.
    */
   getSpawnArgs(): string[] {
-    return [
+    const inner = [
       "prlimit",
       `--rss=${this.memoryLimitBytes}`,
       "bun",
@@ -163,6 +165,79 @@ export class ExtensionProcess {
       SANDBOX_PRELOAD_PATH,
       this.extensionPath,
     ];
+    const wrap = this.resolveSandboxWrap();
+    if (!wrap) return inner;
+    // The builder returns the COMPLETE argv (isolation prefix + the inner
+    // command we passed it). Phase A4 Seam A — the landlock-tier env
+    // additions are threaded by buildSpawnEnv() via the same resolver.
+    return wrap.argv;
+  }
+
+  /**
+   * Phase A4 (Seam A) — resolve the OS-isolation wrap for the extension
+   * subprocess. Returns null (no wrap) when no project root was injected or
+   * no usable sandbox tier is present (back-compat: behaves exactly as
+   * before). The jail's writable workspace is the per-extension TMPDIR +
+   * the extension's `.ezcorp/extension-data/<id>` store; `.ezcorp/data`
+   * (the PGlite DB + JWT secret) is NEVER granted (asserted by the builder).
+   *
+   * Memoized per process so getSpawnArgs() + buildSpawnEnv() agree.
+   */
+  private sandboxWrapCache:
+    | { argv: string[]; env: Record<string, string> }
+    | null
+    | undefined;
+  private resolveSandboxWrap():
+    | { argv: string[]; env: Record<string, string> }
+    | null {
+    if (this.sandboxWrapCache !== undefined) return this.sandboxWrapCache;
+    const projectRoot = this.allowedEnv.EZCORP_PROJECT_ROOT;
+    const tier = getSandboxTier();
+    if (!projectRoot || tier === "advisory") {
+      this.sandboxWrapCache = null;
+      return null;
+    }
+    try {
+      const workspaceDir = join(
+        projectRoot,
+        ".ezcorp",
+        "extension-data",
+        this.extensionId,
+      );
+      mkdirSync(workspaceDir, { recursive: true });
+      const rwPaths: string[] = [];
+      if (this.allowedEnv.TMPDIR) rwPaths.push(this.allowedEnv.TMPDIR);
+      const inner = [
+        "prlimit",
+        `--rss=${this.memoryLimitBytes}`,
+        "bun",
+        "run",
+        "--preload",
+        SANDBOX_PRELOAD_PATH,
+        this.extensionPath,
+      ];
+      const built = buildSandboxArgv({
+        tier,
+        workspaceDir,
+        projectRoot,
+        rwPaths,
+        command: inner[0]!,
+        args: inner.slice(1),
+      });
+      this.sandboxWrapCache = {
+        argv: built.argv,
+        env: built.env,
+      };
+    } catch (err) {
+      // Fail-SAFE: a jail-build error must not break extension spawn (the
+      // SDK module-poisoning still applies). Log and run unjailed.
+      log.warn("sandbox wrap skipped (jail build failed)", {
+        extensionId: this.extensionId,
+        error: (err as Error).message,
+      });
+      this.sandboxWrapCache = null;
+    }
+    return this.sandboxWrapCache;
   }
 
   /**
@@ -173,6 +248,11 @@ export class ExtensionProcess {
     const env: Record<string, string> = { ...this.allowedEnv };
     if (this.networkAllowed) env.EZCORP_NETWORK_ALLOWED = "1";
     if (this.shellAllowed) env.EZCORP_SHELL_ALLOWED = "1";
+    // Phase A4 (Seam A) — thread the landlock-tier jail spec env
+    // (EZCORP_LANDLOCK_SPEC) when the spawn argv is shim-wrapped. Set AFTER
+    // allowedEnv so the data-dir exclusion can't be overridden.
+    const wrap = this.resolveSandboxWrap();
+    if (wrap) Object.assign(env, wrap.env);
     return env;
   }
 

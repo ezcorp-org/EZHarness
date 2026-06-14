@@ -377,6 +377,163 @@ describe("button", () => {
   });
 });
 
+// ── action prompt (PageAction.prompt) ──────────────────────────────
+
+describe("action prompt", () => {
+  function buttonWith(prompt: unknown): PageButton | undefined {
+    return validate([
+      { type: "button", label: "Add", action: { event: "demo:refresh", prompt } },
+    ])!.nodes[0] as PageButton | undefined;
+  }
+
+  test("a valid prompt is normalized (defaults for field/maxLength)", () => {
+    const b = buttonWith({ label: "Topic to watch", placeholder: "e.g. Bun 2.0" });
+    expect(b!.action.prompt).toEqual({
+      label: "Topic to watch",
+      placeholder: "e.g. Bun 2.0",
+      field: "value",
+      maxLength: 200,
+    });
+  });
+
+  test("a valid prompt preserves a clean field slug + submitLabel + clamps maxLength", () => {
+    const b = buttonWith({ label: "T", field: "topic", maxLength: 120, submitLabel: "Save" });
+    expect(b!.action.prompt).toEqual({
+      label: "T",
+      field: "topic",
+      maxLength: 120,
+      submitLabel: "Save",
+    });
+  });
+
+  test("missing/empty label → prompt OMITTED, action still valid (degrades to plain dispatch)", () => {
+    for (const bad of [{}, { label: 42 }, { label: "" }, { label: "<>" }]) {
+      const b = buttonWith(bad);
+      expect(b).toBeDefined(); // the action survives
+      expect(b!.action.event).toBe("demo:refresh");
+      expect(b!.action.prompt).toBeUndefined(); // only the prompt is dropped
+    }
+  });
+
+  test("non-object prompt is dropped; action survives", () => {
+    for (const bad of [null, "str", 7, ["a"]]) {
+      const b = buttonWith(bad);
+      expect(b!.action.prompt).toBeUndefined();
+    }
+  });
+
+  test("bad field slugs fall back to the default 'value' (anti-spoof)", () => {
+    for (const badField of ["Topic", "has space", "_leading", "with-dash", "x".repeat(40), "a:b", ""]) {
+      const b = buttonWith({ label: "T", field: badField });
+      expect(b!.action.prompt!.field).toBe("value");
+    }
+  });
+
+  test("maxLength clamps to [1,500]; non-numeric → default 200", () => {
+    expect(buttonWith({ label: "T", maxLength: 0 })!.action.prompt!.maxLength).toBe(1);
+    expect(buttonWith({ label: "T", maxLength: -5 })!.action.prompt!.maxLength).toBe(1);
+    expect(buttonWith({ label: "T", maxLength: 9999 })!.action.prompt!.maxLength).toBe(500);
+    expect(buttonWith({ label: "T", maxLength: 12.9 })!.action.prompt!.maxLength).toBe(12);
+    expect(buttonWith({ label: "T", maxLength: "big" })!.action.prompt!.maxLength).toBe(200);
+    expect(buttonWith({ label: "T", maxLength: NaN })!.action.prompt!.maxLength).toBe(200);
+  });
+
+  test("label/placeholder/submitLabel are <>-stripped + truncated", () => {
+    const b = buttonWith({
+      label: `<b>${"L".repeat(200)}</b>`,
+      placeholder: `<i>${"P".repeat(200)}</i>`,
+      submitLabel: `<u>${"S".repeat(100)}</u>`,
+    });
+    const p = b!.action.prompt!;
+    expect(p.label).not.toContain("<");
+    expect(p.label.length).toBe(120);
+    expect(p.placeholder!.length).toBe(120);
+    expect(p.submitLabel!.length).toBe(40);
+  });
+
+  test("an all-`<>` submitLabel is omitted (not an empty string)", () => {
+    const b = buttonWith({ label: "T", submitLabel: "<>" });
+    expect(b!.action.prompt!.submitLabel).toBeUndefined();
+  });
+
+  test("a prompt on a table-row action validates the same way", () => {
+    const t = validate([
+      {
+        type: "table",
+        columns: ["A"],
+        rows: [{ cells: ["x"], action: { event: "demo:refresh", prompt: { label: "Rename", field: "name" } } }],
+      },
+    ])!.nodes[0] as PageTable;
+    expect(t.rows[0]!.action!.prompt).toEqual({ label: "Rename", field: "name", maxLength: 200 });
+  });
+});
+
+// ── security: prompt grants ZERO new authority ─────────────────────
+
+describe("prompt security invariants", () => {
+  test("a prompt on an event NOT in the allowlist still drops the whole action (no bypass)", () => {
+    // A button whose event is forbidden is dropped regardless of prompt.
+    expect(
+      validate([
+        { type: "button", label: "X", action: { event: "demo:evil", prompt: { label: "Type" } } },
+      ])!.nodes,
+    ).toHaveLength(0);
+    // Same for a table row.
+    const t = validate([
+      {
+        type: "table",
+        columns: ["A"],
+        rows: [{ cells: ["x"], action: { event: "demo:evil", prompt: { label: "Type" } } }],
+      },
+    ])!.nodes[0] as PageTable;
+    expect(t.rows).toHaveLength(0);
+    // And when the allowlist is empty, no prompt action survives.
+    expect(
+      validate(
+        [{ type: "button", label: "X", action: { event: "demo:refresh", prompt: { label: "Type" } } }],
+        [],
+      )!.nodes,
+    ).toHaveLength(0);
+  });
+
+  test("echo-back is re-sanitized: a <script>-laden value in a re-rendered tree is <>-stripped", () => {
+    // Simulate a handler echoing an untrusted typed value back into a
+    // stat/markdown-free node. Every re-rendered tree passes through
+    // validatePageTree, which <>-strips all display strings.
+    const echoed = '<script>alert(1)</script>';
+    const result = validate([
+      { type: "stats", items: [{ label: "Watching", value: echoed }] },
+      { type: "empty-state", title: echoed, detail: echoed },
+      { type: "table", columns: ["Topic"], rows: [{ cells: [echoed] }] },
+    ]);
+    const stats = result!.nodes[0] as PageStats;
+    expect(stats.items[0]!.value).not.toContain("<");
+    expect(stats.items[0]!.value).not.toContain(">");
+    const es = result!.nodes[1] as PageEmptyState;
+    expect(es.title).not.toContain("<");
+    expect(es.detail).not.toContain("<");
+    const table = result!.nodes[2] as PageTable;
+    expect(table.rows[0]!.cells[0]).not.toContain("<");
+  });
+
+  test("a typed value echoed into a payload stays a sanitized scalar under field", () => {
+    // The merged payload[field] is a string; validateAction <>-strips it.
+    const b = validate([
+      {
+        type: "button",
+        label: "X",
+        action: {
+          event: "demo:refresh",
+          prompt: { label: "Topic", field: "topic" },
+          payload: { topic: "<script>x</script>" },
+        },
+      },
+    ])!.nodes[0] as PageButton;
+    expect(b.action.payload!.topic).toBe("scriptx/script");
+    expect(b.action.prompt!.field).toBe("topic");
+  });
+});
+
 // ── link ───────────────────────────────────────────────────────────
 
 describe("link", () => {

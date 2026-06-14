@@ -32,10 +32,15 @@ import {
   type HubPageProvider,
 } from "../hub-pages";
 import type { HubPageTree, PageNode } from "../../extensions/page-schema";
+import { addWatchlistTopic, removeWatchlistTopic } from "./watchlist";
 
 export const BRIEFING_HUB_PAGE_ID = "briefing";
 export const BRIEFING_RUN_NOW_ACTION = "run-now";
+export const BRIEFING_ADD_WATCHLIST_ACTION = "add-watchlist";
+export const BRIEFING_REMOVE_WATCHLIST_ACTION = "remove-watchlist";
 const RECENT_BRIEFINGS_LIMIT = 10;
+/** Author-side hint; the host re-clamps to [1,500] (see PagePrompt). */
+const WATCHLIST_TOPIC_MAX_LENGTH = 120;
 
 export interface BriefingHubPageDeps {
   /** Shared run-now trigger (web layer owns the rate bucket). */
@@ -135,19 +140,46 @@ async function renderBriefingPage(userId: string): Promise<HubPageTree> {
     { type: "divider" },
   ];
 
-  if (config.watchlist.length > 0) {
-    nodes.push(
-      { type: "heading", level: 3, text: "Watchlist" },
-      {
-        type: "list",
-        items: config.watchlist.map((w) => ({
-          label: w.topic,
-          detail: `added ${w.addedAt.slice(0, 10)}`,
-        })),
-      },
-      { type: "divider" },
-    );
+  // Watchlist: a small table with confirm-gated per-row remove, plus an
+  // always-present "Add to watchlist" button that opens a host-rendered
+  // prompt dialog (locked decision: full curation from the Hub page).
+  nodes.push({ type: "heading", level: 3, text: "Watchlist" });
+  if (config.watchlist.length === 0) {
+    nodes.push({
+      type: "empty-state",
+      title: "Nothing on your watchlist yet",
+      detail: "Add a topic and each morning's briefing will research it.",
+    });
+  } else {
+    nodes.push({
+      type: "table",
+      columns: ["Topic", "Added"],
+      rows: config.watchlist.map((w) => ({
+        cells: [w.topic, w.addedAt.slice(0, 10)],
+        action: {
+          event: BRIEFING_REMOVE_WATCHLIST_ACTION,
+          payload: { topic: w.topic },
+          confirm: `Remove "${w.topic}" from your watchlist?`,
+        },
+      })),
+    });
   }
+  nodes.push(
+    {
+      type: "button",
+      label: "Add to watchlist",
+      action: {
+        event: BRIEFING_ADD_WATCHLIST_ACTION,
+        prompt: {
+          label: "Topic to watch",
+          placeholder: "e.g. Bun 2.0 release",
+          field: "topic",
+          maxLength: WATCHLIST_TOPIC_MAX_LENGTH,
+        },
+      },
+    },
+    { type: "divider" },
+  );
 
   nodes.push({ type: "heading", level: 3, text: "Recent briefings" });
   if (recent.length === 0) {
@@ -206,6 +238,23 @@ export function createBriefingHubPageProvider(
           );
         }
         // Re-render so the tab reflects the just-started run.
+        return renderBriefingPage(ctx.userId);
+      },
+      [BRIEFING_ADD_WATCHLIST_ACTION]: async (ctx, payload) => {
+        // The prompt-typed value rides in `payload.topic`; the value is
+        // untrusted (host <>-strips it at validation time) and re-checked
+        // server-side by addWatchlistTopic → validateBriefingConfigInput.
+        const topic = String(payload?.topic ?? "").trim();
+        if (!topic) throw new HubPageActionError(400, "Topic is required");
+        const result = await addWatchlistTopic(ctx.userId, topic);
+        if (!result.ok) throw new HubPageActionError(400, result.error);
+        return renderBriefingPage(ctx.userId);
+      },
+      [BRIEFING_REMOVE_WATCHLIST_ACTION]: async (ctx, payload) => {
+        const topic = String(payload?.topic ?? "").trim();
+        if (!topic) throw new HubPageActionError(400, "Topic is required");
+        const result = await removeWatchlistTopic(ctx.userId, topic);
+        if (!result.ok) throw new HubPageActionError(400, result.error);
         return renderBriefingPage(ctx.userId);
       },
     },

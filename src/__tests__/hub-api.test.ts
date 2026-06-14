@@ -405,6 +405,18 @@ describe("POST /api/hub/pages/[id]/actions/[action]", () => {
     expect((await call(actionPost, actionEvent({ body: ["not-an-object"] }))).status).toBe(400);
   });
 
+  test("400 for non-scalar payload values (defense-in-depth at the boundary)", async () => {
+    registerDemoProvider();
+    // Scalar values pass; nested object/array values are rejected so a
+    // prompt can't smuggle structured data past the handler's String()
+    // coercion. Mirrors validateAction's payload rule (page-schema.ts).
+    expect((await call(actionPost, actionEvent({ body: { payload: { topic: "ok" } } }))).status).toBe(200);
+    expect((await call(actionPost, actionEvent({ body: { payload: { n: 5, b: true } } }))).status).toBe(200);
+    expect((await call(actionPost, actionEvent({ body: { payload: { nested: { evil: 1 } } } }))).status).toBe(400);
+    expect((await call(actionPost, actionEvent({ body: { payload: { arr: [1, 2] } } }))).status).toBe(400);
+    expect((await call(actionPost, actionEvent({ body: { payload: { nul: null } } }))).status).toBe(400);
+  });
+
   test("200 with a validated fresh tree", async () => {
     registerDemoProvider({
       actions: {

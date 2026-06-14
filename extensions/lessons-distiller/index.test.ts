@@ -9,12 +9,14 @@
  * outcome-to-tool-result envelope, the `run:complete` handler shape.
  */
 import { test, expect, describe, afterEach } from "bun:test";
+import { LlmCredentialError, LlmProviderError } from "@ezcorp/sdk/runtime";
 import {
   tools,
   handleRunComplete,
   distill,
   _setRuntimeApiForTests,
   _resetRuntimeApiForTests,
+  _resetDistillerModelWarningForTests,
   type DistillerRuntimeApi,
   type DistillerEnvelope,
 } from "./index";
@@ -121,6 +123,7 @@ function makeFakeRuntime(overrides: Partial<DistillerRuntimeApi> = {}): {
 
 afterEach(() => {
   _resetRuntimeApiForTests();
+  _resetDistillerModelWarningForTests();
 });
 
 function parseEnvelope(text: string): DistillerEnvelope {
@@ -410,7 +413,7 @@ describe("distill — pipeline gates", () => {
     expect(fake.calls.find((c) => c.api === "triggerGate")).toBeUndefined();
   });
 
-  test("LLM throws → error llm_error with detail", async () => {
+  test("LLM throws generic → error llm_error, cause transient", async () => {
     const fake = makeFakeRuntime();
     fake.setLlmThrow(new Error("upstream 503"));
     _setRuntimeApiForTests(fake.api);
@@ -419,9 +422,39 @@ describe("distill — pipeline gates", () => {
       conversationId: "c", skipTriggerGate: true, settings: {}, projectId: "p",
     });
     expect(outcome.kind).toBe("error");
-    if (outcome.kind === "error") {
-      expect(outcome.reason).toBe("llm_error");
+    if (outcome.kind === "error" && outcome.reason === "llm_error") {
       expect(outcome.detail).toBe("upstream 503");
+      // A generic upstream error is retryable next run — not a config gate.
+      expect(outcome.cause).toBe("transient");
+    }
+  });
+
+  test("LLM throws LlmCredentialError → error llm_error, cause unavailable", async () => {
+    const fake = makeFakeRuntime();
+    fake.setLlmThrow(new LlmCredentialError("google", "no GOOGLE_API_KEY"));
+    _setRuntimeApiForTests(fake.api);
+
+    const outcome = await distill({
+      conversationId: "c", skipTriggerGate: true, settings: { provider: "google" }, projectId: "p",
+    });
+    expect(outcome.kind).toBe("error");
+    if (outcome.kind === "error" && outcome.reason === "llm_error") {
+      // Missing credential is a deployment-config gate → fail-soft signal.
+      expect(outcome.cause).toBe("unavailable");
+    }
+  });
+
+  test("LLM throws LlmProviderError → error llm_error, cause unavailable", async () => {
+    const fake = makeFakeRuntime();
+    fake.setLlmThrow(new LlmProviderError("google", "provider not granted"));
+    _setRuntimeApiForTests(fake.api);
+
+    const outcome = await distill({
+      conversationId: "c", skipTriggerGate: true, settings: { provider: "google" }, projectId: "p",
+    });
+    expect(outcome.kind).toBe("error");
+    if (outcome.kind === "error" && outcome.reason === "llm_error") {
+      expect(outcome.cause).toBe("unavailable");
     }
   });
 
@@ -538,6 +571,89 @@ describe("handleRunComplete — event handler", () => {
       conversationId: "conv-1",
     });
     expect(out).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Fail-soft degrade: provider/credential-class LLM failure must warn
+// ONCE per process (not error-spam) and skip cleanly. Regression for
+// the bundled-boot defect where the default google/gemini-2.0-flash-lite
+// call error-spammed every run when no Google credential was configured.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("handleRunComplete — fail-soft on unavailable model", () => {
+  function withCapturedWarn(): { warnings: string[]; restore: () => void } {
+    const warnings: string[] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "));
+    };
+    return { warnings, restore: () => { console.warn = original; } };
+  }
+
+  test("credential-missing LLM failure warns exactly once, never error-spams", async () => {
+    const fake = makeFakeRuntime();
+    fake.setSettings({ enabled: true, provider: "google", model: "" });
+    fake.setLlmThrow(new LlmCredentialError("google", "no GOOGLE_API_KEY"));
+    _setRuntimeApiForTests(fake.api);
+
+    const errorSpy: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => { errorSpy.push(args.map(String).join(" ")); };
+    const cap = withCapturedWarn();
+    try {
+      // Three back-to-back run:completes — the credential is still
+      // missing each time. We must warn at most once total.
+      await handleRunComplete({ run: { agentName: "chat", status: "success" }, conversationId: "c1" });
+      await handleRunComplete({ run: { agentName: "chat", status: "success" }, conversationId: "c2" });
+      await handleRunComplete({ run: { agentName: "chat", status: "success" }, conversationId: "c3" });
+    } finally {
+      cap.restore();
+      console.error = originalError;
+    }
+
+    // Exactly one warn, mentioning the model + how to fix; zero errors.
+    expect(cap.warnings.length).toBe(1);
+    expect(cap.warnings[0]).toContain("gemini-2.0-flash-lite");
+    expect(cap.warnings[0]).toContain("google");
+    expect(cap.warnings[0]).toContain("once per server start");
+    expect(errorSpy.length).toBe(0);
+  });
+
+  test("a transient LLM failure does NOT emit the unavailable warning", async () => {
+    const fake = makeFakeRuntime();
+    fake.setSettings({ enabled: true, provider: "google", model: "" });
+    fake.setLlmThrow(new Error("upstream 503"));
+    _setRuntimeApiForTests(fake.api);
+
+    const cap = withCapturedWarn();
+    try {
+      await handleRunComplete({ run: { agentName: "chat", status: "success" }, conversationId: "c1" });
+    } finally {
+      cap.restore();
+    }
+
+    // Transient errors are retryable — no startup-style warning.
+    expect(cap.warnings.length).toBe(0);
+  });
+
+  test("distinct unavailable provider/model pairs each warn once", async () => {
+    const fake = makeFakeRuntime();
+    fake.setLlmThrow(new LlmProviderError("google", "provider not granted"));
+    _setRuntimeApiForTests(fake.api);
+
+    const cap = withCapturedWarn();
+    try {
+      // google/gemini default, then openai/gpt-4o-mini — two distinct keys.
+      fake.setSettings({ enabled: true, provider: "google", model: "" });
+      await handleRunComplete({ run: { agentName: "chat", status: "success" }, conversationId: "c1" });
+      fake.setSettings({ enabled: true, provider: "openai", model: "" });
+      await handleRunComplete({ run: { agentName: "chat", status: "success" }, conversationId: "c2" });
+    } finally {
+      cap.restore();
+    }
+
+    expect(cap.warnings.length).toBe(2);
   });
 });
 

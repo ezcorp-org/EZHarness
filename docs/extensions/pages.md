@@ -89,14 +89,35 @@ The host validates the tree, caches it, and broadcasts a **content-free invalida
 
 ## 5. Action contract
 
-Buttons and table rows carry `{ event, payload?, confirm? }`:
+Buttons and table rows carry `{ event, payload?, confirm?, prompt? }`:
 
 - `event` must be `<your-extension-name>:<event>` AND listed in `permissions.eventSubscriptions` — double-gated: the tree validator drops undeclared action nodes at render time, and the events route 404s undeclared events at POST time.
 - The Hub POSTs to `/api/extensions/<name>/events/<event>` with body `{ source: "hub", pageId, payload? }` (payload ≤ 2KB). Rate limit: 10 actions/min/user.
 - Your subprocess receives the standard `ezcorp/event/<name>:<event>` notification with `{ source: "hub", pageId, userId, payload? }` — `definePage`'s `actions` map handles it (same wire format as `registerEventHandler`).
 - `confirm` strings are rendered by the HOST in a native confirm dialog before dispatch.
-- No free-form inputs in v1 — named actions with small structured payloads only.
+- `payload` carries small structured values for the action. Free-form **text** input is collected through a `prompt` (below) — there are still no inline input/form nodes.
 - **`payload` is attacker-controlled.** The host caps its size and shape, but any authenticated user can POST any payload to your declared events directly — never trust field values. Validate every field in your handler before acting on it (treat it exactly like untrusted HTTP input).
+
+### `prompt` — collect one text value before dispatch
+
+An action may attach an optional `prompt` so the **host** opens a single-field text dialog before dispatching:
+
+```ts
+page.button("Rename", {
+  event: "cron-dashboard:rename",
+  prompt: { label: "New name", placeholder: "Nightly", field: "name", maxLength: 80 },
+});
+```
+
+`PagePrompt` = `{ label, placeholder?, field?, maxLength?, submitLabel? }`. On Submit the host merges the typed string into `payload[field]` (default `"value"`) and dispatches the action through its **unchanged, already-gated** event path. Enter submits; Esc/Cancel closes with no POST; Submit is disabled while the trimmed value is empty.
+
+**`prompt` grants your extension ZERO new authority** — it is only a host-mediated way for the *user* to type a string into an action you **already** declared and that is **already** gated:
+
+- The input widget is **100% host-rendered**. You supply only display strings (`label`/`placeholder`/`submitLabel`) — never DOM, never HTML, never a URL. The host `<>`-strips + truncates them; a malformed prompt is silently dropped and the action degrades to a plain dispatch (it is never fatal).
+- **No new dispatch path.** A prompt action still routes through the same `eventSubscriptions` allowlist + page-declared check + 10/min/user limiter + 2KB payload cap. You cannot conjure a new event via `prompt`.
+- **The typed value is untrusted and stays a scalar.** It is merged into `payload[field]` as a single string. `field` is slug-sanitized (`/^[a-z0-9][a-z0-9_]{0,31}$/`, default `"value"`) so it cannot spoof a reserved payload key. Validate it in your handler like any other untrusted input.
+- **Echo-back is re-sanitized.** If your handler echoes the value into a re-rendered tree, that tree passes back through `validatePageTree` — every display string is `<>`-stripped, so a `<script>`-laden value can never reach the DOM.
+- `maxLength` is an author hint only; the host clamps it to `[1, 500]` (default 200) and re-validates server-side regardless.
 
 ## 6. Limits & security rules (server-enforced)
 
