@@ -1358,6 +1358,26 @@ export async function ensureBundledExtensions(): Promise<void> {
       { error: String(migrationErr) },
     );
   }
+
+  // ez-code default coding agent. The extension's `dispatch_run` tool
+  // dispatches to a pre-existing `agent_configs` row via the spawn path
+  // (`resolveAgentConfigForUser`), which only resolves DB rows — a
+  // manifest `agent:` block is NOT spawnable by name. So ship a single
+  // well-known SYSTEM coder row (`userId: null`, name `ez-code coder`)
+  // and let the resolver fall back to it by name for every user. Gated
+  // on the ez-code extension row existing; idempotent (no-op on the name
+  // match). Safe on every boot.
+  try {
+    const ezCodeRow = await getExtensionByName("ez-code");
+    if (ezCodeRow) {
+      const { ensureEzCodeCoderAgent } = await import("./ez-code-coder-agent");
+      await ensureEzCodeCoderAgent();
+    }
+  } catch (coderErr) {
+    log.warn("ez-code coder agent ensure threw during ensureBundledExtensions", {
+      error: String(coderErr),
+    });
+  }
 }
 
 /**

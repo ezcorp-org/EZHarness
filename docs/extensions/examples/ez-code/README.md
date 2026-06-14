@@ -44,11 +44,31 @@ path.
 
 | Tool | What it does |
 |---|---|
-| `dispatch_run` | Spawn a coding-agent run (`spawnAssignment`), persist a run record, surface it live on the dashboard. |
+| `dispatch_run` | Spawn a coding-agent run (`spawnAssignment`), persist a run record, surface it live on the dashboard. `agentName` is **optional** — omit it (or pass `coder`) to use the bundled default coder. |
 | `list_runs` | List dispatched runs (newest first) with status + latest event. |
 | `steer_run` *(B2)* | Inject a steering message into a run's sub-conversation (`appendMessages`). |
 | `cancel_run` *(B2)* | Cancel a live run (`cancelRun`) + update its record. |
 | `open_pr` *(B3)* | In a fresh `.ezcorp`-free git **worktree**, jailed to the worktree + the main `.git` (never the repo root): `git switch -c ez-code/<run>` → commit → push → `gh pr create`. |
+
+## Default coding agent
+
+`dispatch_run` works **out of the box** — it dispatches to a default coding
+agent that ships with ez-code, so a fresh install does not need any
+pre-existing agent config. Omit `agentName` entirely (or pass the friendly
+alias `coder`) and the run targets the bundled **ez-code coder**: an LLM coding
+persona that reads/edits files and runs shell/git on the active project, then
+summarizes its changes so `open_pr` can branch + PR them. Pass an explicit
+agent name to dispatch any other (e.g. a custom `reviewer`) agent instead.
+
+**How it resolves.** The spawn path (`resolveAgentConfigForUser`) only resolves
+rows in the `agent_configs` DB table — a manifest `agent:` block is *not*
+spawnable by name. So ez-code ensures a single well-known **system**
+`agent_configs` row named `ez-code coder` (`userId: null`) on boot
+(`src/extensions/ez-code-coder-agent.ts`, wired into `ensureBundledExtensions`),
+and the host's resolver falls back to it by name (and the `coder` alias) for
+every user — a per-user row would be invisible to other users. The agent's
+file/shell ability comes from the host agent runtime on the active project, not
+from the agent config (the prompt is what makes it a coder).
 
 ## Dashboard (Hub page)
 

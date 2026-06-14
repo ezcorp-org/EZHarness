@@ -66,6 +66,37 @@ import type { getSandboxTier as GetSandboxTierFn } from "../../../../src/extensi
  *  exported event map — the concrete type isn't re-exported by name). */
 type TaskAssignmentUpdateEvent = SubscribableEventMap["task:assignment_update"];
 
+/**
+ * Canonical name of the bundled coder agent_config row the host ships
+ * with ez-code (see `src/extensions/ez-code-coder-agent.ts`). When
+ * `dispatch_run` is called WITHOUT an `agentName`, it defaults to this —
+ * so the tool works out of the box on a fresh install. The host's
+ * `resolveAgentConfigForUser` falls back to this SYSTEM agent by name for
+ * every user.
+ *
+ * Mirrored here as a literal (NOT imported) on purpose: this module loads
+ * inside the sandboxed subprocess, and `ez-code-coder-agent.ts`
+ * transitively imports the DB layer (poisoned `node:fs`). The string is
+ * the contract.
+ */
+export const DEFAULT_CODER_AGENT = "ez-code coder";
+
+/** Friendly aliases (case-insensitive) the LLM may pass for the default
+ *  coder. All resolve host-side to {@link DEFAULT_CODER_AGENT}; we
+ *  normalize them here so a bare `"coder"` always hits the bundled agent
+ *  even if a user later creates an unrelated row named "coder". */
+const CODER_ALIASES: ReadonlySet<string> = new Set(["coder", "ez-code", "ez-code coder"]);
+
+/** Resolve the effective agent name for a dispatch: omitted/blank or a
+ *  known alias → the canonical bundled coder; anything else passes
+ *  through verbatim (an explicit, user-named agent). Pure. */
+export function resolveDispatchAgentName(agentName?: string): string {
+  if (typeof agentName !== "string" || !agentName.trim()) return DEFAULT_CODER_AGENT;
+  return CODER_ALIASES.has(agentName.trim().toLowerCase())
+    ? DEFAULT_CODER_AGENT
+    : agentName.trim();
+}
+
 export const PAGE_ID = "dashboard";
 export const RUNS_KEY = "runs";
 export const MAX_RUNS = 100;
@@ -461,18 +492,22 @@ export const dispatchRun: ToolHandler = async (args) => {
     title?: unknown;
     autonomousContinuation?: unknown;
   };
-  if (typeof agentName !== "string" || agentName.trim().length === 0) {
-    return toolError("'agentName' is required and must be a non-empty string");
+  // `agentName` is OPTIONAL — omitted (or a `"coder"` alias) defaults to
+  // the bundled ez-code coder, so the tool works out of the box. A
+  // non-string non-undefined value is still a contract error.
+  if (agentName !== undefined && typeof agentName !== "string") {
+    return toolError("'agentName' must be a string when provided");
   }
   if (typeof task !== "string" || task.trim().length === 0) {
     return toolError("'task' is required and must be a non-empty string");
   }
+  const resolvedAgent = resolveDispatchAgentName(agentName);
 
   let record: RunRecord;
   try {
     record = await dispatchRunCore(
       {
-        agentName: agentName.trim(),
+        agentName: resolvedAgent,
         task: task.trim(),
         ...(typeof title === "string" ? { title } : {}),
         autonomousContinuation: autonomousContinuation === true,

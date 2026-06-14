@@ -18,14 +18,19 @@ export default defineExtension({
         "Dispatch an ephemeral coding-agent run on the active project. Spawns a " +
         "sub-agent assignment, persists a run record, and surfaces it live on the " +
         "ez-code Hub dashboard. Returns the run id; subscribe to the dashboard to " +
-        "watch status. Optionally enable autonomous self-continuation.",
+        "watch status. Optionally enable autonomous self-continuation. " +
+        "`agentName` is OPTIONAL — omit it (or pass 'coder') to use the bundled " +
+        "ez-code coder, which edits files and runs shell/git on the active project.",
       inputSchema: {
         type: "object",
         properties: {
           agentName: {
             type: "string",
             description:
-              "Name of the agent config to dispatch (e.g. 'coder', 'reviewer').",
+              "OPTIONAL name of the agent config to dispatch. Omit it (or pass " +
+              "'coder') to use the default bundled ez-code coder. Pass another " +
+              "agent's name (e.g. a custom 'reviewer') to dispatch that agent " +
+              "instead.",
           },
           task: {
             type: "string",
@@ -42,7 +47,7 @@ export default defineExtension({
               "emits a done/blocked sentinel (default false).",
           },
         },
-        required: ["agentName", "task"],
+        required: ["task"],
       },
     },
     {

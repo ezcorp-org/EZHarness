@@ -21,8 +21,10 @@ import type {
 import type { PermissionEngine } from "./permission-engine";
 import {
   listAgentConfigs,
+  getAgentConfigByName,
   type DbAgentConfig,
 } from "../db/queries/agent-configs";
+import { isEzCodeCoderAlias, EZ_CODE_CODER_AGENT_NAME } from "./ez-code-coder-agent";
 import { createRateLimiter } from "./rate-limit";
 import { capabilityToolsDisabled } from "./capability-flags";
 import { rpcError, rpcResult } from "./json-rpc";
@@ -74,11 +76,25 @@ export async function resolveAgentConfigForUser(
 ): Promise<DbAgentConfig | null> {
   const configs = await listAgentConfigs(userId);
   const needle = idOrName.trim().toLowerCase();
-  return (
-    configs.find(
-      (c) => c.id === idOrName || c.name.trim().toLowerCase() === needle,
-    ) ?? null
+  const userScoped = configs.find(
+    (c) => c.id === idOrName || c.name.trim().toLowerCase() === needle,
   );
+  if (userScoped) return userScoped;
+
+  // System-agent fallback: the bundled ez-code coder is a `userId: null`
+  // row (see `ez-code-coder-agent.ts`), so it never appears in
+  // `listAgentConfigs(userId)` — which scopes to the user's own + shared
+  // rows. Resolve it by its canonical name for ANY user so a fresh
+  // install's `dispatch_run` works out of the box. A friendly `"coder"`
+  // alias maps to the same row. This is name-only (never id) and only
+  // targets the well-known coder, so it cannot leak another user's
+  // private config.
+  if (isEzCodeCoderAlias(idOrName)) {
+    const systemCoder = await getAgentConfigByName(EZ_CODE_CODER_AGENT_NAME);
+    if (systemCoder && systemCoder.userId === null) return systemCoder;
+  }
+
+  return null;
 }
 
 export async function handleAgentConfigsRpc(

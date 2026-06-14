@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-06-14T17:18:17.072Z",
+  "generatedAt": "2026-06-14T19:41:09.880Z",
   "extensions": {
     "ai-kit": {
       "version": "0.1.0",
@@ -30,7 +30,7 @@
     "ez-code": {
       "version": "0.1.0",
       "entrypoint": "./index.ts",
-      "toolsHash": "sha256-v28LQ7gGIC1c9aet84rVrEhYuKTmdpoVxuP07ZWxkMI="
+      "toolsHash": "sha256-VCCfUk3Hq629Ow73/lPyHyxZjBkZFfUe+mMditoQmOA="
     },
     "file-refactor": {
       "version": "1.0.0",

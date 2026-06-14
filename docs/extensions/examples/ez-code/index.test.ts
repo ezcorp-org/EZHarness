@@ -15,8 +15,10 @@ import {
 } from "@ezcorp/sdk/runtime";
 import {
   CANCEL_EVENT,
+  DEFAULT_CODER_AGENT,
   MAX_RUNS,
   PAGE_ID,
+  resolveDispatchAgentName,
   _setAppendMessageForTests,
   _setCancelForTests,
   _setGlobalStoreForTests,
@@ -319,6 +321,26 @@ describe("buildDashboard", () => {
   });
 });
 
+describe("resolveDispatchAgentName (pure)", () => {
+  test("omitted / blank → the bundled coder", () => {
+    expect(resolveDispatchAgentName(undefined)).toBe(DEFAULT_CODER_AGENT);
+    expect(resolveDispatchAgentName("")).toBe(DEFAULT_CODER_AGENT);
+    expect(resolveDispatchAgentName("   ")).toBe(DEFAULT_CODER_AGENT);
+  });
+
+  test("aliases (case-insensitive, trimmed) → the bundled coder", () => {
+    expect(resolveDispatchAgentName("coder")).toBe(DEFAULT_CODER_AGENT);
+    expect(resolveDispatchAgentName("CODER")).toBe(DEFAULT_CODER_AGENT);
+    expect(resolveDispatchAgentName("  ez-code ")).toBe(DEFAULT_CODER_AGENT);
+    expect(resolveDispatchAgentName("ez-code coder")).toBe(DEFAULT_CODER_AGENT);
+  });
+
+  test("explicit non-alias names pass through trimmed", () => {
+    expect(resolveDispatchAgentName("Code Reviewer")).toBe("Code Reviewer");
+    expect(resolveDispatchAgentName("  My Agent  ")).toBe("My Agent");
+  });
+});
+
 describe("dispatch_run tool", () => {
   test("spawns + persists to the per-user store; does NOT push the shared tree (privacy)", async () => {
     const userStore = memoryStore();
@@ -327,7 +349,8 @@ describe("dispatch_run tool", () => {
     _setGlobalStoreForTests(globalStore);
     const pushes = capturePushes();
     _setSpawnForTests(async (input) => {
-      expect(input.agentName).toBe("coder");
+      // Explicit non-alias name passes through verbatim.
+      expect(input.agentName).toBe("Custom Bot");
       expect(input.task).toBe("Fix the failing test");
       return {
         subConversationId: "sub-99",
@@ -338,7 +361,7 @@ describe("dispatch_run tool", () => {
     });
 
     const result = await dispatchRun({
-      agentName: "coder",
+      agentName: "Custom Bot",
       task: "Fix the failing test",
       title: "Bugfix",
     });
@@ -368,11 +391,52 @@ describe("dispatch_run tool", () => {
     expect(seen).toEqual({});
   });
 
-  test("validates agentName and task", async () => {
-    const r1 = await dispatchRun({ task: "x" });
+  test("defaults agentName to the bundled coder when omitted", async () => {
+    setBothStores(memoryStore());
+    let seen: string | undefined;
+    _setSpawnForTests(async (input) => {
+      seen = input.agentName;
+      return { subConversationId: "s", agentRunId: "r", taskId: "t", assignmentId: "a" };
+    });
+    // No agentName at all → bundled coder.
+    const r = await dispatchRun({ task: "Implement the feature" });
+    expect(r.isError).toBeFalsy();
+    expect(seen).toBe(DEFAULT_CODER_AGENT);
+  });
+
+  test("maps the 'coder' alias onto the bundled coder", async () => {
+    setBothStores(memoryStore());
+    let seen: string | undefined;
+    _setSpawnForTests(async (input) => {
+      seen = input.agentName;
+      return { subConversationId: "s", agentRunId: "r", taskId: "t", assignmentId: "a" };
+    });
+    const r = await dispatchRun({ agentName: "  Coder ", task: "go" });
+    expect(r.isError).toBeFalsy();
+    expect(seen).toBe(DEFAULT_CODER_AGENT);
+  });
+
+  test("passes an explicit non-alias agent name through verbatim", async () => {
+    setBothStores(memoryStore());
+    let seen: string | undefined;
+    _setSpawnForTests(async (input) => {
+      seen = input.agentName;
+      return { subConversationId: "s", agentRunId: "r", taskId: "t", assignmentId: "a" };
+    });
+    const r = await dispatchRun({ agentName: "Code Reviewer", task: "review" });
+    expect(r.isError).toBeFalsy();
+    expect(seen).toBe("Code Reviewer");
+  });
+
+  test("validates task (required) and agentName type", async () => {
+    // task missing → error even though agentName now defaults.
+    const r1 = await dispatchRun({});
     expect(r1.isError).toBe(true);
     const r2 = await dispatchRun({ agentName: "coder" });
     expect(r2.isError).toBe(true);
+    // agentName wrong type → error.
+    const r3 = await dispatchRun({ agentName: 42, task: "go" });
+    expect(r3.isError).toBe(true);
   });
 
   test("surfaces a spawn failure as a tool error", async () => {
@@ -1457,10 +1521,11 @@ describe("renderDashboard (production Storage round-trip) — SCOPE-aware", () =
     _setTaskStoreForTests({ read: async () => [], write: async () => {} });
     _setPushPageForTests(() => {});
 
-    // dispatch_run persists under USER scope.
-    await dispatchRun({ agentName: "coder", task: "go" });
+    // dispatch_run persists under USER scope. Omitting agentName resolves
+    // to the bundled coder, so the persisted record carries that name.
+    await dispatchRun({ task: "go" });
     expect(Array.isArray(saved["user:runs"])).toBe(true);
-    expect((saved["user:runs"] as RunRecord[])[0]!.agentName).toBe("coder");
+    expect((saved["user:runs"] as RunRecord[])[0]!.agentName).toBe(DEFAULT_CODER_AGENT);
     // GLOBAL scope was NOT written — the user run is private.
     expect(saved["global:runs"]).toBeUndefined();
 
