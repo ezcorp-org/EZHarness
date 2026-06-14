@@ -703,6 +703,70 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
       },
     },
   },
+  {
+    // ez-code — Warren-style control plane for ephemeral coding-agent
+    // runs. Declares an Extension Pages Hub dashboard plus five
+    // LLM-callable tools (dispatch/list/steer/cancel/open_pr) and a
+    // per-run action surface wired to its `ez-code:*` event allowlist.
+    //
+    // No bootSpawn: the extension ships tools AND on-action wiring, so
+    // it spawns lazily on first tool invocation / event dispatch — the
+    // standard bundled-extension pattern (only event-ONLY extensions
+    // with no tools/triggers need the boot-spawn flag).
+    //
+    // Not `critical`: it is NOT an agent loop-escape primitive
+    // (ask-user / task-tracking), so a version bump should follow the
+    // normal re-approval gate, not auto-reapprove.
+    //
+    // No `envEscapeHatch`: the only credential it touches is the user's
+    // `gh` CLI auth on the host — there is no credential-shaped env
+    // grant in its manifest (`*_API_KEY|TOKEN|SECRET`), so the install
+    // gate is not engaged.
+    name: "ez-code",
+    path: "docs/extensions/examples/ez-code",
+    permissions: {
+      spawnAgents: { maxPerHour: 30, maxConcurrent: 6 },
+      eventSubscriptions: [
+        "task:assignment_update",
+        "ez-code:steer",
+        "ez-code:cancel",
+        "ez-code:open-pr",
+      ],
+      appendMessages: { excludedDefault: true },
+      storage: true,
+      filesystem: ["$CWD"],
+      shell: true,
+      network: ["api.github.com"],
+      // Cron triggers. The manifest declares only `crons` /
+      // `maxRunsPerDay` / `purpose`; the manifest validator
+      // (`clampSchedulePermission`) fills the remaining grant fields
+      // with its DEFAULTS — `maxRunDurationMs: 300_000`,
+      // `missedRunPolicy: "fire-once"`, `maxRetries: 0`. The bundled
+      // grant + ceiling must BOTH carry the FULL schedule shape (all
+      // five fields), because `intersectPermissions` does
+      // `Math.min(a.schedule.maxRunDurationMs, b…)` etc. — an omitted
+      // field on either side yields `NaN`/undefined and the cron grant
+      // silently breaks. Mirroring the validator defaults keeps the
+      // intersection lossless (crons + maxRunsPerDay survive verbatim).
+      schedule: {
+        crons: ["0 * * * *", "0 9 * * *"],
+        maxRunsPerDay: 48,
+        maxRunDurationMs: 300_000,
+        missedRunPolicy: "fire-once",
+        maxRetries: 0,
+      },
+      grantedAt: {
+        spawnAgents: Date.now(),
+        eventSubscriptions: Date.now(),
+        appendMessages: Date.now(),
+        storage: Date.now(),
+        filesystem: Date.now(),
+        shell: Date.now(),
+        network: Date.now(),
+        schedule: Date.now(),
+      },
+    },
+  },
 ];
 
 /** Opt-OUT switches: each maps a bundled-extension name to the env var that

@@ -317,6 +317,43 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
     grantedAt: {},
   },
 
+  // ez-code — Warren-style control plane for ephemeral coding-agent
+  // runs. Mirrors the install grant in `bundled.ts` VERBATIM (the bound
+  // is "no widening allowed via compromise"). spawnAgents numeric
+  // ceiling matches the manifest declaration (30/hr, 6 concurrent);
+  // open_pr's `shell` + `api.github.com` network + `$CWD` filesystem are
+  // the headline branch→PR automation grants.
+  //
+  // SCHEDULE TRAP: `intersectPermissions` does `Math.min` on
+  // `schedule.maxRunDurationMs` / `maxRetries` and reads
+  // `missedRunPolicy`. The manifest validator defaults those to
+  // `300_000` / `0` / `"fire-once"`. This ceiling MUST carry the full
+  // five-field schedule (same values as the grant) so the intersection
+  // is lossless — otherwise `Math.min(NaN, …)` silently breaks the cron
+  // grant. crons + maxRunsPerDay (48) survive because both sides match.
+  "ez-code": {
+    spawnAgents: { maxPerHour: 30, maxConcurrent: 6 },
+    eventSubscriptions: [
+      "task:assignment_update",
+      "ez-code:steer",
+      "ez-code:cancel",
+      "ez-code:open-pr",
+    ],
+    appendMessages: { excludedDefault: true },
+    storage: true,
+    filesystem: ["$CWD"],
+    shell: true,
+    network: ["api.github.com"],
+    schedule: {
+      crons: ["0 * * * *", "0 9 * * *"],
+      maxRunsPerDay: 48,
+      maxRunDurationMs: 300_000,
+      missedRunPolicy: "fire-once",
+      maxRetries: 0,
+    },
+    grantedAt: {},
+  },
+
   // substack-pilot — MCP-driven Substack draft pilot. Spawns
   // `npx -y substack-mcp@latest` (shell), summarizes user-pasted URLs
   // (broad network), and consumes BYOK LLM credentials within tight
