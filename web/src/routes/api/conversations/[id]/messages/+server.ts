@@ -64,7 +64,21 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
     return json({ ...base, subConversationToolCalls });
   }
 
-  const leaf = await convQueries.getLatestLeaf(conversationId);
+  // Resolve the active leaf with capability-events treated as
+  // transparent (the same filter the chat UI's `computeLatestLeaf`
+  // applies). `capability-event` rows are inline annotations persisted
+  // root-level (null parent) with no children — so a run whose last
+  // activity was an auto-allowed tool call (every briefing fired with
+  // read-only watchlist tools, and normal chat after any auto-allowed
+  // tool) leaves a trailing root-level capability-event with the latest
+  // created_at. Without the filter `getLatestLeaf` picks THAT as the
+  // leaf, and `getConversationPath` from it walks a null parent → the
+  // bare endpoint returns ONLY the orphan capability-event and drops the
+  // entire user→assistant thread. Mirrors the message-create parent
+  // resolution below and `load-messages.ts#computeLatestLeaf`.
+  const leaf = await convQueries.getLatestLeaf(conversationId, {
+    excludeCapabilityEvents: true,
+  });
   if (!leaf) return json([]);
 
   return json(await convQueries.getConversationPath(leaf.id, conversationId));
