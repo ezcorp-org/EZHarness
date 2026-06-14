@@ -184,6 +184,12 @@ export async function reapproveBundledDrift(
     grantedPermissions: clamped,
     manifest: diskManifest,
     version: diskManifest.version,
+    // Sync the denormalized description column from disk too. The UI +
+    // extension list read the top-level `description` column, NOT the
+    // manifest jsonb — without this, a re-approval that pulls a new
+    // on-disk description leaves the row showing the old one forever
+    // (same denormalization gap fixed in the boot-refresh path).
+    description: diskManifest.description ?? "",
     enabled: true,
   });
   if (!updated) {

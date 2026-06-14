@@ -87,6 +87,7 @@ mock.module("../db/queries/audit-log", () => ({
 interface StoredExtension {
   id: string;
   name: string;
+  description?: string;
   manifest: unknown;
   installPath: string;
   enabled: boolean;
@@ -146,6 +147,10 @@ function seedStaleWebSearch(): StoredExtension {
   const row: StoredExtension = {
     id: "seed-web-search",
     name: "web-search",
+    // Denormalized column carries the STALE description — the live
+    // repro was the UI showing "Keyless by default (Jina AI)" while the
+    // disk manifest had moved on to SearXNG. Reapprove must sync it.
+    description: "stale pre-zero-setup release",
     enabled: true,
     isBundled: true,
     installPath: "docs/extensions/examples/web-search",
@@ -210,6 +215,13 @@ describe("bundled drift re-approval", () => {
     const manifest = row.manifest as ExtensionManifestV2;
     expect(row.version).toBe("1.0.0");
     expect(manifest.version).toBe("1.0.0");
+    // D3 — the denormalized `description` column syncs from the disk
+    // manifest (the UI reads the column, not the jsonb). The stale
+    // "Keyless by default (Jina AI)"-era text is gone; the SearXNG
+    // description is in place.
+    expect(row.description).not.toBe("stale pre-zero-setup release");
+    expect(row.description).toBe(manifest.description);
+    expect(row.description).toContain("SearXNG sidecar");
     expect(manifest.permissions?.network).toContain("searxng");
     expect(Array.isArray(manifest.tools)).toBe(true); // tool snapshot present
     expect(row.enabled).toBe(true);

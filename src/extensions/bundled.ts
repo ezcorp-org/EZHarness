@@ -822,6 +822,12 @@ export async function ensureBundledExtensions(): Promise<void> {
             existing.id,
             existing.manifest as ExtensionManifestV2,
             (existing as { grantedPermissions?: ExtensionPermissions }).grantedPermissions,
+            // D4 — a row that's ALREADY disabled-pending-reapproval has
+            // already had its drift warned + audited on the transition
+            // boot. Pass that signal so the redundant fail-closed WARN +
+            // audit re-write is demoted to a single info line on every
+            // subsequent boot instead of re-spamming.
+            existing.enabled === false,
           );
         } catch (driftErr) {
           // Drift detection must never block startup — log and continue.
@@ -914,6 +920,10 @@ export async function ensureBundledExtensions(): Promise<void> {
                 await updateExtension(existing.id, {
                   enabled: true,
                   version: diskManifest.version,
+                  // Sync the denormalized description column too — same
+                  // gap as the normal refresh path (the UI reads the
+                  // column, not the manifest jsonb).
+                  description: diskManifest.description ?? "",
                   manifest: refreshed,
                 });
                 await writeCriticalAutoReapprovalAudit(
@@ -954,10 +964,27 @@ export async function ensureBundledExtensions(): Promise<void> {
           }
           // Skip the re-enable branch below: a version bump with
           // permission changes must fail-closed until re-approved.
-          log.warn("Bundled extension version bumped with permission changes — disabled pending re-approval", {
-            name: entry.name,
-          });
-          await updateExtension(existing.id, { enabled: false });
+          //
+          // D4 — idempotent on already-disabled rows. The FIRST boot that
+          // detects the drift warns + disables (the transition). On every
+          // SUBSEQUENT boot the row is ALREADY `enabled=false` and still
+          // drifted; re-warning + re-writing `enabled:false` is pure spam
+          // (the live host re-logged this for ~10 extensions on every
+          // boot). When already disabled, demote to a single info-level
+          // line (same diff payload, so admins can still find it) and skip
+          // the redundant write. The first transition's behavior is
+          // unchanged.
+          if (existing.enabled) {
+            log.warn("Bundled extension version bumped with permission changes — disabled pending re-approval", {
+              name: entry.name,
+            });
+            await updateExtension(existing.id, { enabled: false });
+          } else {
+            log.info("Bundled extension still drifted — already disabled pending re-approval (no change)", {
+              name: entry.name,
+              extensionId: existing.id,
+            });
+          }
           continue;
         }
 
@@ -1012,11 +1039,29 @@ export async function ensureBundledExtensions(): Promise<void> {
           };
           const currentJson = JSON.stringify(existing.manifest);
           const refreshedJson = JSON.stringify(refreshed);
-          if (currentJson !== refreshedJson) {
-            await updateExtension(existing.id, { manifest: refreshed });
+          // Sync the DENORMALIZED row columns (`description`, `version`)
+          // from the disk manifest too. The UI + extension list read the
+          // top-level `description`/`version` columns, NOT the manifest
+          // jsonb — without this, a manifest description edit (e.g.
+          // web-search "Keyless by default (Jina AI)" → SearXNG) refreshed
+          // the jsonb but left the column stale forever. `version` is
+          // gated upstream by S9 for permission/tool changes; a pure
+          // cosmetic version bump reaches here and must also sync.
+          const diskDescription = diskManifest.description ?? "";
+          const diskVersion = diskManifest.version;
+          const descStale = existing.description !== diskDescription;
+          const versionStale = existing.version !== diskVersion;
+          if (currentJson !== refreshedJson || descStale || versionStale) {
+            await updateExtension(existing.id, {
+              manifest: refreshed,
+              description: diskDescription,
+              version: diskVersion,
+            });
             log.info("Refreshed bundled extension manifest from disk", {
               name: entry.name,
               extensionId: existing.id,
+              ...(descStale ? { descriptionSynced: true } : {}),
+              ...(versionStale ? { versionSynced: true } : {}),
             });
           }
         } catch (refreshErr) {
@@ -1294,6 +1339,16 @@ async function detectAndLogManifestDrift(
   extensionId: string,
   dbManifest: ExtensionManifestV2,
   dbGranted?: ExtensionPermissions,
+  /**
+   * D4 — when the row is ALREADY disabled-pending-reapproval, its drift
+   * was warned + audited on the transition boot. On subsequent boots we
+   * demote the fail-closed WARN to a single info line and skip the
+   * redundant per-field audit re-write so ~10 disabled bundled rows stop
+   * re-spamming the log every boot. The auto-heal branches
+   * (eventSubscriptions / appendMessages) still run unconditionally —
+   * those are healing, not spam.
+   */
+  alreadyDisabled = false,
 ): Promise<void> {
   const diskDir = join(getProjectRoot(), entry.path);
   let diskManifest: ExtensionManifestV2;
@@ -1326,27 +1381,39 @@ async function detectAndLogManifestDrift(
   }
 
   if (diffs.length > 0) {
-    log.warn("Bundled extension manifest permissions drifted — DB grant unchanged (fail-closed)", {
-      name: entry.name,
-      extensionId,
-      diffs,
-    });
-    // Best-effort audit log — a durable record for post-hoc review.
-    try {
-      for (const f of fields) {
-        const oldValue = dbPerms[f];
-        const newValue = diskPerms[f];
-        if (JSON.stringify(oldValue) === JSON.stringify(newValue)) continue;
-        const meta: ExtensionAuditMetadata = {
-          permission: f,
-          oldValue,
-          newValue,
-          actor: "system",
-          reason: "bundled-manifest-drifted: on-disk declaration diverges from DB",
-        };
-        await insertAuditEntry(null, EXT_AUDIT_ACTIONS.MANIFEST_DRIFTED, extensionId, meta);
-      }
-    } catch { /* audit write failure is non-fatal — the WARN is the primary signal */ }
+    if (alreadyDisabled) {
+      // D4 — subsequent boot of an already-disabled, still-drifted row.
+      // Same diff payload so an admin can still find it, but at info
+      // level and with no audit re-write (the transition boot already
+      // wrote the MANIFEST_DRIFTED rows).
+      log.info("Bundled extension still drifted — already disabled, DB grant unchanged (no re-audit)", {
+        name: entry.name,
+        extensionId,
+        diffs,
+      });
+    } else {
+      log.warn("Bundled extension manifest permissions drifted — DB grant unchanged (fail-closed)", {
+        name: entry.name,
+        extensionId,
+        diffs,
+      });
+      // Best-effort audit log — a durable record for post-hoc review.
+      try {
+        for (const f of fields) {
+          const oldValue = dbPerms[f];
+          const newValue = diskPerms[f];
+          if (JSON.stringify(oldValue) === JSON.stringify(newValue)) continue;
+          const meta: ExtensionAuditMetadata = {
+            permission: f,
+            oldValue,
+            newValue,
+            actor: "system",
+            reason: "bundled-manifest-drifted: on-disk declaration diverges from DB",
+          };
+          await insertAuditEntry(null, EXT_AUDIT_ACTIONS.MANIFEST_DRIFTED, extensionId, meta);
+        }
+      } catch { /* audit write failure is non-fatal — the WARN is the primary signal */ }
+    }
   }
 
   // ── eventSubscriptions auto-heal branch ──────────────────────────
