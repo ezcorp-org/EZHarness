@@ -145,15 +145,26 @@ describe("installFromLocal", () => {
     await expect(installFromLocal(extDir, defaultPerms)).rejects.toThrow(/Invalid manifest/);
   });
 
-  test("failure: no entrypoint in manifest", async () => {
+  test("success: entrypoint-less (agent-kind) manifest installs cleanly", async () => {
+    // Regression for the bundled-boot defect: agent-/skill-kind manifests
+    // have no entrypoint by design and must install cleanly rather than
+    // throwing "Cannot install extension without entrypoint" on every boot.
     const extDir = join(tempBase, "no-entrypoint");
     await mkdir(extDir, { recursive: true });
-    const manifest = makeManifest({ name: "no-ep", entrypoint: undefined, tools: undefined });
+    const manifest = makeManifest({
+      name: "no-ep",
+      entrypoint: undefined,
+      tools: undefined,
+      agent: { prompt: "You are a helpful assistant." },
+    });
     await writeConfig(extDir, manifest);
 
-    await expect(installFromLocal(extDir, defaultPerms)).rejects.toThrow(
-      /Cannot install extension without entrypoint/,
-    );
+    const result = await installFromLocal(extDir, defaultPerms, true);
+    expect(result.name).toBe("no-ep");
+    expect(result.enabled).toBe(true);
+    // No entrypoint → no entrypoint checksum, checksumVerified false.
+    expect(result.manifest.checksum).toBeUndefined();
+    expect(result.checksumVerified).toBe(false);
   });
 });
 
@@ -388,8 +399,16 @@ describe("installFromGitHub", () => {
     );
   });
 
-  test("failure: no entrypoint in manifest", async () => {
-    const manifest = makeManifest({ name: "no-ep-gh", entrypoint: undefined, tools: undefined });
+  test("success: entrypoint-less (agent-kind) manifest installs cleanly", async () => {
+    // Regression for the bundled-boot defect — agent-kind manifests have
+    // no entrypoint and must install via the GitHub path too rather than
+    // throwing "Cannot install extension without entrypoint".
+    const manifest = makeManifest({
+      name: "no-ep-gh",
+      entrypoint: undefined,
+      tools: undefined,
+      agent: { prompt: "You are a helpful assistant." },
+    });
     const srcDir = join(tempBase, "tar-no-ep", manifest.name);
     await mkdir(srcDir, { recursive: true });
     await writeConfig(srcDir, manifest);
@@ -404,9 +423,10 @@ describe("installFromGitHub", () => {
       tarballPath: tarPath,
     });
 
-    await expect(installFromGitHub("testuser/testrepo@v1.0.0", defaultPerms)).rejects.toThrow(
-      /Cannot install extension without entrypoint/,
-    );
+    const result = await installFromGitHub("testuser/testrepo@v1.0.0", defaultPerms);
+    expect(result.name).toBe("no-ep-gh");
+    expect(result.manifest.checksum).toBeUndefined();
+    expect(result.checksumVerified).toBe(false);
   });
 
   test("failure: checksum mismatch", async () => {

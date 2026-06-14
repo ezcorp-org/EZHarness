@@ -185,9 +185,13 @@ describe("installFromLocal — v2 validation", () => {
     await expect(installFromLocal(dir, defaultPermissions)).rejects.toThrow();
   });
 
-  test("agent-only manifest (no tools, no entrypoint) fails install due to missing entrypoint", async () => {
-    // validateManifestV2 passes for agent-only (no tools = no entrypoint requirement)
-    // but installFromLocal throws "Cannot install extension without entrypoint"
+  test("agent-only manifest (no tools, no entrypoint) installs cleanly", async () => {
+    // validateManifestV2 passes for agent-only (no tools = no entrypoint
+    // requirement). The installer must mirror the validator: an
+    // entrypoint-less, valid manifest installs cleanly with no checksum.
+    // Regression for the bundled-boot defect where `research-agent` /
+    // `multi-agent-orchestrator` failed install every boot with
+    // "Cannot install extension without entrypoint".
     const agentManifest: Record<string, unknown> = {
       schemaVersion: 2,
       name: "agent-only",
@@ -205,13 +209,15 @@ describe("installFromLocal — v2 validation", () => {
     const validation = validateManifestV2(agentManifest);
     expect(validation.valid).toBe(true);
 
-    // But installer requires entrypoint for all installs currently
     const dir = await mkdtemp(join(tmpdir(), "ext-v2-agent-"));
     await writeConfig(dir, agentManifest);
 
-    await expect(installFromLocal(dir, defaultPermissions)).rejects.toThrow(
-      /Cannot install extension without entrypoint/,
-    );
+    const result = await installFromLocal(dir, defaultPermissions);
+    expect(result.name).toBe("agent-only");
+    expect(result.source).toBe(`local:${dir}`);
+    // No entrypoint → no entrypoint checksum recorded, checksumVerified false.
+    expect((result.manifest as { checksum?: string }).checksum).toBeUndefined();
+    expect(lastCreateCall?.checksumVerified).toBe(false);
   });
 
   test("multiple validation errors are joined", async () => {

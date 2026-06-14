@@ -215,12 +215,20 @@ export async function installFromLocal(
   // for pre-install validation — see `InstallFromLocalOpts.preloadedManifest`.
   const manifest = opts.preloadedManifest ?? (await loadManifest(localPath));
 
-  // Compute checksum of entrypoint (entrypoint may be optional in v2 for non-tool packages)
-  if (!manifest.entrypoint) {
-    throw new Error("Cannot install extension without entrypoint");
-  }
-  const entrypointPath = join(localPath, manifest.entrypoint.replace(/^\.\//, ""));
-  const checksum = await computeChecksum(entrypointPath);
+  // Compute checksum of the entrypoint when one is declared. The
+  // entrypoint is OPTIONAL in v2 for non-tool packages (agent-/skill-kind
+  // manifests have no subprocess to run) — `validateManifestV2` only
+  // *requires* an entrypoint when `tools[]` is declared. The old
+  // unconditional `Cannot install extension without entrypoint` throw here
+  // mismatched the validator and broke the bundled agent-kind extensions
+  // (`research-agent`, `multi-agent-orchestrator`) on every boot. Mirror
+  // `installFromGit`'s conditional-checksum logic: hash the entrypoint
+  // only if present, leave `checksum` undefined otherwise.
+  const checksum = manifest.entrypoint
+    ? await computeChecksum(
+        join(localPath, manifest.entrypoint.replace(/^\.\//, "")),
+      )
+    : undefined;
 
   // Compute full-package checksums
   const packageChecksums = await computePackageChecksums(localPath);
@@ -259,7 +267,7 @@ export async function installFromLocal(
         description: manifest.description || "",
         manifest: { ...manifest, checksum, packageChecksums, packageChecksumsAlgo: PACKAGE_CHECKSUM_ALGO },
         installPath: localPath,
-        checksumVerified: true,
+        checksumVerified: !!checksum,
       });
       // Registry must observe the refreshed manifest (tool schema fixes
       // etc.). Swallow reload failures the same way the other install
@@ -309,7 +317,7 @@ export async function installFromLocal(
     installPath: localPath,
     enabled,
     grantedPermissions,
-    checksumVerified: true,
+    checksumVerified: !!checksum,
     consecutiveFailures: 0,
     // NULL unless the authored-install path supplied it (bundled/
     // github/mcp/CLI leave it NULL → never user-modifiable).
@@ -401,18 +409,20 @@ export async function installFromGitHub(
     // inside `checkEnvKeyLeakInstallGate`.
     await runEnvKeyLeakInstallGate(manifest, { isBundled: false });
 
-    // Verify checksum if provided
-    if (!manifest.entrypoint) {
-      throw new Error("Cannot install extension without entrypoint");
+    // Verify + compute the entrypoint checksum when one is declared.
+    // Entrypoint is optional for non-tool packages (agent-/skill-kind) —
+    // mirror `installFromLocal` / `installFromGit` and skip the checksum
+    // step entirely rather than failing closed on a valid entrypoint-less
+    // manifest.
+    let checksum: string | undefined;
+    if (manifest.entrypoint) {
+      const entrypointPath = join(manifestDir, manifest.entrypoint.replace(/^\.\//, ""));
+      if (manifest.checksum) {
+        const valid = await verifyChecksum(entrypointPath, manifest.checksum);
+        if (!valid) throw new Error("Checksum mismatch: entrypoint file does not match manifest checksum");
+      }
+      checksum = await computeChecksum(entrypointPath);
     }
-    const entrypointPath = join(manifestDir, manifest.entrypoint.replace(/^\.\//, ""));
-    if (manifest.checksum) {
-      const valid = await verifyChecksum(entrypointPath, manifest.checksum);
-      if (!valid) throw new Error("Checksum mismatch: entrypoint file does not match manifest checksum");
-    }
-
-    // Compute checksum for storage
-    const checksum = await computeChecksum(entrypointPath);
 
     // Copy to persistent install directory. Fail loudly — no silent fallback:
     // if this fails, the later temp-dir cleanup would leave a broken install.
