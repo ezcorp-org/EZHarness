@@ -35,6 +35,8 @@ import {
   JsonRpcError,
   Lessons,
   Llm,
+  LlmCredentialError,
+  LlmProviderError,
   registerEventHandler,
   toolError,
   toolResult,
@@ -107,7 +109,22 @@ export type DistillationOutcome =
   | { kind: "decline"; reason: "llm_empty" }
   | { kind: "decline"; reason: "llm_malformed"; detail: string }
   | { kind: "error"; reason: "db_error"; detail: string }
-  | { kind: "error"; reason: "llm_error"; detail: string }
+  | {
+      kind: "error";
+      reason: "llm_error";
+      detail: string;
+      /**
+       * Soft classification of the LLM failure so callers can degrade
+       * fail-soft. `"unavailable"` marks a provider/credential-class
+       * failure (no credential, provider not granted) — the distiller's
+       * model isn't usable on this instance, so the `run:complete`
+       * listener warns ONCE (not error-spam) and skips cleanly rather
+       * than re-failing the same credential-less call on every run.
+       * `"transient"` is everything else (upstream 5xx, timeout) — worth
+       * a retry next run, not worth a startup warning.
+       */
+      cause: "unavailable" | "transient";
+    }
   | { kind: "error"; reason: "internal"; detail: string };
 
 interface DistilledLesson {
@@ -275,6 +292,32 @@ export function _resetRuntimeApiForTests(): void {
   runtimeApi = { ..._realRuntimeApi };
 }
 
+// ── LLM-failure classification ──────────────────────────────────────
+//
+// Provider/credential-class failures (`LlmCredentialError`,
+// `LlmProviderError`) mean the distiller's configured model is not
+// usable on THIS instance — e.g. the default `google` /
+// `gemini-2.0-flash-lite` with no GOOGLE/GEMINI credential configured.
+// These are a deployment-config condition, not a transient blip, so we
+// degrade fail-soft: skip distillation and warn exactly once instead of
+// re-failing (and re-spamming) the identical credential-less call on
+// every `run:complete`. Everything else is treated as transient.
+function classifyLlmError(err: unknown): "unavailable" | "transient" {
+  if (err instanceof LlmCredentialError || err instanceof LlmProviderError) {
+    return "unavailable";
+  }
+  return "transient";
+}
+
+function llmErrorOutcome(err: unknown): DistillationOutcome {
+  return {
+    kind: "error",
+    reason: "llm_error",
+    detail: (err as Error).message,
+    cause: classifyLlmError(err),
+  };
+}
+
 // ── Pure JSON parser (mirrors legacy lines 305-341) ─────────────────
 function parseLessonJson(rawText: string): { ok: true; lesson: DistilledLesson } | { ok: false; outcome: DistillationOutcome } {
   let jsonText = rawText.trim();
@@ -386,7 +429,7 @@ export async function distill(opts: DistillOptions): Promise<DistillationOutcome
     });
     llmText = completion.content;
   } catch (err) {
-    return { kind: "error", reason: "llm_error", detail: (err as Error).message };
+    return llmErrorOutcome(err);
   }
 
   const parsed = parseLessonJson(llmText);
@@ -485,10 +528,16 @@ export async function handleRunComplete(payload: { run?: unknown; conversationId
     return;
   }
 
-  // Run distillation. Outcome is intentionally discarded — decline +
-  // error stay silent for the listener contract; the host-side audit
-  // row records what happened.
-  await distill({
+  // Run distillation. Decline outcomes stay silent (the listener
+  // contract is fire-and-forget; the host-side audit row records what
+  // happened). The ONE exception is a provider/credential-class LLM
+  // failure: that means the configured distiller model is unusable on
+  // this instance (e.g. default google/gemini-2.0-flash-lite with no
+  // Google credential). We degrade fail-soft — warn ONCE per process
+  // with actionable text and skip cleanly — rather than re-failing the
+  // identical credential-less call (and re-spamming the host log) on
+  // every run:complete.
+  const outcome = await distill({
     conversationId,
     skipTriggerGate: false,
     settings: {
@@ -496,7 +545,50 @@ export async function handleRunComplete(payload: { run?: unknown; conversationId
       model: settings.model as string | undefined,
     },
     projectId,
-  }).catch(() => undefined);
+  }).catch((err): DistillationOutcome => llmErrorOutcome(err));
+
+  if (
+    outcome.kind === "error" &&
+    outcome.reason === "llm_error" &&
+    outcome.cause === "unavailable"
+  ) {
+    warnDistillerModelUnavailableOnce(
+      resolveProviderModel(
+        settings.provider as string | undefined,
+        settings.model as string | undefined,
+      ),
+      outcome.detail,
+    );
+  }
+}
+
+// ── Fail-soft "model unavailable" warning (deduped per process) ──────
+//
+// Provider/credential-class LLM failures repeat identically on every
+// run until the operator configures a credential, so we warn at most
+// once per (provider, model) per process. info/warn level only — this
+// is a config nudge, NOT an error, so it must not error-spam the logs.
+const _warnedUnavailableModels = new Set<string>();
+
+/** Test-only — clear the dedupe set so each test starts fresh. */
+export function _resetDistillerModelWarningForTests(): void {
+  _warnedUnavailableModels.clear();
+}
+
+function warnDistillerModelUnavailableOnce(
+  resolved: { provider: string; model: string },
+  detail: string,
+): void {
+  const key = `${resolved.provider}/${resolved.model}`;
+  if (_warnedUnavailableModels.has(key)) return;
+  _warnedUnavailableModels.add(key);
+  console.warn(
+    `[lessons-distiller] distillation skipped — model "${resolved.model}" ` +
+      `(provider "${resolved.provider}") is unavailable on this instance: ${detail}. ` +
+      `Configure a credential for "${resolved.provider}", or set the ` +
+      `lessons-distiller "provider"/"model" settings to a configured ` +
+      `provider. This warning is shown once per server start.`,
+  );
 }
 
 // ── Tool dispatcher (distill_now) ───────────────────────────────────
@@ -599,7 +691,7 @@ async function distillFromMessages(opts: DistillOptions & { messages: RuntimeMes
     });
     llmText = completion.content;
   } catch (err) {
-    return { kind: "error", reason: "llm_error", detail: (err as Error).message };
+    return llmErrorOutcome(err);
   }
 
   const parsed = parseLessonJson(llmText);
