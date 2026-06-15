@@ -4,12 +4,19 @@
  *   2. Admin entry (with "admin" badge) appears for admin users
  *   3. Active item derives from page.url.pathname (aria-current)
  *   4. Nested audit route highlights the Audit Log child, not Admin
+ *   5. Search filter narrows the nav; Enter navigates to the top match;
+ *      admin matches stay hidden for members
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, waitFor } from "@testing-library/svelte";
+import { render, fireEvent, waitFor } from "@testing-library/svelte";
 import { createRawSnippet } from "svelte";
 import { page } from "$app/state";
+import { goto } from "$app/navigation";
 import Layout from "../routes/(app)/settings/+layout.svelte";
+
+const gotoMock = vi.mocked(goto);
+
+vi.mock("$app/navigation", () => ({ goto: vi.fn() }));
 
 const children = createRawSnippet(() => ({
 	render: () => `<div data-testid="layout-children">content</div>`,
@@ -37,7 +44,10 @@ function setPath(pathname: string) {
 	page.url = { pathname, search: "", href: `http://localhost${pathname}` } as unknown as typeof page.url;
 }
 
-beforeEach(() => setPath("/settings/models"));
+beforeEach(() => {
+	setPath("/settings/models");
+	gotoMock.mockClear();
+});
 afterEach(() => vi.unstubAllGlobals());
 
 describe("settings layout nav", () => {
@@ -97,5 +107,76 @@ describe("settings layout nav", () => {
 		await waitFor(() => {
 			expect(queryByTestId("settings-nav-admin")).not.toBeInTheDocument();
 		});
+	});
+});
+
+describe("settings layout search filter", () => {
+	test("typing narrows the visible nav entries", async () => {
+		stubMe("member");
+		const { getByTestId, queryByTestId } = render(Layout, { props: { children } });
+
+		await fireEvent.input(getByTestId("settings-nav-search"), { target: { value: "provider" } });
+
+		// "provider" is an anchor of Models & Providers only.
+		expect(getByTestId("settings-nav-models")).toBeInTheDocument();
+		expect(queryByTestId("settings-nav-personalization")).not.toBeInTheDocument();
+		expect(queryByTestId("settings-nav-developer")).not.toBeInTheDocument();
+	});
+
+	test("no match shows the empty state", async () => {
+		stubMe("member");
+		const { getByTestId, queryByTestId } = render(Layout, { props: { children } });
+
+		await fireEvent.input(getByTestId("settings-nav-search"), { target: { value: "zzz-nope" } });
+
+		expect(getByTestId("settings-nav-empty")).toBeInTheDocument();
+		expect(queryByTestId("settings-nav-models")).not.toBeInTheDocument();
+	});
+
+	test("Enter navigates to the top match", async () => {
+		stubMe("member");
+		const { getByTestId } = render(Layout, { props: { children } });
+
+		const input = getByTestId("settings-nav-search");
+		await fireEvent.input(input, { target: { value: "personal" } });
+		await fireEvent.keyDown(input, { key: "Enter" });
+
+		expect(gotoMock).toHaveBeenCalledWith("/settings/personalization");
+	});
+
+	test("Enter is a no-op when there is no match", async () => {
+		stubMe("member");
+		const { getByTestId } = render(Layout, { props: { children } });
+
+		const input = getByTestId("settings-nav-search");
+		await fireEvent.input(input, { target: { value: "zzz-nope" } });
+		await fireEvent.keyDown(input, { key: "Enter" });
+
+		expect(gotoMock).not.toHaveBeenCalled();
+	});
+
+	test("admin-only matches stay hidden for members", async () => {
+		stubMe("member");
+		const { getByTestId, queryByTestId } = render(Layout, { props: { children } });
+
+		// Let /api/auth/me resolve so isAdmin settles to false.
+		await waitFor(() => expect(queryByTestId("settings-nav-admin")).not.toBeInTheDocument());
+
+		// "teams" only matches the admin entry → empty for members.
+		await fireEvent.input(getByTestId("settings-nav-search"), { target: { value: "teams" } });
+
+		expect(getByTestId("settings-nav-empty")).toBeInTheDocument();
+		expect(queryByTestId("settings-nav-admin")).not.toBeInTheDocument();
+	});
+
+	test("admin sees admin matches when filtering", async () => {
+		stubMe("admin");
+		const { getByTestId } = render(Layout, { props: { children } });
+
+		await waitFor(() => expect(getByTestId("settings-nav-admin")).toBeInTheDocument());
+
+		await fireEvent.input(getByTestId("settings-nav-search"), { target: { value: "teams" } });
+
+		expect(getByTestId("settings-nav-admin")).toBeInTheDocument();
 	});
 });
