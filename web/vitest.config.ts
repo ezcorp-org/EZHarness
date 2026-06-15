@@ -29,6 +29,15 @@ export default defineConfig({
 			"$app/environment": resolve(__dirname, "src/__tests__/stubs/app-environment.ts"),
 			$app: resolve(__dirname, ".svelte-kit/runtime/app"),
 			$server: resolve(__dirname, "../src"),
+			// The server-context import chain transitively imports `bun:ffi`
+			// (sandbox/landlock-ffi.ts). Under vitest's jsdom env that Bun
+			// builtin can be neither bundled nor resolved on Node, breaking
+			// every `*.server.test.ts` at LOAD time. Alias it to a stub that
+			// satisfies module-eval (FFIType members) and throws if its FFI
+			// functions are ever actually called — they never are in these
+			// tests; real Landlock runs only in the Bun runtime shim. Keeps the
+			// sandbox security code untouched.
+			"bun:ffi": resolve(__dirname, "src/__tests__/stubs/bun-ffi.ts"),
 		},
 	},
 	test: {
