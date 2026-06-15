@@ -7,6 +7,7 @@ const {
   createUser,
   getUserByEmail,
   getUserById,
+  getUsersByIds,
   listUsers,
   updateUserStatus,
   updateUserPassword,
@@ -79,6 +80,33 @@ describe("users queries", () => {
   test("getUserById returns undefined for missing id", async () => {
     const result = await getUserById(crypto.randomUUID());
     expect(result).toBeUndefined();
+  });
+
+  describe("getUsersByIds (batched)", () => {
+    test("returns an empty map for an empty id list (no query)", async () => {
+      const result = await getUsersByIds([]);
+      expect(result.size).toBe(0);
+    });
+
+    test("maps every id to its user, missing ids to null", async () => {
+      const a = await createUser({ email: "ba@test.com", passwordHash: "h", name: "BA" });
+      const b = await createUser({ email: "bb@test.com", passwordHash: "h", name: "BB" });
+      const ghost = crypto.randomUUID();
+
+      const result = await getUsersByIds([a.id, b.id, ghost]);
+      expect(result.size).toBe(3);
+      expect(result.get(a.id)!.email).toBe("ba@test.com");
+      expect(result.get(b.id)!.name).toBe("BB");
+      expect(result.get(ghost)).toBeNull();
+    });
+
+    test("dedupes the IN list but keys the map by every input id (incl. duplicates)", async () => {
+      const a = await createUser({ email: "dup@test.com", passwordHash: "h", name: "Dup" });
+      const result = await getUsersByIds([a.id, a.id]);
+      // Duplicate input id collapses to a single map key, still resolved.
+      expect(result.size).toBe(1);
+      expect(result.get(a.id)!.id).toBe(a.id);
+    });
   });
 
   test("listUsers returns all users", async () => {

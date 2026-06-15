@@ -20,6 +20,7 @@
   "src/db/queries/message-embed-outbox.ts": 95,
   "scripts/backfill-embeddings.ts": 95,
   "src/db/queries/message-search.ts": 100,
+  "src/db/queries/users.ts": 95,
   "src/db/queries/sql-interval.ts": 100,
   "src/db/queries/extension-settings.ts": 100,
   "src/db/queries/feature-classifications.ts": 100,

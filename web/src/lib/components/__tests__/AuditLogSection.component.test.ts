@@ -177,6 +177,35 @@ describe("AuditLogSection", () => {
 		}
 	});
 
+	test("clears the live-tick interval on unmount (no ticking after destroy)", async () => {
+		vi.useFakeTimers();
+		const clearSpy = vi.spyOn(globalThis, "clearInterval");
+		try {
+			const thirtySecAgo = new Date(Date.now() - 30_000).toISOString();
+			stubFetch([
+				{ id: "u1", userId: "u1", action: "auth:login", target: null, metadata: null, createdAt: thirtySecAgo },
+			]);
+			const { getByTestId, unmount } = render(AuditLogSection);
+
+			await vi.waitFor(() => {
+				expect(getByTestId("audit-group-u1")).toBeInTheDocument();
+			});
+			const label = getByTestId("audit-group-u1").querySelector("td[title]")?.textContent?.trim();
+			expect(label).toBe("30s ago");
+
+			unmount();
+			// onDestroy must have torn down the 60s interval.
+			expect(clearSpy).toHaveBeenCalled();
+
+			// And no further tick fires after teardown: advancing well past
+			// the 60s boundary throws nothing and updates no detached node.
+			await vi.advanceTimersByTimeAsync(120_000);
+		} finally {
+			clearSpy.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
 	test("mobile audit card expands to show pretty JSON; collapses on second tap", async () => {
 		stubFetch(loginRun());
 		const { getByTestId, queryByTestId } = render(AuditLogSection);
