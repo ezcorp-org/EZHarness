@@ -164,5 +164,31 @@ describe("GET /api/users", () => {
 			const res = await GET(makeEvent({ search: "?limit=10&offset=-1", locals: admin }));
 			expect(res.status).toBe(400);
 		});
+
+		// `Number()` coerces these non-decimal forms (1e2→100, 0x10→16),
+		// which would silently widen the page / shift the window. The
+		// strict `/^\d+$/` guard rejects them before they reach the query.
+		test("400 on scientific-notation limit (1e2)", async () => {
+			const res = await GET(makeEvent({ search: "?limit=1e2", locals: admin }));
+			expect(res.status).toBe(400);
+			expect(((await res.json()) as { error: string }).error).toMatch(/limit/);
+			expect(listUsersPage).not.toHaveBeenCalled();
+		});
+
+		test("400 on hex offset (0x10)", async () => {
+			const res = await GET(makeEvent({ search: "?limit=10&offset=0x10", locals: admin }));
+			expect(res.status).toBe(400);
+			expect(((await res.json()) as { error: string }).error).toMatch(/offset/);
+			expect(listUsersPage).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("q normalization", () => {
+		// A padded real query must survive trimming (not be dropped as
+		// blank): the surrounding spaces go, the term itself is forwarded.
+		test("trims surrounding whitespace but keeps a real query", async () => {
+			await GET(makeEvent({ search: "?limit=10&q=%20alice%20", locals: admin }));
+			expect(listUsersPage).toHaveBeenCalledWith({ limit: 10, offset: 0, q: "alice" });
+		});
 	});
 });

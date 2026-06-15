@@ -71,10 +71,22 @@ export interface ListUsersPageResult {
  * assumed pre-validated by the caller (the route clamps them); this
  * query trusts them. Ordered by name for a stable page sequence.
  */
+/**
+ * Escape LIKE metacharacters in user-supplied filter text so they match
+ * literally. `%` (any run) and `_` (any single char) are SQL LIKE
+ * wildcards; without escaping, a query like `a_b` would also match
+ * `axb`. We escape the backslash first (it's our ESCAPE char) so a
+ * literal `\` in the input can't smuggle past the other two.
+ */
+function escapeLikePattern(raw: string): string {
+  return raw.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 export async function listUsersPage(opts: ListUsersPageOpts): Promise<ListUsersPageResult> {
   const db = getDb();
-  const where = opts.q
-    ? sql`(lower(${users.name}) LIKE ${`%${opts.q.toLowerCase()}%`} OR lower(${users.email}) LIKE ${`%${opts.q.toLowerCase()}%`})`
+  const pattern = opts.q ? `%${escapeLikePattern(opts.q.toLowerCase())}%` : undefined;
+  const where = pattern
+    ? sql`(lower(${users.name}) LIKE ${pattern} ESCAPE '\\' OR lower(${users.email}) LIKE ${pattern} ESCAPE '\\')`
     : undefined;
 
   const countRows = await db

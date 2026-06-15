@@ -29,6 +29,15 @@ beforeAll(async () => {
       role: "member",
     });
   }
+  // LIKE-metacharacter fixtures: one user whose name contains a literal
+  // underscore (`a_b`) and one where the underscore-slot is a different
+  // char (`axb`). If `_` were treated as a wildcard, a `q=a_b` search
+  // would match BOTH; with escaping it matches only the literal `a_b`.
+  await createUser({ email: "lit-underscore@page-test.local", passwordHash: "hashed", name: "a_b literal", role: "member" });
+  await createUser({ email: "wildcard-trap@page-test.local", passwordHash: "hashed", name: "axb decoy", role: "member" });
+  // A user whose name contains a literal `%` — `q=50%` must not match
+  // every row via the `%` any-run wildcard.
+  await createUser({ email: "percent@page-test.local", passwordHash: "hashed", name: "50% complete", role: "member" });
 });
 
 afterAll(async () => {
@@ -36,16 +45,19 @@ afterAll(async () => {
 });
 
 describe("listUsersPage", () => {
+  // 20 "Member NN" + 5 "Alice" + 3 LIKE-metacharacter fixtures = 28.
+  const TOTAL = 28;
+
   test("returns total = full set and a window of `limit` rows", async () => {
     const { users, total } = await listUsersPage({ limit: 10, offset: 0 });
-    expect(total).toBe(25);
+    expect(total).toBe(TOTAL);
     expect(users).toHaveLength(10);
   });
 
   test("offset advances the window without changing total", async () => {
     const first = await listUsersPage({ limit: 10, offset: 0 });
     const second = await listUsersPage({ limit: 10, offset: 10 });
-    expect(second.total).toBe(25);
+    expect(second.total).toBe(TOTAL);
     expect(second.users).toHaveLength(10);
     // No overlap between the two consecutive pages.
     const firstIds = new Set(first.users.map((u) => u.id));
@@ -55,7 +67,7 @@ describe("listUsersPage", () => {
   test("offset past the end yields an empty page but the true total", async () => {
     const { users, total } = await listUsersPage({ limit: 10, offset: 100 });
     expect(users).toHaveLength(0);
-    expect(total).toBe(25);
+    expect(total).toBe(TOTAL);
   });
 
   test("q filters by name (case-insensitive) and counts only matches", async () => {
@@ -85,6 +97,33 @@ describe("listUsersPage", () => {
 
   test("listUsers (no-param contract) still returns every row unpaged", async () => {
     const all = await listUsers();
-    expect(all.length).toBe(25);
+    expect(all.length).toBe(TOTAL);
+  });
+
+  describe("LIKE-wildcard escaping (q is matched literally)", () => {
+    test("`_` in q matches the literal underscore, not as a single-char wildcard", async () => {
+      const { users, total } = await listUsersPage({ limit: 10, offset: 0, q: "a_b" });
+      // Only "a_b literal" — NOT "axb decoy" (which an unescaped `_`
+      // wildcard would also catch).
+      expect(total).toBe(1);
+      expect(users).toHaveLength(1);
+      expect(users[0]?.name).toBe("a_b literal");
+    });
+
+    test("`%` in q matches the literal percent, not as an any-run wildcard", async () => {
+      const { users, total } = await listUsersPage({ limit: 30, offset: 0, q: "50%" });
+      // Only "50% complete" — an unescaped trailing `%` would match
+      // every name beginning "50" (here just one, but the literal-match
+      // guarantee is what we assert), and a bare `%` would match all 28.
+      expect(total).toBe(1);
+      expect(users).toHaveLength(1);
+      expect(users[0]?.name).toBe("50% complete");
+    });
+
+    test("a bare `%` query does not match every row", async () => {
+      const { total } = await listUsersPage({ limit: 30, offset: 0, q: "%" });
+      // Escaped, `%` is a literal — only "50% complete" contains one.
+      expect(total).toBe(1);
+    });
   });
 });

@@ -14,10 +14,16 @@ const INVALID = Symbol("invalid-param");
  * Parse a non-negative-integer query param.
  * - absent → `undefined`
  * - valid → the number
- * - malformed (non-integer / negative) → `INVALID`
+ * - malformed → `INVALID`
+ *
+ * Only accepts plain decimal-digit strings. `Number()` would coerce
+ * `1e2`→100 and `0x10`→16, letting non-canonical forms (and the empty
+ * string → 0) slip past; the `/^\d+$/` guard rejects anything that
+ * isn't a run of base-10 digits before we parse.
  */
 function parseNonNegInt(raw: string | null): number | undefined | typeof INVALID {
   if (raw === null) return undefined;
+  if (!/^\d+$/.test(raw)) return INVALID;
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 0) return INVALID;
   return n;
