@@ -93,6 +93,51 @@ describe("GET /api/users", () => {
     const res = await usersGet(event);
     expect(res.status).toBe(403);
   });
+
+  // ── Settings v2 — opt-in server-side pagination ──────────────────
+  test("with ?limit returns a paged { users, total } envelope", async () => {
+    const event = createMockEvent({
+      user: adminUser,
+      url: "http://localhost/api/users?limit=1&offset=0",
+    });
+    const res = await usersGet(event);
+    expect(res.status).toBe(200);
+    const body = await jsonFromResponse(res);
+    expect(body.users.length).toBe(1);
+    expect(typeof body.total).toBe("number");
+    expect(body.total).toBeGreaterThanOrEqual(2);
+    expect(body.users[0]).not.toHaveProperty("passwordHash");
+  });
+
+  test("with ?q filters server-side and counts only matches", async () => {
+    const event = createMockEvent({
+      user: adminUser,
+      url: `http://localhost/api/users?limit=10&q=${encodeURIComponent("admin@users-test.local")}`,
+    });
+    const res = await usersGet(event);
+    expect(res.status).toBe(200);
+    const body = await jsonFromResponse(res);
+    expect(body.total).toBe(1);
+    expect(body.users[0].email).toBe("admin@users-test.local");
+  });
+
+  test("rejects 400 on a malformed limit", async () => {
+    const event = createMockEvent({
+      user: adminUser,
+      url: "http://localhost/api/users?limit=abc",
+    });
+    const res = await usersGet(event);
+    expect(res.status).toBe(400);
+  });
+
+  test("rejects 400 on a malformed offset", async () => {
+    const event = createMockEvent({
+      user: adminUser,
+      url: "http://localhost/api/users?limit=10&offset=-3",
+    });
+    const res = await usersGet(event);
+    expect(res.status).toBe(400);
+  });
 });
 
 // ── PUT /api/users/[id] ─────────────────────────────────────────

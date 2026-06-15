@@ -168,6 +168,8 @@ VITEST_EXIT=0
     src/__tests__/api-extensions-id-reapprove-drift.server.test.ts \
     src/lib/hub.unit.test.ts \
     src/lib/settings-nav.unit.test.ts \
+    src/lib/settings-search.unit.test.ts \
+    src/__tests__/api-users.server.test.ts \
     src/lib/audit-log-view.unit.test.ts \
     src/lib/settings-models.unit.test.ts \
     src/lib/save-flash.unit.test.ts \
@@ -213,6 +215,8 @@ VITEST_EXIT=0
     --coverage.include='src/routes/api/tools/+server.ts' \
     --coverage.include='src/routes/api/extensions/[id]/reapprove-drift/+server.ts' \
     --coverage.include='src/lib/settings-nav.ts' \
+    --coverage.include='src/lib/settings-search.ts' \
+    --coverage.include='src/routes/api/users/+server.ts' \
     --coverage.include='src/lib/audit-log-view.ts' \
     --coverage.include='src/lib/settings-models.ts' \
     --coverage.include='src/lib/save-flash.svelte.ts' \
