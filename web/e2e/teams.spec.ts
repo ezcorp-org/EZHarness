@@ -141,7 +141,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 	// collides with the Custom Modes section's per-mode Delete button.
 	// Reference: .planning/phases/59-test-debt-repair/deferred-items.md § teams.spec.ts
 	// Filed-on: 2026-05-13 (Phase 61-03)
-	test.fixme("shows Delete button for each team", async ({ page, mockApi }) => {
+	test("shows Delete button for each team", async ({ page, mockApi }) => {
 		const teams = [makeTeam({ id: "team-1", name: "Engineering" })];
 
 		await mockApi({
@@ -151,7 +151,10 @@ test.describe("Teams — Settings Page (Admin)", () => {
 		await page.goto("/settings/admin");
 
 		await expect(page.getByText("Engineering")).toBeVisible({ timeout: 5000 });
-		await expect(page.getByRole("button", { name: "Delete" })).toBeVisible();
+		// Scoped to #teams — "Delete" collides with the Custom Modes
+		// section's per-mode Delete button page-wide. exact:true so the
+		// team-name button ("Delete Me") doesn't substring-match.
+		await expect(page.locator("#teams").getByRole("button", { name: "Delete", exact: true })).toBeVisible();
 	});
 
 	test("creates a team and shows it in the list", async ({ page, mockApi }) => {
@@ -192,7 +195,7 @@ test.describe("Teams — Settings Page (Admin)", () => {
 	// don't strict-mode collide with the Custom Modes Delete button at #modes.
 	// Reference: .planning/phases/59-test-debt-repair/deferred-items.md § teams.spec.ts
 	// Filed-on: 2026-05-13 (Phase 61-03)
-	test.fixme("deletes a team when Delete is clicked", async ({ page, mockApi }) => {
+	test("deletes a team when Delete is clicked", async ({ page, mockApi }) => {
 		let teamsData = [
 			makeTeam({ id: "team-keep", name: "Keep Team" }),
 			makeTeam({ id: "team-del", name: "Delete Me" }),
@@ -225,8 +228,11 @@ test.describe("Teams — Settings Page (Admin)", () => {
 
 		await expect(page.getByText("Delete Me")).toBeVisible({ timeout: 5000 });
 
-		// Find and click the Delete button next to "Delete Me"
-		const deleteButtons = page.getByRole("button", { name: "Delete" });
+		// Find and click the Delete button next to "Delete Me".
+		// Scoped to #teams — "Delete" collides with the Custom Modes
+		// section's per-mode Delete button page-wide. exact:true so the
+		// team-name buttons ("Keep Team"/"Delete Me") don't substring-match.
+		const deleteButtons = page.locator("#teams").getByRole("button", { name: "Delete", exact: true });
 		// Click the second Delete button (first is "Keep Team", second is "Delete Me")
 		await deleteButtons.nth(1).click();
 
@@ -241,15 +247,17 @@ test.describe("Teams — Settings Page (Admin)", () => {
 	// via /api/account mocks).
 	// Reference: .planning/phases/59-test-debt-repair/deferred-items.md § teams.spec.ts
 	// Filed-on: 2026-05-13 (Phase 61-03)
-	test.fixme("clicking team name expands members section", async ({ page, mockApi }) => {
+	test("clicking team name expands members section", async ({ page, mockApi }) => {
 		const teams = [makeTeam({ id: "team-1", name: "Engineering" })];
 		const members = [makeMember({ id: "m-1", userId: "user-2", userName: "Alice", userEmail: "alice@example.com", role: "viewer" })];
 
 		await mockApi({
 			projects: [proj],
 			routes: {
-				...adminRoutes(teams),
+				// Members pattern MUST precede adminRoutes' "/api/teams" —
+				// matching is `path.includes(pattern)` in insertion order.
 				"/api/teams/team-1/members": () => ({ members }),
+				...adminRoutes(teams),
 			},
 		});
 		await page.goto("/settings/admin");
@@ -257,14 +265,15 @@ test.describe("Teams — Settings Page (Admin)", () => {
 		await expect(page.getByText("Engineering")).toBeVisible({ timeout: 5000 });
 		await page.getByTestId("team-expand-team-1").click();
 
-		await expect(page.getByText("Members", { exact: false })).toBeVisible({ timeout: 3000 });
+		// Scoped to #teams — "Member role" label also matches "Members".
+		await expect(page.locator("#teams").getByRole("heading", { name: "Members" })).toBeVisible({ timeout: 3000 });
 	});
 
 	// UN-BLOCKER CONDITION: team-expand reactive `{#if}` block at L714
 	// re-renders after click (see "clicking team name expands" entry above).
 	// Reference: .planning/phases/59-test-debt-repair/deferred-items.md § teams.spec.ts
 	// Filed-on: 2026-05-13 (Phase 61-03)
-	test.fixme("expanded team shows member names and emails", async ({ page, mockApi }) => {
+	test("expanded team shows member names and emails", async ({ page, mockApi }) => {
 		const teams = [makeTeam({ id: "team-1", name: "Engineering" })];
 		const members = [
 			makeMember({ id: "m-1", userId: "user-2", userName: "Alice Smith", userEmail: "alice@example.com", role: "editor" }),
@@ -274,8 +283,9 @@ test.describe("Teams — Settings Page (Admin)", () => {
 		await mockApi({
 			projects: [proj],
 			routes: {
-				...adminRoutes(teams),
+				// Members pattern MUST precede adminRoutes' "/api/teams".
 				"/api/teams/team-1/members": () => ({ members }),
+				...adminRoutes(teams),
 			},
 		});
 		await page.goto("/settings/admin");
@@ -285,8 +295,10 @@ test.describe("Teams — Settings Page (Admin)", () => {
 		await expect(page.getByText(/Alice Smith/)).toBeVisible({ timeout: 3000 });
 		await expect(page.getByText(/alice@example\.com/)).toBeVisible();
 		await expect(page.getByText(/Bob Jones/)).toBeVisible();
-		await expect(page.getByText("editor")).toBeVisible();
-		await expect(page.getByText("owner")).toBeVisible();
+		// exact:true — non-exact getByText is case-insensitive and also
+		// matches the role-picker <option>Editor</option> / Owner.
+		await expect(page.getByText("editor", { exact: true })).toBeVisible();
+		await expect(page.getByText("owner", { exact: true })).toBeVisible();
 	});
 
 	test("expanded team shows Remove button for each member", async ({ page, mockApi }) => {
@@ -317,14 +329,15 @@ test.describe("Teams — Settings Page (Admin)", () => {
 	// re-renders after click (see "clicking team name expands" entry above).
 	// Reference: .planning/phases/59-test-debt-repair/deferred-items.md § teams.spec.ts
 	// Filed-on: 2026-05-13 (Phase 61-03)
-	test.fixme("shows 'No members.' when team has no members", async ({ page, mockApi }) => {
+	test("shows 'No members.' when team has no members", async ({ page, mockApi }) => {
 		const teams = [makeTeam({ id: "team-1", name: "Empty Team" })];
 
 		await mockApi({
 			projects: [proj],
 			routes: {
-				...adminRoutes(teams),
+				// Members pattern MUST precede adminRoutes' "/api/teams".
 				"/api/teams/team-1/members": () => ({ members: [] }),
+				...adminRoutes(teams),
 			},
 		});
 		await page.goto("/settings/admin");
@@ -404,15 +417,16 @@ test.describe("Teams — Settings Page (Admin)", () => {
 	// re-renders after click (see "clicking team name expands" entry above).
 	// Reference: .planning/phases/59-test-debt-repair/deferred-items.md § teams.spec.ts
 	// Filed-on: 2026-05-13 (Phase 61-03)
-	test.fixme("collapsing an expanded team hides members section", async ({ page, mockApi }) => {
+	test("collapsing an expanded team hides members section", async ({ page, mockApi }) => {
 		const teams = [makeTeam({ id: "team-1", name: "Engineering" })];
 		const members = [makeMember({ id: "m-1", userName: "Alice" })];
 
 		await mockApi({
 			projects: [proj],
 			routes: {
-				...adminRoutes(teams),
+				// Members pattern MUST precede adminRoutes' "/api/teams".
 				"/api/teams/team-1/members": () => ({ members }),
+				...adminRoutes(teams),
 			},
 		});
 		await page.goto("/settings/admin");
@@ -470,7 +484,7 @@ test.describe("Teams API Route Shapes", () => {
 	// re-renders after click (see "clicking team name expands" entry above).
 	// Reference: .planning/phases/59-test-debt-repair/deferred-items.md § teams.spec.ts
 	// Filed-on: 2026-05-13 (Phase 61-03)
-	test.fixme("GET /api/teams/:id/members returns members array", async ({ page, mockApi }) => {
+	test("GET /api/teams/:id/members returns members array", async ({ page, mockApi }) => {
 		const teams = [makeTeam({ id: "team-1", name: "Engineering" })];
 		const members = [
 			makeMember({ id: "m-1", userName: "Charlie", userEmail: "charlie@example.com", role: "editor" }),
@@ -481,10 +495,12 @@ test.describe("Teams API Route Shapes", () => {
 			routes: {
 				"/api/auth/me": () => ({ user: { id: "admin-1", email: "a@b.com", name: "Admin", role: "admin" } }),
 				"/api/users": () => ({ users: [] }),
+				// Members pattern MUST precede "/api/teams" — matching is
+				// `path.includes(pattern)` in insertion order.
+				"/api/teams/team-1/members": () => ({ members }),
 				"/api/teams": () => ({ teams }),
 				"/api/auth/invite": () => ({ invites: [] }),
 				"/api/audit-log": () => ({ entries: [] }),
-				"/api/teams/team-1/members": () => ({ members }),
 			},
 		});
 
@@ -493,7 +509,9 @@ test.describe("Teams API Route Shapes", () => {
 
 		await expect(page.getByText(/Charlie/)).toBeVisible({ timeout: 3000 });
 		await expect(page.getByText(/charlie@example\.com/)).toBeVisible();
-		await expect(page.getByText("editor")).toBeVisible();
+		// exact:true — non-exact getByText is case-insensitive and also
+		// matches the role-picker <option>Editor</option>.
+		await expect(page.getByText("editor", { exact: true })).toBeVisible();
 	});
 
 	test("POST /api/teams creates a new team via the UI form", async ({ page, mockApi }) => {
