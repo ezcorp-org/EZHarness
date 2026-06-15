@@ -50,6 +50,50 @@ export async function listUsers(): Promise<User[]> {
   return getDb().select().from(users);
 }
 
+export interface ListUsersPageOpts {
+  limit: number;
+  offset?: number;
+  /** Case-insensitive name/email substring filter. */
+  q?: string;
+}
+
+export interface ListUsersPageResult {
+  users: User[];
+  /** Total rows matching `q` (before limit/offset) — drives the pager. */
+  total: number;
+}
+
+/**
+ * Server-side paginated user listing (Settings v2). Returns one page of
+ * users plus the total count for the (optionally `q`-filtered) set.
+ *
+ * `q` filters on name OR email, case-insensitively. `limit`/`offset` are
+ * assumed pre-validated by the caller (the route clamps them); this
+ * query trusts them. Ordered by name for a stable page sequence.
+ */
+export async function listUsersPage(opts: ListUsersPageOpts): Promise<ListUsersPageResult> {
+  const db = getDb();
+  const where = opts.q
+    ? sql`(lower(${users.name}) LIKE ${`%${opts.q.toLowerCase()}%`} OR lower(${users.email}) LIKE ${`%${opts.q.toLowerCase()}%`})`
+    : undefined;
+
+  const countRows = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(users)
+    .where(where);
+  const total = Number(countRows[0]?.count ?? 0);
+
+  const page = await db
+    .select()
+    .from(users)
+    .where(where)
+    .orderBy(users.name)
+    .limit(opts.limit)
+    .offset(opts.offset ?? 0);
+
+  return { users: page, total };
+}
+
 export async function updateUserStatus(id: string, status: "active" | "inactive"): Promise<boolean> {
   const rows = await getDb().update(users).set({ status }).where(eq(users.id, id)).returning();
   return rows.length > 0;

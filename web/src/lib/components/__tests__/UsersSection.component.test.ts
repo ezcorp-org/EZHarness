@@ -1,7 +1,9 @@
 /**
- * DOM tests for UsersSection (locked decision 8):
- *   1. Search filters by name and email (case-insensitive)
- *   2. Pagination: 20 rows + Load more (search resets the page window)
+ * DOM tests for UsersSection (Settings v2 — server-side pagination):
+ *   1. Server search: typing hits /api/users with `q` (debounced),
+ *      server returns the matching page + total
+ *   2. Pagination: 20 rows + Load more fetches the next offset, server
+ *      `total` drives when the pager disappears; search resets to page 0
  *   3. Conditional badges: role only when ≠ member, status only when
  *      ≠ active, sessions pill only when count > 0
  */
@@ -11,17 +13,55 @@ import UsersSection from "../settings/UsersSection.svelte";
 
 const currentUser = { id: "admin-1", email: "admin@test.local", name: "Admin", role: "admin" as const };
 
-function makeUsers(n: number) {
+function makeUsers(n: number, start = 0) {
 	return Array.from({ length: n }, (_, i) => ({
-		id: `u${i}`,
-		email: `user${i}@test.local`,
-		name: `User ${i}`,
+		id: `u${start + i}`,
+		email: `user${start + i}@test.local`,
+		name: `User ${start + i}`,
 		role: "member",
 		status: "active",
 	}));
 }
 
+interface UsersRequest {
+	limit: number;
+	offset: number;
+	q: string | null;
+}
+
+/**
+ * Server-paging stub over a fixed dataset. Records every /api/users
+ * request, honours limit/offset/q server-side, and returns
+ * `{ users: <page>, total: <filtered count> }`.
+ */
+function stubPagedFetch(dataset: ReturnType<typeof makeUsers>, sessions: unknown[] = []) {
+	const requests: UsersRequest[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL) => {
+			const url = new URL(String(input), "http://localhost");
+			if (url.pathname === "/api/users") {
+				const limit = Number(url.searchParams.get("limit"));
+				const offset = Number(url.searchParams.get("offset"));
+				const q = url.searchParams.get("q");
+				requests.push({ limit, offset, q });
+				const filtered = q
+					? dataset.filter(
+							(u) => u.name.toLowerCase().includes(q.toLowerCase()) || u.email.toLowerCase().includes(q.toLowerCase()),
+						)
+					: dataset;
+				return Response.json({ users: filtered.slice(offset, offset + limit), total: filtered.length });
+			}
+			if (url.pathname === "/api/admin/sessions") return Response.json({ sessions });
+			return Response.json({});
+		}),
+	);
+	return requests;
+}
+
 function stubFetch(users: unknown[], sessions: unknown[] = []) {
+	// Legacy {users}-only stub (no `total`) for the action/badge flows —
+	// the component falls back to page length when `total` is omitted.
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async (input: RequestInfo | URL) => {
@@ -35,66 +75,102 @@ function stubFetch(users: unknown[], sessions: unknown[] = []) {
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe("UsersSection search", () => {
-	test("filters by name and email, case-insensitive", async () => {
-		stubFetch([
-			{ id: "u1", email: "alice@corp.io", name: "Alice", role: "member", status: "active" },
-			{ id: "u2", email: "bob@corp.io", name: "Bob", role: "member", status: "active" },
-		]);
-		const { getByTestId, getByText, queryByText } = render(UsersSection, { props: { currentUser } });
+describe("UsersSection server search", () => {
+	test("typing hits the server with `q` and renders the matching page", async () => {
+		vi.useFakeTimers();
+		try {
+			const dataset = [
+				{ id: "u1", email: "alice@corp.io", name: "Alice", role: "member", status: "active" },
+				{ id: "u2", email: "bob@corp.io", name: "Bob", role: "member", status: "active" },
+			];
+			const requests = stubPagedFetch(dataset);
+			const { getByTestId, getByText, queryByText } = render(UsersSection, { props: { currentUser } });
 
-		await waitFor(() => {
+			await vi.advanceTimersByTimeAsync(0);
 			expect(getByText("Alice")).toBeInTheDocument();
-		});
+			expect(getByText("Bob")).toBeInTheDocument();
 
-		await fireEvent.input(getByTestId("users-search"), { target: { value: "ALICE" } });
-		expect(getByText("Alice")).toBeInTheDocument();
-		expect(queryByText("Bob")).not.toBeInTheDocument();
+			// Type → debounce → one server request with q=alice.
+			await fireEvent.input(getByTestId("users-search"), { target: { value: "alice" } });
+			await vi.advanceTimersByTimeAsync(300);
 
-		// Email match too
-		await fireEvent.input(getByTestId("users-search"), { target: { value: "bob@corp" } });
-		expect(queryByText("Alice")).not.toBeInTheDocument();
-		expect(getByText("Bob")).toBeInTheDocument();
+			expect(getByText("Alice")).toBeInTheDocument();
+			expect(queryByText("Bob")).not.toBeInTheDocument();
+			expect(requests.some((r) => r.q === "alice" && r.offset === 0)).toBe(true);
 
-		// No match → empty message
-		await fireEvent.input(getByTestId("users-search"), { target: { value: "zzz" } });
-		expect(getByText('No users match "zzz".')).toBeInTheDocument();
+			// No match → server returns an empty page → empty message.
+			await fireEvent.input(getByTestId("users-search"), { target: { value: "zzz" } });
+			await vi.advanceTimersByTimeAsync(300);
+			expect(getByText('No users match "zzz".')).toBeInTheDocument();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	test("debounces rapid keystrokes into a single request", async () => {
+		vi.useFakeTimers();
+		try {
+			const requests = stubPagedFetch(makeUsers(5));
+			const { getByTestId } = render(UsersSection, { props: { currentUser } });
+			await vi.advanceTimersByTimeAsync(0);
+			const initialCount = requests.length;
+
+			const input = getByTestId("users-search");
+			await fireEvent.input(input, { target: { value: "u" } });
+			await fireEvent.input(input, { target: { value: "us" } });
+			await fireEvent.input(input, { target: { value: "use" } });
+			// Only after the debounce window does a single request fire.
+			await vi.advanceTimersByTimeAsync(300);
+
+			expect(requests.length).toBe(initialCount + 1);
+			expect(requests[requests.length - 1]!.q).toBe("use");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 
-describe("UsersSection pagination", () => {
-	test("renders 20 rows then loads more", async () => {
-		stubFetch(makeUsers(45));
+describe("UsersSection server pagination", () => {
+	test("renders the first 20 rows then fetches the next offset", async () => {
+		const requests = stubPagedFetch(makeUsers(45));
 		const { getByTestId, getByText, queryByText } = render(UsersSection, { props: { currentUser } });
 
-		await waitFor(() => {
-			expect(getByText("User 0")).toBeInTheDocument();
-		});
+		await waitFor(() => expect(getByText("User 0")).toBeInTheDocument());
 		expect(getByText("User 19")).toBeInTheDocument();
 		expect(queryByText("User 20")).not.toBeInTheDocument();
 		expect(getByTestId("users-load-more")).toHaveTextContent("Load more (25 remaining)");
 
 		await fireEvent.click(getByTestId("users-load-more"));
-		expect(getByText("User 39")).toBeInTheDocument();
+		await waitFor(() => expect(getByText("User 39")).toBeInTheDocument());
 		expect(getByTestId("users-load-more")).toHaveTextContent("Load more (5 remaining)");
+		expect(requests.some((r) => r.offset === 20 && r.limit === 20)).toBe(true);
 
 		await fireEvent.click(getByTestId("users-load-more"));
-		expect(getByText("User 44")).toBeInTheDocument();
+		await waitFor(() => expect(getByText("User 44")).toBeInTheDocument());
 		expect(queryByText(/Load more/)).not.toBeInTheDocument();
 	});
 
-	test("search resets the page window", async () => {
-		stubFetch(makeUsers(30));
-		const { getByTestId, getByText, queryByTestId } = render(UsersSection, { props: { currentUser } });
+	test("server search resets paging to offset 0 and re-totals", async () => {
+		vi.useFakeTimers();
+		try {
+			const requests = stubPagedFetch(makeUsers(30));
+			const { getByTestId, getByText, queryByTestId } = render(UsersSection, { props: { currentUser } });
 
-		await waitFor(() => {
-			expect(getByText("User 0")).toBeInTheDocument();
-		});
-		await fireEvent.click(getByTestId("users-load-more"));
-		// "User 2" matches User 2 / 20-29 → 11 results, all visible.
-		await fireEvent.input(getByTestId("users-search"), { target: { value: "User 2" } });
-		expect(getByText("User 29")).toBeInTheDocument();
-		expect(queryByTestId("users-load-more")).not.toBeInTheDocument();
+			await vi.advanceTimersByTimeAsync(0);
+			await fireEvent.click(getByTestId("users-load-more"));
+			await vi.advanceTimersByTimeAsync(0);
+
+			// "User 2" matches User 2 + 20-29 → 11 rows ≤ one page → no pager.
+			await fireEvent.input(getByTestId("users-search"), { target: { value: "User 2" } });
+			await vi.advanceTimersByTimeAsync(300);
+
+			expect(getByText("User 29")).toBeInTheDocument();
+			expect(queryByTestId("users-load-more")).not.toBeInTheDocument();
+			// The search request started back at offset 0.
+			expect(requests.some((r) => r.q === "User 2" && r.offset === 0)).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 

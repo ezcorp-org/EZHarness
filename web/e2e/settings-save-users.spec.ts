@@ -58,7 +58,17 @@ test.describe("users search + pagination", () => {
 
 	const routes = {
 		"/api/auth/me": () => adminMe,
-		"/api/users": () => ({ users }),
+		// Settings v2 — server-side opt-in paging: honour limit/offset/q
+		// and report `total` so the pager reflects the server's view.
+		"/api/users": (url: URL) => {
+			const limit = Number(url.searchParams.get("limit") ?? "20");
+			const offset = Number(url.searchParams.get("offset") ?? "0");
+			const q = url.searchParams.get("q");
+			const filtered = q
+				? users.filter((u) => u.name.toLowerCase().includes(q.toLowerCase()) || u.email.toLowerCase().includes(q.toLowerCase()))
+				: users;
+			return { users: filtered.slice(offset, offset + limit), total: filtered.length };
+		},
 		"/api/admin/sessions": () => ({ sessions: [] }),
 		"/api/teams": () => ({ teams: [] }),
 		"/api/auth/invite": () => ({ invites: [] }),

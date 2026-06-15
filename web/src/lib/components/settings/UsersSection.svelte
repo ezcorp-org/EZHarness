@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from "svelte";
+	import { onMount, onDestroy } from "svelte";
 	import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
 
 	type CurrentUser = { id: string; email: string; name: string; role: "admin" | "member" };
@@ -22,19 +22,18 @@
 	let usersError = $state(false);
 	let copiedResetUserId = $state<string | null>(null);
 
-	// Locked decision 8 — client-side search (list is fully fetched)
-	// + 20-row pagination instead of the nested scrollbox.
+	// Settings v2 — server-side pagination (opt-in). We fetch one
+	// USERS_PAGE_SIZE page at a time via /api/users?limit&offset&q; the
+	// server `total` drives the pager and search is server-side (debounced
+	// `q`). `allUsers` accumulates the pages fetched so far.
 	const USERS_PAGE_SIZE = 20;
+	const SEARCH_DEBOUNCE_MS = 300;
 	let userQuery = $state("");
-	let visibleCount = $state(USERS_PAGE_SIZE);
-	const filteredUsers = $derived.by(() => {
-		const q = userQuery.trim().toLowerCase();
-		if (!q) return allUsers;
-		return allUsers.filter(
-			(u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q),
-		);
-	});
-	const visibleUsers = $derived(filteredUsers.slice(0, visibleCount));
+	let totalUsers = $state(0);
+	let searchTimer: ReturnType<typeof setTimeout> | null = null;
+	const visibleUsers = $derived(allUsers);
+	// More to fetch when we've shown fewer rows than the server reports.
+	const hasMoreUsers = $derived(allUsers.length < totalUsers);
 
 	let adminSessions = $state<AdminSessionEntry[]>([]);
 	let sessionCountByUser = $derived.by(() => {
@@ -48,14 +47,31 @@
 	let confirmForceLogout = $state<string | null>(null);
 	let forceLogoutMessage = $state<{ type: "success" | "error"; text: string } | null>(null);
 
-	async function loadUsers() {
+	/**
+	 * Fetch one page from the server. `reset` clears the accumulated list
+	 * and starts at offset 0 (used on initial load + whenever `q` changes);
+	 * otherwise it appends the next page.
+	 */
+	async function loadUsers(reset = true) {
 		// Distinguish "fetch failed" from "no users exist" — a failed
 		// request must not masquerade as an empty directory.
+		if (reset) loadingUsers = true;
+		const offset = reset ? 0 : allUsers.length;
+		const params = new URLSearchParams({
+			limit: String(USERS_PAGE_SIZE),
+			offset: String(offset),
+		});
+		const q = userQuery.trim();
+		if (q) params.set("q", q);
 		try {
-			const res = await fetch("/api/users");
+			const res = await fetch(`/api/users?${params}`);
 			if (res.ok) {
 				const data = await res.json();
-				allUsers = data.users;
+				const page: UserEntry[] = data.users ?? [];
+				allUsers = reset ? page : [...allUsers, ...page];
+				// Server returns `total` for the paged contract; fall back to
+				// the page length if a caller (or a test stub) omits it.
+				totalUsers = typeof data.total === "number" ? data.total : allUsers.length;
 				usersError = false;
 			} else {
 				usersError = true;
@@ -64,6 +80,11 @@
 			usersError = true;
 		}
 		loadingUsers = false;
+	}
+
+	function onSearchInput() {
+		if (searchTimer) clearTimeout(searchTimer);
+		searchTimer = setTimeout(() => loadUsers(true), SEARCH_DEBOUNCE_MS);
 	}
 
 	async function loadAdminSessions() {
@@ -139,6 +160,10 @@
 		loadUsers();
 		loadAdminSessions();
 	});
+
+	onDestroy(() => {
+		if (searchTimer) clearTimeout(searchTimer);
+	});
 </script>
 
 <SettingsSection
@@ -156,19 +181,19 @@
 			Failed to load users.
 			<button onclick={() => loadUsers()} class="ml-1 text-blue-400 hover:text-blue-300 transition-colors">Retry</button>
 		</p>
-	{:else if allUsers.length === 0}
+	{:else if allUsers.length === 0 && !userQuery.trim()}
 		<p class="text-sm text-[var(--color-text-secondary)]">No users found.</p>
 	{:else}
 		<input
 			type="search"
 			bind:value={userQuery}
-			oninput={() => { visibleCount = USERS_PAGE_SIZE; }}
+			oninput={onSearchInput}
 			placeholder="Search by name or email..."
 			aria-label="Search users"
 			data-testid="users-search"
 			class="mb-3 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
 		/>
-		{#if filteredUsers.length === 0}
+		{#if allUsers.length === 0}
 			<p class="text-sm text-[var(--color-text-secondary)]">No users match "{userQuery}".</p>
 		{/if}
 		<div class="space-y-2">
@@ -214,13 +239,13 @@
 				</div>
 			{/each}
 		</div>
-		{#if filteredUsers.length > visibleCount}
+		{#if hasMoreUsers}
 			<button
-				onclick={() => { visibleCount += USERS_PAGE_SIZE; }}
+				onclick={() => loadUsers(false)}
 				data-testid="users-load-more"
 				class="mt-3 rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
 			>
-				Load more ({filteredUsers.length - visibleCount} remaining)
+				Load more ({totalUsers - allUsers.length} remaining)
 			</button>
 		{/if}
 	{/if}
