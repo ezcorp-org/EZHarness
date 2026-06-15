@@ -8,6 +8,8 @@
  *   3. Relative timestamps render with the absolute time in title
  *   4. Filter select refetches with the action query param
  *   5. Load-more appends (passes limit/offset) when a full page returns
+ *   6. Relative-time labels live-tick on the 60s interval
+ *   7. Mobile audit cards expand to show pretty-printed JSON
  */
 import { describe, test, expect, vi, afterEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/svelte";
@@ -147,5 +149,52 @@ describe("AuditLogSection", () => {
 			expect(fetchUrls.some((u) => u.includes("offset=50"))).toBe(true);
 			expect(queryByText("Load more")).not.toBeInTheDocument();
 		});
+	});
+
+	test("relative-time labels live-tick on the 60s interval", async () => {
+		vi.useFakeTimers();
+		try {
+			// 30s-old entry so the label starts at "30s ago" and advances.
+			const base = Date.now();
+			const thirtySecAgo = new Date(base - 30_000).toISOString();
+			stubFetch([
+				{ id: "t1", userId: "u1", action: "auth:login", target: null, metadata: null, createdAt: thirtySecAgo },
+			]);
+			const { getByTestId } = render(AuditLogSection);
+
+			await vi.waitFor(() => {
+				expect(getByTestId("audit-group-t1")).toBeInTheDocument();
+			});
+			const timeCell = () => getByTestId("audit-group-t1").querySelector("td[title]");
+			expect(timeCell()?.textContent?.trim()).toBe("30s ago");
+
+			// Advance 60s of wall-clock + flush the interval tick. 30s + 60s
+			// = 90s, which buckets to the minutes label.
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(timeCell()?.textContent?.trim()).toBe("1m ago");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	test("mobile audit card expands to show pretty JSON; collapses on second tap", async () => {
+		stubFetch(loginRun());
+		const { getByTestId, queryByTestId } = render(AuditLogSection);
+
+		await waitFor(() => {
+			expect(getByTestId("audit-card-e1")).toBeInTheDocument();
+		});
+		// ×3 marker folded onto the card; collapsed by default.
+		expect(getByTestId("audit-card-count-e1")).toHaveTextContent("×3");
+		expect(queryByTestId("audit-card-details-e1")).not.toBeInTheDocument();
+
+		await fireEvent.click(getByTestId("audit-card-e1"));
+		const details = getByTestId("audit-card-details-e1");
+		expect(details.textContent).toContain('"ip": "1.1.1.1"');
+		expect(details.textContent).toContain('"ip": "2.2.2.2"');
+		expect(details.textContent).toContain('"ip": "3.3.3.3"');
+
+		await fireEvent.click(getByTestId("audit-card-e1"));
+		expect(queryByTestId("audit-card-details-e1")).not.toBeInTheDocument();
 	});
 });

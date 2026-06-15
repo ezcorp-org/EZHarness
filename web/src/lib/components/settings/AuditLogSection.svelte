@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
-	import MobileCardStack from "$lib/components/MobileCardStack.svelte";
 	import { groupConsecutive, relativeTime, prettyMetadata, type AuditViewRow } from "$lib/audit-log-view.js";
 
 	let auditEntries = $state<AuditViewRow[]>([]);
@@ -11,26 +10,22 @@
 	let hasMoreAudit = $state(false);
 	let expandedGroupId = $state<string | null>(null);
 
+	// Live-ticking clock for the relative-time labels (locked decision 4:
+	// ticking is a component concern). `now` re-flows through every
+	// relativeTime(..., now) call below; the pure relativeTime helper is
+	// untouched. Refreshes on a 60s interval, cleaned up on destroy.
+	const TICK_MS = 60_000;
+	let now = $state(Date.now());
+	$effect(() => {
+		const id = setInterval(() => {
+			now = Date.now();
+		}, TICK_MS);
+		return () => clearInterval(id);
+	});
+
 	// Locked decision 7 — consecutive rows with identical action + actor
 	// collapse into one ×N row with an expander.
 	const auditGroups = $derived(groupConsecutive(auditEntries));
-
-	// MobileCardStack data for audit log (grouped, ×N marker on action)
-	let auditRows = $derived(
-		auditGroups.map((g) => ({
-			id: g.id,
-			time: relativeTime(g.first.createdAt),
-			action: g.count > 1 ? `${g.first.action} ×${g.count}` : g.first.action,
-			target: g.first.target ?? "-",
-			details: g.first.metadata ? JSON.stringify(g.first.metadata) : "-",
-		}))
-	);
-	const auditColumns = [
-		{ key: "time", label: "Time" },
-		{ key: "action", label: "Action" },
-		{ key: "target", label: "Target" },
-		{ key: "details", label: "Details" },
-	];
 
 	function actionPillClass(action: string): string {
 		if (action.startsWith("auth:")) return "bg-blue-900 text-blue-300";
@@ -141,7 +136,7 @@
 								class="py-2 pr-3 text-[var(--color-text-secondary)] whitespace-nowrap"
 								title={new Date(group.first.createdAt).toLocaleString()}
 							>
-								{relativeTime(group.first.createdAt)}
+								{relativeTime(group.first.createdAt, now)}
 							</td>
 							<td class="py-2 pr-3 whitespace-nowrap">
 								<span class="rounded-full px-2 py-0.5 text-xs font-medium {actionPillClass(group.first.action)}">
@@ -164,7 +159,7 @@
 										{#each group.rows as entry (entry.id)}
 											<div>
 												<p class="mb-1 text-[var(--color-text-muted)]">
-													<span title={new Date(entry.createdAt).toLocaleString()}>{relativeTime(entry.createdAt)}</span>
+													<span title={new Date(entry.createdAt).toLocaleString()}>{relativeTime(entry.createdAt, now)}</span>
 													— {new Date(entry.createdAt).toLocaleString()}
 													{#if entry.target}· {entry.target}{/if}
 												</p>
@@ -179,8 +174,55 @@
 				</tbody>
 			</table>
 		</div>
-		<div class="md:hidden">
-			<MobileCardStack columns={auditColumns} rows={auditRows} keyField="id" />
+		<!--
+			Mobile: expandable audit cards (parity with the desktop rows).
+			Implemented inline rather than via MobileCardStack so a card can
+			own its own expander + pretty-printed JSON per group member
+			(locked decision: do not bloat the shared MobileCardStack).
+		-->
+		<div class="md:hidden space-y-2">
+			{#each auditGroups as group (group.id)}
+				{@const expanded = expandedGroupId === group.id}
+				<div class="rounded-lg border border-[var(--color-border)]">
+					<button
+						type="button"
+						data-testid="audit-card-{group.id}"
+						aria-expanded={expanded}
+						aria-label="{expanded ? 'Collapse' : 'Expand'} audit entry details"
+						onclick={() => toggleGroup(group.id)}
+						class="flex w-full items-start gap-2 p-3 text-left"
+					>
+						<svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-text-secondary)] transition-transform duration-200 {expanded ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+						</svg>
+						<div class="min-w-0 flex-1 space-y-1">
+							<div class="flex items-center gap-1.5 text-xs">
+								<span class="rounded-full px-2 py-0.5 font-medium {actionPillClass(group.first.action)}">{group.first.action}</span>
+								{#if group.count > 1}
+									<span class="rounded-full bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-text-secondary)]" data-testid="audit-card-count-{group.id}">×{group.count}</span>
+								{/if}
+							</div>
+							<p class="text-[11px] text-[var(--color-text-secondary)]">
+								<span title={new Date(group.first.createdAt).toLocaleString()}>{relativeTime(group.first.createdAt, now)}</span>
+								{#if group.first.target}· {group.first.target}{/if}
+							</p>
+						</div>
+					</button>
+					{#if expanded}
+						<div class="border-t border-[var(--color-border)] px-3 pb-3 pt-2 space-y-3" data-testid="audit-card-details-{group.id}">
+							{#each group.rows as entry (entry.id)}
+								<div>
+									<p class="mb-1 text-[11px] text-[var(--color-text-muted)]">
+										<span title={new Date(entry.createdAt).toLocaleString()}>{relativeTime(entry.createdAt, now)}</span>
+										— {new Date(entry.createdAt).toLocaleString()}
+									</p>
+									<pre class="overflow-x-auto rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-2 text-[11px] leading-snug text-[var(--color-text-primary)]">{prettyMetadata(entry.metadata)}</pre>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			{/each}
 		</div>
 
 		{#if hasMoreAudit}

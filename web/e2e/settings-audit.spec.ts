@@ -35,17 +35,21 @@ test.describe("audit log page", () => {
 		await page.goto("/settings/admin/audit");
 
 		if (isMobile) {
-			// Mobile renders the grouped log as a MobileCardStack: the ×N
-			// marker is folded into the action text and the first entry's
-			// metadata is inline — there is no row-expander affordance.
-			// (MobileCardStack also keeps a hidden desktop table in the
-			// DOM, so scope to the visible card elements.)
-			const loginCard = page
-				.locator("div.md\\:hidden div.rounded-lg.border")
-				.filter({ hasText: "auth:login ×2" });
+			// Mobile renders the grouped log as expandable cards (parity
+			// with desktop rows): the ×N marker is a pill and metadata is
+			// hidden until the card is tapped, then shown as pretty JSON.
+			const loginCard = page.getByTestId("audit-card-e1");
 			await expect(loginCard).toBeVisible();
-			await expect(loginCard).toContainText('"ip":"1.1.1.1"');
+			await expect(page.getByTestId("audit-card-count-e1")).toHaveText("×2");
 			await expect(loginCard).toContainText("2h ago");
+			// Collapsed — details not yet in the DOM.
+			await expect(page.getByTestId("audit-card-details-e1")).toHaveCount(0);
+
+			await loginCard.click();
+			const details = page.getByTestId("audit-card-details-e1");
+			await expect(details).toBeVisible();
+			await expect(details).toContainText('"ip": "1.1.1.1"');
+			await expect(details).toContainText('"ip": "2.2.2.2"');
 			return;
 		}
 
@@ -68,18 +72,18 @@ test.describe("audit log page", () => {
 		await page.goto("/settings/admin/audit");
 
 		if (isMobile) {
-			// Same grouped data on the card stack — the filter select sits
-			// above both layouts, so exercising it on mobile is identical.
-			const cards = page.locator("div.md\\:hidden div.rounded-lg.border");
-			await expect(cards.filter({ hasText: "auth:login ×2" })).toBeVisible();
+			// Same grouped data on the expandable card stack — the filter
+			// select sits above both layouts.
+			await expect(page.getByTestId("audit-card-e1")).toBeVisible();
 
 			await page.getByLabel("Filter audit events").selectOption("user:invited");
 
-			const invitedCard = cards.filter({ hasText: "user:invited" });
+			const invitedCard = page.getByTestId("audit-card-e3");
 			await expect(invitedCard).toBeVisible();
-			await expect(cards.filter({ hasText: "auth:login ×2" })).toHaveCount(0);
-			// No expander on mobile — the card shows the metadata inline.
-			await expect(invitedCard).toContainText('"reason":"version-bump"');
+			await expect(page.getByTestId("audit-card-e1")).toHaveCount(0);
+			// Tap to expand — metadata revealed as pretty JSON.
+			await invitedCard.click();
+			await expect(page.getByTestId("audit-card-details-e3")).toContainText('"reason": "version-bump"');
 			return;
 		}
 
