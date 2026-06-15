@@ -103,9 +103,40 @@ describe("registry invariants", () => {
 		expect(new Set(all).size).toBe(all.length);
 	});
 
-	test("all hrefs live under /settings/", () => {
+	test("all hrefs live under /settings/ except the additive admin links", () => {
+		// Settings v2 (locked decision 2) surfaces the canonical System and
+		// Moderation pages as ADDITIVE links that point OUT of the hub.
+		const externalAdminLinks = new Set(["/admin/dashboard", "/admin/moderation"]);
 		for (const item of SETTINGS_NAV) {
+			if (externalAdminLinks.has(item.href)) continue;
 			expect(item.href.startsWith("/settings/")).toBe(true);
 		}
+	});
+});
+
+describe("Settings v2 — additive System/Moderation admin links", () => {
+	test("registry includes System and Moderation, admin-gated, pointing to canonical routes", () => {
+		const system = SETTINGS_NAV.find((i) => i.id === "system");
+		const moderation = SETTINGS_NAV.find((i) => i.id === "moderation");
+
+		expect(system).toMatchObject({ label: "System", href: "/admin/dashboard", adminOnly: true });
+		expect(moderation).toMatchObject({ label: "Moderation", href: "/admin/moderation", adminOnly: true });
+	});
+
+	test("hidden from members, shown to admins", () => {
+		const memberIds = visibleNavItems(false).map((i) => i.id);
+		expect(memberIds).not.toContain("system");
+		expect(memberIds).not.toContain("moderation");
+
+		const adminIds = visibleNavItems(true).map((i) => i.id);
+		expect(adminIds).toContain("system");
+		expect(adminIds).toContain("moderation");
+	});
+
+	test("active-state derives for the canonical admin paths", () => {
+		expect(activeNavId("/admin/dashboard")).toBe("system");
+		expect(activeNavId("/admin/moderation")).toBe("moderation");
+		// Adding them must not steal the settings-admin active state.
+		expect(activeNavId("/settings/admin")).toBe("admin");
 	});
 });

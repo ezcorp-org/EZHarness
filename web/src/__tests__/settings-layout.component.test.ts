@@ -88,6 +88,29 @@ describe("settings layout nav", () => {
 		expect(getByTestId("settings-nav-models")).not.toHaveAttribute("aria-current");
 	});
 
+	test("System and Moderation links render for admins with canonical hrefs", async () => {
+		stubMe("admin");
+		const { getByTestId } = render(Layout, { props: { children } });
+
+		await waitFor(() => {
+			expect(getByTestId("settings-nav-system")).toBeInTheDocument();
+		});
+		expect(getByTestId("settings-nav-system")).toHaveAttribute("href", "/admin/dashboard");
+		expect(getByTestId("settings-nav-system")).toHaveTextContent("System");
+		expect(getByTestId("settings-nav-moderation")).toHaveAttribute("href", "/admin/moderation");
+		expect(getByTestId("settings-nav-moderation")).toHaveTextContent("Moderation");
+	});
+
+	test("System and Moderation links are hidden for members", async () => {
+		stubMe("member");
+		const { queryByTestId } = render(Layout, { props: { children } });
+
+		await waitFor(() => {
+			expect(queryByTestId("settings-nav-system")).not.toBeInTheDocument();
+			expect(queryByTestId("settings-nav-moderation")).not.toBeInTheDocument();
+		});
+	});
+
 	test("audit child route highlights Audit Log, not Admin", async () => {
 		stubMe("admin");
 		setPath("/settings/admin/audit");

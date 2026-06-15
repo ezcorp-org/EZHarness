@@ -167,3 +167,57 @@ test.describe("admin gating", () => {
 		await expect(page.getByTestId("settings-nav-models")).not.toHaveAttribute("aria-current", "page");
 	});
 });
+
+test.describe("Settings v2 — System & Moderation admin nav links (additive)", () => {
+	// Canonical routes the additive settings-nav links point at. Mocks
+	// for the destination pages so navigation lands cleanly.
+	const adminPageRoutes = {
+		...adminRoutes,
+		"/api/admin/analytics": () => ({ totals: {}, daily: [] }),
+		"/api/admin/system": () => ({ version: "test", uptime: 0 }),
+		"/api/admin/embed-progress": () => ({ pending: 0, done: 0 }),
+		"/api/marketplace/flags": () => ({ flags: [] }),
+	};
+
+	test("admin sees System and Moderation in the settings nav with canonical hrefs", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], routes: adminPageRoutes });
+		await page.goto("/settings/admin");
+
+		// adminOnly entries render an "admin" badge, so scope to substring.
+		await expect(page.getByTestId("settings-nav-system")).toHaveAttribute("href", "/admin/dashboard");
+		await expect(page.getByTestId("settings-nav-system")).toContainText("System");
+		await expect(page.getByTestId("settings-nav-moderation")).toHaveAttribute("href", "/admin/moderation");
+		await expect(page.getByTestId("settings-nav-moderation")).toContainText("Moderation");
+	});
+
+	test("clicking System navigates to the canonical /admin/dashboard route", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], routes: adminPageRoutes });
+		await page.goto("/settings/admin");
+
+		// /admin/dashboard guards admin client-side (via /api/auth/me, which
+		// mockApi supplies), so navigation lands.
+		await page.getByTestId("settings-nav-system").click();
+		await expect(page).toHaveURL(/\/admin\/dashboard$/);
+	});
+
+	test("Moderation link targets the canonical /admin/moderation route", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], routes: adminPageRoutes });
+		await page.goto("/settings/admin");
+
+		// /admin/moderation has a server-side admin guard keyed off
+		// `locals.user`, which the client-side mockApi harness can't
+		// satisfy (SSR would redirect away on click). The additive-link
+		// contract (decision 2) is the href pointing at the canonical
+		// route — navigation behaviour itself is covered by
+		// admin-moderation.spec.ts against the real auth flow.
+		await expect(page.getByTestId("settings-nav-moderation")).toHaveAttribute("href", "/admin/moderation");
+	});
+
+	test("members never see the System or Moderation settings-nav links", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+		await page.goto("/settings/models");
+
+		await expect(page.getByTestId("settings-nav-system")).toHaveCount(0);
+		await expect(page.getByTestId("settings-nav-moderation")).toHaveCount(0);
+	});
+});

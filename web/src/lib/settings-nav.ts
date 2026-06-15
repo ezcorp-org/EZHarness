@@ -74,6 +74,26 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
 		bareAnchors: ["audit"],
 		child: true,
 	},
+	// Settings v2 — surface the existing System (/admin/dashboard) and
+	// Moderation (/admin/moderation) admin pages in the settings nav.
+	// ADDITIVE only (locked decision 2): these link OUT to the canonical
+	// routes; the routes and the main-sidebar entries are untouched.
+	{
+		id: "system",
+		label: "System",
+		href: "/admin/dashboard",
+		adminOnly: true,
+		anchors: [],
+		child: true,
+	},
+	{
+		id: "moderation",
+		label: "Moderation",
+		href: "/admin/moderation",
+		adminOnly: true,
+		anchors: [],
+		child: true,
+	},
 ];
 
 /** Default landing page for `/settings` and for unknown / disallowed anchors. */
