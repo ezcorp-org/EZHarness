@@ -962,8 +962,8 @@ export const sdkCapabilityCalls = pgTable("sdk_capability_calls", {
    *  Declared as plain text to avoid Drizzle's same-table-reference
    *  ergonomics; orphans tolerated (audit-only). */
   parentCallId: text("parent_call_id"),
-  /** 'llm' | 'memory' | 'lessons' | 'schedule' | 'events' */
-  capability: text("capability").notNull().$type<"llm" | "memory" | "lessons" | "schedule" | "events">(),
+  /** 'llm' | 'memory' | 'lessons' | 'schedule' | 'events' | 'search' */
+  capability: text("capability").notNull().$type<"llm" | "memory" | "lessons" | "schedule" | "events" | "search">(),
   /** 'complete' | 'read' | 'write' | 'update' | 'delete' | 'fire' | 'register' | 'subscribe' */
   action: text("action").notNull(),
   resourceType: text("resource_type"),

@@ -188,6 +188,12 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
       "SEARXNG_BASE_URL",
     ],
     filesystem: ["$CWD"],
+    // ctx.search host capability (Phase 1). `"inherit"` is the full
+    // grant — web-search tracks the instance search defaults. The
+    // provider chain runs host-side behind the SSRF guard; this ceiling
+    // entry is what keeps the `search` grant from being dropped by the
+    // install-time `intersectPermissions` clamp.
+    search: "inherit",
     grantedAt: {},
   },
 

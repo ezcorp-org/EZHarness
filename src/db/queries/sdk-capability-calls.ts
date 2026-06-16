@@ -89,7 +89,7 @@ export async function listSdkCapabilityCallsForExtension(
   const limit = opts.limit ?? DEFAULT_LIMIT;
   const cursorAt = await resolveCursor(opts.cursor);
   const conds = [eq(sdkCapabilityCalls.extensionId, extensionId)];
-  if (opts.capability) conds.push(eq(sdkCapabilityCalls.capability, opts.capability as "llm" | "memory" | "lessons" | "schedule" | "events"));
+  if (opts.capability) conds.push(eq(sdkCapabilityCalls.capability, opts.capability as "llm" | "memory" | "lessons" | "schedule" | "events" | "search"));
   if (opts.since) conds.push(gt(sdkCapabilityCalls.createdAt, opts.since));
   if (opts.until) conds.push(lt(sdkCapabilityCalls.createdAt, opts.until));
   if (cursorAt) conds.push(lt(sdkCapabilityCalls.createdAt, cursorAt));
@@ -124,7 +124,7 @@ export async function listSdkCapabilityCallsForUser(
   const limit = opts.limit ?? DEFAULT_LIMIT;
   const cursorAt = await resolveCursor(opts.cursor);
   const conds = [eq(sdkCapabilityCalls.onBehalfOf, userId)];
-  if (opts.capability) conds.push(eq(sdkCapabilityCalls.capability, opts.capability as "llm" | "memory" | "lessons" | "schedule" | "events"));
+  if (opts.capability) conds.push(eq(sdkCapabilityCalls.capability, opts.capability as "llm" | "memory" | "lessons" | "schedule" | "events" | "search"));
   if (cursorAt) conds.push(lt(sdkCapabilityCalls.createdAt, cursorAt));
   return getDb()
     .select()

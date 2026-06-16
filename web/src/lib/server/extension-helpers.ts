@@ -48,6 +48,7 @@ import {
   clampMemoryPermission,
   clampLessonsPermission,
   clampSchedulePermission,
+  clampSearchPermission,
 } from "$server/extensions/clamp-permissions";
 
 /** Normalize the manifest's `eventSubscriptions` to the canonical
@@ -77,7 +78,15 @@ export function manifestEventsIncludeFullPayload(
 
 export function clampExtensionPermissions(
   submitted: Partial<ExtensionPermissions>,
-  manifest: ExtensionManifestV2["permissions"],
+  // The ceiling. Normally the manifest declaration, but the
+  // reapprove/re-clamp path passes a prior GRANT (or the bundled
+  // ceiling) here — so `search` must tolerate the three-state grant
+  // shape (`false | "inherit" | {…}`), which is a superset of the
+  // manifest's object-only declaration. `clampSearchPermission` already
+  // normalizes every state.
+  manifest: Omit<ExtensionManifestV2["permissions"], "search"> & {
+    search?: ExtensionManifestV2["permissions"]["search"] | ExtensionPermissions["search"];
+  },
   manifestTopLevel?: Pick<ExtensionManifestV2, "acceptsCallerCaps" | "escalateChildCaps">,
 ): ExtensionPermissions {
   const clamped: ExtensionPermissions = { grantedAt: {} };
@@ -173,6 +182,15 @@ export function clampExtensionPermissions(
       manifest.schedule,
     );
     if (schedule) clamped.schedule = schedule;
+
+    // ctx.search (Phase 1). Unlike the others, `false` (search disabled)
+    // is a VALID grant state — only `undefined` means "not declared" —
+    // so attach on `!== undefined`.
+    const search = clampSearchPermission(
+      submitted.search,
+      manifest.search,
+    );
+    if (search !== undefined) clamped.search = search;
   }
 
   // Phase 4 deputy / orchestration flags. Both are top-level manifest

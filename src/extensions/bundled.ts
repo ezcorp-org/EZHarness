@@ -466,7 +466,11 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
       // `cache.ts`. Without this grant the SDK's `fsRead`/`fsWrite`
       // fail-fast and the cache becomes a no-op.
       filesystem: ["$CWD"],
-      grantedAt: { network: Date.now(), filesystem: Date.now(), env: Date.now() },
+      // ctx.search host capability (Phase 1) — `"inherit"` tracks the
+      // instance search defaults. The web-search tools forward to
+      // ctx.search (subprocess → host) instead of owning providers.
+      search: "inherit",
+      grantedAt: { network: Date.now(), filesystem: Date.now(), env: Date.now(), search: Date.now() },
     },
   },
   {

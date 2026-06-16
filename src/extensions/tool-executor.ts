@@ -21,6 +21,7 @@ import { handleFinalizeToolCallRpc, type FinalizeToolCallContext } from "./final
 import { handlePiLlmComplete } from "./llm-handler";
 import { handlePiMemory } from "./memory-handler";
 import { handlePiLessons } from "./lessons-handler";
+import { handlePiSearch } from "./search-handler";
 import { handlePiSchedule } from "./schedule-handler";
 import { handleDraftsRpc, type DraftsContext } from "./drafts-handler";
 import { rpcError } from "./json-rpc";
@@ -2052,6 +2053,9 @@ export class ToolExecutor {
       if (req.method === "ezcorp/lessons") {
         return this.handlePiLessons(extensionId, req);
       }
+      if (req.method === "ezcorp/search") {
+        return this.handlePiSearch(extensionId, req);
+      }
       if (req.method === "ezcorp/schedule") {
         return this.handlePiSchedule(extensionId, req);
       }
@@ -2146,6 +2150,29 @@ export class ToolExecutor {
     const resolved = this.resolveReverseRpcMeta(extensionId, req);
     if (!resolved.ok) return resolved.errorResponse;
     return handlePiLessons(req, {
+      granted,
+      registeredTool: { extensionId },
+    }, resolved.rpcMeta);
+  }
+
+  /** Phase 1 (shared-search) — `ctx.search.{web,read}` reverse-RPC. The
+   *  provider chain runs host-side behind the SSRF egress guard; the
+   *  handler gates on the `search` grant + delegates to `src/search`. */
+  async handlePiSearch(
+    extensionId: string,
+    req: JsonRpcRequest,
+  ): Promise<JsonRpcResponse> {
+    const granted = this.registry.getGrantedPermissions(extensionId);
+    if (!granted) {
+      return {
+        jsonrpc: "2.0",
+        id: req.id,
+        error: { code: -32603, message: "Extension not found in registry" },
+      };
+    }
+    const resolved = this.resolveReverseRpcMeta(extensionId, req);
+    if (!resolved.ok) return resolved.errorResponse;
+    return handlePiSearch(req, {
       granted,
       registeredTool: { extensionId },
     }, resolved.rpcMeta);
