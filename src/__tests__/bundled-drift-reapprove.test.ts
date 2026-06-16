@@ -174,15 +174,6 @@ function seedStaleWebSearch(): StoredExtension {
   return row;
 }
 
-const NEW_KEYLESS_HOSTS = [
-  "lite.duckduckgo.com",
-  "html.duckduckgo.com",
-  "duckduckgo.com",
-  "searxng",
-  "localhost",
-  "127.0.0.1",
-];
-
 describe("bundled drift re-approval", () => {
   test("the bug + happy path + boot convergence: S9 disables, reapprove heals from disk, next boot stays enabled", async () => {
     const { ensureBundledExtensions } = await import("../extensions/bundled");
@@ -199,17 +190,18 @@ describe("bundled drift re-approval", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
 
-    // Grant == ceiling-clamped DISK set (old hosts survive, new
-    // keyless hosts granted).
+    // Grant == ceiling-clamped DISK set. Shared-search Phase 1 turned
+    // web-search into a thin shim: the on-disk manifest no longer
+    // declares network/env/filesystem (the provider chain moved
+    // host-side), so the heal DROPS the stale network/env grant and
+    // grants the new `search` capability ("inherit", per the ceiling).
     const granted = row.grantedPermissions as ExtensionPermissions;
-    for (const host of [...OLD_NETWORK, ...NEW_KEYLESS_HOSTS]) {
-      expect(granted.network).toContain(host);
-    }
-    expect(granted.env).toContain("SEARXNG_BASE_URL");
-    expect(granted.filesystem).toEqual(["$CWD"]);
-    // Fresh grantedAt stamps for every surviving field.
-    expect(typeof granted.grantedAt?.network).toBe("number");
-    expect(granted.grantedAt?.network).toBeGreaterThan(1111);
+    expect(granted.search).toBe("inherit");
+    expect(granted.network ?? []).toEqual([]);
+    expect(granted.env ?? []).toEqual([]);
+    expect(granted.filesystem ?? []).toEqual([]);
+    // Fresh grantedAt stamp for the surviving `search` field.
+    expect(typeof granted.grantedAt?.search).toBe("number");
 
     // Manifest + version refreshed from disk; row re-enabled.
     const manifest = row.manifest as ExtensionManifestV2;
@@ -217,12 +209,11 @@ describe("bundled drift re-approval", () => {
     expect(manifest.version).toBe("1.0.0");
     // D3 — the denormalized `description` column syncs from the disk
     // manifest (the UI reads the column, not the jsonb). The stale
-    // "Keyless by default (Jina AI)"-era text is gone; the SearXNG
-    // description is in place.
+    // pre-shim text is gone; the new ctx.search description is in place.
     expect(row.description).not.toBe("stale pre-zero-setup release");
     expect(row.description).toBe(manifest.description);
-    expect(row.description).toContain("SearXNG sidecar");
-    expect(manifest.permissions?.network).toContain("searxng");
+    expect(row.description).toContain("ctx.search");
+    expect(manifest.permissions?.search).toBe("inherit");
     expect(Array.isArray(manifest.tools)).toBe(true); // tool snapshot present
     expect(row.enabled).toBe(true);
 
@@ -234,14 +225,13 @@ describe("bundled drift re-approval", () => {
     expect(audits[0]?.metadata?.actor).toBe("admin-1");
 
     // Response diffs mirror the boot gate's {field, oldValue, newValue}
-    // shape and capture what was granted.
+    // shape. The stale network is removed; `search` is added.
     const networkDiff = result.diffs.find((d) => d.field === "network");
     expect(networkDiff).toBeDefined();
     expect(networkDiff?.oldValue).toEqual(OLD_NETWORK);
-    expect(networkDiff?.newValue).toContain("searxng");
-    expect(result.diffs.find((d) => d.field === "env")).toBeDefined();
-    // filesystem unchanged → not in the diff summary.
-    expect(result.diffs.find((d) => d.field === "filesystem")).toBeUndefined();
+    const searchDiff = result.diffs.find((d) => d.field === "search");
+    expect(searchDiff).toBeDefined();
+    expect(searchDiff?.newValue).toBe("inherit");
 
     // ── Boot convergence pin (the actual bug): next boot's drift gate
     // passes and the row is NOT re-disabled. ─────────────────────────
@@ -251,9 +241,7 @@ describe("bundled drift re-approval", () => {
     expect(afterBoot.version).toBe("1.0.0");
     // Grant survives the boot reconcile (no oscillation).
     const grantAfterBoot = afterBoot.grantedPermissions as ExtensionPermissions;
-    for (const host of NEW_KEYLESS_HOSTS) {
-      expect(grantAfterBoot.network).toContain(host);
-    }
+    expect(grantAfterBoot.search).toBe("inherit");
   }, 30_000);
 
   test("ceiling clamp: a disk manifest declaring a host beyond the ceiling is silently narrowed (ceiling wins, no error)", async () => {
@@ -273,10 +261,13 @@ describe("bundled drift re-approval", () => {
     expect(result.ok).toBe(true);
 
     const granted = row.grantedPermissions as ExtensionPermissions;
-    // The excess host is dropped by the bundled ceiling…
-    expect(granted.network).not.toContain("evil.example.com");
-    // …while the legitimate within-ceiling widening still lands.
-    expect(granted.network).toContain("lite.duckduckgo.com");
+    // The web-search bundled ceiling is now `search: "inherit"` ONLY (the
+    // shim owns no network). A disk manifest that tries to smuggle in ANY
+    // network host is fully dropped by the ceiling — including the
+    // excess `evil.example.com`. The legitimate `search` grant survives.
+    expect(granted.network ?? []).toEqual([]);
+    expect(granted.network ?? []).not.toContain("evil.example.com");
+    expect(granted.search).toBe("inherit");
     expect(row.enabled).toBe(true);
     // The clamp is recorded on the audit row for forensics.
     const audit = auditEntries.find((a) => a.action === "ext:bundled:drift-reapproved");
@@ -397,7 +388,7 @@ describe("bundled drift re-approval", () => {
     expect(result.ok).toBe(true);
     expect(row.enabled).toBe(true);
     expect(row.version).toBe("1.0.0");
-    expect((row.grantedPermissions as ExtensionPermissions).network).toContain("searxng");
+    expect((row.grantedPermissions as ExtensionPermissions).search).toBe("inherit");
     expect(auditEntries).toHaveLength(0);
   }, 30_000);
 

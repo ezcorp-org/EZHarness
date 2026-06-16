@@ -150,49 +150,15 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
     grantedAt: {},
   },
 
-  // Web search — fixed allowlist of search providers + their secrets,
-  // plus filesystem access so the disk-backed TTL/LRU cache in cache.ts
-  // can persist under `<projectRoot>/.ezcorp/extension-data/web-search/`.
-  // Keyless defaults: the SearXNG sidecar (internal hosts `searxng` /
-  // `localhost` / `127.0.0.1` — routed through the network.internal PDP)
-  // and the DuckDuckGo no-JS endpoints (`duckduckgo.com` covers the
-  // `//duckduckgo.com/l/?uddg=` redirect shape).
-  //
-  // SECURITY NOTE: the loopback grants (`localhost` / `127.0.0.1`) are
-  // HOSTNAME-scoped, not port-scoped — the host-side internal fetch can
-  // reach ANY loopback port, not just the SearXNG sidecar's. That is
-  // acceptable for bundled (first-party) code; port-scoped internal
-  // grants are on the roadmap.
+  // Web search — now a THIN SHIM over the host `ctx.search` capability
+  // (shared-search Phase 1). The provider chain, the SSRF egress guard,
+  // and the shared cache all moved HOST-SIDE (src/search/), so the
+  // extension no longer owns any network hosts, provider-key env vars, or
+  // filesystem grant — the ceiling is just `search: "inherit"` (the full
+  // grant). `"inherit"` tracks the instance search defaults; the ceiling
+  // entry keeps the `search` grant from being dropped by the install-time
+  // `intersectPermissions` clamp.
   "web-search": {
-    network: [
-      "r.jina.ai",
-      "s.jina.ai",
-      "api.tavily.com",
-      "api.search.brave.com",
-      "api.exa.ai",
-      "serpapi.com",
-      "lite.duckduckgo.com",
-      "html.duckduckgo.com",
-      "duckduckgo.com",
-      "searxng",
-      "localhost",
-      "127.0.0.1",
-    ],
-    env: [
-      "TAVILY_API_KEY",
-      "BRAVE_API_KEY",
-      "EXA_API_KEY",
-      "SERPAPI_API_KEY",
-      "JINA_API_KEY",
-      // Not credential-shaped — base URL for the SearXNG sidecar.
-      "SEARXNG_BASE_URL",
-    ],
-    filesystem: ["$CWD"],
-    // ctx.search host capability (Phase 1). `"inherit"` is the full
-    // grant — web-search tracks the instance search defaults. The
-    // provider chain runs host-side behind the SSRF guard; this ceiling
-    // entry is what keeps the `search` grant from being dropped by the
-    // install-time `intersectPermissions` clamp.
     search: "inherit",
     grantedAt: {},
   },

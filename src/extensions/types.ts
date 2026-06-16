@@ -508,19 +508,23 @@ export interface ExtensionManifestV2 {
     /** Brokered web search + URL read via `ctx.search`. The provider
      *  chain (SearXNG / DuckDuckGo / BYOK) runs HOST-side behind the
      *  SSRF egress guard — the extension never fetches a search backend
-     *  itself. The MANIFEST declaration is the per-field upper bound the
-     *  resolver (Phase 2) clamps against; the install/grant-time
-     *  override (`grantedPermissions.search`) carries the three states
-     *  `"inherit" | {…} | false` (see `ExtensionPermissions.search`). */
-    search?: {
-      /** Per-day call quota ceiling (Phase 2 enforces; Phase 1 records). */
-      quota?: number;
-      /** Default max results per search. */
-      maxResults?: number;
-      /** Allowed provider names, or `"inherit"` to track the instance
-       *  default. Intersected with the KNOWN provider list at clamp time. */
-      providers?: string[] | "inherit";
-    };
+     *  itself. A bundled extension may declare the §3.1 three-state shape
+     *  directly (`"inherit"` = full grant / track instance defaults,
+     *  `false` = opt out, or an object of per-field upper bounds the
+     *  Phase-2 resolver clamps against). The install/grant-time override
+     *  (`grantedPermissions.search`) carries the same three states. */
+    search?:
+      | "inherit"
+      | false
+      | {
+          /** Per-day call quota ceiling (Phase 2 enforces; Phase 1 records). */
+          quota?: number;
+          /** Default max results per search. */
+          maxResults?: number;
+          /** Allowed provider names, or `"inherit"` to track the instance
+           *  default. Intersected with the KNOWN provider list at clamp time. */
+          providers?: string[] | "inherit";
+        };
     /**
      * Custom capability bag for reverse-RPCs that don't fit the
      * primary permission shape. Each key is a sub-capability namespace

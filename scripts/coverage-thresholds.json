@@ -54,7 +54,6 @@
   "src/update-check.ts": 100,
   "docs/extensions/examples/*/index.ts": 90,
   "docs/extensions/examples/*/lib/**": 90,
-  "docs/extensions/examples/web-search/providers.ts": 100,
   "src/search/egress.ts": 100,
   "src/search/providers.ts": 100,
   "src/search/cache.ts": 100,

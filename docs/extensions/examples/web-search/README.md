@@ -5,9 +5,20 @@ Pre-installed extension exposing two tools:
 - **`search-web`** — free-text web search; returns ranked results as markdown.
 - **`read-url`** — fetch any URL and return its main content as clean markdown, ready for summarization.
 
+> **Architecture (shared-search Phase 1):** this extension is now a **thin
+> shim** over the host `ctx.search` capability. The provider chain
+> (SearXNG / DuckDuckGo / BYOK), the SSRF egress guard, and the shared
+> cache all live ONCE in the host module **`src/search/`** — reachable by
+> any extension and by host code via `ctx.search`. The two tools simply
+> forward to `ctx.search.web` / `ctx.search.read`; the LLM surface (tool
+> names, schemas, cardTypes) is unchanged. The extension owns **no
+> network hosts, no provider-key env vars, and no filesystem grant** —
+> only `permissions.search`. The provider details below now describe the
+> **host** behavior, and the env vars configure the **host process**.
+
 ## Just works (no API key)
 
-On first launch this extension is installed automatically via `BUNDLED_EXTENSIONS` in `src/extensions/bundled.ts` and its default network permissions are pre-granted. Keyless search works out of the box through two providers:
+On first launch this extension is installed automatically via `BUNDLED_EXTENSIONS` in `src/extensions/bundled.ts` with the `search` capability pre-granted (`"inherit"` = the full instance default). Keyless search works out of the box, host-side, through two providers:
 
 1. **SearXNG sidecar** — both compose stacks ship a [SearXNG](https://docs.searxng.org/) container (`searxng` service). When `SEARXNG_BASE_URL` is set (the compose files set it automatically), search queries go to `{SEARXNG_BASE_URL}/search?format=json`.
 2. **DuckDuckGo** — the universal keyless fallback. Used when `SEARXNG_BASE_URL` is unset, and as a one-shot retry when the SearXNG instance is unreachable (connection refused / timeout / DNS / network-permission denial). Parses the no-JS `lite.duckduckgo.com` endpoint (with `html.duckduckgo.com` as an in-class fallback) using Bun's built-in `HTMLRewriter` — no extra dependencies.
