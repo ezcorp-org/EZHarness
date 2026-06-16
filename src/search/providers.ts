@@ -21,6 +21,9 @@
 // the upstream now returns 401 without a key.
 
 import { guardedFetch, type EgressMode, type GuardedFetchOptions } from "./egress";
+import { logger } from "../logger";
+
+const log = logger.child("search.providers");
 
 export interface SearchResult {
   title: string;
@@ -482,9 +485,11 @@ export function withFallback(primary: SearchProvider, fallback: SearchProvider):
       if (!isConnectionError(err)) throw err;
       primaryErr = err as Error;
     }
-    console.error(
-      `[search] ${primary.name} unreachable (${primaryErr.message}); falling back to ${fallback.name}`,
-    );
+    log.warn("primary search provider unreachable; falling back", {
+      primary: primary.name,
+      fallback: fallback.name,
+      error: primaryErr.message,
+    });
     try {
       return { providerName: fallback.name, results: await fallback.search(query, maxResults) };
     } catch (fbErr) {

@@ -56,8 +56,12 @@ describe("isBlockedIp", () => {
     "fd00:ec2::254", // AWS IPv6 metadata (unique-local)
     "fc00::1", // unique-local
     "fe80::1", // link-local
-    "::ffff:127.0.0.1", // IPv4-mapped loopback
-    "::ffff:10.0.0.1", // IPv4-mapped private
+    "::ffff:127.0.0.1", // IPv4-mapped loopback (dotted)
+    "::ffff:10.0.0.1", // IPv4-mapped private (dotted)
+    "::ffff:7f00:1", // IPv4-mapped loopback (hex-grouped, 127.0.0.1)
+    "::ffff:a9fe:a9fe", // IPv4-mapped metadata (hex-grouped, 169.254.169.254)
+    "0:0:0:0:0:ffff:7f00:1", // IPv4-mapped loopback (uncompressed hex)
+    "fec0::1", // deprecated site-local (RFC 3879)
     "not-an-ip", // fail closed
   ];
   for (const ip of blocked) {
@@ -72,6 +76,7 @@ describe("isBlockedIp", () => {
     "192.169.0.1", // just outside 192.168/16
     "100.63.255.255", "100.128.0.1", // just outside CGN
     "2606:2800:220:1:248:1893:25c8:1946", // public IPv6
+    "2001:db8:1:ffff:1:2:3:4", // public IPv6 containing ffff mid-address (NOT v4-mapped)
   ];
   for (const ip of allowed) {
     test(`allows ${ip}`, () => {

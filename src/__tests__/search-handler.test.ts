@@ -9,10 +9,10 @@
  * and the soft-fail mapping (-32101 disabled / -32105 provider error).
  */
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
-import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "../../__tests__/helpers/test-pglite";
+import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
 
-mock.module("../../db/queries/settings", () => ({
+mock.module("../db/queries/settings", () => ({
   async getAllSettings() { return {}; },
   async getSetting() { return undefined; },
   async upsertSetting() {},
@@ -22,13 +22,13 @@ mock.module("../../db/queries/settings", () => ({
 
 mockDbConnection();
 
-import { handlePiSearch } from "../search-handler";
-import { createUser } from "../../db/queries/users";
-import { extensions, conversations, projects, sdkCapabilityCalls, messages, errorLogs, auditLog } from "../../db/schema";
+import { handlePiSearch } from "../extensions/search-handler";
+import { createUser } from "../db/queries/users";
+import { extensions, conversations, projects, sdkCapabilityCalls, messages, errorLogs, auditLog } from "../db/schema";
 import { eq } from "drizzle-orm";
-import { EXT_AUDIT_ACTIONS } from "../audit-actions";
-import type { ExtensionPermissions, JsonRpcRequest } from "../types";
-import type { SearchModuleResult, ReadModuleResult, PerformSearchOpts, PerformReadOpts } from "../../search/index";
+import { EXT_AUDIT_ACTIONS } from "../extensions/audit-actions";
+import type { ExtensionPermissions, JsonRpcRequest } from "../extensions/types";
+import type { SearchModuleResult, ReadModuleResult, PerformSearchOpts, PerformReadOpts } from "../search/index";
 
 let userId: string;
 let extensionId: string;
@@ -79,10 +79,10 @@ function req(params: Record<string, unknown>, id = 1): JsonRpcRequest {
   return { jsonrpc: "2.0", id, method: "ezcorp/search", params };
 }
 
-const okSearch = (over: Partial<SearchModuleResult> = {}): typeof import("../../search/index").performSearch =>
+const okSearch = (over: Partial<SearchModuleResult> = {}): typeof import("../search/index").performSearch =>
   (async () => ({ markdown: "- [a](https://a)", providerName: "duckduckgo", cached: false, ...over })) as never;
 
-const okRead = (over: Partial<ReadModuleResult> = {}): typeof import("../../search/index").performRead =>
+const okRead = (over: Partial<ReadModuleResult> = {}): typeof import("../search/index").performRead =>
   (async () => ({ markdown: "# page", providerName: "jina", cached: false, ...over })) as never;
 
 describe("gate", () => {

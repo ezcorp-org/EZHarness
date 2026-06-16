@@ -8,7 +8,7 @@
  * ≥95% live-transport pattern: mock at the fetch boundary, never the
  * network).
  */
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -705,13 +705,10 @@ describe("withFallback", () => {
     return p;
   }
 
-  let errorSpy: ReturnType<typeof spyOn>;
-  beforeEach(() => {
-    errorSpy = spyOn(console, "error").mockImplementation(() => {});
-  });
-  afterEach(() => {
-    errorSpy.mockRestore();
-  });
+  // Note: the fallback path logs a warning via the host child logger
+  // (`logger.child("search.providers").warn`, not console.*). The fallback
+  // BEHAVIOR is asserted directly below via the outcome + call counts; the
+  // log line still executes under test so it stays covered.
 
   test("wrapper keeps the primary's name (cache GET namespace)", () => {
     const wrapped = withFallback(fakeProvider("searxng", async () => RESULTS), fakeProvider("duckduckgo", async () => []));
@@ -740,7 +737,6 @@ describe("withFallback", () => {
     expect(outcome).toEqual({ providerName: "duckduckgo", results: RESULTS });
     expect(primary.calls).toBe(1);
     expect(fallback.calls).toBe(1);
-    expect(errorSpy).toHaveBeenCalledTimes(1);
   });
 
   test("HTTP error from a healthy primary → NO fallback, error surfaces as-is", async () => {

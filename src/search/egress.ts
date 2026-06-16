@@ -160,20 +160,48 @@ function isBlockedIpv4(ip: string): boolean {
   return false;
 }
 
+/**
+ * Extract the embedded IPv4 from a v4-mapped IPv6 address (first 80 bits
+ * zero, then `ffff`), in ANY of its textual forms:
+ *   - dotted:           ::ffff:127.0.0.1
+ *   - hex (compressed): ::ffff:7f00:1
+ *   - hex (uncompressed): 0:0:0:0:0:ffff:7f00:1
+ * Returns the dotted v4 string, or null when not a v4-mapped address.
+ * Anchored to the all-zero `::` / `0:0:0:0:0:` prefix so a *public* IPv6
+ * that merely contains `ffff:` mid-address is NOT misclassified.
+ */
+function mappedV4(lower: string): string | null {
+  const m = lower.match(/^(?:::|(?:0:){5})ffff:(.+)$/);
+  if (!m) return null;
+  const suffix = m[1]!;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(suffix)) return suffix; // dotted form
+  const hex = suffix.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/); // hex-grouped form
+  if (hex) {
+    const hi = parseInt(hex[1]!, 16);
+    const lo = parseInt(hex[2]!, 16);
+    return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+  }
+  return null;
+}
+
 function isBlockedIpv6(ip: string): boolean {
   const lower = ip.toLowerCase().replace(/^\[|\]$/g, "");
   // ::1 loopback, :: unspecified.
   const collapsed = lower.replace(/(^|:)0+(?=[0-9a-f])/g, "$1");
   if (lower === "::1" || lower === "::" || collapsed === "::1") return true;
-  // IPv4-mapped (::ffff:a.b.c.d) — classify the embedded v4.
-  const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return isBlockedIpv4(mapped[1]!);
+  // IPv4-mapped (::ffff:a.b.c.d / ::ffff:7f00:1 / 0:0:0:0:0:ffff:…) —
+  // classify the embedded v4 so a hex-grouped mapped loopback/metadata
+  // address (e.g. ::ffff:a9fe:a9fe = 169.254.169.254) can't slip past.
+  const v4 = mappedV4(lower);
+  if (v4) return isBlockedIpv4(v4);
   // fc00::/7 — unique-local (fc.. / fd..). Includes fd00:ec2::254
   // (the AWS IPv6 metadata address).
   const head = lower.split(":")[0] ?? "";
   if (/^f[cd][0-9a-f]{0,2}$/.test(head)) return true;
   // fe80::/10 — link-local.
   if (/^fe[89ab][0-9a-f]?$/.test(head)) return true;
+  // fec0::/10 — deprecated site-local (RFC 3879), blocked for completeness.
+  if (/^fec[0-9a-f]?$/.test(head)) return true;
   return false;
 }
 
