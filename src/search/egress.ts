@@ -161,47 +161,91 @@ function isBlockedIpv4(ip: string): boolean {
 }
 
 /**
- * Extract the embedded IPv4 from a v4-mapped IPv6 address (first 80 bits
- * zero, then `ffff`), in ANY of its textual forms:
- *   - dotted:           ::ffff:127.0.0.1
- *   - hex (compressed): ::ffff:7f00:1
- *   - hex (uncompressed): 0:0:0:0:0:ffff:7f00:1
- * Returns the dotted v4 string, or null when not a v4-mapped address.
- * Anchored to the all-zero `::` / `0:0:0:0:0:` prefix so a *public* IPv6
- * that merely contains `ffff:` mid-address is NOT misclassified.
+ * Parse an IPv6 literal (already lowercased + bracket-stripped, and known
+ * valid per `node:net.isIP`) to its 16 bytes, or null if our parser can't
+ * — callers fail CLOSED on null. Handles `::` zero-compression and an
+ * embedded dotted-quad in the low 32 bits (e.g. `::ffff:127.0.0.1`).
  */
-function mappedV4(lower: string): string | null {
-  const m = lower.match(/^(?:::|(?:0:){5})ffff:(.+)$/);
-  if (!m) return null;
-  const suffix = m[1]!;
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(suffix)) return suffix; // dotted form
-  const hex = suffix.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/); // hex-grouped form
-  if (hex) {
-    const hi = parseInt(hex[1]!, 16);
-    const lo = parseInt(hex[2]!, 16);
-    return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+function ipv6ToBytes(ip: string): number[] | null {
+  let s = ip;
+  let v4: number[] | null = null;
+  const dot = s.match(/^(.*:)(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (dot) {
+    const o = dot[2]!.split(".").map(Number);
+    if (o.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+    v4 = o;
+    s = dot[1]!.replace(/:$/, ""); // drop the ':' before the embedded v4
   }
-  return null;
+  const halves = s.split("::");
+  if (halves.length > 2) return null;
+  const groups = (g: string): number[] | null => {
+    if (g === "") return [];
+    const out: number[] = [];
+    for (const h of g.split(":")) {
+      if (!/^[0-9a-f]{1,4}$/.test(h)) return null;
+      out.push(parseInt(h, 16));
+    }
+    return out;
+  };
+  const head = groups(halves[0] ?? "");
+  if (head === null) return null;
+  let tail: number[] = [];
+  if (halves.length === 2) {
+    const t = groups(halves[1] ?? "");
+    if (t === null) return null;
+    tail = t;
+  }
+  const v4Hextets = v4 ? 2 : 0;
+  const present = head.length + tail.length + v4Hextets;
+  let hextets: number[];
+  if (halves.length === 2) {
+    const fill = 8 - present;
+    if (fill < 1) return null;
+    hextets = [...head, ...new Array(fill).fill(0), ...tail];
+  } else {
+    if (present !== 8) return null;
+    hextets = [...head, ...tail];
+  }
+  const bytes: number[] = [];
+  for (const g of hextets) bytes.push((g >> 8) & 0xff, g & 0xff);
+  if (v4) bytes.push(...v4);
+  return bytes.length === 16 ? bytes : null;
 }
 
+/**
+ * Block an IPv6 literal that maps to a non-routable / internal target.
+ * Beyond native IPv6 private ranges this also classifies the EMBEDDED v4
+ * of every v4↔v6 transition encoding (v4-mapped `::ffff:x`, deprecated
+ * v4-compatible `::x`, 6to4 `2002::/16`, NAT64 `64:ff9b::/96`) so a
+ * loopback/metadata address can't be smuggled in as e.g. `::ffff:7f00:1`,
+ * `2002:7f00:1::`, or `64:ff9b::7f00:1`. Transition forms wrapping a
+ * PUBLIC v4 are left allowed (only the embedded-private case is blocked),
+ * so no legitimate address is over-blocked. Fails CLOSED on parse failure.
+ */
 function isBlockedIpv6(ip: string): boolean {
-  const lower = ip.toLowerCase().replace(/^\[|\]$/g, "");
-  // ::1 loopback, :: unspecified.
-  const collapsed = lower.replace(/(^|:)0+(?=[0-9a-f])/g, "$1");
-  if (lower === "::1" || lower === "::" || collapsed === "::1") return true;
-  // IPv4-mapped (::ffff:a.b.c.d / ::ffff:7f00:1 / 0:0:0:0:0:ffff:…) —
-  // classify the embedded v4 so a hex-grouped mapped loopback/metadata
-  // address (e.g. ::ffff:a9fe:a9fe = 169.254.169.254) can't slip past.
-  const v4 = mappedV4(lower);
-  if (v4) return isBlockedIpv4(v4);
-  // fc00::/7 — unique-local (fc.. / fd..). Includes fd00:ec2::254
-  // (the AWS IPv6 metadata address).
-  const head = lower.split(":")[0] ?? "";
-  if (/^f[cd][0-9a-f]{0,2}$/.test(head)) return true;
+  const b = ipv6ToBytes(ip.toLowerCase().replace(/^\[|\]$/g, ""));
+  if (!b) return true;
+  const v4 = (i: number) => `${b[i]}.${b[i + 1]}.${b[i + 2]}.${b[i + 3]}`;
+  // :: unspecified and ::1 loopback.
+  if (b.slice(0, 15).every((x) => x === 0) && (b[15] === 0 || b[15] === 1)) return true;
+  // v4-mapped ::ffff:0:0/96 — classify the embedded v4.
+  if (b.slice(0, 10).every((x) => x === 0) && b[10] === 0xff && b[11] === 0xff) {
+    return isBlockedIpv4(v4(12));
+  }
+  // v4-compatible ::/96 (deprecated, RFC 4291) — embedded v4.
+  if (b.slice(0, 12).every((x) => x === 0)) return isBlockedIpv4(v4(12));
+  // 6to4 2002::/16 — embedded v4 sits in bytes 2-5.
+  if (b[0] === 0x20 && b[1] === 0x02) return isBlockedIpv4(v4(2));
+  // NAT64 64:ff9b::/96 — embedded v4 in the low 32 bits.
+  if (b[0] === 0x00 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b) {
+    return isBlockedIpv4(v4(12));
+  }
+  // fc00::/7 — unique-local (incl. fd00:ec2::254, the AWS IPv6 metadata addr).
+  if ((b[0]! & 0xfe) === 0xfc) return true;
   // fe80::/10 — link-local.
-  if (/^fe[89ab][0-9a-f]?$/.test(head)) return true;
-  // fec0::/10 — deprecated site-local (RFC 3879), blocked for completeness.
-  if (/^fec[0-9a-f]?$/.test(head)) return true;
+  if (b[0] === 0xfe && (b[1]! & 0xc0) === 0x80) return true;
+  // fec0::/10 — deprecated site-local (RFC 3879).
+  if (b[0] === 0xfe && (b[1]! & 0xc0) === 0xc0) return true;
   return false;
 }
 

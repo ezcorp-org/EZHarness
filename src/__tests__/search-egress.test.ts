@@ -62,6 +62,12 @@ describe("isBlockedIp", () => {
     "::ffff:a9fe:a9fe", // IPv4-mapped metadata (hex-grouped, 169.254.169.254)
     "0:0:0:0:0:ffff:7f00:1", // IPv4-mapped loopback (uncompressed hex)
     "fec0::1", // deprecated site-local (RFC 3879)
+    "::7f00:1", // v4-compatible loopback (deprecated, 127.0.0.1)
+    "::127.0.0.1", // v4-compatible loopback (dotted)
+    "2002:7f00:1::", // 6to4 wrapping 127.0.0.1
+    "2002:a9fe:a9fe::", // 6to4 wrapping 169.254.169.254 metadata
+    "64:ff9b::7f00:1", // NAT64 wrapping 127.0.0.1
+    "64:ff9b::a9fe:a9fe", // NAT64 wrapping metadata
     "not-an-ip", // fail closed
   ];
   for (const ip of blocked) {
@@ -77,6 +83,9 @@ describe("isBlockedIp", () => {
     "100.63.255.255", "100.128.0.1", // just outside CGN
     "2606:2800:220:1:248:1893:25c8:1946", // public IPv6
     "2001:db8:1:ffff:1:2:3:4", // public IPv6 containing ffff mid-address (NOT v4-mapped)
+    "2002:0808:0808::", // 6to4 wrapping a PUBLIC v4 (8.8.8.8) — not over-blocked
+    "64:ff9b::808:808", // NAT64 wrapping a PUBLIC v4 (8.8.8.8) — not over-blocked
+    "::ffff:8.8.8.8", // v4-mapped PUBLIC — allowed
   ];
   for (const ip of allowed) {
     test(`allows ${ip}`, () => {
