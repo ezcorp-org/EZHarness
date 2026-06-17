@@ -3,6 +3,8 @@
 	import { onMount } from "svelte";
 	import type { SettingsSchema } from "$server/extensions/types";
 	import SettingsPanel from "./SettingsPanel.svelte";
+	import CapabilitiesPanel from "$lib/components/extensions/CapabilitiesPanel.svelte";
+	import type { HeldCapabilityView, SearchGrant } from "$lib/capability-policy-ui.js";
 	import JsonBlock from "$lib/components/JsonBlock.svelte";
 	import { invalidateExtensionSettings } from "$lib/stores/extensionSettings";
 	import ExpiredGrantsBanner, {
@@ -143,6 +145,7 @@
 
 	let settingsSchema = $state<SettingsSchema>({});
 	let userValues = $state<Record<string, unknown>>({});
+	let capabilities = $state<HeldCapabilityView[]>([]);
 	let settingsLoaded = $state(false);
 	let settingsError = $state("");
 
@@ -168,6 +171,7 @@
 			const data = await res.json();
 			settingsSchema = (data.schema ?? {}) as SettingsSchema;
 			userValues = (data.userValues ?? {}) as Record<string, unknown>;
+			capabilities = (data.capabilities ?? []) as HeldCapabilityView[];
 			settingsLoaded = true;
 		} catch (e) {
 			settingsError = e instanceof Error ? e.message : "Failed to load settings";
@@ -194,6 +198,23 @@
 		if (!res.ok) throw new Error(`Reset failed: HTTP ${res.status}`);
 		if (ext) invalidateExtensionSettings(ext.name);
 		showTemporarySuccess("Settings reset to default");
+		await loadSettings();
+	}
+
+	// §5.2 — persist a host-capability grant override (the security
+	// CEILING). Writes the GRANT via the EXISTING admin permissions PUT
+	// (clamped to manifest server-side), NOT the per-user settings route.
+	// Merge into the current grant so unrelated permissions are preserved.
+	async function saveCapabilityGrant(cap: string, grant: SearchGrant) {
+		const res = await fetch(`/api/extensions/${extId}/permissions`, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				permissions: { ...(ext?.grantedPermissions ?? {}), [cap]: grant },
+			}),
+		});
+		if (!res.ok) throw new Error(`Capability save failed: HTTP ${res.status}`);
+		showTemporarySuccess("Capability policy saved");
 		await loadSettings();
 	}
 
@@ -931,6 +952,16 @@
 
 			{#if settingsError}
 				<p class="mb-3 text-xs text-red-400">{settingsError}</p>
+			{/if}
+
+			<!-- §5.2 host-capability policy (admin ceiling) — rendered
+			     ABOVE the per-user settings. Only shows for extensions that
+			     HOLD a host capability (search). The per-user settings
+			     section below is unaffected by capability changes. -->
+			{#if settingsLoaded && capabilities.length > 0}
+				<div class="mb-4">
+					<CapabilitiesPanel {capabilities} {isAdmin} onsave={saveCapabilityGrant} />
+				</div>
 			{/if}
 
 			{#if !settingsLoaded}
