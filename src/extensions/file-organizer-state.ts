@@ -158,10 +158,17 @@ function toApplierProposal(p: Proposal): ApplierProposal {
   };
 }
 
-/** Resolve a proposal's watched root from config (for prefix-checking). */
-function watchedRootFor(config: Config, p: Proposal): string {
+/**
+ * Resolve a proposal's watched root from config (for prefix-checking).
+ * Returns null when the proposal's folder no longer exists — the caller
+ * MUST refuse the apply (no root ⇒ no containment anchor ⇒ blocked).
+ * Never falls back to "/" : `isWithin("/", child)` is always true, which
+ * would silently defeat the watched-root prefix-check for an orphaned
+ * proposal (generate under folder X → remove X → accept).
+ */
+function watchedRootFor(config: Config, p: Proposal): string | null {
   const folder = config.folders.find((f) => f.id === p.folderId);
-  return folder?.path ?? "/";
+  return folder?.path ?? null;
 }
 
 // ── Proposal apply / reject ─────────────────────────────────────────
@@ -180,7 +187,16 @@ export async function acceptProposal(deps: StateDeps, proposalId: string): Promi
   if (proposal.status !== "pending") return { ok: true, message: "Already resolved", changed: false }; // CAS no-op
 
   const config = await readConfig(p.config);
-  const ctx = applierCtx(deps, watchedRootFor(config, proposal));
+  const watchedRoot = watchedRootFor(config, proposal);
+  if (watchedRoot === null) {
+    // Orphaned proposal — its watched folder was removed. Refuse rather
+    // than fall back to "/" (which would defeat the prefix-check). Record
+    // the proposal as blocked so the row stops re-offering an apply.
+    const blocked = applyOutcomeToProposal(proposal, { status: "blocked" }, deps);
+    if (blocked) await saveProposals(io, replaceProposal(file, blocked));
+    return { ok: false, message: "Blocked: watched folder removed", changed: true };
+  }
+  const ctx = applierCtx(deps, watchedRoot);
   const outcome = await applyProposal(toApplierProposal(proposal), ctx);
 
   const next = applyOutcomeToProposal(proposal, outcome, deps);
@@ -256,7 +272,15 @@ export async function confirmDeletes(deps: StateDeps): Promise<HandlerResult> {
   const batchId = `batch-${cryptoId()}`;
   for (const proposal of file.proposals) {
     if (proposal.status !== "pending" || proposal.kind !== "delete-quarantine") continue;
-    const ctx = applierCtx(deps, watchedRootFor(config, proposal));
+    const watchedRoot = watchedRootFor(config, proposal);
+    if (watchedRoot === null) {
+      // Orphaned proposal (folder removed) — refuse, mark blocked, never
+      // fall back to "/". Quarantine still needs a containment anchor.
+      const blocked = applyOutcomeToProposal(proposal, { status: "blocked" }, deps, batchId);
+      if (blocked) working = replaceProposal(working, blocked);
+      continue;
+    }
+    const ctx = applierCtx(deps, watchedRoot);
     const outcome = await applyProposal(toApplierProposal(proposal), ctx);
     const next = applyOutcomeToProposal(proposal, outcome, deps, batchId);
     if (next) working = replaceProposal(working, next);
@@ -345,6 +369,30 @@ export async function purgeExpired(deps: StateDeps): Promise<HandlerResult> {
   }
   await atomicWrite(p.manifest, JSON.stringify(working, null, 2));
   return { ok: true, message: `Purged ${victims.length}`, changed: victims.length > 0 };
+}
+
+/**
+ * Reset every `failed` proposal back to `pending` so the next accept (or
+ * an auto-mode tick) re-applies it. A failed apply is usually transient
+ * (ENOSPC freed, mount reconnected) — the Hub's "Retry failed" button
+ * must actually move the rows, not just refresh the cache.
+ */
+export async function retryFailed(deps: StateDeps): Promise<HandlerResult> {
+  const p = paths(deps.dataDir);
+  const io = proposalsIO(p.proposals);
+  const { file } = await loadProposals(io);
+  let working = file;
+  let count = 0;
+  for (const proposal of file.proposals) {
+    if (proposal.status !== "failed") continue;
+    const reset = transition(proposal, "pending");
+    if (reset) {
+      working = replaceProposal(working, reset);
+      count++;
+    }
+  }
+  if (count > 0) await saveProposals(io, working);
+  return { ok: true, message: `Retrying ${count}`, changed: count > 0 };
 }
 
 /** Dismiss a stale-source proposal (reject without suppression). */

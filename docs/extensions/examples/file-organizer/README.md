@@ -39,10 +39,20 @@ on the next action.
 Toggle per-folder. See `knowledge/preset-rules.md` for the full list + the
 quick-rule mini-DSL (`*.tmp older 7d -> quarantine`).
 
-- **junk-sweep** — `*.tmp`, `*.bak`, `.DS_Store`, `Thumbs.db`, old `*.log`
+- **junk-sweep** — `*.tmp` (only ≥10 min old — see below), `*.bak`,
+  `.DS_Store`, `Thumbs.db`, old `*.log`
 - **downloads-router** — images → `Images/`, PDFs → `Documents/`, …
 - **duplicate-killer** — content-identical files (by sha256)
 - **stale-archiver** — files older than 90 days → `Archive/`
+
+> **`.tmp` dwell guard.** The junk-sweep only quarantines a `*.tmp` once it
+> is at least ~10 minutes old (`JUNK_TMP_MIN_AGE_MS`). Atomic-write libraries
+> create a `*.tmp`, fsync it, then `rename()` it into place — a fresh `.tmp`
+> is often a write-in-progress, not abandoned junk. The dwell guard (on top
+> of the stability gate) keeps the sweep from racing those writers while
+> still reclaiming genuinely-orphaned temp files. Browser/office partials
+> (`.crdownload`/`.part`/`.partial`/`.download`/`~$…`) are excluded from
+> scanning entirely.
 
 ## Exposing host folders to the container — the two-layer model
 

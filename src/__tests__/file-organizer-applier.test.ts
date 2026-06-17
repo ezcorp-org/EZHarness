@@ -141,6 +141,36 @@ describe("applyProposal — move", () => {
     expect(outcome.status).toBe("stale-source");
   });
 
+  test("an unclassified proposal is skipped (not directly applyable)", async () => {
+    const watched = join(root, "w");
+    await mkdir(watched, { recursive: true });
+    const src = join(watched, "mystery.dat");
+    await writeFile(src, "x");
+    const ctx = await ctxFor(watched);
+    const p: ApplierProposal = { id: "u", kind: "unclassified", src, dst: null, snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 } };
+    const outcome = await applyProposal(p, ctx);
+    expect(outcome.status).toBe("skipped");
+    expect(outcome.reason).toContain("not directly applyable");
+    expect(await _applierInternals.pathExists(src)).toBe(true); // untouched
+  });
+
+  test("an engine 'prompt' decision fails closed (blocked, never applied)", async () => {
+    const watched = join(root, "w");
+    await mkdir(watched, { recursive: true });
+    const src = join(watched, "a.txt");
+    await writeFile(src, "x");
+    // Bundled grants auto-allow, so a prompt is unexpected — the applier
+    // must treat it as a deny (fail-closed) rather than apply on an
+    // unresolved prompt.
+    const promptEngine = {
+      authorize: async () => ({ decision: "prompt", reason: "needs user" }),
+    } as unknown as PermissionEngine;
+    const ctx = await ctxFor(watched, promptEngine);
+    const outcome = await applyProposal(moveProposal(src, join(watched, "sub", "a.txt"), 1), ctx);
+    expect(outcome.status).toBe("blocked");
+    expect(await _applierInternals.pathExists(src)).toBe(true);
+  });
+
   test("symlink ⇒ skipped (never followed)", async () => {
     const watched = join(root, "w");
     await mkdir(watched, { recursive: true });
@@ -258,6 +288,22 @@ describe("journal crash-replay", () => {
     const res = await replayJournal(join(root, "missing-journal.json"));
     expect(res).toEqual({ finished: 0, rolledBack: 0 });
   });
+
+  test("a corrupt (non-JSON) journal is read as empty (fail-safe)", async () => {
+    const journalPath = join(root, "corrupt-journal.json");
+    await writeFile(journalPath, "{ not valid json");
+    // readJournal swallows the parse error and returns [] — replay is then
+    // a clean no-op rather than a crash on a torn write.
+    expect(await _applierInternals.readJournal(journalPath)).toEqual([]);
+    const res = await replayJournal(journalPath);
+    expect(res).toEqual({ finished: 0, rolledBack: 0 });
+  });
+
+  test("a non-array journal payload is read as empty", async () => {
+    const journalPath = join(root, "obj-journal.json");
+    await writeFile(journalPath, JSON.stringify({ not: "an array" }));
+    expect(await _applierInternals.readJournal(journalPath)).toEqual([]);
+  });
 });
 
 describe("hardDeleteTrash", () => {
@@ -271,12 +317,27 @@ describe("hardDeleteTrash", () => {
 });
 
 describe("guards (unit)", () => {
-  test("isWithin / touchesDataDir", () => {
+  test("isWithin / touchesDataDir (loose substring fallback)", () => {
     expect(_applierInternals.isWithin("/a", "/a/b")).toBe(true);
     expect(_applierInternals.isWithin("/a", "/ab")).toBe(false);
     expect(_applierInternals.touchesDataDir("/x/.ezcorp/data/y")).toBe(true);
     expect(_applierInternals.touchesDataDir("/x/Downloads/y")).toBe(false);
   });
+
+  test("touchesDataDir anchors to the real dataDirRoot's project .ezcorp/data", () => {
+    // dataDirRoot = <proj>/.ezcorp/extension-data/file-organizer ⇒ the
+    // protected dir is <proj>/.ezcorp/data (its .ezcorp sibling).
+    const proj = "/home/dev/proj";
+    const dataDirRoot = join(proj, ".ezcorp", "extension-data", "file-organizer");
+    expect(_applierInternals.touchesDataDir(join(proj, ".ezcorp", "data", "ez.db"), dataDirRoot)).toBe(true);
+    expect(_applierInternals.touchesDataDir(join(proj, ".ezcorp", "data"), dataDirRoot)).toBe(true);
+    // A sibling that merely shares the `.ezcorp` parent but is NOT data/ is fine.
+    expect(_applierInternals.touchesDataDir(join(proj, ".ezcorp", "extension-data", "x"), dataDirRoot)).toBe(false);
+    // The anchored check is in addition to the loose fallback — a path under
+    // a DIFFERENT project's .ezcorp/data still trips the substring guard.
+    expect(_applierInternals.touchesDataDir("/other/.ezcorp/data/y", dataDirRoot)).toBe(true);
+  });
+
   test("resolveNonOverwrite walks suffixes on disk", async () => {
     const d = join(root, "no");
     await mkdir(d, { recursive: true });
@@ -284,5 +345,20 @@ describe("guards (unit)", () => {
     expect(await _applierInternals.resolveNonOverwrite(join(d, "f.txt"))).toBe(join(d, "f (2).txt"));
     expect(await _applierInternals.resolveNonOverwrite(join(d, "free.txt"))).toBe(join(d, "free.txt"));
     void stat; // silence unused import in some toolchains
+  });
+
+  test("resolveNonOverwrite handles dotfiles (no ext) and multi-dot names", async () => {
+    const d = join(root, "dot");
+    await mkdir(d, { recursive: true });
+    // A dotfile collision: `.bashrc` has NO extension — the suffix must
+    // land on the stem, not split as ext=".bashrc" → " (2).bashrc".
+    await writeFile(join(d, ".bashrc"), "1");
+    expect(await _applierInternals.resolveNonOverwrite(join(d, ".bashrc"))).toBe(join(d, ".bashrc (2)"));
+    // A multi-dot name keeps only the final ext segment.
+    await writeFile(join(d, "archive.tar.gz"), "1");
+    expect(await _applierInternals.resolveNonOverwrite(join(d, "archive.tar.gz"))).toBe(join(d, "archive.tar (2).gz"));
+    // A dotfile WITH an ext (`.config.json`) splits at the last dot.
+    await writeFile(join(d, ".config.json"), "1");
+    expect(await _applierInternals.resolveNonOverwrite(join(d, ".config.json"))).toBe(join(d, ".config (2).json"));
   });
 });

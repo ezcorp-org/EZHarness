@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   CIRCUIT_BREAKER_FRACTION,
+  JUNK_TMP_MIN_AGE_MS,
   MAX_NAME_LENGTH,
   PRESETS,
   PRESET_NAMES,
@@ -142,6 +143,23 @@ describe("presets", () => {
   test("junk-sweep rules are destructive; router rules are not", () => {
     expect(PRESETS["junk-sweep"]!.every((r) => r.destructive)).toBe(true);
     expect(PRESETS["downloads-router"]!.every((r) => !r.destructive)).toBe(true);
+  });
+
+  test("junk-tmp has a min-age dwell guard (atomic-writer safety)", () => {
+    const tmpRule = PRESETS["junk-sweep"]!.find((r) => r.id === "junk-tmp")!;
+    expect(tmpRule.predicate.olderThanMs).toBe(JUNK_TMP_MIN_AGE_MS);
+    // A FRESH .tmp (just created) must NOT match — it could be an
+    // atomic-writer's write-temp→rename in flight.
+    const now = 1_000_000_000;
+    const fresh = facts({ name: "x.tmp", ext: "tmp", mtimeMs: now });
+    expect(ruleMatches(tmpRule, fresh, { now })).toBe(false);
+    // An OLD .tmp (well past the dwell window) IS swept.
+    const old = facts({ name: "x.tmp", ext: "tmp", mtimeMs: now - JUNK_TMP_MIN_AGE_MS - 1 });
+    expect(ruleMatches(tmpRule, old, { now })).toBe(true);
+    // .bak/.DS_Store have no atomic-writer pattern ⇒ no age gate (match fresh).
+    const bakRule = PRESETS["junk-sweep"]!.find((r) => r.id === "junk-bak")!;
+    expect(bakRule.predicate.olderThanMs).toBeUndefined();
+    expect(ruleMatches(bakRule, facts({ name: "x.bak", ext: "bak", mtimeMs: now }), { now })).toBe(true);
   });
 });
 

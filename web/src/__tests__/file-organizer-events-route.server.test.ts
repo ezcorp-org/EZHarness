@@ -40,7 +40,12 @@ vi.mock("$lib/server/http-errors", () => ({
 }));
 vi.mock("$server/runtime/sse-conversation-filter", () => ({
   isRegisteredExtensionEvent: (e: string) =>
-    new Set(["file-organizer:accept", "file-organizer:select-segment", "file-organizer:teach-rule"]).has(e),
+    new Set([
+      "file-organizer:accept",
+      "file-organizer:select-segment",
+      "file-organizer:teach-rule",
+      "file-organizer:classify-move",
+    ]).has(e),
 }));
 vi.mock("$server/db/queries/extensions", () => ({ getExtensionByName: async () => h.state.ext }));
 vi.mock("$lib/server/hub-extension-pages", () => ({
@@ -119,6 +124,18 @@ describe("file-organizer hub in-process branch", () => {
     expect(res.status).toBe(200);
     expect(h.state.dispatchCalls).toHaveLength(0);
     expect(h.getProcess).toHaveBeenCalled();
+  });
+
+  test("classify-move forwards to the subprocess (parity with teach-rule)", async () => {
+    // classify-move is an agent-driven Hub action — it is NOT in
+    // IN_PROCESS_EVENTS, so the route must forward it to the subprocess
+    // (prompt → notification), never run it host-side. Same path as
+    // teach-rule; this pins the parity so a future refactor can't silently
+    // route an agent action through the in-process applier.
+    const res = await POST(hubReq("classify-move", { proposalId: "p1" }) as never);
+    expect(res.status).toBe(200);
+    expect(h.state.dispatchCalls).toHaveLength(0); // never dispatched in-process
+    expect(h.getProcess).toHaveBeenCalled(); // spawned + notified instead
   });
 
   test("undeclared page ⇒ 404 (no dispatch)", async () => {

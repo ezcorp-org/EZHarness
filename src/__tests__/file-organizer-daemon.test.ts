@@ -68,6 +68,16 @@ async function writeConfig(input: ConfigInput = {}): Promise<void> {
   );
 }
 
+// The junk-tmp preset now carries a ~10-minute dwell guard (atomic-writer
+// safety, see lib/rules.ts JUNK_TMP_MIN_AGE_MS). Freshly-written `.tmp`
+// fixtures have an mtime of ~real-now, so by default we advance the
+// daemon's injected clock past the dwell window — that keeps the existing
+// "a fresh junk fixture gets proposed" assertions meaningful (they test
+// the sweep pipeline, NOT the dwell guard, which has its own unit test in
+// lib/rules.test.ts). Tests that care about the real clock pass `now`
+// explicitly to override this.
+const PAST_TMP_DWELL = () => Date.now() + 60 * 60 * 1000;
+
 function makeDaemon(opts: { settings?: Partial<FileOrganizerSettings>; engine?: PermissionEngine; now?: () => number; invalidations?: string[] } = {}): FileOrganizerDaemon {
   const settings: FileOrganizerSettings = { ...DEFAULT_SETTINGS, scanIntervalSec: 5, stabilityTicks: 1, ...opts.settings };
   return new FileOrganizerDaemon({
@@ -76,7 +86,7 @@ function makeDaemon(opts: { settings?: Partial<FileOrganizerSettings>; engine?: 
     extensionId: "ext-fo",
     getSettings: async () => settings,
     invalidatePage: opts.invalidations ? (p) => opts.invalidations!.push(p) : undefined,
-    now: opts.now,
+    now: opts.now ?? PAST_TMP_DWELL,
     skipLockfile: true,
   });
 }
@@ -308,6 +318,64 @@ describe("daemon — lifecycle", () => {
     expect(_fileOrganizerDaemonInternals.clampInterval(99999)).toBe(3600);
     expect(_fileOrganizerDaemonInternals.clampInterval(45)).toBe(45);
     expect(_fileOrganizerDaemonInternals.clampInterval(NaN)).toBe(DEFAULT_SETTINGS.scanIntervalSec);
+  });
+});
+
+// ── PID lockfile lifecycle (the sibling-prevention primitive) ───────
+//
+// Every other test runs with `skipLockfile:true`, so the acquire/stale-
+// overwrite/release path was 0% covered. Exercise it directly against a
+// real lockfile + real PIDs. The stale-overwrite case is the safety-
+// critical one: a daemon that crashed (or a garbage PID) must NOT
+// permanently wedge the watcher.
+describe("PID lockfile lifecycle", () => {
+  const { acquireLockfile, isProcessAlive, releaseLockfile } = _fileOrganizerDaemonInternals;
+
+  test("isProcessAlive: live PID true, garbage/dead PID false", () => {
+    expect(isProcessAlive(process.pid)).toBe(true);
+    expect(isProcessAlive(0)).toBe(false);
+    expect(isProcessAlive(-1)).toBe(false);
+    expect(isProcessAlive(NaN)).toBe(false);
+    // A PID that is exceedingly unlikely to be live (max pid + slack).
+    expect(isProcessAlive(2 ** 31 - 1)).toBe(false);
+  });
+
+  test("a live-PID lockfile is NOT acquired (sibling alive)", async () => {
+    const lock = join(dataDir, ".daemon.pid");
+    await writeFile(lock, String(process.pid)); // our own PID is alive
+    expect(await acquireLockfile(lock)).toBe(false);
+    // The live lock is left untouched (still our PID).
+    expect((await readFile(lock, "utf8")).trim()).toBe(String(process.pid));
+  });
+
+  test("a stale (dead) PID lockfile is overwritten + acquired", async () => {
+    const lock = join(dataDir, ".daemon.pid");
+    await writeFile(lock, "2147483646"); // an effectively-dead PID
+    expect(await acquireLockfile(lock)).toBe(true);
+    expect((await readFile(lock, "utf8")).trim()).toBe(String(process.pid));
+  });
+
+  test("a garbage (non-numeric) PID lockfile is overwritten + acquired", async () => {
+    const lock = join(dataDir, ".daemon.pid");
+    await writeFile(lock, "not-a-pid");
+    expect(await acquireLockfile(lock)).toBe(true);
+    expect((await readFile(lock, "utf8")).trim()).toBe(String(process.pid));
+  });
+
+  test("acquiring a fresh lockfile (none present) succeeds + stamps our PID", async () => {
+    const lock = join(dataDir, "fresh.pid");
+    expect(await acquireLockfile(lock)).toBe(true);
+    expect((await readFile(lock, "utf8")).trim()).toBe(String(process.pid));
+  });
+
+  test("releaseLockfile removes the file (and is a no-op when already gone)", async () => {
+    const lock = join(dataDir, ".daemon.pid");
+    await writeFile(lock, String(process.pid));
+    await releaseLockfile(lock);
+    expect(await Bun.file(lock).exists()).toBe(false);
+    // Idempotent — releasing an already-gone lock never throws.
+    await releaseLockfile(lock);
+    expect(await Bun.file(lock).exists()).toBe(false);
   });
 });
 

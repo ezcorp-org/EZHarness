@@ -115,6 +115,23 @@ describe("acceptProposal", () => {
     expect(await Bun.file(join(watched, "a.txt")).exists()).toBe(true);
   });
 
+  test("orphaned proposal (folder removed) ⇒ blocked, file NOT moved", async () => {
+    // The proposal's folder X was generated then removed (folderId no
+    // longer in config). Without the containment fix, watchedRootFor would
+    // fall back to "/" and isWithin("/", dst) is always true — defeating
+    // the watched-root prefix-check. The fix refuses (blocked) instead.
+    await seedConfig(); // config has folder f1 only
+    await writeFile(join(watched, "a.txt"), "precious");
+    await seedProposals([proposal({ folderId: "ghost-folder" })]); // no such folder
+    const r = await state.acceptProposal(deps(), "p1");
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain("watched folder removed");
+    // The row is recorded blocked and the file was NEVER moved.
+    expect((await readProposals()).proposals[0].status).toBe("blocked");
+    expect(await Bun.file(join(watched, "a.txt")).exists()).toBe(true);
+    expect(await Bun.file(join(watched, "sub", "a.txt")).exists()).toBe(false);
+  });
+
   test("delete-quarantine: applies + records manifest entry", async () => {
     await seedConfig();
     await writeFile(join(watched, "junk.tmp"), "junk");
@@ -297,6 +314,36 @@ describe("config mutations", () => {
     expect((await readConfig()).folders[0].customRules).toHaveLength(1);
     const bad = await state.addRule(deps(), "f1", "garbage no arrow");
     expect(bad.ok).toBe(false);
+  });
+});
+
+describe("retryFailed", () => {
+  test("resets failed rows back to pending (others untouched)", async () => {
+    await seedConfig();
+    await seedProposals([
+      proposal({ id: "f1", status: "failed" }),
+      proposal({ id: "f2", status: "failed" }),
+      proposal({ id: "p", status: "pending" }),
+      proposal({ id: "a", status: "applied" }),
+    ]);
+    const r = await state.retryFailed(deps());
+    expect(r.ok).toBe(true);
+    expect(r.changed).toBe(true);
+    expect(r.message).toBe("Retrying 2");
+    const file = await readProposals();
+    const byId = (id: string) => file.proposals.find((x: Proposal) => x.id === id);
+    expect(byId("f1").status).toBe("pending");
+    expect(byId("f2").status).toBe("pending");
+    expect(byId("p").status).toBe("pending");
+    expect(byId("a").status).toBe("applied"); // terminal — not retried
+  });
+
+  test("no failed rows ⇒ no-op (changed:false)", async () => {
+    await seedConfig();
+    await seedProposals([proposal({ status: "pending" })]);
+    const r = await state.retryFailed(deps());
+    expect(r.changed).toBe(false);
+    expect(r.message).toBe("Retrying 0");
   });
 });
 

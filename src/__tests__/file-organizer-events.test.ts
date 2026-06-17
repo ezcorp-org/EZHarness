@@ -61,12 +61,40 @@ describe("dispatch routing", () => {
   });
 
   test("pure-view events are handled + changed but mutate nothing", async () => {
-    for (const ev of ["select-segment", "page-window", "focus", "reload-config", "scan-now"]) {
+    for (const ev of ["select-segment", "page-window", "focus", "reload-config"]) {
       const r = await dispatchFileOrganizerEvent(ev, { segment: "moves" }, deps());
       expect(r.handled).toBe(true);
       expect(r.changed).toBe(true);
       expect(r.ok).toBe(true);
     }
+  });
+
+  test("scan-now is honest: refreshes the view, doesn't claim a forced scan", async () => {
+    const r = await dispatchFileOrganizerEvent("scan-now", {}, deps());
+    expect(r.handled).toBe(true);
+    expect(r.changed).toBe(true);
+    expect(r.ok).toBe(true);
+    // The daemon owns scanning; the message must not over-promise a scan.
+    expect(r.message).toContain("daemon scans on its own schedule");
+  });
+
+  test("retry-failed actually resets failed rows to pending (button does something)", async () => {
+    await writeFile(
+      join(dataDir, "proposals.json"),
+      JSON.stringify({
+        proposals: [
+          { id: "f1", kind: "move", src: join(watched, "a.txt"), dst: join(watched, "sub", "a.txt"), reason: "r", ruleId: "r1", ruleLabel: "R", folderId: "f1", snapshot: { size: 1, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 }, status: "failed", dedupeKey: "k", createdAt: "2026-06-17T00:00:00Z", version: 1 },
+        ],
+        suppressed: [],
+        schemaVersion: 1,
+      }),
+    );
+    const r = await dispatchFileOrganizerEvent("retry-failed", {}, deps());
+    expect(r.handled).toBe(true);
+    expect(r.ok).toBe(true);
+    expect(r.changed).toBe(true);
+    const file = JSON.parse(await readFile(join(dataDir, "proposals.json"), "utf8"));
+    expect(file.proposals[0].status).toBe("pending");
   });
 
   test("accept routes to the applier (fs effect)", async () => {
@@ -118,6 +146,82 @@ describe("dispatch routing", () => {
     const bad = await dispatchFileOrganizerEvent("add-rule", { folderId: "f1", rule: "no arrow here" }, deps());
     expect(bad.ok).toBe(false);
     expect(bad.changed).toBe(false);
+  });
+
+  // ── Exhaustive case coverage: every in-process branch routes to state ──
+  //
+  // The dispatcher is a thin switch; these assert each case reaches its
+  // state handler (or returns the right validation error) so no branch is
+  // silently dead. State behaviour itself is unit-tested in
+  // file-organizer-state.test.ts — here we only prove the wiring.
+  async function seedConfigWithFolder() {
+    // beforeEach already wrote config with folder f1.
+    return;
+  }
+
+  test("config mutations: toggle-preset / set-backlog-policy / remove-folder / add-ignore", async () => {
+    await seedConfigWithFolder();
+    expect((await dispatchFileOrganizerEvent("toggle-preset", { folderId: "f1", preset: "junk-sweep" }, deps())).ok).toBe(true);
+    expect((await dispatchFileOrganizerEvent("toggle-preset", { folderId: "f1" }, deps())).ok).toBe(false);
+    expect((await dispatchFileOrganizerEvent("set-backlog-policy", { folderId: "f1", backlogPolicy: "new-only" }, deps())).ok).toBe(true);
+    expect((await dispatchFileOrganizerEvent("set-backlog-policy", { folderId: "f1" }, deps())).ok).toBe(false);
+    expect((await dispatchFileOrganizerEvent("add-ignore", { folderId: "f1", path: "secret" }, deps())).ok).toBe(true);
+    expect((await dispatchFileOrganizerEvent("add-ignore", { folderId: "f1" }, deps())).ok).toBe(false);
+    expect((await dispatchFileOrganizerEvent("remove-folder", { folderId: "f1" }, deps())).ok).toBe(true);
+    expect((await dispatchFileOrganizerEvent("remove-folder", {}, deps())).ok).toBe(false);
+  });
+
+  test("add-rule wires the mini-DSL to state (valid path)", async () => {
+    const ok = await dispatchFileOrganizerEvent("add-rule", { folderId: "f1", rule: "*.tmp older 7d -> quarantine" }, deps());
+    expect(ok.ok).toBe(true);
+    expect((await dispatchFileOrganizerEvent("add-rule", { folderId: "f1" }, deps())).ok).toBe(false);
+  });
+
+  test("reject-segment / confirm-deletes / dismiss-stale route to state", async () => {
+    await writeFile(join(watched, "j.tmp"), "x");
+    await writeFile(
+      join(dataDir, "proposals.json"),
+      JSON.stringify({
+        proposals: [
+          { id: "m1", kind: "move", src: join(watched, "a.txt"), dst: join(watched, "sub", "a.txt"), reason: "r", ruleId: "r1", ruleLabel: "R", folderId: "f1", snapshot: { size: 1, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 }, status: "pending", dedupeKey: "k1", createdAt: "2026-06-17T00:00:00Z", version: 0 },
+          { id: "s1", kind: "move", src: join(watched, "b.txt"), dst: join(watched, "sub", "b.txt"), reason: "r", ruleId: "r1", ruleLabel: "R", folderId: "f1", snapshot: { size: 1, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 }, status: "stale-source", dedupeKey: "k2", createdAt: "2026-06-17T00:00:00Z", version: 0 },
+        ],
+        suppressed: [],
+        schemaVersion: 1,
+      }),
+    );
+    expect((await dispatchFileOrganizerEvent("reject-segment", { segment: "moves" }, deps())).ok).toBe(true);
+    expect((await dispatchFileOrganizerEvent("confirm-deletes", {}, deps())).ok).toBe(true);
+    expect((await dispatchFileOrganizerEvent("dismiss-stale", { proposalId: "s1" }, deps())).ok).toBe(true);
+    expect((await dispatchFileOrganizerEvent("dismiss-stale", {}, deps())).ok).toBe(false);
+  });
+
+  test("quarantine events: restore / purge / empty-quarantine / purge-expired / undo-batch", async () => {
+    const trashDir = join(dataDir, ".trash", "q1");
+    await mkdir(trashDir, { recursive: true });
+    await writeFile(join(trashDir, "a.txt"), "restored");
+    await writeFile(
+      join(dataDir, ".trash", "manifest.json"),
+      JSON.stringify({ schemaVersion: 1, entries: [{ id: "q1", originalPath: join(watched, "a.txt"), trashPath: join(trashDir, "a.txt"), proposalId: "p1", reason: "junk", deletedAt: new Date(0).toISOString(), batchId: "b1", size: 8, expiresAtMs: Date.now() + 1e9 }] }),
+    );
+    expect((await dispatchFileOrganizerEvent("restore", { all: true }, deps())).ok).toBe(true);
+    // After restore the manifest is empty — the rest are safe no-ops.
+    expect((await dispatchFileOrganizerEvent("purge", { quarantineId: "gone" }, deps())).ok).toBe(true);
+    expect((await dispatchFileOrganizerEvent("purge", {}, deps())).ok).toBe(false);
+    expect((await dispatchFileOrganizerEvent("empty-quarantine", {}, deps())).ok).toBe(true);
+    expect((await dispatchFileOrganizerEvent("purge-expired", {}, deps())).ok).toBe(true);
+    expect((await dispatchFileOrganizerEvent("undo-batch", { batchId: "b1" }, deps())).ok).toBe(true);
+  });
+
+  test("an unexpected error in a handler is caught and reported (no throw escapes)", async () => {
+    // A null engine makes the applier's authorize() throw; the dispatcher's
+    // try/catch must convert it to a structured failure, not bubble.
+    await seedProposal();
+    const brokenDeps = { ...deps(), engine: null as unknown as PermissionEngine };
+    const r = await dispatchFileOrganizerEvent("accept", { proposalId: "p1" }, brokenDeps);
+    expect(r.handled).toBe(true);
+    expect(r.ok).toBe(false);
+    expect(r.message).toBe("Internal error");
   });
 
   test("IN_PROCESS_EVENTS covers exactly the in-process handlers", () => {

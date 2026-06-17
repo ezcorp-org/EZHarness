@@ -159,8 +159,27 @@ function isWithin(parent: string, child: string): boolean {
   return child.startsWith(prefix);
 }
 
-/** True if a path crosses into a `.ezcorp/data` directory — NEVER writable. */
-function touchesDataDir(p: string): boolean {
+/**
+ * True if a path crosses into the protected `.ezcorp/data` directory —
+ * NEVER writable (it holds the DB + JWT secret).
+ *
+ * `dataDirRoot` is the extension's own data dir
+ * (`<projectRoot>/.ezcorp/extension-data/file-organizer`); its `.ezcorp`
+ * ancestor's sibling `data/` is the real path to protect. We anchor the
+ * check to that ABSOLUTE path so the guard is exact for the configured
+ * project root — the loose `.ezcorp/data` substring match is kept only as
+ * a defense-in-depth fallback for paths whose project root we can't infer
+ * (e.g. a hand-crafted dst under a *different* `.ezcorp/data`).
+ */
+function touchesDataDir(p: string, dataDirRoot?: string): boolean {
+  if (dataDirRoot) {
+    const marker = `${sep}.ezcorp${sep}`;
+    const idx = dataDirRoot.lastIndexOf(marker);
+    if (idx !== -1) {
+      const protectedDir = join(dataDirRoot.slice(0, idx), ".ezcorp", "data");
+      if (p === protectedDir || isWithin(protectedDir, p)) return true;
+    }
+  }
   return p.includes(`.ezcorp${sep}data`);
 }
 
@@ -184,8 +203,15 @@ async function resolveWriteTarget(target: string): Promise<string | null> {
 async function resolveNonOverwrite(desired: string): Promise<string> {
   if (!(await pathExists(desired))) return desired;
   const dir = dirname(desired);
-  const ext = desired.includes(".") ? desired.slice(desired.lastIndexOf(".")) : "";
-  const stem = basename(desired).slice(0, basename(desired).length - ext.length);
+  const name = basename(desired);
+  // Extension = the LAST dot that isn't the leading dotfile dot. A dotfile
+  // like `.bashrc` has no extension (the dot is the dotfile marker, not an
+  // ext separator) — without this guard the split yields ext=".bashrc",
+  // stem="" → " (2).bashrc". `archive.tar.gz` keeps its single `.gz` ext.
+  const dotIdx = name.lastIndexOf(".");
+  const hasExt = dotIdx > 0; // > 0, not !== -1: index 0 is the dotfile dot
+  const ext = hasExt ? name.slice(dotIdx) : "";
+  const stem = hasExt ? name.slice(0, dotIdx) : name;
   for (let n = 2; n <= 9999; n++) {
     const candidate = join(dir, `${stem} (${n})${ext}`);
     if (!(await pathExists(candidate))) return candidate;
@@ -286,7 +312,7 @@ async function applyMove(proposal: ApplierProposal, ctx: ApplierContext): Promis
 
   // Containment: destination must stay inside the watched root and must
   // never touch `.ezcorp/data` (refuse `../` escapes).
-  if (!isWithin(ctx.watchedRoot, dstForCheck) || touchesDataDir(dstForCheck)) {
+  if (!isWithin(ctx.watchedRoot, dstForCheck) || touchesDataDir(dstForCheck, ctx.dataDirRoot)) {
     return { status: "blocked", reason: "destination escapes the watched root or targets .ezcorp/data" };
   }
 
@@ -371,7 +397,7 @@ export async function restoreFromQuarantine(
   if (!(await pathExists(input.trashPath))) {
     return { status: "stale-source", reason: "quarantined file missing" };
   }
-  if (touchesDataDir(input.restorePath)) {
+  if (touchesDataDir(input.restorePath, ctx.dataDirRoot)) {
     return { status: "blocked", reason: "restore target inside .ezcorp/data" };
   }
   const auditId = await authorizeWrite(ctx, input.restorePath);

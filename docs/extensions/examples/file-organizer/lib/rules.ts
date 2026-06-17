@@ -158,10 +158,22 @@ export function extOf(name: string): string {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Minimum age before a bare `*.tmp` is eligible for the destructive
+ * junk-sweep. Atomic-writer libraries (write-temp → fsync → rename) create
+ * a `.tmp` in one syscall, go quiescent (so the stability gate sees it as
+ * settled within a couple of ticks), then rename it away. Without a dwell
+ * guard the sweep could quarantine that fresh temp mid-operation — a
+ * data-loss race. 10 minutes is far longer than any rename window yet
+ * still sweeps genuinely-abandoned temps. `.bak`/`.DS_Store`/`Thumbs.db`
+ * have no atomic-writer pattern, so they stay age-free.
+ */
+export const JUNK_TMP_MIN_AGE_MS = 10 * 60 * 1000;
+
 /** The four built-in preset rule templates. */
 export const PRESETS: Record<string, Rule[]> = {
   "junk-sweep": [
-    { id: "junk-tmp", label: "Temp files (*.tmp)", action: "quarantine", predicate: { glob: "*.tmp" }, destructive: true },
+    { id: "junk-tmp", label: "Temp files (*.tmp, ≥10m old)", action: "quarantine", predicate: { glob: "*.tmp", olderThanMs: JUNK_TMP_MIN_AGE_MS }, destructive: true },
     { id: "junk-bak", label: "Backup files (*.bak)", action: "quarantine", predicate: { glob: "*.bak" }, destructive: true },
     { id: "junk-ds-store", label: "macOS .DS_Store", action: "quarantine", predicate: { glob: ".DS_Store" }, destructive: true },
     { id: "junk-thumbs", label: "Windows Thumbs.db", action: "quarantine", predicate: { glob: "Thumbs.db" }, destructive: true },

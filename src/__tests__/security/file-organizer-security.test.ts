@@ -141,6 +141,11 @@ describe("daemon: fail-closed (degraded mount never mass-quarantines)", () => {
       extensionId: "ext-fo",
       getSettings: async () => ({ ...DEFAULT_SETTINGS, stabilityTicks: 1 }),
       skipLockfile: true,
+      // The junk-tmp preset carries a ~10m dwell guard (atomic-writer
+      // safety). The fixture `.tmp` is freshly written, so advance the
+      // clock past the dwell window to keep the "a normal tick WOULD
+      // propose it" baseline meaningful for the fail-closed assertion.
+      now: () => Date.now() + 60 * 60 * 1000,
     });
   }
 

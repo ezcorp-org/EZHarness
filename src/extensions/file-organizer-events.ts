@@ -73,8 +73,16 @@ export async function dispatchFileOrganizerEvent(
       case "page-window":
       case "focus":
       case "reload-config":
-      case "scan-now":
         return { handled: true, changed: true, ok: true };
+
+      // The daemon owns scanning on its own clamped interval; the events
+      // route can't synchronously drive a host tick from here. Be honest:
+      // this only refreshes the cached view (re-renders the latest
+      // proposals/badge the daemon already wrote) — it does NOT force a new
+      // filesystem scan. Invalidating the cache is the real effect, so
+      // `changed:true` is accurate for the page re-render.
+      case "scan-now":
+        return { handled: true, changed: true, ok: true, message: "View refreshed (daemon scans on its own schedule)" };
 
       // ── Proposal lifecycle ──────────────────────────────────────────
       case "accept": {
@@ -103,7 +111,7 @@ export async function dispatchFileOrganizerEvent(
       }
       case "retry-failed":
         // Failed rows return to pending so the next accept/auto re-applies.
-        return { handled: true, changed: true, ok: true };
+        return wrap(await state.retryFailed(stateDeps));
 
       // ── Quarantine ──────────────────────────────────────────────────
       case "restore":

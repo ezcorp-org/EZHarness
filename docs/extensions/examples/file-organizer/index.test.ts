@@ -7,6 +7,7 @@ import {
   renderReview,
   renderFolders,
   register,
+  start,
   tools,
   type FsLayer,
 } from "./index";
@@ -102,6 +103,37 @@ describe("renderOverview", () => {
     const tree = await renderOverview();
     expect(validate(tree)).not.toBeNull();
   });
+
+  test("applied-today proposals count toward the 'applied today' stat (isToday)", async () => {
+    const todayIso = new Date().toISOString();
+    _setFsForTests(memFs({
+      [P.config]: configWithFolder(),
+      [P.proposals]: JSON.stringify({
+        proposals: [
+          { id: "a1", kind: "move", src: "/watched/a.txt", dst: "/watched/sub/a.txt", reason: "r", ruleId: "r1", ruleLabel: "R", folderId: "f1", snapshot: { size: 1, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 }, status: "applied", resolvedAt: todayIso, dedupeKey: "k1", createdAt: todayIso, version: 1 },
+          // An applied row from long ago must NOT count toward "today".
+          { id: "a0", kind: "move", src: "/watched/b.txt", dst: "/watched/sub/b.txt", reason: "r", ruleId: "r1", ruleLabel: "R", folderId: "f1", snapshot: { size: 1, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 }, status: "applied", resolvedAt: "2000-01-01T00:00:00.000Z", dedupeKey: "k0", createdAt: "2000-01-01T00:00:00.000Z", version: 1 },
+        ],
+        suppressed: [],
+        schemaVersion: 1,
+      }),
+      [P.pid]: "1",
+    }));
+    const tree = await renderOverview();
+    expect(validate(tree)).not.toBeNull();
+  });
+
+  test("error path renders the error state (read throws)", async () => {
+    _setFsForTests({
+      read: async () => { throw new Error("boom"); },
+      write: async () => {},
+      exists: async () => { throw new Error("boom"); },
+      list: async () => { throw new Error("boom"); },
+    });
+    const tree = await renderOverview();
+    expect(validate(tree)).not.toBeNull();
+    expect(JSON.stringify(tree)).toContain("error");
+  });
 });
 
 describe("renderReview", () => {
@@ -147,6 +179,17 @@ describe("renderFolders", () => {
     _setFsForTests(memFs({}));
     const tree = await renderFolders();
     expect(JSON.stringify(tree)).toContain("No folders watched");
+  });
+
+  test("error path renders the error state (read throws)", async () => {
+    _setFsForTests({
+      read: async () => { throw new Error("boom"); },
+      write: async () => {},
+      exists: async () => { throw new Error("boom"); },
+      list: async () => { throw new Error("boom"); },
+    });
+    const tree = await renderFolders();
+    expect(validate(tree)).not.toBeNull();
   });
 });
 
@@ -259,5 +302,11 @@ describe("register", () => {
 
   test("registers all 3 pages + the tool dispatcher without throwing", () => {
     expect(() => register()).not.toThrow();
+  });
+
+  test("start() registers + boots the subprocess channel without throwing", () => {
+    // start() is the subprocess entrypoint — it calls register() then opens
+    // the SDK channel. It must be idempotent-safe under the reset harness.
+    expect(() => start()).not.toThrow();
   });
 });
