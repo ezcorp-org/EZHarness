@@ -36,6 +36,17 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
 		anchors: ["providers", "tier", "order", "custom-models"],
 	},
 	{
+		// Shared-search Phase 2 — admin-only backend config + the
+		// defaults-for-extensions policy layer (global:search:*). The id
+		// is `websearch` (not `search`) so its `settings-nav-{id}` testid
+		// doesn't collide with the nav-search input's `settings-nav-search`.
+		id: "websearch",
+		label: "Search",
+		href: "/settings/search",
+		adminOnly: true,
+		anchors: ["search-backend", "search-defaults"],
+	},
+	{
 		id: "personalization",
 		label: "Personalization",
 		href: "/settings/personalization",
