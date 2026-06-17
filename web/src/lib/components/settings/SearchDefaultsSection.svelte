@@ -17,46 +17,30 @@
 
 	const flash = createSaveFlash();
 
-	// Each control auto-saves on change with optimistic rollback — the
-	// established settings pattern (DefaultTierSection). We REASSIGN the
-	// whole `defaults` object on every mutation (rather than poking a
-	// nested field) so the top-level bindable changes — reactive whether
-	// the parent passed a $state proxy or a plain object.
-	async function commit(
-		key: string,
-		next: SearchDefaultsForm,
-		value: unknown,
-		previous: SearchDefaultsForm,
-	) {
-		defaults = next;
-		const ok = await flash.run(() => upsertSetting(key, value));
-		if (!ok) defaults = previous; // roll back the optimistic mutation
-	}
-
-	async function toggleAllowed() {
-		const previous = { ...defaults };
-		const value = !previous.allowedByDefault;
-		await commit(SEARCH_DEFAULT_KEYS.allowedByDefault, { ...previous, allowedByDefault: value }, value, previous);
-	}
-
-	async function commitQuota() {
-		const previous = { ...defaults };
-		const value = sanitizeQuota(defaults.quota);
-		await commit(SEARCH_DEFAULT_KEYS.defaultQuota, { ...previous, quota: value }, value, previous);
-	}
-
-	async function commitMaxResults() {
-		const previous = { ...defaults };
-		const value = sanitizeMaxResults(defaults.maxResults);
-		await commit(SEARCH_DEFAULT_KEYS.defaultMaxResults, { ...previous, maxResults: value }, value, previous);
-	}
-
-	async function commitProviders() {
-		const previous = { ...defaults };
-		const parsed = providersFromText(defaults.providers);
-		// Normalize the field to the canonical display form.
-		const text = parsed === "all" ? "all" : parsed.join(", ");
-		await commit(SEARCH_DEFAULT_KEYS.defaultProviders, { ...previous, providers: text }, parsed, previous);
+	// Explicit-save form, consistent with the Search Backend section: edit
+	// freely, then Save commits all four `global:search:*` keys in one click.
+	// The form IS the pending edit until Save succeeds — no optimistic writes,
+	// so a failed save leaves the admin's edits intact to retry. Re-saving is
+	// idempotent, so a partial-write failure converges on the next Save.
+	async function save() {
+		const quota = sanitizeQuota(defaults.quota);
+		const maxResults = sanitizeMaxResults(defaults.maxResults);
+		const providers = providersFromText(defaults.providers);
+		const ok = await flash.run(async () => {
+			await upsertSetting(SEARCH_DEFAULT_KEYS.allowedByDefault, defaults.allowedByDefault);
+			await upsertSetting(SEARCH_DEFAULT_KEYS.defaultQuota, quota);
+			await upsertSetting(SEARCH_DEFAULT_KEYS.defaultMaxResults, maxResults);
+			await upsertSetting(SEARCH_DEFAULT_KEYS.defaultProviders, providers);
+		});
+		if (ok) {
+			// Normalize the form to the saved/canonical values.
+			defaults = {
+				...defaults,
+				quota,
+				maxResults,
+				providers: providers === "all" ? "all" : providers.join(", "),
+			};
+		}
 	}
 </script>
 
@@ -64,7 +48,7 @@
 	id="search-defaults"
 	title="Defaults for Extensions"
 	tooltip="The instance-wide policy applied to every extension that holds the search capability and inherits (the default). An extension's per-extension override, when set, takes precedence field-by-field. These are a ceiling — a per-user preference can never raise a quota or widen providers."
-	description="Set the search policy new and inheriting extensions get. Changes save automatically and propagate to every inheriting extension."
+	description="Set the search policy new and inheriting extensions get, then Save. Changes propagate to every inheriting extension."
 >
 	<div class="space-y-4" data-testid="search-defaults">
 		<!-- allowedByDefault -->
@@ -81,7 +65,7 @@
 				aria-checked={defaults.allowedByDefault}
 				aria-label="Allow search by default"
 				data-testid="search-default-allowed"
-				onclick={toggleAllowed}
+				onclick={() => (defaults = { ...defaults, allowedByDefault: !defaults.allowedByDefault })}
 				disabled={flash.saving}
 				class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors {defaults.allowedByDefault
 					? 'bg-blue-600'
@@ -106,7 +90,6 @@
 				min="1"
 				data-testid="search-default-quota"
 				bind:value={defaults.quota}
-				onchange={commitQuota}
 				disabled={flash.saving}
 				class="w-28 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
 			/>
@@ -123,7 +106,6 @@
 				min="1"
 				data-testid="search-default-maxresults"
 				bind:value={defaults.maxResults}
-				onchange={commitMaxResults}
 				disabled={flash.saving}
 				class="w-28 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
 			/>
@@ -140,14 +122,22 @@
 				placeholder="all"
 				data-testid="search-default-providers"
 				bind:value={defaults.providers}
-				onchange={commitProviders}
 				disabled={flash.saving}
 				class="w-64 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
 			/>
 		</div>
 
-		<div class="flex justify-end">
+		<div class="flex items-center justify-end gap-2">
 			<SaveIndicator saving={flash.saving} saved={flash.saved} error={flash.error} />
+			<button
+				type="button"
+				onclick={save}
+				disabled={flash.saving}
+				data-testid="search-defaults-save"
+				class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
+			>
+				Save
+			</button>
 		</div>
 	</div>
 </SettingsSection>

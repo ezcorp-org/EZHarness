@@ -5,8 +5,8 @@
  * client-side FILTER). Here:
  *   - the page renders the Backend + Defaults-for-extensions sections
  *   - the defaults are prefilled from the `global:search:*` settings
- *   - editing a default round-trips via PUT /api/settings/<key> and
- *     flashes the inline "Saved ✓" confirmation
+ *   - editing a default then clicking Save round-trips via PUT
+ *     /api/settings/<key> and flashes the inline "Saved ✓" confirmation
  *   - a stored BYOK key shows as "Set" — its value is never rendered
  */
 import { test, expect } from "./fixtures/test-base.js";
@@ -61,12 +61,12 @@ test.describe("settings → search page", () => {
 		await expect(page.getByTestId("search-default-maxresults")).toHaveValue("5");
 		await expect(page.getByTestId("search-default-allowed")).toHaveAttribute("aria-checked", "true");
 
-		// Edit the quota → PUT /api/settings/global:search:defaultQuota with the new value.
+		// Edit the quota, then click Save → PUT /api/settings/global:search:defaultQuota with the new value.
 		const putPromise = page.waitForRequest(
 			(req) => req.method() === "PUT" && req.url().includes("/api/settings/global:search:defaultQuota"),
 		);
 		await page.getByTestId("search-default-quota").fill("250");
-		await page.getByTestId("search-default-quota").blur();
+		await page.getByTestId("search-defaults-save").click();
 		const put = await putPromise;
 		expect(put.postDataJSON()).toEqual({ value: 250 });
 

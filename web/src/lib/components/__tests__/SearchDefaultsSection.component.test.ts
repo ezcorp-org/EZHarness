@@ -1,7 +1,9 @@
 /**
- * DOM tests for SearchDefaultsSection (settings/search): the defaults-
- * for-extensions policy controls auto-save the `global:search:*` keys via
- * PUT /api/settings/<key>, with optimistic rollback on failure.
+ * DOM tests for SearchDefaultsSection (settings/search): the defaults-for-
+ * extensions policy controls are an EXPLICIT-save form (consistent with the
+ * Search Backend section). Editing buffers locally; clicking Save commits all
+ * four `global:search:*` keys via PUT /api/settings/<key> in one go. A failed
+ * save keeps the admin's edits (no optimistic write to roll back).
  */
 import { describe, test, expect, vi, afterEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/svelte";
@@ -36,99 +38,84 @@ function form(over: Partial<SearchDefaultsForm> = {}): SearchDefaultsForm {
 }
 
 const puts = () => fetchCalls.filter((c) => c.method === "PUT");
+const putFor = (keySuffix: string) => puts().find((c) => c.url.includes(`/api/settings/global:search:${keySuffix}`));
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe("SearchDefaultsSection auto-save", () => {
-	test("toggling allowedByDefault PUTs global:search:allowedByDefault", async () => {
+describe("SearchDefaultsSection explicit save", () => {
+	test("Save commits all four global:search:* keys in one click", async () => {
 		stubFetch();
 		const { getByTestId } = render(SearchDefaultsSection, { props: { defaults: form() } });
 
-		await fireEvent.click(getByTestId("search-default-allowed"));
+		await fireEvent.click(getByTestId("search-defaults-save"));
 
 		await waitFor(() => {
-			expect(puts()).toHaveLength(1);
-			expect(puts()[0]!.url).toContain("/api/settings/global:search:allowedByDefault");
-			expect(puts()[0]!.body).toEqual({ value: false });
+			expect(puts()).toHaveLength(4);
+			expect(putFor("allowedByDefault")!.body).toEqual({ value: true });
+			expect(putFor("defaultQuota")!.body).toEqual({ value: 100 });
+			expect(putFor("defaultMaxResults")!.body).toEqual({ value: 5 });
+			// providers "all" PUTs the literal "all" (the === "all" branch).
+			expect(putFor("defaultProviders")!.body).toEqual({ value: "all" });
+			expect(getByTestId("save-indicator-saved")).toBeInTheDocument();
 		});
 	});
 
-	test("changing quota PUTs the sanitized value", async () => {
+	test("edits are buffered until Save, then committed + normalized", async () => {
 		stubFetch();
 		const { getByTestId } = render(SearchDefaultsSection, { props: { defaults: form() } });
 
-		const input = getByTestId("search-default-quota") as HTMLInputElement;
-		await fireEvent.input(input, { target: { value: "250" } });
-		await fireEvent.change(input);
+		// Toggle off, edit each field — NONE of this should save yet.
+		const toggle = getByTestId("search-default-allowed");
+		await fireEvent.click(toggle);
+		expect(toggle.getAttribute("aria-checked")).toBe("false");
+
+		const quota = getByTestId("search-default-quota") as HTMLInputElement;
+		await fireEvent.input(quota, { target: { value: "250" } });
+		const maxResults = getByTestId("search-default-maxresults") as HTMLInputElement;
+		await fireEvent.input(maxResults, { target: { value: "9" } });
+		const providers = getByTestId("search-default-providers") as HTMLInputElement;
+		await fireEvent.input(providers, { target: { value: "searxng,brave" } });
+
+		// Nothing persisted by editing alone.
+		expect(puts()).toHaveLength(0);
+
+		await fireEvent.click(getByTestId("search-defaults-save"));
 
 		await waitFor(() => {
-			expect(puts()[0]!.url).toContain("/api/settings/global:search:defaultQuota");
-			expect(puts()[0]!.body).toEqual({ value: 250 });
+			expect(puts()).toHaveLength(4);
+			expect(putFor("allowedByDefault")!.body).toEqual({ value: false });
+			expect(putFor("defaultQuota")!.body).toEqual({ value: 250 });
+			expect(putFor("defaultMaxResults")!.body).toEqual({ value: 9 });
+			// providers list PUTs the parsed array (the join-normalize branch).
+			expect(putFor("defaultProviders")!.body).toEqual({ value: ["searxng", "brave"] });
 		});
+		// After a successful save the providers field normalizes to the canonical form.
+		await waitFor(() => expect(providers.value).toBe("searxng, brave"));
 	});
 
 	test("an invalid quota is clamped to the hard default before saving", async () => {
 		stubFetch();
 		const { getByTestId } = render(SearchDefaultsSection, { props: { defaults: form({ quota: 7 }) } });
 
-		const input = getByTestId("search-default-quota") as HTMLInputElement;
-		await fireEvent.input(input, { target: { value: "0" } });
-		await fireEvent.change(input);
+		const quota = getByTestId("search-default-quota") as HTMLInputElement;
+		await fireEvent.input(quota, { target: { value: "0" } });
+		await fireEvent.click(getByTestId("search-defaults-save"));
 
-		await waitFor(() => expect(puts()[0]!.body).toEqual({ value: 100 }));
+		await waitFor(() => expect(putFor("defaultQuota")!.body).toEqual({ value: 100 }));
 	});
 
-	test("changing maxResults PUTs the value", async () => {
-		stubFetch();
-		const { getByTestId } = render(SearchDefaultsSection, { props: { defaults: form() } });
-
-		const input = getByTestId("search-default-maxresults") as HTMLInputElement;
-		await fireEvent.input(input, { target: { value: "9" } });
-		await fireEvent.change(input);
-
-		await waitFor(() => {
-			expect(puts()[0]!.url).toContain("/api/settings/global:search:defaultMaxResults");
-			expect(puts()[0]!.body).toEqual({ value: 9 });
-		});
-	});
-
-	test("providers text 'searxng, brave' PUTs the parsed array", async () => {
-		stubFetch();
-		const { getByTestId } = render(SearchDefaultsSection, { props: { defaults: form() } });
-
-		const input = getByTestId("search-default-providers") as HTMLInputElement;
-		await fireEvent.input(input, { target: { value: "searxng, brave" } });
-		await fireEvent.change(input);
-
-		await waitFor(() => {
-			expect(puts()[0]!.url).toContain("/api/settings/global:search:defaultProviders");
-			expect(puts()[0]!.body).toEqual({ value: ["searxng", "brave"] });
-		});
-	});
-
-	test("providers text 'all' PUTs the literal 'all'", async () => {
-		stubFetch();
-		const { getByTestId } = render(SearchDefaultsSection, { props: { defaults: form({ providers: "searxng" }) } });
-
-		const input = getByTestId("search-default-providers") as HTMLInputElement;
-		await fireEvent.input(input, { target: { value: "all" } });
-		await fireEvent.change(input);
-
-		await waitFor(() => expect(puts()[0]!.body).toEqual({ value: "all" }));
-	});
-
-	test("a failed save rolls back the optimistic toggle and flashes error", async () => {
+	test("a failed save flashes error and keeps the admin's edits", async () => {
 		stubFetch("reject");
 		const { getByTestId } = render(SearchDefaultsSection, { props: { defaults: form() } });
 
-		const toggle = getByTestId("search-default-allowed");
-		expect(toggle.getAttribute("aria-checked")).toBe("true");
-		await fireEvent.click(toggle);
+		const quota = getByTestId("search-default-quota") as HTMLInputElement;
+		await fireEvent.input(quota, { target: { value: "250" } });
+		await fireEvent.click(getByTestId("search-defaults-save"));
 
 		await waitFor(() => {
 			expect(getByTestId("save-indicator-error")).toBeInTheDocument();
-			// Rolled back to the pre-click value.
-			expect(toggle.getAttribute("aria-checked")).toBe("true");
+			// Edits are NOT rolled back — the form is the pending edit to retry.
+			expect(quota.value).toBe("250");
 		});
 	});
 });
