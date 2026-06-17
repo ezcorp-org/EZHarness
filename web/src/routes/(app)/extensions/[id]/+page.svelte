@@ -4,6 +4,7 @@
 	import type { SettingsSchema } from "$server/extensions/types";
 	import SettingsPanel from "./SettingsPanel.svelte";
 	import CapabilitiesPanel from "$lib/components/extensions/CapabilitiesPanel.svelte";
+	import UsesList from "$lib/components/extensions/UsesList.svelte";
 	import type { HeldCapabilityView, SearchGrant } from "$lib/capability-policy-ui.js";
 	import JsonBlock from "$lib/components/JsonBlock.svelte";
 	import { invalidateExtensionSettings } from "$lib/stores/extensionSettings";
@@ -55,6 +56,8 @@
 				| { transport: "sse"; name: string; url: string; headers?: Record<string, string> }
 			>;
 			tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
+			// Phase 4 — ext-to-ext composition. Read-only "Uses" chips below.
+			dependencies?: Record<string, { source?: string; version?: string }>;
 			// Extension Pages Hub — declared Hub tabs. Declaring a page IS
 			// the grant (no permission key), so this list is the user-facing
 			// surface of what the extension adds to /hub.
@@ -909,6 +912,10 @@
 					{/each}
 				</div>
 			{/if}
+
+			<!-- Phase 4 — read-only "Uses" chips from manifest.dependencies
+			     (renders nothing when the extension declares no deps). -->
+			<UsesList dependencies={ext.manifest.dependencies} />
 		</div>
 
 		<!-- Hub Pages (Extension Pages Hub) — declaring a page IS the grant,
