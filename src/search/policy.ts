@@ -24,7 +24,8 @@
  * (locked decision §1.7). v1 wires search via `resolveSearchPolicy`.
  */
 import { getSetting } from "../db/queries/settings";
-import type { ExtensionPermissions } from "../extensions/types";
+import { KNOWN_SEARCH_PROVIDERS } from "../extensions/clamp-permissions";
+import type { ExtensionPermissions, SettingsField } from "../extensions/types";
 
 /** Provider allowlist: an explicit list, or `"all"` (no restriction). */
 export type ProviderAllowlist = string[] | "all";
@@ -168,4 +169,121 @@ export function resolveSearchPolicy(
 /** Whether a resolved policy permits a given provider name. */
 export function providerAllowed(policy: SearchPolicy, providerName: string): boolean {
   return policy.providers === "all" || policy.providers.includes(providerName);
+}
+
+// ── §3.4 Capability-contributed settings schema (the UI bridge) ──────
+
+/** A capability schema field carries its setting KEY alongside the
+ *  manifest `SettingsField` declaration, so the UI renders the fields in
+ *  a stable order (provider → quota → maxResults) and writes back by key.
+ *  Reuses the manifest `SettingsField` types (§3.4) — the Capabilities
+ *  panel renders these with the SAME field widgets as `manifest.settings`. */
+export interface CapabilitySettingsField {
+  key: string;
+  field: SettingsField;
+}
+
+/** The §5.2 settings-API payload for ONE held host capability: the
+ *  capability id, its contributed schema, the resolved EFFECTIVE policy
+ *  (what the handler enforces right now), and the raw grant state (so the
+ *  UI can pick Inherit / Custom / Disabled). */
+export interface HeldCapability {
+  cap: "search";
+  schema: CapabilitySettingsField[];
+  /** The resolved policy — `{ denied: true }` when the grant is `false`. */
+  effective: ResolvedSearchPolicy;
+  /** The raw grant state: `"inherit"` | `false` | `{…override}` | undefined. */
+  grant: ExtensionPermissions["search"];
+}
+
+/**
+ * Build the §5.2 capabilities payload for an extension grant: for each
+ * HOST capability the extension holds (v1: search — presence of a
+ * `search` key on the grant), return its contributed schema + resolved
+ * effective policy + raw grant. Reads the instance defaults ONCE.
+ *
+ * Returns `[]` for an extension that holds no host capability (no
+ * `search` key) — the UI then renders no Capabilities section. Generic by
+ * construction: memory/llm add their grant-key checks here later.
+ */
+export async function getHeldCapabilities(
+  granted: ExtensionPermissions | null | undefined,
+): Promise<HeldCapability[]> {
+  if (!granted) return [];
+  const held: HeldCapability[] = [];
+  // `search` is "held" when the grant carries the key at all (any of the
+  // three states — including `false`, so an admin can see + re-enable a
+  // disabled capability rather than it vanishing from the UI).
+  if ("search" in granted && granted.search !== undefined) {
+    const instanceDefaults = await getSearchInstanceDefaults();
+    held.push({
+      cap: "search",
+      schema: getCapabilitySettingsSchema("search", instanceDefaults),
+      effective: mergeSearchPolicy(granted.search, instanceDefaults),
+      grant: granted.search,
+    });
+  }
+  return held;
+}
+
+/**
+ * Build the capability-contributed `SettingsField` schema for a host
+ * capability, with each field's `default` sourced from the live INSTANCE
+ * defaults (so the "Custom" UI prefills the inherited values as
+ * placeholders). Generic by `cap` — search is the first; `memory` / `llm`
+ * add a branch later with no change to the consumers (locked decision
+ * §1.7). An unknown / not-yet-wired capability returns `[]`.
+ *
+ * The `providers` field is a `select` whose option set is the KNOWN
+ * provider list plus an explicit "all" sentinel (the instance default may
+ * be `"all"` or a list; the select represents the single-choice common
+ * case — a richer multi-select is a Phase-3.x polish, out of v1 scope).
+ */
+export function getCapabilitySettingsSchema(
+  cap: string,
+  instanceDefaults: SearchPolicy,
+): CapabilitySettingsField[] {
+  if (cap !== "search") return [];
+  return [
+    {
+      key: "providers",
+      field: {
+        type: "select",
+        // The grant's `providers` field is `string[] | "inherit"` — there
+        // is no literal "all" at the grant tier (only the instance default
+        // can be "all"). So the override choices are: track the instance
+        // default ("inherit") or pin ONE specific provider.
+        label: "Allowed providers",
+        description:
+          "Restrict this extension to one search backend, or inherit the instance default.",
+        options: [
+          { value: "inherit", label: "Inherit (instance default)" },
+          ...KNOWN_SEARCH_PROVIDERS.map((p) => ({ value: p, label: p })),
+        ],
+        default: "inherit",
+      },
+    },
+    {
+      key: "quota",
+      field: {
+        type: "number",
+        label: "Daily quota",
+        description: "Max search calls per day for this extension.",
+        default: instanceDefaults.quota,
+        min: 1,
+        integer: true,
+      },
+    },
+    {
+      key: "maxResults",
+      field: {
+        type: "number",
+        label: "Max results",
+        description: "Max results returned per search-web call.",
+        default: instanceDefaults.maxResults,
+        min: 1,
+        integer: true,
+      },
+    },
+  ];
 }

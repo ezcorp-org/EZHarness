@@ -95,6 +95,15 @@ mock.module("$server/db/queries/audit-log", () => ({
   insertAuditEntry: mockAudit,
 }));
 
+// §5.2 — the route delegates held-capability resolution to the search
+// policy module. Mock it so the route's projection is the only thing
+// under test (the resolver itself is covered by search-policy.test.ts).
+let mockCapabilities: unknown[] = [];
+const mockGetHeldCapabilities = mock(async (_granted: unknown) => mockCapabilities);
+mock.module("$server/search/policy", () => ({
+  getHeldCapabilities: mockGetHeldCapabilities,
+}));
+
 const settingsRoute = await import(
   "../routes/api/extensions/[id]/settings/+server"
 );
@@ -159,6 +168,10 @@ describe("extension settings API", () => {
     mockSetUser.mockClear();
     mockClearUser.mockClear();
     mockAudit.mockClear();
+    mockCapabilities = [];
+    mockGetHeldCapabilities.mockClear();
+    // Default ext carries an (empty) grant so the route passes it through.
+    (mockExt as { grantedPermissions?: unknown }).grantedPermissions = { grantedAt: {} };
   });
 
   describe("auth gate (logged-out 401 on all 3 routes)", () => {
@@ -206,6 +219,7 @@ describe("extension settings API", () => {
         declaredDefaults: {},
         userValues: {},
         resolved: {},
+        capabilities: [],
       });
     });
 
@@ -252,6 +266,59 @@ describe("extension settings API", () => {
       // is truthy, so the guard `if (!schema)` does NOT trigger and we
       // hit the resolver path — schema is returned as `{}`.
       expect(body.schema).toEqual({});
+    });
+  });
+
+  // §5.2 — host-capability schemas + effective policy ride alongside the
+  // per-user settings payload. The route delegates to getHeldCapabilities
+  // (mocked) and surfaces whatever it returns, passing the ext's grant.
+  describe("GET /settings — capabilities (§5.2)", () => {
+    const SEARCH_CAP = {
+      cap: "search",
+      schema: [
+        { key: "providers", field: { type: "select", label: "Allowed providers", options: [], default: "inherit" } },
+        { key: "quota", field: { type: "number", label: "Daily quota", default: 100 } },
+      ],
+      effective: { denied: false, quota: 100, maxResults: 5, providers: "all" },
+      grant: "inherit",
+    };
+
+    test("returns capabilities for a held capability (alongside per-user settings)", async () => {
+      mockCapabilities = [SEARCH_CAP];
+      const res = await call(settingsRoute.GET, makeEvent("GET", undefined));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.capabilities).toEqual([SEARCH_CAP]);
+      // Per-user settings are unaffected — still returned.
+      expect(body.schema).toEqual(SETTINGS_SCHEMA);
+    });
+
+    test("omits (empty array) when the extension holds no host capability", async () => {
+      mockCapabilities = [];
+      const res = await call(settingsRoute.GET, makeEvent("GET", undefined));
+      const body = await res.json();
+      expect(body.capabilities).toEqual([]);
+    });
+
+    test("capabilities ride along even when the manifest declares no per-user settings", async () => {
+      mockExt = {
+        id: "ext-1",
+        manifest: { settings: undefined },
+      } as never;
+      (mockExt as { grantedPermissions?: unknown }).grantedPermissions = { grantedAt: {}, search: "inherit" };
+      mockCapabilities = [SEARCH_CAP];
+      const res = await call(settingsRoute.GET, makeEvent("GET", undefined));
+      const body = await res.json();
+      expect(body.schema).toBeNull();
+      expect(body.capabilities).toEqual([SEARCH_CAP]);
+    });
+
+    test("passes the ext's grantedPermissions to the resolver", async () => {
+      const grant = { grantedAt: {}, search: { quota: 500 } };
+      (mockExt as { grantedPermissions?: unknown }).grantedPermissions = grant;
+      mockCapabilities = [];
+      await call(settingsRoute.GET, makeEvent("GET", undefined));
+      expect(mockGetHeldCapabilities).toHaveBeenCalledWith(grant);
     });
   });
 

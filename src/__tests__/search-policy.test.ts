@@ -46,8 +46,11 @@ import {
   getSearchInstanceDefaults,
   getSearchAllowedByDefault,
   providerAllowed,
+  getCapabilitySettingsSchema,
+  getHeldCapabilities,
   type SearchPolicy,
 } from "../search/policy";
+import { KNOWN_SEARCH_PROVIDERS } from "../extensions/clamp-permissions";
 import type { ExtensionPermissions } from "../extensions/types";
 
 beforeEach(() => {
@@ -215,5 +218,73 @@ describe("providerAllowed", () => {
     const p: SearchPolicy = { quota: 1, maxResults: 1, providers: ["searxng"] };
     expect(providerAllowed(p, "searxng")).toBe(true);
     expect(providerAllowed(p, "tavily")).toBe(false);
+  });
+});
+
+describe("getCapabilitySettingsSchema (§3.4 UI bridge)", () => {
+  test("unknown / not-wired cap → empty schema", () => {
+    expect(getCapabilitySettingsSchema("memory", HARD_SEARCH_DEFAULTS)).toEqual([]);
+    expect(getCapabilitySettingsSchema("llm", HARD_SEARCH_DEFAULTS)).toEqual([]);
+  });
+
+  test("search → providers select + quota/maxResults numbers, in order", () => {
+    const schema = getCapabilitySettingsSchema("search", { quota: 80, maxResults: 9, providers: ["searxng"] });
+    expect(schema.map((f) => f.key)).toEqual(["providers", "quota", "maxResults"]);
+
+    const providers = schema[0]!.field;
+    expect(providers.type).toBe("select");
+    if (providers.type === "select") {
+      // inherit sentinel first, then every KNOWN provider.
+      expect(providers.options[0]).toEqual({ value: "inherit", label: "Inherit (instance default)" });
+      expect(providers.options.slice(1).map((o) => o.value)).toEqual([...KNOWN_SEARCH_PROVIDERS]);
+      expect(providers.default).toBe("inherit");
+    }
+  });
+
+  test("number-field defaults are sourced from the instance defaults at render time", () => {
+    const schema = getCapabilitySettingsSchema("search", { quota: 250, maxResults: 12, providers: "all" });
+    const quota = schema.find((f) => f.key === "quota")!.field;
+    const maxResults = schema.find((f) => f.key === "maxResults")!.field;
+    expect(quota.type === "number" && quota.default).toBe(250);
+    expect(maxResults.type === "number" && maxResults.default).toBe(12);
+  });
+});
+
+describe("getHeldCapabilities (§5.2 payload)", () => {
+  function grant(search: ExtensionPermissions["search"] | undefined): ExtensionPermissions {
+    return { grantedAt: {}, ...(search !== undefined ? { search } : {}) };
+  }
+
+  test("null / undefined grant → []", async () => {
+    expect(await getHeldCapabilities(null)).toEqual([]);
+    expect(await getHeldCapabilities(undefined)).toEqual([]);
+  });
+
+  test("grant without a search key → [] (capability not held)", async () => {
+    expect(await getHeldCapabilities(grant(undefined))).toEqual([]);
+  });
+
+  test("inherit grant → held with the resolved instance-default effective policy + schema", async () => {
+    settingsStore.set(SEARCH_SETTING_KEYS.defaultQuota, 60);
+    const held = await getHeldCapabilities(grant("inherit"));
+    expect(held).toHaveLength(1);
+    expect(held[0]!.cap).toBe("search");
+    expect(held[0]!.grant).toBe("inherit");
+    expect(held[0]!.effective).toEqual({ denied: false, quota: 60, maxResults: 5, providers: "all" });
+    expect(held[0]!.schema.map((f) => f.key)).toEqual(["providers", "quota", "maxResults"]);
+  });
+
+  test("object override → effective merges field-level over instance defaults", async () => {
+    settingsStore.set(SEARCH_SETTING_KEYS.defaultQuota, 100);
+    const held = await getHeldCapabilities(grant({ quota: 500 }));
+    expect(held[0]!.effective).toEqual({ denied: false, quota: 500, maxResults: 5, providers: "all" });
+    expect(held[0]!.grant).toEqual({ quota: 500 });
+  });
+
+  test("false grant → still HELD (admin can re-enable), effective denied", async () => {
+    const held = await getHeldCapabilities(grant(false));
+    expect(held).toHaveLength(1);
+    expect(held[0]!.grant).toBe(false);
+    expect(held[0]!.effective).toEqual({ denied: true });
   });
 });
