@@ -78,8 +78,11 @@ function makeSearchDetail(grant: unknown): Record<string, unknown> {
 	};
 }
 
-/** Stateful settings + permissions mock sharing one grant. */
-async function installCapMock(page: Page, initialGrant: unknown) {
+/** Stateful settings + permissions mock sharing one grant.
+ *  `clampQuotaTo` simulates the server-side clampSearchPermission ceiling
+ *  (clampSearchPermission caps `quota` at min(submitted, manifest)) so the
+ *  E2E can prove the panel reseeds to the CLAMPED value, not a phantom. */
+async function installCapMock(page: Page, initialGrant: unknown, clampQuotaTo?: number) {
 	let grant: unknown = initialGrant;
 	const puts: Array<{ search: unknown }> = [];
 
@@ -101,7 +104,14 @@ async function installCapMock(page: Page, initialGrant: unknown) {
 	await page.route("**/api/extensions/ext-search/permissions", async (route) => {
 		if (route.request().method() !== "PUT") return route.fallback();
 		const body = route.request().postDataJSON();
-		grant = body?.permissions?.search;
+		let submitted = body?.permissions?.search;
+		// Simulate clampSearchPermission's quota ceiling (min(submitted,
+		// manifest)) so the stored grant — and the next GET's effective
+		// policy — reflect the CLAMPED value, never the submitted one.
+		if (clampQuotaTo !== undefined && submitted && typeof submitted === "object" && typeof submitted.quota === "number") {
+			submitted = { ...submitted, quota: Math.min(submitted.quota, clampQuotaTo) };
+		}
+		grant = submitted;
 		puts.push({ search: grant });
 		return route.fulfill({ json: { id: "ext-search", grantedPermissions: { search: grant } } });
 	});
@@ -145,6 +155,27 @@ test.describe("Extension Capabilities — admin flow", () => {
 		await page.getByTestId("capability-search-save").click();
 
 		await expect.poll(() => ctrl.grant(), { timeout: 3000 }).toBe(false);
+	});
+
+	test("manifest-ceiling clamp-DOWN is visible: submit 500, panel reseeds to the clamped 100", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => ADMIN_ME } });
+		// The (mocked) server clamps quota to 100 — the manifest ceiling.
+		const ctrl = await installCapMock(page, "inherit", 100);
+
+		await page.goto("/extensions/ext-search");
+		await expect(page.getByTestId("capabilities-panel")).toBeVisible({ timeout: 5000 });
+
+		await page.getByTestId("capability-search-mode-custom").click();
+		await page.getByTestId("capability-search-field-quota").fill("500");
+		await page.getByTestId("capability-search-save").click();
+
+		// The grant the server actually stored is CLAMPED to 100, not 500.
+		await expect.poll(() => ctrl.grant(), { timeout: 3000 }).toEqual({ quota: 100 });
+
+		// And the panel reseeds (post-save GET) to show the clamped effective
+		// value — no phantom 500 misleading the admin.
+		await page.getByTestId("capability-search-mode-custom").click();
+		await expect(page.getByTestId("capability-search-field-quota")).toHaveValue("100");
 	});
 
 	test("non-admin sees the panel read-only (no Save, admin-managed hint)", async ({ page, mockApi }) => {

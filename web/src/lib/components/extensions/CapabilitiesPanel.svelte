@@ -21,6 +21,7 @@
 		grantToMode,
 		formFromEffective,
 		grantForMode,
+		hasPreservedProviderList,
 		type CapabilityMode,
 		type EffectivePolicyView,
 		type SearchGrant,
@@ -55,7 +56,9 @@
 		const nextForms: Record<string, CapabilityForm> = {};
 		for (const c of capabilities) {
 			nextMode[c.cap] = grantToMode(c.grant);
-			nextForms[c.cap] = formFromEffective(effectiveView(c));
+			// Pass the RAW grant so a multi-provider allowlist is captured into
+			// `providersOriginal` and preserved on save (no silent widening).
+			nextForms[c.cap] = formFromEffective(effectiveView(c), c.grant);
 		}
 		mode = nextMode;
 		forms = nextForms;
@@ -158,11 +161,28 @@
 				<!-- Custom: reveal the schema fields prefilled with inherited values -->
 				{#if mode[c.cap] === "custom" && forms[c.cap]}
 					<div class="mt-3 space-y-3" data-testid="capability-{c.cap}-custom-fields">
+						<!-- Multi-provider allowlist guard: the single-select can't
+						     represent a >1 provider list, so it's PRESERVED verbatim
+						     (not silently widened to inherit). Warn until the admin
+						     actively changes the select. -->
+						{#if hasPreservedProviderList(forms[c.cap]!)}
+							<p
+								class="rounded border border-amber-700 bg-amber-950/40 px-2 py-1.5 text-xs text-amber-300"
+								data-testid="capability-{c.cap}-providers-preserved"
+								role="status"
+							>
+								This extension is restricted to multiple providers
+								({(forms[c.cap]!.providersOriginal ?? []).join(", ")}). That list is
+								preserved as-is — changing the selector below replaces it with a single
+								provider or inherits the default.
+							</p>
+						{/if}
 						<div class="flex items-center justify-between gap-3">
 							<label for="cap-{c.cap}-providers" class="text-xs text-[var(--color-text-secondary)]">Allowed providers</label>
 							<select
 								id="cap-{c.cap}-providers"
 								bind:value={forms[c.cap]!.providers}
+								onchange={() => (forms[c.cap]!.providersDirty = true)}
 								disabled={!isAdmin}
 								data-testid="capability-{c.cap}-field-providers"
 								class="w-48 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-2 py-1 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"

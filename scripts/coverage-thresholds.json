@@ -125,7 +125,7 @@
   "web/src/lib/components/settings/SearchDefaultsSection.svelte": 95,
   "web/src/lib/components/settings/SearchBackendSection.svelte": 95,
   "web/src/lib/capability-policy-ui.ts": 100,
-  "web/src/lib/components/extensions/CapabilitiesPanel.svelte": 95,
+  "web/src/lib/components/extensions/CapabilitiesPanel.svelte": 100,
   "web/src/lib/audit-log-view.ts": 95,
   "web/src/routes/api/users/+server.ts": 95,
   "web/src/lib/settings-models.ts": 95,

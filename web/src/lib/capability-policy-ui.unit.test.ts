@@ -12,6 +12,8 @@ import {
 	buildOverride,
 	grantForMode,
 	sanitizePositiveInt,
+	isUnrepresentableProviderList,
+	hasPreservedProviderList,
 	type EffectivePolicyView,
 } from "./capability-policy-ui";
 
@@ -51,10 +53,79 @@ describe("formFromEffective", () => {
 			providers: "tavily",
 			quota: 80,
 			maxResults: 9,
+			providersDirty: false,
 		});
 	});
 	test("'all' providers → inherit select value", () => {
 		expect(formFromEffective(INHERITED).providers).toBe("inherit");
+	});
+	test("a single-element grant list does NOT capture providersOriginal (representable)", () => {
+		const form = formFromEffective({ quota: 1, maxResults: 1, providers: ["searxng"] }, { providers: ["searxng"] });
+		expect(form.providersOriginal).toBeUndefined();
+		expect(form.providers).toBe("searxng");
+	});
+	test("a MULTI-element grant list captures providersOriginal (preserved on save)", () => {
+		const form = formFromEffective(
+			{ quota: 1, maxResults: 1, providers: ["searxng", "brave"] },
+			{ providers: ["searxng", "brave"] },
+		);
+		expect(form.providersOriginal).toEqual(["searxng", "brave"]);
+		// The single-select collapses the DISPLAY to inherit, but the
+		// original is preserved out-of-band.
+		expect(form.providers).toBe("inherit");
+	});
+	test("inherit / false grant → no providersOriginal", () => {
+		expect(formFromEffective(INHERITED, "inherit").providersOriginal).toBeUndefined();
+		expect(formFromEffective(INHERITED, false).providersOriginal).toBeUndefined();
+	});
+});
+
+describe("isUnrepresentableProviderList", () => {
+	test("true only for a >1 provider list", () => {
+		expect(isUnrepresentableProviderList(["a", "b"])).toBe(true);
+		expect(isUnrepresentableProviderList(["a"])).toBe(false);
+		expect(isUnrepresentableProviderList([])).toBe(false);
+		expect(isUnrepresentableProviderList("all")).toBe(false);
+		expect(isUnrepresentableProviderList("inherit")).toBe(false);
+		expect(isUnrepresentableProviderList(undefined)).toBe(false);
+	});
+});
+
+describe("multi-provider ceiling-widening guard", () => {
+	const MULTI = ["searxng", "brave"];
+
+	test("editing an UNRELATED field preserves the multi-provider list verbatim (no widening)", () => {
+		// Admin opens Custom on a {providers:[searxng,brave]} grant and bumps
+		// quota — providers untouched (not dirty). The list MUST survive.
+		const form = {
+			providers: "inherit", // collapsed display
+			providersOriginal: MULTI,
+			providersDirty: false,
+			quota: 250,
+			maxResults: 5,
+		};
+		expect(buildOverride(form, INHERITED)).toEqual({ providers: MULTI, quota: 250 });
+	});
+
+	test("untouched providers + no other change still preserves the list (not collapsed to inherit)", () => {
+		const form = { providers: "inherit", providersOriginal: MULTI, providersDirty: false, quota: 100, maxResults: 5 };
+		expect(buildOverride(form, INHERITED)).toEqual({ providers: MULTI });
+	});
+
+	test("once the admin ACTIVELY changes the select, their explicit choice wins over the preserved list", () => {
+		// Pinned to a single provider.
+		const pinned = { providers: "searxng", providersOriginal: MULTI, providersDirty: true, quota: 100, maxResults: 5 };
+		expect(buildOverride(pinned, INHERITED)).toEqual({ providers: ["searxng"] });
+		// Explicitly chosen inherit (a deliberate widening, admin-intended).
+		const toInherit = { providers: "inherit", providersOriginal: MULTI, providersDirty: true, quota: 100, maxResults: 5 };
+		expect(buildOverride(toInherit, INHERITED)).toBe("inherit");
+	});
+
+	test("hasPreservedProviderList: true while a multi-list is held untouched; false once dirty / single / absent", () => {
+		expect(hasPreservedProviderList({ providers: "inherit", providersOriginal: MULTI, providersDirty: false, quota: 1, maxResults: 1 })).toBe(true);
+		expect(hasPreservedProviderList({ providers: "searxng", providersOriginal: MULTI, providersDirty: true, quota: 1, maxResults: 1 })).toBe(false);
+		expect(hasPreservedProviderList({ providers: "searxng", providersOriginal: ["searxng"], providersDirty: false, quota: 1, maxResults: 1 })).toBe(false);
+		expect(hasPreservedProviderList({ providers: "inherit", providersDirty: false, quota: 1, maxResults: 1 })).toBe(false);
 	});
 });
 

@@ -143,6 +143,59 @@ describe("CapabilitiesPanel — non-admin (read-only)", () => {
 	});
 });
 
+describe("CapabilitiesPanel — multi-provider ceiling-widening guard", () => {
+	// An extension whose grant pins a TWO-provider allowlist — the
+	// single-select can't represent it, so it's preserved, not widened.
+	function multiHeld(): HeldCapabilityView {
+		return held({
+			grant: { providers: ["searxng", "brave"] },
+			effective: { denied: false, quota: 100, maxResults: 5, providers: ["searxng", "brave"] },
+		});
+	}
+
+	test("warns that the multi-provider list is preserved (not silently widened)", async () => {
+		const { getByTestId } = render(CapabilitiesPanel, {
+			props: { capabilities: [multiHeld()], isAdmin: true, onsave: vi.fn() },
+		});
+		// Grant is an object → starts in Custom mode, fields visible.
+		await waitFor(() => expect(getByTestId("capability-search-custom-fields")).toBeInTheDocument());
+		const warn = getByTestId("capability-search-providers-preserved");
+		expect(warn).toBeInTheDocument();
+		expect(warn).toHaveTextContent("searxng, brave");
+	});
+
+	test("editing quota (providers untouched) PRESERVES the 2-provider list on save", async () => {
+		const onsave = vi.fn(async () => {});
+		const { getByTestId } = render(CapabilitiesPanel, {
+			props: { capabilities: [multiHeld()], isAdmin: true, onsave },
+		});
+		await waitFor(() => expect(getByTestId("capability-search-field-quota")).toBeInTheDocument());
+
+		await fireEvent.input(getByTestId("capability-search-field-quota"), { target: { value: "250" } });
+		await fireEvent.click(getByTestId("capability-search-save"));
+
+		// The list survives — NOT collapsed to "inherit".
+		await waitFor(() =>
+			expect(onsave).toHaveBeenCalledWith("search", { providers: ["searxng", "brave"], quota: 250 }),
+		);
+	});
+
+	test("actively changing the provider select clears the warning and honors the new single provider", async () => {
+		const onsave = vi.fn(async () => {});
+		const { getByTestId, queryByTestId } = render(CapabilitiesPanel, {
+			props: { capabilities: [multiHeld()], isAdmin: true, onsave },
+		});
+		await waitFor(() => expect(getByTestId("capability-search-providers-preserved")).toBeInTheDocument());
+
+		await fireEvent.change(getByTestId("capability-search-field-providers"), { target: { value: "searxng" } });
+		// Warning clears once the admin owns the providers choice.
+		await waitFor(() => expect(queryByTestId("capability-search-providers-preserved")).toBeNull());
+
+		await fireEvent.click(getByTestId("capability-search-save"));
+		await waitFor(() => expect(onsave).toHaveBeenCalledWith("search", { providers: ["searxng"] }));
+	});
+});
+
 describe("CapabilitiesPanel — save failure", () => {
 	test("flashes the error when onsave rejects", async () => {
 		const onsave = vi.fn(async () => {

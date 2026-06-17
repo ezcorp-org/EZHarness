@@ -60,6 +60,19 @@ export interface CapabilityForm {
   providers: string;
   quota: number;
   maxResults: number;
+  /**
+   * The original grant's providers allowlist, captured at form-seed time.
+   * The single-select can't FAITHFULLY represent a multi-provider list
+   * (it collapses to the `"inherit"` sentinel), so we carry the original
+   * here to PRESERVE it verbatim on save — preventing a silent §8
+   * ceiling-WIDENING when the admin edits an unrelated field (quota /
+   * maxResults) and never touched providers. `undefined` when the grant
+   * had no explicit list. */
+  providersOriginal?: string[];
+  /** Set true once the admin actively changes the providers select — only
+   *  then do we honor the (necessarily single-provider/inherit) new value
+   *  over the preserved original list. */
+  providersDirty?: boolean;
 }
 
 /** Map a raw grant to the UI mode. `false` → disabled; `"inherit"` /
@@ -80,17 +93,37 @@ export function providersToSelectValue(providers: string[] | "all"): string {
   return providers.length === 1 ? providers[0]! : "inherit";
 }
 
+/** Whether a providers value is a multi-provider list the single-select
+ *  CANNOT faithfully represent (it would collapse to `"inherit"`). Such a
+ *  grant must be preserved verbatim on save, not silently widened. */
+export function isUnrepresentableProviderList(providers: string[] | "all" | "inherit" | undefined): boolean {
+  return Array.isArray(providers) && providers.length > 1;
+}
+
 /**
  * Seed the Custom form from the resolved EFFECTIVE policy (the inherited
  * values) overlaid with any explicit fields already on the grant — so
  * opening "Custom" shows the values currently in force. The effective
  * policy already merged the override, so it IS the prefill.
+ *
+ * Pass the RAW grant too so a multi-provider allowlist (which the
+ * single-select can't represent) is captured into `providersOriginal` and
+ * preserved on save. When omitted (e.g. inherit/false grant), no original
+ * list is carried.
  */
-export function formFromEffective(effective: EffectivePolicyView): CapabilityForm {
+export function formFromEffective(effective: EffectivePolicyView, grant?: SearchGrant): CapabilityForm {
+  // Only carry the original list when it's UNREPRESENTABLE by the
+  // single-select (>1 provider) — a single-element list round-trips
+  // through the select faithfully and needs no preservation.
+  const grantProviders =
+    grant && typeof grant === "object" && Array.isArray(grant.providers) ? grant.providers : undefined;
+  const preserve = isUnrepresentableProviderList(grantProviders) ? grantProviders : undefined;
   return {
     providers: providersToSelectValue(effective.providers),
     quota: effective.quota,
     maxResults: effective.maxResults,
+    ...(preserve ? { providersOriginal: preserve } : {}),
+    providersDirty: false,
   };
 }
 
@@ -111,12 +144,22 @@ export function buildOverride(
 ): SearchGrant {
   const override: { quota?: number; maxResults?: number; providers?: string[] | "inherit" } = {};
 
-  // providers: "inherit" tracks the instance default (omit from the
-  // override); a specific provider pins `[provider]`. Only emit when the
-  // admin picked a concrete provider — the inherited case stays inherited.
-  if (form.providers !== "inherit") {
+  // providers — three cases, in priority order:
+  //  1. The admin ACTIVELY changed the select (`providersDirty`): honor it —
+  //     a concrete provider pins `[provider]`; `"inherit"` tracks the default.
+  //  2. NOT dirty, original grant carried a multi-provider list the
+  //     single-select can't represent: PRESERVE the original list verbatim
+  //     (never silently widen a §8 ceiling to inherit). [the fix]
+  //  3. NOT dirty, no special original: pin a concrete provider if shown,
+  //     else inherit (omit).
+  if (form.providersDirty) {
+    if (form.providers !== "inherit") override.providers = [form.providers];
+  } else if (isUnrepresentableProviderList(form.providersOriginal)) {
+    override.providers = form.providersOriginal!;
+  } else if (form.providers !== "inherit") {
     override.providers = [form.providers];
   }
+
   const quota = sanitizePositiveInt(form.quota, inherited.quota);
   if (quota !== inherited.quota) override.quota = quota;
 
@@ -145,4 +188,15 @@ export function grantForMode(
   if (mode === "disabled") return false;
   if (mode === "inherit") return "inherit";
   return buildOverride(form, inherited);
+}
+
+/**
+ * Whether the Custom form is sitting on a multi-provider allowlist the
+ * single-select can't represent AND the admin hasn't actively changed the
+ * providers field. The panel surfaces a warning so the admin knows the
+ * list is being PRESERVED (not editable here, not silently widened); the
+ * moment they touch the select (`providersDirty`), the warning clears and
+ * their explicit single-provider/inherit choice takes effect. */
+export function hasPreservedProviderList(form: CapabilityForm): boolean {
+  return !form.providersDirty && isUnrepresentableProviderList(form.providersOriginal);
 }
