@@ -75,6 +75,27 @@ const SQL_FRAGMENT =
   /^\s*(SELECT|FROM|WHERE|JOIN|GROUP|ORDER|LIMIT|HAVING|UNION|INSERT|UPDATE|DELETE|VALUES|SET|RETURNING|WITH|ON|AND|OR|AS|COALESCE|SUM|COUNT|MAX|MIN)\b/i;
 const SQL_CLOSE = /^\s*\),?\s*0?\)?\s*AS\b/i;
 
+// Interface declaration header: `interface Foo {`, `export interface Foo
+// extends Bar {`. Interfaces are erased at compile time → no JS.
+const INTERFACE_DECL = /^\s*(export\s+)?interface\s+\w+/;
+
+// Interface METHOD signature: `read(): Promise<string | null>;` /
+// `write(text: string): Promise<void>;`. Matched only when the line is a
+// `name(params): ReturnType;` with NO `{` body and NO value `=` — i.e. a
+// pure type signature inside an `interface`/type-literal, erased at
+// compile time. An executable method would carry a `{` body or `=>`, so
+// the no-brace + no-`=` guard keeps this from ever matching real code.
+const METHOD_SIGNATURE = /^\s*\w+\s*\([^{]*\)\s*:\s*[^={]+;\s*$/;
+
+// Bare switch-case label on its own line: `case "applied":`, `default:`.
+// The dispatch is a single operation on the `switch (...)` line; the label
+// position itself compiles to no standalone JS, so bun's sourcemap
+// fallback emits a phantom zero-hit DA for it even when the arm runs (the
+// hit lands on the body statement below). A label line ends in `:` and
+// carries no body brace / arrow / statement. Zero-hit-only, so a label
+// bun *did* credit with a hit is never stripped.
+const SWITCH_LABEL = /^\s*(case\s+.+|default)\s*:\s*$/;
+
 /**
  * Return true if the line text is non-executable noise per the criteria
  * above. The caller is responsible for restricting strip decisions to
@@ -91,6 +112,9 @@ export function isNoiseLine(text: string): boolean {
   if (SQL_FRAGMENT.test(text)) return true;
   if (SQL_CLOSE.test(text)) return true;
   if (TYPE_DECL.test(text)) return true;
+  if (INTERFACE_DECL.test(text)) return true;
+  if (METHOD_SIGNATURE.test(text)) return true;
+  if (SWITCH_LABEL.test(text)) return true;
   if (UNION_CONTINUATION.test(text)) {
     // Guard: a line beginning with `|` that contains a value-level `=`
     // (outside `=>`) or a call `(` is not a type union — keep it.

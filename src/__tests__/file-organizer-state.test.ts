@@ -143,6 +143,44 @@ describe("acceptProposal", () => {
     expect(manifest.entries[0].id).toBe("q1");
     expect(await Bun.file(join(watched, "junk.tmp")).exists()).toBe(false);
   });
+
+  test("stale source ⇒ status stale-source + 'Source gone' message", async () => {
+    await seedConfig();
+    // No file on disk at the proposal's src ⇒ applier returns stale-source.
+    await seedProposals([proposal()]);
+    const r = await state.acceptProposal(deps(), "p1");
+    expect(r.ok).toBe(false);
+    expect(r.message).toBe("Source gone");
+    expect((await readProposals()).proposals[0].status).toBe("stale-source");
+  });
+
+  test("a failed apply ⇒ status failed + 'Failed:' message (original intact)", async () => {
+    await seedConfig();
+    await writeFile(join(watched, "a.txt"), "hello"); // 5 bytes
+    // Snapshot claims the wrong size ⇒ copy-verify fails ⇒ applier "failed".
+    await seedProposals([proposal({ snapshot: { size: 999, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 } })]);
+    const r = await state.acceptProposal(deps(), "p1");
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain("Failed:");
+    expect((await readProposals()).proposals[0].status).toBe("failed");
+    expect(await Bun.file(join(watched, "a.txt")).exists()).toBe(true);
+  });
+
+  test("a skipped apply (symlink) ⇒ no-op, proposal left pending", async () => {
+    await seedConfig();
+    const { symlink } = await import("node:fs/promises");
+    const target = join(watched, "target.txt");
+    await writeFile(target, "secret");
+    const link = join(watched, "a.txt");
+    await symlink(target, link);
+    // isSymlink snapshot ⇒ applier returns "skipped" ⇒ applyOutcome default
+    // (null) ⇒ acceptProposal reports a no-op and leaves the row pending.
+    await seedProposals([proposal({ snapshot: { size: 0, mtimeMs: 0, isSymlink: true, dev: 0, ino: 0, nlink: 1 } })]);
+    const r = await state.acceptProposal(deps(), "p1");
+    expect(r.ok).toBe(false);
+    expect(r.message).toBe("Apply was a no-op");
+    expect((await readProposals()).proposals[0].status).toBe("pending");
+  });
 });
 
 describe("rejectProposal", () => {
@@ -182,6 +220,19 @@ describe("confirmDeletes (batch)", () => {
     expect(d2.status).toBe("applied");
     expect(d1.batchId).toBe(d2.batchId);
     expect(file.proposals.find((p: Proposal) => p.id === "m1").status).toBe("pending");
+  });
+
+  test("an orphaned delete (folder removed) is blocked, never falls back to /", async () => {
+    await seedConfig();
+    await writeFile(join(watched, "j1.tmp"), "a");
+    await seedProposals([
+      proposal({ id: "d1", kind: "delete-quarantine", src: join(watched, "j1.tmp"), dst: null, quarantineId: "q1", folderId: "ghost" }),
+    ]);
+    const r = await state.confirmDeletes(deps());
+    expect(r.changed).toBe(false); // nothing applied
+    const file = await readProposals();
+    expect(file.proposals.find((p: Proposal) => p.id === "d1").status).toBe("blocked");
+    expect(await Bun.file(join(watched, "j1.tmp")).exists()).toBe(true); // file kept
   });
 });
 
@@ -295,6 +346,13 @@ describe("config mutations", () => {
     expect(r.message).toContain("isn't visible to the EZCorp container");
   });
 
+  test("setFolderBacklog writes the policy", async () => {
+    await seedConfig();
+    const r = await state.setFolderBacklog(deps(), "f1", "include-existing");
+    expect(r.ok).toBe(true);
+    expect((await readConfig()).folders[0].backlogPolicy).toBe("include-existing");
+  });
+
   test("setMode / togglePreset / addIgnore / removeFolder", async () => {
     await seedConfig();
     await state.setMode(deps(), "f1", "fully-auto");
@@ -373,5 +431,33 @@ describe("internals", () => {
     expect(state._stateInternals.segmentKind("moves")).toBe("move");
     expect(state._stateInternals.segmentKind("deletes")).toBe("delete-quarantine");
     expect(state._stateInternals.segmentKind("all")).toBeNull();
+  });
+
+  test("readConfig recovers to defaults on malformed JSON", async () => {
+    const cfgPath = join(dataDir, "config.json");
+    await writeFile(cfgPath, "{ not valid json");
+    const cfg = await state._stateInternals.readConfig(cfgPath);
+    expect(cfg.folders).toEqual([]); // validateConfig(null) default
+  });
+
+  test("readManifest recovers to empty on malformed JSON", async () => {
+    const manPath = join(dataDir, ".trash", "manifest.json");
+    await writeFile(manPath, "{ not valid json");
+    const man = await state._stateInternals.readManifest(manPath);
+    expect(man.entries).toEqual([]);
+  });
+
+  test("applyMessage maps every status (incl. the defensive default)", () => {
+    const m = state._stateInternals.applyMessage;
+    expect(m("applied")).toBe("Applied");
+    expect(m("blocked", "nope")).toBe("Blocked: nope");
+    expect(m("blocked")).toBe("Blocked: denied");
+    expect(m("failed", "EACCES")).toBe("Failed: EACCES");
+    expect(m("failed")).toBe("Failed: error");
+    expect(m("stale-source")).toBe("Source gone");
+    // The defensive default — never reached via acceptProposal (only the
+    // four statuses above produce a non-null transition), but kept for any
+    // future status and verified directly here.
+    expect(m("skipped")).toBe("skipped");
   });
 });

@@ -28,6 +28,10 @@ import type { PermissionEngine } from "../extensions/permission-engine";
 const realFsp = await import("node:fs/promises");
 const realRename = realFsp.rename;
 const realCopyFile = realFsp.copyFile;
+const realMkdir = realFsp.mkdir;
+const realRm = realFsp.rm;
+const realLstat = realFsp.lstat;
+const realUnlink = realFsp.unlink;
 const realFspSnapshot = { ...realFsp };
 
 // When true, the next rename() throws EXDEV (forcing the copy fallback).
@@ -35,6 +39,16 @@ let forceExdev = false;
 // When true, copyFile() throws ENOSPC (disk full) — the move/quarantine
 // must abort with the original intact (never unlink before a verified copy).
 let forceEnospc = false;
+// When true, mkdir() throws — forces the outer catch in apply/restore.
+let forceMkdirThrow = false;
+// When true, rm() throws — forces hardDeleteTrash's catch (prune failure).
+let forceRmThrow = false;
+// When true, lstat() always RESOLVES — every collision candidate "exists",
+// so resolveNonOverwrite exhausts its 2..9999 loop into the timestamp tail.
+let forceAllExist = false;
+// When true, unlink() throws SYNCHRONOUSLY (before returning a promise), so
+// the `.catch(()=>{})` never attaches and replayJournal's entry catch fires.
+let forceUnlinkSyncThrow = false;
 
 mock.module("node:fs/promises", () => ({
   ...realFspSnapshot,
@@ -61,10 +75,42 @@ mock.module("node:fs/promises", () => ({
     }
     return realCopyFile(...args);
   },
+  mkdir: async (...args: Parameters<typeof realMkdir>) => {
+    // Don't break the atomic-writer mkdir (journal dir) — only the real
+    // trash/restore dir creation, whose path is NOT an atomic temp.
+    if (forceMkdirThrow) {
+      const err = new Error("EACCES: permission denied, mkdir") as NodeJS.ErrnoException;
+      err.code = "EACCES";
+      throw err;
+    }
+    return realMkdir(...args);
+  },
+  rm: async (...args: Parameters<typeof realRm>) => {
+    if (forceRmThrow) {
+      const err = new Error("EBUSY: resource busy or locked, rm") as NodeJS.ErrnoException;
+      err.code = "EBUSY";
+      throw err;
+    }
+    return realRm(...args);
+  },
+  lstat: async (...args: Parameters<typeof realLstat>) => {
+    if (forceAllExist) return { isSymbolicLink: () => false } as Awaited<ReturnType<typeof realLstat>>;
+    return realLstat(...args);
+  },
+  unlink: ((...args: Parameters<typeof realUnlink>) => {
+    if (forceUnlinkSyncThrow) {
+      // Synchronous throw (not a rejected promise) so `unlink(...).catch`
+      // can't attach — the error propagates to replayJournal's catch.
+      throw new Error("EPERM: operation not permitted, unlink");
+    }
+    return realUnlink(...args);
+  }) as typeof realUnlink,
 }));
 
 // Import the applier AFTER the mock is registered so it binds the stub.
-const { applyProposal, restoreFromQuarantine } = await import("../extensions/file-organizer-applier");
+const { applyProposal, restoreFromQuarantine, replayJournal, hardDeleteTrash, _applierInternals } = await import(
+  "../extensions/file-organizer-applier"
+);
 type ApplierContext = import("../extensions/file-organizer-applier").ApplierContext;
 type ApplierProposal = import("../extensions/file-organizer-applier").ApplierProposal;
 
@@ -86,10 +132,18 @@ beforeEach(async () => {
   await mkdir(watched, { recursive: true });
   forceExdev = false;
   forceEnospc = false;
+  forceMkdirThrow = false;
+  forceRmThrow = false;
+  forceAllExist = false;
+  forceUnlinkSyncThrow = false;
 });
 afterEach(async () => {
   forceExdev = false;
   forceEnospc = false;
+  forceMkdirThrow = false;
+  forceRmThrow = false;
+  forceAllExist = false;
+  forceUnlinkSyncThrow = false;
   await rm(root, { recursive: true, force: true });
 });
 
@@ -163,5 +217,74 @@ describe("restoreFromQuarantine — EXDEV fallback", () => {
     expect(await readFile(restorePath, "utf8")).toBe("restored-bytes");
     // Copy fallback unlinks the trashed source.
     expect(await Bun.file(trashed).exists()).toBe(false);
+  });
+});
+
+// ── Error-branch coverage (the catch arms) ──────────────────────────
+
+describe("applyQuarantine — failure aborts with the original intact", () => {
+  test("an mkdir failure surfaces as 'failed' (outer catch)", async () => {
+    const src = join(watched, "junk.tmp");
+    await writeFile(src, "x");
+    forceMkdirThrow = true; // trash dir can't be created
+    const p: ApplierProposal = { id: "p", kind: "delete-quarantine", src, dst: null, quarantineId: "q1", snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 } };
+    const outcome = await applyProposal(p, ctx());
+    expect(outcome.status).toBe("failed");
+    expect(await Bun.file(src).exists()).toBe(true); // original kept
+  });
+});
+
+describe("restoreFromQuarantine — failure surfaces as 'failed'", () => {
+  test("an mkdir failure on the restore parent is caught", async () => {
+    const trashDir = join(dataDir, ".trash", "q1");
+    await mkdir(trashDir, { recursive: true });
+    const trashed = join(trashDir, "a.txt");
+    await writeFile(trashed, "bytes");
+    forceMkdirThrow = true;
+    const outcome = await restoreFromQuarantine({ trashPath: trashed, restorePath: join(watched, "a.txt") }, ctx());
+    expect(outcome.status).toBe("failed");
+  });
+});
+
+describe("hardDeleteTrash — rm failure returns false", () => {
+  test("a prune that can't remove the dir returns false (swallowed + logged)", async () => {
+    const dir = join(dataDir, ".trash", "stuck");
+    await mkdir(dir, { recursive: true });
+    forceRmThrow = true;
+    expect(await hardDeleteTrash(dir)).toBe(false);
+  });
+});
+
+describe("resolveNonOverwrite — exhausted suffix loop falls back to a timestamp", () => {
+  test("when every candidate exists, the (timestamp) tail is returned", async () => {
+    const d = join(watched, "full");
+    await mkdir(d, { recursive: true });
+    await writeFile(join(d, "f.txt"), "1");
+    forceAllExist = true; // every pathExists() probe says "taken"
+    const out = await _applierInternals.resolveNonOverwrite(join(d, "f.txt"));
+    // The 2..9999 loop is exhausted, so the name carries a numeric
+    // timestamp suffix rather than a small ` (N)`.
+    expect(out.startsWith(join(d, "f ("))).toBe(true);
+    expect(out.endsWith(".txt")).toBe(true);
+    expect(/f \(\d{10,}\)\.txt$/.test(out)).toBe(true);
+  });
+});
+
+describe("replayJournal — a per-entry failure is swallowed (continue)", () => {
+  test("an unlink that throws synchronously is caught; replay still completes", async () => {
+    const journalPath = join(dataDir, "journal.json");
+    const src = join(watched, "a.txt");
+    await writeFile(src, "data");
+    await _applierInternals.writeJournal(journalPath, [
+      { op: "move", src, dst: join(watched, "sub", "a.txt"), quarantineId: null, phase: "copy-done" } as never,
+    ]);
+    forceUnlinkSyncThrow = true; // unlink throws into replayJournal's catch
+    // Must not reject — the entry error is logged + swallowed (the throw
+    // happens before `finished++`, so neither counter advances), and the
+    // journal is still cleared at the end.
+    const res = await replayJournal(journalPath);
+    expect(res).toEqual({ finished: 0, rolledBack: 0 });
+    forceUnlinkSyncThrow = false;
+    expect(await _applierInternals.readJournal(journalPath)).toHaveLength(0);
   });
 });

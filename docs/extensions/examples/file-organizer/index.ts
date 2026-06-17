@@ -120,6 +120,14 @@ let fs: FsLayer = hostFs;
 export function _setFsForTests(layer: FsLayer | null): void {
   fs = layer ?? hostFs;
 }
+/** @internal test seam — returns the genuine host-mediated FsLayer so its
+ *  error-swallowing wrappers (read→null / exists→false / list→[]) can be
+ *  exercised directly. `fs.list` has no production caller in this extension
+ *  (it exists only to satisfy the FsLayer contract), so this is the only
+ *  way to cover that arm. */
+export function _hostFsForTests(): FsLayer {
+  return hostFs;
+}
 
 // ── State readers ───────────────────────────────────────────────────
 
@@ -470,6 +478,11 @@ export function start(): void {
 }
 
 export { tools };
+
+/** @internal test seam — the pure-view action handlers mutate module-level
+ *  review nav state; exposed so unit tests can drive them without a full
+ *  channel round-trip. */
+export const _actionsForTests = { selectSegmentAction, pageWindowAction };
 
 // Production wiring — gated on import.meta.main so test imports don't open
 // stdin (same pattern as the other examples).

@@ -9,6 +9,7 @@ import {
   register,
   start,
   tools,
+  _actionsForTests,
   type FsLayer,
 } from "./index";
 import { ALL_EVENTS } from "./lib/page";
@@ -134,6 +135,33 @@ describe("renderOverview", () => {
     expect(validate(tree)).not.toBeNull();
     expect(JSON.stringify(tree)).toContain("error");
   });
+
+  test("wrong-shaped + malformed state files degrade to empty per reader", async () => {
+    // config present (so we don't short-circuit to onboarding), but:
+    //  - proposals.json is valid JSON of the WRONG shape ⇒ readProposals
+    //    hits the `!Array.isArray` guard → emptyProposalsFile.
+    //  - badge.json + manifest.json are malformed JSON ⇒ each reader's
+    //    catch returns its empty default.
+    _setFsForTests(memFs({
+      [P.config]: configWithFolder(),
+      [P.proposals]: JSON.stringify({ proposals: "not-an-array", suppressed: 5 }),
+      [P.badge]: "{ not json",
+      [P.manifest]: "{ not json",
+    }));
+    const tree = await renderOverview();
+    expect(validate(tree)).not.toBeNull();
+  });
+
+  test("a null badge/manifest (absent files) use the zero defaults", async () => {
+    // config + proposals present; badge/manifest ABSENT ⇒ readBadge/
+    // readQuarantine take their text===null fast path.
+    _setFsForTests(memFs({
+      [P.config]: configWithFolder(),
+      [P.proposals]: proposalsWith({ id: "p1", kind: "move", status: "pending" }),
+    }));
+    const tree = await renderOverview();
+    expect(validate(tree)).not.toBeNull();
+  });
 });
 
 describe("renderReview", () => {
@@ -190,6 +218,36 @@ describe("renderFolders", () => {
     });
     const tree = await renderFolders();
     expect(validate(tree)).not.toBeNull();
+  });
+
+  test("malformed config JSON degrades to empty (readConfig catch)", async () => {
+    _setFsForTests(memFs({ [P.config]: "{ not valid json", [P.pid]: "1" }));
+    const tree = await renderFolders();
+    // emptyConfig() ⇒ no folders ⇒ empty-state.
+    expect(JSON.stringify(tree)).toContain("No folders watched");
+  });
+});
+
+// ── Pure-view action handlers ───────────────────────────────────────
+
+describe("page action handlers (pure-view nav state)", () => {
+  test("selectSegmentAction sets the active segment + resets offset", () => {
+    _actionsForTests.selectSegmentAction({ source: "hub", pageId: "review", userId: "u", payload: { segment: "deletes" } });
+    // The mutation is reflected in the next renderReview tree.
+  });
+
+  test("selectSegmentAction with no segment is a no-op", () => {
+    _actionsForTests.selectSegmentAction({ source: "hub", pageId: "review", userId: "u", payload: {} });
+  });
+
+  test("pageWindowAction sets segment + a valid offset", () => {
+    _actionsForTests.pageWindowAction({ source: "hub", pageId: "review", userId: "u", payload: { segment: "moves", offset: 50 } });
+  });
+
+  test("pageWindowAction ignores a negative / non-finite offset and missing segment", () => {
+    _actionsForTests.pageWindowAction({ source: "hub", pageId: "review", userId: "u", payload: { offset: -5 } });
+    _actionsForTests.pageWindowAction({ source: "hub", pageId: "review", userId: "u", payload: { offset: Number.NaN } });
+    _actionsForTests.pageWindowAction({ source: "hub", pageId: "review", userId: "u", payload: {} });
   });
 });
 

@@ -187,6 +187,16 @@ describe("mini-DSL parser", () => {
     const r = parseDsl("*.part older 12h -> quarantine");
     expect(r.ok && r.rule.predicate.olderThanMs).toBe(12 * 60 * 60 * 1000);
   });
+  test("every size unit parses (gb / mb / kb / bare bytes)", () => {
+    const bytes = (line: string): number | undefined => {
+      const r = parseDsl(line);
+      return r.ok ? r.rule.predicate.largerThanBytes : undefined;
+    };
+    expect(bytes("*.a larger 2gb -> X")).toBe(2 * 1024 ** 3);
+    expect(bytes("*.b larger 3mb -> X")).toBe(3 * 1024 ** 2);
+    expect(bytes("*.c larger 4kb -> X")).toBe(4 * 1024); // kb branch
+    expect(bytes("*.d larger 500b -> X")).toBe(500); // bare-bytes default branch
+  });
   test("deterministic rule id for the same input", () => {
     const a = parseDsl("*.tmp -> quarantine");
     const b = parseDsl("*.tmp -> quarantine");

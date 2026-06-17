@@ -567,6 +567,7 @@ export const _stateInternals = {
   segmentKind,
   rootForRestore,
   atomicWrite,
+  applyMessage,
 };
 
 void log;

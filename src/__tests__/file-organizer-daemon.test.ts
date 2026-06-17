@@ -167,6 +167,37 @@ describe("daemon — approve-non-destructive-only mode", () => {
 });
 
 describe("daemon — fully-auto mode", () => {
+  test("a pending symlink proposal yields a 'skipped' apply ⇒ left pending (no crash)", async () => {
+    // autoApply iterates ALL pending proposals for the folder, including a
+    // pre-existing one. A proposal whose snapshot is a symlink makes
+    // applyProposal return "skipped" → applyOutcomeToProposal's default
+    // (return null) → the row is left pending rather than mutated.
+    await writeConfig({ mode: "fully-auto" });
+    const link = join(watched, "link.txt");
+    const target = join(watched, "target.txt");
+    const { symlink } = await import("node:fs/promises");
+    await writeFile(target, "x");
+    await symlink(target, link);
+    await writeFile(
+      join(dataDir, "proposals.json"),
+      JSON.stringify({
+        proposals: [{
+          id: "sl", kind: "move", src: link, dst: join(watched, "sub", "link.txt"),
+          reason: "r", ruleId: "r1", ruleLabel: "R", folderId: "f1",
+          snapshot: { size: 0, mtimeMs: 0, isSymlink: true, dev: 0, ino: 0, nlink: 1 },
+          status: "pending", dedupeKey: "k", createdAt: "2026-06-17T00:00:00Z", version: 0,
+        }],
+        suppressed: [],
+        schemaVersion: 1,
+      }),
+    );
+    const d = makeDaemon({ settings: { stabilityTicks: 1, defaultMode: "fully-auto" } });
+    await d.tick();
+    const file = await readProposals();
+    const sl = file.proposals.find((p) => p.id === "sl")!;
+    expect(sl.status).toBe("pending"); // skipped outcome → left untouched
+  });
+
   test("auto-applies everything as a batch + quarantines + records manifest", async () => {
     await writeConfig({ mode: "fully-auto", presets: ["junk-sweep"] });
     await writeFile(join(watched, "junk.tmp"), "junk");
@@ -311,6 +342,74 @@ describe("daemon — lifecycle", () => {
     const ok = await d.start({ ...DEFAULT_SETTINGS, scanIntervalSec: 5 });
     expect(ok).toBe(true);
     d.stop();
+  });
+
+  test("start() acquires + releases the real PID lockfile (skipLockfile off)", async () => {
+    await writeConfig();
+    // skipLockfile defaults to false here → start() exercises the
+    // lockfilePath getter + acquireLockfile + the on-stop release.
+    const d = new FileOrganizerDaemon({
+      dataDir,
+      engine: fakeEngine("allow"),
+      extensionId: "ext-fo",
+      getSettings: async () => ({ ...DEFAULT_SETTINGS }),
+      wakeIntervalMsOverride: 50_000,
+    });
+    const ok = await d.start({ ...DEFAULT_SETTINGS, scanIntervalSec: 5 });
+    expect(ok).toBe(true);
+    expect(await Bun.file(join(dataDir, ".daemon.pid")).exists()).toBe(true);
+    d.stop();
+    // stop() releases the lockfile fire-and-forget (void releaseLockfile);
+    // let the microtask + unlink settle before asserting removal.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(await Bun.file(join(dataDir, ".daemon.pid")).exists()).toBe(false);
+  });
+
+  test("the armed interval actually fires a tick", async () => {
+    await writeConfig({ presets: ["junk-sweep"] });
+    await writeFile(join(watched, "j.tmp"), "x");
+    // A tiny wake interval + a clock past the dwell window so the timer
+    // callback (setInterval body) runs a real tick and proposes the junk.
+    const d = new FileOrganizerDaemon({
+      dataDir,
+      engine: fakeEngine("allow"),
+      extensionId: "ext-fo",
+      getSettings: async () => ({ ...DEFAULT_SETTINGS, stabilityTicks: 1 }),
+      now: () => Date.now() + 60 * 60 * 1000,
+      skipLockfile: true,
+      wakeIntervalMsOverride: 10,
+    });
+    await d.start({ ...DEFAULT_SETTINGS, stabilityTicks: 1 });
+    // Two wake cycles: the first records stability, the second proposes.
+    await new Promise((r) => setTimeout(r, 60));
+    d.stop();
+    const file = await readProposals();
+    expect(file.proposals.length).toBeGreaterThan(0);
+  });
+
+  test("constructed without `now` defaults to Date.now (no crash on tick)", async () => {
+    await writeConfig();
+    // No `now` injected → the `opts.now ?? Date.now` fallback is taken.
+    const d = new FileOrganizerDaemon({
+      dataDir,
+      engine: fakeEngine("allow"),
+      extensionId: "ext-fo",
+      getSettings: async () => ({ ...DEFAULT_SETTINGS, stabilityTicks: 1 }),
+      skipLockfile: true,
+    });
+    const res = await d.tick();
+    expect(res).toEqual({ generated: 0, applied: 0, pruned: 0 });
+  });
+
+  test("_readlinkSafe returns the target for a symlink, null otherwise", async () => {
+    const { symlink } = await import("node:fs/promises");
+    const target = join(watched, "target.txt");
+    await writeFile(target, "x");
+    const link = join(watched, "link.txt");
+    await symlink(target, link);
+    const d = makeDaemon();
+    expect(await d._readlinkSafe(link)).toBe(target);
+    expect(await d._readlinkSafe(join(watched, "not-a-link.txt"))).toBeNull();
   });
 
   test("clampInterval clamps to [5, 3600]", () => {

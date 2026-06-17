@@ -28,6 +28,12 @@ describe("resolveNonOverwrite", () => {
     const taken = new Set(["/a/README"]);
     expect(resolveNonOverwrite("/a/README", (p) => taken.has(p))).toBe("/a/README (2)");
   });
+  test("falls back to a timestamp suffix when every index is taken", () => {
+    // `exists` always true ⇒ the 2..9999 loop is exhausted and the
+    // timestamp tail (`name (<ms>).ext`) is returned.
+    const out = resolveNonOverwrite("/a/b.txt", () => true);
+    expect(/^\/a\/b \(\d{10,}\)\.txt$/.test(out)).toBe(true);
+  });
 });
 
 describe("planQuarantine", () => {

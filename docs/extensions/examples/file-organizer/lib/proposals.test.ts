@@ -115,6 +115,17 @@ describe("suppressed-set TTL", () => {
     expect(isSuppressed(suppressed, { src: "/zzz", ruleId: "r", contentHash: "h1" }, now + 1)).toBe(false);
   });
 
+  test("a key match with a divergent stored hash lifts suppression (defensive)", () => {
+    // Defensive branch: a stored entry whose `key` was built from one hash
+    // but whose `contentHash` field disagrees (data drift). The key still
+    // matches the candidate, but the explicit hash comparison must win and
+    // lift suppression rather than wrongly suppress a changed file.
+    const drifted: SuppressedEntry[] = [
+      { key: suppressedKey({ src: "/a", ruleId: "r", contentHash: "h1" }), suppressedAt: new Date(now).toISOString(), contentHash: "h2" },
+    ];
+    expect(isSuppressed(drifted, { src: "/a", ruleId: "r", contentHash: "h1" }, now + 1000)).toBe(false);
+  });
+
   test("addSuppressed replaces the same key (no dup)", () => {
     const once = addSuppressed([], { src: "/a", ruleId: "r", contentHash: "h" }, "t1");
     const twice = addSuppressed(once, { src: "/a", ruleId: "r", contentHash: "h" }, "t2");

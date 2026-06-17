@@ -221,6 +221,24 @@ describe("buildReview", () => {
     expect(nodeTypes(tree)).toContain("empty-state");
   });
 
+  test("windowed past the first page renders a Previous button", () => {
+    // offset > 0 ⇒ the windowFooter emits the "Previous" affordance
+    // (page.ts:380), not just "Next".
+    const many = Array.from({ length: WINDOW_SIZE * 2 + 5 }, (_, i) => prop({ id: `p${i}`, kind: "move" }));
+    const tree = buildReview(review({ proposals: many, segment: "moves", offset: WINDOW_SIZE }));
+    const buttons = JSON.stringify(tree);
+    expect(buttons).toContain("Previous");
+    expect(buttons).toContain("Next"); // still more after this window
+  });
+
+  test("quarantine expiring in hours renders an h-suffixed countdown", () => {
+    // expiresAtMs within a day of `now` ⇒ expiresIn() takes the hours
+    // branch (page.ts:414), not the days branch.
+    const fiveHours = 1000 + 5 * 60 * 60 * 1000;
+    const tree = buildReview(review({ segment: "quarantine", now: 1000, quarantine: [qentry("q1", fiveHours)] }));
+    expect(JSON.stringify(tree)).toContain("5h");
+  });
+
   test("overflow window: never renders the whole queue + pagination", () => {
     const many = Array.from({ length: WINDOW_SIZE + 10 }, (_, i) => prop({ id: `p${i}`, kind: "move" }));
     const tree = buildReview(review({ proposals: many, segment: "moves" }));
