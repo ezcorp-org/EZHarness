@@ -1,21 +1,35 @@
 import { and, eq, or, sql, inArray } from "drizzle-orm";
-import { getDb } from "../connection";
+import { getDb, getPglite } from "../connection";
 import { extensions, type Extension, type NewExtension } from "../schema";
 import type { McpServerDefinition, ExtensionManifestV2, ToolDefinition } from "../../extensions/types";
 
-// Jsonb columns on `extensions` — serialize explicitly with an ::jsonb cast
-// so the insert path is stable across drivers (PGlite uses drizzle's default
-// `JSON.stringify` mapper, bun-sql has it monkey-patched to identity in
-// connection.ts). Passing JSON text with a cast bypasses both mappers and
-// lets Postgres parse the value directly — no "[object Object]" binding and
-// no jsonb-string-scalar double-encoding.
+// Jsonb columns on `extensions` need DRIVER-SPECIFIC serialization:
+//
+//   - PGlite: drizzle's default `JSON.stringify` jsonb mapper is active.
+//     Passing JSON text with an explicit `::jsonb` cast bypasses it and
+//     lets Postgres parse the value directly — stable, no "[object Object]"
+//     binding.
+//   - bun-sql (external Postgres): drizzle's jsonb mapper is monkey-patched
+//     to IDENTITY in connection.ts because Bun.sql serializes JS OBJECTS to
+//     jsonb correctly on its own. The `${JSON.stringify(x)}::jsonb` cast
+//     BYPASSES that identity mapper and binds the JSON *text* as a param,
+//     which Bun.sql stores as a jsonb STRING scalar ({"x":1} → "{\"x\":1}")
+//     — the exact double-encoding the monkey-patch + boot-repair exist to
+//     prevent. On a RUNTIME write (e.g. reapprove-drift or a capability-
+//     override grant) that string isn't repaired until the next boot, so
+//     `granted.search` reads back `undefined` and the capability looks
+//     disabled. So on bun-sql we pass the PLAIN OBJECT and let the driver
+//     serialize it; only PGlite gets the explicit text+cast.
 function serializeJsonbFields<T extends Record<string, unknown>>(data: T): T {
   const out: Record<string, unknown> = { ...data };
+  // `getPglite()` is non-null ⟺ PGlite; null ⟺ bun-sql (external Postgres).
+  const onPglite = getPglite() !== null;
+  const enc = (v: unknown): unknown => (onPglite ? sql`${JSON.stringify(v)}::jsonb` : v);
   if ("manifest" in out && out.manifest !== undefined && typeof out.manifest !== "string") {
-    out.manifest = sql`${JSON.stringify(out.manifest)}::jsonb`;
+    out.manifest = enc(out.manifest);
   }
   if ("grantedPermissions" in out && out.grantedPermissions !== undefined && typeof out.grantedPermissions !== "string") {
-    out.grantedPermissions = sql`${JSON.stringify(out.grantedPermissions)}::jsonb`;
+    out.grantedPermissions = enc(out.grantedPermissions);
   }
   // v1.3 security review HIGH 2 — `installed_permissions` is jsonb and
   // nullable. Match the granted_permissions serialization pattern; null
@@ -26,7 +40,7 @@ function serializeJsonbFields<T extends Record<string, unknown>>(data: T): T {
     && out.installedPermissions !== null
     && typeof out.installedPermissions !== "string"
   ) {
-    out.installedPermissions = sql`${JSON.stringify(out.installedPermissions)}::jsonb`;
+    out.installedPermissions = enc(out.installedPermissions);
   }
   return out as T;
 }
