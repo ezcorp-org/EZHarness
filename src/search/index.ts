@@ -37,6 +37,17 @@ export type EgressBlockedHook = (info: {
   mode: EgressMode;
 }) => void;
 
+/** Thrown when the resolved provider is outside the caller's policy
+ *  allowlist. Caught HOST-side (search-handler) to soft-fail + audit a
+ *  `SDK_SEARCH_QUOTA_EXCEEDED` (reason `provider-not-allowed`) row — the
+ *  enforcement happens BEFORE any network fetch. */
+export class ProviderNotAllowedError extends Error {
+  constructor(public readonly providerName: string) {
+    super(`Search provider "${providerName}" is not in the policy allowlist.`);
+    this.name = "ProviderNotAllowedError";
+  }
+}
+
 export interface SearchModuleOpts {
   /** Injected provider resolution (tests). Default: env-driven via the
    *  guarded transport. */
@@ -49,6 +60,12 @@ export interface SearchModuleOpts {
   onEgressBlocked?: EgressBlockedHook;
   /** Env override (tests). */
   env?: NodeJS.ProcessEnv;
+  /** Policy provider allowlist (Phase 2). When supplied, the resolved
+   *  provider's name is checked BEFORE any fetch; a disallowed provider
+   *  throws `ProviderNotAllowedError`. Omitted / `"all"` → no
+   *  restriction. The READER (URL fetch) is always Jina and is not
+   *  gated here — `read` egress is bounded by the SSRF guard. */
+  allowedProviders?: string[] | "all";
 }
 
 export interface PerformSearchOpts extends SearchModuleOpts {
@@ -99,6 +116,17 @@ export async function performSearch(
   const n = clampMaxResults(opts.maxResults);
   const { providers, cache } = resolve(opts);
   const { search } = providers;
+
+  // Policy provider allowlist (Phase 2) — gate the resolved provider
+  // BEFORE any cache probe or fetch. A disallowed primary provider is a
+  // hard policy denial, not a fallback trigger.
+  if (
+    opts.allowedProviders !== undefined &&
+    opts.allowedProviders !== "all" &&
+    !opts.allowedProviders.includes(search.name)
+  ) {
+    throw new ProviderNotAllowedError(search.name);
+  }
 
   const keyFor = (provider: string): string => SearchCache.key(provider, "search", query, n);
 

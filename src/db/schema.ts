@@ -1069,6 +1069,22 @@ export const extensionLessonsWritesDaily = pgTable("extension_lessons_writes_dai
 
 export type ExtensionLessonsWritesDaily = typeof extensionLessonsWritesDaily.$inferSelect;
 
+// ── Shared-search Phase 2: ctx.search — per-extension daily call rollup ──
+// Mirrors `extension_memory_writes_daily`: the in-process counter is
+// authoritative for the live process; this table is the durable record
+// (60s flush + hydrate) so a crash-restart doesn't reset the day's
+// search-call count to zero. Enforces `resolveSearchPolicy().quota`.
+export const extensionSearchCallsDaily = pgTable("extension_search_calls_daily", {
+  extensionId: text("extension_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
+  day: date("day").notNull(),
+  calls: integer("calls").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.extensionId, table.day] }),
+]);
+
+export type ExtensionSearchCallsDaily = typeof extensionSearchCallsDaily.$inferSelect;
+
 // ── Phase 51: ctx.schedule — persistent cron registrations ─────────
 export const extensionSchedules = pgTable("extension_schedules", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),

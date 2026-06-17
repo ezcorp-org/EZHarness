@@ -119,10 +119,13 @@ describe("web", () => {
       receivedOpts = opts;
       return { markdown: "MD", providerName: "searxng", cached: true };
     }) as never;
-    const resp = await handlePiSearch(req({ action: "web", query: "bun", maxResults: 7 }), { granted: granted("inherit"), registeredTool: { extensionId }, search }, rpcMeta());
+    // A request UNDER the policy ceiling (hard-default maxResults=5)
+    // passes through verbatim. The clamp-to-ceiling path is covered in
+    // search-policy-enforce.test.ts.
+    const resp = await handlePiSearch(req({ action: "web", query: "bun", maxResults: 4 }), { granted: granted("inherit"), registeredTool: { extensionId }, search }, rpcMeta());
     expect(resp.result).toEqual({ markdown: "MD", provider: "searxng", cached: true });
     expect(receivedQuery).toBe("bun");
-    expect(receivedOpts?.maxResults).toBe(7);
+    expect(receivedOpts?.maxResults).toBe(4);
   });
 
   test("missing query → soft-fail", async () => {

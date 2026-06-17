@@ -6,7 +6,7 @@
  * input validation, provider-error wrapping, and result clamping.
  */
 import { test, expect, describe, beforeEach } from "bun:test";
-import { performSearch, performRead } from "../search/index";
+import { performSearch, performRead, ProviderNotAllowedError } from "../search/index";
 import { SearchCache } from "../search/cache";
 import type {
   ResolvedProviders,
@@ -95,6 +95,34 @@ describe("performSearch", () => {
     await expect(performSearch("bun", { cache, providers: providers(p) })).rejects.toThrow(
       "Search failed via tavily: Tavily HTTP 401",
     );
+  });
+
+  describe("policy provider allowlist (Phase 2)", () => {
+    test("throws ProviderNotAllowedError BEFORE any fetch when the resolved provider is disallowed", async () => {
+      let calls = 0;
+      const p = stubSearch("tavily", async () => {
+        calls++;
+        return RESULTS;
+      });
+      await expect(
+        performSearch("bun", { cache, providers: providers(p), allowedProviders: ["searxng"] }),
+      ).rejects.toBeInstanceOf(ProviderNotAllowedError);
+      // No network fetch and nothing cached — the gate is pre-fetch.
+      expect(calls).toBe(0);
+      expect(cache.get(SearchCache.key("tavily", "search", "bun", 5))).toBeUndefined();
+    });
+
+    test("allows the resolved provider when it is in the allowlist", async () => {
+      const p = stubSearch("searxng", async () => RESULTS);
+      const out = await performSearch("bun", { cache, providers: providers(p), allowedProviders: ["searxng"] });
+      expect(out.providerName).toBe("searxng");
+    });
+
+    test("allowedProviders 'all' imposes no restriction", async () => {
+      const p = stubSearch("tavily", async () => RESULTS);
+      const out = await performSearch("bun", { cache, providers: providers(p), allowedProviders: "all" });
+      expect(out.providerName).toBe("tavily");
+    });
   });
 
   describe("fallback-namespace caching", () => {

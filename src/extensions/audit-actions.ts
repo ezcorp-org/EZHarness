@@ -425,6 +425,17 @@ export const EXT_AUDIT_ACTIONS = {
    */
   SDK_SEARCH_EGRESS_BLOCKED: "ext:sdk-search-egress-blocked",
   /**
+   * The resolved per-extension search POLICY (`resolveSearchPolicy`)
+   * denied a call: the extension exhausted its per-day `quota`, or
+   * requested a provider outside its allowlist. Soft governance row —
+   * the call soft-fails (no crash). Mirrors the `SDK_MEMORY_*` tier +
+   * the LLM quota-exceeded accounting. (Shared-search Phase 2.)
+   *
+   * Metadata: `{capability:"search", reason:"quota-per-day"|
+   * "provider-not-allowed", actor:"system", provider?, retryAfterMs?}`.
+   */
+  SDK_SEARCH_QUOTA_EXCEEDED: "ext:sdk-search-quota-exceeded",
+  /**
    * Capability-expiry sweep revoked a permission grant whose
    * `grantedAt` aged past the per-capability TTL (see
    * `./perm-expiry-config.ts`). Phase 1 ships only the constant; the
