@@ -8,7 +8,7 @@ import { ScheduleDaemon } from "../extensions/schedule-daemon";
 import { BriefingDaemon } from "../runtime/briefing/daemon";
 import { HostMaintenanceDaemon } from "../extensions/host-maintenance-daemon";
 import { EmbedWorker } from "../extensions/embed-worker";
-import { FileOrganizerDaemon, DEFAULT_SETTINGS, type FileOrganizerSettings } from "../extensions/file-organizer-daemon";
+import { FileOrganizerDaemon, DEFAULT_SETTINGS, mergeFileOrganizerSettings, type FileOrganizerSettings } from "../extensions/file-organizer-daemon";
 import { PreviewPortWatcher } from "../runtime/preview/preview-port-watcher";
 import { NetnsPortSource, ProcPortSource } from "../runtime/preview/preview-port-source";
 import { previewCapabilities } from "../runtime/preview/preview-netns";
@@ -489,24 +489,11 @@ async function resolveFileOrganizerSettings(extensionId: string): Promise<FileOr
       .where(eq(extensionSettingsUser.extensionId, extensionId))
       .limit(1);
     const stored = (userRows[0]?.values as Record<string, unknown> | undefined) ?? {};
-    const merged = { ...declared, ...stored };
-
-    return {
-      daemonEnabled: typeof merged.daemon_enabled === "boolean" ? merged.daemon_enabled : DEFAULT_SETTINGS.daemonEnabled,
-      defaultMode: (merged.default_mode as FileOrganizerSettings["defaultMode"]) ?? DEFAULT_SETTINGS.defaultMode,
-      quarantineTtlDays: numOr(merged.quarantine_ttl_days, DEFAULT_SETTINGS.quarantineTtlDays),
-      quarantineCapGb: numOr(merged.quarantine_cap_gb, DEFAULT_SETTINGS.quarantineCapGb),
-      scanIntervalSec: numOr(merged.scan_interval_sec, DEFAULT_SETTINGS.scanIntervalSec),
-      stabilityTicks: numOr(merged.stability_ticks, DEFAULT_SETTINGS.stabilityTicks),
-    };
+    return mergeFileOrganizerSettings(declared, stored);
   } catch (e) {
     log.warn("resolveFileOrganizerSettings failed — using defaults", { error: String(e) });
     return DEFAULT_SETTINGS;
   }
-}
-
-function numOr(v: unknown, fallback: number): number {
-  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
 
 /**

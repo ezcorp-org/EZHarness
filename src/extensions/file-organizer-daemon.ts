@@ -117,6 +117,33 @@ export const DEFAULT_SETTINGS: FileOrganizerSettings = {
   stabilityTicks: 2,
 };
 
+/**
+ * Pure: resolve effective daemon settings from the manifest's declared
+ * defaults overlaid with any stored per-user values. Each field falls back
+ * to DEFAULT_SETTINGS when missing or the wrong type — so a partial/garbage
+ * settings blob can never produce a NaN interval or an undefined mode.
+ */
+export function mergeFileOrganizerSettings(
+  declared: Record<string, unknown>,
+  stored: Record<string, unknown>,
+): FileOrganizerSettings {
+  const merged = { ...declared, ...stored };
+  const numOr = (v: unknown, fallback: number): number =>
+    typeof v === "number" && Number.isFinite(v) ? v : fallback;
+  const validMode =
+    merged.default_mode === "ask-everything" ||
+    merged.default_mode === "approve-non-destructive-only" ||
+    merged.default_mode === "fully-auto";
+  return {
+    daemonEnabled: typeof merged.daemon_enabled === "boolean" ? merged.daemon_enabled : DEFAULT_SETTINGS.daemonEnabled,
+    defaultMode: validMode ? (merged.default_mode as Mode) : DEFAULT_SETTINGS.defaultMode,
+    quarantineTtlDays: numOr(merged.quarantine_ttl_days, DEFAULT_SETTINGS.quarantineTtlDays),
+    quarantineCapGb: numOr(merged.quarantine_cap_gb, DEFAULT_SETTINGS.quarantineCapGb),
+    scanIntervalSec: numOr(merged.scan_interval_sec, DEFAULT_SETTINGS.scanIntervalSec),
+    stabilityTicks: numOr(merged.stability_ticks, DEFAULT_SETTINGS.stabilityTicks),
+  };
+}
+
 export interface FileOrganizerDaemonOptions {
   /** Absolute data dir (`.ezcorp/extension-data/file-organizer`). */
   dataDir: string;

@@ -106,6 +106,35 @@ export function containsEzcorpData(p: string): boolean {
   return isIgnored(p, [".ezcorp/data"]) || normalize(p).includes(`.ezcorp${sep}data`);
 }
 
+// ── Reachability (container-visibility) probe ───────────────────────
+
+export type ReachabilityResult =
+  | { ok: true; path: string }
+  | { ok: false; error: string };
+
+/** The canonical "mount it + restart" message shown when a host folder
+ *  isn't visible inside the EZCorp container. */
+export const NOT_VISIBLE_MESSAGE =
+  "That path isn't visible to the EZCorp container — mount it under your watch root (or via docker-compose.override.yml) and restart.";
+
+/**
+ * Validate a candidate watched-folder path against a visibility probe.
+ * Pure: the IO probe (`exists`) is injected. Combines the static guards
+ * (absolute, control-char-free, not `.ezcorp/data`) with a container
+ * exists-probe — an unreachable path returns the "mount it + restart"
+ * message instead of silently watching nothing.
+ */
+export function checkReachability(
+  rawPath: string,
+  exists: (p: string) => boolean,
+): ReachabilityResult {
+  const path = normalizeFolderPath(rawPath);
+  if (path === null) return { ok: false, error: "Path must be an absolute, valid filesystem path." };
+  if (containsEzcorpData(path)) return { ok: false, error: "Refusing to watch a folder containing .ezcorp/data." };
+  if (!exists(path)) return { ok: false, error: NOT_VISIBLE_MESSAGE };
+  return { ok: true, path };
+}
+
 // ── Folder add / validation ─────────────────────────────────────────
 
 export type AddFolderResult =

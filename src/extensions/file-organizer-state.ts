@@ -33,6 +33,7 @@ import {
 import {
   validateConfig,
   addFolder,
+  checkReachability,
   removeFolder,
   setFolderMode,
   toggleFolderPreset,
@@ -378,6 +379,14 @@ export async function togglePreset(deps: StateDeps, folderId: string, preset: st
 }
 
 export async function addWatchedFolder(deps: StateDeps, input: { path: string; backlogPolicy?: BacklogPolicy }): Promise<HandlerResult> {
+  // Container-visibility exists-probe FIRST: an unreachable host folder
+  // (not bind-mounted into the container) gets the "mount it + restart"
+  // message instead of silently watching nothing. Runs host-side, so the
+  // probe reflects what the EZCorp process can actually see.
+  const { existsSync } = await import("node:fs");
+  const reach = checkReachability(input.path, (p) => existsSync(p));
+  if (!reach.ok) return { ok: false, message: reach.error, changed: false };
+
   const config = await readConfig(paths(deps.dataDir).config);
   const result = addFolder(config, {
     path: input.path,

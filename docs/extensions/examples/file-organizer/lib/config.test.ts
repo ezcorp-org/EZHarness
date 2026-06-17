@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import {
   CONFIG_SCHEMA_VERSION,
   NON_REMOVABLE_IGNORES,
+  NOT_VISIBLE_MESSAGE,
   addFolder,
   addFolderIgnore,
   addFolderRule,
+  checkReachability,
   containsEzcorpData,
   effectiveIgnores,
   emptyConfig,
@@ -61,6 +63,30 @@ describe("isWithin / isIgnored / containsEzcorpData", () => {
   test("containsEzcorpData", () => {
     expect(containsEzcorpData("/proj/.ezcorp/data")).toBe(true);
     expect(containsEzcorpData("/proj/Downloads")).toBe(false);
+  });
+});
+
+describe("checkReachability (container-visibility probe)", () => {
+  const visible = (p: string) => p === "/watched/Downloads";
+  test("visible path ⇒ ok", () => {
+    const r = checkReachability("/watched/Downloads", visible);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.path).toBe("/watched/Downloads");
+  });
+  test("not-visible path ⇒ the mount-it message", () => {
+    const r = checkReachability("/watched/NotMounted", visible);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe(NOT_VISIBLE_MESSAGE);
+  });
+  test("relative path ⇒ rejected before the probe", () => {
+    const r = checkReachability("relative/path", () => true);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("absolute");
+  });
+  test(".ezcorp/data ⇒ refused even if visible", () => {
+    const r = checkReachability("/proj/.ezcorp/data", () => true);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain(".ezcorp/data");
   });
 });
 

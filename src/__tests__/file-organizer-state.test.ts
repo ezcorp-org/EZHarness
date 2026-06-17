@@ -270,6 +270,14 @@ describe("config mutations", () => {
     expect(r.message).toContain(".ezcorp/data");
   });
 
+  test("addWatchedFolder refuses an unreachable (unmounted) path", async () => {
+    await seedConfig();
+    // A path that doesn't exist on disk ⇒ not visible to the container.
+    const r = await state.addWatchedFolder(deps(), { path: join(root, "definitely-not-mounted") });
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain("isn't visible to the EZCorp container");
+  });
+
   test("setMode / togglePreset / addIgnore / removeFolder", async () => {
     await seedConfig();
     await state.setMode(deps(), "f1", "fully-auto");

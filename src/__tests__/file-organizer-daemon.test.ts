@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   FileOrganizerDaemon,
   DEFAULT_SETTINGS,
+  mergeFileOrganizerSettings,
   _fileOrganizerDaemonInternals,
   type FileOrganizerSettings,
 } from "../extensions/file-organizer-daemon";
@@ -307,5 +308,41 @@ describe("daemon — lifecycle", () => {
     expect(_fileOrganizerDaemonInternals.clampInterval(99999)).toBe(3600);
     expect(_fileOrganizerDaemonInternals.clampInterval(45)).toBe(45);
     expect(_fileOrganizerDaemonInternals.clampInterval(NaN)).toBe(DEFAULT_SETTINGS.scanIntervalSec);
+  });
+});
+
+describe("mergeFileOrganizerSettings", () => {
+  test("manifest defaults resolve with no stored values", () => {
+    const declared = {
+      daemon_enabled: true,
+      default_mode: "ask-everything",
+      quarantine_ttl_days: 30,
+      quarantine_cap_gb: 5,
+      scan_interval_sec: 45,
+      stability_ticks: 2,
+    };
+    expect(mergeFileOrganizerSettings(declared, {})).toEqual(DEFAULT_SETTINGS);
+  });
+
+  test("stored values override declared defaults", () => {
+    const declared = { default_mode: "ask-everything", scan_interval_sec: 45 };
+    const merged = mergeFileOrganizerSettings(declared, { default_mode: "fully-auto", scan_interval_sec: 10 });
+    expect(merged.defaultMode).toBe("fully-auto");
+    expect(merged.scanIntervalSec).toBe(10);
+  });
+
+  test("garbage values fall back to DEFAULT_SETTINGS per-field", () => {
+    const merged = mergeFileOrganizerSettings(
+      {},
+      { default_mode: "bogus", scan_interval_sec: "not a number", daemon_enabled: "yes", quarantine_ttl_days: NaN },
+    );
+    expect(merged.defaultMode).toBe(DEFAULT_SETTINGS.defaultMode);
+    expect(merged.scanIntervalSec).toBe(DEFAULT_SETTINGS.scanIntervalSec);
+    expect(merged.daemonEnabled).toBe(DEFAULT_SETTINGS.daemonEnabled);
+    expect(merged.quarantineTtlDays).toBe(DEFAULT_SETTINGS.quarantineTtlDays);
+  });
+
+  test("empty inputs yield the hardcoded defaults", () => {
+    expect(mergeFileOrganizerSettings({}, {})).toEqual(DEFAULT_SETTINGS);
   });
 });
