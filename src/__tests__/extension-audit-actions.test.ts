@@ -111,6 +111,13 @@ describe("extension audit action constants", () => {
       "MODIFIABLE_TOGGLED",
       // Bundled critical-extension auto-reapprove (post-manifest-drift)
       "BUNDLED_CRITICAL_AUTO_REAPPROVED",
+      // Bundled drift reapprove (admin POST /reapprove-drift)
+      "BUNDLED_DRIFT_REAPPROVED",
+      // Shared-search Phase 1 — ctx.search host capability
+      "SDK_SEARCH_QUERY",
+      "SDK_SEARCH_EGRESS_BLOCKED",
+      // Shared-search Phase 2 — policy resolver quota / provider denial
+      "SDK_SEARCH_QUOTA_EXCEEDED",
     ]));
   });
 
