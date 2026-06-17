@@ -62,6 +62,25 @@ let embedWorkerStartMock = mock(() => Promise.resolve<boolean>(true));
 let embedWorkerStopMock = mock(() => {});
 let lastEmbedWorkerInstance: object | undefined;
 
+// FileOrganizerDaemon stub instrumentation. Same capture-mock pattern as
+// EmbedWorker above: the bootstrap reads `new FileOrganizerDaemon({...})`
+// then `.start(settings)`. The REAL daemon would acquire a PID lockfile,
+// hash files, and arm its own setInterval — none of which belong in this
+// wiring suite (its per-class coverage lives in
+// src/__tests__/file-organizer-daemon.test.ts). The stub's start() resolves
+// true and registers NO interval, so the intervalCalls length assertions
+// stay at 4. The `getExtensionByName` + settings/engine/page-cache deps the
+// bootstrap dynamic-imports are stubbed inert so the block doesn't reach the
+// DB. Per-test swaps to `fileOrgDaemonStartMock` / `fileOrgExtMock` cover the
+// failure-isolation + gating paths (not installed; disabled; start throws).
+let fileOrgDaemonCtorMock = mock((_opts?: unknown) => {});
+let fileOrgDaemonStartMock = mock((_s?: unknown) => Promise.resolve<boolean>(true));
+let fileOrgDaemonStopMock = mock(() => {});
+let lastFileOrgDaemonInstance: object | undefined;
+// Returns the installed+enabled file-organizer extension row by default so
+// the happy path constructs; re-pointable per-test (null = not installed).
+let fileOrgExtMock = mock((_name: string) => Promise.resolve<{ id: string; enabled: boolean } | null>({ id: "ext-fo", enabled: true }));
+
 // PreviewPortWatcher stub instrumentation (Phase 2 — Secure Preview).
 // Same capture-mock pattern as the daemons above: the bootstrap reads
 // `new PreviewPortWatcher({...})` then `.start()`. The REAL watcher would
@@ -215,6 +234,48 @@ function installModuleMocks(): void {
       stop() { embedWorkerStopMock(); }
     },
   }));
+  // file-organizer: stub the FileOrganizerDaemon for the same reason — its
+  // per-class coverage lives in src/__tests__/file-organizer-daemon.test.ts,
+  // and the real daemon would acquire a lockfile + arm a 5th setInterval
+  // (breaking the intervalCalls length assertions). The bootstrap
+  // dynamic-imports getExtensionByName + getProjectRoot + getPermissionEngine
+  // + getPageCache; we stub each inert so the block doesn't reach the DB.
+  mock.module("../extensions/file-organizer-daemon", () => ({
+    FileOrganizerDaemon: class {
+      constructor(opts?: unknown) {
+        fileOrgDaemonCtorMock(opts);
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        lastFileOrgDaemonInstance = this;
+      }
+      start(s?: unknown) { return fileOrgDaemonStartMock(s); }
+      stop() { fileOrgDaemonStopMock(); }
+    },
+    DEFAULT_SETTINGS: {
+      daemonEnabled: true,
+      defaultMode: "ask-everything",
+      quarantineTtlDays: 30,
+      quarantineCapGb: 5,
+      scanIntervalSec: 45,
+      stabilityTicks: 2,
+    },
+  }));
+  mock.module("../db/queries/extensions", () => ({
+    getExtensionByName: (name: string) => fileOrgExtMock(name),
+  }));
+  // The daemon settings resolver + page-cache + engine + project-root the
+  // bootstrap dynamic-imports. Inert stubs keep them off the DB / fs.
+  mock.module("../db/connection", () => ({
+    getDb: () => ({
+      select: () => ({ from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }) }),
+    }),
+  }));
+  mock.module("../extensions/permission-engine", () => ({
+    getPermissionEngine: () => ({ authorize: () => Promise.resolve({ decision: "allow", auditId: "a" }) }),
+  }));
+  mock.module("../extensions/page-cache", () => ({
+    getPageCache: () => ({ invalidate: () => {} }),
+  }));
+
   // Phase 2 (Secure Preview): stub the PreviewPortWatcher + its injected
   // deps. The watcher's own lifecycle/detection coverage lives in
   // src/__tests__/preview-port-watcher.test.ts; standing the real daemon
@@ -299,6 +360,11 @@ beforeEach(async () => {
   embedWorkerStartMock = mock(() => Promise.resolve<boolean>(true));
   embedWorkerStopMock = mock(() => {});
   lastEmbedWorkerInstance = undefined;
+  fileOrgDaemonCtorMock = mock((_opts?: unknown) => {});
+  fileOrgDaemonStartMock = mock((_s?: unknown) => Promise.resolve<boolean>(true));
+  fileOrgDaemonStopMock = mock(() => {});
+  lastFileOrgDaemonInstance = undefined;
+  fileOrgExtMock = mock((_name: string) => Promise.resolve<{ id: string; enabled: boolean } | null>({ id: "ext-fo", enabled: true }));
   previewWatcherCtorMock = mock((_opts?: unknown) => {});
   previewWatcherStartMock = mock(() => Promise.resolve<boolean>(true));
   previewWatcherStopMock = mock(() => {});
@@ -719,6 +785,98 @@ describe("startBackgroundTimers — EmbedWorker bootstrap", () => {
     mod._resetForTests();
     expect(embedWorkerStopMock).toHaveBeenCalledTimes(2);
     expect(mod._getEmbedWorkerForTests()).toBeUndefined();
+  });
+});
+
+// file-organizer — bootstrap wiring for FileOrganizerDaemon. Mirrors the
+// EmbedWorker block, plus the gating branches unique to this daemon: it is
+// constructed ONLY when the extension is installed+enabled (getExtensionByName
+// non-null) AND its `daemon_enabled` setting is true. The load-bearing
+// assertion from the prior daemon-wiring incident: the daemon's stub
+// registers NO setInterval, so intervalCalls stays at 4.
+describe("startBackgroundTimers — FileOrganizerDaemon bootstrap", () => {
+  test("happy-path: daemon constructed, started, exposed; no 5th interval", async () => {
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(fileOrgDaemonCtorMock).toHaveBeenCalledTimes(1);
+    expect(fileOrgDaemonStartMock).toHaveBeenCalledTimes(1);
+    const exposed = mod._getFileOrganizerDaemonForTests();
+    expect(exposed).toBeDefined();
+    expect(exposed).toBe(lastFileOrgDaemonInstance as never);
+    expect(loggerInfoMock).toHaveBeenCalledWith("FileOrganizerDaemon started", undefined);
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("extension not installed: daemon never constructed, boot continues", async () => {
+    fileOrgExtMock = mock((_n: string) => Promise.resolve<{ id: string; enabled: boolean } | null>(null));
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(fileOrgDaemonCtorMock).not.toHaveBeenCalled();
+    expect(mod._getFileOrganizerDaemonForTests()).toBeUndefined();
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("extension installed but disabled: daemon never constructed", async () => {
+    fileOrgExtMock = mock((_n: string) => Promise.resolve<{ id: string; enabled: boolean } | null>({ id: "ext-fo", enabled: false }));
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(fileOrgDaemonCtorMock).not.toHaveBeenCalled();
+    expect(mod._getFileOrganizerDaemonForTests()).toBeUndefined();
+  });
+
+  test("start() resolving false: handle dropped, boot continues", async () => {
+    fileOrgDaemonStartMock = mock((_s?: unknown) => Promise.resolve<boolean>(false));
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(fileOrgDaemonCtorMock).toHaveBeenCalledTimes(1);
+    expect(mod._getFileOrganizerDaemonForTests()).toBeUndefined();
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("start() rejecting: handle dropped, log.warn carries the error", async () => {
+    const bootErr = new Error("simulated file-organizer boot failure");
+    fileOrgDaemonStartMock = mock((_s?: unknown) => Promise.reject(bootErr));
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(mod._getFileOrganizerDaemonForTests()).toBeUndefined();
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      "Failed to start FileOrganizerDaemon",
+      { error: String(bootErr) },
+    );
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("stopBackgroundTimers() and _resetForTests() tear down the daemon", async () => {
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+    expect(mod._getFileOrganizerDaemonForTests()).toBeDefined();
+
+    await mod.stopBackgroundTimers();
+    expect(fileOrgDaemonStopMock).toHaveBeenCalledTimes(1);
+    expect(mod._getFileOrganizerDaemonForTests()).toBeUndefined();
+
+    await mod.startBackgroundTimers();
+    expect(mod._getFileOrganizerDaemonForTests()).toBeDefined();
+    mod._resetForTests();
+    expect(fileOrgDaemonStopMock).toHaveBeenCalledTimes(2);
+    expect(mod._getFileOrganizerDaemonForTests()).toBeUndefined();
   });
 });
 

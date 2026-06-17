@@ -170,9 +170,13 @@ describe("stability gate", () => {
   test("isUnstableName flags partial downloads + office locks", () => {
     expect(isUnstableName("a.crdownload")).toBe(true);
     expect(isUnstableName("a.part")).toBe(true);
-    expect(isUnstableName("a.tmp")).toBe(true);
+    expect(isUnstableName("a.partial")).toBe(true);
+    expect(isUnstableName("a.download")).toBe(true);
     expect(isUnstableName("~$doc.docx")).toBe(true);
     expect(isUnstableName("final.txt")).toBe(false);
+    // A bare `.tmp` is NOT unstable — it's a legitimate junk target; the
+    // stability gate defers it while it's still being written.
+    expect(isUnstableName("trash.tmp")).toBe(false);
     expect(UNSTABLE_SUFFIXES.length).toBeGreaterThan(0);
   });
 

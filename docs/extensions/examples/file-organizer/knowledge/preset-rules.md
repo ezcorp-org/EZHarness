@@ -61,5 +61,8 @@ report-*.pdf -> Documents
 - **Circuit breaker.** A rule about to act on more than half a folder's
   files in one tick is paused — a guard against an over-broad rule.
 - **Stability gate.** A file is acted on only after it's been quiescent
-  (size + mtime unchanged) for the configured number of ticks; partial
-  downloads (`.crdownload`/`.part`/`.tmp`, `~$*`) are always skipped.
+  (size + mtime unchanged) for the configured number of ticks; in-progress
+  downloads (`.crdownload`/`.part`/`.partial`/`.download`, `~$*` office
+  locks) are always skipped. (A bare `.tmp` is a legitimate junk target,
+  so it is NOT skip-listed — the stability gate defers it while it's still
+  being written.)

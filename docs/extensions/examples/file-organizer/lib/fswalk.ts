@@ -187,8 +187,15 @@ export function joinRoot(root: string, ...segments: string[]): string {
 
 // ── Stability gate ──────────────────────────────────────────────────
 
-/** Partial-download / in-progress suffixes the daemon never acts on. */
-export const UNSTABLE_SUFFIXES = [".crdownload", ".part", ".tmp"] as const;
+/**
+ * Partial-download / in-progress suffixes the daemon never acts on.
+ *
+ * NOTE: `.tmp` is intentionally NOT here. A bare `.tmp` file is a
+ * legitimate junk-sweep target (and the stability gate already defers any
+ * file still being written). The genuinely-transient markers are the
+ * browser/download partials below plus the `~$` office-lock prefix.
+ */
+export const UNSTABLE_SUFFIXES = [".crdownload", ".part", ".partial", ".download"] as const;
 
 /** True for transient/partial-write names that must be skipped until done. */
 export function isUnstableName(name: string): boolean {

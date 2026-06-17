@@ -8,6 +8,7 @@ import { ScheduleDaemon } from "../extensions/schedule-daemon";
 import { BriefingDaemon } from "../runtime/briefing/daemon";
 import { HostMaintenanceDaemon } from "../extensions/host-maintenance-daemon";
 import { EmbedWorker } from "../extensions/embed-worker";
+import { FileOrganizerDaemon, DEFAULT_SETTINGS, type FileOrganizerSettings } from "../extensions/file-organizer-daemon";
 import { PreviewPortWatcher } from "../runtime/preview/preview-port-watcher";
 import { NetnsPortSource, ProcPortSource } from "../runtime/preview/preview-port-source";
 import { previewCapabilities } from "../runtime/preview/preview-netns";
@@ -25,6 +26,7 @@ let briefingDaemon: BriefingDaemon | undefined;
 let permSweepDaemon: HostMaintenanceDaemon | undefined;
 let embedWorker: EmbedWorker | undefined;
 let previewPortWatcher: PreviewPortWatcher | undefined;
+let fileOrganizerDaemon: FileOrganizerDaemon | undefined;
 
 /**
  * Intervals + disposers registered by `startBackgroundTimers()`. Tracked
@@ -62,6 +64,12 @@ export function _getPermSweepDaemonForTests(): HostMaintenanceDaemon | undefined
  *  `_getPermSweepDaemonForTests`. */
 export function _getEmbedWorkerForTests(): EmbedWorker | undefined {
   return embedWorker;
+}
+
+/** Test-only handle to the file-organizer daemon singleton — mirrors
+ *  `_getEmbedWorkerForTests`. */
+export function _getFileOrganizerDaemonForTests(): FileOrganizerDaemon | undefined {
+  return fileOrganizerDaemon;
 }
 
 /** Test-only handle to the preview-port-watcher singleton — mirrors
@@ -261,6 +269,53 @@ export async function startBackgroundTimers(): Promise<void> {
     embedWorker = undefined;
   }
 
+  // file-organizer: FileOrganizerDaemon — host-side watcher for the
+  // bundled file-organizer extension. Sibling to the daemons above
+  // (PID-lockfile, kill-switch `EZCORP_DISABLE_FILE_ORGANIZER_DAEMON=1`,
+  // interval clamp). Gated on the extension being installed+enabled AND
+  // its `daemon_enabled` setting. Same fail-safe contract: log + drop the
+  // handle on a failed start; never block boot. When the extension isn't
+  // installed (or the DB layer isn't ready), construction is skipped and
+  // this is a logged no-op.
+  try {
+    const { getExtensionByName } = await import("../db/queries/extensions");
+    const ext = await getExtensionByName("file-organizer");
+    if (ext?.enabled) {
+      const settings = await resolveFileOrganizerSettings(ext.id);
+      if (settings.daemonEnabled) {
+        const { getProjectRoot } = await import("../extensions/bundled");
+        const { join } = await import("node:path");
+        const { getPermissionEngine } = await import("../extensions/permission-engine");
+        const { getPageCache } = await import("../extensions/page-cache");
+        const dataDir = join(
+          getProjectRoot(),
+          ".ezcorp",
+          "extension-data",
+          "file-organizer",
+        );
+        const pageCache = getPageCache();
+        fileOrganizerDaemon = new FileOrganizerDaemon({
+          dataDir,
+          engine: getPermissionEngine(),
+          extensionId: ext.id,
+          getSettings: () => resolveFileOrganizerSettings(ext.id),
+          invalidatePage: (pageId) => pageCache.invalidate(ext.id, pageId),
+        });
+        const ok = await fileOrganizerDaemon.start(settings);
+        if (ok) {
+          log.info("FileOrganizerDaemon started");
+        } else {
+          fileOrganizerDaemon = undefined;
+        }
+      } else {
+        log.info("FileOrganizerDaemon disabled via daemon_enabled setting");
+      }
+    }
+  } catch (e) {
+    log.warn("Failed to start FileOrganizerDaemon", { error: String(e) });
+    fileOrganizerDaemon = undefined;
+  }
+
   // Phase 2 (Secure Preview): PreviewPortWatcher — auto-detection of dev
   // servers that start LISTENing inside a conversation's netns. Sibling to
   // the daemons above (lockfile, kill switch, interval). The enumeration
@@ -406,6 +461,55 @@ async function runScheduledSurfaceAudit(): Promise<void> {
 }
 
 /**
+ * Resolve the file-organizer daemon's effective settings (single-operator
+ * workspace model). Reads the manifest declared defaults, overlaid with
+ * the first stored per-user settings row (the operator). Falls back to
+ * the hardcoded DEFAULT_SETTINGS on any failure so the daemon's tick can
+ * never crash on a settings read.
+ */
+async function resolveFileOrganizerSettings(extensionId: string): Promise<FileOrganizerSettings> {
+  try {
+    const [{ getDb }, { extensionSettingsUser, extensions }, { eq }] = await Promise.all([
+      import("../db/connection"),
+      import("../db/schema"),
+      import("drizzle-orm"),
+    ]);
+    const db = getDb();
+    const manifestRows = await db
+      .select({ manifest: extensions.manifest })
+      .from(extensions)
+      .where(eq(extensions.id, extensionId));
+    const schema = (manifestRows[0]?.manifest as { settings?: Record<string, { default?: unknown }> } | undefined)?.settings ?? {};
+    const declared: Record<string, unknown> = {};
+    for (const [k, f] of Object.entries(schema)) if (f.default !== undefined) declared[k] = f.default;
+
+    const userRows = await db
+      .select({ values: extensionSettingsUser.values })
+      .from(extensionSettingsUser)
+      .where(eq(extensionSettingsUser.extensionId, extensionId))
+      .limit(1);
+    const stored = (userRows[0]?.values as Record<string, unknown> | undefined) ?? {};
+    const merged = { ...declared, ...stored };
+
+    return {
+      daemonEnabled: typeof merged.daemon_enabled === "boolean" ? merged.daemon_enabled : DEFAULT_SETTINGS.daemonEnabled,
+      defaultMode: (merged.default_mode as FileOrganizerSettings["defaultMode"]) ?? DEFAULT_SETTINGS.defaultMode,
+      quarantineTtlDays: numOr(merged.quarantine_ttl_days, DEFAULT_SETTINGS.quarantineTtlDays),
+      quarantineCapGb: numOr(merged.quarantine_cap_gb, DEFAULT_SETTINGS.quarantineCapGb),
+      scanIntervalSec: numOr(merged.scan_interval_sec, DEFAULT_SETTINGS.scanIntervalSec),
+      stabilityTicks: numOr(merged.stability_ticks, DEFAULT_SETTINGS.stabilityTicks),
+    };
+  } catch (e) {
+    log.warn("resolveFileOrganizerSettings failed — using defaults", { error: String(e) });
+    return DEFAULT_SETTINGS;
+  }
+}
+
+function numOr(v: unknown, fallback: number): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
+}
+
+/**
  * Stop every background timer + daemon registered by
  * `startBackgroundTimers()`. Called from the shutdown orchestrator
  * BEFORE PGlite close so no in-flight `setInterval` callback issues a
@@ -448,6 +552,10 @@ export async function stopBackgroundTimers(): Promise<void> {
   if (embedWorker) {
     try { embedWorker.stop(); } catch (e) { log.warn("EmbedWorker.stop() failed", { error: String(e) }); }
     embedWorker = undefined;
+  }
+  if (fileOrganizerDaemon) {
+    try { fileOrganizerDaemon.stop(); } catch (e) { log.warn("FileOrganizerDaemon.stop() failed", { error: String(e) }); }
+    fileOrganizerDaemon = undefined;
   }
   if (previewPortWatcher) {
     try { previewPortWatcher.stop(); } catch (e) { log.warn("PreviewPortWatcher.stop() failed", { error: String(e) }); }
@@ -493,6 +601,10 @@ export function _resetForTests(): void {
   if (embedWorker) {
     embedWorker.stop();
     embedWorker = undefined;
+  }
+  if (fileOrganizerDaemon) {
+    fileOrganizerDaemon.stop();
+    fileOrganizerDaemon = undefined;
   }
   if (previewPortWatcher) {
     previewPortWatcher.stop();
