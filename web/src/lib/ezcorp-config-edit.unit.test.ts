@@ -13,8 +13,23 @@ import {
 	parseCapabilities,
 	setCapabilityPermissions,
 	unresolvedDependencies,
+	unmanagedCapabilities,
 } from "./ezcorp-config-edit";
 import type { DependencyEntry, ToggleableCapability } from "./ezcorp-config-edit";
+
+/** Naive balanced-brace check — asserts the edit output never orphans a
+ *  nested object (the corruption class the brace-aware fix closes). */
+function bracesBalanced(s: string): boolean {
+	let depth = 0;
+	for (const ch of s) {
+		if (ch === "{") depth++;
+		else if (ch === "}") {
+			depth--;
+			if (depth < 0) return false;
+		}
+	}
+	return depth === 0;
+}
 
 /** The scaffold's known config shape (mirrors templates/tool.ts). */
 const SCAFFOLD = `import { defineExtension } from "@ezcorp/sdk";
@@ -156,6 +171,92 @@ describe("capability permissions write + read", () => {
 		const res = setCapabilityPermissions(malformed, allCaps({ memory: true }));
 		expect(res.recognized).toBe(false);
 		expect(res.source).toBe(malformed);
+	});
+});
+
+describe("object-valued capability (custom ceiling) — brace-aware, no corrupt / no widen", () => {
+	// A hand-written §3.1 object grant — the bug fixture: the old
+	// `[^,\n}]+` removal truncated at the nested `}`.
+	const OBJECT_CAP = SCAFFOLD.replace(
+		"permissions: {}",
+		`permissions: {\n    search: { quota: 500, maxResults: 10 },\n    network: ["api.example.com"],\n  }`,
+	);
+
+	test("parseCapabilities reads an object-valued cap as ON (brace-aware)", () => {
+		expect(parseCapabilities(OBJECT_CAP)).toEqual({ search: true, memory: false, llm: false });
+	});
+
+	test("unmanagedCapabilities flags the object cap (toggle must be read-only)", () => {
+		expect(unmanagedCapabilities(OBJECT_CAP)).toEqual(["search"]);
+	});
+
+	test("toggling OFF an object cap does NOT corrupt the file and does NOT widen it", () => {
+		// Author clicks the Search toggle (would-be off). The object ceiling
+		// is UNMANAGED → left byte-for-byte; the file stays valid TS.
+		const res = setCapabilityPermissions(OBJECT_CAP, allCaps({ search: false }));
+		expect(res.recognized).toBe(true);
+		expect(bracesBalanced(res.source)).toBe(true);
+		// The hand-written object ceiling survives verbatim — NOT clobbered
+		// to "inherit" (no silent widening) and NOT orphaned.
+		expect(res.source).toContain("search: { quota: 500, maxResults: 10 }");
+		expect(res.source).not.toContain('search: "inherit"');
+		expect(res.source).toContain('network: ["api.example.com"]');
+		// Re-parse round-trips (braces balanced, value intact).
+		expect(parseCapabilities(res.source)).toEqual({ search: true, memory: false, llm: false });
+	});
+
+	test("toggling ON an UNRELATED cap preserves the object ceiling verbatim", () => {
+		const res = setCapabilityPermissions(OBJECT_CAP, allCaps({ search: true, memory: true }));
+		expect(res.recognized).toBe(true);
+		expect(bracesBalanced(res.source)).toBe(true);
+		expect(res.source).toContain("search: { quota: 500, maxResults: 10 }");
+		expect(res.source).toContain('memory: "inherit"');
+	});
+
+	test("an explicit `false` cap is also UNMANAGED (toggle can't flip it ON silently)", () => {
+		const falseCap = SCAFFOLD.replace("permissions: {}", `permissions: {\n    search: false,\n  }`);
+		expect(unmanagedCapabilities(falseCap)).toEqual(["search"]);
+		const res = setCapabilityPermissions(falseCap, allCaps({ search: true }));
+		expect(res.recognized).toBe(true);
+		expect(res.source).toContain("search: false");
+		expect(res.source).not.toContain('search: "inherit"');
+	});
+});
+
+describe("edge-input floor (spec §7 Phase 4 — hand-written config preserved)", () => {
+	test("a comment line in permissions survives a capability toggle", () => {
+		const withComment = SCAFFOLD.replace(
+			"permissions: {}",
+			`permissions: {\n    // network access for the upstream API\n    network: ["api.example.com"],\n  }`,
+		);
+		const res = setCapabilityPermissions(withComment, allCaps({ search: true }));
+		expect(res.source).toContain("// network access for the upstream API");
+		expect(res.source).toContain('search: "inherit"');
+		expect(bracesBalanced(res.source)).toBe(true);
+	});
+
+	test("a multi-line array in a hand-written field survives a dependency edit", () => {
+		const withArray = SCAFFOLD.replace(
+			"permissions: {}",
+			`permissions: {\n    network: [\n      "a.example.com",\n      "b.example.com",\n    ],\n  }`,
+		);
+		const res = setDependencies(withArray, [DEP_A]);
+		expect(res.recognized).toBe(true);
+		expect(res.source).toContain('"a.example.com"');
+		expect(res.source).toContain('"b.example.com"');
+		expect(parseDependencies(res.source)).toEqual([DEP_A]);
+		expect(bracesBalanced(res.source)).toBe(true);
+	});
+
+	test("a trailing comma in the permissions block is preserved across a toggle", () => {
+		const trailing = SCAFFOLD.replace(
+			"permissions: {}",
+			`permissions: {\n    network: ["x.example.com"],\n  }`,
+		);
+		const res = setCapabilityPermissions(trailing, allCaps({ llm: true }));
+		expect(res.source).toContain('network: ["x.example.com"]');
+		expect(res.source).toContain('llm: "inherit"');
+		expect(bracesBalanced(res.source)).toBe(true);
 	});
 });
 

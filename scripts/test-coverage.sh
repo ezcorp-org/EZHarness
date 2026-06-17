@@ -179,6 +179,7 @@ VITEST_EXIT=0
     src/lib/ezcorp-config-edit.unit.test.ts \
     src/lib/components/__tests__/AuthorCompositionPanel.component.test.ts \
     src/lib/components/__tests__/UsesList.component.test.ts \
+    "src/routes/(app)/extensions/author/__tests__/page.component.test.ts" \
     src/__tests__/api-users.server.test.ts \
     src/lib/audit-log-view.unit.test.ts \
     src/lib/settings-models.unit.test.ts \

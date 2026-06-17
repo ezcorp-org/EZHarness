@@ -26,6 +26,7 @@
 		parseCapabilities,
 		setCapabilityPermissions,
 		unresolvedDependencies,
+		unmanagedCapabilities,
 		TOGGLEABLE_CAPABILITIES,
 		type DependencyEntry,
 		type ToggleableCapability,
@@ -55,6 +56,11 @@
 	const deps = $derived(parseDependencies(source));
 	const caps = $derived(parseCapabilities(source));
 	const unresolved = $derived(unresolvedDependencies(deps, installed));
+	// Caps whose value is a hand-written object ceiling or `false` — the
+	// on/off toggle can't faithfully represent them, so it's READ-ONLY for
+	// these (the edit module leaves them byte-for-byte untouched; this just
+	// reflects that in the UI). Mirrors the Phase-3 multi-provider guard.
+	const unmanaged = $derived(new Set(unmanagedCapabilities(source)));
 
 	// Map current dependency NAMES → their installed ids, so re-opening the
 	// picker preselects the already-declared deps.
@@ -111,6 +117,10 @@
 	}
 
 	async function toggleCapability(cap: ToggleableCapability) {
+		// Defense-in-depth: an unmanaged (object/false) cap is read-only —
+		// the button is disabled, but never attempt the edit either (the
+		// module would no-op it, but this keeps the intent explicit).
+		if (unmanaged.has(cap)) return;
 		const nextCaps = { ...caps, [cap]: !caps[cap] };
 		const { source: next, recognized: ok } = setCapabilityPermissions(source, nextCaps);
 		if (ok) await persist(next);
@@ -142,7 +152,8 @@
 						type="button"
 						role="switch"
 						aria-checked={caps[cap]}
-						disabled={saving}
+						disabled={saving || unmanaged.has(cap)}
+						title={unmanaged.has(cap) ? "Custom policy set in the manifest — edit the file directly" : undefined}
 						onclick={() => toggleCapability(cap)}
 						data-testid="author-capability-{cap}"
 						class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50
@@ -154,6 +165,17 @@
 					</button>
 				{/each}
 			</div>
+			{#if unmanaged.size > 0}
+				<p
+					class="mt-2 rounded border border-amber-700 bg-amber-950/40 px-2 py-1.5 text-xs text-amber-300"
+					data-testid="author-capability-unmanaged-warning"
+					role="status"
+				>
+					{[...unmanaged].join(", ")} {unmanaged.size === 1 ? "has" : "have"} a custom policy set
+					in the manifest — edit <code>ezcorp.config.ts</code> directly to change it (the toggle is
+					locked so it can't overwrite your ceiling).
+				</p>
+			{/if}
 		</div>
 
 		<!-- Dependencies -->

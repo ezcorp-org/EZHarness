@@ -92,6 +92,28 @@ describe("AuthorCompositionPanel — recognized config", () => {
 		expect(parseCapabilities(saved).search).toBe(false);
 	});
 
+	test("an OBJECT-valued (custom ceiling) cap is READ-ONLY: toggle disabled + warning, no save/corruption", async () => {
+		stubExtensions();
+		const objectCap = SCAFFOLD.replace(
+			"permissions: {}",
+			`permissions: {\n    search: { quota: 500, maxResults: 10 },\n  }`,
+		);
+		const onsave = vi.fn(async () => {});
+		const { getByTestId } = render(AuthorCompositionPanel, { props: { source: objectCap, onsave } });
+
+		// Search shows ON (object = granted) but the toggle is LOCKED.
+		expect(getByTestId("author-capability-search").getAttribute("aria-checked")).toBe("true");
+		expect(getByTestId("author-capability-search")).toBeDisabled();
+		expect(getByTestId("author-capability-unmanaged-warning")).toHaveTextContent("search");
+
+		// Forcing a click is a no-op — never persists (can't corrupt/widen).
+		await fireEvent.click(getByTestId("author-capability-search"));
+		expect(onsave).not.toHaveBeenCalled();
+
+		// An UNMANAGED cap doesn't lock the OTHER toggles.
+		expect(getByTestId("author-capability-memory")).not.toBeDisabled();
+	});
+
 	test("picking an extension writes manifest.dependencies (name + caret version)", async () => {
 		stubExtensions();
 		let saved = "";

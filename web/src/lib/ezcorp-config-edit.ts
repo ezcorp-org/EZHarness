@@ -160,23 +160,92 @@ export function unresolvedDependencies(
 // ── Capability permissions ──────────────────────────────────────────
 
 /**
+ * Locate a top-level `<cap>:` key inside a permissions BODY and return
+ * the span of its value — BRACE-AWARE so an object value (`{ … }`) is
+ * captured whole, not truncated at its first nested `}`. `keyStart` is
+ * the offset of the key; `valStart`/`valEnd` bound the trimmed value;
+ * `entryEnd` is the offset just past the trailing comma (if any).
+ * Returns null when the cap key isn't present.
+ */
+function findCapValueSpan(
+  body: string,
+  cap: string,
+): { keyStart: number; valStart: number; valEnd: number; entryEnd: number } | null {
+  const keyRe = new RegExp(`(?:^|[\\s,{])(["']?)${cap}\\1\\s*:`, "g");
+  const km = keyRe.exec(body);
+  if (km === null) return null;
+  const keyStart = km.index + (km[0]!.match(/^[\s,{]/) ? 1 : 0);
+  // Value starts after the colon.
+  let i = body.indexOf(":", keyStart) + 1;
+  while (i < body.length && /\s/.test(body[i]!)) i++;
+  const valStart = i;
+  // Walk the value: a `{`-opened value consumes to its matching `}`;
+  // otherwise to the next top-level `,` or `}` or end.
+  if (body[i] === "{") {
+    let depth = 0;
+    for (; i < body.length; i++) {
+      if (body[i] === "{") depth++;
+      else if (body[i] === "}") {
+        depth--;
+        if (depth === 0) {
+          i++;
+          break;
+        }
+      }
+    }
+  } else {
+    while (i < body.length && body[i] !== "," && body[i] !== "}" && body[i] !== "\n") i++;
+  }
+  const valEnd = i;
+  // Consume a trailing comma (and the whitespace before it stays put).
+  let entryEnd = valEnd;
+  while (entryEnd < body.length && /\s/.test(body[entryEnd]!) && body[entryEnd] !== "\n") entryEnd++;
+  if (body[entryEnd] === ",") entryEnd++;
+  return { keyStart, valStart, valEnd, entryEnd };
+}
+
+/** The raw (trimmed) value text of a cap key, or null when absent. */
+function capValueText(body: string, cap: string): string | null {
+  const span = findCapValueSpan(body, cap);
+  return span === null ? null : body.slice(span.valStart, span.valEnd).trim();
+}
+
+/**
+ * A cap value the simple on/off toggle CANNOT faithfully represent: an
+ * OBJECT (`{ … }` — a custom field-level ceiling) or an explicit `false`.
+ * These are UNMANAGED — the toggle leaves them byte-for-byte untouched
+ * (mirrors the Phase-3 multi-provider preserve-guard: never corrupt, and
+ * never silently widen a hand-set ceiling to "inherit").
+ */
+function isUnmanagedCapValue(val: string | null): boolean {
+  if (val === null) return false;
+  return val.startsWith("{") || val === "false";
+}
+
+/**
+ * Which toggleable caps carry an UNMANAGED value (object / `false`) the
+ * panel must show read-only — toggling them is disabled so the on/off
+ * control can't corrupt or widen a hand-written ceiling.
+ */
+export function unmanagedCapabilities(source: string): ToggleableCapability[] {
+  const body = extractPermissionsBody(source);
+  if (body === null) return [];
+  return TOGGLEABLE_CAPABILITIES.filter((cap) => isUnmanagedCapValue(capValueText(body, cap)));
+}
+
+/**
  * Read which toggleable host capabilities the config's `permissions`
- * block currently declares. A capability is "on" when the permissions
- * object has the key with a truthy value (`"inherit"`, an object, etc.);
- * `false` (explicitly disabled) reads as OFF for the toggle.
+ * block currently declares. A capability is "on" when present with a
+ * truthy value (`"inherit"`, an object ceiling, etc.); `false` (or
+ * absent) reads as OFF. Brace-aware so an object value is read whole.
  */
 export function parseCapabilities(source: string): Record<ToggleableCapability, boolean> {
   const out = { search: false, memory: false, llm: false };
-  const perms = extractPermissionsBody(source);
-  if (perms === null) return out;
+  const body = extractPermissionsBody(source);
+  if (body === null) return out;
   for (const cap of TOGGLEABLE_CAPABILITIES) {
-    // key: <value> where value is not `false` and not absent.
-    const re = new RegExp(`(?:["']?)${cap}(?:["']?)\\s*:\\s*([^,\\n}]+)`);
-    const m = perms.match(re);
-    if (m) {
-      const val = m[1]!.trim();
-      out[cap] = val !== "false";
-    }
+    const val = capValueText(body, cap);
+    if (val !== null) out[cap] = val !== "false";
   }
   return out;
 }
@@ -208,10 +277,22 @@ function extractPermissionsBody(source: string): string | null {
 
 /**
  * Set the toggleable capabilities on the `permissions` block. An enabled
- * capability is written as `<cap>: "inherit"` (the §3.1 grant shape that
- * `clampSearchPermission` admits); a disabled one is REMOVED (absent =
- * not requested, the manifest default). Other permission fields are left
- * untouched. Returns the source unchanged on an unrecognized config.
+ * (managed) capability is written as `<cap>: "inherit"` (the §3.1 grant
+ * shape `clampSearchPermission` admits); a disabled one is REMOVED (absent
+ * = not requested). Other permission fields are left untouched.
+ *
+ * UNMANAGED caps — those whose CURRENT value is an OBJECT ceiling or
+ * `false` — are left BYTE-FOR-BYTE untouched regardless of `caps[cap]`:
+ * the simple on/off toggle can't faithfully represent (or safely rewrite)
+ * a hand-set ceiling, so we never corrupt it AND never silently widen it
+ * to "inherit" (mirrors the Phase-3 multi-provider preserve-guard). The
+ * panel disables the toggle for these (`unmanagedCapabilities`).
+ *
+ * The cap-entry removal is BRACE-AWARE (`findCapValueSpan`), so an object
+ * value is handled whole — the file always stays valid TS.
+ *
+ * Returns the source unchanged on an unrecognized / brace-unbalanced
+ * config.
  */
 export function setCapabilityPermissions(
   source: string,
@@ -223,13 +304,30 @@ export function setCapabilityPermissions(
   if (braces === null) return { source, recognized: false };
   let body = source.slice(braces.open + 1, braces.close);
 
-  // Remove any existing managed capability lines, then re-add the enabled
-  // ones. We only manage the toggleable keys — never touch others.
+  const unmanaged = new Set(
+    TOGGLEABLE_CAPABILITIES.filter((c) => isUnmanagedCapValue(capValueText(body, c))),
+  );
+
+  // Remove only the MANAGED toggleable cap entries (brace-aware so an
+  // object value is excised whole, never truncated). Unmanaged entries
+  // stay exactly where they are. Re-find the span each pass since offsets
+  // shift after a removal.
   for (const cap of TOGGLEABLE_CAPABILITIES) {
-    body = body.replace(new RegExp(`\\n?[ \\t]*(?:["']?)${cap}(?:["']?)\\s*:\\s*[^,\\n}]+,?`, "g"), "");
+    if (unmanaged.has(cap)) continue;
+    const span = findCapValueSpan(body, cap);
+    if (span !== null) {
+      // Also swallow the leading whitespace/newline of the removed entry.
+      let lineStart = span.keyStart;
+      while (lineStart > 0 && /[ \t]/.test(body[lineStart - 1]!)) lineStart--;
+      if (lineStart > 0 && body[lineStart - 1] === "\n") lineStart--;
+      body = body.slice(0, lineStart) + body.slice(span.entryEnd);
+    }
   }
+
   const indent = permissionsIndent(source);
-  const enabled = TOGGLEABLE_CAPABILITIES.filter((c) => caps[c]);
+  // Only ADD enabled caps that aren't unmanaged (an unmanaged cap keeps
+  // its hand-written ceiling — the toggle is a no-op for it).
+  const enabled = TOGGLEABLE_CAPABILITIES.filter((c) => caps[c] && !unmanaged.has(c));
   const added = enabled.map((c) => `${indent}  ${c}: "inherit",`).join("\n");
 
   // Rebuild the permissions inner body: keep existing (trimmed) content +
