@@ -130,38 +130,18 @@ describe("multi-agent-orchestrator", () => {
 });
 
 describe("web-search", () => {
-  test("has both tools, an entrypoint, and pre-declares every provider host/key", async () => {
+  test("has both tools + an entrypoint, and is a thin shim over ctx.search", async () => {
     const m = await readManifest("web-search");
     expect(m.entrypoint).toBeDefined();
     const toolNames = (m.tools ?? []).map((t) => t.name).sort();
     expect(toolNames).toEqual(["read-url", "search-web"]);
-    const hosts = m.permissions.network ?? [];
-    for (const h of [
-      "r.jina.ai",
-      "s.jina.ai",
-      "api.tavily.com",
-      "api.search.brave.com",
-      "api.exa.ai",
-      "serpapi.com",
-      // Keyless defaults (DDG scrape + SearXNG sidecar) — removing any
-      // of these grants silently breaks zero-setup search, so pin them.
-      "lite.duckduckgo.com",
-      "html.duckduckgo.com",
-      "duckduckgo.com",
-      "searxng",
-      "localhost",
-      "127.0.0.1",
-    ]) expect(hosts).toContain(h);
-    const envs = m.permissions.env ?? [];
-    for (const k of [
-      "TAVILY_API_KEY",
-      "BRAVE_API_KEY",
-      "EXA_API_KEY",
-      "SERPAPI_API_KEY",
-      "JINA_API_KEY",
-      "SEARXNG_BASE_URL",
-    ]) {
-      expect(envs).toContain(k);
-    }
+    // Shared-search Phase 1: the provider chain + SSRF guard + cache moved
+    // host-side (src/search/). The extension forwards to `ctx.search` and
+    // therefore owns NO network hosts, NO provider-key env vars, and NO
+    // filesystem grant — only the `search` capability.
+    expect(m.permissions.search).toBe("inherit");
+    expect(m.permissions.network ?? []).toEqual([]);
+    expect(m.permissions.env ?? []).toEqual([]);
+    expect(m.permissions.filesystem ?? []).toEqual([]);
   });
 });

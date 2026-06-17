@@ -405,6 +405,36 @@ export const EXT_AUDIT_ACTIONS = {
    *  declared cron immediately. Counts against
    *  `permissions.schedule.maxRunsPerDay`. */
   SDK_SCHEDULE_FIRE_NOW: "ext:sdk-schedule-fire-now",
+  /** ctx.search.web() / ctx.search.read() succeeded. One governance row
+   *  per host search call (mirrors the SDK_MEMORY_* tier). Metadata:
+   *  capability='search', action ('web' | 'read'), provider (the serving
+   *  provider), cached. (Phase 1.) */
+  SDK_SEARCH_QUERY: "ext:sdk-search-query",
+  /**
+   * The SSRF egress guard (`src/search/egress.ts`) blocked a host-side
+   * search fetch — the target resolved to a private/internal IP, a
+   * non-allowlisted backend host, a non-http scheme, an over-cap
+   * redirect chain, an over-size body, or a timeout. One row per block,
+   * with the blocked target + reason. This is the one genuinely new
+   * security surface in the shared-search capability (Phase 1). The
+   * QUOTA-exceeded sibling (`SDK_SEARCH_QUOTA_EXCEEDED`) lands in Phase 2
+   * with the policy resolver.
+   *
+   * Metadata: `{capability:"search", reason: EgressBlockReason, target,
+   * mode: "read"|"backend", actor:"system"}`.
+   */
+  SDK_SEARCH_EGRESS_BLOCKED: "ext:sdk-search-egress-blocked",
+  /**
+   * The resolved per-extension search POLICY (`resolveSearchPolicy`)
+   * denied a call: the extension exhausted its per-day `quota`, or
+   * requested a provider outside its allowlist. Soft governance row —
+   * the call soft-fails (no crash). Mirrors the `SDK_MEMORY_*` tier +
+   * the LLM quota-exceeded accounting. (Shared-search Phase 2.)
+   *
+   * Metadata: `{capability:"search", reason:"quota-per-day"|
+   * "provider-not-allowed", actor:"system", provider?, retryAfterMs?}`.
+   */
+  SDK_SEARCH_QUOTA_EXCEEDED: "ext:sdk-search-quota-exceeded",
   /**
    * Capability-expiry sweep revoked a permission grant whose
    * `grantedAt` aged past the per-capability TTL (see
@@ -490,7 +520,7 @@ export type ExtensionAuditMetadata = {
   permission?: string;
   /** SDK capability bucket — populated by SDK_* tier rows; undefined on
    *  permission-tier rows. */
-  capability?: "llm" | "memory" | "lessons" | "schedule" | "events";
+  capability?: "llm" | "memory" | "lessons" | "schedule" | "events" | "search";
   /** Prior value — typically `boolean`, `string[]`, or `undefined`. */
   oldValue: unknown;
   /** Post-change value. For rejected attempts, the VALUE THAT WAS REJECTED. */

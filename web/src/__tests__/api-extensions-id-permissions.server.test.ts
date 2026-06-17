@@ -209,4 +209,99 @@ describe("PUT /api/extensions/[id]/permissions", () => {
     expect(update.grantedPermissions.shell).toBe(true);
     expect(update.grantedPermissions.filesystem).toBeUndefined();
   });
+
+  // Phase 3 §5.2 — the Capabilities panel writes the search GRANT override
+  // through THIS admin route (not a new one). Verify the three-state
+  // override round-trips through clampExtensionPermissions.
+  describe("search capability override (Phase 3)", () => {
+    test("non-admin CANNOT write a capability override → 403", async () => {
+      vi.mocked(getExtension).mockResolvedValue({
+        id: "ext-1",
+        grantedPermissions: { grantedAt: {}, search: "inherit" },
+        manifest: { permissions: { search: "inherit" } },
+      } as any);
+      let res: Response | undefined;
+      try {
+        await PUT(
+          makeEvent({
+            locals: { user: regularUser },
+            method: "PUT",
+            body: { permissions: { search: { quota: 500 } } },
+          }),
+        );
+        expect.fail("should have thrown");
+      } catch (thrown) {
+        res = thrown as Response;
+      }
+      expect(res!.status).toBe(403);
+      expect(vi.mocked(updateExtension)).not.toHaveBeenCalled();
+    });
+
+    test("admin Custom override → { quota: 500 } persists when the manifest ceiling permits it", async () => {
+      // The manifest must declare a quota ceiling ≥ 500 — clampSearchPermission
+      // caps the override at the narrower of submitted and manifest (a
+      // `"inherit"` manifest defaults the ceiling to 100, blocking 500).
+      vi.mocked(getExtension).mockResolvedValue({
+        id: "ext-1",
+        grantedPermissions: { grantedAt: {}, search: "inherit" },
+        manifest: { permissions: { search: { quota: 1000 } } },
+      } as any);
+      vi.mocked(updateExtension).mockResolvedValue({ id: "ext-1" } as any);
+      const res = await PUT(
+        makeEvent({
+          locals: { user: adminUser },
+          method: "PUT",
+          body: { permissions: { search: { quota: 500 } } },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const update = vi.mocked(updateExtension).mock.calls[0]![1] as unknown as {
+        grantedPermissions: Record<string, unknown>;
+      };
+      expect(update.grantedPermissions.search).toEqual({ quota: 500 });
+    });
+
+    test("admin override ABOVE the manifest ceiling is clamped DOWN (security bound)", async () => {
+      vi.mocked(getExtension).mockResolvedValue({
+        id: "ext-1",
+        grantedPermissions: { grantedAt: {}, search: "inherit" },
+        manifest: { permissions: { search: "inherit" } }, // → 100 ceiling
+      } as any);
+      vi.mocked(updateExtension).mockResolvedValue({ id: "ext-1" } as any);
+      const res = await PUT(
+        makeEvent({
+          locals: { user: adminUser },
+          method: "PUT",
+          body: { permissions: { search: { quota: 500 } } },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const update = vi.mocked(updateExtension).mock.calls[0]![1] as unknown as {
+        grantedPermissions: Record<string, unknown>;
+      };
+      // Clamped to the manifest's 100 ceiling — admin can't exceed the author.
+      expect(update.grantedPermissions.search).toEqual({ quota: 100 });
+    });
+
+    test("admin Disabled → grant search:false persists", async () => {
+      vi.mocked(getExtension).mockResolvedValue({
+        id: "ext-1",
+        grantedPermissions: { grantedAt: {}, search: "inherit" },
+        manifest: { permissions: { search: "inherit" } },
+      } as any);
+      vi.mocked(updateExtension).mockResolvedValue({ id: "ext-1" } as any);
+      const res = await PUT(
+        makeEvent({
+          locals: { user: adminUser },
+          method: "PUT",
+          body: { permissions: { search: false } },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const update = vi.mocked(updateExtension).mock.calls[0]![1] as unknown as {
+        grantedPermissions: Record<string, unknown>;
+      };
+      expect(update.grantedPermissions.search).toBe(false);
+    });
+  });
 });

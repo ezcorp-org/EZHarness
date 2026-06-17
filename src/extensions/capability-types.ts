@@ -464,6 +464,17 @@ export function intersectPermissions(
     };
   }
 
+  // search — the §3.1 three-state grant (`"inherit" | {…} | false`).
+  // Intersection is "more restrictive wins": `false` on EITHER side
+  // disables; `"inherit"` ∩ `"inherit"` stays `"inherit"`; an object on
+  // either side narrows (numeric MIN, provider-list intersection,
+  // `"inherit"` providers yield to an explicit list). For the bundled
+  // web-search ceiling (`search: "inherit"`, the full grant) the
+  // intersection is a no-op on the happy path.
+  if (a.search !== undefined && b.search !== undefined) {
+    out.search = intersectSearch(a.search, b.search);
+  }
+
   // custom — namespaced capability bag. Today the only registered key
   // is `drafts: { kinds: string[] }` used by `extension-author`. The
   // intersection rule is: a `kinds` array survives only when BOTH sides
@@ -500,6 +511,7 @@ export function intersectPermissions(
       (key === "memory" && out.memory) ||
       (key === "lessons" && out.lessons) ||
       (key === "schedule" && out.schedule) ||
+      (key === "search" && out.search !== undefined) ||
       (key === "custom" && out.custom);
     if (!survived) continue;
     const ta = typeof aAt[key] === "number" ? aAt[key] : undefined;
@@ -514,6 +526,60 @@ export function intersectPermissions(
   }
 
   return out;
+}
+
+/**
+ * Intersect two `search` grant states (the §3.1 `"inherit" | {…} |
+ * false` shape). "More restrictive wins":
+ *   - `false` on either side → `false` (disabled).
+ *   - both `"inherit"` → `"inherit"` (track instance defaults).
+ *   - any object present → object result with field-level MINs; an
+ *     `"inherit"` provider list yields to the other side's explicit list,
+ *     and two explicit lists intersect.
+ */
+function intersectSearch(
+  a: NonNullable<ExtensionPermissions["search"]>,
+  b: NonNullable<ExtensionPermissions["search"]>,
+): ExtensionPermissions["search"] {
+  if (a === false || b === false) return false;
+  if (a === "inherit" && b === "inherit") return "inherit";
+
+  const ao = a === "inherit" ? {} : a;
+  const bo = b === "inherit" ? {} : b;
+  const out: NonNullable<Exclude<ExtensionPermissions["search"], "inherit" | false>> = {};
+
+  const quota = minDefined(ao.quota, bo.quota);
+  if (quota !== undefined) out.quota = quota;
+  const maxResults = minDefined(ao.maxResults, bo.maxResults);
+  if (maxResults !== undefined) out.maxResults = maxResults;
+
+  const providers = intersectSearchProviders(ao.providers, bo.providers);
+  if (providers !== undefined) out.providers = providers;
+
+  return out;
+}
+
+function minDefined(a: number | undefined, b: number | undefined): number | undefined {
+  if (a !== undefined && b !== undefined) return Math.min(a, b);
+  return a ?? b;
+}
+
+function intersectSearchProviders(
+  a: string[] | "inherit" | undefined,
+  b: string[] | "inherit" | undefined,
+): string[] | "inherit" | undefined {
+  // Two explicit lists → intersection.
+  if (Array.isArray(a) && Array.isArray(b)) {
+    const bSet = new Set(b);
+    return a.filter((p) => bSet.has(p));
+  }
+  // One explicit list, the other inherit/absent → the explicit list wins
+  // (the narrower, concrete bound).
+  if (Array.isArray(a)) return a;
+  if (Array.isArray(b)) return b;
+  // Neither explicit: `"inherit"` if either declared it, else undefined.
+  if (a === "inherit" || b === "inherit") return "inherit";
+  return undefined;
 }
 
 /**

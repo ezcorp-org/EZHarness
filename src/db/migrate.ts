@@ -1273,6 +1273,18 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
     )
   `);
 
+  // (4b) extension_search_calls_daily — same shape, search-call quota
+  //      (shared-search Phase 2). Enforces `resolveSearchPolicy().quota`.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS extension_search_calls_daily (
+      extension_id TEXT NOT NULL REFERENCES extensions(id) ON DELETE CASCADE,
+      day DATE NOT NULL,
+      calls INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (extension_id, day)
+    )
+  `);
+
   // (5) extension_schedules — persistent cron registrations + state.
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS extension_schedules (

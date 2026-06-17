@@ -1,9 +1,10 @@
-// Markdown formatting + truncation helpers. Pure, no side effects — trivial
-// to unit test and safe to import from anywhere in the extension.
+// Markdown formatting + truncation helpers. Pure, no side effects.
+// Hoisted verbatim from the web-search extension so result rendering
+// lives ONCE alongside the shared provider chain.
 
 import type { SearchResult } from "./providers";
 
-const ELLIPSIS = "\u2026"; // single-char ellipsis; truncation target length includes it
+const ELLIPSIS = "…"; // single-char ellipsis; truncation target length includes it
 
 /** Render search results as a markdown bullet list. */
 export function formatResults(results: readonly SearchResult[]): string {
@@ -19,9 +20,8 @@ export function formatResults(results: readonly SearchResult[]): string {
 }
 
 /**
- * Truncate `s` to at most `n` characters. When truncation happens the result
- * ends in a single ellipsis and has length EXACTLY `n` (caller sizes buffers
- * around this guarantee).
+ * Truncate `s` to at most `n` characters. When truncation happens the
+ * result ends in a single ellipsis and has length EXACTLY `n`.
  */
 export function truncate(s: string, n: number): string {
   if (s.length <= n) return s;

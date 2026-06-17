@@ -159,6 +159,92 @@ export function clampMemoryPermission(
   return out;
 }
 
+/** Known search providers. A grant cannot allowlist a provider outside
+ *  this set; clamp drops unknown providers silently. Mirrors
+ *  `KNOWN_LLM_PROVIDERS`. */
+export const KNOWN_SEARCH_PROVIDERS = [
+  "searxng",
+  "duckduckgo",
+  "tavily",
+  "brave",
+  "exa",
+  "serpapi",
+  "jina",
+] as const;
+
+const KNOWN_SEARCH_PROVIDER_SET = new Set<string>(KNOWN_SEARCH_PROVIDERS);
+
+/**
+ * Clamp a `search` permission grant to its manifest declaration.
+ *
+ * The grant is the §3.1 three-state shape (`"inherit" | {…} | false`):
+ *   - `false` (disabled) and `"inherit"` (track instance defaults) pass
+ *     through verbatim — neither can exceed any manifest bound, so
+ *     there's nothing to clamp.
+ *   - an object override is clamped: providers intersect with the
+ *     manifest's declared providers ∩ the KNOWN set; numeric fields are
+ *     clamped to `[manifest, hard-default]` minimums.
+ *
+ * Returns `undefined` when the manifest doesn't declare `search` — an
+ * extension cannot grant itself a capability the manifest didn't request
+ * (mirrors `clampLlmPermission`). The full instance↔extension field-level
+ * RESOLVER lands in Phase 2; this is install/grant-time clamping only.
+ */
+export function clampSearchPermission(
+  submitted: ExtensionPermissions["search"] | undefined,
+  // Accepts EITHER the manifest declaration (object-only) OR a granted
+  // `ExtensionPermissions["search"]` (the §3.1 three-state shape). The
+  // reapprove/re-clamp path passes a prior GRANT as the ceiling, so the
+  // param must tolerate `false` / `"inherit"`.
+  manifest: ExtensionManifestV2["permissions"]["search"] | ExtensionPermissions["search"] | undefined,
+): ExtensionPermissions["search"] {
+  if (manifest === undefined) return undefined;
+  // A `false` ceiling disables search regardless of what was submitted.
+  if (manifest === false) return false;
+  // Disabled / inherit are valid terminal states — nothing to clamp.
+  if (submitted === false) return false;
+  if (submitted === "inherit" || submitted === undefined) return "inherit";
+
+  // Normalize an `"inherit"` ceiling to "no field bounds" (providers
+  // unrestricted, numerics default-clamped).
+  const manifestObj = manifest === "inherit" ? {} : manifest;
+
+  const out: NonNullable<Exclude<ExtensionPermissions["search"], "inherit" | false>> = {};
+
+  // Numeric ceilings: clamp to the narrower of submitted and manifest.
+  if (manifestObj.quota !== undefined || submitted.quota !== undefined) {
+    out.quota = Math.min(
+      clampNumber(submitted.quota, 1, 100_000, 100),
+      clampNumber(manifestObj.quota, 1, 100_000, 100),
+    );
+  }
+  if (manifestObj.maxResults !== undefined || submitted.maxResults !== undefined) {
+    out.maxResults = Math.min(
+      clampNumber(submitted.maxResults, 1, 20, 5),
+      clampNumber(manifestObj.maxResults, 1, 20, 5),
+    );
+  }
+
+  // Providers: `"inherit"` passes through; an explicit list intersects
+  // submitted ∩ manifest ∩ KNOWN. An empty intersection means "no
+  // explicit provider allowlist" → omit (resolver falls back to default).
+  const manifestProviders = manifestObj.providers;
+  if (submitted.providers === "inherit") {
+    out.providers = "inherit";
+  } else if (Array.isArray(submitted.providers)) {
+    const manifestSet =
+      manifestProviders === "inherit" || manifestProviders === undefined
+        ? KNOWN_SEARCH_PROVIDER_SET
+        : new Set(manifestProviders);
+    const providers = submitted.providers.filter(
+      (p) => typeof p === "string" && manifestSet.has(p) && KNOWN_SEARCH_PROVIDER_SET.has(p),
+    );
+    if (providers.length > 0) out.providers = providers;
+  }
+
+  return out;
+}
+
 export function clampLessonsPermission(
   submitted: ExtensionPermissions["lessons"] | undefined,
   manifest: ExtensionManifestV2["permissions"]["lessons"] | undefined,

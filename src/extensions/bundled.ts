@@ -427,46 +427,16 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
   {
     name: "web-search",
     path: "docs/extensions/examples/web-search",
-    // v1.4 envEscapeHatch — third-party search-provider keys
-    // (Tavily/Brave/Exa/SerpAPI/Jina) are user-supplied BYOK creds.
-    // Pending the v1.5+ `ctx.secrets` host-brokering migration which
-    // will remove the direct env grant. Grep for `envEscapeHatch`
-    // when migrating.
-    envEscapeHatch: true,
+    // Shared-search Phase 1: web-search is now a THIN SHIM forwarding to
+    // the host `ctx.search` capability. The provider chain (incl. BYOK
+    // creds resolved host-side), the SSRF egress guard, and the shared
+    // cache all live in src/search/ — so the extension owns NO network
+    // hosts, NO provider-key env vars (the `envEscapeHatch` is gone with
+    // them), and NO filesystem grant. `search: "inherit"` is the full
+    // grant tracking the instance search defaults.
     permissions: {
-      network: [
-        "r.jina.ai",
-        "s.jina.ai", // keyed Jina search (JINA_API_KEY) still uses it
-        "api.tavily.com",
-        "api.search.brave.com",
-        "api.exa.ai",
-        "serpapi.com",
-        // Keyless DuckDuckGo fallback (`duckduckgo.com` covers the
-        // `//duckduckgo.com/l/?uddg=` redirect shape).
-        "lite.duckduckgo.com",
-        "html.duckduckgo.com",
-        "duckduckgo.com",
-        // SearXNG sidecar — internal hosts route through the
-        // `ezcorp/network.internal` PDP and MUST be declared.
-        "searxng",
-        "localhost",
-        "127.0.0.1",
-      ],
-      env: [
-        "TAVILY_API_KEY",
-        "BRAVE_API_KEY",
-        "EXA_API_KEY",
-        "SERPAPI_API_KEY",
-        "JINA_API_KEY",
-        // Not credential-shaped — base URL for the SearXNG sidecar.
-        "SEARXNG_BASE_URL",
-      ],
-      // Disk-backed TTL/LRU cache lives under
-      // `<projectRoot>/.ezcorp/extension-data/web-search/` — see
-      // `cache.ts`. Without this grant the SDK's `fsRead`/`fsWrite`
-      // fail-fast and the cache becomes a no-op.
-      filesystem: ["$CWD"],
-      grantedAt: { network: Date.now(), filesystem: Date.now(), env: Date.now() },
+      search: "inherit",
+      grantedAt: { search: Date.now() },
     },
   },
   {

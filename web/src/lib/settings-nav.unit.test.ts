@@ -35,6 +35,16 @@ describe("resolveLegacyHash — full redirect table", () => {
 		});
 	}
 
+	const searchAnchors = ["search-backend", "search-defaults"];
+	for (const a of searchAnchors) {
+		test(`#${a} → /settings/search#${a} for admins`, () => {
+			expect(resolveLegacyHash(`#${a}`, true)).toBe(`/settings/search#${a}`);
+		});
+		test(`#${a} → default route for non-admins (admin-gated)`, () => {
+			expect(resolveLegacyHash(`#${a}`, false)).toBe(SETTINGS_DEFAULT_ROUTE);
+		});
+	}
+
 	const adminAnchors = ["users", "teams", "invites", "security", "health"];
 	for (const a of adminAnchors) {
 		test(`#${a} → /settings/admin#${a} for admins`, () => {
@@ -75,6 +85,11 @@ describe("visibleNavItems", () => {
 		const ids = visibleNavItems(true).map((i) => i.id);
 		expect(ids).toContain("admin");
 		expect(ids).toContain("admin-audit");
+		expect(ids).toContain("websearch");
+	});
+
+	test("hides the admin-only Search entry from members", () => {
+		expect(visibleNavItems(false).map((i) => i.id)).not.toContain("websearch");
 	});
 });
 
@@ -85,6 +100,7 @@ describe("activeNavId", () => {
 		expect(activeNavId("/settings/developer")).toBe("developer");
 		expect(activeNavId("/settings/admin")).toBe("admin");
 		expect(activeNavId("/settings/briefing")).toBe("briefing");
+		expect(activeNavId("/settings/search")).toBe("websearch");
 	});
 
 	test("nested audit page wins over the admin prefix", () => {

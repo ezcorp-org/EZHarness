@@ -505,6 +505,26 @@ export interface ExtensionManifestV2 {
       maxRetries?: number;
       purpose?: string;
     };
+    /** Brokered web search + URL read via `ctx.search`. The provider
+     *  chain (SearXNG / DuckDuckGo / BYOK) runs HOST-side behind the
+     *  SSRF egress guard — the extension never fetches a search backend
+     *  itself. A bundled extension may declare the §3.1 three-state shape
+     *  directly (`"inherit"` = full grant / track instance defaults,
+     *  `false` = opt out, or an object of per-field upper bounds the
+     *  Phase-2 resolver clamps against). The install/grant-time override
+     *  (`grantedPermissions.search`) carries the same three states. */
+    search?:
+      | "inherit"
+      | false
+      | {
+          /** Per-day call quota ceiling (Phase 2 enforces; Phase 1 records). */
+          quota?: number;
+          /** Default max results per search. */
+          maxResults?: number;
+          /** Allowed provider names, or `"inherit"` to track the instance
+           *  default. Intersected with the KNOWN provider list at clamp time. */
+          providers?: string[] | "inherit";
+        };
     /**
      * Custom capability bag for reverse-RPCs that don't fit the
      * primary permission shape. Each key is a sub-capability namespace
@@ -770,6 +790,29 @@ export interface ExtensionPermissions {
     missedRunPolicy: "skip" | "fire-once" | "fire-all";
     maxRetries: number;
   };
+  /**
+   * Brokered search grant — the §3.1 three-state shape:
+   *   - `"inherit"`  → use the live instance defaults (Phase 2 resolver).
+   *                    Storing the literal (not a snapshot) means changing
+   *                    an instance default propagates to all inheritors.
+   *   - `{…}`        → explicit per-field override (admin-gated, instance-
+   *                    wide — it's a security bound, NOT a per-user pref).
+   *                    Partial overrides are field-level-merged over the
+   *                    instance defaults (Phase 2).
+   *   - `false`      → search disabled for this extension (handler denies).
+   *
+   * Phase 1 only distinguishes `false` (deny) from everything-else
+   * (allow with code defaults); the full field-level resolver + quota
+   * enforcement is Phase 2.
+   */
+  search?:
+    | "inherit"
+    | false
+    | {
+        quota?: number;
+        maxResults?: number;
+        providers?: string[] | "inherit";
+      };
   /**
    * Custom capability bag — granted form mirrors the manifest shape.
    * The host does NOT clamp `custom` today (the `drafts` capability is

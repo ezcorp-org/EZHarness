@@ -169,6 +169,17 @@ VITEST_EXIT=0
     src/lib/hub.unit.test.ts \
     src/lib/settings-nav.unit.test.ts \
     src/lib/settings-search.unit.test.ts \
+    src/lib/settings-search-config.unit.test.ts \
+    src/__tests__/api-search-backend.server.test.ts \
+    src/lib/components/__tests__/SearchDefaultsSection.component.test.ts \
+    src/lib/components/__tests__/SearchBackendSection.component.test.ts \
+    "src/routes/(app)/settings/search/__tests__/page.component.test.ts" \
+    src/lib/capability-policy-ui.unit.test.ts \
+    src/lib/components/__tests__/CapabilitiesPanel.component.test.ts \
+    src/lib/ezcorp-config-edit.unit.test.ts \
+    src/lib/components/__tests__/AuthorCompositionPanel.component.test.ts \
+    src/lib/components/__tests__/UsesList.component.test.ts \
+    "src/routes/(app)/extensions/author/__tests__/page.component.test.ts" \
     src/__tests__/api-users.server.test.ts \
     src/lib/audit-log-view.unit.test.ts \
     src/lib/settings-models.unit.test.ts \
@@ -216,6 +227,15 @@ VITEST_EXIT=0
     --coverage.include='src/routes/api/extensions/[id]/reapprove-drift/+server.ts' \
     --coverage.include='src/lib/settings-nav.ts' \
     --coverage.include='src/lib/settings-search.ts' \
+    --coverage.include='src/lib/settings-search-config.ts' \
+    --coverage.include='src/routes/api/search/backend/+server.ts' \
+    --coverage.include='src/lib/components/settings/SearchDefaultsSection.svelte' \
+    --coverage.include='src/lib/components/settings/SearchBackendSection.svelte' \
+    --coverage.include='src/lib/capability-policy-ui.ts' \
+    --coverage.include='src/lib/components/extensions/CapabilitiesPanel.svelte' \
+    --coverage.include='src/lib/ezcorp-config-edit.ts' \
+    --coverage.include='src/lib/components/extensions/AuthorCompositionPanel.svelte' \
+    --coverage.include='src/lib/components/extensions/UsesList.svelte' \
     --coverage.include='src/routes/api/users/+server.ts' \
     --coverage.include='src/lib/audit-log-view.ts' \
     --coverage.include='src/lib/settings-models.ts' \

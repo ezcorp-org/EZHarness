@@ -259,14 +259,22 @@ describe("network host allowlist intersection", () => {
     expect(new Set(effective.network)).toEqual(new Set(["localhost", "127.0.0.1"]));
   });
 
-  test("web-search ceiling: requesting one allowed host yields just that host", () => {
+  test("web-search ceiling grants the search capability and NO network (egress is host-side)", () => {
+    // Post shared-search-capability (Phase 1): the web-search extension
+    // is a thin shim that forwards to `ctx.search`; all provider egress
+    // + BYOK keys live host-side in src/search/. The ceiling therefore
+    // grants `search` and NOTHING else — a network request is clamped
+    // out entirely (a tighter, more correct grant than the old per-host
+    // network ceiling).
     const requested: ExtensionPermissions = {
+      search: "inherit",
       network: ["api.tavily.com"],
       grantedAt: { network: Date.now() },
     };
     const { effective, clamped } = clampToBundledCeiling("web-search", requested);
-    expect(clamped).toBe(false);
-    expect(effective.network).toEqual(["api.tavily.com"]);
+    expect(clamped).toBe(true);
+    expect(effective.search).toBe("inherit");
+    expect(effective.network ?? []).toEqual([]);
   });
 });
 

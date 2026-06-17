@@ -11,6 +11,7 @@
   // — the on-disk file map is the source of truth, no client-side
   // merge logic.
   import { goto } from "$app/navigation";
+  import AuthorCompositionPanel from "$lib/components/extensions/AuthorCompositionPanel.svelte";
   import type { PageData } from "./$types";
 
   let { data }: { data: PageData } = $props();
@@ -75,6 +76,16 @@
       saveTimer = null;
       await saveFile(selected, files[selected] ?? "");
     }
+  }
+
+  // Phase 4 — the composition panel mutates ezcorp.config.ts (deps +
+  // capability permissions). Persist the new source via the same draft
+  // PUT the editor uses, and reflect it in the local file map so the
+  // textarea + panel stay in sync.
+  const CONFIG_FILE = "ezcorp.config.ts";
+  async function onCompositionSave(nextSource: string): Promise<void> {
+    files = { ...files, [CONFIG_FILE]: nextSource };
+    await saveFile(CONFIG_FILE, nextSource);
   }
 
   async function onValidate(): Promise<void> {
@@ -162,6 +173,10 @@
       {/if}
     </p>
   </header>
+
+  {#if files[CONFIG_FILE] !== undefined}
+    <AuthorCompositionPanel source={files[CONFIG_FILE]} onsave={onCompositionSave} />
+  {/if}
 
   <div class="editor">
     <aside class="file-tree" data-testid="file-tree">

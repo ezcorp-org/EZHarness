@@ -39,7 +39,7 @@ import type { HandlerContext } from "./handler-context";
 
 const log = logger.child("audit.recordCapabilityCall");
 
-export type SdkCapability = "llm" | "memory" | "lessons" | "schedule" | "events";
+export type SdkCapability = "llm" | "memory" | "lessons" | "schedule" | "events" | "search";
 
 export interface CapabilityCallSpec {
   ctx: HandlerContext;

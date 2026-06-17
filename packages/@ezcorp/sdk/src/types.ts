@@ -281,6 +281,19 @@ export interface ExtensionManifestV2 {
      *  — delivery is conversation-scoped to the `conversation_extensions`
      *  wiring. Unknown names are filtered at clamp time. */
     eventSubscriptions?: string[];
+    /** Brokered web search + URL read via `ctx.search` (shared-search
+     *  Phase 1). The provider chain + SSRF guard run host-side. A bundled
+     *  extension may declare `"inherit"` (full grant, tracks instance
+     *  defaults), `false` (opt out), or an object of per-field upper
+     *  bounds the resolver clamps against — the §3.1 three-state shape. */
+    search?:
+      | "inherit"
+      | false
+      | {
+          quota?: number;
+          maxResults?: number;
+          providers?: string[] | "inherit";
+        };
   };
 
   // Resource limits for subprocess

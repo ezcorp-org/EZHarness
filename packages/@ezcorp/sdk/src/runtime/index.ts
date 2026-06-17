@@ -184,3 +184,11 @@ export type {
 
 export { Schedule } from "./schedule";
 export type { ScheduleHandler, ScheduleHandlerContext } from "./schedule";
+
+export { Search, SearchDisabledError, SearchError } from "./search";
+export type {
+  SearchWebOpts,
+  SearchReadOpts,
+  SearchWebResult,
+  SearchReadResult,
+} from "./search";
