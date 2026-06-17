@@ -1,0 +1,11 @@
+{
+  "name": "@ezcorp-example/file-organizer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "100%-local, secure file-organization bundled extension for EZCorp.",
+  "main": "./index.ts",
+  "dependencies": {
+    "@ezcorp/sdk": "workspace:*"
+  }
+}

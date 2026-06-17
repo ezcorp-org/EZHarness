@@ -67,6 +67,7 @@ const BUNDLED: readonly BundledEntry[] = [
   { name: "kokoro-tts", path: "docs/extensions/examples/kokoro-tts" },
   { name: "extension-author", path: "docs/extensions/examples/extension-author" },
   { name: "ez-code", path: "docs/extensions/examples/ez-code" },
+  { name: "file-organizer", path: "docs/extensions/examples/file-organizer" },
   // Phase 53 bundled ports — live at the milestone-spec'd
   // `extensions/<name>/` path rather than the legacy
   // `docs/extensions/examples/<name>/`. Both are bundled-trust by code

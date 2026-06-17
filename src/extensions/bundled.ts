@@ -767,6 +767,64 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
       },
     },
   },
+  {
+    // file-organizer — 100%-local, secure file organization. The
+    // background watcher is a HOST-SIDE daemon
+    // (src/extensions/file-organizer-daemon.ts, raw node:fs) wired into
+    // background-timers.ts, and Accept/Reject apply HOST-SIDE in the
+    // events route. The subprocess only renders the 3 Hub pages + serves
+    // the chat agent/tools, so its grant is intentionally minimal:
+    // filesystem `$CWD` (its own data dir) + the full Hub page-action
+    // eventSubscriptions list.
+    //
+    // NO `network` (enforces "no calls home" by construction), NO
+    // `shell`, NO `schedule` grant (the daemon is host-wired, not
+    // cron-driven), `storage:false` (file-based state so the host daemon,
+    // which has no per-user context, can read/write proposals.json).
+    //
+    // No `bootSpawn`: the extension has Hub pages + tools, so it spawns
+    // lazily on first render / tool invocation (the standard pattern).
+    // The host daemon does the background work without a live subprocess.
+    name: "file-organizer",
+    path: "docs/extensions/examples/file-organizer",
+    permissions: {
+      filesystem: ["$CWD"],
+      eventSubscriptions: [
+        "file-organizer:select-segment",
+        "file-organizer:page-window",
+        "file-organizer:focus",
+        "file-organizer:accept",
+        "file-organizer:reject",
+        "file-organizer:confirm-deletes",
+        "file-organizer:reject-segment",
+        "file-organizer:undo-batch",
+        "file-organizer:dismiss-stale",
+        "file-organizer:retry-failed",
+        "file-organizer:scan-now",
+        "file-organizer:organize-backlog",
+        "file-organizer:enable-daemon",
+        "file-organizer:set-mode",
+        "file-organizer:toggle-preset",
+        "file-organizer:add-folder",
+        "file-organizer:set-backlog-policy",
+        "file-organizer:remove-folder",
+        "file-organizer:add-ignore",
+        "file-organizer:add-rule",
+        "file-organizer:classify-move",
+        "file-organizer:teach-rule",
+        "file-organizer:ignore-file",
+        "file-organizer:restore",
+        "file-organizer:purge",
+        "file-organizer:empty-quarantine",
+        "file-organizer:purge-expired",
+        "file-organizer:reload-config",
+      ],
+      grantedAt: {
+        filesystem: Date.now(),
+        eventSubscriptions: Date.now(),
+      },
+    },
+  },
 ];
 
 /** Opt-OUT switches: each maps a bundled-extension name to the env var that

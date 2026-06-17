@@ -371,6 +371,51 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
     grantedAt: {},
   },
 
+  // file-organizer — 100%-local file organization. The watcher is a
+  // HOST-SIDE daemon (src/extensions/file-organizer-daemon.ts) and
+  // Accept/Reject apply HOST-SIDE in the events route, so the SUBPROCESS
+  // grant is intentionally tiny: filesystem `$CWD` (its own data dir)
+  // plus the full Hub page-action eventSubscriptions list. NO `network`
+  // (enforces "no calls home" by construction), NO `shell`, NO
+  // `schedule` grant (the daemon is host-wired, not cron-driven), and
+  // `storage:false` (state is file-based so the host daemon can read it).
+  // Mirrors the install grant in `bundled.ts` VERBATIM. Any widening is
+  // a deliberate, reviewed PR.
+  "file-organizer": {
+    filesystem: ["$CWD"],
+    eventSubscriptions: [
+      "file-organizer:select-segment",
+      "file-organizer:page-window",
+      "file-organizer:focus",
+      "file-organizer:accept",
+      "file-organizer:reject",
+      "file-organizer:confirm-deletes",
+      "file-organizer:reject-segment",
+      "file-organizer:undo-batch",
+      "file-organizer:dismiss-stale",
+      "file-organizer:retry-failed",
+      "file-organizer:scan-now",
+      "file-organizer:organize-backlog",
+      "file-organizer:enable-daemon",
+      "file-organizer:set-mode",
+      "file-organizer:toggle-preset",
+      "file-organizer:add-folder",
+      "file-organizer:set-backlog-policy",
+      "file-organizer:remove-folder",
+      "file-organizer:add-ignore",
+      "file-organizer:add-rule",
+      "file-organizer:classify-move",
+      "file-organizer:teach-rule",
+      "file-organizer:ignore-file",
+      "file-organizer:restore",
+      "file-organizer:purge",
+      "file-organizer:empty-quarantine",
+      "file-organizer:purge-expired",
+      "file-organizer:reload-config",
+    ],
+    grantedAt: {},
+  },
+
   // substack-pipeline — sibling to substack-pilot. LLM (WRITER +
   // ILLUSTRATOR stages) + storage (conversation-scoped scratch state
   // between the 3 tools). No network/shell: the URL fetch is delegated
