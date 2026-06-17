@@ -120,6 +120,24 @@ export const __hubActionRateLimiter = new RateLimiter(10, 60_000);
 // router accepted something the regex would reject (defense-in-depth).
 const PARAM_REGEX = /^[a-z0-9][a-z0-9-_.]{0,63}$/;
 
+/**
+ * Resolve the file-organizer quarantine TTL + size cap from its manifest
+ * settings defaults (the route doesn't carry per-user settings; the
+ * manifest declared defaults are the safe baseline used for new quarantine
+ * entries' expiry + the size-cap prune). Falls back to 30d / 5GB.
+ */
+async function resolveFileOrganizerQuarantineSettings(
+  manifest: unknown,
+): Promise<{ quarantineTtlDays: number; quarantineCapGb: number }> {
+  const settings = (manifest as { settings?: Record<string, { default?: unknown }> } | null | undefined)?.settings ?? {};
+  const ttl = settings.quarantine_ttl_days?.default;
+  const cap = settings.quarantine_cap_gb?.default;
+  return {
+    quarantineTtlDays: typeof ttl === "number" && Number.isFinite(ttl) ? ttl : 30,
+    quarantineCapGb: typeof cap === "number" && Number.isFinite(cap) ? cap : 5,
+  };
+}
+
 export const POST: RequestHandler = async ({ request, locals, params }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
@@ -172,6 +190,42 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
         { retryAfter: limit.retryAfter },
         { "Retry-After": String(limit.retryAfter ?? 1) },
       );
+    }
+
+    // ── file-organizer in-process apply branch (architecture spine) ──
+    //
+    // Accept/Reject/restore/config-edits that touch HOST folders run
+    // host-side here (raw node:fs + engine.authorize audit + realpath/
+    // lstat guards), NOT in a subprocess action handler — the subprocess
+    // fs grant is `$CWD`-only, so it cannot touch Desktop/Downloads. The
+    // applier looks proposals up BY ID and CAS-checks status (double-
+    // accept is a no-op); caller payload PATHS are never trusted. Mirrors
+    // the existing append-message in-process host branch above. Pure-view
+    // events (select-segment/page-window/focus) just invalidate the cache;
+    // agent-driven events (classify-move/teach-rule/…) fall through to the
+    // subprocess forward below.
+    if (name === "file-organizer") {
+      const { dispatchFileOrganizerEvent, IN_PROCESS_EVENTS } = await import(
+        "$server/extensions/file-organizer-events"
+      );
+      if (IN_PROCESS_EVENTS.has(event)) {
+        const { getProjectRoot } = await import("$server/extensions/bundled");
+        const { join } = await import("node:path");
+        const dataDir = join(getProjectRoot(), ".ezcorp", "extension-data", "file-organizer");
+        const settings = await resolveFileOrganizerQuarantineSettings(ext.manifest);
+        const result = await dispatchFileOrganizerEvent(event, payload, {
+          dataDir,
+          engine: getPermissionEngine(),
+          extensionId: ext.id,
+          userId: user.id,
+          settings,
+        });
+        if (result.handled) {
+          if (result.changed) getPageCache().invalidate(ext.id, pageId);
+          return json({ ok: result.ok ?? true, message: result.message });
+        }
+        // handled:false ⇒ fall through to the subprocess forward.
+      }
     }
 
     // Spawn + wire: `sendNotification` no-ops on a dead process, so a
