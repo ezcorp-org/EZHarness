@@ -173,6 +173,7 @@ VITEST_EXIT=0
     src/__tests__/api-search-backend.server.test.ts \
     src/lib/components/__tests__/SearchDefaultsSection.component.test.ts \
     src/lib/components/__tests__/SearchBackendSection.component.test.ts \
+    "src/routes/(app)/settings/search/__tests__/page.component.test.ts" \
     src/__tests__/api-users.server.test.ts \
     src/lib/audit-log-view.unit.test.ts \
     src/lib/settings-models.unit.test.ts \
