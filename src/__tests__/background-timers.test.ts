@@ -258,6 +258,17 @@ function installModuleMocks(): void {
       scanIntervalSec: 45,
       stabilityTicks: 2,
     },
+    // The bootstrap's resolveFileOrganizerSettings() delegates to this pure
+    // helper. Return enabled defaults so the happy-path daemon-construct arm
+    // fires; the daemon-disabled gate is covered by re-pointing fileOrgExtMock.
+    mergeFileOrganizerSettings: () => ({
+      daemonEnabled: true,
+      defaultMode: "ask-everything",
+      quarantineTtlDays: 30,
+      quarantineCapGb: 5,
+      scanIntervalSec: 45,
+      stabilityTicks: 2,
+    }),
   }));
   mock.module("../db/queries/extensions", () => ({
     getExtensionByName: (name: string) => fileOrgExtMock(name),
