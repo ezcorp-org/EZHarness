@@ -195,6 +195,11 @@ export {
   PROVIDER_DEFAULT_MODEL,
   DEFAULT_PROVIDER,
 } from "./loop";
+// Direct run-store access for extensions (e.g. ez-code) that drive their
+// own dispatch/track flow on the loop-store substrate rather than the full
+// `defineLoop` facade.
+export { createLoopRunStore } from "./loop-store";
+export type { LoopRunStore, LoopMeta, LoopTransitionInput } from "./loop-store";
 export type {
   LoopTrigger,
   LoopContract,

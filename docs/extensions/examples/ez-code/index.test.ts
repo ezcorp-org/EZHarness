@@ -34,8 +34,6 @@ import {
   _setTriggersForTests,
   _setUserStoreForTests,
   appendExtras,
-  appendRun,
-  applyAssignmentUpdate,
   branchForRun,
   buildDashboard,
   buildDashboardLive,
@@ -44,6 +42,7 @@ import {
   cancelRunById,
   cancelRunTool,
   dispatchRun,
+  findRunMatch,
   handleAssignmentUpdate,
   handleCancelAction,
   handleSteerAction,
@@ -55,7 +54,6 @@ import {
   openPr,
   openPrForRun,
   productionTriggers,
-  recordRunEvent,
   shQuote,
   worktreeRwPaths,
   register,
@@ -91,17 +89,44 @@ function record(overrides: Partial<RunRecord> = {}): RunRecord {
   };
 }
 
+/**
+ * In-memory RunStore implementing the per-run loop-store-backed interface
+ * (`list`/`get`/`create`/`update`). Exposes `.runs` (newest-first) for
+ * assertions. Mirrors the production loop-store semantics: `update` with no
+ * `status` keeps the current run status (e.g. a "steered" event), `update`
+ * with `status` flips it; `eventStatus`/`note` prepend a capped event.
+ */
 function memoryStore(initial: RunRecord[] = []): RunStore & { runs: RunRecord[] } {
-  const state = { runs: initial };
+  const state = { runs: [...initial] };
   return {
     get runs() {
       return state.runs;
     },
-    async read() {
+    async list() {
       return state.runs;
     },
-    async write(next) {
-      state.runs = next;
+    async get(id) {
+      return state.runs.find((r) => r.id === id) ?? null;
+    },
+    async create(run) {
+      // Newest-first, capped at MAX_RUNS (matches loop-store retention).
+      state.runs = [run, ...state.runs.filter((r) => r.id !== run.id)].slice(0, MAX_RUNS);
+    },
+    async update(id, next) {
+      const at = new Date().toISOString();
+      state.runs = state.runs.map((r) => {
+        if (r.id !== id) return r;
+        const events = [
+          { at, status: next.eventStatus ?? next.status ?? r.status, ...(next.note ? { note: next.note } : {}) },
+          ...r.events,
+        ];
+        return {
+          ...r,
+          ...(next.status ? { status: next.status } : {}),
+          updatedAt: at,
+          events,
+        };
+      });
     },
   };
 }
@@ -203,14 +228,17 @@ afterEach(() => {
   __resetChannelForTests();
 });
 
-describe("appendRun", () => {
-  test("prepends newest-first and caps at MAX_RUNS", () => {
-    let runs: RunRecord[] = [];
+// MIGRATED (was `appendRun`): the newest-first + MAX_RUNS cap is now owned by
+// the loop-store; pin the SAME observable behavior through the store's
+// per-run `create` (the in-memory store mirrors loop-store's retention).
+describe("run store create — newest-first + cap", () => {
+  test("prepends newest-first and caps at MAX_RUNS", async () => {
+    const store = memoryStore();
     for (let i = 0; i < MAX_RUNS + 5; i++) {
-      runs = appendRun(runs, record({ id: `r${i}` }));
+      await store.create(record({ id: `r${i}` }));
     }
-    expect(runs).toHaveLength(MAX_RUNS);
-    expect(runs[0]!.id).toBe(`r${MAX_RUNS + 4}`);
+    expect(store.runs).toHaveLength(MAX_RUNS);
+    expect(store.runs[0]!.id).toBe(`r${MAX_RUNS + 4}`);
   });
 });
 
@@ -225,10 +253,16 @@ describe("mapStatus", () => {
   });
 });
 
-describe("applyAssignmentUpdate", () => {
-  test("matches by agentRunId → flips status + prepends event", () => {
-    const before = [record({ id: "run-x", status: "dispatched", events: [] })];
-    const after = applyAssignmentUpdate(before, {
+// MIGRATED (was `applyAssignmentUpdate`): the deferred-completion match +
+// status flip + resultPreview-as-note now happens inside
+// `handleAssignmentUpdate` driving the loop-store. Pin the SAME behavior
+// (match by agentRunId / assignmentId; non-match untouched) through it.
+describe("handleAssignmentUpdate — match + flip + note", () => {
+  test("matches by agentRunId → flips status + prepends raw event", async () => {
+    const store = memoryStore([record({ id: "run-x", status: "dispatched", events: [] })]);
+    setBothStores(store);
+    _setPushPageForTests(() => {});
+    await handleAssignmentUpdate({
       conversationId: "c",
       taskId: "task-x",
       assignment: {
@@ -241,13 +275,15 @@ describe("applyAssignmentUpdate", () => {
         agentRunId: "run-x",
       },
     });
-    expect(after[0]!.status).toBe("running");
-    expect(after[0]!.events[0]!.status).toBe("running");
+    expect(store.runs[0]!.status).toBe("running");
+    expect(store.runs[0]!.events[0]!.status).toBe("running");
   });
 
-  test("matches by assignmentId and carries resultPreview as note", () => {
-    const before = [record({ id: "run-y", assignmentId: "asg-y", status: "running" })];
-    const after = applyAssignmentUpdate(before, {
+  test("matches by assignmentId and carries resultPreview as the event note", async () => {
+    const store = memoryStore([record({ id: "run-y", assignmentId: "asg-y", status: "running" })]);
+    setBothStores(store);
+    _setPushPageForTests(() => {});
+    await handleAssignmentUpdate({
       conversationId: "c",
       taskId: "task-y",
       assignment: {
@@ -260,13 +296,16 @@ describe("applyAssignmentUpdate", () => {
         resultPreview: "done: 3 files changed",
       },
     });
-    expect(after[0]!.status).toBe("completed");
-    expect(after[0]!.events[0]!.note).toBe("done: 3 files changed");
+    expect(store.runs[0]!.status).toBe("completed");
+    expect(store.runs[0]!.events[0]!.note).toBe("done: 3 files changed");
   });
 
-  test("non-matching runs pass through unchanged", () => {
-    const before = [record({ id: "run-a", taskId: "task-a", assignmentId: "asg-a" })];
-    const after = applyAssignmentUpdate(before, {
+  test("a non-matching event leaves the run untouched", async () => {
+    const original = record({ id: "run-a", taskId: "task-a", assignmentId: "asg-a" });
+    const store = memoryStore([original]);
+    setBothStores(store);
+    _setPushPageForTests(() => {});
+    await handleAssignmentUpdate({
       conversationId: "c",
       taskId: "other-task",
       assignment: {
@@ -279,7 +318,30 @@ describe("applyAssignmentUpdate", () => {
         agentRunId: "other-run",
       },
     });
-    expect(after[0]).toEqual(before[0]!);
+    expect(store.runs[0]).toEqual(original);
+  });
+});
+
+// `findRunMatch` replaces the old `runMatches` — pin the match predicate.
+describe("findRunMatch", () => {
+  const evt = {
+    conversationId: "c",
+    taskId: "task-m",
+    assignment: {
+      id: "asg-m",
+      agentConfigId: "cfg",
+      agentName: "x",
+      isTeam: false,
+      status: "running" as const,
+      assignedAt: "t",
+      agentRunId: "run-m",
+    },
+  };
+  test("matches by agentRunId / assignmentId / taskId; else null", () => {
+    expect(findRunMatch([record({ id: "run-m" })], evt)?.id).toBe("run-m");
+    expect(findRunMatch([record({ id: "z", assignmentId: "asg-m" })], evt)?.id).toBe("z");
+    expect(findRunMatch([record({ id: "z", taskId: "task-m" })], evt)?.id).toBe("z");
+    expect(findRunMatch([record({ id: "nope" })], evt)).toBeNull();
   });
 });
 
@@ -518,23 +580,36 @@ describe("handleAssignmentUpdate", () => {
   });
 });
 
-describe("isLive / recordRunEvent (B2 pure helpers)", () => {
-  test("isLive: only dispatched + running are live", () => {
+describe("isLive (status predicate)", () => {
+  test("only dispatched + running are live", () => {
     expect(isLive("dispatched")).toBe(true);
     expect(isLive("running")).toBe(true);
     expect(isLive("completed")).toBe(false);
     expect(isLive("failed")).toBe(false);
     expect(isLive("cancelled")).toBe(false);
   });
+});
 
-  test("recordRunEvent prepends an event + optionally forces status", () => {
-    const before = [record({ id: "r1", status: "running", events: [] })];
-    const after = recordRunEvent(before, "r1", { status: "cancelled" }, "cancelled");
-    expect(after[0]!.status).toBe("cancelled");
-    expect(after[0]!.events[0]!.status).toBe("cancelled");
-    // non-matching id untouched
-    const same = recordRunEvent(before, "nope", { status: "x" });
-    expect(same[0]).toEqual(before[0]!);
+// MIGRATED (was `recordRunEvent`): the store's `update` prepends a (capped)
+// event + optionally flips the run status. Pin the SAME behavior + the
+// non-matching-id no-op through the store interface.
+describe("run store update — event + optional status flip", () => {
+  test("flips status + prepends the event; absent id is a no-op", async () => {
+    const store = memoryStore([record({ id: "r1", status: "running", events: [] })]);
+    await store.update("r1", { status: "cancelled", eventStatus: "cancelled" });
+    expect(store.runs[0]!.status).toBe("cancelled");
+    expect(store.runs[0]!.events[0]!.status).toBe("cancelled");
+
+    const snapshot = JSON.parse(JSON.stringify(store.runs[0]));
+    await store.update("nope", { status: "x" as never, eventStatus: "x" });
+    expect(store.runs[0]).toEqual(snapshot);
+  });
+
+  test("an event-only update (no status) keeps the run status", async () => {
+    const store = memoryStore([record({ id: "r1", status: "running", events: [] })]);
+    await store.update("r1", { eventStatus: "steered", note: "focus" });
+    expect(store.runs[0]!.status).toBe("running"); // unchanged
+    expect(store.runs[0]!.events[0]).toMatchObject({ status: "steered", note: "focus" });
   });
 });
 
@@ -1544,13 +1619,18 @@ describe("renderDashboard (production Storage round-trip) — SCOPE-aware", () =
     _setTaskStoreForTests({ read: async () => [], write: async () => {} });
     _setPushPageForTests(() => {});
 
-    // dispatch_run persists under USER scope. Omitting agentName resolves
-    // to the bundled coder, so the persisted record carries that name.
+    // dispatch_run persists under USER scope via the loop-store: ONE per-run
+    // key + an index key (NOT a single "runs" blob — the §5 race fix).
+    // Omitting agentName resolves to the bundled coder.
     await dispatchRun({ task: "go" });
-    expect(Array.isArray(saved["user:runs"])).toBe(true);
-    expect((saved["user:runs"] as RunRecord[])[0]!.agentName).toBe(DEFAULT_CODER_AGENT);
+    const userKeys = Object.keys(saved).filter((k) => k.startsWith("user:"));
+    const runKey = userKeys.find((k) => k.startsWith("user:loop:ez-code:run:"));
+    expect(runKey).toBeDefined();
+    expect(saved["user:loop:ez-code:index"]).toBeDefined(); // the index key
+    const persisted = saved[runKey!] as { outcome?: { agentName?: string } };
+    expect(persisted.outcome?.agentName).toBe(DEFAULT_CODER_AGENT);
     // GLOBAL scope was NOT written — the user run is private.
-    expect(saved["global:runs"]).toBeUndefined();
+    expect(Object.keys(saved).some((k) => k.startsWith("global:"))).toBe(false);
 
     // The shared dashboard (global scope) shows 0 runs — the user's private
     // run does not leak into the cross-user tree.
@@ -1559,6 +1639,72 @@ describe("renderDashboard (production Storage round-trip) — SCOPE-aware", () =
       (n) => n.type === "stats",
     ) as { items: Array<{ value: string }> };
     expect(stats.items[0]!.value).toBe("0");
+  });
+
+  test("production loop-store round-trip: create → list/get → update (status flip + event)", async () => {
+    // Drive the REAL loopBackedRunStore (not the in-memory seam) against a
+    // scope-keyed Storage mock, so the per-run claim/list/get/transition +
+    // toRunRecord adapter are all exercised end-to-end.
+    const saved: Record<string, unknown> = {};
+    const skey = (p: Record<string, unknown>) => `${p.scope}:${p.key}`;
+    const ch = getChannel();
+    const originalRequest = ch.request.bind(ch);
+    ch.request = (async (method: string, params: unknown) => {
+      const p = params as Record<string, unknown>;
+      if (method === "ezcorp/storage") {
+        const k = skey(p);
+        if (p.action === "set") {
+          saved[k] = p.value;
+          return { ok: true };
+        }
+        if (p.action === "delete") {
+          delete saved[k];
+          return { deleted: true };
+        }
+        return { value: saved[k] ?? null, exists: k in saved };
+      }
+      if (method === "ezcorp/spawn-assignment") {
+        return { v: 1, subConversationId: "s1", agentRunId: "run-rt", taskId: "t1", assignmentId: "a1" };
+      }
+      return originalRequest(method, params as never);
+    }) as HostChannel["request"];
+
+    _setUserStoreForTests(null); // force the production loop-store-backed user store
+    _setGlobalStoreForTests(null);
+    _setSpawnForTests(null);
+    _setMemoryForTests(async () => []);
+    _setTaskStoreForTests({ read: async () => [], write: async () => {} });
+    _setPushPageForTests(() => {});
+
+    // create (via dispatch_run → store.create/claim)
+    await dispatchRun({ agentName: "Custom Bot", task: "do it", title: "RT" });
+
+    // list (newest-first) + get (by id) round-trip through toRunRecord.
+    const listed = parse(await listRuns({}));
+    expect(listed.runs.map((r: { id: string }) => r.id)).toEqual(["run-rt"]);
+    expect(listed.runs[0]!.title).toBe("RT");
+    expect(listed.runs[0]!.agentName).toBe("Custom Bot");
+    expect(listed.runs[0]!.status).toBe("dispatched");
+
+    // update: a deferred completion flips status + records the raw event.
+    await handleAssignmentUpdate({
+      conversationId: "c",
+      taskId: "t1",
+      assignment: {
+        id: "a1",
+        agentConfigId: "cfg",
+        agentName: "Custom Bot",
+        isTeam: false,
+        status: "completed",
+        assignedAt: "t",
+        agentRunId: "run-rt",
+        resultPreview: "all done",
+      },
+    });
+    const afterList = parse(await listRuns({}));
+    expect(afterList.runs[0]!.status).toBe("completed");
+    expect(afterList.runs[0]!.latestEvent.status).toBe("completed");
+    expect(afterList.runs[0]!.latestEvent.note).toBe("all done");
   });
 });
 
@@ -1599,5 +1745,59 @@ describe("PRIVACY — cross-user isolation (#3)", () => {
     const json = JSON.stringify(tree);
     expect(json).not.toContain("/chat/");
     expect(json).not.toContain("A secret task");
+  });
+
+  // NON-NEGOTIABLE regression (the Hub tree is cached per-(ext,page) and
+  // served to ALL users): a user-scope run must NEVER reach the shared
+  // dashboard, and a task:assignment_update for a user-scope run must NOT
+  // push the shared page. Proven here at the EZ-CODE level (the primitive-
+  // level proof lives in the SDK loop-log "PRIVACY" suite).
+  test("a user-scope run never appears in the rendered global dashboard", async () => {
+    const userBucket = memoryStore([record({ id: "u-priv", title: "private" })]);
+    const globalBucket = memoryStore([]);
+    _setUserStoreForTests(userBucket);
+    _setGlobalStoreForTests(globalBucket);
+    _setMemoryForTests(async () => []);
+    _setTaskStoreForTests({ read: async () => [], write: async () => {} });
+
+    const tree = await renderDashboard();
+    // The global render reads the global bucket ONLY — the user run is absent.
+    expect(JSON.stringify(tree)).not.toContain("u-priv");
+    expect(JSON.stringify(tree)).not.toContain("private");
+    const stats = (tree.nodes as Array<Record<string, unknown>>).find(
+      (n) => n.type === "stats",
+    ) as { items: Array<{ value: string }> };
+    expect(stats.items[0]!.value).toBe("0"); // zero runs on the shared page
+  });
+
+  test("a task:assignment_update for a USER run does NOT push the shared page", async () => {
+    const userBucket = memoryStore([record({ id: "u-run", status: "dispatched", assignmentId: "u-asg" })]);
+    const globalBucket = memoryStore([]);
+    _setUserStoreForTests(userBucket);
+    _setGlobalStoreForTests(globalBucket);
+    const pushes = capturePushes();
+
+    await handleAssignmentUpdate({
+      conversationId: "c",
+      taskId: "u-task",
+      assignment: {
+        id: "u-asg",
+        agentConfigId: "cfg",
+        agentName: "coder",
+        isTeam: false,
+        status: "completed",
+        assignedAt: "t",
+        agentRunId: "u-run",
+      },
+    });
+
+    // The user run transitioned PRIVATELY (its own bucket).
+    expect(userBucket.runs[0]!.status).toBe("completed");
+    // The shared page IS re-rendered, but it renders the GLOBAL bucket only,
+    // which is empty — so the user run can't leak even on the push.
+    const pushedTrees = pushes.map((p) => JSON.stringify(p.tree));
+    expect(pushedTrees.every((t) => !t.includes("u-run"))).toBe(true);
+    // And the global bucket was never written with the user run.
+    expect(globalBucket.runs).toHaveLength(0);
   });
 });
