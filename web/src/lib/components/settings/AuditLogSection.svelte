@@ -93,6 +93,7 @@
 			<option value="user:deactivated">User deactivated</option>
 			<option value="agent:shared">Agent shared</option>
 			<option value="agent:unshared">Agent unshared</option>
+			<option value="ext:capability-policy-write">Capability policy</option>
 		</select>
 	</div>
 

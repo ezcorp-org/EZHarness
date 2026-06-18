@@ -224,6 +224,25 @@ describe("bundled drift re-approval", () => {
     expect(audits[0]?.target).toBe("seed-web-search");
     expect(audits[0]?.metadata?.actor).toBe("admin-1");
 
+    // Phase B — a TYPED capability-policy-write row accompanies the
+    // summary row (additive). The stale grant had no `search` field; the
+    // heal grants `search: "inherit"`, so the policy field changed.
+    const policyRows = auditEntries.filter(
+      (a) => a.action === "ext:capability-policy-write",
+    );
+    const searchPolicyRow = policyRows.find((a) => a.metadata?.capability === "search");
+    expect(searchPolicyRow).toBeDefined();
+    expect(searchPolicyRow?.userId).toBe("admin-1");
+    expect(searchPolicyRow?.target).toBe("seed-web-search");
+    expect(searchPolicyRow?.metadata).toMatchObject({
+      capability: "search",
+      oldValue: undefined,
+      newValue: "inherit",
+      actor: "admin-1",
+      reason: "drift-reapprove",
+      route: "reapprove-drift",
+    });
+
     // Response diffs mirror the boot gate's {field, oldValue, newValue}
     // shape. The stale network is removed; `search` is added.
     const networkDiff = result.diffs.find((d) => d.field === "network");
@@ -323,6 +342,10 @@ describe("bundled drift re-approval", () => {
     expect(first.diffs.length).toBeGreaterThan(0);
     const grantAfterFirst = JSON.parse(JSON.stringify(row.grantedPermissions));
 
+    // Phase B — clear audit trail before the no-drift second call so we
+    // can assert NO typed capability-policy row is emitted when the
+    // search policy is unchanged.
+    auditEntries.length = 0;
     const second = await reapproveBundledDrift(row, "admin-1");
     expect(second.ok).toBe(true);
     if (!second.ok) throw new Error("unreachable");
@@ -339,6 +362,10 @@ describe("bundled drift re-approval", () => {
     expect(stripStamps(grantAfterSecond as unknown as Record<string, unknown>)).toEqual(
       stripStamps(grantAfterFirst),
     );
+    // No-drift heal → no typed capability-policy-write row.
+    expect(
+      auditEntries.some((a) => a.action === "ext:capability-policy-write"),
+    ).toBe(false);
   }, 30_000);
 
   test("unreadable on-disk manifest → manifest-unreadable refusal, row untouched", async () => {

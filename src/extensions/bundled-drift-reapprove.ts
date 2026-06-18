@@ -40,6 +40,7 @@ import type { ExtensionManifestV2, ExtensionPermissions } from "./types";
 import { updateExtension } from "../db/queries/extensions";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS, type ExtensionAuditMetadata } from "./audit-actions";
+import { CAPABILITY_POLICY_FIELDS } from "./capability-flags";
 import { clampToBundledCeiling } from "./bundled-ceiling";
 import { verifyManifestAgainstLock } from "./bundled-lock";
 import { loadManifestFresh } from "./loader";
@@ -232,6 +233,36 @@ export async function reapproveBundledDrift(
       ext.id,
       meta,
     );
+
+    // Typed capability-POLICY rows (additive — the summary row above is
+    // kept). For each brokered-capability policy field whose value
+    // changed under the heal, emit a CAPABILITY_POLICY_WRITE carrying the
+    // full before→after policy value so a search (or future memory/llm/…)
+    // policy change is first-class + queryable, not buried in the diff
+    // blob. Written generically over the field set.
+    const priorRec = priorGrant as unknown as Record<string, unknown>;
+    const clampedRec = clamped as unknown as Record<string, unknown>;
+    for (const cap of CAPABILITY_POLICY_FIELDS) {
+      const oldValue = priorRec[cap];
+      const newValue = clampedRec[cap];
+      if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
+        const capMeta: ExtensionAuditMetadata = {
+          capability: cap,
+          oldValue,
+          newValue,
+          actor: actorUserId,
+          extensionName: ext.name,
+          reason: "drift-reapprove",
+          route: "reapprove-drift",
+        };
+        await insertAuditEntry(
+          actorUserId,
+          EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE,
+          ext.id,
+          capMeta,
+        );
+      }
+    }
   } catch {
     /* audit write failure is non-fatal — the info log is the primary signal */
   }

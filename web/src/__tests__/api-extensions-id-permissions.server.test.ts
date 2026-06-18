@@ -27,6 +27,7 @@ vi.mock("$server/db/queries/audit-log", () => ({
 const { getExtension, updateExtension } = await import(
   "$server/db/queries/extensions"
 );
+const { insertAuditEntry } = await import("$server/db/queries/audit-log");
 const { GET, PUT } = await import(
   "../routes/api/extensions/[id]/permissions/+server.ts"
 );
@@ -302,6 +303,88 @@ describe("PUT /api/extensions/[id]/permissions", () => {
         grantedPermissions: Record<string, unknown>;
       };
       expect(update.grantedPermissions.search).toBe(false);
+    });
+  });
+
+  // Phase B — typed CAPABILITY_POLICY_WRITE audit row (additive over the
+  // existing legacy blob + per-field rows).
+  describe("capability-policy-write audit row (Phase B)", () => {
+    function policyWriteCalls() {
+      return vi
+        .mocked(insertAuditEntry)
+        .mock.calls.filter((c) => c[1] === "ext:capability-policy-write");
+    }
+
+    beforeEach(() => {
+      vi.mocked(insertAuditEntry).mockClear();
+    });
+
+    test("a changed search policy emits exactly one typed row with the full before→after value", async () => {
+      vi.mocked(getExtension).mockResolvedValue({
+        id: "ext-1",
+        grantedPermissions: { grantedAt: {}, search: "inherit" },
+        manifest: { permissions: { search: { quota: 1000 } } },
+      } as any);
+      vi.mocked(updateExtension).mockResolvedValue({ id: "ext-1" } as any);
+      await PUT(
+        makeEvent({
+          locals: { user: adminUser },
+          method: "PUT",
+          body: { permissions: { search: { quota: 500 } } },
+        }),
+      );
+      const calls = policyWriteCalls();
+      expect(calls.length).toBe(1);
+      const [actorId, action, target, meta] = calls[0]!;
+      expect(actorId).toBe(adminUser.id);
+      expect(action).toBe("ext:capability-policy-write");
+      expect(target).toBe("ext-1");
+      expect(meta).toMatchObject({
+        capability: "search",
+        oldValue: "inherit",
+        newValue: { quota: 500 },
+        actor: adminUser.id,
+        reason: "admin-policy-write",
+        route: "permissions",
+      });
+    });
+
+    test("the legacy blob + per-field rows are NOT regressed (additive)", async () => {
+      vi.mocked(getExtension).mockResolvedValue({
+        id: "ext-1",
+        grantedPermissions: { grantedAt: {}, search: "inherit" },
+        manifest: { permissions: { search: { quota: 1000 } } },
+      } as any);
+      vi.mocked(updateExtension).mockResolvedValue({ id: "ext-1" } as any);
+      await PUT(
+        makeEvent({
+          locals: { user: adminUser },
+          method: "PUT",
+          body: { permissions: { search: { quota: 500 } } },
+        }),
+      );
+      const actions = vi.mocked(insertAuditEntry).mock.calls.map((c) => c[1]);
+      // Legacy blob row preserved.
+      expect(actions).toContain("extension:permissions_granted");
+      // New typed row present additively.
+      expect(actions).toContain("ext:capability-policy-write");
+    });
+
+    test("no typed row when the search policy is unchanged", async () => {
+      vi.mocked(getExtension).mockResolvedValue({
+        id: "ext-1",
+        grantedPermissions: { grantedAt: {}, search: "inherit" },
+        manifest: { permissions: { search: "inherit" } },
+      } as any);
+      vi.mocked(updateExtension).mockResolvedValue({ id: "ext-1" } as any);
+      await PUT(
+        makeEvent({
+          locals: { user: adminUser },
+          method: "PUT",
+          body: { permissions: { search: "inherit" } },
+        }),
+      );
+      expect(policyWriteCalls().length).toBe(0);
     });
   });
 });

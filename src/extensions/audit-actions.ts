@@ -54,6 +54,32 @@ export const EXT_AUDIT_ACTIONS = {
   CAPABILITY_GRANTED: "ext:capability-granted",
   /** A capability-tier permission was revoked. */
   CAPABILITY_REVOKED: "ext:capability-revoked",
+  /**
+   * An admin (or the drift-reapprove heal) changed an extension's
+   * capability-POLICY override — the per-extension policy object for a
+   * brokered capability (`search` today; `memory`/`llm`/`lessons`/
+   * `schedule` join with no rework). Distinct from
+   * CAPABILITY_GRANTED/REVOKED (which carry a boolean-ish granted/revoked
+   * signal): this row captures the full before→after POLICY value
+   * (object / `false` / `"inherit"`) so a quota / provider-allowlist /
+   * maxResults change is first-class + queryable, not buried in the
+   * legacy `extension:permissions_granted` blob. Emitted ADDITIVELY —
+   * the existing CAPABILITY_* and BUNDLED_DRIFT_REAPPROVED rows are kept.
+   *
+   * Metadata (conforms to ExtensionAuditMetadata):
+   *   {
+   *     capability: "search" | "memory" | "llm" | "lessons" | "schedule",
+   *     oldValue: <prior grant[capability] | undefined>,
+   *     newValue: <new clamped grant[capability]>,
+   *     actor:  <adminUserId>,
+   *     reason: "admin-policy-write" | "drift-reapprove",
+   *     route:  "permissions" | "reapprove-drift",
+   *   }
+   *
+   * `"ext:"` prefix → picked up by `listAuditForExtension` (action LIKE
+   * `ext:%`) and the default audit-pill styling (no new color).
+   */
+  CAPABILITY_POLICY_WRITE: "ext:capability-policy-write",
   /** `ezcorp/spawn-assignment` refused a spawn because the per-hour
    *  quota or concurrent-run cap was exceeded (Phase 2d). */
   SPAWN_QUOTA_EXCEEDED: "ext:spawn-quota-exceeded",
@@ -545,4 +571,8 @@ export type ExtensionAuditMetadata = {
   pid?: string;
   /** Kernel audit arch code, e.g. `"c000003e"` (x86_64). */
   arch?: string;
+  /** Origin route for a CAPABILITY_POLICY_WRITE row: the admin PUT
+   *  permissions route (`"permissions"`) or the bundled drift-reapprove
+   *  heal (`"reapprove-drift"`). */
+  route?: "permissions" | "reapprove-drift";
 } & Record<string, unknown>;

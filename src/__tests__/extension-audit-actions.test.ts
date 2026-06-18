@@ -44,6 +44,8 @@ describe("extension audit action constants", () => {
       // Phase 2a-lite / 2b (capability tier)
       "CAPABILITY_GRANTED",
       "CAPABILITY_REVOKED",
+      // Shared-search residual #2 — typed capability-POLICY change row
+      "CAPABILITY_POLICY_WRITE",
       "SPAWN_QUOTA_EXCEEDED",
       "EMIT_EVENT_REJECTED",
       // Phase 2c — server→extension subscription delivery
@@ -129,6 +131,12 @@ describe("extension audit action constants", () => {
     expect(EXT_AUDIT_ACTIONS.CAPABILITY_REVOKED).not.toBe(EXT_AUDIT_ACTIONS.PERMISSION_REVOKED);
   });
 
+  test("CAPABILITY_POLICY_WRITE wire value is locked + distinct from the boolean-ish capability rows", () => {
+    expect(EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE).toBe("ext:capability-policy-write");
+    expect(EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE).not.toBe(EXT_AUDIT_ACTIONS.CAPABILITY_GRANTED);
+    expect(EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE).not.toBe(EXT_AUDIT_ACTIONS.CAPABILITY_REVOKED);
+  });
+
   test("PERM_GRANT_EXPIRED wire value is locked — Phase 2 sweep + downstream consumers depend on it", () => {
     // Phase 1 ships only the constant; Phase 2 (the sweep) and any
     // governance dashboard / migration script keying off the audit-log
@@ -190,5 +198,37 @@ describe("listAuditForExtension", () => {
     expect(page1).toHaveLength(1);
     expect(page2).toHaveLength(1);
     expect(page1[0]!.id).not.toBe(page2[0]!.id);
+  });
+
+  test("a CAPABILITY_POLICY_WRITE row persists its typed metadata + is queryable as an ext:* row", async () => {
+    const meta: ExtensionAuditMetadata = {
+      capability: "search",
+      oldValue: "inherit",
+      newValue: { quota: 500, providers: ["tavily", "brave"] },
+      actor: "admin-1",
+      reason: "admin-policy-write",
+      route: "permissions",
+    };
+    // userId is null — the audit_log.user_id FK requires a real users row;
+    // these tests don't seed one (mirrors the other insertAuditEntry(null,…)
+    // calls in this file). The admin identity is carried in metadata.actor.
+    await insertAuditEntry(
+      null,
+      EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE,
+      EXT_B,
+      meta,
+    );
+    const rows = await listAuditForExtension(EXT_B);
+    const policyRow = rows.find(
+      (r) => r.action === EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE,
+    );
+    expect(policyRow).toBeDefined();
+    // Metadata persisted as a jsonb OBJECT (not a double-encoded string).
+    const m = policyRow!.metadata as Record<string, unknown>;
+    expect(m.capability).toBe("search");
+    expect(m.oldValue).toBe("inherit");
+    expect(m.newValue).toEqual({ quota: 500, providers: ["tavily", "brave"] });
+    expect(m.actor).toBe("admin-1");
+    expect(m.route).toBe("permissions");
   });
 });

@@ -128,6 +128,53 @@ describe("AuditLogSection", () => {
 		expect(fetchUrls.some((u) => u.includes("action=user%3Ainvited") || u.includes("action=user:invited"))).toBe(true);
 	});
 
+	test("the Capability policy filter option renders and filters to ext:capability-policy-write", async () => {
+		const policyRun: Entry[] = [
+			...loginRun(),
+			{
+				id: "cp1",
+				userId: "admin-1",
+				action: "ext:capability-policy-write",
+				target: "ext-1",
+				metadata: {
+					capability: "search",
+					oldValue: "inherit",
+					newValue: { quota: 500 },
+					actor: "admin-1",
+					route: "permissions",
+				},
+				createdAt: HOUR_AGO,
+			},
+		];
+		stubFetch((url) => {
+			const action = url.searchParams.get("action");
+			return policyRun.filter((e) => !action || e.action === action);
+		});
+		const { getByLabelText, getByTestId, queryByTestId } = render(AuditLogSection);
+
+		await waitFor(() => {
+			expect(getByTestId("audit-group-e1")).toBeInTheDocument();
+		});
+
+		// The new option exists in the filter select.
+		const select = getByLabelText("Filter audit events") as HTMLSelectElement;
+		const opt = Array.from(select.options).find(
+			(o) => o.value === "ext:capability-policy-write",
+		);
+		expect(opt).toBeDefined();
+		expect(opt?.textContent).toBe("Capability policy");
+
+		await fireEvent.change(select, { target: { value: "ext:capability-policy-write" } });
+
+		await waitFor(() => {
+			expect(queryByTestId("audit-group-e1")).not.toBeInTheDocument();
+			expect(getByTestId("audit-group-cp1")).toBeInTheDocument();
+		});
+		expect(
+			fetchUrls.some((u) => u.includes("action=ext%3Acapability-policy-write")),
+		).toBe(true);
+	});
+
 	test("load-more appears for a full page and appends the next offset", async () => {
 		const fullPage: Entry[] = Array.from({ length: 50 }, (_, i) => ({
 			id: `p1-${i}`,

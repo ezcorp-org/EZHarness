@@ -9,7 +9,12 @@
  * keeps the tests fast and lets us assert the clamp output directly.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { capabilityToolsDisabled, CAPABILITY_PERMISSION_FIELDS } from "../extensions/capability-flags";
+import {
+  capabilityToolsDisabled,
+  CAPABILITY_PERMISSION_FIELDS,
+  CAPABILITY_POLICY_FIELDS,
+  isCapabilityPolicyField,
+} from "../extensions/capability-flags";
 import { DIRECT_CARRIER_EVENT_TYPES } from "../runtime/sse-conversation-filter";
 import type { ExtensionPermissions, ExtensionManifestV2 } from "../extensions/types";
 
@@ -112,6 +117,23 @@ describe("capability-flags — kill-switch gate", () => {
     expect(new Set(CAPABILITY_PERMISSION_FIELDS)).toEqual(
       new Set(["taskEvents", "spawnAgents", "agentConfig", "eventSubscriptions"]),
     );
+  });
+
+  test("CAPABILITY_POLICY_FIELDS lists the brokered-capability policy fields (search first)", () => {
+    expect(new Set(CAPABILITY_POLICY_FIELDS)).toEqual(
+      new Set(["search", "memory", "llm", "lessons", "schedule"]),
+    );
+    // search is the residual #2 first-class capability.
+    expect(CAPABILITY_POLICY_FIELDS[0]).toBe("search");
+  });
+
+  test("isCapabilityPolicyField is true for policy fields, false for non-policy fields", () => {
+    for (const f of CAPABILITY_POLICY_FIELDS) {
+      expect(isCapabilityPolicyField(f)).toBe(true);
+    }
+    for (const f of ["network", "shell", "filesystem", "taskEvents", "spawnAgents"]) {
+      expect(isCapabilityPolicyField(f)).toBe(false);
+    }
   });
 });
 

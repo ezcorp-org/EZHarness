@@ -5,7 +5,10 @@ import { ExtensionRegistry } from "$server/extensions/registry";
 import { requireAuth, requireRole } from "$server/auth/middleware";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS, type ExtensionAuditMetadata } from "$server/extensions/audit-actions";
-import { CAPABILITY_PERMISSION_FIELDS } from "$server/extensions/capability-flags";
+import {
+  CAPABILITY_PERMISSION_FIELDS,
+  CAPABILITY_POLICY_FIELDS,
+} from "$server/extensions/capability-flags";
 import type { ExtensionPermissions } from "$server/extensions/types";
 import { errorJson } from "$lib/server/http-errors";
 import { clampExtensionPermissions } from "$lib/server/extension-helpers";
@@ -122,6 +125,30 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
           reason: "rejected-by-clamp: attempt exceeded manifest declaration",
         };
         await insertAuditEntry(admin.id, EXT_AUDIT_ACTIONS.PERMISSION_REJECTED, params.id, meta);
+      }
+    }
+
+    // Capability-POLICY tier (search today; memory/llm/lessons/schedule
+    // join with no rework). When a policy override actually changed, emit
+    // a TYPED CAPABILITY_POLICY_WRITE row IN ADDITION TO any rows above,
+    // carrying the full before→after policy value (object / false /
+    // "inherit") so a quota / provider-allowlist / maxResults change is
+    // first-class + queryable. Written generically over the field set.
+    const priorRec = priorGrant as unknown as Record<string, unknown> | null;
+    const clampedRec = clamped as unknown as Record<string, unknown>;
+    for (const cap of CAPABILITY_POLICY_FIELDS) {
+      const oldValue = priorRec?.[cap];
+      const newValue = clampedRec[cap];
+      if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
+        const meta: ExtensionAuditMetadata = {
+          capability: cap,
+          oldValue,
+          newValue,
+          actor: admin.id,
+          reason: "admin-policy-write",
+          route: "permissions",
+        };
+        await insertAuditEntry(admin.id, EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE, params.id, meta);
       }
     }
   } catch { /* swallow */ }

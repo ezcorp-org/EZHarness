@@ -30,3 +30,28 @@ export const CAPABILITY_PERMISSION_FIELDS = [
 ] as const;
 
 export type CapabilityPermissionField = typeof CAPABILITY_PERMISSION_FIELDS[number];
+
+/**
+ * The brokered-capability POLICY field names — each is a per-extension
+ * policy object (`{quota, maxResults, providers, …}` for search;
+ * analogous shapes for the others) whose before→after value is audited
+ * via `CAPABILITY_POLICY_WRITE`. Distinct from
+ * `CAPABILITY_PERMISSION_FIELDS` (the boolean-ish capability-tool tier):
+ * these are the §3.1 three-state policy overrides
+ * (`"inherit" | {…} | false`). `search` ships first; the rest are listed
+ * so the audit + UI wiring is generic and they join with no rework.
+ */
+export const CAPABILITY_POLICY_FIELDS = [
+  "search",
+  "memory",
+  "llm",
+  "lessons",
+  "schedule",
+] as const;
+
+export type CapabilityPolicyField = typeof CAPABILITY_POLICY_FIELDS[number];
+
+/** True for the brokered-capability policy fields (search / memory / …). */
+export function isCapabilityPolicyField(name: string): boolean {
+  return (CAPABILITY_POLICY_FIELDS as readonly string[]).includes(name);
+}
