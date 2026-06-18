@@ -59,8 +59,19 @@ beforeAll(() => {
         return Response.json({ ok: true }, { status: 201 });
       }
       if (req.method === "PUT" && p === "/api/settings/foo") return Response.json({ ok: true });
+      if (req.method === "GET" && p === "/api/settings/k") return Response.json({ value: 7 });
       if (req.method === "GET" && p === "/api/settings/missing") {
         return Response.json({ error: "not found" }, { status: 404 });
+      }
+      if (req.method === "GET" && p === "/api/runs/r1") {
+        return Response.json({ id: "r1", status: "running" });
+      }
+      if (req.method === "POST" && p === "/api/tool-calls/tc1/permission") {
+        return Response.json({ ok: true });
+      }
+      if (req.method === "DELETE" && p === "/api/__test/mock-llm/script") {
+        scripted = null;
+        return Response.json({ ok: true });
       }
       if (req.method === "GET" && p === "/api/runtime-events") {
         const body = new ReadableStream<Uint8Array>({
@@ -88,6 +99,26 @@ describe("HarnessClient", () => {
   test("sends the bearer token", async () => {
     await client().createConversation();
     expect(lastAuth).toBe("Bearer ezk_test");
+  });
+
+  test("configure: get/set settings", async () => {
+    expect(await client().getSetting<{ value: number }>("k")).toEqual({ value: 7 });
+    expect(await client().setSetting("foo", 1)).toEqual({ ok: true });
+  });
+
+  test("getRun (non-wait) returns the run row", async () => {
+    expect(await client().getRun("r1")).toMatchObject({ id: "r1", status: "running" });
+  });
+
+  test("resolveToolPermission posts approval with scope", async () => {
+    expect(await client().resolveToolPermission("tc1", true, { scope: "session" })).toEqual({ ok: true });
+  });
+
+  test("clearLlmScripts clears the mock scripts", async () => {
+    await client().scriptLlm("k", [{ text: "x" }]);
+    expect(scripted).not.toBeNull();
+    await client().clearLlmScripts();
+    expect(scripted).toBeNull();
   });
 
   test("runToCompletion drives a message and returns the terminal result", async () => {

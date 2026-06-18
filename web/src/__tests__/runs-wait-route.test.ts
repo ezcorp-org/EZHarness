@@ -14,12 +14,13 @@ let runs: Map<string, AgentRun>;
 mock.module("$lib/server/context", () => ({
   getExecutor: () => ({
     getRun: async (id: string) => runs.get(id),
-    cancelRun: () => false,
+    // A run can be cancelled iff it exists and is still running.
+    cancelRun: (id: string) => runs.get(id)?.status === "running",
   }),
   getBus: () => bus,
 }));
 
-const { GET } = await import("../routes/api/runs/[id]/+server");
+const { GET, DELETE } = await import("../routes/api/runs/[id]/+server");
 
 function mkRun(id: string, status: AgentStatus): AgentRun {
   return { id, agentName: "chat", status, startedAt: 0, logs: [] };
@@ -65,10 +66,38 @@ describe("GET /api/runs/[id]?wait=1", () => {
     expect(await res.json()).toMatchObject({ runId: "r3", status: "running" });
   });
 
+  test("429 when the concurrent-wait cap is exhausted (DoS admission guard)", async () => {
+    runs.set("r7", mkRun("r7", "running"));
+    const saved = process.env.EZCORP_MAX_RUN_WAITS;
+    process.env.EZCORP_MAX_RUN_WAITS = "0"; // any wait exceeds the cap
+    try {
+      const res = await GET(ev("r7", "1", "20"));
+      expect(res.status).toBe(429);
+    } finally {
+      if (saved === undefined) delete process.env.EZCORP_MAX_RUN_WAITS;
+      else process.env.EZCORP_MAX_RUN_WAITS = saved;
+    }
+  });
+
   test("without wait → returns the run row unchanged", async () => {
     runs.set("r4", mkRun("r4", "running"));
     const res = await GET(ev("r4"));
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ id: "r4", status: "running" });
+  });
+});
+
+describe("DELETE /api/runs/[id]", () => {
+  test("cancels a running run", async () => {
+    runs.set("r5", mkRun("r5", "running"));
+    const res = await DELETE(ev("r5"));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+  });
+
+  test("404 when not running / not found", async () => {
+    runs.set("r6", mkRun("r6", "success"));
+    expect((await DELETE(ev("r6"))).status).toBe(404); // not running
+    expect((await DELETE(ev("missing"))).status).toBe(404); // absent
   });
 });

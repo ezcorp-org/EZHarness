@@ -42,7 +42,14 @@ mapfile -t FILES < <({
     web/src/lib/__tests__/diff-view-mode.test.ts \
     web/src/lib/__tests__/tool-scope-logic.test.ts \
     web/src/lib/__tests__/loaded-tools-logic.test.ts \
-    web/src/lib/__tests__/briefing-cron.test.ts
+    web/src/lib/__tests__/briefing-cron.test.ts \
+    web/src/__tests__/test-surface.test.ts \
+    web/src/__tests__/test-surface-bypass.test.ts \
+    web/src/__tests__/mock-llm-store.test.ts \
+    web/src/__tests__/mock-llm-route.test.ts \
+    web/src/__tests__/runs-wait-route.test.ts \
+    web/src/__tests__/seed-reset-route.test.ts \
+    web/src/__tests__/route-contract.test.ts
 } | sort)
 
 TMPDIR=$(mktemp -d)
@@ -119,6 +126,23 @@ if [ "${SDK_FAIL:-0}" != "0" ]; then
   FAILED_FILES+=("packages/@ezcorp/sdk/test/**")
   echo "--- FAIL: SDK bundled ---"
   echo "$SDK_OUTPUT" | awk '/\(fail\)/'
+  echo ""
+fi
+
+# Harness-client package — its own shard (mock.module-free, isolated like SDK)
+# so packages/@ezcorp/harness-client/src/** is measured + gated at 100.
+HC_OUT="$TMPDIR/result_hc"
+HC_COV="$TMPDIR/cov_hc"
+HC_OUTPUT=$(bun test --coverage --coverage-reporter=lcov --coverage-dir="$HC_COV" ./packages/@ezcorp/harness-client/ 2>&1) || true
+echo "$HC_OUTPUT" > "$HC_OUT"
+HC_PASS=$(echo "$HC_OUTPUT" | awk '/pass/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="pass") print $j}' | tail -1)
+HC_FAIL=$(echo "$HC_OUTPUT" | awk '/fail/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="fail") print $j}' | tail -1)
+TOTAL_PASS=$((TOTAL_PASS + ${HC_PASS:-0}))
+TOTAL_FAIL=$((TOTAL_FAIL + ${HC_FAIL:-0}))
+if [ "${HC_FAIL:-0}" != "0" ]; then
+  FAILED_FILES+=("packages/@ezcorp/harness-client/**")
+  echo "--- FAIL: harness-client ---"
+  echo "$HC_OUTPUT" | awk '/\(fail\)/'
   echo ""
 fi
 

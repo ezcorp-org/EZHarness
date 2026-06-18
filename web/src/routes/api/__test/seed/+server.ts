@@ -32,12 +32,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
 
-  let body: { projectName?: unknown; title?: unknown; rateLimitPerMin?: unknown };
-  try {
-    body = (await request.json().catch(() => ({}))) as typeof body;
-  } catch {
-    return errorJson(400, "Invalid JSON body");
-  }
+  // Body is optional; a missing/invalid body just means "use defaults", so
+  // swallow parse errors rather than 400.
+  const body = (await request.json().catch(() => ({}))) as {
+    projectName?: unknown;
+    title?: unknown;
+    rateLimitPerMin?: unknown;
+  };
 
   const projectName = typeof body.projectName === "string" && body.projectName.length > 0
     ? body.projectName

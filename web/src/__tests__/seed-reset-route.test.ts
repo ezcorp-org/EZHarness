@@ -76,6 +76,11 @@ describe("POST /api/__test/reset", () => {
     expect((await reset(ev({}))).status).toBe(400);
   });
 
+  test("400 on invalid JSON body", async () => {
+    const bad = new Request("http://127.0.0.1/x", { method: "POST", body: "{not json" });
+    expect((await reset({ request: bad, locals: { user } } as any)).status).toBe(400);
+  });
+
   test("deletes a conversation the caller owns", async () => {
     const p = await createProject({ name: "p-reset", path: "/tmp/p-reset" });
     const c = await createConversation(p.id, { title: "doomed", userId: "u1" });

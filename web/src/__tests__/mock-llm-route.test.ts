@@ -89,6 +89,14 @@ describe("/script seed endpoint", () => {
     expect((await seedScript({ request: jsonReq({ scriptKey: "k", turns: "nope" }), locals: cookieLocals } as any)).status).toBe(400);
     expect((await seedScript({ request: jsonReq({ scriptKey: "k", turns: [{ toolCalls: [{}] }] }), locals: cookieLocals } as any)).status).toBe(400);
     expect((await seedScript({ request: jsonReq({ scriptKey: "k", turns: [{ finishReason: "boom" }] }), locals: cookieLocals } as any)).status).toBe(400);
+    expect((await seedScript({ request: jsonReq({ scriptKey: "k", turns: [{ text: 123 }] }), locals: cookieLocals } as any)).status).toBe(400);
+    expect((await seedScript({ request: jsonReq({ scriptKey: "k", turns: ["nope"] }), locals: cookieLocals } as any)).status).toBe(400);
+    expect((await seedScript({ request: jsonReq({ scriptKey: "k", turns: [{ toolCalls: "x" }] }), locals: cookieLocals } as any)).status).toBe(400);
+  });
+
+  test("invalid JSON body → 400", async () => {
+    const bad = new Request("http://127.0.0.1/x", { method: "POST", body: "{not json" });
+    expect((await seedScript({ request: bad, locals: cookieLocals } as any)).status).toBe(400);
   });
 
   test("DELETE clears all scripts", async () => {
