@@ -13,6 +13,7 @@
   "src/extensions/tool-executor.ts": 95,
   "src/extensions/embed-worker.ts": 95,
   "src/extensions/audit-actions.ts": 100,
+  "src/extensions/capability-flags.ts": 100,
   "src/extensions/bundled-drift-reapprove.ts": 100,
   "web/src/routes/api/extensions/[id]/reapprove-drift/+server.ts": 100,
   "src/extensions/mcp-sandbox.ts": 91,
