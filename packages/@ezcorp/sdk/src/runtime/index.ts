@@ -185,6 +185,37 @@ export type {
 export { Schedule } from "./schedule";
 export type { ScheduleHandler, ScheduleHandlerContext } from "./schedule";
 
+// ── Loop primitive (defineLoop) ─────────────────────────────────────
+
+export {
+  defineLoop,
+  getLoopTools,
+  resolveProviderModel,
+  formatMessages,
+  PROVIDER_DEFAULT_MODEL,
+  DEFAULT_PROVIDER,
+} from "./loop";
+export type {
+  LoopTrigger,
+  LoopContract,
+  LoopDefinition,
+  LoopAct,
+  LoopActContext,
+  ActResult,
+  LoopRunState,
+  LoopRunEvent,
+  LoopSettings,
+  LoopMessage,
+  LoopLog,
+  LoopArtifact,
+  LoopDashboard,
+  LoopFailurePolicy,
+  LoopAutoDisableContext,
+  LoopRetention,
+  LoopConcurrency,
+  FailureClass,
+} from "./loop-types";
+
 export { Search, SearchDisabledError, SearchError } from "./search";
 export type {
   SearchWebOpts,
