@@ -8,11 +8,16 @@
 
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$server/auth/middleware";
-import { getAllSettings, upsertSetting, deleteSetting } from "$server/db/queries/settings";
-import { generateApiKey } from "$lib/server/security/api-keys";
+import { getAllSettings, deleteSetting } from "$server/db/queries/settings";
+import {
+  requireScope,
+  apiKeySettingsKey,
+  apiKeySettingsPrefix,
+  type ApiKeyEntry,
+} from "$lib/server/security/api-keys";
+import { mintApiKeyForUser } from "$server/auth/mint-api-key";
 import { validationError } from "$lib/server/security/validation";
 import { createApiKeySchema, deleteApiKeySchema } from "../schema";
-import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
@@ -21,11 +26,11 @@ export const GET: RequestHandler = async ({ locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
   const all = await getAllSettings();
-  const prefix = `apikey:${user.id}:`;
+  const prefix = apiKeySettingsPrefix(user.id);
   const keys = Object.entries(all)
     .filter(([k]) => k.startsWith(prefix))
     .map(([k, v]) => {
-      const entry = v as { name: string; scopes: string[]; createdAt: number };
+      const entry = v as ApiKeyEntry;
       const keyId = k.slice(prefix.length);
       return { keyId, name: entry.name, scopes: entry.scopes, createdAt: entry.createdAt };
     });
@@ -41,9 +46,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (!result.success) return validationError(result.error);
 
   const { name, scopes } = result.data;
-  const { raw, hash, keyId } = generateApiKey();
-  const entry = { hash, userId: user.id, scopes, name, createdAt: Date.now() };
-  await upsertSetting(`apikey:${user.id}:${keyId}`, entry);
+  const { raw, keyId } = await mintApiKeyForUser(user.id, scopes, name);
 
   return json({ key: raw, keyId, name, scopes }, { status: 201 });
 };
@@ -57,7 +60,7 @@ export const DELETE: RequestHandler = async ({ request, locals }) => {
   if (!result.success) return validationError(result.error);
 
   const { keyId } = result.data;
-  const deleted = await deleteSetting(`apikey:${user.id}:${keyId}`);
+  const deleted = await deleteSetting(apiKeySettingsKey(user.id, keyId));
   if (!deleted) return errorJson(404, "Key not found");
   return new Response(null, { status: 204 });
 };
