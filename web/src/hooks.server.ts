@@ -22,6 +22,7 @@ import {
 } from "$lib/server/auth/session-cookie";
 import { matchPreviewOrigin, servePreviewRequest } from "$lib/server/preview/dispatch";
 import { createPreviewWebSocketHandler } from "$lib/server/preview/ws-bridge";
+import { isLoopbackTestBypass } from "$lib/server/test-surface";
 
 const log = logger.child("hooks.server");
 
@@ -322,6 +323,26 @@ export const handle: Handle = async ({ event, resolve }) => {
 ;
 
   if (!isPublic) {
+    // ── Loopback test-surface bypass ───────────────────────────────────
+    // The deterministic mock-LLM completions endpoint is called
+    // server-internally by pi-ai's HTTP client over loopback with a dummy
+    // bearer token, so it cannot satisfy session/key auth. Let ONLY that
+    // path through, and ONLY when the test surface is enabled AND the peer
+    // is genuine loopback with no proxy-forwarding headers. Everything else
+    // (including the externally-reachable `/script` seed sub-path) still
+    // goes through the normal auth flow below.
+    {
+      let loopbackAddr: string | undefined;
+      try { loopbackAddr = event.getClientAddress(); } catch { loopbackAddr = undefined; }
+      const proxied =
+        request.headers.has("x-forwarded-for") ||
+        request.headers.has("x-real-ip") ||
+        request.headers.has("forwarded");
+      if (isLoopbackTestBypass(url.pathname, loopbackAddr, proxied)) {
+        return resolve(event);
+      }
+    }
+
     // Build /login URL preserving the page the user was trying to reach so we
     // can send them back after re-auth. GET only — POST/PUT/PATCH navigations
     // don't represent a "page the user was on". URLSearchParams handles

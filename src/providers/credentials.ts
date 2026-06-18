@@ -6,6 +6,7 @@
 
 import { getSetting, upsertSetting } from "../db/queries/settings";
 import { decrypt, encrypt } from "./encryption";
+import { isTestSurfaceEnabled, MOCK_PROVIDER } from "../test-surface";
 import {
   getOAuthApiKey,
   type OAuthCredentials,
@@ -177,6 +178,13 @@ export async function getCredential(
   provider: string,
   conversationId?: string,
 ): Promise<ProviderCredential> {
+  // 0. Deterministic mock provider (remote-test harness only). The mock
+  //    LLM ignores the token, but pi-ai's createClient requires a non-empty
+  //    key, so hand back a sentinel. Gated so this never resolves in prod.
+  if (provider === MOCK_PROVIDER && isTestSurfaceEnabled()) {
+    return { type: "apikey", token: "no-key-needed" };
+  }
+
   // 1. Check conversation-level override
   if (conversationId) {
     const override = await getSetting(

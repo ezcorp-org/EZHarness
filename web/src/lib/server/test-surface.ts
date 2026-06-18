@@ -1,29 +1,42 @@
 /**
- * Single source of truth for the TEST/DETERMINISM HTTP surface gate.
+ * Web-side test/determinism surface helpers.
  *
- * EZCorp ships a small set of test-only routes under `/api/__test/**`
- * (mock-LLM, deterministic seed/reset, harness key minting). They exist
- * so an external e2e harness can drive a NON-production instance
- * deterministically. They MUST be inert anywhere real users live.
- *
- * Gate design — fail-safe, two independent conditions, BOTH required:
- *
- *   1. `PI_E2E_REAL === "1"` — an explicit, default-OFF opt-in. This is
- *      the PRIMARY gate: the surface is closed unless an operator
- *      deliberately turns it on. (Reused — the real-auth Playwright
- *      harness already sets this, see `web/playwright.real.config.ts`.)
- *   2. `NODE_ENV !== "production"` — belt-and-braces. The production
- *      Docker image pins `NODE_ENV=production` (Dockerfile), so even if
- *      `PI_E2E_REAL` were ever set in prod the surface stays closed.
- *
- * When the gate is closed every test-only route returns 404 — the exact
- * shape an unrouted path emits — so an attacker who guesses the URL
- * cannot even distinguish "disabled" from "does not exist".
- *
- * This is the ONE definition. Routes must import it rather than
- * re-deriving the predicate inline (the pattern previously duplicated in
- * `seed-extension-author-draft` and `cleanup-extension`).
+ * The core gate predicate lives in `src/test-surface.ts` (backend, shared
+ * with the provider layer) and is re-exported here so web routes import it
+ * from one place. This module adds the loopback auth-bypass used by
+ * `hooks.server.ts`, which needs web-side loopback detection.
  */
-export function isTestSurfaceEnabled(): boolean {
-  return process.env.PI_E2E_REAL === "1" && process.env.NODE_ENV !== "production";
+import { isLoopbackAddress } from "./security/internal-auth";
+
+export { isTestSurfaceEnabled, MOCK_PROVIDER, mockLlmBaseUrl } from "$server/test-surface";
+import { isTestSurfaceEnabled } from "$server/test-surface";
+
+/**
+ * Path prefixes reachable WITHOUT session/bearer auth — but ONLY when the
+ * test surface is enabled AND the request is genuine loopback with no
+ * proxy-forwarding headers. The mock-LLM completions endpoint is the sole
+ * member: it is called server-internally by pi-ai's HTTP client (from
+ * inside this same process) with a dummy bearer token, so it can't satisfy
+ * normal auth. The `/script` seed sub-path is deliberately NOT here — it is
+ * called by the external harness and must go through normal API-key auth.
+ */
+export const LOOPBACK_TEST_BYPASS_PREFIXES = ["/api/__test/mock-llm/v1"] as const;
+
+export function isLoopbackTestBypass(
+  pathname: string,
+  remoteAddress: string | undefined,
+  proxyForwardedHeadersPresent: boolean,
+): boolean {
+  if (!isTestSurfaceEnabled()) return false;
+  // A proxied request's socket peer is not a trustworthy loopback signal.
+  if (proxyForwardedHeadersPresent) return false;
+  // Fail CLOSED on an unknown peer. `isLoopbackAddress` treats an
+  // empty/undefined address as loopback (a Unix-domain-socket signal that
+  // internal-auth pairs with a secret key), but this bypass grants
+  // UNAUTHENTICATED access, so an indeterminate peer must NOT pass.
+  if (!remoteAddress) return false;
+  if (!isLoopbackAddress(remoteAddress)) return false;
+  return LOOPBACK_TEST_BYPASS_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(p + "/"),
+  );
 }
