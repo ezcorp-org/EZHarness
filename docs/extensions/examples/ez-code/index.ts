@@ -19,6 +19,7 @@ import {
   PageBuilder,
   Schedule,
   Storage,
+  createLoopRunStore,
   createToolDispatcher,
   definePage,
   fsExists,
@@ -29,9 +30,12 @@ import {
   toolError,
   toolResult,
   type HubPageTree,
+  type LoopContract,
+  type LoopRunState,
   type MemoryRecord,
   type PageActionEvent,
   type ScheduleHandlerContext,
+  type StorageScope,
   type SubscribableEventMap,
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
@@ -115,7 +119,6 @@ export function resolveDispatchAgentName(agentName?: string): string {
 }
 
 export const PAGE_ID = "dashboard";
-export const RUNS_KEY = "runs";
 export const MAX_RUNS = 100;
 export const MAX_EVENTS_PER_RUN = 50;
 export const CANCEL_EVENT = "ez-code:cancel";
@@ -166,34 +169,147 @@ export interface RunRecord {
   events: RunEvent[];
 }
 
-// ── Run stores (Storage-backed; injectable for tests) ────────────────
+// ── Run stores (loop-store-backed; injectable for tests) ─────────────
+//
+// MIGRATION (Loop SDK primitive, §5 upgrade): run records now live in the
+// SDK `loop-store` — ONE Storage key per run + an index key, all mutations
+// under `withLock` — replacing the previous single `"runs"` blob that
+// read-modify-wrote the whole array on every fire (a race under concurrent
+// dispatches). The store exposes per-run ops (`create`/`get`/`list`/
+// `update`) so callers never round-trip the full array, and the pure
+// helpers (appendRun/mapStatus/applyAssignmentUpdate/isLive/recordRunEvent)
+// are GONE — that logic now lives in `@ezcorp/sdk/runtime`'s loop-core /
+// loop-store.
 //
 // PRIVACY (cross-user leak fix): user-dispatched runs are PER-USER and MUST
-// NOT bleed into the shared Hub page tree (which the host caches per
-// (extension,pageId) and serves to ALL users — render() gets no requesting
-// user, see hub-render-pull.ts). So we keep TWO buckets:
-//   - USER scope (Storage("user") → ctx.userId): runs a user dispatched.
-//     Read/written only in the invoking user's tool-call context. NEVER
-//     pushed into the shared tree.
-//   - GLOBAL scope (Storage("global") → null, reachable from ownerless cron
-//     fires): cron-fired/system runs. These are the ONLY runs the shared
-//     dashboard renders, and even then their private `/chat/<sub>` deep-links
-//     are stripped.
+// NOT bleed into the shared Hub page tree (the host caches it per
+// (extension,pageId) and serves it to ALL users — render() gets no
+// requesting user). So we keep TWO scoped stores:
+//   - USER scope ("user" → ctx.userId): runs a user dispatched. Read/written
+//     only in the invoking user's tool context. NEVER rendered into the
+//     shared tree.
+//   - GLOBAL scope ("global", reachable from ownerless cron fires):
+//     cron-fired/system runs. The ONLY runs the shared dashboard renders.
 
-export interface RunStore {
-  read(): Promise<RunRecord[]>;
-  write(runs: RunRecord[]): Promise<void>;
+const EZ_LOOP_ID = "ez-code";
+const EZ_CONTRACT: LoopContract = {
+  states: ["dispatched", "running", "completed", "failed", "cancelled"],
+  terminal: ["completed", "failed", "cancelled"],
+  retention: { maxRuns: MAX_RUNS, maxEventsPerRun: MAX_EVENTS_PER_RUN },
+};
+
+/** The ez-code-specific run fields stored as the loop run's `outcome`. The
+ *  status / events / timestamps live on the LoopRunState itself. */
+export interface RunOutcome {
+  taskId: string;
+  assignmentId: string;
+  subConversationId: string;
+  agentName: string;
+  title: string;
+  task: string;
 }
 
-function storageBackedRunStore(scope: "user" | "global"): RunStore {
-  const storage = new Storage(scope);
+/** Whether a run status is still live (steerable / cancellable). Replaces
+ *  the old exported `isLive` pure helper; the vocabulary is the same. */
+export function isLive(status: RunStatus): boolean {
+  return status === "dispatched" || status === "running";
+}
+
+/** Map a host assignment status onto a RunStatus. Replaces the old exported
+ *  `mapStatus` helper (unchanged behavior). */
+export function mapStatus(assignmentStatus: string): RunStatus {
+  switch (assignmentStatus) {
+    case "running":
+      return "running";
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "cancelled":
+      return "cancelled";
+    default:
+      return "dispatched";
+  }
+}
+
+/** Per-run store ops ez-code's handlers need, backed by loop-store. */
+export interface RunStore {
+  /** All runs, newest first. */
+  list(): Promise<RunRecord[]>;
+  /** One run by id, or null. */
+  get(id: string): Promise<RunRecord | null>;
+  /** Create a new (dispatched) run. */
+  create(run: RunRecord): Promise<void>;
+  /** Apply a status + event-log update to an existing run. No-op if absent.
+   *  `status` omitted keeps the current status; `note` adds an event. */
+  update(
+    id: string,
+    next: { status?: RunStatus; eventStatus: string; note?: string },
+  ): Promise<void>;
+}
+
+/** Map a stored LoopRunState back to the surfaced RunRecord shape. */
+export function toRunRecord(run: LoopRunState<RunOutcome>): RunRecord {
+  const o = run.outcome;
   return {
-    async read() {
-      const result = await storage.get<RunRecord[]>(RUNS_KEY);
-      return Array.isArray(result.value) ? result.value : [];
+    id: run.id,
+    taskId: o?.taskId ?? "",
+    assignmentId: o?.assignmentId ?? "",
+    subConversationId: o?.subConversationId ?? "",
+    agentName: o?.agentName ?? "",
+    title: o?.title ?? "",
+    task: o?.task ?? "",
+    status: run.status as RunStatus,
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt,
+    events: run.events.map((e) => ({
+      at: e.at,
+      status: e.status,
+      ...(e.note ? { note: e.note } : {}),
+    })),
+  };
+}
+
+/** A RunStore backed by the SDK loop-store for the given scope. */
+function loopBackedRunStore(scope: StorageScope): RunStore {
+  const store = createLoopRunStore<RunOutcome>(EZ_LOOP_ID, {
+    ...EZ_CONTRACT,
+    scope,
+  });
+  return {
+    async list() {
+      return (await store.list()).map(toRunRecord);
     },
-    async write(runs) {
-      await storage.set(RUNS_KEY, runs);
+    async get(id) {
+      const run = await store.get(id);
+      return run ? toRunRecord(run) : null;
+    },
+    async create(run) {
+      await store.claim({
+        id: run.id,
+        loopId: EZ_LOOP_ID,
+        status: run.status,
+        outcome: {
+          taskId: run.taskId,
+          assignmentId: run.assignmentId,
+          subConversationId: run.subConversationId,
+          agentName: run.agentName,
+          title: run.title,
+          task: run.task,
+        },
+      });
+    },
+    async update(id, next) {
+      const current = await store.get(id);
+      if (!current) return;
+      await store.transition(id, {
+        // Run status: the mapped RunStatus, or unchanged when omitted (e.g.
+        // a "steered" event keeps the run "running").
+        status: next.status ?? (current.status as RunStatus),
+        // Event-log status: the RAW host/action status (steered/completed/…).
+        eventStatus: next.eventStatus,
+        ...(next.note ? { note: next.note } : {}),
+      });
     },
   };
 }
@@ -201,11 +317,11 @@ function storageBackedRunStore(scope: "user" | "global"): RunStore {
 let userStore: RunStore | null = null;
 let globalStore: RunStore | null = null;
 function getUserStore(): RunStore {
-  if (!userStore) userStore = storageBackedRunStore("user");
+  if (!userStore) userStore = loopBackedRunStore("user");
   return userStore;
 }
 function getGlobalStore(): RunStore {
-  if (!globalStore) globalStore = storageBackedRunStore("global");
+  if (!globalStore) globalStore = loopBackedRunStore("global");
   return globalStore;
 }
 /** Test seam: substitute the per-user (tool-context) run store. */
@@ -240,87 +356,29 @@ export function _setAppendMessageForTests(fn: AppendMessageRpc | null): void {
 }
 
 // ── Pure helpers ──────────────────────────────────────────────────
+//
+// The old appendRun / applyAssignmentUpdate / runMatches / recordRunEvent
+// helpers are GONE — that run-list state machine now lives in the SDK
+// loop-core / loop-store (per-run keys under withLock). `mapStatus` and
+// `isLive` (small, ez-code-specific status mapping) stay, defined up with
+// the store. `findRunMatch` below replaces `runMatches`/the inline match in
+// the deferred-completion handler.
 
-/** Prepend the newest run; cap the list. Pure — returns a new array. */
-export function appendRun(runs: RunRecord[], run: RunRecord): RunRecord[] {
-  return [run, ...runs].slice(0, MAX_RUNS);
-}
-
-/** Map a host assignment status onto our run status. Pure. */
-export function mapStatus(assignmentStatus: string): RunStatus {
-  switch (assignmentStatus) {
-    case "running":
-      return "running";
-    case "completed":
-      return "completed";
-    case "failed":
-      return "failed";
-    case "cancelled":
-      return "cancelled";
-    default:
-      return "dispatched";
-  }
-}
-
-/**
- * Apply a task:assignment_update event to the matching run (by agentRunId
- * or assignmentId): flip status + append a capped event-log entry. Pure —
- * returns a NEW array; runs not matching pass through unchanged. Returns
- * the same array reference semantics aside, callers persist the result.
- */
-export function applyAssignmentUpdate(
+/** Find the run id (in `runs`) that a task:assignment_update targets, by
+ *  agentRunId / assignmentId / taskId. Returns null when none match. */
+export function findRunMatch(
   runs: RunRecord[],
   evt: TaskAssignmentUpdateEvent,
-): RunRecord[] {
+): RunRecord | null {
   const a = evt.assignment;
-  const at = new Date().toISOString();
-  return runs.map((r) => {
-    const matches =
-      (a.agentRunId && r.id === a.agentRunId) ||
-      r.assignmentId === a.id ||
-      r.taskId === evt.taskId;
-    if (!matches) return r;
-    const status = mapStatus(a.status);
-    const events = [
-      { at, status: a.status, ...(a.resultPreview ? { note: a.resultPreview } : {}) },
-      ...r.events,
-    ].slice(0, MAX_EVENTS_PER_RUN);
-    return { ...r, status, updatedAt: at, events };
-  });
-}
-
-/** Whether any run in the list matches the event (by run/assignment/task id).
- *  Pure — lets the caller skip a store write when the event isn't for this
- *  bucket. */
-export function runMatches(runs: RunRecord[], evt: TaskAssignmentUpdateEvent): boolean {
-  const a = evt.assignment;
-  return runs.some(
-    (r) =>
-      (!!a.agentRunId && r.id === a.agentRunId) ||
-      r.assignmentId === a.id ||
-      r.taskId === evt.taskId,
+  return (
+    runs.find(
+      (r) =>
+        (!!a.agentRunId && r.id === a.agentRunId) ||
+        r.assignmentId === a.id ||
+        r.taskId === evt.taskId,
+    ) ?? null
   );
-}
-
-/** A run is steerable/cancellable only while it's still live. Pure. */
-export function isLive(status: RunStatus): boolean {
-  return status === "dispatched" || status === "running";
-}
-
-/** Append a free-form event to the matching run (status optionally forced).
- *  Pure — returns a NEW array. */
-export function recordRunEvent(
-  runs: RunRecord[],
-  runId: string,
-  evt: { status: string; note?: string },
-  forceStatus?: RunStatus,
-): RunRecord[] {
-  const at = new Date().toISOString();
-  return runs.map((r) => {
-    if (r.id !== runId) return r;
-    const events = [{ at, ...evt }, ...r.events].slice(0, MAX_EVENTS_PER_RUN);
-    return { ...r, updatedAt: at, ...(forceStatus ? { status: forceStatus } : {}), events };
-  });
 }
 
 const STATUS_BADGE: Record<RunStatus, string> = {
@@ -431,7 +489,7 @@ export function buildDashboard(runs: RunRecord[], extras: DashboardExtras = {}):
  *  per-user (user scope) and are NEVER rendered into this shared, cross-user
  *  cached tree. */
 export async function buildDashboardLive(): Promise<HubPageTree> {
-  const runs = await getGlobalStore().read();
+  const runs = await getGlobalStore().list();
   let memories: MemoryRecord[] = [];
   let tasks: TaskRecord[] = [];
   try {
@@ -499,8 +557,9 @@ export async function dispatchRunCore(
     updatedAt: now,
     events: [{ at: now, status: "dispatched" }],
   };
-  const runs = appendRun(await store.read(), record);
-  await store.write(runs);
+  // Persist via the loop-store-backed per-run create (claim) — newest-first
+  // index + retention cap are owned by loop-store, not a hand-rolled blob.
+  await store.create(record);
   if (push) await pushSharedDashboard();
   return record;
 }
@@ -562,7 +621,7 @@ export const dispatchRun: ToolHandler = async (args) => {
  *  newest first. */
 export const listRuns: ToolHandler = async (args) => {
   const { limit } = (args ?? {}) as { limit?: unknown };
-  const runs = await getUserStore().read();
+  const runs = await getUserStore().list();
   const n = typeof limit === "number" && limit > 0 ? Math.floor(limit) : MAX_RUNS;
   const slice = runs.slice(0, n).map((r) => ({
     id: r.id,
@@ -588,8 +647,7 @@ export async function steerRunById(
   store: RunStore = getUserStore(),
   push = false,
 ): Promise<{ ok: boolean; error?: string }> {
-  const runs = await store.read();
-  const run = runs.find((r) => r.id === runId);
+  const run = await store.get(runId);
   if (!run) return { ok: false, error: `no run with id '${runId}'` };
   if (!isLive(run.status)) {
     return { ok: false, error: `run '${runId}' is ${run.status} — not steerable` };
@@ -605,11 +663,11 @@ export async function steerRunById(
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
-  const next = recordRunEvent(runs, runId, {
-    status: "steered",
+  // Record a "steered" EVENT without changing the run's status (stays live).
+  await store.update(runId, {
+    eventStatus: "steered",
     note: message.slice(0, 120),
   });
-  await store.write(next);
   if (push) await pushSharedDashboard();
   return { ok: true };
 }
@@ -647,8 +705,7 @@ export async function cancelRunById(
   store: RunStore = getUserStore(),
   push = false,
 ): Promise<{ ok: boolean; error?: string }> {
-  const runs = await store.read();
-  const run = runs.find((r) => r.id === runId);
+  const run = await store.get(runId);
   if (!run) return { ok: false, error: `no run with id '${runId}'` };
   let result: Awaited<ReturnType<typeof cancelRun>>;
   try {
@@ -659,8 +716,8 @@ export async function cancelRunById(
   if (!result.cancelled) {
     return { ok: false, error: `host rejected cancel: ${result.reason ?? "unknown"}` };
   }
-  const next = recordRunEvent(runs, runId, { status: "cancelled" }, "cancelled");
-  await store.write(next);
+  // Flip the run to cancelled + record the event.
+  await store.update(runId, { status: "cancelled", eventStatus: "cancelled" });
   if (push) await pushSharedDashboard();
   return { ok: true };
 }
@@ -945,8 +1002,7 @@ export async function openPrForRun(
   store: RunStore = getUserStore(),
   push = false,
 ): Promise<{ ok: boolean; url?: string; error?: string }> {
-  const runs = await store.read();
-  const run = runs.find((r) => r.id === runId);
+  const run = await store.get(runId);
   if (!run) return { ok: false, error: `no run with id '${runId}'` };
 
   const repo = projectRootImpl();
@@ -1040,11 +1096,8 @@ export async function openPrForRun(
       if (cmd[0] === "gh") prUrl = res.stdout.trim();
     }
 
-    const next = recordRunEvent(runs, runId, {
-      status: "pr_opened",
-      note: prUrl || branch,
-    });
-    await store.write(next);
+    // Record a "pr_opened" event (run status unchanged).
+    await store.update(runId, { eventStatus: "pr_opened", note: prUrl || branch });
     if (push) await pushSharedDashboard();
     return { ok: true, url: prUrl || undefined };
   } finally {
@@ -1224,18 +1277,27 @@ export async function handleSteerAction(event: PageActionEvent): Promise<void> {
 export async function handleAssignmentUpdate(
   evt: TaskAssignmentUpdateEvent,
 ): Promise<void> {
-  // User store: update silently (no shared push — privacy). Only write when
-  // the run actually lives there, so an unrelated global event doesn't
-  // rewrite the user's bucket.
-  const userBefore = await getUserStore().read();
-  if (runMatches(userBefore, evt)) {
-    await getUserStore().write(applyAssignmentUpdate(userBefore, evt));
+  const a = evt.assignment;
+  const next = {
+    status: mapStatus(a.status),
+    eventStatus: a.status,
+    ...(a.resultPreview ? { note: a.resultPreview } : {}),
+  };
+
+  // User store: update SILENTLY (no shared push — privacy). Only the run
+  // that actually lives there mutates; an unrelated global event is a no-op.
+  const userMatch = findRunMatch(await getUserStore().list(), evt);
+  if (userMatch) {
+    await getUserStore().update(userMatch.id, next);
   }
 
-  // Global store: update + push the shared dashboard.
-  const runs = applyAssignmentUpdate(await getGlobalStore().read(), evt);
-  await getGlobalStore().write(runs);
-  pushPageImpl(PAGE_ID, buildDashboard(runs));
+  // Global store: update the matching (cron/system) run + push the SHARED
+  // dashboard. The push renders the global store ONLY (never user runs).
+  const globalMatch = findRunMatch(await getGlobalStore().list(), evt);
+  if (globalMatch) {
+    await getGlobalStore().update(globalMatch.id, next);
+  }
+  pushPageImpl(PAGE_ID, buildDashboard(await getGlobalStore().list()));
 }
 
 // ── Wiring ────────────────────────────────────────────────────────

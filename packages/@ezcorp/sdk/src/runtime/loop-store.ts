@@ -49,6 +49,8 @@ const EMPTY_META: LoopMeta = { consecutiveErrors: 0, disabled: false };
  *  generic inference across the two `LoopRunState` instantiations). */
 export interface LoopTransitionInput<Outcome = unknown> {
   status: string;
+  /** Status for the appended event-log entry; defaults to `status`. */
+  eventStatus?: string;
   note?: string;
   outcome?: Outcome;
   externalRunId?: string;

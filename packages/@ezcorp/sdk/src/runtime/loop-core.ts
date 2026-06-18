@@ -151,6 +151,11 @@ export function transition<Outcome = unknown>(
   run: LoopRunState<Outcome>,
   next: {
     status: string;
+    /** Status recorded on the appended EVENT-LOG entry. Defaults to
+     *  `status`. Lets a caller record a raw host event (e.g. "steered")
+     *  while the run's top-level status stays unchanged or maps to a
+     *  different contract state. */
+    eventStatus?: string;
     note?: string;
     outcome?: Outcome;
     externalRunId?: string;
@@ -163,7 +168,7 @@ export function transition<Outcome = unknown>(
 ): LoopRunState<Outcome> {
   const evt: LoopRunEvent = {
     at: now,
-    status: next.status,
+    status: next.eventStatus ?? next.status,
     ...(next.note ? { note: next.note } : {}),
   };
   return {
