@@ -65,6 +65,7 @@
   "src/search/cache.ts": 100,
   "src/search/markdown.ts": 100,
   "src/search/index.ts": 100,
+  "src/search/backend-config.ts": 100,
   "src/search/policy.ts": 100,
   "src/search/search-quota.ts": 100,
   "src/extensions/search-handler.ts": 100,

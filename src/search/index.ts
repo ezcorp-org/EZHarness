@@ -24,6 +24,7 @@ import {
 } from "./providers";
 import { formatResults, truncate } from "./markdown";
 import { getSharedSearchCache, SearchCache } from "./cache";
+import { resolveSearchBackendEnv } from "./backend-config";
 import type { EgressMode, EgressBlockReason } from "./egress";
 
 const SEARCH_TTL_MS = 15 * 60 * 1000;
@@ -85,13 +86,21 @@ export interface SearchModuleResult {
   cached: boolean;
 }
 
-function resolve(opts: SearchModuleOpts): { providers: ResolvedProviders; cache: SearchCache } {
+async function resolve(
+  opts: SearchModuleOpts,
+): Promise<{ providers: ResolvedProviders; cache: SearchCache }> {
   const cache = opts.cache ?? getSharedSearchCache();
   if (opts.providers) return { providers: opts.providers, cache };
   const transport =
     opts.transport ??
     makeGuardedTransport(opts.onEgressBlocked ? { onBlocked: opts.onEgressBlocked } : undefined);
-  return { providers: resolveProviders(transport, opts.env ?? process.env), cache };
+  // When the caller supplies `env` (every existing test seam) use it
+  // verbatim — NO DB hit. Only the real handler path (neither `providers`
+  // nor `env`) bridges the persisted Settings → Search backend config into
+  // the resolver env. See ./backend-config.ts for the precedence + security
+  // contract.
+  const env = opts.env ?? (await resolveSearchBackendEnv());
+  return { providers: resolveProviders(transport, env), cache };
 }
 
 function clampMaxResults(n: unknown): number {
@@ -114,7 +123,7 @@ export async function performSearch(
     throw new Error("`query` is required and must be a non-empty string.");
   }
   const n = clampMaxResults(opts.maxResults);
-  const { providers, cache } = resolve(opts);
+  const { providers, cache } = await resolve(opts);
   const { search } = providers;
 
   // Policy provider allowlist (Phase 2) — gate the resolved provider
@@ -178,7 +187,7 @@ export async function performRead(
     throw new Error("`url` is required and must be a non-empty string.");
   }
   const cap = clampMaxChars(opts.maxChars);
-  const { providers, cache } = resolve(opts);
+  const { providers, cache } = await resolve(opts);
   const { reader } = providers;
 
   const key = SearchCache.key(reader.name, "read", url, "raw");

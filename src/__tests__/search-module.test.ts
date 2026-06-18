@@ -5,7 +5,8 @@
  * live network, no DB): cache hit/miss, fallback-namespace probing,
  * input validation, provider-error wrapping, and result clamping.
  */
-import { test, expect, describe, beforeEach } from "bun:test";
+import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
+import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { performSearch, performRead, ProviderNotAllowedError } from "../search/index";
 import { SearchCache } from "../search/cache";
 import type {
@@ -17,6 +18,24 @@ import type {
   SearchOutcome,
   Transport,
 } from "../search/providers";
+
+afterAll(() => restoreModuleMocks());
+
+// Backend-config bridge stub state (Phase A): the bridge reads
+// `getSetting` + `decrypt`. Only the bridge-path tests below populate
+// these; every other test in this file passes `env`/`providers` and never
+// reaches `resolveSearchBackendEnv`.
+let bridgeSettings: Map<string, unknown>;
+beforeEach(() => {
+  bridgeSettings = new Map();
+});
+mock.module("../db/queries/settings", () => ({
+  getSetting: async (key: string) => bridgeSettings.get(key),
+}));
+mock.module("../providers/encryption", () => ({
+  decrypt: (ciphertext: string) =>
+    ciphertext.startsWith("enc:") ? ciphertext.slice("enc:".length) : ciphertext,
+}));
 
 const RESULTS: SearchResult[] = [{ title: "T", url: "https://u", snippet: "S" }];
 const MD = "- [T](https://u)\n  S";
@@ -122,6 +141,33 @@ describe("performSearch", () => {
       const p = stubSearch("tavily", async () => RESULTS);
       const out = await performSearch("bun", { cache, providers: providers(p), allowedProviders: "all" });
       expect(out.providerName).toBe("tavily");
+    });
+  });
+
+  describe("backend-config bridge (Phase A)", () => {
+    test("selects Tavily when a persisted BYOK key bridges (no env/providers supplied)", async () => {
+      // Persisted Tavily key only — no opts.env, no opts.providers, so
+      // resolve() bridges via resolveSearchBackendEnv → Tavily is selected.
+      bridgeSettings.set("provider:apiKey:tavily", "enc:tav-key");
+      let capturedUrl = "";
+      const transport: Transport = async (req) => {
+        capturedUrl = req.url;
+        return new Response(
+          JSON.stringify({ results: [{ title: "T", url: "https://u", content: "S" }] }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      };
+      const out = await performSearch("bun", { cache, transport });
+      expect(out.providerName).toBe("tavily");
+      expect(capturedUrl).toContain("tavily.com");
+    });
+
+    test("read path resolves the Jina reader through the bridged env", async () => {
+      bridgeSettings.set("provider:apiKey:jina", "enc:jina-key");
+      const transport: Transport = async () =>
+        new Response("# Page\n\nbody", { status: 200, headers: { "content-type": "text/plain" } });
+      const out = await performRead("https://example.com", { cache, transport });
+      expect(out.providerName).toBe("jina");
     });
   });
 
