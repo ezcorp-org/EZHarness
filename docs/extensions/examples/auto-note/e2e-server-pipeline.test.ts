@@ -43,33 +43,26 @@ mock.module("../../../../src/db/queries/extensions", () => ({
 
 // Import AFTER mock.module so the subprocess module resolves to our stub.
 import { ExtensionProcess } from "../../../../src/extensions/subprocess";
-
-// ── buildAllowedEnv() parity ────────────────────────────────────
-// Mirrors registry.ts buildAllowedEnv() for a permissions-minimal extension.
-// auto-note declares filesystem: ["$CWD"], shell: false, storage: true — no
-// env permissions — so the allowlist is just PATH/HOME/NODE_ENV/TMPDIR.
-function buildAllowedEnvLike(extensionId: string): Record<string, string> {
-  const extTmpDir = join(tmpdir(), "ezcorp-ext", extensionId);
-  mkdirSync(extTmpDir, { recursive: true });
-  return {
-    PATH: process.env.PATH ?? "",
-    HOME: process.env.HOME ?? "",
-    NODE_ENV: process.env.NODE_ENV ?? "test",
-    TMPDIR: extTmpDir,
-  };
-}
+import { buildHarnessEnv, wireFsHandler } from "../_harness/pipeline-harness";
 
 const AUTO_NOTE_ENTRYPOINT = join(import.meta.dir, "index.ts");
 const TEST_TMP_ROOT = join(tmpdir(), `auto-note-e2e-pipeline-${Date.now()}`);
 
 // ── Helpers ─────────────────────────────────────────────────────
+// auto-note declares `filesystem: ["$CWD"]` and persists its vault via the
+// SDK's host-mediated `fs*` helpers. Grant filesystem (EZCORP_FS_ALLOWED=1)
+// and wire the `ezcorp/fs.*` reverse-RPC handler (scoped to tmpdir, which
+// contains the per-test `.git` cwd) — parity with registry.ts + ToolExecutor.
+// See the shared `_harness` helper.
 function makeProc(): ExtensionProcess {
   const extId = "auto-note-test-" + Math.random().toString(36).slice(2, 8);
-  const env = buildAllowedEnvLike(extId);
-  return new ExtensionProcess(extId, AUTO_NOTE_ENTRYPOINT, env, {
+  const env = buildHarnessEnv(extId, { filesystem: true });
+  const proc = new ExtensionProcess(extId, AUTO_NOTE_ENTRYPOINT, env, {
     persistent: true,
     callTimeoutMs: 15_000,
   });
+  wireFsHandler(proc, { fsRoot: tmpdir() });
+  return proc;
 }
 
 describe("E2E: real ExtensionProcess (server pipeline)", () => {

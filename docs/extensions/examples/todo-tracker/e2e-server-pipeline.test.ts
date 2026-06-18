@@ -5,14 +5,15 @@
  * pattern. Spawns todo-tracker through `ExtensionProcess` (from
  * `src/extensions/subprocess.ts`) — the same class the server uses in
  * `ExtensionRegistry.getProcess` — so bugs that only surface in the full
- * server-pipeline path (sandbox preload, JSON-RPC framing, shell permission
- * propagation, env allowlist) are reproducible here.
+ * server-pipeline path (sandbox preload, JSON-RPC framing, host-mediated
+ * fs reverse-RPC, env allowlist) are reproducible here.
  *
- * todo-tracker declares `permissions.shell: true` and uses `Bun.$` to
- * enumerate source files; this test therefore spawns with
- * `shellAllowed: true` so EZCORP_SHELL_ALLOWED=1 reaches the preload and
- * keeps Bun.spawn/child_process unpoisoned — parity with what
- * registry.ts grants at production install time.
+ * todo-tracker declares `permissions.filesystem: ["$CWD"]` and walks the
+ * tree via the SDK's host-mediated `fsList` / `fsRead` (the pre-migration
+ * `Bun.$` shell-out is gone — manifest `shell: false`). This test therefore
+ * spawns with `EZCORP_FS_ALLOWED=1` and wires the `ezcorp/fs.*` reverse-RPC
+ * handler (via the shared `_harness` helper) — parity with what
+ * registry.ts + ToolExecutor grant at production install time.
  *
  * Isolated into its own file because `mock.module("../../../../src/db/queries/extensions")`
  * would otherwise contaminate the shared module cache for the rest of the
@@ -46,34 +47,23 @@ mock.module("../../../../src/db/queries/extensions", () => ({
 
 // Import AFTER mock.module so the subprocess module resolves to our stub.
 import { ExtensionProcess } from "../../../../src/extensions/subprocess";
-
-// ── buildAllowedEnv() parity ────────────────────────────────────
-// Mirrors registry.ts buildAllowedEnv() for todo-tracker's manifest
-// (filesystem: ["$CWD"], shell: true, no network/env permissions):
-// PATH/HOME/NODE_ENV/TMPDIR only. Shell permission is propagated via
-// ExtensionProcessOptions.shellAllowed → EZCORP_SHELL_ALLOWED=1.
-function buildAllowedEnvLike(extensionId: string): Record<string, string> {
-  const extTmpDir = join(tmpdir(), "ezcorp-ext", extensionId);
-  mkdirSync(extTmpDir, { recursive: true });
-  return {
-    PATH: process.env.PATH ?? "",
-    HOME: process.env.HOME ?? "",
-    NODE_ENV: process.env.NODE_ENV ?? "test",
-    TMPDIR: extTmpDir,
-  };
-}
+import { buildHarnessEnv, wireFsHandler } from "../_harness/pipeline-harness";
 
 const TODO_TRACKER_ENTRYPOINT = join(import.meta.dir, "index.ts");
 const TEST_TMP_ROOT = join(tmpdir(), `todo-tracker-e2e-pipeline-${Date.now()}`);
 
+// Filesystem grant + host-mediated `ezcorp/fs.*` wiring (scoped to tmpdir,
+// which contains the per-test cwd the scanner walks). Mirrors registry.ts +
+// ToolExecutor; see the shared `_harness` helper.
 function makeProc(): ExtensionProcess {
   const extId = "todo-tracker-test-" + Math.random().toString(36).slice(2, 8);
-  const env = buildAllowedEnvLike(extId);
-  return new ExtensionProcess(extId, TODO_TRACKER_ENTRYPOINT, env, {
+  const env = buildHarnessEnv(extId, { filesystem: true });
+  const proc = new ExtensionProcess(extId, TODO_TRACKER_ENTRYPOINT, env, {
     persistent: true,
     callTimeoutMs: 15_000,
-    shellAllowed: true,
   });
+  wireFsHandler(proc, { fsRoot: tmpdir() });
+  return proc;
 }
 
 describe("E2E: todo-tracker real ExtensionProcess (server pipeline)", () => {
@@ -113,7 +103,7 @@ describe("E2E: todo-tracker real ExtensionProcess (server pipeline)", () => {
     expect(first.text).toContain("No TODO");
   }, 30_000);
 
-  test("scan-todos over seeded files returns markers (Bun.$ shell permission flow)", async () => {
+  test("scan-todos over seeded files returns markers (host-mediated fsList/fsRead flow)", async () => {
     writeFileSync(join(cwd, "one.ts"), "// TODO(priority:high): finish integration\nexport const a = 1;\n");
     writeFileSync(join(cwd, "two.ts"), "// FIXME: edge case\nconst b = 2;\n");
     writeFileSync(join(cwd, "three.js"), "// HACK: temporary workaround\n");
