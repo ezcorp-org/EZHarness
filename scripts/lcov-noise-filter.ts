@@ -79,6 +79,28 @@ const SQL_CLOSE = /^\s*\),?\s*0?\)?\s*AS\b/i;
 // extends Bar {`. Interfaces are erased at compile time → no JS.
 const INTERFACE_DECL = /^\s*(export\s+)?interface\s+\w+/;
 
+// Class declaration header: `class Foo {`, `export class Bar extends Baz {`,
+// `export abstract class Qux implements I {`. Bun's coverage emitter assigns
+// a phantom zero-hit DA to the class-header line via sourcemap fallback when a
+// module that DECLARES the class is loaded but the class is never instantiated
+// in that shard. When the class IS exercised, Bun credits the hit to the
+// constructor / surrounding scope, never to the header line — so a class
+// header never carries a positive DA even under full coverage. Zero-hit-only,
+// so this can only strip phantom records, never real hits.
+const CLASS_DECL = /^\s*(export\s+)?(default\s+)?(abstract\s+)?class\s+\w+\s*(<[^>]*>)?\s*(extends\s|implements\s|\{|$)/;
+
+// Declaration-only class field with access/modifier prefix and a TYPE
+// annotation but NO initializer: `private readonly maxEntries: number;`,
+// `public foo: () => void;`, `protected static bar?: T,`. The TYPE is erased
+// at compile time and the field is only assigned in the constructor, so the
+// declaration line emits no JS — yet Bun fills it with a phantom zero-hit DA
+// when the declaring module is loaded without the class being constructed.
+// Requires at least one of private/public/protected/readonly/static so a
+// value-initialized field (`map = new Map()`, which DOES emit JS) is never
+// matched: those carry a `=` and are additionally guarded below.
+const MODIFIER_FIELD_DECL =
+  /^\s*(declare\s+)?((private|public|protected|readonly|static|override)\s+)+\w+\??\s*:/;
+
 // Interface METHOD signature: `read(): Promise<string | null>;` /
 // `write(text: string): Promise<void>;`. Matched only when the line is a
 // `name(params): ReturnType;` with NO `{` body and NO value `=` — i.e. a
@@ -113,7 +135,15 @@ export function isNoiseLine(text: string): boolean {
   if (SQL_CLOSE.test(text)) return true;
   if (TYPE_DECL.test(text)) return true;
   if (INTERFACE_DECL.test(text)) return true;
+  if (CLASS_DECL.test(text)) return true;
   if (METHOD_SIGNATURE.test(text)) return true;
+  if (MODIFIER_FIELD_DECL.test(text) && ENDS_WITH_TYPE_TERMINATOR.test(text)) {
+    // Reject if there's a value assignment (`=` outside an `=>` arrow) — a
+    // modifier-prefixed field WITH an initializer (`private x = foo();`)
+    // emits real JS and must keep its DA record.
+    const stripped = text.replace(/=>/g, "");
+    if (!stripped.includes("=")) return true;
+  }
   if (SWITCH_LABEL.test(text)) return true;
   if (UNION_CONTINUATION.test(text)) {
     // Guard: a line beginning with `|` that contains a value-level `=`

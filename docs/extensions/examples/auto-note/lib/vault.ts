@@ -1,8 +1,7 @@
 // ── Vault CRUD ──────────────────────────────────────────────────
 // Filesystem-backed vault with in-memory index for fast lookups.
 
-import { join } from "path";
-import { existsSync, readdirSync, unlinkSync } from "fs";
+import { join, dirname } from "path";
 import type {
   VaultNote, VaultIndex, VaultStats, Category, ActionItem,
   CaptureResult, PlannedAction, Config, CaptureOverrides,
@@ -14,10 +13,18 @@ import {
 } from "./categorizer";
 import {
   findProjectRoot as sdkFindProjectRoot,
-  atomicWrite,
-  loadJSON,
-  saveJSON,
+  fsRead,
+  fsWrite,
+  fsMkdir,
+  fsExists,
+  fsList,
+  fsUnlink,
 } from "@ezcorp/sdk/runtime";
+
+// Phase 3 fs hardening: this extension runs as a persistent SUBPROCESS, so
+// it must use the SDK's host-mediated `fs*` helpers. The legacy host-side
+// helpers (`atomicWrite`/`loadJSON`/`saveJSON`) and raw `Bun.file`/`node:fs`
+// are poisoned by the sandbox-preload and throw inside a subprocess.
 
 // ── Project Root Detection ──────────────────────────────────────
 //
@@ -66,27 +73,45 @@ function vaultAbsPath(vaultRoot: string, vaultRelPath: string): string {
 
 // ── File I/O ────────────────────────────────────────────────────
 //
-// `atomicWrite` comes from @ezcorp/sdk/runtime. `readFileOrNull` stays
-// local: it differs from the SDK's `atomicRead` in that it swallows
-// ALL read errors (not just missing files) — the vault intentionally
-// treats unreadable files as absent.
+// Host-mediated (`fsRead`/`fsWrite`/`fsMkdir`). `readFileOrNull` swallows
+// ALL read errors (missing OR unreadable) — the vault intentionally treats
+// unreadable files as absent. `writeFileEnsuringDir` replaces the legacy
+// `atomicWrite`, which created the parent dir before writing; the
+// host-mediated `fsWrite` does NOT, so we `fsMkdir` first.
 
 async function readFileOrNull(absPath: string): Promise<string | null> {
   try {
-    return await Bun.file(absPath).text();
+    const result = await fsRead(absPath);
+    return typeof result === "string" ? result : new TextDecoder().decode(result);
   } catch {
     return null;
   }
 }
 
+// NOTE: non-atomic — unlike the legacy `atomicWrite` (tmp-write + rename),
+// the host's `fsWrite` does a plain write with no rename, so an interrupted
+// write can leave a half-written file. Acceptable for this single-writer
+// example vault; do NOT copy this into a concurrent-write extension without
+// adding a write-then-rename step (two host ops).
+async function writeFileEnsuringDir(absPath: string, content: string): Promise<void> {
+  await fsMkdir(dirname(absPath), { recursive: true });
+  await fsWrite(absPath, content);
+}
+
 // ── Config ──────────────────────────────────────────────────────
 
 export async function loadConfig(): Promise<Config> {
-  return loadJSON<Config>(getConfigPath(), { defaultMode: "approval" });
+  const text = await readFileOrNull(getConfigPath());
+  if (text === null) return { defaultMode: "approval" };
+  try {
+    return JSON.parse(text) as Config;
+  } catch {
+    return { defaultMode: "approval" };
+  }
 }
 
 export async function saveConfig(config: Config): Promise<void> {
-  await saveJSON(getConfigPath(), config);
+  await writeFileEnsuringDir(getConfigPath(), JSON.stringify(config, null, 2));
 }
 
 // ── Index Management ────────────────────────────────────────────
@@ -96,11 +121,14 @@ export async function rebuildIndex(vaultRoot: string): Promise<VaultIndex> {
 
   for (const cat of CATEGORIES) {
     const catDir = join(vaultRoot, cat);
-    if (!existsSync(catDir)) continue;
-    const files = readdirSync(catDir).filter((f) => f.endsWith(".md"));
+    if (!(await fsExists(catDir))) continue;
+    const files = (await fsList(catDir))
+      .filter((e) => e.isFile && e.name.endsWith(".md"))
+      .map((e) => e.name);
     for (const file of files) {
       const absPath = join(catDir, file);
-      const content = await Bun.file(absPath).text();
+      const content = await readFileOrNull(absPath);
+      if (content === null) continue;
       const meta = parseFrontmatter(content);
       if (meta) {
         const relPath = `${cat}/${file}`;
@@ -287,7 +315,7 @@ export async function executeCapture(
   const frontmatter = buildFrontmatter(note);
   const markdown = `${frontmatter}\n\n# ${note.title}\n\n${body}${linkedNotesSection}${actionSection}\n`;
 
-  await atomicWrite(vaultAbsPath(vaultRoot, path), markdown);
+  await writeFileEnsuringDir(vaultAbsPath(vaultRoot, path), markdown);
   index[path] = note;
 
   // 2. Update backlinks in related notes
@@ -317,7 +345,7 @@ export async function executeCapture(
       updated = updated.replace(/^---\n[\s\S]*?\n---/, buildFrontmatter(relNote));
     }
 
-    await atomicWrite(absPath, updated);
+    await writeFileEnsuringDir(absPath, updated);
   }
 
   // 3. Create separate task notes for extracted action items
@@ -333,7 +361,7 @@ export async function executeCapture(
       actionable: true,
     };
     const taskMd = `${buildFrontmatter(taskNote)}\n\n# ${item.text}\n\nExtracted from [[${path}|${note.title}]]\n\n- [ ] ${item.text}\n`;
-    await atomicWrite(vaultAbsPath(vaultRoot, item.taskNotePath), taskMd);
+    await writeFileEnsuringDir(vaultAbsPath(vaultRoot, item.taskNotePath), taskMd);
     index[item.taskNotePath] = taskNote;
   }
 
@@ -527,8 +555,8 @@ export async function refileNote(
     const content = await readFileOrNull(vaultAbsPath(vaultRoot, oldPath));
     if (content) {
       const updated = content.replace(/^---\n[\s\S]*?\n---/, buildFrontmatter(note));
-      await atomicWrite(vaultAbsPath(vaultRoot, newPath), updated);
-      unlinkSync(vaultAbsPath(vaultRoot, oldPath));
+      await writeFileEnsuringDir(vaultAbsPath(vaultRoot, newPath), updated);
+      await fsUnlink(vaultAbsPath(vaultRoot, oldPath));
     }
 
     // Update index
@@ -545,7 +573,7 @@ export async function refileNote(
           const fixed = fileContent
             .replaceAll(`[[${oldPath}`, `[[${newPath}`)
             .replace(/^---\n[\s\S]*?\n---/, buildFrontmatter(n));
-          await atomicWrite(vaultAbsPath(vaultRoot, p), fixed);
+          await writeFileEnsuringDir(vaultAbsPath(vaultRoot, p), fixed);
           updatedFiles.push(p);
         }
       }
@@ -555,7 +583,7 @@ export async function refileNote(
     const content = await readFileOrNull(vaultAbsPath(vaultRoot, oldPath));
     if (content) {
       const updated = content.replace(/^---\n[\s\S]*?\n---/, buildFrontmatter(note));
-      await atomicWrite(vaultAbsPath(vaultRoot, oldPath), updated);
+      await writeFileEnsuringDir(vaultAbsPath(vaultRoot, oldPath), updated);
       updatedFiles.push(oldPath);
     }
     index[oldPath] = note;
@@ -635,7 +663,7 @@ export async function generateIndexMd(vaultRoot: string, index: VaultIndex): Pro
     "",
   ];
 
-  await atomicWrite(join(vaultRoot, "_index.md"), lines.join("\n"));
+  await writeFileEnsuringDir(join(vaultRoot, "_index.md"), lines.join("\n"));
 }
 
 // ── Stats for Panel ─────────────────────────────────────────────

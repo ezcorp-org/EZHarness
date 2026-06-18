@@ -28,6 +28,10 @@ import {
   createHostChannelForTests,
   _setDispatcherRegister,
 } from "@ezcorp/sdk/runtime";
+// Phase 3 fs hardening: the vault now routes IO through host-mediated
+// `fs*` reverse-RPC. In-process tests have no host, so we stub the channel
+// against real disk under TMP_DIR (see the shared `_harness` helper).
+import { installFsChannelStub, makeFsRpcHandler } from "../_harness/pipeline-harness";
 
 // ── Test helpers ────────────────────────────────────────────────
 
@@ -165,6 +169,9 @@ beforeEach(() => {
   try { rmSync(TMP_DIR, { recursive: true }); } catch {}
   setupVaultDirs();
   _testReset();
+  // Re-install per test: the global preload runs `__resetChannelForTests()`
+  // after each test, dropping the singleton the stub was attached to.
+  installFsChannelStub(TMP_DIR);
 });
 
 afterAll(() => {
@@ -1524,6 +1531,10 @@ async function spawnExtension(opts: { cwd: string; env?: Record<string, string> 
     HOME: process.env.HOME ?? "",
     NODE_ENV: process.env.NODE_ENV ?? "test",
     TMPDIR: opts.cwd,
+    // Phase 3 fs hardening: auto-note persists via host-mediated `fs*`
+    // reverse-RPC. Grant the flag + answer `ezcorp/fs.*` below (scoped to
+    // the subprocess cwd, which contains its `.ezcorp/extension-data` vault).
+    EZCORP_FS_ALLOWED: "1",
   };
 
   const proc = Bun.spawn(
@@ -1536,6 +1547,9 @@ async function spawnExtension(opts: { cwd: string; env?: Record<string, string> 
       env: { ...baseEnv, ...(opts.env ?? {}) },
     },
   );
+
+  // Host-side `ezcorp/fs.*` reverse-RPC handler, scoped to the subprocess cwd.
+  const fsHandler = makeFsRpcHandler(opts.cwd);
 
   // Collect stdout lines and demux responses from notifications
   const responseCbs = new Map<number | string, (msg: any) => void>();
@@ -1557,7 +1571,17 @@ async function spawnExtension(opts: { cwd: string; env?: Record<string, string> 
           if (!line) continue;
           try {
             const msg = JSON.parse(line);
-            if (msg.id != null) {
+            if (msg.method && msg.id != null) {
+              // Reverse-RPC REQUEST from the subprocess (e.g. ezcorp/fs.*).
+              // Answer it and write the response back over stdin — the host's
+              // job. Without this the subprocess's fsWrite never resolves.
+              const resp = fsHandler(msg) ?? {
+                jsonrpc: "2.0", id: msg.id,
+                error: { code: -32601, message: `Method not found: ${msg.method}` },
+              };
+              (proc.stdin as any).write(JSON.stringify(resp) + "\n");
+              if ((proc.stdin as any).flush) (proc.stdin as any).flush();
+            } else if (msg.id != null) {
               responseCbs.get(msg.id)?.(msg);
               responseCbs.delete(msg.id);
             } else if (msg.method) {
