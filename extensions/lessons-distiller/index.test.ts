@@ -14,6 +14,8 @@ import {
   tools,
   handleRunComplete,
   distill,
+  distillRunComplete,
+  defineDistillLoop,
   _setRuntimeApiForTests,
   _resetRuntimeApiForTests,
   _resetDistillerModelWarningForTests,
@@ -696,5 +698,74 @@ describe("distill_now tool — argument validation", () => {
     if (env.outcome.kind === "decline") {
       expect(env.outcome.reason).toBe("settings_disabled");
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Loop migration — distillRunComplete shared core (settings-injected) +
+// defineDistillLoop registration. The act-result mapping (skip/terminal)
+// rides on the SDK loop facade (covered by the SDK loop suite); here we
+// pin the extension-owned shared core that BOTH the listener path and the
+// loop act call, so the gating + outcome contract has 1:1 coverage.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("distillRunComplete — shared settings-injected core", () => {
+  test("settings.enabled=false → undefined (gated, no distill)", async () => {
+    const fake = makeFakeRuntime();
+    _setRuntimeApiForTests(fake.api);
+    const out = await distillRunComplete(
+      { run: { agentName: "chat", status: "success" }, conversationId: "c1" },
+      { enabled: false },
+    );
+    expect(out).toBeUndefined();
+    expect(fake.calls.find((c) => c.api === "llmComplete")).toBeUndefined();
+  });
+
+  test("wrong agent/status → undefined", async () => {
+    const fake = makeFakeRuntime();
+    _setRuntimeApiForTests(fake.api);
+    expect(
+      await distillRunComplete(
+        { run: { agentName: "team", status: "success" }, conversationId: "c1" },
+        { enabled: true },
+      ),
+    ).toBeUndefined();
+  });
+
+  test("happy path → success outcome (settings come from the caller)", async () => {
+    const fake = makeFakeRuntime();
+    fake.setSettings({}); // not consulted — settings are injected
+    _setRuntimeApiForTests(fake.api);
+    const out = await distillRunComplete(
+      { run: { agentName: "chat", status: "success" }, conversationId: "c1" },
+      { enabled: true, provider: "openai", model: "" },
+    );
+    expect(out?.kind).toBe("success");
+    // provider override threaded through to the LLM call
+    const llmCall = fake.calls.find((c) => c.api === "llmComplete");
+    expect(llmCall?.args).toMatchObject({ provider: "openai", model: "gpt-4o-mini" });
+  });
+
+  test("conversation unwired (-32604) → undefined, fail-soft", async () => {
+    const fake = makeFakeRuntime({
+      async getMessagesEnvelope() {
+        throw new (await import("@ezcorp/sdk/runtime")).JsonRpcError(-32604, "not wired");
+      },
+    });
+    _setRuntimeApiForTests(fake.api);
+    expect(
+      await distillRunComplete(
+        { run: { agentName: "chat", status: "success" }, conversationId: "c1" },
+        { enabled: true },
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe("defineDistillLoop — registration", () => {
+  test("registers the run:complete capture loop without throwing", () => {
+    // Tests run with `import.meta.main` false, so the boot wiring never
+    // ran — registering once here is safe (no duplicate-id collision).
+    expect(() => defineDistillLoop()).not.toThrow();
   });
 });

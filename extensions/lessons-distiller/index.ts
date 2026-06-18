@@ -30,14 +30,16 @@
 
 import {
   createToolDispatcher,
+  defineLoop,
   getChannel,
+  getLoopTools,
   getSetting,
   JsonRpcError,
   Lessons,
   Llm,
   LlmCredentialError,
   LlmProviderError,
-  registerEventHandler,
+  resolveProviderModel,
   toolError,
   toolResult,
   invoke,
@@ -136,30 +138,12 @@ interface DistilledLesson {
 
 // ── Provider/model defaults ─────────────────────────────────────────
 //
-// Independent map (NOT a re-export of the legacy DISTILLATION_MODELS so
-// the deletion in Stage 2 doesn't ripple here). v1 values match the
-// legacy exactly so the parity test's mocked LLM response is fed
-// through the same provider key. Any setting override wins; falling
-// back to "google" preserves the legacy auto-listener default.
-const PROVIDER_DEFAULT_MODEL: Record<string, string> = {
-  google: "gemini-2.0-flash-lite",
-  openai: "gpt-4o-mini",
-  anthropic: "claude-haiku-4-5-20250514",
-  ollama: "gemma4:e2b",
-};
-
-function resolveProviderModel(
-  providerSetting: string | undefined,
-  modelSetting: string | undefined,
-): { provider: string; model: string } {
-  const provider = (providerSetting && PROVIDER_DEFAULT_MODEL[providerSetting])
-    ? providerSetting
-    : "google";
-  const model = (modelSetting && modelSetting.length > 0)
-    ? modelSetting
-    : (PROVIDER_DEFAULT_MODEL[provider] ?? "gemini-2.0-flash-lite");
-  return { provider, model };
-}
+// The provider→default-model map + resolution logic now live in the SDK
+// (`resolveProviderModel`, imported above) — the Loop primitive owns the
+// single shared copy, so the per-extension duplicate is DELETED (spec
+// decision #6). v1 values are identical (google/gemini-2.0-flash-lite,
+// openai/gpt-4o-mini, anthropic/claude-haiku-4-5, ollama/gemma4:e2b), so
+// every existing distiller test still resolves the same provider key.
 
 // ── Conversation message + settings shapes (RPC contract) ───────────
 //
@@ -488,55 +472,53 @@ export async function handleRunComplete(payload: { run?: unknown; conversationId
     // distillLesson which treats missing setting as enabled).
     settings = {};
   }
-  if (settings.enabled === false) return;
+  await distillRunComplete(payload, settings);
+}
+
+/**
+ * Shared run:complete distillation core, settings-injected. Called from
+ * BOTH the `handleRunComplete` listener (which round-trips `getMySettings`
+ * because it has no ctx) AND the `defineLoop` act (which gets settings
+ * from `ctx.settings`, the primitive-owned resolution). Extracting this
+ * is the DRY win: the gating + project-id resolution + warn-once is
+ * written ONCE. Returns the produced `DistillationOutcome`, or `undefined`
+ * when a gate short-circuits before distillation.
+ */
+export async function distillRunComplete(
+  payload: { run?: unknown; conversationId?: string },
+  settings: Record<string, unknown>,
+): Promise<DistillationOutcome | undefined> {
+  const conversationId = payload?.conversationId;
+  if (!conversationId) return undefined;
+  if (settings.enabled === false) return undefined;
 
   // Status / agent gating — only successful chat runs distill.
   const run = payload?.run as { agentName?: string; status?: string } | undefined;
-  if (run?.agentName !== "chat" || run?.status !== "success") return;
+  if (run?.agentName !== "chat" || run?.status !== "success") return undefined;
 
   // Resolve the project id via the same getMessages call (embedded in
-  // the response — see host-side handler).
-  //
-  // Distinguish the two failure modes the host now signals:
-  //   - JsonRpcError code -32604 ("conversation not found" OR "not
-  //     wired to this caller") → silent skip; the run:complete handler
-  //     is fire-and-forget and the conversation may simply have been
-  //     deleted between fire-time and now, or this extension just
-  //     isn't wired into it.
-  //   - JsonRpcError code -32603 (DB error) or anything else → log,
-  //     then return. This used to be silent (pre-S3-fix) which made a
-  //     transient DB blip indistinguishable from "conversation not
-  //     found" — operators couldn't tell whether the listener was
-  //     misconfigured or the DB was flapping.
-  // The listener contract is still fire-and-forget (we never throw),
-  // but the log is the operator's signal.
+  // the response). -32604 ("not found"/"not wired") → silent skip;
+  // anything else → log + skip (fire-and-forget; never throw).
   let projectId: string;
   try {
     const messagesEnvelope = await runtimeApi.getMessagesEnvelope(conversationId);
-    if (!messagesEnvelope.projectId) return;
+    if (!messagesEnvelope.projectId) return undefined;
     projectId = messagesEnvelope.projectId;
   } catch (err) {
     if (err instanceof JsonRpcError && err.code === -32604) {
-      // Silent — expected for deleted / unwired conversations.
-      return;
+      return undefined; // expected for deleted / unwired conversations
     }
-    console.warn("[lessons-distiller] handleRunComplete: getMessagesEnvelope failed", {
+    console.warn("[lessons-distiller] distillRunComplete: getMessagesEnvelope failed", {
       conversationId,
       code: err instanceof JsonRpcError ? err.code : undefined,
       error: err instanceof Error ? err.message : String(err),
     });
-    return;
+    return undefined;
   }
 
-  // Run distillation. Decline outcomes stay silent (the listener
-  // contract is fire-and-forget; the host-side audit row records what
-  // happened). The ONE exception is a provider/credential-class LLM
-  // failure: that means the configured distiller model is unusable on
-  // this instance (e.g. default google/gemini-2.0-flash-lite with no
-  // Google credential). We degrade fail-soft — warn ONCE per process
-  // with actionable text and skip cleanly — rather than re-failing the
-  // identical credential-less call (and re-spamming the host log) on
-  // every run:complete.
+  // Run distillation. The ONE special case is a provider/credential-class
+  // LLM failure: the configured model is unusable on this instance — warn
+  // ONCE per (provider, model) and skip, never error-spam.
   const outcome = await distill({
     conversationId,
     skipTriggerGate: false,
@@ -560,6 +542,7 @@ export async function handleRunComplete(payload: { run?: unknown; conversationId
       outcome.detail,
     );
   }
+  return outcome;
 }
 
 // ── Fail-soft "model unavailable" warning (deduped per process) ──────
@@ -754,6 +737,69 @@ function distillerToolResult(outcome: DistillerCardOutcome): ToolCallResult {
   return toolResult(JSON.stringify(envelope));
 }
 
+// ── Loop definition (run:complete capture) ──────────────────────────
+//
+// The auto-distill listener is now a `defineLoop` terminal capture loop.
+// The primitive owns the settings-resolution (`ctx.settings`, no more
+// hand-rolled try/catch → {}), the run record + retention, and (opt-in)
+// the artifact mirror. The distillation PIPELINE (prompt, JSON parse,
+// slug-collision, the warn-once on an unavailable model) stays bespoke —
+// it's this loop's domain logic (design §6), invoked from `act`.
+//
+// `idempotencyKey = slug` is set by the act AFTER the LLM names the slug,
+// so it can't gate the fire up-front; instead the existing host-side
+// slug-collision (`lessons.write` → created:false) maps to a `skip`,
+// preserving the legacy "duplicate slug declines" behavior exactly.
+export function defineDistillLoop(): void {
+  defineLoop<{ run?: unknown; conversationId?: string }, DistillationOutcome>({
+    id: "distill",
+    trigger: { kind: "event", event: "run:complete" },
+    contract: {
+      states: ["done"],
+      terminal: ["done"],
+      scope: "user",
+    },
+    act: async (ctx) => {
+      // Settings resolution is OWNED by the primitive — `ctx.settings`
+      // already has the `{}` fallback applied (the listener path's
+      // hand-rolled getMySettings try/catch is deleted; only the
+      // ctx-less `handleRunComplete` keeps it). The gating + project-id
+      // resolution + warn-once live ONCE in `distillRunComplete`.
+      const outcome = await distillRunComplete(ctx.input, ctx.settings);
+      if (!outcome) return { kind: "skip", reason: "gated" };
+      if (outcome.kind === "success") {
+        return { kind: "terminal", status: "done", outcome };
+      }
+      // The unavailable-model case already warned + we skip cleanly.
+      if (
+        outcome.kind === "error" &&
+        outcome.reason === "llm_error" &&
+        outcome.cause === "unavailable"
+      ) {
+        return { kind: "skip", reason: "model_unavailable" };
+      }
+      // Transient errors throw so the loop records the failure (+ retries
+      // next run); declines map to a first-class skip.
+      if (outcome.kind === "error") {
+        throw new Error(`${outcome.reason}: ${outcome.detail}`);
+      }
+      return { kind: "skip", reason: outcome.reason };
+    },
+    log: {
+      // Mirror the distilled lesson as a human-readable artifact under
+      // .ezcorp/extension-data/distill/ (fail-soft; never the source of
+      // truth — the lesson row in the DB is).
+      artifact: (_run, outcome) =>
+        outcome.kind === "success"
+          ? {
+              path: `lessons/${outcome.lesson.slug}.md`,
+              body: `# ${outcome.lesson.title}\n\n${outcome.lesson.body}\n`,
+            }
+          : null,
+    },
+  });
+}
+
 // ── Boot wiring ─────────────────────────────────────────────────────
 //
 // `if (import.meta.main)` keeps the dispatcher off when this file is
@@ -764,7 +810,11 @@ export const tools: Record<string, ToolHandler> = {
 };
 
 if (import.meta.main) {
-  registerEventHandler("run:complete", handleRunComplete);
-  createToolDispatcher(tools);
+  defineDistillLoop();
+  // Merge the loop's manual-trigger tools (none here) with the
+  // hand-written `distill_now` (which returns the DistillerEnvelope the
+  // route forwarder expects — so it stays hand-written, not a generated
+  // manual trigger).
+  createToolDispatcher({ ...getLoopTools(), ...tools });
   getChannel().start();
 }
