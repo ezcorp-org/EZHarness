@@ -5,11 +5,25 @@
  * The docs endpoint (web/src/routes/api/docs/+server.ts) maps schemas at serve time.
  */
 
+import type { ApiKeyScope } from "./auth/api-key";
+
+/** The API-key scope a route requires (control tier), or "public" for
+ *  unauthenticated routes. Optional today (not yet backfilled across all
+ *  entries); NEW entries should declare it — the OpenAPI builder surfaces it
+ *  and the route-contract meta-test will tighten the requirement over time. */
+export type ApiRouteScope = ApiKeyScope | "public";
+
 export interface ApiRouteEntry {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
   description: string;
   category: string;
+  /** Scope required to call this route (control tier) or "public". */
+  scope?: ApiRouteScope;
+  /** Remote-control metadata. `controllable: true` marks a route an external
+   *  harness is expected to be able to drive (and the harness client should
+   *  cover). See docs/harness-contract.md. */
+  harness?: { controllable?: boolean };
   /** Schema key used by docs endpoint to resolve the Zod schema */
   schemaKey?: string;
   responseDescription?: string;
@@ -17,7 +31,7 @@ export interface ApiRouteEntry {
 
 export const apiRegistry: ApiRouteEntry[] = [
   // Auth
-  { method: "POST", path: "/api/auth/login", description: "Authenticate user and create session", category: "auth", schemaKey: "loginSchema" },
+  { method: "POST", path: "/api/auth/login", description: "Authenticate user and create session", category: "auth", scope: "public", schemaKey: "loginSchema" },
   { method: "POST", path: "/api/auth/logout", description: "End current session", category: "auth" },
   { method: "GET", path: "/api/auth/me", description: "Get current authenticated user", category: "auth", responseDescription: "User object with id, name, email, role" },
   { method: "POST", path: "/api/auth/setup", description: "Initial admin setup (first-run only)", category: "auth", schemaKey: "setupSchema" },
@@ -35,12 +49,12 @@ export const apiRegistry: ApiRouteEntry[] = [
 
   // Conversations
   { method: "GET", path: "/api/conversations", description: "List conversations for active project", category: "conversations", responseDescription: "Array of conversation objects" },
-  { method: "POST", path: "/api/conversations", description: "Create a new conversation", category: "conversations", schemaKey: "createConversationSchema" },
-  { method: "GET", path: "/api/conversations/:id", description: "Get conversation by ID", category: "conversations" },
+  { method: "POST", path: "/api/conversations", description: "Create a new conversation", category: "conversations", scope: "chat", harness: { controllable: true }, schemaKey: "createConversationSchema" },
+  { method: "GET", path: "/api/conversations/:id", description: "Get conversation by ID", category: "conversations", scope: "read" },
   { method: "PATCH", path: "/api/conversations/:id", description: "Update conversation title, model, or system prompt", category: "conversations", schemaKey: "updateConversationSchema" },
-  { method: "DELETE", path: "/api/conversations/:id", description: "Delete a conversation", category: "conversations" },
-  { method: "GET", path: "/api/conversations/:id/messages", description: "List messages in a conversation", category: "conversations", responseDescription: "Array of message objects with tool calls" },
-  { method: "POST", path: "/api/conversations/:id/messages", description: "Send a message and trigger AI response", category: "conversations", schemaKey: "createMessageSchema" },
+  { method: "DELETE", path: "/api/conversations/:id", description: "Delete a conversation", category: "conversations", scope: "chat" },
+  { method: "GET", path: "/api/conversations/:id/messages", description: "List messages in a conversation", category: "conversations", scope: "read", responseDescription: "Array of message objects with tool calls" },
+  { method: "POST", path: "/api/conversations/:id/messages", description: "Send a message and trigger AI response", category: "conversations", scope: "chat", harness: { controllable: true }, schemaKey: "createMessageSchema" },
   { method: "GET", path: "/api/conversations/:id/export", description: "Export conversation as JSON/Markdown", category: "conversations" },
   { method: "POST", path: "/api/conversations/:id/active-run", description: "Cancel active run in conversation", category: "conversations" },
   { method: "GET", path: "/api/search/messages", description: "Hybrid/keyword/semantic message search (RRF)", category: "conversations", responseDescription: "{ hits, degraded, requestedMode, servedMode }" },
@@ -147,8 +161,8 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/tool-calls/:id/permission", description: "Approve or deny tool permission", category: "tools" },
 
   // Runs
-  { method: "GET", path: "/api/runs", description: "List agent runs", category: "runs" },
-  { method: "GET", path: "/api/runs/:id", description: "Get run details", category: "runs" },
+  { method: "GET", path: "/api/runs", description: "List agent runs", category: "runs", scope: "read" },
+  { method: "GET", path: "/api/runs/:id", description: "Get run details (append ?wait=1&timeoutMs= to block until terminal — run-to-completion)", category: "runs", scope: "read", harness: { controllable: true } },
 
   // Observability
   { method: "GET", path: "/api/observability", description: "List observability events", category: "observability" },
