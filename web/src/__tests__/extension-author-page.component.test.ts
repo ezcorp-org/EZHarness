@@ -97,6 +97,12 @@ function installFetchSpy(routes: Record<
 		setRoute(key: string, handler: (req: Request) => Promise<Response> | Response) {
 			map.set(key, handler);
 		},
+		// Calls whose URL contains `substr`. Used to scope assertions to the
+		// draft endpoints, ignoring the `GET /api/extensions` fetches that
+		// AuthorCompositionPanel + ExtensionAttachPicker fire on mount.
+		callsMatching(substr: string) {
+			return spy.mock.calls.filter(([input]) => String(input).includes(substr));
+		},
 		restore() {
 			globalThis.fetch = originalFetch;
 		},
@@ -180,13 +186,14 @@ describe("ExtensionAuthorPage — debounced save", () => {
 				target: { value: "// edited config\nexport default {};" },
 			});
 
-			// Before 600ms — no PUT yet.
+			// Before 600ms — no PUT yet. (The composition panel's on-mount
+			// `GET /api/extensions` is ignored; we scope to the draft route.)
 			await vi.advanceTimersByTimeAsync(599);
-			expect(fetchRig.spy).not.toHaveBeenCalled();
+			expect(fetchRig.callsMatching("/author/draft/")).toHaveLength(0);
 
 			// Crossing 600ms — exactly one PUT, with the new content.
 			await vi.advanceTimersByTimeAsync(2);
-			expect(fetchRig.spy).toHaveBeenCalledTimes(1);
+			expect(fetchRig.callsMatching("/author/draft/")).toHaveLength(1);
 			expect(putBodies).toEqual([
 				{
 					path: "ezcorp.config.ts",
@@ -318,7 +325,9 @@ describe("ExtensionAuthorPage — discard flow", () => {
 
 			// No async work expected, but give the microtask queue a tick.
 			await Promise.resolve();
-			expect(fetchRig.spy).not.toHaveBeenCalled();
+			// Scope to the draft route — the composition panel's on-mount
+			// `GET /api/extensions` is unrelated to the discard flow.
+			expect(fetchRig.callsMatching("/author/draft/")).toHaveLength(0);
 			expect(gotoSpy).not.toHaveBeenCalled();
 		} finally {
 			window.confirm = originalConfirm;
