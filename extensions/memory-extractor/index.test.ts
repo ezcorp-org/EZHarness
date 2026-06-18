@@ -13,6 +13,8 @@ import {
   handleRunComplete,
   handleCompactionTick,
   extract,
+  extractRunComplete,
+  defineMemoryLoops,
   EXTRACTION_SYSTEM_PROMPT,
   resolveCompactionCron,
   SUPPORTED_COMPACTION_CRONS,
@@ -742,5 +744,60 @@ describe("SUPPORTED_COMPACTION_CRONS — manifest parity", () => {
     expect(optionValues.sort()).toEqual(
       Object.keys(SUPPORTED_COMPACTION_CRONS).sort(),
     );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Loop migration — extractRunComplete shared core (settings-injected) +
+// defineMemoryLoops (TWO loops in one extension). The act-result mapping
+// rides on the SDK loop facade; here we pin the extension-owned shared
+// core + the multi-loop registration.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("extractRunComplete — shared settings-injected core", () => {
+  test("settings.enabled=false → settings_disabled decline", async () => {
+    const fake = makeFakeRuntime();
+    _setRuntimeApiForTests(fake.api);
+    const out = await extractRunComplete(
+      { run: { agentName: "chat", status: "success" }, conversationId: "c1" },
+      { enabled: false },
+    );
+    expect(out).toEqual({ kind: "decline", reason: "settings_disabled" });
+  });
+
+  test("wrong agent/status → wrong_agent_or_status decline", async () => {
+    const fake = makeFakeRuntime();
+    _setRuntimeApiForTests(fake.api);
+    const out = await extractRunComplete(
+      { run: { agentName: "team", status: "success" }, conversationId: "c1" },
+      { enabled: true },
+    );
+    expect(out).toEqual({ kind: "decline", reason: "wrong_agent_or_status" });
+  });
+
+  test("happy path → success with injected provider override", async () => {
+    const fake = makeFakeRuntime();
+    _setRuntimeApiForTests(fake.api);
+    const out = await extractRunComplete(
+      { run: { agentName: "chat", status: "success" }, conversationId: "c1" },
+      { enabled: true, provider: "openai", model: "" },
+    );
+    expect(out?.kind).toBe("success");
+    const llmCall = fake.calls.find((c) => c.api === "llmComplete");
+    expect(llmCall?.args).toMatchObject({ provider: "openai", model: "gpt-4o-mini" });
+  });
+
+  test("no conversationId → undefined", async () => {
+    const fake = makeFakeRuntime();
+    _setRuntimeApiForTests(fake.api);
+    expect(await extractRunComplete({ run: {} }, { enabled: true })).toBeUndefined();
+  });
+});
+
+describe("defineMemoryLoops — multi-loop registration", () => {
+  test("registers BOTH the capture + compaction loops without throwing", () => {
+    // import.meta.main is false under test, so the boot wiring never ran —
+    // a single registration here is collision-free.
+    expect(() => defineMemoryLoops("0 */6 * * *")).not.toThrow();
   });
 });
