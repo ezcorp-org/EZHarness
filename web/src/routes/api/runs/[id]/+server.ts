@@ -1,17 +1,52 @@
 import { json } from "@sveltejs/kit";
-import { getExecutor } from "$lib/server/context";
+import { getExecutor, getBus } from "$lib/server/context";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
+import { awaitRunCompletion } from "$server/runtime/await-run-completion";
 import type { RequestHandler } from "./$types";
 
-export const GET: RequestHandler = async ({ params, locals }) => {
+// Bound the synchronous wait so a stuck/never-finishing run can't pin a
+// connection forever. 1s floor, 10min ceiling, 2min default.
+const WAIT_MIN_MS = 1_000;
+const WAIT_MAX_MS = 600_000;
+const WAIT_DEFAULT_MS = 120_000;
+
+function parseTimeoutMs(raw: string | null): number {
+  const n = raw ? parseInt(raw, 10) : NaN;
+  if (!Number.isFinite(n)) return WAIT_DEFAULT_MS;
+  return Math.min(WAIT_MAX_MS, Math.max(WAIT_MIN_MS, n));
+}
+
+export const GET: RequestHandler = async ({ params, url, locals }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
   requireAuth(locals);
   const executor = getExecutor();
   const run = await executor.getRun(params.id);
   if (!run) return errorJson(404, "Not found");
+
+  // ?wait=1 — block until the run reaches a terminal state (or timeout).
+  // Lets external harnesses drive a turn and read the result in one call
+  // instead of correlating SSE frames by runId.
+  if (url.searchParams.get("wait") === "1") {
+    const result = await awaitRunCompletion({
+      bus: getBus(),
+      getRun: (id) => executor.getRun(id),
+      runId: params.id,
+      timeoutMs: parseTimeoutMs(url.searchParams.get("timeoutMs")),
+    });
+    if (result.kind === "timeout") {
+      const latest = await executor.getRun(params.id);
+      return errorJson(408, "Run did not reach a terminal state in time", {
+        runId: params.id,
+        status: latest?.status ?? run.status,
+      });
+    }
+    if (result.kind === "notfound") return errorJson(404, "Not found");
+    return json({ outcome: result.outcome, run: result.run, error: result.error });
+  }
+
   return json(run);
 };
 

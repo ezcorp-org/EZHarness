@@ -15,6 +15,9 @@ const mockCancelRun = vi.fn();
 
 vi.mock("$lib/server/context", () => ({
 	getExecutor: () => ({ getRun: mockGetRun, cancelRun: mockCancelRun }),
+	// The route now imports getBus for the ?wait=1 path. These tests don't
+	// exercise wait, so a no-op bus stub satisfies the import.
+	getBus: () => ({ on: () => () => {}, emit: () => {}, off: () => {} }),
 }));
 
 const { GET, DELETE } = await import("../routes/api/runs/[id]/+server.ts");
