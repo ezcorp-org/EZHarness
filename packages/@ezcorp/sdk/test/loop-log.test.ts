@@ -248,6 +248,44 @@ describe("dashboard", () => {
     expect(pages.defined[0]!.actions?.["dash:cancel"]).toBe(cancel);
   });
 
+  test("a row action's input prompt (with format) survives the render", async () => {
+    // The dashboard helper renders the tree verbatim, so an input-collecting
+    // row action — built with `action.prompt.format` — reaches the host
+    // unchanged (e.g. ez-code's steer message). Proves the primitive does
+    // NOT strip the page-prompt `format` field.
+    defineLoop({
+      id: "steerable",
+      trigger: { kind: "event", event: "run:complete" },
+      contract: { states: ["done"] },
+      act: async () => ({ kind: "terminal", status: "done", outcome: null }),
+      log: {
+        dashboard: {
+          pageId: "board-steer",
+          render: () =>
+            new PageBuilder("steerable").table(
+              ["Run", "Status"],
+              [
+                {
+                  cells: ["r1", "running"],
+                  action: {
+                    event: "steerable:steer",
+                    payload: { runId: "r1" },
+                    prompt: { label: "Steer message", field: "message", format: "text" },
+                  },
+                },
+              ],
+            ),
+          rowActions: { "steerable:steer": async () => {} },
+        },
+      },
+    });
+    const tree = await pages.defined[0]!.render();
+    const table = (tree as { nodes: Array<Record<string, unknown>> }).nodes.find(
+      (n) => n.type === "table",
+    ) as { rows: Array<{ action?: { prompt?: { format?: string } } }> };
+    expect(table.rows[0]!.action?.prompt?.format).toBe("text");
+  });
+
   test("dashboard is pushed on a terminal outcome", async () => {
     defineLoop({
       id: "dash2",

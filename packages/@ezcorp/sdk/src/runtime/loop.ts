@@ -299,12 +299,23 @@ function wireTrigger(reg: RegisteredLoop, trigger: LoopTrigger): void {
             JSON.stringify({ loop: reg.id, runId: result.runId, status: result.status }),
           );
         };
+        // Loud-fail on a manual-tool name collision. Because the SDK
+        // dispatcher is last-call-wins, two loops (or a loop + a
+        // hand-written tool of the same name) would otherwise SILENTLY
+        // clobber each other — the DX footgun. Throwing here turns it into
+        // an install-time crash with an actionable message.
+        if (Object.hasOwn(loopToolHandlers, trigger.tool)) {
+          throw new Error(
+            `[@ezcorp/sdk] defineLoop: manual tool "${trigger.tool}" is already registered by another loop in this extension — give each loop's manual trigger a unique \`tool\` name`,
+          );
+        }
         // Accumulate into the shared loop-tool map and re-register the
         // MERGED set. `createToolDispatcher` replaces the `tools/call`
         // handler wholesale (last-call-wins), so registering the full
         // accumulated map each time keeps every loop's manual tool live.
         // An extension that ALSO hand-writes tools spreads `getLoopTools()`
-        // into its own single `createToolDispatcher` call (see docs).
+        // into its own single `createToolDispatcher({ ...getLoopTools(),
+        // ...ownTools })` call (see docs/extensions/loops.md).
         loopToolHandlers[trigger.tool] = handler;
         createToolDispatcher({ ...loopToolHandlers });
       }
