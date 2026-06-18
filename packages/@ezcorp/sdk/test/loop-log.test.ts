@@ -9,17 +9,19 @@
 //   - dashboard pushed on a state change
 //   - loops with no log block are no-ops
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   defineLoop,
   dispatchAssignmentUpdate,
+  getLoopTools,
   _getRegisteredLoop,
   __resetLoopsForTests,
   _setSettingsResolverForTests,
   _setSpawnForTests,
   _setStoreFactoryForTests,
 } from "../src/runtime/loop";
+import { Schedule } from "../src/runtime/schedule";
 import {
   loopDataDir,
   runTerminalLog,
@@ -73,7 +75,22 @@ let fs: FsWrites;
 let pages: PageRecord;
 let captured: Map<string, (p: unknown) => Promise<unknown> | unknown>;
 
+// Capture cron handlers via a `Schedule.prototype.on` spy — the
+// schedule-fire receiver latches process-wide, so a per-test onRequest spy
+// can't see it once a sibling file installed it. (Same trick as loop.test.ts.)
+const cronHandlers = new Map<string, (ctx: unknown) => Promise<void> | void>();
+beforeAll(() => {
+  spyOn(Schedule.prototype, "on").mockImplementation(function (
+    this: Schedule,
+    cron: string,
+    handler: (ctx: unknown) => Promise<void> | void,
+  ) {
+    cronHandlers.set(cron, handler);
+  } as Schedule["on"]);
+});
+
 beforeEach(() => {
+  cronHandlers.clear();
   __resetLoopsForTests();
   __resetChannelForTests();
   captured = new Map();
@@ -363,6 +380,207 @@ describe("dashboard", () => {
     const def = pages.defined[0]!;
     const rendered = await def.render();
     expect(rendered).toEqual(tree);
+  });
+});
+
+// ── PRIVACY by construction (the ez-code two-loop topology) ─────────
+//
+// ez-code is migrated as TWO loops: a user-scope `dispatch` loop (private
+// runs, NO dashboard) + a global-scope `cron` loop (shared runs, WITH a
+// dashboard). The Hub tree is cached per-(ext,page) and served to ALL
+// users, so a user-dispatched run leaking into the shared dashboard would
+// expose one user's runs to everyone — the worst failure in this feature.
+// These tests PROVE the leak cannot happen, because:
+//   - the user loop declares no `log.dashboard`, so it sets no
+//     `pushDashboard` and its render is never asked for;
+//   - the two loops use SEPARATE scope-keyed stores, so the global
+//     dashboard's `render(runs)` only ever sees the global loop's runs.
+describe("PRIVACY — user-scope runs never reach the shared dashboard", () => {
+  // Per-scope KV: user and global runs live in physically separate maps,
+  // mirroring the host's scope partitioning. The store factory routes on
+  // the resolved contract's scope.
+  function scopedStoreFactory() {
+    const maps: Record<string, Map<string, unknown>> = {
+      user: new Map(),
+      global: new Map(),
+      conversation: new Map(),
+    };
+    return <O,>(loopId: string, contract: { scope?: StorageScope }) => {
+      const scope = contract.scope ?? "global";
+      const map = maps[scope]!;
+      const kv = (_s: StorageScope) => ({
+        async get<T>(key: string) {
+          return map.has(key)
+            ? { value: map.get(key) as T, exists: true }
+            : { value: null, exists: false };
+        },
+        async set<T>(key: string, value: T) {
+          map.set(key, JSON.parse(JSON.stringify(value)));
+          return { ok: true as const, sizeBytes: 0 };
+        },
+        async delete(key: string) {
+          return { deleted: map.delete(key) };
+        },
+        async list() {
+          return { keys: [...map.keys()] };
+        },
+      });
+      return createLoopRunStore<O>(loopId, contract as never, kv);
+    };
+  }
+
+  function defineEzCodeTwoLoops(): void {
+    let n = 0;
+    _setSpawnForTests(async () => {
+      n += 1;
+      return {
+        subConversationId: `sub-${n}`,
+        agentRunId: `run-${n}`,
+        taskId: `task-${n}`,
+        assignmentId: `asg-${n}`,
+      };
+    });
+    // USER loop — private dispatch runs, NO dashboard.
+    defineLoop({
+      id: "ez-dispatch",
+      trigger: { kind: "manual", tool: "dispatch_run" },
+      contract: {
+        states: ["dispatched", "running", "completed", "failed", "cancelled"],
+        terminal: ["completed", "failed", "cancelled"],
+        scope: "user",
+      },
+      act: async (ctx) => {
+        const h = await ctx.spawn({ agentName: "coder", task: "user task" });
+        return {
+          kind: "deferred",
+          runId: h.agentRunId,
+          status: "dispatched",
+          awaitEvent: "task:assignment_update",
+          assignmentId: h.assignmentId,
+          taskId: h.taskId,
+        };
+      },
+      // No log.dashboard — private.
+    });
+    // GLOBAL loop — shared cron runs, WITH the dashboard.
+    defineLoop({
+      id: "ez-cron",
+      trigger: { kind: "cron", cron: "0 * * * *" },
+      contract: {
+        states: ["dispatched", "running", "completed", "failed", "cancelled"],
+        terminal: ["completed", "failed", "cancelled"],
+        scope: "global",
+      },
+      act: async (ctx) => {
+        const h = await ctx.spawn({ agentName: "coder", task: "cron task" });
+        return {
+          kind: "deferred",
+          runId: h.agentRunId,
+          status: "dispatched",
+          awaitEvent: "task:assignment_update",
+          assignmentId: h.assignmentId,
+          taskId: h.taskId,
+        };
+      },
+      log: {
+        dashboard: {
+          // render exposes EVERY run it's handed — so if a user run ever
+          // reached here, this test would see it. It never does, because
+          // the global loop's store only holds global runs.
+          pageId: "dashboard",
+          render: (runs) => ({
+            title: "ez-code",
+            nodes: [{ type: "runs", ids: runs.map((r) => r.id) }],
+          }),
+        },
+      },
+    });
+  }
+
+  test("a user-dispatched run NEVER appears in the rendered global dashboard tree", async () => {
+    _setStoreFactoryForTests(scopedStoreFactory() as never);
+    defineEzCodeTwoLoops();
+
+    // Fire the USER dispatch tool (private run) — run-1, user scope. Use
+    // getLoopTools() (not the channel dispatcher) to dodge the process-wide
+    // tools/call dispatcher latch a sibling SDK test file may have disarmed.
+    await getLoopTools().dispatch_run!({});
+
+    // Render the GLOBAL dashboard. It must show ZERO runs — the user run
+    // lives in a different store the global render never reads.
+    const dashDef = pages.defined.find((d) => d.id === "dashboard")!;
+    const tree = (await dashDef.render()) as { nodes: Array<{ ids: string[] }> };
+    expect(tree.nodes[0]!.ids).toEqual([]);
+
+    // Sanity: the user loop DID persist its run (privacy ≠ data loss).
+    const userRuns = await _getRegisteredLoop("ez-dispatch")!.store.list();
+    expect(userRuns.map((r) => r.id)).toEqual(["run-1"]);
+  });
+
+  test("a task:assignment_update for a USER run does NOT push the shared page", async () => {
+    _setStoreFactoryForTests(scopedStoreFactory() as never);
+    defineEzCodeTwoLoops();
+
+    await getLoopTools().dispatch_run!({});
+    const pushesBefore = pages.pushes.length;
+
+    // The user run completes. The shared dashboard must NOT be pushed —
+    // the owning (user) loop has no dashboard, so no push fires.
+    await dispatchAssignmentUpdate({
+      conversationId: "c",
+      taskId: "task-1",
+      assignment: {
+        id: "asg-1",
+        agentConfigId: "a",
+        agentName: "coder",
+        isTeam: false,
+        status: "completed",
+        assignedAt: "t",
+        agentRunId: "run-1",
+      },
+    });
+    expect(pages.pushes.length).toBe(pushesBefore);
+    // The user run still transitioned (privately).
+    const userRuns = await _getRegisteredLoop("ez-dispatch")!.store.list();
+    expect(userRuns[0]!.status).toBe("completed");
+  });
+
+  test("a GLOBAL (cron) run DOES appear in the dashboard + DOES push on completion", async () => {
+    _setStoreFactoryForTests(scopedStoreFactory() as never);
+    defineEzCodeTwoLoops();
+
+    // Fire the cron (global) loop via the captured Schedule handler.
+    const cronHandler = cronHandlers.get("0 * * * *");
+    await cronHandler!({
+      cron: "0 * * * *",
+      scheduledAt: "t",
+      firedAt: "t",
+      fireId: "f1",
+      catchUp: false,
+      retry: false,
+      attempt: 1,
+    });
+
+    const dashDef = pages.defined.find((d) => d.id === "dashboard")!;
+    const tree = (await dashDef.render()) as { nodes: Array<{ ids: string[] }> };
+    expect(tree.nodes[0]!.ids).toEqual(["run-1"]); // the global run shows
+
+    const pushesBefore = pages.pushes.length;
+    await dispatchAssignmentUpdate({
+      conversationId: "c",
+      taskId: "task-1",
+      assignment: {
+        id: "asg-1",
+        agentConfigId: "a",
+        agentName: "coder",
+        isTeam: false,
+        status: "completed",
+        assignedAt: "t",
+        agentRunId: "run-1",
+      },
+    });
+    // A global run's completion DOES refresh the shared dashboard.
+    expect(pages.pushes.length).toBeGreaterThan(pushesBefore);
   });
 });
 
