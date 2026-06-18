@@ -119,7 +119,7 @@ function foldersTree(opts: { folders?: boolean; mode?: string; preset?: boolean 
       title: "Folders & Rules",
       nodes: [
         { type: "section", nodes: [
-          { type: "button", label: "Add watched folder", style: "primary", action: { event: "file-organizer:add-folder", prompt: { label: "Folder path", placeholder: "/watched/Downloads", field: "path" } } },
+          { type: "button", label: "Add watched folder", style: "primary", action: { event: "file-organizer:add-folder", prompt: { label: "Folder path", placeholder: "/watched/Downloads", field: "path", format: "file-path" } } },
           { type: "button", label: "Add ignore", style: "secondary", action: { event: "file-organizer:add-ignore", prompt: { label: "Ignore path or name", field: "path" } } },
         ] },
         { type: "empty-state", title: "No folders watched" },
@@ -259,7 +259,7 @@ test.describe("file-organizer Hub", () => {
     expect(restoreBody).toEqual({ source: "hub", pageId: "review", payload: { all: true } });
   });
 
-  test("folders: add a folder via the prompt → POST events/add-folder {payload:{path}}", async ({ page, mockApi }) => {
+  test("folders: add a folder via the file-path picker → POST events/add-folder {payload:{path}}", async ({ page, mockApi }) => {
     await mockApi({ projects: [proj] });
     let addBody: unknown = null;
     let renders = 0;
@@ -268,6 +268,12 @@ test.describe("file-organizer Hub", () => {
       renders++;
       return route.fulfill({ json: { page: foldersTree({ folders: renders > 1 }), renderedAt: Date.now() } });
     });
+    // The `format: "file-path"` prompt renders the shared filesystem picker,
+    // which probes /api/fs/list as the user types — stub it so the widget
+    // (and its browse dropdown) behaves like the rest of the app.
+    await page.route("**/api/fs/list**", (route) =>
+      route.fulfill({ json: [{ name: "Downloads", isDir: true }] }),
+    );
     await page.route(evt("add-folder"), async (route) => {
       addBody = route.request().postDataJSON();
       return route.fulfill({ json: { ok: true, message: "Folder added" } });
@@ -277,7 +283,9 @@ test.describe("file-organizer Hub", () => {
     await expect(page.getByTestId("hub-node-empty-state")).toContainText("No folders watched");
     await page.getByTestId("hub-node-button").filter({ hasText: "Add watched folder" }).click();
     await expect(page.getByTestId("hub-prompt-dialog")).toBeVisible();
-    await page.getByTestId("hub-prompt-input").fill("/watched/Downloads");
+    // The plain text input is gone — the DRY SharedFilePicker drives it now.
+    await expect(page.getByTestId("hub-prompt-input")).toHaveCount(0);
+    await page.getByTestId("hub-prompt-format").locator("input").fill("/watched/Downloads");
     await page.getByTestId("hub-prompt-submit").click();
     await expect(page.getByText("/watched/Downloads")).toBeVisible();
     expect(addBody).toEqual({ source: "hub", pageId: "folders", payload: { path: "/watched/Downloads" } });

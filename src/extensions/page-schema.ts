@@ -48,6 +48,23 @@ const PROMPT_MAX_LENGTH_CAP = 500;
 const PROMPT_LABEL_MAX = 120;
 const PROMPT_SUBMIT_LABEL_MAX = 40;
 
+/**
+ * Input `format`s a prompt may opt into. Each maps (client-side) to a
+ * shared format component in `web/src/lib/components/ui/format-map.ts`
+ * — `file-path` → `SharedFilePicker`, `combo-box`/`search` → their boxes,
+ * `date`/`datetime` → `DatePicker`. Only SCALAR-string producers are
+ * allowed: a prompt merges ONE typed string into `payload[field]`, so
+ * array-valued widgets (e.g. `tag-input`) are intentionally excluded.
+ * Keep aligned with `formatComponentMap`'s string-valued keys.
+ */
+export const PROMPT_FORMATS = new Set<string>([
+  "file-path",
+  "combo-box",
+  "search",
+  "date",
+  "datetime",
+]);
+
 // ── Page-only node types ───────────────────────────────────────────
 
 /**
@@ -74,6 +91,12 @@ export interface PagePrompt {
   maxLength?: number;
   /** Submit-button label; default "Submit". */
   submitLabel?: string;
+  /** Opt the host input into a richer shared widget instead of the plain
+   *  text box — `"file-path"` reuses the app's filesystem picker
+   *  (`SharedFilePicker`), etc. Only the scalar-string producers in
+   *  `PROMPT_FORMATS` are allowed; an unknown/excluded value is dropped
+   *  and the dialog falls back to the plain text input. */
+  format?: string;
 }
 
 export interface PageAction {
@@ -235,6 +258,12 @@ function validatePrompt(raw: unknown): PagePrompt | null {
   if (p.submitLabel != null) {
     const sl = truncate(p.submitLabel, PROMPT_SUBMIT_LABEL_MAX);
     if (sl.length > 0) out.submitLabel = sl;
+  }
+
+  // `format` opts into a richer shared widget; only the known scalar
+  // formats are kept (unknown → omit → host renders the plain text box).
+  if (typeof p.format === "string" && PROMPT_FORMATS.has(p.format)) {
+    out.format = p.format;
   }
 
   return out;

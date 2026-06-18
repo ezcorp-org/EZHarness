@@ -109,7 +109,18 @@ page.button("Rename", {
 });
 ```
 
-`PagePrompt` = `{ label, placeholder?, field?, maxLength?, submitLabel? }`. On Submit the host merges the typed string into `payload[field]` (default `"value"`) and dispatches the action through its **unchanged, already-gated** event path. Enter submits; Esc/Cancel closes with no POST; Submit is disabled while the trimmed value is empty.
+`PagePrompt` = `{ label, placeholder?, field?, maxLength?, submitLabel?, format? }`. On Submit the host merges the typed string into `payload[field]` (default `"value"`) and dispatches the action through its **unchanged, already-gated** event path. Enter submits; Esc/Cancel closes with no POST; Submit is disabled while the trimmed value is empty.
+
+An optional `format` opts the dialog into a **shared host widget** instead of the plain text box — e.g. `format: "file-path"` reuses the app's filesystem picker (autocomplete + browse), so a folder-path prompt feels the same as the file picker elsewhere in EZCorp:
+
+```ts
+page.button("Add watched folder", {
+  event: "file-organizer:add-folder",
+  prompt: { label: "Folder path", placeholder: "/watched/Downloads", field: "path", format: "file-path" },
+});
+```
+
+Allowed formats are the scalar-string producers in the host's `PROMPT_FORMATS` (`file-path`, `combo-box`, `search`, `date`, `datetime`). An unknown/excluded value is dropped host-side and the dialog falls back to the plain text input — the typed result is still merged into `payload[field]` exactly as a text prompt would be. When `format` is set the widget owns its own keyboard handling, so the host doesn't bind Enter-to-submit; the user clicks Submit.
 
 **`prompt` grants your extension ZERO new authority** — it is only a host-mediated way for the *user* to type a string into an action you **already** declared and that is **already** gated:
 

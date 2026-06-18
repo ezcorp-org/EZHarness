@@ -4,6 +4,7 @@
 	import HubComponentRenderer from "$lib/components/hub/HubComponentRenderer.svelte";
 	import SkeletonLoader from "$lib/components/SkeletonLoader.svelte";
 	import LucideIcon from "$lib/components/LucideIcon.svelte";
+	import { formatComponentMap, getFormatComponent } from "$lib/components/ui/format-map";
 	import { addToast } from "$lib/toast.svelte.js";
 	import {
 		parseHubPageId,
@@ -277,25 +278,41 @@
 			{#if promptAction.confirm}
 				<p class="mt-1 text-xs text-[var(--color-text-muted)]">{promptAction.confirm}</p>
 			{/if}
-			<input
-				id="hub-prompt-input"
-				type="text"
-				class="mt-3 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
-				data-testid="hub-prompt-input"
-				bind:value={promptValue}
-				placeholder={promptAction.prompt.placeholder ?? ""}
-				maxlength={promptAction.prompt.maxLength ?? 200}
-				autocomplete="off"
-				onkeydown={(e) => {
-					if (e.key === "Enter") {
-						e.preventDefault();
-						submitPrompt();
-					} else if (e.key === "Escape") {
-						e.preventDefault();
-						cancelPrompt();
-					}
-				}}
-			/>
+			{#if promptAction.prompt.format && promptAction.prompt.format in formatComponentMap}
+				<!-- DRY: reuse the app's shared format widget (e.g. the
+				     filesystem picker for `file-path`) instead of a bespoke
+				     input. The widget owns its own keyboard handling
+				     (Enter/Esc drive its dropdown), so the host doesn't
+				     attach Enter-submit here — the user clicks Submit. -->
+				{@const PromptWidget = getFormatComponent(promptAction.prompt.format)}
+				<div class="mt-3" data-testid="hub-prompt-format">
+					<PromptWidget
+						bind:value={promptValue}
+						size="md"
+						placeholder={promptAction.prompt.placeholder ?? ""}
+					/>
+				</div>
+			{:else}
+				<input
+					id="hub-prompt-input"
+					type="text"
+					class="mt-3 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
+					data-testid="hub-prompt-input"
+					bind:value={promptValue}
+					placeholder={promptAction.prompt.placeholder ?? ""}
+					maxlength={promptAction.prompt.maxLength ?? 200}
+					autocomplete="off"
+					onkeydown={(e) => {
+						if (e.key === "Enter") {
+							e.preventDefault();
+							submitPrompt();
+						} else if (e.key === "Escape") {
+							e.preventDefault();
+							cancelPrompt();
+						}
+					}}
+				/>
+			{/if}
 			<div class="mt-4 flex justify-end gap-2">
 				<button
 					type="button"
