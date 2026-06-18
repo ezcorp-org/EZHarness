@@ -27,6 +27,7 @@ const SCHEMA = [
 				{ value: "inherit", label: "Inherit (instance default)" },
 				{ value: "searxng", label: "searxng" },
 				{ value: "brave", label: "brave" },
+				{ value: "tavily", label: "tavily" },
 			],
 			default: "inherit",
 		},
@@ -92,18 +93,122 @@ describe("CapabilitiesPanel — Custom mode (admin)", () => {
 		await waitFor(() => expect(onsave).toHaveBeenCalledWith("search", { quota: 500 }));
 	});
 
-	test("pinning a provider saves { providers: [provider] }", async () => {
+	test("toggling to a 2-provider subset saves { providers: [searxng, brave] }", async () => {
+		// SCHEMA offers searxng + brave (2 of the known set). Effective is
+		// "all" → both seed checked. Unchecking neither but the effective
+		// "all" === full set, so we must change the set to produce an
+		// override: uncheck none would collapse to inherit. Instead start
+		// from a grant that pins one, then check the second.
 		const onsave = vi.fn(async () => {});
 		const { getByTestId } = render(CapabilitiesPanel, {
-			props: { capabilities: [held()], isAdmin: true, onsave },
+			props: {
+				capabilities: [
+					held({
+						grant: { providers: ["searxng"] },
+						effective: { denied: false, quota: 100, maxResults: 5, providers: ["searxng"] },
+					}),
+				],
+				isAdmin: true,
+				onsave,
+			},
 		});
-		await fireEvent.click(getByTestId("capability-search-mode-custom"));
-		await waitFor(() => expect(getByTestId("capability-search-field-providers")).toBeInTheDocument());
+		await waitFor(() => expect(getByTestId("capability-search-providers-group")).toBeInTheDocument());
 
-		await fireEvent.change(getByTestId("capability-search-field-providers"), { target: { value: "searxng" } });
+		// searxng seeded checked; brave unchecked. Check brave → both.
+		expect((getByTestId("capability-search-provider-searxng") as HTMLInputElement).checked).toBe(true);
+		expect((getByTestId("capability-search-provider-brave") as HTMLInputElement).checked).toBe(false);
+		await fireEvent.change(getByTestId("capability-search-provider-brave"), { target: { checked: true } });
+		await fireEvent.click(getByTestId("capability-search-save"));
+
+		await waitFor(() => expect(onsave).toHaveBeenCalledWith("search", { providers: ["searxng", "brave"] }));
+	});
+
+	test("unchecking to a single provider saves { providers: [searxng] }", async () => {
+		const onsave = vi.fn(async () => {});
+		const { getByTestId } = render(CapabilitiesPanel, {
+			props: {
+				capabilities: [
+					held({
+						grant: { providers: ["searxng", "brave"] },
+						effective: { denied: false, quota: 100, maxResults: 5, providers: ["searxng", "brave"] },
+					}),
+				],
+				isAdmin: true,
+				onsave,
+			},
+		});
+		await waitFor(() => expect(getByTestId("capability-search-providers-group")).toBeInTheDocument());
+
+		await fireEvent.change(getByTestId("capability-search-provider-brave"), { target: { checked: false } });
 		await fireEvent.click(getByTestId("capability-search-save"));
 
 		await waitFor(() => expect(onsave).toHaveBeenCalledWith("search", { providers: ["searxng"] }));
+	});
+
+	test("unchecking ALL providers blocks save with a validation error", async () => {
+		const onsave = vi.fn(async () => {});
+		const { getByTestId } = render(CapabilitiesPanel, {
+			props: {
+				capabilities: [
+					held({
+						grant: { providers: ["searxng"] },
+						effective: { denied: false, quota: 100, maxResults: 5, providers: ["searxng"] },
+					}),
+				],
+				isAdmin: true,
+				onsave,
+			},
+		});
+		await waitFor(() => expect(getByTestId("capability-search-providers-group")).toBeInTheDocument());
+
+		// Uncheck the only checked provider → empty selection.
+		await fireEvent.change(getByTestId("capability-search-provider-searxng"), { target: { checked: false } });
+		await fireEvent.click(getByTestId("capability-search-save"));
+
+		await waitFor(() => expect(getByTestId("capability-search-providers-error")).toBeInTheDocument());
+		expect(onsave).not.toHaveBeenCalled();
+	});
+
+	test("a pre-existing 2-provider grant renders 2 checked boxes (silent-collapse regression is impossible)", async () => {
+		const { getByTestId } = render(CapabilitiesPanel, {
+			props: {
+				capabilities: [
+					held({
+						grant: { providers: ["searxng", "brave"] },
+						effective: { denied: false, quota: 100, maxResults: 5, providers: ["searxng", "brave"] },
+					}),
+				],
+				isAdmin: true,
+				onsave: vi.fn(),
+			},
+		});
+		await waitFor(() => expect(getByTestId("capability-search-providers-group")).toBeInTheDocument());
+		expect((getByTestId("capability-search-provider-searxng") as HTMLInputElement).checked).toBe(true);
+		expect((getByTestId("capability-search-provider-brave") as HTMLInputElement).checked).toBe(true);
+	});
+
+	test("editing quota leaves the provider selection intact", async () => {
+		const onsave = vi.fn(async () => {});
+		const { getByTestId } = render(CapabilitiesPanel, {
+			props: {
+				capabilities: [
+					held({
+						grant: { providers: ["searxng", "brave"] },
+						effective: { denied: false, quota: 100, maxResults: 5, providers: ["searxng", "brave"] },
+					}),
+				],
+				isAdmin: true,
+				onsave,
+			},
+		});
+		await waitFor(() => expect(getByTestId("capability-search-field-quota")).toBeInTheDocument());
+
+		await fireEvent.input(getByTestId("capability-search-field-quota"), { target: { value: "250" } });
+		await fireEvent.click(getByTestId("capability-search-save"));
+
+		await waitFor(() =>
+			expect(onsave).toHaveBeenCalledWith("search", { providers: ["searxng", "brave"], quota: 250 }),
+		);
 	});
 });
 
@@ -140,59 +245,6 @@ describe("CapabilitiesPanel — non-admin (read-only)", () => {
 		// Even forcing a click on the disabled mode button does nothing.
 		await fireEvent.click(getByTestId("capability-search-mode-custom"));
 		expect(onsave).not.toHaveBeenCalled();
-	});
-});
-
-describe("CapabilitiesPanel — multi-provider ceiling-widening guard", () => {
-	// An extension whose grant pins a TWO-provider allowlist — the
-	// single-select can't represent it, so it's preserved, not widened.
-	function multiHeld(): HeldCapabilityView {
-		return held({
-			grant: { providers: ["searxng", "brave"] },
-			effective: { denied: false, quota: 100, maxResults: 5, providers: ["searxng", "brave"] },
-		});
-	}
-
-	test("warns that the multi-provider list is preserved (not silently widened)", async () => {
-		const { getByTestId } = render(CapabilitiesPanel, {
-			props: { capabilities: [multiHeld()], isAdmin: true, onsave: vi.fn() },
-		});
-		// Grant is an object → starts in Custom mode, fields visible.
-		await waitFor(() => expect(getByTestId("capability-search-custom-fields")).toBeInTheDocument());
-		const warn = getByTestId("capability-search-providers-preserved");
-		expect(warn).toBeInTheDocument();
-		expect(warn).toHaveTextContent("searxng, brave");
-	});
-
-	test("editing quota (providers untouched) PRESERVES the 2-provider list on save", async () => {
-		const onsave = vi.fn(async () => {});
-		const { getByTestId } = render(CapabilitiesPanel, {
-			props: { capabilities: [multiHeld()], isAdmin: true, onsave },
-		});
-		await waitFor(() => expect(getByTestId("capability-search-field-quota")).toBeInTheDocument());
-
-		await fireEvent.input(getByTestId("capability-search-field-quota"), { target: { value: "250" } });
-		await fireEvent.click(getByTestId("capability-search-save"));
-
-		// The list survives — NOT collapsed to "inherit".
-		await waitFor(() =>
-			expect(onsave).toHaveBeenCalledWith("search", { providers: ["searxng", "brave"], quota: 250 }),
-		);
-	});
-
-	test("actively changing the provider select clears the warning and honors the new single provider", async () => {
-		const onsave = vi.fn(async () => {});
-		const { getByTestId, queryByTestId } = render(CapabilitiesPanel, {
-			props: { capabilities: [multiHeld()], isAdmin: true, onsave },
-		});
-		await waitFor(() => expect(getByTestId("capability-search-providers-preserved")).toBeInTheDocument());
-
-		await fireEvent.change(getByTestId("capability-search-field-providers"), { target: { value: "searxng" } });
-		// Warning clears once the admin owns the providers choice.
-		await waitFor(() => expect(queryByTestId("capability-search-providers-preserved")).toBeNull());
-
-		await fireEvent.click(getByTestId("capability-search-save"));
-		await waitFor(() => expect(onsave).toHaveBeenCalledWith("search", { providers: ["searxng"] }));
 	});
 });
 

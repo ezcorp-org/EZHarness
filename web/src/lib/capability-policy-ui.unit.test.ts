@@ -1,22 +1,27 @@
 /**
- * Pure-logic unit tests for the Capabilities panel (Phase 3 §5.2):
- * grant↔mode mapping, providers single-select projection, Custom prefill,
- * and the FIELD-LEVEL partial-override builder (mirrors the resolver's
- * `{...instanceDef, ...definedFields}` merge).
+ * Pure-logic unit tests for the Capabilities panel (Phase 3 §5.2;
+ * multi-provider rework — residual #3): grant↔mode mapping, the
+ * multi-select provider seed/round-trip, Custom prefill, empty-selection
+ * validation, and the FIELD-LEVEL partial-override builder (mirrors the
+ * resolver's `{...instanceDef, ...definedFields}` merge).
  */
 import { describe, test, expect } from "vitest";
 import {
 	grantToMode,
-	providersToSelectValue,
+	sameProviderSet,
+	seedProviders,
 	formFromEffective,
 	buildOverride,
 	grantForMode,
 	sanitizePositiveInt,
-	isUnrepresentableProviderList,
-	hasPreservedProviderList,
+	isCustomFormValid,
+	providerOptions,
 	type EffectivePolicyView,
+	type HeldCapabilityView,
 } from "./capability-policy-ui";
 
+// The full known-provider set the UI offers in these tests.
+const AVAILABLE = ["searxng", "brave", "tavily"];
 const INHERITED: EffectivePolicyView = { quota: 100, maxResults: 5, providers: "all" };
 
 describe("grantToMode", () => {
@@ -32,100 +37,81 @@ describe("grantToMode", () => {
 	});
 });
 
-describe("providersToSelectValue", () => {
-	test("'all' → inherit sentinel", () => {
-		expect(providersToSelectValue("all")).toBe("inherit");
+describe("providerOptions", () => {
+	test("derives the provider list from the schema select, dropping the inherit sentinel", () => {
+		const c: HeldCapabilityView = {
+			cap: "search",
+			schema: [
+				{
+					key: "providers",
+					field: {
+						type: "select",
+						label: "Allowed providers",
+						options: [
+							{ value: "inherit", label: "Inherit" },
+							{ value: "searxng", label: "searxng" },
+							{ value: "brave", label: "brave" },
+						],
+					},
+				},
+			],
+			effective: { denied: false, providers: "all" },
+			grant: "inherit",
+		};
+		expect(providerOptions(c)).toEqual(["searxng", "brave"]);
 	});
-	test("single-element list → that provider", () => {
-		expect(providersToSelectValue(["searxng"])).toBe("searxng");
+	test("returns [] when no providers select exists", () => {
+		const c: HeldCapabilityView = {
+			cap: "search",
+			schema: [{ key: "quota", field: { type: "number", label: "Quota" } }],
+			effective: { denied: false },
+			grant: "inherit",
+		};
+		expect(providerOptions(c)).toEqual([]);
 	});
-	test("multi-element list → inherit (override can't express a subset)", () => {
-		expect(providersToSelectValue(["searxng", "brave"])).toBe("inherit");
+});
+
+describe("sameProviderSet", () => {
+	test("order-insensitive set equality", () => {
+		expect(sameProviderSet(["a", "b"], ["b", "a"])).toBe(true);
+		expect(sameProviderSet(["a"], ["a", "b"])).toBe(false);
+		expect(sameProviderSet(["a", "c"], ["a", "b"])).toBe(false);
+		expect(sameProviderSet([], [])).toBe(true);
 	});
-	test("empty list → inherit", () => {
-		expect(providersToSelectValue([])).toBe("inherit");
+});
+
+describe("seedProviders", () => {
+	test("'all' → every available provider checked", () => {
+		expect(seedProviders("all", AVAILABLE)).toEqual(AVAILABLE);
+	});
+	test("an explicit list → exactly those checked (intersected with available)", () => {
+		expect(seedProviders(["brave", "tavily"], AVAILABLE)).toEqual(["brave", "tavily"]);
+	});
+	test("a stale/unknown provider is dropped (server ceiling would drop it too)", () => {
+		expect(seedProviders(["brave", "ghost"], AVAILABLE)).toEqual(["brave"]);
 	});
 });
 
 describe("formFromEffective", () => {
-	test("projects effective policy into the editable form", () => {
-		expect(formFromEffective({ quota: 80, maxResults: 9, providers: ["tavily"] })).toEqual({
-			providers: "tavily",
-			quota: 80,
-			maxResults: 9,
-			providersDirty: false,
+	test("'all' providers → every available provider checked", () => {
+		expect(formFromEffective(INHERITED, AVAILABLE)).toEqual({
+			providers: AVAILABLE,
+			quota: 100,
+			maxResults: 5,
 		});
 	});
-	test("'all' providers → inherit select value", () => {
-		expect(formFromEffective(INHERITED).providers).toBe("inherit");
-	});
-	test("a single-element grant list does NOT capture providersOriginal (representable)", () => {
-		const form = formFromEffective({ quota: 1, maxResults: 1, providers: ["searxng"] }, { providers: ["searxng"] });
-		expect(form.providersOriginal).toBeUndefined();
-		expect(form.providers).toBe("searxng");
-	});
-	test("a MULTI-element grant list captures providersOriginal (preserved on save)", () => {
-		const form = formFromEffective(
-			{ quota: 1, maxResults: 1, providers: ["searxng", "brave"] },
-			{ providers: ["searxng", "brave"] },
-		);
-		expect(form.providersOriginal).toEqual(["searxng", "brave"]);
-		// The single-select collapses the DISPLAY to inherit, but the
-		// original is preserved out-of-band.
-		expect(form.providers).toBe("inherit");
-	});
-	test("inherit / false grant → no providersOriginal", () => {
-		expect(formFromEffective(INHERITED, "inherit").providersOriginal).toBeUndefined();
-		expect(formFromEffective(INHERITED, false).providersOriginal).toBeUndefined();
+	test("a 2-provider grant seeds exactly two checked providers (no info loss)", () => {
+		const form = formFromEffective({ quota: 80, maxResults: 9, providers: ["searxng", "brave"] }, AVAILABLE);
+		expect(form.providers).toEqual(["searxng", "brave"]);
+		expect(form.quota).toBe(80);
+		expect(form.maxResults).toBe(9);
 	});
 });
 
-describe("isUnrepresentableProviderList", () => {
-	test("true only for a >1 provider list", () => {
-		expect(isUnrepresentableProviderList(["a", "b"])).toBe(true);
-		expect(isUnrepresentableProviderList(["a"])).toBe(false);
-		expect(isUnrepresentableProviderList([])).toBe(false);
-		expect(isUnrepresentableProviderList("all")).toBe(false);
-		expect(isUnrepresentableProviderList("inherit")).toBe(false);
-		expect(isUnrepresentableProviderList(undefined)).toBe(false);
-	});
-});
-
-describe("multi-provider ceiling-widening guard", () => {
-	const MULTI = ["searxng", "brave"];
-
-	test("editing an UNRELATED field preserves the multi-provider list verbatim (no widening)", () => {
-		// Admin opens Custom on a {providers:[searxng,brave]} grant and bumps
-		// quota — providers untouched (not dirty). The list MUST survive.
-		const form = {
-			providers: "inherit", // collapsed display
-			providersOriginal: MULTI,
-			providersDirty: false,
-			quota: 250,
-			maxResults: 5,
-		};
-		expect(buildOverride(form, INHERITED)).toEqual({ providers: MULTI, quota: 250 });
-	});
-
-	test("untouched providers + no other change still preserves the list (not collapsed to inherit)", () => {
-		const form = { providers: "inherit", providersOriginal: MULTI, providersDirty: false, quota: 100, maxResults: 5 };
-		expect(buildOverride(form, INHERITED)).toEqual({ providers: MULTI });
-	});
-
-	test("once the admin ACTIVELY changes the select, their explicit choice wins over the preserved list", () => {
-		// Pinned to a single provider.
-		const pinned = { providers: "searxng", providersOriginal: MULTI, providersDirty: true, quota: 100, maxResults: 5 };
-		expect(buildOverride(pinned, INHERITED)).toEqual({ providers: ["searxng"] });
-		// Explicitly chosen inherit (a deliberate widening, admin-intended).
-		const toInherit = { providers: "inherit", providersOriginal: MULTI, providersDirty: true, quota: 100, maxResults: 5 };
-		expect(buildOverride(toInherit, INHERITED)).toBe("inherit");
-	});
-
-	test("hasPreservedProviderList: true while a multi-list is held untouched; false once dirty / single / absent", () => {
-		expect(hasPreservedProviderList({ providers: "inherit", providersOriginal: MULTI, providersDirty: false, quota: 1, maxResults: 1 })).toBe(true);
-		expect(hasPreservedProviderList({ providers: "searxng", providersOriginal: MULTI, providersDirty: true, quota: 1, maxResults: 1 })).toBe(false);
-		expect(hasPreservedProviderList({ providers: "searxng", providersOriginal: ["searxng"], providersDirty: false, quota: 1, maxResults: 1 })).toBe(false);
-		expect(hasPreservedProviderList({ providers: "inherit", providersDirty: false, quota: 1, maxResults: 1 })).toBe(false);
+describe("isCustomFormValid", () => {
+	test("false on an empty provider selection; true otherwise", () => {
+		expect(isCustomFormValid({ providers: [], quota: 1, maxResults: 1 })).toBe(false);
+		expect(isCustomFormValid({ providers: ["searxng"], quota: 1, maxResults: 1 })).toBe(true);
 	});
 });
 
@@ -140,47 +126,66 @@ describe("sanitizePositiveInt", () => {
 	});
 });
 
-describe("buildOverride (FIELD-LEVEL partial)", () => {
-	test("all fields == inherited → collapses to 'inherit'", () => {
-		expect(buildOverride({ providers: "inherit", quota: 100, maxResults: 5 }, INHERITED)).toBe("inherit");
+describe("buildOverride (FIELD-LEVEL partial, multi-select)", () => {
+	test("all fields == inherited (full set checked) → collapses to 'inherit'", () => {
+		expect(buildOverride({ providers: AVAILABLE, quota: 100, maxResults: 5 }, INHERITED, AVAILABLE)).toBe(
+			"inherit",
+		);
 	});
 
-	test("only quota changed → { quota } (the exit-criteria 500 case)", () => {
-		expect(buildOverride({ providers: "inherit", quota: 500, maxResults: 5 }, INHERITED)).toEqual({ quota: 500 });
+	test("full set checked but quota changed → { quota } (providers omitted = inherit)", () => {
+		expect(buildOverride({ providers: AVAILABLE, quota: 500, maxResults: 5 }, INHERITED, AVAILABLE)).toEqual({
+			quota: 500,
+		});
 	});
 
-	test("only maxResults changed → { maxResults }", () => {
-		expect(buildOverride({ providers: "inherit", quota: 100, maxResults: 3 }, INHERITED)).toEqual({ maxResults: 3 });
+	test("a 2-of-3 subset round-trips verbatim → { providers: [...] }", () => {
+		expect(
+			buildOverride({ providers: ["searxng", "brave"], quota: 100, maxResults: 5 }, INHERITED, AVAILABLE),
+		).toEqual({ providers: ["searxng", "brave"] });
 	});
 
-	test("provider pinned → { providers: [provider] }", () => {
-		expect(buildOverride({ providers: "searxng", quota: 100, maxResults: 5 }, INHERITED)).toEqual({
+	test("collapses to inherit ONLY on true set-equality (order-insensitive)", () => {
+		// Same set, different order → still inherit.
+		expect(
+			buildOverride({ providers: ["tavily", "searxng", "brave"], quota: 100, maxResults: 5 }, INHERITED, AVAILABLE),
+		).toBe("inherit");
+	});
+
+	test("a single-provider subset → { providers: [provider] }", () => {
+		expect(buildOverride({ providers: ["searxng"], quota: 100, maxResults: 5 }, INHERITED, AVAILABLE)).toEqual({
 			providers: ["searxng"],
 		});
 	});
 
-	test("multiple fields → all included", () => {
-		expect(buildOverride({ providers: "brave", quota: 250, maxResults: 8 }, INHERITED)).toEqual({
-			providers: ["brave"],
-			quota: 250,
-			maxResults: 8,
-		});
+	test("subset + quota + maxResults → all included", () => {
+		expect(
+			buildOverride({ providers: ["brave"], quota: 250, maxResults: 8 }, INHERITED, AVAILABLE),
+		).toEqual({ providers: ["brave"], quota: 250, maxResults: 8 });
 	});
 
 	test("junk numeric input falls back to inherited (no spurious override)", () => {
-		expect(buildOverride({ providers: "inherit", quota: 0, maxResults: 5 }, INHERITED)).toBe("inherit");
+		expect(buildOverride({ providers: AVAILABLE, quota: 0, maxResults: 5 }, INHERITED, AVAILABLE)).toBe(
+			"inherit",
+		);
+	});
+
+	test("an empty provider selection throws (callers must gate via isCustomFormValid)", () => {
+		expect(() => buildOverride({ providers: [], quota: 100, maxResults: 5 }, INHERITED, AVAILABLE)).toThrow(
+			/empty provider selection/,
+		);
 	});
 });
 
 describe("grantForMode", () => {
-	const form = { providers: "inherit", quota: 500, maxResults: 5 };
+	const form = { providers: AVAILABLE, quota: 500, maxResults: 5 };
 	test("disabled → false", () => {
-		expect(grantForMode("disabled", form, INHERITED)).toBe(false);
+		expect(grantForMode("disabled", form, INHERITED, AVAILABLE)).toBe(false);
 	});
 	test("inherit → 'inherit'", () => {
-		expect(grantForMode("inherit", form, INHERITED)).toBe("inherit");
+		expect(grantForMode("inherit", form, INHERITED, AVAILABLE)).toBe("inherit");
 	});
 	test("custom → the built field-level override", () => {
-		expect(grantForMode("custom", form, INHERITED)).toEqual({ quota: 500 });
+		expect(grantForMode("custom", form, INHERITED, AVAILABLE)).toEqual({ quota: 500 });
 	});
 });

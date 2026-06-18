@@ -21,7 +21,8 @@
 		grantToMode,
 		formFromEffective,
 		grantForMode,
-		hasPreservedProviderList,
+		providerOptions,
+		isCustomFormValid,
 		type CapabilityMode,
 		type EffectivePolicyView,
 		type SearchGrant,
@@ -47,6 +48,8 @@
 	let forms = $state<Record<string, CapabilityForm>>({});
 	let savingCap = $state<string | null>(null);
 	let errorCap = $state<string | null>(null);
+	/** The cap whose Custom form failed empty-selection validation. */
+	let validationCap = $state<string | null>(null);
 
 	// Seed mode + form from the incoming grants/effective whenever the
 	// capabilities prop changes (post-save reload). onMount-free: this is a
@@ -56,9 +59,10 @@
 		const nextForms: Record<string, CapabilityForm> = {};
 		for (const c of capabilities) {
 			nextMode[c.cap] = grantToMode(c.grant);
-			// Pass the RAW grant so a multi-provider allowlist is captured into
-			// `providersOriginal` and preserved on save (no silent widening).
-			nextForms[c.cap] = formFromEffective(effectiveView(c), c.grant);
+			// Seed the multi-select from the effective providers, intersected
+			// with the provider set the UI offers. A pre-existing N-provider
+			// grant round-trips verbatim (N checked boxes) — no preserve hack.
+			nextForms[c.cap] = formFromEffective(effectiveView(c), providerOptions(c));
 		}
 		mode = nextMode;
 		forms = nextForms;
@@ -78,22 +82,36 @@
 		return f && f.type === "number" && typeof f.default === "number" ? f.default : 1;
 	}
 
-	function selectOptions(c: HeldCapabilityView): { value: string; label: string }[] {
-		const f = c.schema.find((s) => s.key === "providers")?.field;
-		return f && f.type === "select" ? f.options : [];
-	}
-
 	async function setMode(cap: string, next: CapabilityMode) {
 		mode = { ...mode, [cap]: next };
+		// Clear any stale validation/save error when switching modes.
+		if (errorCap === cap) errorCap = null;
+		validationCap = validationCap === cap ? null : validationCap;
+	}
+
+	/** Toggle a provider in the Custom multi-select. */
+	function toggleProvider(cap: string, provider: string, checked: boolean) {
+		const cur = forms[cap]!.providers;
+		const next = checked ? [...cur, provider] : cur.filter((p) => p !== provider);
+		forms[cap]!.providers = next;
+		// A non-empty selection clears the empty-selection validation error.
+		if (next.length > 0 && validationCap === cap) validationCap = null;
 	}
 
 	async function save(c: HeldCapabilityView) {
 		if (!isAdmin) return;
 		const cap = c.cap;
+		// Custom mode requires at least one provider — an empty allowlist
+		// would deny every provider. Block save with a validation error.
+		if (mode[cap] === "custom" && !isCustomFormValid(forms[cap]!)) {
+			validationCap = cap;
+			return;
+		}
 		savingCap = cap;
 		errorCap = null;
+		validationCap = null;
 		try {
-			const grant = grantForMode(mode[cap]!, forms[cap]!, effectiveView(c));
+			const grant = grantForMode(mode[cap]!, forms[cap]!, effectiveView(c), providerOptions(c));
 			await onsave(cap, grant);
 		} catch {
 			errorCap = cap;
@@ -161,36 +179,37 @@
 				<!-- Custom: reveal the schema fields prefilled with inherited values -->
 				{#if mode[c.cap] === "custom" && forms[c.cap]}
 					<div class="mt-3 space-y-3" data-testid="capability-{c.cap}-custom-fields">
-						<!-- Multi-provider allowlist guard: the single-select can't
-						     represent a >1 provider list, so it's PRESERVED verbatim
-						     (not silently widened to inherit). Warn until the admin
-						     actively changes the select. -->
-						{#if hasPreservedProviderList(forms[c.cap]!)}
-							<p
-								class="rounded border border-amber-700 bg-amber-950/40 px-2 py-1.5 text-xs text-amber-300"
-								data-testid="capability-{c.cap}-providers-preserved"
-								role="status"
-							>
-								This extension is restricted to multiple providers
-								({(forms[c.cap]!.providersOriginal ?? []).join(", ")}). That list is
-								preserved as-is — changing the selector below replaces it with a single
-								provider or inherits the default.
-							</p>
-						{/if}
-						<div class="flex items-center justify-between gap-3">
-							<label for="cap-{c.cap}-providers" class="text-xs text-[var(--color-text-secondary)]">Allowed providers</label>
-							<select
-								id="cap-{c.cap}-providers"
-								bind:value={forms[c.cap]!.providers}
-								onchange={() => (forms[c.cap]!.providersDirty = true)}
-								disabled={!isAdmin}
-								data-testid="capability-{c.cap}-field-providers"
-								class="w-48 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-2 py-1 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
-							>
-								{#each selectOptions(c) as opt}
-									<option value={opt.value}>{opt.label}</option>
+						<!-- Multi-provider allowlist: a first-class checkbox group over
+						     the KNOWN providers. Any subset (1..N) round-trips natively —
+						     no preserve hack. An empty selection is a validation error
+						     (an empty allowlist would deny every provider). -->
+						<div class="space-y-1.5" data-testid="capability-{c.cap}-providers-group" role="group" aria-label="Allowed providers">
+							<span class="text-xs text-[var(--color-text-secondary)]">Allowed providers</span>
+							<div class="flex flex-wrap gap-2">
+								{#each providerOptions(c) as prov}
+									<label
+										class="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-2 py-1 text-xs text-[var(--color-text-primary)]"
+									>
+										<input
+											type="checkbox"
+											checked={forms[c.cap]!.providers.includes(prov)}
+											onchange={(e) => toggleProvider(c.cap, prov, e.currentTarget.checked)}
+											disabled={!isAdmin}
+											data-testid="capability-{c.cap}-provider-{prov}"
+										/>
+										{prov}
+									</label>
 								{/each}
-							</select>
+							</div>
+							{#if validationCap === c.cap}
+								<p
+									class="text-xs text-red-400"
+									data-testid="capability-{c.cap}-providers-error"
+									role="alert"
+								>
+									Select at least one provider, or choose Inherit / Disabled.
+								</p>
+							{/if}
 						</div>
 						<div class="flex items-center justify-between gap-3">
 							<label for="cap-{c.cap}-quota" class="text-xs text-[var(--color-text-secondary)]">Daily quota</label>
