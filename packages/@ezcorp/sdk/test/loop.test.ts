@@ -871,6 +871,25 @@ describe("multi-loop + duplicate-id", () => {
     expect(Object.keys(getLoopTools())).toContain("do_it");
   });
 
+  test("a manual-tool NAME collision across loops throws (no silent clobber)", () => {
+    defineLoop({
+      id: "loop-a",
+      trigger: { kind: "manual", tool: "shared_name" },
+      contract: { states: ["done"] },
+      act: async () => ({ kind: "skip", reason: "x" }),
+    });
+    // A second loop claiming the same tool name is the DX footgun — it must
+    // crash loudly at install instead of silently clobbering loop-a.
+    expect(() =>
+      defineLoop({
+        id: "loop-b",
+        trigger: { kind: "manual", tool: "shared_name" },
+        contract: { states: ["done"] },
+        act: async () => ({ kind: "skip", reason: "y" }),
+      }),
+    ).toThrow(/manual tool "shared_name" is already registered/);
+  });
+
   test("an array of triggers wires each one", async () => {
     let fires = 0;
     defineLoop({

@@ -168,6 +168,24 @@ truth**. `dashboard` registers a Hub page whose `render` re-derives the run
 list; the primitive pushes a fresh tree (content-free SSE invalidation) on
 every state change, and routes `rowActions` straight through.
 
+A row action that needs to **collect input** (e.g. a steer message) builds
+the row's `action.prompt` in `render` — the host renders the input dialog,
+and `prompt.format` selects the widget (`"file-path"` reuses the filesystem
+picker; the default is a plain text box). The typed value arrives in the
+action handler's `event.payload`:
+
+```ts
+page.table(["Run", "Status"], runs.map((r) => ({
+  cells: [r.id, r.status],
+  action: {
+    event: "myloop:steer",
+    payload: { runId: r.id },
+    prompt: { label: "Steer message", field: "message", format: "text" },
+  },
+})));
+// rowActions: { "myloop:steer": (e) => steer(e.payload.runId, e.payload.message) }
+```
+
 ---
 
 ## Terminal vs deferred — which one?
@@ -217,15 +235,22 @@ compaction loop in one extension.
 ### Mixing loops with hand-written tools
 
 The SDK tool dispatcher replaces its `tools/call` handler wholesale on
-every `createToolDispatcher` call. So when your extension has BOTH a
-manual-trigger loop AND hand-written tools, register them in **one** merged
-call:
+every `createToolDispatcher` call (last-call-wins). So when your extension
+has a manual-trigger loop AND hand-written tools, register them in **one**
+merged call — this is **the** way to wire it:
 
 ```ts
 createToolDispatcher({ ...getLoopTools(), my_other_tool: handler });
 ```
 
-`getLoopTools()` returns the manual-trigger handlers the loops registered.
+`getLoopTools()` returns the manual-trigger handlers your loops registered.
+If you forget the merge and call `createToolDispatcher({ my_other_tool })`
+separately, the second call silently clobbers the loop's tool — so always
+spread `getLoopTools()` first.
+
+Two loops in the same extension must NOT claim the same manual `tool` name:
+`defineLoop` throws at registration on a collision (loud install-time
+failure) rather than letting one loop silently overwrite the other.
 
 ---
 
