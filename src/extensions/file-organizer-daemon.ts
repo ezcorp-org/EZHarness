@@ -28,7 +28,7 @@
  */
 import { createHash } from "node:crypto";
 import { readdir, lstat, stat, readlink } from "node:fs/promises";
-import { join } from "node:path";
+import { join, normalize } from "node:path";
 import { logger } from "../logger";
 import type { PermissionEngine } from "./permission-engine";
 
@@ -49,6 +49,7 @@ import {
   expandPresets,
   ruleMatches,
   patternMatches,
+  circuitTripped,
   extOf,
   type FileFacts,
   type Rule,
@@ -57,6 +58,7 @@ import {
   validateConfig,
   effectiveIgnores,
   isIgnored,
+  isWithin,
   type Config,
   type FolderConfig,
   type Mode,
@@ -310,6 +312,22 @@ export class FileOrganizerDaemon {
       const rules = [...expandPresets(folder.presets), ...folder.customRules];
       const mode = folder.mode ?? settings.defaultMode;
 
+      // First pass: hash + match every stable file ONCE, buffering the
+      // result. We must know the WHOLE folder's destructive-rule match
+      // counts before emitting, so the circuit breaker can pause a rule
+      // that's about to act on >fraction of the folder in one tick (a
+      // too-broad `* -> quarantine` shouldn't nuke a folder unbraked).
+      interface ScannedFile {
+        entry: WalkDirent;
+        facts: FileFacts;
+        sha256: string | undefined;
+        decision: ReturnType<typeof hashDecision>;
+        matched: ReturnType<typeof firstMatch>;
+      }
+      const scanned: ScannedFile[] = [];
+      // matched-file count per DESTRUCTIVE rule id this tick (for the breaker).
+      const destructiveMatchCounts = new Map<string, number>();
+
       for (const entry of result.files) {
         if (entry.isSymlink) continue; // recorded but never acted on
         if (isUnstableName(entry.name)) continue; // partial download
@@ -349,6 +367,38 @@ export class FileOrganizerDaemon {
         const isDuplicate = dupesToRemove.has(entry.path);
 
         const matched = firstMatch(rules, facts, nowMs, isDuplicate, folder.path);
+        // Tally destructive (quarantine) matches per rule for the breaker.
+        if (matched && matched.kind === "delete-quarantine" && matched.ruleId !== null) {
+          destructiveMatchCounts.set(matched.ruleId, (destructiveMatchCounts.get(matched.ruleId) ?? 0) + 1);
+        }
+        scanned.push({ entry, facts, sha256, decision, matched });
+      }
+
+      // Circuit breaker: any DESTRUCTIVE rule that matched >fraction of the
+      // folder's scanned files this tick is PAUSED — its proposals are
+      // suppressed (never queued or applied) and a one-line warning is
+      // surfaced. Non-destructive routes and under-threshold rules are
+      // unaffected. (See lib/rules.ts `circuitTripped`.)
+      const trippedRuleIds = new Set<string>();
+      for (const [ruleId, matched] of destructiveMatchCounts) {
+        if (circuitTripped(matched, scanned.length)) {
+          trippedRuleIds.add(ruleId);
+          log.warn("file-organizer circuit breaker tripped — pausing rule this tick", {
+            ruleId,
+            matched,
+            scanned: scanned.length,
+            folder: folder.path,
+          });
+        }
+      }
+
+      // Second pass: emit proposals (dropping any tripped rule's destructive
+      // match — the file falls through to the no-match / unclassified path).
+      for (const { entry, facts, sha256, decision, matched: rawMatched } of scanned) {
+        const matched =
+          rawMatched && rawMatched.ruleId !== null && trippedRuleIds.has(rawMatched.ruleId)
+            ? null
+            : rawMatched;
         if (!matched) {
           // No rule matched. Emit an `unclassified` "falls outside the
           // workflow" alert ONLY for a genuinely UNRECOGNIZED file:
@@ -712,6 +762,17 @@ function firstMatch(
     if (!ruleMatches(rule, facts, { now, isDuplicate })) continue;
     if (rule.action === "quarantine") {
       return { kind: "delete-quarantine", dst: null, ruleId: rule.id, ruleLabel: rule.label, reason: rule.label };
+    }
+    // Idempotent routing: a `route`/`move` rule must NOT re-fire on a file
+    // already living inside its own destination dir. Without this, the
+    // walker descends into e.g. `Images/` on a later tick, the `*.png` rule
+    // re-matches the already-routed file, and the non-overwrite resolver
+    // re-moves it to `… (2).png`, `… (2) (2).png`… forever (re-route churn).
+    // Skipping the rule here makes routing reach a fixed point. (Files NOT
+    // yet at their destination still route normally via `routeDestination`.)
+    if (rule.dest) {
+      const destDir = normalize(join(watchedRoot, rule.dest));
+      if (isWithin(destDir, normalize(facts.path))) continue;
     }
     const dst = rule.dest ? routeDestination(watchedRoot, rule.dest, facts.path) : null;
     return { kind: "move", dst, ruleId: rule.id, ruleLabel: rule.label, reason: rule.label };

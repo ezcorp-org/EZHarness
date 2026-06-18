@@ -662,6 +662,155 @@ describe("PID lockfile lifecycle", () => {
   });
 });
 
+describe("daemon — idempotent routing (no re-route churn)", () => {
+  // A `route` rule moves a file INTO a destination subfolder inside the
+  // watched root. On a later tick the walker descends into that subfolder;
+  // without the idempotency guard the same rule re-matches the already-routed
+  // file and the non-overwrite resolver re-moves it to `… (2).png`, then
+  // `… (2) (2).png`… forever. These assert the fixed-point behavior.
+
+  /** Recursively collect basenames under `dir`. */
+  async function allNames(dir: string): Promise<string[]> {
+    const { readdir } = await import("node:fs/promises");
+    const out: string[] = [];
+    const ents = await readdir(dir, { withFileTypes: true });
+    for (const e of ents) {
+      if (e.isDirectory()) out.push(...(await allNames(join(dir, e.name))));
+      else out.push(e.name);
+    }
+    return out;
+  }
+
+  test("fully-auto: a routed file reaches a fixed point — moved EXACTLY once, never re-suffixed across many ticks", async () => {
+    await writeConfig({ mode: "fully-auto", presets: ["downloads-router"] });
+    await writeFile(join(watched, "screenshot.png"), "img");
+    const d = makeDaemon({ settings: { stabilityTicks: 1, defaultMode: "fully-auto" } });
+    // Many ticks: tick 1 records stability, tick 2 routes it; remaining ticks
+    // re-scan Images/ and must NOT re-route (idempotent fixed point).
+    await tickN(d, 6);
+    // The file lives at its destination, ONCE.
+    expect(await Bun.file(join(watched, "Images", "screenshot.png")).exists()).toBe(true);
+    expect(await Bun.file(join(watched, "screenshot.png")).exists()).toBe(false);
+    // No churn artifact ever appeared anywhere under the watched root.
+    const names = await allNames(watched);
+    expect(names).toContain("screenshot.png");
+    expect(names.filter((n) => n === "screenshot.png")).toHaveLength(1);
+    expect(names.some((n) => /\(\d+\)/.test(n))).toBe(false);
+    // Exactly one move proposal was ever generated for this file.
+    const moves = (await readProposals()).proposals.filter((p) => p.kind === "move");
+    expect(moves).toHaveLength(1);
+    expect(moves[0]!.status).toBe("applied");
+  });
+
+  test("approve-non-destructive-only: routed file also reaches a fixed point (no growing suffix)", async () => {
+    await writeConfig({ mode: "approve-non-destructive-only", presets: ["downloads-router"] });
+    await writeFile(join(watched, "doc.pdf"), "pdf");
+    const d = makeDaemon({ settings: { stabilityTicks: 1, defaultMode: "ask-everything" } });
+    await tickN(d, 6);
+    expect(await Bun.file(join(watched, "Documents", "doc.pdf")).exists()).toBe(true);
+    const names = await allNames(watched);
+    expect(names.filter((n) => n === "doc.pdf")).toHaveLength(1);
+    expect(names.some((n) => /\(\d+\)/.test(n))).toBe(false);
+    const moves = (await readProposals()).proposals.filter((p) => p.kind === "move");
+    expect(moves).toHaveLength(1);
+  });
+
+  test("a file PRE-PLACED in its destination dir is never proposed for routing", async () => {
+    await writeConfig({ presets: ["downloads-router"], backlogPolicy: "include-existing" });
+    // Already sitting in Images/ — must not be re-routed even once.
+    await mkdir(join(watched, "Images"), { recursive: true });
+    await writeFile(join(watched, "Images", "already.png"), "img");
+    const d = makeDaemon({ settings: { stabilityTicks: 1, defaultMode: "ask-everything" } });
+    await tickN(d, 3);
+    const moves = (await readProposals()).proposals.filter((p) => p.kind === "move");
+    expect(moves).toHaveLength(0);
+    // File untouched, no suffix sibling created.
+    expect(await Bun.file(join(watched, "Images", "already.png")).exists()).toBe(true);
+    const names = await allNames(watched);
+    expect(names.some((n) => /\(\d+\)/.test(n))).toBe(false);
+  });
+
+  test("ask-everything: a file already at its destination produces no redundant move proposal", async () => {
+    await writeConfig({ presets: ["downloads-router"], backlogPolicy: "include-existing" });
+    await mkdir(join(watched, "Archives"), { recursive: true });
+    await writeFile(join(watched, "Archives", "bundle.zip"), "zip");
+    // A second zip NOT yet routed — control: it SHOULD propose a move.
+    await writeFile(join(watched, "loose.zip"), "zip2");
+    const d = makeDaemon({ settings: { stabilityTicks: 1, defaultMode: "ask-everything" } });
+    await tickN(d, 2);
+    const moves = (await readProposals()).proposals.filter((p) => p.kind === "move");
+    // Only the loose zip proposes a move; the already-routed one does not.
+    expect(moves).toHaveLength(1);
+    expect(moves[0]!.src).toBe(join(watched, "loose.zip"));
+    expect(moves[0]!.dst).toBe(join(watched, "Archives", "loose.zip"));
+  });
+});
+
+describe("daemon — circuit breaker pauses a runaway destructive rule", () => {
+  /** A broad mini-DSL-style custom rule: `* -> quarantine`. */
+  const broadQuarantineRule = {
+    id: "dsl-broadq",
+    label: "* -> quarantine",
+    action: "quarantine",
+    predicate: { glob: "*" },
+    destructive: true,
+  };
+
+  test("fully-auto: a `* -> quarantine` rule over many files trips the breaker → ZERO quarantined, folder intact", async () => {
+    await writeConfig({ mode: "fully-auto", customRules: [broadQuarantineRule], backlogPolicy: "include-existing" });
+    const names = ["a.dat", "b.dat", "c.dat", "d.dat", "e.dat"];
+    for (const n of names) await writeFile(join(watched, n), n);
+    const d = makeDaemon({ settings: { stabilityTicks: 1, defaultMode: "fully-auto" } });
+    await tickN(d, 2); // tick 1 stability, tick 2 would mass-quarantine without the brake
+    // Breaker tripped: no proposals queued, nothing applied.
+    const props = await readProposals();
+    expect(props.proposals.filter((p) => p.kind === "delete-quarantine")).toHaveLength(0);
+    // Every file is still on disk (folder fully intact).
+    for (const n of names) {
+      expect(await Bun.file(join(watched, n)).exists()).toBe(true);
+    }
+    // Nothing was quarantined.
+    const manifestPath = join(dataDir, ".trash", "manifest.json");
+    if (await Bun.file(manifestPath).exists()) {
+      const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+      expect(manifest.entries.length).toBe(0);
+    }
+  });
+
+  test("a narrow destructive rule matching a small fraction is UNAFFECTED (still proposes/applies)", async () => {
+    // junk-sweep's *.bak over a folder where only 1 of 5 files is a .bak:
+    // 1/5 = 0.2 ≤ 0.5 and matched < 2 → breaker does not trip.
+    await writeConfig({ mode: "fully-auto", presets: ["junk-sweep"], backlogPolicy: "include-existing" });
+    await writeFile(join(watched, "keep1.txt"), "x");
+    await writeFile(join(watched, "keep2.txt"), "x");
+    await writeFile(join(watched, "keep3.txt"), "x");
+    await writeFile(join(watched, "keep4.txt"), "x");
+    await writeFile(join(watched, "old.bak"), "junk");
+    const d = makeDaemon({ settings: { stabilityTicks: 1, defaultMode: "fully-auto" } });
+    await tickN(d, 2);
+    // The single .bak WAS quarantined; the others are untouched.
+    expect(await Bun.file(join(watched, "old.bak")).exists()).toBe(false);
+    expect(await Bun.file(join(watched, "keep1.txt")).exists()).toBe(true);
+    const dels = (await readProposals()).proposals.filter((p) => p.kind === "delete-quarantine");
+    expect(dels).toHaveLength(1);
+    expect(dels[0]!.status).toBe("applied");
+  });
+
+  test("non-destructive routes are NEVER throttled by the breaker even over a whole folder", async () => {
+    // downloads-router moving ALL 4 pngs (4/4 = 1.0 > 0.5) must still run —
+    // the breaker only guards DESTRUCTIVE rules.
+    await writeConfig({ mode: "fully-auto", presets: ["downloads-router"], backlogPolicy: "include-existing" });
+    const pngs = ["p1.png", "p2.png", "p3.png", "p4.png"];
+    for (const n of pngs) await writeFile(join(watched, n), n);
+    const d = makeDaemon({ settings: { stabilityTicks: 1, defaultMode: "fully-auto" } });
+    await tickN(d, 2);
+    for (const n of pngs) {
+      expect(await Bun.file(join(watched, "Images", n)).exists()).toBe(true);
+      expect(await Bun.file(join(watched, n)).exists()).toBe(false);
+    }
+  });
+});
+
 describe("mergeFileOrganizerSettings", () => {
   test("manifest defaults resolve with no stored values", () => {
     const declared = {

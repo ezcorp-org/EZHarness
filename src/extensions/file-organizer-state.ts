@@ -520,8 +520,13 @@ function rootForRestore(config: Config, originalPath: string): string {
   for (const f of config.folders) {
     if (originalPath === f.path || originalPath.startsWith(f.path + "/")) return f.path;
   }
-  // Fall back to the original file's parent so the prefix-check passes for
-  // a folder that's since been removed (quarantine outlives the folder).
+  // Fall back to the original file's parent (or `/`) so the prefix-check
+  // passes for a folder that's since been removed (quarantine outlives the
+  // folder). This `/`/parent fallback is DELIBERATE: restore returns the
+  // file to its recorded absolute path and is still guarded by
+  // `touchesDataDir`, so a missing watched root must not block recovery.
+  // Distinct from the `watchedRootFor` → `blocked` policy on accept /
+  // confirm-deletes, where a missing root SHOULD hold the destructive op.
   return originalPath.slice(0, originalPath.lastIndexOf("/")) || "/";
 }
 
