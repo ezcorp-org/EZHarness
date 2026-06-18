@@ -133,6 +133,50 @@ describe("isNoiseLine — negative matches (real executable code)", () => {
     expect(isNoiseLine("  const x = foo(a): number;")).toBe(false);
   });
 
+  test("class declaration headers are noise (header never carries a positive DA)", () => {
+    expect(isNoiseLine("export class SearchCache {")).toBe(true);
+    expect(isNoiseLine("class Foo {")).toBe(true);
+    expect(isNoiseLine(
+      "export abstract class Bar extends Baz implements I {",
+    )).toBe(true);
+    expect(isNoiseLine("export default class Widget {")).toBe(true);
+    expect(isNoiseLine("class Container<T extends Base> {")).toBe(true);
+  });
+
+  test("a field named with a `class` prefix is NOT a class declaration", () => {
+    // `class\s+\w+` requires whitespace after `class`; `classRoom` has none,
+    // so CLASS_DECL never fires. (It IS still noise via TS_FIELD_START as a
+    // declaration-only field — that's correct and intentional.)
+    expect(/^\s*(export\s+)?(default\s+)?(abstract\s+)?class\s+\w+\s*(<[^>]*>)?\s*(extends\s|implements\s|\{|$)/.test(
+      "  classRoom: string;",
+    )).toBe(false);
+    // `classify(x)` is a function, not a class declaration.
+    expect(/^\s*(export\s+)?(default\s+)?(abstract\s+)?class\s+\w+\s*(<[^>]*>)?\s*(extends\s|implements\s|\{|$)/.test(
+      "function classify(x) {",
+    )).toBe(false);
+  });
+
+  test("modifier-prefixed declaration-only fields are noise (type erased, no JS)", () => {
+    // The cache.ts lines that triggered the gate regression: a typed field
+    // with an access/readonly modifier and NO initializer compiles to nothing
+    // (assignment happens in the constructor).
+    expect(isNoiseLine("  private readonly maxEntries: number;")).toBe(true);
+    expect(isNoiseLine("  private readonly now: () => number;")).toBe(true);
+    expect(isNoiseLine("  protected static count: number;")).toBe(true);
+    expect(isNoiseLine("  public name?: string,")).toBe(true);
+    expect(isNoiseLine("  override foo: Bar;")).toBe(true);
+    expect(isNoiseLine("  declare private x: number;")).toBe(true);
+  });
+
+  test("modifier-prefixed field WITH an initializer is NOT noise (emits JS)", () => {
+    // `map = new Map()` is a real field initializer — keep its DA record.
+    expect(isNoiseLine("  private readonly map = new Map<string, Entry>();")).toBe(false);
+    expect(isNoiseLine("  static instance = new Foo();")).toBe(false);
+    expect(isNoiseLine("  private x = computeDefault();")).toBe(false);
+    // An arrow-VALUE field (value `=`) is executable too.
+    expect(isNoiseLine("  readonly handler = () => doStuff();")).toBe(false);
+  });
+
   test("bare switch-case labels are noise (the dispatch is on the switch line)", () => {
     expect(isNoiseLine("      default:")).toBe(true);
     expect(isNoiseLine('    case "applied":')).toBe(true);
