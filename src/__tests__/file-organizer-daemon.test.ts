@@ -239,6 +239,190 @@ describe("daemon — backlog policy", () => {
   });
 });
 
+describe("daemon — duplicate-killer keeps one canonical", () => {
+  test("two identical files → EXACTLY one delete-quarantine, on the NON-canonical (newer) copy", async () => {
+    await writeConfig({ presets: ["duplicate-killer"] });
+    const oldF = join(watched, "a-canonical.bin");
+    const newF = join(watched, "b-copy.bin");
+    await writeFile(oldF, "identical-bytes");
+    await writeFile(newF, "identical-bytes");
+    // Backdate the canonical copy so it has the smaller mtime.
+    const past = new Date(Date.now() - 120_000);
+    await utimes(oldF, past, past);
+    const d = makeDaemon({ settings: { stabilityTicks: 1, defaultMode: "ask-everything" } });
+    // `dupesToRemove` is built from the START-of-tick hashcache, and files
+    // are hashed only once stable. tick 1 records stability; tick 2 (stable)
+    // hashes both into the cache; tick 3 reads that cache → the dupe is seen
+    // and the newer copy is flagged.
+    await tickN(d, 3);
+    const file = await readProposals();
+    const dels = file.proposals.filter((p) => p.kind === "delete-quarantine");
+    expect(dels).toHaveLength(1);
+    expect(dels[0]!.src).toBe(newF); // the non-canonical (newer) copy
+    // The canonical (oldest) copy is NEVER proposed for removal.
+    expect(file.proposals.some((p) => p.src === oldF && p.kind === "delete-quarantine")).toBe(false);
+  });
+
+  test("fully-auto: the canonical copy survives on disk; only the duplicate is quarantined", async () => {
+    await writeConfig({ mode: "fully-auto", presets: ["duplicate-killer"] });
+    const oldF = join(watched, "keep.bin");
+    const newF = join(watched, "remove.bin");
+    await writeFile(oldF, "same-content");
+    await writeFile(newF, "same-content");
+    const past = new Date(Date.now() - 120_000);
+    await utimes(oldF, past, past);
+    const d = makeDaemon({ settings: { stabilityTicks: 1, defaultMode: "fully-auto" } });
+    await tickN(d, 3); // see canonical-detection note above
+    // Canonical kept; only the duplicate removed (data-safety: never both).
+    expect(await Bun.file(oldF).exists()).toBe(true);
+    expect(await Bun.file(newF).exists()).toBe(false);
+  });
+});
+
+describe("daemon — unclassified alert for new unmatched files", () => {
+  const EPOCH = 1_000_000;
+
+  test("a NEW (mtime ≥ epoch) unmatched file → exactly one unclassified pending proposal", async () => {
+    await writeConfig({ presets: ["junk-sweep"], backlogPolicy: "include-existing", epochMs: EPOCH });
+    const f = join(watched, "mystery.xyz"); // matches no rule
+    await writeFile(f, "data");
+    const future = new Date(EPOCH + 60_000);
+    await utimes(f, future, future);
+    const d = makeDaemon({ settings: { stabilityTicks: 1 } });
+    // 3 ticks: stable (t1) → hashed into cache (t2) → unclassified emitted
+    // once the hash is cached so dup membership is authoritative (t3).
+    await tickN(d, 3);
+    const file = await readProposals();
+    const unc = file.proposals.filter((p) => p.kind === "unclassified");
+    expect(unc).toHaveLength(1);
+    expect(unc[0]!.status).toBe("pending");
+    expect(unc[0]!.src).toBe(f);
+    expect(unc[0]!.dst).toBeNull();
+    expect(unc[0]!.reason).toContain("No rule matched");
+  });
+
+  test("a rule-matching file is NOT flagged unclassified", async () => {
+    await writeConfig({ presets: ["junk-sweep"], backlogPolicy: "include-existing", epochMs: EPOCH });
+    const f = join(watched, "junk.tmp"); // junk-sweep matches
+    await writeFile(f, "j");
+    const future = new Date(EPOCH + 60_000);
+    await utimes(f, future, future);
+    const d = makeDaemon({ settings: { stabilityTicks: 1 } });
+    await tickN(d, 2);
+    const file = await readProposals();
+    expect(file.proposals.some((p) => p.kind === "unclassified")).toBe(false);
+  });
+
+  test("an OLD (mtime < epoch) unmatched file is NOT flagged (no backlog spam)", async () => {
+    await writeConfig({ presets: ["junk-sweep"], backlogPolicy: "include-existing", epochMs: EPOCH });
+    const f = join(watched, "ancient.xyz");
+    await writeFile(f, "data");
+    const past = new Date(EPOCH - 60_000);
+    await utimes(f, past, past);
+    const d = makeDaemon({ settings: { stabilityTicks: 1 } });
+    await tickN(d, 2);
+    expect((await readProposals()).proposals).toHaveLength(0);
+  });
+
+  test("a folder without epochMs never flags unclassified", async () => {
+    // No epochMs ⇒ no "watch start" defined ⇒ the new-file guard is closed.
+    await writeConfig({ presets: ["junk-sweep"], backlogPolicy: "include-existing" });
+    await writeFile(join(watched, "loose.xyz"), "data");
+    const d = makeDaemon({ settings: { stabilityTicks: 1 } });
+    await tickN(d, 2);
+    expect((await readProposals()).proposals).toHaveLength(0);
+  });
+
+  test("re-ticking does not re-propose the same unclassified file (deduped)", async () => {
+    await writeConfig({ presets: ["junk-sweep"], backlogPolicy: "include-existing", epochMs: EPOCH });
+    const f = join(watched, "again.xyz");
+    await writeFile(f, "data");
+    const future = new Date(EPOCH + 60_000);
+    await utimes(f, future, future);
+    const d = makeDaemon({ settings: { stabilityTicks: 1 } });
+    await tickN(d, 4); // extra ticks must not duplicate
+    expect((await readProposals()).proposals.filter((p) => p.kind === "unclassified")).toHaveLength(1);
+  });
+
+  test("unclassified is never auto-applied, even in fully-auto (no dst)", async () => {
+    await writeConfig({ mode: "fully-auto", presets: ["junk-sweep"], backlogPolicy: "include-existing", epochMs: EPOCH });
+    const f = join(watched, "untouched.xyz");
+    await writeFile(f, "data");
+    const future = new Date(EPOCH + 60_000);
+    await utimes(f, future, future);
+    const d = makeDaemon({ settings: { stabilityTicks: 1, defaultMode: "fully-auto" } });
+    await tickN(d, 3); // hash-cached before flag (see note above)
+    const file = await readProposals();
+    const unc = file.proposals.find((p) => p.kind === "unclassified")!;
+    expect(unc.status).toBe("pending"); // not applied
+    expect(await Bun.file(f).exists()).toBe(true); // file left in place
+    // The badge surfaces it in the unclassified count.
+    const badge = JSON.parse(await readFile(join(dataDir, "badge.json"), "utf8"));
+    expect(badge.unclassified).toBe(1);
+  });
+
+  test("a dwell-DEFERRED fresh *.tmp (pattern-matches junk-tmp, too new) is NOT unclassified", async () => {
+    // junk-tmp's 10-min `olderThanMs` defers a fresh `*.tmp` → firstMatch is
+    // null, but the file's TYPE is recognized (the glob pattern-matches), so
+    // it must NOT become an unclassified "unknown file". Use a clock just
+    // past epoch so the tmp is new-since-watch yet still inside the dwell.
+    await writeConfig({ presets: ["junk-sweep"], backlogPolicy: "include-existing", epochMs: EPOCH });
+    const tmp = join(watched, "fresh-save.tmp"); // matches *.tmp, too new
+    await writeFile(tmp, "writing");
+    const fresh = new Date(EPOCH + 500);
+    await utimes(tmp, fresh, fresh);
+    const d = makeDaemon({ settings: { stabilityTicks: 1 }, now: () => EPOCH + 1000 });
+    await tickN(d, 2);
+    const file = await readProposals();
+    // Neither a junk proposal (deferred) NOR an unclassified one is emitted.
+    expect(file.proposals).toHaveLength(0);
+  });
+
+  test("a duplicate-group member (kept or removed) is NOT unclassified", async () => {
+    // Two identical files matching no rule pattern. They ARE a recognized
+    // duplicate group, so NEITHER copy is flagged unclassified — even though
+    // firstMatch is null for both (no duplicate-killer preset here).
+    await writeConfig({ presets: ["junk-sweep"], backlogPolicy: "include-existing", epochMs: EPOCH });
+    const a = join(watched, "data-a.dat");
+    const b = join(watched, "data-b.dat");
+    await writeFile(a, "identical-payload");
+    await writeFile(b, "identical-payload");
+    const t = new Date(EPOCH + 60_000);
+    await utimes(a, t, t);
+    await utimes(b, t, t);
+    const d = makeDaemon({ settings: { stabilityTicks: 1 } });
+    // 3 ticks: stable (t1) → hashed into cache (t2) → dupeHashes populated (t3).
+    await tickN(d, 3);
+    const file = await readProposals();
+    expect(file.proposals.some((p) => p.kind === "unclassified")).toBe(false);
+  });
+
+  test("junk + duplicate + unknown folder: ONLY the unknown file is unclassified", async () => {
+    // The end-to-end seed scenario. junk-tmp (deferred-fresh), a dup pair,
+    // and a genuinely-unrecognized file all live together. Exactly one
+    // unclassified proposal — for `mystery.xyz` — must result.
+    await writeConfig({ presets: ["junk-sweep"], backlogPolicy: "include-existing", epochMs: EPOCH });
+    const tmp = join(watched, "fresh-save.tmp");
+    const dupA = join(watched, "data-copy-a.txt");
+    const dupB = join(watched, "data-copy-b.txt");
+    const unknown = join(watched, "mystery.xyz");
+    await writeFile(tmp, "writing");
+    await writeFile(dupA, "same-bytes");
+    await writeFile(dupB, "same-bytes");
+    await writeFile(unknown, "who-am-i");
+    const fresh = new Date(EPOCH + 500); // tmp inside the dwell window
+    await utimes(tmp, fresh, fresh);
+    const newer = new Date(EPOCH + 60_000);
+    for (const f of [dupA, dupB, unknown]) await utimes(f, newer, newer);
+    const d = makeDaemon({ settings: { stabilityTicks: 1 }, now: () => EPOCH + 1000 });
+    await tickN(d, 3); // 3 ticks so the dup hashes are in the cache
+    const file = await readProposals();
+    const unc = file.proposals.filter((p) => p.kind === "unclassified");
+    expect(unc).toHaveLength(1);
+    expect(unc[0]!.src).toBe(unknown);
+  });
+});
+
 describe("daemon — safety", () => {
   test("NEVER descends into .ezcorp/data", async () => {
     await writeConfig({ presets: ["junk-sweep"] });

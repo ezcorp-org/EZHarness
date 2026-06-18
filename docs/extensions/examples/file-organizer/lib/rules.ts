@@ -148,6 +148,25 @@ export function ruleMatches(
   return hasClause;
 }
 
+/**
+ * Does a rule PATTERN-match a file — i.e. does its `glob`/`ext` clause
+ * match the basename/ext, IGNORING the temporal (`olderThanMs`), size
+ * (`largerThanBytes`), and `duplicate` clauses? Used to decide whether a
+ * file is genuinely UNRECOGNIZED (no rule pattern names its type) versus
+ * merely deferred by a time/size threshold or a duplicate. A rule with no
+ * `glob`/`ext` clause (pure temporal/size/duplicate, e.g. `stale-archiver`
+ * or `duplicate-killer`) never pattern-matches anything. Symlinks are not
+ * acted on, so they never pattern-match. Pure.
+ */
+export function patternMatches(rule: Rule, facts: FileFacts): boolean {
+  if (facts.isSymlink) return false;
+  const p = rule.predicate;
+  if (p.glob === undefined && p.ext === undefined) return false;
+  if (p.glob !== undefined && !globMatches(p.glob, facts.name)) return false;
+  if (p.ext !== undefined && facts.ext !== p.ext.toLowerCase()) return false;
+  return true;
+}
+
 /** Derive `FileFacts.ext` (lowercase, no dot) from a basename. */
 export function extOf(name: string): string {
   const e = extname(name);

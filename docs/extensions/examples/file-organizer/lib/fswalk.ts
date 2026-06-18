@@ -180,6 +180,49 @@ export function buildDuplicateIndex(cache: HashCache): Map<string, string[]> {
   return idx;
 }
 
+/**
+ * For every duplicate group (same sha256, >1 path) decide which copies are
+ * REDUNDANT — i.e. safe to quarantine — keeping exactly ONE canonical copy
+ * per hash. The canonical is the OLDEST copy (smallest `mtimeMs`); ties
+ * break on the lexicographically smallest path so the choice is fully
+ * deterministic across ticks. Returns the set of NON-canonical paths.
+ *
+ * This is the data-safety guard for `duplicate-killer`: flagging every
+ * member of a hash group (the naive `length > 1`) would quarantine ALL
+ * copies in fully-auto. Keeping one canonical means a dedup never deletes
+ * the last instance of a file's content.
+ */
+export function duplicatePathsToRemove(cache: HashCache): Set<string> {
+  const remove = new Set<string>();
+  for (const paths of buildDuplicateIndex(cache).values()) {
+    if (paths.length <= 1) continue;
+    let canonical = paths[0]!;
+    for (const p of paths) {
+      const cm = cache[canonical]!.mtimeMs;
+      const pm = cache[p]!.mtimeMs;
+      // Oldest wins; tie-break on lexicographically smallest path.
+      if (pm < cm || (pm === cm && p < canonical)) canonical = p;
+    }
+    for (const p of paths) if (p !== canonical) remove.add(p);
+  }
+  return remove;
+}
+
+/**
+ * The set of content hashes that appear on MORE THAN ONE path in the
+ * cache (i.e. the hash of every file belonging to a duplicate group).
+ * A file whose sha256 is in this set is a "known" duplicate-group member
+ * — used to exclude both the kept canonical and the removed copies from
+ * the `unclassified` alert. Pure.
+ */
+export function duplicateHashes(cache: HashCache): Set<string> {
+  const dupes = new Set<string>();
+  for (const [hash, paths] of buildDuplicateIndex(cache)) {
+    if (paths.length > 1) dupes.add(hash);
+  }
+  return dupes;
+}
+
 /** Resolve a destination path for a route under a subfolder of the root. */
 export function joinRoot(root: string, ...segments: string[]): string {
   return join(root, ...segments);

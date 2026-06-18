@@ -151,8 +151,12 @@ export type AddFolderResult =
  *     (already covered)
  *   - presets validated against the known set
  *
- * Pure — returns a new Config or an error. `epochMs` is stamped for
- * `new-only` backlog.
+ * Pure — returns a new Config or an error. `epochMs` is stamped for ALL
+ * backlog policies — it marks "watch start" (when this folder began being
+ * watched). `new-only` uses it to skip pre-existing files for rule-matching;
+ * `include-existing` still rule-processes existing files, but `epochMs`
+ * additionally defines which unmatched files are "new" enough to flag as
+ * `unclassified`.
  */
 export function addFolder(
   config: Config,
@@ -192,7 +196,7 @@ export function addFolder(
     customRules: [],
     ignore: input.ignore ?? [],
     backlogPolicy: input.backlogPolicy,
-    ...(input.backlogPolicy === "new-only" ? { epochMs: input.now } : {}),
+    epochMs: input.now,
   };
   return { ok: true, config: { ...config, folders: [...survivors, folder] } };
 }

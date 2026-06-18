@@ -48,6 +48,7 @@ import {
 import {
   expandPresets,
   ruleMatches,
+  patternMatches,
   extOf,
   type FileFacts,
   type Rule,
@@ -64,7 +65,8 @@ import {
   walk,
   hashDecision,
   updateHashCache,
-  buildDuplicateIndex,
+  duplicatePathsToRemove,
+  duplicateHashes,
   isUnstableName,
   tickStability,
   type DirReader,
@@ -281,7 +283,13 @@ export class FileOrganizerDaemon {
     let generated = 0;
     let applied = 0;
 
-    const dupeIndex = buildDuplicateIndex(hashcache);
+    // Non-canonical duplicate copies (keep ONE canonical per hash group).
+    // Built from the start-of-tick hashcache, same snapshot as the hashes
+    // the scan reads below — so duplicate-killer never quarantines every copy.
+    const dupesToRemove = duplicatePathsToRemove(hashcache);
+    // Hashes shared by >1 file this scan — members are "known" duplicates,
+    // never flagged unclassified (neither the kept canonical nor the copies).
+    const dupeHashes = duplicateHashes(hashcache);
     let nextCache = hashcache;
 
     for (const folder of config.folders) {
@@ -336,10 +344,53 @@ export class FileOrganizerDaemon {
           isSymlink: entry.isSymlink,
           nlink: entry.nlink,
         };
-        const isDuplicate = sha256 !== undefined && (dupeIndex.get(sha256)?.length ?? 0) > 1;
+        // Flag only NON-canonical duplicate copies — the canonical (oldest)
+        // copy is never marked, so dedup always keeps one instance.
+        const isDuplicate = dupesToRemove.has(entry.path);
 
         const matched = firstMatch(rules, facts, nowMs, isDuplicate, folder.path);
-        if (!matched) continue;
+        if (!matched) {
+          // No rule matched. Emit an `unclassified` "falls outside the
+          // workflow" alert ONLY for a genuinely UNRECOGNIZED file:
+          //   - new since this folder's watch-start (`epochMs`) — no backlog spam,
+          //   - NO active rule PATTERN-matches its name/ext (a file deferred by
+          //     a time/size threshold, e.g. a fresh `*.tmp` the dwell guard
+          //     protects, is a KNOWN type — never unclassified),
+          //   - NOT a member of a duplicate group (a recognized duplicate,
+          //     kept canonical or removed copy, is known — never unclassified).
+          // Symlinks/unstable/partial were already `continue`d above.
+          const isNew = folder.epochMs !== undefined && entry.mtimeMs >= folder.epochMs;
+          if (!isNew) continue;
+          if (rules.some((r) => patternMatches(r, facts))) continue;
+          // Duplicate-group membership is resolved against the START-of-tick
+          // hashcache (same snapshot `dupesToRemove` uses). A hashable file
+          // whose hash isn't cached YET is deferred one tick — exactly when
+          // duplicate-killer would first see it — so we never flag a copy as
+          // "unknown" before its duplicate twin is known. Unhashable (too
+          // large) files can't be dup-checked, so they flag on pattern alone.
+          if (decision !== "skip" && hashcache[entry.path] === undefined) continue;
+          if (sha256 !== undefined && dupeHashes.has(sha256)) continue;
+          const candidate = { kind: "unclassified" as ProposalKind, src: entry.path, dst: null, ruleId: null, contentHash: sha256 ?? null };
+          if (shouldSkipCandidate(file, candidate, nowMs)) continue;
+          const proposal: Proposal = {
+            id: cryptoId(),
+            kind: "unclassified",
+            src: entry.path,
+            dst: null,
+            reason: "No rule matched — pick a destination or teach a rule",
+            ruleId: null,
+            ruleLabel: null,
+            folderId: folder.id,
+            snapshot: { size: entry.size, mtimeMs: entry.mtimeMs, ...(sha256 ? { sha256 } : {}), isSymlink: entry.isSymlink, dev: 0, ino: 0, nlink: entry.nlink },
+            status: "pending",
+            dedupeKey: computeDedupeKey({ kind: "unclassified", src: entry.path, dst: null, ruleId: null }),
+            createdAt: new Date(nowMs).toISOString(),
+            version: 0,
+          };
+          file = { ...file, proposals: [...file.proposals, proposal] };
+          generated++;
+          continue;
+        }
 
         const { kind, dst, ruleId, ruleLabel, reason } = matched;
         if (shouldSkipCandidate(file, { kind, src: entry.path, dst, ruleId, contentHash: sha256 ?? null }, nowMs)) {
@@ -404,6 +455,9 @@ export class FileOrganizerDaemon {
 
     for (const p of file.proposals) {
       if (p.status !== "pending" || p.folderId !== folder.id) continue;
+      // `unclassified` has no destination — it is a user-attention alert,
+      // never auto-applied in any mode.
+      if (p.kind === "unclassified") continue;
       const destructive = p.kind === "delete-quarantine";
       // approve-non-destructive-only: auto-apply moves/renames only.
       if (mode === "approve-non-destructive-only" && destructive) continue;

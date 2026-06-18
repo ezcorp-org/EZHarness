@@ -12,6 +12,7 @@ import {
   globMatches,
   hasControlChar,
   parseDsl,
+  patternMatches,
   ruleMatches,
   type FileFacts,
   type Rule,
@@ -121,6 +122,42 @@ describe("ruleMatches", () => {
     expect(ruleMatches(combo, facts({ name: "a.log", mtimeMs: 0 }), { now: 5000 })).toBe(true);
     expect(ruleMatches(combo, facts({ name: "a.log", mtimeMs: 4500 }), { now: 5000 })).toBe(false);
     expect(ruleMatches(combo, facts({ name: "a.txt", mtimeMs: 0 }), { now: 5000 })).toBe(false);
+  });
+});
+
+describe("patternMatches (name/ext only, ignores temporal/size/duplicate)", () => {
+  test("a glob rule pattern-matches by name even when the age threshold defers it", () => {
+    // junk-tmp: glob *.tmp + olderThanMs. A FRESH tmp does NOT ruleMatch
+    // (deferred), but it DOES pattern-match (the type is recognized).
+    const tmp: Rule = { id: "t", label: "t", action: "quarantine", predicate: { glob: "*.tmp", olderThanMs: JUNK_TMP_MIN_AGE_MS }, destructive: true };
+    const fresh = facts({ name: "fresh.tmp", ext: "tmp", mtimeMs: 1000 });
+    expect(ruleMatches(tmp, fresh, { now: 1000 })).toBe(false); // deferred by age
+    expect(patternMatches(tmp, fresh)).toBe(true); // but the pattern names it
+  });
+  test("an ext rule pattern-matches by extension", () => {
+    const ext: Rule = { id: "e", label: "e", action: "route", dest: "X", predicate: { ext: "pdf" }, destructive: false };
+    expect(patternMatches(ext, facts({ name: "a.pdf", ext: "pdf" }))).toBe(true);
+    expect(patternMatches(ext, facts({ name: "a.txt", ext: "txt" }))).toBe(false);
+  });
+  test("a clauseless / pure-temporal / duplicate rule never pattern-matches", () => {
+    const stale: Rule = { id: "s", label: "s", action: "route", dest: "A", predicate: { olderThanMs: 1000 }, destructive: false };
+    const big: Rule = { id: "b", label: "b", action: "quarantine", predicate: { largerThanBytes: 1 }, destructive: true };
+    const dup: Rule = { id: "d", label: "d", action: "quarantine", predicate: { duplicate: true }, destructive: true };
+    const empty: Rule = { id: "x", label: "x", action: "route", predicate: {}, destructive: false };
+    for (const r of [stale, big, dup, empty]) expect(patternMatches(r, facts())).toBe(false);
+  });
+  test("a non-matching glob does not pattern-match", () => {
+    const tmp: Rule = { id: "t", label: "t", action: "quarantine", predicate: { glob: "*.tmp" }, destructive: true };
+    expect(patternMatches(tmp, facts({ name: "mystery.xyz", ext: "xyz" }))).toBe(false);
+  });
+  test("symlinks never pattern-match (never acted on)", () => {
+    const tmp: Rule = { id: "t", label: "t", action: "quarantine", predicate: { glob: "*.tmp" }, destructive: true };
+    expect(patternMatches(tmp, facts({ isSymlink: true }))).toBe(false);
+  });
+  test("glob + ext both present must BOTH match", () => {
+    const both: Rule = { id: "be", label: "be", action: "route", dest: "X", predicate: { glob: "*.tmp", ext: "tmp" }, destructive: false };
+    expect(patternMatches(both, facts({ name: "a.tmp", ext: "tmp" }))).toBe(true);
+    expect(patternMatches(both, facts({ name: "a.tmp", ext: "bak" }))).toBe(false);
   });
 });
 

@@ -3,6 +3,8 @@ import {
   DEFAULT_MAX_HASH_BYTES,
   UNSTABLE_SUFFIXES,
   buildDuplicateIndex,
+  duplicateHashes,
+  duplicatePathsToRemove,
   hashDecision,
   isUnstableName,
   joinRoot,
@@ -157,6 +159,70 @@ describe("hashcache update + duplicate index", () => {
     const idx = buildDuplicateIndex(cache);
     expect(idx.get("dup")!.sort()).toEqual(["/a", "/b"]);
     expect(idx.get("uniq")).toEqual(["/c"]);
+  });
+});
+
+describe("duplicatePathsToRemove (keep one canonical)", () => {
+  test("a single copy is never removed (empty set)", () => {
+    const cache: HashCache = { "/a": { size: 1, mtimeMs: 1, sha256: "x" } };
+    expect(duplicatePathsToRemove(cache).size).toBe(0);
+  });
+
+  test("two copies → only the NEWER (larger mtime) is removed", () => {
+    const cache: HashCache = {
+      "/old": { size: 1, mtimeMs: 100, sha256: "dup" },
+      "/new": { size: 1, mtimeMs: 200, sha256: "dup" },
+    };
+    const remove = duplicatePathsToRemove(cache);
+    expect([...remove]).toEqual(["/new"]); // canonical = oldest (/old)
+  });
+
+  test("three copies → the two newer are removed, oldest kept", () => {
+    const cache: HashCache = {
+      "/a": { size: 1, mtimeMs: 300, sha256: "dup" },
+      "/b": { size: 1, mtimeMs: 100, sha256: "dup" }, // oldest = canonical
+      "/c": { size: 1, mtimeMs: 200, sha256: "dup" },
+    };
+    const remove = duplicatePathsToRemove(cache);
+    expect([...remove].sort()).toEqual(["/a", "/c"]);
+    expect(remove.has("/b")).toBe(false);
+  });
+
+  test("equal mtimes → deterministic lexicographic tie-break keeps smallest path", () => {
+    const cache: HashCache = {
+      "/z": { size: 1, mtimeMs: 5, sha256: "dup" },
+      "/a": { size: 1, mtimeMs: 5, sha256: "dup" }, // canonical (lex smallest)
+      "/m": { size: 1, mtimeMs: 5, sha256: "dup" },
+    };
+    const remove = duplicatePathsToRemove(cache);
+    expect([...remove].sort()).toEqual(["/m", "/z"]);
+    expect(remove.has("/a")).toBe(false);
+  });
+
+  test("distinct hashes never collide — no removals across groups", () => {
+    const cache: HashCache = {
+      "/a": { size: 1, mtimeMs: 1, sha256: "one" },
+      "/b": { size: 1, mtimeMs: 2, sha256: "two" },
+    };
+    expect(duplicatePathsToRemove(cache).size).toBe(0);
+  });
+});
+
+describe("duplicateHashes (members of any dup group)", () => {
+  test("only hashes shared by >1 path are returned", () => {
+    const cache: HashCache = {
+      "/a": { size: 1, mtimeMs: 1, sha256: "dup" },
+      "/b": { size: 1, mtimeMs: 2, sha256: "dup" },
+      "/c": { size: 1, mtimeMs: 3, sha256: "uniq" },
+    };
+    const dupes = duplicateHashes(cache);
+    expect(dupes.has("dup")).toBe(true);
+    expect(dupes.has("uniq")).toBe(false);
+    expect(dupes.size).toBe(1);
+  });
+  test("no duplicates → empty set", () => {
+    const cache: HashCache = { "/a": { size: 1, mtimeMs: 1, sha256: "x" } };
+    expect(duplicateHashes(cache).size).toBe(0);
   });
 });
 

@@ -99,9 +99,13 @@ describe("addFolder guards", () => {
       expect(r.config.folders[0]!.epochMs).toBe(1000);
     }
   });
-  test("include-existing does not stamp epochMs", () => {
-    const r = add(emptyConfig(), "/watched/X", { backlogPolicy: "include-existing" });
-    expect(r.ok && r.config.folders[0]!.epochMs).toBeUndefined();
+  test("include-existing also stamps epochMs (watch-start for unclassified)", () => {
+    // epochMs now marks "watch start" for ALL backlog policies — it lets the
+    // daemon tell a NEW unmatched file (flag as unclassified) from a
+    // pre-existing one (no backlog spam). include-existing still
+    // rule-processes existing files; epochMs only gates the unclassified alert.
+    const r = add(emptyConfig(), "/watched/X", { backlogPolicy: "include-existing", now: 4321 });
+    expect(r.ok && r.config.folders[0]!.epochMs).toBe(4321);
   });
   test("refuses .ezcorp/data folder", () => {
     const r = add(emptyConfig(), "/proj/.ezcorp/data");
