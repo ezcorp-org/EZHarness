@@ -37,6 +37,12 @@ const PROJECT_ROOT = resolve(__dirname, "..");
 
 const baseURL = process.env.PI_E2E_REAL_BASE_URL ?? "http://localhost:4173";
 
+// The deterministic mock LLM is served by this same preview server; pi-ai's
+// HTTP client must reach it on the actual bound port (vite preview's :4173),
+// which isn't reflected in PORT/EZCORP_PORT. Point the resolver at it
+// explicitly (loopback host so the server's self-call passes the bypass).
+const MOCK_LLM_BASE_URL = `${baseURL.replace("//localhost", "//127.0.0.1")}/api/__test/mock-llm/v1`;
+
 // Fresh PGlite dir per run. Reused across the webServer + every
 // spec — the same directory must survive for the whole `playwright
 // test` invocation. Best-effort cleanup happens at process exit
@@ -112,6 +118,9 @@ export default defineConfig({
       // here, unblocking the seed/cleanup endpoints. Endpoint code is
       // unchanged.
       NODE_ENV: "test",
+      // Make the ezcorp-mock provider's loopback baseUrl match the preview
+      // server's actual port (see MOCK_LLM_BASE_URL above).
+      EZCORP_MOCK_LLM_BASE_URL: MOCK_LLM_BASE_URL,
     },
   },
 });

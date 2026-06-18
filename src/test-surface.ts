@@ -31,11 +31,17 @@ export const MOCK_PROVIDER = "ezcorp-mock";
 /**
  * Loopback base URL of the in-process mock-LLM endpoint that pi-ai's HTTP
  * client targets when the `ezcorp-mock` provider is selected. It is served
- * by THIS same server, so we point at localhost on whatever port the
- * process bound. `resolveModelObject` appends nothing past `/v1` beyond the
- * SDK's own `/chat/completions`.
+ * by THIS same server. `resolveModelObject` appends nothing past `/v1`
+ * beyond the SDK's own `/chat/completions`.
+ *
+ * `EZCORP_MOCK_LLM_BASE_URL` is an explicit override for environments where
+ * the bound port isn't reflected in `PORT`/`EZCORP_PORT` (e.g. the e2e
+ * `vite preview` on :4173) — set it to `http://127.0.0.1:<port>/api/__test/mock-llm/v1`.
+ * Otherwise we derive the port from the env, defaulting to 3000.
  */
 export function mockLlmBaseUrl(): string {
+  const explicit = process.env.EZCORP_MOCK_LLM_BASE_URL;
+  if (explicit) return explicit;
   const port = process.env.PORT ?? process.env.EZCORP_PORT ?? "3000";
   return `http://127.0.0.1:${port}/api/__test/mock-llm/v1`;
 }
