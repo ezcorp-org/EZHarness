@@ -24,17 +24,11 @@ import { getProjectRoot } from "$server/extensions/bundled";
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { isTestSurfaceEnabled } from "$lib/server/test-surface";
 import type { RequestHandler } from "./$types";
 
-function isEnabled(): boolean {
-  // Belt-and-braces gate: PI_E2E_REAL=1 alone isn't enough — a
-  // production build MUST also be excluded. Either gate failing
-  // returns 404 (the same shape an unrouted path would emit).
-  return process.env.PI_E2E_REAL === "1" && process.env.NODE_ENV !== "production";
-}
-
 export const POST: RequestHandler = async ({ request, locals }) => {
-  if (!isEnabled()) return errorJson(404, "Not found");
+  if (!isTestSurfaceEnabled()) return errorJson(404, "Not found");
 
   try {
     requireRole(locals, "admin");
