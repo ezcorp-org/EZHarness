@@ -92,11 +92,14 @@ export function appendEvent(
 
 // ── Run creation ─────────────────────────────────────────────────────
 
-export interface NewRunInput {
+export interface NewRunInput<Outcome = unknown> {
   id: string;
   loopId: string;
   status: string;
   input?: unknown;
+  /** Terminal outcome set atomically when a capture loop resolves in one
+   *  fire (avoids a redundant claim→transition double-write). */
+  outcome?: Outcome;
   idempotencyKey?: string;
   externalRunId?: string;
   externalAssignmentId?: string;
@@ -108,7 +111,7 @@ export interface NewRunInput {
 
 /** Build a fresh run record with one initial event. Pure (clock injected). */
 export function createRun<Outcome = unknown>(
-  input: NewRunInput,
+  input: NewRunInput<Outcome>,
   contract: ResolvedContract,
   now: string,
 ): LoopRunState<Outcome> {
@@ -124,6 +127,7 @@ export function createRun<Outcome = unknown>(
     ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
     status: input.status,
     ...(input.input !== undefined ? { input: input.input } : {}),
+    ...(input.outcome !== undefined ? { outcome: input.outcome } : {}),
     ...(input.externalRunId ? { externalRunId: input.externalRunId } : {}),
     ...(input.externalAssignmentId
       ? { externalAssignmentId: input.externalAssignmentId }
@@ -229,13 +233,21 @@ export function trimRetention<Outcome = unknown>(
   if (runs.length <= maxRuns) return runs.slice();
 
   const overBy = runs.length - maxRuns;
-  // Oldest terminal runs are the eviction candidates.
+  // Oldest terminal runs are the eviction candidates. Order by `createdAt`
+  // ascending, breaking ties by ORIGINAL array position: callers pass runs
+  // newest-first, so a LATER index means an OLDER run when timestamps tie
+  // (claims in the same millisecond). Without the positional tiebreaker the
+  // sort is unstable and could evict the newest run under tied timestamps.
   const terminalIdsOldestFirst = runs
-    .filter((r) => isTerminal(r.status, contract))
+    .map((r, i) => ({ r, i }))
+    .filter(({ r }) => isTerminal(r.status, contract))
     .slice()
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .sort((a, b) => {
+      const byTime = a.r.createdAt.localeCompare(b.r.createdAt);
+      return byTime !== 0 ? byTime : b.i - a.i;
+    })
     .slice(0, overBy)
-    .map((r) => r.id);
+    .map(({ r }) => r.id);
 
   const evict = new Set(terminalIdsOldestFirst);
   return runs.filter((r) => !evict.has(r.id));
