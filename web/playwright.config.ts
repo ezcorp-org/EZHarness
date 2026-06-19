@@ -47,6 +47,12 @@ export default defineConfig({
 			command:
 				"PI_SKIP_INIT=1 bun run build && EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview",
 			url: "http://localhost:4173",
+			// The command runs a full production `bun run build` before `preview`
+			// can bind the port. On the constrained CI runner that build alone
+			// exceeds Playwright's 60s default, so the webServer is reported as
+			// timed-out before it is ever ready. Give build+preview real headroom
+			// (this is server BOOT time, not a test retry — `retries` stays 0).
+			timeout: 180_000,
 			reuseExistingServer: !process.env.CI,
 		},
 	}),
