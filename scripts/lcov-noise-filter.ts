@@ -45,6 +45,20 @@ const BLANK = /^\s*$/;
 const TS_FIELD_START = /^\s*(\)?\s*:|\w+\??:)\s/;
 const ENDS_WITH_TYPE_TERMINATOR = /[;,]\s*$/;
 
+// TS class MEMBER declaration with access/`readonly`/`static` modifiers and
+// NO initializer: `private readonly maxEntries: number;`, `public foo?: T;`,
+// `protected static bar: () => void;`. Unlike TS_FIELD_START (which requires
+// the property name to sit immediately before the `:`), these carry modifier
+// keywords, so the name isn't adjacent to the `:`. A modifier-only,
+// initializer-free member declaration emits no standalone JS — the property
+// only materialises when assigned (in the constructor, on its own credited
+// line). Bun's sourcemap fallback still emits a phantom `DA:<decl>,0` for a
+// module that's imported but never constructed. Guarded below to reject a
+// value initializer (`=` outside `=>`). Zero-hit-only, so a member bun did
+// credit is never stripped.
+const TS_MEMBER_DECL =
+  /^\s*(?:(?:public|private|protected|readonly|static|declare|abstract|override)\s+)+\w+\??\s*:\s/;
+
 // `): Promise<{` and variants — return-type opener on its own line.
 const RETURN_TYPE_OPEN = /^\s*\)\s*:\s*[A-Z]\w*<?[{<\[]?\s*$/;
 
@@ -78,6 +92,22 @@ const SQL_CLOSE = /^\s*\),?\s*0?\)?\s*AS\b/i;
 // Interface declaration header: `interface Foo {`, `export interface Foo
 // extends Bar {`. Interfaces are erased at compile time → no JS.
 const INTERFACE_DECL = /^\s*(export\s+)?interface\s+\w+/;
+
+// Class declaration HEADER on its own line: `class Foo {`, `export class Foo
+// extends Bar {`, `export default class {`. Bun never credits the class-header
+// line with a positive hit — constructor execution is attributed to the
+// `constructor(...)` line and field initializers to their own lines — yet a
+// shard that merely *imports* the module (without ever constructing the class)
+// emits a phantom `DA:<header>,0` via sourcemap fallback. merge-lcov then
+// SUMs that zero against the (also-zero, because never emitted) header from the
+// exercising shard, leaving the header eternally "missed". Same phantom-zero
+// hazard as INTERFACE_DECL / SWITCH_LABEL / METHOD_SIGNATURE above. Matched
+// only when the line is a bare `[export] [default|abstract] class …{` opener
+// with NO value `=` and NO call `(` — an executable line (a field initializer,
+// a decorator call) would carry one of those. Zero-hit-guarded, so a header
+// bun *did* credit is never stripped.
+const CLASS_DECL =
+  /^\s*(export\s+)?(default\s+)?(abstract\s+)?class\b[^=(]*\{\s*$/;
 
 // Interface METHOD signature: `read(): Promise<string | null>;` /
 // `write(text: string): Promise<void>;`. Matched only when the line is a
@@ -113,6 +143,7 @@ export function isNoiseLine(text: string): boolean {
   if (SQL_CLOSE.test(text)) return true;
   if (TYPE_DECL.test(text)) return true;
   if (INTERFACE_DECL.test(text)) return true;
+  if (CLASS_DECL.test(text)) return true;
   if (METHOD_SIGNATURE.test(text)) return true;
   if (SWITCH_LABEL.test(text)) return true;
   if (UNION_CONTINUATION.test(text)) {
@@ -124,6 +155,11 @@ export function isNoiseLine(text: string): boolean {
   if (TS_FIELD_START.test(text) && ENDS_WITH_TYPE_TERMINATOR.test(text)) {
     // Reject if there's a `=` outside `=>` arrow syntax — that would be
     // a value-assignment, not a type continuation.
+    const stripped = text.replace(/=>/g, "");
+    if (!stripped.includes("=")) return true;
+  }
+  if (TS_MEMBER_DECL.test(text) && ENDS_WITH_TYPE_TERMINATOR.test(text)) {
+    // Same `=`-guard: an initialized member (`private x = 0;`) IS executable.
     const stripped = text.replace(/=>/g, "");
     if (!stripped.includes("=")) return true;
   }
