@@ -66,6 +66,44 @@ jobs:
       # *.server.test.ts (route-handler unit tests).
       - run: cd web && bunx --bun vitest run
 
+  e2e-mock:
+    name: E2E (mock, no Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14" # see pin note at top of file
+      # Same install shape as test-web: web specs pull route handlers from
+      # ../src/**, so the root deps must be present too.
+      - run: bun install --frozen-lockfile
+      - run: cd web && bun install --frozen-lockfile
+      # SvelteKit ./$types codegen so the preview build resolves route types.
+      - run: cd web && bunx --bun svelte-kit sync
+      # Chromium only — the scoped specs below all target the desktop project.
+      - run: cd web && bunx playwright install --with-deps chromium
+      # Mock/preview e2e gate. With no DOCKER_TEST the playwright config builds
+      # its own preview server (PI_SKIP_INIT=1 build + preview on :4173) and the
+      # specs hit MOCKED backends — no Docker, no live container, no seed.
+      #
+      # SCOPED to a stable, preview-runnable spec set (NOT a blanket
+      # `playwright test`): the file-organizer + Hub + extension-library/detail
+      # surface. A blanket run pulls in ~240 specs, many of which are
+      # DOCKER_TEST-gated (real-auth/*, deterministic-ext-gate, the SEND-flow
+      # chat specs) or seed-dependent and would fail/flake here with no live
+      # backend. This job gates UI rendering + action wiring against mocked
+      # backends; it does NOT gate the real subprocess/daemon/validator (that is
+      # the DOCKER_TEST=1 path, run separately). file-organizer-real.spec.ts is
+      # included but self-skips its real-backend cases without DOCKER_TEST.
+      - run: |
+          cd web && bunx playwright test --project=chromium \
+            file-organizer-hub.spec.ts \
+            file-organizer-real.spec.ts \
+            hub.spec.ts \
+            extensions-library-tabs.spec.ts \
+            extension-detail-pages.spec.ts
+
   lint:
     name: Lint (biome)
     runs-on: ubuntu-latest

@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { findProjectRoot } from "@ezcorp/sdk/runtime";
+import { getProjectRoot } from "./bundled";
 import { McpClient } from "../mcp/client";
 import { buildSandboxedMcpSpec, runMcpSeccompSoakReader } from "./mcp-sandbox";
 import { releaseVethSlot, initStage2 } from "./mcp-netns";
@@ -116,6 +117,22 @@ export function buildAllowedEnv(
     /* no .git ancestor — leave EZCORP_PROJECT_ROOT unset so the
        extension's fallback path (or test harness) handles it. */
   }
+
+  // EZCORP_EXTENSION_DATA_ROOT — dedicated data-dir root for bundled
+  // extensions to compute their `.ezcorp/extension-data/<name>/` store
+  // path. DELIBERATELY separate from EZCORP_PROJECT_ROOT: the latter is
+  // consumed by `subprocess.ts`'s landlock-jail builder, and setting it
+  // when it's currently unset would mismatch the jail root against the
+  // subprocess cwd and crash every spawn with CouldntReadCurrentDirectory.
+  // `getProjectRoot()` never throws (env → import-meta → git-walk →
+  // cwd-fallback) and resolves the container root (`/app`) in dev and
+  // prod alike — unlike `process.cwd()`, which is `/app/web` under the
+  // vite-SSR dev server. This aligns the extension's data-dir reader with
+  // where the host events route writes config; the `$CWD` fs grant now
+  // also resolves to the project root (see `permissions.ts:grantCwdBase`)
+  // so the read of that dir is covered by the grant. Extensions that
+  // don't read this var ignore it; the sandbox never consults it.
+  allowedEnv.EZCORP_EXTENSION_DATA_ROOT = getProjectRoot();
 
   // Phase 2: EZCORP_TOOL_NETWORK_CAPS — JSON-serialized
   // `{toolName: string[]}` mapping, parsed by the in-sandbox fetch

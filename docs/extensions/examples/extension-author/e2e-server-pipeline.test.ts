@@ -17,7 +17,7 @@
  */
 import { test, expect, describe, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "node:path";
-import { mkdirSync, existsSync, rmSync, readFileSync } from "node:fs";
+import { mkdirSync, existsSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
@@ -43,10 +43,20 @@ mock.module("../../../../src/db/queries/extensions", () => ({
 }));
 
 import { ExtensionProcess } from "../../../../src/extensions/subprocess";
+// Host-side acceptance gate — the real `ezcorp/drafts.verify` runs this
+// against the materialized draft dir (drafts-handler.ts → verifyExtension).
+import { verifyExtension } from "../../../../src/extensions/sdk/verify";
 import type { JsonRpcRequest, JsonRpcResponse } from "../../../../src/extensions/types";
 
 const ENTRYPOINT = join(import.meta.dir, "index.ts");
-const TEST_TMP_ROOT = join(tmpdir(), `extension-author-e2e-${Date.now()}`);
+// Root the per-test draft dirs under the repo's gitignored `.ezcorp/` rather
+// than the OS tmpdir: the host-side `verifyExtension` (run by the `verify`
+// drafts stub) dynamically imports the scaffolded `ezcorp.config.ts`, whose
+// `import { defineExtension } from "@ezcorp/sdk"` only resolves when the draft
+// lives inside the workspace (walks up to the repo's node_modules). This also
+// matches production, where drafts live under `<projectRoot>/.ezcorp/`.
+const REPO_ROOT = join(import.meta.dir, "..", "..", "..", "..");
+const TEST_TMP_ROOT = join(REPO_ROOT, ".ezcorp", `e2e-extension-author-${Date.now()}`);
 
 function buildAllowedEnvLike(extensionId: string): Record<string, string> {
   const extTmpDir = join(tmpdir(), "ezcorp-ext", extensionId);
@@ -190,6 +200,22 @@ function makeProc(
         const id = `draft-${++store.nextId}`;
         const payload = (params.payload as Record<string, unknown>) ?? {};
         const draftDir = getDraftDirForUser(rootCwd, userId, id);
+        // Mirror prod (drafts-handler.ts → writeExtensionAuthorDraftFiles):
+        // the HOST materializes the `files` map to disk on create — the
+        // subprocess does NO fs on the create path. Without this the
+        // scaffold never lands and every downstream read/validate/discard
+        // test fails. Materialize before persisting the row.
+        // NOTE: prod's `writeExtensionAuthorDraftFiles` also enforces the
+        // scaffold allowlist + flat-basename/no-`..` validation BEFORE writing.
+        // Omitted here intentionally: the subprocess only ever sends
+        // `scaffoldExtension().files` (trusted, flat, allowlisted keys), so the
+        // happy path is identical. A traversal-key regression would NOT be
+        // caught by this stub — it's covered by the host-side ez-drafts tests.
+        const files = (params.files as Record<string, string> | undefined) ?? {};
+        mkdirSync(draftDir, { recursive: true });
+        for (const [name, content] of Object.entries(files)) {
+          writeFileSync(join(draftDir, name), content);
+        }
         // Mirror prod: stamp draftDir into the payload post-insert.
         store.drafts.set(id, {
           userId,
@@ -228,6 +254,19 @@ function makeProc(
           id: req.id,
           result: { draftDir: getDraftDirForUser(rootCwd, userId, id) },
         };
+      }
+      if (params.action === "verify") {
+        const id = params.draftId as string;
+        const row = store.drafts.get(id);
+        if (!row || row.userId !== userId) {
+          return { jsonrpc: "2.0", id: req.id, error: { code: -32603, message: "Draft not found" } };
+        }
+        // Mirror prod (drafts-handler.ts verify → verifyExtension): run the
+        // real host-side acceptance gate against the materialized draft dir.
+        // Returns `{ pass, steps }`; the subprocess maps it to `{ ok, pass, steps }`.
+        const draftDir = getDraftDirForUser(rootCwd, userId, id);
+        const result = await verifyExtension({ extDir: draftDir });
+        return { jsonrpc: "2.0", id: req.id, result: { pass: result.pass, steps: result.steps } };
       }
       if (params.action === "listForUser") {
         const drafts = Array.from(store.drafts.entries())
@@ -452,8 +491,18 @@ describe("extension-author e2e — server pipeline round-trip", () => {
     const validate = await proc.callTool("validate_extension", { draftId: create.draftId });
     expect(validate.isError).toBe(false);
     const payload = JSON.parse(validate.content[0]!.text);
-    expect(payload.ok).toBe(true);
-    expect(payload.errors).toEqual([]);
+    // validate_extension surfaces the host VerifyResult ({ ok, pass, steps }).
+    // The fresh scaffold produces a structurally valid manifest: the
+    // load-manifest + validate-manifest steps pass. We assert THOSE rather
+    // than overall `pass`, because `verifyExtension`'s smoke-test round-trip
+    // spawns the scaffold in a nested sandbox — that step is verifyExtension's
+    // own concern (covered by its dedicated tests) and is environment-sensitive
+    // inside this test process; gating extension-author on it would couple this
+    // suite to the smoke harness rather than the validate_extension contract.
+    const stepOk = (name: string): boolean | undefined =>
+      payload.steps.find((s: { name: string; ok: boolean }) => s.name === name)?.ok;
+    expect(stepOk("load-manifest")).toBe(true);
+    expect(stepOk("validate-manifest")).toBe(true);
   }, 30_000);
 
   test("validate_extension reports errors after manifest corruption", async () => {
@@ -475,8 +524,11 @@ describe("extension-author e2e — server pipeline round-trip", () => {
     const validate = await proc.callTool("validate_extension", { draftId: create.draftId });
     expect(validate.isError).toBe(false);
     const payload = JSON.parse(validate.content[0]!.text);
+    // Corrupt manifest (missing top-level `name`) → verify fails: ok/pass
+    // false with at least one failing step.
     expect(payload.ok).toBe(false);
-    expect(payload.errors.length).toBeGreaterThan(0);
+    expect(payload.pass).toBe(false);
+    expect(payload.steps.some((s: { ok: boolean }) => !s.ok)).toBe(true);
   }, 30_000);
 
   test("install_draft success → parseable {ok:true,extensionId,name,openUrl}", async () => {

@@ -52,6 +52,11 @@ export interface PagePromptDescriptor {
   /** Input length hint; host clamps to [1,500], default 200. */
   maxLength?: number;
   submitLabel?: string;
+  /** Opt into a richer host-rendered widget instead of the plain text
+   *  box. `"file-path"` reuses the app's filesystem picker; see the host's
+   *  `PROMPT_FORMATS` for the allowed scalar formats. An unknown value is
+   *  dropped host-side and the dialog falls back to a text input. */
+  format?: string;
 }
 
 export interface PageActionDescriptor {

@@ -287,11 +287,11 @@ describe("buildFolders", () => {
     expect(events).toContain(EVENTS.togglePreset);
     expect(events).toContain(EVENTS.removeFolder);
   });
-  test("add-folder prompt carries a single field", () => {
+  test("add-folder prompt carries a single field + reuses the file-path picker", () => {
     const tree = buildFolders(folders());
-    const visit = (nodes: unknown[]): { prompt?: { field?: string } } | undefined => {
+    const visit = (nodes: unknown[]): { prompt?: { field?: string; format?: string } } | undefined => {
       for (const n of nodes) {
-        const node = n as { action?: { event?: string; prompt?: { field?: string } }; nodes?: unknown[] };
+        const node = n as { action?: { event?: string; prompt?: { field?: string; format?: string } }; nodes?: unknown[] };
         if (node.action?.event === EVENTS.addFolder) return node.action;
         if (Array.isArray(node.nodes)) { const f = visit(node.nodes); if (f) return f; }
       }
@@ -299,6 +299,8 @@ describe("buildFolders", () => {
     };
     const addAction = visit(tree.nodes);
     expect(addAction?.prompt?.field).toBe("path");
+    // Reuse the shared filesystem picker rather than a bare text input.
+    expect(addAction?.prompt?.format).toBe("file-path");
   });
 });
 

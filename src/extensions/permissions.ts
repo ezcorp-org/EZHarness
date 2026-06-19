@@ -4,23 +4,56 @@
 
 import type { ExtensionPermissions, ExtensionManifest } from "./types";
 import { getSetting, upsertSetting } from "../db/queries/settings";
+import { getProjectRoot } from "./bundled";
+import { getDbMaskDirs } from "../db/connection";
 import { realpath } from "node:fs/promises";
 import { join, resolve as pathResolve } from "node:path";
+
+/**
+ * Resolve the base directory the `$CWD` grant token expands to: the
+ * PROJECT ROOT, not the host process's `process.cwd()`.
+ *
+ * Why not `process.cwd()`: under the vite-SSR dev server the host
+ * process runs with cwd `/app/web`, but bundled extensions resolve
+ * their `.ezcorp/extension-data/<name>/` store relative to the project
+ * root (`/app`, via `getProjectRoot()` — env → import-meta → git-walk →
+ * cwd-fallback). When the WRITER (host events route + daemon) writes
+ * under the project root but the subprocess's fs grant `$CWD` resolved
+ * to `/app/web`, a host-mediated read of the writer's dir landed
+ * OUTSIDE the grant → `denyAndDisable` disabled the extension. Anchoring
+ * `$CWD` to the project root makes the grant cover exactly where bundled
+ * extensions read/write. In production host cwd IS the project root
+ * (`/app`), so `getProjectRoot() === process.cwd()` and this is a no-op
+ * — the change only widens the dev-only `/app/web` cwd up to `/app`,
+ * which can only PERMIT more, never less.
+ *
+ * `getProjectRoot` is imported STATICALLY: a lazy `require("./bundled")`
+ * silently fails under the vite-SSR module transform (it threw, hit the
+ * fallback, and the grant stayed at `/app/web` — the original bug
+ * persisted). `bundled.ts`'s static import graph does not reach back to
+ * `permissions.ts`, so there is no cycle (the same import `registry.ts`
+ * already uses). `getProjectRoot()` caches after first call and never
+ * throws, so this stays sync + cheap.
+ */
+function grantCwdBase(): string {
+  return getProjectRoot();
+}
 
 /**
  * Expand the `$CWD` placeholder in a granted filesystem prefix. The
  * bundled extension declarations (and the test fixtures at
  * `src/__tests__/bundled-ceiling.test.ts:174`) use the literal `$CWD`
- * token to mean "the server's current working directory" — without
- * this expansion, `realpath("$CWD")` throws ENOENT and the prefix is
- * silently skipped, denying every legitimate write under the project
- * root. Supports both `$CWD` and `$CWD/<sub-path>` forms (the latter
- * is used by extension-author's narrower grant). Other strings pass
- * through unchanged.
+ * token to mean "the project root" — without this expansion,
+ * `realpath("$CWD")` throws ENOENT and the prefix is silently skipped,
+ * denying every legitimate write under the project root. Supports both
+ * `$CWD` and `$CWD/<sub-path>` forms (the latter is used by
+ * extension-author's narrower grant). Other strings pass through
+ * unchanged. See {@link grantCwdBase} for why `$CWD` resolves to the
+ * project root rather than the host process's cwd.
  */
 export function expandGrantPrefix(prefix: string): string {
-  if (prefix === "$CWD") return process.cwd();
-  if (prefix.startsWith("$CWD/")) return pathResolve(process.cwd(), prefix.slice("$CWD/".length));
+  if (prefix === "$CWD") return grantCwdBase();
+  if (prefix.startsWith("$CWD/")) return pathResolve(grantCwdBase(), prefix.slice("$CWD/".length));
   return prefix;
 }
 
@@ -81,6 +114,77 @@ export async function resolveGrantPrefixCanonical(
   }
 }
 
+// ── Reserved sensitive-path hard-deny (defense-in-depth) ───────────
+//
+// Grant-INDEPENDENT deny for the EZCorp database + secret directory.
+// Even an extension with a covering filesystem grant (`$CWD` widened to
+// the project root, or an explicit `/app` / `.ezcorp/data` grant) must
+// NOT be able to host-mediated read/write the platform's own DB — which
+// also holds the JWT/encryption secret in the `settings` table — or its
+// pre-boot snapshots. Landlock is the in-kernel jail, but it is OFF in
+// these containers (`EZCORP_PROJECT_ROOT` unset), so the GRANT is the
+// only gate; this closes that gap with a software hard-deny in the host
+// fs path. Wired BEFORE any allow in both host fs gates (read +
+// write), so a reserved path is denied regardless of what the grant —
+// or the implicit install-dir allow — would otherwise permit.
+//
+// Scope is deliberately NARROW: only `.ezcorp/data` (+ the resolved
+// `EZCORP_DB_PATH` and its sibling `backups` dir) are reserved. The
+// extension store at `.ezcorp/extension-data/<name>/` — where
+// file-organizer / task-stack / auto-note legitimately read+write —
+// stays fully allowed. Matching is SEGMENT-BOUNDED (`p === reserved ||
+// p.startsWith(reserved + "/")`) so a sibling like `.ezcorp/data-export`
+// is NOT swept up by `.ezcorp/data`.
+
+/**
+ * Resolve the set of reserved sensitive directories, canonicalized to
+ * realpaths (tolerating non-existent dirs — the lowest existing
+ * ancestor is resolved, so a symlinked reserved dir is still caught).
+ * Computed fresh per check (cheap; `getProjectRoot()` caches and the
+ * DB-mask dirs are derived from env): the comparison set must track the
+ * same canonical footing the resolved target path is compared on.
+ *
+ * Sources:
+ *   • `<getProjectRoot()>/.ezcorp/data` — the per-project DB + secret
+ *     dir (and its `backups/` sibling) for the dev/host-process layout.
+ *   • `getDbMaskDirs()` — `[EZCORP_DB_PATH, <dbDir>/backups]` for the
+ *     active on-disk PGlite DB; returns `[]` for external Postgres /
+ *     in-memory (nothing on disk to protect), so those modes reserve
+ *     nothing extra. This is the SAME set the MCP sandbox masks.
+ */
+async function resolveReservedSensitiveDirs(): Promise<string[]> {
+  const root = getProjectRoot();
+  const raw = [
+    join(root, ".ezcorp", "data"),
+    join(root, ".ezcorp", "backups"),
+    ...getDbMaskDirs(),
+  ];
+  const resolved = await Promise.all(
+    raw.map((p) => resolveGrantPrefixCanonical(p)),
+  );
+  // Drop unresolvable (null) entries; de-dup canonical paths.
+  return [...new Set(resolved.filter((p): p is string => p !== null))];
+}
+
+/**
+ * True when `resolvedRealPath` IS, or is nested under, any reserved
+ * sensitive dir. The argument MUST already be realpath-resolved (or
+ * lowest-existing-ancestor-resolved, as both host fs gates produce) so
+ * `..` / symlink / trailing-slash tricks are normalized away before the
+ * compare — the reserved dirs are canonicalized the same way, so both
+ * sides meet on identical canonical footing.
+ *
+ * Segment-bounded: `p === reserved || p.startsWith(reserved + "/")`.
+ */
+export async function isReservedSensitivePath(
+  resolvedRealPath: string,
+): Promise<boolean> {
+  const reserved = await resolveReservedSensitiveDirs();
+  return reserved.some(
+    (r) => resolvedRealPath === r || resolvedRealPath.startsWith(r + "/"),
+  );
+}
+
 // ── Secure Filesystem Permission Check (realpath-resolved) ─────────
 //
 // The Phase 1 `checkPermission` sync boolean helper was deleted in
@@ -133,6 +237,15 @@ export async function checkFilesystemPermission(
   } catch {
     // Path doesn't exist -- deny
     return { allowed: false, resolvedPath: requestedPath, mode };
+  }
+
+  // Hard-deny reserved sensitive paths (DB + secret dir) BEFORE any
+  // allow — including the implicit install-dir allow below and every
+  // granted prefix. Grant-independent defense-in-depth; see
+  // `isReservedSensitivePath`. `resolvedPath` is already realpath'd, so
+  // the segment-bounded compare can't be bypassed by `..` / symlink.
+  if (await isReservedSensitivePath(resolvedPath)) {
+    return { allowed: false, resolvedPath, mode };
   }
 
   // Resolve install dir via realpath

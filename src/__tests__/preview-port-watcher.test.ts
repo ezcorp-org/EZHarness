@@ -26,6 +26,7 @@ import {
   StaticPortSource,
   type PreviewListener,
 } from "../runtime/preview/preview-port-source";
+import { readProcStartTime } from "../startup/process-lockfile";
 
 function collector() {
   const events: PreviewDetectedEvent[] = [];
@@ -262,7 +263,7 @@ describe("PreviewPortWatcher — lifecycle", () => {
     // The PID lockfile now exists and holds our pid (ensureDir created `sub/`).
     const fs = await import("node:fs/promises");
     const written = (await Bun.file(lockfilePath).text()).trim();
-    expect(written).toBe(String(process.pid));
+    expect(parseInt(written.split(/\s+/)[0]!, 10)).toBe(process.pid);
     // Wait for the interval callback (line 229-231) to fire at least once.
     await new Promise((r) => setTimeout(r, 400));
     expect(events.length).toBeGreaterThanOrEqual(1);
@@ -296,13 +297,14 @@ describe("PreviewPortWatcher — lifecycle", () => {
     w.stop();
   });
 
-  test("start() refuses when a live sibling owns the lockfile", async () => {
+  test("start() refuses when a genuine live sibling owns the lockfile", async () => {
     const dir = await import("node:fs/promises").then((fs) =>
       fs.mkdtemp("/tmp/prev-watcher-sib-"),
     );
     const lockfilePath = `${dir}/watcher.pid`;
-    // Write OUR pid — isProcessAlive(self) is true → acquire must refuse.
-    await Bun.write(lockfilePath, String(process.pid));
+    // A genuine live sibling: a foreign live PID (1) whose stored identity
+    // token still matches → acquire must refuse.
+    await Bun.write(lockfilePath, `1 ${readProcStartTime(1)}`);
     const w = new PreviewPortWatcher({
       source: new StaticPortSource(),
       onDetected: () => {},
@@ -313,12 +315,32 @@ describe("PreviewPortWatcher — lifecycle", () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 
+  test("start() reclaims a prior-boot lockfile holding our reused PID (restart fix)", async () => {
+    const dir = await import("node:fs/promises").then((fs) =>
+      fs.mkdtemp("/tmp/prev-watcher-reused-"),
+    );
+    const lockfilePath = `${dir}/watcher.pid`;
+    // The cross-restart self-deadlock case — must reclaim, not refuse.
+    await Bun.write(lockfilePath, `${process.pid} prior-boot-token`);
+    const w = new PreviewPortWatcher({
+      source: new StaticPortSource(),
+      onDetected: () => {},
+      lockfilePath,
+    });
+    expect(await w.start()).toBe(true);
+    w.stop();
+    const fs = await import("node:fs/promises");
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
   test("lockfile primitives: acquire / stale-pid takeover / isProcessAlive / release", async () => {
     const { acquireLockfile, releaseLockfile, isProcessAlive } =
       _previewPortWatcherInternals;
     const fs = await import("node:fs/promises");
     const dir = await fs.mkdtemp("/tmp/prev-watcher-prim-");
     const path = `${dir}/nested/dir/watcher.pid`; // forces ensureDir mkdir -p
+    const storedPid = async () =>
+      parseInt((await Bun.file(path).text()).trim().split(/\s+/)[0]!, 10);
 
     // isProcessAlive: bogus pids are dead, our own pid is alive.
     expect(isProcessAlive(0)).toBe(false);
@@ -328,15 +350,18 @@ describe("PreviewPortWatcher — lifecycle", () => {
 
     // First acquire creates the file (+ parent dirs) and writes our pid.
     expect(await acquireLockfile(path)).toBe(true);
-    expect((await Bun.file(path).text()).trim()).toBe(String(process.pid));
+    expect(await storedPid()).toBe(process.pid);
 
     // A file holding a stale (dead) pid is taken over.
-    await Bun.write(path, "999999"); // not a live process
+    await Bun.write(path, "999999 dead-token"); // not a live process
     expect(await acquireLockfile(path)).toBe(true);
-    expect((await Bun.file(path).text()).trim()).toBe(String(process.pid));
+    expect(await storedPid()).toBe(process.pid);
 
-    // A file holding a live pid (ours) is refused.
+    // A genuine live sibling (foreign PID + matching token) is refused.
+    await Bun.write(path, `1 ${readProcStartTime(1)}`);
     expect(await acquireLockfile(path)).toBe(false);
+    // Restore our own ownership for the remaining assertions.
+    await acquireLockfile(`${dir}/own.pid`);
 
     // A garbage / non-numeric lockfile body is treated as free (takeover).
     await Bun.write(path, "not-a-pid");

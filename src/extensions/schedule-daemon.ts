@@ -42,6 +42,7 @@ import type { ExtensionRegistry } from "./registry";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { registerFireCallProvenance } from "./call-provenance";
+import { acquireLockfile, releaseLockfile, isProcessAlive } from "../startup/process-lockfile";
 
 const log = logger.child("ext.schedule-daemon");
 
@@ -735,63 +736,10 @@ export class ScheduleDaemon {
 
 // ── PID lockfile helpers ──────────────────────────────────────────
 //
-// `Bun.file` for read/write. The `.ezcorp/` parent directory may not
-// exist on a fresh install; we create it here. The lockfile contains
-// the daemon's PID; on start we read it and refuse if the PID is alive
-// (sibling daemon).
-
-async function ensureDir(path: string): Promise<void> {
-  // Bun's `Bun.file()` lacks a directory API; use Node's mkdir via
-  // dynamic import so this module doesn't pull `node:fs` into the hot
-  // path until the first daemon start.
-  const fs = await import("node:fs/promises");
-  // Strip filename if present.
-  const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ".";
-  if (dir && dir !== ".") await fs.mkdir(dir, { recursive: true });
-}
-
-/** Returns true when the process for `pid` is alive on this host. */
-function isProcessAlive(pid: number): boolean {
-  if (!Number.isFinite(pid) || pid <= 0) return false;
-  // Same-host check via `process.kill(pid, 0)`. Throws when the
-  // process is dead (ESRCH); succeeds otherwise.
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException)?.code;
-    return code === "EPERM"; // process exists but owned by another user
-  }
-}
-
-async function acquireLockfile(path: string): Promise<boolean> {
-  await ensureDir(path);
-  const file = Bun.file(path);
-  if (await file.exists()) {
-    const text = (await file.text()).trim();
-    const pid = parseInt(text, 10);
-    // Refuse if the lockfile points at ANY live process — including
-    // ours. A second daemon in the same process means double-wiring
-    // (background-timers re-invoked) and is the bug we're guarding
-    // against. Production sets `skipLockfile: false` and ALWAYS
-    // releases on stop(), so a graceful restart will not see itself.
-    if (Number.isFinite(pid) && isProcessAlive(pid)) {
-      return false;
-    }
-    // Stale lock — overwrite.
-  }
-  await Bun.write(path, String(process.pid));
-  return true;
-}
-
-async function releaseLockfile(path: string): Promise<void> {
-  try {
-    const fs = await import("node:fs/promises");
-    await fs.unlink(path);
-  } catch {
-    // Already gone — fine.
-  }
-}
+// Shared, PID-reuse-safe primitive — see src/startup/process-lockfile.ts
+// for the boot-token / self-PID reclaim semantics that fix the
+// cross-restart self-deadlock (a persisted `.pid` whose PID got reused on
+// the next boot no longer wedges start).
 
 /** Test-only export: lets tests inspect/own the lockfile helpers. */
 export const _scheduleDaemonInternals = {

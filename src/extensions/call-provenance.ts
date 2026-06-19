@@ -36,7 +36,7 @@ import { logger } from "../logger";
 
 const log = logger.child("ext.call-provenance");
 
-export type CallProvenanceKind = "tool" | "schedule" | "event";
+export type CallProvenanceKind = "tool" | "schedule" | "event" | "render";
 
 export interface CallProvenance {
   /** User the call is on behalf of. `null` only when `ownerless` —
@@ -75,6 +75,10 @@ interface Entry {
  *   - **schedule/event (fire)** tokens: auto-released after
  *     `FIRE_TOKEN_AUTO_RELEASE_MS` (2 min). 10 min is ample backstop
  *     headroom; no human is ever in this loop.
+ *   - **render** tokens: minted around a single `ezcorp/page.render`
+ *     forward call and released in its `finally` (like tool tokens), but
+ *     a render is always fast and never blocks on human input, so it
+ *     takes the tighter fire-tier backstop rather than the 6h one.
  */
 export const CALL_PROVENANCE_TTL_MS = 6 * 60 * 60_000; // 6 h — tool tokens
 export const FIRE_TOKEN_TTL_MS = 10 * 60_000; // 10 min — schedule/event tokens
