@@ -48,7 +48,10 @@ const EMPTY_META: LoopMeta = { consecutiveErrors: 0, disabled: false };
  *  second parameter without the `Parameters<>` indirection (which breaks
  *  generic inference across the two `LoopRunState` instantiations). */
 export interface LoopTransitionInput<Outcome = unknown> {
-  status: string;
+  /** Next run status. OMIT to keep the run's CURRENT status (resolved under
+   *  the store lock) — use this for an event-only update (steered/pr_opened)
+   *  so it can't race-revert a concurrent status flip. */
+  status?: string;
   /** Status for the appended event-log entry; defaults to `status`. */
   eventStatus?: string;
   note?: string;
@@ -183,7 +186,18 @@ export function createLoopRunStore<Outcome = unknown>(
         const run = await readRun(runId);
         if (!run) return null;
         const now = new Date().toISOString();
-        const updated = coreTransition(run, next, resolved, now);
+        // TOCTOU fix: an OMITTED `status` means "keep the run's CURRENT
+        // status" — resolved HERE, under the lock, from the freshly-read
+        // run. Callers must NOT pre-read the status outside the lock (that
+        // race let an event-only update silently revert a concurrent status
+        // flip). The event-log entry still uses `eventStatus ?? status`.
+        const resolvedStatus = next.status ?? run.status;
+        const updated = coreTransition(
+          run,
+          { ...next, status: resolvedStatus },
+          resolved,
+          now,
+        );
         await storage.set(runKey(loopId, runId), updated);
         return updated;
       });

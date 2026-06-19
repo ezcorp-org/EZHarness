@@ -68,6 +68,19 @@ export function wireLog(reg: RegisteredLoop): void {
   const dashboard = reg.def.log?.dashboard;
   if (!dashboard) return;
 
+  // PRIVACY GUARD: the Hub page tree is cached per-(ext,page) and served to
+  // ALL users, so a dashboard fed by a `user`- or `conversation`-scoped run
+  // store would leak one user's runs into the shared, cross-user tree. Make
+  // that latent footgun a LOUD install-time crash instead of a silent leak —
+  // a dashboard is only sound on a `global`-scoped loop.
+  if (reg.contract.scope !== "global") {
+    throw new Error(
+      `[@ezcorp/sdk] defineLoop("${reg.id}"): log.dashboard requires contract.scope "global" — a ` +
+        `"${reg.contract.scope}"-scoped run store would leak per-user runs into the shared, ` +
+        `cross-user-cached Hub page. Move the dashboard to a global loop, or drop log.dashboard.`,
+    );
+  }
+
   const renderTree = async (): Promise<HubPageTree> => {
     const runs = await reg.store.list();
     const tree = dashboard.render(runs);

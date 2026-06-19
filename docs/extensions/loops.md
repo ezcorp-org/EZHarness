@@ -168,6 +168,13 @@ truth**. `dashboard` registers a Hub page whose `render` re-derives the run
 list; the primitive pushes a fresh tree (content-free SSE invalidation) on
 every state change, and routes `rowActions` straight through.
 
+> **A dashboard requires `contract.scope: "global"`.** The Hub page tree is
+> cached per-`(ext, page)` and served to ALL users, so a dashboard fed by a
+> `user`- or `conversation`-scoped run store would leak one user's runs into
+> the shared, cross-user tree. `defineLoop` **throws at registration** if
+> `log.dashboard` is present on a non-`global` loop — keep private (per-user)
+> runs on a separate scoped loop with no dashboard.
+
 A row action that needs to **collect input** (e.g. a steer message) builds
 the row's `action.prompt` in `render` — the host renders the input dialog,
 and `prompt.format` selects the widget (`"file-path"` reuses the filesystem

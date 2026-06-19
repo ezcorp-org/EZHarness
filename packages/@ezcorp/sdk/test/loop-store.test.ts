@@ -179,6 +179,38 @@ describe("transition + get", () => {
     expect((await store.get("r1"))?.id).toBe("r1");
     expect(await store.get("missing")).toBeNull();
   });
+
+  test("an OMITTED status keeps the run's CURRENT status (resolved under lock)", async () => {
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", CONTRACT, kv.factory);
+    await store.claim({ id: "r1", loopId: "ezc", status: "running" });
+    // Event-only update (no status) — records a "steered" event but keeps
+    // the run "running". No caller pre-read; transition resolves it.
+    const updated = await store.transition("r1", { eventStatus: "steered", note: "go" });
+    expect(updated?.status).toBe("running"); // unchanged
+    expect(updated?.events[0]).toMatchObject({ status: "steered", note: "go" });
+  });
+
+  test("TOCTOU: an event-only update does NOT revert a concurrent status flip", async () => {
+    // Interleave a status flip (running→completed) with an event-only
+    // "steered" update. withLock serializes them; because the event-only
+    // update resolves its status UNDER the lock (not from a stale pre-read),
+    // the run lands at "completed" — the steered event never reverts it.
+    const kv = makeKv();
+    const store = createLoopRunStore("ezc", CONTRACT, kv.factory);
+    await store.claim({ id: "r1", loopId: "ezc", status: "running" });
+    await Promise.all([
+      store.transition("r1", { status: "completed" }),
+      store.transition("r1", { eventStatus: "steered", note: "mid" }),
+    ]);
+    const run = await store.get("r1");
+    expect(run?.status).toBe("completed"); // the flip survives — no revert
+    // Both the flip + the steered event are present (+ the initial claim
+    // event), in whatever order the lock serialized them.
+    const statuses = run!.events.map((e) => e.status);
+    expect(statuses).toContain("completed");
+    expect(statuses).toContain("steered");
+  });
 });
 
 describe("retention", () => {
