@@ -170,6 +170,28 @@ describe("gate-integrity: forbidden test additions", () => {
     expect(forbiddenTestAdditions(["  // it.skip('disabled')"])).toEqual([]);
     expect(forbiddenTestAdditions(["  } catch (e) { handle(e) }"])).toEqual([]);
   });
+  test("does not flag skip/only/empty-catch that only appear inside a string literal", () => {
+    // A line that merely MENTIONS the pattern inside a quoted string (e.g. this
+    // gate's own test fixtures) is not an executable cheat — stripNoise drops the
+    // string before matching, so it must not be flagged.
+    expect(forbiddenTestAdditions(['  expect(forbiddenTestAdditions(["it.skip(1)"])).toBe(1)'])).toEqual(
+      [],
+    );
+    expect(forbiddenTestAdditions(['  const sql = "describe.only(x)";'])).toEqual([]);
+    expect(forbiddenTestAdditions(['  const code = "try { x() } catch {}";'])).toEqual([]);
+    // …but a REAL skip whose keyword is outside any string is still caught.
+    expect(forbiddenTestAdditions(['  it.skip("still caught", () => {})']).length).toBe(1);
+  });
+  test("allows runtime-conditional skips, still flags static/unconditional ones", () => {
+    // ALLOWED — Playwright runtime gate on environment/data, not a dodge.
+    expect(forbiddenTestAdditions(['  test.skip(!RUN_REAL, "needs DOCKER_TEST=1")'])).toEqual([]);
+    expect(forbiddenTestAdditions(["  test.skip(!pending, 'nothing real to accept')"])).toEqual([]);
+    expect(forbiddenTestAdditions(["  it.skip(process.env.CI == null)"])).toEqual([]);
+    // FORBIDDEN — static named skip, unconditional no-arg skip, static suite skip.
+    expect(forbiddenTestAdditions(['  test.skip("permanently disabled", () => {})']).length).toBe(1);
+    expect(forbiddenTestAdditions(["  it.skip()"]).length).toBe(1);
+    expect(forbiddenTestAdditions(["  test.describe.skip('suite', () => {})"]).length).toBe(1);
+  });
 });
 
 // ── gate-integrity: vacuous (assertion-free) test detection ──────────────────
@@ -201,6 +223,22 @@ describe("gate-integrity: unassertedAddedBlocks", () => {
   });
   test("ignores blocks not touched by the diff", () => {
     expect(unassertedAddedBlocks(noAssert, new Set([999]))).toEqual([]);
+  });
+  test("counts Playwright expect.poll / expect.soft as real assertions", () => {
+    const polled = [
+      "it('polls until settled', () => {",
+      "  triggerAdd();",
+      "  expect.poll(() => body).toEqual({ ok: true });",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(polled, new Set([2, 3]))).toEqual([]);
+    const soft = [
+      "it('soft asserts', () => {",
+      "  doThing();",
+      "  expect.soft(x).toBe(1);",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(soft, new Set([2, 3]))).toEqual([]);
   });
   test("does not count braces inside strings as block boundaries", () => {
     const tricky = [

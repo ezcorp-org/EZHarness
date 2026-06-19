@@ -135,21 +135,44 @@ export function parseUnifiedDiff(diff: string): Map<string, DiffFile> {
   return files;
 }
 
-const SKIP_ONLY_TODO = /\b(?:describe|test|it|bench)\s*\.\s*(?:skip|only|todo|failing)\b|\b(?:xdescribe|xit|xtest|fdescribe|fit)\b/;
+// Always a cheat: `.only` / `.todo` / `.failing`, the x*/f* focus/skip globals,
+// and a STATIC suite skip (`describe.skip`). A test/it/bench `.skip` is handled
+// separately (STATIC_SKIP) because the runtime-conditional form is legitimate.
+const ALWAYS_FORBIDDEN =
+	/\b(?:describe|test|it|bench)\s*\.\s*(?:only|todo|failing)\b|\b(?:xdescribe|xit|xtest|fdescribe|fit)\b|\bdescribe\s*\.\s*skip\b/;
+// A STATIC or UNCONDITIONAL test/it/bench `.skip`: `.skip("name", fn)` — after
+// stripNoise() removes the string literal the name slot collapses to `.skip( ,`
+// — or `.skip()` with no args. A runtime CONDITIONAL skip `.skip(<condition>, …)`
+// keeps a real first argument and is ALLOWED: it gates a test on an
+// environment/data condition (e.g. a Docker-only suite, or "no real fixture on
+// disk so skip honestly rather than fabricate"), which is NOT dodging a failing
+// test. Maintainers can still spot an always-true condition in review.
+const STATIC_SKIP = /\b(?:test|it|bench)\s*\.\s*skip\s*\(\s*[),]/;
 const EMPTY_CATCH = /\bcatch\s*(?:\([^)]*\))?\s*\{\s*\}/;
 
 /** Forbidden patterns added to a test file (skip/only/todo + empty catch). */
 export function forbiddenTestAdditions(addedTexts: string[]): string[] {
   const out: string[] = [];
   for (const text of addedTexts) {
-    const stripped = text.replace(/\/\/.*$/, "");
-    if (SKIP_ONLY_TODO.test(stripped)) out.push(`added skip/only/todo: ${text.trim()}`);
+    // stripNoise removes BOTH line comments and string/template literals, so a
+    // skip/only/todo or empty-catch that only appears INSIDE a quoted string
+    // (e.g. the fixtures in this gate's own test, src/__tests__/gate-scripts.test.ts)
+    // is not mistaken for a real, executable cheat. A genuine `it.skip(...)` keeps
+    // its keyword outside the quotes, so it is still caught.
+    const stripped = stripNoise(text);
+    if (ALWAYS_FORBIDDEN.test(stripped) || STATIC_SKIP.test(stripped)) {
+      out.push(`added skip/only/todo: ${text.trim()}`);
+    }
     if (EMPTY_CATCH.test(stripped)) out.push(`added empty catch{}: ${text.trim()}`);
   }
   return out;
 }
 
-const ASSERTION = /\bexpect\s*\(|\bassert\b|\.\s*(?:rejects|resolves)\b|\btoThrow\b|\bexpectTypeOf\b/;
+// `expect(` plus Playwright's chained assertion forms `expect.poll(...)` /
+// `expect.soft(...)` (both produce real assertions; the bare `expect(` branch
+// alone misses them and flags a genuinely-asserting test as vacuous).
+const ASSERTION =
+	/\bexpect\s*\(|\bexpect\s*\.\s*(?:poll|soft)\b|\bassert\b|\.\s*(?:rejects|resolves)\b|\btoThrow\b|\bexpectTypeOf\b/;
 const TEST_OPENER = /(?:^|[^.\w])(?:test|it)\s*\(/;
 
 /**
@@ -262,7 +285,12 @@ async function main(): Promise<void> {
 
   // 1. EXCLUDES growth.
   if (changed.includes("scripts/coverage-config.ts")) {
-    const baseSrc = await showAtBase(base, "scripts/coverage-config.ts");
+    let baseSrc = await showAtBase(base, "scripts/coverage-config.ts");
+    // Bootstrap: coverage-config.ts is the shared module the EXCLUDES list was
+    // refactored OUT of scripts/check-coverage.ts into. On a base that predates
+    // that split there is no coverage-config.ts, so fall back to the EXCLUDES at
+    // their old inline home — otherwise a verbatim move reads as 100% "growth".
+    if (!baseSrc) baseSrc = await showAtBase(base, "scripts/check-coverage.ts");
     const headSrc = await Bun.file(resolve(REPO_ROOT, "scripts/coverage-config.ts")).text();
     for (const p of addedExcludes(baseSrc, headSrc)) {
       violations.push(`EXCLUDES grew: "${p}" — un-gating a file needs the gate-change-approved label`);
