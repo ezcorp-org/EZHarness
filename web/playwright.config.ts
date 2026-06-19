@@ -41,6 +41,11 @@ export default defineConfig({
 				"PI_SKIP_INIT=1 bun run build && EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview",
 			url: "http://localhost:4173",
 			reuseExistingServer: !process.env.CI,
+			// The command BUILDS then previews; on a slow CI runner the vite
+			// build alone can exceed Playwright's default 60s webServer wait,
+			// timing out before the preview is ready (deterministic, not flaky).
+			// Give the build+preview ample headroom.
+			timeout: 180_000,
 		},
 	}),
 });
