@@ -44,6 +44,28 @@ if (!process.env.PI_SKIP_INIT) {
 // ── Rate Limiter ──────────────────────────────────────────────────
 const rateLimiter = new RateLimiter(20, 60_000);
 
+// Per-IP budget for FAILED `Authorization: Bearer` attempts. A forged
+// `ezk_<random>` token misses the O(1) hash index in verifyApiKey and falls
+// back to a full `SELECT * FROM settings` scan — so an unauthenticated
+// attacker spraying random tokens at any protected route could amplify each
+// request into a table scan (DoS). This bucket caps that: only requests that
+// PRESENTED a Bearer header but did NOT resolve to a user are counted, keyed
+// by client IP. A legitimate client uses ONE valid key and SUCCEEDS, so it
+// never increments this counter and is never throttled here. 20/min/IP is far
+// above any plausible "fat-fingered one key" rate while shutting the spray
+// vector. Cookie/session requests never reach this path (they carry no Bearer
+// header and the session branch handles them).
+const FAILED_BEARER_LIMIT = 20;
+const failedBearerLimiter = new RateLimiter(FAILED_BEARER_LIMIT, 60_000);
+
+// Test-only handles so a suite exercising `handle` can clear the singleton
+// limiters between cases (their counters otherwise leak across tests in the
+// same file). Not used in production. Mirrors the `__rateLimiter` convention
+// used by the `+server.ts` route handlers.
+export const __rateLimiter = rateLimiter;
+export const __failedBearerLimiter = failedBearerLimiter;
+export const __FAILED_BEARER_LIMIT = FAILED_BEARER_LIMIT;
+
 export interface RateLimitRoute {
   pattern: RegExp;
   method?: string;
@@ -389,6 +411,25 @@ export const handle: Handle = async ({ event, resolve }) => {
       // (ezkint_, loopback-only) and user-issued keys (ezk_). See
       // lib/server/security/bearer-auth.ts for the full security contract.
       const authHeader = request.headers.get("authorization");
+      // Whether THIS request presented a Bearer token at all. Only Bearer
+      // requests participate in the failed-auth budget below — a request
+      // with no Authorization header (or a non-Bearer scheme) can't trigger
+      // the verifyApiKey scan, so it must never be counted or throttled.
+      const presentedBearer = !!authHeader?.startsWith("Bearer ");
+
+      // DoS-amplification guard: short-circuit BEFORE attachBearerAuth (and
+      // its verifyApiKey table scan) for an IP that has already burned its
+      // failed-Bearer budget this window. peek() is read-only so a request
+      // that goes on to SUCCEED never consumes a token. See
+      // FAILED_BEARER_LIMIT for the full rationale.
+      if (presentedBearer) {
+        const ip = getClientIp(request);
+        const peeked = failedBearerLimiter.peek(`ip:${ip}:bearerFail`);
+        if (!peeked.allowed) {
+          return rateLimitResponse(peeked.retryAfter!);
+        }
+      }
+
       let remoteAddress: string | undefined;
       try {
         remoteAddress = event.getClientAddress();
@@ -413,6 +454,16 @@ export const handle: Handle = async ({ event, resolve }) => {
         },
         authHeader,
       );
+
+      // Record a failure ONLY when a Bearer token was presented but did NOT
+      // authenticate. A successful auth populates event.locals.user above and
+      // is skipped here, so a valid key can never be throttled. check()
+      // increments the per-IP counter; once it crosses FAILED_BEARER_LIMIT the
+      // peek() above starts returning 429 for subsequent sprays this window.
+      if (presentedBearer && !event.locals.user) {
+        const ip = getClientIp(request);
+        failedBearerLimiter.check(`ip:${ip}:bearerFail`);
+      }
 
       if (!event.locals.user) {
         let count: number;
