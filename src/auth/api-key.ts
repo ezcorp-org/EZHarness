@@ -46,6 +46,43 @@ export function apiKeySettingsPrefix(userId: string): string {
   return `apikey:${userId}:`;
 }
 
+/**
+ * Pointer row written at mint time so `verifyApiKey` can do an O(1) lookup
+ * by hash instead of a full settings-table scan on every Bearer request.
+ * Keyed by the key's SHA-256 hash; the value points back at the canonical
+ * per-user `apikey:<userId>:<keyId>` row. This is a derived INDEX — the
+ * per-user row stays the source of truth (GET-list / DELETE-by-keyId rely
+ * on it), so the index can always be rebuilt by re-scanning. No DB
+ * migration is needed: it is just another settings row.
+ */
+export function apiKeyHashIndexKey(hash: string): string {
+  return `apikeyhash:${hash}`;
+}
+
+/** Value stored at the `apikeyhash:<hash>` index row. */
+export interface ApiKeyHashIndexEntry {
+  userId: string;
+  keyId: string;
+}
+
+/**
+ * Scope ceiling enforced at mint time: a key must never carry authority its
+ * OWNER lacks. Only an instance admin may mint the `admin` scope; everyone
+ * else is capped at the non-privileged scopes. Pure + shared by the HTTP
+ * route and the CLI so the two paths can never drift.
+ *
+ * Returns the offending (over-ceiling) scopes, or an empty array when the
+ * request is within ceiling. Callers turn a non-empty result into a 403
+ * (HTTP) or an exit(1) (CLI).
+ */
+export function scopesOverCeiling(
+  role: string | undefined,
+  scopes: readonly ApiKeyScope[],
+): ApiKeyScope[] {
+  if (role === "admin") return []; // admins may mint any scope, incl. admin
+  return scopes.filter((s) => s === "admin");
+}
+
 export function generateApiKey(): GeneratedKey {
   const raw = "ezk_" + crypto.randomBytes(32).toString("base64url");
   return { raw, hash: hashApiKey(raw), keyId: crypto.randomUUID() };

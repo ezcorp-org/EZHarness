@@ -12,6 +12,7 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 
 vi.mock("$server/db/queries/settings", () => ({
   getAllSettings: vi.fn(async () => ({})),
+  getSetting: vi.fn(async () => undefined),
   upsertSetting: vi.fn(async () => undefined),
   deleteSetting: vi.fn(async () => true),
 }));
@@ -44,7 +45,8 @@ function makeEvent(opts: {
   } as any;
 }
 
-const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
+const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "member" } };
+const adminUser = { user: { id: "a1", email: "a@x", name: "a", role: "admin" } };
 
 async function expectThrown(
   fn: () => Promise<Response> | Response,
@@ -164,7 +166,49 @@ describe("POST /api/settings/developer/api-keys", () => {
     expect(typeof body.keyId).toBe("string");
     expect(body.name).toBe("ci");
     expect(body.scopes).toEqual(["read", "chat"]);
-    expect(upsertSetting).toHaveBeenCalledTimes(1);
+    // Dual-write: canonical per-user row + hash-index pointer (FINDING C).
+    expect(upsertSetting).toHaveBeenCalledTimes(2);
+  });
+
+  // FINDING B: scope ceiling enforced at the HTTP boundary.
+  test("rejects 403 when a non-admin self-mints an admin-scoped key", async () => {
+    vi.mocked(upsertSetting).mockClear();
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: authedUser, // role: "member"
+        body: { name: "evil", scopes: ["read", "admin"] },
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("Cannot mint scope(s) you lack: admin");
+    // Nothing minted — the ceiling check runs before mintApiKeyForUser.
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("allows an admin to self-mint an admin-scoped key (201)", async () => {
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: adminUser,
+        body: { name: "admin-key", scopes: ["read", "admin"] },
+      }),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { scopes?: string[] };
+    expect(body.scopes).toEqual(["read", "admin"]);
+  });
+
+  test("allows a non-admin to mint a non-privileged key (201)", async () => {
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: authedUser,
+        body: { name: "ok", scopes: ["read", "chat", "extensions"] },
+      }),
+    );
+    expect(res.status).toBe(201);
   });
 });
 

@@ -25,6 +25,7 @@ function installUserMocks(): void {
 installUserMocks();
 
 const { parseArgs, parseKeyScopes, resolveKeyMintUser } = await import("../cli");
+const { scopesOverCeiling } = await import("../auth/api-key");
 
 beforeEach(() => {
   users = [];
@@ -101,35 +102,55 @@ describe("parseKeyScopes", () => {
 });
 
 describe("resolveKeyMintUser", () => {
-  test("--user matches by email", async () => {
+  // role is now part of the result so the scope-ceiling check (FINDING B)
+  // can be enforced in the key:mint dispatch.
+  test("--user matches by email (carries role)", async () => {
     byEmail["a@b.com"] = { id: "u1", email: "a@b.com", role: "member" };
-    expect(await resolveKeyMintUser("a@b.com")).toEqual({ id: "u1", email: "a@b.com" });
+    expect(await resolveKeyMintUser("a@b.com")).toEqual({ id: "u1", email: "a@b.com", role: "member" });
   });
 
-  test("--user falls back to id lookup when email misses", async () => {
-    byId["u2"] = { id: "u2", email: "x@y.com", role: "member" };
-    expect(await resolveKeyMintUser("u2")).toEqual({ id: "u2", email: "x@y.com" });
+  test("--user falls back to id lookup when email misses (carries role)", async () => {
+    byId["u2"] = { id: "u2", email: "x@y.com", role: "admin" };
+    expect(await resolveKeyMintUser("u2")).toEqual({ id: "u2", email: "x@y.com", role: "admin" });
   });
 
   test("--user with no match exits(1)", async () => {
     expect(await captureExit(() => resolveKeyMintUser("nope"))).toBe(1);
   });
 
-  test("no --user → prefers admin", async () => {
+  test("no --user → prefers admin (carries role)", async () => {
     users = [
       { id: "m", email: "m@x", role: "member" },
       { id: "a", email: "a@x", role: "admin" },
     ];
-    expect(await resolveKeyMintUser(undefined)).toEqual({ id: "a", email: "a@x" });
+    expect(await resolveKeyMintUser(undefined)).toEqual({ id: "a", email: "a@x", role: "admin" });
   });
 
-  test("no --user, no admin → first user", async () => {
+  test("no --user, no admin → first user (carries role)", async () => {
     users = [{ id: "m", email: "m@x", role: "member" }];
-    expect(await resolveKeyMintUser(undefined)).toEqual({ id: "m", email: "m@x" });
+    expect(await resolveKeyMintUser(undefined)).toEqual({ id: "m", email: "m@x", role: "member" });
   });
 
   test("no --user, no users → exits(1)", async () => {
     users = [];
     expect(await captureExit(() => resolveKeyMintUser(undefined))).toBe(1);
+  });
+});
+
+describe("scopesOverCeiling (FINDING B: scope ceiling)", () => {
+  test("admin may mint any scope, including admin", () => {
+    expect(scopesOverCeiling("admin", ["read", "chat", "extensions", "admin"])).toEqual([]);
+  });
+
+  test("non-admin may mint non-privileged scopes", () => {
+    expect(scopesOverCeiling("member", ["read", "chat", "extensions"])).toEqual([]);
+  });
+
+  test("non-admin requesting admin scope is over ceiling", () => {
+    expect(scopesOverCeiling("member", ["read", "admin"])).toEqual(["admin"]);
+  });
+
+  test("undefined role is treated as non-admin", () => {
+    expect(scopesOverCeiling(undefined, ["admin"])).toEqual(["admin"]);
   });
 });

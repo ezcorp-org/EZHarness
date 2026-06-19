@@ -71,6 +71,83 @@ describe("test-surface gating", () => {
   });
 });
 
+describe("admin-gate pairing (FINDING A regression guard)", () => {
+  // requireScope(locals,"admin") is allow-all for cookie sessions (it only
+  // gates API-key principals, since locals.apiKeyScopes is undefined for a
+  // cookie). On its own it lets any logged-in MEMBER through an admin route.
+  // Every route that gates on the "admin" SCOPE must therefore ALSO gate on
+  // ROLE — via requireRole(locals,"admin") or requireAdmin(locals) — so a
+  // non-admin member is rejected on both axes. This static scan fails the
+  // whole class of bug rather than catching one instance.
+  const SCOPE_ADMIN = /requireScope\s*\(\s*\w+\s*,\s*["']admin["']\s*\)/;
+  const ROLE_ADMIN = /requireRole\s*\(\s*\w+\s*,\s*["']admin["']\s*\)/;
+  const REQUIRE_ADMIN = /requireAdmin\s*\(/;
+
+  // Pre-existing routes that gate on the admin SCOPE without a role check.
+  // Surfaced by this very scan. Most are user SELF-SERVICE writes
+  // (/api/account*, own developer keys, own team membership) where the
+  // scope-admin is a write-gate for API-key principals and the cookie
+  // allow-all is intentional — forcing requireRole(admin) there would lock
+  // every member out of their own data. A couple touch instance state
+  // (provider model refresh, extension violations) and warrant the same
+  // requireAdmin treatment as providers/test in a follow-up — but they are
+  // out of this change's ownership. FROZEN so a NEW offender fails the test
+  // (the regression guard) while pre-existing ones don't block it. Shrink
+  // this list as each is reviewed; never add to it without justification.
+  const KNOWN_SCOPE_ONLY_ADMIN = new Set<string>([
+    "api/account/+server.ts",
+    "api/account/password/+server.ts",
+    "api/account/sessions/+server.ts",
+    "api/extensions/[id]/violations/+server.ts",
+    "api/providers/[provider]/refresh-models/+server.ts",
+    "api/settings/developer/+server.ts",
+    "api/settings/developer/api-keys/+server.ts",
+    "api/teams/[id]/members/+server.ts",
+  ]);
+
+  test("every route gating on requireScope(admin) ALSO gates on role", () => {
+    const offenders: string[] = [];
+    const glob = new Glob("api/**/+server.ts");
+    for (const rel of glob.scanSync(routesDir)) {
+      const src = readFileSync(`${routesDir}/${rel}`, "utf8");
+      if (!SCOPE_ADMIN.test(src)) continue;
+      if (ROLE_ADMIN.test(src) || REQUIRE_ADMIN.test(src)) continue;
+      if (KNOWN_SCOPE_ONLY_ADMIN.has(rel)) continue;
+      offenders.push(rel);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test("the baseline of scope-only admin routes does not grow", () => {
+    // Belt-and-suspenders: independently of the offenders test, prove the
+    // current scope-only set is EXACTLY the frozen baseline (no shrink-and-
+    // re-add, no silent growth). A removed entry that's still scope-only
+    // would surface here too.
+    const scopeOnly = new Set<string>();
+    const glob = new Glob("api/**/+server.ts");
+    for (const rel of glob.scanSync(routesDir)) {
+      const src = readFileSync(`${routesDir}/${rel}`, "utf8");
+      if (!SCOPE_ADMIN.test(src)) continue;
+      if (ROLE_ADMIN.test(src) || REQUIRE_ADMIN.test(src)) continue;
+      scopeOnly.add(rel);
+    }
+    const extra = [...scopeOnly].filter((r) => !KNOWN_SCOPE_ONLY_ADMIN.has(r)).sort();
+    expect(extra).toEqual([]);
+  });
+
+  test("the scan actually matches the patterns it relies on (self-check)", () => {
+    // Guards against a regex typo silently passing the test above by never
+    // matching anything. Proves both the offender and the safe shapes parse.
+    const offending = `requireScope(locals, "admin");`;
+    const safeRole = `requireScope(locals, "admin"); requireRole(locals, "admin");`;
+    const safeAdmin = `requireAdmin(locals);`;
+    expect(SCOPE_ADMIN.test(offending)).toBe(true);
+    expect(ROLE_ADMIN.test(offending)).toBe(false);
+    expect(ROLE_ADMIN.test(safeRole)).toBe(true);
+    expect(REQUIRE_ADMIN.test(safeAdmin)).toBe(true);
+  });
+});
+
 describe("registry ⇄ filesystem parity", () => {
   const controlDisk = disk.filter((r) => !r.path.startsWith("/api/__test/"));
   const diskKeys = new Set(controlDisk.map((r) => `${r.method} ${r.path}`));

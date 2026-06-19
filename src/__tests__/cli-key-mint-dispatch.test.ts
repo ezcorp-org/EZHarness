@@ -16,8 +16,11 @@ mock.module("../db/connection", () => ({
   closeDb: async () => {},
 }));
 mock.module("../db/queries/users", () => ({
-  getUserByEmail: async (email: string) =>
-    email === "admin@x.test" ? { id: "u-admin", email, role: "admin" } : undefined,
+  getUserByEmail: async (email: string) => {
+    if (email === "admin@x.test") return { id: "u-admin", email, role: "admin" };
+    if (email === "member@x.test") return { id: "u-member", email, role: "member" };
+    return undefined;
+  },
   getUserById: async () => undefined,
   listUsers: async () => [{ id: "u-admin", email: "admin@x.test", role: "admin" }],
 }));
@@ -30,10 +33,32 @@ mock.module("../db/queries/settings", () => ({
 const { cli } = await import("../cli");
 
 let logs: string[] = [];
+let errs: string[] = [];
 const origLog = console.log;
-beforeEach(() => { logs = []; settings.length = 0; console.log = (...a: unknown[]) => { logs.push(a.join(" ")); }; });
-afterEach(() => { console.log = origLog; });
+const origErr = console.error;
+beforeEach(() => {
+  logs = []; errs = []; settings.length = 0;
+  console.log = (...a: unknown[]) => { logs.push(a.join(" ")); };
+  console.error = (...a: unknown[]) => { errs.push(a.join(" ")); };
+});
+afterEach(() => { console.log = origLog; console.error = origErr; });
 afterAll(() => restoreModuleMocks());
+
+/** Run cli(...), capturing a process.exit(code) as a thrown sentinel. */
+async function captureExit(fn: () => Promise<unknown>): Promise<number> {
+  const orig = process.exit;
+  let code: number | undefined;
+  process.exit = ((c?: number): never => { code = c ?? 0; throw new Error(`__exit__:${code}`); }) as typeof process.exit;
+  try {
+    await fn();
+    throw new Error("expected process.exit to be called");
+  } catch (e) {
+    if (!(e instanceof Error) || !e.message.startsWith("__exit__:")) throw e;
+  } finally {
+    process.exit = orig;
+  }
+  return code!;
+}
 
 describe("cli key:mint dispatch", () => {
   test("mints a key for the resolved user, prints it once, persists the hash", async () => {
@@ -58,5 +83,24 @@ describe("cli key:mint dispatch", () => {
   test("help lists the key mint command", async () => {
     await cli(["help"]);
     expect(logs.join("\n")).toContain("key mint");
+  });
+
+  // FINDING B: a non-admin-bound key may NOT carry the admin scope.
+  test("rejects minting admin scope for a non-admin user (exit 1, no key written)", async () => {
+    const code = await captureExit(() =>
+      cli(["key", "mint", "--user", "member@x.test", "--scopes", "read,admin"]),
+    );
+    expect(code).toBe(1);
+    expect(errs.join("\n")).toContain("cannot mint scope(s) admin");
+    // Nothing persisted — the ceiling check runs BEFORE the mint.
+    expect(settings.find(([k]) => k.startsWith("apikey:"))).toBeUndefined();
+  });
+
+  test("allows an admin user to mint the admin scope", async () => {
+    await cli(["key", "mint", "--user", "admin@x.test", "--scopes", "read,admin"]);
+    const out = logs.join("\n");
+    expect(out).toContain("Minted API key for admin@x.test");
+    expect(out).toContain("read, admin");
+    expect(settings.find(([k]) => k.startsWith("apikey:u-admin:"))).toBeDefined();
   });
 });

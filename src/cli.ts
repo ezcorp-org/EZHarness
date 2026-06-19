@@ -14,6 +14,7 @@ import { getUserByEmail, getUserById, listUsers } from "./db/queries/users";
 import {
   API_KEY_SCOPES,
   isApiKeyScope,
+  scopesOverCeiling,
   type ApiKeyScope,
 } from "./auth/api-key";
 import { mintApiKeyForUser } from "./auth/mint-api-key";
@@ -383,12 +384,12 @@ export function parseKeyScopes(raw: string | undefined): ApiKeyScope[] {
  * a user id; with no flag we default to the first admin (or, failing that,
  * the first user). Exits(1) when no match / no users exist.
  */
-export async function resolveKeyMintUser(userRef: string | undefined): Promise<{ id: string; email: string }> {
+export async function resolveKeyMintUser(userRef: string | undefined): Promise<{ id: string; email: string; role: string }> {
   if (userRef) {
     const byEmail = await getUserByEmail(userRef);
-    if (byEmail) return { id: byEmail.id, email: byEmail.email };
+    if (byEmail) return { id: byEmail.id, email: byEmail.email, role: byEmail.role };
     const byId = await getUserById(userRef);
-    if (byId) return { id: byId.id, email: byId.email };
+    if (byId) return { id: byId.id, email: byId.email, role: byId.role };
     console.error(`Error: no user matches "${userRef}" (tried email then id)`);
     process.exit(1);
   }
@@ -398,7 +399,7 @@ export async function resolveKeyMintUser(userRef: string | undefined): Promise<{
     process.exit(1);
   }
   const admin = users.find((u) => u.role === "admin") ?? users[0]!;
-  return { id: admin.id, email: admin.email };
+  return { id: admin.id, email: admin.email, role: admin.role };
 }
 
 // ── CLI entry ───────────────────────────────────────────────────────
@@ -813,6 +814,17 @@ export async function cli(args: string[]): Promise<void> {
       await initDb();
       const scopes = parseKeyScopes(parsed.scopes);
       const user = await resolveKeyMintUser(parsed.userRef);
+      // Scope ceiling: a key must never carry authority its OWNER lacks.
+      // Only an admin-bound key may carry the `admin` scope. Shared with the
+      // HTTP route via scopesOverCeiling() so the two paths can't drift.
+      const over = scopesOverCeiling(user.role, scopes);
+      if (over.length > 0) {
+        console.error(
+          `Error: cannot mint scope(s) ${over.join(", ")} for ${user.email} (role: ${user.role}). ` +
+          `Only an admin user may mint the "admin" scope.`,
+        );
+        process.exit(1);
+      }
       const name = parsed.keyName ?? "cli-minted";
       const { raw, keyId } = await mintApiKeyForUser(user.id, scopes, name);
       console.log(`\nMinted API key for ${user.email} (${user.id})`);

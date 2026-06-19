@@ -17,9 +17,9 @@ import {
 mockDbConnection();
 mockRealSettings();
 
-const { mintApiKeyForUser } = await import("../auth/mint-api-key");
-const { getAllSettings } = await import("../db/queries/settings");
-const { hashApiKey, apiKeySettingsKey, apiKeySettingsPrefix } = await import("../auth/api-key");
+const { mintApiKeyForUser, deleteApiKeyForUser } = await import("../auth/mint-api-key");
+const { getAllSettings, getSetting } = await import("../db/queries/settings");
+const { hashApiKey, apiKeySettingsKey, apiKeySettingsPrefix, apiKeyHashIndexKey } = await import("../auth/api-key");
 
 beforeAll(async () => {
   await setupTestDb();
@@ -56,6 +56,31 @@ describe("mintApiKeyForUser (real DB)", () => {
 
     // The raw secret must NEVER be persisted anywhere in settings.
     expect(JSON.stringify(all)).not.toContain(raw);
+
+    // FINDING C: a hash-index pointer is written alongside the per-user row
+    // so verifyApiKey is O(1). It points back at the canonical row.
+    const pointer = (await getSetting(apiKeyHashIndexKey(hashApiKey(raw)))) as
+      | { userId: string; keyId: string }
+      | undefined;
+    expect(pointer).toEqual({ userId: "u-int-1", keyId });
+  });
+
+  test("deleteApiKeyForUser removes BOTH the per-user row and the hash index", async () => {
+    const { raw, keyId } = await mintApiKeyForUser("u-del", ["read"], "to-delete");
+    const hash = hashApiKey(raw);
+    // Both rows present after mint.
+    expect(await getSetting(apiKeySettingsKey("u-del", keyId))).toBeDefined();
+    expect(await getSetting(apiKeyHashIndexKey(hash))).toBeDefined();
+
+    const deleted = await deleteApiKeyForUser("u-del", keyId);
+    expect(deleted).toBe(true);
+    // Both rows gone → the revoked key can't authenticate via fast OR slow path.
+    expect(await getSetting(apiKeySettingsKey("u-del", keyId))).toBeUndefined();
+    expect(await getSetting(apiKeyHashIndexKey(hash))).toBeUndefined();
+  });
+
+  test("deleteApiKeyForUser returns false for a missing key (route → 404)", async () => {
+    expect(await deleteApiKeyForUser("u-del", "no-such-key")).toBe(false);
   });
 
   test("two mints for the same user produce distinct rows under the user prefix", async () => {
