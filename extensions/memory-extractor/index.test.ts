@@ -10,7 +10,6 @@
  */
 import { test, expect, describe, afterEach } from "bun:test";
 import {
-  handleRunComplete,
   handleCompactionTick,
   extract,
   extractRunComplete,
@@ -396,91 +395,10 @@ describe("extract — error branches", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// handleRunComplete — event handler gating
-// ─────────────────────────────────────────────────────────────────────
-
-describe("handleRunComplete — event handler", () => {
-  test("ignored when settings.enabled is false", async () => {
-    const fake = makeFakeRuntime();
-    fake.setSettings({ enabled: false });
-    _setRuntimeApiForTests(fake.api);
-
-    const out = await handleRunComplete({
-      run: { agentName: "chat", status: "success" },
-      conversationId: "conv-1",
-    });
-
-    expect(out).toEqual({ kind: "decline", reason: "settings_disabled" });
-    expect(fake.calls.find((c) => c.api === "llmComplete")).toBeUndefined();
-  });
-
-  test("ignored when run.agentName !== 'chat'", async () => {
-    const fake = makeFakeRuntime();
-    _setRuntimeApiForTests(fake.api);
-
-    const out = await handleRunComplete({
-      run: { agentName: "team-handoff", status: "success" },
-      conversationId: "conv-1",
-    });
-
-    expect(out).toEqual({ kind: "decline", reason: "wrong_agent_or_status" });
-    expect(fake.calls.find((c) => c.api === "llmComplete")).toBeUndefined();
-  });
-
-  test("ignored when run.status !== 'success'", async () => {
-    const fake = makeFakeRuntime();
-    _setRuntimeApiForTests(fake.api);
-
-    const out = await handleRunComplete({
-      run: { agentName: "chat", status: "error" },
-      conversationId: "conv-1",
-    });
-
-    expect(out).toEqual({ kind: "decline", reason: "wrong_agent_or_status" });
-  });
-
-  test("ignored when conversationId missing", async () => {
-    const fake = makeFakeRuntime();
-    _setRuntimeApiForTests(fake.api);
-
-    const out = await handleRunComplete({
-      run: { agentName: "chat", status: "success" },
-    });
-    expect(out).toBeUndefined();
-  });
-
-  test("settings throw → defaults to enabled (does not crash)", async () => {
-    const fake = makeFakeRuntime({
-      async getMySettings() {
-        throw new Error("network blip");
-      },
-    });
-    _setRuntimeApiForTests(fake.api);
-
-    const out = await handleRunComplete({
-      run: { agentName: "chat", status: "success" },
-      conversationId: "conv-1",
-    });
-    // Even when getMySettings fails the run should not throw; the
-    // listener contract is fire-and-forget. The handler still passes
-    // through to extract() which returns a success outcome.
-    expect(out).toBeDefined();
-  });
-
-  test("happy path: chat run + enabled → extracts memories", async () => {
-    const fake = makeFakeRuntime();
-    _setRuntimeApiForTests(fake.api);
-
-    const out = await handleRunComplete({
-      run: { agentName: "chat", status: "success" },
-      conversationId: "conv-1",
-    });
-    expect(out?.kind).toBe("success");
-    expect(fake.calls.find((c) => c.api === "llmComplete")).toBeDefined();
-    expect(fake.calls.find((c) => c.api === "dedupMemoryWrite")).toBeDefined();
-  });
-});
-
+// NOTE: the old "handleRunComplete — event handler" gating describe was
+// DELETED with the dead ctx-less listener (boot only wires defineMemoryLoops).
+// Its gating + happy-path behavior is now pinned through the shared core in
+// the "extractRunComplete — shared settings-injected core" describe below.
 // ─────────────────────────────────────────────────────────────────────
 // handleCompactionTick — schedule handler
 // ─────────────────────────────────────────────────────────────────────
@@ -765,7 +683,7 @@ describe("extractRunComplete — shared settings-injected core", () => {
     expect(out).toEqual({ kind: "decline", reason: "settings_disabled" });
   });
 
-  test("wrong agent/status → wrong_agent_or_status decline", async () => {
+  test("wrong agent → wrong_agent_or_status decline (no LLM)", async () => {
     const fake = makeFakeRuntime();
     _setRuntimeApiForTests(fake.api);
     const out = await extractRunComplete(
@@ -773,9 +691,20 @@ describe("extractRunComplete — shared settings-injected core", () => {
       { enabled: true },
     );
     expect(out).toEqual({ kind: "decline", reason: "wrong_agent_or_status" });
+    expect(fake.calls.find((c) => c.api === "llmComplete")).toBeUndefined();
   });
 
-  test("happy path → success with injected provider override", async () => {
+  test("non-success status → wrong_agent_or_status decline", async () => {
+    const fake = makeFakeRuntime();
+    _setRuntimeApiForTests(fake.api);
+    const out = await extractRunComplete(
+      { run: { agentName: "chat", status: "error" }, conversationId: "c1" },
+      { enabled: true },
+    );
+    expect(out).toEqual({ kind: "decline", reason: "wrong_agent_or_status" });
+  });
+
+  test("happy path → success: extracts + dedup-writes, with injected provider override", async () => {
     const fake = makeFakeRuntime();
     _setRuntimeApiForTests(fake.api);
     const out = await extractRunComplete(
@@ -785,6 +714,8 @@ describe("extractRunComplete — shared settings-injected core", () => {
     expect(out?.kind).toBe("success");
     const llmCall = fake.calls.find((c) => c.api === "llmComplete");
     expect(llmCall?.args).toMatchObject({ provider: "openai", model: "gpt-4o-mini" });
+    // The extracted facts flow through the host dedup writer.
+    expect(fake.calls.find((c) => c.api === "dedupMemoryWrite")).toBeDefined();
   });
 
   test("no conversationId → undefined", async () => {

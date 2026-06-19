@@ -31,6 +31,7 @@
 import {
   createToolDispatcher,
   defineLoop,
+  formatMessages,
   getChannel,
   getLoopTools,
   getSetting,
@@ -191,10 +192,6 @@ export interface DistillerRuntimeApi {
     projectId: string;
     visibility: "user" | "project";
   }): Promise<{ lesson: DistilledLessonRecord | null; created: boolean }>;
-  /** Effective settings for THIS extension on behalf of the acting user.
-   *  Used by the `run:complete` event handler; tool-dispatch path uses
-   *  `getSetting(ctx, …)` instead. */
-  getMySettings(): Promise<Record<string, unknown>>;
 }
 
 const lessons = new Lessons();
@@ -254,12 +251,6 @@ let runtimeApi: DistillerRuntimeApi = {
         : null,
       created: out.created,
     };
-  },
-  getMySettings: async () => {
-    return invoke<Record<string, unknown>>(
-      "runtime.settings.getMine",
-      {},
-    );
   },
 };
 
@@ -388,11 +379,10 @@ export async function distill(opts: DistillOptions): Promise<DistillationOutcome
     }
   }
 
-  // Take last 20 messages — same window as the legacy distiller.
-  const recent = messages.slice(-20);
-  const conversationText = recent
-    .map((m) => `[${m.id}] ${m.role}: ${m.content}`)
-    .join("\n\n");
+  // Last-20 window, formatted via the SDK's shared `formatMessages` (the
+  // same `[id] role: content` join the Loop primitive's ctx.formatMessages
+  // uses) — replaces the hand-rolled slice+format. Byte-identical output.
+  const conversationText = formatMessages(messages.slice(-20));
 
   const { provider, model } = resolveProviderModel(opts.settings.provider, opts.settings.model);
 
@@ -445,45 +435,18 @@ export async function distill(opts: DistillOptions): Promise<DistillationOutcome
   return { kind: "success", lesson: writeResult.lesson! };
 }
 
-// ── run:complete event handler ──────────────────────────────────────
+// ── run:complete distillation core ──────────────────────────────────
 //
-// Mirrors the legacy `distillLesson(run, conversationId)` — only fires
-// for successful chat runs, honors the `enabled` setting, applies the
-// trigger gate. Errors are silenced (fire-and-forget contract).
+// The auto-distill path. Now driven ONLY by the `defineLoop` act
+// (`defineDistillLoop`), which passes `ctx.settings` (the primitive-owned
+// settings resolution) into `distillRunComplete`. The old ctx-less
+// `handleRunComplete` listener — which round-tripped `getMySettings`
+// itself — is DELETED: it was never wired in boot (boot calls only
+// `defineDistillLoop`), so it was dead production code. `ctx.settings`
+// covers the settings fetch.
 //
-// Note: Stage 1 keeps the legacy listener registered host-side via
-// `web/src/lib/server/context.ts` — Stage 2 removes it. During Stage 1
-// the bundled extension's handler is "ride-along" available; whether
-// it actually fires depends on the conversation being wired into the
-// extension (event delivery is gated on `conversation_extensions`).
-// The auto-trigger UAT path (Phase 53.2) verifies the wiring; if it
-// fails, that's a Stage 1 bug to fix before Stage 2 deletion — exactly
-// the gate the two-stage merge is designed to protect.
-export async function handleRunComplete(payload: { run?: unknown; conversationId?: string }): Promise<void> {
-  const conversationId = payload?.conversationId;
-  if (!conversationId) return;
-
-  // Settings — `run:complete` has no ctx so we round-trip via invoke.
-  let settings: Record<string, unknown>;
-  try {
-    settings = await runtimeApi.getMySettings();
-  } catch {
-    // If we can't read settings, default to enabled (matches legacy
-    // distillLesson which treats missing setting as enabled).
-    settings = {};
-  }
-  await distillRunComplete(payload, settings);
-}
-
-/**
- * Shared run:complete distillation core, settings-injected. Called from
- * BOTH the `handleRunComplete` listener (which round-trips `getMySettings`
- * because it has no ctx) AND the `defineLoop` act (which gets settings
- * from `ctx.settings`, the primitive-owned resolution). Extracting this
- * is the DRY win: the gating + project-id resolution + warn-once is
- * written ONCE. Returns the produced `DistillationOutcome`, or `undefined`
- * when a gate short-circuits before distillation.
- */
+// Returns the produced `DistillationOutcome`, or `undefined` when a gate
+// short-circuits before distillation.
 export async function distillRunComplete(
   payload: { run?: unknown; conversationId?: string },
   settings: Record<string, unknown>,
@@ -651,10 +614,7 @@ async function distillFromMessages(opts: DistillOptions & { messages: RuntimeMes
       return { kind: "decline", reason: "trigger_gate_blocked" };
     }
   }
-  const recent = opts.messages.slice(-20);
-  const conversationText = recent
-    .map((m) => `[${m.id}] ${m.role}: ${m.content}`)
-    .join("\n\n");
+  const conversationText = formatMessages(opts.messages.slice(-20));
   const { provider, model } = resolveProviderModel(opts.settings.provider, opts.settings.model);
 
   let llmText: string;
