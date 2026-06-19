@@ -18,6 +18,7 @@ import {
   DEFAULT_CODER_AGENT,
   DEFAULT_CODER_AGENT_ID,
   isDefaultCoderRequest,
+  MAX_EVENTS_PER_RUN,
   MAX_RUNS,
   PAGE_ID,
   resolveDispatchAgentName,
@@ -116,10 +117,12 @@ function memoryStore(initial: RunRecord[] = []): RunStore & { runs: RunRecord[] 
       const at = new Date().toISOString();
       state.runs = state.runs.map((r) => {
         if (r.id !== id) return r;
+        // Cap the event log to MAX_EVENTS_PER_RUN — matches the real
+        // loop-store's retention so the harness stays honest.
         const events = [
           { at, status: next.eventStatus ?? next.status ?? r.status, ...(next.note ? { note: next.note } : {}) },
           ...r.events,
-        ];
+        ].slice(0, MAX_EVENTS_PER_RUN);
         return {
           ...r,
           ...(next.status ? { status: next.status } : {}),
