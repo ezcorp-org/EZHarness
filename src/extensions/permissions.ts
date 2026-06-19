@@ -4,23 +4,55 @@
 
 import type { ExtensionPermissions, ExtensionManifest } from "./types";
 import { getSetting, upsertSetting } from "../db/queries/settings";
+import { getProjectRoot } from "./bundled";
 import { realpath } from "node:fs/promises";
 import { join, resolve as pathResolve } from "node:path";
+
+/**
+ * Resolve the base directory the `$CWD` grant token expands to: the
+ * PROJECT ROOT, not the host process's `process.cwd()`.
+ *
+ * Why not `process.cwd()`: under the vite-SSR dev server the host
+ * process runs with cwd `/app/web`, but bundled extensions resolve
+ * their `.ezcorp/extension-data/<name>/` store relative to the project
+ * root (`/app`, via `getProjectRoot()` — env → import-meta → git-walk →
+ * cwd-fallback). When the WRITER (host events route + daemon) writes
+ * under the project root but the subprocess's fs grant `$CWD` resolved
+ * to `/app/web`, a host-mediated read of the writer's dir landed
+ * OUTSIDE the grant → `denyAndDisable` disabled the extension. Anchoring
+ * `$CWD` to the project root makes the grant cover exactly where bundled
+ * extensions read/write. In production host cwd IS the project root
+ * (`/app`), so `getProjectRoot() === process.cwd()` and this is a no-op
+ * — the change only widens the dev-only `/app/web` cwd up to `/app`,
+ * which can only PERMIT more, never less.
+ *
+ * `getProjectRoot` is imported STATICALLY: a lazy `require("./bundled")`
+ * silently fails under the vite-SSR module transform (it threw, hit the
+ * fallback, and the grant stayed at `/app/web` — the original bug
+ * persisted). `bundled.ts`'s static import graph does not reach back to
+ * `permissions.ts`, so there is no cycle (the same import `registry.ts`
+ * already uses). `getProjectRoot()` caches after first call and never
+ * throws, so this stays sync + cheap.
+ */
+function grantCwdBase(): string {
+  return getProjectRoot();
+}
 
 /**
  * Expand the `$CWD` placeholder in a granted filesystem prefix. The
  * bundled extension declarations (and the test fixtures at
  * `src/__tests__/bundled-ceiling.test.ts:174`) use the literal `$CWD`
- * token to mean "the server's current working directory" — without
- * this expansion, `realpath("$CWD")` throws ENOENT and the prefix is
- * silently skipped, denying every legitimate write under the project
- * root. Supports both `$CWD` and `$CWD/<sub-path>` forms (the latter
- * is used by extension-author's narrower grant). Other strings pass
- * through unchanged.
+ * token to mean "the project root" — without this expansion,
+ * `realpath("$CWD")` throws ENOENT and the prefix is silently skipped,
+ * denying every legitimate write under the project root. Supports both
+ * `$CWD` and `$CWD/<sub-path>` forms (the latter is used by
+ * extension-author's narrower grant). Other strings pass through
+ * unchanged. See {@link grantCwdBase} for why `$CWD` resolves to the
+ * project root rather than the host process's cwd.
  */
 export function expandGrantPrefix(prefix: string): string {
-  if (prefix === "$CWD") return process.cwd();
-  if (prefix.startsWith("$CWD/")) return pathResolve(process.cwd(), prefix.slice("$CWD/".length));
+  if (prefix === "$CWD") return grantCwdBase();
+  if (prefix.startsWith("$CWD/")) return pathResolve(grantCwdBase(), prefix.slice("$CWD/".length));
   return prefix;
 }
 
