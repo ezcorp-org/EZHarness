@@ -11,6 +11,19 @@ function run(id: string, status: AgentStatus, result?: AgentRun["result"]): Agen
   return { id, agentName: "chat", status, startedAt: 0, logs: [], result };
 }
 
+/**
+ * Total live bus listeners across all event types. awaitRunCompletion
+ * registers three (run:complete/error/cancel); after it settles they must all
+ * be gone. Reaches into the private `listeners` map — acceptable in a test to
+ * prove the no-leak invariant directly.
+ */
+function busListenerCount(bus: EventBus<AgentEvents>): number {
+  const map = (bus as unknown as { listeners: Map<string, Set<unknown>> }).listeners;
+  let total = 0;
+  for (const set of map.values()) total += set.size;
+  return total;
+}
+
 describe("awaitRunCompletion — already terminal (short-circuit)", () => {
   test("success → done/complete immediately", async () => {
     const bus = new EventBus<AgentEvents>();
@@ -86,5 +99,80 @@ describe("awaitRunCompletion — waits for events", () => {
       timeoutMs: 20,
     });
     expect(r.kind).toBe("timeout");
+  });
+
+  test("normal completion detaches its abort listener (no signal leak)", async () => {
+    const bus = new EventBus<AgentEvents>();
+    const controller = new AbortController();
+    const p = awaitRunCompletion({
+      bus,
+      getRun: () => run("a", "running"),
+      runId: "a",
+      timeoutMs: 5000,
+      signal: controller.signal,
+    });
+    queueMicrotask(() => bus.emit("run:complete", { run: run("a", "success") }));
+    expect(await p).toMatchObject({ kind: "done", outcome: "complete" });
+    // Aborting AFTER resolution must be inert — the listener was removed in
+    // finish(), so this neither throws nor double-resolves.
+    expect(() => controller.abort()).not.toThrow();
+    expect(busListenerCount(bus)).toBe(0);
+  });
+});
+
+describe("awaitRunCompletion — abort-on-disconnect", () => {
+  test("already-aborted signal resolves 'aborted' immediately with no listeners", async () => {
+    const bus = new EventBus<AgentEvents>();
+    const controller = new AbortController();
+    controller.abort(); // client already gone before the wait begins
+    let getRunCalls = 0;
+    const r = await awaitRunCompletion({
+      bus,
+      getRun: () => {
+        getRunCalls++;
+        return run("a", "running");
+      },
+      runId: "a",
+      timeoutMs: 600_000,
+      signal: controller.signal,
+    });
+    expect(r.kind).toBe("aborted");
+    // Fail-fast: it returns before subscribing or polling the run row.
+    expect(busListenerCount(bus)).toBe(0);
+    expect(getRunCalls).toBe(0);
+  });
+
+  test("mid-wait abort resolves 'aborted' and tears down listeners immediately", async () => {
+    const bus = new EventBus<AgentEvents>();
+    const controller = new AbortController();
+    const p = awaitRunCompletion({
+      bus,
+      getRun: () => run("a", "running"),
+      runId: "a",
+      timeoutMs: 600_000, // long timeout — only the abort can settle this
+      signal: controller.signal,
+    });
+    // While waiting, the three bus listeners are registered.
+    expect(busListenerCount(bus)).toBe(3);
+    controller.abort();
+    const r = await p;
+    expect(r.kind).toBe("aborted");
+    // Same teardown as timeout/done — every listener gone.
+    expect(busListenerCount(bus)).toBe(0);
+  });
+
+  test("abort after terminal resolution is a no-op (first settle wins)", async () => {
+    const bus = new EventBus<AgentEvents>();
+    const controller = new AbortController();
+    const r = await awaitRunCompletion({
+      bus,
+      getRun: () => run("a", "success"),
+      runId: "a",
+      timeoutMs: 5000,
+      signal: controller.signal,
+    });
+    expect(r).toMatchObject({ kind: "done", outcome: "complete" });
+    controller.abort();
+    expect(busListenerCount(bus)).toBe(0);
   });
 });

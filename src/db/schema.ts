@@ -27,6 +27,16 @@ export const runs = pgTable("runs", {
   // Owning conversation for chat runs — used to enforce run ownership on
   // /api/runs/[id]. Null for agent/CLI runs that have no conversation.
   conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  // Initiating user — the principal who started the run. Authoritative for
+  // run-ownership enforcement on /api/runs/[id] (closes the cross-tenant
+  // IDOR that NULL conversation_id left open for agent/CLI/pre-migration
+  // runs). For chat runs this is the ROOT conversation's owner (resolved at
+  // insert time, so sub-conversation runs attribute to the real owner). Null
+  // only for runs that genuinely cannot be attributed to a user — those are
+  // admin-only for non-admins (fail closed). FK SET NULL: deleting a user
+  // un-attributes their historical runs (then admin-only) rather than
+  // cascading them away.
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   status: text("status").notNull(),
   input: jsonb("input").$type<Record<string, unknown>>(),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull(),

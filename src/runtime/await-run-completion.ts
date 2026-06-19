@@ -21,7 +21,8 @@ const TERMINAL_STATUS: Partial<Record<AgentStatus, RunOutcome>> = {
 export type RunCompletion =
   | { kind: "done"; run: AgentRun; outcome: RunOutcome; error?: string }
   | { kind: "timeout" }
-  | { kind: "notfound" };
+  | { kind: "notfound" }
+  | { kind: "aborted" };
 
 /** AgentResult.error is `string | { code, message }`; normalise to text. */
 function asErrorString(e: string | { code: string; message: string } | undefined): string | undefined {
@@ -35,23 +36,47 @@ export interface AwaitRunCompletionOpts {
   getRun: (id: string) => AgentRun | undefined | Promise<AgentRun | undefined>;
   runId: string;
   timeoutMs: number;
+  /**
+   * Caller-disconnect signal (e.g. the SvelteKit `request.signal`). When it
+   * aborts — or is already aborted on entry — the wait resolves `aborted`
+   * immediately and runs the SAME teardown as timeout/done (unsubscribe bus
+   * listeners + clear the timer), so a dropped client never pins listeners or
+   * an `activeWaits` slot for the full timeout. Optional: omit it and the
+   * wait behaves exactly as before.
+   */
+  signal?: AbortSignal;
 }
 
 export function awaitRunCompletion(opts: AwaitRunCompletionOpts): Promise<RunCompletion> {
-  const { bus, getRun, runId, timeoutMs } = opts;
+  const { bus, getRun, runId, timeoutMs, signal } = opts;
 
   return new Promise<RunCompletion>((resolve) => {
     let settled = false;
     const unsubs: Array<() => void> = [];
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
 
     const finish = (val: RunCompletion): void => {
       if (settled) return;
       settled = true;
       for (const u of unsubs) u();
       if (timer) clearTimeout(timer);
+      // Detach the abort listener so it's cleaned up alongside the bus subs
+      // (it would otherwise leak on the resolved-normally path).
+      if (signal && onAbort) signal.removeEventListener("abort", onAbort);
       resolve(val);
     };
+
+    // Fail fast: a client that already disconnected before we subscribe gets
+    // immediate teardown — no listeners registered, no slot held.
+    if (signal?.aborted) {
+      finish({ kind: "aborted" });
+      return;
+    }
+    if (signal) {
+      onAbort = () => finish({ kind: "aborted" });
+      signal.addEventListener("abort", onAbort);
+    }
 
     // Subscribe BEFORE the current-state check so a completion firing in the
     // gap between subscribe and getRun is not missed.

@@ -11,8 +11,13 @@ const {
   listRuns,
   getRunWithLogs,
   toAgentRun,
+  getRunOwnership,
+  getRunConversationId,
+  resolveRootConversationOwner,
 } = await import("../db/queries/runs");
 const { createProject } = await import("../db/queries/projects");
+const { createConversation } = await import("../db/queries/conversations");
+const { createUser } = await import("../db/queries/users");
 
 function makeRun(overrides: Partial<AgentRun> = {}): AgentRun {
   return {
@@ -150,5 +155,95 @@ describe("runs queries", () => {
     expect(typeof agent.startedAt).toBe("number");
     expect(agent.logs.length).toBe(1);
     expect(agent.logs[0]!.message).toBe("hi");
+  });
+});
+
+describe("run ownership attribution (IDOR fix)", () => {
+  beforeEach(async () => await setupTestDb());
+  afterAll(async () => await closeTestDb());
+
+  async function seedUser(id: string) {
+    return createUser({ id, email: `${id}@x.com`, passwordHash: "h", name: id, role: "member" } as any);
+  }
+
+  test("insertRun with explicit userId stores it; getRunOwnership reads it back", async () => {
+    await seedUser("owner-1");
+    const run = makeRun();
+    await insertRun(run, undefined, undefined, undefined, "owner-1");
+
+    const own = await getRunOwnership(run.id);
+    expect(own).toEqual({ userId: "owner-1", conversationId: null });
+  });
+
+  test("agent/CLI run with no user and no conversation → both null (unattributable, admin-only downstream)", async () => {
+    const run = makeRun();
+    await insertRun(run); // no conversation, no userId
+    const own = await getRunOwnership(run.id);
+    expect(own).toEqual({ userId: null, conversationId: null });
+  });
+
+  test("getRunOwnership returns undefined for a missing run", async () => {
+    expect(await getRunOwnership(crypto.randomUUID())).toBeUndefined();
+  });
+
+  test("chat run on a top-level conversation auto-resolves the owner from the conversation", async () => {
+    await seedUser("owner-2");
+    const project = await createProject({ name: "ro-p", path: "/ro" });
+    const conv = await createConversation(project.id, { userId: "owner-2" });
+
+    const run = makeRun({ agentName: "chat" });
+    // No explicit userId — insertRun must resolve it from the conversation.
+    await insertRun(run, project.id, undefined, conv.id);
+
+    const own = await getRunOwnership(run.id);
+    expect(own).toEqual({ userId: "owner-2", conversationId: conv.id });
+    // Conversation-id query still works for the legacy path.
+    expect(await getRunConversationId(run.id)).toBe(conv.id);
+  });
+
+  test("chat run on a SUB-conversation resolves the ROOT owner (sub-conv userId is null)", async () => {
+    await seedUser("owner-3");
+    const project = await createProject({ name: "ro-sub", path: "/sub" });
+    const root = await createConversation(project.id, { userId: "owner-3" });
+    // Sub-conversation: userId null, parent points at the owned root.
+    const sub = await createConversation(project.id, {
+      parentConversationId: root.id,
+    });
+    expect(sub.userId).toBeNull();
+
+    const run = makeRun({ agentName: "chat" });
+    await insertRun(run, project.id, undefined, sub.id);
+
+    const own = await getRunOwnership(run.id);
+    expect(own!.userId).toBe("owner-3"); // walked to the root owner
+    expect(own!.conversationId).toBe(sub.id);
+  });
+
+  test("resolveRootConversationOwner returns undefined for an ownerless chain (→ admin-only)", async () => {
+    const project = await createProject({ name: "ro-orphan", path: "/orph" });
+    const conv = await createConversation(project.id); // no userId
+    expect(await resolveRootConversationOwner(conv.id)).toBeUndefined();
+
+    const run = makeRun({ agentName: "chat" });
+    await insertRun(run, project.id, undefined, conv.id);
+    const own = await getRunOwnership(run.id);
+    expect(own).toEqual({ userId: null, conversationId: conv.id });
+  });
+
+  test("resolveRootConversationOwner returns undefined for a missing conversation", async () => {
+    expect(await resolveRootConversationOwner(crypto.randomUUID())).toBeUndefined();
+  });
+
+  test("explicit userId overrides conversation-derived owner", async () => {
+    await seedUser("owner-4");
+    await seedUser("explicit-5");
+    const project = await createProject({ name: "ro-ovr", path: "/ovr" });
+    const conv = await createConversation(project.id, { userId: "owner-4" });
+
+    const run = makeRun({ agentName: "chat" });
+    await insertRun(run, project.id, undefined, conv.id, "explicit-5");
+
+    const own = await getRunOwnership(run.id);
+    expect(own!.userId).toBe("explicit-5"); // explicit wins, no resolve
   });
 });

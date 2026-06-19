@@ -11,6 +11,7 @@ import type { AgentEvents, AgentRun, AgentStatus } from "../../../src/types";
 let bus: EventBus<AgentEvents>;
 let runs: Map<string, AgentRun>;
 let runConvs: Map<string, string>;        // runId → owning conversationId
+let runUsers: Map<string, string>;        // runId → initiating userId
 let ownedConvs: Set<string>;              // conversations the caller owns
 
 mock.module("$lib/server/context", () => ({
@@ -18,7 +19,13 @@ mock.module("$lib/server/context", () => ({
     getRun: async (id: string) => runs.get(id),
     // A run can be cancelled iff it exists and is still running.
     cancelRun: (id: string) => runs.get(id)?.status === "running",
-    getRunConversationId: async (id: string) => runConvs.get(id),
+    // Run-ownership attributes now drive the IDOR guard: an explicit
+    // initiating userId plus the owning conversationId. NULL/NULL is the
+    // fail-closed "unattributable" shape (admin-only for non-admins).
+    getRunOwnership: async (id: string) => ({
+      userId: runUsers.get(id) ?? null,
+      conversationId: runConvs.get(id) ?? null,
+    }),
   }),
   getBus: () => bus,
 }));
@@ -34,24 +41,28 @@ function mkRun(id: string, status: AgentStatus): AgentRun {
   return { id, agentName: "chat", status, startedAt: 0, logs: [] };
 }
 const locals = { user: { id: "u", email: "a@b", name: "A", role: "admin" } } as any;
+// The GET handler destructures `request` (for request.signal) — supply a stub.
+const reqStub = { signal: new AbortController().signal } as Request;
 function ev(id: string, wait?: string, timeoutMs?: string) {
   const u = new URL(`http://x/api/runs/${id}`);
   if (wait) u.searchParams.set("wait", wait);
   if (timeoutMs) u.searchParams.set("timeoutMs", timeoutMs);
-  return { params: { id }, url: u, locals } as any;
+  return { params: { id }, url: u, locals, request: reqStub } as any;
 }
 
 beforeEach(() => {
   bus = new EventBus<AgentEvents>();
   runs = new Map();
   runConvs = new Map();
+  runUsers = new Map();
   ownedConvs = new Set();
 });
 afterAll(() => restoreModuleMocks());
 
 describe("run ownership (IDOR guard)", () => {
   const nonAdmin = { user: { id: "u2", email: "x@y", name: "X", role: "member" } } as any;
-  const evAs = (id: string, l: unknown) => ({ params: { id }, url: new URL(`http://x/api/runs/${id}`), locals: l } as any);
+  const evAs = (id: string, l: unknown) =>
+    ({ params: { id }, url: new URL(`http://x/api/runs/${id}`), locals: l, request: reqStub } as any);
 
   test("GET 404 when the run's conversation isn't owned by the caller", async () => {
     runs.set("o1", mkRun("o1", "success"));
@@ -66,15 +77,31 @@ describe("run ownership (IDOR guard)", () => {
     expect((await GET(evAs("o2", nonAdmin))).status).toBe(200);
   });
 
+  test("GET 200 when the caller is the run's recorded initiator (userId match)", async () => {
+    runs.set("o2b", mkRun("o2b", "success"));
+    runUsers.set("o2b", "u2"); // initiated by the non-admin caller; no conversation
+    expect((await GET(evAs("o2b", nonAdmin))).status).toBe(200);
+  });
+
   test("DELETE 404 when the caller doesn't own the run's conversation", async () => {
     runs.set("o3", mkRun("o3", "running"));
     runConvs.set("o3", "conv-other");
     expect((await DELETE(evAs("o3", nonAdmin))).status).toBe(404);
   });
 
-  test("agent/CLI run (no conversation) is not owner-scoped here", async () => {
-    runs.set("o4", mkRun("o4", "success")); // no runConvs entry → convId undefined
-    expect((await GET(evAs("o4", nonAdmin))).status).toBe(200);
+  // IDOR FIX (behavior change): a run that cannot be attributed to the
+  // non-admin caller — no recorded userId and no owned conversation, e.g. an
+  // agent/CLI run or a pre-migration run — now FAILS CLOSED (404) instead of
+  // being readable by anyone. Previously this returned 200 (the IDOR).
+  test("unattributable run (no userId, no conversation) → 404 for non-admin (fail closed)", async () => {
+    runs.set("o4", mkRun("o4", "success")); // no runUsers / runConvs entry
+    expect((await GET(evAs("o4", nonAdmin))).status).toBe(404);
+  });
+
+  test("admin may read an unattributable run", async () => {
+    runs.set("o5", mkRun("o5", "success"));
+    // `locals` (module-level) is admin.
+    expect((await GET(ev("o5"))).status).toBe(200);
   });
 });
 

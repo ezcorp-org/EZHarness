@@ -411,6 +411,50 @@ export async function migrate(db: any): Promise<void> {
     await db.execute(sql`UPDATE knowledge_base_files SET user_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1) WHERE user_id IS NULL`);
   } catch { /* no-op if no admin user exists yet */ }
 
+  // ── Run ownership: authoritative initiating user (closes cross-tenant IDOR) ──
+  // The `conversation_id` column alone left agent/CLI runs (no conversation)
+  // and every chat run created BEFORE that column existed unattributable —
+  // which the route treated as "anyone may act". A `user_id` column makes run
+  // ownership explicit: live inserts thread the initiating user (chat runs
+  // resolve the ROOT conversation owner); historical chat runs are backfilled
+  // here via the same root walk. NULL user_id ⇒ admin-only (fail closed).
+  //
+  // Placed AFTER the `users` CREATE so the FK target exists, and AFTER the
+  // conversations.user_id backfill above so the root-owner lookup sees the
+  // admin-assigned owner for previously-ownerless conversations.
+  await db.execute(sql`ALTER TABLE runs ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
+  // Backfill historical chat runs from the ROOT conversation's owner. A
+  // recursive CTE walks parent_conversation_id to the top (depth-capped at 16
+  // to defuse any corrupt cycle) and takes the root's user_id. Agent/CLI runs
+  // (conversation_id IS NULL) stay NULL → admin-only. Idempotent: only fills
+  // rows still NULL, so re-running the migration never reattributes a run.
+  try {
+    await db.execute(sql`
+      WITH RECURSIVE chain AS (
+        SELECT id AS start_id, id AS conv_id, parent_conversation_id, user_id, 0 AS depth
+          FROM conversations
+        UNION ALL
+        SELECT c.start_id, p.id, p.parent_conversation_id, p.user_id, c.depth + 1
+          FROM chain c
+          JOIN conversations p ON p.id = c.parent_conversation_id
+         WHERE c.depth < 16
+      ),
+      root_owner AS (
+        SELECT DISTINCT ON (start_id) start_id, user_id
+          FROM chain
+          WHERE parent_conversation_id IS NULL
+          ORDER BY start_id, depth DESC
+      )
+      UPDATE runs r
+         SET user_id = ro.user_id
+        FROM root_owner ro
+       WHERE r.conversation_id = ro.start_id
+         AND r.user_id IS NULL
+         AND ro.user_id IS NOT NULL
+    `);
+  } catch { /* no-op if conversations/users not yet populated */ }
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_runs_user_id ON runs(user_id)`);
+
   // User-related indexes
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_invites_token ON invites(token)`);

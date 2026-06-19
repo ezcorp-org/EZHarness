@@ -19,6 +19,7 @@ export class PipelineExecutor {
     pipeline: PipelineDefinition,
     input: Record<string, unknown>,
     projectId?: string,
+    userId?: string,
   ): Promise<PipelineRun> {
     const pipelineRun: PipelineRun = {
       id: crypto.randomUUID(),
@@ -58,6 +59,7 @@ export class PipelineExecutor {
             step.agent,
             resolvedInput,
             projectId,
+            userId,
           );
 
           stepRun.runId = agentRun.id;

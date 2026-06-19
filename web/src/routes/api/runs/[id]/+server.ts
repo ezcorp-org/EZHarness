@@ -8,14 +8,31 @@ import { resolveRootConversationForOwnership } from "$lib/server/conversation-ow
 import type { AuthUser } from "$server/auth/types";
 import type { RequestHandler } from "./$types";
 
-// Enforce per-user run ownership. A chat run is owned by its conversation's
-// owner; agent/CLI runs have no conversation (convId undefined) and are not
-// owner-scoped here (internal, no per-user data). Returns true if the caller
-// may act on the run. Closes a cross-tenant IDOR (read/await/cancel any run).
+// Enforce per-user run ownership for GET/await/DELETE. Closes a cross-tenant
+// IDOR (read/await/cancel any run) for EVERY run type — chat, agent, CLI —
+// including runs created before run-attribution existed.
+//
+// Decision order (fail closed):
+//   1. admin            ⇒ allow (admins retain full access)
+//   2. run.userId === caller.id  ⇒ allow (authoritative initiator match,
+//        covers agent/CLI runs that have no conversation)
+//   3. run has a conversation the caller owns (root-owner walk) ⇒ allow
+//        (covers historical chat runs whose userId predates backfill on a
+//         fresh insert, and any run attributed only by conversation)
+//   4. otherwise (NULL/unattributable, or owned by someone else) ⇒ DENY
+//
+// A non-admin who matches none of the allow rules — INCLUDING a run that
+// cannot be attributed to any user (userId NULL and no owned conversation) —
+// is denied. The caller maps a denial to 404 so run existence isn't leaked.
 async function callerOwnsRun(runId: string, user: AuthUser): Promise<boolean> {
-  const convId = await getExecutor().getRunConversationId(runId);
-  if (!convId) return true;
-  return (await resolveRootConversationForOwnership(convId, user)) !== null;
+  if (user.role === "admin") return true;
+  const { userId, conversationId } = await getExecutor().getRunOwnership(runId);
+  if (userId && userId === user.id) return true;
+  if (conversationId) {
+    return (await resolveRootConversationForOwnership(conversationId, user)) !== null;
+  }
+  // Unattributable to this non-admin caller ⇒ fail closed.
+  return false;
 }
 
 // Bound the synchronous wait so a stuck/never-finishing run can't pin a
@@ -42,7 +59,7 @@ function maxConcurrentWaits(): number {
   return Number.isFinite(n) && n >= 0 ? n : 200;
 }
 
-export const GET: RequestHandler = async ({ params, url, locals }) => {
+export const GET: RequestHandler = async ({ params, url, locals, request }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
@@ -66,7 +83,18 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
         getRun: (id) => executor.getRun(id),
         runId: params.id,
         timeoutMs: parseTimeoutMs(url.searchParams.get("timeoutMs")),
+        // Abort-on-disconnect: a client that drops the connection releases its
+        // bus listeners + activeWaits slot immediately instead of pinning them
+        // until the run finishes or the ≤10-min timeout — closes the soft-DoS
+        // that could fill the concurrency cap with dead waiters.
+        signal: request.signal,
       });
+      // Client disconnected mid-wait: awaitRunCompletion already ran its
+      // cleanup (listeners + timer) on abort. There is no socket left to
+      // write to, but we still return so the `finally` decrements the slot.
+      if (result.kind === "aborted") {
+        return errorJson(499, "Client closed request");
+      }
       if (result.kind === "timeout") {
         const latest = await executor.getRun(params.id);
         return errorJson(408, "Run did not reach a terminal state in time", {
