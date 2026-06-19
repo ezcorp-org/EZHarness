@@ -51,8 +51,11 @@ export type RenderExtensionPageResult =
 
 export interface RenderPullDeps {
   findPage: typeof findEnabledExtensionPage;
-  /** Spawn (if needed) + wire the subprocess, returning a caller. */
-  callPage: (extension: Extension, pageId: string) => Promise<JsonRpcResponse>;
+  /** Spawn (if needed) + wire the subprocess, returning a caller. The
+   *  viewing `userId` scopes the render's reverse-RPC provenance so the
+   *  subprocess can read its OWN extension data (config/state) during
+   *  render — see `productionCallPage`. */
+  callPage: (extension: Extension, pageId: string, userId: string) => Promise<JsonRpcResponse>;
   cache: ExtensionPageCache;
   timeoutMs: number;
 }
@@ -86,14 +89,21 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 async function productionCallPage(
   extension: Extension,
   pageId: string,
+  userId: string,
 ): Promise<JsonRpcResponse> {
-  const [{ ExtensionRegistry }, { ToolExecutor }, { getPermissionEngine }, { getBus }] =
-    await Promise.all([
-      import("$server/extensions/registry"),
-      import("$server/extensions/tool-executor"),
-      import("$server/extensions/permission-engine"),
-      import("$lib/server/context"),
-    ]);
+  const [
+    { ExtensionRegistry },
+    { ToolExecutor },
+    { getPermissionEngine },
+    { getBus },
+    { registerCallProvenance, releaseCallProvenance },
+  ] = await Promise.all([
+    import("$server/extensions/registry"),
+    import("$server/extensions/tool-executor"),
+    import("$server/extensions/permission-engine"),
+    import("$lib/server/context"),
+    import("$server/extensions/call-provenance"),
+  ]);
   const registry = ExtensionRegistry.getInstance();
   const proc = await registry.getProcess(extension.id);
   // Same boot recipe as the events route's messageToolbar branch — the
@@ -101,7 +111,28 @@ async function productionCallPage(
   const engine = getPermissionEngine();
   const wirer = new ToolExecutor(registry, engine, { bus: getBus() });
   await wirer.ensureSubprocessRpcWired(extension.id, proc);
-  return proc.call("ezcorp/page.render", { pageId });
+  // A page render is a HOST-issued forward call, exactly like a tool
+  // call: mint a provenance token scoped to the viewing user + this
+  // extension and stamp it on `_meta.ezCallId`. The SDK channel binds it
+  // for the duration of the render handler, so any reverse-RPC the page
+  // makes (e.g. `fs.read` of its own config/state) carries the token and
+  // is authorized — without this the render's reads fail the provenance
+  // gate ("unresolved") and the page silently renders empty. Released in
+  // `finally` the moment the render returns (token kind: "render").
+  const ezCallId = registerCallProvenance({
+    onBehalfOf: userId,
+    conversationId: null,
+    runId: null,
+    parentCallId: null,
+    actorExtensionId: extension.id,
+    kind: "render",
+    ownerless: false,
+  });
+  try {
+    return await proc.call("ezcorp/page.render", { pageId, _meta: { ezCallId } });
+  } finally {
+    releaseCallProvenance(ezCallId);
+  }
 }
 
 function defaultDeps(): RenderPullDeps {
@@ -123,11 +154,12 @@ function grantedEvents(extension: Extension): string[] {
 async function pullAndCache(
   extension: Extension,
   pageId: string,
+  userId: string,
   deps: RenderPullDeps,
 ): Promise<{ tree: HubPageTree } | { error: string }> {
   let response: JsonRpcResponse;
   try {
-    response = await withTimeout(deps.callPage(extension, pageId), deps.timeoutMs);
+    response = await withTimeout(deps.callPage(extension, pageId, userId), deps.timeoutMs);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn("extension page render failed", { extension: extension.name, pageId, error: message });
@@ -158,7 +190,7 @@ async function pullAndCache(
 export async function renderExtensionPage(
   extensionName: string,
   pageId: string,
-  _userId: string,
+  userId: string,
   depsOverride?: Partial<RenderPullDeps>,
 ): Promise<RenderExtensionPageResult> {
   const deps: RenderPullDeps = { ...defaultDeps(), ...depsOverride };
@@ -174,7 +206,7 @@ export async function renderExtensionPage(
   if (cached) {
     // Serve stale instantly; refresh in the background so the NEXT
     // request (or the client's invalidation-driven re-pull) is fresh.
-    void pullAndCache(extension, pageId, deps).catch((err) => {
+    void pullAndCache(extension, pageId, userId, deps).catch((err) => {
       log.warn("background page refresh failed", {
         extension: extension.name,
         pageId,
@@ -184,7 +216,7 @@ export async function renderExtensionPage(
     return { page: cached.tree, renderedAt: cached.renderedAt, stale: true };
   }
 
-  const pulled = await pullAndCache(extension, pageId, deps);
+  const pulled = await pullAndCache(extension, pageId, userId, deps);
   if ("error" in pulled) return { error: pulled.error };
   return { page: pulled.tree, renderedAt: Date.now() };
 }
