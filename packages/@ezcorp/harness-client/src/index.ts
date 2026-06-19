@@ -90,6 +90,9 @@ export class HarnessClient {
       method,
       headers: this.headers(body !== undefined ? { "Content-Type": "application/json" } : undefined),
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      // Never follow a 3xx: a cross-origin redirect would replay the
+      // `Authorization: Bearer ezk_*` header to an attacker-controlled host.
+      redirect: "error",
     });
     const text = await res.text();
     const parsed = text ? safeJson(text) : undefined;
@@ -110,16 +113,16 @@ export class HarnessClient {
     return this.request("POST", `/api/conversations`, input);
   }
   sendMessage(conversationId: string, content: string, opts: SendMessageOptions = {}): Promise<SendMessageResult> {
-    return this.request("POST", `/api/conversations/${conversationId}/messages`, { content, ...opts });
+    return this.request("POST", `/api/conversations/${encodeURIComponent(conversationId)}/messages`, { content, ...opts });
   }
 
   // ── Run-to-completion ──────────────────────────────────────────────
   getRun(runId: string): Promise<Record<string, unknown>> {
-    return this.request("GET", `/api/runs/${runId}`);
+    return this.request("GET", `/api/runs/${encodeURIComponent(runId)}`);
   }
   /** Block until the run reaches a terminal state (server-side wait). */
   awaitRun(runId: string, timeoutMs = 120_000): Promise<RunResult> {
-    return this.request("GET", `/api/runs/${runId}?wait=1&timeoutMs=${timeoutMs}`);
+    return this.request("GET", `/api/runs/${encodeURIComponent(runId)}?wait=1&timeoutMs=${timeoutMs}`);
   }
   /** Send a message and block until its run finishes. */
   async runToCompletion(conversationId: string, content: string, opts: SendMessageOptions & { timeoutMs?: number } = {}): Promise<RunResult> {
@@ -135,7 +138,7 @@ export class HarnessClient {
     approved: boolean,
     opts: { scope?: "session" | "conversation" | "project" | "forever"; ttlOverrideMs?: number } = {},
   ): Promise<unknown> {
-    return this.request("POST", `/api/tool-calls/${toolCallId}/permission`, { approved, ...opts });
+    return this.request("POST", `/api/tool-calls/${encodeURIComponent(toolCallId)}/permission`, { approved, ...opts });
   }
 
   // ── Deterministic mock LLM (test-mode instances only) ──────────────

@@ -38,6 +38,7 @@ describe("event-name parity with the app", () => {
 // ── Live fake server ───────────────────────────────────────────────────
 let server: ReturnType<typeof Bun.serve>;
 let lastAuth: string | null = null;
+let lastUrl: string | null = null;
 let scripted: { scriptKey: string; turns: unknown[] } | null = null;
 
 beforeAll(() => {
@@ -46,7 +47,19 @@ beforeAll(() => {
     async fetch(req) {
       const url = new URL(req.url);
       lastAuth = req.headers.get("authorization");
+      lastUrl = req.url;
       const p = url.pathname;
+      // Capture-only route: echoes the raw path so encoding can be asserted.
+      if (req.method === "GET" && p.startsWith("/api/runs/")) {
+        if (url.searchParams.get("wait") === "1" && p !== "/api/runs/r1") {
+          return Response.json({ outcome: "complete", run: { id: "x", status: "success" } });
+        }
+        if (p !== "/api/runs/r1") return Response.json({ id: "captured", status: "running" });
+      }
+      // Redirect route: a 3xx the client must refuse to follow.
+      if (req.method === "GET" && p === "/api/settings/redirect") {
+        return new Response(null, { status: 302, headers: { Location: "http://evil.example/steal" } });
+      }
       if (req.method === "POST" && p === "/api/conversations") return Response.json({ id: "c1" });
       if (req.method === "POST" && p === "/api/conversations/c1/messages") {
         return Response.json({ userMessage: { id: "m1" }, runId: "r1" });
@@ -142,6 +155,53 @@ describe("HarnessClient", () => {
       expect((e as HarnessApiError).status).toBe(404);
       expect((e as HarnessApiError).body).toMatchObject({ error: "not found" });
     }
+  });
+
+  test("percent-encodes ids with special chars in the request path", async () => {
+    await client().getRun("../../etc/passwd");
+    const u = new URL(lastUrl!);
+    // The traversal stays a single encoded segment, not a path climb.
+    expect(u.pathname).toBe("/api/runs/..%2F..%2Fetc%2Fpasswd");
+
+    await client().getRun("r1?x=1&y=2");
+    const u2 = new URL(lastUrl!);
+    expect(u2.pathname).toBe("/api/runs/r1%3Fx%3D1%26y%3D2");
+    // No injected query params leaked from the id.
+    expect(u2.searchParams.get("x")).toBeNull();
+    expect(u2.searchParams.get("y")).toBeNull();
+
+    await client().getRun("a b#c");
+    const u3 = new URL(lastUrl!);
+    expect(u3.pathname).toBe("/api/runs/a%20b%23c");
+    expect(u3.hash).toBe("");
+  });
+
+  test("encodes the wait-path runId without disturbing the query", async () => {
+    await client().awaitRun("../evil", 5_000);
+    const u = new URL(lastUrl!);
+    expect(u.pathname).toBe("/api/runs/..%2Fevil");
+    expect(u.searchParams.get("wait")).toBe("1");
+    expect(u.searchParams.get("timeoutMs")).toBe("5000");
+  });
+
+  test("encodes conversationId and toolCallId path segments", async () => {
+    await client().sendMessage("c/../x", "hi").catch(() => {});
+    expect(new URL(lastUrl!).pathname).toBe("/api/conversations/c%2F..%2Fx/messages");
+
+    await client().resolveToolPermission("tc/../1", true).catch(() => {});
+    expect(new URL(lastUrl!).pathname).toBe("/api/tool-calls/tc%2F..%2F1/permission");
+  });
+
+  test("refuses to follow a redirect (no bearer-token replay)", async () => {
+    let threw = false;
+    try {
+      await client().getSetting("redirect");
+    } catch (e) {
+      threw = true;
+      // fetch rejects with a TypeError under `redirect: "error"`; never silently follows.
+      expect(e).not.toBeInstanceOf(HarnessApiError);
+    }
+    expect(threw).toBe(true);
   });
 
   test("streamEvents yields parsed runtime events", async () => {
