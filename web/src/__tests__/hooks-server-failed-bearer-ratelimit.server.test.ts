@@ -24,8 +24,10 @@
 // top-level `await ensureInitialized()` / background-timers are gated on this.
 process.env.PI_SKIP_INIT = "1";
 process.env.JWT_SECRET = "test-secret-with-32-chars-minimum-12345";
-// No trusted proxy → getClientIp() falls back to x-real-ip, which our test
-// events set directly. This lets each case pick its own client IP cleanly.
+// No trusted proxy → getClientIp() keys on the trustworthy socket peer
+// (event.getClientAddress()), NOT on client-supplied headers. Each case picks
+// its own client IP via the `socketIp` option (wired into getClientAddress),
+// which is the spoof-resistant signal a direct-exposure deployment relies on.
 process.env.TRUSTED_PROXY_COUNT = "0";
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
@@ -101,6 +103,7 @@ function makeEvent(
     method?: string;
     authHeader?: string;
     realIp?: string;
+    socketIp?: string;
     cookie?: string;
   } = {},
 ) {
@@ -124,7 +127,9 @@ function makeEvent(
     url: new URL(`http://localhost${path}`),
     cookies,
     locals: {},
-    getClientAddress: () => "127.0.0.1",
+    // With TRUSTED_PROXY_COUNT=0 the rate-limit key derives from the SOCKET
+    // peer, so this — not the x-real-ip header — is the per-client identity.
+    getClientAddress: () => opts.socketIp ?? "127.0.0.1",
     route: { id: path },
     params: {},
     setHeaders: vi.fn(),
@@ -155,13 +160,13 @@ describe("hooks.server.ts — failed-Bearer per-IP rate limit", () => {
     // Up to the limit: each forged attempt fails auth → 401 (not 429).
     for (let i = 0; i < __FAILED_BEARER_LIMIT; i++) {
       const status = await run(
-        makeEvent(PROTECTED, { authHeader: `Bearer ezk_forged_${i}`, realIp: ip }),
+        makeEvent(PROTECTED, { authHeader: `Bearer ezk_forged_${i}`, socketIp: ip }),
       );
       expect(status).toBe(401); // "Authentication required"
     }
     // The NEXT attempt crosses the budget → short-circuited 429.
     const blocked = await run(
-      makeEvent(PROTECTED, { authHeader: "Bearer ezk_forged_x", realIp: ip }),
+      makeEvent(PROTECTED, { authHeader: "Bearer ezk_forged_x", socketIp: ip }),
     );
     expect(blocked).toBe(429);
   });
@@ -169,13 +174,13 @@ describe("hooks.server.ts — failed-Bearer per-IP rate limit", () => {
   test("(f) once over the limit, attachBearerAuth (the table scan) is NOT invoked", async () => {
     const ip = "203.0.113.8";
     for (let i = 0; i < __FAILED_BEARER_LIMIT; i++) {
-      await run(makeEvent(PROTECTED, { authHeader: `Bearer ezk_f${i}`, realIp: ip }));
+      await run(makeEvent(PROTECTED, { authHeader: `Bearer ezk_f${i}`, socketIp: ip }));
     }
     expect(attachBearerAuth).toHaveBeenCalledTimes(__FAILED_BEARER_LIMIT);
     attachBearerAuth.mockClear();
     // Over-limit request must be rejected WITHOUT calling the verifier.
     const blocked = await run(
-      makeEvent(PROTECTED, { authHeader: "Bearer ezk_more", realIp: ip }),
+      makeEvent(PROTECTED, { authHeader: "Bearer ezk_more", socketIp: ip }),
     );
     expect(blocked).toBe(429);
     expect(attachBearerAuth).not.toHaveBeenCalled();
@@ -186,7 +191,7 @@ describe("hooks.server.ts — failed-Bearer per-IP rate limit", () => {
     // Hammer with the valid key many times over the failure budget.
     for (let i = 0; i < __FAILED_BEARER_LIMIT * 3; i++) {
       const status = await run(
-        makeEvent(PROTECTED, { authHeader: "Bearer ezk_valid", realIp: ip }),
+        makeEvent(PROTECTED, { authHeader: "Bearer ezk_valid", socketIp: ip }),
       );
       expect(status).toBe(200); // authenticated → resolve() ran
     }
@@ -203,15 +208,15 @@ describe("hooks.server.ts — failed-Bearer per-IP rate limit", () => {
     const attackerIp = "203.0.113.10";
     const clientIp = "198.51.100.5";
     for (let i = 0; i < __FAILED_BEARER_LIMIT + 1; i++) {
-      await run(makeEvent(PROTECTED, { authHeader: `Bearer ezk_x${i}`, realIp: attackerIp }));
+      await run(makeEvent(PROTECTED, { authHeader: `Bearer ezk_x${i}`, socketIp: attackerIp }));
     }
     // Attacker IP is now blocked.
     expect(
-      await run(makeEvent(PROTECTED, { authHeader: "Bearer ezk_y", realIp: attackerIp })),
+      await run(makeEvent(PROTECTED, { authHeader: "Bearer ezk_y", socketIp: attackerIp })),
     ).toBe(429);
     // A legitimate client on a DIFFERENT IP authenticates fine.
     expect(
-      await run(makeEvent(PROTECTED, { authHeader: "Bearer ezk_valid", realIp: clientIp })),
+      await run(makeEvent(PROTECTED, { authHeader: "Bearer ezk_valid", socketIp: clientIp })),
     ).toBe(200);
   });
 
@@ -219,14 +224,14 @@ describe("hooks.server.ts — failed-Bearer per-IP rate limit", () => {
     const ip = "203.0.113.11";
     // First, exhaust the failed-Bearer bucket for this IP via forged tokens.
     for (let i = 0; i < __FAILED_BEARER_LIMIT + 5; i++) {
-      await run(makeEvent(PROTECTED, { authHeader: `Bearer ezk_z${i}`, realIp: ip }));
+      await run(makeEvent(PROTECTED, { authHeader: `Bearer ezk_z${i}`, socketIp: ip }));
     }
     attachBearerAuth.mockClear();
     // A cookie-authenticated request from the SAME IP must still succeed — it
     // carries no Authorization header and goes down the session branch,
     // bypassing the failed-Bearer guard entirely.
     const status = await run(
-      makeEvent(PROTECTED, { cookie: "valid-session-token", realIp: ip }),
+      makeEvent(PROTECTED, { cookie: "valid-session-token", socketIp: ip }),
     );
     expect(status).toBe(200);
     // The Bearer router was NOT consulted for the cookie request.
@@ -237,7 +242,7 @@ describe("hooks.server.ts — failed-Bearer per-IP rate limit", () => {
     const ip = "203.0.113.12";
     for (let i = 0; i < 50; i++) {
       const status = await run(
-        makeEvent(PROTECTED, { cookie: "valid-session-token", realIp: ip }),
+        makeEvent(PROTECTED, { cookie: "valid-session-token", socketIp: ip }),
       );
       expect(status).toBe(200);
     }
@@ -252,14 +257,14 @@ describe("hooks.server.ts — failed-Bearer per-IP rate limit", () => {
     const ipB = "203.0.113.21";
     // Exhaust ipA's budget.
     for (let i = 0; i < __FAILED_BEARER_LIMIT + 1; i++) {
-      await run(makeEvent(PROTECTED, { authHeader: `Bearer ezk_a${i}`, realIp: ipA }));
+      await run(makeEvent(PROTECTED, { authHeader: `Bearer ezk_a${i}`, socketIp: ipA }));
     }
     expect(
-      await run(makeEvent(PROTECTED, { authHeader: "Bearer ezk_a_extra", realIp: ipA })),
+      await run(makeEvent(PROTECTED, { authHeader: "Bearer ezk_a_extra", socketIp: ipA })),
     ).toBe(429);
     // ipB has its OWN fresh budget — first forged attempt is a 401, not a 429.
     expect(
-      await run(makeEvent(PROTECTED, { authHeader: "Bearer ezk_b0", realIp: ipB })),
+      await run(makeEvent(PROTECTED, { authHeader: "Bearer ezk_b0", socketIp: ipB })),
     ).toBe(401);
   });
 
@@ -268,14 +273,14 @@ describe("hooks.server.ts — failed-Bearer per-IP rate limit", () => {
     // Many header-less protected requests (these 401 as 'Authentication
     // required' but must not feed the bucket).
     for (let i = 0; i < __FAILED_BEARER_LIMIT + 10; i++) {
-      const status = await run(makeEvent(PROTECTED, { realIp: ip }));
+      const status = await run(makeEvent(PROTECTED, { socketIp: ip }));
       expect(status).toBe(401);
     }
     // Bucket stays empty: a header-less request never increments it, so a
     // legit Bearer client on this IP still gets its full budget afterwards.
     expect(__failedBearerLimiter.peek(`ip:${ip}:bearerFail`).allowed).toBe(true);
     expect(
-      await run(makeEvent(PROTECTED, { authHeader: "Bearer ezk_valid", realIp: ip })),
+      await run(makeEvent(PROTECTED, { authHeader: "Bearer ezk_valid", socketIp: ip })),
     ).toBe(200);
   });
 
@@ -284,8 +289,42 @@ describe("hooks.server.ts — failed-Bearer per-IP rate limit", () => {
     for (let i = 0; i < __FAILED_BEARER_LIMIT + 5; i++) {
       // Basic auth never matches `Bearer ` → attachBearerAuth no-ops, and our
       // guard only counts presented-Bearer failures.
-      await run(makeEvent(PROTECTED, { authHeader: "Basic dXNlcjpwYXNz", realIp: ip }));
+      await run(makeEvent(PROTECTED, { authHeader: "Basic dXNlcjpwYXNz", socketIp: ip }));
     }
     expect(__failedBearerLimiter.peek(`ip:${ip}:bearerFail`).allowed).toBe(true);
+  });
+
+  // ── sec-finding: x-real-ip spoofing must NOT grant fresh buckets ──────
+  // With NO trusted proxy configured (TRUSTED_PROXY_COUNT=0, the default and
+  // a SUPPORTED direct-exposure topology), every header is attacker-supplied.
+  // Pre-fix, getClientIp() keyed on `x-real-ip`, so rotating it per request
+  // minted a fresh failed-Bearer bucket each time and the spray cap never
+  // engaged. Post-fix the key is the trustworthy SOCKET peer, so all the
+  // spoofed-header requests collapse into one bucket and the cap holds.
+  test("rotating x-real-ip from ONE socket peer shares ONE bucket (no spoof bypass)", async () => {
+    const socket = "203.0.113.40"; // the real (unspoofable) peer
+    // Each request forges a DIFFERENT x-real-ip but comes from the same socket.
+    for (let i = 0; i < __FAILED_BEARER_LIMIT; i++) {
+      const status = await run(
+        makeEvent(PROTECTED, {
+          authHeader: `Bearer ezk_spoof_${i}`,
+          realIp: `10.0.0.${i}`, // attacker-rotated, must be IGNORED for keying
+          socketIp: socket,
+        }),
+      );
+      expect(status).toBe(401);
+    }
+    // Despite a brand-new x-real-ip, the next spray is throttled — proving the
+    // bucket keyed on the socket peer, not the spoofable header.
+    const blocked = await run(
+      makeEvent(PROTECTED, {
+        authHeader: "Bearer ezk_spoof_final",
+        realIp: "10.0.0.255", // yet another fresh forged header
+        socketIp: socket,
+      }),
+    );
+    expect(blocked).toBe(429);
+    // And the bucket is keyed by the socket peer string, not any header value.
+    expect(__failedBearerLimiter.peek(`ip:${socket}:bearerFail`).allowed).toBe(false);
   });
 });

@@ -133,19 +133,29 @@ function rateLimitResponse(retryAfter: number): Response {
   });
 }
 
-function getClientIp(request: Request): string {
+export function getClientIp(request: Request, socketAddress?: string): string {
   const trustCount = parseInt(process.env.TRUSTED_PROXY_COUNT ?? "0", 10);
   if (trustCount > 0) {
+    // A trusted proxy IS configured: honor the XFF chain exactly as before,
+    // peeling `trustCount` hops off the right. This path is unchanged.
     const xff = request.headers.get("x-forwarded-for");
     if (xff) {
       const parts = xff.split(",").map(s => s.trim());
       const idx = Math.max(0, parts.length - trustCount);
       return parts[idx] || "unknown";
     }
+    // No XFF header despite a configured proxy: fall through to x-real-ip,
+    // matching the pre-existing behavior for the trusted-proxy case.
+    return request.headers.get("x-real-ip") || "unknown";
   }
-  // Fallback: no trusted proxy, use x-real-ip (set by reverse proxies that
-  // expose a single trusted client IP) or "unknown"
-  return request.headers.get("x-real-ip") || "unknown";
+  // No trusted proxy configured (the DEFAULT). In a direct-exposure topology
+  // (tailscale / LAN / port-forward) every request header — including
+  // `x-real-ip` and `x-forwarded-for` — is attacker-controlled, so keying
+  // rate limits on them lets a spammer mint a fresh bucket per request by
+  // rotating the header. Key on the trustworthy socket peer instead. The
+  // caller passes `event.getClientAddress()` (already try/caught for the
+  // prerender path); fall back to "unknown" when it's unavailable.
+  return socketAddress || "unknown";
 }
 
 // sec-M4: explicit allow-list only. If CORS_ALLOWED_ORIGINS is unset we default
@@ -326,10 +336,22 @@ export const handle: Handle = async ({ event, resolve }) => {
     }
   }
 
+  // Trustworthy socket peer, used to key IP-based rate limits when NO trusted
+  // proxy is configured (so attacker-supplied x-real-ip / x-forwarded-for
+  // headers can't be rotated to mint fresh buckets). Resolved once here;
+  // getClientAddress() throws under the prerender path, so fall back to
+  // undefined (getClientIp then degrades to "unknown") — never let it throw.
+  let socketAddress: string | undefined;
+  try {
+    socketAddress = event.getClientAddress();
+  } catch {
+    socketAddress = undefined;
+  }
+
   // ── Rate limiting (IP-based for login, before auth) ─────────────
   const rateLimitRoute = matchRateLimitRoute(url.pathname, request.method);
   if (rateLimitRoute && rateLimitRoute.keyType === "ip") {
-    const ip = getClientIp(request);
+    const ip = getClientIp(request, socketAddress);
     const override = await getRateLimitOverride(rateLimitRoute.category);
     const result = rateLimiter.check(`ip:${ip}:${rateLimitRoute.category}`, override ?? rateLimitRoute.limit);
     if (!result.allowed) {
@@ -423,7 +445,7 @@ export const handle: Handle = async ({ event, resolve }) => {
       // that goes on to SUCCEED never consumes a token. See
       // FAILED_BEARER_LIMIT for the full rationale.
       if (presentedBearer) {
-        const ip = getClientIp(request);
+        const ip = getClientIp(request, socketAddress);
         const peeked = failedBearerLimiter.peek(`ip:${ip}:bearerFail`);
         if (!peeked.allowed) {
           return rateLimitResponse(peeked.retryAfter!);
@@ -461,7 +483,7 @@ export const handle: Handle = async ({ event, resolve }) => {
       // increments the per-IP counter; once it crosses FAILED_BEARER_LIMIT the
       // peek() above starts returning 429 for subsequent sprays this window.
       if (presentedBearer && !event.locals.user) {
-        const ip = getClientIp(request);
+        const ip = getClientIp(request, socketAddress);
         failedBearerLimiter.check(`ip:${ip}:bearerFail`);
       }
 
