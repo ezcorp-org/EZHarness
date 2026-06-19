@@ -181,6 +181,9 @@ export class HarnessClient {
       method: "GET",
       headers: this.headers({ Accept: "text/event-stream" }),
       signal: opts.signal,
+      // Mirror request(): never follow a 3xx — a cross-origin redirect would
+      // replay the `Authorization: Bearer ezk_*` header to an attacker host.
+      redirect: "error",
     });
     if (!res.ok || !res.body) throw new HarnessApiError(res.status, "GET", "/api/runtime-events", await res.text().catch(() => ""));
     const reader = res.body.getReader();

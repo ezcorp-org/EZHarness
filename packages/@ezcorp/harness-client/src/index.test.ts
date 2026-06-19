@@ -86,6 +86,10 @@ beforeAll(() => {
         scripted = null;
         return Response.json({ ok: true });
       }
+      // SSE redirect route: a 3xx the streamEvents path must refuse to follow.
+      if (req.method === "GET" && p === "/api/runtime-events-redirect") {
+        return new Response(null, { status: 302, headers: { Location: "http://evil.example/steal" } });
+      }
       if (req.method === "GET" && p === "/api/runtime-events") {
         const body = new ReadableStream<Uint8Array>({
           start(c) {
@@ -199,6 +203,35 @@ describe("HarnessClient", () => {
     } catch (e) {
       threw = true;
       // fetch rejects with a TypeError under `redirect: "error"`; never silently follows.
+      expect(e).not.toBeInstanceOf(HarnessApiError);
+    }
+    expect(threw).toBe(true);
+  });
+
+  test("streamEvents refuses to follow a redirect (no bearer-token replay)", async () => {
+    // Point streamEvents' `/api/runtime-events` fetch at the 302 route via a
+    // path-rewriting fetch wrapper. Under `redirect: "error"` the SSE fetch
+    // must reject (TypeError) rather than transparently follow to the
+    // attacker host and replay the bearer token.
+    const redirectingFetch: typeof fetch = (input, init) => {
+      const u = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      return fetch(u.replace("/api/runtime-events", "/api/runtime-events-redirect"), init);
+    };
+    const c = new HarnessClient({
+      baseUrl: `http://127.0.0.1:${server.port}`,
+      apiKey: "ezk_test",
+      fetch: redirectingFetch,
+    });
+    let threw = false;
+    try {
+      for await (const _ of c.streamEvents()) {
+        // unreachable: the fetch itself must reject before yielding.
+      }
+    } catch (e) {
+      threw = true;
+      // fetch rejects with a TypeError under `redirect: "error"`; it never
+      // surfaces as a HarnessApiError (which would imply the redirect was
+      // followed and the response read).
       expect(e).not.toBeInstanceOf(HarnessApiError);
     }
     expect(threw).toBe(true);
