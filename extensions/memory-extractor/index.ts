@@ -26,6 +26,7 @@
 import {
   createToolDispatcher,
   defineLoop,
+  formatMessages,
   getChannel,
   getLoopTools,
   Llm,
@@ -306,11 +307,10 @@ export async function extract(opts: ExtractOptions): Promise<ExtractionOutcome> 
     return { kind: "decline", reason: "empty_conversation" };
   }
 
-  // Take last 20 messages — same window as the legacy extractor.
-  const recent = messages.slice(-20);
-  const conversationText = recent
-    .map((m) => `[${m.id}] ${m.role}: ${m.content}`)
-    .join("\n\n");
+  // Last-20 window, formatted via the SDK's shared `formatMessages` (the
+  // same `[id] role: content` join the Loop primitive uses) — replaces the
+  // hand-rolled slice+format. Byte-identical output.
+  const conversationText = formatMessages(messages.slice(-20));
 
   const { provider, model } = resolveProviderModel(opts.settings.provider, opts.settings.model);
 
@@ -376,30 +376,21 @@ export async function extract(opts: ExtractOptions): Promise<ExtractionOutcome> 
   return { kind: "success", writes };
 }
 
-// ── run:complete event handler ──────────────────────────────────────
+// ── run:complete extraction core ────────────────────────────────────
 //
-// Mirrors the legacy `extractMemories(run, conversationId)` — only
-// fires for successful chat runs, honors the `enabled` setting.
-// Errors are silenced (fire-and-forget contract).
-export async function handleRunComplete(payload: { run?: unknown; conversationId?: string }): Promise<ExtractionOutcome | undefined> {
-  // `run:complete` has no ctx, so the listener round-trips `getMySettings`
-  // then delegates to the shared core. The `defineLoop` capture loop calls
-  // `extractRunComplete` directly with `ctx.settings` (no round-trip).
-  let settings: Record<string, unknown>;
-  try {
-    settings = await runtimeApi.getMySettings();
-  } catch {
-    settings = {};
-  }
-  return extractRunComplete(payload, settings);
-}
+// The auto-extract path. Now driven ONLY by the `defineLoop` capture loop
+// (`defineMemoryLoops`), which passes `ctx.settings` into
+// `extractRunComplete`. The old ctx-less `handleRunComplete` listener — which
+// round-tripped `getMySettings` itself — is DELETED: it was never wired in
+// boot (boot calls only `defineMemoryLoops`), so it was dead production code.
+// `ctx.settings` covers the settings fetch. (`getMySettings` stays on the
+// runtimeApi — compaction + the boot cron-resolution still use it.)
 
 /**
- * Shared run:complete extraction core, settings-injected. Called from BOTH
- * the `handleRunComplete` listener AND the `defineLoop` act — the gating +
- * project-id resolution is written ONCE (DRY win; the settings `{}`
- * fallback now lives only in the ctx-less listener, the loop uses
- * `ctx.settings`).
+ * Run:complete extraction core, settings-injected. Driven by the
+ * `defineLoop` capture act (`defineMemoryLoops`), which passes
+ * `ctx.settings` (the primitive-owned resolution). The gating + project-id
+ * resolution lives here once.
  */
 export async function extractRunComplete(
   payload: { run?: unknown; conversationId?: string },
