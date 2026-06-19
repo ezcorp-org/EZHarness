@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { fetchDirContents, type FsEntry } from "$lib/api.js";
 	import { inputClass } from "$lib/styles.js";
-	import { sanitizePath, splitPath, filterByExtensions } from "./helpers.js";
+	import { sanitizePath, splitPath, browseDir, joinSelectedPath, filterByExtensions } from "./helpers.js";
 	import type { ComponentSize } from "./types.js";
 
 	let {
@@ -9,6 +9,7 @@
 		size = "sm" as ComponentSize,
 		disabled = false,
 		placeholder = "Enter file path...",
+		absolute = false,
 		options = {} as Record<string, unknown>,
 		onchange,
 	}: {
@@ -16,9 +17,21 @@
 		size?: ComponentSize;
 		disabled?: boolean;
 		placeholder?: string;
+		/**
+		 * Opt the picker into absolute-path mode. Browse/select default the
+		 * root to `/` (not `~`) and a bare typed name resolves under `/`, so
+		 * the emitted value is ALWAYS an absolute path. Used by the Hub
+		 * folder prompt, whose consumer (`normalizeFolderPath`) rejects any
+		 * non-absolute value. Default `false` keeps the `~`-relative
+		 * behavior the project/sandbox pickers rely on.
+		 */
+		absolute?: boolean;
 		options?: Record<string, unknown>;
 		onchange?: (value: string | string[]) => void;
 	} = $props();
+
+	/** Browse/split root for this picker — `/` in absolute mode, else `~`. */
+	const rootDir = $derived(absolute ? "/" : "~");
 
 	let entries: FsEntry[] = $state([]);
 	let open = $state(false);
@@ -55,7 +68,7 @@
 	function onInput() {
 		clearTimeout(debounceTimer);
 		debounceTimer = setTimeout(async () => {
-			const { dir, partial } = splitPath(value);
+			const { dir, partial } = splitPath(value, rootDir);
 			await loadEntries(dir);
 			if (partial) {
 				entries = entries.filter((e) =>
@@ -69,19 +82,17 @@
 
 	async function browse() {
 		if (disabled) return;
-		await loadEntries(value && !value.endsWith("/") ? splitPath(value).dir : value || "~");
+		await loadEntries(browseDir(value, rootDir));
 		open = true;
 		computeDropdownPosition();
 	}
 
 	function select(entry: FsEntry) {
-		const { dir } = splitPath(value || "~/");
-		const base = value.endsWith("/") ? value : dir + "/";
-		const newPath = base === "/" ? "/" + entry.name : base + entry.name;
-		value = newPath;
+		value = joinSelectedPath(value, entry, rootDir);
 		if (entry.isDir) {
-			value += "/";
-			loadEntries(newPath).then(() => {
+			// joinSelectedPath already appended the trailing slash; reload
+			// the (slash-stripped) dir to keep browsing into it.
+			loadEntries(value.slice(0, -1)).then(() => {
 				open = entries.length > 0;
 				if (open) computeDropdownPosition();
 			});

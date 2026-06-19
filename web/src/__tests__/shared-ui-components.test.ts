@@ -3,6 +3,8 @@ import {
 	sanitizePath,
 	debounce,
 	splitPath,
+	browseDir,
+	joinSelectedPath,
 	filterByExtensions,
 	filterOptions,
 	filterSuggestions,
@@ -101,6 +103,70 @@ describe("splitPath", () => {
 
 	test("trailing slash returns dir and empty partial", () => {
 		expect(splitPath("/home/user/")).toEqual({ dir: "/home/user", partial: "" });
+	});
+
+	test("absolute-mode root: bare entry resolves under / (not ~)", () => {
+		// The Hub folder picker passes root="/" so an incomplete typed name
+		// never browses ~ — which would later yield a non-absolute value.
+		expect(splitPath("Downloads", "/")).toEqual({ dir: "/", partial: "Downloads" });
+	});
+
+	test("explicit ~ root matches the default", () => {
+		expect(splitPath("foo.ts", "~")).toEqual({ dir: "~", partial: "foo.ts" });
+	});
+});
+
+// browseDir / joinSelectedPath drive the SharedFilePicker's Browse + select
+// in BOTH modes. Absolute mode (root="/") is what the Hub folder prompt uses
+// so every emitted value is an absolute path normalizeFolderPath accepts; the
+// default (~) mode must stay byte-identical for the project/sandbox pickers.
+describe("browseDir", () => {
+	test("default root: empty value browses ~", () => {
+		expect(browseDir("")).toBe("~");
+	});
+
+	test("absolute root: empty value browses /", () => {
+		expect(browseDir("", "/")).toBe("/");
+	});
+
+	test("value with partial browses its parent dir (absolute)", () => {
+		expect(browseDir("/watched/Down", "/")).toBe("/watched");
+	});
+
+	test("slash-terminated value browses itself", () => {
+		expect(browseDir("/watched/", "/")).toBe("/watched/");
+	});
+});
+
+describe("joinSelectedPath (picker select core)", () => {
+	test("absolute mode: empty value + dir → /Name/ (no doubled slash)", () => {
+		expect(joinSelectedPath("", { name: "Downloads", isDir: true }, "/")).toBe("/Downloads/");
+	});
+
+	test("absolute mode: nested dir append keeps it absolute", () => {
+		expect(joinSelectedPath("/watched/", { name: "Downloads", isDir: true }, "/")).toBe(
+			"/watched/Downloads/",
+		);
+	});
+
+	test("absolute mode: file (non-dir) gets no trailing slash", () => {
+		expect(joinSelectedPath("/watched/Downloads/", { name: "report.pdf", isDir: false }, "/")).toBe(
+			"/watched/Downloads/report.pdf",
+		);
+	});
+
+	test("absolute mode: NEVER emits a ~-relative value from an empty start", () => {
+		const out = joinSelectedPath("", { name: "Downloads", isDir: true }, "/");
+		expect(out.startsWith("/")).toBe(true);
+		expect(out).not.toContain("~");
+	});
+
+	test("default (~) mode: empty value + dir → ~/Name/ (unchanged behavior)", () => {
+		expect(joinSelectedPath("", { name: "Downloads", isDir: true })).toBe("~/Downloads/");
+	});
+
+	test("default (~) mode: file append unchanged", () => {
+		expect(joinSelectedPath("~/proj/", { name: "main.ts", isDir: false })).toBe("~/proj/main.ts");
 	});
 });
 

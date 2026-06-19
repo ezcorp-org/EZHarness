@@ -153,8 +153,16 @@
 				return;
 			}
 			const data = (await res.json().catch(() => null)) as
-				| { page?: HubPageTree }
+				| { page?: HubPageTree; ok?: boolean; message?: string }
 				| null;
+			// In-process extension actions report a DOMAIN refusal as HTTP 200
+			// with `{ok:false, message}` (e.g. an unreachable folder path, or a
+			// duplicate). Without this the message is dropped and the action
+			// "silently does nothing" — surface it as an error toast instead.
+			if (data && data.ok === false) {
+				addToast({ type: "error", message: data.message ?? "That action couldn't be completed" });
+				return;
+			}
 			if (data?.page) {
 				// Core actions may return a fresh validated tree inline.
 				tree = data.page;
@@ -286,9 +294,16 @@
 				     attach Enter-submit here — the user clicks Submit. -->
 				{@const PromptWidget = getFormatComponent(promptAction.prompt.format)}
 				<div class="mt-3" data-testid="hub-prompt-format">
+					<!-- The Hub file-path picker browses the HOST filesystem and
+					     its consumers (e.g. file-organizer's `normalizeFolderPath`)
+					     require an absolute path. Opt the picker into absolute
+					     mode so browse/select/typed-name all yield `/…` values —
+					     never a `~`-relative one. The flag is inert for the other
+					     format widgets, which don't browse the filesystem. -->
 					<PromptWidget
 						bind:value={promptValue}
 						size="md"
+						absolute={promptAction.prompt.format === "file-path"}
 						placeholder={promptAction.prompt.placeholder ?? ""}
 					/>
 				</div>
