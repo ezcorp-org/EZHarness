@@ -48,6 +48,7 @@ import {
   checkFilesystemPermission,
   expandGrantPrefix,
   resolveGrantPrefixCanonical,
+  isReservedSensitivePath,
   type FilesystemMode,
 } from "./permissions";
 import { denyAndDisable } from "./security";
@@ -781,12 +782,26 @@ async function resolveLowestExistingAncestor(
  * yet). Resolves each granted prefix via realpath (skipping
  * unresolvable ones), and accepts when the targetPath is inside the
  * install dir or any granted prefix.
+ *
+ * Exported for tests so the reserved-sensitive-path hard-deny can be
+ * proven on the WRITE gate directly (not just inferred from the shared
+ * `isReservedSensitivePath` helper).
  */
-async function checkPrefixForWrite(
+export async function checkPrefixForWrite(
   targetPath: string,
   prefixes: string[],
   installDir: string,
 ): Promise<boolean> {
+  // Hard-deny reserved sensitive paths (DB + secret dir) BEFORE any
+  // allow — including the implicit install-dir allow below and every
+  // granted prefix. Grant-independent defense-in-depth, mirrors the
+  // read-side gate in `checkFilesystemPermission`. `targetPath` is
+  // already realpath'd / lowest-existing-ancestor-resolved by the
+  // caller, so the segment-bounded compare can't be bypassed by `..` /
+  // symlink / trailing-slash.
+  if (await isReservedSensitivePath(targetPath)) {
+    return false;
+  }
   let resolvedInstall: string;
   try {
     resolvedInstall = await realpath(installDir);
