@@ -53,12 +53,15 @@ function discoverDiskRoutes(): DiskRoute[] {
 const disk = discoverDiskRoutes();
 
 describe("test-surface gating", () => {
-  test("every /api/__test/** route references isTestSurfaceEnabled", () => {
+  test("every /api/__test/** route INVOKES isTestSurfaceEnabled as a guard", () => {
     const glob = new Glob("api/__test/**/+server.ts");
     const ungated: string[] = [];
     for (const rel of glob.scanSync(routesDir)) {
       const src = readFileSync(`${routesDir}/${rel}`, "utf8");
-      if (!src.includes("isTestSurfaceEnabled")) ungated.push(rel);
+      // Require the actual negated guard (`if (!isTestSurfaceEnabled())`),
+      // not a mere import/mention — so a route can't reference the symbol in
+      // a comment or unused import and slip through ungated.
+      if (!/if\s*\(\s*!\s*isTestSurfaceEnabled\s*\(\s*\)\s*\)/.test(src)) ungated.push(rel);
     }
     expect(ungated).toEqual([]);
   });
