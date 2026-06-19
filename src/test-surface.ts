@@ -7,22 +7,36 @@
  * which activate the `ezcorp-mock` model only under this gate) share ONE
  * predicate.
  *
- * Gate design — fail-safe, two independent conditions, BOTH required:
+ * Gate design — fail-CLOSED, three independent conditions, ALL required:
  *
- *   1. `PI_E2E_REAL === "1"` — an explicit, default-OFF opt-in (PRIMARY
- *      gate). The surface is closed unless an operator deliberately turns
- *      it on. Reused — the real-auth Playwright harness already sets it
- *      (see `web/playwright.real.config.ts`).
- *   2. `NODE_ENV !== "production"` — belt-and-braces. The production
- *      Docker image pins `NODE_ENV=production`, so even if `PI_E2E_REAL`
+ *   1. `EZCORP_ALLOW_TEST_SURFACE === "1"` — an explicit, default-OFF
+ *      operator opt-in (PRIMARY gate). This is the only condition that
+ *      makes the gate fail-CLOSED rather than fail-open: the destructive
+ *      `/api/__test/**` surface (incl. `seed`, which relaxes GLOBAL rate
+ *      limits, and `reset`) stays sealed unless an operator *consciously*
+ *      sets this on a disposable box. Without it, copying `PI_E2E_REAL=1`
+ *      from an e2e config onto a public/staging host (where `NODE_ENV` is
+ *      unset/development/staging) would NOT open the surface.
+ *   2. `PI_E2E_REAL === "1"` — the test-harness opt-in. The real-auth
+ *      Playwright harness sets this (see `web/playwright.real.config.ts`).
+ *   3. `NODE_ENV !== "production"` — belt-and-braces. The production
+ *      Docker image pins `NODE_ENV=production`, so even if both opt-ins
  *      were ever set in prod the surface stays closed.
+ *
+ * The real-auth Playwright harness sets all three in its `webServer.env`
+ * block, so the e2e still passes; every other deployment is fail-closed
+ * by default.
  *
  * When closed, the `ezcorp-mock` provider does not resolve and every
  * `/api/__test/**` route returns 404 — indistinguishable from an unrouted
  * path.
  */
 export function isTestSurfaceEnabled(): boolean {
-  return process.env.PI_E2E_REAL === "1" && process.env.NODE_ENV !== "production";
+  return (
+    process.env.PI_E2E_REAL === "1" &&
+    process.env.NODE_ENV !== "production" &&
+    process.env.EZCORP_ALLOW_TEST_SURFACE === "1"
+  );
 }
 
 /** The synthetic provider id used to select the deterministic mock LLM. */

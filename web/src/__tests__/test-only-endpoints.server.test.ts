@@ -182,9 +182,10 @@ beforeEach(() => {
   extensionStore.clear();
   nextDraftId = 1;
   TMP_ROOT = mkdtempSync(join(tmpdir(), "test-only-endpoints-"));
-  // Default: both gates open. Each test overrides as needed.
+  // Default: all gates open. Each test overrides as needed.
   process.env.PI_E2E_REAL = "1";
   delete process.env.NODE_ENV;
+  process.env.EZCORP_ALLOW_TEST_SURFACE = "1"; // fail-closed gate's operator opt-in
   mockDeleteExtension = vi.fn(async (id: string) => {
     for (const [k, v] of extensionStore) {
       if (v.id === id) {
@@ -200,6 +201,7 @@ afterEach(() => {
   try { rmSync(TMP_ROOT, { recursive: true, force: true }); } catch { /* swallow */ }
   delete process.env.PI_E2E_REAL;
   delete process.env.NODE_ENV;
+  delete process.env.EZCORP_ALLOW_TEST_SURFACE;
 });
 
 // ── /api/__test/seed-extension-author-draft ────────────────────────

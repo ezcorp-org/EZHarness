@@ -26,11 +26,13 @@ const { getCredential } = await import("../providers/credentials");
 
 const savedE2E = process.env.PI_E2E_REAL;
 const savedNodeEnv = process.env.NODE_ENV;
+const savedAllow = process.env.EZCORP_ALLOW_TEST_SURFACE;
 
 function enableSurface(on: boolean): void {
   if (on) {
     process.env.PI_E2E_REAL = "1";
     delete process.env.NODE_ENV;
+    process.env.EZCORP_ALLOW_TEST_SURFACE = "1"; // fail-closed gate's operator opt-in
   } else {
     delete process.env.PI_E2E_REAL;
   }
@@ -40,6 +42,7 @@ beforeEach(() => enableSurface(true));
 afterEach(() => {
   if (savedE2E === undefined) delete process.env.PI_E2E_REAL; else process.env.PI_E2E_REAL = savedE2E;
   if (savedNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = savedNodeEnv;
+  if (savedAllow === undefined) delete process.env.EZCORP_ALLOW_TEST_SURFACE; else process.env.EZCORP_ALLOW_TEST_SURFACE = savedAllow;
 });
 afterAll(() => restoreModuleMocks());
 

@@ -11,14 +11,17 @@ const COMPLETIONS = "/api/__test/mock-llm/v1/chat/completions";
 
 const savedE2E = process.env.PI_E2E_REAL;
 const savedNodeEnv = process.env.NODE_ENV;
+const savedAllow = process.env.EZCORP_ALLOW_TEST_SURFACE;
 
 beforeEach(() => {
   process.env.PI_E2E_REAL = "1";
   delete process.env.NODE_ENV; // non-production
+  process.env.EZCORP_ALLOW_TEST_SURFACE = "1"; // conscious operator opt-in
 });
 afterEach(() => {
   if (savedE2E === undefined) delete process.env.PI_E2E_REAL; else process.env.PI_E2E_REAL = savedE2E;
   if (savedNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = savedNodeEnv;
+  if (savedAllow === undefined) delete process.env.EZCORP_ALLOW_TEST_SURFACE; else process.env.EZCORP_ALLOW_TEST_SURFACE = savedAllow;
 });
 
 describe("isLoopbackTestBypass", () => {

@@ -19,6 +19,7 @@ const { createUser } = await import("../../../src/db/queries/users");
 
 const savedE2E = process.env.PI_E2E_REAL;
 const savedNodeEnv = process.env.NODE_ENV;
+const savedAllow = process.env.EZCORP_ALLOW_TEST_SURFACE;
 const user = { id: "u1", email: "a@b", name: "A", role: "member" } as const;
 
 function req(body: unknown): Request {
@@ -34,10 +35,11 @@ beforeAll(async () => {
   }
 });
 afterAll(async () => { await closeTestDb(); restoreModuleMocks(); });
-beforeEach(() => { process.env.PI_E2E_REAL = "1"; delete process.env.NODE_ENV; });
+beforeEach(() => { process.env.PI_E2E_REAL = "1"; delete process.env.NODE_ENV; process.env.EZCORP_ALLOW_TEST_SURFACE = "1"; });
 afterEach(() => {
   if (savedE2E === undefined) delete process.env.PI_E2E_REAL; else process.env.PI_E2E_REAL = savedE2E;
   if (savedNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = savedNodeEnv;
+  if (savedAllow === undefined) delete process.env.EZCORP_ALLOW_TEST_SURFACE; else process.env.EZCORP_ALLOW_TEST_SURFACE = savedAllow;
 });
 
 describe("POST /api/__test/seed", () => {

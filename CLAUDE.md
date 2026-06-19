@@ -99,8 +99,10 @@ harnesses, and new features must keep it that way. A CI meta-test
   appears in the generated OpenAPI spec (`src/openapi.ts`). The meta-test
   ratchets the unregistered-route count — a new unregistered route fails.
 - **New `/api/__test/**` route** (determinism tier) → gate it with
-  `isTestSurfaceEnabled()` from `$lib/server/test-surface` (returns 404 unless
-  `PI_E2E_REAL=1` and non-production). The meta-test fails any ungated one.
+  `isTestSurfaceEnabled()` from `$lib/server/test-surface`. The gate is
+  fail-CLOSED: it returns 404 unless **all three** of
+  `EZCORP_ALLOW_TEST_SURFACE=1` (conscious operator opt-in), `PI_E2E_REAL=1`,
+  and a non-production `NODE_ENV` hold. The meta-test fails any ungated one.
 - **New client-facing runtime event** → add it to the single canonical list
   `web/src/lib/runtime-event-names.ts` (the SSE `BUS_EVENTS` and `ws.ts`'s
   `WSRunEvent` both derive from it). Never re-list event names elsewhere.

@@ -10,10 +10,17 @@ working as the app grows.
 | Tier | What | Gating | Examples |
 |---|---|---|---|
 | **Control** | Drive + observe a live instance | API-key **scope** only — works in production | `POST /api/conversations/:id/messages`, `GET /api/runs/:id?wait=1`, `/api/runtime-events`, `/api/settings/:key`, `/api/tool-calls/:id/permission` |
-| **Determinism** | Deterministic LLM + state for tests | `isTestSurfaceEnabled()` (flag + non-prod) **and**, for the mock LLM, loopback | `/api/__test/mock-llm/**`, `/api/__test/seed`, `/api/__test/reset` |
+| **Determinism** | Deterministic LLM + state for tests | `isTestSurfaceEnabled()` (operator opt-in + harness flag + non-prod) **and**, for the mock LLM, loopback | `/api/__test/mock-llm/**`, `/api/__test/seed`, `/api/__test/reset` |
 
-The determinism tier is **inert in production**: `PI_E2E_REAL` is an explicit
-default-OFF opt-in and the prod image pins `NODE_ENV=production`. See
+The determinism tier is **fail-CLOSED**: `isTestSurfaceEnabled()` requires
+**all three** of `EZCORP_ALLOW_TEST_SURFACE=1` (a conscious operator opt-in,
+default-OFF), `PI_E2E_REAL=1` (the harness flag), and a non-production
+`NODE_ENV`. Because the operator opt-in is required, copying `PI_E2E_REAL=1`
+from an e2e config onto a public/staging box (where `NODE_ENV` is unset or
+non-`production`) does **not** open the destructive `seed`/`reset` surface.
+The prod image additionally pins `NODE_ENV=production`. The real-auth
+Playwright harness sets all three in its preview server's env (see
+`web/playwright.real.config.ts`). See
 [`src/test-surface.ts`](../src/test-surface.ts).
 
 ## Getting access (auth bootstrap)

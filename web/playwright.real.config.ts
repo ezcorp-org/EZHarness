@@ -99,6 +99,14 @@ export default defineConfig({
       // automatically; these overrides win.
       EZCORP_DB_PATH: DB_DIR,
       PI_E2E_REAL: "1",
+      // Conscious operator opt-in for the destructive `/api/__test/**`
+      // determinism surface. The gate (`src/test-surface.ts`) is
+      // fail-CLOSED: it requires this var === "1" *in addition to*
+      // PI_E2E_REAL=1 and a non-production NODE_ENV, so that copying
+      // PI_E2E_REAL onto a public box can't open seed/reset. This is the
+      // preview server's own env, so the gate evaluates true inside the
+      // process that serves `/api/__test/*` — not just the test runner.
+      EZCORP_ALLOW_TEST_SURFACE: "1",
       // Pin the project root explicitly so the bundled-extension
       // resolver hits the new env-var branch in Commit A and never
       // depends on `process.cwd()` or a `.git` walk.
