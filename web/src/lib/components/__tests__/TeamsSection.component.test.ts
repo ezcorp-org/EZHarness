@@ -178,12 +178,19 @@ describe("TeamsSection members", () => {
 		await waitFor(() => expect(getByText("Engineering")).toBeInTheDocument());
 
 		await fireEvent.click(getByTestId("team-expand-t-1"));
-		await waitFor(() => expect(getByLabelText("Select user")).toBeInTheDocument());
 
-		const options = Array.from(
-			(getByLabelText("Select user") as HTMLSelectElement).options,
-		).map((o) => o.value);
-		expect(options).toEqual(["", "user-3"]); // Alice (user-2) filtered out
+		// The <select> renders as soon as the team expands (synchronous
+		// expandedTeamId set), but Alice is only filtered out once the
+		// /members fetch resolves and populates teamMembers[t-1]. Assert the
+		// option list inside waitFor so it retries until that async state
+		// settles — otherwise on a loaded runner we read ["", "user-2",
+		// "user-3"] before the exclusion filter applies.
+		await waitFor(() => {
+			const options = Array.from(
+				(getByLabelText("Select user") as HTMLSelectElement).options,
+			).map((o) => o.value);
+			expect(options).toEqual(["", "user-3"]); // Alice (user-2) filtered out
+		});
 	});
 });
 
