@@ -1,11 +1,17 @@
 /**
  * file-organizer Hub — page-level e2e (mockApi + emitSse, no Docker).
  *
- * Drives the user-visible flow across the 3 pages against mocked
- * `/api/hub/pages*` (render) + `/api/extensions/file-organizer/events/*`
- * (action) routes. The applier/CAS/grant logic is covered by the bun
- * suites; here the mocks return already-validated trees + `{ok}` action
- * envelopes.
+ * ⚠️ THIS SUITE IS 100% MOCK-BACKEND. It validates UI RENDERING and
+ * action-WIRING ONLY. Every case stubs `/api/hub/pages*` (render) and
+ * `/api/extensions/file-organizer/events/*` (action) with hand-written
+ * trees + `{ok}` envelopes. It does NOT start the real render subprocess,
+ * the daemon, the applier, the real add-folder validator, or the real
+ * `/api/fs/list`. A green run here proves the UI renders the tree the mock
+ * handed it and POSTs the body we expected — it is NOT end-to-end
+ * validation of the feature. The REAL stack is exercised by the
+ * Docker-gated `file-organizer-real.spec.ts` and the host bun suites
+ * (`src/__tests__/file-organizer-*.test.ts`). See
+ * `docs/extensions/examples/file-organizer/TEST-COVERAGE.md`.
  *
  * EXTENSION page actions POST to `/api/extensions/<ext>/events/<event>`
  * with `{source:"hub", pageId, payload}` (NOT the core `/actions/` route);
@@ -259,21 +265,41 @@ test.describe("file-organizer Hub", () => {
     expect(restoreBody).toEqual({ source: "hub", pageId: "review", payload: { all: true } });
   });
 
-  test("folders: add a folder via the file-path picker → POST events/add-folder {payload:{path}}", async ({ page, mockApi }) => {
+  test("folders: BROWSE + select in the file-path picker yields an ABSOLUTE path → POST events/add-folder", async ({ page, mockApi }) => {
+    // ⚠️ COMPONENT-LOGIC CHECK ONLY — NOT a real backend flow. Against the
+    // live app `GET /api/fs/list?dir=/` returns 403 (the endpoint is
+    // sandbox-jailed to the project root), so Browse CANNOT list `/` and
+    // the point-and-click add is UNREACHABLE in production. This case mocks
+    // fs-list to fake `/` entries purely to prove the picker is in
+    // absolute mode (browses `/`, not `~`) and emits a `/`-rooted value —
+    // the regression guard below. The REAL add-folder path is a TYPED
+    // absolute path, covered by `file-organizer-real.spec.ts`. See
+    // TEST-COVERAGE.md §3 for the full rationale.
+    //
+    // Regression for the "Path must be an absolute, valid filesystem path."
+    // bug: the picker defaulted to a ~-relative root, so browse + select
+    // (the realistic interaction) emitted `~/Downloads`, which the real
+    // `normalizeFolderPath` rejects. We DRIVE the picker (Browse → click a
+    // dir entry) rather than typing a hardcoded absolute string, and assert
+    // the dispatched payload is the absolute `/Downloads` the validator
+    // accepts. The fs-list mock returns entries at `/` so a real absolute
+    // value is produced by the (now absolute-mode) picker.
     await mockApi({ projects: [proj] });
     let addBody: unknown = null;
     let renders = 0;
+    const fsListDirs: string[] = [];
     await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
     await page.route(`**/api/hub/pages/${encodeURIComponent(FOLDERS)}`, (route) => {
       renders++;
       return route.fulfill({ json: { page: foldersTree({ folders: renders > 1 }), renderedAt: Date.now() } });
     });
-    // The `format: "file-path"` prompt renders the shared filesystem picker,
-    // which probes /api/fs/list as the user types — stub it so the widget
-    // (and its browse dropdown) behaves like the rest of the app.
-    await page.route("**/api/fs/list**", (route) =>
-      route.fulfill({ json: [{ name: "Downloads", isDir: true }] }),
-    );
+    await page.route("**/api/fs/list**", (route) => {
+      // Record the dir the picker browsed — absolute mode MUST browse `/`,
+      // never `~`. Serve a single dir entry to select.
+      const dir = new URL(route.request().url()).searchParams.get("dir") ?? "";
+      fsListDirs.push(dir);
+      return route.fulfill({ json: [{ name: "Downloads", isDir: true }] });
+    });
     await page.route(evt("add-folder"), async (route) => {
       addBody = route.request().postDataJSON();
       return route.fulfill({ json: { ok: true, message: "Folder added" } });
@@ -285,10 +311,81 @@ test.describe("file-organizer Hub", () => {
     await expect(page.getByTestId("hub-prompt-dialog")).toBeVisible();
     // The plain text input is gone — the DRY SharedFilePicker drives it now.
     await expect(page.getByTestId("hub-prompt-input")).toHaveCount(0);
-    await page.getByTestId("hub-prompt-format").locator("input").fill("/watched/Downloads");
+
+    // Click the picker's Browse button, then select the "Downloads" dir.
+    const picker = page.getByTestId("hub-prompt-format");
+    await picker.getByTitle("Browse").click();
+    await picker.getByRole("button", { name: /Downloads/ }).first().click();
+
+    // Absolute mode browsed `/` (NOT `~`) — proving the bug fix at the
+    // network seam.
+    expect(fsListDirs).toContain("/");
+    expect(fsListDirs).not.toContain("~");
+    // The field now holds an absolute path the validator accepts.
+    await expect(picker.locator("input")).toHaveValue(/^\/Downloads/);
+
     await page.getByTestId("hub-prompt-submit").click();
     await expect(page.getByText("/watched/Downloads")).toBeVisible();
-    expect(addBody).toEqual({ source: "hub", pageId: "folders", payload: { path: "/watched/Downloads" } });
+    // The dispatched path is absolute — `/Downloads` or `/Downloads/`.
+    const body = addBody as { source: string; pageId: string; payload: { path: string } };
+    expect(body.source).toBe("hub");
+    expect(body.pageId).toBe("folders");
+    expect(body.payload.path).toMatch(/^\/Downloads\/?$/);
+  });
+
+  test("folders: typing an ABSOLUTE path still passes through unmodified", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj] });
+    let addBody: unknown = null;
+    let renders = 0;
+    await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+    await page.route(`**/api/hub/pages/${encodeURIComponent(FOLDERS)}`, (route) => {
+      renders++;
+      return route.fulfill({ json: { page: foldersTree({ folders: renders > 1 }), renderedAt: Date.now() } });
+    });
+    await page.route("**/api/fs/list**", (route) => route.fulfill({ json: [{ name: "Downloads", isDir: true }] }));
+    await page.route(evt("add-folder"), async (route) => {
+      addBody = route.request().postDataJSON();
+      return route.fulfill({ json: { ok: true, message: "Folder added" } });
+    });
+
+    await page.goto(`/hub/${encodeURIComponent(FOLDERS)}`);
+    await page.getByTestId("hub-node-button").filter({ hasText: "Add watched folder" }).click();
+    await page.getByTestId("hub-prompt-format").locator("input").fill("/watched/Downloads");
+    await page.getByTestId("hub-prompt-submit").click();
+    await expect.poll(() => addBody).toEqual({ source: "hub", pageId: "folders", payload: { path: "/watched/Downloads" } });
+  });
+
+  test("folders: a refused add (HTTP 200 {ok:false}) surfaces the EXACT validator error instead of silently doing nothing", async ({ page, mockApi }) => {
+    // If a non-absolute value ever reaches the add handler (e.g. a typed
+    // relative name), the real `addFolder` refuses it with the exact
+    // absolute-path message. The Hub must render that as an error toast —
+    // not drop it. We serve the REAL refusal string the validator returns.
+    await mockApi({ projects: [proj] });
+    let addBody: unknown = null;
+    await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+    await page.route(`**/api/hub/pages/${encodeURIComponent(FOLDERS)}`, (route) =>
+      route.fulfill({ json: { page: foldersTree({ folders: false }), renderedAt: Date.now() } }),
+    );
+    await page.route("**/api/fs/list**", (route) => route.fulfill({ json: [] }));
+    await page.route(evt("add-folder"), (route) => {
+      addBody = route.request().postDataJSON();
+      // Exact message returned by config.ts `addFolder` / `checkReachability`
+      // for a non-absolute path.
+      return route.fulfill({ json: { ok: false, message: "Path must be an absolute, valid filesystem path." } });
+    });
+
+    await page.goto(`/hub/${encodeURIComponent(FOLDERS)}`);
+    await page.getByTestId("hub-node-button").filter({ hasText: "Add watched folder" }).click();
+    // Type a relative name (no leading slash) — the value the picker used to
+    // hand back from a bare typed entry / browse-select.
+    await page.getByTestId("hub-prompt-format").locator("input").fill("relative/Downloads");
+    await page.getByTestId("hub-prompt-submit").click();
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Path must be an absolute, valid filesystem path." }),
+    ).toBeVisible({ timeout: 3000 });
+    // Nothing was added — but the user now knows WHY, instead of a dead click.
+    await expect(page.getByTestId("hub-node-empty-state")).toContainText("No folders watched");
+    expect((addBody as { payload: { path: string } }).payload.path).toBe("relative/Downloads");
   });
 
   test("folders: set mode (Auto) POSTs events/set-mode", async ({ page, mockApi }) => {
@@ -385,5 +482,160 @@ test.describe("file-organizer Hub", () => {
     });
     await expect(page.getByTestId("hub-node-status")).toContainText("Refreshed");
     expect(renders).toBe(2);
+  });
+
+  // ── UI-state coverage (still 100% MOCK-BACKEND) ───────────────────
+  // These assert the host page shell's rendering states: loading skeleton,
+  // render-error card + retry, empty states, and dialog cancel paths. They
+  // do NOT exercise the real render subprocess.
+
+  test("loading: the skeleton shows while the render is in flight, then resolves", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj] });
+    await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    await page.route(`**/api/hub/pages/${encodeURIComponent(OVERVIEW)}`, async (route) => {
+      await gate; // hold the render open so the skeleton is observable
+      return route.fulfill({ json: { page: overviewTree({ pending: 0, unclassified: 0, running: true }), renderedAt: Date.now() } });
+    });
+
+    await page.goto(`/hub/${encodeURIComponent(OVERVIEW)}`);
+    await expect(page.getByText("Loading page…")).toBeVisible();
+    release();
+    await expect(page.getByTestId("hub-page-title")).toHaveText("File Organizer");
+    await expect(page.getByText("Loading page…")).toHaveCount(0);
+  });
+
+  test("render error: a render failure shows the error card; Retry re-pulls and recovers", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj] });
+    await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+    let renders = 0;
+    await page.route(`**/api/hub/pages/${encodeURIComponent(OVERVIEW)}`, (route) => {
+      renders++;
+      // 1st pull: the subprocess failed to render → `{error}` envelope.
+      if (renders === 1) return route.fulfill({ json: { error: "This page failed to render." } });
+      // Retry: healthy tree.
+      return route.fulfill({ json: { page: overviewTree({ pending: 1, unclassified: 0, running: true }), renderedAt: Date.now() } });
+    });
+
+    await page.goto(`/hub/${encodeURIComponent(OVERVIEW)}`);
+    await expect(page.getByTestId("hub-error-card")).toContainText("This page failed to render.");
+    await page.getByTestId("hub-retry-btn").click();
+    await expect(page.getByTestId("hub-page-title")).toHaveText("File Organizer");
+    await expect(page.getByTestId("hub-error-card")).toHaveCount(0);
+    expect(renders).toBe(2);
+  });
+
+  test("404 render: a disabled/unknown page shows the not-exist error card (no retry loop crash)", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj] });
+    await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+    await page.route(`**/api/hub/pages/${encodeURIComponent(OVERVIEW)}`, (route) =>
+      route.fulfill({ status: 404, json: { error: "Not found" } }),
+    );
+
+    await page.goto(`/hub/${encodeURIComponent(OVERVIEW)}`);
+    await expect(page.getByTestId("hub-error-card")).toContainText("This page doesn't exist");
+  });
+
+  test("overview empty: no pending + no unclassified renders the clean state (no attention section)", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj] });
+    await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+    await page.route(`**/api/hub/pages/${encodeURIComponent(OVERVIEW)}`, (route) =>
+      route.fulfill({ json: { page: overviewTree({ pending: 0, unclassified: 0, running: true }), renderedAt: Date.now() } }),
+    );
+
+    await page.goto(`/hub/${encodeURIComponent(OVERVIEW)}`);
+    await expect(page.getByTestId("hub-page-title")).toHaveText("File Organizer");
+    await expect(page.getByText("Needs your attention")).toHaveCount(0);
+  });
+
+  test("folders empty: the No-folders-watched empty-state renders with the add affordance", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj] });
+    await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+    await page.route(`**/api/hub/pages/${encodeURIComponent(FOLDERS)}`, (route) =>
+      route.fulfill({ json: { page: foldersTree({ folders: false }), renderedAt: Date.now() } }),
+    );
+
+    await page.goto(`/hub/${encodeURIComponent(FOLDERS)}`);
+    await expect(page.getByTestId("hub-node-empty-state")).toContainText("No folders watched");
+    await expect(page.getByTestId("hub-node-button").filter({ hasText: "Add watched folder" })).toBeVisible();
+  });
+
+  test("review empty: the quarantine empty-state renders", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj] });
+    await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+    await page.route(`**/api/hub/pages/${encodeURIComponent(REVIEW)}`, (route) =>
+      route.fulfill({ json: { page: reviewQuarantineTree(true), renderedAt: Date.now() } }),
+    );
+
+    await page.goto(`/hub/${encodeURIComponent(REVIEW)}`);
+    await expect(page.getByTestId("hub-node-empty-state")).toContainText("Quarantine is empty");
+  });
+
+  test("confirm cancel: dismissing the delete confirm does NOT POST the action", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj] });
+    let posted = false;
+    await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+    await page.route(`**/api/hub/pages/${encodeURIComponent(REVIEW)}`, (route) =>
+      route.fulfill({ json: { page: reviewDeletesTree(), renderedAt: Date.now() } }),
+    );
+    await page.route(evt("confirm-deletes"), (route) => {
+      posted = true;
+      return route.fulfill({ json: { ok: true } });
+    });
+
+    await page.goto(`/hub/${encodeURIComponent(REVIEW)}`);
+    await page.getByTestId("hub-node-button").filter({ hasText: "Confirm these 1 deletes" }).click();
+    await expect(page.getByTestId("hub-confirm-dialog")).toBeVisible();
+    await page.getByTestId("hub-confirm-cancel").click();
+    await expect(page.getByTestId("hub-confirm-dialog")).toHaveCount(0);
+    // Give any (erroneous) dispatch a beat to fire, then assert it didn't.
+    await page.waitForTimeout(150);
+    expect(posted).toBe(false);
+  });
+
+  test("prompt cancel: dismissing the add-folder prompt does NOT POST", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj] });
+    let posted = false;
+    await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+    await page.route(`**/api/hub/pages/${encodeURIComponent(FOLDERS)}`, (route) =>
+      route.fulfill({ json: { page: foldersTree({ folders: false }), renderedAt: Date.now() } }),
+    );
+    await page.route("**/api/fs/list**", (route) => route.fulfill({ json: [] }));
+    await page.route(evt("add-folder"), (route) => {
+      posted = true;
+      return route.fulfill({ json: { ok: true } });
+    });
+
+    await page.goto(`/hub/${encodeURIComponent(FOLDERS)}`);
+    await page.getByTestId("hub-node-button").filter({ hasText: "Add watched folder" }).click();
+    await expect(page.getByTestId("hub-prompt-dialog")).toBeVisible();
+    await page.getByTestId("hub-prompt-cancel").click();
+    await expect(page.getByTestId("hub-prompt-dialog")).toHaveCount(0);
+    await page.waitForTimeout(150);
+    expect(posted).toBe(false);
+  });
+
+  test("prompt Escape: pressing Escape in the plain-text prompt cancels without POSTing", async ({ page, mockApi }) => {
+    // The add-ignore prompt uses the PLAIN text input (no format widget),
+    // which owns the Enter-submit / Escape-cancel keyboard handling.
+    await mockApi({ projects: [proj] });
+    let posted = false;
+    await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
+    await page.route(`**/api/hub/pages/${encodeURIComponent(FOLDERS)}`, (route) =>
+      route.fulfill({ json: { page: foldersTree({ folders: true }), renderedAt: Date.now() } }),
+    );
+    await page.route(evt("add-ignore"), (route) => {
+      posted = true;
+      return route.fulfill({ json: { ok: true } });
+    });
+
+    await page.goto(`/hub/${encodeURIComponent(FOLDERS)}`);
+    await page.getByTestId("hub-node-button").filter({ hasText: "Add ignore" }).click();
+    await page.getByTestId("hub-prompt-input").fill("secrets");
+    await page.getByTestId("hub-prompt-input").press("Escape");
+    await expect(page.getByTestId("hub-prompt-dialog")).toHaveCount(0);
+    await page.waitForTimeout(150);
+    expect(posted).toBe(false);
   });
 });
