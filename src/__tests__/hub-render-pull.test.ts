@@ -17,6 +17,10 @@ mock.module("$lib/server/context", () => ({ getBus: () => null }));
 // record the wiring sequence; `__fakeProcResponse` drives the result.
 const fakeRegistryCalls: string[] = [];
 let __fakeProcResponse: unknown = null;
+// Lets a test observe the params (incl. `_meta.ezCallId`) the production
+// path stamps on the `ezcorp/page.render` forward call — and resolve the
+// live provenance token mid-call.
+let __fakeProcInspect: ((method: string, params: Record<string, unknown>) => void) | null = null;
 mock.module("$server/extensions/registry", () => ({
   ExtensionRegistry: {
     getInstance: () => ({
@@ -25,6 +29,7 @@ mock.module("$server/extensions/registry", () => ({
         return {
           call: async (method: string, params: Record<string, unknown>) => {
             fakeRegistryCalls.push(`call:${method}:${String(params.pageId)}`);
+            __fakeProcInspect?.(method, params);
             return { jsonrpc: "2.0", id: 1, result: __fakeProcResponse };
           },
         };
@@ -57,6 +62,7 @@ mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/
 // (same pattern as extension-events-hub-branch.test.ts).
 const { renderExtensionPage } = await import("../../web/src/lib/server/hub-render-pull");
 import type { RenderPullDeps } from "../../web/src/lib/server/hub-render-pull";
+import { resolveCallProvenance } from "../extensions/call-provenance";
 import { ExtensionPageCache } from "../extensions/page-cache";
 import type { Extension } from "../db/schema";
 import type { JsonRpcResponse } from "../extensions/types";
@@ -258,6 +264,42 @@ describe("renderExtensionPage", () => {
       "wire:ext-1",
       "call:ezcorp/page.render:dashboard",
     ]);
+  });
+
+  test("production callPage mints a render-scoped provenance token, stamps _meta.ezCallId, and releases it after", async () => {
+    __fakeProcResponse = VALID_RESULT;
+    let observed: { ezCallId: unknown; prov: ReturnType<typeof resolveCallProvenance> } | null = null;
+    // Snapshot the token + resolve it WHILE the render call is in flight —
+    // this is exactly when the subprocess's reverse-RPC `fs.read` would
+    // resolve the same token, so it proves the read would be authorized.
+    __fakeProcInspect = (_method, params) => {
+      const ezCallId = (params._meta as Record<string, unknown> | undefined)?.ezCallId;
+      observed = { ezCallId, prov: resolveCallProvenance(ezCallId as string) };
+    };
+    try {
+      const extension = makeExtension();
+      await renderExtensionPage("cron-dashboard", "dashboard", "user-42", {
+        findPage: async () => ({ extension, page: PAGE }),
+        cache: new ExtensionPageCache(),
+      });
+    } finally {
+      __fakeProcInspect = null;
+    }
+
+    expect(observed).not.toBeNull();
+    const seen = observed!;
+    // A real host-issued token rode on `_meta.ezCallId`...
+    expect(typeof seen.ezCallId).toBe("string");
+    expect((seen.ezCallId as string).length).toBeGreaterThan(0);
+    // ...and it resolved DURING the call to the viewing user + this
+    // extension, with kind "render" (so fs.read's owner gate passes).
+    expect(seen.prov).toBeDefined();
+    expect(seen.prov!.onBehalfOf).toBe("user-42");
+    expect(seen.prov!.actorExtensionId).toBe("ext-1");
+    expect(seen.prov!.kind).toBe("render");
+    expect(seen.prov!.ownerless).toBe(false);
+    // ...and it was released in the `finally` once render returned (no leak).
+    expect(resolveCallProvenance(seen.ezCallId as string)).toBeUndefined();
   });
 
   test("a cache.set failure in the background refresh is folded by the outer catch", async () => {

@@ -44,6 +44,10 @@ export interface PagePrompt {
   /** Host clamps the input length; default 200, hard cap 500. */
   maxLength?: number;
   submitLabel?: string;
+  /** Opt the dialog into a shared format widget (`file-path` → the
+   *  filesystem picker, etc.). Validated host-side against
+   *  `PROMPT_FORMATS`; unknown → plain text input. */
+  format?: string;
 }
 export interface PageAction {
   event: string;

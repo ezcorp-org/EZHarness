@@ -57,6 +57,7 @@ import {
   runSweep,
   type ApplyError,
 } from "./perm-expiry-sweep";
+import { acquireLockfile, releaseLockfile, isProcessAlive } from "../startup/process-lockfile";
 
 /**
  * Sub-tick cadence — every 6th `tickOnce()` fires
@@ -357,56 +358,9 @@ export class HostMaintenanceDaemon {
 
 // ── PID lockfile helpers ──────────────────────────────────────────────
 //
-// Inlined copy of the same primitives in `./schedule-daemon.ts`. See the
-// module header for why this is duplicated rather than extracted —
-// short version: tiny scope, one extra caller, refactor when a third
-// daemon shows up.
-
-async function ensureDir(path: string): Promise<void> {
-  const fs = await import("node:fs/promises");
-  const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ".";
-  if (dir && dir !== ".") await fs.mkdir(dir, { recursive: true });
-}
-
-/** Returns true when the process for `pid` is alive on this host. */
-function isProcessAlive(pid: number): boolean {
-  if (!Number.isFinite(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException)?.code;
-    return code === "EPERM"; // process exists but owned by another user
-  }
-}
-
-async function acquireLockfile(path: string): Promise<boolean> {
-  await ensureDir(path);
-  const file = Bun.file(path);
-  if (await file.exists()) {
-    const text = (await file.text()).trim();
-    const pid = parseInt(text, 10);
-    // Refuse if the lockfile points at ANY live process — including
-    // ours. Same rationale as schedule-daemon: a second daemon in the
-    // same process means double-wiring, and that's a bug we want to
-    // catch loudly.
-    if (Number.isFinite(pid) && isProcessAlive(pid)) {
-      return false;
-    }
-    // Stale lock — overwrite.
-  }
-  await Bun.write(path, String(process.pid));
-  return true;
-}
-
-async function releaseLockfile(path: string): Promise<void> {
-  try {
-    const fs = await import("node:fs/promises");
-    await fs.unlink(path);
-  } catch {
-    // Already gone — fine.
-  }
-}
+// Shared, PID-reuse-safe primitive — see src/startup/process-lockfile.ts
+// for the boot-token / self-PID reclaim semantics that fix the
+// cross-restart self-deadlock.
 
 /** Test-only export: lets tests inspect/own the lockfile helpers and
  *  verify the kill-switch / env-var resolution paths without standing

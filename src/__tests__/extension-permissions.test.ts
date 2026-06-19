@@ -172,22 +172,27 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// `process.cwd()` is process-global. These describes chdir into temp
-// project roots; restoring ONLY in afterAll leaks a (since-rm'd) temp
-// cwd into every later test FILE in the same `bun test` process — that
-// poisons `findProjectRoot(process.cwd())` consumers (e.g. the
-// extension-author draft-dir resolver). Always restore to this stable
-// original in afterEach so the file never leaves cwd dirty.
-const ORIGINAL_CWD = process.cwd();
+// `$CWD` filesystem-grant resolution now follows the PROJECT ROOT
+// (`getProjectRoot()`), driven in these describes via the
+// `EZCORP_PROJECT_ROOT` env override + the cache-reset seam — no
+// `process.chdir`, so no process-global cwd leak into later test files.
+
+// `$CWD` now expands to the PROJECT ROOT (`getProjectRoot()`), not the
+// host `process.cwd()` — see `permissions.ts:grantCwdBase`. In the
+// `bun test` process `getProjectRoot()` resolves via import.meta to this
+// repo root, which equals `process.cwd()` when tests run from the repo
+// root (the standard invocation), so these bare-token assertions still
+// pin the same value while documenting the new project-root semantics.
+import { getProjectRoot, __resetProjectRootCacheForTests } from "../extensions/bundled";
 
 describe("expandGrantPrefix", () => {
-  test("expands the bare `$CWD` token to process.cwd()", () => {
-    expect(expandGrantPrefix("$CWD")).toBe(process.cwd());
+  test("expands the bare `$CWD` token to the project root", () => {
+    expect(expandGrantPrefix("$CWD")).toBe(getProjectRoot());
   });
 
-  test("expands `$CWD/<sub>` to <cwd>/<sub>", () => {
+  test("expands `$CWD/<sub>` to <projectRoot>/<sub>", () => {
     expect(expandGrantPrefix("$CWD/.ezcorp/extension-data/foo")).toBe(
-      join(process.cwd(), ".ezcorp/extension-data/foo"),
+      join(getProjectRoot(), ".ezcorp/extension-data/foo"),
     );
   });
 
@@ -202,22 +207,38 @@ describe("expandGrantPrefix", () => {
   });
 });
 
-describe("checkFilesystemPermission — `$CWD` grant resolves at runtime", () => {
+describe("checkFilesystemPermission — `$CWD` grant resolves to the project root", () => {
+  // `$CWD` now follows `getProjectRoot()` (project root), NOT the host
+  // process cwd. We drive `getProjectRoot()` deterministically via the
+  // `EZCORP_PROJECT_ROOT` env override (its first resolution branch) +
+  // the cache-reset seam, pointing it at a temp dir that satisfies
+  // `isProjectRootCandidate` (has `docs/extensions/examples`). This
+  // proves a `$CWD` grant covers paths under the PROJECT ROOT — exactly
+  // where bundled extensions read/write their `.ezcorp/extension-data/`
+  // store, and where the file-organizer data-dir split was — while a
+  // sibling outside it is still denied.
   let projectRoot = "";
+  let priorEnv: string | undefined;
 
   beforeEach(() => {
-    projectRoot = mkdtempSync(join(tmpdir(), "expand-cwd-"));
-    process.chdir(projectRoot);
+    projectRoot = realpathSync(mkdtempSync(join(tmpdir(), "expand-cwd-")));
+    // Make the temp dir a valid project-root candidate.
+    mkdirSync(join(projectRoot, "docs", "extensions", "examples"), { recursive: true });
+    priorEnv = process.env.EZCORP_PROJECT_ROOT;
+    process.env.EZCORP_PROJECT_ROOT = projectRoot;
+    __resetProjectRootCacheForTests();
   });
 
   afterEach(() => {
-    process.chdir(ORIGINAL_CWD);
+    if (priorEnv === undefined) delete process.env.EZCORP_PROJECT_ROOT;
+    else process.env.EZCORP_PROJECT_ROOT = priorEnv;
+    __resetProjectRootCacheForTests();
     if (projectRoot) {
       try { rmSync(projectRoot, { recursive: true, force: true }); } catch { /* */ }
     }
   });
 
-  test("path under <cwd>/.ezcorp is allowed when grant is `$CWD`", async () => {
+  test("path under <projectRoot>/.ezcorp is allowed when grant is `$CWD`", async () => {
     // Mirror the openai-image-gen-2 write target shape.
     const target = join(projectRoot, ".ezcorp", "extension-data", "ext", "generated");
     mkdirSync(target, { recursive: true });
@@ -232,7 +253,7 @@ describe("checkFilesystemPermission — `$CWD` grant resolves at runtime", () =>
     expect(result.allowed).toBe(true);
   });
 
-  test("path outside <cwd> is still denied even with `$CWD` grant", async () => {
+  test("path outside <projectRoot> is still denied even with `$CWD` grant", async () => {
     const result = await checkFilesystemPermission(
       "/etc/passwd",
       { filesystem: ["$CWD"], grantedAt: {} },
@@ -299,14 +320,24 @@ describe("resolveGrantPrefixCanonical", () => {
 });
 
 describe("checkFilesystemPermission — granted prefix dir not created yet", () => {
+  // `$CWD` resolves to the project root (`getProjectRoot()`), driven here
+  // via the `EZCORP_PROJECT_ROOT` env override + cache reset rather than
+  // `process.chdir`. The temp root is made a valid project-root candidate
+  // (has `docs/extensions/examples`).
   let projectRoot = "";
+  let priorEnv: string | undefined;
 
   beforeEach(() => {
     projectRoot = realpathSync(mkdtempSync(join(tmpdir(), "boot-grant-")));
-    process.chdir(projectRoot);
+    mkdirSync(join(projectRoot, "docs", "extensions", "examples"), { recursive: true });
+    priorEnv = process.env.EZCORP_PROJECT_ROOT;
+    process.env.EZCORP_PROJECT_ROOT = projectRoot;
+    __resetProjectRootCacheForTests();
   });
   afterEach(() => {
-    process.chdir(ORIGINAL_CWD);
+    if (priorEnv === undefined) delete process.env.EZCORP_PROJECT_ROOT;
+    else process.env.EZCORP_PROJECT_ROOT = priorEnv;
+    __resetProjectRootCacheForTests();
     if (projectRoot) try { rmSync(projectRoot, { recursive: true, force: true }); } catch { /* */ }
   });
 

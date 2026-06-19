@@ -62,12 +62,20 @@ import type { QuarantineEntry } from "./lib/quarantine";
 
 // ── Data-dir resolution ─────────────────────────────────────────────
 //
-// The host injects EZCORP_PROJECT_ROOT; the canonical store is
-// `<root>/.ezcorp/extension-data/file-organizer/`. We do NOT mkdir here
-// (postinstall + the daemon own that); we only read/write existing files
-// through the host-mediated fs helpers.
+// The canonical store is `<root>/.ezcorp/extension-data/file-organizer/`,
+// where <root> is the project root the HOST writes config to (events
+// route + daemon). The host injects EZCORP_EXTENSION_DATA_ROOT (the
+// project root, e.g. /app) for exactly this — preferred over
+// EZCORP_PROJECT_ROOT and the cwd fallback because under the vite-SSR dev
+// server `process.cwd()` is /app/web, which would split the reader away
+// from the writer's /app dir. The `$CWD` fs grant also resolves to the
+// project root (see host `permissions.ts:grantCwdBase`), so reading this
+// dir is covered by the grant. We do NOT mkdir here (postinstall + the
+// daemon own that); we only read/write existing files through the
+// host-mediated fs helpers.
 
-const PROJECT_ROOT = process.env.EZCORP_PROJECT_ROOT ?? process.cwd();
+const PROJECT_ROOT =
+  process.env.EZCORP_EXTENSION_DATA_ROOT ?? process.env.EZCORP_PROJECT_ROOT ?? process.cwd();
 const DATA_DIR = join(PROJECT_ROOT, ".ezcorp", "extension-data", "file-organizer");
 
 const PATHS = {

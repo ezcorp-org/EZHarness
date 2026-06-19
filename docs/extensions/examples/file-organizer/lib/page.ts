@@ -439,7 +439,7 @@ export function buildFolders(v: FoldersView): HubPageTree {
   }
 
   page.section(undefined, (s) => {
-    s.button("Add watched folder", { event: EVENTS.addFolder, prompt: { label: "Folder path", placeholder: "/watched/Downloads", field: "path" } }, "primary");
+    s.button("Add watched folder", { event: EVENTS.addFolder, prompt: { label: "Folder path", placeholder: "/watched/Downloads", field: "path", format: "file-path" } }, "primary");
     s.button("Add ignore", { event: EVENTS.addIgnore, prompt: { label: "Ignore path or name", field: "path" } }, "secondary");
     s.button("Add quick rule", { event: EVENTS.addRule, prompt: { label: "Rule (e.g. *.tmp older 7d -> quarantine)", field: "rule" } }, "secondary");
   });

@@ -456,6 +456,34 @@ describe("action prompt", () => {
     expect(b!.action.prompt!.submitLabel).toBeUndefined();
   });
 
+  test("a known scalar `format` is preserved (opts into a shared widget)", () => {
+    for (const fmt of ["file-path", "combo-box", "search", "date", "datetime"]) {
+      const b = buttonWith({ label: "Folder path", field: "path", format: fmt });
+      expect(b!.action.prompt!.format).toBe(fmt);
+    }
+  });
+
+  test("file-path format round-trips with the other prompt fields", () => {
+    const b = buttonWith({ label: "Folder path", placeholder: "/watched/Downloads", field: "path", format: "file-path" });
+    expect(b!.action.prompt).toEqual({
+      label: "Folder path",
+      placeholder: "/watched/Downloads",
+      field: "path",
+      maxLength: 200,
+      format: "file-path",
+    });
+  });
+
+  test("an unknown / non-scalar / non-string format is dropped (degrades to a text box)", () => {
+    // `tag-input` is a real format-map key but produces an ARRAY, not the
+    // scalar a prompt merges — it must be excluded alongside junk values.
+    for (const bad of ["tag-input", "rich-text", "FILE-PATH", "", 7, true, {}]) {
+      const b = buttonWith({ label: "T", field: "path", format: bad });
+      expect(b!.action.prompt).toBeDefined();
+      expect(b!.action.prompt!.format).toBeUndefined();
+    }
+  });
+
   test("a prompt on a table-row action validates the same way", () => {
     const t = validate([
       {

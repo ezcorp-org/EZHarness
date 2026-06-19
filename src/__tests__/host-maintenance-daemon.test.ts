@@ -96,6 +96,7 @@ import {
   _hostMaintenanceDaemonInternals,
   getSweepIntervalMs,
 } from "../extensions/host-maintenance-daemon";
+import { readProcStartTime } from "../startup/process-lockfile";
 import { extensions, settings, auditLog } from "../db/schema";
 import { getDb } from "../db/connection";
 
@@ -355,14 +356,15 @@ describe("HostMaintenanceDaemon — PID lockfile", () => {
     await unlink(lockPath).catch(() => {});
   });
 
-  test("sibling-prevention: second daemon refuses start when first holds the lock", async () => {
+  test("sibling-prevention: second daemon refuses start when a genuine live sibling holds the lock", async () => {
     const lockPath = join(
       tmpdir(),
       `ezcorp-test-lock-sibling-${Date.now()}.pid`,
     );
-    // Pre-write our own PID — we ARE alive, so sibling-prevention
-    // must trigger. Mirrors the schedule-daemon test's pattern.
-    await Bun.write(lockPath, String(process.pid));
+    // A genuine live sibling: a foreign live PID whose identity token still
+    // matches. PID 1 is always alive; stamp its real /proc start-time so the
+    // recompute matches → refuse.
+    await Bun.write(lockPath, `1 ${readProcStartTime(1)}`);
 
     const second = new HostMaintenanceDaemon({
       wakeIntervalMs: 60_000,
@@ -374,15 +376,32 @@ describe("HostMaintenanceDaemon — PID lockfile", () => {
     await unlink(lockPath).catch(() => {});
   });
 
+  test("reclaim: a prior-boot lockfile holding our reused PID does NOT wedge start (restart fix)", async () => {
+    const lockPath = join(
+      tmpdir(),
+      `ezcorp-test-lock-reused-${Date.now()}.pid`,
+    );
+    // The cross-restart self-deadlock: a `.pid` whose stored PID got reused
+    // as ours used to refuse forever. It must now be reclaimed.
+    await Bun.write(lockPath, `${process.pid} prior-boot-token`);
+    const daemon = new HostMaintenanceDaemon({
+      wakeIntervalMs: 60_000,
+      lockfilePath: lockPath,
+    });
+    const ok = await daemon.start();
+    expect(ok).toBe(true);
+    expect(parseInt((await Bun.file(lockPath).text()).trim(), 10)).toBe(process.pid);
+    daemon.stop();
+    await unlink(lockPath).catch(() => {});
+  });
+
   test("stale lockfile (PID of dead process) is overwritten", async () => {
     const lockPath = join(
       tmpdir(),
       `ezcorp-test-lock-stale-${Date.now()}.pid`,
     );
-    // PID 1 always exists, but the daemon refuses on ANY live PID
-    // (including ours). To get a stale-lock result we use a high
-    // bogus PID. Same trick as schedule-daemon.test.ts:332-339.
-    await Bun.write(lockPath, "999999999");
+    // A dead PID well above the typical ceiling → stale → reclaim.
+    await Bun.write(lockPath, "999999999 dead-token");
     const daemon = new HostMaintenanceDaemon({
       wakeIntervalMs: 60_000,
       lockfilePath: lockPath,

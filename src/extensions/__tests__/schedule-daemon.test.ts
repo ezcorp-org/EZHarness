@@ -19,6 +19,7 @@ mockDbConnection();
 
 import { reconcileSchedules, _wipeSchedulesForTests } from "../schedule-reconcile";
 import { ScheduleDaemon, _scheduleDaemonInternals } from "../schedule-daemon";
+import { readProcStartTime } from "../../startup/process-lockfile";
 import { extensionSchedules, extensionScheduleFires, extensions, auditLog } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import { tmpdir } from "node:os";
@@ -320,8 +321,11 @@ describe("ScheduleDaemon — hardening (Phase 51.5.5/51.5.6)", () => {
 
   test("PID lockfile sibling-prevention: second daemon refuses start", async () => {
     const lockPath = join(tmpdir(), `ezcorp-test-lock-${Date.now()}.pid`);
-    // Pretend our PID is the existing owner.
-    await Bun.write(lockPath, String(process.pid));
+    // A genuine live sibling: a foreign live PID whose identity token still
+    // matches. PID 1 is always alive on Linux; stamp its real /proc
+    // start-time so the recompute matches → refuse. (A bare-own-PID lockfile
+    // is now treated as a reusable stale lock — see the reclaim test below.)
+    await Bun.write(lockPath, `1 ${readProcStartTime(1)}`);
     const second = new ScheduleDaemon({ lockfilePath: lockPath });
     const ok = await second.start();
     expect(ok).toBe(false);
@@ -329,12 +333,22 @@ describe("ScheduleDaemon — hardening (Phase 51.5.5/51.5.6)", () => {
     await unlink(lockPath).catch(() => {});
   });
 
+  test("PID lockfile: reused-own-PID lock from a prior boot is reclaimed (restart fix)", async () => {
+    const lockPath = join(tmpdir(), `ezcorp-test-lock-reused-${Date.now()}.pid`);
+    // A `.pid` left by a prior boot whose PID got reused as ours used to
+    // self-deadlock ("sibling alive"). It must now be reclaimed.
+    await Bun.write(lockPath, `${process.pid} prior-boot-token`);
+    const daemon = new ScheduleDaemon({ lockfilePath: lockPath });
+    const ok = await daemon.start();
+    expect(ok).toBe(true);
+    daemon.stop();
+    await unlink(lockPath).catch(() => {});
+  });
+
   test("PID lockfile: stale PID gets overwritten, daemon starts", async () => {
     const lockPath = join(tmpdir(), `ezcorp-test-lock-stale-${Date.now()}.pid`);
-    // PID 1 always exists on Linux but the daemon only refuses when
-    // the PID is alive AND not equal to process.pid. To get a "stale"
-    // result, write a bogus PID well above the typical ceiling.
-    await Bun.write(lockPath, "999999999");
+    // A dead PID well above the typical ceiling → stale → reclaim.
+    await Bun.write(lockPath, "999999999 dead-token");
     const daemon = new ScheduleDaemon({ lockfilePath: lockPath });
     const ok = await daemon.start();
     expect(ok).toBe(true);
