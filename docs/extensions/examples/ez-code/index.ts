@@ -192,6 +192,9 @@ export interface RunRecord {
 //     cron-fired/system runs. The ONLY runs the shared dashboard renders.
 
 const EZ_LOOP_ID = "ez-code";
+// NOTE: `EZ_CONTRACT` intentionally omits `idempotencyKey` — every run is
+// keyed by the host-generated `agentRunId`, which is already unique per
+// dispatch, so there is no duplicate-fire to collapse.
 const EZ_CONTRACT: LoopContract = {
   states: ["dispatched", "running", "completed", "failed", "cancelled"],
   terminal: ["completed", "failed", "cancelled"],
@@ -1325,6 +1328,13 @@ export function register(): void {
   registerEventHandler("task:assignment_update", handleAssignmentUpdate);
   // B4: cron triggers — one handler per declared cron. The host only fires
   // crons the manifest declared; each fire reads triggers.json + dispatches.
+  //
+  // DELIBERATE: the cron stays on `Schedule.on` rather than a `defineLoop`
+  // cron trigger. `defineLoop`'s `act` is single-fire → single-run, but
+  // `handleTriggerFire` reads triggers.json and BATCH-dispatches N runs per
+  // fire (1 fire → N dispatches). Wrapping that in defineLoop would need a
+  // fan-out shim that adds no DRY, so the batch cron is kept bespoke; the
+  // runs it dispatches still persist via the loop-store substrate.
   const schedule = new Schedule();
   for (const cron of TRIGGER_CRONS) {
     schedule.on(cron, handleTriggerFire);
