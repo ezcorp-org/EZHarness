@@ -298,9 +298,19 @@ export class AgentExecutor {
     return [...this.agents.values()];
   }
 
-  async listRuns(projectId?: string): Promise<AgentRun[]> {
+  // `userId`, when set, scopes the listing to that user's runs (non-admin
+  // ownership guard for GET /api/runs). Admin callers omit it to see all.
+  async listRuns(projectId?: string, userId?: string): Promise<AgentRun[]> {
     if (this.persist) {
-      const dbResults = (await dbRuns.listRuns(projectId)).map(dbRuns.toAgentRun);
+      const dbResults = (await dbRuns.listRuns(projectId, userId)).map(dbRuns.toAgentRun);
+      if (userId) {
+        // Ownership-scoped: the DB rows are already filtered to the caller.
+        // Don't merge unpersisted in-memory active runs — they can't be
+        // safely attributed yet, and runs are persisted at creation so they
+        // surface here immediately. Fail closed (never leak another tenant's
+        // in-flight run through the merge).
+        return dbResults.sort((a, b) => b.startedAt - a.startedAt);
+      }
       const active = [...this.runs.values()].filter((r) => r.status === "running");
       const dbIds = new Set(dbResults.map((r) => r.id));
       const merged = [...dbResults];

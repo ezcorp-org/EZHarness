@@ -137,6 +137,35 @@ describe("runs queries", () => {
     expect(p2Runs[0]!.id).toBe(r3.id);
   });
 
+  test("listRuns filters by userId (per-user IDOR scope for the list endpoint)", async () => {
+    // runs.user_id FK-references users(id), so the principals must exist.
+    await createUser({ id: "user-a", email: "user-a@x.com", passwordHash: "h", name: "a", role: "member" } as any);
+    await createUser({ id: "user-b", email: "user-b@x.com", passwordHash: "h", name: "b", role: "member" } as any);
+    const r1 = makeRun();
+    const r2 = makeRun();
+    const r3 = makeRun();
+    await insertRun(r1, undefined, undefined, undefined, "user-a");
+    await insertRun(r2, undefined, undefined, undefined, "user-a");
+    await insertRun(r3, undefined, undefined, undefined, "user-b");
+
+    const aRuns = await listRuns(undefined, "user-a");
+    expect(aRuns.map((r) => r.id).sort()).toEqual([r1.id, r2.id].sort());
+
+    const bRuns = await listRuns(undefined, "user-b");
+    expect(bRuns.map((r) => r.id)).toEqual([r3.id]);
+
+    // userId + projectId combine (both conditions AND-ed).
+    const p = await createProject({ name: "pc", path: "/pc" });
+    const r4 = makeRun();
+    await insertRun(r4, p.id, undefined, undefined, "user-a");
+    const aInP = await listRuns(p.id, "user-a");
+    expect(aInP.map((r) => r.id)).toEqual([r4.id]);
+
+    // No userId → admin view sees everyone's runs.
+    const all = await listRuns();
+    expect(all.length).toBeGreaterThanOrEqual(4);
+  });
+
   test("listRuns returns empty array when none match", async () => {
     expect(await listRuns()).toEqual([]);
     expect(await listRuns(crypto.randomUUID())).toEqual([]);

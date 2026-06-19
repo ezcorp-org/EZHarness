@@ -88,18 +88,19 @@ describe("admin-gate pairing (FINDING A regression guard)", () => {
   // (/api/account*, own developer keys, own team membership) where the
   // scope-admin is a write-gate for API-key principals and the cookie
   // allow-all is intentional — forcing requireRole(admin) there would lock
-  // every member out of their own data. A couple touch instance state
-  // (provider model refresh, extension violations) and warrant the same
-  // requireAdmin treatment as providers/test in a follow-up — but they are
-  // out of this change's ownership. FROZEN so a NEW offender fails the test
-  // (the regression guard) while pre-existing ones don't block it. Shrink
+  // every member out of their own data. `extensions/[id]/violations` stays
+  // here because it enforces admin via an INLINE `locals.user?.role !== "admin"`
+  // check the role-regex below can't see (verified safe, not exploitable).
+  // The instance-state routes that genuinely needed role-gating
+  // (providers/[provider]/{test,refresh-models}) have been fixed with
+  // requireAdmin and removed from this list. FROZEN so a NEW offender fails the
+  // test (the regression guard) while pre-existing ones don't block it. Shrink
   // this list as each is reviewed; never add to it without justification.
   const KNOWN_SCOPE_ONLY_ADMIN = new Set<string>([
     "api/account/+server.ts",
     "api/account/password/+server.ts",
     "api/account/sessions/+server.ts",
     "api/extensions/[id]/violations/+server.ts",
-    "api/providers/[provider]/refresh-models/+server.ts",
     "api/settings/developer/+server.ts",
     "api/settings/developer/api-keys/+server.ts",
     "api/teams/[id]/members/+server.ts",

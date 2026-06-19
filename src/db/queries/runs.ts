@@ -209,12 +209,19 @@ export async function insertLog(runId: string, log: AgentLog): Promise<void> {
   });
 }
 
-export async function listRuns(projectId?: string): Promise<DbRun[]> {
+// `userId`, when given, scopes the listing to that user's runs (the IDOR
+// guard for the non-admin `GET /api/runs` list — without it the endpoint
+// returns every tenant's run rows + input JSON). Admin callers pass undefined
+// to see all runs.
+export async function listRuns(projectId?: string, userId?: string): Promise<DbRun[]> {
   const db = getDb();
-  if (projectId) {
-    return db.select().from(runs).where(eq(runs.projectId, projectId)).orderBy(desc(runs.startedAt)) as Promise<DbRun[]>;
-  }
-  return db.select().from(runs).orderBy(desc(runs.startedAt)).limit(100) as Promise<DbRun[]>;
+  const conds = [];
+  if (projectId) conds.push(eq(runs.projectId, projectId));
+  if (userId) conds.push(eq(runs.userId, userId));
+  const whereClause = conds.length === 0 ? undefined : conds.length === 1 ? conds[0] : and(...conds);
+  const q = db.select().from(runs).where(whereClause).orderBy(desc(runs.startedAt));
+  // Preserve prior semantics: cap the unscoped (no projectId) listing at 100.
+  return (projectId ? q : q.limit(100)) as Promise<DbRun[]>;
 }
 
 export async function getRunWithLogs(id: string): Promise<(DbRun & { logs: AgentLog[] }) | undefined> {

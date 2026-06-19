@@ -147,6 +147,23 @@ describe("GET /api/runs/[id]?wait=1", () => {
     }
   });
 
+  test("499 when the client signal is already aborted (releases the wait slot)", async () => {
+    runs.set("r8", mkRun("r8", "running"));
+    const ac = new AbortController();
+    ac.abort();
+    const evAborted = (id: string) => {
+      const u = new URL(`http://x/api/runs/${id}`);
+      u.searchParams.set("wait", "1");
+      return { params: { id }, url: u, locals, request: { signal: ac.signal } } as any;
+    };
+    const res = await GET(evAborted("r8"));
+    expect(res.status).toBe(499);
+    // Slot released, not leaked: a SECOND already-aborted wait also returns
+    // 499 (not 429), proving activeWaits returned to baseline on disconnect.
+    const res2 = await GET(evAborted("r8"));
+    expect(res2.status).toBe(499);
+  });
+
   test("without wait → returns the run row unchanged", async () => {
     runs.set("r4", mkRun("r4", "running"));
     const res = await GET(ev("r4"));
