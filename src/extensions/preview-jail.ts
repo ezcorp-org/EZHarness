@@ -52,6 +52,17 @@ export interface PreviewJailInput {
   roSystemDirs?: readonly string[];
   /** tmpfs size in bytes for /tmp. Default 64 MiB (matches the MCP jail). */
   tmpfsBytes?: number;
+  /** Omit the `--size` cap on the private `/tmp` tmpfs. Required on hosts
+   *  whose `bwrap` is the SETUID-root wrapper (e.g. NixOS, where
+   *  unprivileged user namespaces are disabled at the sysctl level so
+   *  bwrap must run setuid): in setuid mode bwrap REFUSES `--size`
+   *  ("The --size option is not permitted in setuid mode") and aborts the
+   *  whole jail. Dropping `--size` keeps every security-relevant bind /
+   *  namespace flag intact — it only forfeits the tmpfs size CAP (a
+   *  defense-in-depth DoS guard; the real memory bound is the prlimit
+   *  `--rss` on the inner command). Without it, `/tmp` falls back to
+   *  bwrap's default (half of RAM). */
+  omitTmpfsSize?: boolean;
   /** Optional seccomp FD index (the launcher passes the BPF blob on this
    *  FD). When set, `--seccomp <fd>` is appended. */
   seccompFd?: number | null;
@@ -186,10 +197,19 @@ function buildJailArgsCore(
     "--new-session",
     "--proc", "/proc",
     "--dev", "/dev",
-    // Private tmpfs at /tmp — `--size` MUST precede `--tmpfs` (bwrap is a
-    // sequential state machine; reversal silently drops the cap).
-    "--size", String(input.tmpfsBytes ?? DEFAULT_TMPFS_BYTES),
-    "--tmpfs", "/tmp",
+    // Private tmpfs at /tmp. `--size` MUST precede `--tmpfs` (bwrap is a
+    // sequential state machine; reversal silently drops the cap). On a
+    // setuid-root bwrap (`omitTmpfsSize`) the `--size` flag is rejected
+    // and aborts the jail, so emit a bare `--tmpfs /tmp` (default size)
+    // instead — every other confinement flag is unchanged.
+    ...(input.omitTmpfsSize
+      ? (["--tmpfs", "/tmp"] as const)
+      : ([
+          "--size",
+          String(input.tmpfsBytes ?? DEFAULT_TMPFS_BYTES),
+          "--tmpfs",
+          "/tmp",
+        ] as const)),
   ];
 
   // `--dir` mkdirs inside the jail — AFTER the /tmp tmpfs so each target

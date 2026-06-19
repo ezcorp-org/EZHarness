@@ -158,6 +158,48 @@ describe("buildSandboxArgv — tier branches", () => {
     expect(r.argv[idx + 1]).toBe("10");
   });
 
+  test("bwrap: emits --size before --tmpfs by default (non-setuid host)", () => {
+    const r = buildSandboxArgv({
+      tier: "bwrap",
+      workspaceDir: WORKSPACE,
+      projectRoot: ROOT,
+      roPaths: [RO_OK],
+      command: "true",
+      bwrapOmitTmpfsSize: false,
+    });
+    const sizeIdx = r.argv.indexOf("--size");
+    const tmpfsIdx = r.argv.indexOf("--tmpfs");
+    expect(sizeIdx).toBeGreaterThan(-1);
+    expect(tmpfsIdx).toBeGreaterThan(-1);
+    // `--size <n>` must immediately precede `--tmpfs` (bwrap state machine).
+    expect(r.argv[sizeIdx + 2]).toBe("--tmpfs");
+  });
+
+  test("bwrap: OMITS --size on a setuid bwrap but keeps --tmpfs + binds", () => {
+    const r = buildSandboxArgv({
+      tier: "bwrap",
+      workspaceDir: WORKSPACE,
+      projectRoot: ROOT,
+      roPaths: [RO_OK],
+      command: "true",
+      bwrapOmitTmpfsSize: true,
+    });
+    // The flag that setuid bwrap rejects is gone …
+    expect(r.argv).not.toContain("--size");
+    // … but the private /tmp tmpfs and the confinement surface remain.
+    expect(r.argv).toContain("--tmpfs");
+    expect(r.argv).toContain("/tmp");
+    expect(r.argv[0]).toBe("bwrap");
+    // Still no root bind / no data-dir bind.
+    const forbidden = forbiddenDataDir(ROOT);
+    expect(r.argv.some((a) => a === forbidden)).toBe(false);
+    for (let i = 0; i < r.argv.length; i++) {
+      if (r.argv[i] === "--bind" || r.argv[i] === "--ro-bind") {
+        expect(r.argv[i + 1]).not.toBe("/");
+      }
+    }
+  });
+
   test("throws when command is empty", () => {
     expect(() =>
       buildSandboxArgv({

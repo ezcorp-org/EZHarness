@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { getSandboxTier } from "./sandbox/capability-probe";
 import { buildSandboxArgv } from "./sandbox/build-sandbox-argv";
+import { DEFAULT_RUNTIME_RO_DIRS } from "./sandbox/landlock";
 
 const log = logger.child("extensions/subprocess");
 
@@ -73,8 +74,19 @@ export interface ExtensionProcessOptions {
  * the UI. (`import.meta.dir` had a related "undefined" bug on Vite SSR.)
  */
 function resolveSandboxPreloadPath(): string {
+  // The preload is a real `.ts` file spawned as `bun --preload <path>`; it is
+  // never imported, so it must exist on disk at spawn time. The colocated
+  // path is correct when running from `src/` (the production container). When
+  // the server is BUNDLED (the SvelteKit/Vite web preview the real-auth e2e
+  // harness builds), `import.meta.url` points into
+  // `.svelte-kit/output/server/chunks/…` and the `.ts` source was tree-shaken
+  // away — so fall back to the source under `EZCORP_PROJECT_ROOT` (the
+  // resolver's canonical anchor, set by the harness + prod entrypoint), then
+  // a cwd-relative guess. Same fix as the landlock-shim path resolution.
+  const root = process.env.EZCORP_PROJECT_ROOT;
   const candidates = [
     `${dirname(fileURLToPath(import.meta.url))}/runtime/sandbox-preload.ts`,
+    ...(root ? [`${root}/src/extensions/runtime/sandbox-preload.ts`] : []),
     `${process.cwd()}/src/extensions/runtime/sandbox-preload.ts`,
   ];
   for (const p of candidates) {
@@ -207,6 +219,21 @@ export class ExtensionProcess {
       mkdirSync(workspaceDir, { recursive: true });
       const rwPaths: string[] = [];
       if (this.allowedEnv.TMPDIR) rwPaths.push(this.allowedEnv.TMPDIR);
+      // The jailed workspace is `.ezcorp/extension-data/<id>` (rw). But the
+      // child runs `bun run --preload <preload> <entrypoint>`, and BOTH the
+      // extension's CODE dir (where the entrypoint + its sibling files live)
+      // and the sandbox preload's dir live OUTSIDE that workspace. Under a
+      // deny-by-default tier (landlock/bwrap) they must be granted READ-ONLY
+      // or `bun` can't even read its own entrypoint — the subprocess exits at
+      // bringup and every tool call surfaces "Transport closed". Add them to
+      // the RO set alongside the conventional system dirs. (The previous wrap
+      // only granted system dirs + the workspace, so a real extension whose
+      // code lives elsewhere never started under a non-advisory tier — it was
+      // masked because the sandboxed-subprocess path only ever ran trivial
+      // system binaries in tests.)
+      const extDir = dirname(this.extensionPath);
+      const preloadDir = dirname(SANDBOX_PRELOAD_PATH);
+      const roPaths = [...DEFAULT_RUNTIME_RO_DIRS, extDir, preloadDir];
       const inner = [
         "prlimit",
         `--rss=${this.memoryLimitBytes}`,
@@ -220,6 +247,7 @@ export class ExtensionProcess {
         tier,
         workspaceDir,
         projectRoot,
+        roPaths,
         rwPaths,
         command: inner[0]!,
         args: inner.slice(1),
