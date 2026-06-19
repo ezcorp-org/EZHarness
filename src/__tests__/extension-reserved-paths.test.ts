@@ -160,7 +160,7 @@ describe("checkFilesystemPermission — reserved hard-deny (read gate)", () => {
 
   test("an escape that resolves INTO the reserved dir is DENIED", async () => {
     // .ezcorp/extension-data/file-organizer/../../data → .ezcorp/data
-    const escape = join(
+    const escapePath = join(
       projectRoot,
       ".ezcorp",
       "extension-data",
@@ -169,7 +169,7 @@ describe("checkFilesystemPermission — reserved hard-deny (read gate)", () => {
       "..",
       "data",
     );
-    const res = await checkFilesystemPermission(escape, coveringGrant, installDir, "read");
+    const res = await checkFilesystemPermission(escapePath, coveringGrant, installDir, "read");
     expect(res.allowed).toBe(false);
   });
 });
