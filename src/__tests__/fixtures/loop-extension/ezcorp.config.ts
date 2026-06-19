@@ -35,6 +35,11 @@ export default defineExtension({
   permissions: {
     spawnAgents: { maxPerHour: 30, maxConcurrent: 6 },
     eventSubscriptions: ["run:complete", "tool:complete", "task:assignment_update"],
+    schedule: {
+      crons: ["0 * * * *"],
+      maxRunsPerDay: 24,
+      purpose: "Fire the cronCapture loop hourly (integration-test fixture).",
+    },
     storage: true,
   },
 

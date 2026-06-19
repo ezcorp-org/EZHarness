@@ -243,6 +243,34 @@ describe("artifact mirror", () => {
 
 // ── dashboard ───────────────────────────────────────────────────────
 
+describe("dashboard scope guard (privacy footgun → install crash)", () => {
+  test("log.dashboard on a non-global scope THROWS at registration", () => {
+    for (const scope of ["user", "conversation"] as const) {
+      expect(() =>
+        defineLoop({
+          id: `bad-${scope}`,
+          trigger: { kind: "event", event: "run:complete" },
+          contract: { states: ["done"], scope },
+          act: async () => ({ kind: "terminal", status: "done", outcome: null }),
+          log: { dashboard: { pageId: "p", render: () => ({ title: "x", nodes: [] }) } },
+        }),
+      ).toThrow(/log\.dashboard requires contract\.scope "global"/);
+    }
+  });
+
+  test("log.dashboard on a global scope is allowed", () => {
+    expect(() =>
+      defineLoop({
+        id: "good-global",
+        trigger: { kind: "event", event: "run:complete" },
+        contract: { states: ["done"], scope: "global" },
+        act: async () => ({ kind: "terminal", status: "done", outcome: null }),
+        log: { dashboard: { pageId: "p", render: () => ({ title: "x", nodes: [] }) } },
+      }),
+    ).not.toThrow();
+  });
+});
+
 describe("dashboard", () => {
   test("wireLog registers the page + a row action handler", async () => {
     const cancel = async () => {};
@@ -374,7 +402,11 @@ describe("dashboard", () => {
 
   test("render accepts a finished tree (not just a PageBuilder)", async () => {
     const tree = { title: "fixed", nodes: [] };
-    const reg = { def: { log: { dashboard: { pageId: "p", render: () => tree } } }, store: { list: async () => [] as LoopRunState[] } } as never;
+    const reg = {
+      contract: { scope: "global" },
+      def: { log: { dashboard: { pageId: "p", render: () => tree } } },
+      store: { list: async () => [] as LoopRunState[] },
+    } as never;
     wireLog(reg);
     // Invoke the registered render to assert the finished-tree branch.
     const def = pages.defined[0]!;

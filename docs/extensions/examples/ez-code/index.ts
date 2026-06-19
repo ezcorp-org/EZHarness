@@ -300,13 +300,12 @@ function loopBackedRunStore(scope: StorageScope): RunStore {
       });
     },
     async update(id, next) {
-      const current = await store.get(id);
-      if (!current) return;
+      // No unlocked pre-read: `transition` resolves an OMITTED status to the
+      // run's CURRENT status UNDER its lock (TOCTOU fix). So a "steered" /
+      // "pr_opened" event-only update (status undefined) can't race-revert a
+      // concurrent status flip; a missing run is a no-op inside transition.
       await store.transition(id, {
-        // Run status: the mapped RunStatus, or unchanged when omitted (e.g.
-        // a "steered" event keeps the run "running").
-        status: next.status ?? (current.status as RunStatus),
-        // Event-log status: the RAW host/action status (steered/completed/…).
+        ...(next.status ? { status: next.status } : {}),
         eventStatus: next.eventStatus,
         ...(next.note ? { note: next.note } : {}),
       });

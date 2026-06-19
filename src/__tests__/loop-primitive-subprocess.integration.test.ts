@@ -264,4 +264,48 @@ describe("Loop primitive — real subprocess", () => {
     const runKeys = [...state.kv.keys()].filter((k) => k.startsWith("loop:capture:run:"));
     expect(runKeys.length).toBe(2);
   });
+
+  test("cron trigger: a schedule-fire frame runs the cron loop → run persisted", async () => {
+    proc = await startWired(state);
+    // The host fires a declared cron via an `ezcorp/schedule-fire` frame
+    // (the same shape the ScheduleDaemon sends). Proves the CRON trigger kind
+    // end-to-end in a real subprocess (alongside event + manual above).
+    proc.sendNotification("ezcorp/schedule-fire", {
+      cron: "0 * * * *",
+      scheduledAt: "2026-06-18T00:00:00.000Z",
+      firedAt: "2026-06-18T00:00:01.000Z",
+      fireId: "fire-1",
+      catchUp: true,
+      retry: false,
+      attempt: 1,
+    });
+    const runs = await waitForRuns(proc, "cronCapture", 1);
+    expect(runs.length).toBe(1);
+    expect(runs[0]!.status).toBe("done");
+    expect((runs[0]!.outcome as { catchUp?: boolean }).catchUp).toBe(true);
+  });
+
+  test("undeclared trigger is dropped: an UNSUBSCRIBED event fires nothing", async () => {
+    proc = await startWired(state);
+    // `obs:turn` is NOT in the fixture's eventSubscriptions and no loop wires
+    // it, so the SDK channel has no handler — the frame is silently dropped.
+    // (Defense-in-depth: the host also never delivers an undeclared event.)
+    proc.sendNotification("ezcorp/event/obs:turn", { conversationId: "x" });
+    // An UNDECLARED cron likewise routes to no handler (Schedule drops it).
+    proc.sendNotification("ezcorp/schedule-fire", {
+      cron: "*/5 * * * *", // not in the manifest
+      scheduledAt: "t",
+      firedAt: "t",
+      fireId: "f2",
+      catchUp: false,
+      retry: false,
+      attempt: 1,
+    });
+    // Give the subprocess a beat, then confirm NOTHING persisted for either.
+    await new Promise((r) => setTimeout(r, 200));
+    const cronRuns = await waitForRuns(proc, "cronCapture", 0);
+    expect(cronRuns.length).toBe(0);
+    // No stray run keys for any loop from the dropped frames.
+    expect([...state.kv.keys()].filter((k) => k.includes(":run:")).length).toBe(0);
+  });
 });

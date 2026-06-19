@@ -210,6 +210,28 @@ describe("createRun", () => {
 describe("transition", () => {
   const c = deferredContract();
 
+  test("eventStatus records a DISTINCT event status from the run status", () => {
+    // A "steered" event keeps the run at "running" but logs status "steered".
+    let run: LoopRunState = createRun(
+      { id: "r1", loopId: "ezc", status: "running" },
+      c,
+      T0,
+    );
+    run = transition(run, { status: "running", eventStatus: "steered", note: "focus" }, c, T0);
+    expect(run.status).toBe("running"); // run status unchanged
+    expect(run.events[0]).toEqual({ at: T0, status: "steered", note: "focus" });
+  });
+
+  test("eventStatus defaults to status when omitted", () => {
+    let run: LoopRunState = createRun(
+      { id: "r1", loopId: "ezc", status: "dispatched" },
+      c,
+      T0,
+    );
+    run = transition(run, { status: "running" }, c, T0);
+    expect(run.events[0]!.status).toBe("running");
+  });
+
   test("deferred → running → completed, carrying outcome + capped log", () => {
     const t1 = "2026-06-18T00:01:00.000Z";
     const t2 = "2026-06-18T00:02:00.000Z";

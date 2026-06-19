@@ -70,6 +70,17 @@ defineLoop({
   },
 });
 
+// cronCapture loop — terminal, fires from the manifest-declared cron. Proves
+// the cron trigger kind end-to-end in a real subprocess.
+defineLoop({
+  id: "cronCapture",
+  trigger: { kind: "cron", cron: "0 * * * *" },
+  contract: { ...CAPTURE_STATES, scope: "global" },
+  act: async (ctx) => {
+    return { kind: "terminal", status: "done", outcome: { catchUp: ctx.fire.catchUp } };
+  },
+});
+
 // Read tool — surfaces the persisted run records for a loop so the host
 // test can assert state synchronously after an async event fire.
 const listRuns: ToolHandler = async (args) => {
