@@ -178,12 +178,17 @@ describe("TeamsSection members", () => {
 		await waitFor(() => expect(getByText("Engineering")).toBeInTheDocument());
 
 		await fireEvent.click(getByTestId("team-expand-t-1"));
-		await waitFor(() => expect(getByLabelText("Select user")).toBeInTheDocument());
-
-		const options = Array.from(
-			(getByLabelText("Select user") as HTMLSelectElement).options,
-		).map((o) => o.value);
-		expect(options).toEqual(["", "user-3"]); // Alice (user-2) filtered out
+		// Wait on the member-dependent postcondition, not merely the select's
+		// existence: the selector renders the instant the team expands, but the
+		// "already a member" filter only applies once the /members fetch resolves.
+		// Asserting the filtered option list inside waitFor retries until that
+		// async load lands (otherwise Alice slips in under CI scheduling).
+		await waitFor(() => {
+			const options = Array.from(
+				(getByLabelText("Select user") as HTMLSelectElement).options,
+			).map((o) => o.value);
+			expect(options).toEqual(["", "user-3"]); // Alice (user-2) filtered out
+		});
 	});
 });
 
