@@ -69,6 +69,7 @@ import {
   runBacklogRecovery,
   _embedWorkerInternals,
 } from "../extensions/embed-worker";
+import { readProcStartTime } from "../startup/process-lockfile";
 import {
   enqueueEmbedJob,
 } from "../db/queries/message-embed-outbox";
@@ -730,10 +731,11 @@ describe("EmbedWorker — PID lockfile", () => {
     await unlink(lockPath).catch(() => {});
   });
 
-  test("a second worker refuses start() while the first holds the lock", async () => {
+  test("a second worker refuses start() while a genuine live sibling holds the lock", async () => {
     const lockPath = join(tmpdir(), `ezcorp-embed-lock-sibling-${Date.now()}.pid`);
-    // Pre-write our own (live) PID so sibling-prevention triggers.
-    await Bun.write(lockPath, String(process.pid));
+    // A genuine live sibling: a foreign live PID (1) whose stored identity
+    // token still matches → refuse.
+    await Bun.write(lockPath, `1 ${readProcStartTime(1)}`);
 
     const second = new EmbedWorker({ wakeIntervalMs: 60_000, lockfilePath: lockPath });
     expect(await second.start()).toBe(false);
@@ -742,9 +744,20 @@ describe("EmbedWorker — PID lockfile", () => {
     await unlink(lockPath).catch(() => {});
   });
 
+  test("a prior-boot lockfile holding our reused PID is reclaimed (restart fix)", async () => {
+    const lockPath = join(tmpdir(), `ezcorp-embed-lock-reused-${Date.now()}.pid`);
+    // The cross-restart self-deadlock case — must reclaim, not refuse.
+    await Bun.write(lockPath, `${process.pid} prior-boot-token`);
+    const worker = new EmbedWorker({ wakeIntervalMs: 60_000, lockfilePath: lockPath });
+    expect(await worker.start()).toBe(true);
+    expect(parseInt((await Bun.file(lockPath).text()).trim(), 10)).toBe(process.pid);
+    worker.stop();
+    await unlink(lockPath).catch(() => {});
+  });
+
   test("a stale lockfile (dead PID) is overwritten and start() succeeds", async () => {
     const lockPath = join(tmpdir(), `ezcorp-embed-lock-stale-${Date.now()}.pid`);
-    await Bun.write(lockPath, "999999999"); // bogus, not alive
+    await Bun.write(lockPath, "999999999 dead-token"); // bogus, not alive
 
     const worker = new EmbedWorker({ wakeIntervalMs: 60_000, lockfilePath: lockPath });
     expect(await worker.start()).toBe(true);

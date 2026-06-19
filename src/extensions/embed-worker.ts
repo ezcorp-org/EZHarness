@@ -44,6 +44,7 @@ import {
 } from "../memory/embeddings";
 import { isEmbedEligible, chunkByTokens } from "../memory/message-chunker";
 import { messageChunks } from "../db/schema";
+import { acquireLockfile, releaseLockfile, isProcessAlive } from "../startup/process-lockfile";
 
 const log = logger.child("embed-worker");
 
@@ -444,50 +445,9 @@ export class EmbedWorker {
 
 // ── PID lockfile helpers ──────────────────────────────────────────────
 //
-// Inlined copy of the same primitives in host-maintenance-daemon.ts and
-// schedule-daemon.ts. See host-maintenance-daemon.ts header for the
-// rationale: tiny scope, one extra caller, refactor at three callers.
-
-async function ensureDir(path: string): Promise<void> {
-  const fs = await import("node:fs/promises");
-  const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ".";
-  if (dir && dir !== ".") await fs.mkdir(dir, { recursive: true });
-}
-
-function isProcessAlive(pid: number): boolean {
-  if (!Number.isFinite(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException)?.code;
-    return code === "EPERM"; // process exists but owned by another user
-  }
-}
-
-async function acquireLockfile(path: string): Promise<boolean> {
-  await ensureDir(path);
-  const file = Bun.file(path);
-  if (await file.exists()) {
-    const text = (await file.text()).trim();
-    const pid = parseInt(text, 10);
-    if (Number.isFinite(pid) && isProcessAlive(pid)) {
-      return false;
-    }
-    // Stale lock — overwrite.
-  }
-  await Bun.write(path, String(process.pid));
-  return true;
-}
-
-async function releaseLockfile(path: string): Promise<void> {
-  try {
-    const fs = await import("node:fs/promises");
-    await fs.unlink(path);
-  } catch {
-    // Already gone — fine.
-  }
-}
+// Shared, PID-reuse-safe primitive — see src/startup/process-lockfile.ts
+// for the boot-token / self-PID reclaim semantics that fix the
+// cross-restart self-deadlock.
 
 /**
  * Test-only export: lets tests drive the lockfile primitives, env-var

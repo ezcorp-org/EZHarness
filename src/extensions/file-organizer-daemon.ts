@@ -30,6 +30,7 @@ import { createHash } from "node:crypto";
 import { readdir, lstat, stat, readlink } from "node:fs/promises";
 import { join, normalize } from "node:path";
 import { logger } from "../logger";
+import { acquireLockfile, releaseLockfile, isProcessAlive } from "../startup/process-lockfile";
 import type { PermissionEngine } from "./permission-engine";
 
 // Pure shared logic — leaf modules only (NO page.ts: it pulls @ezcorp/sdk).
@@ -797,39 +798,9 @@ async function atomicWrite(absPath: string, text: string): Promise<void> {
   await fs.rename(tmp, absPath);
 }
 
-// ── PID lockfile (mirrors schedule-daemon.ts) ───────────────────────
-
-function isProcessAlive(pid: number): boolean {
-  if (!Number.isFinite(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException)?.code === "EPERM";
-  }
-}
-
-async function acquireLockfile(path: string): Promise<boolean> {
-  const fs = await import("node:fs/promises");
-  await fs.mkdir(join(path, ".."), { recursive: true });
-  const file = Bun.file(path);
-  if (await file.exists()) {
-    const pid = parseInt((await file.text()).trim(), 10);
-    if (Number.isFinite(pid) && isProcessAlive(pid)) return false;
-    // Stale lock — overwrite.
-  }
-  await Bun.write(path, String(process.pid));
-  return true;
-}
-
-async function releaseLockfile(path: string): Promise<void> {
-  try {
-    const fs = await import("node:fs/promises");
-    await fs.unlink(path);
-  } catch {
-    /* already gone */
-  }
-}
+// ── PID lockfile (shared, PID-reuse-safe primitive) ─────────────────
+// See src/startup/process-lockfile.ts for the boot-token / self-PID
+// reclaim semantics that fix the cross-restart self-deadlock.
 
 export const _fileOrganizerDaemonInternals = {
   clampInterval,

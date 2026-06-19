@@ -9,6 +9,7 @@ import {
   _fileOrganizerDaemonInternals,
   type FileOrganizerSettings,
 } from "../extensions/file-organizer-daemon";
+import { readProcStartTime } from "../startup/process-lockfile";
 import type { PermissionEngine } from "../extensions/permission-engine";
 import type { ProposalsFile } from "../../docs/extensions/examples/file-organizer/lib/proposals";
 
@@ -614,6 +615,9 @@ describe("daemon — lifecycle", () => {
 describe("PID lockfile lifecycle", () => {
   const { acquireLockfile, isProcessAlive, releaseLockfile } = _fileOrganizerDaemonInternals;
 
+  /** Stored-PID of a lockfile body in the new `<pid> <token>` format. */
+  const storedPid = (body: string): number => parseInt(body.trim().split(/\s+/)[0]!, 10);
+
   test("isProcessAlive: live PID true, garbage/dead PID false", () => {
     expect(isProcessAlive(process.pid)).toBe(true);
     expect(isProcessAlive(0)).toBe(false);
@@ -623,32 +627,45 @@ describe("PID lockfile lifecycle", () => {
     expect(isProcessAlive(2 ** 31 - 1)).toBe(false);
   });
 
-  test("a live-PID lockfile is NOT acquired (sibling alive)", async () => {
+  test("a genuine live-sibling lockfile (foreign PID + matching token) is NOT acquired", async () => {
+    // PID-reuse-safe: a sibling is a live FOREIGN process whose stored
+    // identity token still matches. PID 1 is always alive on Linux; stamp
+    // its real /proc start-time so the recompute matches → refuse.
     const lock = join(dataDir, ".daemon.pid");
-    await writeFile(lock, String(process.pid)); // our own PID is alive
+    const token = readProcStartTime(1);
+    await writeFile(lock, `1 ${token}`);
     expect(await acquireLockfile(lock)).toBe(false);
-    // The live lock is left untouched (still our PID).
-    expect((await readFile(lock, "utf8")).trim()).toBe(String(process.pid));
+    // The live lock is left untouched.
+    expect((await readFile(lock, "utf8")).trim()).toBe(`1 ${token}`);
+  });
+
+  test("a stale lockfile holding OUR OWN reused PID is reclaimed (cross-restart fix)", async () => {
+    // The bug: a `.pid` left by a prior boot whose PID got reused as ours
+    // used to wedge start forever. It must now be reclaimed.
+    const lock = join(dataDir, ".daemon.pid");
+    await writeFile(lock, `${process.pid} prior-boot-token`);
+    expect(await acquireLockfile(lock)).toBe(true);
+    expect(storedPid(await readFile(lock, "utf8"))).toBe(process.pid);
   });
 
   test("a stale (dead) PID lockfile is overwritten + acquired", async () => {
     const lock = join(dataDir, ".daemon.pid");
-    await writeFile(lock, "2147483646"); // an effectively-dead PID
+    await writeFile(lock, "2147483646 some-token"); // an effectively-dead PID
     expect(await acquireLockfile(lock)).toBe(true);
-    expect((await readFile(lock, "utf8")).trim()).toBe(String(process.pid));
+    expect(storedPid(await readFile(lock, "utf8"))).toBe(process.pid);
   });
 
   test("a garbage (non-numeric) PID lockfile is overwritten + acquired", async () => {
     const lock = join(dataDir, ".daemon.pid");
     await writeFile(lock, "not-a-pid");
     expect(await acquireLockfile(lock)).toBe(true);
-    expect((await readFile(lock, "utf8")).trim()).toBe(String(process.pid));
+    expect(storedPid(await readFile(lock, "utf8"))).toBe(process.pid);
   });
 
   test("acquiring a fresh lockfile (none present) succeeds + stamps our PID", async () => {
     const lock = join(dataDir, "fresh.pid");
     expect(await acquireLockfile(lock)).toBe(true);
-    expect((await readFile(lock, "utf8")).trim()).toBe(String(process.pid));
+    expect(storedPid(await readFile(lock, "utf8"))).toBe(process.pid);
   });
 
   test("releaseLockfile removes the file (and is a no-op when already gone)", async () => {
