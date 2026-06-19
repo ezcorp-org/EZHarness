@@ -138,12 +138,42 @@ jobs:
       #   bun run scripts/regenerate-manifest-lock.ts
       - run: bun run scripts/regenerate-manifest-lock.ts --check
 
+  gate-integrity:
+    name: Gate integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # fetch-depth: 0 + an explicit fetch of main so the diff-scoped checks
+      # can compute `origin/main...HEAD` (PR checkouts are otherwise shallow).
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14" # see pin note at top of file
+      - run: git fetch --no-tags origin main
+      # Anti-tamper / anti-cheat meta-check: fails the PR if it weakens the
+      # gate (EXCLUDES growth, threshold ratchet) or fakes tests green
+      # (.skip/.only/.todo, empty catch{}, assertion-free test blocks, a
+      # committed lcov). A maintainer-only `gate-change-approved` label sets
+      # GATE_CHANGE_APPROVED=1 to bypass for legitimate gate changes — an
+      # agent's token cannot apply a restricted label.
+      - name: Gate-integrity meta-check
+        env:
+          BASE_REF: origin/main
+          GATE_CHANGE_APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'gate-change-approved') && '1' || '' }}
+        run: bun scripts/gate-integrity.ts
+
   coverage:
     name: Per-file coverage gate
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
+      # fetch-depth: 0 + fetch main so the new-file / patch-coverage gates can
+      # diff origin/main...HEAD against the just-built lcov.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14" # see pin note at top of file
@@ -159,8 +189,22 @@ jobs:
       - run: cd web && bun install --frozen-lockfile
       # SvelteKit ./$types codegen so the vitest leg resolves route types.
       - run: cd web && bunx --bun svelte-kit sync
+      - run: git fetch --no-tags origin main
       # Per-file coverage gate: bun host/example/web shards + SDK bundle +
       # node-vitest leg, merged into coverage/lcov.info and checked against
       # scripts/coverage-thresholds.json. Phase 66 search helpers + the two
       # reconciled vitest-only component pins are enforced here on every PR.
       - run: bun run test:coverage
+      # Diff-scoped gates that reuse the lcov this job just built (so we don't
+      # pay to build it twice). New-file gate: every source file ADDED in the
+      # PR must be measured AND matched by a threshold key (closes the
+      # "silently un-gated new file" hole). Patch coverage: every changed
+      # executable line must be covered.
+      - name: New-file coverage gate
+        env:
+          BASE_REF: origin/main
+        run: bun scripts/check-new-file-coverage.ts
+      - name: Patch coverage gate
+        env:
+          BASE_REF: origin/main
+        run: bun scripts/check-patch-coverage.ts
