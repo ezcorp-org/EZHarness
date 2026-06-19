@@ -4,7 +4,19 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { awaitRunCompletion } from "$server/runtime/await-run-completion";
+import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
+import type { AuthUser } from "$server/auth/types";
 import type { RequestHandler } from "./$types";
+
+// Enforce per-user run ownership. A chat run is owned by its conversation's
+// owner; agent/CLI runs have no conversation (convId undefined) and are not
+// owner-scoped here (internal, no per-user data). Returns true if the caller
+// may act on the run. Closes a cross-tenant IDOR (read/await/cancel any run).
+async function callerOwnsRun(runId: string, user: AuthUser): Promise<boolean> {
+  const convId = await getExecutor().getRunConversationId(runId);
+  if (!convId) return true;
+  return (await resolveRootConversationForOwnership(convId, user)) !== null;
+}
 
 // Bound the synchronous wait so a stuck/never-finishing run can't pin a
 // connection forever. 1s floor, 10min ceiling, 2min default.
@@ -33,10 +45,12 @@ function maxConcurrentWaits(): number {
 export const GET: RequestHandler = async ({ params, url, locals }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
-  requireAuth(locals);
+  const user = requireAuth(locals);
   const executor = getExecutor();
   const run = await executor.getRun(params.id);
   if (!run) return errorJson(404, "Not found");
+  // Ownership: a non-owner gets 404 (don't reveal the run exists).
+  if (!(await callerOwnsRun(params.id, user))) return errorJson(404, "Not found");
 
   // ?wait=1 — block until the run reaches a terminal state (or timeout).
   // Lets external harnesses drive a turn and read the result in one call
@@ -73,8 +87,10 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 export const DELETE: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
-  requireAuth(locals);
+  const user = requireAuth(locals);
   const executor = getExecutor();
+  // Ownership before cancel — prevents cross-tenant run cancellation.
+  if (!(await callerOwnsRun(params.id, user))) return errorJson(404, "Run not found or not running");
   const cancelled = executor.cancelRun(params.id);
   if (!cancelled) return errorJson(404, "Run not found or not running");
   return json({ ok: true });

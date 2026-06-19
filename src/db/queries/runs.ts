@@ -28,16 +28,24 @@ export interface DbRun {
 
 type DbRunLog = typeof runLogs.$inferSelect;
 
-export async function insertRun(run: AgentRun, projectId?: string, input?: Record<string, unknown>): Promise<void> {
+export async function insertRun(run: AgentRun, projectId?: string, input?: Record<string, unknown>, conversationId?: string): Promise<void> {
   await getDb().insert(runs).values({
     id: run.id,
     agentName: run.agentName,
     projectId: projectId ?? null,
+    conversationId: conversationId ?? null,
     status: run.status,
     input: input ?? null,
     startedAt: new Date(run.startedAt),
     createdAt: new Date(),
   });
+}
+
+/** Owning conversation id for a run (null for agent/CLI runs). Used to
+ *  enforce per-user ownership on /api/runs/[id]. */
+export async function getRunConversationId(id: string): Promise<string | undefined> {
+  const rows = await getDb().select({ conversationId: runs.conversationId }).from(runs).where(eq(runs.id, id));
+  return rows[0]?.conversationId ?? undefined;
 }
 
 export async function updateRun(run: AgentRun): Promise<void> {

@@ -24,6 +24,9 @@ export const runs = pgTable("runs", {
   id: text("id").primaryKey(),
   agentName: text("agent_name").notNull(),
   projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
+  // Owning conversation for chat runs — used to enforce run ownership on
+  // /api/runs/[id]. Null for agent/CLI runs that have no conversation.
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
   status: text("status").notNull(),
   input: jsonb("input").$type<Record<string, unknown>>(),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull(),

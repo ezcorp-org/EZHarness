@@ -14,7 +14,12 @@ const mockGetRun = vi.fn();
 const mockCancelRun = vi.fn();
 
 vi.mock("$lib/server/context", () => ({
-	getExecutor: () => ({ getRun: mockGetRun, cancelRun: mockCancelRun }),
+	getExecutor: () => ({
+		getRun: mockGetRun,
+		cancelRun: mockCancelRun,
+		// No conversation → ownership check is a no-op for these tests.
+		getRunConversationId: async () => undefined,
+	}),
 	// The route now imports getBus for the ?wait=1 path. These tests don't
 	// exercise wait, so a no-op bus stub satisfies the import.
 	getBus: () => ({ on: () => () => {}, emit: () => {}, off: () => {} }),

@@ -259,6 +259,10 @@ export async function migrate(db: any): Promise<void> {
       ADD COLUMN IF NOT EXISTS next_attempt_after TIMESTAMP WITH TIME ZONE
   `);
 
+  // Run ownership: link chat runs to their conversation so /api/runs/[id]
+  // can enforce per-user ownership (closes a cross-tenant IDOR).
+  await db.execute(sql`ALTER TABLE runs ADD COLUMN IF NOT EXISTS conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`);
+
   // ── Phase 6: Agent Personas ─────────────────────────────────────
   await db.execute(sql`ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS category TEXT`);
   await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS agent_config_id TEXT REFERENCES agent_configs(id) ON DELETE SET NULL`);

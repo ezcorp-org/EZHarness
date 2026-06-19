@@ -10,14 +10,22 @@ import type { AgentEvents, AgentRun, AgentStatus } from "../../../src/types";
 
 let bus: EventBus<AgentEvents>;
 let runs: Map<string, AgentRun>;
+let runConvs: Map<string, string>;        // runId → owning conversationId
+let ownedConvs: Set<string>;              // conversations the caller owns
 
 mock.module("$lib/server/context", () => ({
   getExecutor: () => ({
     getRun: async (id: string) => runs.get(id),
     // A run can be cancelled iff it exists and is still running.
     cancelRun: (id: string) => runs.get(id)?.status === "running",
+    getRunConversationId: async (id: string) => runConvs.get(id),
   }),
   getBus: () => bus,
+}));
+// Ownership resolves only for conversations in `ownedConvs`.
+mock.module("$lib/server/conversation-ownership", () => ({
+  resolveRootConversationForOwnership: async (convId: string) =>
+    ownedConvs.has(convId) ? { conv: { id: convId }, root: { id: convId } } : null,
 }));
 
 const { GET, DELETE } = await import("../routes/api/runs/[id]/+server");
@@ -36,8 +44,39 @@ function ev(id: string, wait?: string, timeoutMs?: string) {
 beforeEach(() => {
   bus = new EventBus<AgentEvents>();
   runs = new Map();
+  runConvs = new Map();
+  ownedConvs = new Set();
 });
 afterAll(() => restoreModuleMocks());
+
+describe("run ownership (IDOR guard)", () => {
+  const nonAdmin = { user: { id: "u2", email: "x@y", name: "X", role: "member" } } as any;
+  const evAs = (id: string, l: unknown) => ({ params: { id }, url: new URL(`http://x/api/runs/${id}`), locals: l } as any);
+
+  test("GET 404 when the run's conversation isn't owned by the caller", async () => {
+    runs.set("o1", mkRun("o1", "success"));
+    runConvs.set("o1", "conv-other"); // owned by someone else (not in ownedConvs)
+    expect((await GET(evAs("o1", nonAdmin))).status).toBe(404);
+  });
+
+  test("GET 200 when the caller owns the run's conversation", async () => {
+    runs.set("o2", mkRun("o2", "success"));
+    runConvs.set("o2", "conv-mine");
+    ownedConvs.add("conv-mine");
+    expect((await GET(evAs("o2", nonAdmin))).status).toBe(200);
+  });
+
+  test("DELETE 404 when the caller doesn't own the run's conversation", async () => {
+    runs.set("o3", mkRun("o3", "running"));
+    runConvs.set("o3", "conv-other");
+    expect((await DELETE(evAs("o3", nonAdmin))).status).toBe(404);
+  });
+
+  test("agent/CLI run (no conversation) is not owner-scoped here", async () => {
+    runs.set("o4", mkRun("o4", "success")); // no runConvs entry → convId undefined
+    expect((await GET(evAs("o4", nonAdmin))).status).toBe(200);
+  });
+});
 
 describe("GET /api/runs/[id]?wait=1", () => {
   test("404 when run does not exist", async () => {
@@ -54,7 +93,9 @@ describe("GET /api/runs/[id]?wait=1", () => {
   test("running run resolves when run:complete fires", async () => {
     runs.set("r2", mkRun("r2", "running"));
     const p = GET(ev("r2", "1"));
-    queueMicrotask(() => bus.emit("run:complete", { run: mkRun("r2", "success") }));
+    // Emit after a tick so the handler (now with an async ownership check
+    // before subscribing) has subscribed. Real runs complete much later.
+    setTimeout(() => bus.emit("run:complete", { run: mkRun("r2", "success") }), 15);
     const res = await p;
     expect(await res.json()).toMatchObject({ outcome: "complete" });
   });

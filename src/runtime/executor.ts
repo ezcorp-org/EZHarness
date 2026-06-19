@@ -319,6 +319,16 @@ export class AgentExecutor {
     return undefined;
   }
 
+  /** Owning conversation id for a run (active map first, then the persisted
+   *  row). Undefined for agent/CLI runs with no conversation. Drives run
+   *  ownership enforcement on /api/runs/[id]. */
+  async getRunConversationId(id: string): Promise<string | undefined> {
+    const mem = this.runConversations.get(id);
+    if (mem) return mem;
+    if (this.persist) return dbRuns.getRunConversationId(id);
+    return undefined;
+  }
+
   getActiveRunForConversation(conversationId: string): AgentRun | undefined {
     for (const [runId, convId] of this.runConversations) {
       if (convId === conversationId) {
@@ -435,7 +445,7 @@ export class AgentExecutor {
     };
 
     if (this.persist) {
-      await dbRuns.insertRun(run, options.projectId);
+      await dbRuns.insertRun(run, options.projectId, undefined, conversationId);
     }
 
     this.bus.emit("run:start", { run });
