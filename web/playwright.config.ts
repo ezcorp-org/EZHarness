@@ -47,11 +47,6 @@ export default defineConfig({
 			// (this is server BOOT time, not a test retry — `retries` stays 0).
 			timeout: 180_000,
 			reuseExistingServer: !process.env.CI,
-			// The command BUILDS then previews; on a slow CI runner the vite
-			// build alone can exceed Playwright's default 60s webServer wait,
-			// timing out before the preview is ready (deterministic, not flaky).
-			// Give the build+preview ample headroom.
-			timeout: 180_000,
 		},
 	}),
 });
