@@ -159,6 +159,7 @@ export class AgentExecutor {
     name: string,
     input: Record<string, unknown>,
     projectId?: string,
+    userId?: string,
   ): Promise<AgentRun> {
     const agent = this.agents.get(name);
     if (!agent) throw new Error(`Agent not found: ${name}`);
@@ -179,7 +180,12 @@ export class AgentExecutor {
     this.storeRun(run);
 
     if (this.persist) {
-      await dbRuns.insertRun(run, projectId, input);
+      // Thread the initiating user so an agent/CLI run is attributable for
+      // /api/runs/[id] ownership. Undefined (e.g. nested ctx.run spawns)
+      // inserts NULL user_id ⇒ admin-only (fail closed) — never cross-tenant
+      // readable. Nested spawns inherit the parent's userId so a sub-agent
+      // run stays owned by the principal who started the top-level run.
+      await dbRuns.insertRun(run, projectId, input, undefined, userId);
     }
 
     const appendLog = (message: string, level: LogLevel = "info"): void => {
@@ -204,7 +210,7 @@ export class AgentExecutor {
       log: appendLog,
       signal: controller.signal,
       run: async (agentName, childInput) => {
-        const childRun = await this.runAgent(agentName, childInput, projectId);
+        const childRun = await this.runAgent(agentName, childInput, projectId, userId);
         return childRun.result ?? { success: false, output: null, error: "No result" };
       },
     };
@@ -292,9 +298,19 @@ export class AgentExecutor {
     return [...this.agents.values()];
   }
 
-  async listRuns(projectId?: string): Promise<AgentRun[]> {
+  // `userId`, when set, scopes the listing to that user's runs (non-admin
+  // ownership guard for GET /api/runs). Admin callers omit it to see all.
+  async listRuns(projectId?: string, userId?: string): Promise<AgentRun[]> {
     if (this.persist) {
-      const dbResults = (await dbRuns.listRuns(projectId)).map(dbRuns.toAgentRun);
+      const dbResults = (await dbRuns.listRuns(projectId, userId)).map(dbRuns.toAgentRun);
+      if (userId) {
+        // Ownership-scoped: the DB rows are already filtered to the caller.
+        // Don't merge unpersisted in-memory active runs — they can't be
+        // safely attributed yet, and runs are persisted at creation so they
+        // surface here immediately. Fail closed (never leak another tenant's
+        // in-flight run through the merge).
+        return dbResults.sort((a, b) => b.startedAt - a.startedAt);
+      }
       const active = [...this.runs.values()].filter((r) => r.status === "running");
       const dbIds = new Set(dbResults.map((r) => r.id));
       const merged = [...dbResults];
@@ -317,6 +333,35 @@ export class AgentExecutor {
       if (dbRun) return dbRuns.toAgentRun(dbRun);
     }
     return undefined;
+  }
+
+  /** Owning conversation id for a run (active map first, then the persisted
+   *  row). Undefined for agent/CLI runs with no conversation. Drives run
+   *  ownership enforcement on /api/runs/[id]. */
+  async getRunConversationId(id: string): Promise<string | undefined> {
+    const mem = this.runConversations.get(id);
+    if (mem) return mem;
+    if (this.persist) return dbRuns.getRunConversationId(id);
+    return undefined;
+  }
+
+  /**
+   * Run-ownership attributes for /api/runs/[id]: the initiating `userId`
+   * (authoritative) and the owning `conversationId`. `userId` lives only on
+   * the persisted row, so an in-memory-only run (persist=false, or a row not
+   * yet flushed) reports `userId: null` and falls back to the conversation
+   * check. `conversationId` prefers the live `runConversations` map (set
+   * before the row is written) so an in-flight chat run is still attributable.
+   * Returns `{ userId: null, conversationId: null }` for a run with no
+   * attribution — the route denies that for non-admins (fail closed).
+   */
+  async getRunOwnership(id: string): Promise<{ userId: string | null; conversationId: string | null }> {
+    const memConv = this.runConversations.get(id) ?? null;
+    if (this.persist) {
+      const row = await dbRuns.getRunOwnership(id);
+      if (row) return { userId: row.userId, conversationId: row.conversationId ?? memConv };
+    }
+    return { userId: null, conversationId: memConv };
   }
 
   getActiveRunForConversation(conversationId: string): AgentRun | undefined {
@@ -435,7 +480,7 @@ export class AgentExecutor {
     };
 
     if (this.persist) {
-      await dbRuns.insertRun(run, options.projectId);
+      await dbRuns.insertRun(run, options.projectId, undefined, conversationId);
     }
 
     this.bus.emit("run:start", { run });

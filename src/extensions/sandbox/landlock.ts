@@ -19,8 +19,29 @@
  */
 
 import { resolve, sep } from "node:path";
+import { realpathSync } from "node:fs";
 import { assertOutsideDataDir, forbiddenDataDir } from "../preview-jail";
 import { applyReadWriteJail, landlockAbiVersion } from "./landlock-ffi";
+
+/**
+ * Canonicalize a grant path to its REAL location (following symlinks) before
+ * it is checked against the data-dir invariant. A lexical `resolve()` alone is
+ * NOT enough: Landlock rules bind the kernel inode, so a symlink whose target
+ * is `.ezcorp/data` would pass a lexical `assertOutsideDataDir` yet have the
+ * kernel grant the real data-dir inode (a READ leak of the DB + JWT secret).
+ * Realpath-resolving here closes that — parity with the bwrap tier's
+ * `canonicalizeJailPath`. A path that does not exist yet cannot be a symlink
+ * into the data dir (and the kernel cannot grant a non-existent inode), so we
+ * fall back to the lexical resolve rather than fail-closed — keeping the tier's
+ * tolerance for distro-absent runtime RO dirs (e.g. `/lib64`, `/nix`).
+ */
+function canonicalizeForJail(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+}
 
 /** Conventional read-only system dirs a runtime needs to exec. The shim
  *  skips any that don't exist on the host (distro-portable). `/nix` covers
@@ -107,11 +128,19 @@ export function buildLandlockJailSpec(input: LandlockJailInput): LandlockJailSpe
   // the ancestor check (a repo root that contains `.ezcorp/data` is the whole
   // point — list-only grants traverse, NOT file-read, so the DB stays
   // unreadable), but a list path must not itself BE the data dir or under it.
+  //
+  // The assertions run against the REAL (symlink-resolved) path via
+  // `canonicalizeForJail`: Landlock binds the kernel inode, so a grant that is
+  // a symlink whose target is `.ezcorp/data` would pass a purely-lexical check
+  // yet have the kernel grant the real data-dir inode. We keep the GRANT
+  // lexical (the kernel resolves to the same inode at rule-add time, and we've
+  // proven that inode is outside the data dir) so legitimate system-dir grants
+  // are byte-for-byte unchanged.
   for (const p of [...rw, ...ro]) {
-    assertOutsideDataDir(p, input.projectRoot);
+    assertOutsideDataDir(canonicalizeForJail(p), input.projectRoot);
   }
   for (const p of list) {
-    assertListPathNotInsideDataDir(p, input.projectRoot);
+    assertListPathNotInsideDataDir(canonicalizeForJail(p), input.projectRoot);
   }
 
   return { ro, rw, ...(list.length > 0 ? { list } : {}) };

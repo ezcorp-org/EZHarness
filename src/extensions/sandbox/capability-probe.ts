@@ -21,9 +21,57 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, accessSync, constants as fsConstants } from "node:fs";
+import {
+  existsSync,
+  accessSync,
+  statSync,
+  constants as fsConstants,
+} from "node:fs";
 import { arch } from "node:os";
+import { delimiter, join } from "node:path";
 import { landlockAbiVersion } from "./landlock-ffi";
+
+/**
+ * Setuid bit (S_ISUID, octal 04000). `node:fs` does not export it as a
+ * constant, so define it locally for the `statSync().mode` check below.
+ */
+const S_ISUID = 0o4000;
+
+/**
+ * Is the `bwrap` we would exec a SETUID-root binary?
+ *
+ * On hosts that disable unprivileged user namespaces at the sysctl/kernel
+ * level (NixOS by default, several hardened distros), bubblewrap ships as
+ * a SETUID-root wrapper instead. A setuid bwrap REFUSES the `--size`
+ * option on its private `/tmp` tmpfs ("The --size option is not permitted
+ * in setuid mode") and aborts — which would crash every sandboxed
+ * extension subprocess. We detect that here so the bwrap argv builder can
+ * omit `--size` (and only `--size`) on those hosts; all confinement flags
+ * stay intact.
+ *
+ * Returns false when `bwrap` can't be found on PATH or can't be stat'd —
+ * the caller only consults this on the bwrap tier, where bwrap exists.
+ */
+export function bwrapIsSetuid(): boolean {
+  try {
+    const pathEnv = process.env.PATH ?? "";
+    for (const dir of pathEnv.split(delimiter)) {
+      if (!dir) continue;
+      const candidate = join(dir, "bwrap");
+      try {
+        const st = statSync(candidate);
+        if ((st.mode & S_ISUID) !== 0) return true;
+        // Found a non-setuid bwrap first on PATH — that's the one exec'd.
+        return false;
+      } catch {
+        // Not in this PATH entry; keep looking.
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 export type SandboxTier = "bwrap" | "landlock" | "advisory";
 
@@ -39,6 +87,13 @@ export interface ProbeOutcomes {
   kvm: boolean;
   /** Host CPU architecture (Landlock FFI syscall numbers are x86_64-only). */
   arch: string;
+  /** Whether the `bwrap` on PATH is the SETUID-root wrapper. When true we
+   *  refuse the bwrap tier: setuid bwrap rejects `--size` and (on hosts
+   *  that ship it setuid, e.g. NixOS) the runtime binaries live behind
+   *  `/run/current-system/...` symlinks the minimal FHS bind-set can't
+   *  reach, so the jailed exec fails. Landlock has neither problem
+   *  (in-process, no namespace remap), so we drop to it instead. */
+  bwrapSetuid: boolean;
 }
 
 export interface SandboxCapabilities extends ProbeOutcomes {
@@ -54,9 +109,13 @@ export interface SandboxCapabilities extends ProbeOutcomes {
  * Rules:
  *   - Landlock is "usable" only on x86_64 (we refuse to guess syscall
  *     numbers on other arches) AND when the probed ABI is >= 1.
- *   - bwrap tier requires BOTH usable Landlock AND working userns (the
- *     bwrap upgrade rides on top of the Landlock fs-jail).
- *   - landlock tier = usable Landlock without userns.
+ *   - bwrap tier requires usable Landlock AND working userns (the bwrap
+ *     upgrade rides on top of the Landlock fs-jail) AND a NON-setuid
+ *     bwrap. A setuid-root bwrap can't run our jail (rejects `--size`;
+ *     and on setuid-bwrap hosts the runtime lives behind `/run/...`
+ *     symlinks the minimal bind-set misses), so we drop to the landlock
+ *     tier — same real fs confinement, just no PID/proc hiding.
+ *   - landlock tier = usable Landlock without (usable) userns.
  *   - advisory = no usable Landlock (regardless of userns).
  */
 export function selectTier(o: ProbeOutcomes): {
@@ -67,7 +126,7 @@ export function selectTier(o: ProbeOutcomes): {
   if (!landlockUsable) {
     return { tier: "advisory", landlockUsable: false };
   }
-  if (o.userns) {
+  if (o.userns && !o.bwrapSetuid) {
     return { tier: "bwrap", landlockUsable: true };
   }
   return { tier: "landlock", landlockUsable: true };
@@ -128,6 +187,7 @@ export function probeSandboxCapabilities(): SandboxCapabilities {
     cgroupV2Delegation: probeCgroupV2Delegation(),
     kvm: probeKvm(),
     arch: arch(),
+    bwrapSetuid: bwrapIsSetuid(),
   };
   const { tier, landlockUsable } = selectTier(outcomes);
   return { ...outcomes, tier, landlockUsable };

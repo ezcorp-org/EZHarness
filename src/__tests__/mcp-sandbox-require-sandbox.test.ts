@@ -27,7 +27,7 @@
  * `spyOn(Bun, "spawn")`).
  */
 
-import { test, expect, describe, beforeEach, afterAll, mock, spyOn } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach, afterAll, mock, spyOn } from "bun:test";
 import {
   openSync,
   closeSync,
@@ -283,6 +283,21 @@ function fakeIpSpawnSync(
 
 // ─────────────────────────────────────────────────────────────────────
 describe("flag off — existing fail-open behavior preserved", () => {
+  // These fail-open assertions expect the legacy prlimit-led spec
+  // (`command === "prlimit"`). That holds on the bwrap/advisory tiers but
+  // NOT landlock, which wraps the inner command with `bun <landlock-shim>`
+  // (so `command === "bun"`). The assertions were implicitly relying on the
+  // live host resolving to bwrap; on a setuid-bwrap host (e.g. NixOS) the
+  // probe now correctly drops to landlock, flipping the command. Pin the
+  // tier explicitly — like every other test in this file does — so the
+  // fail-open path under test is deterministic regardless of host caps.
+  beforeEach(() => {
+    _setSandboxTierOverrideForTests("bwrap");
+  });
+  afterEach(() => {
+    _setSandboxTierOverrideForTests(null);
+  });
+
   test("netns unavailable → spawn proceeds with prlimit fallback + MCP_NETNS_FALLBACK, no refusal", async () => {
     state.netnsAvailable = false;
     state.netnsReason = "not linux";

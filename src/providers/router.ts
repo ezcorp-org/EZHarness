@@ -6,6 +6,7 @@ import { type Model } from "@mariozechner/pi-ai";
 import { resolveModelObject, findModelForProviderInTier, resolveDiscoveredModel } from "./registry";
 import { getCircuitBreaker } from "./circuit-breaker";
 import { getSetting } from "../db/queries/settings";
+import { isTestSurfaceEnabled, MOCK_PROVIDER, mockLlmBaseUrl } from "../test-surface";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -60,6 +61,16 @@ export async function resolveModel(
 
   // Level 1: Explicit provider + model -- passthrough
   if (provider && modelId) {
+    // Deterministic mock provider for the remote-test harness. The baseUrl
+    // is injected SERVER-SIDE here (never via user `provider:customModels`),
+    // so the admin-only, DNS-pinned SSRF validation for user-supplied
+    // baseUrls is not in play. Gated: with the test surface off this
+    // provider does not resolve and falls through to normal lookup (which
+    // has no `ezcorp-mock` models → custom openai-completions w/ default
+    // OpenAI baseUrl, requiring credentials it won't have → clean failure).
+    if (provider === MOCK_PROVIDER && isTestSurfaceEnabled()) {
+      return { provider, model: modelId, piModel: resolveModelObject(provider, modelId, mockLlmBaseUrl()) };
+    }
     // Prefer a model discovered via /api/providers/:provider/refresh-models — it carries
     // the correct api + baseUrl for provider-native calls (e.g. openai-responses for gpt-5.x).
     const discovered = await resolveDiscoveredModel(provider, modelId);

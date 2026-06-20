@@ -112,10 +112,14 @@ describe("POST /api/agents/[name]/run", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { id: string };
     expect(body.id).toBe("run-1");
+    // Run-ownership: the initiating user's id is threaded so they can later
+    // read/cancel their own agent run via /api/runs/[id] (else it inserts
+    // user_id=NULL and is admin-only / fail-closed).
     expect(runAgent).toHaveBeenCalledWith(
       "test-agent",
       { foo: "bar" },
       projectId,
+      user.id,
     );
   });
 });

@@ -101,3 +101,49 @@ test("firstBlock is omitted (undefined) on allowed responses", () => {
   expect(r.allowed).toBe(true);
   expect(r.firstBlock).toBeUndefined();
 });
+
+// ── peek() — read-only limit probe ───────────────────────────────────
+
+test("peek does not mutate the counter (no token consumed)", () => {
+  // peek() any number of times on a fresh key — the key stays at zero, so a
+  // later real check() still gets the full budget (3 allowed before block).
+  for (let i = 0; i < 10; i++) {
+    expect(limiter.peek("pk").allowed).toBe(true);
+  }
+  expect(limiter.check("pk").allowed).toBe(true);
+  expect(limiter.check("pk").allowed).toBe(true);
+  expect(limiter.check("pk").allowed).toBe(true);
+  expect(limiter.check("pk").allowed).toBe(false);
+});
+
+test("peek reports allowed while under the limit and blocked once at it", () => {
+  expect(limiter.peek("pk2").allowed).toBe(true); // 0 used
+  limiter.check("pk2"); // 1
+  limiter.check("pk2"); // 2
+  expect(limiter.peek("pk2").allowed).toBe(true); // 2 < 3
+  limiter.check("pk2"); // 3 (at limit)
+  const blocked = limiter.peek("pk2");
+  expect(blocked.allowed).toBe(false);
+  expect(blocked.retryAfter).toBeGreaterThan(0);
+});
+
+test("peek agrees with the next check() — they never disagree", () => {
+  // Drive a key to exactly the limit, then assert peek() predicts what
+  // check() does at every boundary step.
+  const small = new RateLimiter(2, 1000);
+  expect(small.peek("k").allowed).toBe(small.check("k").allowed); // both true (0→1)
+  expect(small.peek("k").allowed).toBe(small.check("k").allowed); // both true (1→2)
+  // Now at limit: peek says blocked, and check() also blocks.
+  expect(small.peek("k").allowed).toBe(false);
+  expect(small.check("k").allowed).toBe(false);
+});
+
+test("peek resets after the window rolls over", async () => {
+  const fast = new RateLimiter(1, 50);
+  fast.check("k"); // at limit
+  expect(fast.peek("k").allowed).toBe(false);
+  await new Promise((r) => setTimeout(r, 60));
+  // Window expired — peek sees a stale window and reports allowed again,
+  // WITHOUT resurrecting the entry (still read-only).
+  expect(fast.peek("k").allowed).toBe(true);
+});

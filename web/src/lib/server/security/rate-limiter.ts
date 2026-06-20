@@ -50,6 +50,32 @@ export class RateLimiter {
     return { allowed: false, retryAfter: Math.max(retryAfter, 1), firstBlock };
   }
 
+  /**
+   * Read-only check: reports whether the NEXT `check()` for `key` would be
+   * blocked, WITHOUT mutating any counter. Returns `allowed: true` when the
+   * key has no active window or is still under the limit.
+   *
+   * This exists so a caller can short-circuit an expensive operation (e.g.
+   * the failed-API-key fallback table scan in `verifyApiKey`) for an IP that
+   * has ALREADY exhausted its failure budget, while still counting only
+   * genuine failures via a separate `check()` call. Mirrors `check()`'s
+   * window-rollover and limit semantics exactly so the two never disagree.
+   */
+  peek(key: string, limit?: number): RateLimitResult {
+    const now = Date.now();
+    const max = limit ?? this.defaultLimit;
+    const entry = this.entries.get(key);
+
+    if (!entry || now - entry.windowStart >= this.windowMs) {
+      return { allowed: true };
+    }
+    if (entry.count < max) {
+      return { allowed: true };
+    }
+    const retryAfter = Math.ceil((entry.windowStart + this.windowMs - now) / 1000);
+    return { allowed: false, retryAfter: Math.max(retryAfter, 1) };
+  }
+
   cleanup(): void {
     const now = Date.now();
     for (const [key, entry] of this.entries) {

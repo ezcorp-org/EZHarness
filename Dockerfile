@@ -249,6 +249,12 @@ EXPOSE 3000
 
 ENV EZCORP_PORT=3000
 ENV EZCORP_DB_PATH=/app/data/ezcorp
+# Pin the runtime mode. The test/determinism HTTP surface (/api/__test/**)
+# is fail-safe gated on `NODE_ENV !== "production"` (see
+# web/src/lib/server/test-surface.ts). Setting this explicitly closes that
+# surface in the prod image even if PI_E2E_REAL were ever set, instead of
+# relying on NODE_ENV being unset (which evaluates !== "production" → true).
+ENV NODE_ENV=production
 
 # Drop root. The oven/bun:1-slim base image ships a `bun` user (uid 1000); all
 # files under /app are chowned to it above. Anything in a bind-mounted

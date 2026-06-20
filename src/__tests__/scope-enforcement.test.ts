@@ -50,6 +50,16 @@ describe("scope enforcement coverage", () => {
   // Together they cover every +server.ts under web/src/routes/api/ as of
   // HEAD 83781b5. See .planning/v1.4-backend-test-triage.md for the
   // per-route evidence.
+  //
+  // Determinism tier (`/api/__test/**`): these are gated by
+  // `isTestSurfaceEnabled()` (fail-CLOSED 404 unless the three-condition test
+  // opt-in holds), which is a legitimate gate. The mock-LLM completions route
+  // is additionally unauthenticated-by-design (called server-internally over a
+  // loopback-only bypass), so it carries NO requireScope/requireAuth — its
+  // gate IS `isTestSurfaceEnabled`. We accept that token but ONLY for `__test`
+  // routes, so a real prod route can't pass on a test-only predicate.
+  // `route-contract.test.ts` independently enforces that every `__test/**`
+  // route calls the gate.
   const PUBLIC_ROUTE_ALLOWLIST = new Set<string>([
     // Truly public — anonymous access by design.
     "/marketplace/categories/+server.ts",  // anonymous category listing
@@ -84,10 +94,14 @@ describe("scope enforcement coverage", () => {
       const relative = file.replace(apiDir, "");
       if (PUBLIC_ROUTE_ALLOWLIST.has(relative)) continue;
       const content = await Bun.file(file).text();
+      // `isTestSurfaceEnabled()` is a valid gate only for determinism-tier
+      // (`/__test/**`) routes — never accept it for a production route.
+      const isTestSurfaceRoute = relative.startsWith("/__test/");
       if (
         !content.includes("requireScope") &&
         !content.includes("requireRole") &&
-        !content.includes("requireAuth")
+        !content.includes("requireAuth") &&
+        !(isTestSurfaceRoute && content.includes("isTestSurfaceEnabled"))
       ) {
         missing.push(relative);
       }

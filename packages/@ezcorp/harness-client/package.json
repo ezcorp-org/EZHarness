@@ -1,0 +1,51 @@
+{
+  "name": "@ezcorp/harness-client",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Remote-control client for an EZCorp instance — configure, drive, observe, and deterministically test the harness from an external runner (Playwright / CI / another agent).",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ezcorp-org/ezcorp.git",
+    "directory": "packages/@ezcorp/harness-client"
+  },
+  "homepage": "https://github.com/ezcorp-org/ezcorp/tree/main/packages/@ezcorp/harness-client#readme",
+  "bugs": {
+    "url": "https://github.com/ezcorp-org/ezcorp/issues"
+  },
+  "keywords": [
+    "ezcorp",
+    "e2e",
+    "harness",
+    "remote-control",
+    "testing"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/__tests__/**",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "bunx tsc -b tsconfig.build.json",
+    "prepare": "bun run build",
+    "prepublishOnly": "bun run build",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^25.6.0"
+  }
+}

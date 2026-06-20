@@ -24,10 +24,14 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       return validationError(result.error);
     }
     const { projectId, ...input } = result.data;
+    // Attribute the run to the initiating user so per-user run-ownership
+    // (GET/DELETE /api/runs/[id]) lets them read/cancel their own agent run.
+    // Without this the run inserts user_id=NULL and is admin-only (fail-closed).
     const run = await executor.runAgent(
       agentName,
       input,
       typeof projectId === "string" ? projectId : undefined,
+      user.id,
     );
     return json(run);
   } catch (err) {

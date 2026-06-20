@@ -18,11 +18,15 @@
 import { test, expect, describe, mock, afterAll } from "bun:test";
 import * as realFfi from "../extensions/sandbox/landlock-ffi";
 import * as realChildProcess from "node:child_process";
+import * as realPath from "node:path";
+import * as realFs from "node:fs";
 
 // Top-level snapshots taken BEFORE any mock.module install — these are the
 // genuine exports, captured once at module load.
 const FFI_SNAPSHOT = { ...realFfi };
 const CHILD_PROCESS_SNAPSHOT = { ...realChildProcess };
+const PATH_SNAPSHOT = { ...realPath };
+const FS_SNAPSHOT = { ...realFs };
 
 describe("probeLandlockAbi — FFI throws → null (fail-closed)", () => {
   test("returns null when landlockAbiVersion throws", async () => {
@@ -59,5 +63,42 @@ describe("probeUserns — spawnSync throws → false (fail-closed)", () => {
 
   afterAll(() => {
     mock.module("node:child_process", () => ({ ...CHILD_PROCESS_SNAPSHOT }));
+  });
+});
+
+describe("bwrapIsSetuid — OUTER catch (PATH walk throws) → false", () => {
+  test("returns false when join() throws while walking PATH", async () => {
+    // The outer try wraps the PATH split + per-entry join(dir,'bwrap'). Force
+    // join() to throw so the OUTER catch (not the inner stat catch) runs and
+    // fail-closes to false.
+    mock.module("node:path", () => ({
+      ...PATH_SNAPSHOT,
+      join: () => {
+        throw new Error("join exploded");
+      },
+    }));
+    const mod = await import("../extensions/sandbox/capability-probe");
+    expect(mod.bwrapIsSetuid()).toBe(false);
+  });
+
+  afterAll(() => {
+    mock.module("node:path", () => ({ ...PATH_SNAPSHOT }));
+  });
+});
+
+describe("probeKvm — existsSync throws → false (fail-closed)", () => {
+  test("returns false when existsSync('/dev/kvm') throws", async () => {
+    mock.module("node:fs", () => ({
+      ...FS_SNAPSHOT,
+      existsSync: () => {
+        throw new Error("existsSync exploded");
+      },
+    }));
+    const mod = await import("../extensions/sandbox/capability-probe");
+    expect(mod.probeKvm()).toBe(false);
+  });
+
+  afterAll(() => {
+    mock.module("node:fs", () => ({ ...FS_SNAPSHOT }));
   });
 });

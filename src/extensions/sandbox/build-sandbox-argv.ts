@@ -30,7 +30,9 @@
 
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { SandboxTier } from "./capability-probe";
+import { bwrapIsSetuid } from "./capability-probe";
 import {
   buildLandlockJailSpec,
   DEFAULT_RUNTIME_RO_DIRS,
@@ -64,6 +66,11 @@ export interface SandboxArgvInput {
   bunPath?: string;
   /** Override the landlock shim path (defaults to the colocated shim). */
   shimPath?: string;
+  /** bwrap tier only: omit the `--size` cap on the private `/tmp` tmpfs.
+   *  Defaults to a runtime probe (`bwrapIsSetuid()`) because a setuid-root
+   *  bwrap rejects `--size`. Tests inject an explicit value to stay
+   *  deterministic. */
+  bwrapOmitTmpfsSize?: boolean;
 }
 
 export interface SandboxArgvResult {
@@ -77,9 +84,39 @@ export interface SandboxArgvResult {
   tier: SandboxTier;
 }
 
-/** Resolve the colocated shim path (works under bun + after bundling). */
+/**
+ * Resolve the landlock-shim source path.
+ *
+ * The shim is a SEPARATE process entrypoint (`bun <shim> -- <inner>`), so
+ * it must exist as a real `.ts` file at runtime — it is never imported,
+ * only spawned. The default is the colocated source (correct when the
+ * host runs straight from `src/`, e.g. the production container).
+ *
+ * But when the server is BUNDLED (the SvelteKit/Vite web preview used by
+ * the real-auth e2e harness, and any future bundled deploy), `import.meta.url`
+ * points into `.svelte-kit/output/server/chunks/…` and the colocated shim
+ * was tree-shaken away — the spawned `bun <that-path>` then fails with
+ * "Module not found". Fall back to the shim source under the injected
+ * `EZCORP_PROJECT_ROOT` (the resolver's canonical project anchor, set by
+ * the harness + the prod entrypoint) when the colocated path is absent.
+ */
 function defaultShimPath(): string {
-  return fileURLToPath(new URL("./landlock-shim.ts", import.meta.url));
+  const colocated = fileURLToPath(new URL("./landlock-shim.ts", import.meta.url));
+  if (existsSync(colocated)) return colocated;
+  const root = process.env.EZCORP_PROJECT_ROOT;
+  if (root) {
+    const fromRoot = join(
+      root,
+      "src",
+      "extensions",
+      "sandbox",
+      "landlock-shim.ts",
+    );
+    if (existsSync(fromRoot)) return fromRoot;
+  }
+  // Last resort: return the colocated path (the spawn will surface a clear
+  // "Module not found" rather than us silently swallowing the misconfig).
+  return colocated;
 }
 
 /**
@@ -131,6 +168,9 @@ export function buildSandboxArgv(input: SandboxArgvInput): SandboxArgvResult {
       const roDirs = (input.roPaths ?? DEFAULT_RUNTIME_RO_DIRS).filter((d) =>
         existsSync(d),
       );
+      // A setuid-root bwrap (NixOS / hardened hosts where unprivileged
+      // userns is off) rejects `--size`; omit it so the jail still builds.
+      const omitTmpfsSize = input.bwrapOmitTmpfsSize ?? bwrapIsSetuid();
       const jailArgs = buildMcpJailBwrapArgs({
         workDir: input.workspaceDir,
         projectRoot: input.projectRoot,
@@ -138,6 +178,7 @@ export function buildSandboxArgv(input: SandboxArgvInput): SandboxArgvResult {
         seccompFd: input.seccompFd ?? null,
         command: input.command,
         args: input.args,
+        omitTmpfsSize,
       });
       return {
         argv: ["bwrap", ...jailArgs],

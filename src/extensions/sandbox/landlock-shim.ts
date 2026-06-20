@@ -87,6 +87,30 @@ export async function runShim(
   const { command, args } = parseShimArgv(argv);
   const spec = parseSpecFromEnv(env);
 
+  // Chdir into the granted workspace BEFORE applying the jail. The shim (and
+  // the inner command it spawns) inherits the host process's cwd — for a
+  // bundled server that's wherever the host was launched (e.g. `web/`), which
+  // is NOT in the jail's allowlist. Landlock then denies the inner `bun` even
+  // reading `.`, so it aborts at startup with "CouldntReadCurrentDirectory"
+  // before running any extension code. The bwrap tier avoids this with
+  // `--chdir <workDir>`; the landlock tier needs the same move. `rw[0]` is the
+  // workspace dir (always present + writable per buildLandlockJailSpec), so
+  // landing there gives the child a readable, in-jail cwd. Best-effort: a
+  // chdir failure is non-fatal (the jail still applies; the child may still
+  // run if its real cwd happens to be granted).
+  const workspace = spec.rw[0];
+  let chdired = false;
+  if (workspace) {
+    try {
+      process.chdir(workspace);
+      chdired = true;
+    } catch {
+      // Non-fatal — fall through; the jail below is still applied. The
+      // child then inherits the host cwd (and the explicit `cwd` below is
+      // NOT set, so a non-existent workspace can't break the spawn itself).
+    }
+  }
+
   // Apply BEFORE spawning — fail-closed: if this throws, the inner command
   // never runs.
   applyLandlockJailSpec(spec);
@@ -103,6 +127,12 @@ export async function runShim(
     stdout: "inherit",
     stderr: "inherit",
     env: childEnv,
+    // Pin cwd to the granted workspace ONLY when we actually chdir'd into it
+    // (it exists + is reachable). If the workspace was missing the chdir
+    // failed above; passing a non-existent `cwd` here would make the spawn
+    // itself ENOENT instead of running the (jailed) command, so we leave it
+    // inherited in that case.
+    ...(chdired ? { cwd: workspace! } : {}),
   });
   return await proc.exited;
 }

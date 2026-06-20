@@ -1,50 +1,20 @@
 import { connectionState } from "./stores/connection";
 import { gatedConnectionState, CONNECTION_GRACE_MS } from "./connection-grace";
+import type { RuntimeEventName } from "./runtime-event-names";
 
 export type WSConnectionEvent =
 	| { type: "ws:connected"; data: Record<string, never> }
 	| { type: "ws:disconnected"; data: { reason?: string } };
 
+// The event-name union is derived from the single canonical list in
+// `runtime-event-names.ts` (shared with the server SSE endpoint's
+// BUS_EVENTS and the harness client) rather than re-listed here. The global
+// subscriber in `stores.svelte.ts` switches on `type`; events it doesn't
+// case (e.g. `ext:page-state`, `extensions:installed`, `conversation:created`)
+// are re-dispatched as window CustomEvents by that subscriber so each
+// feature consumes the one SSE stream without a second EventSource.
 export type WSRunEvent = {
-	type: "run:start" | "run:status" | "run:log" | "run:complete" | "run:error" | "run:cancel"
-		| "run:token" | "run:usage" | "run:turn_saved" | "run:turn_text_reset"
-		| "pipeline:start" | "pipeline:step" | "pipeline:complete" | "pipeline:error"
-		| "tool:start" | "tool:complete" | "tool:error" | "tool:permission_request"
-		| "agent:spawn" | "agent:status" | "agent:complete"
-		| "task:snapshot" | "task:assignment_update"
-		// Ez concierge client-side tool delivery (Phase 48 Wave 3+). The
-		// runtime emits this when the LLM calls fill_form / navigate_to;
-		// the global subscriber re-dispatches it as a `ez:client-tool`
-		// window CustomEvent so EzPanel can route it through the
-		// client-tool dispatcher. Routed (rather than letting EzPanel keep
-		// its own EventSource) so Ez follows the same SSE consumption
-		// pattern the chat page uses.
-		| "ez:client-tool"
-		| "ext:state"
-		// Extension Pages Hub: content-free page invalidation signal. The
-		// global subscriber re-dispatches it as an `ext:page-state` window
-		// CustomEvent so the Hub page can re-pull its render endpoint
-		// without owning a second EventSource (same pattern as
-		// extensions:installed). Carries {extensionId, extensionName,
-		// pageId} only — never tree content.
-		| "ext:page-state"
-		// agent-install-ux-polish Phase 2: user-scoped live Library
-		// refresh. The global subscriber re-dispatches it as an
-		// `extensions:installed` window CustomEvent so the Extensions
-		// Library page can trigger its cache-bypassing reload without
-		// owning a second EventSource (same pattern as ez:client-tool).
-		// Server-side `shouldDeliverEvent` already guarantees this only
-		// reaches the installing user's session.
-		| "extensions:installed"
-		// Daily Briefing Phase 2: server-initiated conversation delivery.
-		// USER-scoped by the SSE filter (fail-closed), so an event arriving
-		// here already means "this user owns it". The global subscriber
-		// marks the conversation unread and re-dispatches it as a window
-		// CustomEvent so the sidebar ConversationList can live-refresh
-		// without a second EventSource. (`briefing:delivered` stays
-		// server-side only — backend bookkeeping/tests consume it, no
-		// client does, so it is intentionally NOT in this union.)
-		| "conversation:created";
+	type: RuntimeEventName;
 	data: Record<string, unknown>;
 };
 

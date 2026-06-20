@@ -18,7 +18,7 @@ const postBodySchema = z.object({
 export const POST: RequestHandler = async ({ request, params, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
-  requireAuth(locals);
+  const user = requireAuth(locals);
   const pipeline = getPipelines().find((p) => p.name === params.name);
   if (!pipeline) return errorJson(404, "Pipeline not found");
 
@@ -33,6 +33,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       pipeline,
       input,
       typeof projectId === "string" ? projectId : undefined,
+      user.id,
     );
     return json(run);
   } catch (err) {
