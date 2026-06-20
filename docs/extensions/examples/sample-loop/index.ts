@@ -88,11 +88,19 @@ export function defineSampleLoop(): void {
   });
 }
 
-// Production boot — gated on `import.meta.main` so test imports don't open
-// stdin. A pure-loop extension still mounts the tools/call plumbing
-// (here only the loops' tools, of which there are none).
-if (import.meta.main) {
+/**
+ * Production boot: register the loop, mount the tools/call plumbing (a
+ * pure-loop extension still mounts it — here only the loops' tools, of which
+ * there are none), and start the channel's stdin read loop. Exported (not
+ * inlined under `import.meta.main`) so a unit test can drive the boot path
+ * against the SDK test channel — mirrors `start()` in the todo-tracker /
+ * task-stack examples.
+ */
+export function start(): void {
   defineSampleLoop();
   createToolDispatcher({ ...getLoopTools() });
   getChannel().start();
 }
+
+// Gated on `import.meta.main` so test imports don't open stdin.
+if (import.meta.main) start();
