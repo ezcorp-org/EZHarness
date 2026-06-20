@@ -12,6 +12,7 @@
 // dispatch, and duplicate-id rejection.
 
 import {
+  afterAll,
   afterEach,
   beforeAll,
   beforeEach,
@@ -82,14 +83,26 @@ let captured: Map<string, (p: unknown) => Promise<unknown> | unknown>;
 // `new Schedule().on(cron, handler)`, which we record here.
 const cronHandlers = new Map<string, (ctx: unknown) => Promise<void> | void>();
 
+// Stashed so afterAll can restore it: the spy patches the SHARED
+// Schedule.prototype, so leaving it installed poisons every later test
+// file in the bundled SDK shard. schedule.test.ts then can't run the real
+// `on()`/`installReceiver()` — its dispatch tests fail and runtime/schedule.ts
+// lines 32-42 drop below the @ezcorp/sdk/src/**:100 gate (order-dependent,
+// surfaced once the vitest-leg crash stopped masking it).
+let scheduleOnSpy: ReturnType<typeof spyOn>;
+
 beforeAll(() => {
-  spyOn(Schedule.prototype, "on").mockImplementation(function (
+  scheduleOnSpy = spyOn(Schedule.prototype, "on").mockImplementation(function (
     this: Schedule,
     cron: string,
     handler: (ctx: unknown) => Promise<void> | void,
   ) {
     cronHandlers.set(cron, handler);
   } as Schedule["on"]);
+});
+
+afterAll(() => {
+  scheduleOnSpy.mockRestore();
 });
 
 beforeEach(() => {

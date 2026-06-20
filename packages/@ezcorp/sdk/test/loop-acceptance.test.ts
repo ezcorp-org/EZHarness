@@ -17,6 +17,7 @@
 // fixtures, so the suite is flake-free and order-independent.
 
 import {
+  afterAll,
   afterEach,
   beforeAll,
   beforeEach,
@@ -106,14 +107,21 @@ let fsMkdirs: string[];
 let pagesDefined: PageDefinition[];
 let pagePushes: string[];
 
+// Restored in afterAll: the spy patches the SHARED Schedule.prototype, so
+// leaving it installed poisons sibling files in the bundled SDK shard (notably
+// schedule.test.ts, whose real on()/installReceiver() would never run).
+let scheduleOnSpy: ReturnType<typeof spyOn>;
 beforeAll(() => {
-  spyOn(Schedule.prototype, "on").mockImplementation(function (
+  scheduleOnSpy = spyOn(Schedule.prototype, "on").mockImplementation(function (
     this: Schedule,
     cron: string,
     handler: (ctx: unknown) => Promise<void> | void,
   ) {
     cronHandlers.set(cron, handler);
   } as Schedule["on"]);
+});
+afterAll(() => {
+  scheduleOnSpy.mockRestore();
 });
 
 beforeEach(() => {

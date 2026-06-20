@@ -75,6 +75,18 @@ describe("contract acceptance", () => {
     expect(run.scope).toBe("global");
     expect(kv.map.get("loop:ezc:index")).toEqual(["r1"]);
   });
+
+  test("defaults to the real Storage backend when no factory is given", () => {
+    // Exercises the production default-param arrow `(scope) => new Storage(scope)`
+    // — every other test injects an in-memory KV, so this is the only path
+    // that constructs the real `Storage` (its constructor is channel-free; a
+    // store method would talk to the host, which we don't invoke here). The
+    // store object resolving with the full facade proves the default ran.
+    const store = createLoopRunStore("ezc", CONTRACT);
+    expect(typeof store.claim).toBe("function");
+    expect(typeof store.transition).toBe("function");
+    expect(typeof store.get).toBe("function");
+  });
 });
 
 describe("key grammar", () => {

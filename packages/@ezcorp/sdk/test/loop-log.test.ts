@@ -9,7 +9,7 @@
 //   - dashboard pushed on a state change
 //   - loops with no log block are no-ops
 
-import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   defineLoop,
@@ -79,14 +79,21 @@ let captured: Map<string, (p: unknown) => Promise<unknown> | unknown>;
 // schedule-fire receiver latches process-wide, so a per-test onRequest spy
 // can't see it once a sibling file installed it. (Same trick as loop.test.ts.)
 const cronHandlers = new Map<string, (ctx: unknown) => Promise<void> | void>();
+// Restored in afterAll: the spy patches the SHARED Schedule.prototype, so
+// leaving it installed poisons sibling files in the bundled SDK shard (notably
+// schedule.test.ts, whose real on()/installReceiver() would never run).
+let scheduleOnSpy: ReturnType<typeof spyOn>;
 beforeAll(() => {
-  spyOn(Schedule.prototype, "on").mockImplementation(function (
+  scheduleOnSpy = spyOn(Schedule.prototype, "on").mockImplementation(function (
     this: Schedule,
     cron: string,
     handler: (ctx: unknown) => Promise<void> | void,
   ) {
     cronHandlers.set(cron, handler);
   } as Schedule["on"]);
+});
+afterAll(() => {
+  scheduleOnSpy.mockRestore();
 });
 
 beforeEach(() => {

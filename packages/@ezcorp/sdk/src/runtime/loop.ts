@@ -123,13 +123,19 @@ export function formatMessages(messages: LoopMessage[]): string {
 // Production wiring uses the channel-backed defaults; tests swap these to
 // avoid a live pipe while still exercising the real facade logic.
 
+/** Generic run-store constructor — the production default and the
+ *  test seam share this exact shape, so name it once (a value-free type
+ *  alias, erased at compile time). */
+type StoreFactory = <O>(
+  loopId: string,
+  contract: ResolvedContract,
+) => LoopRunStore<O>;
+
 let settingsResolverImpl: SettingsResolver = defaultSettingsResolver;
 let messagesResolverImpl: MessagesResolver = defaultMessagesResolver;
 let spawnImpl: typeof spawnAssignment = spawnAssignment;
 let llmFactory: () => Llm = () => new Llm();
-let storeFactory:
-  | (<O>(loopId: string, contract: ResolvedContract) => LoopRunStore<O>)
-  | null = null;
+let storeFactory: StoreFactory | null = null;
 
 /** @internal test-only — override the settings resolver. */
 export function _setSettingsResolverForTests(fn: SettingsResolver | null): void {
@@ -148,11 +154,7 @@ export function _setLlmFactoryForTests(fn: (() => Llm) | null): void {
   llmFactory = fn ?? (() => new Llm());
 }
 /** @internal test-only — substitute the run store (in-memory KV). */
-export function _setStoreFactoryForTests(
-  fn:
-    | (<O>(loopId: string, contract: ResolvedContract) => LoopRunStore<O>)
-    | null,
-): void {
+export function _setStoreFactoryForTests(fn: StoreFactory | null): void {
   storeFactory = fn;
 }
 
