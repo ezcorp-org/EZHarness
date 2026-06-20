@@ -55,6 +55,11 @@ export const EXCLUDES: readonly string[] = [
   // host-shim tests, not lcov.
   "packages/@ezcorp/sdk/src/types.ts",
   "src/extensions/sdk/types.ts",
+  // Loop SDK public type surface — pure `export type` / `export interface`
+  // (no executable code; compiles to empty), identical justification to the
+  // two type files above. Flagged by the new-file gate as "no measured
+  // coverage" because there is, by construction, nothing to line-measure.
+  "packages/@ezcorp/sdk/src/runtime/loop-types.ts",
   // Web security helpers whose bun:test suites rely on per-`beforeEach`
   // `mock.module` re-registration — a bun-runtime feature with no vitest
   // equivalent (`vi.mock` is statically hoisted), so they can't run in the
@@ -123,6 +128,10 @@ export const EXCLUDES: readonly string[] = [
   "docs/extensions/examples/weather/index.ts",
   "docs/extensions/examples/auto-note/index.ts",
   "docs/extensions/examples/harness-smoke-test/index.ts",
+  // Declarative example manifest (`defineExtension({…})`) — a config object,
+  // not gateable product logic; same spirit as the example index.ts excludes
+  // above. (The sample-loop index.ts IS covered by its own index.test.ts.)
+  "docs/extensions/examples/sample-loop/ezcorp.config.ts",
   // Route handlers tested by their *.server.test.ts (bun:test w/ mock.module,
   // run in the `Web tests (vitest)` CI job) but NOT wired into the coverage
   // pipeline — they show "no lcov data". Same justification as the web/src/lib
