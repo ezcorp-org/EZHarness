@@ -12,9 +12,33 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 
 const mockGetRun = vi.fn();
 const mockCancelRun = vi.fn();
+const mockGetRunOwnership = vi.fn();
+const mockResolveOwnership = vi.fn();
+const mockAwaitRunCompletion = vi.fn();
 
 vi.mock("$lib/server/context", () => ({
-	getExecutor: () => ({ getRun: mockGetRun, cancelRun: mockCancelRun }),
+	getExecutor: () => ({
+		getRun: mockGetRun,
+		cancelRun: mockCancelRun,
+		// Run-ownership attributes drive callerOwnsRun. Tests set this per case;
+		// the default (null/null) is the fail-closed "unattributable" shape.
+		getRunOwnership: mockGetRunOwnership,
+	}),
+	// The route imports getBus for the ?wait=1 path. These tests stub
+	// awaitRunCompletion directly (below), so a no-op bus satisfies the import.
+	getBus: () => ({ on: () => () => {}, emit: () => {}, off: () => {} }),
+}));
+
+// callerOwnsRun delegates the conversation-owner walk here. Mocked so the
+// ownership decision is fully controllable from the test without a DB.
+vi.mock("$lib/server/conversation-ownership", () => ({
+	resolveRootConversationForOwnership: mockResolveOwnership,
+}));
+
+// The ?wait=1 path is exercised in its own describe block; stub the primitive
+// so handler-level abort/timeout/outcome plumbing is unit-testable.
+vi.mock("$server/runtime/await-run-completion", () => ({
+	awaitRunCompletion: mockAwaitRunCompletion,
 }));
 
 const { GET, DELETE } = await import("../routes/api/runs/[id]/+server.ts");
@@ -23,23 +47,31 @@ function makeEvent(opts: {
 	id?: string;
 	locals?: Record<string, unknown>;
 	method?: string;
+	query?: string;
+	signal?: AbortSignal;
 }) {
 	const id = opts.id ?? "run-abc";
+	const qs = opts.query ? `?${opts.query}` : "";
 	return {
-		url: new URL(`http://localhost/api/runs/${id}`),
+		url: new URL(`http://localhost/api/runs/${id}${qs}`),
 		locals: opts.locals ?? {},
 		params: { id },
-		request: new Request(`http://localhost/api/runs/${id}`, {
-			method: opts.method ?? "GET",
-		}),
+		request: { signal: opts.signal ?? new AbortController().signal } as Request,
 	} as any;
 }
 
-const user = { id: "u1", email: "u@x", name: "u", role: "user" };
+const user = { id: "u1", email: "u@x", name: "u", role: "member" };
+const admin = { id: "admin1", email: "a@x", name: "a", role: "admin" };
 
 describe("GET /api/runs/[id]", () => {
 	beforeEach(() => {
 		mockGetRun.mockReset();
+		mockGetRunOwnership.mockReset();
+		mockResolveOwnership.mockReset();
+		mockAwaitRunCompletion.mockReset();
+		// Default: the run is owned by the test `user` so the pre-existing
+		// happy-path/404 cases still pass the ownership gate.
+		mockGetRunOwnership.mockResolvedValue({ userId: "u1", conversationId: null });
 	});
 
 	test("API-key scope check returns 403 when 'read' scope missing", async () => {
@@ -99,6 +131,10 @@ describe("GET /api/runs/[id]", () => {
 describe("DELETE /api/runs/[id]", () => {
 	beforeEach(() => {
 		mockCancelRun.mockReset();
+		mockGetRunOwnership.mockReset();
+		mockResolveOwnership.mockReset();
+		// Default: caller owns the run via userId match.
+		mockGetRunOwnership.mockResolvedValue({ userId: "u1", conversationId: null });
 	});
 
 	test("API-key scope check returns 403 when 'chat' scope missing", async () => {
@@ -152,5 +188,176 @@ describe("DELETE /api/runs/[id]", () => {
 		const body = (await res.json()) as { ok?: boolean };
 		expect(body.ok).toBe(true);
 		expect(mockCancelRun).toHaveBeenCalledWith("run-abc");
+	});
+});
+
+// ─── Run-ownership IDOR invariant ──────────────────────────────────────
+//
+// "No authenticated NON-admin may GET/await/DELETE a run they did not
+// initiate — for ANY run type (chat, agent, CLI), INCLUDING runs that
+// predate run-attribution. Unattributable runs FAIL CLOSED for non-admins.
+// Admins retain full access."
+describe("run ownership (IDOR fix) — GET", () => {
+	beforeEach(() => {
+		mockGetRun.mockReset();
+		mockGetRunOwnership.mockReset();
+		mockResolveOwnership.mockReset();
+		mockGetRun.mockResolvedValue({ id: "run-abc", status: "running" });
+	});
+
+	test("agent/CLI run owned by another user → 404 for non-admin (userId mismatch, no conversation)", async () => {
+		mockGetRunOwnership.mockResolvedValue({ userId: "someone-else", conversationId: null });
+		const res = await GET(makeEvent({ locals: { user } }));
+		expect(res.status).toBe(404);
+		expect(((await res.json()) as { error?: string }).error).toBe("Not found");
+		// userId mismatch + no conversation ⇒ never falls through to a conv walk.
+		expect(mockResolveOwnership).not.toHaveBeenCalled();
+	});
+
+	test("pre-migration / unattributable run (userId null, conversation null) → 404 for non-admin (fail closed)", async () => {
+		mockGetRunOwnership.mockResolvedValue({ userId: null, conversationId: null });
+		const res = await GET(makeEvent({ locals: { user } }));
+		expect(res.status).toBe(404);
+		expect(mockResolveOwnership).not.toHaveBeenCalled();
+	});
+
+	test("agent/CLI run initiated by caller → 200 (userId match)", async () => {
+		mockGetRunOwnership.mockResolvedValue({ userId: "u1", conversationId: null });
+		const res = await GET(makeEvent({ locals: { user } }));
+		expect(res.status).toBe(200);
+	});
+
+	test("chat run the caller owns by conversation → 200 (conversation-owner walk)", async () => {
+		mockGetRunOwnership.mockResolvedValue({ userId: null, conversationId: "c1" });
+		mockResolveOwnership.mockResolvedValue({ conv: {}, root: {} }); // owns it
+		const res = await GET(makeEvent({ locals: { user } }));
+		expect(res.status).toBe(200);
+		expect(mockResolveOwnership).toHaveBeenCalledWith("c1", user);
+	});
+
+	test("chat run owned by another user (conversation walk returns null) → 404 for non-admin", async () => {
+		mockGetRunOwnership.mockResolvedValue({ userId: null, conversationId: "c1" });
+		mockResolveOwnership.mockResolvedValue(null); // does NOT own it
+		const res = await GET(makeEvent({ locals: { user } }));
+		expect(res.status).toBe(404);
+	});
+
+	test("admin may read ANY run, including an unattributable one (no ownership lookup needed)", async () => {
+		mockGetRunOwnership.mockResolvedValue({ userId: null, conversationId: null });
+		const res = await GET(makeEvent({ locals: { user: admin } }));
+		expect(res.status).toBe(200);
+		// Admin short-circuits BEFORE any ownership resolution.
+		expect(mockGetRunOwnership).not.toHaveBeenCalled();
+		expect(mockResolveOwnership).not.toHaveBeenCalled();
+	});
+});
+
+describe("run ownership (IDOR fix) — DELETE", () => {
+	beforeEach(() => {
+		mockCancelRun.mockReset();
+		mockGetRunOwnership.mockReset();
+		mockResolveOwnership.mockReset();
+		mockCancelRun.mockReturnValue(true);
+	});
+
+	test("non-admin cancelling an unattributable run → 404 (fail closed, cancelRun never called)", async () => {
+		mockGetRunOwnership.mockResolvedValue({ userId: null, conversationId: null });
+		const res = await DELETE(makeEvent({ locals: { user }, method: "DELETE" }));
+		expect(res.status).toBe(404);
+		expect(((await res.json()) as { error?: string }).error).toBe(
+			"Run not found or not running",
+		);
+		expect(mockCancelRun).not.toHaveBeenCalled();
+	});
+
+	test("non-admin cancelling another user's agent run → 404 (userId mismatch)", async () => {
+		mockGetRunOwnership.mockResolvedValue({ userId: "someone-else", conversationId: null });
+		const res = await DELETE(makeEvent({ locals: { user }, method: "DELETE" }));
+		expect(res.status).toBe(404);
+		expect(mockCancelRun).not.toHaveBeenCalled();
+	});
+
+	test("admin may cancel an unattributable run", async () => {
+		mockGetRunOwnership.mockResolvedValue({ userId: null, conversationId: null });
+		const res = await DELETE(makeEvent({ locals: { user: admin }, method: "DELETE" }));
+		expect(res.status).toBe(200);
+		expect(mockCancelRun).toHaveBeenCalledWith("run-abc");
+		expect(mockGetRunOwnership).not.toHaveBeenCalled();
+	});
+});
+
+// ─── ?wait=1 abort-on-disconnect (Finding 2) ───────────────────────────
+describe("GET ?wait=1 — abort + outcome plumbing", () => {
+	beforeEach(() => {
+		mockGetRun.mockReset();
+		mockGetRunOwnership.mockReset();
+		mockAwaitRunCompletion.mockReset();
+		mockGetRun.mockResolvedValue({ id: "run-abc", status: "running" });
+		// Caller owns the run.
+		mockGetRunOwnership.mockResolvedValue({ userId: "u1", conversationId: null });
+	});
+
+	test("passes request.signal through to awaitRunCompletion", async () => {
+		const controller = new AbortController();
+		mockAwaitRunCompletion.mockResolvedValue({
+			kind: "done",
+			outcome: "complete",
+			run: { id: "run-abc", status: "success" },
+		});
+		const res = await GET(
+			makeEvent({ locals: { user }, query: "wait=1", signal: controller.signal }),
+		);
+		expect(res.status).toBe(200);
+		expect(mockAwaitRunCompletion).toHaveBeenCalledTimes(1);
+		expect(mockAwaitRunCompletion.mock.calls[0][0].signal).toBe(controller.signal);
+	});
+
+	test("aborted result → 499 and the activeWaits slot is released (finally ran)", async () => {
+		// Simulate an already-disconnected client: the primitive returns
+		// 'aborted'. We then assert the slot was decremented by driving a
+		// SECOND wait under a cap of 1 and confirming it is NOT rejected 429.
+		const prev = process.env.EZCORP_MAX_RUN_WAITS;
+		process.env.EZCORP_MAX_RUN_WAITS = "1";
+		try {
+			mockAwaitRunCompletion.mockResolvedValueOnce({ kind: "aborted" });
+			const aborted = new AbortController();
+			aborted.abort();
+			const res1 = await GET(
+				makeEvent({ locals: { user }, query: "wait=1", signal: aborted.signal }),
+			);
+			expect(res1.status).toBe(499);
+
+			// Slot must be free again: a second wait succeeds (would be 429 if
+			// the first never decremented activeWaits).
+			mockAwaitRunCompletion.mockResolvedValueOnce({
+				kind: "done",
+				outcome: "complete",
+				run: { id: "run-abc", status: "success" },
+			});
+			const res2 = await GET(makeEvent({ locals: { user }, query: "wait=1" }));
+			expect(res2.status).toBe(200);
+		} finally {
+			if (prev === undefined) delete process.env.EZCORP_MAX_RUN_WAITS;
+			else process.env.EZCORP_MAX_RUN_WAITS = prev;
+		}
+	});
+
+	test("timeout result → 408", async () => {
+		mockAwaitRunCompletion.mockResolvedValue({ kind: "timeout" });
+		const res = await GET(makeEvent({ locals: { user }, query: "wait=1" }));
+		expect(res.status).toBe(408);
+	});
+
+	test("concurrency cap → 429 when at capacity", async () => {
+		const prev = process.env.EZCORP_MAX_RUN_WAITS;
+		process.env.EZCORP_MAX_RUN_WAITS = "0"; // no slots
+		try {
+			const res = await GET(makeEvent({ locals: { user }, query: "wait=1" }));
+			expect(res.status).toBe(429);
+			expect(mockAwaitRunCompletion).not.toHaveBeenCalled();
+		} finally {
+			if (prev === undefined) delete process.env.EZCORP_MAX_RUN_WAITS;
+			else process.env.EZCORP_MAX_RUN_WAITS = prev;
+		}
 	});
 });

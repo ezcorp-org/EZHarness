@@ -12,7 +12,11 @@
  * probeKvm / probeLandlockAbi) are exercised live (they must never throw —
  * they fail-closed to false/null) plus the cache accessor + reset.
  */
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, afterEach } from "bun:test";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   selectTier,
   probeUserns,
@@ -22,6 +26,7 @@ import {
   probeSandboxCapabilities,
   getSandboxCapabilities,
   getSandboxTier,
+  bwrapIsSetuid,
   __resetSandboxCapabilitiesCache,
   type ProbeOutcomes,
 } from "../extensions/sandbox/capability-probe";
@@ -33,6 +38,7 @@ function outcomes(over: Partial<ProbeOutcomes>): ProbeOutcomes {
     cgroupV2Delegation: false,
     kvm: false,
     arch: "x64",
+    bwrapSetuid: false,
     ...over,
   };
 }
@@ -45,6 +51,16 @@ describe("selectTier — pure tier selection", () => {
 
   test("landlock: usable Landlock, no userns", () => {
     const r = selectTier(outcomes({ landlockAbi: 1, userns: false }));
+    expect(r).toEqual({ tier: "landlock", landlockUsable: true });
+  });
+
+  test("landlock (not bwrap): userns works but bwrap is setuid-root", () => {
+    // The setuid bwrap can't run our jail (rejects --size; runtime lives
+    // behind /run symlinks the bind-set misses), so we drop to landlock
+    // even though userns is available — real fs confinement is preserved.
+    const r = selectTier(
+      outcomes({ landlockAbi: 5, userns: true, bwrapSetuid: true }),
+    );
     expect(r).toEqual({ tier: "landlock", landlockUsable: true });
   });
 
@@ -127,5 +143,43 @@ describe("probeSandboxCapabilities + cache", () => {
     const b = getSandboxCapabilities();
     expect(a).not.toBe(b); // different object identity after reset
     expect(a.tier).toBe(b.tier); // but same resolved tier on this host
+  });
+});
+
+describe("bwrapIsSetuid — detects setuid-root bwrap on PATH", () => {
+  const ORIG_PATH = process.env.PATH;
+  let dir: string | null = null;
+
+  afterEach(() => {
+    process.env.PATH = ORIG_PATH;
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    dir = null;
+  });
+
+  test("returns true when the first bwrap on PATH carries the setuid bit", () => {
+    dir = mkdtempSync(join(tmpdir(), "bwrap-setuid-"));
+    const fake = join(dir, "bwrap");
+    writeFileSync(fake, "#!/bin/sh\nexit 0\n");
+    // Bun's chmodSync masks off the setuid bit (it only honors the low
+    // permission bits), so set it via the system `chmod`, which preserves
+    // it — exactly the mode NixOS' /run/wrappers/bin/bwrap carries.
+    const r = spawnSync("chmod", ["4755", fake]);
+    if (r.status !== 0) throw new Error("chmod 4755 failed in test setup");
+    process.env.PATH = dir;
+    expect(bwrapIsSetuid()).toBe(true);
+  });
+
+  test("returns false for a plain (non-setuid) bwrap", () => {
+    dir = mkdtempSync(join(tmpdir(), "bwrap-plain-"));
+    const fake = join(dir, "bwrap");
+    writeFileSync(fake, "#!/bin/sh\nexit 0\n"); // default 0644 — no setuid
+    process.env.PATH = dir;
+    expect(bwrapIsSetuid()).toBe(false);
+  });
+
+  test("returns false when no bwrap exists on PATH", () => {
+    dir = mkdtempSync(join(tmpdir(), "bwrap-none-"));
+    process.env.PATH = dir;
+    expect(bwrapIsSetuid()).toBe(false);
   });
 });

@@ -71,15 +71,33 @@ describe("POST /api/providers/[provider]/test", () => {
     expect(res!.status).toBe(401);
   });
 
-  test("rejects 403 when apiKeyScopes lacks 'admin'", async () => {
+  test("rejects 403 for a non-admin MEMBER cookie session (FINDING A)", async () => {
+    // A logged-in member (role:"member") must NOT be able to trigger a live
+    // provider-credential test against instance secrets. requireScope("admin")
+    // alone allow-alled this; requireAdmin gates on role.
     const res = await POST(
-      makeEvent({ locals: { apiKeyScopes: ["read", "chat"] } }),
+      makeEvent({ locals: { user: { id: "u2", email: "m@x", name: "m", role: "member" } } }),
     );
     expect(res).toBeInstanceOf(Response);
     expect(res.status).toBe(403);
-    const body = (await res.json()) as { error?: string; required?: string };
-    expect(body.error).toBe("Insufficient scope");
-    expect(body.required).toBe("admin");
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("Admin role required");
+  });
+
+  test("rejects 403 for an API-key principal even with admin scope (role member)", async () => {
+    // bearer-auth mints API-key principals as role:"member"; the admin SCOPE
+    // can't substitute for the admin ROLE on this instance-secret operation.
+    const res = await POST(
+      makeEvent({
+        locals: {
+          user: { id: "u3", email: "k@x", name: "k", role: "member" },
+          apiKeyScopes: ["admin"],
+        },
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("Admin role required");
   });
 
   test("returns 400 for unknown provider", async () => {

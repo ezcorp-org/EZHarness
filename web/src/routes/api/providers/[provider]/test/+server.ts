@@ -4,15 +4,19 @@ import { requireAuth } from "$server/auth/middleware";
 import { getCredential } from "$server/providers/credentials";
 import { findModelForProviderInTier, resolveModelObject } from "$server/providers/registry";
 import { complete } from "@mariozechner/pi-ai";
-import { requireScope } from "$lib/server/security/api-keys";
+import { requireAdmin } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 
 const VALID_PROVIDERS = new Set(["anthropic", "openai", "google"]);
 
 export const POST: RequestHandler = async ({ params, locals }) => {
-	const scopeErr = requireScope(locals, "admin");
-	if (scopeErr) return scopeErr;
+	// Live provider-credential test hits instance secrets — admin-only, on
+	// BOTH axes. requireScope("admin") alone would allow any cookie session
+	// (allow-all for non-API-key principals); requireAdmin gates on role so
+	// non-admin members get 403. See FINDING A.
 	requireAuth(locals);
+	const adminErr = requireAdmin(locals);
+	if (adminErr) return adminErr;
 
 	const { provider } = params;
 	if (!provider || !VALID_PROVIDERS.has(provider)) {

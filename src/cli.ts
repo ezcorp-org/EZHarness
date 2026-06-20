@@ -10,6 +10,14 @@ import { initDb } from "./db/connection";
 import { validateEnv } from "./env-validation";
 import { getProjectByName } from "./db/queries/projects";
 import { loadDbPipelines } from "./db/queries/pipelines";
+import { getUserByEmail, getUserById, listUsers } from "./db/queries/users";
+import {
+  API_KEY_SCOPES,
+  isApiKeyScope,
+  scopesOverCeiling,
+  type ApiKeyScope,
+} from "./auth/api-key";
+import { mintApiKeyForUser } from "./auth/mint-api-key";
 import { installFromLocal, installWithDependencies, updateExtension as updateExt, removeExtension as removeExt, checkForUpdates } from "./extensions/installer";
 import { satisfiesRange } from "./extensions/manifest";
 import type { DependencyTreeNode } from "./extensions/dependency-resolver";
@@ -148,6 +156,9 @@ export interface ParsedArgs {
   type?: string;         // for ext:init --type
   token?: string;        // for ext:publish --token
   json?: boolean;        // for ext:verify --json
+  scopes?: string;       // for key:mint --scopes (comma-separated)
+  userRef?: string;      // for key:mint --user (email or id)
+  keyName?: string;      // for key:mint --name
 }
 
 /**
@@ -244,6 +255,23 @@ export function parseArgs(args: string[]): ParsedArgs {
     }
   }
 
+  if (command === "key") {
+    const sub = args[1];
+    if (sub === "mint") {
+      const flag = (name: string): string | undefined => {
+        const idx = args.indexOf(name);
+        return idx !== -1 && args[idx + 1] ? args[idx + 1] : undefined;
+      };
+      return {
+        command: "key:mint",
+        scopes: flag("--scopes"),
+        userRef: flag("--user"),
+        keyName: flag("--name"),
+      };
+    }
+    return { command: "help" };
+  }
+
   if (command === "serve") {
     let port = 3001;
     const portIdx = args.indexOf("--port");
@@ -277,6 +305,7 @@ Usage:
   ezcorp ext test [dir] [--filter <name>]               Run extension tests in sandbox
   ezcorp ext publish [--token <token>]                  Publish extension to marketplace
   ezcorp serve [--port 3001]                           Start API server
+  ezcorp key mint [--scopes read,chat] [--user <email|id>] [--name <label>]  Mint a remote-control API key
   ezcorp help                                          Show this help
 `.trim());
 }
@@ -328,6 +357,49 @@ async function findDependents(targetName: string, allExts?: Awaited<ReturnType<t
     }
   }
   return dependents;
+}
+
+/**
+ * Parse + validate a `--scopes a,b,c` flag into typed API-key scopes.
+ * Defaults to `["read","chat"]` (enough to drive + observe a conversation)
+ * when the flag is omitted. Exits(1) on any unknown scope.
+ */
+export function parseKeyScopes(raw: string | undefined): ApiKeyScope[] {
+  if (!raw) return ["read", "chat"];
+  const parts = raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  if (parts.length === 0) return ["read", "chat"];
+  const invalid = parts.filter((p) => !isApiKeyScope(p));
+  if (invalid.length > 0) {
+    console.error(
+      `Error: invalid scope(s) ${invalid.join(", ")}. Valid scopes: ${API_KEY_SCOPES.join(", ")}`,
+    );
+    process.exit(1);
+  }
+  // De-dupe while preserving order.
+  return [...new Set(parts as ApiKeyScope[])];
+}
+
+/**
+ * Resolve the user a minted key is bound to. `--user` accepts an email or
+ * a user id; with no flag we default to the first admin (or, failing that,
+ * the first user). Exits(1) when no match / no users exist.
+ */
+export async function resolveKeyMintUser(userRef: string | undefined): Promise<{ id: string; email: string; role: string }> {
+  if (userRef) {
+    const byEmail = await getUserByEmail(userRef);
+    if (byEmail) return { id: byEmail.id, email: byEmail.email, role: byEmail.role };
+    const byId = await getUserById(userRef);
+    if (byId) return { id: byId.id, email: byId.email, role: byId.role };
+    console.error(`Error: no user matches "${userRef}" (tried email then id)`);
+    process.exit(1);
+  }
+  const users = await listUsers();
+  if (users.length === 0) {
+    console.error("Error: no users exist yet. Complete first-run setup before minting a key.");
+    process.exit(1);
+  }
+  const admin = users.find((u) => u.role === "admin") ?? users[0]!;
+  return { id: admin.id, email: admin.email, role: admin.role };
 }
 
 // ── CLI entry ───────────────────────────────────────────────────────
@@ -735,6 +807,33 @@ export async function cli(args: string[]): Promise<void> {
         console.log(result.pass ? "\nVERIFY: PASS" : "\nVERIFY: FAIL");
       }
       process.exit(result.pass ? 0 : 1);
+      break;
+    }
+
+    case "key:mint": {
+      await initDb();
+      const scopes = parseKeyScopes(parsed.scopes);
+      const user = await resolveKeyMintUser(parsed.userRef);
+      // Scope ceiling: a key must never carry authority its OWNER lacks.
+      // Only an admin-bound key may carry the `admin` scope. Shared with the
+      // HTTP route via scopesOverCeiling() so the two paths can't drift.
+      const over = scopesOverCeiling(user.role, scopes);
+      if (over.length > 0) {
+        console.error(
+          `Error: cannot mint scope(s) ${over.join(", ")} for ${user.email} (role: ${user.role}). ` +
+          `Only an admin user may mint the "admin" scope.`,
+        );
+        process.exit(1);
+      }
+      const name = parsed.keyName ?? "cli-minted";
+      const { raw, keyId } = await mintApiKeyForUser(user.id, scopes, name);
+      console.log(`\nMinted API key for ${user.email} (${user.id})`);
+      console.log(`  scopes: ${scopes.join(", ")}`);
+      console.log(`  keyId:  ${keyId}`);
+      console.log(`  name:   ${name}`);
+      console.log(`\n  ${raw}\n`);
+      console.log("Store it now — only the hash is persisted, so this is the only time it is shown.");
+      console.log("Use it from a remote harness as:  Authorization: Bearer <key>");
       break;
     }
 

@@ -15,13 +15,14 @@
  * in a CHILD (never jailing the runner). Skips where Landlock is unavailable.
  */
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, symlink } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ExtensionProcess } from "../extensions/subprocess";
 import { resolveShellSandbox } from "../runtime/tools/shell";
 import { buildSandboxArgv } from "../extensions/sandbox/build-sandbox-argv";
+import { buildLandlockJailSpec } from "../extensions/sandbox/landlock";
 import { probeLandlockAbi } from "../extensions/sandbox/capability-probe";
 
 const LANDLOCK_OK = (probeLandlockAbi() ?? 0) >= 1;
@@ -105,6 +106,30 @@ describe("Seam A — ExtensionProcess.getSpawnArgs sandbox wrap", () => {
     });
     expect(p.exitCode).not.toBe(0);
     expect(p.stderr.toString().toLowerCase()).toContain("permission denied");
+  });
+
+  test("buildLandlockJailSpec REFUSES a grant symlinked to .ezcorp/data (symlink-bypass regression)", async () => {
+    // A symlink whose REAL target is the data dir passes a purely-lexical
+    // resolve() (the link path itself is outside .ezcorp/data) — but Landlock
+    // binds the kernel inode, so the kernel would then grant the real data-dir
+    // inode (a READ leak of the DB + JWT secret). The builder must
+    // realpath-resolve the grant and REFUSE it, matching the bwrap tier.
+    const sneaky = join(ROOT, "sneaky-ro-link");
+    await symlink(join(ROOT, ".ezcorp", "data"), sneaky);
+
+    // As an RO grant (the extDir/preloadDir grant class the e2e fix added).
+    expect(() =>
+      buildLandlockJailSpec({
+        workspaceDir: join(ROOT, "ws-sym"),
+        projectRoot: ROOT,
+        roPaths: [sneaky],
+      }),
+    ).toThrow(/data dir/i);
+
+    // And as the writable workspace itself.
+    expect(() =>
+      buildLandlockJailSpec({ workspaceDir: sneaky, projectRoot: ROOT }),
+    ).toThrow(/data dir/i);
   });
 });
 

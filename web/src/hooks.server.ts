@@ -22,6 +22,7 @@ import {
 } from "$lib/server/auth/session-cookie";
 import { matchPreviewOrigin, servePreviewRequest } from "$lib/server/preview/dispatch";
 import { createPreviewWebSocketHandler } from "$lib/server/preview/ws-bridge";
+import { isLoopbackTestBypass } from "$lib/server/test-surface";
 
 const log = logger.child("hooks.server");
 
@@ -42,6 +43,28 @@ if (!process.env.PI_SKIP_INIT) {
 
 // ── Rate Limiter ──────────────────────────────────────────────────
 const rateLimiter = new RateLimiter(20, 60_000);
+
+// Per-IP budget for FAILED `Authorization: Bearer` attempts. A forged
+// `ezk_<random>` token misses the O(1) hash index in verifyApiKey and falls
+// back to a full `SELECT * FROM settings` scan — so an unauthenticated
+// attacker spraying random tokens at any protected route could amplify each
+// request into a table scan (DoS). This bucket caps that: only requests that
+// PRESENTED a Bearer header but did NOT resolve to a user are counted, keyed
+// by client IP. A legitimate client uses ONE valid key and SUCCEEDS, so it
+// never increments this counter and is never throttled here. 20/min/IP is far
+// above any plausible "fat-fingered one key" rate while shutting the spray
+// vector. Cookie/session requests never reach this path (they carry no Bearer
+// header and the session branch handles them).
+const FAILED_BEARER_LIMIT = 20;
+const failedBearerLimiter = new RateLimiter(FAILED_BEARER_LIMIT, 60_000);
+
+// Test-only handles so a suite exercising `handle` can clear the singleton
+// limiters between cases (their counters otherwise leak across tests in the
+// same file). Not used in production. Mirrors the `__rateLimiter` convention
+// used by the `+server.ts` route handlers.
+export const __rateLimiter = rateLimiter;
+export const __failedBearerLimiter = failedBearerLimiter;
+export const __FAILED_BEARER_LIMIT = FAILED_BEARER_LIMIT;
 
 export interface RateLimitRoute {
   pattern: RegExp;
@@ -110,19 +133,29 @@ function rateLimitResponse(retryAfter: number): Response {
   });
 }
 
-function getClientIp(request: Request): string {
+export function getClientIp(request: Request, socketAddress?: string): string {
   const trustCount = parseInt(process.env.TRUSTED_PROXY_COUNT ?? "0", 10);
   if (trustCount > 0) {
+    // A trusted proxy IS configured: honor the XFF chain exactly as before,
+    // peeling `trustCount` hops off the right. This path is unchanged.
     const xff = request.headers.get("x-forwarded-for");
     if (xff) {
       const parts = xff.split(",").map(s => s.trim());
       const idx = Math.max(0, parts.length - trustCount);
       return parts[idx] || "unknown";
     }
+    // No XFF header despite a configured proxy: fall through to x-real-ip,
+    // matching the pre-existing behavior for the trusted-proxy case.
+    return request.headers.get("x-real-ip") || "unknown";
   }
-  // Fallback: no trusted proxy, use x-real-ip (set by reverse proxies that
-  // expose a single trusted client IP) or "unknown"
-  return request.headers.get("x-real-ip") || "unknown";
+  // No trusted proxy configured (the DEFAULT). In a direct-exposure topology
+  // (tailscale / LAN / port-forward) every request header — including
+  // `x-real-ip` and `x-forwarded-for` — is attacker-controlled, so keying
+  // rate limits on them lets a spammer mint a fresh bucket per request by
+  // rotating the header. Key on the trustworthy socket peer instead. The
+  // caller passes `event.getClientAddress()` (already try/caught for the
+  // prerender path); fall back to "unknown" when it's unavailable.
+  return socketAddress || "unknown";
 }
 
 // sec-M4: explicit allow-list only. If CORS_ALLOWED_ORIGINS is unset we default
@@ -303,10 +336,22 @@ export const handle: Handle = async ({ event, resolve }) => {
     }
   }
 
+  // Trustworthy socket peer, used to key IP-based rate limits when NO trusted
+  // proxy is configured (so attacker-supplied x-real-ip / x-forwarded-for
+  // headers can't be rotated to mint fresh buckets). Resolved once here;
+  // getClientAddress() throws under the prerender path, so fall back to
+  // undefined (getClientIp then degrades to "unknown") — never let it throw.
+  let socketAddress: string | undefined;
+  try {
+    socketAddress = event.getClientAddress();
+  } catch {
+    socketAddress = undefined;
+  }
+
   // ── Rate limiting (IP-based for login, before auth) ─────────────
   const rateLimitRoute = matchRateLimitRoute(url.pathname, request.method);
   if (rateLimitRoute && rateLimitRoute.keyType === "ip") {
-    const ip = getClientIp(request);
+    const ip = getClientIp(request, socketAddress);
     const override = await getRateLimitOverride(rateLimitRoute.category);
     const result = rateLimiter.check(`ip:${ip}:${rateLimitRoute.category}`, override ?? rateLimitRoute.limit);
     if (!result.allowed) {
@@ -322,6 +367,26 @@ export const handle: Handle = async ({ event, resolve }) => {
 ;
 
   if (!isPublic) {
+    // ── Loopback test-surface bypass ───────────────────────────────────
+    // The deterministic mock-LLM completions endpoint is called
+    // server-internally by pi-ai's HTTP client over loopback with a dummy
+    // bearer token, so it cannot satisfy session/key auth. Let ONLY that
+    // path through, and ONLY when the test surface is enabled AND the peer
+    // is genuine loopback with no proxy-forwarding headers. Everything else
+    // (including the externally-reachable `/script` seed sub-path) still
+    // goes through the normal auth flow below.
+    {
+      let loopbackAddr: string | undefined;
+      try { loopbackAddr = event.getClientAddress(); } catch { loopbackAddr = undefined; }
+      const proxied =
+        request.headers.has("x-forwarded-for") ||
+        request.headers.has("x-real-ip") ||
+        request.headers.has("forwarded");
+      if (isLoopbackTestBypass(url.pathname, loopbackAddr, proxied)) {
+        return resolve(event);
+      }
+    }
+
     // Build /login URL preserving the page the user was trying to reach so we
     // can send them back after re-auth. GET only — POST/PUT/PATCH navigations
     // don't represent a "page the user was on". URLSearchParams handles
@@ -368,6 +433,25 @@ export const handle: Handle = async ({ event, resolve }) => {
       // (ezkint_, loopback-only) and user-issued keys (ezk_). See
       // lib/server/security/bearer-auth.ts for the full security contract.
       const authHeader = request.headers.get("authorization");
+      // Whether THIS request presented a Bearer token at all. Only Bearer
+      // requests participate in the failed-auth budget below — a request
+      // with no Authorization header (or a non-Bearer scheme) can't trigger
+      // the verifyApiKey scan, so it must never be counted or throttled.
+      const presentedBearer = !!authHeader?.startsWith("Bearer ");
+
+      // DoS-amplification guard: short-circuit BEFORE attachBearerAuth (and
+      // its verifyApiKey table scan) for an IP that has already burned its
+      // failed-Bearer budget this window. peek() is read-only so a request
+      // that goes on to SUCCEED never consumes a token. See
+      // FAILED_BEARER_LIMIT for the full rationale.
+      if (presentedBearer) {
+        const ip = getClientIp(request, socketAddress);
+        const peeked = failedBearerLimiter.peek(`ip:${ip}:bearerFail`);
+        if (!peeked.allowed) {
+          return rateLimitResponse(peeked.retryAfter!);
+        }
+      }
+
       let remoteAddress: string | undefined;
       try {
         remoteAddress = event.getClientAddress();
@@ -392,6 +476,16 @@ export const handle: Handle = async ({ event, resolve }) => {
         },
         authHeader,
       );
+
+      // Record a failure ONLY when a Bearer token was presented but did NOT
+      // authenticate. A successful auth populates event.locals.user above and
+      // is skipped here, so a valid key can never be throttled. check()
+      // increments the per-IP counter; once it crosses FAILED_BEARER_LIMIT the
+      // peek() above starts returning 429 for subsequent sprays this window.
+      if (presentedBearer && !event.locals.user) {
+        const ip = getClientIp(request, socketAddress);
+        failedBearerLimiter.check(`ip:${ip}:bearerFail`);
+      }
 
       if (!event.locals.user) {
         let count: number;

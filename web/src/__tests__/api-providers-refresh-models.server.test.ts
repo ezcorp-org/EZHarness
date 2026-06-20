@@ -64,9 +64,17 @@ describe("POST /api/providers/[provider]/refresh-models", () => {
     expect(res!.status).toBe(401);
   });
 
-  test("rejects 403 when apiKeyScopes lacks 'admin'", async () => {
+  test("rejects 403 for a non-admin member even with an admin api-key scope", async () => {
+    // requireAdmin gates on ROLE on BOTH axes — an admin SCOPE on a member's
+    // key is insufficient (FINDING A: scope ≠ role). Uses instance creds, so
+    // admin-only like providers/test.
     const res = await POST(
-      makeEvent({ locals: { apiKeyScopes: ["read", "chat"] } }),
+      makeEvent({
+        locals: {
+          user: { id: "m1", email: "m@x", name: "m", role: "member" },
+          apiKeyScopes: ["admin"],
+        },
+      }),
     );
     expect(res.status).toBe(403);
   });

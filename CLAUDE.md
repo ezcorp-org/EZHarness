@@ -112,6 +112,30 @@ spec, settings keys, and how to add a custom strategy.
 - Prefer `Bun.file` over `node:fs`'s readFile/writeFile
 - Bun.$`ls` instead of execa.
 
+## Remote testability contract
+
+The app is remotely controllable + deterministically testable by external
+harnesses, and new features must keep it that way. A CI meta-test
+(`web/src/__tests__/route-contract.test.ts`) enforces the rules; see
+[docs/harness-contract.md](docs/harness-contract.md) for the full spec.
+
+- **New `/api/*` route** → register it in `src/api-registry.ts` with a `scope`
+  (`read`/`chat`/`extensions`/`admin`/`public`). It then documents itself and
+  appears in the generated OpenAPI spec (`src/openapi.ts`). The meta-test
+  ratchets the unregistered-route count — a new unregistered route fails.
+- **New `/api/__test/**` route** (determinism tier) → gate it with
+  `isTestSurfaceEnabled()` from `$lib/server/test-surface`. The gate is
+  fail-CLOSED: it returns 404 unless **all three** of
+  `EZCORP_ALLOW_TEST_SURFACE=1` (conscious operator opt-in), `PI_E2E_REAL=1`,
+  and a non-production `NODE_ENV` hold. The meta-test fails any ungated one.
+- **New client-facing runtime event** → add it to the single canonical list
+  `web/src/lib/runtime-event-names.ts` (the SSE `BUS_EVENTS` and `ws.ts`'s
+  `WSRunEvent` both derive from it). Never re-list event names elsewhere.
+- **Cold-start auth** is `ezcorp key mint` (CLI, no UI). The control tier is
+  scope-gated and works in production; the determinism tier never does.
+- External harnesses use the `@ezcorp/harness-client` package — extend it (not
+  ad-hoc fetch) when adding a `harness: { controllable: true }` route.
+
 ## Testing
 
 Use `bun test` to run tests.

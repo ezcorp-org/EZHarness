@@ -13,9 +13,10 @@
  * Real on-disk fixtures (preview-jail canonicalizes with realpath + fails
  * closed on missing dirs, so the bwrap leg needs real dirs).
  */
-import { test, expect, describe, beforeAll, afterAll } from "bun:test";
+import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
+import * as realNodeFs from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -32,6 +33,12 @@ import {
   LANDLOCK_SPEC_ENV,
 } from "../extensions/sandbox/landlock-shim";
 import { forbiddenDataDir } from "../extensions/preview-jail";
+
+// Top-level snapshot of node:fs taken BEFORE any mock.module install — the
+// genuine exports, captured once at load (the bun mock.module
+// materialization-freeze gotcha: re-register these LITERAL exports in afterAll
+// so a later-loaded sibling never imports the frozen stub).
+const NODE_FS_SNAPSHOT = { ...realNodeFs };
 
 let ROOT: string; // project root (realpath)
 let WORKSPACE: string; // the rw workspace under the root
@@ -156,6 +163,48 @@ describe("buildSandboxArgv — tier branches", () => {
     const idx = r.argv.indexOf("--seccomp");
     expect(idx).toBeGreaterThan(-1);
     expect(r.argv[idx + 1]).toBe("10");
+  });
+
+  test("bwrap: emits --size before --tmpfs by default (non-setuid host)", () => {
+    const r = buildSandboxArgv({
+      tier: "bwrap",
+      workspaceDir: WORKSPACE,
+      projectRoot: ROOT,
+      roPaths: [RO_OK],
+      command: "true",
+      bwrapOmitTmpfsSize: false,
+    });
+    const sizeIdx = r.argv.indexOf("--size");
+    const tmpfsIdx = r.argv.indexOf("--tmpfs");
+    expect(sizeIdx).toBeGreaterThan(-1);
+    expect(tmpfsIdx).toBeGreaterThan(-1);
+    // `--size <n>` must immediately precede `--tmpfs` (bwrap state machine).
+    expect(r.argv[sizeIdx + 2]).toBe("--tmpfs");
+  });
+
+  test("bwrap: OMITS --size on a setuid bwrap but keeps --tmpfs + binds", () => {
+    const r = buildSandboxArgv({
+      tier: "bwrap",
+      workspaceDir: WORKSPACE,
+      projectRoot: ROOT,
+      roPaths: [RO_OK],
+      command: "true",
+      bwrapOmitTmpfsSize: true,
+    });
+    // The flag that setuid bwrap rejects is gone …
+    expect(r.argv).not.toContain("--size");
+    // … but the private /tmp tmpfs and the confinement surface remain.
+    expect(r.argv).toContain("--tmpfs");
+    expect(r.argv).toContain("/tmp");
+    expect(r.argv[0]).toBe("bwrap");
+    // Still no root bind / no data-dir bind.
+    const forbidden = forbiddenDataDir(ROOT);
+    expect(r.argv.some((a) => a === forbidden)).toBe(false);
+    for (let i = 0; i < r.argv.length; i++) {
+      if (r.argv[i] === "--bind" || r.argv[i] === "--ro-bind") {
+        expect(r.argv[i + 1]).not.toBe("/");
+      }
+    }
   });
 
   test("throws when command is empty", () => {
@@ -338,5 +387,83 @@ describe("landlock-shim — pure parsers", () => {
     expect(() =>
       parseSpecFromEnv({ [LANDLOCK_SPEC_ENV]: JSON.stringify({ ro: "x" }) }),
     ).toThrow(/malformed/);
+  });
+});
+
+describe("defaultShimPath — bundled EZCORP_PROJECT_ROOT fallback", () => {
+  // The landlock tier's shim path defaults to the COLOCATED source
+  // (./landlock-shim.ts next to the module). In a BUNDLED deploy that file was
+  // tree-shaken away — existsSync(colocated) is false — so it must fall back to
+  // <EZCORP_PROJECT_ROOT>/src/extensions/sandbox/landlock-shim.ts. We force the
+  // bundled-deploy condition by stubbing existsSync: false for the colocated
+  // path, true for the project-root path.
+  const ORIG_ROOT = process.env.EZCORP_PROJECT_ROOT;
+
+  afterAll(() => {
+    // Re-register the LITERAL real node:fs exports so siblings see the genuine
+    // module, never the frozen existsSync stub.
+    mock.module("node:fs", () => ({ ...NODE_FS_SNAPSHOT }));
+    if (ORIG_ROOT === undefined) delete process.env.EZCORP_PROJECT_ROOT;
+    else process.env.EZCORP_PROJECT_ROOT = ORIG_ROOT;
+  });
+
+  test("falls back to <EZCORP_PROJECT_ROOT>/src/... shim when colocated is absent", async () => {
+    const fakeRoot = "/fake/project/root";
+    const expectedShim = join(
+      fakeRoot,
+      "src",
+      "extensions",
+      "sandbox",
+      "landlock-shim.ts",
+    );
+    process.env.EZCORP_PROJECT_ROOT = fakeRoot;
+    mock.module("node:fs", () => ({
+      ...NODE_FS_SNAPSHOT,
+      existsSync: (p: string) => {
+        // The bundled-deploy condition: the colocated shim is GONE …
+        if (p.endsWith("landlock-shim.ts") && p !== expectedShim) return false;
+        // … but the project-root fallback exists.
+        if (p === expectedShim) return true;
+        return NODE_FS_SNAPSHOT.existsSync(p);
+      },
+    }));
+    // Re-import so the module binds the stubbed existsSync.
+    const { buildSandboxArgv: build } = await import(
+      "../extensions/sandbox/build-sandbox-argv"
+    );
+    const r = build({
+      tier: "landlock",
+      workspaceDir: WORKSPACE,
+      projectRoot: ROOT,
+      roPaths: [RO_OK],
+      command: "x",
+    });
+    // argv[1] is the resolved shim path — must be the project-root fallback.
+    expect(r.argv[1]).toBe(expectedShim);
+  });
+
+  test("last-resort returns colocated path when fallback also absent (no EZCORP_PROJECT_ROOT)", async () => {
+    delete process.env.EZCORP_PROJECT_ROOT;
+    mock.module("node:fs", () => ({
+      ...NODE_FS_SNAPSHOT,
+      existsSync: (p: string) => {
+        // Colocated shim absent AND no project root → last-resort colocated.
+        if (p.endsWith("landlock-shim.ts")) return false;
+        return NODE_FS_SNAPSHOT.existsSync(p);
+      },
+    }));
+    const { buildSandboxArgv: build } = await import(
+      "../extensions/sandbox/build-sandbox-argv"
+    );
+    const r = build({
+      tier: "landlock",
+      workspaceDir: WORKSPACE,
+      projectRoot: ROOT,
+      roPaths: [RO_OK],
+      command: "x",
+    });
+    // Falls through to the colocated path (the spawn would surface a clear
+    // "Module not found" rather than silently swallowing the misconfig).
+    expect(r.argv[1]).toMatch(/landlock-shim\.ts$/);
   });
 });

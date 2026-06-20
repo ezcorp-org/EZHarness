@@ -51,6 +51,19 @@ describe("isNoiseLine — positive matches (noise)", () => {
     )).toBe(true);
   });
 
+  test("modifier-prefixed class member declarations (no initializer) are noise", () => {
+    expect(isNoiseLine("  private readonly maxEntries: number;")).toBe(true);
+    expect(isNoiseLine("  private readonly now: () => number;")).toBe(true);
+    expect(isNoiseLine("  public foo?: string;")).toBe(true);
+    expect(isNoiseLine("  protected static bar: Map<string, number>;")).toBe(true);
+    expect(isNoiseLine("  readonly id: string,")).toBe(true);
+  });
+
+  test("an initialized class member (value `=`) is NOT noise", () => {
+    expect(isNoiseLine("  private count: number = 0;")).toBe(false);
+    expect(isNoiseLine("  readonly map = new Map<string, Entry>();")).toBe(false);
+  });
+
   test("return-type opener lines", () => {
     expect(isNoiseLine("): Promise<{")).toBe(true);
     expect(isNoiseLine("  ): Array<{")).toBe(true);
@@ -123,6 +136,25 @@ describe("isNoiseLine — negative matches (real executable code)", () => {
     expect(isNoiseLine("  interface Foo extends Bar {")).toBe(true);
     expect(isNoiseLine("  read(): Promise<string | null>;")).toBe(true);
     expect(isNoiseLine("  write(text: string): Promise<void>;")).toBe(true);
+  });
+
+  test("class declaration headers are noise (phantom zero-hit from non-constructing importers)", () => {
+    // Bun never credits the class-HEADER line with a positive hit; a shard
+    // that imports the module without constructing the class emits a phantom
+    // DA:<header>,0 that the merge can never offset. See CLASS_DECL rationale.
+    expect(isNoiseLine("export class SearchCache {")).toBe(true);
+    expect(isNoiseLine("class Foo {")).toBe(true);
+    expect(isNoiseLine("  export class Bar extends Base {")).toBe(true);
+    expect(isNoiseLine("export default class {")).toBe(true);
+    expect(isNoiseLine("export abstract class Widget implements Drawable {")).toBe(true);
+  });
+
+  test("class lines carrying executable code are NOT mistaken for bare headers", () => {
+    // A decorator call `(`, a field initializer `=`, or anything past the
+    // opening `{` keeps the line out of CLASS_DECL.
+    expect(isNoiseLine("const C = class extends Base {")).toBe(false);
+    expect(isNoiseLine("export class Foo { count = 0; }")).toBe(false);
+    expect(isNoiseLine("registerClass(class Foo {")).toBe(false);
   });
 
   test("real method bodies + arrows + value calls are NOT mistaken for signatures", () => {

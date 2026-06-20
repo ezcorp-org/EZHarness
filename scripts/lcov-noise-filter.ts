@@ -45,6 +45,20 @@ const BLANK = /^\s*$/;
 const TS_FIELD_START = /^\s*(\)?\s*:|\w+\??:)\s/;
 const ENDS_WITH_TYPE_TERMINATOR = /[;,]\s*$/;
 
+// TS class MEMBER declaration with access/`readonly`/`static` modifiers and
+// NO initializer: `private readonly maxEntries: number;`, `public foo?: T;`,
+// `protected static bar: () => void;`. Unlike TS_FIELD_START (which requires
+// the property name to sit immediately before the `:`), these carry modifier
+// keywords, so the name isn't adjacent to the `:`. A modifier-only,
+// initializer-free member declaration emits no standalone JS — the property
+// only materialises when assigned (in the constructor, on its own credited
+// line). Bun's sourcemap fallback still emits a phantom `DA:<decl>,0` for a
+// module that's imported but never constructed. Guarded below to reject a
+// value initializer (`=` outside `=>`). Zero-hit-only, so a member bun did
+// credit is never stripped.
+const TS_MEMBER_DECL =
+  /^\s*(?:(?:public|private|protected|readonly|static|declare|abstract|override)\s+)+\w+\??\s*:\s/;
+
 // `): Promise<{` and variants — return-type opener on its own line.
 const RETURN_TYPE_OPEN = /^\s*\)\s*:\s*[A-Z]\w*<?[{<\[]?\s*$/;
 
@@ -79,15 +93,24 @@ const SQL_CLOSE = /^\s*\),?\s*0?\)?\s*AS\b/i;
 // extends Bar {`. Interfaces are erased at compile time → no JS.
 const INTERFACE_DECL = /^\s*(export\s+)?interface\s+\w+/;
 
-// Class declaration header: `class Foo {`, `export class Bar extends Baz {`,
-// `export abstract class Qux implements I {`. Bun's coverage emitter assigns
-// a phantom zero-hit DA to the class-header line via sourcemap fallback when a
-// module that DECLARES the class is loaded but the class is never instantiated
-// in that shard. When the class IS exercised, Bun credits the hit to the
-// constructor / surrounding scope, never to the header line — so a class
+// Class declaration HEADER on its own line: `class Foo {`,
+// `export class Bar extends Baz {`, `export abstract class Qux implements I {`,
+// `export default class {` (anonymous), `class Container<T extends Base> {`.
+// Bun's coverage emitter assigns a phantom zero-hit DA to the class-header line
+// via sourcemap fallback when a module that DECLARES the class is loaded but
+// the class is never instantiated in that shard; when the class IS exercised
+// Bun credits the constructor / surrounding scope, never the header — so a
 // header never carries a positive DA even under full coverage. Zero-hit-only,
 // so this can only strip phantom records, never real hits.
-const CLASS_DECL = /^\s*(export\s+)?(default\s+)?(abstract\s+)?class\s+\w+\s*(<[^>]*>)?\s*(extends\s|implements\s|\{|$)/;
+//
+// The `[^=({]*\{?\s*$` tail is load-bearing: it matches a BARE header opener
+// (named OR anonymous, optionally ending in `{`, brace allowed on the next
+// line) but rejects any line carrying executable code — a field initializer
+// (`export class Foo { count = 0; }` has `=`), a decorator/registration call
+// (`registerClass(class Foo {` has `(`), or content past the `{`. Such lines
+// emit real JS and must keep their DA record.
+const CLASS_DECL =
+  /^\s*(export\s+)?(default\s+)?(abstract\s+)?class\b[^=({]*\{?\s*$/;
 
 // Declaration-only class field with access/modifier prefix and a TYPE
 // annotation but NO initializer: `private readonly maxEntries: number;`,
@@ -154,6 +177,11 @@ export function isNoiseLine(text: string): boolean {
   if (TS_FIELD_START.test(text) && ENDS_WITH_TYPE_TERMINATOR.test(text)) {
     // Reject if there's a `=` outside `=>` arrow syntax — that would be
     // a value-assignment, not a type continuation.
+    const stripped = text.replace(/=>/g, "");
+    if (!stripped.includes("=")) return true;
+  }
+  if (TS_MEMBER_DECL.test(text) && ENDS_WITH_TYPE_TERMINATOR.test(text)) {
+    // Same `=`-guard: an initialized member (`private x = 0;`) IS executable.
     const stripped = text.replace(/=>/g, "");
     if (!stripped.includes("=")) return true;
   }

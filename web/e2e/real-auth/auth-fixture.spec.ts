@@ -23,30 +23,30 @@ test.describe("Real-auth harness", () => {
 		expect(body.user?.role).toBe("admin");
 	});
 
-	test("GET / renders the authenticated landing page (no redirect)", async ({ page }) => {
+	test("GET / lands an authenticated user in chat (no login redirect)", async ({ page }) => {
 		// Complementary to the `/api/auth/me` request-context test above:
 		// this navigates via the browser so we also exercise the
-		// page-level cookie path. `hooks.server.ts:289` lists `/login`
-		// and `/setup` as public; everything else redirects unauthenticated
+		// page-level cookie path. `hooks.server.ts` lists `/login` and
+		// `/setup` as public; everything else redirects unauthenticated
 		// users to `/login`. So if the storageState cookie replay broke,
-		// the GET / response would 302 → /login and `finalUrl.pathname`
-		// would be `/login` — exactly the failure we want this sanity
-		// test to catch.
+		// `/` would 302 → /login and we'd land on `/login` — exactly the
+		// failure this sanity test catches.
 		//
-		// We assert on a SERVER-rendered marker (`data-testid="landing-controls"`
-		// in `routes/+page.svelte:111`) rather than a client-fetched
-		// element. The previous `.user-menu-container` selector lived
-		// inside `(app)/+layout.svelte` and was only injected AFTER an
-		// onMount `fetch('/api/auth/me')` resolved — a JS-hydration race
-		// the harness couldn't reliably win. The server-rendered testid
-		// is deterministic: either auth let us through and the controls
-		// render, or we got redirected and the locator times out.
+		// `routes/+page.svelte` is an authenticated-only redirect shim: on
+		// mount it picks the active project (default `global`) and
+		// `goto`s `/project/<id>/chat`. So the deterministic, auth-gated
+		// signal is the final URL settling under `/project/.../chat`
+		// rather than `/login` or `/setup`. We wait for that client-side
+		// navigation with an auto-retrying `waitForURL` (no bare sleep) —
+		// if auth had failed, the hooks redirect would have sent us to
+		// `/login` and this wait would time out instead.
 		const resp = await page.goto("/");
 		expect(resp?.ok() || resp?.status() === 304).toBe(true);
+		await page.waitForURL(/\/project\/[^/]+\/chat/, { timeout: 10_000 });
 		const finalUrl = new URL(page.url());
 		expect(finalUrl.pathname).not.toBe("/login");
 		expect(finalUrl.pathname).not.toBe("/setup");
-		await expect(page.getByTestId("landing-controls")).toBeVisible({ timeout: 10_000 });
+		expect(finalUrl.pathname).toMatch(/^\/project\/[^/]+\/chat/);
 
 		// Page-context proof: cookie travels with the browser too.
 		// Using `page.request` (NOT the top-level `request` fixture)
