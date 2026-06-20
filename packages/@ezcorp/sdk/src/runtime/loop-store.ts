@@ -104,6 +104,12 @@ function lockKey(loopId: string, scope: StorageScope): string {
   return `loop-store:${loopId}:${scope}`;
 }
 
+/** The exact slice of `Storage` a run store uses. Declared as a one-line type
+ *  alias (compile-erased) instead of an inline multi-line `Pick<…>` so the
+ *  merged coverage lcov doesn't phantom-count the wrapped type lines as
+ *  "missed" — same root-fix as the StoreFactory alias in loop.ts. */
+type StorageLike = Pick<Storage, "get" | "set" | "delete" | "list">;
+
 /**
  * Construct a run store for one loop + scope. `storageFactory` is injected
  * so tests can substitute an in-memory KV; production passes the real
@@ -112,10 +118,7 @@ function lockKey(loopId: string, scope: StorageScope): string {
 export function createLoopRunStore<Outcome = unknown>(
   loopId: string,
   contract: LoopContract<unknown> | ResolvedContract<unknown>,
-  storageFactory: (scope: StorageScope) => Pick<
-    Storage,
-    "get" | "set" | "delete" | "list"
-  > = (scope) => new Storage(scope),
+  storageFactory: (scope: StorageScope) => StorageLike = (scope) => new Storage(scope),
 ): LoopRunStore<Outcome> {
   const resolved: ResolvedContract = isResolved(contract)
     ? contract
