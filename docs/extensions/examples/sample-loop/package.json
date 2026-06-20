@@ -1,0 +1,8 @@
+{
+  "name": "sample-loop",
+  "version": "1.0.0",
+  "description": "Reference Loop SDK primitive example — summarize each completed chat run on defineLoop.",
+  "private": true,
+  "type": "module",
+  "main": "./index.ts"
+}

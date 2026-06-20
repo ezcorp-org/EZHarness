@@ -38,6 +38,7 @@ mapfile -t FILES < <({
   printf '%s\n' \
     web/src/__tests__/snippet-sanitize.test.ts \
     web/src/__tests__/search-mode.test.ts \
+    web/src/__tests__/shared-ui-components.test.ts \
     web/src/lib/search/__tests__/palette-results.test.ts \
     web/src/lib/__tests__/diff-view-mode.test.ts \
     web/src/lib/__tests__/tool-scope-logic.test.ts \

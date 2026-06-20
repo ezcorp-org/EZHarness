@@ -12,8 +12,9 @@ import { test, expect, describe, afterEach } from "bun:test";
 import { LlmCredentialError, LlmProviderError } from "@ezcorp/sdk/runtime";
 import {
   tools,
-  handleRunComplete,
   distill,
+  distillRunComplete,
+  defineDistillLoop,
   _setRuntimeApiForTests,
   _resetRuntimeApiForTests,
   _resetDistillerModelWarningForTests,
@@ -95,10 +96,6 @@ function makeFakeRuntime(overrides: Partial<DistillerRuntimeApi> = {}): {
       calls.push({ api: "lessonsWrite", args: input });
       if (state.lessonsWriteThrow) throw state.lessonsWriteThrow;
       return state.lessonsWriteResult as never;
-    },
-    async getMySettings() {
-      calls.push({ api: "getMySettings", args: {} });
-      return state.settings;
     },
     ...overrides,
   };
@@ -499,80 +496,11 @@ describe("distill — pipeline gates", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────
-// run:complete event handler
-// ─────────────────────────────────────────────────────────────────────
-
-describe("handleRunComplete — event handler", () => {
-  test("ignored when settings.enabled is false", async () => {
-    const fake = makeFakeRuntime();
-    fake.setSettings({ enabled: false });
-    _setRuntimeApiForTests(fake.api);
-
-    await handleRunComplete({
-      run: { agentName: "chat", status: "success" },
-      conversationId: "conv-1",
-    });
-
-    expect(fake.calls.find((c) => c.api === "getMessages")).toBeUndefined();
-    expect(fake.calls.find((c) => c.api === "llmComplete")).toBeUndefined();
-  });
-
-  test("ignored when run.agentName !== 'chat'", async () => {
-    const fake = makeFakeRuntime();
-    fake.setSettings({ enabled: true });
-    _setRuntimeApiForTests(fake.api);
-
-    await handleRunComplete({
-      run: { agentName: "team-handoff", status: "success" },
-      conversationId: "conv-1",
-    });
-
-    expect(fake.calls.find((c) => c.api === "llmComplete")).toBeUndefined();
-  });
-
-  test("ignored when run.status !== 'success'", async () => {
-    const fake = makeFakeRuntime();
-    fake.setSettings({ enabled: true });
-    _setRuntimeApiForTests(fake.api);
-
-    await handleRunComplete({
-      run: { agentName: "chat", status: "error" },
-      conversationId: "conv-1",
-    });
-
-    expect(fake.calls.find((c) => c.api === "llmComplete")).toBeUndefined();
-  });
-
-  test("ignored when conversationId missing", async () => {
-    const fake = makeFakeRuntime();
-    fake.setSettings({ enabled: true });
-    _setRuntimeApiForTests(fake.api);
-
-    await handleRunComplete({
-      run: { agentName: "chat", status: "success" },
-    });
-
-    expect(fake.calls.find((c) => c.api === "getMySettings")).toBeUndefined();
-  });
-
-  test("settings missing/getter throws → defaults to enabled (does not crash)", async () => {
-    const fake = makeFakeRuntime({
-      async getMySettings() {
-        throw new Error("network blip");
-      },
-    });
-    _setRuntimeApiForTests(fake.api);
-
-    // Even when getMySettings fails the run should not throw; the
-    // listener contract is fire-and-forget.
-    const out = await handleRunComplete({
-      run: { agentName: "chat", status: "success" },
-      conversationId: "conv-1",
-    });
-    expect(out).toBeUndefined();
-  });
-});
+// NOTE: the old "handleRunComplete — event handler" gating describe was
+// DELETED with the dead ctx-less listener (boot only wires defineDistillLoop).
+// Its gating behavior (enabled=false / wrong-agent / non-success / missing
+// conversationId) is now pinned through the shared core in the
+// "distillRunComplete — shared settings-injected core" describe below.
 
 // ─────────────────────────────────────────────────────────────────────
 // Fail-soft degrade: provider/credential-class LLM failure must warn
@@ -581,7 +509,12 @@ describe("handleRunComplete — event handler", () => {
 // call error-spammed every run when no Google credential was configured.
 // ─────────────────────────────────────────────────────────────────────
 
-describe("handleRunComplete — fail-soft on unavailable model", () => {
+// RELOCATED from the dead `handleRunComplete` listener onto the shared core
+// `distillRunComplete(payload, settings)` — the warn-once-on-unavailable-model
+// behavior LIVES in distillRunComplete, so coverage is preserved (settings are
+// now passed explicitly, as the loop act does via ctx.settings).
+describe("distillRunComplete — fail-soft on unavailable model", () => {
+  const RUN = { run: { agentName: "chat", status: "success" } as const };
   function withCapturedWarn(): { warnings: string[]; restore: () => void } {
     const warnings: string[] = [];
     const original = console.warn;
@@ -593,26 +526,25 @@ describe("handleRunComplete — fail-soft on unavailable model", () => {
 
   test("credential-missing LLM failure warns exactly once, never error-spams", async () => {
     const fake = makeFakeRuntime();
-    fake.setSettings({ enabled: true, provider: "google", model: "" });
     fake.setLlmThrow(new LlmCredentialError("google", "no GOOGLE_API_KEY"));
     _setRuntimeApiForTests(fake.api);
+    const settings = { enabled: true, provider: "google", model: "" };
 
     const errorSpy: string[] = [];
     const originalError = console.error;
     console.error = (...args: unknown[]) => { errorSpy.push(args.map(String).join(" ")); };
     const cap = withCapturedWarn();
     try {
-      // Three back-to-back run:completes — the credential is still
-      // missing each time. We must warn at most once total.
-      await handleRunComplete({ run: { agentName: "chat", status: "success" }, conversationId: "c1" });
-      await handleRunComplete({ run: { agentName: "chat", status: "success" }, conversationId: "c2" });
-      await handleRunComplete({ run: { agentName: "chat", status: "success" }, conversationId: "c3" });
+      // Three back-to-back fires — the credential is still missing each
+      // time. We must warn at most once total.
+      await distillRunComplete({ ...RUN, conversationId: "c1" }, settings);
+      await distillRunComplete({ ...RUN, conversationId: "c2" }, settings);
+      await distillRunComplete({ ...RUN, conversationId: "c3" }, settings);
     } finally {
       cap.restore();
       console.error = originalError;
     }
 
-    // Exactly one warn, mentioning the model + how to fix; zero errors.
     expect(cap.warnings.length).toBe(1);
     expect(cap.warnings[0]).toContain("gemini-2.0-flash-lite");
     expect(cap.warnings[0]).toContain("google");
@@ -622,18 +554,15 @@ describe("handleRunComplete — fail-soft on unavailable model", () => {
 
   test("a transient LLM failure does NOT emit the unavailable warning", async () => {
     const fake = makeFakeRuntime();
-    fake.setSettings({ enabled: true, provider: "google", model: "" });
     fake.setLlmThrow(new Error("upstream 503"));
     _setRuntimeApiForTests(fake.api);
 
     const cap = withCapturedWarn();
     try {
-      await handleRunComplete({ run: { agentName: "chat", status: "success" }, conversationId: "c1" });
+      await distillRunComplete({ ...RUN, conversationId: "c1" }, { enabled: true, provider: "google", model: "" });
     } finally {
       cap.restore();
     }
-
-    // Transient errors are retryable — no startup-style warning.
     expect(cap.warnings.length).toBe(0);
   });
 
@@ -644,15 +573,11 @@ describe("handleRunComplete — fail-soft on unavailable model", () => {
 
     const cap = withCapturedWarn();
     try {
-      // google/gemini default, then openai/gpt-4o-mini — two distinct keys.
-      fake.setSettings({ enabled: true, provider: "google", model: "" });
-      await handleRunComplete({ run: { agentName: "chat", status: "success" }, conversationId: "c1" });
-      fake.setSettings({ enabled: true, provider: "openai", model: "" });
-      await handleRunComplete({ run: { agentName: "chat", status: "success" }, conversationId: "c2" });
+      await distillRunComplete({ ...RUN, conversationId: "c1" }, { enabled: true, provider: "google", model: "" });
+      await distillRunComplete({ ...RUN, conversationId: "c2" }, { enabled: true, provider: "openai", model: "" });
     } finally {
       cap.restore();
     }
-
     expect(cap.warnings.length).toBe(2);
   });
 });
@@ -696,5 +621,95 @@ describe("distill_now tool — argument validation", () => {
     if (env.outcome.kind === "decline") {
       expect(env.outcome.reason).toBe("settings_disabled");
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Loop migration — distillRunComplete shared core (settings-injected) +
+// defineDistillLoop registration. The act-result mapping (skip/terminal)
+// rides on the SDK loop facade (covered by the SDK loop suite); here we
+// pin the extension-owned shared core that BOTH the listener path and the
+// loop act call, so the gating + outcome contract has 1:1 coverage.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("distillRunComplete — shared settings-injected core", () => {
+  test("settings.enabled=false → undefined (gated, no distill)", async () => {
+    const fake = makeFakeRuntime();
+    _setRuntimeApiForTests(fake.api);
+    const out = await distillRunComplete(
+      { run: { agentName: "chat", status: "success" }, conversationId: "c1" },
+      { enabled: false },
+    );
+    expect(out).toBeUndefined();
+    expect(fake.calls.find((c) => c.api === "llmComplete")).toBeUndefined();
+  });
+
+  test("wrong agent → undefined (no distill)", async () => {
+    const fake = makeFakeRuntime();
+    _setRuntimeApiForTests(fake.api);
+    expect(
+      await distillRunComplete(
+        { run: { agentName: "team", status: "success" }, conversationId: "c1" },
+        { enabled: true },
+      ),
+    ).toBeUndefined();
+    expect(fake.calls.find((c) => c.api === "llmComplete")).toBeUndefined();
+  });
+
+  test("non-success status → undefined (no distill)", async () => {
+    const fake = makeFakeRuntime();
+    _setRuntimeApiForTests(fake.api);
+    expect(
+      await distillRunComplete(
+        { run: { agentName: "chat", status: "error" }, conversationId: "c1" },
+        { enabled: true },
+      ),
+    ).toBeUndefined();
+    expect(fake.calls.find((c) => c.api === "llmComplete")).toBeUndefined();
+  });
+
+  test("missing conversationId → undefined", async () => {
+    const fake = makeFakeRuntime();
+    _setRuntimeApiForTests(fake.api);
+    expect(
+      await distillRunComplete({ run: { agentName: "chat", status: "success" } }, { enabled: true }),
+    ).toBeUndefined();
+  });
+
+  test("happy path → success outcome (settings come from the caller)", async () => {
+    const fake = makeFakeRuntime();
+    fake.setSettings({}); // not consulted — settings are injected
+    _setRuntimeApiForTests(fake.api);
+    const out = await distillRunComplete(
+      { run: { agentName: "chat", status: "success" }, conversationId: "c1" },
+      { enabled: true, provider: "openai", model: "" },
+    );
+    expect(out?.kind).toBe("success");
+    // provider override threaded through to the LLM call
+    const llmCall = fake.calls.find((c) => c.api === "llmComplete");
+    expect(llmCall?.args).toMatchObject({ provider: "openai", model: "gpt-4o-mini" });
+  });
+
+  test("conversation unwired (-32604) → undefined, fail-soft", async () => {
+    const fake = makeFakeRuntime({
+      async getMessagesEnvelope() {
+        throw new (await import("@ezcorp/sdk/runtime")).JsonRpcError(-32604, "not wired");
+      },
+    });
+    _setRuntimeApiForTests(fake.api);
+    expect(
+      await distillRunComplete(
+        { run: { agentName: "chat", status: "success" }, conversationId: "c1" },
+        { enabled: true },
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe("defineDistillLoop — registration", () => {
+  test("registers the run:complete capture loop without throwing", () => {
+    // Tests run with `import.meta.main` false, so the boot wiring never
+    // ran — registering once here is safe (no duplicate-id collision).
+    expect(() => defineDistillLoop()).not.toThrow();
   });
 });
