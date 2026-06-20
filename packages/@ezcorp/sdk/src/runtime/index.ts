@@ -185,6 +185,42 @@ export type {
 export { Schedule } from "./schedule";
 export type { ScheduleHandler, ScheduleHandlerContext } from "./schedule";
 
+// ── Loop primitive (defineLoop) ─────────────────────────────────────
+
+export {
+  defineLoop,
+  getLoopTools,
+  resolveProviderModel,
+  formatMessages,
+  PROVIDER_DEFAULT_MODEL,
+  DEFAULT_PROVIDER,
+} from "./loop";
+// Direct run-store access for extensions (e.g. ez-code) that drive their
+// own dispatch/track flow on the loop-store substrate rather than the full
+// `defineLoop` facade.
+export { createLoopRunStore } from "./loop-store";
+export type { LoopRunStore, LoopMeta, LoopTransitionInput } from "./loop-store";
+export type {
+  LoopTrigger,
+  LoopContract,
+  LoopDefinition,
+  LoopAct,
+  LoopActContext,
+  ActResult,
+  LoopRunState,
+  LoopRunEvent,
+  LoopSettings,
+  LoopMessage,
+  LoopLog,
+  LoopArtifact,
+  LoopDashboard,
+  LoopFailurePolicy,
+  LoopAutoDisableContext,
+  LoopRetention,
+  LoopConcurrency,
+  FailureClass,
+} from "./loop-types";
+
 export { Search, SearchDisabledError, SearchError } from "./search";
 export type {
   SearchWebOpts,

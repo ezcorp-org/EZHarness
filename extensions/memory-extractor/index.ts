@@ -25,19 +25,15 @@
 
 import {
   createToolDispatcher,
+  defineLoop,
+  formatMessages,
   getChannel,
-  getSetting,
+  getLoopTools,
   Llm,
-  registerEventHandler,
-  Schedule,
+  resolveProviderModel,
   invoke,
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
-
-// Settings/getter is currently consumed only by the production wiring;
-// reference it once via `void` so the linter doesn't flag the import
-// when test-only seams are active.
-void getSetting;
 
 // ── Extraction prompt ───────────────────────────────────────────────
 //
@@ -104,30 +100,11 @@ export type ExtractionOutcome =
 
 // ── Provider/model defaults ─────────────────────────────────────────
 //
-// Independent map (NOT a re-export of the legacy EXTRACTION_MODELS so
-// the deletion in Stage 2 doesn't ripple here). v1 values match the
-// legacy exactly so the parity test's mocked LLM response is fed
-// through the same provider key. Any setting override wins; falling
-// back to "google" preserves the legacy default.
-const PROVIDER_DEFAULT_MODEL: Record<string, string> = {
-  google: "gemini-2.0-flash-lite",
-  openai: "gpt-4o-mini",
-  anthropic: "claude-haiku-4-5-20250514",
-  ollama: "gemma4:e2b",
-};
-
-function resolveProviderModel(
-  providerSetting: string | undefined,
-  modelSetting: string | undefined,
-): { provider: string; model: string } {
-  const provider = (providerSetting && PROVIDER_DEFAULT_MODEL[providerSetting])
-    ? providerSetting
-    : "google";
-  const model = (modelSetting && modelSetting.length > 0)
-    ? modelSetting
-    : (PROVIDER_DEFAULT_MODEL[provider] ?? "gemini-2.0-flash-lite");
-  return { provider, model };
-}
+// The provider→default-model map + resolution now live in the SDK
+// (`resolveProviderModel`, imported above) — the Loop primitive owns the
+// single shared copy, so the per-extension duplicate is DELETED (spec
+// decision #6). v1 values are identical, so every existing test resolves
+// the same provider key.
 
 // ── RPC contract shapes ─────────────────────────────────────────────
 interface RuntimeMessage {
@@ -330,11 +307,10 @@ export async function extract(opts: ExtractOptions): Promise<ExtractionOutcome> 
     return { kind: "decline", reason: "empty_conversation" };
   }
 
-  // Take last 20 messages — same window as the legacy extractor.
-  const recent = messages.slice(-20);
-  const conversationText = recent
-    .map((m) => `[${m.id}] ${m.role}: ${m.content}`)
-    .join("\n\n");
+  // Last-20 window, formatted via the SDK's shared `formatMessages` (the
+  // same `[id] role: content` join the Loop primitive uses) — replaces the
+  // hand-rolled slice+format. Byte-identical output.
+  const conversationText = formatMessages(messages.slice(-20));
 
   const { provider, model } = resolveProviderModel(opts.settings.provider, opts.settings.model);
 
@@ -400,24 +376,28 @@ export async function extract(opts: ExtractOptions): Promise<ExtractionOutcome> 
   return { kind: "success", writes };
 }
 
-// ── run:complete event handler ──────────────────────────────────────
+// ── run:complete extraction core ────────────────────────────────────
 //
-// Mirrors the legacy `extractMemories(run, conversationId)` — only
-// fires for successful chat runs, honors the `enabled` setting.
-// Errors are silenced (fire-and-forget contract).
-export async function handleRunComplete(payload: { run?: unknown; conversationId?: string }): Promise<ExtractionOutcome | undefined> {
-  const conversationId = payload?.conversationId;
-  if (!conversationId) return;
+// The auto-extract path. Now driven ONLY by the `defineLoop` capture loop
+// (`defineMemoryLoops`), which passes `ctx.settings` into
+// `extractRunComplete`. The old ctx-less `handleRunComplete` listener — which
+// round-tripped `getMySettings` itself — is DELETED: it was never wired in
+// boot (boot calls only `defineMemoryLoops`), so it was dead production code.
+// `ctx.settings` covers the settings fetch. (`getMySettings` stays on the
+// runtimeApi — compaction + the boot cron-resolution still use it.)
 
-  // Settings — `run:complete` has no ctx so we round-trip via invoke.
-  let settings: Record<string, unknown>;
-  try {
-    settings = await runtimeApi.getMySettings();
-  } catch {
-    // If we can't read settings, default to enabled (matches legacy
-    // extractMemories which treats missing setting as enabled).
-    settings = {};
-  }
+/**
+ * Run:complete extraction core, settings-injected. Driven by the
+ * `defineLoop` capture act (`defineMemoryLoops`), which passes
+ * `ctx.settings` (the primitive-owned resolution). The gating + project-id
+ * resolution lives here once.
+ */
+export async function extractRunComplete(
+  payload: { run?: unknown; conversationId?: string },
+  settings: Record<string, unknown>,
+): Promise<ExtractionOutcome | undefined> {
+  const conversationId = payload?.conversationId;
+  if (!conversationId) return undefined;
   if (settings.enabled === false) {
     return { kind: "decline", reason: "settings_disabled" };
   }
@@ -434,8 +414,7 @@ export async function handleRunComplete(payload: { run?: unknown; conversationId
     const envelope = await runtimeApi.getMessagesEnvelope(conversationId);
     projectId = envelope.projectId;
   } catch {
-    // Silent — expected for deleted / unwired conversations.
-    return;
+    return undefined; // expected for deleted / unwired conversations
   }
 
   return extract({
@@ -551,15 +530,52 @@ export const tools: Record<string, ToolHandler> = {};
 // `if (import.meta.main)` keeps the dispatcher off when this file is
 // imported by a unit test (which mounts its own channel). Production
 // path is the default subprocess-spawn entrypoint.
-if (import.meta.main) {
-  registerEventHandler("run:complete", async (payload) => {
-    await handleRunComplete(payload as { run?: unknown; conversationId?: string });
+
+// ── Loop definitions (TWO loops in ONE extension) ───────────────────
+//
+// Proves multi-loop-per-extension: an event capture loop + a cron
+// compaction loop, both `defineLoop`. The capture loop is terminal
+// (writes N memory facts, no run row needed beyond the audit); the
+// compaction loop is stateless (its work is the host-side merge).
+//
+// `compactionCron` is resolved from settings at boot (the manifest
+// declares the legal cron set; the SDK's "must be in manifest" gate
+// passes). Setting changes apply on next host restart — same as before.
+export function defineMemoryLoops(compactionCron: string): void {
+  // Capture loop — terminal extraction on every successful chat run.
+  defineLoop<{ run?: unknown; conversationId?: string }, ExtractionOutcome>({
+    id: "extract",
+    trigger: { kind: "event", event: "run:complete" },
+    contract: { states: ["done"], terminal: ["done"], scope: "user" },
+    act: async (ctx) => {
+      const outcome = await extractRunComplete(ctx.input, ctx.settings);
+      if (!outcome) return { kind: "skip", reason: "gated" };
+      if (outcome.kind === "success") {
+        return { kind: "terminal", status: "done", outcome };
+      }
+      if (outcome.kind === "error") {
+        throw new Error(`${outcome.reason}: ${outcome.detail}`);
+      }
+      return { kind: "skip", reason: outcome.reason };
+    },
   });
 
-  // v1.4 — resolve the user's compaction cadence at boot. Errors are
-  // swallowed; if `getMySettings()` fails (e.g. host not ready) we
-  // boot with the default 6h cron — same effective behavior as v1.3
-  // pre-Phase 2. Setting changes apply on next host restart.
+  // Compaction loop — stateless cron sweep. The cron still rides on
+  // `extension_schedules` (the SDK Schedule the primitive wires).
+  defineLoop({
+    id: "compaction",
+    trigger: { kind: "cron", cron: compactionCron },
+    contract: { states: ["done"], terminal: ["done"], scope: "global" },
+    act: async () => {
+      const result = await handleCompactionTick();
+      if ("skipped" in result) return { kind: "skip", reason: result.reason };
+      return { kind: "terminal", status: "done", outcome: result };
+    },
+  });
+}
+
+if (import.meta.main) {
+  // Resolve the compaction cadence at boot (errors → default 6h cron).
   let resolvedCron: string = DEFAULT_COMPACTION_CRON;
   try {
     const settings = await runtimeApi.getMySettings();
@@ -576,14 +592,10 @@ if (import.meta.main) {
     });
   }
 
-  const schedule = new Schedule();
-  schedule.on(resolvedCron, async () => {
-    await handleCompactionTick();
-  });
-  // Even though no tools are declared, the dispatcher still owns the
-  // `ezcorp/tool-call` plumbing the host expects every extension to
-  // mount. An empty map is fine — the host's tool-executor never
-  // routes calls here without a registered name.
-  createToolDispatcher(tools);
+  defineMemoryLoops(resolvedCron);
+  // The extension declares no manual tools; the dispatcher still mounts
+  // the `tools/call` plumbing the host expects (merged with the loops'
+  // tools, of which there are none).
+  createToolDispatcher({ ...getLoopTools(), ...tools });
   getChannel().start();
 }
