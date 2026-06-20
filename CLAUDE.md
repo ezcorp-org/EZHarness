@@ -11,6 +11,31 @@ Stack: Bun runtime, PGlite/Postgres, SvelteKit frontend (`web/`), backend (`src/
 
 ---
 
+## Development lifecycle (binding)
+
+Trunk-based: branch off `main` (`feat/ fix/ ci/ docs/ chore/ security/`), open a
+PR, land all required checks green + a non-author review, squash-merge to `main`
+(always deployable), release via an `app-vX.Y.Z` tag. Full spec:
+[docs/development-lifecycle.md](docs/development-lifecycle.md).
+
+**Feature contract — every feature you ship MUST:**
+1. Cover each **new source file** to its threshold (default **100%**) and add a
+   key to `scripts/coverage-thresholds.json` (or a justified `EXCLUDES` entry in
+   `scripts/coverage-config.ts`).
+2. Cover **every new/changed executable line** (patch-coverage gate).
+3. Add/update a **Playwright e2e spec** under `web/e2e/` for user-facing behavior.
+4. **Never** weaken the gate or fake green — no lowered thresholds, no new
+   `EXCLUDES`, no `.skip/.only/.todo`, no assertion-free tests. These are
+   blocked by the `Gate integrity` CI check; a maintainer-only
+   `gate-change-approved` label is the only bypass (you cannot apply it).
+
+The gate files (`scripts/coverage-*.ts`, `coverage-thresholds.json`, CI
+workflows, `playwright.config.ts`) are CODEOWNERS-owned — changing them needs
+human review. Verify locally before pushing:
+`bun run typecheck && bun run lint && bun run test && bun run test:coverage`.
+
+---
+
 Default to using Bun instead of Node.js.
 
 - Use `bun <file>` instead of `node <file>` or `ts-node <file>`

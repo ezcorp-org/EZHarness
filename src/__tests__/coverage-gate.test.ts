@@ -93,6 +93,10 @@ import { join, resolve } from "node:path";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
 const CHECK_SCRIPT_SRC = join(REPO_ROOT, "scripts/check-coverage.ts");
+// check-coverage.ts imports its EXCLUDES / glob / lcov-parse helpers from the
+// shared scripts/coverage-config.ts; the sandbox must carry it too or the
+// spawned script fails to resolve the import.
+const COVERAGE_CONFIG_SRC = join(REPO_ROOT, "scripts/coverage-config.ts");
 const MERGE_SCRIPT = join(REPO_ROOT, "scripts/merge-lcov.ts");
 
 // Real coverage-thresholds.json contents frozen here so the anchor
@@ -144,6 +148,7 @@ function makeSandbox(): Sandbox {
   mkdirSync(join(root, "scripts"), { recursive: true });
   mkdirSync(join(root, "coverage"), { recursive: true });
   copyFileSync(CHECK_SCRIPT_SRC, join(root, "scripts/check-coverage.ts"));
+  copyFileSync(COVERAGE_CONFIG_SRC, join(root, "scripts/coverage-config.ts"));
   return {
     root,
     cleanup: () => rmSync(root, { recursive: true, force: true }),

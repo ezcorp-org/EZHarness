@@ -178,13 +178,11 @@ describe("TeamsSection members", () => {
 		await waitFor(() => expect(getByText("Engineering")).toBeInTheDocument());
 
 		await fireEvent.click(getByTestId("team-expand-t-1"));
-
-		// The <select> renders as soon as the team expands (synchronous
-		// expandedTeamId set), but Alice is only filtered out once the
-		// /members fetch resolves and populates teamMembers[t-1]. Assert the
-		// option list inside waitFor so it retries until that async state
-		// settles — otherwise on a loaded runner we read ["", "user-2",
-		// "user-3"] before the exclusion filter applies.
+		// Wait on the member-dependent postcondition, not merely the select's
+		// existence: the selector renders the instant the team expands, but the
+		// "already a member" filter only applies once the /members fetch resolves.
+		// Asserting the filtered option list inside waitFor retries until that
+		// async load lands (otherwise Alice slips in under CI scheduling).
 		await waitFor(() => {
 			const options = Array.from(
 				(getByLabelText("Select user") as HTMLSelectElement).options,
