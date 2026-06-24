@@ -88,5 +88,13 @@ projects/
 # work. Never commit; the actual branches live in the remote.
 worktrees/
 
-# Local Claude Code agent config (per-machine, do not commit)
-.claude/
+# Local Claude Code agent config (per-machine, do not commit) — EXCEPT the two
+# shared, committed maintenance tools for docs/features (everything else in
+# .claude/ stays local).
+.claude/*
+!.claude/commands/
+.claude/commands/*
+!.claude/commands/feature-doc.md
+!.claude/workflows/
+.claude/workflows/*
+!.claude/workflows/feature-docs-review.js
