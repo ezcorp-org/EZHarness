@@ -56,16 +56,24 @@ gitignored. See `docs/extensions/data-storage.md` for the full convention.
 
 ## Mention grammar
 
-The chat composer supports four mention sigils — all four share one
+The chat composer supports five mention sigils — all five share one
 pure-logic module at `web/src/lib/mention-logic.ts`, and the single
 `/api/mentions/search` endpoint routes on a `type=` query parameter.
 
 | Sigil | Kind(s) | Token format | Source |
 |---|---|---|---|
-| `!` | `agent`, `ext`, `team` | `![kind:name]` | DB (`agentConfigs`, `extensions`) + executor's in-memory map |
+| `!` | `agent`, `ext`, `team`, `EZ` | `![kind:name]` | DB (`agentConfigs`, `extensions`) + executor's in-memory map + EZ-action registry |
 | `@` | `file`, `dir` | `@[kind:relpath]` | Active project's filesystem (symlink-escape filtered) |
 | `/` | `cmd` | `/[cmd:name]` | `.claude/{commands,agents}`, `.codex/prompts`, `agents/` (project + home) + `user_commands` DB table |
 | `$` | `feature` | `$[feature:name]` | DB (`features` table, scoped to active project) |
+| `%` | `lesson` | `%[lesson:slug]` | DB (`lessons` table, scoped to user + project, visibility-filtered) |
+
+The `EZ` kind is nested under `!` (`![EZ:name]`): unlike `agent`/`ext`/`team`,
+these tokens are stripped pre-prompt by `stripEzActionTokens` and invoke a
+code-defined runtime action instead of being shown to the LLM. Lesson mentions
+(`%[lesson:slug]`) expand server-side via `applyLessonExpansion`. The full
+per-feature reference lives under
+[docs/features/composer/](docs/features/composer/mention-grammar.md).
 
 Slash-command discovery is gated by `EZCORP_SCAN_GLOBAL_COMMANDS` (default on).
 Commands are expanded server-side in `src/runtime/mention-wiring.ts`'s
