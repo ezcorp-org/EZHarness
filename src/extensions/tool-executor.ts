@@ -1729,9 +1729,21 @@ export class ToolExecutor {
       return { jsonrpc: "2.0", id: req.id, error: { code: -32603, message: "Extension not found in registry" } };
     }
 
+    // Bug B: source the acting user + conversation from the per-call
+    // provenance snapshot (the `_meta.ezCallId` the subprocess echoed back),
+    // NOT the racy process-wide `currentUserId`/`currentConversationId`
+    // singletons — parity with `handlePiFs`. The singletons observe the
+    // wrong scope under concurrency (a slow call sees a later turn's user)
+    // and are unset for background fires. An unresolved token fail-fasts
+    // (`-32602`); an ownerless fire is allowed through with a null user so
+    // the install-wide `global` scope stays reachable from cron fires (see
+    // `resolveStorageProvenance`).
+    const resolved = this.resolveStorageProvenance(extensionId, req);
+    if (!resolved.ok) return resolved.errorResponse;
+
     const ctx: StorageContext = {
-      conversationId: this.currentConversationId ?? "unknown",
-      userId: this.currentUserId ?? "unknown",
+      conversationId: resolved.conversationId ?? "unknown",
+      userId: resolved.onBehalfOf ?? "unknown",
       manifest,
       grantedPermissions: granted,
       // Phase 6: thread the PDP so the handler delegates the
@@ -2312,23 +2324,9 @@ export class ToolExecutor {
         rpcMeta: Record<string, unknown>;
       }
     | { ok: false; errorResponse: JsonRpcResponse } {
-    const rawMeta = (req.params as { _meta?: Record<string, unknown> } | undefined)?._meta;
-    const ezCallId = typeof rawMeta?.ezCallId === "string" ? rawMeta.ezCallId : undefined;
-    const prov = resolveCallProvenance(ezCallId);
-    if (!prov) {
-      log.error(
-        "reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast",
-        { method: req.method, extensionId, ezCallId: ezCallId ?? null },
-      );
-      return {
-        ok: false,
-        errorResponse: {
-          jsonrpc: "2.0",
-          id: req.id,
-          error: { code: -32602, message: "Reverse-RPC provenance unresolved (no valid call token)" },
-        },
-      };
-    }
+    const token = this.resolveCallToken(extensionId, req);
+    if (!token.ok) return token;
+    const prov = token.prov;
     if (prov.ownerless || !prov.onBehalfOf) {
       log.info(
         "reverse-RPC from a background fire with no resolvable owner — capability call skipped",
@@ -2379,6 +2377,89 @@ export class ToolExecutor {
       onBehalfOf: prov.onBehalfOf,
       conversationId: prov.conversationId,
       rpcMeta,
+    };
+  }
+
+  /**
+   * Shared first step of every reverse-RPC provenance resolution: read the
+   * host-issued `_meta.ezCallId` the subprocess echoed back and resolve it
+   * to the per-call snapshot. An UNRESOLVED token fail-fasts (`-32602`) for
+   * ALL callers — a reverse-RPC with no valid host token is a regression /
+   * orphaned subprocess, never trust the wire. Callers then apply their own
+   * owner-scope policy to the returned `prov` (`resolveReverseRpcMeta`
+   * rejects ownerless fires; `resolveStorageProvenance` allows them for the
+   * install-wide global scope).
+   */
+  private resolveCallToken(
+    extensionId: string,
+    req: JsonRpcRequest,
+  ):
+    | { ok: true; prov: CallProvenance }
+    | { ok: false; errorResponse: JsonRpcResponse } {
+    const rawMeta = (req.params as { _meta?: Record<string, unknown> } | undefined)?._meta;
+    const ezCallId = typeof rawMeta?.ezCallId === "string" ? rawMeta.ezCallId : undefined;
+    const prov = resolveCallProvenance(ezCallId);
+    if (!prov) {
+      log.error(
+        "reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast",
+        { method: req.method, extensionId, ezCallId: ezCallId ?? null },
+      );
+      return {
+        ok: false,
+        errorResponse: {
+          jsonrpc: "2.0",
+          id: req.id,
+          error: { code: -32602, message: "Reverse-RPC provenance unresolved (no valid call token)" },
+        },
+      };
+    }
+    return { ok: true, prov };
+  }
+
+  /**
+   * Resolve reverse-RPC provenance for `ezcorp/storage` (parity with
+   * `handlePiFs`/`resolveReverseRpcMeta`). Sources the acting user +
+   * conversation from the per-call snapshot the subprocess echoed back —
+   * NOT the racy process-wide `currentUserId`/`currentConversationId`
+   * singletons, which observe the wrong (or another conversation's) scope
+   * under concurrency and are unset for background fires.
+   *
+   * UNLIKE `resolveReverseRpcMeta`, an OWNERLESS background fire is NOT an
+   * error here: storage's `global` scope is deliberately ownerless-reachable
+   * (cron fires write install-wide state — see `storage-handler.ts`
+   * `resolveScopeId`). An ownerless fire is passed through with a `null`
+   * user; `handleStorageRpc` then enforces the per-scope rules itself
+   * (rejecting `user`/`conversation` scope when no scopeId resolves). An
+   * UNRESOLVED token still fail-fasts (`-32602`), exactly like fs.
+   */
+  private resolveStorageProvenance(
+    extensionId: string,
+    req: JsonRpcRequest,
+  ):
+    | { ok: true; onBehalfOf: string | null; conversationId: string | null }
+    | { ok: false; errorResponse: JsonRpcResponse } {
+    const token = this.resolveCallToken(extensionId, req);
+    if (!token.ok) return token;
+    const prov = token.prov;
+    // Defense-in-depth tripwire (log, not enforced) — parity with
+    // `resolveReverseRpcMeta`. See its comment for why a mismatch is logged
+    // rather than rejected (the cross-ext `ezcorp/invoke` correspondence is
+    // subtle and a false reject would break legitimate chained calls).
+    if (prov.actorExtensionId !== extensionId) {
+      log.warn(
+        "reverse-RPC token actorExtensionId != resolving extension — unexpected; proceeding (tripwire, not enforced)",
+        {
+          method: req.method,
+          resolvingExtensionId: extensionId,
+          tokenActorExtensionId: prov.actorExtensionId,
+          kind: prov.kind,
+        },
+      );
+    }
+    return {
+      ok: true,
+      onBehalfOf: prov.ownerless ? null : prov.onBehalfOf,
+      conversationId: prov.conversationId,
     };
   }
 

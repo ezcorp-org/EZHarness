@@ -62,6 +62,10 @@ import * as securityModule from "../extensions/security";
 import * as permissionsModule from "../extensions/permissions";
 import * as storageHandlerModule from "../extensions/storage-handler";
 import type { StorageContext } from "../extensions/storage-handler";
+import {
+  registerCallProvenance,
+  releaseCallProvenance,
+} from "../extensions/call-provenance";
 import * as cancelRunHandlerModule from "../extensions/cancel-run-handler";
 
 import {
@@ -1826,16 +1830,28 @@ describe("ToolExecutor", () => {
       await executor.executeToolCall("test-ext__echo", {}, "conv-1", "msg-1");
       expect(capturedHandler).not.toBeNull();
 
+      // Bug B: handlePiStorage now sources scope from per-call provenance,
+      // so a wired storage reverse-RPC must echo a host-issued ezCallId.
+      const ezCallId = registerCallProvenance({
+        onBehalfOf: "u-1",
+        conversationId: "conv-1",
+        runId: null,
+        parentCallId: null,
+        actorExtensionId: "ext-1",
+        kind: "tool",
+        ownerless: false,
+      });
       const storageReq: JsonRpcRequest = {
         jsonrpc: "2.0",
         id: 500,
         method: "ezcorp/storage",
-        params: { action: "get", key: "k" },
+        params: { action: "get", key: "k", _meta: { ezCallId } },
       };
       const response = await capturedHandler!(storageReq);
       expect(response.error?.code).not.toBe(-32601);
       expect(spy).toHaveBeenCalledTimes(1);
       expect(spy.mock.calls[0]![0]).toBe("ext-1");
+      releaseCallProvenance(ezCallId);
       spy.mockRestore();
     });
 
@@ -1857,7 +1873,7 @@ describe("ToolExecutor", () => {
       expect(response.error!.message).toContain("not found in registry");
     });
 
-    test("setCurrentUserId propagates into handlePiStorage storage ctx", async () => {
+    test("Bug B: storage ctx user comes from per-call provenance, NOT the racy singleton", async () => {
       const grantedPerms = new Map<string, ExtensionPermissions>();
       grantedPerms.set("ext-1", { storage: true, grantedAt: { storage: Date.now() } });
       const manifests = new Map<string, ExtensionManifestV2>();
@@ -1874,18 +1890,107 @@ describe("ToolExecutor", () => {
         jsonrpc: "2.0", id: 2, result: { keys: [] },
       });
 
-      executor.setCurrentUserId("u-scoped");
+      // Set the process-wide singleton to the WRONG user — under concurrency
+      // a slow reverse-RPC used to observe a later turn's scope this way. Bug
+      // B sources the user from the per-call token instead, so the singleton
+      // must NOT leak into the storage ctx.
+      executor.setCurrentUserId("singleton-user-WRONG");
+      const ezCallId = registerCallProvenance({
+        onBehalfOf: "u-scoped",
+        conversationId: "conv-x",
+        runId: null,
+        parentCallId: null,
+        actorExtensionId: "ext-1",
+        kind: "tool",
+        ownerless: false,
+      });
       const req: JsonRpcRequest = {
         jsonrpc: "2.0",
         id: 2,
         method: "ezcorp/storage",
-        params: { action: "list", scope: "user" },
+        params: { action: "list", scope: "user", _meta: { ezCallId } },
       };
       await executor.handlePiStorage("ext-1", req);
 
       expect(spy).toHaveBeenCalledTimes(1);
       const ctxArg = spy.mock.calls[0]![2] as StorageContext;
-      expect(ctxArg.userId).toBe("u-scoped");
+      expect(ctxArg.userId).toBe("u-scoped"); // from the token, not the singleton
+      expect(ctxArg.conversationId).toBe("conv-x");
+      releaseCallProvenance(ezCallId);
+      spy.mockRestore();
+    });
+
+    test("Bug B: handlePiStorage fail-fasts -32602 when the reverse-RPC carries no provenance token", async () => {
+      const grantedPerms = new Map<string, ExtensionPermissions>();
+      grantedPerms.set("ext-1", { storage: true, grantedAt: { storage: Date.now() } });
+      const manifests = new Map<string, ExtensionManifestV2>();
+      manifests.set("ext-1", makeManifest());
+
+      const mockRegistry = makeMockRegistry({
+        tools: new Map([["test-ext__echo", makeRegisteredTool()]]),
+        grantedPerms,
+        manifests,
+      });
+      const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
+
+      const spy = spyOn(storageHandlerModule, "handleStorageRpc").mockResolvedValue({
+        jsonrpc: "2.0", id: 3, result: {},
+      });
+
+      // No `_meta.ezCallId` — an orphaned/forged reverse-RPC. Must fail fast
+      // and NEVER reach the storage handler.
+      const req: JsonRpcRequest = {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "ezcorp/storage",
+        params: { action: "get", key: "k" },
+      };
+      const response = await executor.handlePiStorage("ext-1", req);
+      expect(response.error?.code).toBe(-32602);
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+    });
+
+    test("Bug B: an OWNERLESS fire is allowed through with a null user (global scope reachable)", async () => {
+      const grantedPerms = new Map<string, ExtensionPermissions>();
+      grantedPerms.set("ext-1", { storage: true, grantedAt: { storage: Date.now() } });
+      const manifests = new Map<string, ExtensionManifestV2>();
+      manifests.set("ext-1", makeManifest());
+
+      const mockRegistry = makeMockRegistry({
+        tools: new Map([["test-ext__echo", makeRegisteredTool()]]),
+        grantedPerms,
+        manifests,
+      });
+      const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
+
+      const spy = spyOn(storageHandlerModule, "handleStorageRpc").mockResolvedValue({
+        jsonrpc: "2.0", id: 4, result: { value: null, exists: false },
+      });
+
+      // A cron fire carries an ownerless token. Storage MUST allow it through
+      // (global scope is ownerless-reachable) — unlike fs, which rejects it.
+      const ezCallId = registerCallProvenance({
+        onBehalfOf: null,
+        conversationId: null,
+        runId: null,
+        parentCallId: null,
+        actorExtensionId: "ext-1",
+        kind: "schedule",
+        ownerless: true,
+      });
+      const req: JsonRpcRequest = {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "ezcorp/storage",
+        params: { action: "get", key: "k", scope: "global", _meta: { ezCallId } },
+      };
+      const response = await executor.handlePiStorage("ext-1", req);
+      expect(response.error?.code).not.toBe(-32602); // NOT rejected as unresolved
+      expect(spy).toHaveBeenCalledTimes(1);
+      const ctxArg = spy.mock.calls[0]![2] as StorageContext;
+      expect(ctxArg.userId).toBe("unknown"); // null owner → "unknown" → global scopeId null
+      releaseCallProvenance(ezCallId);
       spy.mockRestore();
     });
   });

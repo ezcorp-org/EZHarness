@@ -18,6 +18,10 @@ import {
 import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 import { getPageCache } from "../extensions/page-cache";
+import {
+  resolveCallProvenance,
+  _resetCallProvenanceForTests,
+} from "../extensions/call-provenance";
 
 // ── Subprocess + registry fakes ─────────────────────────────────────
 interface SendCall { method: string; params: Record<string, unknown> }
@@ -175,26 +179,47 @@ beforeEach(() => {
   mockExt = baseExt();
   __hubActionRateLimiter.reset();
   getPageCache().clear();
+  _resetCallProvenanceForTests();
 });
 
 describe("hub-source branch", () => {
-  test("200: spawns + wires, sends the namespaced notification with host-stamped userId", async () => {
+  test("200: spawns + wires, sends the namespaced notification with host-stamped userId + a resolvable provenance token", async () => {
     const res = await POST(makeEvent({ source: "hub", pageId: "dashboard", payload: { all: true } }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
     expect(wireCalls).toBe(1);
-    expect(sendCalls).toEqual([
-      {
-        method: `ezcorp/event/${EXT_NAME}:${EVENT}`,
-        params: { source: "hub", pageId: "dashboard", userId: "user-1", payload: { all: true } },
-      },
-    ]);
+    expect(sendCalls).toHaveLength(1);
+    const call = sendCalls[0]!;
+    expect(call.method).toBe(`ezcorp/event/${EXT_NAME}:${EVENT}`);
+    // The non-`_meta` params are the host-stamped action body (unchanged).
+    const { _meta, ...body } = call.params as Record<string, unknown> & {
+      _meta?: { ezCallId?: string };
+    };
+    expect(body).toEqual({ source: "hub", pageId: "dashboard", userId: "user-1", payload: { all: true } });
+    // Bug A regression guard: the page-action dispatch MUST carry a
+    // host-issued reverse-RPC provenance token, and it must resolve to the
+    // CLICKING user (onBehalfOf), not be ownerless. Without it every
+    // downstream host-mediated reverse-RPC the action triggers (fs.write +
+    // any provenance-gated capability) fails `-32602` provenance-unresolved.
+    const ezCallId = _meta?.ezCallId;
+    expect(typeof ezCallId).toBe("string");
+    expect(resolveCallProvenance(ezCallId)).toMatchObject({
+      onBehalfOf: "user-1",
+      actorExtensionId: "ext-cron",
+      kind: "event",
+      ownerless: false,
+      conversationId: null,
+    });
   });
 
-  test("payload key omitted from the notification when absent", async () => {
+  test("payload key omitted from the notification when absent (provenance still stamped)", async () => {
     const res = await POST(makeEvent({ source: "hub", pageId: "dashboard" }));
     expect(res.status).toBe(200);
-    expect(sendCalls[0]!.params).toEqual({ source: "hub", pageId: "dashboard", userId: "user-1" });
+    const { _meta, ...body } = sendCalls[0]!.params as Record<string, unknown> & {
+      _meta?: { ezCallId?: string };
+    };
+    expect(body).toEqual({ source: "hub", pageId: "dashboard", userId: "user-1" });
+    expect(typeof _meta?.ezCallId).toBe("string");
   });
 
   test("invalidates the page cache for the targeted page", async () => {
