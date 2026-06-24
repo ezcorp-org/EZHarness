@@ -3,9 +3,7 @@ import { __resetChannelForTests, __resetPagesForTests } from "@ezcorp/sdk/runtim
 import { validatePageTree } from "../../../../src/extensions/page-schema";
 import {
   _setFsForTests,
-  renderOverview,
-  renderReview,
-  renderFolders,
+  renderDashboard,
   register,
   start,
   tools,
@@ -71,7 +69,7 @@ function proposalsWith(...statuses: Array<{ id: string; kind: string; status: st
 
 // ── Renders ─────────────────────────────────────────────────────────
 
-describe("renderOverview", () => {
+describe("renderDashboard (overview section)", () => {
   test("populated: reads proposals/config/badge → valid tree", async () => {
     _setFsForTests(memFs({
       [P.config]: configWithFolder(),
@@ -79,7 +77,7 @@ describe("renderOverview", () => {
       [P.badge]: JSON.stringify({ pending: 1, unclassified: 0, lastScanAt: "2026-06-17T00:00:00Z" }),
       [P.pid]: "123",
     }));
-    const tree = await renderOverview();
+    const tree = await renderDashboard();
     expect(validate(tree)).not.toBeNull();
     expect(tree.title).toBe("File Organizer");
     // Daemon shown running because the pid lockfile exists.
@@ -88,20 +86,20 @@ describe("renderOverview", () => {
 
   test("empty (no config) → onboarding state", async () => {
     _setFsForTests(memFs({}));
-    const tree = await renderOverview();
+    const tree = await renderDashboard();
     expect(validate(tree)).not.toBeNull();
     expect(JSON.stringify(tree)).toContain("Get started");
   });
 
   test("daemon stopped when no pid lockfile", async () => {
     _setFsForTests(memFs({ [P.config]: configWithFolder() }));
-    const tree = await renderOverview();
+    const tree = await renderDashboard();
     expect(JSON.stringify(tree)).toContain("Watcher stopped");
   });
 
   test("corrupt proposals.json degrades gracefully (treated empty)", async () => {
     _setFsForTests(memFs({ [P.config]: configWithFolder(), [P.proposals]: "{bad" }));
-    const tree = await renderOverview();
+    const tree = await renderDashboard();
     expect(validate(tree)).not.toBeNull();
   });
 
@@ -120,7 +118,7 @@ describe("renderOverview", () => {
       }),
       [P.pid]: "1",
     }));
-    const tree = await renderOverview();
+    const tree = await renderDashboard();
     expect(validate(tree)).not.toBeNull();
   });
 
@@ -131,7 +129,7 @@ describe("renderOverview", () => {
       exists: async () => { throw new Error("boom"); },
       list: async () => { throw new Error("boom"); },
     });
-    const tree = await renderOverview();
+    const tree = await renderDashboard();
     expect(validate(tree)).not.toBeNull();
     expect(JSON.stringify(tree)).toContain("error");
   });
@@ -148,7 +146,7 @@ describe("renderOverview", () => {
       [P.badge]: "{ not json",
       [P.manifest]: "{ not json",
     }));
-    const tree = await renderOverview();
+    const tree = await renderDashboard();
     expect(validate(tree)).not.toBeNull();
   });
 
@@ -159,20 +157,20 @@ describe("renderOverview", () => {
       [P.config]: configWithFolder(),
       [P.proposals]: proposalsWith({ id: "p1", kind: "move", status: "pending" }),
     }));
-    const tree = await renderOverview();
+    const tree = await renderDashboard();
     expect(validate(tree)).not.toBeNull();
   });
 });
 
-describe("renderReview", () => {
+describe("renderDashboard (review section)", () => {
   test("populated: shows pending proposals → valid tree", async () => {
     _setFsForTests(memFs({
       [P.proposals]: proposalsWith({ id: "p1", kind: "move", status: "pending" }),
       [P.pid]: "1",
     }));
-    const tree = await renderReview();
+    const tree = await renderDashboard();
     expect(validate(tree)).not.toBeNull();
-    expect(tree.title).toBe("Review");
+    expect(tree.title).toBe("File Organizer");
   });
 
   test("auto-batch undo surfaces when a batched quarantine exists", async () => {
@@ -180,7 +178,7 @@ describe("renderReview", () => {
       [P.proposals]: proposalsWith(),
       [P.manifest]: JSON.stringify({ schemaVersion: 1, entries: [{ id: "q1", originalPath: "/w/a", trashPath: "/t/q1/a", proposalId: null, reason: "r", deletedAt: new Date().toISOString(), batchId: "batch-1", size: 1, expiresAtMs: 9e12 }] }),
     }));
-    const tree = await renderReview();
+    const tree = await renderDashboard();
     expect(JSON.stringify(tree)).toContain("Undo last auto-batch");
   });
 
@@ -191,21 +189,21 @@ describe("renderReview", () => {
       exists: async () => { throw new Error("boom"); },
       list: async () => [],
     });
-    const tree = await renderReview();
+    const tree = await renderDashboard();
     expect(validate(tree)).not.toBeNull();
   });
 });
 
-describe("renderFolders", () => {
+describe("renderDashboard (folders section)", () => {
   test("populated: one section per folder", async () => {
     _setFsForTests(memFs({ [P.config]: configWithFolder(), [P.pid]: "1" }));
-    const tree = await renderFolders();
+    const tree = await renderDashboard();
     expect(validate(tree)).not.toBeNull();
     expect(JSON.stringify(tree)).toContain("/watched");
   });
   test("no folders → empty-state", async () => {
     _setFsForTests(memFs({}));
-    const tree = await renderFolders();
+    const tree = await renderDashboard();
     expect(JSON.stringify(tree)).toContain("No folders watched");
   });
 
@@ -216,13 +214,13 @@ describe("renderFolders", () => {
       exists: async () => { throw new Error("boom"); },
       list: async () => { throw new Error("boom"); },
     });
-    const tree = await renderFolders();
+    const tree = await renderDashboard();
     expect(validate(tree)).not.toBeNull();
   });
 
   test("malformed config JSON degrades to empty (readConfig catch)", async () => {
     _setFsForTests(memFs({ [P.config]: "{ not valid json", [P.pid]: "1" }));
-    const tree = await renderFolders();
+    const tree = await renderDashboard();
     // emptyConfig() ⇒ no folders ⇒ empty-state.
     expect(JSON.stringify(tree)).toContain("No folders watched");
   });
@@ -231,23 +229,52 @@ describe("renderFolders", () => {
 // ── Pure-view action handlers ───────────────────────────────────────
 
 describe("page action handlers (pure-view nav state)", () => {
-  test("selectSegmentAction sets the active segment + resets offset", () => {
-    _actionsForTests.selectSegmentAction({ source: "hub", pageId: "review", userId: "u", payload: { segment: "deletes" } });
-    // The mutation is reflected in the next renderReview tree.
+  // These handlers mutate module-level nav state (segment + window offset);
+  // the effect is observable only on the NEXT renderDashboard, so each case
+  // drives the handler then asserts the re-rendered Review section reflects
+  // it. Each test fully sets the state it expects (order-independent).
+  const moves = (n: number) =>
+    proposalsWith(...Array.from({ length: n }, (_, i) => ({ id: `m${i}`, kind: "move", status: "pending" })));
+
+  test("selectSegmentAction sets the active segment + resets offset", async () => {
+    // Window off zero, then select a segment — selection must reset offset.
+    _actionsForTests.pageWindowAction({ source: "hub", pageId: "overview", userId: "u", payload: { segment: "deletes", offset: 50 } });
+    _actionsForTests.selectSegmentAction({ source: "hub", pageId: "overview", userId: "u", payload: { segment: "deletes" } });
+    _setFsForTests(memFs({ [P.proposals]: proposalsWith(...Array.from({ length: 60 }, (_, i) => ({ id: `d${i}`, kind: "delete-quarantine", status: "pending" }))) }));
+    const s = JSON.stringify(await renderDashboard());
+    // Active segment is "deletes" (batched confirm) AND offset reset to 0
+    // (the first 1–50 window, not 51–60).
+    expect(s).toContain("Confirm these 60 deletes");
+    expect(s).toContain("Showing 1");
+    expect(s).not.toContain("Showing 51");
   });
 
-  test("selectSegmentAction with no segment is a no-op", () => {
-    _actionsForTests.selectSegmentAction({ source: "hub", pageId: "review", userId: "u", payload: {} });
+  test("selectSegmentAction with no segment is a no-op", async () => {
+    _actionsForTests.selectSegmentAction({ source: "hub", pageId: "overview", userId: "u", payload: { segment: "moves" } });
+    _actionsForTests.selectSegmentAction({ source: "hub", pageId: "overview", userId: "u", payload: {} });
+    _setFsForTests(memFs({ [P.proposals]: proposalsWith({ id: "m1", kind: "move", status: "pending" }) }));
+    const s = JSON.stringify(await renderDashboard());
+    // Segment is still "moves" (empty payload ignored): an inline Accept, not
+    // the deletes confirm.
+    expect(s).toContain("file-organizer:accept");
+    expect(s).not.toContain("Confirm these");
   });
 
-  test("pageWindowAction sets segment + a valid offset", () => {
-    _actionsForTests.pageWindowAction({ source: "hub", pageId: "review", userId: "u", payload: { segment: "moves", offset: 50 } });
+  test("pageWindowAction sets segment + a valid offset", async () => {
+    _actionsForTests.pageWindowAction({ source: "hub", pageId: "overview", userId: "u", payload: { segment: "moves", offset: 50 } });
+    _setFsForTests(memFs({ [P.proposals]: moves(60) }));
+    // The window advanced to offset 50 → footer shows the 51–60 page.
+    expect(JSON.stringify(await renderDashboard())).toContain("Showing 51");
   });
 
-  test("pageWindowAction ignores a negative / non-finite offset and missing segment", () => {
-    _actionsForTests.pageWindowAction({ source: "hub", pageId: "review", userId: "u", payload: { offset: -5 } });
-    _actionsForTests.pageWindowAction({ source: "hub", pageId: "review", userId: "u", payload: { offset: Number.NaN } });
-    _actionsForTests.pageWindowAction({ source: "hub", pageId: "review", userId: "u", payload: {} });
+  test("pageWindowAction ignores a negative / non-finite offset and missing segment", async () => {
+    _actionsForTests.pageWindowAction({ source: "hub", pageId: "overview", userId: "u", payload: { segment: "moves", offset: 50 } });
+    _actionsForTests.pageWindowAction({ source: "hub", pageId: "overview", userId: "u", payload: { offset: -5 } });
+    _actionsForTests.pageWindowAction({ source: "hub", pageId: "overview", userId: "u", payload: { offset: Number.NaN } });
+    _actionsForTests.pageWindowAction({ source: "hub", pageId: "overview", userId: "u", payload: {} });
+    _setFsForTests(memFs({ [P.proposals]: moves(60) }));
+    // The bad payloads left the window at offset 50 (51–60 page) untouched.
+    expect(JSON.stringify(await renderDashboard())).toContain("Showing 51");
   });
 });
 
@@ -358,7 +385,7 @@ describe("register", () => {
     __resetPagesForTests();
   });
 
-  test("registers all 3 pages + the tool dispatcher without throwing", () => {
+  test("registers the single page + the tool dispatcher without throwing", () => {
     expect(() => register()).not.toThrow();
   });
 

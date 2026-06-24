@@ -24,15 +24,19 @@ import { makeProject } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1" });
 
+// The extension now ships ONE Hub page; the former Review / Folders & Rules
+// tabs are sections of it. Every case below navigates to this single page id
+// and stubs its render — the host Hub shell renders whatever tree the mock
+// hands back, so a focused per-section tree is still a valid UI-shell check.
 const OVERVIEW = "ext:file-organizer:overview";
-const REVIEW = "ext:file-organizer:review";
-const FOLDERS = "ext:file-organizer:folders";
+// Back-compat aliases so the per-section cases keep reading naturally —
+// all three resolve to the one page now.
+const REVIEW = OVERVIEW;
+const FOLDERS = OVERVIEW;
 
 const listing = {
   pages: [
     { id: OVERVIEW, title: "File Organizer", kind: "ext" },
-    { id: REVIEW, title: "Review", kind: "ext" },
-    { id: FOLDERS, title: "Folders & Rules", kind: "ext" },
   ],
 };
 
@@ -52,7 +56,6 @@ function overviewTree(opts: { pending: number; unclassified: number; running?: b
       { label: "Quarantined", value: "0" },
       { label: "Applied today", value: "0" },
     ] },
-    { type: "link", label: "Open review", href: "/hub/ext%3Afile-organizer%3Areview" },
   ];
   if (opts.unclassified > 0) {
     nodes.push({
@@ -70,7 +73,7 @@ function overviewTree(opts: { pending: number; unclassified: number; running?: b
 
 function reviewMovesTree(label = "") {
   return {
-    title: "Review",
+    title: "File Organizer",
     nodes: [
       ...(label ? [{ type: "section", title: "Last action", nodes: [{ type: "status", label, state: "success" }] }] : []),
       { type: "stats", items: [{ label: "Pending", value: "2" }, { label: "Quarantined", value: "0" }] },
@@ -85,7 +88,7 @@ function reviewMovesTree(label = "") {
 
 function reviewDeletesTree() {
   return {
-    title: "Review",
+    title: "File Organizer",
     nodes: [
       { type: "section", title: "Pending deletes", nodes: [
         { type: "table", columns: ["File", "Reason"], rows: [{ cells: ["/watched/junk.tmp", "junk"] }] },
@@ -97,7 +100,7 @@ function reviewDeletesTree() {
 
 function reviewAutoBatchTree() {
   return {
-    title: "Review",
+    title: "File Organizer",
     nodes: [
       { type: "section", nodes: [
         { type: "status", label: "Auto-organized 0 file(s), quarantined 2", state: "success" },
@@ -109,7 +112,7 @@ function reviewAutoBatchTree() {
 
 function reviewQuarantineTree(empty = false) {
   return {
-    title: "Review",
+    title: "File Organizer",
     nodes: empty
       ? [{ type: "section", title: "Quarantine", nodes: [{ type: "empty-state", title: "Quarantine is empty" }] }]
       : [{ type: "section", title: "Quarantine", nodes: [
@@ -122,7 +125,7 @@ function reviewQuarantineTree(empty = false) {
 function foldersTree(opts: { folders?: boolean; mode?: string; preset?: boolean } = {}) {
   if (!opts.folders) {
     return {
-      title: "Folders & Rules",
+      title: "File Organizer",
       nodes: [
         { type: "section", nodes: [
           { type: "button", label: "Add watched folder", style: "primary", action: { event: "file-organizer:add-folder", prompt: { label: "Folder path", placeholder: "/watched/Downloads", field: "path", format: "file-path" } } },
@@ -133,7 +136,7 @@ function foldersTree(opts: { folders?: boolean; mode?: string; preset?: boolean 
     };
   }
   return {
-    title: "Folders & Rules",
+    title: "File Organizer",
     nodes: [
       { type: "section", nodes: [
         { type: "button", label: "Add ignore", style: "secondary", action: { event: "file-organizer:add-ignore", payload: { folderId: "f1" }, prompt: { label: "Ignore", field: "path" } } },
@@ -187,7 +190,7 @@ test.describe("file-organizer Hub", () => {
     await page.getByTestId("hub-node-button").filter({ hasText: "Accept" }).click();
     // No inline page in the events response ⇒ the tab re-pulls the render.
     await expect(page.getByTestId("hub-node-status")).toContainText("Applied");
-    expect(acceptBody).toEqual({ source: "hub", pageId: "review", payload: { proposalId: "m1" } });
+    expect(acceptBody).toEqual({ source: "hub", pageId: "overview", payload: { proposalId: "m1" } });
     expect(renders).toBe(2);
   });
 
@@ -205,7 +208,7 @@ test.describe("file-organizer Hub", () => {
 
     await page.goto(`/hub/${encodeURIComponent(REVIEW)}`);
     await page.getByTestId("hub-node-button").filter({ hasText: "Reject" }).click();
-    await expect.poll(() => rejectBody).toEqual({ source: "hub", pageId: "review", payload: { proposalId: "m1" } });
+    await expect.poll(() => rejectBody).toEqual({ source: "hub", pageId: "overview", payload: { proposalId: "m1" } });
   });
 
   test("review: batch-confirm deletes is confirm-gated then POSTs", async ({ page, mockApi }) => {
@@ -224,7 +227,7 @@ test.describe("file-organizer Hub", () => {
     await page.getByTestId("hub-node-button").filter({ hasText: "Confirm these 1 deletes" }).click();
     await expect(page.getByTestId("hub-confirm-dialog")).toContainText("Move 1 file(s) to quarantine");
     await page.getByTestId("hub-confirm-ok").click();
-    await expect.poll(() => confirmBody).toEqual({ source: "hub", pageId: "review" });
+    await expect.poll(() => confirmBody).toEqual({ source: "hub", pageId: "overview" });
   });
 
   test("review: undo last auto-batch POSTs the batchId", async ({ page, mockApi }) => {
@@ -241,7 +244,7 @@ test.describe("file-organizer Hub", () => {
 
     await page.goto(`/hub/${encodeURIComponent(REVIEW)}`);
     await page.getByTestId("hub-node-button").filter({ hasText: "Undo last auto-batch" }).click();
-    await expect.poll(() => undoBody).toEqual({ source: "hub", pageId: "review", payload: { batchId: "batch-1" } });
+    await expect.poll(() => undoBody).toEqual({ source: "hub", pageId: "overview", payload: { batchId: "batch-1" } });
   });
 
   test("review: restore from quarantine POSTs events/restore → re-pull empty tree", async ({ page, mockApi }) => {
@@ -262,7 +265,7 @@ test.describe("file-organizer Hub", () => {
     await expect(page.getByTestId("hub-node-table")).toContainText("/watched/old.bak");
     await page.getByTestId("hub-node-button").filter({ hasText: "Restore all" }).click();
     await expect(page.getByTestId("hub-node-empty-state")).toContainText("Quarantine is empty");
-    expect(restoreBody).toEqual({ source: "hub", pageId: "review", payload: { all: true } });
+    expect(restoreBody).toEqual({ source: "hub", pageId: "overview", payload: { all: true } });
   });
 
   test("folders: BROWSE + select in the file-path picker yields an ABSOLUTE path → POST events/add-folder", async ({ page, mockApi }) => {
@@ -329,7 +332,7 @@ test.describe("file-organizer Hub", () => {
     // The dispatched path is absolute — `/Downloads` or `/Downloads/`.
     const body = addBody as { source: string; pageId: string; payload: { path: string } };
     expect(body.source).toBe("hub");
-    expect(body.pageId).toBe("folders");
+    expect(body.pageId).toBe("overview");
     expect(body.payload.path).toMatch(/^\/Downloads\/?$/);
   });
 
@@ -352,7 +355,7 @@ test.describe("file-organizer Hub", () => {
     await page.getByTestId("hub-node-button").filter({ hasText: "Add watched folder" }).click();
     await page.getByTestId("hub-prompt-format").locator("input").fill("/watched/Downloads");
     await page.getByTestId("hub-prompt-submit").click();
-    await expect.poll(() => addBody).toEqual({ source: "hub", pageId: "folders", payload: { path: "/watched/Downloads" } });
+    await expect.poll(() => addBody).toEqual({ source: "hub", pageId: "overview", payload: { path: "/watched/Downloads" } });
   });
 
   test("folders: a refused add (HTTP 200 {ok:false}) surfaces the EXACT validator error instead of silently doing nothing", async ({ page, mockApi }) => {
@@ -402,7 +405,7 @@ test.describe("file-organizer Hub", () => {
 
     await page.goto(`/hub/${encodeURIComponent(FOLDERS)}`);
     await page.getByTestId("hub-node-button").filter({ hasText: "Auto" }).first().click();
-    await expect.poll(() => modeBody).toEqual({ source: "hub", pageId: "folders", payload: { folderId: "f1", mode: "fully-auto" } });
+    await expect.poll(() => modeBody).toEqual({ source: "hub", pageId: "overview", payload: { folderId: "f1", mode: "fully-auto" } });
   });
 
   test("folders: toggle a preset POSTs events/toggle-preset → re-pull shows the check", async ({ page, mockApi }) => {
@@ -422,7 +425,7 @@ test.describe("file-organizer Hub", () => {
     await page.goto(`/hub/${encodeURIComponent(FOLDERS)}`);
     await page.getByTestId("hub-node-button").filter({ hasText: "junk-sweep" }).click();
     await expect(page.getByText("✓ junk-sweep")).toBeVisible();
-    expect(presetBody).toEqual({ source: "hub", pageId: "folders", payload: { folderId: "f1", preset: "junk-sweep" } });
+    expect(presetBody).toEqual({ source: "hub", pageId: "overview", payload: { folderId: "f1", preset: "junk-sweep" } });
   });
 
   test("folders: add an ignore via the prompt", async ({ page, mockApi }) => {
@@ -441,7 +444,7 @@ test.describe("file-organizer Hub", () => {
     await page.getByTestId("hub-node-button").filter({ hasText: "Add ignore" }).click();
     await page.getByTestId("hub-prompt-input").fill("secrets");
     await page.getByTestId("hub-prompt-submit").click();
-    await expect.poll(() => ignoreBody).toEqual({ source: "hub", pageId: "folders", payload: { folderId: "f1", path: "secrets" } });
+    await expect.poll(() => ignoreBody).toEqual({ source: "hub", pageId: "overview", payload: { folderId: "f1", path: "secrets" } });
   });
 
   test("unclassified: Teach-a-rule prompt POSTs the mini-DSL rule", async ({ page, mockApi }) => {
@@ -473,12 +476,12 @@ test.describe("file-organizer Hub", () => {
     });
 
     await page.goto(`/hub/${encodeURIComponent(REVIEW)}`);
-    await expect(page.getByTestId("hub-page-title")).toHaveText("Review");
+    await expect(page.getByTestId("hub-page-title")).toHaveText("File Organizer");
     expect(renders).toBe(1);
 
     await emitSse({
       type: "ext:page-state",
-      data: { extensionId: "ext-fo", extensionName: "file-organizer", pageId: "review", timestamp: Date.now() },
+      data: { extensionId: "ext-fo", extensionName: "file-organizer", pageId: "overview", timestamp: Date.now() },
     });
     await expect(page.getByTestId("hub-node-status")).toContainText("Refreshed");
     expect(renders).toBe(2);

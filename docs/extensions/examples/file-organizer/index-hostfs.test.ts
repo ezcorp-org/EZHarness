@@ -33,7 +33,7 @@ mock.module("@ezcorp/sdk/runtime", () => ({
   // (a write failure must surface), and the renders under test never write.
 }));
 
-const { _setFsForTests, _hostFsForTests, renderOverview, renderFolders } = await import("./index");
+const { _setFsForTests, _hostFsForTests, renderDashboard } = await import("./index");
 
 afterEach(() => {
   _setFsForTests(null);
@@ -61,23 +61,23 @@ describe("hostFs degrades each host-fs error to a safe empty value", () => {
     await expect(_hostFsForTests().write("/tmp/fo-hostfs-write-probe.json", "{}")).rejects.toBeDefined();
   });
 
-  test("renderOverview survives when every host read throws (read→null)", async () => {
+  test("renderDashboard survives when every host read throws (read→null)", async () => {
     _setFsForTests(null); // restore the genuine hostFs (SDK fns now throw)
-    const tree = await renderOverview();
+    const tree = await renderDashboard();
     // No config readable ⇒ onboarding/empty render, never a crash.
     expect(tree).toBeDefined();
     expect(tree.title).toBeDefined();
   });
 
-  test("renderFolders survives when the host fs throws", async () => {
+  test("renderDashboard survives when the host fs throws (folders path)", async () => {
     _setFsForTests(null);
-    const tree = await renderFolders();
+    const tree = await renderDashboard();
     expect(tree).toBeDefined();
   });
 
   test("daemonRunning probe: hostFs.exists throw → 'Watcher stopped'", async () => {
     _setFsForTests(null);
-    const tree = await renderOverview();
+    const tree = await renderDashboard();
     expect(JSON.stringify(tree)).toContain("Watcher stopped");
   });
 });

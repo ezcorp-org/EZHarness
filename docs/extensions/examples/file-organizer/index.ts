@@ -34,9 +34,8 @@ import {
 } from "@ezcorp/sdk/runtime";
 
 import {
-  buildOverview,
-  buildReview,
-  buildFolders,
+  buildDashboard,
+  buildDashboardError,
   type OverviewView,
   type ReviewView,
   type FoldersView,
@@ -196,7 +195,13 @@ async function writeConfig(config: Config): Promise<void> {
 
 // ── Page renders ────────────────────────────────────────────────────
 
-export async function renderOverview(): Promise<HubPageTree> {
+let reviewSegment: ReviewSegment = "all";
+let reviewOffset = 0;
+let foldersOffset = 0;
+
+/** Render the single "File Organizer" Hub page: Status + Review +
+ *  Folders & Rules, built from one state read. */
+export async function renderDashboard(): Promise<HubPageTree> {
   try {
     const [proposals, config, badge, quarantine, running] = await Promise.all([
       readProposals(),
@@ -205,11 +210,12 @@ export async function renderOverview(): Promise<HubPageTree> {
       readQuarantine(),
       daemonRunning(),
     ]);
+
     const pending = proposals.proposals.filter((p) => p.status === "pending");
     const unclassified = pending.filter((p) => p.kind === "unclassified");
     const mode = config.folders[0]?.mode ?? "ask-everything";
     const appliedToday = proposals.proposals.filter((p) => p.status === "applied" && isToday(p.resolvedAt)).length;
-    const view: OverviewView = {
+    const overview: OverviewView = {
       state: "populated",
       daemonRunning: running,
       lastScanAt: badge.lastScanAt,
@@ -221,20 +227,9 @@ export async function renderOverview(): Promise<HubPageTree> {
       appliedToday,
       unclassifiedSamples: unclassified.slice(0, 10).map((p) => ({ proposalId: p.id, src: p.src })),
     };
-    return buildOverview(view);
-  } catch (err) {
-    return buildOverview({ state: "error", errorMessage: String(err), daemonRunning: false, lastScanAt: null, mode: "ask-everything", folderCount: 0, pending: 0, unclassified: 0, quarantined: 0, appliedToday: 0, unclassifiedSamples: [] });
-  }
-}
 
-let reviewSegment: ReviewSegment = "all";
-let reviewOffset = 0;
-
-export async function renderReview(): Promise<HubPageTree> {
-  try {
-    const [proposals, quarantine, running] = await Promise.all([readProposals(), readQuarantine(), daemonRunning()]);
     const autoBatch = computeAutoBatch(quarantine);
-    const view: ReviewView = {
+    const review: ReviewView = {
       state: "populated",
       daemonRunning: running,
       segment: reviewSegment,
@@ -244,21 +239,12 @@ export async function renderReview(): Promise<HubPageTree> {
       now: Date.now(),
       ...(autoBatch ? { autoBatch } : {}),
     };
-    return buildReview(view);
-  } catch (err) {
-    return buildReview({ state: "error", errorMessage: String(err), daemonRunning: false, segment: "all", offset: 0, proposals: [], quarantine: [], now: Date.now() });
-  }
-}
 
-let foldersOffset = 0;
+    const folders: FoldersView = { state: "populated", daemonRunning: running, config, offset: foldersOffset };
 
-export async function renderFolders(): Promise<HubPageTree> {
-  try {
-    const [config, running] = await Promise.all([readConfig(), daemonRunning()]);
-    const view: FoldersView = { state: "populated", daemonRunning: running, config, offset: foldersOffset };
-    return buildFolders(view);
+    return buildDashboard({ overview, review, folders });
   } catch (err) {
-    return buildFolders({ state: "error", errorMessage: String(err), daemonRunning: false, config: emptyConfig(), offset: 0 });
+    return buildDashboardError(String(err));
   }
 }
 
@@ -460,22 +446,13 @@ import { EVENTS } from "./lib/page";
 export function register(): void {
   definePage({
     id: "overview",
-    render: renderOverview,
-    actions: { [EVENTS.reloadConfig]: noopAction },
-  });
-  definePage({
-    id: "review",
-    render: renderReview,
+    render: renderDashboard,
     actions: {
       [EVENTS.selectSegment]: (e) => { selectSegmentAction(e); },
       [EVENTS.pageWindow]: (e) => { pageWindowAction(e); },
       [EVENTS.focus]: noopAction,
+      [EVENTS.reloadConfig]: noopAction,
     },
-  });
-  definePage({
-    id: "folders",
-    render: renderFolders,
-    actions: { [EVENTS.reloadConfig]: noopAction },
   });
   createToolDispatcher(tools);
 }

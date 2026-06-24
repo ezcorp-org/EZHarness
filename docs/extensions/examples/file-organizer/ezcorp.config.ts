@@ -47,11 +47,11 @@ export default defineExtension({
     stability_ticks: { type: "number", label: "Quiescent ticks before acting", min: 1, max: 10, default: 2 },
   },
 
-  // EXACTLY 3 pages (host cap).
+  // ONE Hub page — the three former pages (Status / Review / Folders &
+  // Rules) are now stacked sections on a single dashboard so the
+  // extension reads as one app, not three sibling tabs.
   pages: [
-    { id: "overview", title: "File Organizer", icon: "FolderTree", description: "Status, alerts, pending review" },
-    { id: "review", title: "Review", icon: "ListChecks", description: "Accept/reject proposed changes (+ quarantine)" },
-    { id: "folders", title: "Folders & Rules", icon: "Settings2", description: "Watched folders, modes, rules, ignore list" },
+    { id: "overview", title: "File Organizer", icon: "FolderTree", description: "Status, review queue, watched folders & rules" },
   ],
 
   tools: [
