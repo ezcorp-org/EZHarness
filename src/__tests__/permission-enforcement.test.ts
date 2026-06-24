@@ -304,7 +304,11 @@ describe("empty grantedPermissions — process.env secrets are not leaked to the
     // (ext-registry-executor.test.ts:259-272 and
     // extension-security-runtime.test.ts:470-478) already track this.
     const env = buildAllowedEnv(manifest(), { grantedAt: {} }, `ext-clean-${randomUUID()}`);
+    // registry.ts:135 (file-organizer change) ALSO injects
+    // EZCORP_EXTENSION_DATA_ROOT unconditionally — sorts before
+    // EZCORP_PROJECT_ROOT.
     expect(Object.keys(env).sort()).toEqual([
+      "EZCORP_EXTENSION_DATA_ROOT",
       "EZCORP_PROJECT_ROOT",
       "HOME",
       "NODE_ENV",

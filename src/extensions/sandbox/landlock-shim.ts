@@ -67,11 +67,16 @@ export function parseSpecFromEnv(
   }
   // Preserve the optional read-only "root" list (data-dir-ancestor-exempt) so
   // the in-process jail grants the git repo root — dropping it here was why
-  // jailed git couldn't open `.`.
+  // jailed git couldn't open `.`. The TRAVERSE list (READ_DIR-only project
+  // root, so a workspace extension subprocess can walk the tree to its
+  // `node_modules` imports) must survive the same round-trip — dropping it
+  // here silently left the grant un-applied (the child then EACCES'd on
+  // `openat(<projectRoot>, O_DIRECTORY)` and died at module-load).
   return {
     ro: spec.ro,
     rw: spec.rw,
     ...(Array.isArray(spec.list) ? { list: spec.list } : {}),
+    ...(Array.isArray(spec.traverse) ? { traverse: spec.traverse } : {}),
   };
 }
 

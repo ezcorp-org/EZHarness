@@ -79,6 +79,15 @@ export interface LandlockJailInput {
    *  ancestor of `.ezcorp/data` (that's the point) but must not be the data
    *  dir or under it. */
   listPaths?: readonly string[];
+  /** TRAVERSE-only paths: granted READ_DIR (open + enumerate dirs) but NOT
+   *  file-read. Like list paths they may be an ANCESTOR of `.ezcorp/data`
+   *  (the project root IS one) — the child can `readdir` the data dir but
+   *  every file-read of the secret/DB under it still EACCES, because no
+   *  file-read right is ever granted there. Used so a workspace extension
+   *  subprocess can WALK the project tree to resolve its `node_modules`/
+   *  workspace imports without exposing file contents. Must not BE the data
+   *  dir or live under it. */
+  traversePaths?: readonly string[];
 }
 
 /**
@@ -100,6 +109,11 @@ export interface LandlockJailSpec {
   /** Read-only "root" allowlist (data-dir-ancestor-exempt). Optional —
    *  absent on the common case; present for the git-repo-root jail. */
   list?: string[];
+  /** TRAVERSE-only allowlist — READ_DIR (enumerate dirs), NO file-read.
+   *  Data-dir-ancestor-exempt. Optional; present for the workspace-extension
+   *  subprocess jail (lets the child walk the project tree to its imports
+   *  while the secret/DB file contents stay unreadable). */
+  traverse?: string[];
 }
 
 /**
@@ -122,6 +136,7 @@ export function buildLandlockJailSpec(input: LandlockJailInput): LandlockJailSpe
   const rw = rwInputs.map((p) => resolve(p));
   const ro = roInputs.map((p) => resolve(p));
   const list = (input.listPaths ?? []).map((p) => resolve(p));
+  const traverse = (input.traversePaths ?? []).map((p) => resolve(p));
 
   // Deny-by-default invariant: the DB/secret dir must NEVER be reachable for
   // READ or WRITE through any rw/ro grant. List-only paths are EXEMPT from
@@ -142,8 +157,20 @@ export function buildLandlockJailSpec(input: LandlockJailInput): LandlockJailSpe
   for (const p of list) {
     assertListPathNotInsideDataDir(canonicalizeForJail(p), input.projectRoot);
   }
+  // Traverse paths obey the SAME boundary as list paths: a traverse grant may
+  // be an ANCESTOR of `.ezcorp/data` (the project root is) but must not BE the
+  // data dir or live under it. READ_DIR alone never exposes file contents, so
+  // the secret stays unreadable even though the dir is enumerable.
+  for (const p of traverse) {
+    assertListPathNotInsideDataDir(canonicalizeForJail(p), input.projectRoot);
+  }
 
-  return { ro, rw, ...(list.length > 0 ? { list } : {}) };
+  return {
+    ro,
+    rw,
+    ...(list.length > 0 ? { list } : {}),
+    ...(traverse.length > 0 ? { traverse } : {}),
+  };
 }
 
 /** A list-only path may be an ANCESTOR of `.ezcorp/data` (intended) but must
@@ -180,5 +207,5 @@ export function applyLandlockJailSpec(spec: LandlockJailSpec): void {
     throw new Error(`landlock: not supported here (ABI=${abi})`);
   }
   // Distro-portable: the FFI helper skips non-existent allow paths.
-  applyReadWriteJail(spec.rw, spec.ro, abi, spec.list ?? []);
+  applyReadWriteJail(spec.rw, spec.ro, abi, spec.list ?? [], spec.traverse ?? []);
 }

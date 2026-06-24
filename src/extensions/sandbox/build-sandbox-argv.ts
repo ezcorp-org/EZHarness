@@ -60,6 +60,13 @@ export interface SandboxArgvInput {
    *  Used to grant a git repo root that contains `.ezcorp/data` — see
    *  buildLandlockJailSpec. No effect on the bwrap/advisory tiers. */
   listPaths?: readonly string[];
+  /** TRAVERSE-only paths (landlock tier): READ_DIR (open + enumerate dirs)
+   *  with NO file-read. Grant a tree the child must WALK to reach a deeper
+   *  read grant (e.g. the project root, so a workspace extension subprocess
+   *  can resolve its `node_modules` imports) WITHOUT exposing file contents
+   *  under it — the `.ezcorp/data` secret stays unreadable. No effect on the
+   *  bwrap/advisory tiers. */
+  traversePaths?: readonly string[];
   /** Optional seccomp FD index for the bwrap leg (`--seccomp <fd>`). */
   seccompFd?: number | null;
   /** Override the path to the Bun runtime (defaults to "bun"). */
@@ -143,6 +150,7 @@ export function buildSandboxArgv(input: SandboxArgvInput): SandboxArgvResult {
         roPaths: input.roPaths,
         rwPaths: input.rwPaths,
         ...(input.listPaths ? { listPaths: input.listPaths } : {}),
+        ...(input.traversePaths ? { traversePaths: input.traversePaths } : {}),
       });
       const bun = input.bunPath ?? "bun";
       const shim = input.shimPath ?? defaultShimPath();

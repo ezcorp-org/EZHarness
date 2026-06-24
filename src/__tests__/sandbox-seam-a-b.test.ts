@@ -22,7 +22,10 @@ import { join } from "node:path";
 import { ExtensionProcess } from "../extensions/subprocess";
 import { resolveShellSandbox } from "../runtime/tools/shell";
 import { buildSandboxArgv } from "../extensions/sandbox/build-sandbox-argv";
-import { buildLandlockJailSpec } from "../extensions/sandbox/landlock";
+import {
+  buildLandlockJailSpec,
+  DEFAULT_RUNTIME_RO_DIRS,
+} from "../extensions/sandbox/landlock";
 import { probeLandlockAbi } from "../extensions/sandbox/capability-probe";
 
 const LANDLOCK_OK = (probeLandlockAbi() ?? 0) >= 1;
@@ -107,6 +110,57 @@ describe("Seam A — ExtensionProcess.getSpawnArgs sandbox wrap", () => {
     expect(p.exitCode).not.toBe(0);
     expect(p.stderr.toString().toLowerCase()).toContain("permission denied");
   });
+
+  test.if(LANDLOCK_OK)(
+    "TRAVERSE grant lets the child WALK the project tree to read node_modules deps, yet the .ezcorp/data secret stays UNREADABLE",
+    async () => {
+      // Mirrors the extension-subprocess wrap (Seam A): a bundled extension's
+      // `bun run <entrypoint>` canonicalizes paths by `openat(dir, O_DIRECTORY)`
+      // UP the tree to resolve its `@ezcorp/sdk`/`node_modules` imports, so the
+      // project root must be TRAVERSABLE (READ_DIR) — but the deps' file
+      // CONTENTS come from a separate RO (READ_FILE) grant on `node_modules`.
+      // Without the traverse grant the child EACCES'd on
+      // `openat(<projectRoot>, O_DIRECTORY)` and died at module-load ("Cannot
+      // find module" → JSON-RPC transport closed → "Transport closed"). The
+      // security boundary: traverse is READ_DIR only, NEVER READ_FILE, so the
+      // `.ezcorp/data` secret under the (traverse-granted) root never leaks.
+      const depDir = join(ROOT, "node_modules", "dep");
+      await mkdir(depDir, { recursive: true });
+      await writeFile(join(depDir, "index.js"), "module.exports = 42;");
+
+      const spawn = (cmd: string, args: string[]) => {
+        const built = buildSandboxArgv({
+          tier: "landlock",
+          workspaceDir: join(ROOT, ".ezcorp", "extension-data", "ext-trav"),
+          projectRoot: ROOT,
+          roPaths: [...DEFAULT_RUNTIME_RO_DIRS, join(ROOT, "node_modules")],
+          traversePaths: [ROOT],
+          command: cmd,
+          args,
+        });
+        return Bun.spawnSync(built.argv, {
+          env: { ...process.env, ...built.env },
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+      };
+
+      // (a) The dep file under the RO `node_modules` grant IS readable — this
+      //     is what lets a real extension resolve `@ezcorp/sdk/runtime`.
+      const dep = spawn("cat", [join(depDir, "index.js")]);
+      expect(dep.exitCode).toBe(0);
+      expect(dep.stdout.toString()).toContain("42");
+
+      // (b) The `.ezcorp/data` secret is STILL DENIED — the traverse grant on
+      //     its ancestor (the project root) is READ_DIR only.
+      const secret = spawn("cat", [SECRET]);
+      expect(secret.exitCode).not.toBe(0);
+      expect(secret.stderr.toString().toLowerCase()).toContain(
+        "permission denied",
+      );
+      expect(secret.stdout.toString()).not.toContain("TOP-SECRET");
+    },
+  );
 
   test("buildLandlockJailSpec REFUSES a grant symlinked to .ezcorp/data (symlink-bypass regression)", async () => {
     // A symlink whose REAL target is the data dir passes a purely-lexical

@@ -70,6 +70,30 @@ export const READ_ACCESS =
   LANDLOCK_ACCESS_FS.READ_DIR;
 
 /**
+ * TRAVERSE-only access: just `READ_DIR` (open + enumerate directories), with
+ * NO `READ_FILE`. Granted on a path that the jailed process must WALK to reach
+ * a deeper read/write grant, WITHOUT exposing the file CONTENTS of everything
+ * under it. The motivating case: a workspace extension subprocess
+ * (`bun run <entrypoint>`) canonicalizes paths by `openat(dir, O_DIRECTORY)`
+ * up the tree to resolve its `node_modules`/workspace imports — so the project
+ * root must be traversable even though it CONTAINS `.ezcorp/data`. With
+ * traverse-only the child can `readdir` the data dir (see names) but every
+ * `open(file, O_RDONLY)` of the secret/DB still EACCES — file-read is never
+ * granted there. The actual code dirs (`node_modules`/`packages`) get a real
+ * READ_ACCESS grant on top; Landlock unions per-path, so they read fully while
+ * the rest of the tree stays list-only.
+ *
+ * It is READ_DIR ONLY — the minimal right to `openat(dir, O_DIRECTORY)` +
+ * `readdir`, which is all `bun`'s module resolver needs to walk the tree
+ * (Landlock allows traversing INTO an ungranted dir to reach a deeper grant,
+ * so no per-component EXECUTE/search right is required — verified empirically).
+ * Crucially it omits READ_FILE, so file CONTENTS under a traverse-granted tree
+ * (the `.ezcorp/data` secret + DB) stay unreadable: the dir is enumerable,
+ * every file under it is not.
+ */
+export const TRAVERSE_ACCESS = LANDLOCK_ACCESS_FS.READ_DIR;
+
+/**
  * The access rights that are valid on a NON-directory (regular file, symlink
  * target, …). Landlock returns EINVAL if a path-beneath rule grants a
  * directory-only right (READ_DIR / MAKE_* / REMOVE_* / REFER) on a regular
@@ -336,6 +360,7 @@ function applyJail(
   roPaths: readonly string[],
   abiVersion: number,
   listPaths: readonly string[] = [],
+  traversePaths: readonly string[] = [],
 ): void {
   if (abiVersion < 1) {
     throw new Error(`landlock: unsupported ABI version ${abiVersion}`);
@@ -377,6 +402,13 @@ function applyJail(
     // the ungranted `.ezcorp/data` sub-tree — denying WRITE there. (Read of
     // the in-repo convention path remains; the real platform DB is outside
     // the repo and never granted — see the productionShell comment.)
+    // TRAVERSE paths FIRST — READ_DIR only (open + enumerate dirs, NO
+    // file-read). Granted on a tree the child must WALK (e.g. the project root)
+    // to reach the read/write grants below WITHOUT exposing file contents
+    // under it (notably `.ezcorp/data`: listable, never readable). Landlock
+    // unions per-path, so the ro/rw grants that follow ADD file-read/write on
+    // their specific subtrees on top of this base.
+    grant(traversePaths, TRAVERSE_ACCESS);
     grant(listPaths, READ_ACCESS);
     grant(rwPaths, WRITE_ACCESS);
     grant(roPaths, READ_ACCESS);
@@ -419,6 +451,7 @@ export function applyReadWriteJail(
   roPaths: readonly string[],
   abiVersion: number,
   listPaths: readonly string[] = [],
+  traversePaths: readonly string[] = [],
 ): void {
-  applyJail(rwPaths, roPaths, abiVersion, listPaths);
+  applyJail(rwPaths, roPaths, abiVersion, listPaths, traversePaths);
 }

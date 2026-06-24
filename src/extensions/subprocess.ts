@@ -234,6 +234,30 @@ export class ExtensionProcess {
       const extDir = dirname(this.extensionPath);
       const preloadDir = dirname(SANDBOX_PRELOAD_PATH);
       const roPaths = [...DEFAULT_RUNTIME_RO_DIRS, extDir, preloadDir];
+      // The child `bun run <entrypoint>` must also READ the extension's
+      // DEPENDENCIES — above all `@ezcorp/sdk`, which every bundled extension
+      // imports. Those resolve through `<projectRoot>/node_modules` (a
+      // workspace symlink to `<projectRoot>/packages/@ezcorp/*` in dev).
+      // Neither lives under the extension's own dir, so the extDir/preloadDir
+      // grant above let the child read its OWN code but NOT the code it
+      // imports — under a non-advisory tier (landlock/bwrap) `bun` then exits
+      // at module-load ("Cannot find module '@ezcorp/sdk/runtime'") and every
+      // tool call surfaces "Transport closed". (CI never caught this: GitHub
+      // runners lack unprivileged userns → the tier probes `advisory` → no
+      // jail. It bites any host where landlock is usable — the production
+      // container tier.) Landlock binds the REAL inode, so the workspace
+      // `packages/` symlink targets need their own grant alongside
+      // `node_modules/`. existsSync-guarded: a bundled prod deploy ships a
+      // real `node_modules` and no `packages/` dir. Deny-by-default is
+      // unaffected — both are SIBLINGS of `.ezcorp/data`, never ancestors
+      // (buildLandlockJailSpec re-asserts this and still denies the secret
+      // even via a symlink that points back into the data dir).
+      for (const dep of [
+        join(projectRoot, "node_modules"),
+        join(projectRoot, "packages"),
+      ]) {
+        if (existsSync(dep)) roPaths.push(dep);
+      }
       const inner = [
         "prlimit",
         `--rss=${this.memoryLimitBytes}`,
@@ -249,6 +273,21 @@ export class ExtensionProcess {
         projectRoot,
         roPaths,
         rwPaths,
+        // `bun run <entrypoint>` canonicalizes paths by OPENING each directory
+        // component (`openat(dir, O_DIRECTORY)`) as it walks UP the tree to
+        // resolve the entrypoint's `node_modules`/workspace imports. Under a
+        // non-advisory tier those dir-opens need READ_DIR on the whole path —
+        // not just the leaf code dirs — or `bun` can't reach `node_modules`
+        // and exits at module-load ("Cannot find module '@ezcorp/sdk/runtime'"
+        // → the JSON-RPC transport closes → every tool call surfaces
+        // "Transport closed"). Grant the project root TRAVERSE-only (READ_DIR,
+        // NO file-read): the child can walk the tree to the RO-granted
+        // `node_modules`/`packages` above while the `.ezcorp/data` secret +
+        // DB stay unreadable (enumerable, never read). (CI never caught this:
+        // GitHub runners lack unprivileged userns → tier probes `advisory` →
+        // no jail. It bites any host where landlock is usable — the prod
+        // container tier.)
+        traversePaths: [projectRoot],
         command: inner[0]!,
         args: inner.slice(1),
       });

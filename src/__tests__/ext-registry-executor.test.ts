@@ -256,12 +256,21 @@ describe("buildAllowedEnv", () => {
 
     const keys = Object.keys(env);
     expect(keys).toEqual(
-      expect.arrayContaining(["PATH", "HOME", "NODE_ENV", "TMPDIR", "EZCORP_PROJECT_ROOT"]),
+      expect.arrayContaining([
+        "PATH",
+        "HOME",
+        "NODE_ENV",
+        "TMPDIR",
+        "EZCORP_PROJECT_ROOT",
+        "EZCORP_EXTENSION_DATA_ROOT",
+      ]),
     );
-    // Phase post-perm-cleanup: registry now also injects EZCORP_PROJECT_ROOT
-    // unconditionally (when a `.git` ancestor is found, which is true under
-    // the test runner). PATH + HOME + NODE_ENV + TMPDIR + EZCORP_PROJECT_ROOT = 5.
-    expect(keys.length).toBe(5);
+    // Phase post-perm-cleanup: registry injects EZCORP_PROJECT_ROOT
+    // unconditionally (when a `.git` ancestor is found, true under the test
+    // runner); the file-organizer change (registry.ts:135) ALSO injects
+    // EZCORP_EXTENSION_DATA_ROOT unconditionally (getProjectRoot never throws).
+    // PATH + HOME + NODE_ENV + TMPDIR + EZCORP_PROJECT_ROOT + EZCORP_EXTENSION_DATA_ROOT = 6.
+    expect(keys.length).toBe(6);
   });
 
   test("handles empty permissions on both manifest and granted", () => {
@@ -269,8 +278,8 @@ describe("buildAllowedEnv", () => {
     const granted: ExtensionPermissions = { grantedAt: {} };
 
     const env = buildAllowedEnv(manifest, granted, "ext-empty");
-    // PATH, HOME, NODE_ENV, TMPDIR, EZCORP_PROJECT_ROOT (Phase post-perm-cleanup)
-    expect(Object.keys(env).length).toBe(5);
+    // PATH, HOME, NODE_ENV, TMPDIR, EZCORP_PROJECT_ROOT, EZCORP_EXTENSION_DATA_ROOT
+    expect(Object.keys(env).length).toBe(6);
   });
 
   test("handles manifest env but no granted env", () => {

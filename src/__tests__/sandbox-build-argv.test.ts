@@ -113,6 +113,25 @@ describe("buildSandboxArgv — tier branches", () => {
     expect(r.argv.slice(2)).toEqual(["--", "x"]);
   });
 
+  test("landlock: threads traversePaths into the spec (project-root walk grant)", () => {
+    const r = buildSandboxArgv({
+      tier: "landlock",
+      workspaceDir: WORKSPACE,
+      projectRoot: ROOT,
+      roPaths: [RO_OK],
+      traversePaths: [ROOT],
+      command: "x",
+    });
+    const spec = JSON.parse(r.env[LANDLOCK_SPEC_ENV]!);
+    // The project root (an ANCESTOR of .ezcorp/data) is granted TRAVERSE-only:
+    // present in spec.traverse, ABSENT from ro/rw (which forbid data-dir
+    // ancestors). This is what lets a workspace extension subprocess walk the
+    // tree to its node_modules imports without exposing file contents.
+    expect(spec.traverse).toContain(resolve(ROOT));
+    expect(spec.ro).not.toContain(resolve(ROOT));
+    expect(spec.rw).not.toContain(resolve(ROOT));
+  });
+
   test("bwrap: emits a bwrap prefix, no root bind, no data-dir bind", () => {
     const r = buildSandboxArgv({
       tier: "bwrap",
@@ -330,6 +349,44 @@ describe("buildLandlockJailSpec — pure spec + deny invariants", () => {
       }),
     ).toThrow(/data dir/);
   });
+
+  test("traversePaths: a data-dir ANCESTOR (the repo root) is ALLOWED + appears in spec.traverse", () => {
+    // The extension-subprocess walk grant: the root contains .ezcorp/data but
+    // is READ_DIR-only (never file-read), so it's exempt from the ancestor
+    // assertion (like listPaths) and lands in `traverse` — NOT in ro/rw.
+    const spec = buildLandlockJailSpec({
+      workspaceDir: WORKSPACE,
+      projectRoot: ROOT,
+      traversePaths: [ROOT],
+    });
+    expect(spec.traverse).toEqual([resolve(ROOT)]);
+    expect(spec.ro).not.toContain(resolve(ROOT));
+  });
+
+  test("traversePaths: omitted → spec has no `traverse` field", () => {
+    const spec = buildLandlockJailSpec({ workspaceDir: WORKSPACE, projectRoot: ROOT });
+    expect(spec.traverse).toBeUndefined();
+  });
+
+  test("DENY: a traverse path that IS the data dir fails closed", () => {
+    expect(() =>
+      buildLandlockJailSpec({
+        workspaceDir: WORKSPACE,
+        projectRoot: ROOT,
+        traversePaths: [join(ROOT, ".ezcorp", "data")],
+      }),
+    ).toThrow(/data dir/);
+  });
+
+  test("DENY: a traverse path UNDER the data dir fails closed", () => {
+    expect(() =>
+      buildLandlockJailSpec({
+        workspaceDir: WORKSPACE,
+        projectRoot: ROOT,
+        traversePaths: [join(ROOT, ".ezcorp", "data", "sub")],
+      }),
+    ).toThrow(/data dir/);
+  });
 });
 
 describe("applyLandlockJailSpec — live (host has Landlock)", () => {
@@ -371,6 +428,26 @@ describe("landlock-shim — pure parsers", () => {
   test("parseSpecFromEnv reads valid JSON spec", () => {
     const env = { [LANDLOCK_SPEC_ENV]: JSON.stringify({ ro: ["/usr"], rw: ["/w"] }) };
     expect(parseSpecFromEnv(env)).toEqual({ ro: ["/usr"], rw: ["/w"] });
+  });
+
+  test("parseSpecFromEnv PRESERVES the optional list + traverse arrays", () => {
+    // Dropping either here silently un-applied the grant in the in-process
+    // jail — for traverse that left the child EACCES'ing on the project-root
+    // dir-open and dying at module-load ("Transport closed").
+    const env = {
+      [LANDLOCK_SPEC_ENV]: JSON.stringify({
+        ro: ["/usr"],
+        rw: ["/w"],
+        list: ["/repo"],
+        traverse: ["/proj"],
+      }),
+    };
+    expect(parseSpecFromEnv(env)).toEqual({
+      ro: ["/usr"],
+      rw: ["/w"],
+      list: ["/repo"],
+      traverse: ["/proj"],
+    });
   });
 
   test("parseSpecFromEnv throws on missing var", () => {

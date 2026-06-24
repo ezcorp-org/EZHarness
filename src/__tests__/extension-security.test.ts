@@ -360,7 +360,7 @@ describe("env isolation - buildAllowedEnv", () => {
     permissions: {} as { network?: string[]; filesystem?: string[]; shell?: boolean; env?: string[] },
   };
 
-  test("includes only PATH, HOME, TMPDIR, NODE_ENV, EZCORP_PROJECT_ROOT by default", () => {
+  test("includes only PATH, HOME, TMPDIR, NODE_ENV, EZCORP_PROJECT_ROOT, EZCORP_EXTENSION_DATA_ROOT by default", () => {
     const manifest = { ...baseManifest, permissions: {} };
     const granted: ExtensionPermissions = { grantedAt: {} };
     const env = buildAllowedEnv(manifest, granted, "test-ext-id");
@@ -370,12 +370,22 @@ describe("env isolation - buildAllowedEnv", () => {
     expect(env.TMPDIR).toBeDefined();
     expect(env.NODE_ENV).toBeDefined();
     // Phase post-perm-cleanup: EZCORP_PROJECT_ROOT is unconditionally
-    // injected so sandboxed extensions can locate the project root
-    // without their own (poisoned) `.git` walk. See registry.ts:108.
+    // injected so sandboxed extensions can locate the project root without
+    // their own (poisoned) `.git` walk (registry.ts:108); the file-organizer
+    // change (registry.ts:135) ALSO injects EZCORP_EXTENSION_DATA_ROOT
+    // unconditionally for the bundled-extension data-dir path.
     expect(env.EZCORP_PROJECT_ROOT).toBeDefined();
+    expect(env.EZCORP_EXTENSION_DATA_ROOT).toBeDefined();
     // Should NOT contain other process env vars
     const keys = Object.keys(env);
-    expect(keys).toEqual(["PATH", "HOME", "NODE_ENV", "TMPDIR", "EZCORP_PROJECT_ROOT"]);
+    expect(keys).toEqual([
+      "PATH",
+      "HOME",
+      "NODE_ENV",
+      "TMPDIR",
+      "EZCORP_PROJECT_ROOT",
+      "EZCORP_EXTENSION_DATA_ROOT",
+    ]);
   });
 
   test("creates per-extension TMPDIR under platform temp base", () => {
