@@ -76,6 +76,10 @@ vi.mock("$lib/server/security/openai-extension-creds", () => ({
 }));
 vi.mock("$server/extensions/state-mediator", () => ({
   ExtensionStateMediator: class {},
+  // ensureInitialized registers the mediator as the process-wide
+  // singleton (dashboard live-refresh fix); the export must exist or the
+  // boot under test throws.
+  setStateMediator: vi.fn(),
 }));
 vi.mock("$server/extensions/lifecycle-dispatcher", () => ({
   LifecycleHookDispatcher: class {

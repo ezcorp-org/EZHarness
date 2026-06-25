@@ -16,6 +16,7 @@ import {
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { ToolExecutor } from "$server/extensions/tool-executor";
 import { getPermissionEngine } from "$server/extensions/permission-engine";
+import { registerFireCallProvenance } from "$server/extensions/call-provenance";
 import { handleAppendMessageRpc } from "$server/extensions/append-message-handler";
 import { handleFinalizeToolCallRpc } from "$server/extensions/finalize-tool-call-handler";
 import { getPageCache } from "$server/extensions/page-cache";
@@ -236,11 +237,30 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
       const engine = getPermissionEngine();
       const wirer = new ToolExecutor(registry, engine, { bus: getBus() });
       await wirer.ensureSubprocessRpcWired(ext.id, proc);
+      // Mint a per-fire reverse-RPC provenance token (onBehalfOf = the
+      // clicking user) and stamp it onto `_meta.ezCallId`, exactly like the
+      // EventSubscriptionDispatcher does for background event fires. Without
+      // it the subprocess handler runs with no ambient callId, so EVERY
+      // downstream host-mediated reverse-RPC the action triggers (fs.write,
+      // and any provenance-gated capability) fails `-32602` provenance-
+      // unresolved. A Hub click always has a real user, so this is never
+      // ownerless. `registerFireCallProvenance` auto-releases the token
+      // after a bounded window (the dispatch is fire-and-forget).
+      const ezCallId = registerFireCallProvenance({
+        onBehalfOf: user.id,
+        conversationId: null,
+        runId: null,
+        parentCallId: null,
+        actorExtensionId: ext.id,
+        kind: "event",
+        ownerless: false,
+      });
       proc.sendNotification(`ezcorp/event/${fullEventName}`, {
         source: "hub",
         pageId,
         userId: user.id,
         ...(payload !== undefined ? { payload } : {}),
+        _meta: { ezCallId },
       });
     } catch (err) {
       log.warn("hub action subprocess dispatch failed", {

@@ -143,6 +143,14 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
       name: "memory-extractor",
       enabled: true,
     });
+    // ping-loop is the third `bootSpawn: true` bundled entry. Populate its
+    // row too so `failed[]` stays empty (a missing row would otherwise
+    // record ping-loop as failed, drowning the lessons-distiller signal).
+    store.set("ping-loop", {
+      id: "ext-ping",
+      name: "ping-loop",
+      enabled: true,
+    });
 
     const { spawnCalls, registry } = makeRegistry();
     const { calls: wireCalls, fn: wireRpc } = makeWireRpc();
@@ -164,6 +172,14 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
     store.set("memory-extractor", {
       id: "ext-memory",
       name: "memory-extractor",
+      enabled: true,
+    });
+
+    // Third `bootSpawn: true` bundled entry — populate so `failed[]` stays
+    // empty (mirrors the lessons-distiller test above).
+    store.set("ping-loop", {
+      id: "ext-ping",
+      name: "ping-loop",
       enabled: true,
     });
 
@@ -265,6 +281,15 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
       enabled: true,
     });
 
+    // ping-loop is the third `bootSpawn: true` entry; give it a clean
+    // enabled row + a passing spawn so this test isolates the
+    // lessons-distiller failure from the orthogonal new entry.
+    store.set("ping-loop", {
+      id: "ext-ping",
+      name: "ping-loop",
+      enabled: true,
+    });
+
     const { spawnCalls, registry } = makeRegistry({
       failOn: new Set(["ext-lessons"]),
     });
@@ -272,14 +297,18 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
 
     const result = await bootSpawnFlaggedBundledExtensions(registry, wireRpc);
 
-    // Both spawns were attempted; one failed.
+    // All three spawns were attempted; one failed.
     expect(spawnCalls.map((c) => c.extensionId).sort()).toEqual([
       "ext-lessons",
       "ext-memory",
+      "ext-ping",
     ]);
-    // RPC wiring only ran for the surviving spawn.
-    expect(wireCalls).toEqual([{ extensionId: "ext-memory" }]);
-    expect(result.spawned).toEqual(["memory-extractor"]);
+    // RPC wiring ran for the two surviving spawns.
+    expect(wireCalls.map((c) => c.extensionId).sort()).toEqual([
+      "ext-memory",
+      "ext-ping",
+    ]);
+    expect(result.spawned.sort()).toEqual(["memory-extractor", "ping-loop"]);
     expect(result.failed).toEqual(["lessons-distiller"]);
   });
 
@@ -294,14 +323,25 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
       name: "memory-extractor",
       enabled: true,
     });
+    // Third `bootSpawn: true` entry — enabled, so it spawns alongside
+    // memory-extractor. Keeps `failed[]` empty (a missing row would
+    // register as a failure and break the operator-opt-out assertion).
+    store.set("ping-loop", {
+      id: "ext-ping",
+      name: "ping-loop",
+      enabled: true,
+    });
 
     const { spawnCalls, registry } = makeRegistry();
     const { fn: wireRpc } = makeWireRpc();
 
     const result = await bootSpawnFlaggedBundledExtensions(registry, wireRpc);
 
-    expect(spawnCalls.map((c) => c.extensionId)).toEqual(["ext-memory"]);
-    expect(result.spawned).toEqual(["memory-extractor"]);
+    expect(spawnCalls.map((c) => c.extensionId).sort()).toEqual([
+      "ext-memory",
+      "ext-ping",
+    ]);
+    expect(result.spawned.sort()).toEqual(["memory-extractor", "ping-loop"]);
     // Disabled is not a failure — operator opt-out is respected.
     // Only the missing/spawn-error paths populate `failed[]`. A
     // disabled row produces no entry on either list.
@@ -310,8 +350,10 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
   });
 
   test("missing DB row is recorded in failed[] (install must have failed earlier)", async () => {
-    // Neither flagged extension has a DB row — `ensureBundledExtensions`
+    // No flagged extension has a DB row — `ensureBundledExtensions`
     // must have errored on install. Boot-spawn degrades gracefully.
+    // All three `bootSpawn: true` entries (lessons-distiller,
+    // memory-extractor, ping-loop) land in failed[].
     const { spawnCalls, registry } = makeRegistry();
     const { fn: wireRpc } = makeWireRpc();
 
@@ -322,6 +364,7 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
     expect(result.failed.sort()).toEqual([
       "lessons-distiller",
       "memory-extractor",
+      "ping-loop",
     ]);
   });
 

@@ -388,6 +388,20 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
     grantedAt: {},
   },
 
+  // ping-loop — watchable, LLM-free Loop SDK demo. Mirrors the minimal
+  // install grant in `bundled.ts`: storage (the run store), filesystem
+  // `$CWD` (the artifact mirror under .ezcorp/extension-data/ping/), and
+  // the single `ping-loop:run` page-action eventSubscription (Hub
+  // page-action events are extension-name-prefixed). The dashboard page
+  // is a manifest declaration, not a permission, so it has no ceiling
+  // row. No network/shell/llm by construction.
+  "ping-loop": {
+    storage: true,
+    filesystem: ["$CWD"],
+    eventSubscriptions: ["ping-loop:run"],
+    grantedAt: {},
+  },
+
   // substack-pipeline — sibling to substack-pilot. LLM (WRITER +
   // ILLUSTRATOR stages) + storage (conversation-scoped scratch state
   // between the 3 tools). No network/shell: the URL fetch is delegated

@@ -6,6 +6,9 @@ import {
   ExtensionStateMediator,
   MAX_STATE_SIZE_BYTES,
   MAX_UPDATES_PER_SECOND,
+  setStateMediator,
+  getStateMediator,
+  _resetStateMediatorForTests,
   type MediatorManifest,
 } from "../extensions/state-mediator";
 
@@ -238,5 +241,26 @@ describe("ExtensionStateMediator", () => {
       );
       expect(at(events, 0, "events").extensionId).toBe("real-ext");
     });
+  });
+});
+
+// ── Process-wide mediator singleton ──────────────────────────────────
+//
+// `ensureSubprocessRpcWired` falls back to `getStateMediator()` when its
+// per-instance `this.stateMediator` is unset, so boot-spawned / lazily-spawned
+// dashboards still get their live-refresh handler. `context.ts` registers the
+// mediator via `setStateMediator()` once at boot.
+describe("process-wide mediator singleton", () => {
+  test("set / get / reset round-trip", () => {
+    _resetStateMediatorForTests();
+    expect(getStateMediator()).toBeNull();
+
+    const bus = new EventBus<AgentEvents>();
+    const mediator = new ExtensionStateMediator(bus, () => MANIFEST);
+    setStateMediator(mediator);
+    expect(getStateMediator()).toBe(mediator);
+
+    _resetStateMediatorForTests();
+    expect(getStateMediator()).toBeNull();
   });
 });

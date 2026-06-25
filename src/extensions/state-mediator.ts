@@ -211,3 +211,37 @@ export class ExtensionStateMediator {
     }
   }
 }
+
+// ── Process-wide singleton ──────────────────────────────────────────
+//
+// Same module-singleton pattern as `getPageCache()` (page-cache.ts):
+// a ToolExecutor that was given `this.stateMediator` (the per-turn /
+// boot `executor`) AND one that was not (the boot `bootExecutor`, plus
+// per-request render-pull / events executors) must both be able to
+// route a subprocess's `ezcorp/page-state` push to THE one mediator.
+// `ensureSubprocessRpcWired` falls back to this getter when its
+// per-instance `this.stateMediator` is unset, so boot-spawned and
+// lazily-spawned dashboards get their live-refresh notification handler
+// installed regardless of which executor happened to wire the proc.
+//
+// `context.ts:ensureInitialized` registers the mediator here right
+// after constructing it. Until then the getter returns `null` and the
+// install is simply skipped — identical to the prior `if
+// (this.stateMediator)` behavior.
+
+let mediatorSingleton: ExtensionStateMediator | null = null;
+
+/** Register the process-wide mediator (called once at boot). */
+export function setStateMediator(mediator: ExtensionStateMediator): void {
+  mediatorSingleton = mediator;
+}
+
+/** The process-wide mediator, or `null` before boot wires one. */
+export function getStateMediator(): ExtensionStateMediator | null {
+  return mediatorSingleton;
+}
+
+/** Test-only hook — clear the singleton so suites don't leak across cases. */
+export function _resetStateMediatorForTests(): void {
+  mediatorSingleton = null;
+}

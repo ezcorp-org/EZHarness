@@ -25,7 +25,10 @@ import { ToolExecutor } from "$server/extensions/tool-executor";
 import { getPermissionEngine } from "$server/extensions/permission-engine";
 import { bootstrapBundledCredentials } from "$lib/server/security/bundled-creds";
 import { wireOpenAIExtensionCredentials } from "$lib/server/security/openai-extension-creds";
-import { ExtensionStateMediator } from "$server/extensions/state-mediator";
+import {
+  ExtensionStateMediator,
+  setStateMediator as setStateMediatorSingleton,
+} from "$server/extensions/state-mediator";
 import {
   LifecycleHookDispatcher,
   type LifecycleHookName,
@@ -201,6 +204,16 @@ export async function ensureInitialized(): Promise<void> {
     };
   });
   executor.setStateMediator(stateMediator);
+  // Register the SAME mediator as the process-wide singleton so executors
+  // that were never given `.setStateMediator()` — the boot `bootExecutor`
+  // below, plus per-request render-pull / events executors — still install
+  // the `ezcorp/page-state` notification handler on the subprocesses they
+  // wire. Without this, boot-spawned / lazily-spawned `persistent:true`
+  // dashboards never receive their `pushPage` live-refresh signal and the
+  // Hub only updates via the render-pull stale-serve fallback. See
+  // `ToolExecutor.ensureSubprocessRpcWired` (falls back to
+  // `getStateMediator()`).
+  setStateMediatorSingleton(stateMediator);
 
   // Wire lifecycle hook dispatcher (sends sanitized events to subscribed extensions)
   lifecycleDispatcher = new LifecycleHookDispatcher(bus, registry);

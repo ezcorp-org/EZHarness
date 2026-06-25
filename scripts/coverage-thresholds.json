@@ -23,6 +23,7 @@
   "src/extensions/file-organizer-state.ts": 100,
   "docs/extensions/examples/file-organizer/index.ts": 100,
   "docs/extensions/examples/file-organizer/lib/**": 100,
+  "docs/extensions/examples/ping-loop/ezcorp.config.ts": 100,
   "src/db/connection.ts": 41,
   "src/db/queries/message-embed-outbox.ts": 95,
   "scripts/backfill-embeddings.ts": 95,

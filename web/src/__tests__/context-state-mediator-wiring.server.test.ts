@@ -22,12 +22,21 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 
 // ── The collaborator under observation ──────────────────────────────
 const mediatorCtorArgs: unknown[][] = [];
+const mediatorInstances: unknown[] = [];
+// `setStateMediator` registers the process-wide mediator singleton so
+// mediator-less executors (boot `bootExecutor`, per-request render-pull /
+// events executors) still install the `ezcorp/page-state` handler. We
+// capture the call to assert context.ts wires it to the SAME mediator it
+// hands the in-process executor.
+const setStateMediatorSingletonMock = vi.fn();
 vi.mock("$server/extensions/state-mediator", () => ({
 	ExtensionStateMediator: class {
 		constructor(...args: unknown[]) {
 			mediatorCtorArgs.push(args);
+			mediatorInstances.push(this);
 		}
 	},
+	setStateMediator: setStateMediatorSingletonMock,
 }));
 
 // ── Registry stub: manifest vs grant deliberately DISAGREE ──────────
@@ -156,6 +165,7 @@ describe("ensureInitialized — state-mediator lookup feeds pageIds from MANIFES
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mediatorCtorArgs.length = 0;
+		mediatorInstances.length = 0;
 		// ensureInitialized is once-only; reset modules so it re-runs.
 		vi.resetModules();
 	});
@@ -167,6 +177,12 @@ describe("ensureInitialized — state-mediator lookup feeds pageIds from MANIFES
 		expect(mediatorCtorArgs).toHaveLength(1);
 		const [bus, lookup] = mediatorCtorArgs[0]! as [unknown, MediatorLookup];
 		expect(bus).toBe(ctx.getBus());
+
+		// The SAME constructed mediator is registered as the process-wide
+		// singleton (so boot/per-request mediator-less executors install
+		// the page-state handler). This is the dashboard-live-refresh fix.
+		expect(setStateMediatorSingletonMock).toHaveBeenCalledTimes(1);
+		expect(setStateMediatorSingletonMock).toHaveBeenCalledWith(mediatorInstances[0]);
 
 		// Pages extension: pageIds mirror the MANIFEST declaration;
 		// eventSubscriptions mirror the GRANT — the manifest's extra

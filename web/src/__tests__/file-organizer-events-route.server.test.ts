@@ -54,6 +54,12 @@ vi.mock("$lib/server/hub-extension-pages", () => ({
 vi.mock("$server/extensions/page-cache", () => ({ getPageCache: () => ({ invalidate: h.invalidate }) }));
 vi.mock("$server/extensions/permission-engine", () => ({ getPermissionEngine: () => ({ __mock: "engine" }) }));
 vi.mock("$server/extensions/bundled", () => ({ getProjectRoot: () => "/proj" }));
+// The subprocess-forward branch mints a per-fire reverse-RPC provenance token
+// (onBehalfOf = the clicking user) before sending the notification. Stub it so
+// the route doesn't touch the real provenance registry under vitest.
+vi.mock("$server/extensions/call-provenance", () => ({
+  registerFireCallProvenance: () => "ezcall-test",
+}));
 vi.mock("$server/extensions/file-organizer-events", () => ({
   dispatchFileOrganizerEvent: async (event: string, payload: unknown, deps: Record<string, unknown>) => {
     h.state.dispatchCalls.push({ event, payload, deps });

@@ -795,6 +795,40 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
       },
     },
   },
+  {
+    // ping-loop — a watchable, LLM-free Loop SDK demo. A MANUAL-trigger +
+    // dashboard loop: a human clicks "Ping now" on the Hub page and a fresh
+    // "done" run row appears (`pong #0`, `pong #1`, …). Every fire is
+    // deterministic (seq + injected fire timestamp), so the demo is flake-free.
+    //
+    // The manifest is `persistent` and the "Ping now" button fires the
+    // `ping-loop:run` page-action EVENT — so the subprocess must be RESIDENT
+    // to receive the click. The extension also registers a manual `ping_run`
+    // tool, but the live UX path is the page-action event, which
+    // `EventSubscriptionDispatcher.dispatch` silently drops unless a
+    // subprocess is already running. So `bootSpawn: true` keeps it resident.
+    //
+    // Grant is exactly what the manifest declares: `storage` (the run store),
+    // `filesystem: ["$CWD"]` (the artifact mirror under
+    // .ezcorp/extension-data/ping/), and the `ping-loop:run` eventSubscription
+    // (Hub page-action events MUST be extension-name-prefixed — `hub.ts`
+    // drops any event not starting with `<extensionName>:`). The dashboard
+    // page is declared in the manifest (`pages[]`) — declaring it IS the
+    // grant. NO llm / network / shell.
+    name: "ping-loop",
+    path: "docs/extensions/examples/ping-loop",
+    bootSpawn: true,
+    permissions: {
+      storage: true,
+      filesystem: ["$CWD"],
+      eventSubscriptions: ["ping-loop:run"],
+      grantedAt: {
+        storage: Date.now(),
+        filesystem: Date.now(),
+        eventSubscriptions: Date.now(),
+      },
+    },
+  },
 ];
 
 /** Opt-OUT switches: each maps a bundled-extension name to the env var that

@@ -1,0 +1,8 @@
+{
+  "name": "ping-loop",
+  "version": "1.0.0",
+  "description": "Watchable Loop SDK demo — click 'Ping now' to fire a deterministic, LLM-free loop, built on defineLoop.",
+  "private": true,
+  "type": "module",
+  "main": "./index.ts"
+}

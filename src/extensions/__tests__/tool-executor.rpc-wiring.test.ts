@@ -22,9 +22,18 @@
 // the handler installed via setRequestHandler so we can invoke it
 // directly and observe the dispatcher's branch.
 
-import { test, expect, describe, beforeEach } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { ToolExecutor } from "../tool-executor";
 import { createStubPermissionEngine } from "../../__tests__/helpers/permission-engine-stub";
+import {
+  ExtensionStateMediator,
+  setStateMediator,
+  _resetStateMediatorForTests,
+  type MediatorManifest,
+} from "../state-mediator";
+import { getPageCache } from "../page-cache";
+import { EventBus } from "../../runtime/events";
+import type { AgentEvents } from "../../types";
 import type { ExtensionProcess } from "../subprocess";
 import type {
   JsonRpcRequest,
@@ -236,5 +245,142 @@ describe("ToolExecutor.ensureSubprocessRpcWired", () => {
     await executor.ensureSubprocessRpcWired("ext-b", procB);
     expect(procA.setRequestHandlerCalls).toBe(1);
     expect(procB.setRequestHandlerCalls).toBe(1);
+  });
+});
+
+// ── State-mediator notification-handler install ─────────────────────
+//
+// Regression for the dashboard live-refresh bug: boot-spawned (and
+// lazily-spawned) `persistent:true` dashboards never got their
+// `ezcorp/page-state` (`pushPage`) notification handler installed,
+// because the boot `bootExecutor` / per-request executors were never
+// given `.setStateMediator()`. The handler install was gated solely on
+// `this.stateMediator`, so the subprocess's page-state push was
+// silently dropped → the page cache never updated and the
+// `ext:page-state` SSE signal never fired.
+//
+// The fix makes `ensureSubprocessRpcWired` fall back to the
+// process-wide mediator singleton (registered at boot in context.ts)
+// when its per-instance `this.stateMediator` is unset. These tests
+// drive a REAL ExtensionStateMediator end-to-end: an inbound
+// `ezcorp/page-state` notification through the installed handler must
+// land in the page cache AND emit the content-free `ext:page-state`
+// bus signal.
+
+describe("ensureSubprocessRpcWired — state-mediator singleton fallback", () => {
+  const EXT_ID = "ext-dashboard";
+  const PAGE_ID = "dashboard";
+
+  const MANIFEST: MediatorManifest = {
+    name: "ping-loop",
+    pageIds: [PAGE_ID],
+    eventSubscriptions: [],
+  };
+
+  const VALID_TREE = {
+    title: "Ping Loop",
+    nodes: [{ type: "heading", level: 2, text: "Runs" }],
+  };
+
+  let registry: ExtensionRegistry;
+  let bus: EventBus<AgentEvents>;
+  let pageEvents: AgentEvents["ext:page-state"][];
+
+  function makeRealMediator(): ExtensionStateMediator {
+    bus = new EventBus<AgentEvents>();
+    pageEvents = [];
+    bus.on("ext:page-state", (e) => pageEvents.push(e));
+    return new ExtensionStateMediator(bus, () => MANIFEST);
+  }
+
+  beforeEach(() => {
+    _resetStateMediatorForTests();
+    getPageCache().clear();
+    registry = makeStubRegistry();
+  });
+
+  afterEach(() => {
+    _resetStateMediatorForTests();
+    getPageCache().clear();
+  });
+
+  test("bootExecutor (no per-instance mediator) installs a handler via the singleton, and a page-state push reaches the mediator", async () => {
+    // The boot `bootExecutor` case: NO `.setStateMediator()` call on
+    // this executor instance.
+    const bootExecutor = new ToolExecutor(registry, createStubPermissionEngine());
+    // The process-wide mediator IS registered at boot (context.ts).
+    setStateMediator(makeRealMediator());
+
+    const proc = makeStubProc();
+    await bootExecutor.ensureSubprocessRpcWired(EXT_ID, proc);
+
+    // The notification handler was installed via the singleton fallback.
+    expect(proc.setNotificationHandlerCalls).toBe(1);
+    expect(typeof proc.installedNotificationHandler).toBe("function");
+
+    // Drive an inbound `ezcorp/page-state` push through the handler.
+    proc.installedNotificationHandler!({
+      jsonrpc: "2.0",
+      method: "ezcorp/page-state",
+      params: { pageId: PAGE_ID, page: VALID_TREE },
+    });
+
+    // It reached the REAL mediator: page cache set + content-free emit.
+    const cached = getPageCache().get(EXT_ID, PAGE_ID);
+    expect(cached).not.toBeNull();
+    expect(cached!.tree.title).toBe("Ping Loop");
+
+    expect(pageEvents).toHaveLength(1);
+    expect(pageEvents[0]!.extensionId).toBe(EXT_ID);
+    expect(pageEvents[0]!.pageId).toBe(PAGE_ID);
+    // INVARIANT preserved: no tree content on the bus event.
+    expect(Object.keys(pageEvents[0]!).sort()).toEqual([
+      "extensionId",
+      "extensionName",
+      "pageId",
+      "timestamp",
+    ]);
+  });
+
+  test("no mediator registered (singleton null, no per-instance) → no handler installed", async () => {
+    // Proves the install is genuinely conditional on a reachable
+    // mediator — the prior `if (this.stateMediator)` skip behavior is
+    // preserved when neither source is present (e.g. before boot wires
+    // the singleton).
+    const bootExecutor = new ToolExecutor(registry, createStubPermissionEngine());
+    const proc = makeStubProc();
+    await bootExecutor.ensureSubprocessRpcWired(EXT_ID, proc);
+    expect(proc.setNotificationHandlerCalls).toBe(0);
+    expect(proc.installedNotificationHandler).toBeNull();
+  });
+
+  test("per-instance this.stateMediator takes precedence over the singleton", async () => {
+    // Two distinct mediators: a per-instance one wired via
+    // setStateMediator() and a DIFFERENT process-wide singleton. The
+    // per-instance one must win (`this.stateMediator ?? getStateMediator()`),
+    // so the push routes through it — proving the singleton is a pure
+    // fallback, never an override of the existing behavior.
+    const instanceBus = new EventBus<AgentEvents>();
+    const instanceEvents: AgentEvents["ext:page-state"][] = [];
+    instanceBus.on("ext:page-state", (e) => instanceEvents.push(e));
+    const instanceMediator = new ExtensionStateMediator(instanceBus, () => MANIFEST);
+
+    // A different singleton whose bus we also watch — it must NOT fire.
+    setStateMediator(makeRealMediator());
+
+    const exec = new ToolExecutor(registry, createStubPermissionEngine());
+    exec.setStateMediator(instanceMediator);
+
+    const proc = makeStubProc();
+    await exec.ensureSubprocessRpcWired(EXT_ID, proc);
+    proc.installedNotificationHandler!({
+      jsonrpc: "2.0",
+      method: "ezcorp/page-state",
+      params: { pageId: PAGE_ID, page: VALID_TREE },
+    });
+
+    expect(instanceEvents).toHaveLength(1);
+    // The singleton's bus stayed silent — per-instance won.
+    expect(pageEvents).toHaveLength(0);
   });
 });
