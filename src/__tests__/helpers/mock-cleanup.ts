@@ -138,6 +138,16 @@ const MODULE_PATHS = [
   // Snapshot so the stub never leaks into the chat-tools' own suite.
   "../../runtime/briefing/chat-tools",
   "../../extensions/host-maintenance-daemon",
+  // file-organizer: background-timers.test.ts stubs the FileOrganizerDaemon
+  // class (start()/stop()) during the bootstrap-wiring suite so the real
+  // host watcher (PID-lockfile + setInterval + fs walk) never runs there.
+  // Snapshot so restoreModuleMocks() re-registers the real class in afterAll
+  // and the stub never leaks into file-organizer-daemon.test.ts.
+  "../../extensions/file-organizer-daemon",
+  // background-timers.test.ts also stubs the page cache (invalidate seam) so
+  // the daemon-tick wiring assertions don't touch the real in-memory cache.
+  // Snapshot so the stub never leaks into extension-events / hub suites.
+  "../../extensions/page-cache",
   // Phase 64: background-timers.test.ts mocks this module to stub the
   // EmbedWorker class (start()/stop()) during the bootstrap-wiring suite, so
   // the real daemon (lockfile + getDb + setInterval) never runs there.

@@ -47,7 +47,7 @@ import {
   probeBwrapAvailability,
   probeNetnsAvailability,
 } from "../extensions/mcp-netns";
-import { buildSandboxedMcpSpec } from "../extensions/mcp-sandbox";
+import { buildSandboxedMcpSpec, _setSandboxTierOverrideForTests } from "../extensions/mcp-sandbox";
 import type {
   ExtensionManifestV2,
   McpServerDefinition,
@@ -148,6 +148,12 @@ describe("buildSandboxedMcpSpec — fallback path with ctx", () => {
   test("non-Linux + ctx → no unshare prefix, MCP_NETNS_FALLBACK audit row", async () => {
     setPlatform("darwin" as NodeJS.Platform);
     _resetProbeCacheForTests();
+    // The sandbox-tier probe reads the kernel directly (landlock ABI / userns
+    // FFI), NOT process.platform — so on a Linux CI host it resolves to
+    // "landlock" and buildSandboxedMcpSpec would emit the `bun` shim instead of
+    // the prlimit fallback. A real non-Linux host has no landlock ABI ⇒
+    // "advisory" tier; pin it so this fallback assertion is host-independent.
+    _setSandboxTierOverrideForTests("advisory");
     try {
       const spec: McpServerDefinition = {
         transport: "stdio",
@@ -186,6 +192,7 @@ describe("buildSandboxedMcpSpec — fallback path with ctx", () => {
     } finally {
       setPlatform(REAL_PLATFORM);
       _resetProbeCacheForTests();
+      _setSandboxTierOverrideForTests(null);
     }
   });
 

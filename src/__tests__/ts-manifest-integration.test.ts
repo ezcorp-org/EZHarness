@@ -222,6 +222,15 @@ describe("no manifest.json references in production code", () => {
       .filter((line) => {
         const content = line.split(":").slice(2).join(":").trim();
         return !content.startsWith("//") && !content.startsWith("*") && !content.startsWith("/*");
+      })
+      // The file-organizer's QUARANTINE bookkeeping file is `.trash/manifest.json`
+      // — a per-folder trash index built from `trashRoot`, categorically distinct
+      // from the deprecated *extension* manifest.json this phase-28 gate guards
+      // against. Allow those references (always under `.trash/` / `trashRoot`);
+      // any OTHER `manifest.json` reference still fails the gate.
+      .filter((line) => {
+        const content = line.split(":").slice(2).join(":");
+        return !/(?:trashRoot|\.trash)/.test(content);
       });
 
     expect(codeLines).toEqual([]);

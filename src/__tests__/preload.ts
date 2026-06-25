@@ -1,6 +1,22 @@
 import { afterAll, afterEach, mock } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { snapshotModules } from "./helpers/mock-cleanup";
 import { __resetChannelForTests } from "@ezcorp/sdk/runtime";
+
+// Isolate the test DB from the developer's persistent one. The real
+// `db/connection.ts` captures `DB_PATH` into a module-level const at load
+// (snapshotModules() imports it just below), and the unset default points at
+// `~/ez-corp/.data/ez-corp-db` — the host dev DB. A test that runs the REAL
+// init against that path is non-hermetic AND aborts outright when the dev DB
+// is stale/corrupt (PGlite "Aborted()" on an unreadable data dir). Pin a fresh
+// throwaway dir per test process BEFORE the snapshot freezes DB_PATH. Tests
+// that mock db/connection (the common case, via test-pglite's mockDbConnection)
+// ignore this; an explicit EZCORP_DB_PATH or external Postgres still wins.
+if (!process.env.EZCORP_DB_PATH && !process.env.DATABASE_URL) {
+  process.env.EZCORP_DB_PATH = join(mkdtempSync(join(tmpdir(), "ezcorp-test-db-")), "db");
+}
 
 // Snapshot real module exports BEFORE any test file can mock.module() them.
 // This enables restoreModuleMocks() to undo mock leaks between files.
