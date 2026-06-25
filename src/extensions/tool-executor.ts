@@ -2,6 +2,7 @@ import type { ExtensionRegistry } from "./registry";
 import type { ExtensionProcess } from "./subprocess";
 import type { ToolCallResult, JsonRpcRequest, JsonRpcResponse } from "./types";
 import type { ExtensionStateMediator } from "./state-mediator";
+import { getStateMediator } from "./state-mediator";
 import type { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 import type { AgentExecutor } from "../runtime/executor";
@@ -1985,8 +1986,19 @@ export class ToolExecutor {
     if (this.wiredProcs.has(proc)) return;
     this.wiredProcs.add(proc);
 
-    if (this.stateMediator) {
-      const mediator = this.stateMediator;
+    // Install the page-state / panel-state notification handler whenever
+    // a mediator is reachable. Fall back to the process-wide singleton
+    // (registered at boot in context.ts) when this executor was never
+    // given a per-instance `this.stateMediator` — the case for the boot
+    // `bootExecutor` and per-request render-pull / events executors.
+    // Without this, boot-spawned and lazily-spawned `persistent:true`
+    // dashboards never get the handler, so their `ezcorp/page-state`
+    // (`pushPage`) live-refresh signal is silently dropped and the Hub
+    // only updates via the render-pull stale-serve fallback. Purely
+    // additive: it ONLY adds installs where there were none; the
+    // existing `this.stateMediator` behavior is preserved.
+    const mediator = this.stateMediator ?? getStateMediator();
+    if (mediator) {
       proc.setNotificationHandler((notification) => {
         mediator.handleNotification(extensionId, notification);
       });
