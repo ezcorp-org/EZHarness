@@ -735,7 +735,8 @@ export class FileOrganizerDaemon {
 
   private invalidateAll(): void {
     if (!this.opts.invalidatePage) return;
-    for (const id of ["overview", "review", "folders"]) this.opts.invalidatePage(id);
+    // Single Hub page now (Status + Review + Folders & Rules sections).
+    this.opts.invalidatePage("overview");
   }
 
   /** Test seam: which symlinks a dir reader saw (for assertions). */

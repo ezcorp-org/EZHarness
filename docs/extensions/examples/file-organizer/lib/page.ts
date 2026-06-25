@@ -1,12 +1,19 @@
-// ── page.ts — pure Hub page-tree builders for all 3 pages ───────────
+// ── page.ts — pure Hub page-tree builders for the single dashboard ──
 //
-// Every page is built from a plain `PageView` snapshot (no IO) so each
-// state is unit-testable: empty / loading / populated / daemon-off /
-// error / stale-source / overflow / unclassified-alert /
-// last-action-result / quarantine-segment / auto-batch-undo.
+// The extension surfaces ONE Hub page ("File Organizer"). Its tree is
+// assembled from three pure section builders — `appendOverview`,
+// `appendReview`, `appendFolders` — each of which emits a titled
+// top-level section ("Status" / "Review" / "Folders & Rules") into a
+// shared `PageBuilder`. `buildDashboard` stitches the three together.
+// Splitting the build into per-section appenders keeps every state
+// unit-testable: empty / loading / populated / daemon-off / error /
+// stale-source / overflow / unclassified-alert / last-action-result /
+// quarantine-segment / auto-batch-undo.
 //
 // Constraints honored (verified against page-schema.ts):
-//   - tree ≤ 64KB / ≤ 500 nodes / ≤ 100 table rows
+//   - tree ≤ 64KB / ≤ 500 nodes / depth ≤ 6 / ≤ 100 table rows
+//     (the merged tree nests at most ~4 deep: dashboard → section →
+//      folder/proposal section → mode/preset section → button)
 //   - ONE action per table row → dual-mode render (sections ≤12 items,
 //     else table + focus)
 //   - only input = a button/row action with a single-field prompt
@@ -120,6 +127,13 @@ export interface FoldersView {
   offset: number;
 }
 
+/** The single Hub page is built from all three section views at once. */
+export interface DashboardView {
+  overview: OverviewView;
+  review: ReviewView;
+  folders: FoldersView;
+}
+
 // ── Shared fragments ────────────────────────────────────────────────
 
 function daemonStatus(page: PageBuilder, running: boolean): void {
@@ -157,70 +171,63 @@ export function commandPreview(p: Proposal): string {
   return ["```sh", `# ${p.reason}`, "```"].join("\n");
 }
 
-// ── Page 1: overview ────────────────────────────────────────────────
+// ── Section 1: Status (overview) ────────────────────────────────────
 
-export function buildOverview(v: OverviewView): HubPageTree {
-  const page = new PageBuilder("File Organizer");
+export function appendOverview(page: PageBuilder, v: OverviewView): void {
+  page.section("Status", (sec) => {
+    if (v.state === "loading") {
+      sec.emptyState("Loading…", "Reading the watcher status.");
+      return;
+    }
+    if (v.state === "error") {
+      sec.status(v.errorMessage ?? "Could not read state", "error");
+      sec.button("Retry", { event: EVENTS.reloadConfig }, "secondary");
+      return;
+    }
 
-  if (v.state === "loading") {
-    page.emptyState("Loading…", "Reading the watcher status.");
-    return page.build();
-  }
-  if (v.state === "error") {
-    page.section(undefined, (s) => {
-      s.status(v.errorMessage ?? "Could not read state", "error");
-      s.button("Retry", { event: EVENTS.reloadConfig }, "secondary");
-    });
-    return page.build();
-  }
+    daemonStatus(sec, v.daemonRunning);
 
-  daemonStatus(page, v.daemonRunning);
-
-  page.section(undefined, (s) => {
-    s.kv([
+    sec.kv([
       { key: "Last scan", value: v.lastScanAt ?? "never" },
       { key: "Default mode", value: v.mode },
       { key: "Watched folders", value: String(v.folderCount) },
     ]);
+
+    sec.stats([
+      { label: "Pending review", value: String(v.pending) },
+      { label: "Unclassified", value: String(v.unclassified) },
+      { label: "Quarantined", value: String(v.quarantined) },
+      { label: "Applied today", value: String(v.appliedToday) },
+    ]);
+
+    // Onboarding entry — prominent when nothing is configured.
+    if (v.folderCount === 0) {
+      sec.section("Get started", (s) => {
+        s.markdownBlock(
+          "No folders are being watched yet. Co-design a file workflow with the agent, then add folders in **Folders & Rules** below.",
+        );
+        s.link("Co-design my file workflow in chat", "/?ext=file-organizer&intent=onboard");
+      });
+    }
+
+    // Alerts: files that fall outside the workflow.
+    if (v.unclassified > 0) {
+      sec.section("Needs your attention", (s) => {
+        s.markdownBlock(`${v.unclassified} file(s) don't match any rule.`);
+        s.table(
+          ["File"],
+          v.unclassifiedSamples.slice(0, WINDOW_SIZE).map((u) => ({
+            cells: [u.src],
+            action: { event: EVENTS.focus, payload: { proposalId: u.proposalId } },
+          })),
+        );
+        s.link("Ask the agent to help", "/?ext=file-organizer&intent=classify");
+      });
+    }
   });
-
-  page.stats([
-    { label: "Pending review", value: String(v.pending) },
-    { label: "Unclassified", value: String(v.unclassified) },
-    { label: "Quarantined", value: String(v.quarantined) },
-    { label: "Applied today", value: String(v.appliedToday) },
-  ]);
-  page.link("Open review", "/hub/ext:file-organizer:review");
-
-  // Onboarding entry — prominent when nothing is configured.
-  if (v.folderCount === 0) {
-    page.section("Get started", (s) => {
-      s.markdownBlock(
-        "No folders are being watched yet. Co-design a file workflow with the agent, then add folders on the **Folders & Rules** page.",
-      );
-      s.link("Co-design my file workflow in chat", "/?ext=file-organizer&intent=onboard");
-    });
-  }
-
-  // Alerts: files that fall outside the workflow.
-  if (v.unclassified > 0) {
-    page.section("Needs your attention", (s) => {
-      s.markdownBlock(`${v.unclassified} file(s) don't match any rule.`);
-      s.table(
-        ["File"],
-        v.unclassifiedSamples.slice(0, WINDOW_SIZE).map((u) => ({
-          cells: [u.src],
-          action: { event: EVENTS.focus, payload: { proposalId: u.proposalId } },
-        })),
-      );
-      s.link("Ask the agent to help", "/?ext=file-organizer&intent=classify");
-    });
-  }
-
-  return page.build();
 }
 
-// ── Page 2: review ──────────────────────────────────────────────────
+// ── Section 2: Review ───────────────────────────────────────────────
 
 const SEGMENTS: ReviewSegment[] = ["all", "moves", "renames", "deletes", "unclassified", "quarantine"];
 
@@ -275,101 +282,98 @@ function renderProposalItem(s: PageBuilder, p: Proposal): void {
   });
 }
 
-export function buildReview(v: ReviewView): HubPageTree {
-  const page = new PageBuilder("Review");
+export function appendReview(page: PageBuilder, v: ReviewView): void {
+  page.section("Review", (sec) => {
+    if (v.state === "loading") {
+      sec.emptyState("Loading…", "Reading proposals.");
+      return;
+    }
+    if (v.state === "error") {
+      sec.status(v.errorMessage ?? "Could not read proposals", "error");
+      sec.button("Retry", { event: EVENTS.reloadConfig }, "secondary");
+      return;
+    }
 
-  if (v.state === "loading") {
-    page.emptyState("Loading…", "Reading proposals.");
-    return page.build();
-  }
-  if (v.state === "error") {
-    page.section(undefined, (s) => {
-      s.status(v.errorMessage ?? "Could not read proposals", "error");
-      s.button("Retry", { event: EVENTS.reloadConfig }, "secondary");
-    });
-    return page.build();
-  }
+    // Auto-batch undo affordance (fully-auto).
+    if (v.autoBatch) {
+      sec.section(undefined, (s) => {
+        s.status(
+          `Auto-organized ${v.autoBatch!.moved} file(s), quarantined ${v.autoBatch!.quarantined}`,
+          "success",
+        );
+        s.button(
+          "Undo last auto-batch",
+          { event: EVENTS.undoBatch, payload: { batchId: v.autoBatch!.batchId } },
+          "danger",
+        );
+      });
+    }
 
-  // Auto-batch undo affordance (fully-auto).
-  if (v.autoBatch) {
-    page.section(undefined, (s) => {
-      s.status(
-        `Auto-organized ${v.autoBatch!.moved} file(s), quarantined ${v.autoBatch!.quarantined}`,
-        "success",
+    lastActionSection(sec, v.lastAction);
+
+    // Segment counts.
+    const counts = {} as Record<ReviewSegment, number>;
+    for (const seg of SEGMENTS) {
+      counts[seg] = seg === "quarantine" ? v.quarantine.length : proposalsForSegment(v.proposals, seg).length;
+    }
+    sec.stats([
+      { label: "Pending", value: String(proposalsForSegment(v.proposals, "all").length) },
+      { label: "Quarantined", value: String(v.quarantine.length) },
+    ]);
+    segmentSelector(sec, v.segment, counts);
+
+    if (v.segment === "quarantine") {
+      buildQuarantineSegment(sec, v);
+      return;
+    }
+
+    const all = proposalsForSegment(v.proposals, v.segment);
+    const windowed = all.slice(v.offset, v.offset + WINDOW_SIZE);
+
+    if (all.length === 0) {
+      sec.emptyState("Nothing here", "No pending items in this segment.");
+      return;
+    }
+
+    // Deletes are batched: a single confirm gate, not per-file accept.
+    if (v.segment === "deletes") {
+      sec.section("Pending deletes", (s) => {
+        s.table(
+          ["File", "Reason"],
+          windowed.map((p) => ({ cells: [p.src, p.reason] })),
+        );
+        s.button(
+          `Confirm these ${all.length} deletes`,
+          {
+            event: EVENTS.confirmDeletes,
+            confirm: `Move ${all.length} file(s) to quarantine (restorable)?`,
+          },
+          "primary",
+        );
+        s.button("Reject all in segment", { event: EVENTS.rejectSegment, payload: { segment: "deletes" } }, "danger");
+      });
+      windowFooter(sec, v.segment, v.offset, all.length);
+      return;
+    }
+
+    // Dual-mode render: ≤12 items → one section each (each carries
+    // Accept/Reject); more → table + focus.
+    if (windowed.length <= SECTION_MODE_MAX) {
+      sec.section(undefined, (s) => {
+        for (const p of windowed) renderProposalItem(s, p);
+      });
+    } else {
+      sec.table(
+        ["From", "To", "Reason"],
+        windowed.map((p) => ({
+          cells: [p.src, p.dst ?? "—", p.reason],
+          action: { event: EVENTS.focus, payload: { proposalId: p.id } },
+        })),
       );
-      s.button(
-        "Undo last auto-batch",
-        { event: EVENTS.undoBatch, payload: { batchId: v.autoBatch!.batchId } },
-        "danger",
-      );
-    });
-  }
-
-  lastActionSection(page, v.lastAction);
-
-  // Segment counts.
-  const counts = {} as Record<ReviewSegment, number>;
-  for (const seg of SEGMENTS) {
-    counts[seg] = seg === "quarantine" ? v.quarantine.length : proposalsForSegment(v.proposals, seg).length;
-  }
-  page.stats([
-    { label: "Pending", value: String(proposalsForSegment(v.proposals, "all").length) },
-    { label: "Quarantined", value: String(v.quarantine.length) },
-  ]);
-  segmentSelector(page, v.segment, counts);
-
-  if (v.segment === "quarantine") {
-    buildQuarantineSegment(page, v);
-    return page.build();
-  }
-
-  const all = proposalsForSegment(v.proposals, v.segment);
-  const windowed = all.slice(v.offset, v.offset + WINDOW_SIZE);
-
-  if (all.length === 0) {
-    page.emptyState("Nothing here", "No pending items in this segment.");
-    return page.build();
-  }
-
-  // Deletes are batched: a single confirm gate, not per-file accept.
-  if (v.segment === "deletes") {
-    page.section("Pending deletes", (s) => {
-      s.table(
-        ["File", "Reason"],
-        windowed.map((p) => ({ cells: [p.src, p.reason] })),
-      );
-      s.button(
-        `Confirm these ${all.length} deletes`,
-        {
-          event: EVENTS.confirmDeletes,
-          confirm: `Move ${all.length} file(s) to quarantine (restorable)?`,
-        },
-        "primary",
-      );
-      s.button("Reject all in segment", { event: EVENTS.rejectSegment, payload: { segment: "deletes" } }, "danger");
-    });
-    windowFooter(page, v.segment, v.offset, all.length);
-    return page.build();
-  }
-
-  // Dual-mode render: ≤12 items → one section each (each carries
-  // Accept/Reject); more → table + focus.
-  if (windowed.length <= SECTION_MODE_MAX) {
-    page.section(undefined, (s) => {
-      for (const p of windowed) renderProposalItem(s, p);
-    });
-  } else {
-    page.table(
-      ["From", "To", "Reason"],
-      windowed.map((p) => ({
-        cells: [p.src, p.dst ?? "—", p.reason],
-        action: { event: EVENTS.focus, payload: { proposalId: p.id } },
-      })),
-    );
-  }
-  page.button("Reject all in segment", { event: EVENTS.rejectSegment, payload: { segment: v.segment } }, "danger");
-  windowFooter(page, v.segment, v.offset, all.length);
-  return page.build();
+    }
+    sec.button("Reject all in segment", { event: EVENTS.rejectSegment, payload: { segment: v.segment } }, "danger");
+    windowFooter(sec, v.segment, v.offset, all.length);
+  });
 }
 
 function windowFooter(page: PageBuilder, segment: ReviewSegment, offset: number, total: number): void {
@@ -415,46 +419,43 @@ function expiresIn(expiresAtMs: number, now: number): string {
   return `${hours}h`;
 }
 
-// ── Page 3: folders ─────────────────────────────────────────────────
+// ── Section 3: Folders & Rules ──────────────────────────────────────
 
-export function buildFolders(v: FoldersView): HubPageTree {
-  const page = new PageBuilder("Folders & Rules");
+export function appendFolders(page: PageBuilder, v: FoldersView): void {
+  page.section("Folders & Rules", (sec) => {
+    if (v.state === "loading") {
+      sec.emptyState("Loading…", "Reading configuration.");
+      return;
+    }
+    if (v.state === "error") {
+      sec.status(v.errorMessage ?? "Could not read config", "error");
+      sec.button("Retry", { event: EVENTS.reloadConfig }, "secondary");
+      return;
+    }
 
-  if (v.state === "loading") {
-    page.emptyState("Loading…", "Reading configuration.");
-    return page.build();
-  }
-  if (v.state === "error") {
-    page.section(undefined, (s) => {
-      s.status(v.errorMessage ?? "Could not read config", "error");
-      s.button("Retry", { event: EVENTS.reloadConfig }, "secondary");
+    if (!v.daemonRunning) {
+      sec.section(undefined, (s) => {
+        s.status("Watcher is stopped — changes apply when it restarts", "warning");
+      });
+    }
+
+    sec.section(undefined, (s) => {
+      s.button("Add watched folder", { event: EVENTS.addFolder, prompt: { label: "Folder path", placeholder: "/watched/Downloads", field: "path", format: "file-path" } }, "primary");
+      s.button("Add ignore", { event: EVENTS.addIgnore, prompt: { label: "Ignore path or name", field: "path" } }, "secondary");
+      s.button("Add quick rule", { event: EVENTS.addRule, prompt: { label: "Rule (e.g. *.tmp older 7d -> quarantine)", field: "rule" } }, "secondary");
     });
-    return page.build();
-  }
 
-  if (!v.daemonRunning) {
-    page.section(undefined, (s) => {
-      s.status("Watcher is stopped — changes apply when it restarts", "warning");
-    });
-  }
+    if (v.config.folders.length === 0) {
+      sec.emptyState("No folders watched", "Add a folder above, or co-design a workflow in chat.");
+      sec.link("Co-design in chat", "/?ext=file-organizer&intent=onboard");
+      return;
+    }
 
-  page.section(undefined, (s) => {
-    s.button("Add watched folder", { event: EVENTS.addFolder, prompt: { label: "Folder path", placeholder: "/watched/Downloads", field: "path", format: "file-path" } }, "primary");
-    s.button("Add ignore", { event: EVENTS.addIgnore, prompt: { label: "Ignore path or name", field: "path" } }, "secondary");
-    s.button("Add quick rule", { event: EVENTS.addRule, prompt: { label: "Rule (e.g. *.tmp older 7d -> quarantine)", field: "rule" } }, "secondary");
+    sec.stats([{ label: "Watched folders", value: String(v.config.folders.length) }]);
+
+    const windowed = v.config.folders.slice(v.offset, v.offset + WINDOW_SIZE);
+    for (const f of windowed) renderFolderSection(sec, f);
   });
-
-  if (v.config.folders.length === 0) {
-    page.emptyState("No folders watched", "Add a folder above, or co-design a workflow in chat.");
-    page.link("Co-design in chat", "/?ext=file-organizer&intent=onboard");
-    return page.build();
-  }
-
-  page.stats([{ label: "Watched folders", value: String(v.config.folders.length) }]);
-
-  const windowed = v.config.folders.slice(v.offset, v.offset + WINDOW_SIZE);
-  for (const f of windowed) renderFolderSection(page, f);
-  return page.build();
 }
 
 const MODE_LABELS: Record<Mode, string> = {
@@ -495,4 +496,26 @@ function renderFolderSection(page: PageBuilder, f: FolderConfig): void {
     s.link("Edit rules in chat", "/?ext=file-organizer&intent=rules");
     s.button("Remove folder", { event: EVENTS.removeFolder, payload: { folderId: f.id }, confirm: "Stop watching this folder? Quarantine is kept." }, "danger");
   });
+}
+
+// ── The single Hub page ─────────────────────────────────────────────
+
+/** Compose the one "File Organizer" Hub page from all three sections. */
+export function buildDashboard(v: DashboardView): HubPageTree {
+  const page = new PageBuilder("File Organizer");
+  appendOverview(page, v.overview);
+  appendReview(page, v.review);
+  appendFolders(page, v.folders);
+  return page.build();
+}
+
+/** Whole-page fallback when the state read fails before any section can
+ *  be built (a single error banner beats three identical ones). */
+export function buildDashboardError(message: string): HubPageTree {
+  const page = new PageBuilder("File Organizer");
+  page.section(undefined, (s) => {
+    s.status(message, "error");
+    s.button("Retry", { event: EVENTS.reloadConfig }, "secondary");
+  });
+  return page.build();
 }

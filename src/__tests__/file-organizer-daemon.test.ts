@@ -484,12 +484,12 @@ describe("daemon — safety", () => {
     expect(await Bun.file(join(watched, "j.tmp")).exists()).toBe(true);
   });
 
-  test("invalidates all 3 pages each tick", async () => {
+  test("invalidates the single hub page each tick", async () => {
     await writeConfig({ presets: ["junk-sweep"] });
     const invalidations: string[] = [];
     const d = makeDaemon({ settings: { stabilityTicks: 1 }, invalidations });
     await d.tick();
-    expect(new Set(invalidations)).toEqual(new Set(["overview", "review", "folders"]));
+    expect(new Set(invalidations)).toEqual(new Set(["overview"]));
   });
 
   test("writes a badge with the pending count", async () => {

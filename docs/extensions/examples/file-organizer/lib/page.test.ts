@@ -4,11 +4,14 @@ import {
   ALL_EVENTS,
   EVENTS,
   WINDOW_SIZE,
-  buildFolders,
-  buildOverview,
-  buildReview,
+  appendFolders,
+  appendOverview,
+  appendReview,
+  buildDashboard,
+  buildDashboardError,
   commandPreview,
   proposalsForSegment,
+  type DashboardView,
   type FoldersView,
   type OverviewView,
   type ReviewView,
@@ -16,7 +19,30 @@ import {
 import type { Proposal, ProposalKind } from "./proposals";
 import { emptyConfig, addFolder, type Config } from "./config";
 import type { QuarantineEntry } from "./quarantine";
-import type { HubPageTree } from "@ezcorp/sdk/runtime";
+import { PageBuilder, type HubPageTree } from "@ezcorp/sdk/runtime";
+
+// ── Single-section wrappers ─────────────────────────────────────────
+//
+// The extension now ships ONE page (`buildDashboard`) assembled from three
+// `appendX` section builders. These thin wrappers render a single section
+// into its own tree so each section's full state matrix stays unit-testable
+// in isolation (and `appendX` gets exercised) — the dashboard composition
+// itself is covered separately in `describe("buildDashboard")`.
+function buildOverview(v: OverviewView): HubPageTree {
+  const page = new PageBuilder("File Organizer");
+  appendOverview(page, v);
+  return page.build();
+}
+function buildReview(v: ReviewView): HubPageTree {
+  const page = new PageBuilder("File Organizer");
+  appendReview(page, v);
+  return page.build();
+}
+function buildFolders(v: FoldersView): HubPageTree {
+  const page = new PageBuilder("File Organizer");
+  appendFolders(page, v);
+  return page.build();
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -322,5 +348,54 @@ describe("helpers", () => {
     expect(commandPreview(prop())).toContain('mv "/w/a.txt" "/w/sub/a.txt"');
     expect(commandPreview(prop({ kind: "delete-quarantine", dst: null }))).toContain('quarantine "/w/a.txt"');
     expect(commandPreview(prop({ kind: "unclassified", dst: null, reason: "no rule" }))).toContain("# no rule");
+  });
+});
+
+// ── The single combined page ────────────────────────────────────────
+
+describe("buildDashboard", () => {
+  /** Top-level section titles, in order. */
+  function sectionTitles(tree: HubPageTree): string[] {
+    return (tree.nodes as Array<{ type?: string; title?: string }>)
+      .filter((n) => n.type === "section")
+      .map((n) => n.title ?? "");
+  }
+
+  function dashboard(over: Partial<DashboardView> = {}): DashboardView {
+    return { overview: overview(), review: review(), folders: folders(), ...over };
+  }
+
+  test("renders exactly one 'File Organizer' page with the three section headings in order", () => {
+    const tree = buildDashboard(dashboard());
+    expect(tree.title).toBe("File Organizer");
+    expect(sectionTitles(tree)).toEqual(["Status", "Review", "Folders & Rules"]);
+  });
+
+  test("composes every section's actions into one validated tree (no node dropped)", () => {
+    const r = addFolder(emptyConfig(), { path: "/watched/D", backlogPolicy: "new-only", now: 1, idGen: () => "f1" });
+    const tree = buildDashboard(dashboard({
+      overview: overview({ unclassified: 1, unclassifiedSamples: [{ proposalId: "p1", src: "/w/x" }] }),
+      review: review({ proposals: [prop()] }),
+      folders: folders({ config: (r as { ok: true; config: Config }).config }),
+    }));
+    const events = actionEvents(tree);
+    // One event from each section proves all three were composed in.
+    expect(events).toContain(EVENTS.focus);       // overview alert table
+    expect(events).toContain(EVENTS.accept);      // review proposal item
+    expect(events).toContain(EVENTS.setMode);     // folders mode trio
+    // Every event is declared, and the validator keeps every node.
+    for (const ev of events) expect(ALL_EVENTS).toContain(ev);
+    const validated = validate(tree);
+    expect(validated).not.toBeNull();
+    expect(actionEvents(validated as HubPageTree).length).toBe(events.length);
+    expect(nodeTypes(tree).length).toBeLessThan(MAX_PAGE_NODES);
+  });
+
+  test("buildDashboardError renders a single retry-able error banner", () => {
+    const tree = buildDashboardError("disk gone");
+    expect(tree.title).toBe("File Organizer");
+    expect(validate(tree)).not.toBeNull();
+    expect(actionEvents(tree)).toContain(EVENTS.reloadConfig);
+    expect(JSON.stringify(tree)).toContain("disk gone");
   });
 });

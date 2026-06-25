@@ -69,7 +69,7 @@ const WATCH_DIR = "/app/projects/fo-test-watched";
 // WATCH_DIR entry mid-suite. This sibling exists inside the container.
 const MUTATE_DIR = "/app/projects/fo-verify-new";
 
-const FOLDERS_PAGE = "ext:file-organizer:folders";
+const FOLDERS_PAGE = "ext:file-organizer:overview";
 
 function evtUrl(suffix: string): string {
   return `/api/extensions/file-organizer/events/${suffix}`;
@@ -89,7 +89,7 @@ async function postEvent(
   request: APIRequestContext,
   suffix: string,
   payload: Record<string, unknown>,
-  pageId = "folders",
+  pageId = "overview",
 ): Promise<APIResponse> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const res = await request.post(evtUrl(suffix), {
@@ -365,7 +365,7 @@ test.describe(
       const pending = (parsed.proposals ?? []).find((p) => p.status === "pending");
       test.skip(!pending, "no daemon-produced pending proposal on disk — nothing real to accept");
 
-      const res = await postEvent(request, "accept", { proposalId: pending!.id }, "review");
+      const res = await postEvent(request, "accept", { proposalId: pending!.id }, "overview");
       expect(res.status()).toBe(200);
       const body = (await res.json()) as { ok: boolean; message?: string };
       // A real accept either applies (file moved) or is blocked/failed with
@@ -477,7 +477,7 @@ test.describe(
     // succeed (titled page). The conditional accept/move is covered by the
     // proposal-lifecycle test above.
     test("Review Hub render loads against the live backend (data dirs aligned)", async ({ page }) => {
-      await page.goto(`/hub/${encodeURIComponent("ext:file-organizer:review")}`);
+      await page.goto(`/hub/${encodeURIComponent("ext:file-organizer:overview")}`);
       await expect(page.getByTestId("hub-page-title")).toBeVisible({ timeout: 10_000 });
     });
   },

@@ -252,8 +252,8 @@
 		</div>
 	{:else if tree}
 		<div class="flex items-center justify-between gap-2">
-			<h1 class="text-xl font-bold text-[var(--color-text-primary)]" data-testid="hub-page-title">{tree.title}</h1>
-			<div class="flex items-center gap-2">
+			<h1 class="min-w-0 break-words text-xl font-bold text-[var(--color-text-primary)] [overflow-wrap:anywhere]" data-testid="hub-page-title">{tree.title}</h1>
+			<div class="flex shrink-0 items-center gap-2">
 				{#if stale}
 					<span class="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]" data-testid="hub-stale-indicator">refreshing…</span>
 				{/if}
