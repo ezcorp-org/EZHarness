@@ -14,8 +14,11 @@ describe("file-organizer manifest", () => {
     expect(valid).toBe(true);
   });
 
-  test("declares exactly the 3 Hub pages", () => {
-    expect(manifest.pages?.map((p) => p.id)).toEqual(["overview", "review", "folders"]);
+  test("declares exactly one consolidated Hub page", () => {
+    // The three former pages (Status / Review / Folders & Rules) are now
+    // stacked sections on a single `overview` dashboard (buildDashboard),
+    // so the extension reads as one app, not three sibling tabs.
+    expect(manifest.pages?.map((p) => p.id)).toEqual(["overview"]);
     expect((manifest.pages ?? []).length).toBeLessThanOrEqual(3);
   });
 
