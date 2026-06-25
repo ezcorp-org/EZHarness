@@ -7,11 +7,14 @@
  * What this test locks in:
  *   - A `web-search` DB row is created on first startup.
  *   - The row is `enabled = true`.
- *   - `grantedPermissions` includes every manifest-declared hostname and
- *     env var (guarantees the bundled entry in `src/extensions/bundled.ts`
- *     stays in lockstep with the manifest).
- *   - `grantedAt.network` and `grantedAt.env` are numeric timestamps
- *     (the shape `buildAllowedEnv` relies on in `registry.ts:37-51`).
+ *   - Post shared-search migration, the bundled entry grants ONLY the host
+ *     `ctx.search` capability (`search: "inherit"`) and owns NO network
+ *     hosts, NO provider API-key env vars, and NO filesystem grant — the
+ *     provider chain, SSRF guard, and cache all run host-side in `src/search/`.
+ *     This guarantees `src/extensions/bundled.ts` stays in lockstep with the
+ *     manifest (`docs/extensions/examples/web-search/ezcorp.config.ts`).
+ *   - `grantedAt.search` is a numeric timestamp (the shape the grant
+ *     tracking relies on).
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
@@ -31,6 +34,7 @@ interface StoredExtension {
     filesystem?: string[];
     shell?: boolean;
     storage?: boolean;
+    search?: string;
     grantedAt: Record<string, number>;
   };
   checksumVerified: boolean;
@@ -77,50 +81,29 @@ describe("bundled install: web-search", () => {
     expect(row!.enabled).toBe(true);
   });
 
-  test("grants every manifest-declared network host", async () => {
+  test("grants ONLY the shared ctx.search capability — no network/env/filesystem", async () => {
     await ensureBundledExtensions();
     const row = store.get("web-search")!;
-    const expected = [
-      "r.jina.ai",
-      "s.jina.ai",
-      "api.tavily.com",
-      "api.search.brave.com",
-      "api.exa.ai",
-      "serpapi.com",
-      // Keyless defaults (DDG scrape + SearXNG sidecar) — removing any
-      // of these grants silently breaks zero-setup search, so pin them.
-      "lite.duckduckgo.com",
-      "html.duckduckgo.com",
-      "duckduckgo.com",
-      "searxng",
-      "localhost",
-      "127.0.0.1",
-    ];
-    for (const host of expected) expect(row.grantedPermissions.network).toContain(host);
+    // Shared-search migration: web-search is a thin shim over the host
+    // `ctx.search` capability. The provider chain (SearXNG / DuckDuckGo /
+    // BYOK), the SSRF egress guard, and the shared cache all run host-side
+    // in src/search/ — so the extension owns NO network hosts, NO provider
+    // API-key env vars, and NO filesystem grant. Asserting their ABSENCE is
+    // the security invariant that keeps bundled.ts + the manifest honest.
+    expect(row.grantedPermissions.search).toBe("inherit");
+    expect(row.grantedPermissions.network).toBeUndefined();
+    expect(row.grantedPermissions.env).toBeUndefined();
+    expect(row.grantedPermissions.filesystem).toBeUndefined();
   });
 
-  test("grants every optional API-key env var (plus the SearXNG base URL)", async () => {
+  test("grantedAt carries a numeric timestamp for the search grant only", async () => {
     await ensureBundledExtensions();
     const row = store.get("web-search")!;
-    const expected = [
-      "TAVILY_API_KEY",
-      "BRAVE_API_KEY",
-      "EXA_API_KEY",
-      "SERPAPI_API_KEY",
-      "JINA_API_KEY",
-      // Not credential-shaped — base URL pointing at the SearXNG sidecar.
-      "SEARXNG_BASE_URL",
-    ];
-    for (const key of expected) expect(row.grantedPermissions.env).toContain(key);
-  });
-
-  test("grantedAt carries numeric timestamps for network and env", async () => {
-    await ensureBundledExtensions();
-    const row = store.get("web-search")!;
-    expect(typeof row.grantedPermissions.grantedAt.network).toBe("number");
-    expect(typeof row.grantedPermissions.grantedAt.env).toBe("number");
-    expect(row.grantedPermissions.grantedAt.network).toBeGreaterThan(0);
-    expect(row.grantedPermissions.grantedAt.env).toBeGreaterThan(0);
+    expect(typeof row.grantedPermissions.grantedAt.search).toBe("number");
+    expect(row.grantedPermissions.grantedAt.search).toBeGreaterThan(0);
+    // The pre-migration direct-grant timestamps are gone.
+    expect(row.grantedPermissions.grantedAt.network).toBeUndefined();
+    expect(row.grantedPermissions.grantedAt.env).toBeUndefined();
   });
 
   test("manifest declares both tools", async () => {

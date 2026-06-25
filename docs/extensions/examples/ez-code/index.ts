@@ -819,7 +819,14 @@ export function makeProductionShell(gitDir?: string, projectRoot?: string): Shel
     });
     const proc = Bun.spawn(built.argv, {
       cwd,
-      env: { ...process.env, ...built.env },
+      // `GIT_CONFIG_GLOBAL=/dev/null` keeps the jailed git hermetic: it must
+      // NOT read the host user's global config (`~/.gitconfig` /
+      // `~/.config/git/config`). That's both an isolation leak and a
+      // correctness hazard — a host config with an `[include]` pointing at a
+      // file the jail denies makes git fatal ("bad config line N") and aborts
+      // the whole open_pr flow. Repo-local + system config are unaffected; a
+      // no-op in the container (no user config there).
+      env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", ...built.env },
       stdout: "pipe",
       stderr: "pipe",
     });

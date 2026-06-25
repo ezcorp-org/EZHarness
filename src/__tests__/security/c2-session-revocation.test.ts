@@ -13,7 +13,7 @@
 // revoked-session request returns 401 instead of silently minting a new row.
 process.env.PI_SKIP_INIT = "1";
 
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
+import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../helpers/mock-cleanup";
 
 // NOTE: we deliberately do NOT call mockServerAlias() here — that helper wires
@@ -64,6 +64,10 @@ mock.module("../../auth/jwt", jwtMock);
 
 const usersMock = () => ({
   getUserCount: async () => 1,
+  // hooks.server reads `userRow.onboardedAt` on the browser path; return an
+  // onboarded user for the JWT subject so no onboarding redirect interferes.
+  getUserById: async (id: string) =>
+    id === "user-c2" ? { id: "user-c2", onboardedAt: new Date(0) } : undefined,
 });
 mock.module("$server/db/queries/users", usersMock);
 mock.module("../../db/queries/users", usersMock);
@@ -143,7 +147,17 @@ mock.module("$server/db/queries/error-logs", errorLogsMock);
 mock.module("../../db/queries/error-logs", errorLogsMock);
 
 // ── Now import the hook under test ───────────────────────────────
-import { handle } from "../../../web/src/hooks.server";
+// DYNAMIC import (not static): a static `import` is hoisted above the
+// `process.env.PI_SKIP_INIT = "1"` assignment at the top of this file, so
+// hooks.server.ts's top-level boot block would run the REAL
+// ensureInitialized() + startBackgroundTimers() (real PGlite init) before the
+// env guard is set — and abort on any host whose `.ezcorp/data` dir is
+// unwritable. Importing it in beforeAll, after the env guard AND the module
+// mocks above are in place, makes the boot block a no-op and lets the mocks win.
+let handle: typeof import("../../../web/src/hooks.server").handle;
+beforeAll(async () => {
+  ({ handle } = await import("../../../web/src/hooks.server"));
+});
 
 afterAll(() => {
   restoreModuleMocks();

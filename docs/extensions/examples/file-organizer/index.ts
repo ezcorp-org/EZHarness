@@ -2,7 +2,9 @@
 // file-organizer — the sandboxed subprocess.
 //
 // Two responsibilities:
-//   1. Render the 3 Hub pages (`definePage` × overview/review/folders),
+//   1. Render the single `overview` Hub dashboard (`definePage`), which
+//      stacks the former Status / Review / Folders & Rules pages as
+//      sections (buildDashboard),
 //      reading the file-based state (proposals.json / config.json /
 //      badge.json / .trash/manifest.json) via the HOST-MEDIATED SDK fs
 //      helpers (raw node:fs is poisoned in the sandbox). Page-tree
