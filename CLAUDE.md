@@ -34,6 +34,19 @@ workflows, `playwright.config.ts`) are CODEOWNERS-owned — changing them needs
 human review. Verify locally before pushing:
 `bun run typecheck && bun run lint && bun run test && bun run test:coverage`.
 
+**Worktree isolation (binding):** ALWAYS run agents in a separate git
+worktree — never let a spawned agent edit the primary working directory
+directly. Before delegating work, create an isolated worktree on its own
+branch (`git worktree add ../ez-corp-ai-<slug> -b <branch>`), point the
+agent at that path, and have it do all reads/writes/commits there. This
+keeps parallel agents from contaminating each other or the main tree, and
+keeps `main` clean. When using the Agent/Workflow tools, pass
+`isolation: "worktree"` so each agent gets its own worktree automatically.
+Notes: `tasks/` is gitignored and does NOT propagate to a fresh worktree —
+copy any planning docs over after `git worktree add`; and dev-container
+compose mounts resolve relative paths from the compose CWD, so recreate the
+container from the worktree dir if it must serve worktree edits.
+
 ---
 
 Default to using Bun instead of Node.js.
