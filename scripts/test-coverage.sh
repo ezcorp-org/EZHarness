@@ -212,6 +212,9 @@ VITEST_EXIT=0
     src/lib/admin-guard.unit.test.ts \
     src/lib/scroll-to-hash.unit.test.ts \
     src/lib/chat-prompt-nav.unit.test.ts \
+    src/__tests__/resume-path.unit.test.ts \
+    src/__tests__/sw-runtime.unit.test.ts \
+    src/__tests__/service-worker.shell.unit.test.ts \
     src/lib/components/__tests__/AuditLogSection.component.test.ts \
     src/lib/components/__tests__/CustomModelsSection.component.test.ts \
     src/lib/components/__tests__/SystemHealth.component.test.ts \
@@ -269,6 +272,9 @@ VITEST_EXIT=0
     --coverage.include='src/lib/admin-guard.ts' \
     --coverage.include='src/lib/scroll-to-hash.ts' \
     --coverage.include='src/lib/chat-prompt-nav.ts' \
+    --coverage.include='src/lib/resume-path.ts' \
+    --coverage.include='src/lib/sw-runtime.ts' \
+    --coverage.include='src/service-worker.ts' \
     --coverage.include='src/lib/components/settings/ProvidersSection.svelte' \
     --coverage.include='src/lib/components/settings/TeamsSection.svelte' \
     --coverage.include='src/lib/components/settings/InvitesSection.svelte' \

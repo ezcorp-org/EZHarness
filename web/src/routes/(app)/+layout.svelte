@@ -7,6 +7,7 @@
 	import { initTheme } from "$lib/theme.js";
 	import { matchShortcut, loadCustomShortcuts, type ShortcutBinding } from "$lib/shortcuts.js";
 	import { startAuthKeepalive } from "$lib/auth-keepalive.js";
+	import { clearResumeState } from "$lib/resume-path.js";
 	import ProjectRail from "$lib/components/ProjectRail.svelte";
 	import ThemeToggle from "$lib/components/ThemeToggle.svelte";
 	import CommandPalette from "$lib/components/CommandPalette.svelte";
@@ -48,6 +49,9 @@
 
 	async function handleLogout() {
 		await fetch("/api/auth/logout", { method: "POST" });
+		// Clear resume state so the NEXT user on this device never resumes into
+		// the previous user's project / conversation.
+		if (typeof localStorage !== "undefined") clearResumeState(localStorage);
 		goto("/login");
 	}
 

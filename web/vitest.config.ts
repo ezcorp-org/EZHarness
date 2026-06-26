@@ -38,6 +38,12 @@ export default defineConfig({
 			// tests; real Landlock runs only in the Bun runtime shim. Keeps the
 			// sandbox security code untouched.
 			"bun:ffi": resolve(__dirname, "src/__tests__/stubs/bun-ffi.ts"),
+			// `$service-worker` is a SvelteKit virtual module only resolvable
+			// after a build. The `service-worker.shell.unit.test.ts` imports the
+			// real SW shell to line-cover it, so map the module to a static stub
+			// that satisfies its `{ version, build, files }` import. Same spirit
+			// as the `$app/*` stubs above.
+			"$service-worker": resolve(__dirname, "src/__tests__/stubs/service-worker.ts"),
 		},
 	},
 	test: {
