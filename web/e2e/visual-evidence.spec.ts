@@ -1,5 +1,5 @@
 /**
- * Visual-evidence capture mechanism — e2e self-test (mockApi, no Docker).
+ * Visual-evidence capture mechanism — e2e self-check, mockApi, no Docker.
  *
  * Exercises the `captureEvidence` helper against the mocked preview backend:
  * it sets up mocks, navigates to a stable page (the Hub empty-state, which
