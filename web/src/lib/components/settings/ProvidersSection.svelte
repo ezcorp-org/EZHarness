@@ -156,7 +156,7 @@
 						<button
 							onclick={fetchOllamaModels}
 							disabled={ollamaFetching || !ollamaUrl.trim()}
-							class="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-500 disabled:opacity-50 transition-colors"
+							class="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
 						>
 							{ollamaFetching ? "Fetching..." : "Fetch Models"}
 						</button>
@@ -185,7 +185,7 @@
 										<button
 											onclick={() => addOllamaModel(m.id)}
 											disabled={ollamaAddingModel === m.id}
-											class="rounded-md bg-purple-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-purple-500 disabled:opacity-50 transition-colors"
+											class="rounded-md bg-blue-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
 										>
 											{ollamaAddingModel === m.id ? "Adding..." : "Add"}
 										</button>

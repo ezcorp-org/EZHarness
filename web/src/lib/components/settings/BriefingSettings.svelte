@@ -578,7 +578,7 @@
 					onclick={save}
 					disabled={saving}
 					data-testid="briefing-save"
-					class="rounded-md bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+					class="rounded-md bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-[var(--color-accent-contrast)] transition-opacity hover:opacity-90 disabled:opacity-50"
 				>
 					{saving ? "Saving..." : "Save"}
 				</button>

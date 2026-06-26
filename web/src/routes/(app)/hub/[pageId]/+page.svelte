@@ -339,7 +339,7 @@
 				</button>
 				<button
 					type="button"
-					class="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+					class="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-sm font-medium text-[var(--color-accent-contrast)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
 					data-testid="hub-prompt-submit"
 					disabled={promptValue.trim().length === 0}
 					onclick={submitPrompt}
@@ -368,7 +368,7 @@
 				</button>
 				<button
 					type="button"
-					class="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+					class="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-sm font-medium text-[var(--color-accent-contrast)] hover:opacity-90"
 					data-testid="hub-confirm-ok"
 					onclick={() => {
 						const action = confirmAction;

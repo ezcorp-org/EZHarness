@@ -195,7 +195,7 @@
 			<button
 				onclick={discoverModels}
 				disabled={discoveringModels || !newModelBaseUrl.trim()}
-				class="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-500 disabled:opacity-50 transition-colors"
+				class="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
 			>
 				{discoveringModels ? "Fetching..." : "Fetch Models"}
 			</button>

@@ -112,7 +112,7 @@
 			case "secondary":
 				return "border border-[var(--color-border)] bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]";
 			default:
-				return "bg-[var(--color-accent)] text-white hover:opacity-90";
+				return "bg-[var(--color-accent)] text-[var(--color-accent-contrast)] hover:opacity-90";
 		}
 	}
 </script>

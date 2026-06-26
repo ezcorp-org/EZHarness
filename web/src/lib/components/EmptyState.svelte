@@ -29,14 +29,14 @@
 	{#if ctaHref}
 		<a
 			href={ctaHref}
-			class="bg-[var(--color-accent)] text-white rounded-lg px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
+			class="bg-[var(--color-accent)] text-[var(--color-accent-contrast)] rounded-lg px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
 		>
 			{ctaLabel}
 		</a>
 	{:else if ctaOnclick}
 		<button
 			onclick={ctaOnclick}
-			class="bg-[var(--color-accent)] text-white rounded-lg px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
+			class="bg-[var(--color-accent)] text-[var(--color-accent-contrast)] rounded-lg px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
 		>
 			{ctaLabel}
 		</button>

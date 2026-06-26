@@ -10,35 +10,309 @@
 @import "./lib/hljs-theme.css";
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Typeface system (self-hosted, offline-safe — no network at runtime, no
+   lockfile dependency). Two variable fonts:
+     • Hanken Grotesk — a warm, characterful humanist grotesque for all UI
+       text. Distinctive without being gimmicky; excellent at small sizes.
+     • JetBrains Mono — a developer-grade monospace for code, diffs,
+       terminals and JSON, where the existing UI leans heavily.
+   Files live in `static/fonts/`; `font-display: swap` avoids invisible
+   text while the bitmap streams.
+   ──────────────────────────────────────────────────────────────────────── */
+@font-face {
+  font-family: "Hanken Grotesk";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/hanken-grotesk-latin-wght-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Hanken Grotesk";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/hanken-grotesk-latin-wght-italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2");
+}
+
 @theme {
-  --color-surface: #ffffff;
-  --color-surface-secondary: #f3f4f6;
-  --color-surface-tertiary: #e5e7eb;
-  --color-text-primary: #111827;
-  /* WCAG AA contrast: #4b5563 on #f3f4f6 = 6.18:1, on #ffffff = 7.21:1 (passes 4.5:1) */
-  --color-text-secondary: #4b5563;
-  /* WCAG AA contrast: #57606a on #f3f4f6 = 5.03:1, on #ffffff = 5.85:1 (passes 4.5:1) */
-  --color-text-muted: #57606a;
-  --color-border: #e5e7eb;
-  --color-accent: #3b82f6;
+  /* ── Typography ─────────────────────────────────────────────────────────
+     `--font-sans` / `--font-mono` drive both the `font-sans`/`font-mono`
+     utilities and (via Tailwind's preflight `--default-font-family`) the
+     document default, so the whole app picks these up automatically. */
+  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code",
+    "Roboto Mono", Menlo, Consolas, monospace;
+
+  /* ── Radius ─────────────────────────────────────────────────────────────
+     A touch softer than Tailwind's defaults for a more modern, premium feel.
+     `rounded-md` (the app's workhorse) and `rounded-lg` carry most surfaces. */
+  --radius-sm: 0.3125rem; /* 5px  */
+  --radius-md: 0.5rem;    /* 8px  */
+  --radius-lg: 0.75rem;   /* 12px */
+  --radius-xl: 1rem;      /* 16px */
+  --radius-2xl: 1.25rem;  /* 20px */
+
+  /* ── Elevation ──────────────────────────────────────────────────────────
+     Layered, low-opacity shadows tuned to read on both light and dark.
+     Dark surfaces additionally lean on borders for separation (the app
+     already borders most cards), so shadows stay subtle rather than muddy. */
+  --shadow-xs: 0 1px 2px 0 rgb(15 23 42 / 0.06);
+  --shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.08), 0 1px 1px -1px rgb(15 23 42 / 0.10);
+  --shadow-md: 0 4px 10px -2px rgb(15 23 42 / 0.12), 0 2px 4px -2px rgb(15 23 42 / 0.10);
+  --shadow-lg: 0 12px 28px -6px rgb(15 23 42 / 0.18), 0 4px 10px -4px rgb(15 23 42 / 0.12);
+  --shadow-xl: 0 24px 48px -12px rgb(15 23 42 / 0.28), 0 8px 20px -8px rgb(15 23 42 / 0.16);
+  --shadow-2xl: 0 40px 80px -20px rgb(15 23 42 / 0.42);
+
+  /* ── Semantic surface / text / border tokens (LIGHT theme) ──────────────
+     Consumed throughout the app as `bg-[var(--color-surface)]`,
+     `text-[var(--color-text-primary)]`, etc. (203 files). Refined into a
+     calm, cool off-white system with clear elevation steps. The `.dark`
+     overrides live in the base layer below. */
+  --color-surface: #ffffff;            /* content base                       */
+  --color-surface-secondary: #edf0f8;  /* chrome (sidebar, headers) — tinted */
+  --color-surface-tertiary: #dfe4f1;   /* cards, controls, hover             */
+  --color-surface-elevated: #ffffff;   /* popovers / modals (with shadow)    */
+  /* WCAG AA: #14172c on #ffffff ≈ 16:1 */
+  --color-text-primary: #14172c;
+  /* WCAG AA: #464e64 on #edf0f8 ≈ 6.6:1, on #ffffff ≈ 7.6:1 */
+  --color-text-secondary: #464e64;
+  /* WCAG AA: #59607a on #edf0f8 ≈ 4.9:1, on #ffffff ≈ 5.4:1 */
+  --color-text-muted: #59607a;
+  --color-border: #dde2ee;             /* hairline separators                */
+  --color-border-strong: #c5cdde;      /* emphasised dividers / control edges */
+  --color-accent: #5048e5;             /* interactive (indigo-violet primary) */
+  --color-accent-hover: #4038c9;
+  --color-accent-contrast: #ffffff;    /* text/icon on a filled accent       */
+  --color-accent-subtle: #ecebfd;      /* accent-tinted background wash       */
+  /* Brand gold — drawn from the EZCorp logo (rgb(238,194,22)). Used as a
+     sparing premium highlight, not a primary action colour. */
+  --color-brand: #b8860b;              /* deepened for contrast on light bg   */
+  --color-brand-bright: #eec216;       /* the raw logo gold                   */
+
+  /* ── Built-in palette re-tint ───────────────────────────────────────────
+     The app styles most accents/status with raw Tailwind palette classes
+     (`bg-blue-600`, `text-red-400`, `bg-green-500`, …) rather than the
+     semantic tokens above. In Tailwind v4 every palette step is itself a
+     theme variable that the utility references, so overriding the ramps
+     here re-tints all those classes app-wide — with the class *names* (and
+     therefore every `toHaveClass(...)` test) left completely untouched.
+     The ramps are tuned into one cohesive family: an electric, slightly
+     deeper blue for interaction; cool slate neutrals; and harmonised
+     status hues. */
+
+  /* Interaction — indigo-violet (primary buttons, links, selected states).
+     The app's de-facto primary is `bg-blue-600`; re-pointing the blue ramp
+     to a distinctive blurple gives the whole app a premium identity (and
+     bridges the blue logo to the magenta wordmark) without renaming a class. */
+  --color-blue-300: #c4c0fa;
+  --color-blue-400: #9b94f6;
+  --color-blue-500: #6f66ef;
+  --color-blue-600: #5048e5; /* primary action — white text ≈ 6.2:1 */
+  --color-blue-700: #4038c9;
+  --color-blue-800: #322c9e;
+  --color-blue-900: #222063;
+  --color-blue-950: #14123a;
+
+  /* Indigo — close sibling used in a few accents; kept in-family. */
+  --color-indigo-300: #aab4ff;
+  --color-indigo-400: #8b95ff;
+  --color-indigo-500: #6571f5;
+  --color-indigo-600: #4f57e0;
+
+  /* Neutrals — cool slate. Tuned so raw-gray surfaces (e.g. `bg-gray-900`
+     inputs) sit naturally beside the semantic slate surfaces above. */
+  --color-gray-50: #f6f8fb;
+  --color-gray-100: #eef1f6;
+  --color-gray-200: #e3e8ef;
+  --color-gray-300: #cdd5e1;
+  --color-gray-400: #93a0b4;
+  --color-gray-500: #64748b;
+  --color-gray-600: #475569;
+  --color-gray-700: #313c4e;
+  --color-gray-800: #1c2430;
+  --color-gray-900: #131a25;
+  --color-gray-950: #0c1018;
+  /* Mirror the slate ramp onto Tailwind's `slate-*` so mixed usage agrees. */
+  --color-slate-50: #f6f8fb;
+  --color-slate-100: #eef1f6;
+  --color-slate-200: #e3e8ef;
+  --color-slate-300: #cdd5e1;
+  --color-slate-400: #93a0b4;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #313c4e;
+  --color-slate-800: #1c2430;
+  --color-slate-900: #131a25;
+  --color-slate-950: #0c1018;
+
+  /* Danger — red. Slightly warmer/softer than stock for less alarm-glare. */
+  --color-red-300: #ffb1ad;
+  --color-red-400: #ff8a85;
+  --color-red-500: #f0524d;
+  --color-red-600: #df3b39;
+  --color-red-700: #b92b2c;
+  --color-red-800: #7f2122;
+  --color-red-900: #3d1518;
+
+  /* Success — green with a faint teal lean to pair with the blue. */
+  --color-green-300: #86e3b3;
+  --color-green-400: #4cd08a;
+  --color-green-500: #25b56c;
+  --color-green-600: #1c9a5c;
+  --color-green-700: #167346;
+  --color-green-900: #0e2c20;
+  --color-emerald-300: #87e6c0;
+  --color-emerald-400: #4dd6a6;
+  --color-emerald-500: #21bd86;
+  --color-emerald-600: #19a173;
+
+  /* Warning — amber, kept in tune with the brand gold. */
+  --color-amber-200: #ffe3a3;
+  --color-amber-300: #fdd271;
+  --color-amber-400: #f7bb39;
+  --color-amber-500: #ee9f12;
+  --color-amber-600: #cd820a;
+  --color-amber-700: #9a6207;
+  --color-amber-900: #432c08;
+  --color-yellow-400: #f7c948;
+  --color-yellow-500: #eaad1a;
+
+  /* Purple — used by a couple of entity badges; brought into harmony. */
+  --color-purple-300: #d2b4fb;
+  --color-purple-400: #b98df6;
+  --color-purple-500: #9b63ee;
+  --color-purple-900: #2c1d4f;
+
+  /* Pink / magenta — pulled into the brand family (the EZ wordmark is a
+     magenta mark on gold). The stock Tailwind pink read as off-palette
+     hot-pink; this refines it for slash-command mention accents and the
+     avatar colour pools. */
+  --color-pink-200: #f8cde4;
+  --color-pink-300: #f2a7ce;
+  --color-pink-400: #ea76b1;
+  --color-pink-500: #db4f97;
+  --color-pink-600: #c63a80;
+  --color-pink-900: #3f1531;
 }
 
 @layer base {
+  /* ── Semantic tokens (DARK theme) ───────────────────────────────────────
+     Deep, cool slate with carefully spaced elevation. The mobile chrome
+     meta `theme-color` stays #111827 (set in app.html / theme.ts), so the
+     base surface is kept in that neighbourhood for a seamless status bar. */
   .dark {
-    --color-surface: #111827;
-    --color-surface-secondary: #030712;
-    --color-surface-tertiary: #1f2937;
-    --color-text-primary: #ffffff;
-    --color-text-secondary: #d1d5db;
-    /* WCAG AA contrast: #9ca3af on #111827 = 4.64:1 (passes 4.5:1 minimum) */
-    --color-text-muted: #9ca3af;
-    --color-border: #1f2937;
-    --color-accent: #3b82f6;
+    --color-surface: #12131f;            /* content base — violet-tinted ink */
+    --color-surface-secondary: #0b0b14;  /* chrome — deepest                 */
+    --color-surface-tertiary: #1c1d2e;   /* cards, controls, hover           */
+    --color-surface-elevated: #26283c;   /* popovers / modals                */
+    /* WCAG AA: #f0f1fa on #12131f ≈ 15:1 (soft white, less glare than #fff) */
+    --color-text-primary: #f0f1fa;
+    /* WCAG AA: #bdbfd6 on #12131f ≈ 9.7:1 */
+    --color-text-secondary: #bdbfd6;
+    /* WCAG AA: #8c8ea9 on #12131f ≈ 5.1:1 (passes 4.5:1 minimum) */
+    --color-text-muted: #8c8ea9;
+    --color-border: #272739;
+    --color-border-strong: #3a3a58;
+    --color-accent: #9d96ff;             /* bright blurple for dark surfaces */
+    --color-accent-hover: #b4adff;
+    --color-accent-contrast: #0b0a18;
+    --color-accent-subtle: #211f44;
+    --color-brand: #eec216;              /* raw logo gold reads well on dark */
+    --color-brand-bright: #f4cf3f;
+  }
+
+  /* ── Document foundation ────────────────────────────────────────────────
+     Crisp text rendering and contextual ligatures off (UI text reads better
+     without them). `color-scheme` keeps native controls / scrollbars themed. */
+  html {
+    color-scheme: light;
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-surface);
+    color: var(--color-text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv11", "ss01";
+    letter-spacing: -0.011em;
+  }
+
+  /* Headings carry slightly tighter tracking and balanced wrapping for a
+     more deliberate, editorial hierarchy. */
+  h1, h2, h3, h4 {
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  /* Monospace surfaces use the JetBrains feature set. */
+  code, pre, kbd, samp {
+    font-family: var(--font-mono);
+    font-feature-settings: "calt", "liga" 0;
+  }
+
+  /* Accent-tinted text selection. */
+  ::selection {
+    background-color: color-mix(in srgb, var(--color-accent) 28%, transparent);
+    color: var(--color-text-primary);
+  }
+
+  /* ── Custom scrollbars ──────────────────────────────────────────────────
+     Slim, themed, unobtrusive — they fade into the surface and pick up the
+     accent on hover. Firefox via `scrollbar-*`, WebKit via pseudo-elements.
+     (`.scrollbar-hide`, defined below, still fully hides where intended.) */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-strong) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--color-text-muted) 38%, transparent);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--color-text-muted) 60%, transparent);
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
   }
 }
 
 button:not(:disabled) {
   cursor: pointer;
+}
+
+/* Gentle, consistent transitions on interactive chrome. Scoped to colour /
+   border / shadow so layout is never animated, and disabled under
+   reduced-motion below. Components that already declare `transition-*`
+   utilities simply win via specificity/longhand — this is only a baseline. */
+a,
+button,
+[role="button"],
+summary {
+  transition: color 0.15s ease, background-color 0.15s ease,
+    border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
 }
 
 html[data-dev-indicator="1"] img[src="/logo.svg"] {
@@ -138,6 +412,7 @@ html[data-dev-indicator="1"] img[src="/logo.svg"] {
     transform: none;
     transition: none;
   }
+  a, button, [role="button"], summary { transition: none; }
 }
 
 .chat-input-container {
@@ -158,6 +433,7 @@ html[data-dev-indicator="1"] img[src="/logo.svg"] {
 :focus-visible {
   outline: 2px solid var(--color-accent, #60a5fa);
   outline-offset: 2px;
+  border-radius: 2px;
 }
 
 .scrollbar-hide {
