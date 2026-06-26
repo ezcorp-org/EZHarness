@@ -22,6 +22,7 @@ import {
   buildGalleryMarkdown,
   isPng,
   isSafeRelPath,
+  safeSegment,
   sanitizeLabel,
   validatePrNumber,
 } from "../../scripts/visual-evidence/publish.ts";
@@ -113,6 +114,41 @@ describe("publish: isPng", () => {
     expect(isPng(new Uint8Array([0x47, 0x49, 0x46, 0x38]))).toBe(false); // GIF8
     expect(isPng(new Uint8Array([0x89, 0x50]))).toBe(false);
     expect(isPng(new Uint8Array([]))).toBe(false);
+  });
+});
+
+// ── safeSegment ──────────────────────────────────────────────────────────────
+describe("publish: safeSegment", () => {
+  test("reduces a value to a single separator-free segment", () => {
+    expect(safeSegment("web/e2e/dash.spec.ts")).toBe("web-e2e-dash.spec.ts");
+    expect(safeSegment("after load")).toBe("after-load");
+  });
+  test("maps path-hostile dotted/empty segments to 'evidence'", () => {
+    // After sanitize+hyphenate these would still collapse under join() — must
+    // never become an empty / "." / ".." path segment.
+    expect(safeSegment("..")).toBe("evidence");
+    expect(safeSegment(".")).toBe("evidence");
+    expect(safeSegment("")).toBe("evidence");
+    expect(safeSegment("/")).toBe("evidence");
+    // Embedded separators are stripped to a single hyphenated segment — the
+    // result is one safe segment (no "/", never exactly ".."), so it can't
+    // traverse even though it contains dots.
+    const seg = safeSegment("../../etc");
+    expect(seg).toBe("..-..-etc");
+    expect(seg.includes("/")).toBe(false);
+    expect(seg).not.toBe("..");
+  });
+  test("is idempotent (a safe segment passes through unchanged)", () => {
+    expect(safeSegment("web-e2e-dash.spec.ts")).toBe("web-e2e-dash.spec.ts");
+  });
+  test("a deduped label suffix survives sanitize so URL == on-disk path", () => {
+    // main() builds the on-disk seg via safeSegment(`${label} ${n}`); the
+    // gallery URL recomputes the seg from the same display label — they must
+    // agree, or the rendered image 404s.
+    const onDisk = safeSegment("dashboard 2");
+    const galleryUrlSeg = sanitizeLabel("dashboard 2").replace(/ /g, "-");
+    expect(onDisk).toBe("dashboard-2");
+    expect(galleryUrlSeg).toBe(onDisk);
   });
 });
 

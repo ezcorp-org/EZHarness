@@ -48,6 +48,20 @@ export function sanitizeLabel(s: string): string {
 }
 
 /**
+ * Reduce an untrusted value to a SINGLE safe path segment: sanitize to the
+ * markdown-safe charset, hyphenate spaces, then reject the three segment values
+ * that would still be path-hostile after `join` collapses them — "" / "." /
+ * ".." — mapping them to "evidence". Guarantees the result is a non-empty,
+ * separator-free, non-dotted segment, so it can never escape the staging dir or
+ * a URL path component even before `isSafeRelPath` runs. Defense-in-depth on top
+ * of `sanitizeLabel` (which already strips `/`).
+ */
+export function safeSegment(s: string): string {
+  const seg = sanitizeLabel(s).replace(/ /g, "-");
+  return seg === "" || seg === "." || seg === ".." ? "evidence" : seg;
+}
+
+/**
  * Parse + validate a PR number. Accepts a string or number that is a run of
  * ASCII digits (optionally surrounded by whitespace); throws on anything else.
  * Used to gate the `evidence/pr-<n>` branch name and the gallery URL — both
@@ -201,6 +215,9 @@ async function main(): Promise<void> {
   //    relative path AND decodes to real PNG bytes.
   const rawShots = Array.isArray(manifest.shots) ? manifest.shots : [];
   const staged: GalleryShot[] = [];
+  // De-dupe staged paths so two shots whose spec/label reduce to the same safe
+  // segments don't silently overwrite each other on disk / in the gallery.
+  const seen = new Map<string, number>();
   await mkdir(stageDir, { recursive: true });
   for (const entry of rawShots) {
     if (!entry || typeof entry !== "object") continue;
@@ -221,9 +238,17 @@ async function main(): Promise<void> {
       console.error(`publish: dropping shot — not a PNG: ${file}`);
       continue;
     }
-    const spec = sanitizeLabel(typeof e.spec === "string" ? e.spec : "evidence").replace(/ /g, "-");
-    const label = sanitizeLabel(typeof e.label === "string" ? e.label : "evidence");
-    const labelSeg = label.replace(/ /g, "-");
+    // spec + label reduced to single safe segments (no separators, no `.`/`..`),
+    // then disambiguated on collision: "label", "label 2", "label 3", … — the
+    // numeric suffix survives buildGalleryMarkdown's sanitize, so the rendered
+    // URL stays === the on-disk path.
+    const spec = safeSegment(typeof e.spec === "string" ? e.spec : "evidence");
+    const baseLabel = sanitizeLabel(typeof e.label === "string" ? e.label : "evidence");
+    const key = `${spec}/${safeSegment(baseLabel)}`;
+    const n = (seen.get(key) ?? 0) + 1;
+    seen.set(key, n);
+    const label = n === 1 ? baseLabel : `${baseLabel} ${n}`;
+    const labelSeg = safeSegment(label);
     // On-branch layout: pr-<n>/<runId>/<spec>/<label>.png (matches gallery URL).
     const rel = join(`pr-${pr}`, String(runId), spec, `${labelSeg}.png`);
     if (!isSafeRelPath(rel)) continue;
