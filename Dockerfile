@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM oven/bun:1 AS builder
+FROM oven/bun:1.3.11 AS builder
 WORKDIR /app
 
 # Install root dependencies
@@ -8,16 +8,17 @@ COPY package.json bun.lock ./
 # `workspace:*` specifiers. Only the manifest is needed here — source lands later.
 COPY packages/@ezcorp/sdk/package.json packages/@ezcorp/sdk/
 COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
+COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
 # `--ignore-scripts`: the @ezcorp/sdk `prepare` script (and root `postinstall`)
 # compile the SDK to dist/ via tsc, but the SDK source + tsconfig.build.json
 # haven't been COPY'd yet (only the package.json). Skip lifecycle here; we
 # explicitly run the SDK build below after `COPY . .` so SvelteKit's bundler
 # can resolve @ezcorp/sdk via the `import` exports condition (./dist/...).
-RUN bun install --frozen-lockfile --ignore-scripts
+RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked bun install --frozen-lockfile --ignore-scripts
 
 # Install web dependencies
 COPY web/package.json web/bun.lock web/
-RUN cd web && bun install --frozen-lockfile --ignore-scripts
+RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && bun install --frozen-lockfile --ignore-scripts
 
 # Copy source and build
 COPY . .
@@ -28,7 +29,7 @@ RUN bun run --cwd packages/@ezcorp/sdk build
 RUN cd web && bun run build
 
 # Stage 2: Runtime
-FROM oven/bun:1-slim
+FROM oven/bun:1.3.11-slim
 WORKDIR /app
 
 # Phase 7 (MCP isolation) + Phase 55 Stage 1 (DNS rebind / tmpfs / seccomp
@@ -120,17 +121,18 @@ COPY package.json bun.lock ./
 # Workspace package.json required to resolve `workspace:*` specifiers.
 COPY packages/@ezcorp/sdk/package.json packages/@ezcorp/sdk/
 COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
+COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
 # `--ignore-scripts`: prevents the SDK's `prepare` (build) from running.
 # Two reasons: (1) the SDK source isn't COPY'd into this stage (only its
 # manifest), and (2) `--production` skips devDependencies including
 # typescript, so tsc wouldn't be available even if source were present.
 # Runtime resolves @ezcorp/sdk via the "bun" exports condition (raw .ts),
 # so dist/ isn't needed in the runtime image — see the COPY of /src below.
-RUN bun install --production --frozen-lockfile --ignore-scripts
+RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked bun install --production --frozen-lockfile --ignore-scripts
 
 # Install web production dependencies (needed by SvelteKit server at runtime)
 COPY web/package.json web/bun.lock web/
-RUN cd web && bun install --production --frozen-lockfile --ignore-scripts
+RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && bun install --production --frozen-lockfile --ignore-scripts
 
 # Copy backend source
 COPY --from=builder /app/src ./src
