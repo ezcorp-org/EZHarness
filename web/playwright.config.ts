@@ -3,6 +3,15 @@ import { defineConfig, devices } from "@playwright/test";
 const isDocker = !!process.env.DOCKER_TEST;
 const baseURL = isDocker ? "http://localhost:3000" : "http://localhost:4173";
 
+// Visual-evidence mode (opt-in via `EZCORP_E2E_EVIDENCE=1`). When set, the
+// `captureEvidence` helper owns screenshotting and attaches PNGs to each
+// `@evidence`-tagged test, so Playwright's own `screenshot` is turned OFF
+// (avoid double-capture) and the `blob` reporter is enabled so the captured
+// attachments are collected into `web/blob-report/`. Video is a further
+// opt-in (`EZCORP_E2E_EVIDENCE_VIDEO=1`). Outside evidence mode every key
+// below is unchanged, so the no-flag `e2e-mock` job stays byte-identical.
+const evidence = process.env.EZCORP_E2E_EVIDENCE === "1";
+
 export default defineConfig({
 	testDir: "./e2e",
 	fullyParallel: true,
@@ -16,13 +25,16 @@ export default defineConfig({
 	retries: 0,
 	workers: process.env.CI ? 4 : undefined,
 	timeout: 30_000,
-	reporter: process.env.CI ? "list" : "html",
+	reporter: evidence ? [["blob"], ["list"]] : process.env.CI ? "list" : "html",
 	...(isDocker && { globalSetup: "./e2e/docker-auth-setup.ts" }),
 	use: {
 		baseURL,
 		// retain-on-failure (not on-first-retry) since retries are now 0.
 		trace: "retain-on-failure",
-		screenshot: "only-on-failure",
+		// In evidence mode `captureEvidence` owns capture — turn Playwright's
+		// own screenshot OFF to avoid a duplicate shot per failure.
+		screenshot: evidence ? "off" : "only-on-failure",
+		...(process.env.EZCORP_E2E_EVIDENCE_VIDEO === "1" && { video: "on" }),
 		...(isDocker && { storageState: "./e2e/.docker-auth.json" }),
 	},
 	projects: [

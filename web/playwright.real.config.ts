@@ -50,6 +50,14 @@ const MOCK_LLM_BASE_URL = `${baseURL.replace("//localhost", "//127.0.0.1")}/api/
 const DB_DIR = process.env.PI_E2E_REAL_DB_PATH
   ?? mkdtempSync(join(tmpdir(), "ezcorp-e2e-"));
 
+// Visual-evidence mode (opt-in via `EZCORP_E2E_EVIDENCE=1`). Mirrors the
+// default config: `captureEvidence` owns screenshotting so Playwright's own
+// `screenshot` is turned OFF, the `blob` reporter is enabled so captured
+// PNGs land in `web/blob-report/`, and video is a further opt-in
+// (`EZCORP_E2E_EVIDENCE_VIDEO=1`). The real-auth isolation/auth setup below
+// is untouched.
+const evidence = process.env.EZCORP_E2E_EVIDENCE === "1";
+
 export default defineConfig({
   testDir: "./e2e/real-auth",
   fullyParallel: false,
@@ -57,13 +65,16 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   timeout: 60_000,
-  reporter: process.env.CI ? "list" : "html",
+  reporter: evidence ? [["blob"], ["list"]] : process.env.CI ? "list" : "html",
   globalSetup: "./e2e/real-auth-setup.ts",
   globalTeardown: "./e2e/real-auth-teardown.ts",
   use: {
     baseURL,
     trace: "on-first-retry",
-    screenshot: "only-on-failure",
+    // In evidence mode `captureEvidence` owns capture — turn Playwright's
+    // own screenshot OFF to avoid a duplicate shot per failure.
+    screenshot: evidence ? "off" : "only-on-failure",
+    ...(process.env.EZCORP_E2E_EVIDENCE_VIDEO === "1" && { video: "on" }),
     storageState: "./e2e/.real-auth.json",
   },
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],
