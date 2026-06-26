@@ -170,9 +170,15 @@ export function parseReportJsonl(jsonl: string): DecodedShot[] {
     }
     const params = (msg.params ?? {}) as Record<string, unknown>;
     switch (msg.method) {
-      case "onProject":
-        collectTestSpecs(params.suites, testSpec);
+      case "onProject": {
+        // Playwright 1.5x emits the suite tree under `params.project.suites`;
+        // older TeleReporter variants put it at `params.suites`. Read both so
+        // the testId -> spec-file join works across emitter versions (without
+        // it, every shot's `spec` falls back to the generic "evidence").
+        const proj = params.project as Record<string, unknown> | undefined;
+        collectTestSpecs(proj?.suites ?? params.suites, testSpec);
         break;
+      }
       case "onAttach":
         if (typeof params.testId === "string") {
           consumeAttachments(params.testId, params.attachments);

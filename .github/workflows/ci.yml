@@ -267,22 +267,28 @@ jobs:
           EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence || true
       # Build the trusted manifest (sanitizes spec/label, decodes + extracts the
       # inline PNGs) from web/blob-report. PR/head/run metadata via env.
+      # Write the manifest INSIDE web/blob-report so the uploaded artifact has a
+      # single root: the manifest's `file` paths (extracted/<name>.png, relative
+      # to the blob dir) then resolve correctly when the publisher reads them
+      # from the downloaded artifact. (Uploading web/blob-report + manifest.json
+      # as two paths would root the archive at the repo and break that join.)
       - name: Build evidence manifest
         continue-on-error: true
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_ID: ${{ github.run_id }}
+          EVIDENCE_MANIFEST: web/blob-report/manifest.json
         run: bun scripts/visual-evidence/build-manifest.ts
-      # Upload the blob report + manifest for the privileged publisher (WF2) to
-      # download by run-id. retention-days: 3 — evidence is ephemeral.
+      # Upload the blob report (manifest.json + extracted/ PNGs live inside it)
+      # for the privileged publisher (WF2) to download by run-id. A single path
+      # roots the archive at web/blob-report so manifest `file` paths resolve.
+      # retention-days: 3 — evidence is ephemeral.
       - name: Upload visual evidence
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: visual-evidence
-          path: |
-            web/blob-report
-            manifest.json
+          path: web/blob-report
           retention-days: 3
           if-no-files-found: ignore
