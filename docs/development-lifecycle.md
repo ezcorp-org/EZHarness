@@ -54,6 +54,7 @@ protection so renaming/deleting a job in a PR doesn't dodge the requirement.
 | **Manifest lockfile drift check** | bundled-ext lockfile in sync | stale lockfile |
 | **Per-file coverage gate** | each gated file ≥ its threshold; **+ new-file gate + patch coverage** ride in this job | undertested code |
 | **Gate integrity** | the PR doesn't weaken the gate or fake tests green | gate tampering / vacuous tests |
+| **Visual evidence** | a frontend-visual change ships a changed `@evidence` Playwright spec (deterministic, browser-free, fails closed; bypass via maintainer-only `evidence-exempt` label) | frontend shipped with no visual spec/screenshot |
 
 ### Per-file coverage gate
 `scripts/check-coverage.ts` enforces `scripts/coverage-thresholds.json` against
@@ -145,7 +146,7 @@ gh api -X PUT repos/ezcorp-org/EZCorp/branches/main/protection \
       "Typecheck", "Backend tests", "Web tests (vitest)",
       "E2E (mock, no Docker)", "Lint (biome)",
       "Manifest lockfile drift check", "Per-file coverage gate",
-      "Gate integrity"
+      "Gate integrity", "Visual evidence"
     ]
   },
   "enforce_admins": true,
@@ -173,8 +174,15 @@ gh label create gate-change-approved \
   `enforce_admins=true`, named-human-only bypass, CI `GITHUB_TOKEN` scoped to
   `contents: read` (already the default in `ci.yml`).
 - **e2e-per-feature** isn't fully mechanically inferable (no feature→spec
-  manifest). It's enforced by the PR-template checkbox + the agent contract in
-  `CLAUDE.md` + CI running all specs at `retries: 0`.
+  manifest). The **visual subset** is now mechanized by the `Visual evidence`
+  gate (a frontend-visual change must ship a changed `@evidence` spec); the
+  non-visual remainder is still enforced by the PR-template checkbox + the agent
+  contract in `CLAUDE.md` + CI running all specs at `retries: 0`.
+- **Visual evidence proves presence, not assertion.** The `Visual evidence` gate
+  proves *a spec was added/changed*, not that it asserts the visual behavior —
+  a junk `expect(true)` passes it. Non-author review + the assertion-free-spec
+  ban (`gate-integrity`'s `unassertedAddedBlocks`) are the backstop; full
+  assertion quality is future mutation-testing work (see below).
 - **Assertion quality** beyond "has an assertion" is only truly caught by
   **mutation testing**, the planned next layer (see below).
 

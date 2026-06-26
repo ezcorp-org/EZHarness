@@ -208,3 +208,87 @@ jobs:
         env:
           BASE_REF: origin/main
         run: bun scripts/check-patch-coverage.ts
+
+  visual-evidence:
+    # WF1 of the visual-evidence feature. SECURITY: this job runs UNTRUSTED PR
+    # code (the captured @evidence specs), so it MUST stay contents:read and
+    # never hold a write token. The privileged publish step lives in the
+    # separate `visual-evidence-publish.yml` (on: workflow_run), which executes
+    # from the default branch and never checks out PR code.
+    #
+    # This is the ONLY required check of the feature. The job conclusion is the
+    # HARD gate (step "Visual-evidence gate"); every later step is
+    # continue-on-error so the best-effort capture/publish lane can never red a
+    # PR during the fail-soft pilot.
+    name: Visual evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    # Always runs (no job-level if:, no paths filter) so the required-check
+    # context always reports. Keyed on PR number (or ref on non-PR events).
+    concurrency:
+      group: visual-evidence-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      # fetch-depth: 0 + an explicit fetch of the PR base so the gate can
+      # compute `origin/<base>...HEAD` (PR checkouts are otherwise shallow).
+      # Mirrors the proven block in the gate-integrity / coverage jobs, but
+      # parameterizes the base ref instead of hardcoding main.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14" # see pin note at top of file
+      - run: git fetch --no-tags origin "${{ github.event.pull_request.base.ref || 'main' }}"
+      - run: bun install --frozen-lockfile
+      # HARD gate (required, deterministic, NO browser): fails the PR if a
+      # visual-surface file changed without a matching @evidence e2e spec. The
+      # maintainer-only `evidence-exempt` label sets EVIDENCE_EXEMPT=1 to bypass
+      # (mirrors the gate-change-approved env-wiring above) — an agent's token
+      # cannot apply a restricted label.
+      - name: Visual-evidence gate
+        env:
+          BASE_REF: origin/${{ github.event.pull_request.base.ref || 'main' }}
+          EVIDENCE_EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'evidence-exempt') && '1' || '' }}
+        run: bun scripts/check-visual-evidence.ts
+      # SOFT capture (best-effort): only the @evidence-tagged specs run, with
+      # EZCORP_E2E_EVIDENCE=1 so the captureEvidence() helper emits PNG
+      # attachments into a blob report. When no @evidence spec exists, the
+      # --grep selects nothing and Playwright exits 1 with "no tests found";
+      # `|| true` tolerates that so this non-blocking lane never reds.
+      - name: Capture visual evidence
+        continue-on-error: true
+        run: |
+          cd web && bun install --frozen-lockfile
+          bunx --bun svelte-kit sync
+          bunx playwright install --with-deps chromium
+          EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence || true
+      # Build the trusted manifest (sanitizes spec/label, decodes + extracts the
+      # inline PNGs) from web/blob-report. PR/head/run metadata via env.
+      # Write the manifest INSIDE web/blob-report so the uploaded artifact has a
+      # single root: the manifest's `file` paths (extracted/<name>.png, relative
+      # to the blob dir) then resolve correctly when the publisher reads them
+      # from the downloaded artifact. (Uploading web/blob-report + manifest.json
+      # as two paths would root the archive at the repo and break that join.)
+      - name: Build evidence manifest
+        continue-on-error: true
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_ID: ${{ github.run_id }}
+          EVIDENCE_MANIFEST: web/blob-report/manifest.json
+        run: bun scripts/visual-evidence/build-manifest.ts
+      # Upload the blob report (manifest.json + extracted/ PNGs live inside it)
+      # for the privileged publisher (WF2) to download by run-id. A single path
+      # roots the archive at web/blob-report so manifest `file` paths resolve.
+      # retention-days: 3 — evidence is ephemeral.
+      - name: Upload visual evidence
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-evidence
+          path: web/blob-report
+          retention-days: 3
+          if-no-files-found: ignore

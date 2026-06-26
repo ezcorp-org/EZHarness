@@ -1,0 +1,144 @@
+# Visual-evidence PUBLISH — WF2 (the privileged half of the feature).
+#
+# SECURITY MODEL (do not weaken):
+#   * This is an `on: workflow_run` workflow, so GitHub ALWAYS runs the copy of
+#     this file from the DEFAULT branch — a pull request can never modify what
+#     runs here. That is what lets it safely hold a write token.
+#   * It NEVER `actions/checkout`s the PR's code. Its only inputs are the
+#     artifact BYTES produced by WF1 (`ci.yml`'s "Visual evidence" job):
+#     `manifest.json` + extracted PNGs. Those bytes are UNTRUSTED (a malicious
+#     PR controls screenshot contents, attachment labels, and the manifest), so
+#     `scripts/visual-evidence/publish.ts` re-validates every field
+#     (path-traversal, PNG magic bytes, integer PR#, markdown-escaped labels)
+#     before it touches a filename, a git ref, a URL, or the PR comment.
+#   * The orphan branch is built in a throwaway `git init` dir from the
+#     re-validated, staged tree — never by checking out the repo.
+#   * EVERYTHING is fail-soft: a publish error must never affect WF1's required
+#     status (WF1 already concluded by the time this runs).
+name: Visual evidence publish
+
+on:
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  publish:
+    name: Publish visual evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only act on a SUCCESSFUL ci run that was triggered by a pull request.
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    # Keyed on the upstream run; do NOT cancel in progress (never interrupt a
+    # branch push / comment write half-way).
+    concurrency:
+      group: visual-evidence-publish-${{ github.event.workflow_run.id }}
+      cancel-in-progress: false
+    steps:
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14" # see pin note in ci.yml
+      - run: bun install --frozen-lockfile
+      # Download WF1's artifact by explicit run-id. If the artifact is absent
+      # (no capture happened) we exit 0 — nothing to publish, fail-soft.
+      - name: Download evidence artifact
+        id: dl
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: visual-evidence
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifact
+      - name: Bail if no artifact
+        if: steps.dl.outcome != 'success'
+        run: echo "No visual-evidence artifact for this run — nothing to publish." && exit 0
+      # PASS 1: validate the manifest + extracted PNGs and stage the on-branch
+      # tree (pr-<n>/<runId>/<spec>/<label>.png). Emits pr / branch / shot_count
+      # / stage_dir. NO git, NO browser. Fail-soft (continue-on-error) so a
+      # malformed artifact can't red this workflow.
+      - name: Validate + stage evidence
+        id: stage
+        if: steps.dl.outcome == 'success'
+        continue-on-error: true
+        env:
+          EVIDENCE_ARTIFACT_DIR: artifact
+          EVIDENCE_STAGE_DIR: evidence-stage
+          EVIDENCE_COMMENT_FILE: comment-body.md
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bun scripts/visual-evidence/publish.ts
+      # Build the orphan branch in a THROWAWAY git repo (git init — never a
+      # checkout of this repo) from the staged tree, then capture the new commit
+      # sha so the gallery URLs are immutable.
+      - name: Commit + push orphan branch
+        id: push
+        if: steps.stage.outcome == 'success' && steps.stage.outputs.branch != '' && steps.stage.outputs.shot_count != '0'
+        continue-on-error: true
+        env:
+          BRANCH: ${{ steps.stage.outputs.branch }}
+          STAGE_DIR: ${{ steps.stage.outputs.stage_dir }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          cp -R "$STAGE_DIR"/. "$work"/
+          cd "$work"
+          git init -q
+          git checkout -q --orphan evidence
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "visual evidence for ${BRANCH}"
+          sha="$(git rev-parse HEAD)"
+          echo "commit_sha=${sha}" >> "$GITHUB_OUTPUT"
+          # Force-push latest-only to the orphan branch (history not retained).
+          git push --force \
+            "https://x-access-token:${GH_TOKEN}@github.com/${REPO}" \
+            "HEAD:refs/heads/${BRANCH}"
+      # PASS 2: regenerate the comment body with the IMMUTABLE commit sha now
+      # baked into every raw.githubusercontent.com URL.
+      - name: Render final comment
+        id: render
+        if: steps.stage.outcome == 'success'
+        continue-on-error: true
+        env:
+          EVIDENCE_ARTIFACT_DIR: artifact
+          EVIDENCE_STAGE_DIR: evidence-stage
+          EVIDENCE_COMMENT_FILE: comment-body.md
+          EVIDENCE_COMMIT_SHA: ${{ steps.push.outputs.commit_sha }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bun scripts/visual-evidence/publish.ts
+      # Upsert the sticky comment (find by marker → PATCH, else POST). When zero
+      # PNGs were staged, publish.ts already wrote the ⚠️ body, so this same step
+      # posts the "no screenshot captured" note. Mirrors the gh-api comment
+      # pattern used elsewhere in the repo. Fail-soft throughout.
+      - name: Upsert sticky comment
+        if: steps.stage.outcome == 'success' && steps.stage.outputs.pr != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.stage.outputs.pr }}
+          MARKER: "<!-- visual-evidence -->"
+        run: |
+          set -euo pipefail
+          body="$(cat comment-body.md)"
+          # Find an existing sticky comment by its marker.
+          existing="$(gh api "repos/${REPO}/issues/${PR}/comments" --paginate \
+            --jq "map(select(.body | contains(\"${MARKER}\"))) | .[0].id // empty")"
+          if [ -n "${existing}" ]; then
+            gh api -X PATCH "repos/${REPO}/issues/comments/${existing}" \
+              -f body="${body}"
+            echo "Updated sticky comment ${existing} on PR #${PR}."
+          else
+            gh api -X POST "repos/${REPO}/issues/${PR}/comments" \
+              -f body="${body}"
+            echo "Created sticky comment on PR #${PR}."
+          fi
