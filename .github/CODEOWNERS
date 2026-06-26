@@ -20,6 +20,8 @@
 /scripts/check-new-file-coverage.ts @arch1tect0x
 /scripts/check-patch-coverage.ts    @arch1tect0x
 /scripts/gate-integrity.ts          @arch1tect0x
+/scripts/check-visual-evidence.ts   @arch1tect0x
+/scripts/visual-evidence/           @arch1tect0x
 /scripts/test-coverage.sh           @arch1tect0x
 /scripts/test.sh                    @arch1tect0x
 /scripts/merge-lcov.ts              @arch1tect0x
