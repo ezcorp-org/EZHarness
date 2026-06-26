@@ -1,0 +1,74 @@
+# Visual-evidence CLEANUP — WF3.
+#
+# Deletes the orphan `evidence/pr-<n>` branches that WF2 pushes:
+#   * on a PR `closed` event — delete that PR's branch immediately;
+#   * weekly on a schedule — sweep every `evidence/pr-*` branch whose PR is
+#     closed or merged (the `closed` event is not 100% reliable, e.g. a missed
+#     run while the workflow was disabled).
+#
+# Idempotent: deleting an already-deleted branch is tolerated and never fails
+# the job. Needs only `contents: write` (branch deletion); no PR-comment scope.
+name: Visual evidence cleanup
+
+on:
+  pull_request:
+    types: [closed]
+  schedule:
+    # Mondays 03:00 UTC.
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    name: Clean up evidence branches
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Single PR close → delete just that branch. The DELETE returns 422 if the
+      # ref is already gone; `|| true` keeps the job green.
+      - name: Delete this PR's evidence branch
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          ref="heads/evidence/pr-${PR}"
+          echo "Deleting ${ref} (if present)…"
+          gh api -X DELETE "repos/${REPO}/git/refs/${ref}" || true
+      # Weekly sweep → for every evidence/pr-* branch, look up its PR; delete the
+      # branch when the PR is closed or merged. Each delete is independently
+      # fail-soft so one error can't abort the sweep.
+      - name: Sweep stale evidence branches
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          # List every evidence/pr-* branch name.
+          branches="$(gh api "repos/${REPO}/git/matching-refs/heads/evidence/pr-" \
+            --paginate --jq '.[].ref | sub("^refs/heads/"; "")')"
+          if [ -z "${branches}" ]; then
+            echo "No evidence/pr-* branches to sweep."
+            exit 0
+          fi
+          echo "${branches}" | while IFS= read -r branch; do
+            [ -z "${branch}" ] && continue
+            # branch looks like evidence/pr-123 → extract the digits.
+            num="$(printf '%s' "${branch}" | sed -n 's#^evidence/pr-\([0-9][0-9]*\)$#\1#p')"
+            if [ -z "${num}" ]; then
+              echo "Skipping non-conforming branch: ${branch}"
+              continue
+            fi
+            state="$(gh api "repos/${REPO}/pulls/${num}" --jq '.state' 2>/dev/null || echo "")"
+            if [ "${state}" = "closed" ]; then
+              echo "PR #${num} is closed/merged → deleting ${branch}"
+              gh api -X DELETE "repos/${REPO}/git/refs/heads/${branch}" || true
+            else
+              echo "PR #${num} state='${state:-unknown}' → keeping ${branch}"
+            fi
+          done
