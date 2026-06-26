@@ -29,10 +29,14 @@ const layoutSrc = readFileSync(
 describe("(app) layout — Phase 49.1 sidebar breakpoint policy", () => {
   test("project rail wrapper hides below lg (not md)", () => {
     // The wrapper around <ProjectRail /> must use `lg:flex` so the
-    // rail vanishes on tablets and reappears on desktops.
-    expect(layoutSrc).toContain('class="hidden lg:flex">\n\t\t<ProjectRail />');
+    // rail vanishes on tablets and reappears on desktops. The Command
+    // Deck redesign tags it with `data-app-rail` (graphite chrome scope);
+    // the `hidden lg:flex` visibility policy is the pinned invariant.
+    expect(layoutSrc).toMatch(
+      /class="hidden lg:flex" data-app-rail>\s*<ProjectRail \/>/,
+    );
     // Negative: the old `md:flex` policy must be gone for the rail.
-    expect(layoutSrc).not.toContain('class="hidden md:flex">\n\t\t<ProjectRail />');
+    expect(layoutSrc).not.toMatch(/class="hidden md:flex"[^>]*>\s*<ProjectRail \/>/);
   });
 
   test("desktop sidebar <aside> hides below lg", () => {
@@ -57,13 +61,16 @@ describe("(app) layout — Phase 49.1 sidebar breakpoint policy", () => {
 
   test("mobile/tablet header (with hamburger) shows below lg", () => {
     // Conversely, the hamburger-bearing header is `flex lg:hidden` so
-    // it's visible exactly when the rail+sidebar disappear.
-    expect(layoutSrc).toContain(
-      'class="flex lg:hidden items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-4 py-3"',
+    // it's visible exactly when the rail+sidebar disappear. The Command
+    // Deck redesign tightened the padding (px-3 py-2) and tags the header
+    // with `data-deck-mobilebar` for graphite chrome — the `flex lg:hidden`
+    // visibility policy is what this invariant pins.
+    expect(layoutSrc).toMatch(
+      /class="flex lg:hidden items-center gap-2 border-b border-\[var\(--color-border\)\] bg-\[var\(--color-surface-secondary\)\][^"]*"[^>]*data-testid="mobile-header"/,
     );
     // Negative: old md-scoped header gone.
-    expect(layoutSrc).not.toContain(
-      'class="flex md:hidden items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-4 py-3"',
+    expect(layoutSrc).not.toMatch(
+      /class="flex md:hidden items-center gap-2 border-b/,
     );
   });
 

@@ -61,57 +61,57 @@
 	}
 </script>
 
-<div class="sticky top-0 self-start flex h-[100dvh] max-h-[100dvh] w-[72px] shrink-0 flex-col items-center bg-[var(--color-surface-secondary)] py-3">
+<div class="sticky top-0 self-start flex h-[100dvh] max-h-[100dvh] w-[60px] shrink-0 flex-col items-center border-r border-[var(--color-border)] bg-[var(--color-surface-secondary)] py-2.5">
 	<!-- Home button -->
 	<button
-		class="group relative mb-2 flex cursor-pointer items-center"
+		class="group relative mb-1.5 flex cursor-pointer items-center"
 		onclick={() => selectProject("global")}
 		onmouseenter={() => (hoveredId = "__home__")}
 		onmouseleave={() => (hoveredId = null)}
 		aria-label="Home"
 	>
-		<!-- Active/hover pill -->
+		<!-- Active/hover marker -->
 		<div
-			class="absolute left-0 w-1 rounded-r-full bg-[var(--color-text-primary)] transition-all duration-200 {store.activeProjectId === 'global'
-				? 'h-10'
+			class="absolute left-0 w-0.5 rounded-r-sm bg-[var(--color-accent)] transition-all duration-150 {store.activeProjectId === 'global'
+				? 'h-8'
 				: hoveredId === '__home__'
-					? 'h-5'
+					? 'h-4'
 					: 'h-0'}"
 			style="top: 50%; transform: translateY(-50%);"
 		></div>
 
-		<div class="relative ml-3">
+		<div class="relative ml-2.5">
 			<div
-				class="flex h-12 w-12 items-center justify-center transition-all duration-200
+				class="flex h-10 w-10 items-center justify-center rounded-md transition-all duration-150
 					{store.activeProjectId === 'global'
-					? 'rounded-2xl bg-blue-600'
-					: 'rounded-full bg-[var(--color-surface-tertiary)] group-hover:rounded-2xl group-hover:bg-blue-600'}"
+					? 'bg-blue-600 text-white ring-1 ring-[var(--color-accent)]'
+					: 'bg-[var(--color-surface-tertiary)] group-hover:bg-blue-600 group-hover:text-white'}"
 			>
-				<svg class="h-6 w-6 text-[var(--color-text-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1" />
 				</svg>
 			</div>
 			{#if homeUnread() > 0}
 				<span
 					data-testid="project-unread-badge-home"
-					class="pointer-events-none absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-[var(--color-surface-secondary)]"
+					class="pointer-events-none absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-sm bg-red-500 px-1 font-mono text-[10px] font-bold leading-none text-white ring-2 ring-[var(--color-surface-secondary)]"
 				>{formatBadgeCount(homeUnread())}</span>
 			{/if}
 		</div>
 
 		<!-- Tooltip -->
 		{#if hoveredId === "__home__"}
-			<div class="absolute left-[76px] z-50 whitespace-nowrap rounded-md bg-[var(--color-surface)] px-3 py-2 text-sm font-medium text-[var(--color-text-primary)] shadow-lg ring-1 ring-[var(--color-border)]">
+			<div class="absolute left-[60px] z-50 whitespace-nowrap rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm font-medium text-[var(--color-text-primary)] shadow-lg">
 				Home
 			</div>
 		{/if}
 	</button>
 
 	<!-- Divider -->
-	<div class="mx-auto mb-2 h-0.5 w-8 rounded-full bg-[var(--color-border)]"></div>
+	<div class="mx-auto mb-1.5 h-px w-7 bg-[var(--color-border)]"></div>
 
 	<!-- Project icons -->
-	<div class="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto scrollbar-hide">
+	<div class="flex min-h-0 flex-1 flex-col items-center gap-1.5 overflow-y-auto scrollbar-hide">
 		{#each store.projects.filter(p => p.id !== "global") as project (project.id)}
 			{@const isActive = store.activeProjectId === project.id}
 			<button
@@ -121,34 +121,32 @@
 				onmouseleave={onProjectLeave}
 				aria-label={project.name}
 			>
-				<!-- Active/hover pill -->
+				<!-- Active/hover marker -->
 				<div
-					class="absolute left-0 w-1 rounded-r-full bg-[var(--color-text-primary)] transition-all duration-200 {isActive
-						? 'h-10'
+					class="absolute left-0 w-0.5 rounded-r-sm bg-[var(--color-accent)] transition-all duration-150 {isActive
+						? 'h-8'
 						: hoveredId === project.id
-							? 'h-5'
+							? 'h-4'
 							: 'h-0'}"
 					style="top: 50%; transform: translateY(-50%);"
 				></div>
 
-				<div class="relative ml-3">
+				<div class="relative ml-2.5">
 					<div
-						class="flex h-12 w-12 items-center justify-center overflow-hidden transition-all duration-200
-							{isActive
-							? 'rounded-2xl'
-							: 'rounded-full group-hover:rounded-2xl'} {project.icon ? '' : hashColor(project.name)}"
+						class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-md transition-all duration-150
+							{isActive ? 'ring-1 ring-[var(--color-accent)]' : 'opacity-90 group-hover:opacity-100'} {project.icon ? '' : hashColor(project.name)}"
 					>
 						{#if project.icon}
 							<img src={project.icon} alt={project.name} class="h-full w-full object-cover" />
 						{:else}
-							<span class="text-lg font-semibold text-white">{project.name.charAt(0).toUpperCase()}</span>
+							<span class="font-mono text-base font-semibold text-white">{project.name.charAt(0).toUpperCase()}</span>
 						{/if}
 					</div>
 					{#if unreadFor(project.id) > 0}
 						<span
 							data-testid="project-unread-badge"
 							data-project-id={project.id}
-							class="pointer-events-none absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-[var(--color-surface-secondary)]"
+							class="pointer-events-none absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-sm bg-red-500 px-1 font-mono text-[10px] font-bold leading-none text-white ring-2 ring-[var(--color-surface-secondary)]"
 						>{formatBadgeCount(unreadFor(project.id))}</span>
 					{/if}
 				</div>
@@ -164,22 +162,22 @@
 
 	<!-- Add project button -->
 	<button
-		class="group relative mt-2 flex cursor-pointer items-center"
+		class="group relative mt-1.5 flex cursor-pointer items-center"
 		onclick={() => goto("/new-project")}
 		onmouseenter={() => (hoveredId = "__add__")}
 		onmouseleave={() => (hoveredId = null)}
 		aria-label="Add project"
 	>
 		<div
-			class="ml-3 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-surface-tertiary)] text-green-500 transition-all duration-200 group-hover:rounded-2xl group-hover:bg-green-600 group-hover:text-white"
+			class="ml-2.5 flex h-10 w-10 items-center justify-center rounded-md border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface-tertiary)] text-green-500 transition-all duration-150 group-hover:border-green-600 group-hover:bg-green-600 group-hover:text-white"
 		>
-			<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+			<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
 			</svg>
 		</div>
 
 		{#if hoveredId === "__add__"}
-			<div class="absolute left-[76px] z-50 whitespace-nowrap rounded-md bg-[var(--color-surface)] px-3 py-2 text-sm font-medium text-[var(--color-text-primary)] shadow-lg ring-1 ring-[var(--color-border)]">
+			<div class="absolute left-[60px] z-50 whitespace-nowrap rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm font-medium text-[var(--color-text-primary)] shadow-lg">
 				Add Project
 			</div>
 		{/if}
@@ -192,7 +190,7 @@
 	{@const proj = store.projects.find((p) => p.id === hoveredId)}
 	{#if proj}
 		<div
-			class="pointer-events-none fixed z-50 max-w-xs rounded-md bg-[var(--color-surface)] px-3 py-2 text-left shadow-lg ring-1 ring-[var(--color-border)]"
+			class="pointer-events-none fixed z-50 max-w-xs rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-left shadow-lg"
 			style="left: {hoveredRect.left + 8}px; top: {hoveredRect.top + hoveredRect.height / 2}px; transform: translateY(-50%);"
 		>
 			<div class="truncate text-sm font-medium text-[var(--color-text-primary)]">{proj.name}</div>

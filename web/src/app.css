@@ -53,13 +53,16 @@
     "Roboto Mono", Menlo, Consolas, monospace;
 
   /* ── Radius ─────────────────────────────────────────────────────────────
-     A touch softer than Tailwind's defaults for a more modern, premium feel.
-     `rounded-md` (the app's workhorse) and `rounded-lg` carry most surfaces. */
-  --radius-sm: 0.3125rem; /* 5px  */
-  --radius-md: 0.5rem;    /* 8px  */
-  --radius-lg: 0.75rem;   /* 12px */
-  --radius-xl: 1rem;      /* 16px */
-  --radius-2xl: 1.25rem;  /* 20px */
+     COMMAND DECK — squared / low-radius corners. The UI is a control surface,
+     not a marketing page: crisp rectangles, not pills. `rounded-md` (the app's
+     workhorse) collapses to a 4px hairline-radius; larger steps stay modest so
+     nothing reads "soft" or "glassy". Every existing `rounded-*` class picks
+     these up app-wide with no class renames. */
+  --radius-sm: 0.125rem;  /* 2px  */
+  --radius-md: 0.25rem;   /* 4px  */
+  --radius-lg: 0.375rem;  /* 6px  */
+  --radius-xl: 0.5rem;    /* 8px  */
+  --radius-2xl: 0.625rem; /* 10px */
 
   /* ── Elevation ──────────────────────────────────────────────────────────
      Layered, low-opacity shadows tuned to read on both light and dark.
@@ -78,21 +81,21 @@
      calm, cool off-white system with clear elevation steps. The `.dark`
      overrides live in the base layer below. */
   --color-surface: #ffffff;            /* content base                       */
-  --color-surface-secondary: #edf0f8;  /* chrome (sidebar, headers) — tinted */
-  --color-surface-tertiary: #dfe4f1;   /* cards, controls, hover             */
+  --color-surface-secondary: #eef1f7;  /* chrome (light content headers)     */
+  --color-surface-tertiary: #e0e5ef;   /* cards, controls, hover             */
   --color-surface-elevated: #ffffff;   /* popovers / modals (with shadow)    */
-  /* WCAG AA: #14172c on #ffffff ≈ 16:1 */
-  --color-text-primary: #14172c;
-  /* WCAG AA: #464e64 on #edf0f8 ≈ 6.6:1, on #ffffff ≈ 7.6:1 */
-  --color-text-secondary: #464e64;
-  /* WCAG AA: #59607a on #edf0f8 ≈ 4.9:1, on #ffffff ≈ 5.4:1 */
-  --color-text-muted: #59607a;
-  --color-border: #dde2ee;             /* hairline separators                */
-  --color-border-strong: #c5cdde;      /* emphasised dividers / control edges */
-  --color-accent: #5048e5;             /* interactive (indigo-violet primary) */
-  --color-accent-hover: #4038c9;
+  /* WCAG AA: #11141f on #ffffff ≈ 17:1 */
+  --color-text-primary: #11141f;
+  /* WCAG AA: #434b5e on #eef1f7 ≈ 6.9:1, on #ffffff ≈ 8.0:1 */
+  --color-text-secondary: #434b5e;
+  /* WCAG AA: #565d72 on #eef1f7 ≈ 5.1:1, on #ffffff ≈ 5.9:1 */
+  --color-text-muted: #565d72;
+  --color-border: #d4dae8;             /* hairline separators (crisper 1px)  */
+  --color-border-strong: #b7c0d4;      /* emphasised dividers / control edges */
+  --color-accent: #2563eb;             /* COMMAND DECK — electric blue primary */
+  --color-accent-hover: #1d4ed8;
   --color-accent-contrast: #ffffff;    /* text/icon on a filled accent       */
-  --color-accent-subtle: #ecebfd;      /* accent-tinted background wash       */
+  --color-accent-subtle: #e4edff;      /* accent-tinted background wash       */
   /* Brand gold — drawn from the EZCorp logo (rgb(238,194,22)). Used as a
      sparing premium highlight, not a primary action colour. */
   --color-brand: #b8860b;              /* deepened for contrast on light bg   */
@@ -109,50 +112,52 @@
      deeper blue for interaction; cool slate neutrals; and harmonised
      status hues. */
 
-  /* Interaction — indigo-violet (primary buttons, links, selected states).
-     The app's de-facto primary is `bg-blue-600`; re-pointing the blue ramp
-     to a distinctive blurple gives the whole app a premium identity (and
-     bridges the blue logo to the magenta wordmark) without renaming a class. */
-  --color-blue-300: #c4c0fa;
-  --color-blue-400: #9b94f6;
-  --color-blue-500: #6f66ef;
-  --color-blue-600: #5048e5; /* primary action — white text ≈ 6.2:1 */
-  --color-blue-700: #4038c9;
-  --color-blue-800: #322c9e;
-  --color-blue-900: #222063;
-  --color-blue-950: #14123a;
+  /* Interaction — COMMAND DECK electric blue (primary buttons, links,
+     selected/active states, focus). The app's de-facto primary is
+     `bg-blue-600`; re-pointing the blue ramp to a single high-energy
+     electric blue gives the whole app one crisp, instrument-grade accent
+     — no class renames, every `bg-blue-*`/`text-blue-*` follows. */
+  --color-blue-300: #93c5fd;
+  --color-blue-400: #60a5fa;
+  --color-blue-500: #3b82f6;
+  --color-blue-600: #2563eb; /* primary action — white text ≈ 5.2:1 */
+  --color-blue-700: #1d4ed8;
+  --color-blue-800: #1e40af;
+  --color-blue-900: #1e3a8a;
+  --color-blue-950: #172554;
 
-  /* Indigo — close sibling used in a few accents; kept in-family. */
-  --color-indigo-300: #aab4ff;
-  --color-indigo-400: #8b95ff;
-  --color-indigo-500: #6571f5;
-  --color-indigo-600: #4f57e0;
+  /* Indigo — close sibling used in a few accents; kept in the blue family. */
+  --color-indigo-300: #a5b4fc;
+  --color-indigo-400: #818cf8;
+  --color-indigo-500: #6366f1;
+  --color-indigo-600: #4f46e5;
 
-  /* Neutrals — cool slate. Tuned so raw-gray surfaces (e.g. `bg-gray-900`
-     inputs) sit naturally beside the semantic slate surfaces above. */
-  --color-gray-50: #f6f8fb;
-  --color-gray-100: #eef1f6;
-  --color-gray-200: #e3e8ef;
-  --color-gray-300: #cdd5e1;
-  --color-gray-400: #93a0b4;
-  --color-gray-500: #64748b;
-  --color-gray-600: #475569;
-  --color-gray-700: #313c4e;
-  --color-gray-800: #1c2430;
-  --color-gray-900: #131a25;
-  --color-gray-950: #0c1018;
-  /* Mirror the slate ramp onto Tailwind's `slate-*` so mixed usage agrees. */
-  --color-slate-50: #f6f8fb;
-  --color-slate-100: #eef1f6;
-  --color-slate-200: #e3e8ef;
-  --color-slate-300: #cdd5e1;
-  --color-slate-400: #93a0b4;
-  --color-slate-500: #64748b;
-  --color-slate-600: #475569;
-  --color-slate-700: #313c4e;
-  --color-slate-800: #1c2430;
-  --color-slate-900: #131a25;
-  --color-slate-950: #0c1018;
+  /* Neutrals — COMMAND DECK graphite. A deep, near-black cool ramp so
+     raw-gray surfaces (e.g. `bg-gray-900` inputs, `bg-gray-950` chrome)
+     read as a precise graphite instrument rather than soft slate. */
+  --color-gray-50: #f4f6fa;
+  --color-gray-100: #e9ecf3;
+  --color-gray-200: #dadfe9;
+  --color-gray-300: #c2c9d6;
+  --color-gray-400: #8a93a6;
+  --color-gray-500: #5b6477;
+  --color-gray-600: #3f4759;
+  --color-gray-700: #2a3140;
+  --color-gray-800: #181d28;
+  --color-gray-900: #0f131c;
+  --color-gray-950: #080b11;
+  /* Mirror the graphite ramp onto Tailwind's `slate-*` so mixed usage agrees. */
+  --color-slate-50: #f4f6fa;
+  --color-slate-100: #e9ecf3;
+  --color-slate-200: #dadfe9;
+  --color-slate-300: #c2c9d6;
+  --color-slate-400: #8a93a6;
+  --color-slate-500: #5b6477;
+  --color-slate-600: #3f4759;
+  --color-slate-700: #2a3140;
+  --color-slate-800: #181d28;
+  --color-slate-900: #0f131c;
+  --color-slate-950: #080b11;
 
   /* Danger — red. Slightly warmer/softer than stock for less alarm-glare. */
   --color-red-300: #ffb1ad;
@@ -210,24 +215,62 @@
      meta `theme-color` stays #111827 (set in app.html / theme.ts), so the
      base surface is kept in that neighbourhood for a seamless status bar. */
   .dark {
-    --color-surface: #12131f;            /* content base — violet-tinted ink */
-    --color-surface-secondary: #0b0b14;  /* chrome — deepest                 */
-    --color-surface-tertiary: #1c1d2e;   /* cards, controls, hover           */
-    --color-surface-elevated: #26283c;   /* popovers / modals                */
-    /* WCAG AA: #f0f1fa on #12131f ≈ 15:1 (soft white, less glare than #fff) */
-    --color-text-primary: #f0f1fa;
-    /* WCAG AA: #bdbfd6 on #12131f ≈ 9.7:1 */
-    --color-text-secondary: #bdbfd6;
-    /* WCAG AA: #8c8ea9 on #12131f ≈ 5.1:1 (passes 4.5:1 minimum) */
-    --color-text-muted: #8c8ea9;
-    --color-border: #272739;
-    --color-border-strong: #3a3a58;
-    --color-accent: #9d96ff;             /* bright blurple for dark surfaces */
-    --color-accent-hover: #b4adff;
-    --color-accent-contrast: #0b0a18;
-    --color-accent-subtle: #211f44;
+    /* COMMAND DECK — deep graphite content base; chrome goes deeper still. */
+    --color-surface: #0d1119;            /* content base — graphite ink      */
+    --color-surface-secondary: #080b11;  /* chrome — deepest near-black      */
+    --color-surface-tertiary: #161b25;   /* cards, controls, hover           */
+    --color-surface-elevated: #1b212d;   /* popovers / modals                */
+    /* WCAG AA: #eef1f7 on #0d1119 ≈ 16:1 (crisp, low-glare) */
+    --color-text-primary: #eef1f7;
+    /* WCAG AA: #b6bdcc on #0d1119 ≈ 9.6:1 */
+    --color-text-secondary: #b6bdcc;
+    /* WCAG AA: #828a9b on #0d1119 ≈ 5.0:1 (passes 4.5:1 minimum) */
+    --color-text-muted: #828a9b;
+    --color-border: #1f2632;             /* crisp 1px grid line              */
+    --color-border-strong: #313a4b;
+    --color-accent: #4f8dfb;             /* electric blue for dark surfaces  */
+    --color-accent-hover: #75a6fc;
+    --color-accent-contrast: #07101f;
+    --color-accent-subtle: #122036;
     --color-brand: #eec216;              /* raw logo gold reads well on dark */
     --color-brand-bright: #f4cf3f;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     COMMAND DECK CHROME — graphite in BOTH themes.
+
+     The app shell (command column, project rail, top breadcrumb strip,
+     bottom status bar) is a deep-graphite control surface regardless of the
+     content theme. Rather than recolour dozens of per-element classes, we
+     scope a token OVERRIDE onto the chrome containers: every descendant that
+     reads `var(--color-surface*)` / `var(--color-text*)` / `var(--color-border)`
+     automatically resolves to the graphite values below. This is the
+     "transform the chrome, not just the palette" lesson, applied as a single
+     surgical scope. The accent stays electric for focus/active.
+     ──────────────────────────────────────────────────────────────────────── */
+  [data-app-rail],
+  [data-testid="desktop-sidebar"],
+  [data-deck-breadcrumb],
+  [data-deck-statusbar],
+  [data-deck-mobilebar] {
+    --color-surface: #11151e;
+    --color-surface-secondary: #0a0d13;
+    --color-surface-tertiary: #1a202c;
+    --color-surface-elevated: #202836;
+    --color-text-primary: #f1f4fa;
+    --color-text-secondary: #c2c9d8;
+    /* WCAG AA: #969eb2 on the chrome surfaces (#0a0d13 / #11151e / #1a202c)
+       clears 4.5:1 — kept light enough that mono metadata + the Search label
+       and kbd chips on the tertiary control surface stay legible. */
+    --color-text-muted: #969eb2;
+    --color-border: #20283a;
+    --color-border-strong: #313c52;
+    --color-accent: #4f8dfb;
+    --color-accent-hover: #75a6fc;
+    --color-accent-contrast: #07101f;
+    --color-accent-subtle: #14233c;
+    background-color: var(--color-surface-secondary);
+    color: var(--color-text-secondary);
   }
 
   /* ── Document foundation ────────────────────────────────────────────────
@@ -442,4 +485,144 @@ html[data-dev-indicator="1"] img[src="/logo.svg"] {
 }
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COMMAND DECK — chrome component classes.
+
+   Dense, keyboard-first instrument styling: tight nav rows, mono metadata,
+   inline keyboard-shortcut hints, a persistent IDE-style status bar, and a
+   breadcrumb context strip. All consumed by `(app)/+layout.svelte`. Squared
+   corners, 1px grid lines, fast snappy motion — no soft glass, no large radii.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* The unified command column: a deep graphite rail with a crisp right edge. */
+.deck-column {
+  border-right: 1px solid var(--color-border);
+  background-color: var(--color-surface-secondary);
+}
+
+/* Section header inside the command column — uppercase mono micro-label with
+   a hairline above it, establishing the structural grid rhythm. */
+.deck-section {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;        /* 10px */
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* A nav row — dense, squared, with a left active marker. Functional, fast. */
+.deck-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 1.875rem;            /* 30px — tight */
+  padding-inline: 0.625rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;        /* 13px */
+  line-height: 1;
+  color: var(--color-text-secondary);
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+.deck-row:hover {
+  background-color: var(--color-surface-tertiary);
+  color: var(--color-text-primary);
+}
+/* Active row — left electric marker bar + tinted background. */
+.deck-row[aria-current="page"] {
+  background-color: var(--color-surface-tertiary);
+  color: var(--color-text-primary);
+}
+.deck-row[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 1rem;
+  width: 2px;
+  transform: translateY(-50%);
+  background-color: var(--color-accent);
+  border-radius: 0 2px 2px 0;
+}
+
+/* Inline keyboard-shortcut hint — mono, boxed, sits at the end of a row. */
+.deck-kbd {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;         /* 10px */
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  padding: 0.1875rem 0.3125rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text-muted);
+  background-color: color-mix(in srgb, var(--color-surface-tertiary) 60%, transparent);
+  white-space: nowrap;
+}
+
+/* The persistent bottom status bar — an IDE/terminal status line. */
+.deck-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: 1.5rem;              /* 24px */
+  padding-inline: 0.75rem;
+  border-top: 1px solid var(--color-border);
+  background-color: var(--color-surface-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;        /* 11px */
+  line-height: 1;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+.deck-statusbar__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  white-space: nowrap;
+}
+.deck-statusbar__sep {
+  width: 1px;
+  height: 0.75rem;
+  background-color: var(--color-border-strong);
+}
+.deck-statusbar__dot {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+/* Top breadcrumb context strip — thin, mono, structural. */
+.deck-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 1.75rem;             /* 28px */
+  padding-inline: 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-surface-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;        /* 11px */
+  letter-spacing: 0.01em;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+.deck-breadcrumb__sep {
+  color: var(--color-border-strong);
+}
+
+/* A snappy live status dot with a faint pulse for the "connected" state. */
+@keyframes deck-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 50%, transparent); }
+  70% { box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 0%, transparent); }
+}
+.deck-live {
+  animation: deck-pulse 2.2s ease-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .deck-live { animation: none; }
 }
