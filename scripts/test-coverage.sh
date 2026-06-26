@@ -211,6 +211,7 @@ VITEST_EXIT=0
     src/lib/save-flash.unit.test.ts \
     src/lib/admin-guard.unit.test.ts \
     src/lib/scroll-to-hash.unit.test.ts \
+    src/lib/chat-prompt-nav.unit.test.ts \
     src/lib/components/__tests__/AuditLogSection.component.test.ts \
     src/lib/components/__tests__/CustomModelsSection.component.test.ts \
     src/lib/components/__tests__/SystemHealth.component.test.ts \
@@ -267,6 +268,7 @@ VITEST_EXIT=0
     --coverage.include='src/lib/save-flash.svelte.ts' \
     --coverage.include='src/lib/admin-guard.ts' \
     --coverage.include='src/lib/scroll-to-hash.ts' \
+    --coverage.include='src/lib/chat-prompt-nav.ts' \
     --coverage.include='src/lib/components/settings/ProvidersSection.svelte' \
     --coverage.include='src/lib/components/settings/TeamsSection.svelte' \
     --coverage.include='src/lib/components/settings/InvitesSection.svelte' \

@@ -90,7 +90,13 @@
 		updateCachedScrollState,
 		computeAnchor,
 		scrollTopForAnchor,
+		MESSAGE_ANCHOR_ATTR,
 	} from "$lib/chat-scroll-restore.js";
+	import {
+		promptNavDirection,
+		isTextEntryTarget,
+		applyPromptNav,
+	} from "$lib/chat-prompt-nav.js";
 	import { resolveDeepLink } from "$lib/search/deep-link-resolve.js";
 	import {
 		shouldStickToBottom,
@@ -506,6 +512,13 @@
 	let lastMessageIsUser = $derived(
 		messages.length > 0 &&
 			messages[messages.length - 1]?.role === "user",
+	);
+	// Ids of the user prompts currently rendered — the set arrow-key
+	// navigation steps through (assistant turns / tool cards are skipped).
+	let userPromptIdSet = $derived(
+		new Set(
+			renderableMessages.filter((m) => m.role === "user").map((m) => m.id),
+		),
 	);
 
 	// ── Chrome-relevant derivations (surfaced to the page shell) ──────
@@ -1371,6 +1384,7 @@
 	$effect(() => {
 		void conversationId;
 		initialScrollDone = false;
+		promptNavId = null;
 		stopAnchorWatch?.();
 		stopAnchorWatch = null;
 		const cached = getCachedScrollState(conversationId);
@@ -1492,6 +1506,54 @@
 			pendingDeepLink = null;
 		})();
 	});
+
+	// ── Arrow-key prompt navigation ───────────────────────────────────
+	// With focus on the chat thread (and not in any text input), ArrowLeft
+	// scrolls UP to the previous user prompt and ArrowRight scrolls DOWN to the
+	// next; ArrowRight on the last prompt falls through to the bottom. All the
+	// decision + DOM-measurement glue lives in chat-prompt-nav.ts (applyPromptNav)
+	// so it is testable without mounting this component. `variant === "page"`
+	// only: the agent panel shares the window keydown and must not double-handle.
+	// `promptNavId` is a plain (non-reactive) pointer — it never feeds markup,
+	// only the next keypress's relative step.
+	const PROMPT_NAV_OFFSET = 80;
+	const PROMPT_NAV_BAND = 24;
+	let promptNavId: string | null = null;
+	function handlePromptNavKey(e: KeyboardEvent): void {
+		if (variant !== "page") return;
+		const direction = promptNavDirection(e);
+		if (!direction) return;
+		// Typing in the composer / a search box / any editable surface keeps the
+		// native caret behaviour — never hijack the arrows there.
+		if (
+			isTextEntryTarget(e.target) ||
+			isTextEntryTarget(document.activeElement)
+		)
+			return;
+		if (!container) return;
+		const { acted, pointerId } = applyPromptNav({
+			container,
+			direction,
+			pointerId: promptNavId,
+			isUserPrompt: (id) => userPromptIdSet.has(id),
+			anchorAttr: MESSAGE_ANCHOR_ATTR,
+			offset: PROMPT_NAV_OFFSET,
+			band: PROMPT_NAV_BAND,
+			scrollTopForAnchor,
+			// A prompt scroll breaks stick-to-bottom (mirrors the deep-link path);
+			// the fall-through-to-bottom re-engages it (like jump-to-bottom).
+			onPromptScroll: () => {
+				stuck = false;
+				userScrolledUp = true;
+			},
+			onBottomScroll: () => {
+				stuck = true;
+				userScrolledUp = false;
+			},
+		});
+		if (acted) e.preventDefault();
+		promptNavId = pointerId;
+	}
 
 	async function loadOlderMessages(): Promise<void> {
 		if (loadingOlder || !hasOlderMessages) return;
@@ -1712,6 +1774,8 @@
 	});
 	void page;
 </script>
+
+<svelte:window onkeydown={handlePromptNavKey} />
 
 <div
 	class="flex flex-1 flex-col min-w-0"
