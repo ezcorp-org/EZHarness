@@ -21,6 +21,18 @@ are green and a non-author has approved.
       (gate-integrity is green).
 - [ ] Ran locally: `bun run typecheck && bun run lint && bun run test && bun run test:coverage`.
 
+## Visual evidence
+
+<!--
+For frontend-visual changes (route/layout pages, `web/src/lib/components/**`,
+css). The `Visual evidence` check enforces the spec is present; the bot posts
+the screenshots as a sticky comment.
+-->
+
+- [ ] Frontend-visual change includes an `@evidence`-tagged Playwright spec that
+      calls `captureEvidence` (the `Visual evidence` check enforces this; the
+      bot posts screenshots as a sticky comment), or N/A.
+
 ## Gate-config change?
 
 <!--

@@ -24,7 +24,11 @@ PR, land all required checks green + a non-author review, squash-merge to `main`
    `scripts/coverage-config.ts`).
 2. Cover **every new/changed executable line** (patch-coverage gate).
 3. Add/update a **Playwright e2e spec** under `web/e2e/` for user-facing behavior.
-4. **Never** weaken the gate or fake green — no lowered thresholds, no new
+4. For a **frontend-visual change** (route/layout pages, `web/src/lib/components/**`,
+   css), ship an `@evidence`-tagged Playwright e2e spec under `web/e2e/` that
+   calls `captureEvidence(page, testInfo, label)`. The `Visual evidence` CI gate
+   enforces a spec is present and the bot attaches screenshots to the PR.
+5. **Never** weaken the gate or fake green — no lowered thresholds, no new
    `EXCLUDES`, no `.skip/.only/.todo`, no assertion-free tests. These are
    blocked by the `Gate integrity` CI check; a maintainer-only
    `gate-change-approved` label is the only bypass (you cannot apply it).
