@@ -59,6 +59,7 @@ import {
   type GithubProjectsRpcVerb,
 } from "../integrations/github-projects/types";
 import { createGithubClient } from "../integrations/github-projects/client";
+import { getGithubProjectsDaemon } from "../integrations/github-projects/daemon";
 import { approveProposal, dismissProposal } from "../integrations/github-projects/spawn";
 import {
   getLinkByProjectId,
@@ -229,6 +230,8 @@ export async function handleGithubProjectsRpc(
       return handleSetEnabled(req, params, ctx, false);
     case "resume":
       return handleSetEnabled(req, params, ctx, true);
+    case "poll-now":
+      return handlePollNow(req, params, ctx);
     default:
       return rpcError(req.id, -32601, `Unknown github-projects verb: ${String(verb)}`);
   }
@@ -576,6 +579,37 @@ async function handleSetEnabled(
     return rpcResult(req.id, { ok: true, enabled });
   } catch (err) {
     return rpcError(req.id, -32603, `${enabled ? "resume" : "pause"} failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * poll-now — force an IMMEDIATE poll of the link's board, bypassing the daemon's
+ * due-check + back-off, so the Hub's "Poll now" button reflects board changes
+ * without waiting for the next 60s tick. Ownership-gated like pause/resume:
+ * opaque -32603 on miss / not-owned so a cross-user probe can't tell a real
+ * board from one it doesn't own. The daemon resolves the link again by
+ * projectId; `{ polled, reason? }` flows back to the caller (e.g. `paused`
+ * when the user must resume first).
+ */
+async function handlePollNow(
+  req: JsonRpcRequest,
+  params: Record<string, unknown>,
+  ctx: GithubProjectsContext,
+): Promise<JsonRpcResponse> {
+  if (!ctx.userId) return rpcError(req.id, -32602, "No viewing user.");
+  const linkId = typeof params.linkId === "string" ? params.linkId.trim() : "";
+  if (!linkId) return rpcError(req.id, -32602, "'linkId' is required");
+  const link = await getLinkById(linkId);
+  // Opaque -32603 on miss OR not-owned (don't leak link existence cross-user).
+  if (!link || !userOwnsLink(link, ctx.userId)) {
+    return rpcError(req.id, -32603, "Board not found");
+  }
+  try {
+    const result = await getGithubProjectsDaemon().pollProjectNow(link.projectId);
+    await writeAudit(AUDIT_CONTROL, ctx, { verb: "poll-now", linkId });
+    return rpcResult(req.id, { ok: true, ...result });
+  } catch (err) {
+    return rpcError(req.id, -32603, `poll-now failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

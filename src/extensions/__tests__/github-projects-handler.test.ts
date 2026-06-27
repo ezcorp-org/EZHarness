@@ -86,12 +86,30 @@ mock.module("../../db/queries/audit-log", () => ({
 const REAL_CLIENT = { ...(await import("../../integrations/github-projects/client")) };
 const REAL_SPAWN = { ...(await import("../../integrations/github-projects/spawn")) };
 const REAL_QUERIES = { ...(await import("../../db/queries/github-projects")) };
+const REAL_DAEMON = { ...(await import("../../integrations/github-projects/daemon")) };
 
 // GitHub client — a programmable fake.
 const clientCalls: Array<{ method: string; args: unknown[] }> = [];
 let fakeClient: GithubClient;
 mock.module("../../integrations/github-projects/client", () => ({
   createGithubClient: () => fakeClient,
+}));
+
+// Daemon — poll-now reverse-RPC forces an immediate poll via the singleton.
+// Mock the factory so the handler reaches a programmable `pollProjectNow`
+// without constructing the real poller. Snapshotted into REAL_DAEMON above and
+// re-registered in afterAll (the in-file restore pattern, mirroring the client/
+// spawn/query stubs) so the stub never leaks into the integration test file.
+let pollProjectNowImpl: (projectId: string) => Promise<{ polled: boolean; reason?: string }> =
+  async () => ({ polled: true });
+const daemonCalls: Array<{ method: string; args: unknown[] }> = [];
+mock.module("../../integrations/github-projects/daemon", () => ({
+  getGithubProjectsDaemon: () => ({
+    pollProjectNow: (projectId: string) => {
+      daemonCalls.push({ method: "pollProjectNow", args: [projectId] });
+      return pollProjectNowImpl(projectId);
+    },
+  }),
 }));
 
 // Spawn bridge.
@@ -157,6 +175,7 @@ afterAll(() => {
   mock.module("../../integrations/github-projects/client", () => REAL_CLIENT);
   mock.module("../../integrations/github-projects/spawn", () => REAL_SPAWN);
   mock.module("../../db/queries/github-projects", () => REAL_QUERIES);
+  mock.module("../../integrations/github-projects/daemon", () => REAL_DAEMON);
   restoreModuleMocks();
 });
 
@@ -284,6 +303,8 @@ beforeEach(() => {
   clientCalls.length = 0;
   spawnCalls.length = 0;
   queryCalls.length = 0;
+  daemonCalls.length = 0;
+  pollProjectNowImpl = async () => ({ polled: true });
   auditRows = [];
   fakeClient = makeClient();
   getConversationImpl = async () => ({ projectId: "proj-1" });
@@ -854,6 +875,96 @@ describe("pause / resume", () => {
     const res = await handleGithubProjectsRpc(
       "resume",
       req(V("resume"), { linkId: "link-1" }),
+      ctx({ userId: "user-1" }),
+    );
+    expect("error" in res && res.error?.code).toBe(-32603);
+  });
+});
+
+// ── poll-now (ownership) ─────────────────────────────────────────────
+
+describe("poll-now", () => {
+  test("forces a poll on the link's project when owned + writes an audit row", async () => {
+    getLinkByIdImpl = async () => link({ projectId: "proj-real", createdByUserId: "user-1" });
+    pollProjectNowImpl = async () => ({ polled: true });
+    const res = await handleGithubProjectsRpc(
+      "poll-now",
+      req(V("poll-now"), { linkId: "link-1" }),
+      ctx({ userId: "user-1" }),
+    );
+    expect("result" in res).toBe(true);
+    expect((res as { result: { ok: boolean; polled: boolean } }).result).toEqual({
+      ok: true,
+      polled: true,
+    });
+    // The daemon was driven with the link's SERVER-derived projectId.
+    expect(daemonCalls).toEqual([{ method: "pollProjectNow", args: ["proj-real"] }]);
+    // An AUDIT_CONTROL row with the poll-now verb was written.
+    expect(
+      auditRows.some(
+        (r) =>
+          r.action.includes("control") &&
+          (r.metadata as { verb?: string })?.verb === "poll-now",
+      ),
+    ).toBe(true);
+  });
+
+  test("surfaces the daemon reason (paused) in the result", async () => {
+    getLinkByIdImpl = async () => link({ createdByUserId: "user-1" });
+    pollProjectNowImpl = async () => ({ polled: false, reason: "paused" });
+    const res = await handleGithubProjectsRpc(
+      "poll-now",
+      req(V("poll-now"), { linkId: "link-1" }),
+      ctx({ userId: "user-1" }),
+    );
+    expect((res as { result: { ok: boolean; polled: boolean; reason?: string } }).result).toEqual({
+      ok: true,
+      polled: false,
+      reason: "paused",
+    });
+  });
+
+  test("is opaque (-32603) when the user does NOT own the link", async () => {
+    getLinkByIdImpl = async () => link({ createdByUserId: "other-user" });
+    const res = await handleGithubProjectsRpc(
+      "poll-now",
+      req(V("poll-now"), { linkId: "link-1" }),
+      ctx({ userId: "user-1" }),
+    );
+    expect("error" in res && res.error?.code).toBe(-32603);
+    expect(daemonCalls.length).toBe(0);
+  });
+
+  test("is opaque when the link is missing", async () => {
+    getLinkByIdImpl = async () => null;
+    const res = await handleGithubProjectsRpc(
+      "poll-now",
+      req(V("poll-now"), { linkId: "nope" }),
+      ctx(),
+    );
+    expect("error" in res && res.error?.code).toBe(-32603);
+    expect(daemonCalls.length).toBe(0);
+  });
+
+  test("requires a linkId + a viewing user", async () => {
+    const a = await handleGithubProjectsRpc("poll-now", req(V("poll-now"), {}), ctx());
+    expect("error" in a && a.error?.code).toBe(-32602);
+    const b = await handleGithubProjectsRpc(
+      "poll-now",
+      req(V("poll-now"), { linkId: "l" }),
+      ctx({ userId: null }),
+    );
+    expect("error" in b && b.error?.code).toBe(-32602);
+  });
+
+  test("maps a daemon throw to -32603", async () => {
+    getLinkByIdImpl = async () => link({ createdByUserId: "user-1" });
+    pollProjectNowImpl = async () => {
+      throw new Error("poll boom");
+    };
+    const res = await handleGithubProjectsRpc(
+      "poll-now",
+      req(V("poll-now"), { linkId: "link-1" }),
       ctx({ userId: "user-1" }),
     );
     expect("error" in res && res.error?.code).toBe(-32603);

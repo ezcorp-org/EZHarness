@@ -33,10 +33,12 @@
 import { logger } from "../../logger";
 import {
   listEnabledLinks,
+  getLinkByProjectId,
   insertProposalIfNew,
   updateLinkPollState,
 } from "../../db/queries/github-projects";
 import { getSecret } from "../../extensions/secrets-store";
+import { getGithubProjectsEmit } from "./bus-registry";
 import { createGithubClient } from "./client";
 import { approveProposal as defaultApproveProposal, type ProposalActor } from "./spawn";
 import {
@@ -154,7 +156,29 @@ export class GithubProjectsDaemon {
   private async pollLink(link: GithubProjectsLink): Promise<void> {
     const nowMs = this.now();
     if (!this.isDue(link, nowMs)) return;
+    await this.runPoll(link, nowMs);
+  }
 
+  /**
+   * Force a single, immediate poll of ONE project's link from the Hub's
+   * "Poll now" button — bypassing the due-check + back-off. Resolves the link
+   * by projectId; refuses when there is no board (`no-board`) or the link is
+   * paused (`paused` — the user must resume first; we never silently override
+   * their pause). On success runs the full poll body against the link.
+   */
+  async pollProjectNow(projectId: string): Promise<{ polled: boolean; reason?: string }> {
+    const link = await getLinkByProjectId(projectId);
+    if (!link) return { polled: false, reason: "no-board" };
+    if (!link.enabled) return { polled: false, reason: "paused" };
+    await this.runPoll(link, this.now());
+    return { polled: true };
+  }
+
+  /**
+   * The poll BODY (auth → fetch → diff → propose → persist → emit) for a single
+   * link, with the due-check already passed (or bypassed by `pollProjectNow`).
+   */
+  private async runPoll(link: GithubProjectsLink, nowMs: number): Promise<void> {
     let auth: GithubAuth;
     try {
       auth = await this.resolveAuth(link);
@@ -233,7 +257,13 @@ export class GithubProjectsDaemon {
     // A successful poll clears rate-limit back-off.
     this.backoff.delete(link.id);
 
-    if (changed) this.opts.emit?.(GITHUB_PROJECTS_EVENT, { projectId: link.projectId });
+    // Injected `emit` wins (tests); else fall back to the registered bus
+    // emitter so the lazily-constructed `getGithubProjectsDaemon()` singleton —
+    // which carries no `emit` — still refreshes the Hub.
+    if (changed) {
+      const emit = this.opts.emit ?? getGithubProjectsEmit();
+      emit?.(GITHUB_PROJECTS_EVENT, { projectId: link.projectId });
+    }
   }
 
   /**

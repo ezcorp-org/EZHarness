@@ -15,6 +15,7 @@ afterAll(() => restoreModuleMocks());
 // ── Mock handles (re-pointed per test) ─────────────────────────────────────
 
 let listEnabledLinksMock = mock(() => Promise.resolve<unknown[]>([]));
+let getLinkByProjectIdMock = mock((_projectId: string) => Promise.resolve<unknown>(null));
 let insertProposalIfNewMock = mock((_input: unknown) => Promise.resolve<unknown>(null));
 let updateLinkPollStateMock = mock((_id: string, _state: unknown) => Promise.resolve());
 let getSecretMock = mock(
@@ -30,6 +31,7 @@ function installMocks(): void {
   // (CI runs each spec in its own isolated shard, so this only matters locally.)
   mock.module("../../../db/queries/github-projects", () => ({
     listEnabledLinks: (...a: unknown[]) => listEnabledLinksMock(...(a as [])),
+    getLinkByProjectId: (projectId: string) => getLinkByProjectIdMock(projectId),
     insertProposalIfNew: (input: unknown) => insertProposalIfNewMock(input),
     updateLinkPollState: (id: string, state: unknown) => updateLinkPollStateMock(id, state),
     getProposalById: () => Promise.resolve(null),
@@ -68,6 +70,7 @@ type Link = {
   projectId: string;
   boardNodeId: string;
   authMode: "pat" | "gh";
+  enabled: boolean;
   columnActionMap: Record<string, { action: "plan" | "execute"; autoSpawn: boolean; permissionMode?: string; agentName?: string }>;
   pollCursor: Record<string, string> | null;
   pollIntervalSec: number;
@@ -80,6 +83,7 @@ function makeLink(over: Partial<Link> = {}): Link {
     projectId: "proj-1",
     boardNodeId: "PVT_board",
     authMode: "pat",
+    enabled: true,
     columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } },
     pollCursor: null,
     pollIntervalSec: 60,
@@ -114,6 +118,7 @@ function makeClient(page: { items: unknown[]; cursor: Record<string, string> } |
 
 beforeEach(() => {
   listEnabledLinksMock = mock(() => Promise.resolve<unknown[]>([]));
+  getLinkByProjectIdMock = mock((_projectId: string) => Promise.resolve<unknown>(null));
   insertProposalIfNewMock = mock((_input: unknown) => Promise.resolve<unknown>(null));
   updateLinkPollStateMock = mock((_id: string, _state: unknown) => Promise.resolve());
   getSecretMock = mock(
@@ -373,6 +378,63 @@ describe("GithubProjectsDaemon.pollOnce — scheduling", () => {
     expect(listEnabledLinksMock).toHaveBeenCalledTimes(1);
     release();
     await first;
+  });
+});
+
+// ── pollProjectNow: manual "Poll now" force ─────────────────────────────────
+
+describe("GithubProjectsDaemon.pollProjectNow", () => {
+  test("forces a poll even when the link is NOT due (bypasses isDue)", async () => {
+    const now = 1_000_000;
+    // 10s since lastPolledAt with a 60s interval → normally NOT due.
+    getLinkByProjectIdMock = mock(() =>
+      Promise.resolve(
+        makeLink({ enabled: true, lastPolledAt: new Date(now - 10_000), pollIntervalSec: 60 }),
+      ),
+    );
+    insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-now" }));
+    const emit = mock(() => {});
+    installMocks();
+    const client = makeClient({
+      items: [makeItem()],
+      cursor: { "item-1": "2026-06-01T00:00:00Z" },
+    });
+    const d = new GithubProjectsDaemon({ client, emit, now: () => now });
+
+    const result = await d.pollProjectNow("proj-1");
+
+    expect(result).toEqual({ polled: true });
+    expect(getLinkByProjectIdMock).toHaveBeenCalledWith("proj-1");
+    // The full poll body ran despite the link not being due.
+    expect((client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems).toHaveBeenCalledTimes(1);
+    expect(insertProposalIfNewMock).toHaveBeenCalledTimes(1);
+    expect(updateLinkPollStateMock).toHaveBeenCalledTimes(1);
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit.mock.calls[0]![1]).toEqual({ projectId: "proj-1" });
+  });
+
+  test("refuses a paused (disabled) link — the user must resume first", async () => {
+    getLinkByProjectIdMock = mock(() => Promise.resolve(makeLink({ enabled: false })));
+    installMocks();
+    const client = makeClient({ items: [], cursor: {} });
+    const d = new GithubProjectsDaemon({ client });
+
+    const result = await d.pollProjectNow("proj-1");
+
+    expect(result).toEqual({ polled: false, reason: "paused" });
+    expect((client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems).not.toHaveBeenCalled();
+  });
+
+  test("returns no-board when no link is connected to the project", async () => {
+    getLinkByProjectIdMock = mock(() => Promise.resolve(null));
+    installMocks();
+    const client = makeClient({ items: [], cursor: {} });
+    const d = new GithubProjectsDaemon({ client });
+
+    const result = await d.pollProjectNow("proj-missing");
+
+    expect(result).toEqual({ polled: false, reason: "no-board" });
+    expect((client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems).not.toHaveBeenCalled();
   });
 });
 
