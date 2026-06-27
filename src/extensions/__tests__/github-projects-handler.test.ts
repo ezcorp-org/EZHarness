@@ -1,7 +1,7 @@
 // Unit + integration tests for src/extensions/github-projects-handler.ts.
 //
 // Unit: mock the GitHub client, the spawn bridge, the DB queries,
-// getConversation, getSetting + decrypt, and the links-by-user seam. Covers
+// getConversation, the secrets store (getSecret), and the links-by-user seam. Covers
 // every verb, server-side projectId derivation, the "no board connected" path,
 // the confused-deputy guard (a board id in params is ignored), ownership checks
 // on control verbs, and the bundled-only allowlist (non-bundled caller
@@ -52,14 +52,16 @@ mock.module("../../db/queries/conversations", () => ({
   getConversation: (id: string) => getConversationImpl(id),
 }));
 
-let getSettingImpl: (key: string) => Promise<unknown> = async () => "enc:tok";
-mock.module("../../db/queries/settings", () => ({
-  getSetting: (key: string) => getSettingImpl(key),
-}));
-
-let decryptImpl: (s: string) => string = (s) => `plain(${s})`;
-mock.module("../../providers/encryption", () => ({
-  decrypt: (s: string) => decryptImpl(s),
+// The secrets store is host-only; the handler's `resolveAuth` reads the PAT
+// from it via `getSecret("github-projects", projectId, "apiToken")`.
+let getSecretImpl: (
+  extensionId: string,
+  projectId: string | null,
+  name: string,
+) => Promise<string | null> = async () => "ghp_token";
+mock.module("../secrets-store", () => ({
+  getSecret: (extensionId: string, projectId: string | null, name: string) =>
+    getSecretImpl(extensionId, projectId, name),
 }));
 
 let auditRows: Array<{ userId: string | null; action: string; target?: string; metadata?: unknown }> =
@@ -285,8 +287,7 @@ beforeEach(() => {
   auditRows = [];
   fakeClient = makeClient();
   getConversationImpl = async () => ({ projectId: "proj-1" });
-  getSettingImpl = async () => "enc:tok";
-  decryptImpl = (s) => `plain(${s})`;
+  getSecretImpl = async () => "ghp_token";
   getLinkByProjectIdImpl = async () => link();
   getLinkByIdImpl = async () => link();
   getProposalByIdImpl = async () => proposal();
@@ -370,29 +371,22 @@ describe("ticket verbs — projectId derivation", () => {
 // ── Auth resolution ──────────────────────────────────────────────────
 
 describe("resolveAuth", () => {
-  test("pat mode decrypts the per-project settings token", async () => {
-    getSettingImpl = async (key) => {
-      expect(key).toContain("proj-1");
-      return "enc:secret";
-    };
-    decryptImpl = (s) => {
-      expect(s).toBe("enc:secret");
+  test("pat mode reads the per-project token from the secrets store", async () => {
+    getSecretImpl = async (extensionId, projectId, name) => {
+      expect(extensionId).toBe("github-projects");
+      expect(projectId).toBe("proj-1");
+      expect(name).toBe("apiToken");
       return "ghp_decoded";
     };
     const auth = await resolveAuth(link({ authMode: "pat" }));
     expect(auth).toEqual({ mode: "pat", token: "ghp_decoded" });
   });
 
-  test("pat mode throws a clear error when the token is unset", async () => {
-    getSettingImpl = async () => undefined;
+  test("pat mode throws a clear error when the store returns null", async () => {
+    // The store returns null for a missing OR undecryptable secret — both
+    // surface to the operator as "not configured … reconnect".
+    getSecretImpl = async () => null;
     await expect(resolveAuth(link({ authMode: "pat" }))).rejects.toThrow(/not configured/);
-  });
-
-  test("pat mode throws when decryption fails", async () => {
-    decryptImpl = () => {
-      throw new Error("bad key");
-    };
-    await expect(resolveAuth(link({ authMode: "pat" }))).rejects.toThrow(/could not be decrypted/);
   });
 
   test("gh mode shells out to gh auth token", async () => {
@@ -449,7 +443,7 @@ describe("resolveAuth", () => {
   });
 
   test("a missing token surfaces as a -32603 from a ticket verb", async () => {
-    getSettingImpl = async () => undefined;
+    getSecretImpl = async () => null;
     const res = await handleGithubProjectsRpc("list", req(V("list")), ctx());
     expect("error" in res && res.error?.code).toBe(-32603);
   });

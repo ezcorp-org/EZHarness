@@ -24,8 +24,7 @@ import {
   deleteLink,
   cancelActiveProposalsForLink,
 } from "$server/db/queries/github-projects";
-import { deleteSetting } from "$server/db/queries/settings";
-import { githubTokenSettingKey } from "$server/integrations/github-projects/types";
+import { deleteSecret } from "$server/extensions/secrets-store";
 import type {
   GithubColumnAction,
   GithubColumnActionMap,
@@ -176,7 +175,9 @@ export const DELETE: RequestHandler = async ({ locals, request }) => {
   // Disconnect order: purge the credential, mark active proposals cancelled
   // (so no orphan shows "running" on the Hub), then drop the link. Proposals
   // CASCADE on link delete too, but the explicit cancel keeps history honest.
-  await deleteSetting(githubTokenSettingKey(link.projectId)).catch(() => {});
+  // Project-scoped secret (userId=null) — same slot connect wrote + the daemon
+  // reads. deleteSecret is idempotent; a missing secret is a no-op.
+  await deleteSecret("github-projects", link.projectId, "apiToken").catch(() => {});
   const cancelled = await cancelActiveProposalsForLink(link.id);
   await deleteLink(link.id);
 

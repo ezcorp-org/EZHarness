@@ -14,8 +14,9 @@
  *   - projectId is derived SERVER-SIDE from the calling conversation. Params
  *     NEVER carry a board / project id (confused-deputy fix). A param named
  *     `projectId` / `boardId` / `linkId` on a TICKET verb is ignored.
- *   - The GitHub token is host-only: decrypt(getSetting(tokenKey(projectId)))
- *     for `pat`, or `gh auth token` for `gh`. Never logged, never returned.
+ *   - The GitHub token is host-only: read from the scope-isolated secrets store
+ *     (`getSecret`) for `pat`, or `gh auth token` for `gh`. Never logged, never
+ *     returned.
  *   - Mutating ticket verbs (create/update/move/archive/comment) run through
  *     the PDP (`engine.authorize`) AND write an audit row — parity with the
  *     sibling spawn / append-message handlers' sensitive-op posture.
@@ -48,13 +49,11 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../db/connection";
 import { githubProjectsLinks } from "../db/schema";
 import { getConversation } from "../db/queries/conversations";
-import { getSetting } from "../db/queries/settings";
 import { insertAuditEntry } from "../db/queries/audit-log";
-import { decrypt } from "../providers/encryption";
+import { getSecret } from "./secrets-store";
 import {
   GITHUB_ACTIVE_STATUSES,
   GITHUB_TERMINAL_STATUSES,
-  githubTokenSettingKey,
   type GithubAuth,
   type GithubBoardItem,
   type GithubProjectsRpcVerb,
@@ -147,9 +146,10 @@ export function _setGhTokenResolverForTests(fn: GhTokenResolver | null): void {
 // ── Auth resolution (host-only) ──────────────────────────────────────
 
 /**
- * Resolve the bearer credential for a link. `pat` decrypts the per-project
- * encrypted token from settings; `gh` shells out to `gh auth token`. Never
- * logs the token. Throws a clear error when the credential is missing.
+ * Resolve the bearer credential for a link. `pat` reads the per-project token
+ * from the scope-isolated secrets store; `gh` shells out to `gh auth token`.
+ * Never logs the token. Throws a clear error when the credential is missing
+ * (the store returns null for a missing OR undecryptable secret).
  */
 export async function resolveAuth(link: GithubProjectsLink): Promise<GithubAuth> {
   if (link.authMode === "gh") {
@@ -157,18 +157,10 @@ export async function resolveAuth(link: GithubProjectsLink): Promise<GithubAuth>
     return { mode: "gh", token };
   }
   // pat (default)
-  const raw = await getSetting(githubTokenSettingKey(link.projectId));
-  if (typeof raw !== "string" || !raw) {
+  const token = await getSecret("github-projects", link.projectId, "apiToken");
+  if (!token) {
     throw new Error(
       "GitHub token not configured for this project — reconnect the board with a PAT.",
-    );
-  }
-  let token: string;
-  try {
-    token = decrypt(raw);
-  } catch {
-    throw new Error(
-      "GitHub token could not be decrypted (key rotation?) — reconnect the board.",
     );
   }
   return { mode: "pat", token };

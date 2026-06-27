@@ -1,8 +1,8 @@
 /**
  * Unit tests for GithubProjectsDaemon (daemon.ts).
  *
- * Everything below the daemon is mocked: the DB query layer, the auth resolvers
- * (`getSetting` / `decrypt`), the spawn bridge (`approveProposal`), and the
+ * Everything below the daemon is mocked: the DB query layer, the host-only
+ * secrets store (`getSecret`), the spawn bridge (`approveProposal`), and the
  * `gh auth token` shell. The GitHub client is INJECTED via daemon options, so
  * we never touch `client.ts` (Agent A) or a real network. Each test drives
  * `pollOnce()` directly.
@@ -17,8 +17,10 @@ afterAll(() => restoreModuleMocks());
 let listEnabledLinksMock = mock(() => Promise.resolve<unknown[]>([]));
 let insertProposalIfNewMock = mock((_input: unknown) => Promise.resolve<unknown>(null));
 let updateLinkPollStateMock = mock((_id: string, _state: unknown) => Promise.resolve());
-let getSettingMock = mock((_key: string) => Promise.resolve<unknown>(undefined));
-let decryptMock = mock((_c: string) => "decrypted-token");
+let getSecretMock = mock(
+  (_extensionId: string, _projectId: string | null, _name: string) =>
+    Promise.resolve<string | null>(null),
+);
 let approveProposalMock = mock((_id: string, _actor: unknown) => Promise.resolve<unknown>({}));
 
 function installMocks(): void {
@@ -36,11 +38,9 @@ function installMocks(): void {
     countActiveProposalsForProject: () => Promise.resolve(0),
     updateProposal: () => Promise.resolve(null),
   }));
-  mock.module("../../../db/queries/settings", () => ({
-    getSetting: (key: string) => getSettingMock(key),
-  }));
-  mock.module("../../../providers/encryption", () => ({
-    decrypt: (c: string) => decryptMock(c),
+  mock.module("../../../extensions/secrets-store", () => ({
+    getSecret: (extensionId: string, projectId: string | null, name: string) =>
+      getSecretMock(extensionId, projectId, name),
   }));
   // NB: the auto-spawn bridge is injected via the daemon's `approve` option
   // (not mock.module) so this file never poisons `../spawn` for spawn.test.ts
@@ -116,8 +116,10 @@ beforeEach(() => {
   listEnabledLinksMock = mock(() => Promise.resolve<unknown[]>([]));
   insertProposalIfNewMock = mock((_input: unknown) => Promise.resolve<unknown>(null));
   updateLinkPollStateMock = mock((_id: string, _state: unknown) => Promise.resolve());
-  getSettingMock = mock((_key: string) => Promise.resolve<unknown>("ciphertext"));
-  decryptMock = mock((_c: string) => "decrypted-token");
+  getSecretMock = mock(
+    (_extensionId: string, _projectId: string | null, _name: string) =>
+      Promise.resolve<string | null>("ghp_token"),
+  );
   approveProposalMock = mock((_id: string, _actor: unknown) => Promise.resolve<unknown>({}));
   installMocks();
   _resetGithubProjectsDaemonForTests();
@@ -377,23 +379,24 @@ describe("GithubProjectsDaemon.pollOnce — scheduling", () => {
 // ── pollOnce: auth resolution ───────────────────────────────────────────────
 
 describe("GithubProjectsDaemon.pollOnce — auth", () => {
-  test("PAT mode: getSetting + decrypt produce the bearer", async () => {
+  test("PAT mode: getSecret produces the bearer", async () => {
     listEnabledLinksMock = mock(() => Promise.resolve([makeLink({ authMode: "pat" })]));
-    getSettingMock = mock(() => Promise.resolve("ciphertext"));
-    decryptMock = mock(() => "ghp_secret");
+    getSecretMock = mock(() => Promise.resolve<string | null>("ghp_secret"));
     installMocks();
     const client = makeClient({ items: [], cursor: {} });
     const d = new GithubProjectsDaemon({ client });
     await d.pollOnce();
-    expect(getSettingMock).toHaveBeenCalledWith("githubProjects:proj-1:apiToken");
-    expect(decryptMock).toHaveBeenCalledWith("ciphertext");
+    // Scope coordinates: (extensionId, projectId, name).
+    expect(getSecretMock).toHaveBeenCalledWith("github-projects", "proj-1", "apiToken");
     const auth = (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems.mock.calls[0]![1] as { mode: string; token: string };
     expect(auth).toEqual({ mode: "pat", token: "ghp_secret" });
   });
 
-  test("PAT mode: a missing stored token degrades the link (no fetch)", async () => {
+  test("PAT mode: a null secret degrades the link (no fetch)", async () => {
+    // getSecret returns null for a missing OR undecryptable secret — both
+    // degrade the link exactly like a 401.
     listEnabledLinksMock = mock(() => Promise.resolve([makeLink({ authMode: "pat" })]));
-    getSettingMock = mock(() => Promise.resolve(undefined));
+    getSecretMock = mock(() => Promise.resolve<string | null>(null));
     installMocks();
     const client = makeClient({ items: [], cursor: {} });
     const d = new GithubProjectsDaemon({ client });
@@ -403,18 +406,6 @@ describe("GithubProjectsDaemon.pollOnce — auth", () => {
     expect(updateLinkPollStateMock).toHaveBeenCalledTimes(1);
     const state = updateLinkPollStateMock.mock.calls[0]![1] as Record<string, unknown>;
     expect(state.lastError).toContain("no PAT stored");
-  });
-
-  test("PAT mode: an empty decrypted token degrades the link", async () => {
-    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({ authMode: "pat" })]));
-    getSettingMock = mock(() => Promise.resolve("ciphertext"));
-    decryptMock = mock(() => "");
-    installMocks();
-    const client = makeClient({ items: [], cursor: {} });
-    const d = new GithubProjectsDaemon({ client });
-    await d.pollOnce();
-    const state = updateLinkPollStateMock.mock.calls[0]![1] as Record<string, unknown>;
-    expect(state.lastError).toContain("decrypted PAT is empty");
   });
 
   test("gh mode: the injected ghAuthToken resolver supplies the bearer", async () => {

@@ -213,11 +213,6 @@ export interface GithubRpcCommentParams {
 /** GitHub API origin — the ONLY host the client may contact. */
 export const GITHUB_API_ORIGIN = "https://api.github.com" as const;
 
-/** Settings key holding a project's encrypted PAT (auth_mode='pat'). */
-export function githubTokenSettingKey(projectId: string): string {
-  return `githubProjects:${projectId}:apiToken`;
-}
-
 /**
  * Server-derived idempotency key for a proposal. Deterministic + unique per
  * (project, item, target column, action) so poll re-detection / card churn

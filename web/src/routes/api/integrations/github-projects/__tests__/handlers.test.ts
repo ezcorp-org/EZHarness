@@ -1,12 +1,12 @@
 /**
  * Unit tests for the github-projects integration API route handlers.
  *
- * The GitHub client, the spawn bridge, the db-query layer, the settings/encrypt
- * helpers, and the bus-registry are all mocked so the tests are pure and
- * laser-focused on each handler's auth/validation/branch logic. We assert on
- * concrete Response status codes + JSON bodies (handlers return via errorJson()
- * / json()), and we assert that NOTHING is persisted when validation fails and
- * that the plaintext token is never echoed.
+ * The GitHub client, the spawn bridge, the db-query layer, the host-only
+ * secrets store (setSecret / deleteSecret), and the bus-registry are all mocked
+ * so the tests are pure and laser-focused on each handler's auth/validation/
+ * branch logic. We assert on concrete Response status codes + JSON bodies
+ * (handlers return via errorJson() / json()), and we assert that NOTHING is
+ * persisted when validation fails and that the plaintext token is never echoed.
  */
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../../../../../../src/__tests__/helpers/mock-cleanup";
@@ -44,13 +44,25 @@ let scopeResponse: Response | null = null;
 let projectsById: Record<string, { id: string; name: string }> = {};
 let linkByProject: Record<string, any> = {};
 let proposalsById: Record<string, any> = {};
-// When true, the upsertSetting mock throws — exercises the connect handler's
+// When true, the setSecret mock throws — exercises the connect handler's
 // token-persist failure branch (→ 500, link NOT upserted).
-let upsertSettingThrows = false;
+let setSecretThrows = false;
 
-// Captured side effects.
-const upsertSettingCalls: Array<{ key: string; value: unknown }> = [];
-const deleteSettingCalls: string[] = [];
+// Captured side effects. Each secrets-store call records its full scope coords
+// so we can assert (extensionId, projectId, name[, value], userId).
+const setSecretCalls: Array<{
+  extensionId: string;
+  projectId: string | null;
+  name: string;
+  value: string;
+  userId: string | null | undefined;
+}> = [];
+const deleteSecretCalls: Array<{
+  extensionId: string;
+  projectId: string | null;
+  name: string;
+  userId: string | null | undefined;
+}> = [];
 const upsertLinkCalls: any[] = [];
 const updateLinkCalls: Array<{ id: string; patch: any }> = [];
 const setEnabledCalls: Array<{ id: string; enabled: boolean }> = [];
@@ -146,17 +158,24 @@ mock.module("$server/integrations/github-projects/spawn", () => ({
   },
 }));
 
-mock.module("$server/providers/encryption", () => ({
-  encrypt: (plain: string) => `ENC(${plain})`,
-}));
-
-mock.module("$server/db/queries/settings", () => ({
-  upsertSetting: async (key: string, value: unknown) => {
-    if (upsertSettingThrows) throw new Error("settings write failed");
-    upsertSettingCalls.push({ key, value });
+mock.module("$server/extensions/secrets-store", () => ({
+  setSecret: async (
+    extensionId: string,
+    projectId: string | null,
+    name: string,
+    value: string,
+    opts?: { userId?: string | null },
+  ) => {
+    if (setSecretThrows) throw new Error("secret write failed");
+    setSecretCalls.push({ extensionId, projectId, name, value, userId: opts?.userId });
   },
-  deleteSetting: async (key: string) => {
-    deleteSettingCalls.push(key);
+  deleteSecret: async (
+    extensionId: string,
+    projectId: string | null,
+    name: string,
+    opts?: { userId?: string | null },
+  ) => {
+    deleteSecretCalls.push({ extensionId, projectId, name, userId: opts?.userId });
     return true;
   },
 }));
@@ -195,9 +214,9 @@ beforeEach(() => {
   projectsById = { "proj-1": { id: "proj-1", name: "Proj One" } };
   linkByProject = {};
   proposalsById = {};
-  upsertSettingThrows = false;
-  upsertSettingCalls.length = 0;
-  deleteSettingCalls.length = 0;
+  setSecretThrows = false;
+  setSecretCalls.length = 0;
+  deleteSecretCalls.length = 0;
   upsertLinkCalls.length = 0;
   updateLinkCalls.length = 0;
   setEnabledCalls.length = 0;
@@ -246,16 +265,22 @@ async function run(handler: any, event: any): Promise<Response> {
 
 // ════════════════════════ connect ════════════════════════
 describe("POST connect", () => {
-  test("happy path (pat): resolves, validates, encrypts + stores token, upserts link", async () => {
+  test("happy path (pat): resolves, validates, stores token in secrets store, upserts link", async () => {
     const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "https://github.com/orgs/acme/projects/7", authMode: "pat", token: "ghp_secret" } }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toMatchObject({ boardTitle: "Roadmap", ownerLogin: "acme", scopes: ["repo", "project"] });
     expect(body.statusOptions).toHaveLength(2);
-    // Token was encrypted + stored, NOT echoed.
-    expect(upsertSettingCalls).toHaveLength(1);
-    expect(upsertSettingCalls[0].key).toContain("proj-1");
-    expect(upsertSettingCalls[0].value).toBe("ENC(ghp_secret)");
+    // Token was stored via the secrets store at the right (project) scope, NOT
+    // echoed. No userId → the PAT is project-scoped so the daemon can read it.
+    expect(setSecretCalls).toHaveLength(1);
+    expect(setSecretCalls[0]).toEqual({
+      extensionId: "github-projects",
+      projectId: "proj-1",
+      name: "apiToken",
+      value: "ghp_secret",
+      userId: undefined,
+    });
     expect(JSON.stringify(body)).not.toContain("ghp_secret");
     expect(upsertLinkCalls).toHaveLength(1);
     expect(upsertLinkCalls[0].authMode).toBe("pat");
@@ -265,8 +290,14 @@ describe("POST connect", () => {
   test("gh mode: stores NO token, purges any stale token, upserts link", async () => {
     const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "gh" } }));
     expect(res.status).toBe(200);
-    expect(upsertSettingCalls).toHaveLength(0);
-    expect(deleteSettingCalls).toHaveLength(1); // stale-PAT purge
+    expect(setSecretCalls).toHaveLength(0);
+    expect(deleteSecretCalls).toHaveLength(1); // stale-PAT purge
+    expect(deleteSecretCalls[0]).toEqual({
+      extensionId: "github-projects",
+      projectId: "proj-1",
+      name: "apiToken",
+      userId: undefined,
+    });
     expect(upsertLinkCalls[0].authMode).toBe("gh");
   });
 
@@ -320,14 +351,14 @@ describe("POST connect", () => {
     const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "gh" } }));
     expect(res.status).toBe(404);
     expect(upsertLinkCalls).toHaveLength(0);
-    expect(upsertSettingCalls).toHaveLength(0);
+    expect(setSecretCalls).toHaveLength(0);
   });
 
   test("auth validation throws → 401, nothing persisted", async () => {
     validateAuthImpl = async () => { throw new Error("net"); };
     const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "t" } }));
     expect(res.status).toBe(401);
-    expect(upsertSettingCalls).toHaveLength(0);
+    expect(setSecretCalls).toHaveLength(0);
     expect(upsertLinkCalls).toHaveLength(0);
   });
 
@@ -337,12 +368,12 @@ describe("POST connect", () => {
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.missingScopes).toEqual(["project"]);
-    expect(upsertSettingCalls).toHaveLength(0);
+    expect(setSecretCalls).toHaveLength(0);
     expect(upsertLinkCalls).toHaveLength(0);
   });
 
   test("token persist throws → 500, link NOT upserted", async () => {
-    upsertSettingThrows = true;
+    setSecretThrows = true;
     const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "ghp_secret" } }));
     expect(res.status).toBe(500);
     const body = await res.json();
@@ -495,7 +526,9 @@ describe("DELETE link", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ disconnected: true, cancelledProposals: 2 });
-    expect(deleteSettingCalls).toHaveLength(1);
+    expect(deleteSecretCalls).toEqual([
+      { extensionId: "github-projects", projectId: "proj-1", name: "apiToken", userId: undefined },
+    ]);
     expect(cancelActiveCalls).toEqual(["link-1"]);
     expect(deleteLinkCalls).toEqual(["link-1"]);
     expect(emitCalls).toHaveLength(1);

@@ -1,7 +1,7 @@
 // Integration tests for src/extensions/github-projects-handler.ts.
 //
 // Real PGlite + real DB queries (github-projects.ts + conversations.ts) +
-// mocked GitHub client / spawn bridge / settings + decrypt (no network, no gh).
+// mocked GitHub client / spawn bridge / secrets store (no network, no gh).
 // Proves a ticket verb resolves the link by the CONVERSATION's projectId (never
 // from params), and a control verb mutates the right row with owner-gating.
 //
@@ -33,11 +33,9 @@ mock.module("../../db/connection", () => ({
 }));
 
 // ── Mocked external collaborators (no real network / gh / crypto) ────
-mock.module("../../db/queries/settings", () => ({
-  getSetting: async () => "enc:tok",
-}));
-mock.module("../../providers/encryption", () => ({
-  decrypt: (s: string) => `plain(${s})`,
+// The host-only secrets store: `resolveAuth` reads the PAT through it.
+mock.module("../secrets-store", () => ({
+  getSecret: async () => "ghp_token",
 }));
 
 // In-file restore pattern (mock-cleanup-coverage): client + spawn are NOT in

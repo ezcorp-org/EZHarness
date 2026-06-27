@@ -6,10 +6,11 @@
 // only (the integration suite isn't in it), leaving those lines uncovered.
 //
 // This small file exercises the DEFAULT impl: real PGlite + real query layer +
-// the real `getDb()`-backed `defaultLinksByUser`, with client/spawn/settings/
-// decrypt stubbed so nothing touches the network, `gh`, or the encryption key.
-// A `github_projects_links` row is seeded via the REAL `upsertLink` query whose
-// `createdByUserId` matches the ctx userId; `dashboard-data` then returns it.
+// the real `getDb()`-backed `defaultLinksByUser`, with client/spawn stubbed so
+// nothing touches the network or `gh`. `dashboard-data` never resolves auth, so
+// no secrets-store stub is needed here. A `github_projects_links` row is seeded
+// via the REAL `upsertLink` query whose `createdByUserId` matches the ctx
+// userId; `dashboard-data` then returns it.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
@@ -31,12 +32,6 @@ mockDbConnection();
 const REAL_CLIENT = { ...(await import("../../integrations/github-projects/client")) };
 const REAL_SPAWN = { ...(await import("../../integrations/github-projects/spawn")) };
 
-mock.module("../../db/queries/settings", () => ({
-  getSetting: async () => "enc:tok",
-}));
-mock.module("../../providers/encryption", () => ({
-  decrypt: (s: string) => `plain(${s})`,
-}));
 mock.module("../../integrations/github-projects/client", () => ({
   createGithubClient: (): GithubClient => ({
     resolveBoardFromUrl: async () => ({

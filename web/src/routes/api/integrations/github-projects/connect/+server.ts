@@ -6,9 +6,10 @@
  * Resolve the pasted board URL → board ref, then VALIDATE the auth against
  * that board (the single egress call; it MUST succeed before anything is
  * persisted). On a scope failure we return the named missing scopes and store
- * NOTHING. On success: for `authMode==='pat'` the token is `encrypt()`-ed and
- * written to `githubTokenSettingKey(projectId)`; for `gh` no token is stored
- * (the daemon resolves `gh auth token` host-side). Then upsert the link.
+ * NOTHING. On success: for `authMode==='pat'` the token is written to the
+ * scope-isolated secrets store (`setSecret`, AAD-bound to this extension +
+ * project); for `gh` no token is stored (the daemon resolves `gh auth token`
+ * host-side). Then upsert the link.
  *
  * The plaintext token is NEVER echoed back; the response carries only the
  * resolved board metadata + granted scopes.
@@ -24,9 +25,7 @@ import type {
   GithubAuth,
   GithubAuthMode,
 } from "$server/integrations/github-projects/types";
-import { githubTokenSettingKey } from "$server/integrations/github-projects/types";
-import { encrypt } from "$server/providers/encryption";
-import { upsertSetting } from "$server/db/queries/settings";
+import { setSecret, deleteSecret } from "$server/extensions/secrets-store";
 import { upsertLink } from "$server/db/queries/github-projects";
 import { logger } from "$server/logger";
 
@@ -101,20 +100,27 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     });
   }
 
-  // 3. Persist. Encrypt + store the PAT FIRST (so a link never points at a
-  //    board with no usable credential), then upsert the link.
+  // 3. Persist. Store the PAT FIRST (so a link never points at a board with no
+  //    usable credential), then upsert the link. The secrets store encrypts
+  //    (AAD-bound) + audits SECRET_SET.
+  //
+  // The PAT is PROJECT-scoped, not user-scoped (no `userId` in the secret's
+  // scope): the poller daemon resolves it with no user context, and any user in
+  // the project shares one board credential. (`opts.userId` in the store is BOTH
+  // the row's scope userId AND the audit actor — passing it here would file the
+  // secret in a per-user slot the daemon could never read. Audit actor is the
+  // system here, mirroring Phase 0's global-scoped backfill.)
   if (authMode === "pat") {
     try {
-      await upsertSetting(githubTokenSettingKey(projectId), encrypt(token));
+      await setSecret("github-projects", projectId, "apiToken", token);
     } catch (err) {
       log.warn("token persist failed", { error: err instanceof Error ? err.message : "err" });
       return errorJson(500, "Failed to store credentials");
     }
   } else {
-    // Re-connecting from PAT → gh must not leave a stale encrypted PAT behind.
-    // deleteSetting is idempotent; a missing key is a no-op.
-    const { deleteSetting } = await import("$server/db/queries/settings");
-    await deleteSetting(githubTokenSettingKey(projectId)).catch(() => {});
+    // Re-connecting from PAT → gh must not leave a stale stored PAT behind.
+    // deleteSecret is idempotent; a missing secret is a no-op.
+    await deleteSecret("github-projects", projectId, "apiToken").catch(() => {});
   }
 
   const link = await upsertLink({

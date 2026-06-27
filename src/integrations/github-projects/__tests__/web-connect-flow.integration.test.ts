@@ -3,15 +3,17 @@
  * disconnect lifecycle against a REAL PGlite database, with ONLY the GitHub
  * client mocked. Proves the security-critical guarantees end to end:
  *
- *   - the PAT is stored ENCRYPTED at rest (the settings row never holds the
- *     plaintext, and `decrypt()` round-trips it),
+ *   - the PAT is stored ENCRYPTED at rest in the scope-isolated secrets store
+ *     (the `extension_secrets` row holds AAD-bound ciphertext, never the
+ *     plaintext, and `decryptWithAad` round-trips it under the right scope),
  *   - the link row carries the resolved board metadata,
  *   - pause (enabled=false) keeps the board + token but flips the flag,
- *   - disconnect PURGES the token setting, CANCELS active proposals, and DROPS
+ *   - disconnect PURGES the stored token, CANCELS active proposals, and DROPS
  *     the link.
  *
  * The route handlers are exercised directly (the same code the HTTP layer
- * calls), so this is a true integration of handler ⇄ queries ⇄ encryption ⇄ DB.
+ * calls), so this is a true integration of handler ⇄ queries ⇄ secrets store ⇄
+ * DB.
  */
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
@@ -19,7 +21,10 @@ import {
   setupTestDb,
   closeTestDb,
   mockDbConnection,
+  getTestDb,
 } from "../../../__tests__/helpers/test-pglite";
+import { extensions } from "../../../db/schema";
+import { sql } from "drizzle-orm";
 
 // Real DB-backed connection for every query module under test.
 mockDbConnection();
@@ -63,8 +68,7 @@ mock.module("$lib/server/security/api-keys", () => ({
 mock.module("$server/auth/middleware", () => require("../../../auth/middleware"));
 mock.module("$server/db/queries/projects", () => require("../../../db/queries/projects"));
 mock.module("$server/db/queries/github-projects", () => require("../../../db/queries/github-projects"));
-mock.module("$server/db/queries/settings", () => require("../../../db/queries/settings"));
-mock.module("$server/providers/encryption", () => require("../../../providers/encryption"));
+mock.module("$server/extensions/secrets-store", () => require("../../../extensions/secrets-store"));
 mock.module("$server/integrations/github-projects/client", () => require("../client"));
 mock.module("$server/integrations/github-projects/spawn", () => require("../spawn"));
 mock.module("$server/integrations/github-projects/types", () => require("../types"));
@@ -74,12 +78,20 @@ mock.module("$server/logger", () => require("../../../logger"));
 // Real query modules + helpers (DB-backed via mockDbConnection).
 const { createProject } = await import("../../../db/queries/projects");
 const { createUser } = await import("../../../db/queries/users");
-const { getSetting } = await import("../../../db/queries/settings");
+// The host-only secrets store: read the stored PAT plaintext for assertions.
+const { getSecret } = await import("../../../extensions/secrets-store");
+const { getSecretRow } = await import("../../../db/queries/extension-secrets");
+const { decryptWithAad } = await import("../../../providers/encryption");
 const { getLinkByProjectId, insertProposalIfNew, getProposalById } = await import(
   "../../../db/queries/github-projects"
 );
-const { decrypt } = await import("../../../providers/encryption");
-const { githubTokenSettingKey, githubProposalDedupeKey } = await import("../types");
+const { githubProposalDedupeKey } = await import("../types");
+
+const GH_EXT = "github-projects";
+/** Read the raw stored secret row for the project's PAT (host-only). */
+async function patSecretRow(pid: string) {
+  return getSecretRow({ extensionId: GH_EXT, projectId: pid, userId: null, name: "apiToken" });
+}
 
 // Route handlers (the code the HTTP layer runs).
 const { POST: connect } = await import(
@@ -115,6 +127,22 @@ beforeEach(async () => {
   validationResult = { ok: true, scopes: ["repo", "project"], missingScopes: [] };
   // The link's created_by_user_id FKs users.id — seed the acting user.
   await createUser({ id: USER.id, email: USER.email, passwordHash: "x", name: USER.name, role: USER.role });
+  // `extension_secrets.extension_id` FKs `extensions.name` — seed the bundled
+  // github-projects extension row so the store's INSERT has its FK parent.
+  await getTestDb().insert(extensions).values({
+    name: GH_EXT,
+    version: "1.0.0",
+    source: "test:fixture",
+    manifest: sql`${JSON.stringify({
+      schemaVersion: 2,
+      name: GH_EXT,
+      version: "1.0.0",
+      description: "",
+      author: { name: "test" },
+      kind: "subprocess",
+      entrypoint: { command: ["true"] },
+    })}::jsonb`,
+  });
   const proj = await createProject({ name: "Integ Project", path: "/tmp/integ" });
   projectId = proj.id;
 });
@@ -131,12 +159,14 @@ describe("github-projects connect lifecycle (real DB)", () => {
     // The response NEVER contains the plaintext token.
     expect(JSON.stringify(body)).not.toContain(secret);
 
-    // The settings row is CIPHERTEXT (not the plaintext) and decrypts back.
-    const stored = (await getSetting(githubTokenSettingKey(projectId))) as string;
-    expect(stored).toBeDefined();
-    expect(stored).not.toContain(secret);
-    expect(stored).toMatch(/^v1:/); // encryption format tag
-    expect(decrypt(stored)).toBe(secret);
+    // The stored secret row is AAD-bound CIPHERTEXT (not the plaintext) and
+    // decrypts back only under the github-projects + project scope.
+    const row = await patSecretRow(projectId);
+    expect(row).toBeDefined();
+    expect(row!.ciphertext).not.toContain(secret);
+    expect(decryptWithAad(row!.ciphertext, `${GH_EXT}:${projectId}`)).toBe(secret);
+    // The host-only store read returns the plaintext.
+    expect(await getSecret(GH_EXT, projectId, "apiToken")).toBe(secret);
 
     // The link row carries the resolved board metadata.
     const link = await getLinkByProjectId(projectId);
@@ -153,7 +183,7 @@ describe("github-projects connect lifecycle (real DB)", () => {
       ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "t" } }),
     );
     expect(res.status).toBe(403);
-    expect(await getSetting(githubTokenSettingKey(projectId))).toBeUndefined();
+    expect(await getSecret(GH_EXT, projectId, "apiToken")).toBeNull();
     expect(await getLinkByProjectId(projectId)).toBeNull();
   });
 
@@ -172,7 +202,7 @@ describe("github-projects connect lifecycle (real DB)", () => {
     const link = await getLinkByProjectId(projectId);
     expect(link?.enabled).toBe(false);
     // Pause keeps the credential.
-    expect(await getSetting(githubTokenSettingKey(projectId))).toBeDefined();
+    expect(await getSecret(GH_EXT, projectId, "apiToken")).toBe("tok");
   });
 
   test("disconnect PURGES the token, CANCELS active proposals, and DROPS the link", async () => {
@@ -201,7 +231,7 @@ describe("github-projects connect lifecycle (real DB)", () => {
     expect(body.cancelledProposals).toBe(1);
 
     // Token purged.
-    expect(await getSetting(githubTokenSettingKey(projectId))).toBeUndefined();
+    expect(await getSecret(GH_EXT, projectId, "apiToken")).toBeNull();
     // Link dropped.
     expect(await getLinkByProjectId(projectId)).toBeNull();
     // Proposal CASCADE-deleted with the link (link delete cascades proposals).
@@ -210,11 +240,11 @@ describe("github-projects connect lifecycle (real DB)", () => {
 
   test("re-connect from pat → gh purges the stale encrypted PAT", async () => {
     await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
-    expect(await getSetting(githubTokenSettingKey(projectId))).toBeDefined();
+    expect(await getSecret(GH_EXT, projectId, "apiToken")).toBe("tok");
 
     await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "gh" } }));
     // The stale PAT is gone; the link is now gh-mode.
-    expect(await getSetting(githubTokenSettingKey(projectId))).toBeUndefined();
+    expect(await getSecret(GH_EXT, projectId, "apiToken")).toBeNull();
     expect((await getLinkByProjectId(projectId))?.authMode).toBe("gh");
   });
 });

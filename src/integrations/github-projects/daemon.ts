@@ -11,7 +11,8 @@
  * returned by `listEnabledLinks`):
  *   - skip the link unless it is DUE (`now - lastPolledAt >= pollIntervalSec`)
  *     and not inside a rate-limit back-off window,
- *   - resolve host-only auth (decrypt a stored PAT, or shell `gh auth token`),
+ *   - resolve host-only auth (read the stored PAT from the secrets store, or
+ *     shell `gh auth token`),
  *   - `client.fetchBoardItems(boardNodeId, auth, pollCursor)`,
  *   - diff each item: it TRIGGERS when its current `statusOptionId` is a key in
  *     the link's `columnActionMap` AND it is newly in that state (first sight,
@@ -35,8 +36,7 @@ import {
   insertProposalIfNew,
   updateLinkPollState,
 } from "../../db/queries/github-projects";
-import { getSetting } from "../../db/queries/settings";
-import { decrypt } from "../../providers/encryption";
+import { getSecret } from "../../extensions/secrets-store";
 import { createGithubClient } from "./client";
 import { approveProposal as defaultApproveProposal, type ProposalActor } from "./spawn";
 import {
@@ -45,7 +45,6 @@ import {
   GithubRateLimitError,
   GITHUB_PROJECTS_EVENT,
   githubProposalDedupeKey,
-  githubTokenSettingKey,
   type GithubAuth,
   type GithubBoardItem,
   type GithubClient,
@@ -273,19 +272,16 @@ export class GithubProjectsDaemon {
     return { statusOptionId, column };
   }
 
-  /** Resolve the host-only bearer for a link (PAT decrypt, or `gh auth token`). */
+  /** Resolve the host-only bearer for a link (PAT from the secrets store, or
+   *  `gh auth token`). */
   private async resolveAuth(link: GithubProjectsLink): Promise<GithubAuth> {
     if (link.authMode === "gh") {
       const token = (await this.runGhAuthToken()).trim();
       if (!token) throw new GithubAuthError("gh auth token returned empty output");
       return { mode: "gh", token };
     }
-    const stored = await getSetting(githubTokenSettingKey(link.projectId));
-    if (typeof stored !== "string" || stored.length === 0) {
-      throw new GithubAuthError("no PAT stored for project");
-    }
-    const token = decrypt(stored);
-    if (!token) throw new GithubAuthError("decrypted PAT is empty");
+    const token = await getSecret("github-projects", link.projectId, "apiToken");
+    if (!token) throw new GithubAuthError("no PAT stored for project");
     return { mode: "pat", token };
   }
 
