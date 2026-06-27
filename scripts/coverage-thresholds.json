@@ -188,5 +188,7 @@
   "web/src/routes/api/integrations/github-projects/proposals/+server.ts": 100,
   "web/src/routes/api/integrations/github-projects/proposals/[id]/approve/+server.ts": 100,
   "web/src/routes/api/integrations/github-projects/proposals/[id]/dismiss/+server.ts": 100,
+  "src/db/queries/extension-secrets.ts": 100,
+  "src/extensions/secrets-store.ts": 100,
   "web/src/lib/**": 90
 }

@@ -45,6 +45,14 @@ mapfile -t FILES < <({
   find src/integrations/github-projects/__tests__ -name "*.test.ts" ! -name "*integration*"
   find src/extensions/__tests__ -name "github-projects-handler*.test.ts" ! -name "*integration*"
   find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
+  # extension-secrets (Phase 0): the secrets-store coverage test lives next to
+  # its source under src/extensions/__tests__ (the queries test under
+  # src/__tests__ is already caught above). Integration variants are excluded
+  # from the coverage leg per the github-projects convention. The web
+  # entry-route tests (Phase 1B) land in the extensions __tests__ dir — empty
+  # today, so this find is a no-op until then.
+  find src/extensions/__tests__ -name "secrets-*.test.ts" ! -name "*integration*"
+  find web/src/routes/api/extensions/__tests__ -name "*.test.ts"
   printf '%s\n' \
     web/src/__tests__/snippet-sanitize.test.ts \
     web/src/__tests__/search-mode.test.ts \

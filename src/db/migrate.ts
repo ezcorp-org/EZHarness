@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { backfillGithubProjectsApiTokens } from "../extensions/secrets-store";
 
 export async function migrate(db: any): Promise<void> {
   // Enable pgvector extension (must be before any vector column usage)
@@ -1522,6 +1523,31 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
   `);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_briefing_ready ON briefing_configs(enabled, next_fire_at)`);
 
+  // ── Extension secrets (scope-isolated, AEAD-bound credential store) ──
+  // See src/db/migrations/add-extension-secrets.ts for the rationale.
+  // `extension_id` stores the stable manifest SLUG (FK to extensions.name),
+  // NOT the UUID extensions.id. The ciphertext is AES-256-GCM with the
+  // `extensionId:projectId` scope bound as AAD, so a row copied to another
+  // scope fails to decrypt (see src/extensions/secrets-store.ts). Placed
+  // after extensions / projects / users so all three FK targets exist.
+  // Idempotent. The COALESCE-unique scope index treats NULL project/user as
+  // a single value (a plain UNIQUE would let every NULL collide-free) — so
+  // the query layer uses select-then-write, not ON CONFLICT.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS extension_secrets (
+      id TEXT PRIMARY KEY,
+      extension_id TEXT NOT NULL REFERENCES extensions(name) ON DELETE CASCADE,
+      project_id   TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      user_id      TEXT REFERENCES users(id) ON DELETE CASCADE,
+      name         TEXT NOT NULL,
+      ciphertext   TEXT NOT NULL,
+      created_at   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      last_used_at TIMESTAMP WITH TIME ZONE,
+      rotated_at   TIMESTAMP WITH TIME ZONE
+    )
+  `);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_extension_secrets_scope ON extension_secrets (extension_id, COALESCE(project_id,''), COALESCE(user_id,''), name)`);
+
   // ── GitHub Projects integration (per-project board link + proposal queue) ──
   // See src/db/migrations/add-github-projects.ts for the rationale.
   // `github_projects_links` — one connected GitHub Projects v2 board per
@@ -1584,4 +1610,13 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_gh_proposals_dedupe ON github_projects_proposals(dedupe_key)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_project_status ON github_projects_proposals(project_id, status)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_link ON github_projects_proposals(link_id)`);
+
+  // One-shot, idempotent backfill: move any pre-existing github-projects PATs
+  // out of the broadly-readable `settings` table into the scope-isolated,
+  // AEAD-bound extension_secrets store. Runs LAST (every FK target exists by
+  // now) and takes the migrate `db` handle directly — getDb() is not
+  // guaranteed wired during the migrate pass, so the backfill must use the
+  // passed executor for all its SQL. A second run finds no matching keys and
+  // is a no-op.
+  await backfillGithubProjectsApiTokens(db);
 }

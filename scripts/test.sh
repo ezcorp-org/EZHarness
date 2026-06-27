@@ -46,6 +46,12 @@ mapfile -t FILES < <({
   find src/integrations/github-projects/__tests__ -name "*.test.ts"
   find src/extensions/__tests__ -name "github-projects-handler*.test.ts"
   find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
+  # extension-secrets (Phase 0): the secrets-store test lives next to its
+  # source under src/extensions/__tests__ (the queries test under src/__tests__
+  # is already caught above). The web entry-route tests (Phase 1B) land in the
+  # extensions __tests__ dir — empty today, so this find is a no-op until then.
+  find src/extensions/__tests__ -name "secrets-*.test.ts"
+  find web/src/routes/api/extensions/__tests__ -name "*.test.ts"
 } | sort)
 
 TMPDIR=$(mktemp -d)

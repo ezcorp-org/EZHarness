@@ -120,6 +120,10 @@ describe("extension audit action constants", () => {
       "SDK_SEARCH_EGRESS_BLOCKED",
       // Shared-search Phase 2 — policy resolver quota / provider denial
       "SDK_SEARCH_QUOTA_EXCEEDED",
+      // Extension secrets (Phase 0) — scope-isolated, AAD-bound cred store
+      "SECRET_SET",
+      "SECRET_USED",
+      "SECRET_DELETED",
     ]));
   });
 

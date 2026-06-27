@@ -513,6 +513,18 @@ export const EXT_AUDIT_ACTIONS = {
    * trail covers crashed-mid-migration straggler cleanup as well.
    */
   ENTITY_NAMESPACE_MIGRATION: "ext:entity-namespace-migrated",
+  // ── Extension secrets (scope-isolated, AEAD-bound credential store) ──
+  /** A secret was written or rotated via the host-side secrets store
+   *  (`setSecret`). Metadata: `{projectId, name}` — never the value. */
+  SECRET_SET: "ext:secret-set",
+  /** A stored secret's plaintext was read by the host (`getSecret`). Emitted
+   *  at most once per ~60s per secret (debounced alongside the lastUsedAt
+   *  touch) so high-frequency reads don't flood the audit log. Metadata:
+   *  `{projectId, name}`. */
+  SECRET_USED: "ext:secret-used",
+  /** A stored secret was deleted via the host-side store (`deleteSecret`).
+   *  Metadata: `{projectId, name}`. */
+  SECRET_DELETED: "ext:secret-deleted",
 } as const;
 
 // Re-export the three Phase 1 PDP action codes as named constants for

@@ -164,6 +164,11 @@ describe("registry ⇄ filesystem parity", () => {
     "GET /api/warmup",              // disk: POST
     "PATCH /api/conversations/:id", // disk: PUT
     "POST /api/quickstart",         // disk: GET
+    // Extension-secrets entry route — registered in Phase 0 (the storage
+    // primitive) so the OpenAPI contract is centralized; the handler lands
+    // in Phase 1B, which REMOVES these two lines when it adds the +server.ts.
+    "POST /api/extensions/:id/secrets",
+    "DELETE /api/extensions/:id/secrets",
   ]);
 
   test("no NEW stale registry entry (registered routes exist on disk)", () => {

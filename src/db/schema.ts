@@ -1313,3 +1313,32 @@ export const githubProjectsProposals = pgTable("github_projects_proposals", {
 
 export type GithubProjectsProposal = typeof githubProjectsProposals.$inferSelect;
 export type NewGithubProjectsProposal = typeof githubProjectsProposals.$inferInsert;
+
+// ── Extension secrets ──────────────────────────────────────────────────
+// Dedicated, scope-isolated, AEAD-bound credential store for extensions
+// (third-party API tokens etc.). The ciphertext is AES-256-GCM with the
+// `extensionId:projectId` scope bound as AAD (see encryptWithAad in
+// src/providers/encryption.ts) — a row copied into another scope fails to
+// decrypt. Plaintext is reachable ONLY via the host-side store
+// (src/extensions/secrets-store.ts `getSecret`); it is NEVER wired to the
+// extension sandbox. `extension_id` stores the stable manifest slug (e.g.
+// "github-projects"), NOT the UUID `extensions.id`. The scope tuple
+// (extension_id, project_id, user_id, name) is UNIQUE — the COALESCE-unique
+// form lives in the raw migration (src/db/migrations/add-extension-secrets.ts),
+// which is the source of truth for the FK + index.
+export const extensionSecrets = pgTable("extension_secrets", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  extensionId: text("extension_id").notNull().references(() => extensions.name, { onDelete: "cascade" }), // stores the stable slug, NOT the UUID id
+  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  ciphertext: text("ciphertext").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: "date" }),
+  rotatedAt: timestamp("rotated_at", { withTimezone: true, mode: "date" }),
+}, (table) => [
+  uniqueIndex("idx_extension_secrets_scope").on(table.extensionId, table.projectId, table.userId, table.name),
+]);
+
+export type ExtensionSecret = typeof extensionSecrets.$inferSelect;
+export type NewExtensionSecret = typeof extensionSecrets.$inferInsert;
