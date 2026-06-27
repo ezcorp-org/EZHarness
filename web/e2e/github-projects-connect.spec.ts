@@ -1,5 +1,5 @@
-import { test, expect } from "./fixtures/test-base.js";
-import { makeProject } from "./fixtures/data.js";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { makeProject, makeExtension } from "./fixtures/data.js";
 import type { Page } from "@playwright/test";
 
 /**
@@ -8,6 +8,12 @@ import type { Page } from "@playwright/test";
  * mocked `/api/integrations/github-projects/*` endpoints: empty → connect →
  * connected banner + scopes → column→action editor (auto-spawn OFF default +
  * loud warning) → pause → disconnect.
+ *
+ * Also covers UX-B (extension-secrets Phase 1C): the top-level nav item is
+ * gone, so the connect surface is reached from the extension detail page and
+ * Project Settings, and a connected PAT shows a MASKED saved-state with a
+ * "Replace token" affordance. The `@evidence`-tagged test captures a
+ * screenshot of the masked/replace state for the Visual-evidence gate.
  */
 
 const proj = makeProject({ id: "proj-gh", name: "Acme Web" });
@@ -176,5 +182,97 @@ test.describe("GitHub Projects connect sub-route", () => {
 		page.on("dialog", (d) => d.accept()); // confirm()
 		await page.getByTestId("gh-projects-disconnect").click();
 		await expect(page.getByTestId("gh-projects-connect-form")).toBeVisible();
+	});
+
+	// ── UX-B: connect form, masked saved-state + replace-token, evidence ──
+	test("connect form shows the token field; connected PAT shows a masked saved-state + replace-token toggle @evidence", async ({ page, mockApi }, testInfo) => {
+		await mockApi({ projects: [proj] });
+		const state = await installGhRoutes(page);
+		await page.goto(CONNECT_PATH);
+
+		// Empty state: the connect form + password token field (testid
+		// `gh-projects-token`) are visible.
+		await expect(page.getByTestId("gh-projects-connect-form")).toBeVisible();
+		const tokenField = page.getByTestId("gh-projects-token");
+		await expect(tokenField).toBeVisible();
+		await expect(tokenField).toHaveAttribute("type", "password");
+
+		// Connect with a PAT → connected state with a MASKED saved indicator.
+		// The stored token is never echoed to the client, so the masked dots
+		// are generic — assert the indicator, NOT any real token characters.
+		await page.getByTestId("gh-projects-board-url").fill("https://github.com/orgs/acme/projects/7");
+		await tokenField.fill("github_pat_secret");
+		await page.getByTestId("gh-projects-connect").click();
+
+		await expect(page.getByTestId("gh-projects-connected-banner")).toBeVisible();
+		const masked = page.getByTestId("gh-projects-token-masked");
+		await expect(masked).toBeVisible();
+		await expect(masked).toContainText("saved");
+		// The real PAT must never be rendered back into the page.
+		await expect(masked).not.toContainText("github_pat_secret");
+
+		// "Replace token" re-reveals a password input (same testid) so the
+		// user can paste a NEW PAT and re-submit via the existing connect flow.
+		await page.getByTestId("gh-projects-replace-token").click();
+		await expect(page.getByTestId("gh-projects-replace-form")).toBeVisible();
+		const replaceField = page.getByTestId("gh-projects-token");
+		await expect(replaceField).toBeVisible();
+		await expect(replaceField).toHaveAttribute("type", "password");
+
+		// Capture evidence of the connected + replace-token state (hard no-op
+		// unless EZCORP_E2E_EVIDENCE=1).
+		await captureEvidence(page, testInfo, "github-projects-connect");
+
+		// Re-submitting a new token returns to the masked state (replace form
+		// closes), proving the round-trip uses the existing connect flow.
+		await replaceField.fill("github_pat_rotated");
+		await page.getByTestId("gh-projects-replace-submit").click();
+		await expect(page.getByTestId("gh-projects-replace-form")).toHaveCount(0);
+		await expect(page.getByTestId("gh-projects-token-masked")).toBeVisible();
+		// The link stayed connected throughout (replace did not disconnect).
+		expect(state.link).not.toBeNull();
+	});
+
+	// ── UX-B discoverability: extension detail page → connect link ────────
+	test("extension detail page surfaces a per-project connect link for github-projects", async ({ page, mockApi }) => {
+		const ghExt = makeExtension({
+			id: "ext-ghp",
+			name: "github-projects",
+			description: "Connect GitHub Projects boards to EZCorp projects",
+		});
+		await mockApi({ projects: [proj], extensions: [ghExt] });
+		// The per-id extension GET is not part of the default mock surface, and
+		// mockApi's `**/api/**` catch-all returns `{}` for it. Register this
+		// AFTER mockApi so Playwright's last-registered-wins ordering routes the
+		// detail-page load here and the github-projects extension renders.
+		await page.route(`**/api/extensions/${ghExt.id}`, (route) => {
+			if (route.request().method() === "GET") return route.fulfill({ json: ghExt });
+			return route.fulfill({ json: { success: true } });
+		});
+
+		// Land on a project-scoped route first so the store's activeProjectId
+		// is set, then visit the extension detail page.
+		await page.goto(CONNECT_PATH);
+		await page.goto(`/extensions/${ghExt.id}`);
+
+		const link = page.getByTestId("extension-connect-board-link");
+		await expect(page.getByTestId("extension-integration-section")).toBeVisible();
+		await expect(link).toBeVisible();
+		await expect(link).toContainText("Connect a board per project");
+		await expect(link).toHaveAttribute("href", CONNECT_PATH);
+	});
+
+	// ── UX-B discoverability: Project Settings → Integrations section ─────
+	test("project settings exposes an Integrations link with a connected summary", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		const state = await installGhRoutes(page);
+		state.link = connectedLink(); // already connected → summary reflects it
+		await page.goto(`/project/${proj.id}/settings`);
+
+		const section = page.getByTestId("project-settings-integrations");
+		await expect(section).toBeVisible();
+		await expect(page.getByTestId("project-settings-gh-status")).toContainText("Connected: Acme Roadmap");
+		const link = page.getByTestId("project-settings-gh-link");
+		await expect(link).toHaveAttribute("href", CONNECT_PATH);
 	});
 });

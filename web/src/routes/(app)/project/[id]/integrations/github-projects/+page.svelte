@@ -58,6 +58,28 @@
 	let pausing = $state(false);
 	let disconnecting = $state(false);
 
+	// Replace-token affordance (PAT mode only). The stored token is never
+	// sent to the client — the connected state shows a generic masked
+	// indicator (`•••••••• saved`), and "Replace token" re-reveals the
+	// password input so the user can paste a NEW PAT and re-run the existing
+	// connect() flow (which overwrites the stored secret host-side).
+	let replacingToken = $state(false);
+
+	function startReplaceToken() {
+		// Pre-fill the board URL from the saved link so connect()'s
+		// non-empty-URL guard passes; the user only needs to paste the PAT.
+		if (link) boardUrl = link.boardUrl;
+		token = "";
+		connectError = "";
+		replacingToken = true;
+	}
+
+	function cancelReplaceToken() {
+		replacingToken = false;
+		token = "";
+		connectError = "";
+	}
+
 	// Working copy of the column→action map the user edits.
 	let columnMap = $state<Record<string, ColumnAction>>({});
 
@@ -119,6 +141,7 @@
 			grantedScopes = data.scopes ?? [];
 			statusOptions = data.statusOptions ?? [];
 			token = ""; // never keep the PAT in memory longer than the request
+			replacingToken = false; // exit replace-token mode on success
 			await loadLink();
 		} catch (e) {
 			connectError = e instanceof Error ? e.message : "Connect failed";
@@ -259,6 +282,28 @@
 							· <span class="text-amber-400" data-testid="gh-projects-paused-tag">paused</span>
 						{/if}
 					</p>
+					{#if link.authMode === "pat"}
+						<!--
+							Masked saved-state. The stored PAT is purposely never
+							returned to the client (host-side encrypted broker), so
+							we render a GENERIC masked indicator rather than any real
+							token characters. "Replace token" re-reveals the input.
+						-->
+						<p class="mt-1 flex items-center gap-2 text-xs text-[var(--color-text-secondary)]" data-testid="gh-projects-token-masked">
+							<span class="font-mono tracking-widest text-[var(--color-text-muted)]">••••••••</span>
+							<span>saved</span>
+							{#if !replacingToken}
+								<button
+									type="button"
+									onclick={startReplaceToken}
+									data-testid="gh-projects-replace-token"
+									class="rounded border border-[var(--color-border)] px-2 py-0.5 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)]"
+								>
+									Replace token
+								</button>
+							{/if}
+						</p>
+					{/if}
 					{#if grantedScopes.length}
 						<p class="mt-1 text-xs text-[var(--color-text-muted)]" data-testid="gh-projects-granted-scopes">
 							Granted scopes: {grantedScopes.join(", ")}
@@ -291,6 +336,51 @@
 					</button>
 				</div>
 			</div>
+
+			{#if replacingToken}
+				<!--
+					Replace-token inline form. Re-uses the existing connect()
+					flow: the board URL is pre-filled from the saved link, so the
+					user only pastes a NEW fine-grained PAT and submits. connect()
+					overwrites the host-side secret and exits this mode.
+				-->
+				<div class="mt-4 border-t border-[var(--color-border)] pt-4" data-testid="gh-projects-replace-form">
+					<label class="block text-sm text-[var(--color-text-secondary)]">
+						New token
+						<input
+							type="password"
+							bind:value={token}
+							autocomplete="off"
+							placeholder="github_pat_…"
+							data-testid="gh-projects-token"
+							class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"
+						/>
+					</label>
+					{#if connectError}
+						<p class="mt-2 text-sm text-red-400" data-testid="gh-projects-connect-error">{connectError}</p>
+					{/if}
+					<div class="mt-3 flex gap-2">
+						<button
+							type="button"
+							onclick={connect}
+							disabled={connecting}
+							data-testid="gh-projects-replace-submit"
+							class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+						>
+							{connecting ? "Saving…" : "Save new token"}
+						</button>
+						<button
+							type="button"
+							onclick={cancelReplaceToken}
+							disabled={connecting}
+							data-testid="gh-projects-replace-cancel"
+							class="rounded-md px-4 py-2 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50"
+						>
+							Cancel
+						</button>
+					</div>
+				</div>
+			{/if}
 		</section>
 
 		<!-- ── Column → action mapping editor ──────────────────────────── -->
