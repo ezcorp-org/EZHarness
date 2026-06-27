@@ -25,6 +25,11 @@ import { handlePiLessons } from "./lessons-handler";
 import { handlePiSearch } from "./search-handler";
 import { handlePiSchedule } from "./schedule-handler";
 import { handleDraftsRpc, type DraftsContext } from "./drafts-handler";
+import {
+  handleGithubProjectsRpc,
+  type GithubProjectsContext,
+} from "./github-projects-handler";
+import { GITHUB_PROJECTS_RPC_PREFIX } from "../integrations/github-projects/types";
 import { rpcError } from "./json-rpc";
 import {
   handleRuntimeInvoke,
@@ -2086,6 +2091,13 @@ export class ToolExecutor {
       if (req.method === "ezcorp/drafts") {
         return this.handlePiDrafts(extensionId, req);
       }
+      // `ezcorp/github-projects.<verb>` — bundled-only board control plane.
+      // Method names carry the verb suffix (the FROZEN
+      // `GITHUB_PROJECTS_RPC_PREFIX`), so match on the prefix and route the
+      // verb. The handler enforces its own bundled-only allowlist by NAME.
+      if (req.method.startsWith(GITHUB_PROJECTS_RPC_PREFIX)) {
+        return this.handlePiGithubProjects(extensionId, req);
+      }
       return {
         jsonrpc: "2.0" as const,
         id: req.id,
@@ -2301,6 +2313,48 @@ export class ToolExecutor {
     }
 
     return response;
+  }
+
+  /**
+   * Handle a `ezcorp/github-projects.<verb>` reverse-RPC request.
+   *
+   * Bundled-only — the handler gates on `BUNDLED_GITHUB_PROJECTS_ALLOWLIST`
+   * checked AGAINST EXTENSION NAME (host-resolved via
+   * `registry.getManifest(extensionId).name`, never the wire). The verb is the
+   * method's suffix after `GITHUB_PROJECTS_RPC_PREFIX`.
+   *
+   * Provenance (userId / conversationId) is resolved from the host-issued
+   * `ezCallId` correlation token the subprocess echoed back (parity with
+   * `handlePiDrafts` / `handlePiFs`), NOT the process-wide singletons. The
+   * handler derives the board's projectId from `ctx.conversationId` itself —
+   * params never carry a board id (confused-deputy fix).
+   *
+   * See `github-projects-handler.ts` for the full contract.
+   */
+  async handlePiGithubProjects(
+    extensionId: string,
+    req: JsonRpcRequest,
+  ): Promise<JsonRpcResponse> {
+    const granted = this.registry.getGrantedPermissions(extensionId);
+    const manifest = this.registry.getManifest(extensionId);
+    if (!granted || !manifest) {
+      return {
+        jsonrpc: "2.0",
+        id: req.id,
+        error: { code: -32603, message: "Extension not found in registry" },
+      };
+    }
+    const resolved = this.resolveReverseRpcMeta(extensionId, req);
+    if (!resolved.ok) return resolved.errorResponse;
+    const verb = req.method.slice(GITHUB_PROJECTS_RPC_PREFIX.length);
+    const ctx: GithubProjectsContext = {
+      extensionName: manifest.name,
+      extensionId,
+      userId: resolved.onBehalfOf,
+      conversationId: resolved.conversationId,
+      grantedPermissions: granted,
+    };
+    return handleGithubProjectsRpc(verb, req, ctx);
   }
 
   /**

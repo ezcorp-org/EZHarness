@@ -69,6 +69,7 @@ const BUNDLED: readonly BundledEntry[] = [
   { name: "ez-code", path: "docs/extensions/examples/ez-code" },
   { name: "file-organizer", path: "docs/extensions/examples/file-organizer" },
   { name: "ping-loop", path: "docs/extensions/examples/ping-loop" },
+  { name: "github-projects", path: "docs/extensions/examples/github-projects" },
   // Phase 53 bundled ports — live at the milestone-spec'd
   // `extensions/<name>/` path rather than the legacy
   // `docs/extensions/examples/<name>/`. Both are bundled-trust by code
