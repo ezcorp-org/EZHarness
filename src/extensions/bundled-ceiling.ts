@@ -402,6 +402,32 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
     grantedAt: {},
   },
 
+  // github-projects — board control plane. Mirrors the install grant in
+  // `bundled.ts` VERBATIM: storage + the `github-projects:*` page-action +
+  // proposal-update events plus `task:assignment_update` / `run:complete` for
+  // live refresh. NO network / shell / env (all GitHub I/O is host-side). The
+  // manifest's `custom.githubProjects` marker is intentionally NOT mirrored
+  // here (nor in the install grant) — `intersectPermissions` only carries
+  // `custom.drafts` through the clamp, so listing it would force a spurious
+  // ceiling-clamp every boot. The reverse-RPC gate is the bundled-only
+  // `BUNDLED_GITHUB_PROJECTS_ALLOWLIST` (by name) in
+  // `github-projects-handler.ts`, exactly like the bundled `ezcorp/drafts`
+  // handler. The dashboard page is a manifest declaration, not a permission.
+  "github-projects": {
+    eventSubscriptions: [
+      "github-projects:approve",
+      "github-projects:dismiss",
+      "github-projects:pause",
+      "github-projects:resume",
+      "github-projects:refresh",
+      "github-projects:proposal-update",
+      "task:assignment_update",
+      "run:complete",
+    ],
+    storage: true,
+    grantedAt: {},
+  },
+
   // substack-pipeline — sibling to substack-pilot. LLM (WRITER +
   // ILLUSTRATOR stages) + storage (conversation-scoped scratch state
   // between the 3 tools). No network/shell: the URL fetch is delegated

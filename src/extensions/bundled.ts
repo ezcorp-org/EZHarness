@@ -829,6 +829,49 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
       },
     },
   },
+  {
+    // github-projects — connect a GitHub Projects v2 board to the active
+    // project and plan/execute its tickets from a live Hub dashboard. All
+    // GitHub I/O is HOST-SIDE (`src/extensions/github-projects-handler.ts`,
+    // bundled-only via `BUNDLED_GITHUB_PROJECTS_ALLOWLIST`); the subprocess
+    // only emits reverse-RPC intents + renders the Hub page, so its grant is
+    // intentionally tiny: NO network / shell / env.
+    //
+    // `bootSpawn: true` keeps it resident so the daemon's
+    // `github-projects:proposal-update` event + the Hub page-action buttons
+    // reach the subprocess (same rationale as ping-loop). The 6 tools also
+    // spawn it lazily on first chat use.
+    //
+    // The manifest declares `custom.githubProjects` as the reverse-RPC marker,
+    // but the INSTALL grant intentionally OMITS it: `intersectPermissions`
+    // (used by the ceiling clamp) only carries `custom.drafts` through, so a
+    // `custom.githubProjects` grant would be silently dropped → a spurious
+    // ceiling-clamp on every boot. The REAL gate is the bundled-only
+    // `BUNDLED_GITHUB_PROJECTS_ALLOWLIST` (by name) in
+    // `github-projects-handler.ts` — exactly like the bundled `ezcorp/drafts`
+    // handler, whose allowlist (not the custom grant) is the gate. The
+    // dashboard page is a manifest declaration, not a permission.
+    name: "github-projects",
+    path: "docs/extensions/examples/github-projects",
+    bootSpawn: true,
+    permissions: {
+      eventSubscriptions: [
+        "github-projects:approve",
+        "github-projects:dismiss",
+        "github-projects:pause",
+        "github-projects:resume",
+        "github-projects:refresh",
+        "github-projects:proposal-update",
+        "task:assignment_update",
+        "run:complete",
+      ],
+      storage: true,
+      grantedAt: {
+        eventSubscriptions: Date.now(),
+        storage: Date.now(),
+      },
+    },
+  },
 ];
 
 /** Opt-OUT switches: each maps a bundled-extension name to the env var that
