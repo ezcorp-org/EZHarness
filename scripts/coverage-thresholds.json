@@ -16,6 +16,7 @@
   "src/extensions/capability-flags.ts": 100,
   "src/extensions/bundled-drift-reapprove.ts": 100,
   "web/src/routes/api/extensions/[id]/reapprove-drift/+server.ts": 100,
+  "web/src/routes/api/extensions/[id]/secrets/+server.ts": 100,
   "src/extensions/mcp-sandbox.ts": 91,
   "src/extensions/file-organizer-applier.ts": 100,
   "src/extensions/file-organizer-daemon.ts": 100,
