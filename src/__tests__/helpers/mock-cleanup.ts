@@ -76,6 +76,7 @@ const MODULE_PATHS = [
   "../../extensions/sdk/verify",
   "../../extensions/entities/migrate",
   "../../extensions/audit-actions",
+  "../../extensions/secrets-store",
   "../../extensions/storage-handler",
   "../../extensions/security",
   "../../extensions/subprocess",
