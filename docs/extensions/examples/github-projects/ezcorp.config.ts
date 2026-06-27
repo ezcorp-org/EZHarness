@@ -247,6 +247,7 @@ export default defineExtension({
       "github-projects:dismiss",
       "github-projects:pause",
       "github-projects:resume",
+      "github-projects:poll-now",
       "github-projects:refresh",
       "github-projects:proposal-update",
       "task:assignment_update",

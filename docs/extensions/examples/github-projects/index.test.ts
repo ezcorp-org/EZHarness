@@ -18,6 +18,7 @@ import {
   DISMISS_EVENT,
   PAUSE_EVENT,
   RESUME_EVENT,
+  POLL_NOW_EVENT,
   REFRESH_EVENT,
   PAGE_ID,
   RPC,
@@ -29,6 +30,7 @@ import {
   handleDismiss,
   handlePause,
   handleResume,
+  handlePollNow,
   handleRefresh,
   register,
   start,
@@ -272,6 +274,25 @@ describe("buildDashboard", () => {
     const resume = findNode(tree.nodes, (n) => n.type === "button" && (n.action as { event?: string })?.event === RESUME_EVENT);
     expect((resume!.action as { payload?: Record<string, unknown> }).payload).toEqual({ linkId: "l2" });
   });
+
+  test("an enabled board renders a Poll-now button; a paused board does not", () => {
+    const enabled = buildDashboard({
+      proposals: [],
+      boards: [
+        { linkId: "l1", boardTitle: "Roadmap", boardUrl: "u", enabled: true, lastPolledAt: null, lastError: null },
+      ],
+    });
+    const poll = findNode(enabled.nodes, (n) => n.type === "button" && (n.action as { event?: string })?.event === POLL_NOW_EVENT);
+    expect((poll!.action as { payload?: Record<string, unknown> }).payload).toEqual({ linkId: "l1" });
+
+    const paused = buildDashboard({
+      proposals: [],
+      boards: [
+        { linkId: "l2", boardTitle: "Paused", boardUrl: "u", enabled: false, lastPolledAt: null, lastError: null },
+      ],
+    });
+    expect(findNode(paused.nodes, (n) => n.type === "button" && (n.action as { event?: string })?.event === POLL_NOW_EVENT)).toBeUndefined();
+  });
 });
 
 // ── fetchDashboardData ───────────────────────────────────────────────
@@ -350,6 +371,22 @@ describe("page-action handlers", () => {
   test("pause/resume are no-ops without a linkId", async () => {
     await handlePause(actionEvent({}));
     await handleResume(actionEvent({}));
+    expect(rpcCalls.length).toBe(0);
+    expect(pushes.length).toBe(0);
+  });
+
+  test("poll-now calls the poll-now verb + re-pulls + pushes", async () => {
+    rpcResponse = { proposals: [], boards: [] };
+    await handlePollNow(actionEvent({ linkId: "link-1" }));
+    expect(rpcCalls.some((c) => c.method === RPC.pollNow && c.params.linkId === "link-1")).toBe(true);
+    // dashboard-data re-pull + a single push.
+    expect(rpcCalls.some((c) => c.method === RPC.dashboardData)).toBe(true);
+    expect(pushes.length).toBe(1);
+    expect(pushes[0]!.pageId).toBe(PAGE_ID);
+  });
+
+  test("poll-now is a no-op without a linkId", async () => {
+    await handlePollNow(actionEvent({}));
     expect(rpcCalls.length).toBe(0);
     expect(pushes.length).toBe(0);
   });
