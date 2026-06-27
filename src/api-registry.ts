@@ -64,6 +64,15 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "PUT", path: "/api/briefing/config", description: "Update the current user's Daily Briefing configuration (cron, timezone, project, instructions, watchlist, model)", category: "briefing" },
   { method: "POST", path: "/api/briefing/run-now", description: "Trigger an immediate briefing run for the current user (rate-limited 1/5min)", category: "briefing", responseDescription: "{ started: true } (202)" },
 
+  // GitHub Projects integration
+  { method: "POST", path: "/api/integrations/github-projects/connect", description: "Resolve + validate a GitHub Projects board and link it to a project (stores an encrypted PAT for authMode 'pat')", category: "integrations", scope: "extensions", responseDescription: "{ linkId, boardTitle, ownerLogin, statusOptions, scopes }" },
+  { method: "GET", path: "/api/integrations/github-projects/link", description: "Get the project's GitHub board connection, health, and pause state", category: "integrations", scope: "extensions" },
+  { method: "PATCH", path: "/api/integrations/github-projects/link", description: "Update the board's column→action map, poll interval, or pause/resume state", category: "integrations", scope: "extensions" },
+  { method: "DELETE", path: "/api/integrations/github-projects/link", description: "Disconnect the board: purge the stored token, cancel active proposals, drop the link", category: "integrations", scope: "extensions" },
+  { method: "GET", path: "/api/integrations/github-projects/proposals", description: "List a project's board-move proposals (active + history)", category: "integrations", scope: "extensions" },
+  { method: "POST", path: "/api/integrations/github-projects/proposals/:id/approve", description: "Approve a pending proposal — spawn the PDP-gated conversation + run", category: "integrations", scope: "extensions" },
+  { method: "POST", path: "/api/integrations/github-projects/proposals/:id/dismiss", description: "Dismiss a pending proposal without spawning", category: "integrations", scope: "extensions" },
+
   // Agent Configs
   { method: "GET", path: "/api/agent-configs", description: "List agent configurations", category: "agents" },
   { method: "POST", path: "/api/agent-configs", description: "Create agent configuration", category: "agents", schemaKey: "createAgentConfigSchema" },

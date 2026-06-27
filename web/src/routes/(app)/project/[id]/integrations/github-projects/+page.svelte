@@ -1,0 +1,455 @@
+<script lang="ts">
+	import { page } from "$app/state";
+	import { store, setActiveProjectId } from "$lib/stores.svelte.js";
+
+	// ── Per-project scoping ────────────────────────────────────────────────
+	// This page is scoped to ONE EZCorp project; we surface the project name in
+	// the header so the scoping is visible. `activeProjectId` is synced so the
+	// rest of the shell (sidebar nav) tracks the URL.
+	$effect(() => {
+		setActiveProjectId(page.params.id ?? null);
+	});
+	let projectId = $derived(page.params.id ?? "");
+	let project = $derived(store.projects.find((p) => p.id === projectId));
+	let projectName = $derived(project?.name ?? projectId);
+
+	// ── Types (kept local; mirror the server response shapes) ──────────────
+	type StatusOption = { id: string; name: string };
+	type ColumnAction = {
+		action: "plan" | "execute";
+		autoSpawn: boolean;
+		agentName?: string;
+		permissionMode?: "default" | "plan" | "acceptEdits";
+	};
+	type Link = {
+		id: string;
+		projectId: string;
+		boardUrl: string;
+		boardTitle: string;
+		ownerLogin: string;
+		boardNodeId: string;
+		statusFieldId: string | null;
+		authMode: "pat" | "gh";
+		columnActionMap: Record<string, ColumnAction>;
+		pollIntervalSec: number;
+		enabled: boolean;
+		lastError: string | null;
+	};
+
+	// ── Component state ────────────────────────────────────────────────────
+	let loading = $state(true);
+	let link = $state<Link | null>(null);
+	// statusOptions only known right after a connect (the board ref carries
+	// them). For an existing link we render the saved map's keys.
+	let statusOptions = $state<StatusOption[]>([]);
+
+	// Connect form
+	let boardUrl = $state("");
+	let authMode = $state<"pat" | "gh">("pat");
+	let token = $state("");
+	let connecting = $state(false);
+	let connectError = $state("");
+	let missingScopes = $state<string[]>([]);
+	let grantedScopes = $state<string[]>([]);
+
+	// Save-flash for the column map / interval / pause editor.
+	let savingMap = $state(false);
+	let mapFlash = $state(false);
+	let pausing = $state(false);
+	let disconnecting = $state(false);
+
+	// Working copy of the column→action map the user edits.
+	let columnMap = $state<Record<string, ColumnAction>>({});
+
+	async function loadLink() {
+		loading = true;
+		try {
+			const res = await fetch(
+				`/api/integrations/github-projects/link?projectId=${encodeURIComponent(projectId)}`,
+			);
+			if (res.ok) {
+				const data = (await res.json()) as { link: Link };
+				link = data.link;
+				columnMap = { ...data.link.columnActionMap };
+			} else {
+				link = null;
+			}
+		} catch {
+			link = null;
+		} finally {
+			loading = false;
+		}
+	}
+
+	$effect(() => {
+		if (projectId) loadLink();
+	});
+
+	async function connect() {
+		connectError = "";
+		missingScopes = [];
+		grantedScopes = [];
+		if (!boardUrl.trim()) {
+			connectError = "Paste a GitHub Projects board URL first.";
+			return;
+		}
+		connecting = true;
+		try {
+			const res = await fetch("/api/integrations/github-projects/connect", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					projectId,
+					boardUrl: boardUrl.trim(),
+					authMode,
+					token: authMode === "pat" ? token : undefined,
+				}),
+			});
+			const data = (await res.json().catch(() => ({}))) as {
+				error?: string;
+				missingScopes?: string[];
+				scopes?: string[];
+				statusOptions?: StatusOption[];
+			};
+			if (!res.ok) {
+				connectError = data.error ?? `Connect failed (${res.status})`;
+				missingScopes = data.missingScopes ?? [];
+				return;
+			}
+			grantedScopes = data.scopes ?? [];
+			statusOptions = data.statusOptions ?? [];
+			token = ""; // never keep the PAT in memory longer than the request
+			await loadLink();
+		} catch (e) {
+			connectError = e instanceof Error ? e.message : "Connect failed";
+		} finally {
+			connecting = false;
+		}
+	}
+
+	// Columns to render in the editor: prefer freshly-resolved board options,
+	// else the saved map's keys.
+	let editableColumns = $derived.by((): StatusOption[] => {
+		if (statusOptions.length) return statusOptions;
+		return Object.keys(columnMap).map((id) => ({ id, name: id }));
+	});
+
+	function toggleColumnEnabled(optionId: string, on: boolean) {
+		if (on) {
+			columnMap = {
+				...columnMap,
+				[optionId]: columnMap[optionId] ?? { action: "plan", autoSpawn: false },
+			};
+		} else {
+			const next = { ...columnMap };
+			delete next[optionId];
+			columnMap = next;
+		}
+	}
+
+	function setColumnField<K extends keyof ColumnAction>(
+		optionId: string,
+		key: K,
+		value: ColumnAction[K],
+	) {
+		const existing = columnMap[optionId] ?? { action: "plan", autoSpawn: false };
+		columnMap = { ...columnMap, [optionId]: { ...existing, [key]: value } };
+	}
+
+	async function saveMap() {
+		if (!link) return;
+		savingMap = true;
+		mapFlash = false;
+		try {
+			const res = await fetch("/api/integrations/github-projects/link", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ projectId, columnActionMap: columnMap }),
+			});
+			if (res.ok) {
+				const data = (await res.json()) as { link: Link };
+				link = data.link;
+				columnMap = { ...data.link.columnActionMap };
+				mapFlash = true;
+				setTimeout(() => (mapFlash = false), 1500);
+			}
+		} finally {
+			savingMap = false;
+		}
+	}
+
+	async function togglePause() {
+		if (!link) return;
+		pausing = true;
+		try {
+			const res = await fetch("/api/integrations/github-projects/link", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ projectId, enabled: !link.enabled }),
+			});
+			if (res.ok) {
+				const data = (await res.json()) as { link: Link };
+				link = data.link;
+			}
+		} finally {
+			pausing = false;
+		}
+	}
+
+	async function disconnect() {
+		if (!link) return;
+		if (!confirm("Disconnect this GitHub board? The stored token is purged and active proposals are cancelled.")) {
+			return;
+		}
+		disconnecting = true;
+		try {
+			const res = await fetch("/api/integrations/github-projects/link", {
+				method: "DELETE",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ projectId }),
+			});
+			if (res.ok) {
+				link = null;
+				columnMap = {};
+				statusOptions = [];
+				grantedScopes = [];
+				boardUrl = "";
+			}
+		} finally {
+			disconnecting = false;
+		}
+	}
+
+	// Is any mapped column set to auto-spawn? Drives the loud global warning.
+	let anyAutoSpawn = $derived(Object.values(columnMap).some((c) => c.autoSpawn));
+</script>
+
+<svelte:head>
+	<title>GitHub Projects - {projectName} - EZCorp</title>
+</svelte:head>
+
+<div class="space-y-6" data-testid="gh-projects-page">
+	<header>
+		<p class="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">Integration · Project</p>
+		<h1 class="text-2xl font-bold text-[var(--color-text-primary)]" data-testid="gh-projects-project-name">
+			GitHub Projects — {projectName}
+		</h1>
+		<p class="mt-1 text-sm text-[var(--color-text-secondary)]">
+			Connect a GitHub Projects board to this project. Moving a card into a mapped
+			column proposes (or, if you opt in, auto-spawns) an AI agent run.
+		</p>
+	</header>
+
+	{#if loading}
+		<p class="text-[var(--color-text-muted)]" data-testid="gh-projects-loading">Loading…</p>
+	{:else if link}
+		<!-- ── Connected state ─────────────────────────────────────────── -->
+		<section
+			class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6"
+			data-testid="gh-projects-connected"
+		>
+			<div class="flex items-center justify-between gap-3">
+				<div>
+					<p class="text-lg font-semibold text-green-400" data-testid="gh-projects-connected-banner">
+						Connected: {link.boardTitle} ✓
+					</p>
+					<p class="text-xs text-[var(--color-text-secondary)]">
+						{link.ownerLogin} · auth mode: {link.authMode === "pat" ? "fine-grained PAT" : "gh CLI identity"}
+						{#if !link.enabled}
+							· <span class="text-amber-400" data-testid="gh-projects-paused-tag">paused</span>
+						{/if}
+					</p>
+					{#if grantedScopes.length}
+						<p class="mt-1 text-xs text-[var(--color-text-muted)]" data-testid="gh-projects-granted-scopes">
+							Granted scopes: {grantedScopes.join(", ")}
+						</p>
+					{/if}
+					{#if link.lastError}
+						<p class="mt-1 text-xs text-red-400" data-testid="gh-projects-health-error">
+							Last error: {link.lastError}
+						</p>
+					{/if}
+				</div>
+				<div class="flex shrink-0 gap-2">
+					<button
+						type="button"
+						onclick={togglePause}
+						disabled={pausing}
+						data-testid="gh-projects-pause"
+						class="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50"
+					>
+						{pausing ? "…" : link.enabled ? "Pause polling" : "Resume polling"}
+					</button>
+					<button
+						type="button"
+						onclick={disconnect}
+						disabled={disconnecting}
+						data-testid="gh-projects-disconnect"
+						class="rounded-md px-3 py-1.5 text-sm text-red-400 hover:bg-[var(--color-surface-tertiary)] hover:text-red-300 disabled:opacity-50"
+					>
+						{disconnecting ? "…" : "Disconnect"}
+					</button>
+				</div>
+			</div>
+		</section>
+
+		<!-- ── Column → action mapping editor ──────────────────────────── -->
+		<section
+			class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6"
+			data-testid="gh-projects-column-editor"
+		>
+			<h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Column → action mapping</h2>
+			<p class="mt-1 mb-4 text-sm text-[var(--color-text-secondary)]">
+				When a card moves into a mapped column, EZCorp spawns an AI agent that can
+				run tools. Auto-spawn is <strong>off by default</strong> — a card move creates
+				a proposal you approve on the Hub.
+			</p>
+
+			{#if anyAutoSpawn}
+				<p
+					class="mb-4 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-300"
+					data-testid="gh-projects-autospawn-warning"
+				>
+					⚠ Auto-spawn is enabled on one or more columns. A card moving there will
+					launch a tool-running agent with <strong>no human approval step</strong>.
+				</p>
+			{/if}
+
+			<div class="space-y-3">
+				{#each editableColumns as col (col.id)}
+					{@const mapped = columnMap[col.id]}
+					<div class="rounded-md border border-[var(--color-border)] p-3" data-testid="gh-projects-column-row">
+						<label class="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+							<input
+								type="checkbox"
+								checked={!!mapped}
+								onchange={(e) => toggleColumnEnabled(col.id, e.currentTarget.checked)}
+								data-testid={`gh-projects-column-enable-${col.id}`}
+							/>
+							<span class="font-medium">{col.name}</span>
+						</label>
+						{#if mapped}
+							<div class="mt-2 flex flex-wrap items-center gap-4 pl-6">
+								<label class="text-xs text-[var(--color-text-secondary)]">
+									Action
+									<select
+										value={mapped.action}
+										onchange={(e) => setColumnField(col.id, "action", e.currentTarget.value as "plan" | "execute")}
+										data-testid={`gh-projects-column-action-${col.id}`}
+										class="ml-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-xs"
+									>
+										<option value="plan">plan</option>
+										<option value="execute">execute</option>
+									</select>
+								</label>
+								<label class="flex items-center gap-1 text-xs text-[var(--color-text-secondary)]">
+									<input
+										type="checkbox"
+										checked={mapped.autoSpawn}
+										onchange={(e) => setColumnField(col.id, "autoSpawn", e.currentTarget.checked)}
+										data-testid={`gh-projects-column-autospawn-${col.id}`}
+									/>
+									Auto-spawn (no approval)
+								</label>
+							</div>
+						{/if}
+					</div>
+				{/each}
+				{#if editableColumns.length === 0}
+					<p class="text-sm text-[var(--color-text-muted)]">
+						Re-connect the board to load its columns.
+					</p>
+				{/if}
+			</div>
+
+			<div class="mt-4 flex items-center gap-3">
+				<button
+					type="button"
+					onclick={saveMap}
+					disabled={savingMap}
+					data-testid="gh-projects-save-map"
+					class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+				>
+					{savingMap ? "Saving…" : "Save mapping"}
+				</button>
+				{#if mapFlash}
+					<span class="text-sm text-green-400" data-testid="gh-projects-map-saved">Saved ✓</span>
+				{/if}
+			</div>
+		</section>
+	{:else}
+		<!-- ── Connect form (not yet linked) ───────────────────────────── -->
+		<section
+			class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6"
+			data-testid="gh-projects-connect-form"
+		>
+			<h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Connect a board</h2>
+
+			<label class="mt-4 block text-sm text-[var(--color-text-secondary)]">
+				Board URL
+				<input
+					type="url"
+					bind:value={boardUrl}
+					placeholder="https://github.com/orgs/acme/projects/7"
+					data-testid="gh-projects-board-url"
+					class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"
+				/>
+			</label>
+
+			<fieldset class="mt-4">
+				<legend class="text-sm text-[var(--color-text-secondary)]">Authentication</legend>
+				<label class="mt-1 flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+					<input type="radio" name="authMode" value="pat" bind:group={authMode} data-testid="gh-projects-auth-pat" />
+					Fine-grained Personal Access Token <span class="text-xs text-green-400">(recommended)</span>
+				</label>
+				<label class="mt-1 flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+					<input type="radio" name="authMode" value="gh" bind:group={authMode} data-testid="gh-projects-auth-gh" />
+					Use the host's <code>gh</code> CLI identity
+				</label>
+			</fieldset>
+
+			{#if authMode === "pat"}
+				<label class="mt-3 block text-sm text-[var(--color-text-secondary)]">
+					Token
+					<input
+						type="password"
+						bind:value={token}
+						autocomplete="off"
+						placeholder="github_pat_…"
+						data-testid="gh-projects-token"
+						class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"
+					/>
+				</label>
+				<p class="mt-1 text-xs text-amber-400" data-testid="gh-projects-pat-warning">
+					⚠ A classic PAT is org-wide — prefer a <strong>fine-grained</strong> PAT scoped to
+					only this board's repositories/project.
+				</p>
+			{:else}
+				<p class="mt-3 text-xs text-amber-400" data-testid="gh-projects-gh-warning">
+					⚠ The <code>gh</code> CLI is a single global identity shared by the whole host —
+					every project using it acts as the same GitHub user. Prefer a fine-grained PAT
+					for per-project isolation.
+				</p>
+			{/if}
+
+			{#if connectError}
+				<p class="mt-3 text-sm text-red-400" data-testid="gh-projects-connect-error">{connectError}</p>
+			{/if}
+			{#if missingScopes.length}
+				<p class="mt-1 text-sm text-red-300" data-testid="gh-projects-missing-scopes">
+					Missing scopes: {missingScopes.join(", ")}
+				</p>
+			{/if}
+
+			<button
+				type="button"
+				onclick={connect}
+				disabled={connecting}
+				data-testid="gh-projects-connect"
+				class="mt-4 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+			>
+				{connecting ? "Connecting…" : "Connect board"}
+			</button>
+		</section>
+	{/if}
+</div>
