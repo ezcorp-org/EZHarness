@@ -20,17 +20,13 @@ test.describe("Resume last path", () => {
 		await page.goto(`/project/${proj.id}/chat`);
 
 		// `afterNavigate` fires after hydration — poll until the save lands.
-		await expect
-			.poll(async () => page.evaluate((k) => localStorage.getItem(k), STORAGE_KEY))
-			.toBe(`/project/${proj.id}/chat`);
+		await expect.poll(() => page.evaluate((k) => localStorage.getItem(k), STORAGE_KEY)).toBe(`/project/${proj.id}/chat`);
 	});
 
 	test("never saves the root path", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj] });
 		await page.goto(`/project/${proj.id}/chat`);
-		await expect
-			.poll(async () => page.evaluate((k) => localStorage.getItem(k), STORAGE_KEY))
-			.toBe(`/project/${proj.id}/chat`);
+		await expect.poll(() => page.evaluate((k) => localStorage.getItem(k), STORAGE_KEY)).toBe(`/project/${proj.id}/chat`);
 
 		await page.goto("/");
 		await page.waitForTimeout(300);
