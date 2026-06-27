@@ -1521,4 +1521,67 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
     )
   `);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_briefing_ready ON briefing_configs(enabled, next_fire_at)`);
+
+  // ── GitHub Projects integration (per-project board link + proposal queue) ──
+  // See src/db/migrations/add-github-projects.ts for the rationale.
+  // `github_projects_links` — one connected GitHub Projects v2 board per
+  // EZCorp project (UNIQUE(project_id)). The PAT (when auth_mode='pat') lives
+  // ENCRYPTED in the `settings` table at `githubProjects:<projectId>:apiToken`,
+  // never in a column. `enabled=false` is the user-facing "pause polling" state
+  // (board + token retained; the daemon skips disabled links). Idempotent.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS github_projects_links (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      board_node_id TEXT NOT NULL,
+      board_url TEXT NOT NULL,
+      board_title TEXT NOT NULL DEFAULT '',
+      owner_login TEXT NOT NULL DEFAULT '',
+      status_field_id TEXT,
+      auth_mode TEXT NOT NULL DEFAULT 'pat',
+      column_action_map JSONB NOT NULL DEFAULT '{}',
+      poll_cursor JSONB,
+      poll_interval_sec INTEGER NOT NULL DEFAULT 60,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      last_polled_at TIMESTAMP WITH TIME ZONE,
+      last_error TEXT,
+      last_error_at TIMESTAMP WITH TIME ZONE,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      UNIQUE(project_id)
+    )
+  `);
+
+  // `github_projects_proposals` — the queue + idempotency unit. `dedupe_key`
+  // is a server-derived hash of (project_id, item_node_id, status_option_id,
+  // action) with a UNIQUE index, so poll re-detection + card churn cannot
+  // double-spawn (the daemon upserts ON CONFLICT (dedupe_key) DO NOTHING).
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS github_projects_proposals (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      link_id TEXT NOT NULL REFERENCES github_projects_links(id) ON DELETE CASCADE,
+      item_node_id TEXT NOT NULL,
+      content_node_id TEXT,
+      status_option_id TEXT NOT NULL,
+      status_name TEXT NOT NULL DEFAULT '',
+      action TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      ticket_url TEXT,
+      dedupe_key TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+      agent_run_id TEXT,
+      proposed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      decided_at TIMESTAMP WITH TIME ZONE,
+      decided_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      finished_at TIMESTAMP WITH TIME ZONE,
+      error TEXT,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_gh_proposals_dedupe ON github_projects_proposals(dedupe_key)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_project_status ON github_projects_proposals(project_id, status)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_link ON github_projects_proposals(link_id)`);
 }

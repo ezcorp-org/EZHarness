@@ -3,6 +3,11 @@ import { sql } from "drizzle-orm";
 import type { PipelineStep } from "../types";
 import type { MemoryProvenance } from "../memory/types";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
+import type {
+  GithubColumnActionMap,
+  GithubProposalAction,
+  GithubProposalStatus,
+} from "../integrations/github-projects/types";
 
 export const projects = pgTable("projects", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -1238,3 +1243,73 @@ export const briefingConfigs = pgTable("briefing_configs", {
 
 export type BriefingConfig = typeof briefingConfigs.$inferSelect;
 export type NewBriefingConfig = typeof briefingConfigs.$inferInsert;
+
+// ── GitHub Projects integration ────────────────────────────────────────
+// One connected GitHub Projects v2 board per EZCorp project. The PAT (when
+// authMode='pat') is NOT stored here — it lives encrypted in `settings` at
+// `githubProjects:<projectId>:apiToken`. `enabled=false` = "pause polling"
+// (board + token retained; daemon skips disabled links). See
+// src/db/migrations/add-github-projects.ts and src/integrations/github-projects/.
+export const githubProjectsLinks = pgTable("github_projects_links", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  /** GitHub Projects v2 node id (`PVT_…`), resolved from the pasted board URL. */
+  boardNodeId: text("board_node_id").notNull(),
+  boardUrl: text("board_url").notNull(),
+  boardTitle: text("board_title").notNull().default(""),
+  ownerLogin: text("owner_login").notNull().default(""),
+  /** Node id of the single-select "Status" field whose options are the columns. */
+  statusFieldId: text("status_field_id"),
+  authMode: text("auth_mode").notNull().$type<"pat" | "gh">().default("pat"),
+  /** statusOptionId → action mapping. The daemon reads this every poll. */
+  columnActionMap: jsonb("column_action_map").notNull().$type<GithubColumnActionMap>().default({}),
+  /** Per-item updatedAt high-water marks so polls only diff what changed. */
+  pollCursor: jsonb("poll_cursor").$type<Record<string, string>>(),
+  pollIntervalSec: integer("poll_interval_sec").notNull().default(60),
+  /** false = paused (board kept, polling + spawns stopped). */
+  enabled: boolean("enabled").notNull().default(true),
+  lastPolledAt: timestamp("last_polled_at", { withTimezone: true, mode: "date" }),
+  lastError: text("last_error"),
+  lastErrorAt: timestamp("last_error_at", { withTimezone: true, mode: "date" }),
+  createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_gh_links_project_unique").on(table.projectId),
+]);
+
+export type GithubProjectsLink = typeof githubProjectsLinks.$inferSelect;
+export type NewGithubProjectsLink = typeof githubProjectsLinks.$inferInsert;
+
+// The proposal queue + idempotency unit. `dedupeKey` (server-derived hash of
+// projectId+itemNodeId+statusOptionId+action) has a UNIQUE index so poll
+// re-detection + card churn cannot double-spawn.
+export const githubProjectsProposals = pgTable("github_projects_proposals", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  linkId: text("link_id").notNull().references(() => githubProjectsLinks.id, { onDelete: "cascade" }),
+  itemNodeId: text("item_node_id").notNull(),
+  contentNodeId: text("content_node_id"),
+  statusOptionId: text("status_option_id").notNull(),
+  statusName: text("status_name").notNull().default(""),
+  action: text("action").notNull().$type<GithubProposalAction>(),
+  title: text("title").notNull().default(""),
+  ticketUrl: text("ticket_url"),
+  dedupeKey: text("dedupe_key").notNull(),
+  status: text("status").notNull().$type<GithubProposalStatus>().default("pending"),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  agentRunId: text("agent_run_id"),
+  proposedAt: timestamp("proposed_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  decidedAt: timestamp("decided_at", { withTimezone: true, mode: "date" }),
+  decidedByUserId: text("decided_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  finishedAt: timestamp("finished_at", { withTimezone: true, mode: "date" }),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_gh_proposals_dedupe").on(table.dedupeKey),
+  index("idx_gh_proposals_project_status").on(table.projectId, table.status),
+  index("idx_gh_proposals_link").on(table.linkId),
+]);
+
+export type GithubProjectsProposal = typeof githubProjectsProposals.$inferSelect;
+export type NewGithubProjectsProposal = typeof githubProjectsProposals.$inferInsert;
