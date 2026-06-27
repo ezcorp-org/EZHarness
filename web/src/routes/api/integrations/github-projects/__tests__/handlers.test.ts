@@ -44,6 +44,9 @@ let scopeResponse: Response | null = null;
 let projectsById: Record<string, { id: string; name: string }> = {};
 let linkByProject: Record<string, any> = {};
 let proposalsById: Record<string, any> = {};
+// When true, the upsertSetting mock throws — exercises the connect handler's
+// token-persist failure branch (→ 500, link NOT upserted).
+let upsertSettingThrows = false;
 
 // Captured side effects.
 const upsertSettingCalls: Array<{ key: string; value: unknown }> = [];
@@ -149,6 +152,7 @@ mock.module("$server/providers/encryption", () => ({
 
 mock.module("$server/db/queries/settings", () => ({
   upsertSetting: async (key: string, value: unknown) => {
+    if (upsertSettingThrows) throw new Error("settings write failed");
     upsertSettingCalls.push({ key, value });
   },
   deleteSetting: async (key: string) => {
@@ -191,6 +195,7 @@ beforeEach(() => {
   projectsById = { "proj-1": { id: "proj-1", name: "Proj One" } };
   linkByProject = {};
   proposalsById = {};
+  upsertSettingThrows = false;
   upsertSettingCalls.length = 0;
   deleteSettingCalls.length = 0;
   upsertLinkCalls.length = 0;
@@ -335,6 +340,16 @@ describe("POST connect", () => {
     expect(upsertSettingCalls).toHaveLength(0);
     expect(upsertLinkCalls).toHaveLength(0);
   });
+
+  test("token persist throws → 500, link NOT upserted", async () => {
+    upsertSettingThrows = true;
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "ghp_secret" } }));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe("Failed to store credentials");
+    // The validated board never gets linked when the credential can't persist.
+    expect(upsertLinkCalls).toHaveLength(0);
+  });
 });
 
 // ════════════════════════ link GET ════════════════════════
@@ -408,6 +423,25 @@ describe("PATCH link", () => {
 
   test("columnActionMap not an object → 400", async () => {
     const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", columnActionMap: [] } }));
+    expect(res.status).toBe(400);
+  });
+
+  test("columnActionMap entry value is null → 400 (must be an object)", async () => {
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", columnActionMap: { "opt-x": null } } }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("must be an object");
+  });
+
+  test("columnActionMap entry value is an array → 400 (must be an object)", async () => {
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", columnActionMap: { "opt-x": ["plan"] } } }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("must be an object");
+  });
+
+  test("columnActionMap entry value is a primitive → 400 (must be an object)", async () => {
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", columnActionMap: { "opt-x": "plan" } } }));
     expect(res.status).toBe(400);
   });
 
