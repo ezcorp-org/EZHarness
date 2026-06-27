@@ -10,6 +10,7 @@ import { HostMaintenanceDaemon } from "../extensions/host-maintenance-daemon";
 import { EmbedWorker } from "../extensions/embed-worker";
 import { FileOrganizerDaemon, DEFAULT_SETTINGS, mergeFileOrganizerSettings, type FileOrganizerSettings } from "../extensions/file-organizer-daemon";
 import { GithubProjectsDaemon } from "../integrations/github-projects/daemon";
+import { getGithubProjectsEmit } from "../integrations/github-projects/bus-registry";
 import { PreviewPortWatcher } from "../runtime/preview/preview-port-watcher";
 import { NetnsPortSource, ProcPortSource } from "../runtime/preview/preview-port-source";
 import { previewCapabilities } from "../runtime/preview/preview-netns";
@@ -334,7 +335,11 @@ export async function startBackgroundTimers(): Promise<void> {
   // failing link instead of throwing out of the sweep, so wiring it here is safe
   // in every boot order (no links → empty sweep).
   try {
-    githubProjectsDaemon = new GithubProjectsDaemon();
+    // Thread the live bus-backed Hub-refresh emitter (registered by the web
+    // layer at init). Undefined on a backend-only/pre-web boot → the daemon
+    // defaults `emit` to a no-op (Hub still refreshes via the approve/dismiss
+    // API routes). Mirrors the preview/briefing registry pattern.
+    githubProjectsDaemon = new GithubProjectsDaemon({ emit: getGithubProjectsEmit() });
     const ok = githubProjectsDaemon.start();
     if (ok) {
       log.info("GithubProjectsDaemon started");

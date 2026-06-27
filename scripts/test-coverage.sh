@@ -35,6 +35,16 @@ mapfile -t FILES < <({
   find src/__tests__ -name "*.test.ts"
   find docs/extensions/examples -name "*.test.ts"
   find web/src/routes/api/import -name "*.test.ts"
+  # github-projects integration: its UNIT tests live next to the source, so
+  # enumerate them here for the coverage merge (gates client/daemon/spawn/
+  # queries/bus-registry/handler + the web route handlers). The *integration*
+  # tests are EXCLUDED from the coverage leg on purpose — they load several
+  # real modules with a different DA line-set, which floats the denominator and
+  # false-drops the unit-measured files (the bun attribution drift). They still
+  # run for correctness in scripts/test.sh.
+  find src/integrations/github-projects/__tests__ -name "*.test.ts" ! -name "*integration*"
+  find src/extensions/__tests__ -name "github-projects-handler*.test.ts" ! -name "*integration*"
+  find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
   printf '%s\n' \
     web/src/__tests__/snippet-sanitize.test.ts \
     web/src/__tests__/search-mode.test.ts \

@@ -41,6 +41,11 @@ FAILED_FILES=()
 mapfile -t FILES < <({
   find src/__tests__ -name "*.test.ts"
   find web/src/routes/api/import -name "*.test.ts"
+  # github-projects integration: tests live next to their source (not under
+  # src/__tests__), so enumerate those dirs explicitly — unit + integration.
+  find src/integrations/github-projects/__tests__ -name "*.test.ts"
+  find src/extensions/__tests__ -name "github-projects-handler*.test.ts"
+  find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
 } | sort)
 
 TMPDIR=$(mktemp -d)

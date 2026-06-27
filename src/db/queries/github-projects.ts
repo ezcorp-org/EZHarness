@@ -27,6 +27,13 @@ import {
  * arguments.
  */
 
+// Patch shapes for the partial updates. Declared as module-level type aliases
+// (not inline multi-line generics in the function signatures) so Bun's
+// --coverage never emits drifting per-line DA records for the type-continuation
+// lines — a pure type declaration compiles to nothing and is never line-counted.
+type LinkUpdatePatch = Partial<Pick<NewGithubProjectsLink, "columnActionMap" | "pollIntervalSec" | "enabled" | "authMode">>;
+type ProposalUpdatePatch = Partial<Pick<NewGithubProjectsProposal, "status" | "conversationId" | "agentRunId" | "decidedAt" | "decidedByUserId" | "finishedAt" | "error">>;
+
 // ── Links ──────────────────────────────────────────────────────────────────
 
 export async function getLinkByProjectId(
@@ -99,12 +106,7 @@ export async function upsertLink(
 /** Partial update of user-editable link fields (column map, interval, pause). */
 export async function updateLink(
   linkId: string,
-  patch: Partial<
-    Pick<
-      NewGithubProjectsLink,
-      "columnActionMap" | "pollIntervalSec" | "enabled" | "authMode"
-    >
-  >,
+  patch: LinkUpdatePatch,
 ): Promise<GithubProjectsLink | null> {
   const db = getDb();
   const rows = (await db
@@ -214,18 +216,7 @@ export async function countActiveProposalsForProject(
 /** Mutate a proposal's lifecycle fields (decide/spawn/finish). */
 export async function updateProposal(
   id: string,
-  patch: Partial<
-    Pick<
-      NewGithubProjectsProposal,
-      | "status"
-      | "conversationId"
-      | "agentRunId"
-      | "decidedAt"
-      | "decidedByUserId"
-      | "finishedAt"
-      | "error"
-    >
-  >,
+  patch: ProposalUpdatePatch,
 ): Promise<GithubProjectsProposal | null> {
   const db = getDb();
   const rows = (await db
