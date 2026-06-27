@@ -48,7 +48,18 @@ const GH_PAT_SUFFIX = ":apiToken";
  *  `extension_secrets.extension_id` for migrated github-projects tokens. */
 const GH_EXTENSION_ID = "github-projects";
 
-type SecretOpts = { userId?: string | null };
+type SecretOpts = {
+  /** Scope: whose row this secret is. `null` (the default) = project / global
+   *  scope — readable by host code that has NO user context (e.g. the poll
+   *  daemon). A non-null `userId` files the secret in a per-user slot only a
+   *  reader supplying the same userId can address. */
+  userId?: string | null;
+  /** Audit actor only (NOT scope): who performed this write/delete. Defaults to
+   *  `userId`, then `null`. Lets a route store a PROJECT-scoped credential
+   *  (userId null, so the daemon can read it) while still attributing the
+   *  SECRET_SET / SECRET_DELETED audit row to the acting user. */
+  actorUserId?: string | null;
+};
 
 /** Reconstructs the AAD a secret's ciphertext is bound to. Scope-binding key:
  *  a ciphertext encrypted for `(extensionId, projectId)` cannot be decrypted
@@ -61,6 +72,13 @@ function aadFor(extensionId: string, projectId: string | null): string {
 
 function scopeFor(extensionId: string, projectId: string | null, name: string, opts?: SecretOpts): SecretScope {
   return { extensionId, projectId, userId: opts?.userId ?? null, name };
+}
+
+/** Audit actor for a write/delete: explicit `actorUserId`, else the scope
+ *  `userId`, else null (system). Decoupled from scope so a project-scoped
+ *  secret still records WHO touched it. */
+function auditActor(opts?: SecretOpts): string | null {
+  return opts?.actorUserId ?? opts?.userId ?? null;
 }
 
 /**
@@ -76,7 +94,7 @@ export async function setSecret(
 ): Promise<void> {
   const ciphertext = encryptWithAad(value, aadFor(extensionId, projectId));
   await insertOrReplaceSecret(scopeFor(extensionId, projectId, name, opts), ciphertext);
-  await insertAuditEntry(opts?.userId ?? null, EXT_AUDIT_ACTIONS.SECRET_SET, extensionId, {
+  await insertAuditEntry(auditActor(opts), EXT_AUDIT_ACTIONS.SECRET_SET, extensionId, {
     projectId,
     name,
   });
@@ -111,7 +129,7 @@ export async function getSecret(
   const last = row.lastUsedAt ? row.lastUsedAt.getTime() : 0;
   if (Date.now() - last >= TOUCH_DEBOUNCE_MS) {
     await touchLastUsed(scope);
-    await insertAuditEntry(opts?.userId ?? null, EXT_AUDIT_ACTIONS.SECRET_USED, extensionId, {
+    await insertAuditEntry(auditActor(opts), EXT_AUDIT_ACTIONS.SECRET_USED, extensionId, {
       projectId,
       name,
     });
@@ -145,7 +163,7 @@ export async function deleteSecret(
 ): Promise<boolean> {
   const deleted = await deleteSecretRow(scopeFor(extensionId, projectId, name, opts));
   if (deleted) {
-    await insertAuditEntry(opts?.userId ?? null, EXT_AUDIT_ACTIONS.SECRET_DELETED, extensionId, {
+    await insertAuditEntry(auditActor(opts), EXT_AUDIT_ACTIONS.SECRET_DELETED, extensionId, {
       projectId,
       name,
     });

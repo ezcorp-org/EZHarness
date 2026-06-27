@@ -148,7 +148,7 @@ describe("POST secrets", () => {
       projectId: "proj-1",
       name: "apiToken",
       value: "ghp_secret",
-      opts: { userId: MEMBER_USER.id },
+      opts: { actorUserId: MEMBER_USER.id },
     });
     // The plaintext value is NEVER in the response.
     expect(JSON.stringify(body)).not.toContain("ghp_secret");
@@ -265,7 +265,7 @@ describe("DELETE secrets", () => {
       extensionId: "github-projects",
       projectId: "proj-1",
       name: "apiToken",
-      opts: { userId: MEMBER_USER.id },
+      opts: { actorUserId: MEMBER_USER.id },
     });
   });
 

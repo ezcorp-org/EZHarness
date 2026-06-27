@@ -106,13 +106,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   //
   // The PAT is PROJECT-scoped, not user-scoped (no `userId` in the secret's
   // scope): the poller daemon resolves it with no user context, and any user in
-  // the project shares one board credential. (`opts.userId` in the store is BOTH
-  // the row's scope userId AND the audit actor — passing it here would file the
-  // secret in a per-user slot the daemon could never read. Audit actor is the
-  // system here, mirroring Phase 0's global-scoped backfill.)
+  // the project shares one board credential. We still pass `actorUserId` so the
+  // SECRET_SET / SECRET_DELETED audit row is attributed to the connecting user
+  // (the row stays project-scoped — `actorUserId` is audit-only, never scope).
   if (authMode === "pat") {
     try {
-      await setSecret("github-projects", projectId, "apiToken", token);
+      await setSecret("github-projects", projectId, "apiToken", token, { actorUserId: user.id });
     } catch (err) {
       log.warn("token persist failed", { error: err instanceof Error ? err.message : "err" });
       return errorJson(500, "Failed to store credentials");
@@ -120,7 +119,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   } else {
     // Re-connecting from PAT → gh must not leave a stale stored PAT behind.
     // deleteSecret is idempotent; a missing secret is a no-op.
-    await deleteSecret("github-projects", projectId, "apiToken").catch(() => {});
+    await deleteSecret("github-projects", projectId, "apiToken", { actorUserId: user.id }).catch(() => {});
   }
 
   const link = await upsertLink({

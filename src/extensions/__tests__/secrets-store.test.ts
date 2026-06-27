@@ -108,6 +108,18 @@ describe("setSecret / getSecret", () => {
     expect(sets[0]!.userId).toBe(USER_ID);
   });
 
+  test("actorUserId is audit-only: row stays project-scoped (null userId) yet the audit is attributed to the actor", async () => {
+    await setSecret(EXT_ID, projectId, "apiToken", "ghp_proj", { actorUserId: USER_ID });
+    // Project-scoped: a no-userId (daemon-style) read HITS it.
+    expect(await getSecret(EXT_ID, projectId, "apiToken")).toBe("ghp_proj");
+    // The stored row carries NO scope userId — actorUserId is never the scope.
+    const row = await getSecretRow({ extensionId: EXT_ID, projectId, userId: null, name: "apiToken" });
+    expect(row!.userId).toBeNull();
+    // …yet the SECRET_SET audit row is attributed to the acting user.
+    const sets = await auditRows("ext:secret-set");
+    expect(sets[0]!.userId).toBe(USER_ID);
+  });
+
   test("ciphertext is AAD-bound to the scope (stored row decrypts only under its scope)", async () => {
     await setSecret(EXT_ID, projectId, "apiToken", "ghp_live");
     const row = await getSecretRow({ extensionId: EXT_ID, projectId, userId: null, name: "apiToken" });

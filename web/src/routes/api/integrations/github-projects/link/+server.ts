@@ -176,8 +176,11 @@ export const DELETE: RequestHandler = async ({ locals, request }) => {
   // (so no orphan shows "running" on the Hub), then drop the link. Proposals
   // CASCADE on link delete too, but the explicit cancel keeps history honest.
   // Project-scoped secret (userId=null) — same slot connect wrote + the daemon
-  // reads. deleteSecret is idempotent; a missing secret is a no-op.
-  await deleteSecret("github-projects", link.projectId, "apiToken").catch(() => {});
+  // reads. deleteSecret is idempotent; a missing secret is a no-op. `actorUserId`
+  // is audit-only (attributes SECRET_DELETED to the disconnecting user).
+  await deleteSecret("github-projects", link.projectId, "apiToken", {
+    actorUserId: auth.user.id,
+  }).catch(() => {});
   const cancelled = await cancelActiveProposalsForLink(link.id);
   await deleteLink(link.id);
 

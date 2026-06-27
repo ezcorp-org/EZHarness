@@ -89,7 +89,9 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
   const projectRes = await resolveProjectId(body.projectId);
   if ("error" in projectRes) return projectRes.error;
 
-  await setSecret(ext.name, projectRes.projectId, name, value, { userId: user.id });
+  // Project/instance-scoped (no scope userId) so host readers without a user
+  // context can resolve it; `actorUserId` attributes the audit to the caller.
+  await setSecret(ext.name, projectRes.projectId, name, value, { actorUserId: user.id });
 
   // The plaintext value is NEVER echoed back.
   return json({ ok: true });
@@ -113,7 +115,7 @@ export const DELETE: RequestHandler = async ({ locals, params, request }) => {
   if ("error" in projectRes) return projectRes.error;
 
   const deleted = await deleteSecret(ext.name, projectRes.projectId, name, {
-    userId: user.id,
+    actorUserId: user.id,
   });
   return json({ deleted });
 };
