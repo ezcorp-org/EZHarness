@@ -2,6 +2,7 @@ import { loadAgents } from "$server/runtime/loader";
 import { EventBus } from "$server/runtime/events";
 import { registerPreviewBus } from "$server/runtime/preview/preview-bus-registry";
 import { registerBriefingRuntime } from "$server/runtime/briefing/runtime-registry";
+import { registerGithubProjectsEmit } from "$server/integrations/github-projects/bus-registry";
 import { ensureBriefingAgentConfig } from "$server/runtime/briefing/agent-config";
 import { registerBriefingHubPage } from "$server/runtime/briefing/hub-page";
 import { triggerBriefingRunNow } from "$lib/server/briefing-run-now";
@@ -154,6 +155,17 @@ export async function ensureInitialized(): Promise<void> {
   // ensureBundledExtensions; failure degrades the briefing feature but
   // must never block boot.
   registerBriefingRuntime({ executor, bus });
+  // github-projects integration: register a bus-backed Hub-refresh emitter so
+  // the poller daemon (src/startup/background-timers.ts) can nudge the Hub when
+  // a board move creates/decides a proposal. Same import-direction indirection
+  // as registerBriefingRuntime/registerPreviewBus above — the daemon reads it
+  // back via getGithubProjectsEmit() at its start site. Until registered, the
+  // daemon's emit defaults to a no-op (fail-safe). The approve/dismiss API
+  // routes emit on this same bus directly (via getBriefingRuntime()).
+  const githubProjectsBus = bus;
+  registerGithubProjectsEmit((event, payload) => {
+    githubProjectsBus.emit(event, payload);
+  });
   try {
     await ensureBriefingAgentConfig();
   } catch (briefingBootErr) {
