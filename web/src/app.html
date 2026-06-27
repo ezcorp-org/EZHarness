@@ -10,6 +10,9 @@
 			(() => {
 				var t = localStorage.getItem('ezcorp-theme');
 				var isDark = t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches);
+				// Theme-aware splash bg — the splash paints before hydration removes
+				// it, so without this it flashes dark on a light theme every reopen.
+				document.documentElement.style.setProperty('--splash-bg', isDark ? '#111827' : '#ffffff');
 				if (isDark) {
 					document.documentElement.classList.add('dark');
 				} else {
@@ -25,7 +28,7 @@
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
-		<div id="splash" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#111827;z-index:9999;transition:opacity 0.3s ease-out">
+		<div id="splash" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--splash-bg,#111827);z-index:9999;transition:opacity 0.3s ease-out">
 			<img src="/logo.svg" alt="EZCorp" width="64" height="64" style="animation:splash-pulse 1.5s ease-in-out infinite" />
 		</div>
 		<style>

@@ -171,92 +171,9 @@ describe("PullToRefresh touch logic", () => {
   });
 });
 
-// ─── Last path resume logic ──────────────────────────────────────────────────
-
-const STORAGE_KEY = "ezcorp-last-path";
-
-function shouldSavePath(path: string): boolean {
-  return path !== "/";
-}
-
-function savePath(storage: Map<string, string>, path: string): void {
-  if (shouldSavePath(path)) {
-    storage.set(STORAGE_KEY, path);
-  }
-}
-
-function getResumePath(storage: Map<string, string>): string | null {
-  return storage.get(STORAGE_KEY) ?? null;
-}
-
-describe("Last path resume logic", () => {
-  test("saves /project/p1/chat to storage", () => {
-    const storage = new Map<string, string>();
-    savePath(storage, "/project/p1/chat");
-    expect(storage.get(STORAGE_KEY)).toBe("/project/p1/chat");
-  });
-
-  test("does NOT save root path /", () => {
-    const storage = new Map<string, string>();
-    savePath(storage, "/");
-    expect(storage.has(STORAGE_KEY)).toBe(false);
-  });
-
-  test("saves various valid paths correctly", () => {
-    const paths = [
-      "/project/p1/chat",
-      "/project/p1/settings",
-      "/project/p1",
-      "/project/p2/chat/conv-abc",
-    ];
-
-    for (const path of paths) {
-      const storage = new Map<string, string>();
-      savePath(storage, path);
-      expect(storage.get(STORAGE_KEY)).toBe(path);
-    }
-  });
-
-  test("getResumePath returns null when storage is empty", () => {
-    const storage = new Map<string, string>();
-    expect(getResumePath(storage)).toBeNull();
-  });
-
-  test("getResumePath returns saved path", () => {
-    const storage = new Map<string, string>();
-    storage.set(STORAGE_KEY, "/project/p1/settings");
-    expect(getResumePath(storage)).toBe("/project/p1/settings");
-  });
-
-  test("on mount at /, redirects to saved path if present", () => {
-    const storage = new Map<string, string>();
-    storage.set(STORAGE_KEY, "/project/p1/chat");
-
-    const currentPath = "/";
-    const resumePath = getResumePath(storage);
-    const shouldRedirect = currentPath === "/" && resumePath !== null;
-
-    expect(shouldRedirect).toBe(true);
-    expect(resumePath).toBe("/project/p1/chat");
-  });
-
-  test("on mount at /, stays if no saved path", () => {
-    const storage = new Map<string, string>();
-
-    const currentPath = "/";
-    const resumePath = getResumePath(storage);
-    const shouldRedirect = currentPath === "/" && resumePath !== null;
-
-    expect(shouldRedirect).toBe(false);
-  });
-
-  test("overwrites previous saved path with new one", () => {
-    const storage = new Map<string, string>();
-    savePath(storage, "/project/p1/chat");
-    savePath(storage, "/project/p1/settings");
-    expect(storage.get(STORAGE_KEY)).toBe("/project/p1/settings");
-  });
-});
+// NOTE: "Last path resume logic" moved to `resume-path.unit.test.ts`, which
+// exercises the REAL `$lib/resume-path` module (resolveResumeTarget /
+// isResumablePath / clearResumeState) instead of local reimplementations.
 
 // ─── Viewport meta tag ──────────────────────────────────────────────────────
 

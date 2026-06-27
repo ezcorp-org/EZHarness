@@ -29,6 +29,12 @@ export default defineConfig({
 	...(isDocker && { globalSetup: "./e2e/docker-auth-setup.ts" }),
 	use: {
 		baseURL,
+		// Block service-worker registration in e2e. The app's SW (precache +
+		// clients.claim) is exercised by its own unit tests; letting it activate
+		// here adds nothing and destabilises `chrome-headless-shell` (SIGSEGV on
+		// SW fetch interception in the CI headless binary — full Chrome is fine),
+		// crashing unrelated specs. Standard test-isolation, not a workaround.
+		serviceWorkers: "block",
 		// retain-on-failure (not on-first-retry) since retries are now 0.
 		trace: "retain-on-failure",
 		// In evidence mode `captureEvidence` owns capture — turn Playwright's
