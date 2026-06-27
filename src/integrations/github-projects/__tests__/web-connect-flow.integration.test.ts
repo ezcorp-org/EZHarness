@@ -238,6 +238,49 @@ describe("github-projects connect lifecycle (real DB)", () => {
     expect(await getProposalById(proposal!.id)).toBeNull();
   });
 
+  test("connect persists the board's status options so the column editor survives a reload (named + complete)", async () => {
+    // The mocked board has TWO columns: Todo + Doing.
+    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+
+    // Map ONLY one of them (Doing). Before the fix, a reload then rendered just
+    // this one column keyed by its bare option id ("opt-doing") shown AS the
+    // name, and the unmapped column (Todo) vanished — because the editor fell
+    // back to Object.keys(columnActionMap).
+    const patchRes = await linkPatch(
+      ev("PATCH", {
+        body: { projectId, columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } } },
+      }),
+    );
+    expect(patchRes.status).toBe(200);
+
+    // A fresh GET is exactly what the page's loadLink() does after a reload. It
+    // MUST carry the board's FULL, NAMED column list (the data the editor
+    // renders), independent of which columns happen to be mapped.
+    const getRes = await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}` }));
+    expect(getRes.status).toBe(200);
+    const { link } = await getRes.json();
+    expect(link.statusOptions).toEqual([
+      { id: "opt-todo", name: "Todo" },
+      { id: "opt-doing", name: "Doing" },
+    ]);
+    // Pin the exact symptoms the bug exhibited:
+    //   1) COMPLETE — both columns present even though only one is mapped.
+    expect(link.statusOptions).toHaveLength(2);
+    expect(Object.keys(link.columnActionMap)).toEqual(["opt-doing"]);
+    //   2) NAMED — every column has a human name, never its raw option id.
+    expect(link.statusOptions.map((o: { name: string }) => o.name)).toEqual(["Todo", "Doing"]);
+    expect(link.statusOptions.every((o: { id: string; name: string }) => o.name !== o.id)).toBe(true);
+  });
+
+  test("re-connect refreshes the persisted status options", async () => {
+    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+    const link = await getLinkByProjectId(projectId);
+    expect(link?.statusOptions).toEqual([
+      { id: "opt-todo", name: "Todo" },
+      { id: "opt-doing", name: "Doing" },
+    ]);
+  });
+
   test("re-connect from pat → gh purges the stale encrypted PAT", async () => {
     await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
     expect(await getSecret(GH_EXT, projectId, "apiToken")).toBe("tok");

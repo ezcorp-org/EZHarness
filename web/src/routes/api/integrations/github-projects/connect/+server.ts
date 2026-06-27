@@ -129,6 +129,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     boardTitle: board.title,
     ownerLogin: board.ownerLogin,
     statusFieldId: board.statusFieldId,
+    // Persist the board's columns so the mapping editor renders full, named
+    // columns after a reload (the connect response carries them only transiently).
+    statusOptions: board.statusOptions,
     authMode,
     createdByUserId: user.id,
   });

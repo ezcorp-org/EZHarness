@@ -48,6 +48,7 @@ export async function up(db: any): Promise<void> {
       board_title TEXT NOT NULL DEFAULT '',
       owner_login TEXT NOT NULL DEFAULT '',
       status_field_id TEXT,
+      status_options JSONB NOT NULL DEFAULT '[]',
       auth_mode TEXT NOT NULL DEFAULT 'pat',
       column_action_map JSONB NOT NULL DEFAULT '{}',
       poll_cursor JSONB,
@@ -62,6 +63,10 @@ export async function up(db: any): Promise<void> {
       UNIQUE(project_id)
     )
   `);
+  // Additive back-compat for DBs created before status_options existed.
+  await db.execute(
+    sql`ALTER TABLE github_projects_links ADD COLUMN IF NOT EXISTS status_options JSONB NOT NULL DEFAULT '[]'`,
+  );
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS github_projects_proposals (

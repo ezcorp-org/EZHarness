@@ -30,6 +30,13 @@ function connectedLink(overrides: Record<string, unknown> = {}) {
 		ownerLogin: "acme",
 		boardNodeId: "PVT_board",
 		statusFieldId: "FIELD_status",
+		// Persisted board columns — the GET returns them like the real server, so
+		// the editor renders named, complete columns after a reload (not the saved
+		// map's option-id keys).
+		statusOptions: [
+			{ id: "opt-todo", name: "Todo" },
+			{ id: "opt-doing", name: "Doing" },
+		],
 		authMode: "pat",
 		columnActionMap: {},
 		pollIntervalSec: 60,
@@ -154,6 +161,34 @@ test.describe("GitHub Projects connect sub-route", () => {
 		// Save the mapping → save-flash.
 		await page.getByTestId("gh-projects-save-map").click();
 		await expect(page.getByTestId("gh-projects-map-saved")).toBeVisible();
+	});
+
+	test("reload of an already-connected board renders named, complete columns (regression: ids + missing column)", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		const state = await installGhRoutes(page);
+		// Already connected on load (a page refresh) with only ONE column mapped —
+		// the exact bug scenario. No connect() this session, so the editor must
+		// source its columns from the link GET's persisted statusOptions, not the
+		// saved map's keys.
+		state.link = connectedLink({ columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } } });
+		await page.goto(CONNECT_PATH);
+
+		await expect(page.getByTestId("gh-projects-connected-banner")).toBeVisible();
+		await expect(page.getByTestId("gh-projects-column-editor")).toBeVisible();
+
+		// COMPLETE: BOTH columns render — including the UNMAPPED one. Pre-fix the
+		// unmapped "Todo" column vanished (the editor used the map's keys).
+		await expect(page.getByTestId("gh-projects-column-row")).toHaveCount(2);
+		await expect(page.getByTestId("gh-projects-column-enable-opt-todo")).toBeVisible();
+		await expect(page.getByTestId("gh-projects-column-enable-opt-doing")).toBeVisible();
+
+		// NAMED: rows show the human column names, never the raw option ids.
+		// Pre-fix the labels were "opt-todo" / "opt-doing".
+		const editor = page.getByTestId("gh-projects-column-editor");
+		await expect(editor).toContainText("Todo");
+		await expect(editor).toContainText("Doing");
+		await expect(editor).not.toContainText("opt-todo");
+		await expect(editor).not.toContainText("opt-doing");
 	});
 
 	test("pause stops without disconnecting; resume flips back", async ({ page, mockApi }) => {

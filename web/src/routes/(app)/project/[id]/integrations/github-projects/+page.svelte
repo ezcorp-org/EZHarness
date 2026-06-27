@@ -29,6 +29,7 @@
 		ownerLogin: string;
 		boardNodeId: string;
 		statusFieldId: string | null;
+		statusOptions: StatusOption[];
 		authMode: "pat" | "gh";
 		columnActionMap: Record<string, ColumnAction>;
 		pollIntervalSec: number;
@@ -150,10 +151,16 @@
 		}
 	}
 
-	// Columns to render in the editor: prefer freshly-resolved board options,
-	// else the saved map's keys.
+	// Columns to render in the editor, in priority order:
+	//   1. board options freshly resolved by connect() (this session), else
+	//   2. the board options PERSISTED on the link (survive a page reload), else
+	//   3. last-resort: the saved map's option-id keys (only if a legacy link
+	//      predates persisted statusOptions — shows ids, mapped columns only).
+	// Without (2) a reload fell back to (3), which showed option ids as names
+	// and dropped every unmapped column.
 	let editableColumns = $derived.by((): StatusOption[] => {
 		if (statusOptions.length) return statusOptions;
+		if (link?.statusOptions?.length) return link.statusOptions;
 		return Object.keys(columnMap).map((id) => ({ id, name: id }));
 	});
 

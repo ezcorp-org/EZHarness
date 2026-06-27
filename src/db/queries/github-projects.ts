@@ -86,6 +86,8 @@ export async function upsertLink(
         boardTitle: input.boardTitle ?? "",
         ownerLogin: input.ownerLogin ?? "",
         statusFieldId: input.statusFieldId ?? null,
+        // A (re)connect refreshes the board's columns so the editor stays in sync.
+        statusOptions: input.statusOptions ?? [],
         authMode: input.authMode ?? "pat",
         columnActionMap: input.columnActionMap ?? {},
         enabled: input.enabled ?? true,

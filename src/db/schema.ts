@@ -7,6 +7,7 @@ import type {
   GithubColumnActionMap,
   GithubProposalAction,
   GithubProposalStatus,
+  GithubStatusOption,
 } from "../integrations/github-projects/types";
 
 export const projects = pgTable("projects", {
@@ -1260,6 +1261,12 @@ export const githubProjectsLinks = pgTable("github_projects_links", {
   ownerLogin: text("owner_login").notNull().default(""),
   /** Node id of the single-select "Status" field whose options are the columns. */
   statusFieldId: text("status_field_id"),
+  /** The board's Status-field options (id+name) captured at connect time. The
+   *  connect response carries these transiently; persisting them lets the
+   *  column-mapping editor render FULL, NAMED columns after a page reload
+   *  (instead of falling back to the saved map's bare option-id keys, which
+   *  shows ids and drops unmapped columns). Refreshed on every (re)connect. */
+  statusOptions: jsonb("status_options").notNull().$type<GithubStatusOption[]>().default([]),
   authMode: text("auth_mode").notNull().$type<"pat" | "gh">().default("pat"),
   /** statusOptionId → action mapping. The daemon reads this every poll. */
   columnActionMap: jsonb("column_action_map").notNull().$type<GithubColumnActionMap>().default({}),

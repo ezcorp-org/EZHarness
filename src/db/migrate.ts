@@ -1564,6 +1564,7 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
       board_title TEXT NOT NULL DEFAULT '',
       owner_login TEXT NOT NULL DEFAULT '',
       status_field_id TEXT,
+      status_options JSONB NOT NULL DEFAULT '[]',
       auth_mode TEXT NOT NULL DEFAULT 'pat',
       column_action_map JSONB NOT NULL DEFAULT '{}',
       poll_cursor JSONB,
@@ -1578,6 +1579,14 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
       UNIQUE(project_id)
     )
   `);
+
+  // Back-compat: CREATE TABLE IF NOT EXISTS skips new columns on already-migrated
+  // DBs, so add status_options to pre-existing link rows. Stores the board's
+  // Status-field columns (id+name) so the mapping editor renders named, complete
+  // columns after a reload — not just the saved map's bare option-id keys.
+  await db.execute(
+    sql`ALTER TABLE github_projects_links ADD COLUMN IF NOT EXISTS status_options JSONB NOT NULL DEFAULT '[]'`,
+  );
 
   // `github_projects_proposals` — the queue + idempotency unit. `dedupe_key`
   // is a server-derived hash of (project_id, item_node_id, status_option_id,
