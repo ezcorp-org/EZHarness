@@ -58,13 +58,30 @@ function proposalsTree(state: "pending" | "spawned") {
 						: []),
 				],
 			},
+			{ type: "heading", level: 2, text: "Connection health" },
+			{
+				type: "section",
+				title: "Roadmap",
+				nodes: [
+					{ type: "status", label: "Polling", state: "running" },
+					{
+						type: "button",
+						label: "Poll now",
+						style: "primary",
+						action: {
+							event: "github-projects:poll-now",
+							payload: { linkId: "link-1" },
+						},
+					},
+				],
+			},
 		],
 	};
 }
 
 /** Mock the Hub tab list + render + action endpoints over a mutable state. */
 async function installHubRoutes(page: Page) {
-	const state: { phase: "pending" | "spawned" } = { phase: "pending" };
+	const state: { phase: "pending" | "spawned"; pollBody?: unknown } = { phase: "pending" };
 
 	await page.route("**/api/hub/pages", (route) =>
 		route.fulfill({
@@ -82,6 +99,13 @@ async function installHubRoutes(page: Page) {
 	await page.route("**/api/extensions/github-projects/events/approve", (route) => {
 		state.phase = "spawned";
 		return route.fulfill({ json: { ok: true, page: proposalsTree("spawned") } });
+	});
+
+	// Poll-now action → idempotent re-poll; returns the same tree inline. The
+	// Hub strips the `github-projects:` prefix, so the URL suffix is `poll-now`.
+	await page.route("**/api/extensions/github-projects/events/poll-now", (route) => {
+		state.pollBody = route.request().postDataJSON();
+		return route.fulfill({ json: { ok: true, page: proposalsTree(state.phase) } });
 	});
 
 	return state;
@@ -102,6 +126,31 @@ test.describe("GitHub Projects Hub", () => {
 		// The inline fresh tree shows the proposal as spawned (Approve gone).
 		await expect(page.getByText("Spawned")).toBeVisible();
 		await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(0);
+	});
+
+	test("Poll now button dispatches the poll-now event with the board's linkId", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj] });
+		const state = await installHubRoutes(page);
+
+		await page.goto(`/hub/${encodeURIComponent(HUB_PAGE_ID)}`);
+		await expect(page.getByTestId("hub-page-title")).toContainText("GitHub Proposals");
+
+		// The poll-now POST resolves once the button is clicked.
+		const pollPost = page.waitForRequest(
+			(req) =>
+				req.method() === "POST" &&
+				req.url().includes("/api/extensions/github-projects/events/poll-now"),
+		);
+		await page.getByRole("button", { name: "Poll now" }).click();
+		const req = await pollPost;
+
+		// The Hub strips the `github-projects:` prefix (URL suffix `poll-now`) and
+		// carries the button payload through under `payload`.
+		expect(req.postDataJSON()).toMatchObject({ payload: { linkId: "link-1" } });
+		expect(state.pollBody).toMatchObject({ payload: { linkId: "link-1" } });
 	});
 
 	test("Hub live-refreshes on the github-projects ext:page-state signal", async ({ page, mockApi, emitSse }) => {

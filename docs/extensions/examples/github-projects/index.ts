@@ -48,6 +48,7 @@ export const APPROVE_EVENT = "github-projects:approve";
 export const DISMISS_EVENT = "github-projects:dismiss";
 export const PAUSE_EVENT = "github-projects:pause";
 export const RESUME_EVENT = "github-projects:resume";
+export const POLL_NOW_EVENT = "github-projects:poll-now";
 export const REFRESH_EVENT = "github-projects:refresh";
 
 // ── Reverse-RPC method names (host handler verbs) ────────────────────
@@ -66,6 +67,7 @@ export const RPC = {
   dismiss: m("dismiss"),
   pause: m("pause"),
   resume: m("resume"),
+  pollNow: m("poll-now"),
 } as const;
 
 // ── Reverse-RPC seam (injectable for tests) ──────────────────────────
@@ -349,6 +351,8 @@ export function buildDashboard(data: DashboardData): HubPageTree {
       );
       // Pause / Resume toggle.
       if (b.enabled) {
+        // Poll now — a manual, idempotent re-poll (no confirm; polling is safe).
+        s.button("Poll now", { event: POLL_NOW_EVENT, payload: { linkId: b.linkId } }, "primary");
         s.button(
           "Pause polling",
           {
@@ -439,6 +443,11 @@ export async function handleResume(event: PageActionEvent): Promise<void> {
   if (linkId) await controlThenRefresh(RPC.resume, { linkId });
 }
 
+export async function handlePollNow(event: PageActionEvent): Promise<void> {
+  const linkId = reqString(event.payload?.linkId);
+  if (linkId) await controlThenRefresh(RPC.pollNow, { linkId });
+}
+
 /** "Refresh" button + daemon proposal-update / run-lifecycle events all just
  *  re-pull + push the dashboard. */
 export async function handleRefresh(): Promise<void> {
@@ -459,6 +468,7 @@ export function register(): void {
       [DISMISS_EVENT]: handleDismiss,
       [PAUSE_EVENT]: handlePause,
       [RESUME_EVENT]: handleResume,
+      [POLL_NOW_EVENT]: handlePollNow,
       [REFRESH_EVENT]: handleRefresh,
     },
   });
