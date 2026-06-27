@@ -420,6 +420,7 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
       "github-projects:pause",
       "github-projects:resume",
       "github-projects:refresh",
+      "github-projects:poll-now",
       "github-projects:proposal-update",
       "task:assignment_update",
       "run:complete",
