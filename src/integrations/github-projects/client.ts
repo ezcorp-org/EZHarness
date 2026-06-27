@@ -306,6 +306,27 @@ interface FetchItemsResponse {
   } | null;
 }
 
+interface CreateDraftResponse {
+  addProjectV2DraftIssue: {
+    projectItem: { id: string; content: { id: string; title: string } | null } | null;
+  };
+}
+
+interface ItemContentResponse {
+  node: {
+    id: string;
+    content: { __typename?: string; id?: string; title?: string; url?: string } | null;
+  } | null;
+}
+
+interface StatusFieldIdResponse {
+  node: { field: { id: string } | null } | null;
+}
+
+interface StatusOptionsResponse {
+  node: { field: { id: string; options: ProjectV2FieldOption[] } | null } | null;
+}
+
 const FETCH_ITEMS_QUERY = `
   query FetchItems($boardId: ID!, $after: String) {
     node(id: $boardId) {
@@ -342,6 +363,103 @@ const VALIDATE_AUTH_QUERY = `
   query ValidateAuth($boardId: ID!) {
     node(id: $boardId) {
       ... on ProjectV2 { id }
+    }
+  }
+`;
+
+// Mutation / lookup documents used by the ticket methods. Hoisted to
+// module-level consts (like the queries above) so they're parsed once at
+// module load and Bun's --coverage attributes them consistently — an inline
+// multi-line template literal inside a method body gets per-line DA records
+// that drift across test shards (the documented "bun coverage attribution
+// drift"), which would make the CODEOWNERS coverage gate flaky for this file.
+
+const CREATE_DRAFT_MUTATION = `
+  mutation CreateDraft($boardId: ID!, $title: String!, $body: String) {
+    addProjectV2DraftIssue(input: { projectId: $boardId, title: $title, body: $body }) {
+      projectItem {
+        id
+        content { ... on DraftIssue { id title } }
+      }
+    }
+  }
+`;
+
+const ITEM_CONTENT_QUERY = `
+  query ItemContent($itemId: ID!) {
+    node(id: $itemId) {
+      ... on ProjectV2Item {
+        id
+        content {
+          __typename
+          ... on Issue { id title url }
+          ... on PullRequest { id title url }
+          ... on DraftIssue { id title }
+        }
+      }
+    }
+  }
+`;
+
+const UPDATE_DRAFT_MUTATION = `
+  mutation UpdateDraft($draftId: ID!, $title: String, $body: String) {
+    updateProjectV2DraftIssue(input: { draftIssueId: $draftId, title: $title, body: $body }) {
+      draftIssue { id title }
+    }
+  }
+`;
+
+const SET_STATUS_MUTATION = `
+  mutation SetStatus($boardId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+    updateProjectV2ItemFieldValue(
+      input: {
+        projectId: $boardId
+        itemId: $itemId
+        fieldId: $fieldId
+        value: { singleSelectOptionId: $optionId }
+      }
+    ) {
+      projectV2Item { id }
+    }
+  }
+`;
+
+const ARCHIVE_ITEM_MUTATION = `
+  mutation ArchiveItem($boardId: ID!, $itemId: ID!) {
+    archiveProjectV2Item(input: { projectId: $boardId, itemId: $itemId }) {
+      item { id }
+    }
+  }
+`;
+
+const ADD_COMMENT_MUTATION = `
+  mutation AddComment($subjectId: ID!, $body: String!) {
+    addComment(input: { subjectId: $subjectId, body: $body }) {
+      commentEdge { node { id } }
+    }
+  }
+`;
+
+const STATUS_FIELD_ID_QUERY = `
+  query StatusField($boardId: ID!) {
+    node(id: $boardId) {
+      ... on ProjectV2 {
+        field(name: "${STATUS_FIELD_NAME}") {
+          ... on ProjectV2SingleSelectField { id }
+        }
+      }
+    }
+  }
+`;
+
+const STATUS_OPTIONS_QUERY = `
+  query StatusOptions($boardId: ID!) {
+    node(id: $boardId) {
+      ... on ProjectV2 {
+        field(name: "${STATUS_FIELD_NAME}") {
+          ... on ProjectV2SingleSelectField { id options { id name } }
+        }
+      }
     }
   }
 `;
@@ -467,22 +585,9 @@ class GithubClientImpl implements GithubClient {
   ): Promise<GithubTicketRef> {
     // Create a DRAFT issue directly on the project so the client stays
     // repo-agnostic and GraphQL-only (no repo needs to be picked for v1).
-    const { data } = await graphql<{
-      addProjectV2DraftIssue: {
-        projectItem: { id: string; content: { id: string; title: string } | null } | null;
-      };
-    }>(
+    const { data } = await graphql<CreateDraftResponse>(
       auth,
-      `
-        mutation CreateDraft($boardId: ID!, $title: String!, $body: String) {
-          addProjectV2DraftIssue(input: { projectId: $boardId, title: $title, body: $body }) {
-            projectItem {
-              id
-              content { ... on DraftIssue { id title } }
-            }
-          }
-        }
-      `,
+      CREATE_DRAFT_MUTATION,
       { boardId: boardNodeId, title: input.title, body: input.body ?? "" },
       "createIssueOnBoard",
     );
@@ -511,28 +616,9 @@ class GithubClientImpl implements GithubClient {
   ): Promise<GithubTicketRef> {
     // Resolve the item's content node so we can route the title/body update to
     // the right surface (REST for a real issue/PR, GraphQL for a draft).
-    const { data } = await graphql<{
-      node: {
-        id: string;
-        content: { __typename?: string; id?: string; title?: string; url?: string } | null;
-      } | null;
-    }>(
+    const { data } = await graphql<ItemContentResponse>(
       auth,
-      `
-        query ItemContent($itemId: ID!) {
-          node(id: $itemId) {
-            ... on ProjectV2Item {
-              id
-              content {
-                __typename
-                ... on Issue { id title url }
-                ... on PullRequest { id title url }
-                ... on DraftIssue { id title }
-              }
-            }
-          }
-        }
-      `,
+      ITEM_CONTENT_QUERY,
       { itemId: input.itemNodeId },
       "updateItem",
       `updateItem: project item not found: ${input.itemNodeId}`,
@@ -549,13 +635,7 @@ class GithubClientImpl implements GithubClient {
       if (content?.__typename === "DraftIssue") {
         await graphql(
           auth,
-          `
-            mutation UpdateDraft($draftId: ID!, $title: String, $body: String) {
-              updateProjectV2DraftIssue(input: { draftIssueId: $draftId, title: $title, body: $body }) {
-                draftIssue { id title }
-              }
-            }
-          `,
+          UPDATE_DRAFT_MUTATION,
           { draftId: content.id, title: input.title, body: input.body },
           "updateItem(draft)",
         );
@@ -599,20 +679,7 @@ class GithubClientImpl implements GithubClient {
     const fieldId = await this.#resolveStatusFieldId(boardNodeId, auth);
     await graphql(
       auth,
-      `
-        mutation SetStatus($boardId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
-          updateProjectV2ItemFieldValue(
-            input: {
-              projectId: $boardId
-              itemId: $itemId
-              fieldId: $fieldId
-              value: { singleSelectOptionId: $optionId }
-            }
-          ) {
-            projectV2Item { id }
-          }
-        }
-      `,
+      SET_STATUS_MUTATION,
       { boardId: boardNodeId, itemId: itemNodeId, fieldId, optionId: statusOptionId },
       "setItemStatus",
     );
@@ -621,52 +688,23 @@ class GithubClientImpl implements GithubClient {
   async archiveItem(boardNodeId: string, auth: GithubAuth, itemNodeId: string): Promise<void> {
     await graphql(
       auth,
-      `
-        mutation ArchiveItem($boardId: ID!, $itemId: ID!) {
-          archiveProjectV2Item(input: { projectId: $boardId, itemId: $itemId }) {
-            item { id }
-          }
-        }
-      `,
+      ARCHIVE_ITEM_MUTATION,
       { boardId: boardNodeId, itemId: itemNodeId },
       "archiveItem",
     );
   }
 
   async addComment(auth: GithubAuth, contentNodeId: string, body: string): Promise<void> {
-    await graphql(
-      auth,
-      `
-        mutation AddComment($subjectId: ID!, $body: String!) {
-          addComment(input: { subjectId: $subjectId, body: $body }) {
-            commentEdge { node { id } }
-          }
-        }
-      `,
-      { subjectId: contentNodeId, body },
-      "addComment",
-    );
+    await graphql(auth, ADD_COMMENT_MUTATION, { subjectId: contentNodeId, body }, "addComment");
   }
 
   // ── private helpers ──────────────────────────────────────────────────────
 
   /** Resolve the board's Status single-select field id (for status mutations). */
   async #resolveStatusFieldId(boardNodeId: string, auth: GithubAuth): Promise<string> {
-    const { data } = await graphql<{
-      node: { field: { id: string } | null } | null;
-    }>(
+    const { data } = await graphql<StatusFieldIdResponse>(
       auth,
-      `
-        query StatusField($boardId: ID!) {
-          node(id: $boardId) {
-            ... on ProjectV2 {
-              field(name: "${STATUS_FIELD_NAME}") {
-                ... on ProjectV2SingleSelectField { id }
-              }
-            }
-          }
-        }
-      `,
+      STATUS_FIELD_ID_QUERY,
       { boardId: boardNodeId },
       "resolveStatusField",
       `Board ${boardNodeId} not found while resolving Status field`,
@@ -687,21 +725,9 @@ class GithubClientImpl implements GithubClient {
     itemNodeId: string,
     statusName: string,
   ): Promise<void> {
-    const { data } = await graphql<{
-      node: { field: { id: string; options: ProjectV2FieldOption[] } | null } | null;
-    }>(
+    const { data } = await graphql<StatusOptionsResponse>(
       auth,
-      `
-        query StatusOptions($boardId: ID!) {
-          node(id: $boardId) {
-            ... on ProjectV2 {
-              field(name: "${STATUS_FIELD_NAME}") {
-                ... on ProjectV2SingleSelectField { id options { id name } }
-              }
-            }
-          }
-        }
-      `,
+      STATUS_OPTIONS_QUERY,
       { boardId: boardNodeId },
       "setStatusByName",
       `Board ${boardNodeId} not found while resolving Status options`,
