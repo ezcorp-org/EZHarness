@@ -24,6 +24,7 @@ import {
   forbiddenTestAdditions,
   parseExcludeEntries,
   parseUnifiedDiff,
+  stripBlockComments,
   thresholdRatchetViolations,
   unassertedAddedBlocks,
 } from "../../scripts/gate-integrity.ts";
@@ -248,6 +249,66 @@ describe("gate-integrity: unassertedAddedBlocks", () => {
       "});",
     ].join("\n");
     expect(unassertedAddedBlocks(tricky, new Set([2]))).toEqual([]);
+  });
+});
+
+// ── gate-integrity: stripBlockComments ──────────────────────────────────────
+describe("gate-integrity: stripBlockComments", () => {
+  test("blanks a JSDoc block, preserves line count, keeps following code", () => {
+    const src = [
+      "/**",
+      " * e2e self-test (mockApi, no Docker).",
+      " */",
+      "const x = 1;",
+    ].join("\n");
+    const out = stripBlockComments(src);
+    expect(out.split("\n").length).toBe(4); // newlines preserved
+    expect(out).not.toContain("self-test"); // prose blanked
+    expect(out).toContain("const x = 1;"); // real code survives
+  });
+  test("leaves a block-comment marker inside a string literal untouched", () => {
+    const src = 'const s = "a /* not a comment */ b";';
+    expect(stripBlockComments(src)).toBe(src);
+  });
+  test("does not treat /* appearing after // as a block comment", () => {
+    const src = "const y = 2; // a /* b";
+    expect(stripBlockComments(src)).toBe(src);
+  });
+  test("resumes code after the closing */", () => {
+    const out = stripBlockComments("before /* mid */ after");
+    expect(out).toContain("before");
+    expect(out).toContain("after");
+    expect(out).not.toContain("mid");
+  });
+});
+
+// ── gate-integrity: unassertedAddedBlocks ignores block-comment prose ────────
+describe("gate-integrity: unassertedAddedBlocks vs doc-comment prose", () => {
+  test("a doc-comment 'self-test (…)' before a real test is NOT flagged", () => {
+    // Before the fix the comment line matched TEST_OPENER → phantom vacuous
+    // block. Regression guard for the false-positive hit on PR #24.
+    const src = [
+      "/**",
+      " * Visual-evidence capture mechanism — e2e self-test (mockApi, no Docker).",
+      " */",
+      "test('real', () => {",
+      "  expect(compute()).toBe(1);",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(src, new Set([1, 2, 3, 4, 5, 6]))).toEqual([]);
+  });
+  test("still flags a genuinely vacuous test that follows a doc comment", () => {
+    const src = [
+      "/**",
+      " * helper self-test (no Docker).",
+      " */",
+      "test('vacuous', () => {",
+      "  doThing();",
+      "});",
+    ].join("\n");
+    const out = unassertedAddedBlocks(src, new Set([4, 5, 6]));
+    expect(out.length).toBe(1);
+    expect(out[0]).toContain("near line 4"); // the real test, not the comment
   });
 });
 

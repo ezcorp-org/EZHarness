@@ -176,6 +176,65 @@ const ASSERTION =
 const TEST_OPENER = /(?:^|[^.\w])(?:test|it)\s*\(/;
 
 /**
+ * Blank out block comments (`/* … *\/`, including JSDoc `/** … *\/`) across the
+ * whole file while PRESERVING newlines, so the per-line test-opener / assertion
+ * scanners can't be fooled by prose. Without this a doc-comment phrase like
+ * "e2e self-test (mockApi, no Docker)" matches the `TEST_OPENER` regex and is
+ * mistaken for a vacuous (assertion-free) `test()` block. String- and
+ * line-comment-aware: a `/*` inside a string literal or after `//` is left
+ * untouched. Comment characters become spaces (newlines kept) so 1-based line
+ * numbers reported downstream stay accurate.
+ */
+export function stripBlockComments(source: string): string {
+  let out = "";
+  let quote: string | null = null;
+  let inLine = false;
+  let inBlock = false;
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i]!;
+    const next = source[i + 1];
+    if (inBlock) {
+      if (ch === "*" && next === "/") {
+        out += "  ";
+        i++;
+        inBlock = false;
+      } else {
+        out += ch === "\n" ? "\n" : " ";
+      }
+      continue;
+    }
+    if (inLine) {
+      out += ch; // leave line comments for stripNoise to handle per line
+      if (ch === "\n") inLine = false;
+      continue;
+    }
+    if (quote) {
+      out += ch;
+      if (ch === quote && source[i - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      out += ch;
+      continue;
+    }
+    if (ch === "/" && next === "/") {
+      inLine = true;
+      out += ch;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlock = true;
+      out += "  ";
+      i++;
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/**
  * Strip line comments and string/template literals so brace counting and
  * assertion detection aren't fooled by braces/keywords inside strings.
  */
@@ -206,7 +265,9 @@ function stripNoise(line: string): string {
  * scans to the matching close, ignoring braces inside strings/comments.
  */
 export function unassertedAddedBlocks(fileContent: string, addedLines: Set<number>): string[] {
-  const lines = fileContent.split("\n");
+  // Blank block comments first (newline-preserving) so a doc-comment phrase
+  // like "e2e self-test (mockApi)" can't masquerade as a `test(` opener.
+  const lines = stripBlockComments(fileContent).split("\n");
   const out: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i]!;
