@@ -5,22 +5,21 @@ import type { Page } from "@playwright/test";
 /**
  * E2E for the per-project GitHub Projects connect/settings sub-route
  * (`/project/<id>/integrations/github-projects`). Drives the real UI against
- * mocked `/api/integrations/github-projects/*` endpoints: empty → connect →
- * connected banner + scopes → column→action editor (auto-spawn OFF default +
- * loud warning) → pause → disconnect.
+ * mocked `/api/integrations/github-projects/*` endpoints.
  *
- * Also covers UX-B (extension-secrets Phase 1C): the top-level nav item is
- * gone, so the connect surface is reached from the extension detail page and
- * Project Settings, and a connected PAT shows a MASKED saved-state with a
- * "Replace token" affordance. The `@evidence`-tagged test captures a
- * screenshot of the masked/replace state for the Visual-evidence gate.
+ * The project connects to MANY boards, rendered as one collapsible card each:
+ * collapsed = compact overview + the owner avatar; expand = the full per-board
+ * editor (column→action map, default model, pause, refresh, replace token,
+ * disconnect), all addressed by that card's linkId. "Connect another board"
+ * adds a card. The `@evidence`-tagged tests capture screenshots for the
+ * Visual-evidence gate.
  */
 
 const proj = makeProject({ id: "proj-gh", name: "Acme Web" });
 
 const CONNECT_PATH = `/project/${proj.id}/integrations/github-projects`;
 
-/** Shared link row the GET endpoint returns once "connected". */
+/** A connected board row the GET endpoint returns (multi-board: links[]). */
 function connectedLink(overrides: Record<string, unknown> = {}) {
 	return {
 		id: "link-1",
@@ -30,14 +29,13 @@ function connectedLink(overrides: Record<string, unknown> = {}) {
 		ownerLogin: "acme",
 		boardNodeId: "PVT_board",
 		statusFieldId: "FIELD_status",
-		// Persisted board columns — the GET returns them like the real server, so
-		// the editor renders named, complete columns after a reload (not the saved
-		// map's option-id keys).
+		// Persisted board columns so the editor renders named, complete columns.
 		statusOptions: [
 			{ id: "opt-todo", name: "Todo" },
 			{ id: "opt-doing", name: "Doing" },
 		],
 		authMode: "pat",
+		hasTokenOverride: false,
 		columnActionMap: {},
 		defaultModel: null as string | null,
 		pollIntervalSec: 60,
@@ -53,76 +51,89 @@ function connectedLink(overrides: Record<string, unknown> = {}) {
 
 /**
  * Install fine-grained route handlers for the github-projects link/connect
- * endpoints over a mutable in-memory `state`. Returns the state so a test can
- * flip "connected" and assert the UI reacts.
+ * endpoints over a mutable in-memory `state` (an ARRAY of boards). Returns the
+ * state so a test can seed boards and assert the UI reacts.
  */
 async function installGhRoutes(page: Page) {
 	const state: {
-		link: ReturnType<typeof connectedLink> | null;
+		links: ReturnType<typeof connectedLink>[];
 		refreshOptions: { id: string; name: string }[];
+		nextId: number;
 	} = {
-		link: null,
-		// What the board "currently" has when refresh-columns is invoked — a
-		// THREE-column set (incl. an extra "Done") so a test can prove a refresh
-		// picks up columns beyond the two first persisted.
+		links: [],
+		// What a board "currently" has on refresh-columns — a THREE-column set
+		// (incl. an extra "Done") so a test can prove a refresh picks up new columns.
 		refreshOptions: [
 			{ id: "opt-todo", name: "Todo" },
 			{ id: "opt-doing", name: "Doing" },
 			{ id: "opt-done", name: "Done" },
 		],
+		nextId: 2,
 	};
 
+	// Refresh-columns — registered BEFORE the generic `link**` route so the more
+	// specific path wins (Playwright matches most-recently-registered first, so
+	// the generic one is registered AFTER). Mirrors the server: no token in body.
+	await page.route(
+		"**/api/integrations/github-projects/link/refresh-columns",
+		async (route) => {
+			const body = route.request().postDataJSON() as { linkId?: string };
+			const link = state.links.find((l) => l.id === body.linkId);
+			if (link) link.statusOptions = state.refreshOptions;
+			return route.fulfill({ json: { link } });
+		},
+	);
+
 	await page.route("**/api/integrations/github-projects/link**", async (route) => {
+		// Let the more-specific refresh-columns handler win for its sub-path.
+		if (route.request().url().includes("/refresh-columns")) return route.fallback();
 		const method = route.request().method();
 		if (method === "GET") {
-			return route.fulfill(
-				state.link
-					? { json: { link: state.link } }
-					: { status: 404, json: { error: "No GitHub board linked to this project" } },
-			);
+			return route.fulfill({ json: { links: state.links } });
 		}
+		const body = route.request().postDataJSON() as Record<string, unknown>;
+		const link = state.links.find((l) => l.id === body.linkId);
 		if (method === "PATCH") {
-			const body = route.request().postDataJSON() as Record<string, unknown>;
-			if (state.link) {
-				if (body.enabled !== undefined) state.link.enabled = body.enabled as boolean;
+			if (link) {
+				if (body.enabled !== undefined) link.enabled = body.enabled as boolean;
 				if (body.columnActionMap !== undefined)
-					state.link.columnActionMap = body.columnActionMap as Record<string, never>;
+					link.columnActionMap = body.columnActionMap as Record<string, never>;
 				if (body.defaultModel !== undefined)
-					state.link.defaultModel = body.defaultModel as string | null;
+					link.defaultModel = body.defaultModel as string | null;
 			}
-			return route.fulfill({ json: { link: state.link } });
+			return route.fulfill({ json: { link } });
 		}
 		if (method === "DELETE") {
-			state.link = null;
+			state.links = state.links.filter((l) => l.id !== body.linkId);
 			return route.fulfill({ json: { disconnected: true, cancelledProposals: 0 } });
 		}
 		return route.fulfill({ status: 405, json: { error: "no" } });
 	});
 
-	// Refresh-columns: re-fetch the board's Status columns host-side and persist
-	// them on the link. Registered AFTER the generic `link**` route so it wins
-	// for this specific sub-path (Playwright matches most-recently-registered
-	// first). Mirrors the real server: no token in the request body.
-	await page.route(
-		"**/api/integrations/github-projects/link/refresh-columns",
-		async (route) => {
-			if (state.link) state.link.statusOptions = state.refreshOptions;
-			return route.fulfill({ json: { link: state.link } });
-		},
-	);
-
 	await page.route("**/api/integrations/github-projects/connect", async (route) => {
-		const body = route.request().postDataJSON() as { authMode: string };
-		state.link = connectedLink({ authMode: body.authMode });
+		const body = route.request().postDataJSON() as {
+			boardUrl: string;
+			authMode: string;
+			tokenScope?: string;
+		};
+		// Re-connecting the same boardUrl updates; a new URL adds a board.
+		let link = state.links.find((l) => l.boardUrl === body.boardUrl);
+		if (!link) {
+			link = connectedLink({
+				id: `link-${state.nextId++}`,
+				boardUrl: body.boardUrl,
+				boardTitle: `Board ${body.boardUrl}`,
+			});
+			state.links.push(link);
+		}
+		link.authMode = body.authMode;
+		link.hasTokenOverride = body.tokenScope === "board";
 		return route.fulfill({
 			json: {
-				linkId: "link-1",
-				boardTitle: "Acme Roadmap",
-				ownerLogin: "acme",
-				statusOptions: [
-					{ id: "opt-todo", name: "Todo" },
-					{ id: "opt-doing", name: "Doing" },
-				],
+				linkId: link.id,
+				boardTitle: link.boardTitle,
+				ownerLogin: link.ownerLogin,
+				statusOptions: link.statusOptions,
 				scopes: ["repo", "project"],
 			},
 		});
@@ -159,12 +170,14 @@ test.describe("GitHub Projects connect sub-route", () => {
 		await expect(page.getByTestId("gh-projects-connect-form")).toBeVisible();
 		// PAT is the default + recommended; its org-wide warning shows.
 		await expect(page.getByTestId("gh-projects-pat-warning")).toBeVisible();
+		// The per-board override checkbox is available in pat mode.
+		await expect(page.getByTestId("gh-projects-token-scope-board")).toBeVisible();
 		// Switching to gh surfaces the single-global-identity warning.
 		await page.getByTestId("gh-projects-auth-gh").check();
 		await expect(page.getByTestId("gh-projects-gh-warning")).toBeVisible();
 	});
 
-	test("connect → connected banner + granted scopes", async ({ page, mockApi }) => {
+	test("connect → a connected card appears with the board title + owner avatar", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj] });
 		await installGhRoutes(page);
 		await page.goto(CONNECT_PATH);
@@ -173,279 +186,287 @@ test.describe("GitHub Projects connect sub-route", () => {
 		await page.getByTestId("gh-projects-token").fill("github_pat_secret");
 		await page.getByTestId("gh-projects-connect").click();
 
-		await expect(page.getByTestId("gh-projects-connected-banner")).toContainText("Connected: Acme Roadmap");
-		await expect(page.getByTestId("gh-projects-granted-scopes")).toContainText("repo, project");
+		// A card for the new board (its server id is link-2 from the connect mock).
+		await expect(page.getByTestId("gh-projects-connected-banner-link-2")).toContainText("Connected: Board");
+		// The owner avatar is derived client-side from ownerLogin.
+		const avatar = page.getByTestId("gh-projects-avatar-link-2");
+		await expect(avatar).toBeVisible();
+		await expect(avatar).toHaveAttribute("src", /github\.com\/acme\.png/);
 	});
 
-	test("column editor: auto-spawn is OFF by default and warns loudly when enabled", async ({ page, mockApi }) => {
+	test("connect TWO boards → TWO cards, each with its own avatar @evidence", async ({ page, mockApi }, testInfo) => {
 		await mockApi({ projects: [proj] });
-		await installGhRoutes(page);
+		const state = await installGhRoutes(page);
+		// Seed board A already connected; connect board B through the form.
+		state.links = [connectedLink({ id: "link-A", boardUrl: "url-a", boardTitle: "Board A" })];
 		await page.goto(CONNECT_PATH);
 
-		// Connect first so the editor (and board columns) appear.
-		await page.getByTestId("gh-projects-board-url").fill("u");
-		await page.getByTestId("gh-projects-token").fill("t");
+		await expect(page.getByTestId("gh-projects-connected-link-A")).toBeVisible();
+
+		await page.getByTestId("gh-projects-board-url").fill("url-b");
+		await page.getByTestId("gh-projects-token").fill("github_pat_b");
 		await page.getByTestId("gh-projects-connect").click();
-		await expect(page.getByTestId("gh-projects-column-editor")).toBeVisible();
+
+		// TWO distinct board cards now render, each with its own avatar.
+		await expect(page.getByTestId("gh-projects-connected-link-A")).toBeVisible();
+		await expect(page.getByTestId("gh-projects-connected-link-2")).toBeVisible();
+		await expect(page.getByTestId("gh-projects-avatar-link-A")).toBeVisible();
+		await expect(page.getByTestId("gh-projects-avatar-link-2")).toBeVisible();
+
+		await captureEvidence(page, testInfo, "github-projects-two-boards");
+	});
+
+	test("card is collapsed by default; expand reveals the editor, collapse hides it", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		const state = await installGhRoutes(page);
+		state.links = [connectedLink({ id: "link-1" })];
+		await page.goto(CONNECT_PATH);
+
+		await expect(page.getByTestId("gh-projects-connected-link-1")).toBeVisible();
+		// Collapsed: the editor body is NOT shown.
+		await expect(page.getByTestId("gh-projects-column-editor-link-1")).toHaveCount(0);
+
+		await page.getByTestId("gh-projects-card-toggle-link-1").click();
+		await expect(page.getByTestId("gh-projects-column-editor-link-1")).toBeVisible();
+
+		await page.getByTestId("gh-projects-card-toggle-link-1").click();
+		await expect(page.getByTestId("gh-projects-column-editor-link-1")).toHaveCount(0);
+	});
+
+	test("per-board editing addresses the right linkId: column editor auto-spawn OFF default + warns when on", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		const state = await installGhRoutes(page);
+		state.links = [connectedLink({ id: "link-1" })];
+		await page.goto(CONNECT_PATH);
+
+		await page.getByTestId("gh-projects-card-toggle-link-1").click();
+		await expect(page.getByTestId("gh-projects-column-editor-link-1")).toBeVisible();
 
 		// Enable a column → its autospawn checkbox is UNCHECKED by default.
-		await page.getByTestId("gh-projects-column-enable-opt-doing").check();
-		const autospawn = page.getByTestId("gh-projects-column-autospawn-opt-doing");
+		await page.getByTestId("gh-projects-column-enable-link-1-opt-doing").check();
+		const autospawn = page.getByTestId("gh-projects-column-autospawn-link-1-opt-doing");
 		await expect(autospawn).not.toBeChecked();
-		await expect(page.getByTestId("gh-projects-autospawn-warning")).toHaveCount(0);
+		await expect(page.getByTestId("gh-projects-autospawn-warning-link-1")).toHaveCount(0);
 
 		// Turning auto-spawn ON surfaces the loud no-approval warning.
 		await autospawn.check();
-		await expect(page.getByTestId("gh-projects-autospawn-warning")).toBeVisible();
+		await expect(page.getByTestId("gh-projects-autospawn-warning-link-1")).toBeVisible();
 
-		// Save the mapping → save-flash.
-		await page.getByTestId("gh-projects-save-map").click();
-		await expect(page.getByTestId("gh-projects-map-saved")).toBeVisible();
+		// Save → the PATCH carries THIS card's linkId.
+		const [patchReq] = await Promise.all([
+			page.waitForRequest(
+				(r) => r.url().includes("/api/integrations/github-projects/link") && r.method() === "PATCH",
+			),
+			page.getByTestId("gh-projects-save-map-link-1").click(),
+		]);
+		expect((patchReq.postDataJSON() as { linkId?: string }).linkId).toBe("link-1");
+		await expect(page.getByTestId("gh-projects-map-saved-link-1")).toBeVisible();
+	});
+
+	test("two boards edit independently: each save PATCHes its OWN linkId", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		const state = await installGhRoutes(page);
+		state.links = [
+			connectedLink({ id: "link-A", boardUrl: "url-a", boardTitle: "Board A" }),
+			connectedLink({ id: "link-B", boardUrl: "url-b", boardTitle: "Board B" }),
+		];
+		await page.goto(CONNECT_PATH);
+
+		// Expand board B and save → the PATCH must carry link-B, not link-A.
+		await page.getByTestId("gh-projects-card-toggle-link-B").click();
+		await expect(page.getByTestId("gh-projects-column-editor-link-B")).toBeVisible();
+		const [patchReq] = await Promise.all([
+			page.waitForRequest(
+				(r) => r.url().includes("/api/integrations/github-projects/link") && r.method() === "PATCH",
+			),
+			page.getByTestId("gh-projects-save-map-link-B").click(),
+		]);
+		expect((patchReq.postDataJSON() as { linkId?: string }).linkId).toBe("link-B");
 	});
 
 	test("default-model picker: populates from /api/models, selecting + Save PATCHes defaultModel @evidence", async ({ page, mockApi }, testInfo) => {
 		await mockApi({ projects: [proj] });
 		const state = await installGhRoutes(page);
-		state.link = connectedLink(); // already connected → the editor + picker render
+		state.links = [connectedLink({ id: "link-1" })];
 		await page.goto(CONNECT_PATH);
 
-		await expect(page.getByTestId("gh-projects-connected-banner")).toBeVisible();
-		const picker = page.getByTestId("gh-projects-default-model");
+		await page.getByTestId("gh-projects-card-toggle-link-1").click();
+		const picker = page.getByTestId("gh-projects-default-model-link-1");
 		await expect(picker).toBeVisible();
-		// No model saved on the link → the active "Instance default" indicator
-		// shows (the selected-state feedback), and no reset button is present yet.
-		await expect(picker.getByTestId("gh-projects-default-model-active")).toBeVisible();
-		await expect(picker.getByTestId("gh-projects-default-model-clear")).toHaveCount(0);
+		// No model saved → the active "Instance default" indicator shows.
+		await expect(picker.getByTestId("gh-projects-default-model-active-link-1")).toBeVisible();
+		await expect(picker.getByTestId("gh-projects-default-model-clear-link-1")).toHaveCount(0);
 
 		// Reuses chat's <ModelSelector> — open its dropdown via the toggle button.
 		await picker.getByTestId("model-selector").locator("button").first().click();
 		const listbox = page.locator("#model-selector-listbox");
 		await expect(listbox).toBeVisible();
 
-		// The TWO available models render; the unavailable google model is
-		// filtered OUT by the selector (available === false).
+		// The TWO available models render; the unavailable google model is filtered.
 		await expect(listbox.getByRole("option")).toHaveCount(2);
 		await expect(listbox.getByText("Claude Opus 4")).toBeVisible();
 		await expect(listbox.getByText("GPT-4o")).toBeVisible();
 		await expect(listbox.getByText("Gemini 2.0")).toHaveCount(0);
 
-		// Select a model → the toggle reflects it, the "Instance default" indicator
-		// is replaced by the "Use instance default" reset button.
+		// Select a model → the indicator is replaced by the reset button.
 		await listbox.getByRole("option", { name: /Claude Opus 4/ }).click();
 		await expect(picker).toContainText("Claude Opus 4");
-		await expect(picker.getByTestId("gh-projects-default-model-active")).toHaveCount(0);
-		await expect(picker.getByTestId("gh-projects-default-model-clear")).toBeVisible();
+		await expect(picker.getByTestId("gh-projects-default-model-active-link-1")).toHaveCount(0);
+		await expect(picker.getByTestId("gh-projects-default-model-clear-link-1")).toBeVisible();
 
-		// Save → the PATCH carries the chosen "<provider>:<model>".
+		// Save → the PATCH carries the chosen "<provider>:<model>" + the linkId.
 		const [patchReq] = await Promise.all([
 			page.waitForRequest(
-				(r) =>
-					r.url().includes("/api/integrations/github-projects/link") && r.method() === "PATCH",
+				(r) => r.url().includes("/api/integrations/github-projects/link") && r.method() === "PATCH",
 			),
-			page.getByTestId("gh-projects-save-map").click(),
+			page.getByTestId("gh-projects-save-map-link-1").click(),
 		]);
-		expect((patchReq.postDataJSON() as { defaultModel?: string }).defaultModel).toBe(
-			"anthropic:claude-opus-4-20250514",
-		);
-		await expect(page.getByTestId("gh-projects-map-saved")).toBeVisible();
+		const patchBody = patchReq.postDataJSON() as { defaultModel?: string; linkId?: string };
+		expect(patchBody.defaultModel).toBe("anthropic:claude-opus-4-20250514");
+		expect(patchBody.linkId).toBe("link-1");
+		await expect(page.getByTestId("gh-projects-map-saved-link-1")).toBeVisible();
 
-		// Capture evidence of the connected state with the model picker (hard
-		// no-op unless EZCORP_E2E_EVIDENCE=1).
 		await captureEvidence(page, testInfo, "gh-default-model");
 	});
 
-	test("default-model: 'Use instance default' shows a selected-state indicator and saves null", async ({ page, mockApi }) => {
+	test("empty status_options auto-refreshes on load → named, complete columns (legacy-link self-heal)", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj] });
 		const state = await installGhRoutes(page);
-		// Start already connected WITH a specific model set → the picker shows the
-		// model + the "Use instance default" reset (NOT the default-state chip).
-		state.link = connectedLink({ defaultModel: "anthropic:claude-opus-4-20250514" });
+		// A connected link whose columns were NEVER persisted (status_options = []),
+		// with only ONE column mapped by its bare id. The page auto-refreshes.
+		state.links = [
+			connectedLink({
+				id: "link-1",
+				statusOptions: [],
+				columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } },
+			}),
+		];
 		await page.goto(CONNECT_PATH);
 
-		await expect(page.getByTestId("gh-projects-connected-banner")).toBeVisible();
-		const picker = page.getByTestId("gh-projects-default-model");
-		await expect(picker).toContainText("Claude Opus 4");
-		// A specific model is set → the active "Instance default" indicator is absent.
-		await expect(picker.getByTestId("gh-projects-default-model-active")).toHaveCount(0);
-
-		// Click "Use instance default" → the selected-state indicator appears
-		// immediately (the UI feedback the user was missing) and the reset is gone.
-		await picker.getByTestId("gh-projects-default-model-clear").click();
-		const active = picker.getByTestId("gh-projects-default-model-active");
-		await expect(active).toBeVisible();
-		await expect(active).toContainText("Instance default");
-		await expect(picker.getByTestId("gh-projects-default-model-clear")).toHaveCount(0);
-
-		// Save → the PATCH clears the stored model (defaultModel: null).
-		const [patchReq] = await Promise.all([
-			page.waitForRequest(
-				(r) =>
-					r.url().includes("/api/integrations/github-projects/link") && r.method() === "PATCH",
-			),
-			page.getByTestId("gh-projects-save-map").click(),
-		]);
-		expect((patchReq.postDataJSON() as { defaultModel?: string | null }).defaultModel).toBeNull();
-		await expect(page.getByTestId("gh-projects-map-saved")).toBeVisible();
-		// Round-trips: server now stores null → the indicator stays selected.
-		await expect(picker.getByTestId("gh-projects-default-model-active")).toBeVisible();
-	});
-
-	test("reload of an already-connected board renders named, complete columns (regression: ids + missing column)", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj] });
-		const state = await installGhRoutes(page);
-		// Already connected on load (a page refresh) with only ONE column mapped —
-		// the exact bug scenario. No connect() this session, so the editor must
-		// source its columns from the link GET's persisted statusOptions, not the
-		// saved map's keys.
-		state.link = connectedLink({ columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } } });
-		await page.goto(CONNECT_PATH);
-
-		await expect(page.getByTestId("gh-projects-connected-banner")).toBeVisible();
-		await expect(page.getByTestId("gh-projects-column-editor")).toBeVisible();
-
-		// COMPLETE: BOTH columns render — including the UNMAPPED one. Pre-fix the
-		// unmapped "Todo" column vanished (the editor used the map's keys).
-		await expect(page.getByTestId("gh-projects-column-row")).toHaveCount(2);
-		await expect(page.getByTestId("gh-projects-column-enable-opt-todo")).toBeVisible();
-		await expect(page.getByTestId("gh-projects-column-enable-opt-doing")).toBeVisible();
-
-		// NAMED: rows show the human column names, never the raw option ids.
-		// Pre-fix the labels were "opt-todo" / "opt-doing".
-		const editor = page.getByTestId("gh-projects-column-editor");
-		await expect(editor).toContainText("Todo");
-		await expect(editor).toContainText("Doing");
-		await expect(editor).not.toContainText("opt-todo");
-		await expect(editor).not.toContainText("opt-doing");
-	});
-
-	test("empty status_options auto-refreshes on load → named, complete columns (legacy-link self-heal) @evidence", async ({ page, mockApi }, testInfo) => {
-		await mockApi({ projects: [proj] });
-		const state = await installGhRoutes(page);
-		// The exact production bug: a connected link whose columns were NEVER
-		// persisted (status_options = []), with only ONE column mapped by its bare
-		// id. Pre-fix the editor showed that id AS the name and dropped every
-		// unmapped column.
-		state.link = connectedLink({
-			statusOptions: [],
-			columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } },
-		});
-		await page.goto(CONNECT_PATH);
-
-		await expect(page.getByTestId("gh-projects-connected-banner")).toBeVisible();
-		await expect(page.getByTestId("gh-projects-column-editor")).toBeVisible();
+		await page.getByTestId("gh-projects-card-toggle-link-1").click();
+		await expect(page.getByTestId("gh-projects-column-editor-link-1")).toBeVisible();
 
 		// The page auto-called refresh-columns (status_options was empty) and now
 		// renders ALL THREE named columns — including the two UNMAPPED ones.
-		await expect(page.getByTestId("gh-projects-column-row")).toHaveCount(3);
-		const editor = page.getByTestId("gh-projects-column-editor");
+		await expect(page.getByTestId("gh-projects-column-row-link-1")).toHaveCount(3);
+		const editor = page.getByTestId("gh-projects-column-editor-link-1");
 		await expect(editor).toContainText("Todo");
 		await expect(editor).toContainText("Doing");
 		await expect(editor).toContainText("Done");
-		// NAMED, never the raw option ids.
 		await expect(editor).not.toContainText("opt-todo");
 		await expect(editor).not.toContainText("opt-done");
-
-		await captureEvidence(page, testInfo, "gh-refresh-columns");
 	});
 
-	test("manual 'Refresh columns' button re-fetches the board's current columns", async ({ page, mockApi }) => {
+	test("manual 'Refresh columns' button re-fetches the board's current columns (carries linkId, no token)", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj] });
 		const state = await installGhRoutes(page);
-		// Already populated (Todo + Doing) on load → NO auto-refresh fires.
-		state.link = connectedLink();
+		state.links = [connectedLink({ id: "link-1" })]; // Todo + Doing → no auto-refresh
 		await page.goto(CONNECT_PATH);
-		await expect(page.getByTestId("gh-projects-column-row")).toHaveCount(2);
 
-		// Clicking Refresh re-fetches host-side and picks up the board's newly
-		// added third column ("Done"). The request body carries projectId, no token.
+		await page.getByTestId("gh-projects-card-toggle-link-1").click();
+		await expect(page.getByTestId("gh-projects-column-row-link-1")).toHaveCount(2);
+
 		const [refreshReq] = await Promise.all([
 			page.waitForRequest(
 				(r) => r.url().includes("/link/refresh-columns") && r.method() === "POST",
 			),
-			page.getByTestId("gh-projects-refresh-columns").click(),
+			page.getByTestId("gh-projects-refresh-columns-link-1").click(),
 		]);
-		expect((refreshReq.postDataJSON() as { projectId?: string }).projectId).toBe(proj.id);
-		expect(JSON.stringify(refreshReq.postDataJSON())).not.toContain("token");
+		const refreshBody = refreshReq.postDataJSON() as { projectId?: string; linkId?: string };
+		expect(refreshBody.projectId).toBe(proj.id);
+		expect(refreshBody.linkId).toBe("link-1");
+		expect(JSON.stringify(refreshBody)).not.toContain("token");
 
-		await expect(page.getByTestId("gh-projects-column-row")).toHaveCount(3);
-		await expect(page.getByTestId("gh-projects-column-editor")).toContainText("Done");
+		await expect(page.getByTestId("gh-projects-column-row-link-1")).toHaveCount(3);
+		await expect(page.getByTestId("gh-projects-column-editor-link-1")).toContainText("Done");
 	});
 
 	test("pause stops without disconnecting; resume flips back", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj] });
 		const state = await installGhRoutes(page);
-		state.link = connectedLink(); // already connected on load
+		state.links = [connectedLink({ id: "link-1" })];
 		await page.goto(CONNECT_PATH);
 
-		await expect(page.getByTestId("gh-projects-connected-banner")).toBeVisible();
-		await page.getByTestId("gh-projects-pause").click();
-		await expect(page.getByTestId("gh-projects-paused-tag")).toBeVisible();
-		// Still connected — pause does not drop the link.
-		await expect(page.getByTestId("gh-projects-connected-banner")).toBeVisible();
+		await page.getByTestId("gh-projects-card-toggle-link-1").click();
+		await page.getByTestId("gh-projects-pause-link-1").click();
+		await expect(page.getByTestId("gh-projects-paused-tag-link-1")).toBeVisible();
+		// Still connected — pause does not drop the card.
+		await expect(page.getByTestId("gh-projects-connected-banner-link-1")).toBeVisible();
 
-		await page.getByTestId("gh-projects-pause").click();
-		await expect(page.getByTestId("gh-projects-paused-tag")).toHaveCount(0);
+		await page.getByTestId("gh-projects-pause-link-1").click();
+		await expect(page.getByTestId("gh-projects-paused-tag-link-1")).toHaveCount(0);
 	});
 
-	test("disconnect returns to the connect form", async ({ page, mockApi }) => {
+	test("disconnect removes only that board's card; the other remains", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj] });
 		const state = await installGhRoutes(page);
-		state.link = connectedLink();
+		state.links = [
+			connectedLink({ id: "link-A", boardUrl: "url-a", boardTitle: "Board A" }),
+			connectedLink({ id: "link-B", boardUrl: "url-b", boardTitle: "Board B" }),
+		];
 		await page.goto(CONNECT_PATH);
 
-		await expect(page.getByTestId("gh-projects-connected")).toBeVisible();
+		await expect(page.getByTestId("gh-projects-connected-link-A")).toBeVisible();
+		await expect(page.getByTestId("gh-projects-connected-link-B")).toBeVisible();
+
 		page.on("dialog", (d) => d.accept()); // confirm()
-		await page.getByTestId("gh-projects-disconnect").click();
-		await expect(page.getByTestId("gh-projects-connect-form")).toBeVisible();
+		await page.getByTestId("gh-projects-card-toggle-link-A").click();
+		const [delReq] = await Promise.all([
+			page.waitForRequest(
+				(r) => r.url().includes("/api/integrations/github-projects/link") && r.method() === "DELETE",
+			),
+			page.getByTestId("gh-projects-disconnect-link-A").click(),
+		]);
+		expect((delReq.postDataJSON() as { linkId?: string }).linkId).toBe("link-A");
+
+		// Card A is gone; card B remains.
+		await expect(page.getByTestId("gh-projects-connected-link-A")).toHaveCount(0);
+		await expect(page.getByTestId("gh-projects-connected-link-B")).toBeVisible();
 	});
 
-	// ── UX-B: connect form, masked saved-state + replace-token, evidence ──
-	test("connect form shows the token field; connected PAT shows a masked saved-state + replace-token toggle @evidence", async ({ page, mockApi }, testInfo) => {
+	// ── token override + replace-token, masked saved-state, evidence ──────
+	test("connect form token is OPTIONAL; a connected card shows a masked saved-state + replace-token @evidence", async ({ page, mockApi }, testInfo) => {
 		await mockApi({ projects: [proj] });
-		const state = await installGhRoutes(page);
+		await installGhRoutes(page);
 		await page.goto(CONNECT_PATH);
 
-		// Empty state: the connect form + password token field (testid
-		// `gh-projects-token`) are visible.
+		// Empty state: the connect form + password token field are visible, and the
+		// token is OPTIONAL (the label says so + the override checkbox exists).
 		await expect(page.getByTestId("gh-projects-connect-form")).toBeVisible();
 		const tokenField = page.getByTestId("gh-projects-token");
 		await expect(tokenField).toBeVisible();
 		await expect(tokenField).toHaveAttribute("type", "password");
+		await expect(page.getByTestId("gh-projects-token-scope-board")).toBeVisible();
 
-		// Connect with a PAT → connected state with a MASKED saved indicator.
-		// The stored token is never echoed to the client, so the masked dots
-		// are generic — assert the indicator, NOT any real token characters.
-		await page.getByTestId("gh-projects-board-url").fill("https://github.com/orgs/acme/projects/7");
+		// Connect a board with a PER-BOARD override token.
+		await page.getByTestId("gh-projects-board-url").fill("url-x");
 		await tokenField.fill("github_pat_secret");
-		await page.getByTestId("gh-projects-connect").click();
+		await page.getByTestId("gh-projects-token-scope-board").check();
+		const [connectReq] = await Promise.all([
+			page.waitForRequest(
+				(r) => r.url().includes("/api/integrations/github-projects/connect") && r.method() === "POST",
+			),
+			page.getByTestId("gh-projects-connect").click(),
+		]);
+		expect((connectReq.postDataJSON() as { tokenScope?: string }).tokenScope).toBe("board");
 
-		await expect(page.getByTestId("gh-projects-connected-banner")).toBeVisible();
-		const masked = page.getByTestId("gh-projects-token-masked");
+		// The new card (link-2) appears; expand it → masked saved indicator,
+		// reporting the board override. The real token is never rendered.
+		await expect(page.getByTestId("gh-projects-connected-banner-link-2")).toBeVisible();
+		await page.getByTestId("gh-projects-card-toggle-link-2").click();
+		const masked = page.getByTestId("gh-projects-token-masked-link-2");
 		await expect(masked).toBeVisible();
-		await expect(masked).toContainText("saved");
-		// The real PAT must never be rendered back into the page.
+		await expect(masked).toContainText("board token saved");
 		await expect(masked).not.toContainText("github_pat_secret");
 
-		// "Replace token" re-reveals a password input (same testid) so the
-		// user can paste a NEW PAT and re-submit via the existing connect flow.
-		await page.getByTestId("gh-projects-replace-token").click();
-		await expect(page.getByTestId("gh-projects-replace-form")).toBeVisible();
-		const replaceField = page.getByTestId("gh-projects-token");
+		// "Replace token" re-reveals a password input for a new PAT.
+		await page.getByTestId("gh-projects-replace-token-link-2").click();
+		await expect(page.getByTestId("gh-projects-replace-form-link-2")).toBeVisible();
+		const replaceField = page.getByTestId("gh-projects-replace-input-link-2");
 		await expect(replaceField).toBeVisible();
 		await expect(replaceField).toHaveAttribute("type", "password");
 
-		// Capture evidence of the connected + replace-token state (hard no-op
-		// unless EZCORP_E2E_EVIDENCE=1).
 		await captureEvidence(page, testInfo, "github-projects-connect");
-
-		// Re-submitting a new token returns to the masked state (replace form
-		// closes), proving the round-trip uses the existing connect flow.
-		await replaceField.fill("github_pat_rotated");
-		await page.getByTestId("gh-projects-replace-submit").click();
-		await expect(page.getByTestId("gh-projects-replace-form")).toHaveCount(0);
-		await expect(page.getByTestId("gh-projects-token-masked")).toBeVisible();
-		// The link stayed connected throughout (replace did not disconnect).
-		expect(state.link).not.toBeNull();
 	});
 
 	// ── UX-B discoverability: extension detail page → connect link ────────
@@ -456,17 +477,11 @@ test.describe("GitHub Projects connect sub-route", () => {
 			description: "Connect GitHub Projects boards to EZCorp projects",
 		});
 		await mockApi({ projects: [proj], extensions: [ghExt] });
-		// The per-id extension GET is not part of the default mock surface, and
-		// mockApi's `**/api/**` catch-all returns `{}` for it. Register this
-		// AFTER mockApi so Playwright's last-registered-wins ordering routes the
-		// detail-page load here and the github-projects extension renders.
 		await page.route(`**/api/extensions/${ghExt.id}`, (route) => {
 			if (route.request().method() === "GET") return route.fulfill({ json: ghExt });
 			return route.fulfill({ json: { success: true } });
 		});
 
-		// Land on a project-scoped route first so the store's activeProjectId
-		// is set, then visit the extension detail page.
 		await page.goto(CONNECT_PATH);
 		await page.goto(`/extensions/${ghExt.id}`);
 
@@ -481,7 +496,7 @@ test.describe("GitHub Projects connect sub-route", () => {
 	test("project settings exposes an Integrations link with a connected summary", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj] });
 		const state = await installGhRoutes(page);
-		state.link = connectedLink(); // already connected → summary reflects it
+		state.links = [connectedLink({ id: "link-1" })];
 		await page.goto(`/project/${proj.id}/settings`);
 
 		const section = page.getByTestId("project-settings-integrations");
