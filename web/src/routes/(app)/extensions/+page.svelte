@@ -789,10 +789,9 @@
 				id="ext-sort-select"
 				data-testid="ext-sort-select"
 				bind:value={sortMode}
-				aria-label="Sort extensions"
 				class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-2 text-sm text-[var(--color-text-secondary)] focus:border-[var(--color-accent)] focus:outline-none"
 			>
-				{#each SORT_OPTIONS as opt}
+				{#each SORT_OPTIONS as opt (opt.value)}
 					<option value={opt.value}>{opt.label}</option>
 				{/each}
 			</select>
