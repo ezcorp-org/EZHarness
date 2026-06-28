@@ -230,6 +230,7 @@ VITEST_EXIT=0
     src/lib/admin-guard.unit.test.ts \
     src/lib/scroll-to-hash.unit.test.ts \
     src/lib/chat-prompt-nav.unit.test.ts \
+    src/lib/extensions/extension-sort.unit.test.ts \
     src/__tests__/resume-path.unit.test.ts \
     src/__tests__/sw-runtime.unit.test.ts \
     src/__tests__/service-worker.shell.unit.test.ts \
@@ -290,6 +291,7 @@ VITEST_EXIT=0
     --coverage.include='src/lib/admin-guard.ts' \
     --coverage.include='src/lib/scroll-to-hash.ts' \
     --coverage.include='src/lib/chat-prompt-nav.ts' \
+    --coverage.include='src/lib/extensions/extension-sort.ts' \
     --coverage.include='src/lib/resume-path.ts' \
     --coverage.include='src/lib/sw-runtime.ts' \
     --coverage.include='src/service-worker.ts' \
