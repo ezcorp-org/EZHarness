@@ -1,32 +1,40 @@
 /**
  * POST /api/integrations/github-projects/connect
  *
- * Body: `{ projectId, boardUrl, authMode: 'pat'|'gh', token? }`.
+ * Body: `{ projectId, boardUrl, authMode: 'pat'|'gh', token?, tokenScope? }`.
  *
- * Resolve the pasted board URL → board ref, then VALIDATE the auth against
- * that board (the single egress call; it MUST succeed before anything is
- * persisted). On a scope failure we return the named missing scopes and store
- * NOTHING. On success: for `authMode==='pat'` the token is written to the
- * scope-isolated secrets store (`setSecret`, AAD-bound to this extension +
- * project); for `gh` no token is stored (the daemon resolves `gh auth token`
- * host-side). Then upsert the link.
+ * Connects ANOTHER board to a project (multi-board): re-connecting the same
+ * board updates it, a new board adds a card. Resolve the pasted board URL →
+ * board ref, then VALIDATE the auth against that board (the single egress call;
+ * it MUST succeed before anything is persisted). On a scope failure we return
+ * the named missing scopes and store NOTHING.
+ *
+ * Credentials (pat mode): a board uses the SHARED project token by default;
+ * `tokenScope: 'board'` stores a per-board OVERRIDE instead. The effective
+ * VALIDATION token is the provided `token` if any, else the existing shared
+ * project token (so a 2nd board can connect WITHOUT re-pasting the PAT). It is
+ * a 400 when pat and neither is available. On success:
+ *   - scope 'board' → `setSecret(apiToken:<linkId>, token)` (token required),
+ *   - scope 'shared' → `setSecret(apiToken, token)` only when a token was given.
+ * For `gh` no token is stored (the daemon resolves `gh auth token` host-side).
  *
  * The plaintext token is NEVER echoed back; the response carries only the
- * resolved board metadata + granted scopes.
+ * resolved board metadata + granted scopes + the new linkId.
  *
  * Authed: `extensions` scope + session/key user.
  */
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { errorJson } from "$lib/server/http-errors";
-import { authGithubRoute, resolveProject, parseDefaultModelInput } from "../_shared";
+import { authGithubRoute, resolveProject, parseDefaultModelInput, parseTokenScope } from "../_shared";
 import { createGithubClient } from "$server/integrations/github-projects/client";
 import type {
   GithubAuth,
   GithubAuthMode,
 } from "$server/integrations/github-projects/types";
-import { setSecret, deleteSecret } from "$server/extensions/secrets-store";
+import { setSecret, getSecret, deleteSecret } from "$server/extensions/secrets-store";
 import { upsertLink } from "$server/db/queries/github-projects";
+import { boardTokenName } from "$server/integrations/github-projects/auth";
 import { logger } from "$server/logger";
 
 const log = logger.child("api.github-projects.connect");
@@ -36,6 +44,7 @@ interface ConnectBody {
   boardUrl?: unknown;
   authMode?: unknown;
   token?: unknown;
+  tokenScope?: unknown;
   defaultModel?: unknown;
 }
 
@@ -59,22 +68,38 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   }
   const authMode: GithubAuthMode = body.authMode;
 
-  // Validate the optional default model fast (before any token/board egress).
+  // Validate the optional default model + token scope fast (before any egress).
   const dmParsed = parseDefaultModelInput(body.defaultModel);
   if ("error" in dmParsed) return errorJson(400, dmParsed.error);
+  const scopeParsed = parseTokenScope(body.tokenScope);
+  if ("error" in scopeParsed) return errorJson(400, scopeParsed.error);
+  const tokenScope = scopeParsed.scope;
 
-  // A PAT auth MUST carry a token; gh auth resolves host-side at poll time.
-  let token = "";
-  if (authMode === "pat") {
-    token = typeof body.token === "string" ? body.token : "";
-    if (!token) return errorJson(400, "token is required for authMode 'pat'");
-  }
+  // The token the user typed this request (may be empty when connecting a 2nd
+  // board against the existing SHARED project token).
+  const providedToken = typeof body.token === "string" ? body.token : "";
 
   const projectRes = await resolveProject(
     typeof body.projectId === "string" ? body.projectId : null,
   );
   if ("error" in projectRes) return projectRes.error;
   const { projectId } = projectRes;
+
+  // The effective VALIDATION token for pat mode: the provided token, else the
+  // existing shared project token (so a 2nd board connects without re-pasting).
+  // A per-board override REQUIRES an explicit token (it can't reuse the shared
+  // one — that's just the shared default). 400 when pat and neither resolves.
+  let token = providedToken;
+  if (authMode === "pat") {
+    if (!token && tokenScope === "shared") {
+      token = (await getSecret("github-projects", projectId, "apiToken")) ?? "";
+    }
+    if (!token) {
+      return tokenScope === "board"
+        ? errorJson(400, "token is required for a per-board override")
+        : errorJson(400, "token is required for authMode 'pat'");
+    }
+  }
 
   const client = createGithubClient();
   const credential: GithubAuth = { mode: authMode, token };
@@ -105,28 +130,16 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     });
   }
 
-  // 3. Persist. Store the PAT FIRST (so a link never points at a board with no
-  //    usable credential), then upsert the link. The secrets store encrypts
-  //    (AAD-bound) + audits SECRET_SET.
+  // 3. Persist. Upsert the link FIRST so a per-board override can key off its id
+  //    (the link still has a usable credential — either the shared token already
+  //    stored, or the override we write immediately below). The secrets store
+  //    encrypts (AAD-bound) + audits SECRET_SET.
   //
-  // The PAT is PROJECT-scoped, not user-scoped (no `userId` in the secret's
-  // scope): the poller daemon resolves it with no user context, and any user in
-  // the project shares one board credential. We still pass `actorUserId` so the
-  // SECRET_SET / SECRET_DELETED audit row is attributed to the connecting user
-  // (the row stays project-scoped — `actorUserId` is audit-only, never scope).
-  if (authMode === "pat") {
-    try {
-      await setSecret("github-projects", projectId, "apiToken", token, { actorUserId: user.id });
-    } catch (err) {
-      log.warn("token persist failed", { error: err instanceof Error ? err.message : "err" });
-      return errorJson(500, "Failed to store credentials");
-    }
-  } else {
-    // Re-connecting from PAT → gh must not leave a stale stored PAT behind.
-    // deleteSecret is idempotent; a missing secret is a no-op.
-    await deleteSecret("github-projects", projectId, "apiToken", { actorUserId: user.id }).catch(() => {});
-  }
-
+  // PATs are PROJECT-scoped, not user-scoped (no `userId` in the secret's
+  // scope): the poller daemon resolves them with no user context, and any user
+  // in the project shares the board credential. We still pass `actorUserId` so
+  // the SECRET_SET / SECRET_DELETED audit row is attributed to the connecting
+  // user (the row stays project-scoped — `actorUserId` is audit-only).
   const link = await upsertLink({
     projectId,
     boardNodeId: board.boardNodeId,
@@ -143,6 +156,31 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     authMode,
     createdByUserId: user.id,
   });
+
+  if (authMode === "pat") {
+    // scope 'board' → a per-board override (apiToken:<linkId>); always carries a
+    // token (validated above). scope 'shared' → the project token, written ONLY
+    // when the user actually provided one (a 2nd board reusing the existing
+    // shared token must not re-write — and never write the resolved shared token
+    // back to itself).
+    const secretName = tokenScope === "board" ? boardTokenName(link.id) : "apiToken";
+    const shouldWrite = tokenScope === "board" || providedToken !== "";
+    if (shouldWrite) {
+      try {
+        await setSecret("github-projects", projectId, secretName, token, { actorUserId: user.id });
+      } catch (err) {
+        log.warn("token persist failed", { error: err instanceof Error ? err.message : "err" });
+        return errorJson(500, "Failed to store credentials");
+      }
+    }
+  } else {
+    // Re-connecting THIS board from PAT → gh must not leave a stale stored
+    // override behind. deleteSecret is idempotent; a missing secret is a no-op.
+    // The SHARED project token is left alone — other boards may still use it.
+    await deleteSecret("github-projects", projectId, boardTokenName(link.id), {
+      actorUserId: user.id,
+    }).catch(() => {});
+  }
 
   // Response: board metadata + scopes ONLY. Never the token.
   return json({

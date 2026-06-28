@@ -1,9 +1,9 @@
 /**
  * POST /api/integrations/github-projects/link/refresh-columns
  *
- * Body: `{ projectId }`.
+ * Body: `{ projectId, linkId }`.
  *
- * Re-fetch the connected board's Status columns (id + name) host-side and
+ * Re-fetch the addressed board's Status columns (id + name) host-side and
  * persist them onto the link — WITHOUT the user re-pasting their PAT. This
  * self-heals a link whose `status_options` are empty (e.g. a link that predates
  * column persistence: the migration backfilled `[]`, which it can't recover
@@ -22,7 +22,7 @@ import { errorJson } from "$lib/server/http-errors";
 import {
   authGithubRoute,
   resolveProject,
-  resolveLink,
+  resolveLinkForProject,
   publicLinkView,
 } from "../../_shared";
 import { createGithubClient } from "$server/integrations/github-projects/client";
@@ -44,7 +44,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   );
   if ("error" in projectRes) return projectRes.error;
 
-  const linkRes = await resolveLink(projectRes.projectId);
+  const linkRes = await resolveLinkForProject(
+    projectRes.projectId,
+    typeof body.linkId === "string" ? body.linkId : null,
+  );
   if ("error" in linkRes) return linkRes.error;
   const { link } = linkRes;
 
