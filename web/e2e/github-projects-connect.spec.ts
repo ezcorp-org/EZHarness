@@ -493,7 +493,7 @@ test.describe("GitHub Projects connect sub-route", () => {
 	});
 
 	// ── UX-B discoverability: Project Settings → Integrations section ─────
-	test("project settings exposes an Integrations link with a connected summary", async ({ page, mockApi }) => {
+	test("project settings exposes an Integrations link with a connected summary (single board)", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj] });
 		const state = await installGhRoutes(page);
 		state.links = [connectedLink({ id: "link-1" })];
@@ -504,5 +504,20 @@ test.describe("GitHub Projects connect sub-route", () => {
 		await expect(page.getByTestId("project-settings-gh-status")).toContainText("Connected: Acme Roadmap");
 		const link = page.getByTestId("project-settings-gh-link");
 		await expect(link).toHaveAttribute("href", CONNECT_PATH);
+	});
+
+	test("project settings summarises MULTIPLE connected boards as a count (multi-board headline)", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		const state = await installGhRoutes(page);
+		// Two boards connected → the summary shows the N-boards headline state, not
+		// a single board's title.
+		state.links = [
+			connectedLink({ id: "link-A", boardUrl: "url-a", boardTitle: "Board A" }),
+			connectedLink({ id: "link-B", boardUrl: "url-b", boardTitle: "Board B" }),
+		];
+		await page.goto(`/project/${proj.id}/settings`);
+
+		await expect(page.getByTestId("project-settings-integrations")).toBeVisible();
+		await expect(page.getByTestId("project-settings-gh-status")).toContainText("Connected: 2 boards");
 	});
 });
