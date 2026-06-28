@@ -123,6 +123,7 @@
   "src/db/queries/preview-sessions.ts": 100,
   "web/src/lib/components/tool-cards/preview-consent-card-logic.ts": 100,
   "web/src/lib/components/ExtensionToolSelector.svelte": 100,
+  "web/src/lib/components/hub/HubPageView.svelte": 95,
   "web/src/lib/tool-scope-logic.ts": 100,
   "web/src/lib/loaded-tools-logic.ts": 100,
   "src/runtime/tools/mode-tool-scope.ts": 100,
