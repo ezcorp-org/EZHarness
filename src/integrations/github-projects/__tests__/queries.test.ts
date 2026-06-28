@@ -16,9 +16,11 @@ import {
 } from "../../../__tests__/helpers/test-pglite";
 import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
 import { createProject } from "../../../db/queries/projects";
+import { createConversation } from "../../../db/queries/conversations";
 import {
   getLinkByProjectId,
   getLinkById,
+  listLinksByProjectId,
   listEnabledLinks,
   upsertLink,
   updateLink,
@@ -27,6 +29,7 @@ import {
   deleteLink,
   insertProposalIfNew,
   getProposalById,
+  getProposalByConversationId,
   listProposalsByProject,
   countActiveProposalsForProject,
   updateProposal,
@@ -51,7 +54,7 @@ describe("github-projects queries", () => {
     restoreModuleMocks();
   });
 
-  test("upsertLink inserts, then conflict-updates the same project (incl. ?? fallbacks)", async () => {
+  test("upsertLink: re-connecting the SAME board updates it (incl. ?? fallbacks); a DIFFERENT board inserts", async () => {
     const projectId = await seedProject();
 
     const created = await upsertLink({
@@ -69,22 +72,47 @@ describe("github-projects queries", () => {
     expect(created.projectId).toBe(projectId);
     expect(created.boardTitle).toBe("Roadmap");
 
-    // Re-connect with MINIMAL fields → exercises every `?? default` in the
-    // conflict-update set (boardTitle/owner/statusField/authMode/map/enabled/
-    // interval) and the pollCursor/lastError reset.
-    const replaced = await upsertLink({
+    // Re-connect the SAME board (PVT_a) with MINIMAL fields → conflict-UPDATE
+    // on (project_id, board_node_id). Exercises every `?? default` in the set
+    // (boardTitle/owner/statusField/authMode/map/enabled/interval) and the
+    // pollCursor/lastError reset.
+    const updated = await upsertLink({
+      projectId,
+      boardNodeId: "PVT_a",
+      boardUrl: "https://github.com/orgs/acme/projects/1b",
+    });
+    expect(updated.id).toBe(created.id); // same row (same project+board)
+    expect(updated.boardUrl).toBe("https://github.com/orgs/acme/projects/1b");
+    expect(updated.boardTitle).toBe("");
+    expect(updated.authMode).toBe("pat");
+    expect(updated.pollIntervalSec).toBe(60);
+    expect(updated.enabled).toBe(true);
+    expect(updated.columnActionMap).toEqual({});
+    expect(updated.pollCursor).toBeNull();
+
+    // Connecting a DIFFERENT board to the same project INSERTS a second row.
+    const second = await upsertLink({
       projectId,
       boardNodeId: "PVT_b",
       boardUrl: "https://github.com/orgs/acme/projects/2",
     });
-    expect(replaced.id).toBe(created.id); // same row (UNIQUE(project_id))
-    expect(replaced.boardNodeId).toBe("PVT_b");
-    expect(replaced.boardTitle).toBe("");
-    expect(replaced.authMode).toBe("pat");
-    expect(replaced.pollIntervalSec).toBe(60);
-    expect(replaced.enabled).toBe(true);
-    expect(replaced.columnActionMap).toEqual({});
-    expect(replaced.pollCursor).toBeNull();
+    expect(second.id).not.toBe(created.id);
+    expect(second.boardNodeId).toBe("PVT_b");
+  });
+
+  test("listLinksByProjectId returns all of a project's boards oldest-first (empty-id guard)", async () => {
+    expect(await listLinksByProjectId("")).toEqual([]);
+    expect(await listLinksByProjectId("nope")).toEqual([]);
+
+    const projectId = await seedProject();
+    const first = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u1" });
+    const second = await upsertLink({ projectId, boardNodeId: "PVT_b", boardUrl: "u2" });
+    // A board in a DIFFERENT project must not leak into this project's list.
+    const otherProject = await seedProject("Other");
+    await upsertLink({ projectId: otherProject, boardNodeId: "PVT_c", boardUrl: "u3" });
+
+    const ids = (await listLinksByProjectId(projectId)).map((l) => l.id);
+    expect(ids).toEqual([first.id, second.id]); // createdAt asc (insertion order)
   });
 
   test("getLinkByProjectId / getLinkById: found, not-found, and empty-id guards", async () => {
@@ -242,6 +270,21 @@ describe("github-projects queries", () => {
     await updateProposal(p!.id, { status: "running", agentRunId: "run-9", conversationId: null });
     expect((await getProposalByRunId("run-9"))?.id).toBe(p!.id);
     expect(await updateProposal("missing", { status: "done" })).toBeNull();
+  });
+
+  test("getProposalByConversationId finds the proposal that owns a conversation (+ empty/missing guards)", async () => {
+    expect(await getProposalByConversationId("")).toBeNull();
+    expect(await getProposalByConversationId("nope")).toBeNull();
+
+    const projectId = await seedProject();
+    const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
+    // The spawn bridge stamps the conversation onto the proposal; seed a real
+    // conversation so the FK is satisfied, then stamp it.
+    const conv = await createConversation(projectId, { title: "Spawned run" });
+    const p = await insertProposalIfNew(proposalInput(projectId, link.id, "i1", "opt", "plan"));
+    await updateProposal(p!.id, { conversationId: conv.id });
+
+    expect((await getProposalByConversationId(conv.id))?.id).toBe(p!.id);
   });
 
   test("cancelActiveProposalsForLink flips active rows to cancelled and returns the count", async () => {

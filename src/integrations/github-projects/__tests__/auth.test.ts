@@ -24,14 +24,14 @@ mock.module("../../../extensions/secrets-store", () => ({
     getSecretMock(extensionId, projectId, name),
 }));
 
-const { resolveLinkAuth, defaultGhAuthToken } = await import("../auth");
+const { resolveLinkAuth, boardTokenName, defaultGhAuthToken } = await import("../auth");
 
 beforeEach(() => {
   getSecretMock = mock(() => Promise.resolve<string | null>(null));
 });
 
-const patLink = { authMode: "pat" as const, projectId: "proj-1" };
-const ghLink = { authMode: "gh" as const, projectId: "proj-1" };
+const patLink = { id: "link-1", authMode: "pat" as const, projectId: "proj-1" };
+const ghLink = { id: "link-1", authMode: "gh" as const, projectId: "proj-1" };
 
 /** Temporarily replace the tagged-template shell so no real `gh` is spawned. */
 function stubBunShell(output: string, sink?: string[]): () => void {
@@ -46,14 +46,32 @@ function stubBunShell(output: string, sink?: string[]): () => void {
 }
 
 describe("resolveLinkAuth", () => {
-  test("pat mode: resolves the stored PAT from the secrets store at the project scope", async () => {
-    getSecretMock = mock(() => Promise.resolve<string | null>("ghp_stored"));
+  test("pat mode: falls back to the SHARED project token when no per-board override", async () => {
+    // No override stored (apiToken:<id> → null); shared apiToken resolves.
+    getSecretMock = mock((_ext: string, _pid: string | null, name: string) =>
+      Promise.resolve<string | null>(name === "apiToken" ? "ghp_shared" : null),
+    );
     const auth = await resolveLinkAuth(patLink);
-    expect(auth).toEqual({ mode: "pat", token: "ghp_stored" });
+    expect(auth).toEqual({ mode: "pat", token: "ghp_shared" });
+    // It probed the per-board override FIRST, then the shared token.
+    expect(getSecretMock).toHaveBeenCalledWith("github-projects", "proj-1", boardTokenName("link-1"));
     expect(getSecretMock).toHaveBeenCalledWith("github-projects", "proj-1", "apiToken");
   });
 
-  test("pat mode: a missing/undecryptable PAT (null) throws GithubAuthError", async () => {
+  test("pat mode: a per-board override WINS over the shared project token", async () => {
+    getSecretMock = mock((_ext: string, _pid: string | null, name: string) =>
+      Promise.resolve<string | null>(
+        name === boardTokenName("link-1") ? "ghp_board" : "ghp_shared",
+      ),
+    );
+    const auth = await resolveLinkAuth(patLink);
+    expect(auth).toEqual({ mode: "pat", token: "ghp_board" });
+    // The override resolved → the shared token is never read.
+    expect(getSecretMock).toHaveBeenCalledWith("github-projects", "proj-1", boardTokenName("link-1"));
+    expect(getSecretMock).not.toHaveBeenCalledWith("github-projects", "proj-1", "apiToken");
+  });
+
+  test("pat mode: NEITHER override nor shared token (both null) throws GithubAuthError", async () => {
     getSecretMock = mock(() => Promise.resolve<string | null>(null));
     await expect(resolveLinkAuth(patLink)).rejects.toBeInstanceOf(GithubAuthError);
   });

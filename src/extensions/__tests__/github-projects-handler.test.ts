@@ -95,19 +95,20 @@ mock.module("../../integrations/github-projects/client", () => ({
   createGithubClient: () => fakeClient,
 }));
 
-// Daemon — poll-now reverse-RPC forces an immediate poll via the singleton.
-// Mock the factory so the handler reaches a programmable `pollProjectNow`
-// without constructing the real poller. Snapshotted into REAL_DAEMON above and
-// re-registered in afterAll (the in-file restore pattern, mirroring the client/
-// spawn/query stubs) so the stub never leaks into the integration test file.
-let pollProjectNowImpl: (projectId: string) => Promise<{ polled: boolean; reason?: string }> =
+// Daemon — poll-now reverse-RPC forces an immediate poll of the SPECIFIC board
+// via the singleton. Mock the factory so the handler reaches a programmable
+// `pollLinkNow` without constructing the real poller. Snapshotted into
+// REAL_DAEMON above and re-registered in afterAll (the in-file restore pattern,
+// mirroring the client/spawn/query stubs) so the stub never leaks into the
+// integration test file.
+let pollLinkNowImpl: (link: GithubProjectsLink) => Promise<{ polled: boolean; reason?: string }> =
   async () => ({ polled: true });
 const daemonCalls: Array<{ method: string; args: unknown[] }> = [];
 mock.module("../../integrations/github-projects/daemon", () => ({
   getGithubProjectsDaemon: () => ({
-    pollProjectNow: (projectId: string) => {
-      daemonCalls.push({ method: "pollProjectNow", args: [projectId] });
-      return pollProjectNowImpl(projectId);
+    pollLinkNow: (link: GithubProjectsLink) => {
+      daemonCalls.push({ method: "pollLinkNow", args: [link] });
+      return pollLinkNowImpl(link);
     },
   }),
 }));
@@ -132,7 +133,10 @@ mock.module("../../integrations/github-projects/spawn", () => ({
 // DB queries — overridden per test in the unit block.
 let getLinkByProjectIdImpl: (p: string) => Promise<GithubProjectsLink | null> = async () => null;
 let getLinkByIdImpl: (id: string) => Promise<GithubProjectsLink | null> = async () => null;
+let listLinksByProjectIdImpl: (p: string) => Promise<GithubProjectsLink[]> = async () => [];
 let getProposalByIdImpl: (id: string) => Promise<GithubProjectsProposal | null> = async () => null;
+let getProposalByConversationIdImpl: (c: string) => Promise<GithubProjectsProposal | null> =
+  async () => null;
 let listProposalsByProjectImpl: (
   p: string,
   opts?: unknown,
@@ -149,7 +153,15 @@ mock.module("../../db/queries/github-projects", () => ({
     queryCalls.push({ method: "getLinkById", args: [id] });
     return getLinkByIdImpl(id);
   },
+  listLinksByProjectId: (p: string) => {
+    queryCalls.push({ method: "listLinksByProjectId", args: [p] });
+    return listLinksByProjectIdImpl(p);
+  },
   getProposalById: (id: string) => getProposalByIdImpl(id),
+  getProposalByConversationId: (c: string) => {
+    queryCalls.push({ method: "getProposalByConversationId", args: [c] });
+    return getProposalByConversationIdImpl(c);
+  },
   listProposalsByProject: (p: string, opts?: unknown) => listProposalsByProjectImpl(p, opts),
   setLinkEnabled: (id: string, enabled: boolean) => {
     queryCalls.push({ method: "setLinkEnabled", args: [id, enabled] });
@@ -305,13 +317,17 @@ beforeEach(() => {
   spawnCalls.length = 0;
   queryCalls.length = 0;
   daemonCalls.length = 0;
-  pollProjectNowImpl = async () => ({ polled: true });
+  pollLinkNowImpl = async () => ({ polled: true });
   auditRows = [];
   fakeClient = makeClient();
   getConversationImpl = async () => ({ projectId: "proj-1" });
   getSecretImpl = async () => "ghp_token";
   getLinkByProjectIdImpl = async () => link();
   getLinkByIdImpl = async () => link();
+  // Default board derivation: no spawning proposal, exactly ONE board → the
+  // single-board fallback resolves it (the common human-chat case).
+  getProposalByConversationIdImpl = async () => null;
+  listLinksByProjectIdImpl = async () => [link()];
   getProposalByIdImpl = async () => proposal();
   listProposalsByProjectImpl = async () => [proposal()];
   setLinkEnabledImpl = async () => link({ enabled: false });
@@ -351,15 +367,16 @@ describe("bundled-only allowlist", () => {
 describe("ticket verbs — projectId derivation", () => {
   test("list derives projectId from the conversation, not from params", async () => {
     // A forged board id in params MUST be ignored — the handler uses the
-    // conversation's projectId only.
+    // conversation's projectId only. With no spawning proposal the single-board
+    // fallback resolves the board via listLinksByProjectId(projectId).
     getConversationImpl = async (id) => {
       expect(id).toBe("conv-1");
       return { projectId: "proj-real" };
     };
     let seenProject = "";
-    getLinkByProjectIdImpl = async (p) => {
+    listLinksByProjectIdImpl = async (p) => {
       seenProject = p;
-      return link({ projectId: p });
+      return [link({ projectId: p })];
     };
     const res = await handleGithubProjectsRpc(
       "list",
@@ -371,7 +388,7 @@ describe("ticket verbs — projectId derivation", () => {
   });
 
   test("returns a clear error when no board is connected", async () => {
-    getLinkByProjectIdImpl = async () => null;
+    listLinksByProjectIdImpl = async () => [];
     const res = await handleGithubProjectsRpc("list", req(V("list")), ctx());
     expect("error" in res && res.error?.code).toBe(-32602);
     expect("error" in res && res.error?.message).toContain("No GitHub Projects board");
@@ -388,20 +405,68 @@ describe("ticket verbs — projectId derivation", () => {
     const res = await handleGithubProjectsRpc("list", req(V("list")), ctx({ conversationId: null }));
     expect("error" in res && res.error?.code).toBe(-32602);
   });
+
+  test("multi-board: the SPAWNING proposal pins which board the verbs use", async () => {
+    // Two boards on the project; the conversation was spawned from a proposal
+    // owning link-B → the verbs must target link-B (never the first board).
+    getProposalByConversationIdImpl = async (c) => {
+      expect(c).toBe("conv-1");
+      return proposal({ linkId: "link-B", projectId: "proj-1" });
+    };
+    let resolvedById = "";
+    getLinkByIdImpl = async (id) => {
+      resolvedById = id;
+      return link({ id, projectId: "proj-1", boardNodeId: "PVT_B" });
+    };
+    // listLinks would resolve link-A first — proving the proposal wins, not the
+    // fallback.
+    listLinksByProjectIdImpl = async () => [
+      link({ id: "link-A" }),
+      link({ id: "link-B" }),
+    ];
+    const res = await handleGithubProjectsRpc("list", req(V("list")), ctx());
+    expect(resolvedById).toBe("link-B");
+    expect("result" in res).toBe(true);
+  });
+
+  test("multi-board: ambiguous (many boards, no spawning proposal) → -32602", async () => {
+    getProposalByConversationIdImpl = async () => null;
+    listLinksByProjectIdImpl = async () => [link({ id: "link-A" }), link({ id: "link-B" })];
+    const res = await handleGithubProjectsRpc("list", req(V("list")), ctx());
+    expect("error" in res && res.error?.code).toBe(-32602);
+    expect("error" in res && res.error?.message).toContain("multiple GitHub boards");
+  });
+
+  test("multi-board: a proposal pointing at a DIFFERENT project's board is ignored (falls back)", async () => {
+    // A proposal whose link belongs to another project must not be trusted —
+    // the single-board fallback resolves the conversation's own board instead.
+    getProposalByConversationIdImpl = async () => proposal({ linkId: "link-other" });
+    getLinkByIdImpl = async () => link({ id: "link-other", projectId: "proj-OTHER" });
+    listLinksByProjectIdImpl = async () => [link({ id: "link-own", projectId: "proj-1" })];
+    const res = await handleGithubProjectsRpc("list", req(V("list")), ctx());
+    expect("result" in res).toBe(true);
+  });
 });
 
 // ── Auth resolution ──────────────────────────────────────────────────
 
 describe("resolveAuth", () => {
-  test("pat mode reads the per-project token from the secrets store", async () => {
+  test("pat mode falls back to the SHARED project token when no per-board override", async () => {
     getSecretImpl = async (extensionId, projectId, name) => {
       expect(extensionId).toBe("github-projects");
       expect(projectId).toBe("proj-1");
-      expect(name).toBe("apiToken");
-      return "ghp_decoded";
+      // Override (apiToken:link-1) → null; shared apiToken → the bearer.
+      return name === "apiToken" ? "ghp_decoded" : null;
     };
     const auth = await resolveAuth(link({ authMode: "pat" }));
     expect(auth).toEqual({ mode: "pat", token: "ghp_decoded" });
+  });
+
+  test("pat mode prefers a per-board override (apiToken:<linkId>) over the shared token", async () => {
+    getSecretImpl = async (_extensionId, _projectId, name) =>
+      name === "apiToken:link-1" ? "ghp_board" : "ghp_shared";
+    const auth = await resolveAuth(link({ authMode: "pat" }));
+    expect(auth).toEqual({ mode: "pat", token: "ghp_board" });
   });
 
   test("pat mode throws a clear error when the store returns null", async () => {
@@ -885,12 +950,13 @@ describe("pause / resume", () => {
 // ── poll-now (ownership) ─────────────────────────────────────────────
 
 describe("poll-now", () => {
-  test("forces a poll on the link's project when owned + writes an audit row", async () => {
-    getLinkByIdImpl = async () => link({ projectId: "proj-real", createdByUserId: "user-1" });
-    pollProjectNowImpl = async () => ({ polled: true });
+  test("forces a poll of the SPECIFIC resolved link when owned + writes an audit row", async () => {
+    const owned = link({ id: "link-7", projectId: "proj-real", createdByUserId: "user-1" });
+    getLinkByIdImpl = async () => owned;
+    pollLinkNowImpl = async () => ({ polled: true });
     const res = await handleGithubProjectsRpc(
       "poll-now",
-      req(V("poll-now"), { linkId: "link-1" }),
+      req(V("poll-now"), { linkId: "link-7" }),
       ctx({ userId: "user-1" }),
     );
     expect("result" in res).toBe(true);
@@ -898,8 +964,10 @@ describe("poll-now", () => {
       ok: true,
       polled: true,
     });
-    // The daemon was driven with the link's SERVER-derived projectId.
-    expect(daemonCalls).toEqual([{ method: "pollProjectNow", args: ["proj-real"] }]);
+    // The daemon was driven with the resolved link itself (not the projectId).
+    expect(daemonCalls).toHaveLength(1);
+    expect(daemonCalls[0]!.method).toBe("pollLinkNow");
+    expect((daemonCalls[0]!.args[0] as { id: string }).id).toBe("link-7");
     // An AUDIT_CONTROL row with the poll-now verb was written.
     expect(
       auditRows.some(
@@ -912,7 +980,7 @@ describe("poll-now", () => {
 
   test("surfaces the daemon reason (paused) in the result", async () => {
     getLinkByIdImpl = async () => link({ createdByUserId: "user-1" });
-    pollProjectNowImpl = async () => ({ polled: false, reason: "paused" });
+    pollLinkNowImpl = async () => ({ polled: false, reason: "paused" });
     const res = await handleGithubProjectsRpc(
       "poll-now",
       req(V("poll-now"), { linkId: "link-1" }),
@@ -960,7 +1028,7 @@ describe("poll-now", () => {
 
   test("maps a daemon throw to -32603", async () => {
     getLinkByIdImpl = async () => link({ createdByUserId: "user-1" });
-    pollProjectNowImpl = async () => {
+    pollLinkNowImpl = async () => {
       throw new Error("poll boom");
     };
     const res = await handleGithubProjectsRpc(
