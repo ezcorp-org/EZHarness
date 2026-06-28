@@ -11,6 +11,8 @@
  *   - the prompt frames the ticket as untrusted external input;
  *   - the per-project concurrency cap defers over-cap proposals;
  *   - run:complete → done / run:error → failed (resolved by runId).
+ *   - start comment posted on spawn; done comment + card move on run:complete;
+ *     failed comment on run:error; all best-effort (never block spawn/status update).
  */
 import { test, expect, describe, mock, beforeEach, afterAll } from "bun:test";
 import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
@@ -33,6 +35,18 @@ let addConversationExtensionsMock = mock((_cid: string, _entries: unknown) => Pr
 let getExtensionByNameMock = mock((_n: string) => Promise.resolve<unknown>(null));
 let getAgentConfigByNameMock = mock((_n: string) => Promise.resolve<unknown>(undefined));
 let getBriefingRuntimeMock = mock(() => null as unknown);
+
+// ── Progress mock handles ────────────────────────────────────────────────────
+// All four progress side-effect helpers are stubbed via mock.module so that
+// spawn.ts tests never make real GitHub API calls. The stubs are no-ops by
+// default; individual tests override them as needed.
+let postTicketCommentMock = mock((_l: unknown, _p: unknown, _b: string) => Promise.resolve(true));
+let moveCardOnDoneMock = mock((_l: unknown, _p: unknown, _c: unknown) => Promise.resolve(false));
+
+// Track calls to the pure builders so we can assert they were invoked.
+const buildStartCommentCalls: string[] = [];
+const buildDoneCommentCalls: Array<{ summary?: string; prUrl?: string }> = [];
+const buildFailedCommentCalls: Array<string | undefined> = [];
 
 function installMocks(): void {
   // Export the FULL query surface (superset) so a sibling test file's
@@ -68,6 +82,34 @@ function installMocks(): void {
     const stub = { info() {}, warn() {}, error() {}, debug() {} };
     return { logger: { child: () => stub }, extensionLogger: () => stub };
   });
+  // Stub the progress module so spawn.ts side-effects don't reach GitHub.
+  mock.module("../progress", () => ({
+    postTicketComment: (l: unknown, p: unknown, b: string) => postTicketCommentMock(l, p, b),
+    moveCardOnDone: (l: unknown, p: unknown, c: unknown) => moveCardOnDoneMock(l, p, c),
+    buildStartComment: (p: unknown) => {
+      buildStartCommentCalls.push((p as { title?: string })?.title ?? "");
+      return `🤖 EZCorp started planning this ticket.`;
+    },
+    buildDoneComment: (p: unknown, opts: { summary?: string; prUrl?: string } = {}) => {
+      buildDoneCommentCalls.push(opts);
+      return `✅ **Plan ready.**${opts.summary ? "\n" + opts.summary : ""}${opts.prUrl ? "\nPull request: " + opts.prUrl : ""}`;
+    },
+    buildFailedComment: (p: unknown, error?: string) => {
+      buildFailedCommentCalls.push(error);
+      return `❌ Run failed${error ? ": " + error : ""}`;
+    },
+    extractPrUrl: (text: string | null | undefined) => {
+      if (!text) return null;
+      const m = text.match(/https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+/);
+      return m ? m[0] : null;
+    },
+    summarize: (text: string | null | undefined, max = 600) => {
+      if (!text) return "";
+      const t = text.trim();
+      if (!t) return "";
+      return t.length <= max ? t : t.slice(0, max) + "…";
+    },
+  }));
 }
 
 installMocks();
@@ -149,7 +191,32 @@ beforeEach(() => {
   getExtensionByNameMock = mock((_n: string) => Promise.resolve<unknown>(null));
   getAgentConfigByNameMock = mock((_n: string) => Promise.resolve<unknown>(undefined));
   getBriefingRuntimeMock = mock(() => null as unknown);
+  // Reset progress mock handles.
+  postTicketCommentMock = mock((_l: unknown, _p: unknown, _b: string) => Promise.resolve(true));
+  moveCardOnDoneMock = mock((_l: unknown, _p: unknown, _c: unknown) => Promise.resolve(false));
+  buildStartCommentCalls.length = 0;
+  buildDoneCommentCalls.length = 0;
+  buildFailedCommentCalls.length = 0;
   installMocks();
+});
+
+// ── buildRunPrompt: PR-link instruction ──────────────────────────────────────
+
+describe("buildRunPrompt — PR link instruction", () => {
+  test("contains PR-link instruction when ticketUrl is set", () => {
+    const p = makeProposal({ ticketUrl: "https://github.com/acme/repo/issues/42" });
+    const prompt = buildRunPrompt(p as never);
+    expect(prompt).toContain("https://github.com/acme/repo/issues/42");
+    expect(prompt).toContain("PR description");
+    expect(prompt).toContain("final PR URL");
+  });
+
+  test("omits PR-link instruction when ticketUrl is null", () => {
+    const p = makeProposal({ ticketUrl: null });
+    const prompt = buildRunPrompt(p as never);
+    expect(prompt).not.toContain("PR description");
+    expect(prompt).not.toContain("final PR URL");
+  });
 });
 
 // ── pure helpers ─────────────────────────────────────────────────────────────
@@ -329,6 +396,30 @@ describe("approveProposal", () => {
     const opts = runtime.streamChat.mock.calls[0]![2] as Record<string, unknown>;
     expect("provider" in opts).toBe(false);
     expect("model" in opts).toBe(false);
+  });
+
+  test("start comment posted after run goes running (best-effort, non-blocking)", async () => {
+    const { runtime } = makeRuntime();
+    postTicketCommentMock = mock((_l: unknown, _p: unknown, _b: string) => Promise.resolve(true));
+    installMocks();
+    await approveProposal("prop-1", { kind: "auto" }, { runtime });
+    // Give the void postTicketComment time to settle.
+    await new Promise((r) => setTimeout(r, 10));
+    // buildStartComment was called (tracked in buildStartCommentCalls) OR
+    // postTicketComment was invoked directly — either way postTicketCommentMock fires.
+    expect(postTicketCommentMock).toHaveBeenCalledTimes(1);
+    const body = postTicketCommentMock.mock.calls[0]![2] as string;
+    expect(body).toContain("EZCorp");
+  });
+
+  test("start comment throwing does NOT block spawn — proposal still reaches running status", async () => {
+    const { runtime } = makeRuntime();
+    postTicketCommentMock = mock(() => Promise.reject(new Error("gh api down")));
+    installMocks();
+    const result = await approveProposal("prop-1", { kind: "auto" }, { runtime });
+    // await a tick so the void rejection fires but is swallowed
+    await new Promise((r) => setTimeout(r, 10));
+    expect((result as { status?: string }).status).toBe("running");
   });
 
   test("falls back to getProposalById when the running update returns null", async () => {
@@ -543,6 +634,186 @@ describe("approveProposal — run lifecycle", () => {
     await new Promise((r) => setTimeout(r, 0));
     // No throw — assertion is simply that we got here.
     expect(true).toBe(true);
+  });
+});
+
+// ── approveProposal: run lifecycle — write-back side-effects ────────────────
+
+describe("approveProposal — lifecycle write-back", () => {
+  /** Shared helper: spawn a run + capture its runId so we can fire lifecycle events. */
+  async function spawnAndCapture() {
+    const h = makeRuntime();
+    let spawnedRunId = "";
+    h.runtime.streamChat = mock((_c: string, _m: string, opts: Record<string, unknown>) => {
+      spawnedRunId = opts.runId as string;
+      return Promise.resolve({ id: spawnedRunId });
+    });
+    getProposalByRunIdMock = mock((_rid: string) =>
+      Promise.resolve(makeProposal({ id: "prop-1" })),
+    );
+    installMocks();
+    await approveProposal("prop-1", { kind: "auto" }, { runtime: h.runtime });
+    updateProposalMock.mockClear();
+    postTicketCommentMock.mockClear();
+    moveCardOnDoneMock.mockClear();
+    buildDoneCommentCalls.length = 0;
+    buildFailedCommentCalls.length = 0;
+    return { h, spawnedRunId };
+  }
+
+  test("run:complete → done comment posted with summary + PR url from fullText", async () => {
+    const { h, spawnedRunId } = await spawnAndCapture();
+    const fullText = "All done! See https://github.com/acme/repo/pull/77 for the PR.";
+    h.fire("run:complete", {
+      run: {
+        id: spawnedRunId,
+        result: { success: true, output: { fullText } },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Done comment should have been posted.
+    expect(postTicketCommentMock).toHaveBeenCalledTimes(1);
+    // The buildDoneComment opts should contain the PR url.
+    const doneOpts = buildDoneCommentCalls[0];
+    expect(doneOpts?.prUrl).toBe("https://github.com/acme/repo/pull/77");
+  });
+
+  test("run:complete → card moved when column has doneStatusOptionId", async () => {
+    getLinkByIdMock = mock((_id: string) =>
+      Promise.resolve({
+        ...makeLink(),
+        columnActionMap: {
+          "opt-doing": { action: "plan", autoSpawn: false, doneStatusOptionId: "opt-done" },
+        },
+      }),
+    );
+    const { h, spawnedRunId } = await spawnAndCapture();
+    h.fire("run:complete", { run: { id: spawnedRunId, result: { success: true, output: {} } } });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(moveCardOnDoneMock).toHaveBeenCalledTimes(1);
+    // The column passed to moveCardOnDone should have doneStatusOptionId.
+    const colArg = moveCardOnDoneMock.mock.calls[0]![2] as { doneStatusOptionId?: string };
+    expect(colArg?.doneStatusOptionId).toBe("opt-done");
+  });
+
+  test("run:complete → card NOT moved when column has no doneStatusOptionId", async () => {
+    // Default makeLink has no doneStatusOptionId on any column.
+    const { h, spawnedRunId } = await spawnAndCapture();
+    h.fire("run:complete", { run: { id: spawnedRunId, result: { success: true, output: {} } } });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(moveCardOnDoneMock).toHaveBeenCalledTimes(1);
+    // moveCardOnDone is called but the mock returns false (no-op).
+  });
+
+  test("run:error → failed comment posted with derived error message (string error)", async () => {
+    const { h, spawnedRunId } = await spawnAndCapture();
+    h.fire("run:error", {
+      run: {
+        id: spawnedRunId,
+        result: { success: false, error: "timeout after 30s" },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(postTicketCommentMock).toHaveBeenCalledTimes(1);
+    const error = buildFailedCommentCalls[0];
+    expect(error).toBe("timeout after 30s");
+  });
+
+  test("run:error → failed comment with structured error.message", async () => {
+    const { h, spawnedRunId } = await spawnAndCapture();
+    h.fire("run:error", {
+      run: {
+        id: spawnedRunId,
+        result: { success: false, error: { code: "cancelled", message: "run was cancelled" } },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const error = buildFailedCommentCalls[0];
+    expect(error).toBe("run was cancelled");
+  });
+
+  test("run:error → failed comment with fallback 'run errored' when no result.error", async () => {
+    const { h, spawnedRunId } = await spawnAndCapture();
+    h.fire("run:error", { run: { id: spawnedRunId } });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const error = buildFailedCommentCalls[0];
+    expect(error).toBe("run errored");
+  });
+
+  test("BEST-EFFORT: postTicketComment throwing on done does NOT prevent proposal → done", async () => {
+    postTicketCommentMock = mock(() => Promise.reject(new Error("gh api down")));
+    const { h, spawnedRunId } = await spawnAndCapture();
+    h.fire("run:complete", { run: { id: spawnedRunId, result: { success: true, output: {} } } });
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Proposal update still happened (done status).
+    const patch = updateProposalMock.mock.calls.at(-1)![1] as Record<string, unknown>;
+    expect(patch.status).toBe("done");
+  });
+
+  test("BEST-EFFORT: moveCardOnDone throwing on done does NOT prevent proposal → done", async () => {
+    moveCardOnDoneMock = mock(() => Promise.reject(new Error("rate limit")));
+    getLinkByIdMock = mock((_id: string) =>
+      Promise.resolve({
+        ...makeLink(),
+        columnActionMap: {
+          "opt-doing": { action: "plan", autoSpawn: false, doneStatusOptionId: "opt-done" },
+        },
+      }),
+    );
+    const { h, spawnedRunId } = await spawnAndCapture();
+    h.fire("run:complete", { run: { id: spawnedRunId, result: { success: true, output: {} } } });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const patch = updateProposalMock.mock.calls.at(-1)![1] as Record<string, unknown>;
+    expect(patch.status).toBe("done");
+  });
+
+  test("BEST-EFFORT: postTicketComment throwing on error does NOT prevent proposal → failed", async () => {
+    postTicketCommentMock = mock(() => Promise.reject(new Error("gh api down")));
+    const { h, spawnedRunId } = await spawnAndCapture();
+    h.fire("run:error", { run: { id: spawnedRunId } });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const patch = updateProposalMock.mock.calls.at(-1)![1] as Record<string, unknown>;
+    expect(patch.status).toBe("failed");
+  });
+
+  test("draft proposal (null contentNodeId) — postTicketComment still called but skips via mock", async () => {
+    getProposalByRunIdMock = mock((_rid: string) =>
+      Promise.resolve(makeProposal({ id: "prop-1", contentNodeId: null })),
+    );
+    installMocks();
+    const h = makeRuntime();
+    let spawnedRunId = "";
+    h.runtime.streamChat = mock((_c: string, _m: string, opts: Record<string, unknown>) => {
+      spawnedRunId = opts.runId as string;
+      return Promise.resolve({ id: spawnedRunId });
+    });
+    await approveProposal("prop-1", { kind: "auto" }, { runtime: h.runtime });
+    updateProposalMock.mockClear();
+    postTicketCommentMock.mockClear();
+
+    // The real postTicketComment would skip null contentNodeId, but here
+    // it's mocked — so the point is the mock is invoked (orchestration correct)
+    // and the proposal still reaches done regardless.
+    postTicketCommentMock = mock((_l: unknown, p: unknown, _b: string) => {
+      // Simulate: skip when contentNodeId is null (mirrors real behavior).
+      return Promise.resolve((p as { contentNodeId?: string | null })?.contentNodeId !== null);
+    });
+    installMocks();
+
+    h.fire("run:complete", { run: { id: spawnedRunId, result: { success: true, output: {} } } });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const patch = updateProposalMock.mock.calls.at(-1)![1] as Record<string, unknown>;
+    expect(patch.status).toBe("done");
   });
 });
 

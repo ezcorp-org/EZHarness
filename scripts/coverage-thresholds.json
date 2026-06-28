@@ -179,6 +179,7 @@
   "src/integrations/github-projects/auth.ts": 100,
   "src/integrations/github-projects/client.ts": 100,
   "src/integrations/github-projects/daemon.ts": 100,
+  "src/integrations/github-projects/progress.ts": 100,
   "src/integrations/github-projects/spawn.ts": 100,
   "src/integrations/github-projects/bus-registry.ts": 100,
   "src/integrations/github-projects/types.ts": 100,
