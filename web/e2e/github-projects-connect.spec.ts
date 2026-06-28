@@ -39,7 +39,7 @@ function connectedLink(overrides: Record<string, unknown> = {}) {
 		],
 		authMode: "pat",
 		columnActionMap: {},
-		defaultModel: null,
+		defaultModel: null as string | null,
 		pollIntervalSec: 60,
 		enabled: true,
 		lastError: null,
@@ -103,14 +103,14 @@ async function installGhRoutes(page: Page) {
 		});
 	});
 
-	// Mock the model registry the default-model dropdown reads. Two entries:
-	// one available (rendered) + one unavailable (filtered OUT by the page).
+	// Mock the model registry the default-model picker reads. Two available
+	// entries (rendered) + one unavailable (filtered OUT by <ModelSelector>).
 	await page.route("**/api/models", async (route) => {
 		return route.fulfill({
 			json: [
-				{ provider: "anthropic", model: "claude-opus-4-20250514", displayName: "Claude Opus 4", available: true },
-				{ provider: "openai", model: "gpt-4o", displayName: "GPT-4o", available: true },
-				{ provider: "google", model: "gemini-2.0", displayName: "Gemini 2.0", available: false },
+				{ provider: "anthropic", model: "claude-opus-4-20250514", displayName: "Claude Opus 4", tier: "powerful", costTier: "high", available: true },
+				{ provider: "openai", model: "gpt-4o", displayName: "GPT-4o", tier: "balanced", costTier: "medium", available: true },
+				{ provider: "google", model: "gemini-2.0", displayName: "Gemini 2.0", tier: "fast", costTier: "low", available: false },
 			],
 		});
 	});
@@ -178,30 +178,37 @@ test.describe("GitHub Projects connect sub-route", () => {
 		await expect(page.getByTestId("gh-projects-map-saved")).toBeVisible();
 	});
 
-	test("default-model dropdown: populates from /api/models, selecting + Save PATCHes defaultModel @evidence", async ({ page, mockApi }, testInfo) => {
+	test("default-model picker: populates from /api/models, selecting + Save PATCHes defaultModel @evidence", async ({ page, mockApi }, testInfo) => {
 		await mockApi({ projects: [proj] });
 		const state = await installGhRoutes(page);
-		state.link = connectedLink(); // already connected → the editor + dropdown render
+		state.link = connectedLink(); // already connected → the editor + picker render
 		await page.goto(CONNECT_PATH);
 
 		await expect(page.getByTestId("gh-projects-connected-banner")).toBeVisible();
-		const select = page.getByTestId("gh-projects-default-model");
-		await expect(select).toBeVisible();
+		const picker = page.getByTestId("gh-projects-default-model");
+		await expect(picker).toBeVisible();
+		// No model saved on the link → starts on the instance default.
+		await expect(picker).toContainText("Using instance default");
 
-		// Options: the empty "instance default" + the TWO available models. The
-		// unavailable google model is filtered out (available === false).
-		const options = select.locator("option");
-		await expect(options).toHaveCount(3);
-		await expect(select.locator('option[value=""]')).toHaveText("— Use instance default —");
-		await expect(select.locator('option[value="anthropic:claude-opus-4-20250514"]')).toHaveText(
-			"Claude Opus 4 (anthropic)",
-		);
-		await expect(
-			select.locator('option[value="google:gemini-2.0"]'),
-		).toHaveCount(0);
+		// Reuses chat's <ModelSelector> — open its dropdown via the toggle button.
+		await picker.getByTestId("model-selector").locator("button").first().click();
+		const listbox = page.locator("#model-selector-listbox");
+		await expect(listbox).toBeVisible();
 
-		// Select a model + Save → the PATCH carries the chosen defaultModel.
-		await select.selectOption("anthropic:claude-opus-4-20250514");
+		// The TWO available models render; the unavailable google model is
+		// filtered OUT by the selector (available === false).
+		await expect(listbox.getByRole("option")).toHaveCount(2);
+		await expect(listbox.getByText("Claude Opus 4")).toBeVisible();
+		await expect(listbox.getByText("GPT-4o")).toBeVisible();
+		await expect(listbox.getByText("Gemini 2.0")).toHaveCount(0);
+
+		// Select a model → the toggle reflects it + a "Use instance default" reset
+		// appears (replacing the "Using instance default" hint).
+		await listbox.getByRole("option", { name: /Claude Opus 4/ }).click();
+		await expect(picker).toContainText("Claude Opus 4");
+		await expect(picker.getByTestId("gh-projects-default-model-clear")).toBeVisible();
+
+		// Save → the PATCH carries the chosen "<provider>:<model>".
 		const [patchReq] = await Promise.all([
 			page.waitForRequest(
 				(r) =>
@@ -214,7 +221,7 @@ test.describe("GitHub Projects connect sub-route", () => {
 		);
 		await expect(page.getByTestId("gh-projects-map-saved")).toBeVisible();
 
-		// Capture evidence of the connected state with the model dropdown (hard
+		// Capture evidence of the connected state with the model picker (hard
 		// no-op unless EZCORP_E2E_EVIDENCE=1).
 		await captureEvidence(page, testInfo, "gh-default-model");
 	});

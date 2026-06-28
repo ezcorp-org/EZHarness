@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from "$app/state";
 	import { store, setActiveProjectId } from "$lib/stores.svelte.js";
+	import ModelSelector from "$lib/components/ModelSelector.svelte";
 
 	// ── Per-project scoping ────────────────────────────────────────────────
 	// This page is scoped to ONE EZCorp project; we surface the project name in
@@ -37,9 +38,6 @@
 		enabled: boolean;
 		lastError: string | null;
 	};
-	// One available model from GET /api/models (filtered to available === true).
-	type ModelOption = { provider: string; model: string; displayName?: string; available: boolean };
-
 	// ── Component state ────────────────────────────────────────────────────
 	let loading = $state(true);
 	let link = $state<Link | null>(null);
@@ -90,20 +88,15 @@
 	// Default model for spawned runs ("<provider>:<model>"; "" = instance
 	// default). Initialized from the loaded link; saved with the column map.
 	let defaultModel = $state<string>("");
-	// Available models for the dropdown, fetched once from GET /api/models and
-	// filtered to available === true (mirrors DefaultTierSection's pattern).
-	let availableModels = $state<ModelOption[]>([]);
-
-	async function loadModels() {
-		try {
-			const res = await fetch("/api/models");
-			if (!res.ok) return;
-			const all = (await res.json()) as ModelOption[];
-			availableModels = all.filter((m) => m.available === true);
-		} catch {
-			availableModels = [];
-		}
-	}
+	// The shared <ModelSearchPicker> works in {provider, model} terms, so derive
+	// its selection from the persisted string — split on the FIRST ":" to mirror
+	// the server's parseDefaultModel (so "ollama:gemma4:e2b" → model "gemma4:e2b").
+	let selectedModel = $derived.by((): { provider: string; model: string } | null => {
+		const raw = defaultModel.trim();
+		const i = raw.indexOf(":");
+		if (i <= 0 || i === raw.length - 1) return null;
+		return { provider: raw.slice(0, i), model: raw.slice(i + 1) };
+	});
 
 	async function loadLink() {
 		loading = true;
@@ -128,12 +121,6 @@
 
 	$effect(() => {
 		if (projectId) loadLink();
-	});
-
-	// Populate the model dropdown once on mount (provider/credential agnostic;
-	// the endpoint already filters by availability — we further keep available).
-	$effect(() => {
-		loadModels();
 	});
 
 	async function connect() {
@@ -490,19 +477,37 @@
 
 			<!-- ── Default model for spawned runs ──────────────────────────── -->
 			<div class="mt-6 border-t border-[var(--color-border)] pt-4">
-				<label class="block text-sm text-[var(--color-text-secondary)]">
-					Default model for spawned runs
-					<select
-						bind:value={defaultModel}
-						data-testid="gh-projects-default-model"
-						class="mt-1 block w-full max-w-md rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
-					>
-						<option value="">— Use instance default —</option>
-						{#each availableModels as m (m.provider + ":" + m.model)}
-							<option value={`${m.provider}:${m.model}`}>{(m.displayName ?? m.model) + ` (${m.provider})`}</option>
-						{/each}
-					</select>
-				</label>
+				<span class="block text-sm text-[var(--color-text-secondary)]">Default model for spawned runs</span>
+				<!--
+					Reuses the SAME <ModelSelector> the chat composer (ChatInput) uses,
+					so the affordance matches chat exactly (and avoids the bespoke
+					<select> + /api/models fetch this page used to carry). `defaultModel`
+					stays the persisted "<provider>:<model>" string ("" = instance
+					default); NO onautoselect is passed, so the empty state stays
+					"instance default" instead of auto-picking the first model.
+				-->
+				<div class="mt-2 flex items-center gap-3" data-testid="gh-projects-default-model">
+					<ModelSelector
+						selected={selectedModel}
+						onselect={(provider, model) => {
+							defaultModel = `${provider}:${model}`;
+						}}
+					/>
+					{#if defaultModel}
+						<button
+							type="button"
+							onclick={() => {
+								defaultModel = "";
+							}}
+							data-testid="gh-projects-default-model-clear"
+							class="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+						>
+							Use instance default
+						</button>
+					{:else}
+						<span class="text-xs text-[var(--color-text-muted)]">Using instance default</span>
+					{/if}
+				</div>
 				<p class="mt-1 text-xs text-[var(--color-text-muted)]">
 					When set, every run spawned by a card move uses this model. Leave on the
 					instance default to follow your provider preference order.
