@@ -40,6 +40,14 @@ export interface GithubColumnAction {
   autoSpawn: boolean;
   /** Permission mode for the spawned run. Defaults to "default" (PDP-gated). */
   permissionMode?: GithubSpawnPermissionMode;
+  /**
+   * Status option id to move the card into when a board-triggered run for this
+   * column COMPLETES successfully (e.g. a "plan" column → an "In review" option).
+   * Must be one of the board's Status options (validated host-side). Omit = leave
+   * the card where it is. Stored in the existing `columnActionMap` jsonb, so no
+   * schema/migration change.
+   */
+  doneStatusOptionId?: string;
 }
 
 /** statusOptionId → action. Options absent from this map never trigger. */

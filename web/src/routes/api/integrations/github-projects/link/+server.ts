@@ -46,14 +46,23 @@ const VALID_PERMISSION_MODES = new Set<GithubSpawnPermissionMode>([
 ]);
 
 /** Validate + normalise an untrusted columnActionMap from the request body.
- *  Returns the sanitised map or an error string. autoSpawn defaults OFF. */
+ *  Returns the sanitised map or an error string. autoSpawn defaults OFF.
+ *
+ *  @param raw            - untrusted body value
+ *  @param validOptionIds - the board's known Status option ids (from the
+ *                          persisted link). When non-empty, doneStatusOptionId
+ *                          must be one of them. When empty (legacy links whose
+ *                          statusOptions were never persisted) any non-empty
+ *                          string is accepted so we don't break legacy configs. */
 function parseColumnActionMap(
   raw: unknown,
+  validOptionIds: string[],
 ): { map: GithubColumnActionMap } | { error: string } {
   if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
     return { error: "columnActionMap must be an object" };
   }
   const out: GithubColumnActionMap = {};
+  const knownIds = new Set(validOptionIds);
   for (const [optionId, value] of Object.entries(raw as Record<string, unknown>)) {
     if (!optionId) return { error: "columnActionMap has an empty option id" };
     if (value == null || typeof value !== "object" || Array.isArray(value)) {
@@ -79,6 +88,22 @@ function parseColumnActionMap(
         return { error: `columnActionMap[${optionId}].permissionMode is invalid` };
       }
       entry.permissionMode = v.permissionMode as GithubSpawnPermissionMode;
+    }
+    if (v.doneStatusOptionId !== undefined) {
+      if (typeof v.doneStatusOptionId !== "string") {
+        return { error: `columnActionMap[${optionId}].doneStatusOptionId must be a string` };
+      }
+      if (v.doneStatusOptionId) {
+        // Defense-in-depth: only accept a value that belongs to this board's
+        // known Status options. Skip the check for legacy links whose
+        // statusOptions were never persisted (knownIds empty) to avoid
+        // breaking existing configurations.
+        if (knownIds.size > 0 && !knownIds.has(v.doneStatusOptionId)) {
+          return { error: `columnActionMap[${optionId}].doneStatusOptionId is not a valid status option for this board` };
+        }
+        entry.doneStatusOptionId = v.doneStatusOptionId;
+      }
+      // empty string → omit the field (no-op on the card)
     }
     out[optionId] = entry;
   }
@@ -123,7 +148,8 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   } = {};
 
   if (body.columnActionMap !== undefined) {
-    const parsed = parseColumnActionMap(body.columnActionMap);
+    const validOptionIds = (link.statusOptions ?? []).map((o) => o.id);
+    const parsed = parseColumnActionMap(body.columnActionMap, validOptionIds);
     if ("error" in parsed) return errorJson(400, parsed.error);
     patch.columnActionMap = parsed.map;
   }

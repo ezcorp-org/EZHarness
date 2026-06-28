@@ -21,6 +21,7 @@
 		autoSpawn: boolean;
 		agentName?: string;
 		permissionMode?: "default" | "plan" | "acceptEdits";
+		doneStatusOptionId?: string;
 	};
 	type Link = {
 		id: string;
@@ -530,6 +531,20 @@
 										data-testid={`gh-projects-column-autospawn-${col.id}`}
 									/>
 									Auto-spawn (no approval)
+								</label>
+								<label class="text-xs text-[var(--color-text-secondary)]">
+									On completion, move card to
+									<select
+										value={mapped.doneStatusOptionId ?? ""}
+										onchange={(e) => setColumnField(col.id, "doneStatusOptionId", e.currentTarget.value || undefined)}
+										data-testid={`gh-done-status-select-${col.id}`}
+										class="ml-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-xs"
+									>
+										<option value="">— Don't move —</option>
+										{#each editableColumns as opt (opt.id)}
+											<option value={opt.id}>{opt.name}</option>
+										{/each}
+									</select>
 								</label>
 							</div>
 						{/if}
