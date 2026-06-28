@@ -84,6 +84,23 @@ function parseColumnActionMap(
   return { map: out };
 }
 
+/** Validate an untrusted `defaultModel` from the request body. Accepts null or
+ *  "" (→ stored null = instance default), or a "<provider>:<model>" string with
+ *  non-empty halves split on the FIRST ':'. Anything else is a 400. */
+function parseDefaultModel(
+  raw: unknown,
+): { value: string | null } | { error: string } {
+  if (raw === null || raw === "") return { value: null };
+  if (typeof raw !== "string") {
+    return { error: "defaultModel must be a string, null, or empty" };
+  }
+  const i = raw.indexOf(":");
+  if (i <= 0 || i === raw.length - 1) {
+    return { error: "defaultModel must be '<provider>:<model>'" };
+  }
+  return { value: raw };
+}
+
 export const GET: RequestHandler = async ({ locals, url }) => {
   const auth = authGithubRoute(locals);
   if ("error" in auth) return auth.error;
@@ -118,6 +135,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     columnActionMap?: GithubColumnActionMap;
     pollIntervalSec?: number;
     enabled?: boolean;
+    defaultModel?: string | null;
   } = {};
 
   if (body.columnActionMap !== undefined) {
@@ -136,6 +154,12 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   if (body.enabled !== undefined) {
     if (typeof body.enabled !== "boolean") return errorJson(400, "enabled must be a boolean");
     patch.enabled = body.enabled;
+  }
+
+  if (body.defaultModel !== undefined) {
+    const parsed = parseDefaultModel(body.defaultModel);
+    if ("error" in parsed) return errorJson(400, parsed.error);
+    patch.defaultModel = parsed.value;
   }
 
   if (Object.keys(patch).length === 0) {

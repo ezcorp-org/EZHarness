@@ -44,7 +44,7 @@
 
 import type { ExtensionPermissions, JsonRpcRequest, JsonRpcResponse } from "./types";
 import { rpcError, rpcResult } from "./json-rpc";
-import { logger } from "../logger";
+import { extensionLogger } from "../logger";
 import { eq } from "drizzle-orm";
 import { getDb } from "../db/connection";
 import { githubProjectsLinks } from "../db/schema";
@@ -70,7 +70,7 @@ import {
 } from "../db/queries/github-projects";
 import type { GithubProjectsLink, GithubProjectsProposal } from "../db/schema";
 
-const log = logger.child("ext.github-projects-handler");
+const log = extensionLogger("github-projects", "handler");
 
 /**
  * Bundled extensions allowed to use `ezcorp/github-projects.*`.

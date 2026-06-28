@@ -272,6 +272,33 @@ describe("github-projects connect lifecycle (real DB)", () => {
     expect(link.statusOptions.every((o: { id: string; name: string }) => o.name !== o.id)).toBe(true);
   });
 
+  test("defaultModel round-trips: PATCH sets it, GET/publicLinkView returns it; null clears it", async () => {
+    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+
+    // A fresh connect leaves defaultModel null (the instance default).
+    const initial = await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}` }));
+    expect((await initial.json()).link.defaultModel).toBeNull();
+
+    // PATCH a valid "<provider>:<model>" — the public view echoes it back.
+    const setRes = await linkPatch(
+      ev("PATCH", { body: { projectId, defaultModel: "anthropic:claude-opus-4-20250514" } }),
+    );
+    expect(setRes.status).toBe(200);
+    expect((await setRes.json()).link.defaultModel).toBe("anthropic:claude-opus-4-20250514");
+
+    // It persisted: a fresh GET (what the page's loadLink does) carries it.
+    const afterSet = await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}` }));
+    expect((await afterSet.json()).link.defaultModel).toBe("anthropic:claude-opus-4-20250514");
+    // The DB row itself holds the raw string.
+    expect((await getLinkByProjectId(projectId))?.defaultModel).toBe("anthropic:claude-opus-4-20250514");
+
+    // PATCH null clears it back to the instance default.
+    const clearRes = await linkPatch(ev("PATCH", { body: { projectId, defaultModel: null } }));
+    expect(clearRes.status).toBe(200);
+    expect((await clearRes.json()).link.defaultModel).toBeNull();
+    expect((await getLinkByProjectId(projectId))?.defaultModel).toBeNull();
+  });
+
   test("re-connect refreshes the persisted status options", async () => {
     await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
     const link = await getLinkByProjectId(projectId);

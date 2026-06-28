@@ -71,6 +71,18 @@ When reading or writing extension-managed files (task stores, note vaults,
 config json, etc.), always use that path. The `.ezcorp/` directory is
 gitignored. See `docs/extensions/data-storage.md` for the full convention.
 
+## Extension logging
+
+Host-side extension code (integration daemons, reverse-RPC handlers, spawn
+bridges) MUST get its logger from `extensionLogger(name, component?)` in
+`src/logger.ts` — never `logger.child(...)` directly — so every extension log
+lands under the `ext.<name>[.<component>]` subsystem namespace. That lets an
+operator raise debug for one extension via `EZCORP_DEBUG=ext.<name>` (or all
+extensions via `EZCORP_DEBUG=ext`, everything via `EZCORP_DEBUG=1`) without the
+global `LOG_LEVEL=debug` firehose. Default-visible `info` should carry
+once-per-cycle summaries; `debug` carries per-item detail; never log secret/token
+plaintext. See `docs/extensions/logging.md` for the full convention.
+
 ## Mention grammar
 
 The chat composer supports five mention sigils — all five share one

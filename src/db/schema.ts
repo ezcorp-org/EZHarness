@@ -1267,6 +1267,11 @@ export const githubProjectsLinks = pgTable("github_projects_links", {
    *  (instead of falling back to the saved map's bare option-id keys, which
    *  shows ids and drops unmapped columns). Refreshed on every (re)connect. */
   statusOptions: jsonb("status_options").notNull().$type<GithubStatusOption[]>().default([]),
+  /** Default model for spawned runs, stored as "<provider>:<model>". Null/empty
+   *  → keep the instance default (the executor's provider preference order). The
+   *  spawn bridge splits on the FIRST ':' and threads provider+model into
+   *  streamChat so an instance without anthropic creds can pick a working model. */
+  defaultModel: text("default_model"),
   authMode: text("auth_mode").notNull().$type<"pat" | "gh">().default("pat"),
   /** statusOptionId → action mapping. The daemon reads this every poll. */
   columnActionMap: jsonb("column_action_map").notNull().$type<GithubColumnActionMap>().default({}),

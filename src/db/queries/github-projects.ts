@@ -31,7 +31,7 @@ import {
 // (not inline multi-line generics in the function signatures) so Bun's
 // --coverage never emits drifting per-line DA records for the type-continuation
 // lines — a pure type declaration compiles to nothing and is never line-counted.
-type LinkUpdatePatch = Partial<Pick<NewGithubProjectsLink, "columnActionMap" | "pollIntervalSec" | "enabled" | "authMode">>;
+type LinkUpdatePatch = Partial<Pick<NewGithubProjectsLink, "columnActionMap" | "pollIntervalSec" | "enabled" | "authMode" | "defaultModel">>;
 type ProposalUpdatePatch = Partial<Pick<NewGithubProjectsProposal, "status" | "conversationId" | "agentRunId" | "decidedAt" | "decidedByUserId" | "finishedAt" | "error">>;
 
 // ── Links ──────────────────────────────────────────────────────────────────
@@ -88,6 +88,7 @@ export async function upsertLink(
         statusFieldId: input.statusFieldId ?? null,
         // A (re)connect refreshes the board's columns so the editor stays in sync.
         statusOptions: input.statusOptions ?? [],
+        defaultModel: input.defaultModel ?? null,
         authMode: input.authMode ?? "pat",
         columnActionMap: input.columnActionMap ?? {},
         enabled: input.enabled ?? true,

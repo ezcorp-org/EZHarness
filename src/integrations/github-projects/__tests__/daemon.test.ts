@@ -47,10 +47,10 @@ function installMocks(): void {
   // NB: the auto-spawn bridge is injected via the daemon's `approve` option
   // (not mock.module) so this file never poisons `../spawn` for spawn.test.ts
   // (Bun mock.module materialization freeze across files in a shared run).
-  // Logger — keep tests quiet; we don't assert on it here.
-  mock.module("../../../logger", () => ({
-    logger: { child: () => ({ info() {}, warn() {}, error() {}, debug() {} }) },
-  }));
+  // Logger is intentionally NOT mocked: mock-cleanup's MODULE_PATHS eagerly
+  // imports the REAL logger before these mocks install, so a logger mock here
+  // would never take. The observability tests below assert against the real
+  // logger's stdout/stderr instead (the pattern logger.test.ts uses).
 }
 
 // Imported AFTER the mocks are installed at module level.
@@ -71,6 +71,7 @@ type Link = {
   boardNodeId: string;
   authMode: "pat" | "gh";
   enabled: boolean;
+  defaultModel: string | null;
   columnActionMap: Record<string, { action: "plan" | "execute"; autoSpawn: boolean; permissionMode?: string; agentName?: string }>;
   pollCursor: Record<string, string> | null;
   pollIntervalSec: number;
@@ -84,6 +85,7 @@ function makeLink(over: Partial<Link> = {}): Link {
     boardNodeId: "PVT_board",
     authMode: "pat",
     enabled: true,
+    defaultModel: null,
     columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } },
     pollCursor: null,
     pollIntervalSec: 60,
@@ -188,6 +190,83 @@ describe("GithubProjectsDaemon.start/stop", () => {
     _resetGithubProjectsDaemonForTests();
     const c = getGithubProjectsDaemon();
     expect(c).not.toBe(a);
+  });
+});
+
+// ── observability: sweep summary + per-trigger debug + start log ────────────
+
+describe("GithubProjectsDaemon — observability", () => {
+  // Assert against the REAL logger's JSON output (see installMocks note). Each
+  // test captures stdout (info/debug) + stderr (warn/error) and parses lines.
+  let out: string[];
+  let origStdout: typeof process.stdout.write;
+  let origStderr: typeof process.stderr.write;
+  beforeEach(() => {
+    out = [];
+    origStdout = process.stdout.write;
+    origStderr = process.stderr.write;
+    const cap = (chunk: string) => { out.push(chunk); return true; };
+    process.stdout.write = cap as typeof process.stdout.write;
+    process.stderr.write = cap as typeof process.stderr.write;
+  });
+  afterEach(() => {
+    process.stdout.write = origStdout;
+    process.stderr.write = origStderr;
+    delete process.env.EZCORP_DEBUG;
+  });
+  function logLines(): Array<Record<string, unknown>> {
+    return out
+      .map((c) => { try { return JSON.parse(c) as Record<string, unknown>; } catch { return null; } })
+      .filter((l): l is Record<string, unknown> => l !== null);
+  }
+
+  test("a sweep with a trigger emits the default-visible INFO summary", async () => {
+    listEnabledLinksMock = mock(() => Promise.resolve([makeLink()]));
+    insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-1" }));
+    installMocks();
+    const client = makeClient({ items: [makeItem()], cursor: { "item-1": "2026-06-01T00:00:00Z" } });
+    await new GithubProjectsDaemon({ client }).pollOnce();
+
+    const sweep = logLines().find((l) => l.msg === "github-projects poll sweep");
+    expect(sweep).toMatchObject({
+      level: "info",
+      subsystem: "ext.github-projects.daemon",
+      enabledLinks: 1,
+      due: 1,
+      fetched: 1,
+      triggers: 1,
+      newProposals: 1,
+    });
+    // The per-trigger line is DEBUG → suppressed at the default LOG_LEVEL.
+    expect(logLines().find((l) => l.msg === "github-projects trigger")).toBeUndefined();
+  });
+
+  test("EZCORP_DEBUG=ext.github-projects surfaces the per-trigger DEBUG line", async () => {
+    process.env.EZCORP_DEBUG = "ext.github-projects";
+    listEnabledLinksMock = mock(() => Promise.resolve([makeLink()]));
+    insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-1" }));
+    installMocks();
+    const client = makeClient({ items: [makeItem()], cursor: { "item-1": "2026-06-01T00:00:00Z" } });
+    await new GithubProjectsDaemon({ client }).pollOnce();
+
+    const trig = logLines().find((l) => l.msg === "github-projects trigger");
+    expect(trig).toMatchObject({ level: "debug", itemNodeId: "item-1", action: "plan", deduped: false });
+  });
+
+  test("an idle host (no enabled links) stays silent — no sweep summary", async () => {
+    listEnabledLinksMock = mock(() => Promise.resolve([]));
+    installMocks();
+    await new GithubProjectsDaemon({ client: makeClient({ items: [], cursor: {} }) }).pollOnce();
+    expect(logLines().find((l) => l.msg === "github-projects poll sweep")).toBeUndefined();
+  });
+
+  test("start() logs the wake-loop-armed line with the interval", () => {
+    delete process.env.EZCORP_DISABLE_GITHUB_PROJECTS_DAEMON;
+    const d = new GithubProjectsDaemon({ wakeIntervalMsOverride: 10_000 });
+    d.start();
+    const armed = logLines().find((l) => l.msg === "github-projects daemon wake loop armed");
+    expect(armed).toMatchObject({ wakeMs: 10_000 });
+    d.stop();
   });
 });
 

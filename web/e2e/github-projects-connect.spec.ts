@@ -39,6 +39,7 @@ function connectedLink(overrides: Record<string, unknown> = {}) {
 		],
 		authMode: "pat",
 		columnActionMap: {},
+		defaultModel: null,
 		pollIntervalSec: 60,
 		enabled: true,
 		lastError: null,
@@ -73,6 +74,8 @@ async function installGhRoutes(page: Page) {
 				if (body.enabled !== undefined) state.link.enabled = body.enabled as boolean;
 				if (body.columnActionMap !== undefined)
 					state.link.columnActionMap = body.columnActionMap as Record<string, never>;
+				if (body.defaultModel !== undefined)
+					state.link.defaultModel = body.defaultModel as string | null;
 			}
 			return route.fulfill({ json: { link: state.link } });
 		}
@@ -97,6 +100,18 @@ async function installGhRoutes(page: Page) {
 				],
 				scopes: ["repo", "project"],
 			},
+		});
+	});
+
+	// Mock the model registry the default-model dropdown reads. Two entries:
+	// one available (rendered) + one unavailable (filtered OUT by the page).
+	await page.route("**/api/models", async (route) => {
+		return route.fulfill({
+			json: [
+				{ provider: "anthropic", model: "claude-opus-4-20250514", displayName: "Claude Opus 4", available: true },
+				{ provider: "openai", model: "gpt-4o", displayName: "GPT-4o", available: true },
+				{ provider: "google", model: "gemini-2.0", displayName: "Gemini 2.0", available: false },
+			],
 		});
 	});
 
@@ -161,6 +176,47 @@ test.describe("GitHub Projects connect sub-route", () => {
 		// Save the mapping → save-flash.
 		await page.getByTestId("gh-projects-save-map").click();
 		await expect(page.getByTestId("gh-projects-map-saved")).toBeVisible();
+	});
+
+	test("default-model dropdown: populates from /api/models, selecting + Save PATCHes defaultModel @evidence", async ({ page, mockApi }, testInfo) => {
+		await mockApi({ projects: [proj] });
+		const state = await installGhRoutes(page);
+		state.link = connectedLink(); // already connected → the editor + dropdown render
+		await page.goto(CONNECT_PATH);
+
+		await expect(page.getByTestId("gh-projects-connected-banner")).toBeVisible();
+		const select = page.getByTestId("gh-projects-default-model");
+		await expect(select).toBeVisible();
+
+		// Options: the empty "instance default" + the TWO available models. The
+		// unavailable google model is filtered out (available === false).
+		const options = select.locator("option");
+		await expect(options).toHaveCount(3);
+		await expect(select.locator('option[value=""]')).toHaveText("— Use instance default —");
+		await expect(select.locator('option[value="anthropic:claude-opus-4-20250514"]')).toHaveText(
+			"Claude Opus 4 (anthropic)",
+		);
+		await expect(
+			select.locator('option[value="google:gemini-2.0"]'),
+		).toHaveCount(0);
+
+		// Select a model + Save → the PATCH carries the chosen defaultModel.
+		await select.selectOption("anthropic:claude-opus-4-20250514");
+		const [patchReq] = await Promise.all([
+			page.waitForRequest(
+				(r) =>
+					r.url().includes("/api/integrations/github-projects/link") && r.method() === "PATCH",
+			),
+			page.getByTestId("gh-projects-save-map").click(),
+		]);
+		expect((patchReq.postDataJSON() as { defaultModel?: string }).defaultModel).toBe(
+			"anthropic:claude-opus-4-20250514",
+		);
+		await expect(page.getByTestId("gh-projects-map-saved")).toBeVisible();
+
+		// Capture evidence of the connected state with the model dropdown (hard
+		// no-op unless EZCORP_E2E_EVIDENCE=1).
+		await captureEvidence(page, testInfo, "gh-default-model");
 	});
 
 	test("reload of an already-connected board renders named, complete columns (regression: ids + missing column)", async ({ page, mockApi }) => {

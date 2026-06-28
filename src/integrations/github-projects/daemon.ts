@@ -30,7 +30,7 @@
  *   - emit `GITHUB_PROJECTS_EVENT` on the bus when proposals changed so the Hub
  *     refreshes.
  */
-import { logger } from "../../logger";
+import { extensionLogger } from "../../logger";
 import {
   listEnabledLinks,
   getLinkByProjectId,
@@ -54,7 +54,7 @@ import {
 } from "./types";
 import type { GithubProjectsLink } from "../../db/schema";
 
-const log = logger.child("integrations.github-projects-daemon");
+const log = extensionLogger("github-projects", "daemon");
 
 const KILL_SWITCH = "EZCORP_DISABLE_GITHUB_PROJECTS_DAEMON";
 /** How often the wake loop fires (each tick re-checks which links are due). */
@@ -87,6 +87,23 @@ export interface GithubProjectsDaemonOptions {
 interface BackoffState {
   /** Epoch ms before which the link is skipped (rate-limit cool-down). */
   until: number;
+}
+
+/** Per-link poll counters — aggregated by `pollOnce` into the one-line sweep
+ *  summary, and echoed per link at debug. `due` flags whether the link was
+ *  actually polled this sweep (vs skipped as not-due). */
+interface LinkPollResult {
+  due: boolean;
+  fetched: number;
+  triggers: number;
+  newProposals: number;
+  autoSpawned: number;
+  degraded: boolean;
+}
+
+/** Zeroed result for a link that was skipped (not due). */
+function skippedLinkResult(): LinkPollResult {
+  return { due: false, fetched: 0, triggers: 0, newProposals: 0, autoSpawned: 0, degraded: false };
 }
 
 export class GithubProjectsDaemon {
@@ -122,6 +139,7 @@ export class GithubProjectsDaemon {
     if (typeof this.timer === "object" && "unref" in this.timer) {
       (this.timer as unknown as { unref: () => void }).unref();
     }
+    log.info("github-projects daemon wake loop armed", { wakeMs: intervalMs });
     return true;
   }
 
@@ -136,16 +154,43 @@ export class GithubProjectsDaemon {
     this.ticking = true;
     try {
       const links = await listEnabledLinks();
+      let due = 0;
+      let fetched = 0;
+      let triggers = 0;
+      let newProposals = 0;
+      let autoSpawned = 0;
+      let degraded = 0;
       for (const link of links) {
         // One link's failure must never starve the others.
         try {
-          await this.pollLink(link);
+          const r = await this.pollLink(link);
+          if (r.due) due += 1;
+          fetched += r.fetched;
+          triggers += r.triggers;
+          newProposals += r.newProposals;
+          autoSpawned += r.autoSpawned;
+          if (r.degraded) degraded += 1;
         } catch (err) {
+          degraded += 1;
           log.warn("github-projects link poll failed", {
             linkId: link.id,
             error: String(err),
           });
         }
+      }
+      // One high-signal line per sweep (default-visible at LOG_LEVEL=info), but
+      // only when there's at least one enabled link — an idle host with no
+      // connected board stays quiet instead of logging every 30s.
+      if (links.length > 0) {
+        log.info("github-projects poll sweep", {
+          enabledLinks: links.length,
+          due,
+          fetched,
+          triggers,
+          newProposals,
+          autoSpawned,
+          degraded,
+        });
       }
     } finally {
       this.ticking = false;
@@ -153,10 +198,16 @@ export class GithubProjectsDaemon {
   }
 
   /** Poll a single link: due-check → fetch → diff → propose → persist. */
-  private async pollLink(link: GithubProjectsLink): Promise<void> {
+  private async pollLink(link: GithubProjectsLink): Promise<LinkPollResult> {
     const nowMs = this.now();
-    if (!this.isDue(link, nowMs)) return;
-    await this.runPoll(link, nowMs);
+    if (!this.isDue(link, nowMs)) {
+      log.debug("github-projects link skipped: not due", {
+        linkId: link.id,
+        projectId: link.projectId,
+      });
+      return skippedLinkResult();
+    }
+    return this.runPoll(link, nowMs);
   }
 
   /**
@@ -167,10 +218,18 @@ export class GithubProjectsDaemon {
    * their pause). On success runs the full poll body against the link.
    */
   async pollProjectNow(projectId: string): Promise<{ polled: boolean; reason?: string }> {
+    log.info("github-projects poll-now requested", { projectId });
     const link = await getLinkByProjectId(projectId);
-    if (!link) return { polled: false, reason: "no-board" };
-    if (!link.enabled) return { polled: false, reason: "paused" };
+    if (!link) {
+      log.info("github-projects poll-now skipped", { projectId, reason: "no-board" });
+      return { polled: false, reason: "no-board" };
+    }
+    if (!link.enabled) {
+      log.info("github-projects poll-now skipped", { projectId, reason: "paused" });
+      return { polled: false, reason: "paused" };
+    }
     await this.runPoll(link, this.now());
+    log.info("github-projects poll-now completed", { projectId, linkId: link.id });
     return { polled: true };
   }
 
@@ -178,7 +237,7 @@ export class GithubProjectsDaemon {
    * The poll BODY (auth → fetch → diff → propose → persist → emit) for a single
    * link, with the due-check already passed (or bypassed by `pollProjectNow`).
    */
-  private async runPoll(link: GithubProjectsLink, nowMs: number): Promise<void> {
+  private async runPoll(link: GithubProjectsLink, nowMs: number): Promise<LinkPollResult> {
     let auth: GithubAuth;
     try {
       auth = await this.resolveAuth(link);
@@ -186,7 +245,7 @@ export class GithubProjectsDaemon {
       // Auth resolution (missing/garbage PAT, gh shell failure) degrades the
       // link exactly like a 401 — surface it, don't crash the loop.
       await this.degrade(link, err, nowMs);
-      return;
+      return { due: true, fetched: 0, triggers: 0, newProposals: 0, autoSpawned: 0, degraded: true };
     }
 
     let page;
@@ -198,16 +257,20 @@ export class GithubProjectsDaemon {
       );
     } catch (err) {
       await this.degrade(link, err, nowMs);
-      return;
+      return { due: true, fetched: 0, triggers: 0, newProposals: 0, autoSpawned: 0, degraded: true };
     }
 
     const prevCursor = link.pollCursor ?? {};
     const actionMap = link.columnActionMap ?? {};
     let changed = false;
+    let triggers = 0;
+    let newProposals = 0;
+    let autoSpawned = 0;
 
     for (const item of page.items) {
       const trigger = this.detectTrigger(item, prevCursor, actionMap);
       if (!trigger) continue;
+      triggers += 1;
       const { statusOptionId, column } = trigger;
       const dedupeKey = githubProposalDedupeKey(
         link.projectId,
@@ -228,16 +291,27 @@ export class GithubProjectsDaemon {
         dedupeKey,
         status: "pending",
       });
-      // null ⇒ a proposal with this dedupeKey already exists (re-detection /
-      // card churn) — do NOT spawn again. This is the anti-spawn-storm guard.
+      // A mapped card moved into a triggering column. `deduped` ⇒ a proposal
+      // with this dedupeKey already exists (re-detection / card churn) and we
+      // do NOT spawn again — the anti-spawn-storm guard.
+      log.debug("github-projects trigger", {
+        linkId: link.id,
+        itemNodeId: item.itemNodeId,
+        statusOptionId,
+        action: column.action,
+        autoSpawn: column.autoSpawn,
+        deduped: !inserted,
+      });
       if (!inserted) continue;
       changed = true;
+      newProposals += 1;
       if (column.autoSpawn) {
         // Auto-spawn is the dangerous opt-in path. approveProposal enforces
         // the per-project concurrency cap + pins a non-yolo permission mode.
         const approve = this.opts.approve ?? defaultApproveProposal;
         try {
           await approve(inserted.id, { kind: "auto" });
+          autoSpawned += 1;
         } catch (err) {
           log.warn("github-projects auto-spawn failed", {
             proposalId: inserted.id,
@@ -257,6 +331,16 @@ export class GithubProjectsDaemon {
     // A successful poll clears rate-limit back-off.
     this.backoff.delete(link.id);
 
+    log.debug("github-projects link polled", {
+      linkId: link.id,
+      projectId: link.projectId,
+      fetched: page.items.length,
+      triggers,
+      newProposals,
+      autoSpawned,
+      cursorSize: Object.keys(page.cursor).length,
+    });
+
     // Injected `emit` wins (tests); else fall back to the registered bus
     // emitter so the lazily-constructed `getGithubProjectsDaemon()` singleton —
     // which carries no `emit` — still refreshes the Hub.
@@ -264,6 +348,8 @@ export class GithubProjectsDaemon {
       const emit = this.opts.emit ?? getGithubProjectsEmit();
       emit?.(GITHUB_PROJECTS_EVENT, { projectId: link.projectId });
     }
+
+    return { due: true, fetched: page.items.length, triggers, newProposals, autoSpawned, degraded: false };
   }
 
   /**
@@ -336,15 +422,24 @@ export class GithubProjectsDaemon {
       this.backoff.set(link.id, { until: nowMs + backoffMs });
       log.warn("github-projects link rate-limited — backing off", {
         linkId: link.id,
+        projectId: link.projectId,
+        authMode: link.authMode,
         backoffMs,
       });
     } else if (err instanceof GithubAuthError || err instanceof GithubNotFoundError) {
-      log.warn("github-projects link degraded", { linkId: link.id, error: message });
+      log.warn("github-projects link degraded", {
+        linkId: link.id,
+        projectId: link.projectId,
+        authMode: link.authMode,
+        error: message,
+      });
     } else {
       // An unexpected (non-GitHub) error still degrades the link rather than
       // bubbling out of the sweep — fail-closed for the link, loop continues.
       log.warn("github-projects link unexpected error — degrading", {
         linkId: link.id,
+        projectId: link.projectId,
+        authMode: link.authMode,
         error: message,
       });
     }

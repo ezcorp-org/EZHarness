@@ -31,12 +31,17 @@ describe("structured logger", () => {
     process.stdout.write = origStdoutWrite;
     process.stderr.write = origStderrWrite;
     delete process.env.LOG_LEVEL;
+    delete process.env.EZCORP_DEBUG;
   });
 
-  function freshLogger() {
-    // Re-import to pick up LOG_LEVEL changes
+  function freshModule() {
+    // Re-import to pick up LOG_LEVEL / EZCORP_DEBUG changes
     delete require.cache[require.resolve("../logger")];
-    return require("../logger").logger;
+    return require("../logger");
+  }
+
+  function freshLogger() {
+    return freshModule().logger;
   }
 
   test("logger.info writes JSON line to stdout with ts, level, msg", () => {
@@ -115,5 +120,92 @@ describe("structured logger", () => {
     for (const chunk of all) {
       expect(() => JSON.parse(chunk)).not.toThrow();
     }
+  });
+
+  describe("EZCORP_DEBUG per-subsystem override", () => {
+    test("EZCORP_DEBUG=1 makes every subsystem's debug visible at default LOG_LEVEL", () => {
+      process.env.EZCORP_DEBUG = "1";
+      const logger = freshLogger();
+      logger.child("anything").debug("v");
+      logger.debug("top-level"); // no subsystem — still all-on under "1"
+      expect(stdoutChunks.length).toBe(2);
+    });
+
+    test("EZCORP_DEBUG=* behaves like 1 (all subsystems)", () => {
+      process.env.EZCORP_DEBUG = "*";
+      const logger = freshLogger();
+      logger.child("db").debug("v");
+      expect(stdoutChunks.length).toBe(1);
+    });
+
+    test("EZCORP_DEBUG=ext selects every ext.* subsystem but not others", () => {
+      process.env.EZCORP_DEBUG = "ext";
+      const logger = freshLogger();
+      logger.child("ext.github-projects.daemon").debug("on");
+      logger.child("db").debug("off");
+      expect(stdoutChunks.length).toBe(1);
+      const parsed = JSON.parse(at(stdoutChunks, 0, "stdout chunk"));
+      expect(parsed.subsystem).toBe("ext.github-projects.daemon");
+    });
+
+    test("EZCORP_DEBUG=ext.github-projects matches the whole feature namespace, not siblings", () => {
+      process.env.EZCORP_DEBUG = "ext.github-projects";
+      const logger = freshLogger();
+      logger.child("ext.github-projects.daemon").debug("on");
+      logger.child("ext.github-projects").debug("on-exact");
+      logger.child("ext.web-search").debug("off");
+      expect(stdoutChunks.length).toBe(2);
+    });
+
+    test("comma list with empty + exact entries; empty entries are skipped", () => {
+      process.env.EZCORP_DEBUG = ",db";
+      const logger = freshLogger();
+      logger.child("db").debug("on");
+      expect(stdoutChunks.length).toBe(1);
+    });
+
+    test("a list never matches a top-level (subsystem-less) debug line", () => {
+      process.env.EZCORP_DEBUG = "ext";
+      const logger = freshLogger();
+      logger.debug("top-level");
+      expect(stdoutChunks.length).toBe(0);
+    });
+
+    test("a non-matching list leaves the global threshold in force", () => {
+      process.env.EZCORP_DEBUG = "nomatch";
+      const logger = freshLogger();
+      logger.child("db").debug("hidden");
+      expect(stdoutChunks.length).toBe(0);
+    });
+
+    test("an empty EZCORP_DEBUG is a no-op (global LOG_LEVEL applies)", () => {
+      process.env.EZCORP_DEBUG = "   ";
+      const logger = freshLogger();
+      logger.child("db").debug("hidden");
+      expect(stdoutChunks.length).toBe(0);
+    });
+  });
+
+  describe("extensionLogger standard helper", () => {
+    test("namespaces under ext.<name>.<component>", () => {
+      const { extensionLogger } = freshModule();
+      extensionLogger("github-projects", "daemon").info("up");
+      const parsed = JSON.parse(at(stdoutChunks, 0, "stdout chunk"));
+      expect(parsed.subsystem).toBe("ext.github-projects.daemon");
+    });
+
+    test("omitting component yields ext.<name>", () => {
+      const { extensionLogger } = freshModule();
+      extensionLogger("github-projects").info("up");
+      const parsed = JSON.parse(at(stdoutChunks, 0, "stdout chunk"));
+      expect(parsed.subsystem).toBe("ext.github-projects");
+    });
+
+    test("EZCORP_DEBUG=ext.<name> turns on an extensionLogger's debug output", () => {
+      process.env.EZCORP_DEBUG = "ext.github-projects";
+      const { extensionLogger } = freshModule();
+      extensionLogger("github-projects", "daemon").debug("detail");
+      expect(stdoutChunks.length).toBe(1);
+    });
   });
 });

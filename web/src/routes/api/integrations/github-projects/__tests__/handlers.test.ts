@@ -287,6 +287,18 @@ describe("POST connect", () => {
     expect(upsertLinkCalls[0].createdByUserId).toBe(MEMBER_USER.id);
   });
 
+  test("passes an optional defaultModel through to upsertLink at connect time", async () => {
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "gh", defaultModel: "openai:gpt-4o" } }));
+    expect(res.status).toBe(200);
+    expect(upsertLinkCalls[0].defaultModel).toBe("openai:gpt-4o");
+  });
+
+  test("connect without a defaultModel stores null (instance default)", async () => {
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "gh" } }));
+    expect(res.status).toBe(200);
+    expect(upsertLinkCalls[0].defaultModel).toBeNull();
+  });
+
   test("gh mode: stores NO token, purges any stale token, upserts link", async () => {
     const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "gh" } }));
     expect(res.status).toBe(200);
@@ -430,6 +442,47 @@ describe("PATCH link", () => {
     const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", columnActionMap: { "opt-todo": { action: "plan", autoSpawn: "yes" } } } }));
     expect(res.status).toBe(200);
     expect(updateLinkCalls[0].patch.columnActionMap["opt-todo"].autoSpawn).toBe(false);
+  });
+
+  test("accepts a valid defaultModel '<provider>:<model>'", async () => {
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", defaultModel: "anthropic:claude-opus-4-20250514" } }));
+    expect(res.status).toBe(200);
+    expect(updateLinkCalls).toHaveLength(1);
+    expect(updateLinkCalls[0].patch.defaultModel).toBe("anthropic:claude-opus-4-20250514");
+  });
+
+  test("accepts defaultModel null (→ clears to instance default)", async () => {
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", defaultModel: null } }));
+    expect(res.status).toBe(200);
+    expect(updateLinkCalls[0].patch.defaultModel).toBeNull();
+  });
+
+  test("accepts defaultModel '' (treated as null)", async () => {
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", defaultModel: "" } }));
+    expect(res.status).toBe(200);
+    expect(updateLinkCalls[0].patch.defaultModel).toBeNull();
+  });
+
+  test("rejects a malformed defaultModel (no colon) → 400", async () => {
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", defaultModel: "noprovider" } }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("provider");
+  });
+
+  test("rejects a defaultModel with an empty half → 400", async () => {
+    const empties = ["anthropic:", ":model"];
+    for (const v of empties) {
+      updateLinkCalls.length = 0;
+      const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", defaultModel: v } }));
+      expect(res.status).toBe(400);
+      expect(updateLinkCalls).toHaveLength(0);
+    }
+  });
+
+  test("rejects a non-string, non-null defaultModel → 400", async () => {
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", defaultModel: 42 } }));
+    expect(res.status).toBe(400);
   });
 
   test("pause via enabled:false uses setLinkEnabled", async () => {

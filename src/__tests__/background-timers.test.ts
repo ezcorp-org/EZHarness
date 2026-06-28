@@ -374,7 +374,10 @@ function installModuleMocks(): void {
   mock.module("../runtime/preview/preview-bus-registry", () => ({
     getRegisteredPreviewBus: () => null,
   }));
-  mock.module("../logger", () => ({ logger: loggerSpy }));
+  // Superset of the real module shape (logger + extensionLogger) so a shared
+  // run can't freeze `../logger` to a partial shape and break a sibling that
+  // imports `extensionLogger`.
+  mock.module("../logger", () => ({ logger: loggerSpy, extensionLogger: () => loggerSpy }));
 }
 
 beforeEach(async () => {
