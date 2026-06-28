@@ -57,7 +57,20 @@ function connectedLink(overrides: Record<string, unknown> = {}) {
  * flip "connected" and assert the UI reacts.
  */
 async function installGhRoutes(page: Page) {
-	const state: { link: ReturnType<typeof connectedLink> | null } = { link: null };
+	const state: {
+		link: ReturnType<typeof connectedLink> | null;
+		refreshOptions: { id: string; name: string }[];
+	} = {
+		link: null,
+		// What the board "currently" has when refresh-columns is invoked — a
+		// THREE-column set (incl. an extra "Done") so a test can prove a refresh
+		// picks up columns beyond the two first persisted.
+		refreshOptions: [
+			{ id: "opt-todo", name: "Todo" },
+			{ id: "opt-doing", name: "Doing" },
+			{ id: "opt-done", name: "Done" },
+		],
+	};
 
 	await page.route("**/api/integrations/github-projects/link**", async (route) => {
 		const method = route.request().method();
@@ -85,6 +98,18 @@ async function installGhRoutes(page: Page) {
 		}
 		return route.fulfill({ status: 405, json: { error: "no" } });
 	});
+
+	// Refresh-columns: re-fetch the board's Status columns host-side and persist
+	// them on the link. Registered AFTER the generic `link**` route so it wins
+	// for this specific sub-path (Playwright matches most-recently-registered
+	// first). Mirrors the real server: no token in the request body.
+	await page.route(
+		"**/api/integrations/github-projects/link/refresh-columns",
+		async (route) => {
+			if (state.link) state.link.statusOptions = state.refreshOptions;
+			return route.fulfill({ json: { link: state.link } });
+		},
+	);
 
 	await page.route("**/api/integrations/github-projects/connect", async (route) => {
 		const body = route.request().postDataJSON() as { authMode: string };
@@ -252,6 +277,59 @@ test.describe("GitHub Projects connect sub-route", () => {
 		await expect(editor).toContainText("Doing");
 		await expect(editor).not.toContainText("opt-todo");
 		await expect(editor).not.toContainText("opt-doing");
+	});
+
+	test("empty status_options auto-refreshes on load → named, complete columns (legacy-link self-heal) @evidence", async ({ page, mockApi }, testInfo) => {
+		await mockApi({ projects: [proj] });
+		const state = await installGhRoutes(page);
+		// The exact production bug: a connected link whose columns were NEVER
+		// persisted (status_options = []), with only ONE column mapped by its bare
+		// id. Pre-fix the editor showed that id AS the name and dropped every
+		// unmapped column.
+		state.link = connectedLink({
+			statusOptions: [],
+			columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } },
+		});
+		await page.goto(CONNECT_PATH);
+
+		await expect(page.getByTestId("gh-projects-connected-banner")).toBeVisible();
+		await expect(page.getByTestId("gh-projects-column-editor")).toBeVisible();
+
+		// The page auto-called refresh-columns (status_options was empty) and now
+		// renders ALL THREE named columns — including the two UNMAPPED ones.
+		await expect(page.getByTestId("gh-projects-column-row")).toHaveCount(3);
+		const editor = page.getByTestId("gh-projects-column-editor");
+		await expect(editor).toContainText("Todo");
+		await expect(editor).toContainText("Doing");
+		await expect(editor).toContainText("Done");
+		// NAMED, never the raw option ids.
+		await expect(editor).not.toContainText("opt-todo");
+		await expect(editor).not.toContainText("opt-done");
+
+		await captureEvidence(page, testInfo, "gh-refresh-columns");
+	});
+
+	test("manual 'Refresh columns' button re-fetches the board's current columns", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		const state = await installGhRoutes(page);
+		// Already populated (Todo + Doing) on load → NO auto-refresh fires.
+		state.link = connectedLink();
+		await page.goto(CONNECT_PATH);
+		await expect(page.getByTestId("gh-projects-column-row")).toHaveCount(2);
+
+		// Clicking Refresh re-fetches host-side and picks up the board's newly
+		// added third column ("Done"). The request body carries projectId, no token.
+		const [refreshReq] = await Promise.all([
+			page.waitForRequest(
+				(r) => r.url().includes("/link/refresh-columns") && r.method() === "POST",
+			),
+			page.getByTestId("gh-projects-refresh-columns").click(),
+		]);
+		expect((refreshReq.postDataJSON() as { projectId?: string }).projectId).toBe(proj.id);
+		expect(JSON.stringify(refreshReq.postDataJSON())).not.toContain("token");
+
+		await expect(page.getByTestId("gh-projects-column-row")).toHaveCount(3);
+		await expect(page.getByTestId("gh-projects-column-editor")).toContainText("Done");
 	});
 
 	test("pause stops without disconnecting; resume flips back", async ({ page, mockApi }) => {

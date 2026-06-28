@@ -37,7 +37,7 @@ import {
   insertProposalIfNew,
   updateLinkPollState,
 } from "../../db/queries/github-projects";
-import { getSecret } from "../../extensions/secrets-store";
+import { resolveLinkAuth } from "./auth";
 import { getGithubProjectsEmit } from "./bus-registry";
 import { createGithubClient } from "./client";
 import { approveProposal as defaultApproveProposal, type ProposalActor } from "./spawn";
@@ -389,16 +389,10 @@ export class GithubProjectsDaemon {
   }
 
   /** Resolve the host-only bearer for a link (PAT from the secrets store, or
-   *  `gh auth token`). */
+   *  `gh auth token`). Delegates to the shared resolver so the daemon and the
+   *  `link/refresh-columns` route resolve credentials identically. */
   private async resolveAuth(link: GithubProjectsLink): Promise<GithubAuth> {
-    if (link.authMode === "gh") {
-      const token = (await this.runGhAuthToken()).trim();
-      if (!token) throw new GithubAuthError("gh auth token returned empty output");
-      return { mode: "gh", token };
-    }
-    const token = await getSecret("github-projects", link.projectId, "apiToken");
-    if (!token) throw new GithubAuthError("no PAT stored for project");
-    return { mode: "pat", token };
+    return resolveLinkAuth(link, () => this.runGhAuthToken());
   }
 
   /** Host shell `gh auth token`. Injectable so tests never spawn a real shell. */

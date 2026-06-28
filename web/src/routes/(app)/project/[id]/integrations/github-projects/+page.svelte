@@ -60,6 +60,13 @@
 	let pausing = $state(false);
 	let disconnecting = $state(false);
 
+	// Refresh-columns: re-fetch the board's Status columns from GitHub host-side
+	// (no PAT re-entry) and persist them. Self-heals a link whose columns were
+	// never stored (status_options = []), so the editor renders named, complete
+	// columns instead of raw option-ids with unmapped columns dropped.
+	let refreshingColumns = $state(false);
+	let refreshError = $state("");
+
 	// Replace-token affordance (PAT mode only). The stored token is never
 	// sent to the client — the connected state shows a generic masked
 	// indicator (`•••••••• saved`), and "Replace token" re-reveals the
@@ -109,6 +116,14 @@
 				link = data.link;
 				columnMap = { ...data.link.columnActionMap };
 				defaultModel = data.link.defaultModel ?? "";
+				// Self-heal a legacy/empty link: when the board's columns were never
+				// persisted (status_options = []) the editor would fall back to raw
+				// option-ids with unmapped columns dropped. Re-fetch them host-side so
+				// it renders named, complete columns. Kept inside `loading` so the user
+				// never sees the id-only flash.
+				if (!data.link.statusOptions?.length) {
+					await refreshColumns();
+				}
 			} else {
 				link = null;
 			}
@@ -116,6 +131,36 @@
 			link = null;
 		} finally {
 			loading = false;
+		}
+	}
+
+	// Re-fetch the board's Status columns host-side (no PAT re-entry) and persist
+	// them. On success the loaded `link` carries the refreshed statusOptions, so
+	// `editableColumns` renders named, complete columns.
+	async function refreshColumns() {
+		if (!link || refreshingColumns) return;
+		refreshingColumns = true;
+		refreshError = "";
+		try {
+			const res = await fetch("/api/integrations/github-projects/link/refresh-columns", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ projectId }),
+			});
+			if (res.ok) {
+				const data = (await res.json()) as { link: Link };
+				link = data.link;
+				// A connect() this session may have stale statusOptions; clear them so
+				// `editableColumns` prefers the freshly-persisted link columns.
+				statusOptions = [];
+			} else {
+				const data = (await res.json().catch(() => ({}))) as { error?: string };
+				refreshError = data.error ?? `Refresh failed (${res.status})`;
+			}
+		} catch (e) {
+			refreshError = e instanceof Error ? e.message : "Refresh failed";
+		} finally {
+			refreshingColumns = false;
 		}
 	}
 
@@ -411,12 +456,34 @@
 			class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6"
 			data-testid="gh-projects-column-editor"
 		>
-			<h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Column → action mapping</h2>
+			<div class="flex items-start justify-between gap-3">
+				<h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Column → action mapping</h2>
+				<!--
+					Re-fetch the board's Status columns from GitHub (host-side, no PAT
+					re-entry). Use it when the columns show as raw ids / a column is
+					missing (a link that predates column persistence), or after the
+					board owner adds / renames / removes a column.
+				-->
+				<button
+					type="button"
+					onclick={refreshColumns}
+					disabled={refreshingColumns}
+					data-testid="gh-projects-refresh-columns"
+					title="Re-fetch this board's columns from GitHub"
+					class="shrink-0 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50"
+				>
+					{refreshingColumns ? "Refreshing…" : "Refresh columns"}
+				</button>
+			</div>
 			<p class="mt-1 mb-4 text-sm text-[var(--color-text-secondary)]">
 				When a card moves into a mapped column, EZCorp spawns an AI agent that can
 				run tools. Auto-spawn is <strong>off by default</strong> — a card move creates
 				a proposal you approve on the Hub.
 			</p>
+
+			{#if refreshError}
+				<p class="mb-4 text-sm text-red-400" data-testid="gh-projects-refresh-error">{refreshError}</p>
+			{/if}
 
 			{#if anyAutoSpawn}
 				<p

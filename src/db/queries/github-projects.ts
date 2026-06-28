@@ -31,7 +31,7 @@ import {
 // (not inline multi-line generics in the function signatures) so Bun's
 // --coverage never emits drifting per-line DA records for the type-continuation
 // lines — a pure type declaration compiles to nothing and is never line-counted.
-type LinkUpdatePatch = Partial<Pick<NewGithubProjectsLink, "columnActionMap" | "pollIntervalSec" | "enabled" | "authMode" | "defaultModel">>;
+type LinkUpdatePatch = Partial<Pick<NewGithubProjectsLink, "columnActionMap" | "pollIntervalSec" | "enabled" | "authMode" | "defaultModel" | "statusOptions" | "statusFieldId">>;
 type ProposalUpdatePatch = Partial<Pick<NewGithubProjectsProposal, "status" | "conversationId" | "agentRunId" | "decidedAt" | "decidedByUserId" | "finishedAt" | "error">>;
 
 // ── Links ──────────────────────────────────────────────────────────────────

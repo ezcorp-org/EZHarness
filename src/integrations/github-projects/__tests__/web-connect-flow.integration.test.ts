@@ -31,6 +31,12 @@ mockDbConnection();
 
 // Mock ONLY the GitHub client (the single egress) — everything else is real.
 let validationResult = { ok: true, scopes: ["repo", "project"], missingScopes: [] as string[] };
+// The board's current Status columns — mutable so a test can simulate the owner
+// adding/renaming a column between connect and a later refresh.
+let boardStatusOptions = [
+  { id: "opt-todo", name: "Todo" },
+  { id: "opt-doing", name: "Doing" },
+];
 mock.module("../client", () => ({
   createGithubClient: () => ({
     resolveBoardFromUrl: async () => ({
@@ -38,10 +44,7 @@ mock.module("../client", () => ({
       title: "Team Kanban",
       ownerLogin: "acme",
       statusFieldId: "FIELD_status",
-      statusOptions: [
-        { id: "opt-todo", name: "Todo" },
-        { id: "opt-doing", name: "Doing" },
-      ],
+      statusOptions: boardStatusOptions,
     }),
     validateAuth: async () => validationResult,
   }),
@@ -70,6 +73,7 @@ mock.module("$server/db/queries/projects", () => require("../../../db/queries/pr
 mock.module("$server/db/queries/github-projects", () => require("../../../db/queries/github-projects"));
 mock.module("$server/extensions/secrets-store", () => require("../../../extensions/secrets-store"));
 mock.module("$server/integrations/github-projects/client", () => require("../client"));
+mock.module("$server/integrations/github-projects/auth", () => require("../auth"));
 mock.module("$server/integrations/github-projects/spawn", () => require("../spawn"));
 mock.module("$server/integrations/github-projects/types", () => require("../types"));
 mock.module("$server/integrations/github-projects/bus-registry", () => require("../bus-registry"));
@@ -100,6 +104,9 @@ const { POST: connect } = await import(
 const { GET: linkGet, PATCH: linkPatch, DELETE: linkDelete } = await import(
   "../../../../web/src/routes/api/integrations/github-projects/link/+server"
 );
+const { POST: refreshColumns } = await import(
+  "../../../../web/src/routes/api/integrations/github-projects/link/refresh-columns/+server"
+);
 
 afterAll(async () => {
   await closeTestDb();
@@ -125,6 +132,10 @@ let projectId: string;
 beforeEach(async () => {
   await setupTestDb();
   validationResult = { ok: true, scopes: ["repo", "project"], missingScopes: [] };
+  boardStatusOptions = [
+    { id: "opt-todo", name: "Todo" },
+    { id: "opt-doing", name: "Doing" },
+  ];
   // The link's created_by_user_id FKs users.id — seed the acting user.
   await createUser({ id: USER.id, email: USER.email, passwordHash: "x", name: USER.name, role: USER.role });
   // `extension_secrets.extension_id` FKs `extensions.name` — seed the bundled
@@ -309,6 +320,44 @@ describe("github-projects connect lifecycle (real DB)", () => {
     expect(clearRes.status).toBe(200);
     expect((await clearRes.json()).link.defaultModel).toBeNull();
     expect((await getLinkByProjectId(projectId))?.defaultModel).toBeNull();
+  });
+
+  test("refresh-columns: re-fetches a legacy/empty link's columns host-side + persists them (no PAT re-entry)", async () => {
+    // Connect stores the board (Todo + Doing) AND the encrypted PAT.
+    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+
+    // Simulate the exact production bug: a link whose columns were never stored
+    // (the migration backfilled status_options = '[]', which can't recover real
+    // names). The editor would then show raw option-ids + drop unmapped columns.
+    await getTestDb().execute(
+      sql`UPDATE github_projects_links SET status_options = '[]'::jsonb WHERE project_id = ${projectId}`,
+    );
+    expect((await getLinkByProjectId(projectId))?.statusOptions).toEqual([]);
+
+    // Meanwhile the board owner added a third column (Done) on GitHub.
+    boardStatusOptions = [
+      { id: "opt-todo", name: "Todo" },
+      { id: "opt-doing", name: "Doing" },
+      { id: "opt-done", name: "Done" },
+    ];
+
+    // Refresh resolves the credential HOST-SIDE (the stored PAT — never re-typed)
+    // and re-reads the board. No token in the request body.
+    const res = await refreshColumns(ev("POST", { body: { projectId } }));
+    expect(res.status).toBe(200);
+    const refreshed = await res.json();
+    expect(refreshed.link.statusOptions).toEqual(boardStatusOptions);
+
+    // It PERSISTED: a fresh GET (what the page's loadLink does) carries the full,
+    // named, COMPLETE column set — including the newly-added "Done".
+    const getRes = await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}` }));
+    const row = (await getRes.json()).link;
+    expect(row.statusOptions).toHaveLength(3);
+    expect(row.statusOptions.map((o: { name: string }) => o.name)).toEqual(["Todo", "Doing", "Done"]);
+    // The DB row itself updated, including the resolved Status field id.
+    const dbRow = await getLinkByProjectId(projectId);
+    expect(dbRow?.statusOptions).toHaveLength(3);
+    expect(dbRow?.statusFieldId).toBe("FIELD_status");
   });
 
   test("re-connect refreshes the persisted status options", async () => {

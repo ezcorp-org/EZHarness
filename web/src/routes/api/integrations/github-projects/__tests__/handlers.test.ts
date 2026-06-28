@@ -19,7 +19,7 @@ import {
 mockServerAlias();
 
 // Generated SvelteKit `$types` modules don't exist under bun:test — stub them.
-for (const seg of ["connect", "link", "proposals", "proposals/[id]/approve", "proposals/[id]/dismiss"]) {
+for (const seg of ["connect", "link", "link/refresh-columns", "proposals", "proposals/[id]/approve", "proposals/[id]/dismiss"]) {
   mock.module(
     `../../../../../../../web/src/routes/api/integrations/github-projects/${seg}/$types`,
     () => ({}),
@@ -47,6 +47,9 @@ let proposalsById: Record<string, any> = {};
 // When true, the setSecret mock throws — exercises the connect handler's
 // token-persist failure branch (→ 500, link NOT upserted).
 let setSecretThrows = false;
+// When true, updateLink returns null — exercises the refresh-columns handler's
+// "link vanished mid-flight" branch (→ 404).
+let updateLinkReturnsNull = false;
 
 // Captured side effects. Each secrets-store call records its full scope coords
 // so we can assert (extensionId, projectId, name[, value], userId).
@@ -114,6 +117,7 @@ mock.module("$server/db/queries/github-projects", () => ({
   },
   updateLink: async (id: string, patch: any) => {
     updateLinkCalls.push({ id, patch });
+    if (updateLinkReturnsNull) return null;
     const existing = Object.values(linkByProject).find((l: any) => l.id === id);
     if (!existing) return null;
     return { ...existing, ...patch };
@@ -186,6 +190,18 @@ mock.module("$server/integrations/github-projects/bus-registry", () => ({
   },
 }));
 
+// Host-only credential resolver used by the refresh-columns route. Mocked so
+// the handler test never touches the real secrets store or `gh` shell.
+let resolveAuthThrows = false;
+const resolveAuthCalls: any[] = [];
+mock.module("$server/integrations/github-projects/auth", () => ({
+  resolveLinkAuth: async (link: any) => {
+    resolveAuthCalls.push(link);
+    if (resolveAuthThrows) throw new Error("no PAT stored for project");
+    return { mode: "pat", token: "ghp_resolved" };
+  },
+}));
+
 // ── Import handlers AFTER mocks ─────────────────────────────────────────
 const { POST: connect } = await import(
   "../../../../../../../web/src/routes/api/integrations/github-projects/connect/+server"
@@ -196,6 +212,9 @@ const {
   DELETE: linkDelete,
 } = await import(
   "../../../../../../../web/src/routes/api/integrations/github-projects/link/+server"
+);
+const { POST: refreshColumns } = await import(
+  "../../../../../../../web/src/routes/api/integrations/github-projects/link/refresh-columns/+server"
 );
 const { GET: proposalsList } = await import(
   "../../../../../../../web/src/routes/api/integrations/github-projects/proposals/+server"
@@ -215,6 +234,7 @@ beforeEach(() => {
   linkByProject = {};
   proposalsById = {};
   setSecretThrows = false;
+  updateLinkReturnsNull = false;
   setSecretCalls.length = 0;
   deleteSecretCalls.length = 0;
   upsertLinkCalls.length = 0;
@@ -225,6 +245,8 @@ beforeEach(() => {
   approveCalls.length = 0;
   dismissCalls.length = 0;
   emitCalls.length = 0;
+  resolveAuthThrows = false;
+  resolveAuthCalls.length = 0;
   resolveBoardImpl = async () => ({
     boardNodeId: "PVT_board1",
     title: "Roadmap",
@@ -742,6 +764,127 @@ describe("POST proposals/:id/dismiss", () => {
 
   test("missing user → 401", async () => {
     const res = await run(dismiss, ev({ method: "POST", params: { id: "p1" }, user: null }));
+    expect(res.status).toBe(401);
+  });
+});
+
+// ════════════════════════ link/refresh-columns ════════════════════════
+describe("POST link/refresh-columns", () => {
+  // Seed a connected link whose columns were never persisted (status_options
+  // = []), mirroring the legacy-link bug the route self-heals.
+  function seedEmptyLink(overrides: Record<string, unknown> = {}) {
+    linkByProject["proj-1"] = {
+      id: "link-1",
+      projectId: "proj-1",
+      boardUrl: "https://github.com/orgs/acme/projects/7",
+      boardTitle: "Roadmap",
+      ownerLogin: "acme",
+      boardNodeId: "PVT_board1",
+      statusFieldId: null,
+      statusOptions: [],
+      defaultModel: null,
+      authMode: "pat",
+      columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } },
+      pollIntervalSec: 60,
+      enabled: true,
+      lastPolledAt: null,
+      lastError: null,
+      lastErrorAt: null,
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+      ...overrides,
+    };
+  }
+
+  function body(projectId: unknown = "proj-1") {
+    return { method: "POST", body: { projectId } };
+  }
+
+  test("happy path: resolves the host credential, re-fetches the board, persists named columns", async () => {
+    seedEmptyLink();
+    const res = await run(refreshColumns, ev(body()));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    // The board's COMPLETE column set (id+name) is now on the link.
+    expect(json.link.statusOptions).toEqual([
+      { id: "opt-todo", name: "Todo" },
+      { id: "opt-doing", name: "Doing" },
+    ]);
+    // Credential was resolved host-side (never accepted from the client).
+    expect(resolveAuthCalls).toHaveLength(1);
+    expect(resolveAuthCalls[0].id).toBe("link-1");
+    // Persisted via updateLink with BOTH the options and the resolved field id.
+    expect(updateLinkCalls).toHaveLength(1);
+    expect(updateLinkCalls[0].id).toBe("link-1");
+    expect(updateLinkCalls[0].patch.statusOptions).toHaveLength(2);
+    expect(updateLinkCalls[0].patch.statusFieldId).toBe("FIELD_status");
+  });
+
+  test("gh-mode link: the route is auth-mode agnostic (resolver handles it) → 200", async () => {
+    seedEmptyLink({ authMode: "gh" });
+    const res = await run(refreshColumns, ev(body()));
+    expect(res.status).toBe(200);
+    expect(resolveAuthCalls[0].authMode).toBe("gh");
+  });
+
+  test("credential resolve fails → 401, link left untouched (no updateLink)", async () => {
+    seedEmptyLink();
+    resolveAuthThrows = true;
+    const res = await run(refreshColumns, ev(body()));
+    expect(res.status).toBe(401);
+    expect(updateLinkCalls).toHaveLength(0);
+  });
+
+  test("board re-resolve fails (GitHub error) → 502, link left untouched (no updateLink)", async () => {
+    seedEmptyLink();
+    resolveBoardImpl = async () => {
+      throw new Error("rate limited");
+    };
+    const res = await run(refreshColumns, ev(body()));
+    expect(res.status).toBe(502);
+    expect(updateLinkCalls).toHaveLength(0);
+  });
+
+  test("updateLink returns null (link vanished mid-flight) → 404", async () => {
+    seedEmptyLink();
+    updateLinkReturnsNull = true; // simulate the row disappearing before the write
+    const res = await run(refreshColumns, ev(body()));
+    expect(res.status).toBe(404);
+  });
+
+  test("missing projectId → 400", async () => {
+    const res = await run(refreshColumns, ev({ method: "POST", body: {} }));
+    expect(res.status).toBe(400);
+  });
+
+  test("unknown project → 404", async () => {
+    const res = await run(refreshColumns, ev(body("nope")));
+    expect(res.status).toBe(404);
+  });
+
+  test("no link for project → 404", async () => {
+    // project exists but no link seeded.
+    const res = await run(refreshColumns, ev(body()));
+    expect(res.status).toBe(404);
+  });
+
+  test("invalid body → 400", async () => {
+    const e = createMockEvent({ method: "POST", url: "http://localhost/x", user: MEMBER_USER });
+    (e as any).request = new Request("http://localhost/x", { method: "POST", headers: { "Content-Type": "application/json" }, body: "null" });
+    const res = await run(refreshColumns, e);
+    expect(res.status).toBe(400);
+  });
+
+  test("scope denied → that response is returned", async () => {
+    seedEmptyLink();
+    scopeResponse = new Response(JSON.stringify({ error: "Insufficient scope" }), { status: 403 });
+    const res = await run(refreshColumns, ev(body()));
+    expect(res.status).toBe(403);
+  });
+
+  test("missing user → 401", async () => {
+    seedEmptyLink();
+    const res = await run(refreshColumns, ev({ method: "POST", body: { projectId: "proj-1" }, user: null }));
     expect(res.status).toBe(401);
   });
 });
