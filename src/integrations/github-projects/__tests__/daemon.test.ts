@@ -24,6 +24,16 @@ let getSecretMock = mock(
 );
 let approveProposalMock = mock((_id: string, _actor: unknown) => Promise.resolve<unknown>({}));
 
+// The daemon's `emit` option (daemon.ts EventEmitter): typing the mock with the
+// two-param signature gives a non-empty call tuple so `emit.mock.calls[0][0/1]`
+// type-check under the full tsconfig (a bare `mock(() => {})` infers a 0-length
+// tuple → TS2493). A widened `event: string` is contravariantly assignable to
+// the daemon's narrower literal-event option, so no `typeof GITHUB_PROJECTS_EVENT`
+// import is needed.
+function makeEmitMock() {
+  return mock((_event: string, _payload: { projectId: string }) => {});
+}
+
 function installMocks(): void {
   // Export the FULL query surface (superset) so a sibling test file's
   // mock.module of the same module — materialized first in a shared `bun test
@@ -354,7 +364,7 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
       columnActionMap: { "opt-doing": { action: "plan", autoSpawn: true } },
     })]));
     insertProposalIfNewMock = mock(() => Promise.resolve(null)); // conflict
-    const emit = mock(() => {});
+    const emit = makeEmitMock();
     installMocks();
     const client = makeClient({ items: [makeItem()], cursor: {} });
     const d = new GithubProjectsDaemon({ client, emit, approve: approveProposalMock });
@@ -369,7 +379,7 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
       columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
     })]));
     insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-3" }));
-    const emit = mock(() => {});
+    const emit = makeEmitMock();
     installMocks();
     const client = makeClient({ items: [makeItem()], cursor: {} });
     const d = new GithubProjectsDaemon({ client, emit, approve: approveProposalMock });
@@ -467,7 +477,7 @@ describe("GithubProjectsDaemon.pollLinkNow", () => {
     const now = 1_000_000;
     // 10s since lastPolledAt with a 60s interval → normally NOT due.
     insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-now" }));
-    const emit = mock(() => {});
+    const emit = makeEmitMock();
     installMocks();
     const client = makeClient({
       items: [makeItem()],
