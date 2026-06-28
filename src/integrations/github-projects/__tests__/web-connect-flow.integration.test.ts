@@ -83,7 +83,7 @@ mock.module("$server/logger", () => require("../../../logger"));
 const { createProject } = await import("../../../db/queries/projects");
 const { createUser } = await import("../../../db/queries/users");
 // The host-only secrets store: read the stored PAT plaintext for assertions.
-const { getSecret } = await import("../../../extensions/secrets-store");
+const { getSecret, deleteSecret } = await import("../../../extensions/secrets-store");
 const { getSecretRow } = await import("../../../db/queries/extension-secrets");
 const { decryptWithAad } = await import("../../../providers/encryption");
 const { getLinkByProjectId, insertProposalIfNew, getProposalById } = await import(
@@ -358,6 +358,25 @@ describe("github-projects connect lifecycle (real DB)", () => {
     const dbRow = await getLinkByProjectId(projectId);
     expect(dbRow?.statusOptions).toHaveLength(3);
     expect(dbRow?.statusFieldId).toBe("FIELD_status");
+  });
+
+  test("refresh-columns: no stored credential → 401 and the saved columns are left UNTOUCHED", async () => {
+    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+    // Connect persisted the board's two columns.
+    expect((await getLinkByProjectId(projectId))?.statusOptions).toHaveLength(2);
+
+    // Purge the stored PAT so the host-side credential can no longer be resolved.
+    await deleteSecret(GH_EXT, projectId, "apiToken");
+    expect(await getSecret(GH_EXT, projectId, "apiToken")).toBeNull();
+
+    // Refresh can't resolve a credential → 401, and it must NOT wipe the saved
+    // columns (a transient failure must never degrade the editor to id-only).
+    const res = await refreshColumns(ev("POST", { body: { projectId } }));
+    expect(res.status).toBe(401);
+    expect((await getLinkByProjectId(projectId))?.statusOptions).toEqual([
+      { id: "opt-todo", name: "Todo" },
+      { id: "opt-doing", name: "Doing" },
+    ]);
   });
 
   test("re-connect refreshes the persisted status options", async () => {

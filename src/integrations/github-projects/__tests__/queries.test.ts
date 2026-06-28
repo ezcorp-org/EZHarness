@@ -133,6 +133,39 @@ describe("github-projects queries", () => {
     expect(await updateLink("missing", { pollIntervalSec: 1 })).toBeNull();
   });
 
+  test("updateLink persists statusOptions + statusFieldId (the refresh-columns write path)", async () => {
+    const projectId = await seedProject();
+    // A legacy/empty link: no columns persisted yet (status_options = []).
+    const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
+    expect(link.statusOptions).toEqual([]);
+    expect(link.statusFieldId).toBeNull();
+
+    // The refresh-columns route writes the board's full id+name set + field id.
+    const options = [
+      { id: "d930e00b", name: "needs planning" },
+      { id: "f75ad846", name: "Todo" },
+      { id: "47fc9ee4", name: "In Progress" },
+      { id: "98236657", name: "Done" },
+    ];
+    const patched = await updateLink(link.id, {
+      statusOptions: options,
+      statusFieldId: "PVTSSF_field",
+    });
+    expect(patched?.statusOptions).toEqual(options);
+    expect(patched?.statusFieldId).toBe("PVTSSF_field");
+
+    // Durable: a fresh read (what publicLinkView/the page GET sees) carries them.
+    const reread = await getLinkByProjectId(projectId);
+    expect(reread?.statusOptions).toHaveLength(4);
+    expect(reread?.statusOptions.map((o) => o.name)).toEqual([
+      "needs planning",
+      "Todo",
+      "In Progress",
+      "Done",
+    ]);
+    expect(reread?.statusFieldId).toBe("PVTSSF_field");
+  });
+
   test("updateLinkPollState writes cursor + health", async () => {
     const projectId = await seedProject();
     const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
