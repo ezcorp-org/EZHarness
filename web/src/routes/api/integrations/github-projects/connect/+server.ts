@@ -36,6 +36,7 @@ interface ConnectBody {
   boardUrl?: unknown;
   authMode?: unknown;
   token?: unknown;
+  defaultModel?: unknown;
 }
 
 function isAuthMode(v: unknown): v is GithubAuthMode {
@@ -132,6 +133,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     // Persist the board's columns so the mapping editor renders full, named
     // columns after a reload (the connect response carries them only transiently).
     statusOptions: board.statusOptions,
+    // Optional per-board default model ("<provider>:<model>"); null = instance
+    // default. Set at connect time too so the dropdown can be chosen up front.
+    defaultModel: typeof body.defaultModel === "string" && body.defaultModel ? body.defaultModel : null,
     authMode,
     createdByUserId: user.id,
   });

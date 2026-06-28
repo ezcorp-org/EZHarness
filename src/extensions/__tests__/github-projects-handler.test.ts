@@ -190,6 +190,7 @@ function link(overrides: Partial<GithubProjectsLink> = {}): GithubProjectsLink {
     boardTitle: "Roadmap",
     ownerLogin: "acme",
     statusFieldId: "FIELD_status",
+    defaultModel: null,
     authMode: "pat",
     columnActionMap: {},
     pollCursor: null,

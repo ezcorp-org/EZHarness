@@ -71,6 +71,7 @@ type Link = {
   boardNodeId: string;
   authMode: "pat" | "gh";
   enabled: boolean;
+  defaultModel: string | null;
   columnActionMap: Record<string, { action: "plan" | "execute"; autoSpawn: boolean; permissionMode?: string; agentName?: string }>;
   pollCursor: Record<string, string> | null;
   pollIntervalSec: number;
@@ -84,6 +85,7 @@ function makeLink(over: Partial<Link> = {}): Link {
     boardNodeId: "PVT_board",
     authMode: "pat",
     enabled: true,
+    defaultModel: null,
     columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } },
     pollCursor: null,
     pollIntervalSec: 60,

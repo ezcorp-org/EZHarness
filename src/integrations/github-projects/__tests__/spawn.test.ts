@@ -75,6 +75,7 @@ const {
   dismissProposal,
   toRuntimePermissionMode,
   buildRunPrompt,
+  parseDefaultModel,
   GithubProposalCapExceededError,
   DEFAULT_PROJECT_CONCURRENCY_CAP,
 } = await import("../spawn");
@@ -87,6 +88,7 @@ type Proposal = {
 };
 type Link = {
   id: string; projectId: string;
+  defaultModel: string | null;
   columnActionMap: Record<string, { action: "plan" | "execute"; autoSpawn: boolean; permissionMode?: "default" | "plan" | "acceptEdits"; agentName?: string }>;
 };
 
@@ -107,6 +109,7 @@ function makeLink(over: Partial<Link> = {}): Link {
   return {
     id: "link-1",
     projectId: "proj-REAL",
+    defaultModel: null,
     columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } },
     ...over,
   };
@@ -181,6 +184,29 @@ describe("buildRunPrompt", () => {
     const prompt = buildRunPrompt(p as never);
     expect(prompt).toContain("Implement the work");
     expect(prompt).not.toContain("URL:");
+  });
+});
+
+describe("parseDefaultModel", () => {
+  test("splits a valid '<provider>:<model>' on the FIRST colon", () => {
+    expect(parseDefaultModel("anthropic:claude-opus-4-20250514")).toEqual({
+      provider: "anthropic",
+      model: "claude-opus-4-20250514",
+    });
+    // Model ids may themselves contain a colon-free shape; split only the first.
+    expect(parseDefaultModel("openai:gpt-4o:preview")).toEqual({
+      provider: "openai",
+      model: "gpt-4o:preview",
+    });
+  });
+
+  test("null / empty / malformed → null (keeps the instance default)", () => {
+    expect(parseDefaultModel(null)).toBeNull();
+    expect(parseDefaultModel(undefined)).toBeNull();
+    expect(parseDefaultModel("")).toBeNull();
+    expect(parseDefaultModel("noprovider")).toBeNull(); // no colon
+    expect(parseDefaultModel(":model")).toBeNull(); // empty provider
+    expect(parseDefaultModel("provider:")).toBeNull(); // empty model
   });
 });
 
@@ -280,6 +306,28 @@ describe("approveProposal", () => {
     await approveProposal("prop-1", { kind: "auto" }, { runtime });
     const opts = runtime.streamChat.mock.calls[0]![2] as Record<string, unknown>;
     expect(opts.agentConfigId).toBeUndefined();
+  });
+
+  test("link with a defaultModel threads provider + model into streamChat", async () => {
+    const { runtime } = makeRuntime();
+    getLinkByIdMock = mock((_id: string) =>
+      Promise.resolve(makeLink({ defaultModel: "anthropic:claude-x" })),
+    );
+    installMocks();
+    await approveProposal("prop-1", { kind: "auto" }, { runtime });
+    const opts = runtime.streamChat.mock.calls[0]![2] as Record<string, unknown>;
+    expect(opts.provider).toBe("anthropic");
+    expect(opts.model).toBe("claude-x");
+  });
+
+  test("link with a null defaultModel passes NO provider/model (instance default)", async () => {
+    const { runtime } = makeRuntime();
+    getLinkByIdMock = mock((_id: string) => Promise.resolve(makeLink({ defaultModel: null })));
+    installMocks();
+    await approveProposal("prop-1", { kind: "auto" }, { runtime });
+    const opts = runtime.streamChat.mock.calls[0]![2] as Record<string, unknown>;
+    expect("provider" in opts).toBe(false);
+    expect("model" in opts).toBe(false);
   });
 
   test("falls back to getProposalById when the running update returns null", async () => {

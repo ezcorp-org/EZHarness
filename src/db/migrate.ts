@@ -1588,6 +1588,13 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
     sql`ALTER TABLE github_projects_links ADD COLUMN IF NOT EXISTS status_options JSONB NOT NULL DEFAULT '[]'`,
   );
 
+  // Per-board default model for spawned runs ("<provider>:<model>"). Nullable —
+  // null/empty keeps the instance default. Added here so pre-existing link rows
+  // (created before this column) gain it without a table rebuild.
+  await db.execute(
+    sql`ALTER TABLE github_projects_links ADD COLUMN IF NOT EXISTS default_model TEXT`,
+  );
+
   // `github_projects_proposals` — the queue + idempotency unit. `dedupe_key`
   // is a server-derived hash of (project_id, item_node_id, status_option_id,
   // action) with a UNIQUE index, so poll re-detection + card churn cannot

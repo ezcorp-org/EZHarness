@@ -30,12 +30,15 @@
 		boardNodeId: string;
 		statusFieldId: string | null;
 		statusOptions: StatusOption[];
+		defaultModel: string | null;
 		authMode: "pat" | "gh";
 		columnActionMap: Record<string, ColumnAction>;
 		pollIntervalSec: number;
 		enabled: boolean;
 		lastError: string | null;
 	};
+	// One available model from GET /api/models (filtered to available === true).
+	type ModelOption = { provider: string; model: string; displayName?: string; available: boolean };
 
 	// ── Component state ────────────────────────────────────────────────────
 	let loading = $state(true);
@@ -84,6 +87,24 @@
 	// Working copy of the column→action map the user edits.
 	let columnMap = $state<Record<string, ColumnAction>>({});
 
+	// Default model for spawned runs ("<provider>:<model>"; "" = instance
+	// default). Initialized from the loaded link; saved with the column map.
+	let defaultModel = $state<string>("");
+	// Available models for the dropdown, fetched once from GET /api/models and
+	// filtered to available === true (mirrors DefaultTierSection's pattern).
+	let availableModels = $state<ModelOption[]>([]);
+
+	async function loadModels() {
+		try {
+			const res = await fetch("/api/models");
+			if (!res.ok) return;
+			const all = (await res.json()) as ModelOption[];
+			availableModels = all.filter((m) => m.available === true);
+		} catch {
+			availableModels = [];
+		}
+	}
+
 	async function loadLink() {
 		loading = true;
 		try {
@@ -94,6 +115,7 @@
 				const data = (await res.json()) as { link: Link };
 				link = data.link;
 				columnMap = { ...data.link.columnActionMap };
+				defaultModel = data.link.defaultModel ?? "";
 			} else {
 				link = null;
 			}
@@ -106,6 +128,12 @@
 
 	$effect(() => {
 		if (projectId) loadLink();
+	});
+
+	// Populate the model dropdown once on mount (provider/credential agnostic;
+	// the endpoint already filters by availability — we further keep available).
+	$effect(() => {
+		loadModels();
 	});
 
 	async function connect() {
@@ -194,12 +222,13 @@
 			const res = await fetch("/api/integrations/github-projects/link", {
 				method: "PATCH",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ projectId, columnActionMap: columnMap }),
+				body: JSON.stringify({ projectId, columnActionMap: columnMap, defaultModel: defaultModel || null }),
 			});
 			if (res.ok) {
 				const data = (await res.json()) as { link: Link };
 				link = data.link;
 				columnMap = { ...data.link.columnActionMap };
+				defaultModel = data.link.defaultModel ?? "";
 				mapFlash = true;
 				setTimeout(() => (mapFlash = false), 1500);
 			}
@@ -457,6 +486,27 @@
 						Re-connect the board to load its columns.
 					</p>
 				{/if}
+			</div>
+
+			<!-- ── Default model for spawned runs ──────────────────────────── -->
+			<div class="mt-6 border-t border-[var(--color-border)] pt-4">
+				<label class="block text-sm text-[var(--color-text-secondary)]">
+					Default model for spawned runs
+					<select
+						bind:value={defaultModel}
+						data-testid="gh-projects-default-model"
+						class="mt-1 block w-full max-w-md rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+					>
+						<option value="">— Use instance default —</option>
+						{#each availableModels as m (m.provider + ":" + m.model)}
+							<option value={`${m.provider}:${m.model}`}>{(m.displayName ?? m.model) + ` (${m.provider})`}</option>
+						{/each}
+					</select>
+				</label>
+				<p class="mt-1 text-xs text-[var(--color-text-muted)]">
+					When set, every run spawned by a card move uses this model. Leave on the
+					instance default to follow your provider preference order.
+				</p>
 			</div>
 
 			<div class="mt-4 flex items-center gap-3">

@@ -95,6 +95,8 @@ export function publicLinkView(link: GithubProjectsLink) {
     // The board's columns (id+name), so the editor renders named, complete
     // columns after a reload — not just the saved map's option-id keys.
     statusOptions: link.statusOptions,
+    // Per-board default model for spawned runs ("<provider>:<model>") or null.
+    defaultModel: link.defaultModel ?? null,
     authMode: link.authMode,
     columnActionMap: link.columnActionMap,
     pollIntervalSec: link.pollIntervalSec,

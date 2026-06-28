@@ -71,6 +71,8 @@ export interface SpawnRuntime {
     userMessage: string,
     options: {
       projectId?: string;
+      provider?: string;
+      model?: string;
       permissionMode?: PermissionMode;
       agentConfigId?: string;
       runId?: string;
@@ -102,6 +104,24 @@ export function toRuntimePermissionMode(
   mode: "default" | "plan" | "acceptEdits" | undefined,
 ): PermissionMode {
   return mode === "acceptEdits" ? "auto-edit" : "ask";
+}
+
+/**
+ * Parse the link's `default_model` ("<provider>:<model>") into the provider +
+ * model the spawn threads into streamChat. Split on the FIRST ':' (provider
+ * names + model ids contain no ':'); null/empty or a malformed value (missing
+ * colon, empty half) → null so the spawn keeps the instance default behavior.
+ */
+export function parseDefaultModel(
+  raw: string | null | undefined,
+): { provider: string; model: string } | null {
+  if (!raw) return null;
+  const i = raw.indexOf(":");
+  if (i <= 0) return null;
+  const provider = raw.slice(0, i);
+  const model = raw.slice(i + 1);
+  if (!provider || !model) return null;
+  return { provider, model };
 }
 
 /**
@@ -186,6 +206,10 @@ export async function approveProposal(
   const permissionMode = toRuntimePermissionMode(column?.permissionMode);
   const agentConfigId = await resolveAgentConfigId(column?.agentName);
 
+  // Per-board default model ("<provider>:<model>"). Null/empty → omit both and
+  // keep the instance default (the executor's provider preference order).
+  const defaultModel = parseDefaultModel(link.defaultModel);
+
   const userId = actor.kind === "user" ? actor.userId : undefined;
 
   // Spawn the harness conversation. createConversation auto-wires the bundled
@@ -220,6 +244,7 @@ export async function approveProposal(
     permissionMode,
     runId,
     ...(agentConfigId ? { agentConfigId } : {}),
+    ...(defaultModel ? { provider: defaultModel.provider, model: defaultModel.model } : {}),
   });
 
   // Reflect "running" once the run is launched.
