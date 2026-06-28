@@ -33,7 +33,7 @@ import type {
   GithubAuthMode,
 } from "$server/integrations/github-projects/types";
 import { setSecret, getSecret, deleteSecret } from "$server/extensions/secrets-store";
-import { upsertLink } from "$server/db/queries/github-projects";
+import { upsertLink, listLinksByProjectId, deleteLink } from "$server/db/queries/github-projects";
 import { boardTokenName } from "$server/integrations/github-projects/auth";
 import { logger } from "$server/logger";
 
@@ -140,6 +140,17 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   // in the project shares the board credential. We still pass `actorUserId` so
   // the SECRET_SET / SECRET_DELETED audit row is attributed to the connecting
   // user (the row stays project-scoped — `actorUserId` is audit-only).
+  //
+  // Whether this board was ALREADY connected (the upsert will UPDATE, not
+  // INSERT) decides the partial-failure policy for a per-board override below:
+  // a FRESH board whose override fails to persist must be rolled back (else it
+  // would silently fall back to the shared token, defeating the isolation the
+  // user asked for); a PRE-EXISTING board is never destroyed by a failed
+  // re-connect.
+  const wasPreExisting = (await listLinksByProjectId(projectId)).some(
+    (l) => l.boardNodeId === board.boardNodeId,
+  );
+
   const link = await upsertLink({
     projectId,
     boardNodeId: board.boardNodeId,
@@ -170,6 +181,13 @@ export const POST: RequestHandler = async ({ locals, request }) => {
         await setSecret("github-projects", projectId, secretName, token, { actorUserId: user.id });
       } catch (err) {
         log.warn("token persist failed", { error: err instanceof Error ? err.message : "err" });
+        // A per-board override that can't persist would leave the board silently
+        // resolving via the SHARED token — the opposite of the isolation asked
+        // for. Roll back a FRESHLY-inserted board (no orphan); never delete a
+        // pre-existing board (a failed re-connect must not destroy prior state).
+        if (tokenScope === "board" && !wasPreExisting) {
+          await deleteLink(link.id).catch(() => {});
+        }
         return errorJson(500, "Failed to store credentials");
       }
     }

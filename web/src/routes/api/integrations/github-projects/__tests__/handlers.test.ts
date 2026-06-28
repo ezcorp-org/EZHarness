@@ -423,6 +423,31 @@ describe("POST connect", () => {
     expect(upsertLinkCalls).toHaveLength(0);
   });
 
+  test("board-scope override persist fails on a FRESH board → 500 + the link is ROLLED BACK (no orphan)", async () => {
+    // No board connected yet → this is a fresh INSERT. The override can't persist,
+    // so the just-inserted link must be deleted (else it silently falls back to
+    // the shared token, defeating the per-board isolation the user asked for).
+    setSecretThrows = true;
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "ghp_board", tokenScope: "board" } }));
+    expect(res.status).toBe(500);
+    expect(upsertLinkCalls).toHaveLength(1);
+    // The fresh link was rolled back — deleteLink was called for it, and no link
+    // remains for the project.
+    expect(deleteLinkCalls).toEqual(["link-new"]);
+    expect(linkByProject["proj-1"]).toBeUndefined();
+  });
+
+  test("board-scope override persist fails on a PRE-EXISTING board → 500 but the board is NOT deleted", async () => {
+    // The board (PVT_board1, what resolveBoardImpl returns) is already connected.
+    // A failed re-connect must NOT destroy the previously-connected board.
+    linkByProject["proj-1"] = { id: "link-1", projectId: "proj-1", boardNodeId: "PVT_board1", boardUrl: "u", boardTitle: "B", ownerLogin: "o", statusFieldId: "F", statusOptions: [], defaultModel: null, authMode: "pat", columnActionMap: {}, pollIntervalSec: 60, enabled: true, lastError: null, lastErrorAt: null, lastPolledAt: null, createdAt: new Date(0), updatedAt: new Date(0) };
+    setSecretThrows = true;
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "ghp_board", tokenScope: "board" } }));
+    expect(res.status).toBe(500);
+    // A pre-existing board is never deleted by a failed re-connect.
+    expect(deleteLinkCalls).toHaveLength(0);
+  });
+
   test("missing user → 401, nothing persisted", async () => {
     const res = await run(connect, ev({ method: "POST", user: null, body: { projectId: "proj-1", boardUrl: "u", authMode: "gh" } }));
     expect(res.status).toBe(401);
