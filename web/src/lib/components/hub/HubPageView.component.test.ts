@@ -26,6 +26,30 @@ import type { HubPageListing, HubPageTree, PageAction } from "$lib/hub";
 const { addToast } = vi.hoisted(() => ({ addToast: vi.fn() }));
 vi.mock("$lib/toast.svelte.js", () => ({ addToast }));
 
+// Stub the shared format-widget registry. The real widgets (SharedFilePicker /
+// DatePicker / …) don't mount cleanly under jsdom, so the format branch's
+// `<PromptWidget bind:value size absolute placeholder/>` prop lines never get
+// attributed as covered. Swap in a tiny stub that accepts those exact props so
+// the branch (incl. `bind:value` + the `absolute={format === "file-path"}`
+// expression) executes and is measured. The map MUST keep "date" (the existing
+// recognized-format test relies on it) AND add "file-path" (drives the truthy
+// `absolute` arm). Any OTHER format string is absent → `format in map` is false
+// → the text-input branch still renders for the no-format / unknown-format tests.
+vi.mock("$lib/components/ui/format-map", async () => {
+	// Import the stub INSIDE the (hoisted) factory — a top-level import binding
+	// isn't initialized yet when the factory runs, so reference it lazily here.
+	const { default: PromptWidgetStub } = await import("./__tests__/PromptWidgetStub.svelte");
+	const map: Record<string, unknown> = { "file-path": PromptWidgetStub, date: PromptWidgetStub };
+	return {
+		formatComponentMap: map,
+		getFormatComponent: (format: string) => {
+			const c = map[format];
+			if (!c) throw new Error(`Unrecognized input format: "${format}"`);
+			return c;
+		},
+	};
+});
+
 const EXT_PAGE_ID = "ext:myext:home"; // → POST /api/extensions/myext/events/<event>
 
 const TABS: HubPageListing[] = [
@@ -394,6 +418,60 @@ describe("HubPageView · prompt dialog", () => {
 		// The format branch renders `hub-prompt-format` and NOT the plain input.
 		expect(await findByTestId("hub-prompt-format")).toBeInTheDocument();
 		expect(queryByTestId("hub-prompt-input")).toBeNull();
+	});
+
+	test("file-path format mounts the widget with size + truthy absolute + placeholder + two-way value", async () => {
+		// Drives the PromptWidget prop lines: `bind:value`, `size="md"`,
+		// `absolute={format === "file-path"}` (TRUTHY arm here), and the
+		// placeholder fallback. Asserts each prop reached the widget and that
+		// the binding round-trips the typed value back into the submit payload.
+		const action: PageAction = {
+			event: "myext:add",
+			payload: { keep: "yes" },
+			prompt: { label: "Folder", field: "folder", format: "file-path", placeholder: "/srv" },
+		};
+		pageHandler = () => jsonResponse({ page: treeWith(action) });
+		let dispatchedBody: { payload?: Record<string, unknown> } | undefined;
+		actionHandler = (_url, body) => {
+			dispatchedBody = body as typeof dispatchedBody;
+			return jsonResponse({ ok: true });
+		};
+		const { findByTestId, queryByTestId } = await renderView();
+		await fireEvent.click(await findByTestId("hub-node-button"));
+
+		// Widget branch — not the plain text input.
+		expect(await findByTestId("hub-prompt-format")).toBeInTheDocument();
+		expect(queryByTestId("hub-prompt-input")).toBeNull();
+
+		// Props passed through: size="md", absolute=true (format === "file-path"),
+		// placeholder forwarded.
+		const widget = (await findByTestId("prompt-widget-stub")) as HTMLInputElement;
+		expect(widget).toHaveAttribute("data-size", "md");
+		expect(widget).toHaveAttribute("data-absolute", "true");
+		expect(widget).toHaveAttribute("placeholder", "/srv");
+
+		// `bind:value` is two-way: typing into the widget feeds promptValue, which
+		// the Submit handler merges under the prompt field.
+		await fireEvent.input(widget, { target: { value: "/srv/data" } });
+		await fireEvent.click(await findByTestId("hub-prompt-submit"));
+		await waitFor(() => expect(dispatchedBody?.payload).toBeDefined());
+		expect(dispatchedBody?.payload).toEqual({ keep: "yes", folder: "/srv/data" });
+	});
+
+	test("a non-file-path recognized format passes absolute=false (falsy arm of the file-path check)", async () => {
+		// Same widget branch, but format "date" ≠ "file-path" → absolute is false,
+		// covering the falsy side of the `format === "file-path"` expression.
+		const action: PageAction = {
+			event: "myext:add",
+			prompt: { label: "When", format: "date" },
+		};
+		pageHandler = () => jsonResponse({ page: treeWith(action) });
+		const { findByTestId } = await renderView();
+		await fireEvent.click(await findByTestId("hub-node-button"));
+		const widget = (await findByTestId("prompt-widget-stub")) as HTMLInputElement;
+		expect(widget).toHaveAttribute("data-absolute", "false");
+		// placeholder omitted on the action → the `?? ""` fallback yields empty.
+		expect(widget).toHaveAttribute("placeholder", "");
 	});
 });
 

@@ -44,6 +44,12 @@ mapfile -t FILES < <({
   # run for correctness in scripts/test.sh.
   find src/integrations/github-projects/__tests__ -name "*.test.ts" ! -name "*integration*"
   find src/extensions/__tests__ -name "github-projects-handler*.test.ts" ! -name "*integration*"
+  # The github-projects reverse-RPC ENTRY POINT lives on ToolExecutor
+  # (handlePiGithubProjects' registry guard), not the handler module, so its
+  # isolated coverage shard sits under a different name — enumerate it here so
+  # its lcov merges and tool-executor.ts's guard lines (2334-2352) get gated.
+  # Kept SMALL + mock.module-free so Bun's per-line attribution stays clean.
+  find src/extensions/__tests__ -name "tool-executor.github-projects-rpc.test.ts"
   find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
   # extension-secrets (Phase 0): the secrets-store coverage test lives next to
   # its source under src/extensions/__tests__ (the queries test under

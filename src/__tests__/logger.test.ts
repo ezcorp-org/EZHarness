@@ -192,6 +192,28 @@ describe("structured logger", () => {
       expect(stdoutChunks.length).toBe(0);
     });
 
+    test("a namespaced entry that matches no emitted subsystem leaves the line at global threshold (no raise)", () => {
+      // EZCORP_DEBUG names a sibling under ext.* but NOT the subsystem we log at.
+      // debugMatches iterates the (non-empty) list, finds no equal-or-namespaced
+      // entry for "ext.foo", and falls through to its final `return false` — so
+      // the line stays at the global threshold and its debug output is hidden.
+      // (The `return false` fall-through is ATTRIBUTED to coverage by the
+      // sibling file logger-debug-no-match.test.ts, which uses a static import;
+      // this freshModule()-based copy clobbers Bun's per-line attribution.)
+      process.env.EZCORP_DEBUG = "ext.other";
+      const logger = freshLogger();
+      logger.child("ext.foo").debug("hidden under sibling selector");
+      expect(stdoutChunks.length).toBe(0);
+      expect(stderrChunks.length).toBe(0);
+      // info on the same subsystem still passes (proves the logger is live and it
+      // is the per-subsystem debug RAISE — not the whole logger — that is absent).
+      logger.child("ext.foo").info("visible");
+      expect(stdoutChunks.length).toBe(1);
+      const parsed = JSON.parse(at(stdoutChunks, 0, "stdout chunk"));
+      expect(parsed.subsystem).toBe("ext.foo");
+      expect(parsed.level).toBe("info");
+    });
+
     test("an empty EZCORP_DEBUG is a no-op (global LOG_LEVEL applies)", () => {
       process.env.EZCORP_DEBUG = "   ";
       const logger = freshLogger();
