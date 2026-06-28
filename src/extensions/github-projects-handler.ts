@@ -60,11 +60,13 @@ import {
 } from "../integrations/github-projects/types";
 import { createGithubClient } from "../integrations/github-projects/client";
 import { getGithubProjectsDaemon } from "../integrations/github-projects/daemon";
+import { boardTokenName } from "../integrations/github-projects/auth";
 import { approveProposal, dismissProposal } from "../integrations/github-projects/spawn";
 import {
-  getLinkByProjectId,
   getLinkById,
   getProposalById,
+  getProposalByConversationId,
+  listLinksByProjectId,
   listProposalsByProject,
   setLinkEnabled,
 } from "../db/queries/github-projects";
@@ -147,18 +149,21 @@ export function _setGhTokenResolverForTests(fn: GhTokenResolver | null): void {
 // ── Auth resolution (host-only) ──────────────────────────────────────
 
 /**
- * Resolve the bearer credential for a link. `pat` reads the per-project token
- * from the scope-isolated secrets store; `gh` shells out to `gh auth token`.
- * Never logs the token. Throws a clear error when the credential is missing
- * (the store returns null for a missing OR undecryptable secret).
+ * Resolve the bearer credential for a link. `pat` reads the board's per-board
+ * override token (`apiToken:<linkId>`) from the scope-isolated secrets store
+ * first, falling back to the SHARED project token (`apiToken`); `gh` shells out
+ * to `gh auth token`. Never logs the token. Throws a clear error when neither
+ * token is available (the store returns null for a missing OR undecryptable
+ * secret).
  */
 export async function resolveAuth(link: GithubProjectsLink): Promise<GithubAuth> {
   if (link.authMode === "gh") {
     const token = await ghTokenResolverImpl();
     return { mode: "gh", token };
   }
-  // pat (default)
-  const token = await getSecret("github-projects", link.projectId, "apiToken");
+  // pat (default): per-board override wins, else the shared project token.
+  const override = await getSecret("github-projects", link.projectId, boardTokenName(link.id));
+  const token = override ?? (await getSecret("github-projects", link.projectId, "apiToken"));
   if (!token) {
     throw new Error(
       "GitHub token not configured for this project — reconnect the board with a PAT.",
@@ -269,17 +274,18 @@ async function resolveTicketContext(
       ),
     };
   }
-  const link = await getLinkByProjectId(projectId);
-  if (!link) {
-    return {
-      ok: false,
-      errorResponse: rpcError(
-        req.id,
-        -32602,
-        "No GitHub Projects board is connected to this project. Connect a board first.",
-      ),
-    };
+  // A project may link MANY boards, so resolve WHICH board this conversation's
+  // ticket verbs target (confused-deputy-safe — never from params):
+  //   1) the proposal that SPAWNED this conversation pins its linkId (the
+  //      auto-spawn / approved-run path → the right board, always),
+  //   2) else, when the project has exactly ONE board, use it (a human chat that
+  //      was never spawned from a card),
+  //   3) else it's ambiguous (multiple boards, no spawning proposal) → refuse.
+  const resolved = await resolveConversationBoard(ctx.conversationId, projectId);
+  if (!resolved.ok) {
+    return { ok: false, errorResponse: rpcError(req.id, -32602, resolved.message) };
   }
+  const link = resolved.link;
   let auth: GithubAuth;
   try {
     auth = await resolveAuth(link);
@@ -290,6 +296,42 @@ async function resolveTicketContext(
     };
   }
   return { ok: true, projectId, link, auth, client: createGithubClient() };
+}
+
+/**
+ * Resolve WHICH board a conversation's ticket verbs act on (multi-board). The
+ * spawning proposal is the source of truth (it pins `linkId`); when there is no
+ * spawning proposal we fall back to the project's sole board, and refuse when
+ * the project has zero boards or several boards with nothing to disambiguate.
+ * Returns a small typed result the caller maps to an RPC error.
+ */
+async function resolveConversationBoard(
+  conversationId: string | null,
+  projectId: string,
+): Promise<{ ok: true; link: GithubProjectsLink } | { ok: false; message: string }> {
+  // 1) The proposal that spawned this conversation pins the exact board.
+  if (conversationId && conversationId !== "unknown") {
+    const proposal = await getProposalByConversationId(conversationId);
+    if (proposal) {
+      const link = await getLinkById(proposal.linkId);
+      if (link && link.projectId === projectId) return { ok: true, link };
+    }
+  }
+  // 2) Fallback for a human chat never spawned from a card: exactly one board.
+  const links = await listLinksByProjectId(projectId);
+  if (links.length === 1) return { ok: true, link: links[0]! };
+  if (links.length === 0) {
+    return {
+      ok: false,
+      message: "No GitHub Projects board is connected to this project. Connect a board first.",
+    };
+  }
+  // 3) Multiple boards and no spawning proposal — genuinely ambiguous.
+  return {
+    ok: false,
+    message:
+      "This project has multiple GitHub boards connected; ticket tools can't tell which one to use from this conversation.",
+  };
 }
 
 async function handleList(
@@ -583,13 +625,13 @@ async function handleSetEnabled(
 }
 
 /**
- * poll-now — force an IMMEDIATE poll of the link's board, bypassing the daemon's
- * due-check + back-off, so the Hub's "Poll now" button reflects board changes
- * without waiting for the next 60s tick. Ownership-gated like pause/resume:
- * opaque -32603 on miss / not-owned so a cross-user probe can't tell a real
- * board from one it doesn't own. The daemon resolves the link again by
- * projectId; `{ polled, reason? }` flows back to the caller (e.g. `paused`
- * when the user must resume first).
+ * poll-now — force an IMMEDIATE poll of the SPECIFIC board, bypassing the
+ * daemon's due-check + back-off, so the Hub's "Poll now" button reflects board
+ * changes without waiting for the next 60s tick. Ownership-gated like
+ * pause/resume: opaque -32603 on miss / not-owned so a cross-user probe can't
+ * tell a real board from one it doesn't own. Polls the resolved link directly
+ * (multi-board: the project may have many); `{ polled, reason? }` flows back to
+ * the caller (e.g. `paused` when the user must resume first).
  */
 async function handlePollNow(
   req: JsonRpcRequest,
@@ -605,7 +647,7 @@ async function handlePollNow(
     return rpcError(req.id, -32603, "Board not found");
   }
   try {
-    const result = await getGithubProjectsDaemon().pollProjectNow(link.projectId);
+    const result = await getGithubProjectsDaemon().pollLinkNow(link);
     await writeAudit(AUDIT_CONTROL, ctx, { verb: "poll-now", linkId });
     return rpcResult(req.id, { ok: true, ...result });
   } catch (err) {

@@ -33,7 +33,6 @@
 import { extensionLogger } from "../../logger";
 import {
   listEnabledLinks,
-  getLinkByProjectId,
   insertProposalIfNew,
   updateLinkPollState,
 } from "../../db/queries/github-projects";
@@ -211,25 +210,27 @@ export class GithubProjectsDaemon {
   }
 
   /**
-   * Force a single, immediate poll of ONE project's link from the Hub's
-   * "Poll now" button — bypassing the due-check + back-off. Resolves the link
-   * by projectId; refuses when there is no board (`no-board`) or the link is
-   * paused (`paused` — the user must resume first; we never silently override
-   * their pause). On success runs the full poll body against the link.
+   * Force a single, immediate poll of ONE specific board link from the Hub's
+   * "Poll now" button — bypassing the due-check + back-off. The caller has
+   * already resolved + ownership-checked the link (multi-board: the project may
+   * have many), so this takes the link directly. Refuses a paused link
+   * (`paused` — the user must resume first; we never silently override their
+   * pause). On success runs the full poll body against the link.
    */
-  async pollProjectNow(projectId: string): Promise<{ polled: boolean; reason?: string }> {
-    log.info("github-projects poll-now requested", { projectId });
-    const link = await getLinkByProjectId(projectId);
-    if (!link) {
-      log.info("github-projects poll-now skipped", { projectId, reason: "no-board" });
-      return { polled: false, reason: "no-board" };
-    }
+  async pollLinkNow(
+    link: GithubProjectsLink,
+  ): Promise<{ polled: boolean; reason?: string }> {
+    log.info("github-projects poll-now requested", { projectId: link.projectId, linkId: link.id });
     if (!link.enabled) {
-      log.info("github-projects poll-now skipped", { projectId, reason: "paused" });
+      log.info("github-projects poll-now skipped", {
+        projectId: link.projectId,
+        linkId: link.id,
+        reason: "paused",
+      });
       return { polled: false, reason: "paused" };
     }
     await this.runPoll(link, this.now());
-    log.info("github-projects poll-now completed", { projectId, linkId: link.id });
+    log.info("github-projects poll-now completed", { projectId: link.projectId, linkId: link.id });
     return { polled: true };
   }
 
