@@ -42,7 +42,17 @@ mock.module("$server/auth/middleware", () => middlewareActual);
 let scopeResponse: Response | null = null;
 
 let projectsById: Record<string, { id: string; name: string }> = {};
+// Seeded links, keyed by an arbitrary slot (usually the projectId); the
+// multi-board query layer (listLinksByProjectId / getLinkById) derives from the
+// rows' OWN projectId/id, so a project can carry several boards under different
+// slot keys.
 let linkByProject: Record<string, any> = {};
+/** All boards whose row.projectId matches `pid`. */
+function linksByProject(pid: string): any[] {
+  return Object.values(linkByProject).filter((l: any) => l?.projectId === pid);
+}
+// Per-board override-token presence, keyed by `apiToken:<linkId>` secret name.
+let tokenOverrides: Record<string, boolean> = {};
 let proposalsById: Record<string, any> = {};
 // When true, the setSecret mock throws — exercises the connect handler's
 // token-persist failure branch (→ 500, link NOT upserted).
@@ -107,7 +117,10 @@ mock.module("$server/db/queries/projects", () => ({
 }));
 
 mock.module("$server/db/queries/github-projects", () => ({
-  getLinkByProjectId: async (pid: string) => linkByProject[pid] ?? null,
+  getLinkByProjectId: async (pid: string) => linksByProject(pid)[0] ?? null,
+  getLinkById: async (id: string) =>
+    Object.values(linkByProject).find((l: any) => l.id === id) ?? null,
+  listLinksByProjectId: async (pid: string) => linksByProject(pid),
   getProposalById: async (id: string) => proposalsById[id] ?? null,
   upsertLink: async (input: any) => {
     upsertLinkCalls.push(input);
@@ -130,6 +143,11 @@ mock.module("$server/db/queries/github-projects", () => ({
   },
   deleteLink: async (id: string) => {
     deleteLinkCalls.push(id);
+    // Drop the row so a subsequent listLinksByProjectId reflects the deletion
+    // (the DELETE route reads it to decide whether to purge the shared token).
+    for (const key of Object.keys(linkByProject)) {
+      if (linkByProject[key]?.id === id) delete linkByProject[key];
+    }
   },
   cancelActiveProposalsForLink: async (id: string) => {
     cancelActiveCalls.push(id);
@@ -162,6 +180,9 @@ mock.module("$server/integrations/github-projects/spawn", () => ({
   },
 }));
 
+// Shared project token presence/value, for the connect route's "reuse existing
+// shared token" path (a 2nd board with no typed token).
+let sharedTokenByProject: Record<string, string | null> = {};
 mock.module("$server/extensions/secrets-store", () => ({
   setSecret: async (
     extensionId: string,
@@ -173,6 +194,10 @@ mock.module("$server/extensions/secrets-store", () => ({
     if (setSecretThrows) throw new Error("secret write failed");
     setSecretCalls.push({ extensionId, projectId, name, value, userId: opts?.userId });
   },
+  getSecret: async (_ext: string, projectId: string | null, name: string) =>
+    name === "apiToken" ? (sharedTokenByProject[projectId ?? ""] ?? null) : null,
+  hasSecret: async (_ext: string, _projectId: string | null, name: string) =>
+    tokenOverrides[name] ?? false,
   deleteSecret: async (
     extensionId: string,
     projectId: string | null,
@@ -197,9 +222,10 @@ const resolveAuthCalls: any[] = [];
 mock.module("$server/integrations/github-projects/auth", () => ({
   resolveLinkAuth: async (link: any) => {
     resolveAuthCalls.push(link);
-    if (resolveAuthThrows) throw new Error("no PAT stored for project");
+    if (resolveAuthThrows) throw new Error("no PAT stored for board or project");
     return { mode: "pat", token: "ghp_resolved" };
   },
+  boardTokenName: (linkId: string) => `apiToken:${linkId}`,
 }));
 
 // ── Import handlers AFTER mocks ─────────────────────────────────────────
@@ -232,6 +258,8 @@ beforeEach(() => {
   scopeResponse = null;
   projectsById = { "proj-1": { id: "proj-1", name: "Proj One" } };
   linkByProject = {};
+  tokenOverrides = {};
+  sharedTokenByProject = {};
   proposalsById = {};
   setSecretThrows = false;
   updateLinkReturnsNull = false;
@@ -330,18 +358,94 @@ describe("POST connect", () => {
     expect(upsertLinkCalls).toHaveLength(0);
   });
 
-  test("gh mode: stores NO token, purges any stale token, upserts link", async () => {
+  test("gh mode: stores NO token, purges THIS board's stale override, upserts link", async () => {
     const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "gh" } }));
     expect(res.status).toBe(200);
     expect(setSecretCalls).toHaveLength(0);
-    expect(deleteSecretCalls).toHaveLength(1); // stale-PAT purge
+    // Only this board's per-board override is purged (keyed by the new link id);
+    // the SHARED project token is left alone — other boards may use it.
+    expect(deleteSecretCalls).toHaveLength(1);
     expect(deleteSecretCalls[0]).toEqual({
       extensionId: "github-projects",
       projectId: "proj-1",
-      name: "apiToken",
+      name: "apiToken:link-new",
       userId: undefined,
     });
     expect(upsertLinkCalls[0].authMode).toBe("gh");
+  });
+
+  test("pat: a default-scope token is stored as the SHARED project token", async () => {
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "ghp_secret" } }));
+    expect(res.status).toBe(200);
+    expect(setSecretCalls).toHaveLength(1);
+    expect(setSecretCalls[0].name).toBe("apiToken");
+    expect(setSecretCalls[0].value).toBe("ghp_secret");
+  });
+
+  test("pat + tokenScope 'board': stores a PER-BOARD override (apiToken:<linkId>), not the shared token", async () => {
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "ghp_board", tokenScope: "board" } }));
+    expect(res.status).toBe(200);
+    expect(setSecretCalls).toHaveLength(1);
+    expect(setSecretCalls[0].name).toBe("apiToken:link-new"); // the upsert mock's id
+    expect(setSecretCalls[0].value).toBe("ghp_board");
+  });
+
+  test("pat + tokenScope 'board' WITHOUT a token → 400 (an override must carry a token)", async () => {
+    sharedTokenByProject["proj-1"] = "ghp_existing_shared"; // present, but irrelevant for board scope
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", tokenScope: "board" } }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("per-board override");
+    expect(upsertLinkCalls).toHaveLength(0);
+    expect(setSecretCalls).toHaveLength(0);
+  });
+
+  test("pat: a 2nd board with NO token reuses the existing shared token (validates, writes nothing new)", async () => {
+    sharedTokenByProject["proj-1"] = "ghp_existing_shared";
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat" } }));
+    expect(res.status).toBe(200);
+    // The board is linked, but no NEW secret is written (it reuses the shared one).
+    expect(upsertLinkCalls).toHaveLength(1);
+    expect(setSecretCalls).toHaveLength(0);
+  });
+
+  test("pat: no token AND no existing shared token → 400", async () => {
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat" } }));
+    expect(res.status).toBe(400);
+    expect(upsertLinkCalls).toHaveLength(0);
+  });
+
+  test("rejects an invalid tokenScope → 400 (before any egress)", async () => {
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "t", tokenScope: "global" } }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("tokenScope");
+    expect(upsertLinkCalls).toHaveLength(0);
+  });
+
+  test("board-scope override persist fails on a FRESH board → 500 + the link is ROLLED BACK (no orphan)", async () => {
+    // No board connected yet → this is a fresh INSERT. The override can't persist,
+    // so the just-inserted link must be deleted (else it silently falls back to
+    // the shared token, defeating the per-board isolation the user asked for).
+    setSecretThrows = true;
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "ghp_board", tokenScope: "board" } }));
+    expect(res.status).toBe(500);
+    expect(upsertLinkCalls).toHaveLength(1);
+    // The fresh link was rolled back — deleteLink was called for it, and no link
+    // remains for the project.
+    expect(deleteLinkCalls).toEqual(["link-new"]);
+    expect(linkByProject["proj-1"]).toBeUndefined();
+  });
+
+  test("board-scope override persist fails on a PRE-EXISTING board → 500 but the board is NOT deleted", async () => {
+    // The board (PVT_board1, what resolveBoardImpl returns) is already connected.
+    // A failed re-connect must NOT destroy the previously-connected board.
+    linkByProject["proj-1"] = { id: "link-1", projectId: "proj-1", boardNodeId: "PVT_board1", boardUrl: "u", boardTitle: "B", ownerLogin: "o", statusFieldId: "F", statusOptions: [], defaultModel: null, authMode: "pat", columnActionMap: {}, pollIntervalSec: 60, enabled: true, lastError: null, lastErrorAt: null, lastPolledAt: null, createdAt: new Date(0), updatedAt: new Date(0) };
+    setSecretThrows = true;
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "ghp_board", tokenScope: "board" } }));
+    expect(res.status).toBe(500);
+    // A pre-existing board is never deleted by a failed re-connect.
+    expect(deleteLinkCalls).toHaveLength(0);
   });
 
   test("missing user → 401, nothing persisted", async () => {
@@ -415,32 +519,45 @@ describe("POST connect", () => {
     expect(upsertLinkCalls).toHaveLength(0);
   });
 
-  test("token persist throws → 500, link NOT upserted", async () => {
+  test("token persist throws → 500 (link upserted first so an override can key off its id)", async () => {
     setSecretThrows = true;
     const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "ghp_secret" } }));
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toBe("Failed to store credentials");
-    // The validated board never gets linked when the credential can't persist.
-    expect(upsertLinkCalls).toHaveLength(0);
+    // The link is upserted BEFORE the token persist (a per-board override needs
+    // the link id); the 500 lets the operator retry, and the board has a usable
+    // credential as soon as a token is stored.
+    expect(upsertLinkCalls).toHaveLength(1);
   });
 });
 
 // ════════════════════════ link GET ════════════════════════
 describe("GET link", () => {
-  test("returns the public link view (no token field)", async () => {
-    linkByProject["proj-1"] = { id: "link-1", projectId: "proj-1", boardUrl: "u", boardTitle: "B", ownerLogin: "o", boardNodeId: "PVT", statusFieldId: "F", authMode: "pat", columnActionMap: {}, pollIntervalSec: 60, enabled: true, lastError: null, lastErrorAt: null, lastPolledAt: null, createdAt: new Date(0), updatedAt: new Date(0) };
+  test("returns an array of public link views (no token field), each with hasTokenOverride", async () => {
+    linkByProject["proj-1"] = { id: "link-1", projectId: "proj-1", boardUrl: "u", boardTitle: "B", ownerLogin: "o", boardNodeId: "PVT", statusFieldId: "F", statusOptions: [], defaultModel: null, authMode: "pat", columnActionMap: {}, pollIntervalSec: 60, enabled: true, lastError: null, lastErrorAt: null, lastPolledAt: null, createdAt: new Date(0), updatedAt: new Date(0) };
+    // This board carries a per-board override.
+    tokenOverrides["apiToken:link-1"] = true;
     const res = await run(linkGet, ev({ url: "http://localhost/x?projectId=proj-1" }));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.link.id).toBe("link-1");
-    expect(body.link).not.toHaveProperty("token");
+    expect(body.links).toHaveLength(1);
+    expect(body.links[0].id).toBe("link-1");
+    expect(body.links[0].hasTokenOverride).toBe(true);
+    expect(body.links[0]).not.toHaveProperty("token");
     expect(JSON.stringify(body)).not.toMatch(/ENC\(|ghp_/);
   });
 
-  test("no link → 404", async () => {
+  test("no links → empty array (200, not 404)", async () => {
     const res = await run(linkGet, ev({ url: "http://localhost/x?projectId=proj-1" }));
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    expect((await res.json()).links).toEqual([]);
+  });
+
+  test("hasTokenOverride is false when no per-board override is stored", async () => {
+    linkByProject["proj-1"] = { id: "link-1", projectId: "proj-1", boardUrl: "u", boardTitle: "B", ownerLogin: "o", boardNodeId: "PVT", statusFieldId: "F", statusOptions: [], defaultModel: null, authMode: "pat", columnActionMap: {}, pollIntervalSec: 60, enabled: true, lastError: null, lastErrorAt: null, lastPolledAt: null, createdAt: new Date(0), updatedAt: new Date(0) };
+    const res = await run(linkGet, ev({ url: "http://localhost/x?projectId=proj-1" }));
+    expect((await res.json()).links[0].hasTokenOverride).toBe(false);
   });
 
   test("missing projectId → 400", async () => {
@@ -462,7 +579,7 @@ describe("PATCH link", () => {
   });
 
   test("update columnActionMap (autoSpawn coerced + emit fires)", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true, agentName: "coder", permissionMode: "acceptEdits" } } } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true, agentName: "coder", permissionMode: "acceptEdits" } } } }));
     expect(res.status).toBe(200);
     expect(updateLinkCalls).toHaveLength(1);
     expect(updateLinkCalls[0].patch.columnActionMap["opt-doing"]).toEqual({ action: "execute", autoSpawn: true, agentName: "coder", permissionMode: "acceptEdits" });
@@ -470,32 +587,32 @@ describe("PATCH link", () => {
   });
 
   test("autoSpawn defaults OFF when omitted/non-true", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", columnActionMap: { "opt-todo": { action: "plan", autoSpawn: "yes" } } } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", columnActionMap: { "opt-todo": { action: "plan", autoSpawn: "yes" } } } }));
     expect(res.status).toBe(200);
     expect(updateLinkCalls[0].patch.columnActionMap["opt-todo"].autoSpawn).toBe(false);
   });
 
   test("accepts a valid defaultModel '<provider>:<model>'", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", defaultModel: "anthropic:claude-opus-4-20250514" } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", defaultModel: "anthropic:claude-opus-4-20250514" } }));
     expect(res.status).toBe(200);
     expect(updateLinkCalls).toHaveLength(1);
     expect(updateLinkCalls[0].patch.defaultModel).toBe("anthropic:claude-opus-4-20250514");
   });
 
   test("accepts defaultModel null (→ clears to instance default)", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", defaultModel: null } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", defaultModel: null } }));
     expect(res.status).toBe(200);
     expect(updateLinkCalls[0].patch.defaultModel).toBeNull();
   });
 
   test("accepts defaultModel '' (treated as null)", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", defaultModel: "" } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", defaultModel: "" } }));
     expect(res.status).toBe(200);
     expect(updateLinkCalls[0].patch.defaultModel).toBeNull();
   });
 
   test("rejects a malformed defaultModel (no colon) → 400", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", defaultModel: "noprovider" } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", defaultModel: "noprovider" } }));
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toContain("provider");
@@ -505,83 +622,83 @@ describe("PATCH link", () => {
     const empties = ["anthropic:", ":model"];
     for (const v of empties) {
       updateLinkCalls.length = 0;
-      const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", defaultModel: v } }));
+      const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", defaultModel: v } }));
       expect(res.status).toBe(400);
       expect(updateLinkCalls).toHaveLength(0);
     }
   });
 
   test("rejects a non-string, non-null defaultModel → 400", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", defaultModel: 42 } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", defaultModel: 42 } }));
     expect(res.status).toBe(400);
   });
 
   test("pause via enabled:false uses setLinkEnabled", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", enabled: false } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", enabled: false } }));
     expect(res.status).toBe(200);
     expect(setEnabledCalls).toEqual([{ id: "link-1", enabled: false }]);
     expect(updateLinkCalls).toHaveLength(0);
   });
 
   test("pollIntervalSec is clamped to the [15,3600] band", async () => {
-    await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", pollIntervalSec: 2 } }));
+    await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", pollIntervalSec: 2 } }));
     expect(updateLinkCalls[0].patch.pollIntervalSec).toBe(15);
     updateLinkCalls.length = 0;
-    await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", pollIntervalSec: 99999 } }));
+    await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", pollIntervalSec: 99999 } }));
     expect(updateLinkCalls[0].patch.pollIntervalSec).toBe(3600);
   });
 
   test("invalid columnActionMap entry → 400", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", columnActionMap: { "opt-x": { action: "delete" } } } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", columnActionMap: { "opt-x": { action: "delete" } } } }));
     expect(res.status).toBe(400);
   });
 
   test("columnActionMap not an object → 400", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", columnActionMap: [] } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", columnActionMap: [] } }));
     expect(res.status).toBe(400);
   });
 
   test("columnActionMap entry value is null → 400 (must be an object)", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", columnActionMap: { "opt-x": null } } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", columnActionMap: { "opt-x": null } } }));
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toContain("must be an object");
   });
 
   test("columnActionMap entry value is an array → 400 (must be an object)", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", columnActionMap: { "opt-x": ["plan"] } } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", columnActionMap: { "opt-x": ["plan"] } } }));
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toContain("must be an object");
   });
 
   test("columnActionMap entry value is a primitive → 400 (must be an object)", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", columnActionMap: { "opt-x": "plan" } } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", columnActionMap: { "opt-x": "plan" } } }));
     expect(res.status).toBe(400);
   });
 
   test("non-numeric pollIntervalSec → 400", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", pollIntervalSec: "soon" } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", pollIntervalSec: "soon" } }));
     expect(res.status).toBe(400);
   });
 
   test("non-boolean enabled → 400", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", enabled: "off" } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", enabled: "off" } }));
     expect(res.status).toBe(400);
   });
 
   test("empty patch → 400", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1" } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1" } }));
     expect(res.status).toBe(400);
   });
 
   test("invalid permissionMode → 400", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", columnActionMap: { "opt-x": { action: "plan", permissionMode: "yolo" } } } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", columnActionMap: { "opt-x": { action: "plan", permissionMode: "yolo" } } } }));
     expect(res.status).toBe(400);
   });
 
   test("non-string agentName → 400", async () => {
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", columnActionMap: { "opt-x": { action: "plan", agentName: 5 } } } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", columnActionMap: { "opt-x": { action: "plan", agentName: 5 } } } }));
     expect(res.status).toBe(400);
   });
 
@@ -597,6 +714,7 @@ describe("PATCH link", () => {
       method: "PATCH",
       body: {
         projectId: "proj-1",
+        linkId: "link-1",
         columnActionMap: {
           "opt-todo": { action: "plan", autoSpawn: false, doneStatusOptionId: "opt-doing" },
         },
@@ -616,6 +734,7 @@ describe("PATCH link", () => {
       method: "PATCH",
       body: {
         projectId: "proj-1",
+        linkId: "link-1",
         columnActionMap: {
           "opt-todo": { action: "plan", autoSpawn: false, doneStatusOptionId: "opt-nope" },
         },
@@ -635,6 +754,7 @@ describe("PATCH link", () => {
       method: "PATCH",
       body: {
         projectId: "proj-1",
+        linkId: "link-1",
         columnActionMap: {
           "opt-todo": { action: "plan", autoSpawn: false, doneStatusOptionId: "some-legacy-id" },
         },
@@ -650,6 +770,7 @@ describe("PATCH link", () => {
       method: "PATCH",
       body: {
         projectId: "proj-1",
+        linkId: "link-1",
         columnActionMap: {
           "opt-todo": { action: "plan", autoSpawn: false, doneStatusOptionId: "" },
         },
@@ -665,6 +786,7 @@ describe("PATCH link", () => {
       method: "PATCH",
       body: {
         projectId: "proj-1",
+        linkId: "link-1",
         columnActionMap: {
           "opt-todo": { action: "plan", autoSpawn: false, doneStatusOptionId: 99 },
         },
@@ -677,7 +799,7 @@ describe("PATCH link", () => {
 
   test("no link → 404", async () => {
     linkByProject = {};
-    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", enabled: false } }));
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", enabled: false } }));
     expect(res.status).toBe(404);
   });
 
@@ -695,12 +817,17 @@ describe("DELETE link", () => {
     linkByProject["proj-1"] = { id: "link-1", projectId: "proj-1", boardUrl: "u", boardTitle: "B", ownerLogin: "o", boardNodeId: "PVT", statusFieldId: "F", authMode: "pat", columnActionMap: {}, pollIntervalSec: 60, enabled: true, lastError: null, lastErrorAt: null, lastPolledAt: null, createdAt: new Date(0), updatedAt: new Date(0) };
   });
 
-  test("disconnect purges token, cancels active proposals, drops link, emits", async () => {
-    const res = await run(linkDelete, ev({ method: "DELETE", body: { projectId: "proj-1" } }));
+  test("disconnect (last board) purges the override + the shared token, cancels proposals, drops link, emits", async () => {
+    // deleteLink (mocked) drops link-1 from linkByProject, so listLinksByProjectId
+    // sees ZERO boards afterwards → the shared token is purged too.
+    const res = await run(linkDelete, ev({ method: "DELETE", body: { projectId: "proj-1", linkId: "link-1" } }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ disconnected: true, cancelledProposals: 2 });
+    // The per-board override is always purged; the shared token only because no
+    // boards remain.
     expect(deleteSecretCalls).toEqual([
+      { extensionId: "github-projects", projectId: "proj-1", name: "apiToken:link-1", userId: undefined },
       { extensionId: "github-projects", projectId: "proj-1", name: "apiToken", userId: undefined },
     ]);
     expect(cancelActiveCalls).toEqual(["link-1"]);
@@ -708,10 +835,26 @@ describe("DELETE link", () => {
     expect(emitCalls).toHaveLength(1);
   });
 
-  test("no link → 404", async () => {
-    linkByProject = {};
-    const res = await run(linkDelete, ev({ method: "DELETE", body: { projectId: "proj-1" } }));
+  test("disconnect (a board remains) purges ONLY this board's override, KEEPS the shared token", async () => {
+    // A second board on the same project. deleteLink drops link-1 only, so
+    // listLinksByProjectId still returns link-2 → the SHARED token is retained.
+    linkByProject["proj-1b"] = { id: "link-2", projectId: "proj-1", boardUrl: "u2", boardTitle: "B2", ownerLogin: "o", boardNodeId: "PVT2", statusFieldId: "F", statusOptions: [], defaultModel: null, authMode: "pat", columnActionMap: {}, pollIntervalSec: 60, enabled: true, lastError: null, lastErrorAt: null, lastPolledAt: null, createdAt: new Date(0), updatedAt: new Date(0) };
+    const res = await run(linkDelete, ev({ method: "DELETE", body: { projectId: "proj-1", linkId: "link-1" } }));
+    expect(res.status).toBe(200);
+    expect(deleteSecretCalls).toEqual([
+      { extensionId: "github-projects", projectId: "proj-1", name: "apiToken:link-1", userId: undefined },
+    ]);
+  });
+
+  test("wrong linkId → 404", async () => {
+    const res = await run(linkDelete, ev({ method: "DELETE", body: { projectId: "proj-1", linkId: "nope" } }));
     expect(res.status).toBe(404);
+    expect(deleteLinkCalls).toHaveLength(0);
+  });
+
+  test("missing linkId → 400", async () => {
+    const res = await run(linkDelete, ev({ method: "DELETE", body: { projectId: "proj-1" } }));
+    expect(res.status).toBe(400);
     expect(deleteLinkCalls).toHaveLength(0);
   });
 
@@ -886,8 +1029,8 @@ describe("POST link/refresh-columns", () => {
     };
   }
 
-  function body(projectId: unknown = "proj-1") {
-    return { method: "POST", body: { projectId } };
+  function body(projectId: unknown = "proj-1", linkId: unknown = "link-1") {
+    return { method: "POST", body: { projectId, linkId } };
   }
 
   test("happy path: resolves the host credential, re-fetches the board, persists named columns", async () => {
@@ -952,10 +1095,22 @@ describe("POST link/refresh-columns", () => {
     expect(res.status).toBe(404);
   });
 
-  test("no link for project → 404", async () => {
-    // project exists but no link seeded.
+  test("no link for the linkId → 404", async () => {
+    // project exists but no link seeded under that id.
     const res = await run(refreshColumns, ev(body()));
     expect(res.status).toBe(404);
+  });
+
+  test("missing linkId → 400", async () => {
+    const res = await run(refreshColumns, ev({ method: "POST", body: { projectId: "proj-1" } }));
+    expect(res.status).toBe(400);
+  });
+
+  test("linkId for another project → opaque 404", async () => {
+    seedEmptyLink({ projectId: "other-project" });
+    const res = await run(refreshColumns, ev(body("proj-1", "link-1")));
+    expect(res.status).toBe(404);
+    expect(updateLinkCalls).toHaveLength(0);
   });
 
   test("invalid body → 400", async () => {

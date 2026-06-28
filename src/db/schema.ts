@@ -1246,10 +1246,13 @@ export type BriefingConfig = typeof briefingConfigs.$inferSelect;
 export type NewBriefingConfig = typeof briefingConfigs.$inferInsert;
 
 // ── GitHub Projects integration ────────────────────────────────────────
-// One connected GitHub Projects v2 board per EZCorp project. The PAT (when
-// authMode='pat') is NOT stored here — it lives encrypted in `settings` at
-// `githubProjects:<projectId>:apiToken`. `enabled=false` = "pause polling"
-// (board + token retained; daemon skips disabled links). See
+// An EZCorp project connects to MANY GitHub Projects v2 boards (one row per
+// board). A given board connects to a project only once
+// (UNIQUE(project_id, board_node_id)). The PAT (when authMode='pat') is NOT
+// stored here — it lives encrypted in the `extension_secrets` store at
+// `apiToken` (the SHARED project token) and, optionally, `apiToken:<linkId>`
+// (a per-board override). `enabled=false` = "pause polling" (board + token
+// retained; daemon skips disabled links). See
 // src/db/migrations/add-github-projects.ts and src/integrations/github-projects/.
 export const githubProjectsLinks = pgTable("github_projects_links", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -1287,7 +1290,8 @@ export const githubProjectsLinks = pgTable("github_projects_links", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
-  uniqueIndex("idx_gh_links_project_unique").on(table.projectId),
+  // A project connects to MANY boards, each board only once per project.
+  uniqueIndex("idx_gh_links_project_board").on(table.projectId, table.boardNodeId),
 ]);
 
 export type GithubProjectsLink = typeof githubProjectsLinks.$inferSelect;

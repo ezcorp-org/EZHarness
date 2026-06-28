@@ -24,6 +24,16 @@ let getSecretMock = mock(
 );
 let approveProposalMock = mock((_id: string, _actor: unknown) => Promise.resolve<unknown>({}));
 
+// The daemon's `emit` option (daemon.ts EventEmitter): typing the mock with the
+// two-param signature gives a non-empty call tuple so `emit.mock.calls[0][0/1]`
+// type-check under the full tsconfig (a bare `mock(() => {})` infers a 0-length
+// tuple → TS2493). A widened `event: string` is contravariantly assignable to
+// the daemon's narrower literal-event option, so no `typeof GITHUB_PROJECTS_EVENT`
+// import is needed.
+function makeEmitMock() {
+  return mock((_event: string, _payload: { projectId: string }) => {});
+}
+
 function installMocks(): void {
   // Export the FULL query surface (superset) so a sibling test file's
   // mock.module of the same module — materialized first in a shared `bun test
@@ -354,7 +364,7 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
       columnActionMap: { "opt-doing": { action: "plan", autoSpawn: true } },
     })]));
     insertProposalIfNewMock = mock(() => Promise.resolve(null)); // conflict
-    const emit = mock(() => {});
+    const emit = makeEmitMock();
     installMocks();
     const client = makeClient({ items: [makeItem()], cursor: {} });
     const d = new GithubProjectsDaemon({ client, emit, approve: approveProposalMock });
@@ -369,7 +379,7 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
       columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
     })]));
     insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-3" }));
-    const emit = mock(() => {});
+    const emit = makeEmitMock();
     installMocks();
     const client = makeClient({ items: [makeItem()], cursor: {} });
     const d = new GithubProjectsDaemon({ client, emit, approve: approveProposalMock });
@@ -460,19 +470,14 @@ describe("GithubProjectsDaemon.pollOnce — scheduling", () => {
   });
 });
 
-// ── pollProjectNow: manual "Poll now" force ─────────────────────────────────
+// ── pollLinkNow: manual "Poll now" force (per specific board) ────────────────
 
-describe("GithubProjectsDaemon.pollProjectNow", () => {
-  test("forces a poll even when the link is NOT due (bypasses isDue)", async () => {
+describe("GithubProjectsDaemon.pollLinkNow", () => {
+  test("forces a poll of the given link even when it is NOT due (bypasses isDue)", async () => {
     const now = 1_000_000;
     // 10s since lastPolledAt with a 60s interval → normally NOT due.
-    getLinkByProjectIdMock = mock(() =>
-      Promise.resolve(
-        makeLink({ enabled: true, lastPolledAt: new Date(now - 10_000), pollIntervalSec: 60 }),
-      ),
-    );
     insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-now" }));
-    const emit = mock(() => {});
+    const emit = makeEmitMock();
     installMocks();
     const client = makeClient({
       items: [makeItem()],
@@ -480,10 +485,12 @@ describe("GithubProjectsDaemon.pollProjectNow", () => {
     });
     const d = new GithubProjectsDaemon({ client, emit, now: () => now });
 
-    const result = await d.pollProjectNow("proj-1");
+    // The caller passes the resolved link directly (multi-board: it owns the
+    // resolution + ownership check before forcing a poll).
+    const link = makeLink({ enabled: true, lastPolledAt: new Date(now - 10_000), pollIntervalSec: 60 });
+    const result = await d.pollLinkNow(link as never);
 
     expect(result).toEqual({ polled: true });
-    expect(getLinkByProjectIdMock).toHaveBeenCalledWith("proj-1");
     // The full poll body ran despite the link not being due.
     expect((client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems).toHaveBeenCalledTimes(1);
     expect(insertProposalIfNewMock).toHaveBeenCalledTimes(1);
@@ -493,26 +500,13 @@ describe("GithubProjectsDaemon.pollProjectNow", () => {
   });
 
   test("refuses a paused (disabled) link — the user must resume first", async () => {
-    getLinkByProjectIdMock = mock(() => Promise.resolve(makeLink({ enabled: false })));
     installMocks();
     const client = makeClient({ items: [], cursor: {} });
     const d = new GithubProjectsDaemon({ client });
 
-    const result = await d.pollProjectNow("proj-1");
+    const result = await d.pollLinkNow(makeLink({ enabled: false }) as never);
 
     expect(result).toEqual({ polled: false, reason: "paused" });
-    expect((client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems).not.toHaveBeenCalled();
-  });
-
-  test("returns no-board when no link is connected to the project", async () => {
-    getLinkByProjectIdMock = mock(() => Promise.resolve(null));
-    installMocks();
-    const client = makeClient({ items: [], cursor: {} });
-    const d = new GithubProjectsDaemon({ client });
-
-    const result = await d.pollProjectNow("proj-missing");
-
-    expect(result).toEqual({ polled: false, reason: "no-board" });
     expect((client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems).not.toHaveBeenCalled();
   });
 });
@@ -520,17 +514,36 @@ describe("GithubProjectsDaemon.pollProjectNow", () => {
 // ── pollOnce: auth resolution ───────────────────────────────────────────────
 
 describe("GithubProjectsDaemon.pollOnce — auth", () => {
-  test("PAT mode: getSecret produces the bearer", async () => {
+  test("PAT mode: the SHARED token produces the bearer (no per-board override)", async () => {
     listEnabledLinksMock = mock(() => Promise.resolve([makeLink({ authMode: "pat" })]));
-    getSecretMock = mock(() => Promise.resolve<string | null>("ghp_secret"));
+    // No per-board override (apiToken:link-1 → null); the shared apiToken wins.
+    getSecretMock = mock((_e: string, _p: string | null, name: string) =>
+      Promise.resolve<string | null>(name === "apiToken" ? "ghp_secret" : null),
+    );
     installMocks();
     const client = makeClient({ items: [], cursor: {} });
     const d = new GithubProjectsDaemon({ client });
     await d.pollOnce();
-    // Scope coordinates: (extensionId, projectId, name).
+    // Scope coordinates: (extensionId, projectId, name) — probes the override
+    // first, then falls back to the shared token.
+    expect(getSecretMock).toHaveBeenCalledWith("github-projects", "proj-1", "apiToken:link-1");
     expect(getSecretMock).toHaveBeenCalledWith("github-projects", "proj-1", "apiToken");
     const auth = (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems.mock.calls[0]![1] as { mode: string; token: string };
     expect(auth).toEqual({ mode: "pat", token: "ghp_secret" });
+  });
+
+  test("PAT mode: a per-board override produces the bearer (shared token never read)", async () => {
+    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({ authMode: "pat" })]));
+    getSecretMock = mock((_e: string, _p: string | null, name: string) =>
+      Promise.resolve<string | null>(name === "apiToken:link-1" ? "ghp_board" : "ghp_shared"),
+    );
+    installMocks();
+    const client = makeClient({ items: [], cursor: {} });
+    const d = new GithubProjectsDaemon({ client });
+    await d.pollOnce();
+    const auth = (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems.mock.calls[0]![1] as { mode: string; token: string };
+    expect(auth).toEqual({ mode: "pat", token: "ghp_board" });
+    expect(getSecretMock).not.toHaveBeenCalledWith("github-projects", "proj-1", "apiToken");
   });
 
   test("PAT mode: a null secret degrades the link (no fetch)", async () => {

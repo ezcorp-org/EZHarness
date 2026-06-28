@@ -18,7 +18,7 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { getProject } from "$server/db/queries/projects";
 import {
-  getLinkByProjectId,
+  getLinkById,
   getProposalById,
 } from "$server/db/queries/github-projects";
 import type { AuthUser } from "$server/auth/types";
@@ -58,13 +58,32 @@ export async function resolveProject(
   return { projectId };
 }
 
-/** Resolve the (single) board link for a project, or a 404. */
-export async function resolveLink(
+/** Resolve a SPECIFIC board link by id, asserting it belongs to `projectId`.
+ *  A missing link, or a link owned by a different project, is the SAME opaque
+ *  404 (never a cross-project oracle confirming the link id exists elsewhere). */
+export async function resolveLinkForProject(
   projectId: string,
+  linkId: string | null | undefined,
 ): Promise<{ link: GithubProjectsLink } | { error: Response }> {
-  const link = await getLinkByProjectId(projectId);
-  if (!link) return { error: errorJson(404, "No GitHub board linked to this project") };
+  if (!linkId || typeof linkId !== "string") {
+    return { error: errorJson(400, "linkId is required") };
+  }
+  const link = await getLinkById(linkId);
+  if (!link || link.projectId !== projectId) {
+    return { error: errorJson(404, "No GitHub board linked to this project") };
+  }
   return { link };
+}
+
+/** Token scope for connect: a `board` token is stored as a per-board override
+ *  (`apiToken:<linkId>`); the default `shared` token is the project's `apiToken`.
+ *  Default `shared`; only the two known strings are accepted (else an error). */
+export function parseTokenScope(
+  raw: unknown,
+): { scope: "shared" | "board" } | { error: string } {
+  if (raw === undefined || raw === null || raw === "shared") return { scope: "shared" };
+  if (raw === "board") return { scope: "board" };
+  return { error: "tokenScope must be 'shared' or 'board'" };
 }
 
 /** Resolve a proposal AND assert it belongs to an accessible project. A
@@ -92,8 +111,11 @@ export function parseDefaultModelInput(raw: unknown): { value: string | null } |
 }
 
 /** Public (token-free) shape of a link for GET/PATCH responses. The encrypted
- *  PAT lives in settings and is NEVER part of any link row or response. */
-export function publicLinkView(link: GithubProjectsLink) {
+ *  PAT lives in the secrets store and is NEVER part of any link row or response.
+ *  `hasTokenOverride` is the boolean presence of a per-board override token
+ *  (resolved by the caller via hasSecret) — never the token itself. The owner
+ *  AVATAR is derived CLIENT-SIDE from `ownerLogin` (no backend field). */
+export function publicLinkView(link: GithubProjectsLink, hasTokenOverride = false) {
   return {
     id: link.id,
     projectId: link.projectId,
@@ -108,6 +130,9 @@ export function publicLinkView(link: GithubProjectsLink) {
     // Per-board default model for spawned runs ("<provider>:<model>") or null.
     defaultModel: link.defaultModel ?? null,
     authMode: link.authMode,
+    // True when this board carries its OWN token (apiToken:<linkId>) rather than
+    // sharing the project token. Presence only — never the token value.
+    hasTokenOverride,
     columnActionMap: link.columnActionMap,
     pollIntervalSec: link.pollIntervalSec,
     enabled: link.enabled,

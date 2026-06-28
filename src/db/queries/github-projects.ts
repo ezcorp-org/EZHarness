@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../connection";
 import {
   githubProjectsLinks,
@@ -16,7 +16,8 @@ import {
 /**
  * github-projects integration — DB CRUD primitives (Phase 0 contract).
  *
- * `github_projects_links` is 1:1 with an EZCorp project (UNIQUE(project_id)).
+ * `github_projects_links` is many-per-project: an EZCorp project connects to N
+ * boards, each board only once (UNIQUE(project_id, board_node_id)).
  * `github_projects_proposals` is the queue + idempotency unit: every insert
  * goes through `insertProposalIfNew` which relies on the UNIQUE(dedupe_key)
  * index + `ON CONFLICT DO NOTHING`, so poll re-detection / card churn can
@@ -36,6 +37,12 @@ type ProposalUpdatePatch = Partial<Pick<NewGithubProjectsProposal, "status" | "c
 
 // ── Links ──────────────────────────────────────────────────────────────────
 
+/**
+ * The FIRST board linked to a project (oldest by createdAt), or null. A project
+ * may now link MANY boards; this convenience is used only where a single board
+ * is unambiguous (e.g. the single-board fallback in board derivation). Callers
+ * that must address a specific board use `getLinkById` / `listLinksByProjectId`.
+ */
 export async function getLinkByProjectId(
   projectId: string,
 ): Promise<GithubProjectsLink | null> {
@@ -44,8 +51,22 @@ export async function getLinkByProjectId(
   const rows = (await db
     .select()
     .from(githubProjectsLinks)
-    .where(eq(githubProjectsLinks.projectId, projectId))) as GithubProjectsLink[];
+    .where(eq(githubProjectsLinks.projectId, projectId))
+    .orderBy(asc(githubProjectsLinks.createdAt))) as GithubProjectsLink[];
   return rows[0] ?? null;
+}
+
+/** Every board linked to a project, oldest first (stable card order). */
+export async function listLinksByProjectId(
+  projectId: string,
+): Promise<GithubProjectsLink[]> {
+  if (!projectId) return [];
+  const db = getDb();
+  return (await db
+    .select()
+    .from(githubProjectsLinks)
+    .where(eq(githubProjectsLinks.projectId, projectId))
+    .orderBy(asc(githubProjectsLinks.createdAt))) as GithubProjectsLink[];
 }
 
 export async function getLinkById(linkId: string): Promise<GithubProjectsLink | null> {
@@ -68,8 +89,10 @@ export async function listEnabledLinks(): Promise<GithubProjectsLink[]> {
 }
 
 /**
- * Create or replace the board connection for a project (connect flow). The
- * UNIQUE(project_id) constraint means a re-connect overwrites the prior board.
+ * Connect a board to a project (connect flow). Keyed on
+ * (project_id, board_node_id): re-connecting the SAME board UPDATES that board's
+ * row (refreshes metadata/columns, resets transient poll state); connecting a
+ * DIFFERENT board INSERTS a new row — so a project accrues many boards.
  */
 export async function upsertLink(
   input: NewGithubProjectsLink,
@@ -79,7 +102,7 @@ export async function upsertLink(
     .insert(githubProjectsLinks)
     .values(input)
     .onConflictDoUpdate({
-      target: githubProjectsLinks.projectId,
+      target: [githubProjectsLinks.projectId, githubProjectsLinks.boardNodeId],
       set: {
         boardNodeId: input.boardNodeId,
         boardUrl: input.boardUrl,
@@ -240,6 +263,26 @@ export async function getProposalByRunId(
     .select()
     .from(githubProjectsProposals)
     .where(eq(githubProjectsProposals.agentRunId, agentRunId))) as GithubProjectsProposal[];
+  return rows[0] ?? null;
+}
+
+/**
+ * Find the proposal whose spawned conversation is `conversationId`. The spawn
+ * bridge stamps the conversation onto the proposal, so a spawned run's ticket
+ * tools can resolve WHICH board the run belongs to (multi-board disambiguation):
+ * the conversation → its proposal → `proposal.linkId`. Returns the newest match
+ * when more than one proposal shares a conversation (none should, but be safe).
+ */
+export async function getProposalByConversationId(
+  conversationId: string,
+): Promise<GithubProjectsProposal | null> {
+  if (!conversationId) return null;
+  const db = getDb();
+  const rows = (await db
+    .select()
+    .from(githubProjectsProposals)
+    .where(eq(githubProjectsProposals.conversationId, conversationId))
+    .orderBy(desc(githubProjectsProposals.proposedAt))) as GithubProjectsProposal[];
   return rows[0] ?? null;
 }
 

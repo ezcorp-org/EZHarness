@@ -1,11 +1,14 @@
 /**
  * /api/integrations/github-projects/link
  *
- *   GET    ?projectId=…  → the project's board connection + health + pause state.
- *   PATCH               → update columnActionMap / pollIntervalSec / enabled
- *                         (pause/resume). Body: `{ projectId, ... }`.
- *   DELETE              → disconnect: purge the encrypted PAT, cancel active
- *                         proposals, drop the link. Body: `{ projectId }`.
+ *   GET    ?projectId=…  → `{ links: [...] }`, EVERY board linked to the project
+ *                         (one card each), each enriched with hasTokenOverride.
+ *   PATCH               → update columnActionMap / pollIntervalSec / enabled /
+ *                         defaultModel of ONE board. Body: `{ projectId, linkId, ... }`.
+ *   DELETE              → disconnect ONE board: purge its per-board override,
+ *                         cancel active proposals, drop the link; purge the
+ *                         SHARED project token only when no boards remain.
+ *                         Body: `{ projectId, linkId }`.
  *
  * Authed: `extensions` scope + session/key user. Never echoes the token.
  */
@@ -15,7 +18,7 @@ import { errorJson } from "$lib/server/http-errors";
 import {
   authGithubRoute,
   resolveProject,
-  resolveLink,
+  resolveLinkForProject,
   publicLinkView,
   parseDefaultModelInput,
 } from "../_shared";
@@ -24,8 +27,10 @@ import {
   setLinkEnabled,
   deleteLink,
   cancelActiveProposalsForLink,
+  listLinksByProjectId,
 } from "$server/db/queries/github-projects";
-import { deleteSecret } from "$server/extensions/secrets-store";
+import { deleteSecret, hasSecret } from "$server/extensions/secrets-store";
+import { boardTokenName } from "$server/integrations/github-projects/auth";
 import type {
   GithubColumnAction,
   GithubColumnActionMap,
@@ -117,10 +122,21 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   const projectRes = await resolveProject(url.searchParams.get("projectId"));
   if ("error" in projectRes) return projectRes.error;
 
-  const linkRes = await resolveLink(projectRes.projectId);
-  if ("error" in linkRes) return linkRes.error;
-
-  return json({ link: publicLinkView(linkRes.link) });
+  // EVERY board linked to the project (oldest-first → stable card order). Each
+  // is enriched with hasTokenOverride — the boolean presence of a per-board
+  // token (never the token), so the card can show "shared token" vs "override".
+  const links = await listLinksByProjectId(projectRes.projectId);
+  const views = await Promise.all(
+    links.map(async (link) => {
+      const hasOverride = await hasSecret(
+        "github-projects",
+        link.projectId,
+        boardTokenName(link.id),
+      );
+      return publicLinkView(link, hasOverride);
+    }),
+  );
+  return json({ links: views });
 };
 
 export const PATCH: RequestHandler = async ({ locals, request }) => {
@@ -135,7 +151,10 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   );
   if ("error" in projectRes) return projectRes.error;
 
-  const linkRes = await resolveLink(projectRes.projectId);
+  const linkRes = await resolveLinkForProject(
+    projectRes.projectId,
+    typeof body.linkId === "string" ? body.linkId : null,
+  );
   if ("error" in linkRes) return linkRes.error;
   const { link } = linkRes;
 
@@ -202,21 +221,29 @@ export const DELETE: RequestHandler = async ({ locals, request }) => {
   );
   if ("error" in projectRes) return projectRes.error;
 
-  const linkRes = await resolveLink(projectRes.projectId);
+  const linkRes = await resolveLinkForProject(
+    projectRes.projectId,
+    typeof body.linkId === "string" ? body.linkId : null,
+  );
   if ("error" in linkRes) return linkRes.error;
   const { link } = linkRes;
 
-  // Disconnect order: purge the credential, mark active proposals cancelled
-  // (so no orphan shows "running" on the Hub), then drop the link. Proposals
-  // CASCADE on link delete too, but the explicit cancel keeps history honest.
-  // Project-scoped secret (userId=null) — same slot connect wrote + the daemon
-  // reads. deleteSecret is idempotent; a missing secret is a no-op. `actorUserId`
-  // is audit-only (attributes SECRET_DELETED to the disconnecting user).
-  await deleteSecret("github-projects", link.projectId, "apiToken", {
-    actorUserId: auth.user.id,
-  }).catch(() => {});
+  // Disconnect order: cancel active proposals (so no orphan shows "running" on
+  // the Hub), drop the link, then purge THIS board's per-board override. The
+  // SHARED project token is purged ONLY when this was the project's last board —
+  // other boards may still resolve via it. deleteSecret is idempotent; a missing
+  // secret is a no-op. `actorUserId` is audit-only (attributes SECRET_DELETED).
   const cancelled = await cancelActiveProposalsForLink(link.id);
   await deleteLink(link.id);
+  await deleteSecret("github-projects", link.projectId, boardTokenName(link.id), {
+    actorUserId: auth.user.id,
+  }).catch(() => {});
+  const remaining = await listLinksByProjectId(link.projectId);
+  if (remaining.length === 0) {
+    await deleteSecret("github-projects", link.projectId, "apiToken", {
+      actorUserId: auth.user.id,
+    }).catch(() => {});
+  }
 
   getGithubProjectsEmit()?.(GITHUB_PROJECTS_EVENT, { projectId: link.projectId });
 

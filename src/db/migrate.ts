@@ -1550,11 +1550,16 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
 
   // ── GitHub Projects integration (per-project board link + proposal queue) ──
   // See src/db/migrations/add-github-projects.ts for the rationale.
-  // `github_projects_links` — one connected GitHub Projects v2 board per
-  // EZCorp project (UNIQUE(project_id)). The PAT (when auth_mode='pat') lives
-  // ENCRYPTED in the `settings` table at `githubProjects:<projectId>:apiToken`,
-  // never in a column. `enabled=false` is the user-facing "pause polling" state
-  // (board + token retained; the daemon skips disabled links). Idempotent.
+  // `github_projects_links` — an EZCorp project connects to MANY boards (one row
+  // per board); a given board connects to a project only once
+  // (UNIQUE(project_id, board_node_id)). The PAT (when auth_mode='pat') lives
+  // ENCRYPTED in the `extension_secrets` store at `apiToken` (the SHARED project
+  // token) and optionally `apiToken:<linkId>` (a per-board override), never in a
+  // column. `enabled=false` is the user-facing "pause polling" state (board +
+  // token retained; the daemon skips disabled links). Idempotent. The board
+  // uniqueness is declared as a named index below (NOT inline) so an already-
+  // migrated DB carrying the legacy single-board UNIQUE(project_id) can be
+  // migrated to the multi-board constraint.
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS github_projects_links (
       id TEXT PRIMARY KEY,
@@ -1575,8 +1580,7 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
       last_error_at TIMESTAMP WITH TIME ZONE,
       created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-      UNIQUE(project_id)
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
 
@@ -1593,6 +1597,21 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
   // (created before this column) gain it without a table rebuild.
   await db.execute(
     sql`ALTER TABLE github_projects_links ADD COLUMN IF NOT EXISTS default_model TEXT`,
+  );
+
+  // Multi-board migration (idempotent, PGlite-safe): a project connects to many
+  // boards, so drop the legacy single-board uniqueness — both forms it can take:
+  //   - the inline `UNIQUE(project_id)` from the old CREATE TABLE → a constraint
+  //     named `github_projects_links_project_id_key`,
+  //   - the older standalone `idx_gh_links_project_unique` index.
+  // Then create the (project_id, board_node_id) uniqueness. `IF EXISTS` /
+  // `IF NOT EXISTS` keep every statement a no-op on a DB already in either state.
+  await db.execute(
+    sql`ALTER TABLE github_projects_links DROP CONSTRAINT IF EXISTS github_projects_links_project_id_key`,
+  );
+  await db.execute(sql`DROP INDEX IF EXISTS idx_gh_links_project_unique`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_gh_links_project_board ON github_projects_links (project_id, board_node_id)`,
   );
 
   // `github_projects_proposals` — the queue + idempotency unit. `dedupe_key`

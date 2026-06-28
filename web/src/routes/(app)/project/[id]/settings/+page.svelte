@@ -18,7 +18,9 @@
 	// connect/disconnect UI lives at the per-project integrations sub-route;
 	// here we only show a discoverable link + a status summary. A 404 (no link)
 	// is the expected "Not connected" case, not an error.
-	let ghLink = $state<{ boardTitle: string; enabled: boolean } | null>(null);
+	// A project can connect to MANY boards; we summarise them here (the full
+	// per-board UI lives at the integrations sub-route).
+	let ghLinks = $state<{ boardTitle: string; enabled: boolean }[]>([]);
 	let ghLinkLoaded = $state(false);
 
 	async function loadGithubProjectsLink() {
@@ -29,13 +31,13 @@
 				`/api/integrations/github-projects/link?projectId=${encodeURIComponent(projectId)}`,
 			);
 			if (res.ok) {
-				const data = (await res.json()) as { link: { boardTitle: string; enabled: boolean } };
-				ghLink = data.link;
+				const data = (await res.json()) as { links: { boardTitle: string; enabled: boolean }[] };
+				ghLinks = data.links ?? [];
 			} else {
-				ghLink = null; // 404 / no-link → "Not connected"
+				ghLinks = []; // 404 / error → "Not connected"
 			}
 		} catch {
-			ghLink = null;
+			ghLinks = [];
 		} finally {
 			ghLinkLoaded = true;
 		}
@@ -148,8 +150,10 @@
 					<p class="text-xs text-[var(--color-text-muted)]" data-testid="project-settings-gh-status">
 						{#if !ghLinkLoaded}
 							Checking…
-						{:else if ghLink}
-							Connected: {ghLink.boardTitle}{ghLink.enabled ? "" : " (paused)"}
+						{:else if ghLinks.length === 1}
+							Connected: {ghLinks[0].boardTitle}{ghLinks[0].enabled ? "" : " (paused)"}
+						{:else if ghLinks.length > 1}
+							Connected: {ghLinks.length} boards
 						{:else}
 							Not connected
 						{/if}
