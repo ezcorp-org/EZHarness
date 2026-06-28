@@ -585,6 +585,96 @@ describe("PATCH link", () => {
     expect(res.status).toBe(400);
   });
 
+  // ── doneStatusOptionId ───────────────────────────────────────────────────
+
+  test("valid doneStatusOptionId (member of statusOptions) is accepted and persisted", async () => {
+    // Seed the link with known statusOptions so the validator has a membership set.
+    linkByProject["proj-1"].statusOptions = [
+      { id: "opt-todo", name: "Todo" },
+      { id: "opt-doing", name: "Doing" },
+    ];
+    const res = await run(linkPatch, ev({
+      method: "PATCH",
+      body: {
+        projectId: "proj-1",
+        columnActionMap: {
+          "opt-todo": { action: "plan", autoSpawn: false, doneStatusOptionId: "opt-doing" },
+        },
+      },
+    }));
+    expect(res.status).toBe(200);
+    expect(updateLinkCalls).toHaveLength(1);
+    expect(updateLinkCalls[0].patch.columnActionMap["opt-todo"].doneStatusOptionId).toBe("opt-doing");
+  });
+
+  test("invalid doneStatusOptionId (not a known option, statusOptions non-empty) → 400", async () => {
+    linkByProject["proj-1"].statusOptions = [
+      { id: "opt-todo", name: "Todo" },
+      { id: "opt-doing", name: "Doing" },
+    ];
+    const res = await run(linkPatch, ev({
+      method: "PATCH",
+      body: {
+        projectId: "proj-1",
+        columnActionMap: {
+          "opt-todo": { action: "plan", autoSpawn: false, doneStatusOptionId: "opt-nope" },
+        },
+      },
+    }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("doneStatusOptionId");
+    expect(updateLinkCalls).toHaveLength(0);
+  });
+
+  test("legacy link with empty statusOptions accepts a free doneStatusOptionId string", async () => {
+    // Legacy links have statusOptions=[] (never persisted). The validator must
+    // skip the membership check so existing configs are not broken.
+    linkByProject["proj-1"].statusOptions = [];
+    const res = await run(linkPatch, ev({
+      method: "PATCH",
+      body: {
+        projectId: "proj-1",
+        columnActionMap: {
+          "opt-todo": { action: "plan", autoSpawn: false, doneStatusOptionId: "some-legacy-id" },
+        },
+      },
+    }));
+    expect(res.status).toBe(200);
+    expect(updateLinkCalls[0].patch.columnActionMap["opt-todo"].doneStatusOptionId).toBe("some-legacy-id");
+  });
+
+  test("empty-string doneStatusOptionId is silently omitted (no-op)", async () => {
+    linkByProject["proj-1"].statusOptions = [{ id: "opt-todo", name: "Todo" }];
+    const res = await run(linkPatch, ev({
+      method: "PATCH",
+      body: {
+        projectId: "proj-1",
+        columnActionMap: {
+          "opt-todo": { action: "plan", autoSpawn: false, doneStatusOptionId: "" },
+        },
+      },
+    }));
+    expect(res.status).toBe(200);
+    expect(updateLinkCalls[0].patch.columnActionMap["opt-todo"]).not.toHaveProperty("doneStatusOptionId");
+  });
+
+  test("non-string doneStatusOptionId → 400", async () => {
+    linkByProject["proj-1"].statusOptions = [{ id: "opt-todo", name: "Todo" }];
+    const res = await run(linkPatch, ev({
+      method: "PATCH",
+      body: {
+        projectId: "proj-1",
+        columnActionMap: {
+          "opt-todo": { action: "plan", autoSpawn: false, doneStatusOptionId: 99 },
+        },
+      },
+    }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("doneStatusOptionId");
+  });
+
   test("no link → 404", async () => {
     linkByProject = {};
     const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", enabled: false } }));

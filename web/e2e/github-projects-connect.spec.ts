@@ -203,6 +203,50 @@ test.describe("GitHub Projects connect sub-route", () => {
 		await expect(page.getByTestId("gh-projects-map-saved")).toBeVisible();
 	});
 
+	test("'On completion move to' select: selecting persists doneStatusOptionId in PATCH + reloads @evidence", async ({ page, mockApi }, testInfo) => {
+		await mockApi({ projects: [proj] });
+		const state = await installGhRoutes(page);
+		// Pre-connect with one column already mapped — so the editor shows immediately.
+		state.link = connectedLink({
+			columnActionMap: { "opt-todo": { action: "plan", autoSpawn: false } },
+		});
+		await page.goto(CONNECT_PATH);
+
+		await expect(page.getByTestId("gh-projects-connected-banner")).toBeVisible();
+		await expect(page.getByTestId("gh-projects-column-editor")).toBeVisible();
+
+		// The mapped "Todo" column row shows the done-status select.
+		const doneSelect = page.getByTestId("gh-done-status-select-opt-todo");
+		await expect(doneSelect).toBeVisible();
+		// Default: "— Don't move —" (empty value).
+		await expect(doneSelect).toHaveValue("");
+
+		// Select "Doing" as the completion target.
+		await doneSelect.selectOption("opt-doing");
+		await expect(doneSelect).toHaveValue("opt-doing");
+
+		// Save and assert the PATCH payload carries the doneStatusOptionId.
+		const [patchReq] = await Promise.all([
+			page.waitForRequest(
+				(r) =>
+					r.url().includes("/api/integrations/github-projects/link") && r.method() === "PATCH",
+			),
+			page.getByTestId("gh-projects-save-map").click(),
+		]);
+		const body = patchReq.postDataJSON() as { columnActionMap?: Record<string, Record<string, unknown>> };
+		expect(body.columnActionMap?.["opt-todo"]?.doneStatusOptionId).toBe("opt-doing");
+		await expect(page.getByTestId("gh-projects-map-saved")).toBeVisible();
+
+		// Reload → the persisted doneStatusOptionId is restored (state mock echoes back).
+		await page.reload();
+		await expect(page.getByTestId("gh-projects-connected-banner")).toBeVisible();
+		const selectAfterReload = page.getByTestId("gh-done-status-select-opt-todo");
+		await expect(selectAfterReload).toBeVisible();
+		await expect(selectAfterReload).toHaveValue("opt-doing");
+
+		await captureEvidence(page, testInfo, "gh-done-status-select");
+	});
+
 	test("default-model picker: populates from /api/models, selecting + Save PATCHes defaultModel @evidence", async ({ page, mockApi }, testInfo) => {
 		await mockApi({ projects: [proj] });
 		const state = await installGhRoutes(page);
