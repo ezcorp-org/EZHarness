@@ -19,7 +19,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { errorJson } from "$lib/server/http-errors";
-import { authGithubRoute, resolveProject } from "../_shared";
+import { authGithubRoute, resolveProject, parseDefaultModelInput } from "../_shared";
 import { createGithubClient } from "$server/integrations/github-projects/client";
 import type {
   GithubAuth,
@@ -58,6 +58,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     return errorJson(400, "authMode must be 'pat' or 'gh'");
   }
   const authMode: GithubAuthMode = body.authMode;
+
+  // Validate the optional default model fast (before any token/board egress).
+  const dmParsed = parseDefaultModelInput(body.defaultModel);
+  if ("error" in dmParsed) return errorJson(400, dmParsed.error);
 
   // A PAT auth MUST carry a token; gh auth resolves host-side at poll time.
   let token = "";
@@ -135,7 +139,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     statusOptions: board.statusOptions,
     // Optional per-board default model ("<provider>:<model>"); null = instance
     // default. Set at connect time too so the dropdown can be chosen up front.
-    defaultModel: typeof body.defaultModel === "string" && body.defaultModel ? body.defaultModel : null,
+    defaultModel: dmParsed.value,
     authMode,
     createdByUserId: user.id,
   });

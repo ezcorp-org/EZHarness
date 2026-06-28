@@ -177,6 +177,18 @@ describe("github-projects connect lifecycle (real DB)", () => {
     expect(link?.createdByUserId).toBe(USER.id);
   });
 
+  test("malformed defaultModel → 400 (validated before board resolution), nothing persisted", async () => {
+    const res = await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "t", defaultModel: "noprovider" } }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("provider");
+    // Fast-fail is BEFORE token/board resolution — nothing persists.
+    expect(await getSecret(GH_EXT, projectId, "apiToken")).toBeNull();
+    expect(await getLinkByProjectId(projectId)).toBeNull();
+  });
+
   test("missing scopes → 403 and NOTHING is persisted", async () => {
     validationResult = { ok: false, scopes: ["repo"], missingScopes: ["project"] };
     const res = await connect(

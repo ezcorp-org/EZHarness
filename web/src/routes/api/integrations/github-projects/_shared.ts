@@ -81,6 +81,16 @@ export async function resolveProposal(
   return { proposal };
 }
 
+/** Validate an untrusted `defaultModel` body field: null/undefined/"" -> {value:null}
+ *  (instance default); a "<provider>:<model>" string -> {value:raw}; anything else -> {error}. */
+export function parseDefaultModelInput(raw: unknown): { value: string | null } | { error: string } {
+  if (raw === null || raw === undefined || raw === "") return { value: null };
+  if (typeof raw !== "string") return { error: "defaultModel must be a string, null, or empty" };
+  const i = raw.indexOf(":");
+  if (i <= 0 || i === raw.length - 1) return { error: "defaultModel must be '<provider>:<model>'" };
+  return { value: raw };
+}
+
 /** Public (token-free) shape of a link for GET/PATCH responses. The encrypted
  *  PAT lives in settings and is NEVER part of any link row or response. */
 export function publicLinkView(link: GithubProjectsLink) {

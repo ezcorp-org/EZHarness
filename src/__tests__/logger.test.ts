@@ -148,6 +148,20 @@ describe("structured logger", () => {
       expect(parsed.subsystem).toBe("ext.github-projects.daemon");
     });
 
+    test("EZCORP_DEBUG=ext does NOT over-match a prefix-sharing sibling (dot boundary)", () => {
+      process.env.EZCORP_DEBUG = "ext";
+      const logger = freshLogger();
+      // "ext-other" shares the "ext" prefix but lacks the "ext." dot boundary —
+      // it must stay at the global threshold (debug hidden).
+      logger.child("ext-other").debug("x");
+      expect(stdoutChunks.length).toBe(0);
+      // A real namespaced child ("ext.x") IS selected — proving the var is live.
+      logger.child("ext.x").debug("y");
+      expect(stdoutChunks.length).toBe(1);
+      const parsed = JSON.parse(at(stdoutChunks, 0, "stdout chunk"));
+      expect(parsed.subsystem).toBe("ext.x");
+    });
+
     test("EZCORP_DEBUG=ext.github-projects matches the whole feature namespace, not siblings", () => {
       process.env.EZCORP_DEBUG = "ext.github-projects";
       const logger = freshLogger();

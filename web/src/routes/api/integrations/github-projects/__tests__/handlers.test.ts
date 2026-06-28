@@ -299,6 +299,15 @@ describe("POST connect", () => {
     expect(upsertLinkCalls[0].defaultModel).toBeNull();
   });
 
+  test("rejects a malformed defaultModel (no colon) → 400, nothing persisted", async () => {
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "gh", defaultModel: "noprovider" } }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("provider");
+    // Validation runs BEFORE board resolution, so nothing is persisted.
+    expect(upsertLinkCalls).toHaveLength(0);
+  });
+
   test("gh mode: stores NO token, purges any stale token, upserts link", async () => {
     const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "gh" } }));
     expect(res.status).toBe(200);
