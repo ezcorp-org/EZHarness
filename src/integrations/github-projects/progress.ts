@@ -15,9 +15,8 @@
 import { extensionLogger } from "../../logger";
 import { createGithubClient } from "./client";
 import { resolveLinkAuth } from "./auth";
-import type { GithubClient } from "./types";
+import type { GithubAuth, GithubClient, GithubColumnAction } from "./types";
 import type { GithubProjectsLink, GithubProjectsProposal } from "../../db/schema";
-import type { GithubColumnAction } from "./types";
 
 const log = extensionLogger("github-projects", "progress");
 
@@ -101,7 +100,7 @@ export interface ProgressDeps {
    * Auth resolver. Default: `resolveLinkAuth`.
    * Accepts the same signature so tests can inject a fixed token.
    */
-  resolveAuth?: (link: Pick<GithubProjectsLink, "authMode" | "projectId">) => Promise<{ mode: string; token: string }>;
+  resolveAuth?: (link: Pick<GithubProjectsLink, "authMode" | "projectId">) => Promise<GithubAuth>;
 }
 
 // ── Side-effect functions ───────────────────────────────────────────────────
