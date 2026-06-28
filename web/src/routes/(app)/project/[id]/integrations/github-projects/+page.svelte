@@ -95,9 +95,9 @@
 	// Default model for spawned runs ("<provider>:<model>"; "" = instance
 	// default). Initialized from the loaded link; saved with the column map.
 	let defaultModel = $state<string>("");
-	// The shared <ModelSearchPicker> works in {provider, model} terms, so derive
-	// its selection from the persisted string — split on the FIRST ":" to mirror
-	// the server's parseDefaultModel (so "ollama:gemma4:e2b" → model "gemma4:e2b").
+	// <ModelSelector> works in {provider, model} terms, so derive its selection
+	// from the persisted string — split on the FIRST ":" to mirror the server's
+	// parseDefaultModel (so "ollama:gemma4:e2b" → model "gemma4:e2b").
 	let selectedModel = $derived.by((): { provider: string; model: string } | null => {
 		const raw = defaultModel.trim();
 		const i = raw.indexOf(":");
@@ -553,7 +553,7 @@
 					default); NO onautoselect is passed, so the empty state stays
 					"instance default" instead of auto-picking the first model.
 				-->
-				<div class="mt-2 flex items-center gap-3" data-testid="gh-projects-default-model">
+				<div class="mt-2 flex flex-wrap items-center gap-3" data-testid="gh-projects-default-model">
 					<ModelSelector
 						selected={selectedModel}
 						onselect={(provider, model) => {
@@ -572,7 +572,21 @@
 							Use instance default
 						</button>
 					{:else}
-						<span class="text-xs text-[var(--color-text-muted)]">Using instance default</span>
+						<!--
+							Active "instance default" state — an accent chip with a check so
+							clicking "Use instance default" (or landing here by default) gives
+							an unmistakable "this is the selected choice" confirmation, rather
+							than the picker's muted/empty "Select model" reading.
+						-->
+						<span
+							data-testid="gh-projects-default-model-active"
+							class="inline-flex items-center gap-1 rounded-full border border-[var(--color-accent)] bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs font-medium text-[var(--color-accent)]"
+						>
+							<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+							</svg>
+							Instance default
+						</span>
 					{/if}
 				</div>
 				<p class="mt-1 text-xs text-[var(--color-text-muted)]">

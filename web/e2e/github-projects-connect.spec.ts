@@ -212,8 +212,10 @@ test.describe("GitHub Projects connect sub-route", () => {
 		await expect(page.getByTestId("gh-projects-connected-banner")).toBeVisible();
 		const picker = page.getByTestId("gh-projects-default-model");
 		await expect(picker).toBeVisible();
-		// No model saved on the link → starts on the instance default.
-		await expect(picker).toContainText("Using instance default");
+		// No model saved on the link → the active "Instance default" indicator
+		// shows (the selected-state feedback), and no reset button is present yet.
+		await expect(picker.getByTestId("gh-projects-default-model-active")).toBeVisible();
+		await expect(picker.getByTestId("gh-projects-default-model-clear")).toHaveCount(0);
 
 		// Reuses chat's <ModelSelector> — open its dropdown via the toggle button.
 		await picker.getByTestId("model-selector").locator("button").first().click();
@@ -227,10 +229,11 @@ test.describe("GitHub Projects connect sub-route", () => {
 		await expect(listbox.getByText("GPT-4o")).toBeVisible();
 		await expect(listbox.getByText("Gemini 2.0")).toHaveCount(0);
 
-		// Select a model → the toggle reflects it + a "Use instance default" reset
-		// appears (replacing the "Using instance default" hint).
+		// Select a model → the toggle reflects it, the "Instance default" indicator
+		// is replaced by the "Use instance default" reset button.
 		await listbox.getByRole("option", { name: /Claude Opus 4/ }).click();
 		await expect(picker).toContainText("Claude Opus 4");
+		await expect(picker.getByTestId("gh-projects-default-model-active")).toHaveCount(0);
 		await expect(picker.getByTestId("gh-projects-default-model-clear")).toBeVisible();
 
 		// Save → the PATCH carries the chosen "<provider>:<model>".
@@ -249,6 +252,42 @@ test.describe("GitHub Projects connect sub-route", () => {
 		// Capture evidence of the connected state with the model picker (hard
 		// no-op unless EZCORP_E2E_EVIDENCE=1).
 		await captureEvidence(page, testInfo, "gh-default-model");
+	});
+
+	test("default-model: 'Use instance default' shows a selected-state indicator and saves null", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		const state = await installGhRoutes(page);
+		// Start already connected WITH a specific model set → the picker shows the
+		// model + the "Use instance default" reset (NOT the default-state chip).
+		state.link = connectedLink({ defaultModel: "anthropic:claude-opus-4-20250514" });
+		await page.goto(CONNECT_PATH);
+
+		await expect(page.getByTestId("gh-projects-connected-banner")).toBeVisible();
+		const picker = page.getByTestId("gh-projects-default-model");
+		await expect(picker).toContainText("Claude Opus 4");
+		// A specific model is set → the active "Instance default" indicator is absent.
+		await expect(picker.getByTestId("gh-projects-default-model-active")).toHaveCount(0);
+
+		// Click "Use instance default" → the selected-state indicator appears
+		// immediately (the UI feedback the user was missing) and the reset is gone.
+		await picker.getByTestId("gh-projects-default-model-clear").click();
+		const active = picker.getByTestId("gh-projects-default-model-active");
+		await expect(active).toBeVisible();
+		await expect(active).toContainText("Instance default");
+		await expect(picker.getByTestId("gh-projects-default-model-clear")).toHaveCount(0);
+
+		// Save → the PATCH clears the stored model (defaultModel: null).
+		const [patchReq] = await Promise.all([
+			page.waitForRequest(
+				(r) =>
+					r.url().includes("/api/integrations/github-projects/link") && r.method() === "PATCH",
+			),
+			page.getByTestId("gh-projects-save-map").click(),
+		]);
+		expect((patchReq.postDataJSON() as { defaultModel?: string | null }).defaultModel).toBeNull();
+		await expect(page.getByTestId("gh-projects-map-saved")).toBeVisible();
+		// Round-trips: server now stores null → the indicator stays selected.
+		await expect(picker.getByTestId("gh-projects-default-model-active")).toBeVisible();
 	});
 
 	test("reload of an already-connected board renders named, complete columns (regression: ids + missing column)", async ({ page, mockApi }) => {
