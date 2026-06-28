@@ -9,6 +9,12 @@
 		readActiveTab,
 		writeActiveTab,
 	} from "$lib/extensions/library-tabs";
+	import {
+		DEFAULT_SORT_MODE,
+		SORT_OPTIONS,
+		sortExtensions,
+		type ExtensionSortMode,
+	} from "$lib/extensions/extension-sort";
 
 	interface PageData {
 		bundledExtensions: ExtensionRecord[];
@@ -24,6 +30,8 @@
 		enabled: boolean;
 		source: string;
 		consecutiveFailures: number;
+		createdAt?: string | Date;
+		updatedAt?: string | Date;
 		manifest: {
 			kind?: "local" | "mcp";
 			tools: Array<{ name: string; description: string }>;
@@ -78,6 +86,11 @@
 	// Default "installed" preserves prior behavior for users with no
 	// built-ins (Phase 53 ships them).
 	let activeTab = $state<LibraryTab>("installed");
+	// Sort mode for the active-tab card list. Pure client-side ordering over
+	// the already-loaded list (see `extension-sort.ts`). Defaults to A–Z and
+	// holds across tab switches within a session; resets to A–Z on reload
+	// (not persisted — tab choice persistence is unchanged).
+	let sortMode = $state<ExtensionSortMode>(DEFAULT_SORT_MODE);
 	// Filtered views over `extensions` — both tabs share the install form
 	// and the auto-disabled banner, but show only the cards belonging to
 	// the active tab.
@@ -89,11 +102,14 @@
 	// focused view, not an exclusive bucket.
 	let mcpExtensions = $derived(extensions.filter((e) => e.manifest?.kind === "mcp"));
 	let visibleExtensions = $derived(
-		activeTab === "builtins"
-			? bundledExtensions
-			: activeTab === "mcp"
-				? mcpExtensions
-				: installedExtensions,
+		sortExtensions(
+			activeTab === "builtins"
+				? bundledExtensions
+				: activeTab === "mcp"
+					? mcpExtensions
+					: installedExtensions,
+			sortMode,
+		),
 	);
 
 	// Install form state
@@ -732,6 +748,7 @@
 	     from user-Installed extensions. Active tab persists to
 	     localStorage via `writeActiveTab`. -->
 	<div class="border-b border-[var(--color-border)]">
+		<div class="flex items-end justify-between gap-3">
 		<div class="flex gap-2" role="tablist" aria-label="Extensions library">
 			<button
 				role="tab"
@@ -763,6 +780,23 @@
 			>
 				MCP <span class="ml-1 text-xs text-[var(--color-text-muted)]">{mcpExtensions.length}</span>
 			</button>
+		</div>
+		<!-- Sort control — pure client-side reorder of the active-tab cards.
+		     Styled to match the Marketplace select. -->
+		<div class="flex items-center gap-2 pb-2">
+			<label for="ext-sort-select" class="text-xs text-[var(--color-text-muted)]">Sort:</label>
+			<select
+				id="ext-sort-select"
+				data-testid="ext-sort-select"
+				bind:value={sortMode}
+				aria-label="Sort extensions"
+				class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-2 text-sm text-[var(--color-text-secondary)] focus:border-[var(--color-accent)] focus:outline-none"
+			>
+				{#each SORT_OPTIONS as opt}
+					<option value={opt.value}>{opt.label}</option>
+				{/each}
+			</select>
+		</div>
 		</div>
 	</div>
 
