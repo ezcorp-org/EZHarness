@@ -3,7 +3,7 @@
  *
  * Body: `{ projectId, linkId }`.
  *
- * Re-fetch the addressed board's Status columns (id + name) host-side and
+ * Re-fetch ONE connected board's Status columns (id + name) host-side and
  * persist them onto the link — WITHOUT the user re-pasting their PAT. This
  * self-heals a link whose `status_options` are empty (e.g. a link that predates
  * column persistence: the migration backfilled `[]`, which it can't recover
@@ -12,9 +12,9 @@
  * instead of falling back to raw option-id labels with the unmapped columns
  * dropped.
  *
- * The credential is resolved host-side (the encrypted PAT from the secrets
- * store, or the `gh` CLI identity) — it is NEVER accepted from or echoed to the
- * client. Authed: `extensions` scope + session/key user.
+ * The credential is resolved host-side (the board's per-board PAT override, else
+ * the shared project PAT, else the `gh` CLI identity) — it is NEVER accepted
+ * from or echoed to the client. Authed: `extensions` scope + session/key user.
  */
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
@@ -26,8 +26,12 @@ import {
   publicLinkView,
 } from "../../_shared";
 import { createGithubClient } from "$server/integrations/github-projects/client";
-import { resolveLinkAuth } from "$server/integrations/github-projects/auth";
+import {
+  resolveLinkAuth,
+  boardTokenName,
+} from "$server/integrations/github-projects/auth";
 import { updateLink } from "$server/db/queries/github-projects";
+import { hasSecret } from "$server/extensions/secrets-store";
 import { logger } from "$server/logger";
 
 const log = logger.child("api.github-projects.refresh-columns");
@@ -44,6 +48,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   );
   if ("error" in projectRes) return projectRes.error;
 
+  // A project may link MANY boards — refresh the ONE addressed by linkId.
   const linkRes = await resolveLinkForProject(
     projectRes.projectId,
     typeof body.linkId === "string" ? body.linkId : null,
@@ -51,8 +56,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   if ("error" in linkRes) return linkRes.error;
   const { link } = linkRes;
 
-  // Resolve the host-only credential (encrypted PAT or `gh` identity). A
-  // missing/empty credential is a 401 — the board can't be re-read.
+  // Resolve the host-only credential (per-board override / shared PAT / `gh`).
+  // A missing/empty credential is a 401 — the board can't be re-read.
   let credential;
   try {
     credential = await resolveLinkAuth(link);
@@ -85,5 +90,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   });
   if (!updated) return errorJson(404, "No GitHub board linked to this project");
 
-  return json({ link: publicLinkView(updated) });
+  // Mirror the GET/PATCH views: expose the boolean presence of a per-board token
+  // override (never the token itself), so the card renders shared-vs-override.
+  const hasOverride = await hasSecret(
+    "github-projects",
+    updated.projectId,
+    boardTokenName(updated.id),
+  );
+  return json({ link: publicLinkView(updated, hasOverride) });
 };
