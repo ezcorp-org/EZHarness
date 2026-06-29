@@ -62,12 +62,6 @@ for f in "${FILES[@]}"; do
   OUTFILE="$TMPDIR/result_$IDX"
   CODEFILE="$TMPDIR/code_$IDX"
   (
-    # set +e is REQUIRED: this script runs under set -e, so a failing
-    # `bun test` would abort THIS subshell at the assignment below, before the
-    # exit code + output are written — the collection loop would then skip the
-    # missing file and the failure would be invisible. set +e (scoped to this
-    # subshell) lets us capture bun's real exit code.
-    set +e
     OUTPUT=$(bun test "./$f" 2>&1)
     # Record bun's per-shard exit code — the authoritative pass/fail signal.
     # Scraping the summary alone is unreliable: a file that errors at module

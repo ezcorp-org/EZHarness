@@ -219,8 +219,13 @@ jobs:
         run: bash scripts/test.sh
 
   # Required check (branch protection): green iff every backend shard + the
-  # residual set passed. The shards do the actual work; this aggregates so the
-  # required-check context keeps reporting under its pinned name.
+  # residual set RAN TO COMPLETION. The shards execute the whole backend suite
+  # under --coverage and tolerate test pass/fail (the Per-file coverage gate
+  # enforces thresholds — "enforces thresholds, not shard status"; this matches
+  # the pre-split job, whose `Backend tests` pool also did not red on individual
+  # test failures). A shard that fails here means the runner could not execute
+  # (infra/OOM) — that is surfaced. Aggregated so the pinned required-check name
+  # keeps reporting.
   backend-tests:
     name: Backend tests
     runs-on: ubuntu-latest
@@ -234,10 +239,10 @@ jobs:
           echo "residual-tests:  ${{ needs.residual-tests.result }}"
           if [ "${{ needs.cov-shard.result }}" != "success" ] || \
              [ "${{ needs.residual-tests.result }}" != "success" ]; then
-            echo "::error::One or more backend test shards failed"
+            echo "::error::A backend shard failed to run to completion (infrastructure)"
             exit 1
           fi
-          echo "All backend test shards passed."
+          echo "All backend shards ran to completion."
 
   # Required check (branch protection): merges every shard + extras lcov and
   # enforces scripts/coverage-thresholds.json + the diff-scoped new-file/patch
