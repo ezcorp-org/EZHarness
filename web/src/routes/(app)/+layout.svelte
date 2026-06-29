@@ -314,8 +314,17 @@
 			title="Go to Home"
 			aria-label="Home"
 		>
-			<span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm bg-[var(--color-accent)] font-mono text-[10px] font-bold text-[var(--color-accent-contrast)]">
-				{(activeProject?.name ?? "EZ").charAt(0).toUpperCase()}
+			<!-- Project logo (ProjectRail / command-palette parity): the project's
+			     icon image when one is set, else a colored first-letter avatar. -->
+			<span
+				class="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-sm font-mono text-[10px] font-bold text-[var(--color-accent-contrast)] {activeProject?.icon ? '' : 'bg-[var(--color-accent)]'}"
+				data-testid="active-context-avatar"
+			>
+				{#if activeProject?.icon}
+					<img src={activeProject.icon} alt={activeProject.name} class="h-full w-full object-cover" />
+				{:else}
+					{(activeProject?.name ?? "EZ").charAt(0).toUpperCase()}
+				{/if}
 			</span>
 			<span class="min-w-0 flex-1">
 				<span class="block truncate text-sm font-semibold leading-tight text-[var(--color-text-primary)]">{activeProject?.name ?? "EZCorp"}</span>
