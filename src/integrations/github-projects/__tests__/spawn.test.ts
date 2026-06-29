@@ -117,6 +117,7 @@ const {
   approveProposal,
   dismissProposal,
   toRuntimePermissionMode,
+  parseSpawnPermissionMode,
   buildRunPrompt,
   parseDefaultModel,
   GithubProposalCapExceededError,
@@ -132,6 +133,7 @@ type Proposal = {
 type Link = {
   id: string; projectId: string;
   defaultModel: string | null;
+  defaultPermissionMode: string | null;
   columnActionMap: Record<string, { action: "plan" | "execute"; autoSpawn: boolean; permissionMode?: "default" | "plan" | "acceptEdits"; agentName?: string }>;
 };
 
@@ -153,6 +155,7 @@ function makeLink(over: Partial<Link> = {}): Link {
     id: "link-1",
     projectId: "proj-REAL",
     defaultModel: null,
+    defaultPermissionMode: null,
     columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } },
     ...over,
   };
@@ -227,10 +230,29 @@ describe("toRuntimePermissionMode", () => {
     expect(toRuntimePermissionMode("plan")).toBe("ask");
     expect(toRuntimePermissionMode("acceptEdits")).toBe("auto-edit");
     expect(toRuntimePermissionMode(undefined)).toBe("ask");
-    // exhaustive: none of the outputs is a yolo-class mode.
+    // exhaustive: none of the outputs is a yolo-class mode. This is the EXPLICIT
+    // per-column OVERRIDE path — it remains a never-yolo cap even though the
+    // board-level DEFAULT now defaults to 'yolo'.
     for (const m of ["default", "plan", "acceptEdits", undefined] as const) {
       expect(["ask", "auto-edit"]).toContain(toRuntimePermissionMode(m));
     }
+  });
+});
+
+describe("parseSpawnPermissionMode", () => {
+  test("accepts each runtime PermissionMode verbatim", () => {
+    expect(parseSpawnPermissionMode("ask")).toBe("ask");
+    expect(parseSpawnPermissionMode("auto-edit")).toBe("auto-edit");
+    expect(parseSpawnPermissionMode("yolo")).toBe("yolo");
+  });
+
+  test("null / empty / unrecognized → null (caller falls back to 'yolo')", () => {
+    expect(parseSpawnPermissionMode(null)).toBeNull();
+    expect(parseSpawnPermissionMode(undefined)).toBeNull();
+    expect(parseSpawnPermissionMode("")).toBeNull();
+    expect(parseSpawnPermissionMode("plan")).toBeNull(); // a harness-mode word, not a runtime mode
+    expect(parseSpawnPermissionMode("bypassPermissions")).toBeNull();
+    expect(parseSpawnPermissionMode("YOLO")).toBeNull(); // case-sensitive
   });
 });
 
@@ -281,18 +303,19 @@ describe("parseDefaultModel", () => {
 // ── approveProposal: happy path + security ──────────────────────────────────
 
 describe("approveProposal", () => {
-  test("derives projectId from the LINK (not the proposal input) + spawns a NON-yolo run", async () => {
+  test("derives projectId from the LINK (not the proposal input) + spawns a YOLO run by default", async () => {
     const { runtime } = makeRuntime();
     await approveProposal("prop-1", { kind: "user", userId: "u-1" }, { runtime, concurrencyCap: 5 });
 
     // createConversation got the LINK's projectId, NOT proposal.projectId.
     expect(createConversationMock.mock.calls[0]![0]).toBe("proj-REAL");
-    // streamChat got the same project + a non-yolo mode + the runId.
+    // streamChat got the same project + the YOLO board default + the runId. The
+    // default makeLink has no column permissionMode and a null defaultPermissionMode,
+    // so the board-spawn default ('yolo') applies.
     const [cid, , opts] = runtime.streamChat.mock.calls[0]! as [string, string, Record<string, unknown>];
     expect(cid).toBe("conv-1");
     expect(opts.projectId).toBe("proj-REAL");
-    expect(opts.permissionMode).toBe("ask"); // default column → 'ask'
-    expect(opts.permissionMode).not.toBe("yolo");
+    expect(opts.permissionMode).toBe("yolo"); // no column override + null board default → 'yolo'
     expect(typeof opts.runId).toBe("string");
   });
 
@@ -345,6 +368,45 @@ describe("approveProposal", () => {
     await approveProposal("prop-1", { kind: "auto" }, { runtime });
     const opts = runtime.streamChat.mock.calls[0]![2] as Record<string, unknown>;
     expect(opts.permissionMode).toBe("auto-edit");
+  });
+
+  test("uses the board-level defaultPermissionMode when set (no column override)", async () => {
+    const { runtime } = makeRuntime();
+    getLinkByIdMock = mock((_id: string) =>
+      Promise.resolve(makeLink({ defaultPermissionMode: "ask" })),
+    );
+    installMocks();
+    await approveProposal("prop-1", { kind: "auto" }, { runtime });
+    const opts = runtime.streamChat.mock.calls[0]![2] as Record<string, unknown>;
+    expect(opts.permissionMode).toBe("ask");
+  });
+
+  test("an invalid board-level defaultPermissionMode falls back to 'yolo'", async () => {
+    const { runtime } = makeRuntime();
+    getLinkByIdMock = mock((_id: string) =>
+      Promise.resolve(makeLink({ defaultPermissionMode: "garbage" })),
+    );
+    installMocks();
+    await approveProposal("prop-1", { kind: "auto" }, { runtime });
+    const opts = runtime.streamChat.mock.calls[0]![2] as Record<string, unknown>;
+    expect(opts.permissionMode).toBe("yolo");
+  });
+
+  test("an EXPLICIT per-column permissionMode WINS over the board-level default", async () => {
+    const { runtime } = makeRuntime();
+    // Board default is 'yolo' but the column pins a non-yolo override → the
+    // column override takes precedence (still never yolo).
+    getLinkByIdMock = mock((_id: string) =>
+      Promise.resolve(makeLink({
+        defaultPermissionMode: "yolo",
+        columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true, permissionMode: "acceptEdits" } },
+      })),
+    );
+    installMocks();
+    await approveProposal("prop-1", { kind: "auto" }, { runtime });
+    const opts = runtime.streamChat.mock.calls[0]![2] as Record<string, unknown>;
+    expect(opts.permissionMode).toBe("auto-edit");
+    expect(opts.permissionMode).not.toBe("yolo");
   });
 
   test("resolves the column's agentName → agentConfigId for the run", async () => {

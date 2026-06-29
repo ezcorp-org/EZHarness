@@ -1599,6 +1599,14 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
     sql`ALTER TABLE github_projects_links ADD COLUMN IF NOT EXISTS default_model TEXT`,
   );
 
+  // Per-board default permission mode for spawned runs (runtime PermissionMode:
+  // "ask" | "auto-edit" | "yolo"). Nullable — null/invalid falls back to "yolo"
+  // in the spawn bridge. Added here so pre-existing link rows gain it without a
+  // table rebuild.
+  await db.execute(
+    sql`ALTER TABLE github_projects_links ADD COLUMN IF NOT EXISTS default_permission_mode TEXT`,
+  );
+
   // Multi-board migration (idempotent, PGlite-safe): a project connects to many
   // boards, so drop the legacy single-board uniqueness — both forms it can take:
   //   - the inline `UNIQUE(project_id)` from the old CREATE TABLE → a constraint

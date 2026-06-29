@@ -10,10 +10,14 @@
  *   - Enforce the per-project concurrency cap (`countActiveProposalsForProject`)
  *     before spawning; over-cap proposals are deferred (left pending) not run.
  *   - `createConversation(projectId, …)` + `executor.streamChat(…)` with the
- *     permissionMode pinned to a NON-yolo, PDP-gated mode (never inherit the
- *     platform default 'yolo'). `GithubSpawnPermissionMode` ('default'|'plan'|
- *     'acceptEdits') maps onto the executor's `PermissionMode` ('ask'|'auto-edit'),
- *     never 'yolo'.
+ *     permissionMode resolved by precedence: an explicit per-column override
+ *     (`GithubSpawnPermissionMode` 'default'|'plan'|'acceptEdits', mapped via
+ *     `toRuntimePermissionMode` and STILL never 'yolo' — a UI-less per-column cap)
+ *     wins when set; otherwise the board-level `defaultPermissionMode` is used,
+ *     defaulting to 'yolo' (auto-approve everything) when null/invalid. The
+ *     board-spawn DEFAULT therefore matches the platform-wide DEFAULT_PERMISSION_MODE
+ *     ('yolo') — the user explicitly owns this trade-off (ticket content is still
+ *     attacker-influenced; see buildRunPrompt's untrusted-input fence below).
  *   - Frame the ticket title/url as UNTRUSTED external input (prompt-injection
  *     defense) in the run prompt.
  *   - Subscribe run:complete/run:error (via the bus) to move the proposal
@@ -105,14 +109,35 @@ export interface ApproveDeps {
 /**
  * Map the contract's harness-style `GithubSpawnPermissionMode`
  * ('default'|'plan'|'acceptEdits') onto the executor's runtime `PermissionMode`
- * ('ask'|'auto-edit'|'yolo'). CRITICAL: never returns 'yolo' — a board move can
- * never auto-run tools unprompted. 'default'/'plan' → 'ask' (every tool call is
- * PDP-gated); 'acceptEdits' → 'auto-edit' (edits auto-approved, exec still gated).
+ * ('ask'|'auto-edit'|'yolo'). CRITICAL: never returns 'yolo' — this is the
+ * EXPLICIT per-column OVERRIDE path, a UI-less cap that keeps a mapped column
+ * from ever auto-running tools unprompted regardless of the board default.
+ * 'default'/'plan' → 'ask' (every tool call is PDP-gated); 'acceptEdits' →
+ * 'auto-edit' (edits auto-approved, exec still gated). The board-level DEFAULT
+ * (no column override) is a separate path that DOES default to 'yolo' — see
+ * `parseSpawnPermissionMode` + the precedence in `approveProposal`.
  */
 export function toRuntimePermissionMode(
   mode: "default" | "plan" | "acceptEdits" | undefined,
 ): PermissionMode {
   return mode === "acceptEdits" ? "auto-edit" : "ask";
+}
+
+/** The runtime permission modes a board may store as its default. Mirrors the
+ *  executor's `PermissionMode` union — the single source of accepted values for
+ *  both `parseSpawnPermissionMode` here and the web `parsePermissionModeInput`. */
+const SPAWN_PERMISSION_MODES: readonly PermissionMode[] = ["ask", "auto-edit", "yolo"];
+
+/**
+ * Parse the link's `default_permission_mode` into a runtime `PermissionMode`.
+ * Returns the value iff it is one of "ask" | "auto-edit" | "yolo"; null/empty or
+ * any unrecognized value → null so the spawn falls back to its 'yolo' default.
+ */
+export function parseSpawnPermissionMode(
+  raw: string | null | undefined,
+): PermissionMode | null {
+  if (!raw) return null;
+  return SPAWN_PERMISSION_MODES.includes(raw as PermissionMode) ? (raw as PermissionMode) : null;
 }
 
 /**
@@ -218,9 +243,15 @@ export async function approveProposal(
 
   const runtime = deps.runtime ?? resolveRuntime();
 
-  // Resolve the column's permission mode + optional agent from the link map.
+  // Resolve the permission mode by precedence: an EXPLICIT per-column override
+  // (the frozen GithubSpawnPermissionMode, mapped via toRuntimePermissionMode —
+  // still never 'yolo') wins; otherwise the board-level defaultPermissionMode,
+  // defaulting to 'yolo' (auto-approve everything) when null/invalid. The agent
+  // config is resolved from the same column entry.
   const column = link.columnActionMap?.[proposal.statusOptionId];
-  const permissionMode = toRuntimePermissionMode(column?.permissionMode);
+  const permissionMode: PermissionMode = column?.permissionMode
+    ? toRuntimePermissionMode(column.permissionMode)
+    : parseSpawnPermissionMode(link.defaultPermissionMode) ?? "yolo";
   const agentConfigId = await resolveAgentConfigId(column?.agentName);
 
   // Per-board default model ("<provider>:<model>"). Null/empty → omit both and

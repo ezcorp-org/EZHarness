@@ -194,6 +194,33 @@ describe("github-projects queries", () => {
     expect(reread?.statusFieldId).toBe("PVTSSF_field");
   });
 
+  test("defaultPermissionMode round-trips through upsertLink + updateLink (and the ?? null fallback on re-connect)", async () => {
+    const projectId = await seedProject();
+
+    // Connect with an explicit board-level default permission mode.
+    const created = await upsertLink({
+      projectId,
+      boardNodeId: "PVT_a",
+      boardUrl: "u",
+      defaultPermissionMode: "ask",
+    });
+    expect(created.defaultPermissionMode).toBe("ask");
+
+    // updateLink patches it to another runtime mode.
+    const patched = await updateLink(created.id, { defaultPermissionMode: "auto-edit" });
+    expect(patched?.defaultPermissionMode).toBe("auto-edit");
+
+    // updateLink can clear it back to null (board falls back to 'yolo' at spawn).
+    const cleared = await updateLink(created.id, { defaultPermissionMode: null });
+    expect(cleared?.defaultPermissionMode).toBeNull();
+
+    // A re-connect of the SAME board with the field OMITTED exercises the
+    // `?? null` default in upsertLink's conflict set-clause.
+    const reconnected = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u2" });
+    expect(reconnected.id).toBe(created.id);
+    expect(reconnected.defaultPermissionMode).toBeNull();
+  });
+
   test("updateLinkPollState writes cursor + health", async () => {
     const projectId = await seedProject();
     const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });

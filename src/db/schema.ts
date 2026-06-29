@@ -1275,6 +1275,12 @@ export const githubProjectsLinks = pgTable("github_projects_links", {
    *  spawn bridge splits on the FIRST ':' and threads provider+model into
    *  streamChat so an instance without anthropic creds can pick a working model. */
   defaultModel: text("default_model"),
+  /** Default permission mode for spawned runs — a runtime PermissionMode string
+   *  ("ask" | "auto-edit" | "yolo"). Null/invalid → the spawn bridge falls back
+   *  to "yolo" (auto-approve everything), matching the platform-wide default. An
+   *  explicit per-column permissionMode override (still never yolo) takes
+   *  precedence when set; this board-level value covers every other card move. */
+  defaultPermissionMode: text("default_permission_mode"),
   authMode: text("auth_mode").notNull().$type<"pat" | "gh">().default("pat"),
   /** statusOptionId → action mapping. The daemon reads this every poll. */
   columnActionMap: jsonb("column_action_map").notNull().$type<GithubColumnActionMap>().default({}),
