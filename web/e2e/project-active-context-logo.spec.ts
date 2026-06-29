@@ -16,9 +16,10 @@
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
 
-// A 1x1 transparent PNG — a valid image URL the <img> can load deterministically.
+// A small, visible inline SVG (red square + white dot) — a valid image URL the
+// <img> loads deterministically, and a recognizable logo in the @evidence shot.
 const ICON_DATA_URI =
-	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+	"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect width='40' height='40' fill='%23e11d48'/%3E%3Ccircle cx='20' cy='20' r='9' fill='white'/%3E%3C/svg%3E";
 
 const CONV_ID = "conv-1";
 
