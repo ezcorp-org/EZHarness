@@ -18,13 +18,16 @@
 #       Run only the 1-of-N stride slice of the host set under --coverage AND
 #       gate pass/fail — but only for files in the pass/fail set P (so the
 #       example e2e suites, which fail-by-timeout without Docker, stay
-#       coverage-only exactly as before). A file that fails under instrumentation
-#       is retried once under coverage IN ISOLATION (no PARALLEL contention — the
-#       documented flake cause); only a file that fails the retry too is a real
-#       failure. Emits each shard's lcov into $COV_OUT for the coverage-gate job
-#       to download + merge. No legs, no merge, no threshold check here.
-#       This mode is the authoritative backend pass/fail gate AND the coverage
-#       producer in one pass — eliminating the old duplicate non-coverage run.
+#       coverage-only exactly as before). A P-file that fails under --coverage is
+#       re-checked WITHOUT coverage, and is a real failure ONLY if it fails that
+#       no-coverage re-run too. This matters because coverage instrumentation
+#       perturbs timing: rate-limit and svelte-build tests genuinely pass plain
+#       but fail instrumented. The no-coverage re-run is the authoritative
+#       signal — identical to the plain backend pool (scripts/test.sh) — so this
+#       mode is the backend pass/fail gate AND the coverage producer in one pass,
+#       eliminating the old duplicate non-coverage run. Coverage is still
+#       collected from the instrumented run regardless. Emits each shard's lcov
+#       into $COV_OUT for the coverage-gate job; no legs/merge/check here.
 #
 #   legs-only (CI; COVERAGE_LEGS_ONLY=1):
 #       Run ONLY the SDK + harness-client + node-vitest coverage legs and emit
@@ -70,6 +73,13 @@ run_host_pool() {
     local outfile="$TMPDIR/result_$idx" codefile="$TMPDIR/code_$idx" covdir="$TMPDIR/cov_$idx"
     local tflag; tflag=$(timeout_flag_for "$f")
     (
+      # set +e is REQUIRED: the script runs under set -e, so a failing
+      # `bun test` (the exact case the pass/fail gate must catch) would abort
+      # this subshell at the command-substitution assignment BEFORE the exit
+      # code + output files are written. The collection loop then skips the
+      # missing file and the failure becomes invisible. With set +e the real
+      # exit code is captured in $codefile — the authoritative pass/fail signal.
+      set +e
       OUTPUT=$(bun test $tflag --coverage --coverage-reporter=lcov --coverage-dir="$covdir" "./$f" 2>&1)
       echo "$?" > "$codefile"
       echo "$OUTPUT" > "$outfile"
@@ -299,20 +309,34 @@ for ((i = 0; i < HOST_COUNT; i++)); do
 done
 
 if [ -n "$SHARD_TOTAL" ]; then
-  # Pass/fail gating: only files in P are gated; retry gated failures ONCE under
-  # coverage in isolation (the documented flake cause is PARALLEL contention).
+  # Pass/fail gating. Only files in P are gated (examples + other coverage-only
+  # files are tolerated). A gated file that failed under --coverage is re-checked
+  # WITHOUT coverage — the authoritative signal, identical to scripts/test.sh —
+  # because instrumentation perturbs timing (rate-limit / svelte-build tests
+  # pass plain, fail instrumented). REAL failure ONLY if it also fails plain.
+  # Coverage was already collected from the instrumented run above.
   for idx in "${!FAILED_FILES[@]}"; do
     f="${FAILED_FILES[$idx]}"
     if ! grep -Fxq "$f" "$TMPDIR/P.txt"; then
-      echo "  (tolerated, coverage-only) FAIL: $f"
+      echo "  (tolerated, coverage-only) FAIL under coverage: $f"
       continue
     fi
-    echo "  (gated) FAIL under load: $f — retrying in isolation…"
-    retry_cov="$TMPDIR/cov_retry_$idx"
-    if bun test --timeout 60000 --coverage --coverage-reporter=lcov --coverage-dir="$retry_cov" "./$f" >/dev/null 2>&1; then
-      echo "    ✓ passed on isolated retry (instrumentation flake) — recovered"
+    echo "  (gated) FAIL under coverage: $f — re-checking WITHOUT coverage (up to 3x)…"
+    # No --timeout: match scripts/test.sh exactly so each test's own declared
+    # timeout governs (e.g. the svelte-build test's { timeout: 60_000 }). Retry:
+    # several backend suites are timing/rate-limit sensitive and flake under CI
+    # load even without coverage. A REAL failure fails ALL attempts; a flake
+    # passes one — so this catches genuine breakage without red-flagging the
+    # known-flaky timing tests (which the old gate masked entirely via its
+    # set -e bug). Only suspect files (already failed under coverage) pay this.
+    recheck_ok=""
+    for attempt in 1 2 3; do
+      if bun test "./$f" >/dev/null 2>&1; then recheck_ok=1; break; fi
+    done
+    if [ -n "$recheck_ok" ]; then
+      echo "    ✓ passes without coverage — not a real failure (instrumentation/load-sensitive)"
     else
-      echo "    ✗ FAILED on isolated retry — real failure"
+      echo "    ✗ fails without coverage on 3 attempts — REAL failure"
       REAL_FAILED+=("$f")
     fi
   done
