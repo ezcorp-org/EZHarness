@@ -1,5 +1,5 @@
 import { json } from "@sveltejs/kit";
-import { complete, type Context, type Message } from "@mariozechner/pi-ai";
+import { complete, type Context, type Message } from "@earendil-works/pi-ai";
 import { resolveModel } from "$server/providers/router";
 import { resolveOAuthModel } from "$server/providers/registry";
 import { getCredential } from "$server/providers/credentials";

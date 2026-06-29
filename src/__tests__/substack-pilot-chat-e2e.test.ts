@@ -89,7 +89,7 @@ mock.module("../providers/credentials", () => ({
   getApiKey: async () => "test-key",
 }));
 
-mock.module("@mariozechner/pi-ai", () => ({
+mock.module("@earendil-works/pi-ai", () => ({
   stream: () => ({
     [Symbol.asyncIterator]: async function* () {},
     result: async () => stubAssistantMessage(),
@@ -103,7 +103,7 @@ mock.module("@mariozechner/pi-ai", () => ({
 
 // Mock pi-agent-core Agent — drives the three substack-pilot tool calls
 // then emits the final assistant text containing the draft URL.
-mock.module("@mariozechner/pi-agent-core", () => ({
+mock.module("@earendil-works/pi-agent-core", () => ({
   Agent: class MockAgent {
     state = { error: null };
     private _subs: Array<(event: unknown) => void> = [];

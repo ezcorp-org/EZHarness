@@ -24,7 +24,7 @@
  * mutates only the supplied `agentTools` array in place.
  */
 
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { EventBus } from "./events";
 import type { AgentEvents } from "../types";
 import type { BuiltinToolDef } from "./tools/types";

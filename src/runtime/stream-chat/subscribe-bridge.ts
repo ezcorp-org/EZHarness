@@ -1,5 +1,5 @@
 import { and, eq, isNull } from "drizzle-orm";
-import type { Agent, AgentEvent } from "@mariozechner/pi-agent-core";
+import type { Agent, AgentEvent } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "../../types";
 import { logger } from "../../logger";
 import { getDb } from "../../db/connection";

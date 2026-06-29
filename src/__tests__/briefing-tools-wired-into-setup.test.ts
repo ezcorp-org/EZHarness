@@ -22,7 +22,7 @@
  * literal re-register in afterAll; both targets are in MODULE_PATHS).
  */
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 // In-file snapshots of the mocked modules (≥2-mocks rule: snapshot the

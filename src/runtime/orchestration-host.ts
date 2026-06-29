@@ -23,7 +23,7 @@
 // these helpers and deleted the legacy built-in — this file is now
 // the sole host-side entry point for the invoke_agent tool.
 
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { getDb } from "../db/connection";
 import { conversationExtensions } from "../db/schema";
 import { getExtensionByName } from "../db/queries/extensions";

@@ -68,11 +68,18 @@ process.env.EZCORP_DB_PATH = ":memory:";
 // Mock @sveltejs/kit — outside SvelteKit's vite build, these exports don't resolve.
 // Provide all commonly used exports so every test file gets them automatically.
 mock.module("@sveltejs/kit", () => ({
-  json: (data: unknown, init?: { status?: number }) =>
-    new Response(JSON.stringify(data), {
-      status: init?.status ?? 200,
-      headers: { "Content-Type": "application/json" },
-    }),
+  json: (data: unknown, init?: ResponseInit) => {
+    // Mirror real @sveltejs/kit json(): preserve caller-supplied headers
+    // (e.g. a Retry-After header on 429 rate-limit responses) and only
+    // default Content-Type when the caller didn't set it. The previous
+    // mock hard-coded headers and silently dropped init.headers, so any
+    // route that returned json(body, { headers }) lost them — surfacing
+    // only when bun's mock.module materialization timing happened to bind
+    // the real json instead of this stub.
+    const headers = new Headers(init?.headers);
+    if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+    return new Response(JSON.stringify(data), { status: init?.status ?? 200, headers });
+  },
   redirect: (status: number, location: string) => {
     throw { status, location, __isRedirect: true };
   },

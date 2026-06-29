@@ -15,9 +15,9 @@ export type {
   Usage,
   AssistantMessageEvent,
   Model,
-} from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-ai";
 
-export type { KnownProvider } from "@mariozechner/pi-ai";
+export type { KnownProvider } from "@earendil-works/pi-ai";
 
 // ── Provider Name ────────────────────────────────────────────────────
 // Open-ended string to support all 20+ pi-ai providers

@@ -33,7 +33,7 @@ describe("model-capabilities", () => {
   });
 
   test("Gemini accepts images + PDFs with 20MB limit", () => {
-    const caps = getCapabilities("google", "gemini-1.5-pro");
+    const caps = getCapabilities("google", "gemini-2.5-pro");
     expect(caps.kinds).toContain("image");
     expect(caps.kinds).toContain("pdf");
     expect(caps.maxBytesPerFile).toBe(20 * 1024 * 1024);
@@ -53,7 +53,7 @@ describe("model-capabilities", () => {
     for (const pair of [
       ["anthropic", "claude-3-5-sonnet-20241022"],
       ["openai", "gpt-4o"],
-      ["google", "gemini-1.5-pro"],
+      ["google", "gemini-2.5-pro"],
       ["my-custom-provider", "local-llm"],
     ] as const) {
       const caps = getCapabilities(pair[0], pair[1]);

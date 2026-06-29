@@ -22,8 +22,8 @@
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { getSetting, upsertSetting } from "$server/db/queries/settings";
 import { decrypt, encrypt } from "$server/providers/encryption";
-import { getEnvApiKey } from "@mariozechner/pi-ai";
-import { getOAuthApiKey, type OAuthCredentials } from "@mariozechner/pi-ai/oauth";
+import { getEnvApiKey } from "@earendil-works/pi-ai";
+import { getOAuthApiKey, type OAuthCredentials } from "@earendil-works/pi-ai/oauth";
 
 export const OPENAI_IMAGE_GEN_EXT_NAME = "openai-image-gen-2";
 const OAUTH_PROVIDER_ID = "openai-codex";

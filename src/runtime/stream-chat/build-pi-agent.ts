@@ -1,4 +1,4 @@
-import { Agent } from "@mariozechner/pi-agent-core";
+import { Agent } from "@earendil-works/pi-agent-core";
 import type { Message } from "../../types";
 import { resolveOAuthModel } from "../../providers/registry";
 import { getCredential } from "../../providers/credentials";

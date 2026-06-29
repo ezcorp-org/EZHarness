@@ -17,7 +17,7 @@
  * alone.
  */
 
-import type { Model } from "@mariozechner/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
 import { listModels } from "./local-model-check";
 import type { ProviderCredential } from "./credentials";
 

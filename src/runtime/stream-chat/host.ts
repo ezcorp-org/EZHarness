@@ -1,6 +1,6 @@
 import type { AgentEvents, AgentRun } from "../../types";
 import type { EventBus } from "../events";
-import type { Agent } from "@mariozechner/pi-agent-core";
+import type { Agent } from "@earendil-works/pi-agent-core";
 import type { ExtensionStateMediator } from "../../extensions/state-mediator";
 import type { SpawnQuota } from "../../extensions/spawn-quota";
 import type { PermissionEngine } from "../../extensions/permission-engine";

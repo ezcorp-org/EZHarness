@@ -198,7 +198,7 @@ describe("AgentExecutor.streamChat", () => {
 
   test("streamChat handles stream error", async () => {
     // Configure Agent mock to emit error via subscriber then throw
-    mock.module("@mariozechner/pi-agent-core", () => ({
+    mock.module("@earendil-works/pi-agent-core", () => ({
       Agent: class MockAgent {
         state = { error: null };
         private _subs: any[] = [];
@@ -227,7 +227,7 @@ describe("AgentExecutor.streamChat", () => {
 
   test("streamChat handles abort signal", async () => {
     // Configure Agent mock to throw AbortError after emitting partial text
-    mock.module("@mariozechner/pi-agent-core", () => ({
+    mock.module("@earendil-works/pi-agent-core", () => ({
       Agent: class MockAgent {
         state = { error: null };
         private _subs: any[] = [];
@@ -307,7 +307,7 @@ describe("AgentExecutor.streamChat", () => {
     let abortCalled = false;
 
     // Configure Agent mock to hang until aborted
-    mock.module("@mariozechner/pi-agent-core", () => ({
+    mock.module("@earendil-works/pi-agent-core", () => ({
       Agent: class MockAgent {
         state = { error: null };
         private _subs: any[] = [];
@@ -437,7 +437,7 @@ describe("AgentExecutor.streamChat", () => {
 
   test("run:error event data wraps run in { run, error }", async () => {
     // Configure Agent to throw an error
-    mock.module("@mariozechner/pi-agent-core", () => ({
+    mock.module("@earendil-works/pi-agent-core", () => ({
       Agent: class MockAgent {
         state = { error: null };
         private _subs: any[] = [];
@@ -467,7 +467,7 @@ describe("AgentExecutor.streamChat", () => {
   });
 
   test("streamChat clears timeout interval on error", async () => {
-    mock.module("@mariozechner/pi-agent-core", () => ({
+    mock.module("@earendil-works/pi-agent-core", () => ({
       Agent: class MockAgent {
         state = { error: null };
         private _subs: any[] = [];

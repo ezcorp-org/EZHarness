@@ -10,8 +10,8 @@ import { isTestSurfaceEnabled, MOCK_PROVIDER } from "../test-surface";
 import {
   getOAuthApiKey,
   type OAuthCredentials,
-} from "@mariozechner/pi-ai/oauth";
-import { getEnvApiKey } from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-ai/oauth";
+import { getEnvApiKey } from "@earendil-works/pi-ai";
 
 // ── Types ─────────────────────────────────────────────────────────────
 

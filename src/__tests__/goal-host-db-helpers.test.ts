@@ -562,7 +562,7 @@ describe("default dependency wiring", () => {
 // `defaultPiComplete` dynamic import path. Mock the pi-ai module so
 // the import resolves to a controllable stub.
 
-mock.module("@mariozechner/pi-ai", () => ({
+mock.module("@earendil-works/pi-ai", () => ({
   complete: async (
     _piModel: unknown,
     _body: unknown,

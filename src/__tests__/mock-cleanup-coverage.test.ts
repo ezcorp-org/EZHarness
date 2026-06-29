@@ -121,7 +121,7 @@ function extractMockPaths(source: string): string[] {
  * - `../foo` (from `src/__tests__/*.test.ts`) → `../../foo` (from helpers/)
  * - `../../src/foo` (from web/test hops) → `../../foo`
  * - `$server/foo/bar` → return "$server" — handled by prefix check
- * - External package (e.g. @mariozechner/pi-ai) → unchanged
+ * - External package (e.g. @earendil-works/pi-ai) → unchanged
  */
 function canonicalize(p: string, testFile: string): string {
   if (p.startsWith("$server/")) return p;

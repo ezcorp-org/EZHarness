@@ -1,4 +1,4 @@
-import { Type } from "@mariozechner/pi-ai";
+import { Type } from "@earendil-works/pi-ai";
 import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { validatePath } from "./validate";

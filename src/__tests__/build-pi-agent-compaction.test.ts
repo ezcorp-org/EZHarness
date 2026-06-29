@@ -4,7 +4,7 @@
  * resolved model (input-only — Codex sends no output cap; shrinking
  * `maxTokens` would regress other providers).
  *
- * The `@mariozechner/pi-agent-core` `Agent` is stubbed to capture the
+ * The `@earendil-works/pi-agent-core` `Agent` is stubbed to capture the
  * constructor options so we can assert on `initialState.model` and
  * invoke the wired `transformContext` directly (no real LLM call).
  */
@@ -15,7 +15,7 @@ afterAll(() => restoreModuleMocks());
 
 let capturedOpts: any;
 
-mock.module("@mariozechner/pi-agent-core", () => ({
+mock.module("@earendil-works/pi-agent-core", () => ({
   Agent: class {
     state: any;
     constructor(opts: any) {

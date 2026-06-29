@@ -9,7 +9,7 @@ import type {
   LogLevel,
 } from "../types";
 import type { EventBus } from "./events";
-import type { Agent } from "@mariozechner/pi-agent-core";
+import type { Agent } from "@earendil-works/pi-agent-core";
 import { createStreamChatContext } from "./stream-chat/context";
 import type { PendingPermissionInfo, StreamChatHost } from "./stream-chat/host";
 import {
@@ -659,8 +659,8 @@ export class AgentExecutor {
 
       // pi-agent-core catches LLM errors internally (stopReason: "error")
       // without rethrowing. Surface agent errors so they reach the UI.
-      if (piAgent.state.error) {
-        throw new Error(piAgent.state.error);
+      if (piAgent.state.errorMessage) {
+        throw new Error(piAgent.state.errorMessage);
       }
 
       // Scratchpad cleanup is no longer needed — Phase 1 moved the

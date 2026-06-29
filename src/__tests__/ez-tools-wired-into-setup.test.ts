@@ -26,7 +26,7 @@
  * (which asserts the right modeId reaches streamChat).
  */
 import { test, expect, describe } from "bun:test";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { BuiltinToolDef } from "../runtime/tools/types";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";

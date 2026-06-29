@@ -23,7 +23,7 @@ beforeEach(() => {
 // ── Helper: mock Agent with state property ───────────────────────────
 
 function setupAgentMock(textChunks: string[] = ["anchored"]) {
-  mock.module("@mariozechner/pi-agent-core", () => ({
+  mock.module("@earendil-works/pi-agent-core", () => ({
     Agent: class MockAgent {
       private _subs: any[] = [];
       state: Record<string, any> = {};
@@ -209,7 +209,7 @@ mock.module("../extensions/permissions", () => ({
   checkSensitiveConfirmation: async () => "allowed",
 }));
 
-mock.module("@mariozechner/pi-ai", () => ({
+mock.module("@earendil-works/pi-ai", () => ({
   stream: () => ({ [Symbol.asyncIterator]: async function* () {} }),
   complete: async () => stubAssistantMessage(),
 }));
@@ -270,7 +270,7 @@ describe("tool call anchoring", () => {
 
   test("persistErrorMessage also anchors tool_calls to real error message id", async () => {
     // Make the agent throw an error
-    mock.module("@mariozechner/pi-agent-core", () => ({
+    mock.module("@earendil-works/pi-agent-core", () => ({
       Agent: class MockAgent {
         private _subs: any[] = [];
         state: Record<string, any> = {};

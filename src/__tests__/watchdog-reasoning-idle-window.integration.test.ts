@@ -4,7 +4,7 @@
  * The unit test (executor-watchdog-inflight-tools.test.ts) proves
  * resolveIdleThreshold's mapping using a hand-rolled `{ state: {...} }`
  * stub. THIS test closes the seam that stub elides: it registers a REAL
- * `Agent` from @mariozechner/pi-agent-core into the watchdog's
+ * `Agent` from @earendil-works/pi-agent-core into the watchdog's
  * `activeAgents` map (exactly what the executor does in production) and
  * drives the REAL subscribe-bridge, so we verify that:
  *
@@ -65,9 +65,9 @@ mock.module("../db/queries/extensions", () => ({
   listExtensions: async () => [],
 }));
 
-import { Agent } from "@mariozechner/pi-agent-core";
-import type { Model } from "@mariozechner/pi-ai";
-import type { ThinkingLevel } from "@mariozechner/pi-agent-core/dist/types";
+import { Agent } from "@earendil-works/pi-agent-core";
+import type { Model } from "@earendil-works/pi-ai";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { subscribeBridge } from "../runtime/stream-chat/subscribe-bridge";
 import type { StreamChatContext } from "../runtime/stream-chat/context";
 import type { StreamChatHost } from "../runtime/stream-chat/host";
