@@ -358,6 +358,30 @@ describe("POST connect", () => {
     expect(upsertLinkCalls).toHaveLength(0);
   });
 
+  test("passes an optional defaultPermissionMode through to upsertLink at connect time", async () => {
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "gh", defaultPermissionMode: "ask" } }));
+    expect(res.status).toBe(200);
+    expect(upsertLinkCalls[0].defaultPermissionMode).toBe("ask");
+  });
+
+  test("connect without a defaultPermissionMode stores null (board 'yolo' fallback)", async () => {
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "gh" } }));
+    expect(res.status).toBe(200);
+    expect(upsertLinkCalls[0].defaultPermissionMode).toBeNull();
+  });
+
+  test("rejects an invalid defaultPermissionMode → 400 BEFORE any egress, nothing persisted", async () => {
+    let resolved = false;
+    resolveBoardImpl = async () => { resolved = true; return { boardNodeId: "PVT", title: "T", ownerLogin: "o", statusFieldId: "F", statusOptions: [] }; };
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "gh", defaultPermissionMode: "garbage" } }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("defaultPermissionMode");
+    // Fast-fail: validation runs before board resolution → no egress, nothing persisted.
+    expect(resolved).toBe(false);
+    expect(upsertLinkCalls).toHaveLength(0);
+  });
+
   test("gh mode: stores NO token, purges THIS board's stale override, upserts link", async () => {
     const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "gh" } }));
     expect(res.status).toBe(200);
@@ -534,8 +558,8 @@ describe("POST connect", () => {
 
 // ════════════════════════ link GET ════════════════════════
 describe("GET link", () => {
-  test("returns an array of public link views (no token field), each with hasTokenOverride", async () => {
-    linkByProject["proj-1"] = { id: "link-1", projectId: "proj-1", boardUrl: "u", boardTitle: "B", ownerLogin: "o", boardNodeId: "PVT", statusFieldId: "F", statusOptions: [], defaultModel: null, authMode: "pat", columnActionMap: {}, pollIntervalSec: 60, enabled: true, lastError: null, lastErrorAt: null, lastPolledAt: null, createdAt: new Date(0), updatedAt: new Date(0) };
+  test("returns an array of public link views (no token field), each with hasTokenOverride + defaultPermissionMode", async () => {
+    linkByProject["proj-1"] = { id: "link-1", projectId: "proj-1", boardUrl: "u", boardTitle: "B", ownerLogin: "o", boardNodeId: "PVT", statusFieldId: "F", statusOptions: [], defaultModel: null, defaultPermissionMode: "auto-edit", authMode: "pat", columnActionMap: {}, pollIntervalSec: 60, enabled: true, lastError: null, lastErrorAt: null, lastPolledAt: null, createdAt: new Date(0), updatedAt: new Date(0) };
     // This board carries a per-board override.
     tokenOverrides["apiToken:link-1"] = true;
     const res = await run(linkGet, ev({ url: "http://localhost/x?projectId=proj-1" }));
@@ -544,8 +568,16 @@ describe("GET link", () => {
     expect(body.links).toHaveLength(1);
     expect(body.links[0].id).toBe("link-1");
     expect(body.links[0].hasTokenOverride).toBe(true);
+    // publicLinkView surfaces the board's stored default permission mode.
+    expect(body.links[0].defaultPermissionMode).toBe("auto-edit");
     expect(body.links[0]).not.toHaveProperty("token");
     expect(JSON.stringify(body)).not.toMatch(/ENC\(|ghp_/);
+  });
+
+  test("publicLinkView exposes defaultPermissionMode as null when unset", async () => {
+    linkByProject["proj-1"] = { id: "link-1", projectId: "proj-1", boardUrl: "u", boardTitle: "B", ownerLogin: "o", boardNodeId: "PVT", statusFieldId: "F", statusOptions: [], defaultModel: null, authMode: "pat", columnActionMap: {}, pollIntervalSec: 60, enabled: true, lastError: null, lastErrorAt: null, lastPolledAt: null, createdAt: new Date(0), updatedAt: new Date(0) };
+    const res = await run(linkGet, ev({ url: "http://localhost/x?projectId=proj-1" }));
+    expect((await res.json()).links[0].defaultPermissionMode).toBeNull();
   });
 
   test("no links → empty array (200, not 404)", async () => {
@@ -631,6 +663,36 @@ describe("PATCH link", () => {
   test("rejects a non-string, non-null defaultModel → 400", async () => {
     const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", defaultModel: 42 } }));
     expect(res.status).toBe(400);
+  });
+
+  test("accepts a valid defaultPermissionMode ('yolo')", async () => {
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", defaultPermissionMode: "yolo" } }));
+    expect(res.status).toBe(200);
+    expect(updateLinkCalls).toHaveLength(1);
+    expect(updateLinkCalls[0].patch.defaultPermissionMode).toBe("yolo");
+  });
+
+  test("accepts defaultPermissionMode null + '' (clears to the board 'yolo' fallback)", async () => {
+    for (const v of [null, ""]) {
+      updateLinkCalls.length = 0;
+      const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", defaultPermissionMode: v } }));
+      expect(res.status).toBe(200);
+      expect(updateLinkCalls[0].patch.defaultPermissionMode).toBeNull();
+    }
+  });
+
+  test("rejects an invalid defaultPermissionMode → 400, nothing updated", async () => {
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", defaultPermissionMode: "plan" } }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("defaultPermissionMode");
+    expect(updateLinkCalls).toHaveLength(0);
+  });
+
+  test("rejects a non-string defaultPermissionMode → 400", async () => {
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", defaultPermissionMode: 3 } }));
+    expect(res.status).toBe(400);
+    expect(updateLinkCalls).toHaveLength(0);
   });
 
   test("pause via enabled:false uses setLinkEnabled", async () => {

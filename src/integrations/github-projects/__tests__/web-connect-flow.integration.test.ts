@@ -331,6 +331,38 @@ describe("github-projects connect lifecycle (real DB)", () => {
     expect((await getLinkByProjectId(projectId))?.defaultModel).toBeNull();
   });
 
+  test("defaultPermissionMode round-trips: connect → GET (null) → PATCH sets it → GET reflects it → null clears", async () => {
+    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+    const linkId = (await getLinkByProjectId(projectId))!.id;
+
+    // A fresh connect (no permission mode given) leaves it null — the board
+    // spawn bridge falls back to "yolo".
+    const initial = await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}` }));
+    expect((await initial.json()).links[0].defaultPermissionMode).toBeNull();
+
+    // PATCH a valid runtime mode — the public view echoes it back + it persists.
+    const setRes = await linkPatch(ev("PATCH", { body: { projectId, linkId, defaultPermissionMode: "auto-edit" } }));
+    expect(setRes.status).toBe(200);
+    expect((await setRes.json()).link.defaultPermissionMode).toBe("auto-edit");
+    const afterSet = await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}` }));
+    expect((await afterSet.json()).links[0].defaultPermissionMode).toBe("auto-edit");
+    expect((await getLinkByProjectId(projectId))?.defaultPermissionMode).toBe("auto-edit");
+
+    // PATCH null clears it back to the board's "yolo" fallback.
+    const clearRes = await linkPatch(ev("PATCH", { body: { projectId, linkId, defaultPermissionMode: null } }));
+    expect(clearRes.status).toBe(200);
+    expect((await clearRes.json()).link.defaultPermissionMode).toBeNull();
+    expect((await getLinkByProjectId(projectId))?.defaultPermissionMode).toBeNull();
+  });
+
+  test("invalid defaultPermissionMode → 400 (validated before board resolution), nothing persisted", async () => {
+    const res = await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "t", defaultPermissionMode: "plan" } }),
+    );
+    expect(res.status).toBe(400);
+    expect(await getLinkByProjectId(projectId)).toBeNull();
+  });
+
   test("refresh-columns: re-fetches a legacy/empty link's columns host-side + persists them (no PAT re-entry)", async () => {
     // Connect stores the board (Todo + Doing) AND the encrypted PAT.
     await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));

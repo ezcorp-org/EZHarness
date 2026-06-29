@@ -26,7 +26,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { errorJson } from "$lib/server/http-errors";
-import { authGithubRoute, resolveProject, parseDefaultModelInput, parseTokenScope } from "../_shared";
+import { authGithubRoute, resolveProject, parseDefaultModelInput, parsePermissionModeInput, parseTokenScope } from "../_shared";
 import { createGithubClient } from "$server/integrations/github-projects/client";
 import type {
   GithubAuth,
@@ -46,6 +46,7 @@ interface ConnectBody {
   token?: unknown;
   tokenScope?: unknown;
   defaultModel?: unknown;
+  defaultPermissionMode?: unknown;
 }
 
 function isAuthMode(v: unknown): v is GithubAuthMode {
@@ -68,9 +69,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   }
   const authMode: GithubAuthMode = body.authMode;
 
-  // Validate the optional default model + token scope fast (before any egress).
+  // Validate the optional default model + permission mode + token scope fast
+  // (before any egress).
   const dmParsed = parseDefaultModelInput(body.defaultModel);
   if ("error" in dmParsed) return errorJson(400, dmParsed.error);
+  const pmParsed = parsePermissionModeInput(body.defaultPermissionMode);
+  if ("error" in pmParsed) return errorJson(400, pmParsed.error);
   const scopeParsed = parseTokenScope(body.tokenScope);
   if ("error" in scopeParsed) return errorJson(400, scopeParsed.error);
   const tokenScope = scopeParsed.scope;
@@ -164,6 +168,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     // Optional per-board default model ("<provider>:<model>"); null = instance
     // default. Set at connect time too so the dropdown can be chosen up front.
     defaultModel: dmParsed.value,
+    // Optional per-board default permission mode ("ask"|"auto-edit"|"yolo");
+    // null = the spawn bridge's "yolo" fallback. Set at connect time too.
+    defaultPermissionMode: pmParsed.value,
     authMode,
     createdByUserId: user.id,
   });

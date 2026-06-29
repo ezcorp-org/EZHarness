@@ -2,6 +2,12 @@
 	import { page } from "$app/state";
 	import { store, setActiveProjectId } from "$lib/stores.svelte.js";
 	import ModelSelector from "$lib/components/ModelSelector.svelte";
+	import {
+		PERMISSION_MODES,
+		modeToLabel,
+		modeToDescription,
+		DEFAULT_PERMISSION_MODE,
+	} from "$lib/permission-mode";
 
 	// ── Per-project scoping ────────────────────────────────────────────────
 	// This page is scoped to ONE EZCorp project; we surface the project name in
@@ -33,6 +39,7 @@
 		statusFieldId: string | null;
 		statusOptions: StatusOption[];
 		defaultModel: string | null;
+		defaultPermissionMode: string | null;
 		authMode: "pat" | "gh";
 		// True when this board carries its OWN token (not the shared project one).
 		hasTokenOverride: boolean;
@@ -54,6 +61,9 @@
 	let expanded = $state<Record<string, boolean>>({});
 	let columnMaps = $state<Record<string, Record<string, ColumnAction>>>({});
 	let defaultModels = $state<Record<string, string>>({});
+	// Per-board default permission mode, hydrated from the link's stored value or
+	// DEFAULT_PERMISSION_MODE ("yolo") when unset (the spawn bridge's fallback).
+	let defaultPermissionModes = $state<Record<string, string>>({});
 	let savingMap = $state<Record<string, boolean>>({});
 	let mapFlash = $state<Record<string, boolean>>({});
 	let pausing = $state<Record<string, boolean>>({});
@@ -70,6 +80,7 @@
 	function seedCard(link: Link) {
 		columnMaps[link.id] = { ...link.columnActionMap };
 		defaultModels[link.id] = link.defaultModel ?? "";
+		defaultPermissionModes[link.id] = link.defaultPermissionMode ?? DEFAULT_PERMISSION_MODE;
 	}
 
 	async function loadLinks() {
@@ -207,6 +218,7 @@
 					linkId,
 					columnActionMap: columnMaps[linkId] ?? {},
 					defaultModel: defaultModels[linkId] || null,
+					defaultPermissionMode: defaultPermissionModes[linkId] || null,
 				}),
 			});
 			if (res.ok) {
@@ -663,6 +675,31 @@
 						</div>
 						<p class="mt-1 text-xs text-[var(--color-text-muted)]">
 							When set, every run spawned by a card move on this board uses this model.
+						</p>
+					</div>
+
+					<!-- ── Default permission mode for spawned runs ─────────────── -->
+					<div class="mt-6 border-t border-[var(--color-border)] pt-4">
+						<span class="block text-sm text-[var(--color-text-secondary)]">Default permission mode</span>
+						<div class="mt-2 flex flex-wrap items-center gap-3">
+							<select
+								data-testid={`gh-projects-default-permission-mode-${link.id}`}
+								bind:value={defaultPermissionModes[link.id]}
+								class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+							>
+								{#each PERMISSION_MODES as mode (mode)}
+									<option value={mode} title={modeToDescription(mode)}>{modeToLabel(mode)}</option>
+								{/each}
+							</select>
+							<span
+								data-testid={`gh-projects-default-permission-mode-active-${link.id}`}
+								class="text-xs text-[var(--color-text-muted)]"
+							>
+								{modeToDescription((defaultPermissionModes[link.id] ?? DEFAULT_PERMISSION_MODE) as (typeof PERMISSION_MODES)[number])}
+							</span>
+						</div>
+						<p class="mt-1 text-xs text-[var(--color-text-muted)]">
+							Every run spawned by a card move on this board uses this mode (default: YOLO — auto-approve everything).
 						</p>
 					</div>
 

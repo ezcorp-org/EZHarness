@@ -21,6 +21,7 @@ import {
   resolveLinkForProject,
   publicLinkView,
   parseDefaultModelInput,
+  parsePermissionModeInput,
 } from "../_shared";
 import {
   updateLink,
@@ -164,6 +165,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     pollIntervalSec?: number;
     enabled?: boolean;
     defaultModel?: string | null;
+    defaultPermissionMode?: string | null;
   } = {};
 
   if (body.columnActionMap !== undefined) {
@@ -189,6 +191,12 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     const parsed = parseDefaultModelInput(body.defaultModel);
     if ("error" in parsed) return errorJson(400, parsed.error);
     patch.defaultModel = parsed.value;
+  }
+
+  if (body.defaultPermissionMode !== undefined) {
+    const parsed = parsePermissionModeInput(body.defaultPermissionMode);
+    if ("error" in parsed) return errorJson(400, parsed.error);
+    patch.defaultPermissionMode = parsed.value;
   }
 
   if (Object.keys(patch).length === 0) {

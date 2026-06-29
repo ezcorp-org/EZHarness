@@ -16,6 +16,7 @@
 import { errorJson } from "$lib/server/http-errors";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { PERMISSION_MODES } from "$lib/permission-mode";
 import { getProject } from "$server/db/queries/projects";
 import {
   getLinkById,
@@ -110,6 +111,18 @@ export function parseDefaultModelInput(raw: unknown): { value: string | null } |
   return { value: raw };
 }
 
+/** Validate an untrusted `defaultPermissionMode` body field: null/undefined/"" ->
+ *  {value:null} (board spawns fall back to 'yolo'); one of the chat PERMISSION_MODES
+ *  ("ask" | "auto-edit" | "yolo") -> {value:raw}; anything else -> {error}. Reuses
+ *  the single chat permission-mode list ($lib/permission-mode) — no second list. */
+export function parsePermissionModeInput(raw: unknown): { value: string | null } | { error: string } {
+  if (raw === null || raw === undefined || raw === "") return { value: null };
+  if (typeof raw !== "string" || !(PERMISSION_MODES as string[]).includes(raw)) {
+    return { error: `defaultPermissionMode must be one of: ${PERMISSION_MODES.join(", ")}` };
+  }
+  return { value: raw };
+}
+
 /** Public (token-free) shape of a link for GET/PATCH responses. The encrypted
  *  PAT lives in the secrets store and is NEVER part of any link row or response.
  *  `hasTokenOverride` is the boolean presence of a per-board override token
@@ -129,6 +142,9 @@ export function publicLinkView(link: GithubProjectsLink, hasTokenOverride = fals
     statusOptions: link.statusOptions,
     // Per-board default model for spawned runs ("<provider>:<model>") or null.
     defaultModel: link.defaultModel ?? null,
+    // Per-board default permission mode ("ask"|"auto-edit"|"yolo") or null (the
+    // spawn bridge falls back to "yolo" when null).
+    defaultPermissionMode: link.defaultPermissionMode ?? null,
     authMode: link.authMode,
     // True when this board carries its OWN token (apiToken:<linkId>) rather than
     // sharing the project token. Presence only — never the token value.
