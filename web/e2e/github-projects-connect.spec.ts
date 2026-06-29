@@ -38,6 +38,7 @@ function connectedLink(overrides: Record<string, unknown> = {}) {
 		hasTokenOverride: false,
 		columnActionMap: {},
 		defaultModel: null as string | null,
+		defaultPermissionMode: null as string | null,
 		pollIntervalSec: 60,
 		enabled: true,
 		lastError: null,
@@ -100,6 +101,8 @@ async function installGhRoutes(page: Page) {
 					link.columnActionMap = body.columnActionMap as Record<string, never>;
 				if (body.defaultModel !== undefined)
 					link.defaultModel = body.defaultModel as string | null;
+				if (body.defaultPermissionMode !== undefined)
+					link.defaultPermissionMode = body.defaultPermissionMode as string | null;
 			}
 			return route.fulfill({ json: { link } });
 		}
@@ -381,6 +384,53 @@ test.describe("GitHub Projects connect sub-route", () => {
 		await expect(page.getByTestId("gh-projects-map-saved-link-1")).toBeVisible();
 
 		await captureEvidence(page, testInfo, "gh-default-model");
+	});
+
+	test("default permission-mode picker: defaults to YOLO, selecting + Save PATCHes defaultPermissionMode, persists across reload @evidence", async ({ page, mockApi }, testInfo) => {
+		await mockApi({ projects: [proj] });
+		const state = await installGhRoutes(page);
+		// A connected board with NO stored permission mode → the picker hydrates to
+		// the "yolo" default (the spawn bridge's fallback).
+		state.links = [connectedLink({ id: "link-1", defaultPermissionMode: null })];
+		await page.goto(CONNECT_PATH);
+
+		await page.getByTestId("gh-projects-card-toggle-link-1").click();
+		const picker = page.getByTestId("gh-projects-default-permission-mode-link-1");
+		await expect(picker).toBeVisible();
+		// Unset board → defaults to "yolo" (auto-approve everything).
+		await expect(picker).toHaveValue("yolo");
+		await expect(
+			page.getByTestId("gh-projects-default-permission-mode-active-link-1"),
+		).toContainText("Auto-approve everything");
+
+		// Switch to the strictest mode ("ask").
+		await picker.selectOption("ask");
+		await expect(picker).toHaveValue("ask");
+		await expect(
+			page.getByTestId("gh-projects-default-permission-mode-active-link-1"),
+		).toContainText("Ask before running");
+
+		// Save → the PATCH carries the chosen mode + the linkId.
+		const [patchReq] = await Promise.all([
+			page.waitForRequest(
+				(r) => r.url().includes("/api/integrations/github-projects/link") && r.method() === "PATCH",
+			),
+			page.getByTestId("gh-projects-save-map-link-1").click(),
+		]);
+		const patchBody = patchReq.postDataJSON() as { defaultPermissionMode?: string; linkId?: string };
+		expect(patchBody.defaultPermissionMode).toBe("ask");
+		expect(patchBody.linkId).toBe("link-1");
+		await expect(page.getByTestId("gh-projects-map-saved-link-1")).toBeVisible();
+
+		// Reload → the card collapses; re-expand and the saved mode is restored
+		// (the state mock echoes the PATCH back on GET).
+		await page.reload();
+		await page.getByTestId("gh-projects-card-toggle-link-1").click();
+		const pickerAfter = page.getByTestId("gh-projects-default-permission-mode-link-1");
+		await expect(pickerAfter).toBeVisible();
+		await expect(pickerAfter).toHaveValue("ask");
+
+		await captureEvidence(page, testInfo, "github-projects-default-permission-mode");
 	});
 
 	test("empty status_options auto-refreshes on load → named, complete columns (legacy-link self-heal)", async ({ page, mockApi }) => {
