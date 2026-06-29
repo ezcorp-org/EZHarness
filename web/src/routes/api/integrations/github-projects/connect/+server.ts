@@ -214,5 +214,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     ownerLogin: board.ownerLogin,
     statusOptions: board.statusOptions,
     scopes: validation.scopes,
+    canComment: validation.canComment,
   });
 };

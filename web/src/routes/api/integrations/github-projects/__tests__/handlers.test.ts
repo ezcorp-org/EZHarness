@@ -554,6 +554,37 @@ describe("POST connect", () => {
     // credential as soon as a token is stored.
     expect(upsertLinkCalls).toHaveLength(1);
   });
+
+  // ── canComment pass-through ──────────────────────────────────────────────
+
+  test("happy path: canComment is forwarded from validation into the response (true when repo in scopes)", async () => {
+    // validateAuthImpl default returns scopes: ["repo", "project"] — canComment should
+    // be computed by the client and echoed by the connect handler.
+    // We mock validateAuth to return a result that already includes canComment=true,
+    // matching what the real client would compute for a classic PAT with "repo".
+    validateAuthImpl = async () => ({ ok: true, scopes: ["repo", "project"], missingScopes: [], canComment: true });
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "ghp_secret" } }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.canComment).toBe(true);
+  });
+
+  test("connect response canComment=false when validation indicates missing repo scope", async () => {
+    validateAuthImpl = async () => ({ ok: true, scopes: ["read:org", "project"], missingScopes: [], canComment: false });
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "ghp_secret" } }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.canComment).toBe(false);
+  });
+
+  test("connect response canComment=undefined when fine-grained PAT (no scope header)", async () => {
+    validateAuthImpl = async () => ({ ok: true, scopes: [], missingScopes: [], canComment: undefined });
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "gh" } }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // undefined becomes absent in JSON; the key won't exist or will be undefined.
+    expect(body.canComment).toBeUndefined();
+  });
 });
 
 // ════════════════════════ link GET ════════════════════════

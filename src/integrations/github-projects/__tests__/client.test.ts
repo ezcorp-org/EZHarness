@@ -342,6 +342,50 @@ describe("validateAuth", () => {
       GithubRateLimitError,
     );
   });
+
+  // ── canComment tri-state ───────────────────────────────────────────────────
+
+  test("canComment=true when classic scopes include 'repo'", async () => {
+    enqueue({
+      body: { data: { node: { id: BOARD_ID } } },
+      headers: { "x-oauth-scopes": "repo, project" },
+    });
+    const client = createGithubClient();
+    const result = await client.validateAuth(AUTH_PAT, BOARD_ID);
+    expect(result.ok).toBe(true);
+    expect(result.canComment).toBe(true);
+  });
+
+  test("canComment=true when classic scopes include 'public_repo' (but not 'repo')", async () => {
+    enqueue({
+      body: { data: { node: { id: BOARD_ID } } },
+      headers: { "x-oauth-scopes": "public_repo, project" },
+    });
+    const client = createGithubClient();
+    const result = await client.validateAuth(AUTH_PAT, BOARD_ID);
+    expect(result.ok).toBe(true);
+    expect(result.canComment).toBe(true);
+  });
+
+  test("canComment=false when classic scopes header is present but 'repo'/'public_repo' absent", async () => {
+    enqueue({
+      body: { data: { node: { id: BOARD_ID } } },
+      headers: { "x-oauth-scopes": "read:org, project" },
+    });
+    const client = createGithubClient();
+    const result = await client.validateAuth(AUTH_PAT, BOARD_ID);
+    expect(result.ok).toBe(true);
+    expect(result.canComment).toBe(false);
+  });
+
+  test("canComment=undefined when no x-oauth-scopes header (fine-grained PAT)", async () => {
+    // No x-oauth-scopes header → parseScopes returns [] → tri-state undefined.
+    enqueue({ body: { data: { node: { id: BOARD_ID } } } });
+    const client = createGithubClient();
+    const result = await client.validateAuth(AUTH_PAT, BOARD_ID);
+    expect(result.ok).toBe(true);
+    expect(result.canComment).toBeUndefined();
+  });
 });
 
 // ── fetchBoardItems ─────────────────────────────────────────────────────────

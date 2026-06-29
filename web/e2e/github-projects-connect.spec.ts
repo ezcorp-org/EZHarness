@@ -54,8 +54,19 @@ function connectedLink(overrides: Record<string, unknown> = {}) {
  * Install fine-grained route handlers for the github-projects link/connect
  * endpoints over a mutable in-memory `state` (an ARRAY of boards). Returns the
  * state so a test can seed boards and assert the UI reacts.
+ *
+ * `connectCanComment` controls the `canComment` field the connect endpoint
+ * returns: `true` (default), `false` (confirmed cannot comment), or `"omit"`
+ * (fine-grained PAT — the key is absent from the JSON response). Mirrors the
+ * server's tri-state (true/false/absent). We use the string sentinel `"omit"`
+ * instead of `undefined` because JavaScript default-parameter substitution
+ * replaces `undefined` with the default value, making it impossible to
+ * distinguish an explicit `undefined` from a missing option.
  */
-async function installGhRoutes(page: Page) {
+async function installGhRoutes(
+	page: Page,
+	{ connectCanComment = true as boolean | "omit" } = {},
+) {
 	const state: {
 		links: ReturnType<typeof connectedLink>[];
 		refreshOptions: { id: string; name: string }[];
@@ -131,15 +142,17 @@ async function installGhRoutes(page: Page) {
 		}
 		link.authMode = body.authMode;
 		link.hasTokenOverride = body.tokenScope === "board";
-		return route.fulfill({
-			json: {
-				linkId: link.id,
-				boardTitle: link.boardTitle,
-				ownerLogin: link.ownerLogin,
-				statusOptions: link.statusOptions,
-				scopes: ["repo", "project"],
-			},
-		});
+		// Build the response object; omit canComment key when "omit" (mirrors JSON
+		// serialisation of a fine-grained PAT response — the key is absent).
+		const json: Record<string, unknown> = {
+			linkId: link.id,
+			boardTitle: link.boardTitle,
+			ownerLogin: link.ownerLogin,
+			statusOptions: link.statusOptions,
+			scopes: ["repo", "project"],
+		};
+		if (connectCanComment !== "omit") json.canComment = connectCanComment;
+		return route.fulfill({ json });
 	});
 
 	// Mock the model registry the default-model picker reads. Two available
@@ -623,5 +636,86 @@ test.describe("GitHub Projects connect sub-route", () => {
 
 		await expect(page.getByTestId("project-settings-integrations")).toBeVisible();
 		await expect(page.getByTestId("project-settings-gh-status")).toContainText("Connected: 2 boards");
+	});
+
+	// ── canComment scope warning / note ──────────────────────────────────────
+
+	test("connect with canComment=false shows WARNING banner with missing-scope guidance @evidence", async ({ page, mockApi }, testInfo) => {
+		// Simulate a classic PAT that lacks the 'repo' scope.
+		await mockApi({ projects: [proj] });
+		await installGhRoutes(page, { connectCanComment: false });
+		await page.goto(CONNECT_PATH);
+
+		await page.getByTestId("gh-projects-board-url").fill("https://github.com/orgs/acme/projects/7");
+		await page.getByTestId("gh-projects-token").fill("github_pat_limited");
+
+		// Wait for the POST connect + the subsequent GET link reload to complete,
+		// then assert. Using waitForResponse guards against Svelte rendering the
+		// state update before both requests settle.
+		const [connectRes] = await Promise.all([
+			page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/connect") && r.request().method() === "POST"),
+			page.getByTestId("gh-projects-connect").click(),
+		]);
+		expect(connectRes.status()).toBe(200);
+		// Wait for the link-list reload triggered by loadLinks() to complete.
+		await page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/link") && r.request().method() === "GET");
+
+		// The warning banner must appear.
+		const banner = page.getByTestId("gh-comment-scope-warning");
+		await expect(banner).toBeVisible();
+		await expect(banner).toContainText("can't post issue comments");
+		await expect(banner).toContainText("repo");
+
+		// The info note for fine-grained tokens must NOT appear.
+		await expect(page.getByTestId("gh-comment-scope-note")).toHaveCount(0);
+
+		await captureEvidence(page, testInfo, "gh-comment-scope-warning");
+	});
+
+	test("connect with canComment=true shows NO banner (token has repo scope)", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		// connectCanComment=true is the default, but making it explicit for clarity.
+		await installGhRoutes(page, { connectCanComment: true });
+		await page.goto(CONNECT_PATH);
+
+		await page.getByTestId("gh-projects-board-url").fill("https://github.com/orgs/acme/projects/7");
+		await page.getByTestId("gh-projects-token").fill("github_pat_full");
+
+		const [connectRes] = await Promise.all([
+			page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/connect") && r.request().method() === "POST"),
+			page.getByTestId("gh-projects-connect").click(),
+		]);
+		expect(connectRes.status()).toBe(200);
+		await page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/link") && r.request().method() === "GET");
+
+		// Neither the warning banner nor the info note should appear.
+		await expect(page.getByTestId("gh-comment-scope-warning")).toHaveCount(0);
+		await expect(page.getByTestId("gh-comment-scope-note")).toHaveCount(0);
+	});
+
+	test("connect with canComment=undefined (fine-grained PAT) shows INFO note only", async ({ page, mockApi }) => {
+		// Fine-grained PAT: canComment is absent from the response (the key is
+		// missing from JSON). Guidance note renders; warning does not.
+		// We pass "omit" as the sentinel — undefined cannot be used here because
+		// JS default-parameter substitution replaces it with the default (true).
+		await mockApi({ projects: [proj] });
+		await installGhRoutes(page, { connectCanComment: "omit" });
+		await page.goto(CONNECT_PATH);
+
+		await page.getByTestId("gh-projects-board-url").fill("https://github.com/orgs/acme/projects/7");
+		await page.getByTestId("gh-projects-token").fill("github_pat_fine_grained");
+
+		const [connectRes] = await Promise.all([
+			page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/connect") && r.request().method() === "POST"),
+			page.getByTestId("gh-projects-connect").click(),
+		]);
+		expect(connectRes.status()).toBe(200);
+		await page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/link") && r.request().method() === "GET");
+
+		// The info note appears; the warning banner does not.
+		const note = page.getByTestId("gh-comment-scope-note");
+		await expect(note).toBeVisible();
+		await expect(note).toContainText("Issues: Read and write");
+		await expect(page.getByTestId("gh-comment-scope-warning")).toHaveCount(0);
 	});
 });

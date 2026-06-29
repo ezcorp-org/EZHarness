@@ -115,6 +115,17 @@ export interface GithubAuthValidation {
   scopes: string[]; // best-effort, from x-oauth-scopes header
   missingScopes: string[]; // named for the UI
   error?: string;
+  /**
+   * Tri-state: can this token post issue comments via addComment?
+   *   true      = confirmed CAN comment (classic PAT with "repo" or "public_repo" scope)
+   *   false     = confirmed CANNOT comment (classic PAT with scopes header present, but
+   *               neither "repo" nor "public_repo" is in the list)
+   *   undefined = indeterminate (fine-grained PAT — GitHub exposes no x-oauth-scopes
+   *               header, so we can never verify or disprove Issues:write non-destructively)
+   *
+   * Only set on the SUCCESS path (ok:true). Always undefined on ok:false.
+   */
+  canComment?: boolean;
 }
 
 export interface GithubCreateTicketInput {

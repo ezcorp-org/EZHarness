@@ -326,11 +326,20 @@
 	let connectError = $state("");
 	let missingScopes = $state<string[]>([]);
 	let grantedScopes = $state<string[]>([]);
+	/**
+	 * canComment tri-state from the connect response:
+	 *   "yes"     = confirmed can post comments (classic PAT with repo/public_repo)
+	 *   "no"      = confirmed CANNOT comment (classic PAT lacking repo/public_repo)
+	 *   "unknown" = indeterminate (fine-grained PAT — GitHub sends no x-oauth-scopes)
+	 *   null      = connect not yet attempted / reset
+	 */
+	let canComment = $state<"yes" | "no" | "unknown" | null>(null);
 
 	async function connect() {
 		connectError = "";
 		missingScopes = [];
 		grantedScopes = [];
+		canComment = null;
 		if (!boardUrl.trim()) {
 			connectError = "Paste a GitHub Projects board URL first.";
 			return;
@@ -356,6 +365,7 @@
 				error?: string;
 				missingScopes?: string[];
 				scopes?: string[];
+				canComment?: boolean;
 			};
 			if (!res.ok) {
 				connectError = data.error ?? `Connect failed (${res.status})`;
@@ -363,6 +373,16 @@
 				return;
 			}
 			grantedScopes = data.scopes ?? [];
+			// Map the server's tri-state (true/false/absent) to local string state.
+			// The server omits the canComment key for fine-grained PATs (undefined →
+			// absent in JSON). Absent key → "unknown" (guidance note only, no definitive warn).
+			if (!("canComment" in data)) {
+				canComment = "unknown";
+			} else if (data.canComment === true) {
+				canComment = "yes";
+			} else {
+				canComment = "no";
+			}
 			token = ""; // never keep the PAT in memory longer than the request
 			boardUrl = "";
 			useBoardToken = false;
@@ -805,5 +825,21 @@
 		>
 			{connecting ? "Connecting…" : links.length ? "Connect another board" : "Connect board"}
 		</button>
+
+		{#if canComment === "no"}
+			<p
+				class="mt-3 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-300"
+				data-testid="gh-comment-scope-warning"
+			>
+				⚠ This token can manage the board but can't post issue comments (missing the <code>repo</code> scope). Progress comments won't appear on cards. Re-create the token with <code>repo</code> (classic) or Issues: Read and write (fine-grained).
+			</p>
+		{:else if canComment === "unknown"}
+			<p
+				class="mt-3 text-xs text-[var(--color-text-muted)]"
+				data-testid="gh-comment-scope-note"
+			>
+				Note: progress comments require the token to have Issues: Read and write (fine-grained) or <code>repo</code> (classic). The board itself will work regardless.
+			</p>
+		{/if}
 	</section>
 {/snippet}
