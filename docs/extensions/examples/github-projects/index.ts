@@ -98,6 +98,9 @@ export interface ProposalView {
   action: string; // "plan" | "execute"
   statusName: string;
   ticketUrl: string | null;
+  /** The EZCorp project the board is connected to — needed to build the chat
+   *  href (`/project/<projectId>/chat/<conversationId>`). */
+  projectId: string;
   conversationId: string | null;
   boardTitle: string;
   proposedAt: string; // ISO
@@ -233,6 +236,15 @@ export function fmtTime(iso: string | null | undefined): string {
   return iso.slice(0, 16).replace("T", " ");
 }
 
+/**
+ * Build the in-app chat href for a proposal's spawned conversation, or null
+ * when it has no conversation yet. MUST match the SvelteKit chat route shape
+ * `/project/[id]/chat/[convId]` — a bare `/chat/<id>` 404s.
+ */
+export function chatHref(p: ProposalView): string | null {
+  return p.conversationId ? `/project/${p.projectId}/chat/${p.conversationId}` : null;
+}
+
 /** Build the dashboard tree from the viewing user's data. Pure + exported so
  *  the unit test asserts the tree (sections, badges, action events) directly. */
 export function buildDashboard(data: DashboardData): HubPageTree {
@@ -292,10 +304,8 @@ export function buildDashboard(data: DashboardData): HubPageTree {
             },
           };
         }
-        if (p.conversationId) {
-          return { cells, href: `/chat/${p.conversationId}` };
-        }
-        return { cells };
+        const href = chatHref(p);
+        return href ? { cells, href } : { cells };
       }),
     );
     // Per-pending-proposal Dismiss buttons (a second action surface so a user
@@ -328,7 +338,8 @@ export function buildDashboard(data: DashboardData): HubPageTree {
           p.action,
           fmtTime(p.proposedAt),
         ];
-        return p.conversationId ? { cells, href: `/chat/${p.conversationId}` } : { cells };
+        const href = chatHref(p);
+        return href ? { cells, href } : { cells };
       }),
     );
   }

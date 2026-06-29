@@ -23,6 +23,7 @@ import {
   PAGE_ID,
   RPC,
   buildDashboard,
+  chatHref,
   fmtTime,
   fetchDashboardData,
   renderDashboard,
@@ -178,6 +179,7 @@ function proposalView(over: Partial<ProposalView> = {}): ProposalView {
     action: "execute",
     statusName: "In Progress",
     ticketUrl: null,
+    projectId: "proj-1",
     conversationId: null,
     boardTitle: "Roadmap",
     proposedAt: "2026-06-21T08:00:00Z",
@@ -228,10 +230,10 @@ describe("buildDashboard", () => {
   test("running proposals link to their conversation; terminal go to History", () => {
     const data: DashboardData = {
       proposals: [
-        proposalView({ id: "run", status: "running", conversationId: "conv-9" }),
+        proposalView({ id: "run", status: "running", projectId: "proj-9", conversationId: "conv-9" }),
         // A running proposal with NO conversation yet (just-spawned) → plain row.
         proposalView({ id: "spawned", status: "spawned", conversationId: null }),
-        proposalView({ id: "done", status: "done", conversationId: "conv-7" }),
+        proposalView({ id: "done", status: "done", projectId: "proj-7", conversationId: "conv-7" }),
         // A terminal proposal with no conversation → plain History row.
         proposalView({ id: "failed", status: "failed", conversationId: null }),
       ],
@@ -240,13 +242,25 @@ describe("buildDashboard", () => {
       ],
     };
     const tree = buildDashboard(data);
-    const link = findNode(tree.nodes, (n) => n.type === "table" && (n.rows as Array<{ href?: string }>)?.some((r) => r.href === "/chat/conv-9"));
+    // Regression: the chat href MUST be the project-scoped SvelteKit route
+    // `/project/<projectId>/chat/<convId>` — a bare `/chat/<id>` 404s.
+    const link = findNode(tree.nodes, (n) => n.type === "table" && (n.rows as Array<{ href?: string }>)?.some((r) => r.href === "/project/proj-9/chat/conv-9"));
     expect(link).toBeTruthy();
-    const hist = findNode(tree.nodes, (n) => n.type === "table" && (n.rows as Array<{ href?: string }>)?.some((r) => r.href === "/chat/conv-7"));
+    const hist = findNode(tree.nodes, (n) => n.type === "table" && (n.rows as Array<{ href?: string }>)?.some((r) => r.href === "/project/proj-7/chat/conv-7"));
     expect(hist).toBeTruthy();
+    // No row may emit the old bare `/chat/<id>` href (the 404 bug).
+    const bareChat = findNode(tree.nodes, (n) => n.type === "table" && (n.rows as Array<{ href?: string }>)?.some((r) => typeof r.href === "string" && r.href.startsWith("/chat/")));
+    expect(bareChat).toBeUndefined();
     // The spawned/failed rows with no conversationId render without an href.
     const activeTable = findNode(tree.nodes, (n) => n.type === "table" && (n.rows as Array<{ cells: string[] }>)?.some((r) => r.cells.includes("Ship it")));
     expect(activeTable).toBeTruthy();
+  });
+
+  test("chatHref builds the project-scoped chat route; null without a conversation", () => {
+    expect(chatHref(proposalView({ projectId: "proj-x", conversationId: "conv-x" }))).toBe(
+      "/project/proj-x/chat/conv-x",
+    );
+    expect(chatHref(proposalView({ conversationId: null }))).toBeNull();
   });
 
   test("connection health renders a Pause toggle + Reconnect on error", () => {

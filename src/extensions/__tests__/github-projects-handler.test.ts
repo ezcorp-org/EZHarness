@@ -754,14 +754,24 @@ describe("dashboard-data", () => {
   test("returns the viewing user's proposals + boards", async () => {
     _setLinksByUserForTests(async (userId) => {
       expect(userId).toBe("user-1");
-      return [link()];
+      return [link({ projectId: "proj-7" })];
     });
-    listProposalsByProjectImpl = async () => [proposal({ status: "pending" })];
+    listProposalsByProjectImpl = async () => [
+      proposal({ status: "running", projectId: "proj-7", conversationId: "conv-7" }),
+    ];
     const res = await handleGithubProjectsRpc("dashboard-data", req(V("dashboard-data")), ctx());
     expect("result" in res).toBe(true);
-    const data = (res as { result: { proposals: unknown[]; boards: unknown[] } }).result;
+    const data = (
+      res as {
+        result: { proposals: { projectId: string; conversationId: string | null }[]; boards: unknown[] };
+      }
+    ).result;
     expect(data.boards.length).toBe(1);
     expect(data.proposals.length).toBe(1);
+    // The projection MUST carry the link's projectId so the dashboard can build
+    // the project-scoped chat href (`/project/<projectId>/chat/<convId>`).
+    expect(data.proposals[0]!.projectId).toBe("proj-7");
+    expect(data.proposals[0]!.conversationId).toBe("conv-7");
   });
 
   test("rejects an ownerless fire (no viewing user)", async () => {

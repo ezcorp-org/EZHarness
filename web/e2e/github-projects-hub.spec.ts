@@ -1,5 +1,5 @@
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
-import { makeProject } from "./fixtures/data.js";
+import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 import type { Page } from "@playwright/test";
 
 /**
@@ -126,6 +126,68 @@ test.describe("GitHub Projects Hub", () => {
 		// The inline fresh tree shows the proposal as spawned (Approve gone).
 		await expect(page.getByText("Spawned")).toBeVisible();
 		await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(0);
+	});
+
+	test("a spawned proposal links to the project-scoped chat route (not a bare /chat/ 404)", async ({
+		page,
+		mockApi,
+	}) => {
+		// A History table whose spawned row carries the chat href the extension's
+		// buildDashboard now emits: `/project/<projectId>/chat/<conversationId>`.
+		// Regression guard for the 404 bug where the href was a bare `/chat/<id>`.
+		const convId = "conv-spawned-1";
+		const chatHref = `/project/${proj.id}/chat/${convId}`;
+		const conv = makeConversation({ id: convId, projectId: proj.id, title: "Implement login" });
+		const userMsg = makeMessage({ id: "m-1", conversationId: convId, role: "user", content: "go" });
+		await mockApi({
+			projects: [proj],
+			conversations: [conv],
+			messages: [userMsg],
+			// The catch-all 404 page (asserted below) renders outside the `(app)`
+			// group; its root layout resolves the viewer via `/api/auth/me`.
+			routes: {
+				"/api/auth/me": () => ({ user: { id: "u-1", email: "a@b.c", name: "U", role: "member" } }),
+			},
+		});
+
+		await page.route("**/api/hub/pages", (route) =>
+			route.fulfill({ json: { pages: [{ id: HUB_PAGE_ID, title: "GitHub Proposals", icon: "github" }] } }),
+		);
+		await page.route(`**/api/hub/pages/${encodeURIComponent(HUB_PAGE_ID)}`, (route) =>
+			route.fulfill({
+				json: {
+					page: {
+						id: HUB_PAGE_ID,
+						title: "GitHub Proposals",
+						nodes: [
+							{ type: "heading", level: 2, text: "History" },
+							{
+								type: "table",
+								columns: ["Ticket", "Status"],
+								rows: [{ cells: ["Implement login", "✓ done"], href: chatHref }],
+							},
+						],
+					},
+				},
+			}),
+		);
+
+		await page.goto(`/hub/${encodeURIComponent(HUB_PAGE_ID)}`);
+		await expect(page.getByTestId("hub-page-title")).toContainText("GitHub Proposals");
+
+		// The rendered row anchor MUST point at the project-scoped chat route.
+		const link = page.getByTestId("hub-row-link");
+		await expect(link).toHaveAttribute("href", chatHref);
+
+		// Following it lands on the real chat route — NOT the catch-all 404 page.
+		await link.click();
+		await expect(page).toHaveURL(new RegExp(`/project/${proj.id}/chat/${convId}`));
+		await expect(page.getByText("Page not found")).toHaveCount(0);
+
+		// Root-cause proof: the OLD bare `/chat/<id>` href had no matching route
+		// and rendered the 404 page — exactly the reported "404 at all times" bug.
+		await page.goto(`/chat/${convId}`);
+		await expect(page.getByText("Page not found")).toBeVisible({ timeout: 5000 });
 	});
 
 	test("Poll now button dispatches the poll-now event with the board's linkId", async ({

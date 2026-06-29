@@ -555,6 +555,9 @@ function projectionForProposal(p: GithubProjectsProposal, link: GithubProjectsLi
     action: p.action,
     statusName: p.statusName,
     ticketUrl: p.ticketUrl ?? null,
+    // projectId backs the chat href the dashboard builds
+    // (`/project/<projectId>/chat/<conversationId>`).
+    projectId: link.projectId,
     conversationId: p.conversationId ?? null,
     boardTitle: link.boardTitle,
     proposedAt: p.proposedAt.toISOString(),
