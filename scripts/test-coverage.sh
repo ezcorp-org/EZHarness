@@ -1,334 +1,347 @@
 #!/usr/bin/env bash
-# Run each host / example test file in its own bun process with --coverage,
-# plus one bundled run for the SDK suite (no mock.module contamination there,
-# and bundling preserves module-load instrumentation parity with Phase 1's
-# 100% SDK baseline). Merge all per-shard lcov files into coverage/lcov.info
-# and enforce scripts/coverage-thresholds.json.
+# Per-file --coverage runner for the host/example pool + the SDK, harness-client
+# and node-vitest coverage legs. Each host file runs in its own bun process
+# (mock.module() isolation; mirrors scripts/test.sh). The file sets live in
+# scripts/lib/test-file-sets.sh so the coverage set and the pass/fail set can
+# never drift apart.
 #
-# Mirrors scripts/test.sh's parallel pattern for host tests.
+# THREE MODES (selected by env):
+#
+#   full (default, `bun run test:coverage`):
+#       Run the ENTIRE host set + all legs, merge every per-shard lcov into
+#       coverage/lcov.info, and enforce scripts/coverage-thresholds.json.
+#       Coverage-only: pass/fail is NOT a hard failure here (the CI shards and
+#       the `Web tests` job own pass/fail). This preserves the historical local
+#       `test:coverage` behaviour.
+#
+#   host-shard (CI; SHARD_INDEX + SHARD_TOTAL set):
+#       Run only the 1-of-N stride slice of the host set under --coverage and
+#       emit each shard's lcov into $COV_OUT for the coverage-gate job to merge.
+#       This is the SHARDED form of the pre-split coverage job: it TOLERATES test
+#       pass/fail (reports a summary + the failing files for visibility, but
+#       exits 0 on test failures) and lets the Per-file coverage gate enforce
+#       thresholds — the project's "enforces thresholds, not shard status"
+#       contract. (Several backend suites are timing/rate-limit/build sensitive
+#       and fail under --coverage AND on the slow CI runner even plain; the old
+#       `Backend tests` pool masked them via a set -e bug. Gating shard pass/fail
+#       here would red CI on those pre-existing env-flaky tests with no integrity
+#       gain — the coverage threshold gate is and remains the real backend gate.)
+#       A shard still exits non-zero on an INFRASTRUCTURE failure (the runner
+#       couldn't execute), which the `Backend tests` aggregator surfaces.
+#       No legs/merge/check here.
+#
+#   legs-only (CI; COVERAGE_LEGS_ONLY=1):
+#       Run ONLY the SDK + harness-client + node-vitest coverage legs and emit
+#       their lcov into $COV_OUT. No host files, no merge, no check.
+#
+# $COV_OUT — directory the CI modes copy per-shard lcov into (uploaded as an
+# artifact). Unused in full mode.
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/test-file-sets.sh
+source "$SCRIPT_DIR/lib/test-file-sets.sh"
+
 PARALLEL=${PARALLEL:-6}
+COV_OUT=${COV_OUT:-}
 TOTAL_PASS=0
 TOTAL_FAIL=0
 FAILED_FILES=()
 
-# Host + example tests run per-file for mock.module() isolation.
-# The import-wizard endpoint tests sit beside their routes (bun:test);
-# include them so their lcov merges and the import paths are gated.
-#
-# The Phase 66/67 search-helper bun:test suites also join the per-file loop so
-# their lcov merges and the web/src/lib/search logic paths get gated. Run
-# from the repo root, the loop body below already emits web/-prefixed SF
-# paths, so no cd / SF rewrite is needed. SCOPED to JUST the target
-# search-helper test files (snippet-sanitize + search-mode + palette-results)
-# — NOT the whole web/src/__tests__ dir. Widening to the whole dir transitively imports
-# dozens of unrelated web/src/lib, SDK, and example modules, whose
-# sourcemap-attributed zero-hit DA records inflate the denominator on files
-# already pinned at 100% (web/src/lib/**:90, packages/@ezcorp/sdk/src/**:100,
-# docs/extensions/examples/*/index.ts:100), surfacing them as new gate
-# violations. Scoping to the two target files confines the gate change to the
-# five intended Phase 66 files (verified: no other threshold-matched file
-# regresses). The vitest-only deep-link-resolve + goal-row-logic
-# run under the node-vitest leg below (coverage-v8 fails under Bun).
-mapfile -t FILES < <({
-  find src/__tests__ -name "*.test.ts"
-  find docs/extensions/examples -name "*.test.ts"
-  find web/src/routes/api/import -name "*.test.ts"
-  printf '%s\n' \
-    web/src/__tests__/snippet-sanitize.test.ts \
-    web/src/__tests__/search-mode.test.ts \
-    web/src/__tests__/shared-ui-components.test.ts \
-    web/src/lib/search/__tests__/palette-results.test.ts \
-    web/src/lib/__tests__/diff-view-mode.test.ts \
-    web/src/lib/__tests__/tool-scope-logic.test.ts \
-    web/src/lib/__tests__/loaded-tools-logic.test.ts \
-    web/src/lib/__tests__/briefing-cron.test.ts \
-    web/src/__tests__/test-surface.test.ts \
-    web/src/__tests__/test-surface-bypass.test.ts \
-    web/src/__tests__/mock-llm-store.test.ts \
-    web/src/__tests__/mock-llm-route.test.ts \
-    web/src/__tests__/runs-wait-route.test.ts \
-    web/src/__tests__/seed-reset-route.test.ts \
-    web/src/__tests__/route-contract.test.ts
-} | sort)
-
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-RUNNING=0
-IDX=0
+[ -n "$COV_OUT" ] && mkdir -p "$COV_OUT"
 
-for f in "${FILES[@]}"; do
-  OUTFILE="$TMPDIR/result_$IDX"
-  COVDIR="$TMPDIR/cov_$IDX"
-  # Give DB-heavy suites headroom: setupTestDb() in a beforeAll can exceed bun's
-  # 5s default under --coverage instrumentation + PARALLEL contention, crashing
-  # the shard as "(unnamed)" — which drops any gated file it solely covers to 0%
-  # and fails the gate. EXCLUDE the example e2e shards: their real-subprocess
-  # tests genuinely fail-by-timeout, so a long timeout would balloon the job
-  # ~45min. Keep their 5s fast-fail.
-  case "$f" in
-    docs/extensions/examples/*) TIMEOUT_FLAG="" ;;
-    *) TIMEOUT_FLAG="--timeout 30000" ;;
+# Per-file --coverage flags. Example e2e shards keep bun's 5s fast-fail (their
+# real-subprocess cases genuinely time out without Docker; a long timeout would
+# balloon the job). DB-heavy suites get 30s headroom so setupTestDb() in a
+# beforeAll doesn't crash the shard as "(unnamed)" under instrumentation.
+timeout_flag_for() {
+  case "$1" in
+    docs/extensions/examples/*) echo "" ;;
+    *) echo "--timeout 30000" ;;
   esac
-  (
-    OUTPUT=$(bun test $TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="$COVDIR" "./$f" 2>&1) || true
-    echo "$OUTPUT" > "$OUTFILE"
-  ) &
-  IDX=$((IDX + 1))
-  RUNNING=$((RUNNING + 1))
+}
 
-  if [ "$RUNNING" -ge "$PARALLEL" ]; then
-    wait -n 2>/dev/null || true
-    RUNNING=$((RUNNING - 1))
+# ── host pool ───────────────────────────────────────────────────────────────
+run_host_pool() {
+  local -n _files=$1
+  local running=0 idx=0
+  for f in "${_files[@]}"; do
+    local outfile="$TMPDIR/result_$idx" codefile="$TMPDIR/code_$idx" covdir="$TMPDIR/cov_$idx"
+    local tflag; tflag=$(timeout_flag_for "$f")
+    (
+      # set +e: the script runs under set -e, so a failing `bun test` would
+      # abort this subshell at the command-substitution assignment before the
+      # output/exit-code files are written — making the failure invisible to the
+      # summary. set +e (scoped to the subshell) records the real exit code so
+      # the per-shard summary accurately reports failing files (visibility).
+      set +e
+      OUTPUT=$(bun test $tflag --coverage --coverage-reporter=lcov --coverage-dir="$covdir" "./$f" 2>&1)
+      echo "$?" > "$codefile"
+      echo "$OUTPUT" > "$outfile"
+    ) &
+    idx=$((idx + 1)); running=$((running + 1))
+    if [ "$running" -ge "$PARALLEL" ]; then wait -n 2>/dev/null || true; running=$((running - 1)); fi
+  done
+  wait
+  HOST_COUNT=$idx
+}
+
+# Tally pass/fail from a shard's captured output (visibility only).
+tally() {
+  local output="$1"
+  local p f
+  p=$(echo "$output" | awk '/pass/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="pass") print $j}' | tail -1)
+  f=$(echo "$output" | awk '/fail/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="fail") print $j}' | tail -1)
+  TOTAL_PASS=$((TOTAL_PASS + ${p:-0}))
+  TOTAL_FAIL=$((TOTAL_FAIL + ${f:-0}))
+}
+
+# ── SDK + harness-client + node-vitest legs ─────────────────────────────────
+run_legs() {
+  # SDK: top-level test/ + co-located entities/__tests__/ (the canonical
+  # coverage for entities/{validate,tools,storage,slug}.ts). mock.module-free,
+  # so bundling preserves the 100% module-load instrumentation parity.
+  local sdk_cov="$TMPDIR/cov_sdk" sdk_out
+  sdk_out=$(bun test --coverage --coverage-reporter=lcov --coverage-dir="$sdk_cov" ./packages/@ezcorp/sdk/test/ ./packages/@ezcorp/sdk/src/entities/__tests__/ 2>&1) || true
+  tally "$sdk_out"
+
+  # harness-client — its own mock.module-free shard.
+  local hc_cov="$TMPDIR/cov_hc" hc_out
+  hc_out=$(bun test --coverage --coverage-reporter=lcov --coverage-dir="$hc_cov" ./packages/@ezcorp/harness-client/ 2>&1) || true
+  tally "$hc_out"
+
+  # Node-run vitest leg for the vitest-only web/src/lib files. @vitest/coverage-v8
+  # needs node:inspector's Coverage domain, which Bun does not implement, so this
+  # leg MUST run under node (CI provisions node 22). --coverage.include is scoped
+  # to JUST the target lib paths so the leg doesn't pull all of web/src/lib/**
+  # into the gate. Subshell so `cd web` never leaks.
+  VITEST_COV="$TMPDIR/cov_vitest"
+  VITEST_EXIT=0
+  ( cd web && npx vitest run \
+      src/__tests__/deep-link-resolve.unit.test.ts \
+      src/lib/components/goal-row-logic.unit.test.ts \
+      src/lib/components/UpdateBanner.component.test.ts \
+      src/__tests__/version-endpoint.server.test.ts \
+      src/__tests__/relative-time.unit.test.ts \
+      src/__tests__/relative-time.test.ts \
+      src/__tests__/http-errors.unit.test.ts \
+      src/__tests__/session-cookie.server.test.ts \
+      src/__tests__/shutdown.server.test.ts \
+      src/__tests__/extension-helpers-clamp.server.test.ts \
+      src/__tests__/conversation-ownership.server.test.ts \
+      src/__tests__/mention-logic.unit.test.ts \
+      src/__tests__/mention-logic-EZ-sigil.unit.test.ts \
+      src/__tests__/mention-logic-feature.unit.test.ts \
+      src/__tests__/mention-logic-lesson-sigil.unit.test.ts \
+      src/lib/__tests__/markdown.unit.test.ts \
+      src/lib/__tests__/safe-redirect.unit.test.ts \
+      src/__tests__/fuzzy-match.unit.test.ts \
+      src/__tests__/chat-input-logic.unit.test.ts \
+      src/__tests__/api-preview-consent.server.test.ts \
+      src/__tests__/preview-dispatch.server.test.ts \
+      src/__tests__/preview-ws-bridge.server.test.ts \
+      src/__tests__/context-register-preview-bus.server.test.ts \
+      src/lib/components/tool-cards/preview-consent-card-logic.unit.test.ts \
+      src/__tests__/ExtensionToolSelector.component.test.ts \
+      src/lib/components/__tests__/ModeFormModal.component.test.ts \
+      src/lib/chat/page-handlers/__tests__/inherit-mode.unit.test.ts \
+      src/__tests__/tools-api-mode-scope.server.test.ts \
+      src/__tests__/api-extensions-id-reapprove-drift.server.test.ts \
+      src/lib/hub.unit.test.ts \
+      src/lib/settings-nav.unit.test.ts \
+      src/lib/settings-search.unit.test.ts \
+      src/lib/settings-search-config.unit.test.ts \
+      src/__tests__/api-search-backend.server.test.ts \
+      src/lib/components/__tests__/SearchDefaultsSection.component.test.ts \
+      src/lib/components/__tests__/SearchBackendSection.component.test.ts \
+      "src/routes/(app)/settings/search/__tests__/page.component.test.ts" \
+      src/lib/capability-policy-ui.unit.test.ts \
+      src/lib/components/__tests__/CapabilitiesPanel.component.test.ts \
+      src/lib/ezcorp-config-edit.unit.test.ts \
+      src/lib/components/__tests__/AuthorCompositionPanel.component.test.ts \
+      src/lib/components/__tests__/UsesList.component.test.ts \
+      "src/routes/(app)/extensions/author/__tests__/page.component.test.ts" \
+      src/__tests__/api-users.server.test.ts \
+      src/lib/audit-log-view.unit.test.ts \
+      src/lib/settings-models.unit.test.ts \
+      src/lib/save-flash.unit.test.ts \
+      src/lib/admin-guard.unit.test.ts \
+      src/lib/scroll-to-hash.unit.test.ts \
+      src/lib/chat-prompt-nav.unit.test.ts \
+      src/lib/extensions/extension-sort.unit.test.ts \
+      src/__tests__/resume-path.unit.test.ts \
+      src/__tests__/sw-runtime.unit.test.ts \
+      src/__tests__/service-worker.shell.unit.test.ts \
+      src/lib/components/__tests__/AuditLogSection.component.test.ts \
+      src/lib/components/__tests__/CustomModelsSection.component.test.ts \
+      src/lib/components/__tests__/SystemHealth.component.test.ts \
+      src/lib/components/__tests__/UsersSection.component.test.ts \
+      src/lib/components/__tests__/settings-save-model.component.test.ts \
+      src/lib/components/__tests__/InvitesSection.component.test.ts \
+      src/lib/components/__tests__/TeamsSection.component.test.ts \
+      src/lib/components/__tests__/ProvidersSection.component.test.ts \
+      src/lib/components/__tests__/ApiKeyManager.component.test.ts \
+      src/lib/components/__tests__/ModesSection.component.test.ts \
+      src/lib/components/__tests__/SaveIndicator.component.test.ts \
+      src/lib/components/__tests__/SettingsSection.component.test.ts \
+      src/__tests__/settings-layout.component.test.ts \
+      --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
+      --coverage.reportsDirectory="$VITEST_COV" \
+      --coverage.include='src/lib/search/*.ts' \
+      --coverage.include='src/lib/hub.ts' \
+      --coverage.include='src/lib/components/goal-row-logic.ts' \
+      --coverage.include='src/lib/components/UpdateBanner.svelte' \
+      --coverage.include='src/lib/components/UpdateBanner.helpers.ts' \
+      --coverage.include='src/routes/api/version/+server.ts' \
+      --coverage.include='src/lib/utils/relative-time.ts' \
+      --coverage.include='src/lib/server/http-errors.ts' \
+      --coverage.include='src/lib/server/auth/session-cookie.ts' \
+      --coverage.include='src/lib/server/shutdown.ts' \
+      --coverage.include='src/lib/server/extension-helpers.ts' \
+      --coverage.include='src/lib/server/conversation-ownership.ts' \
+      --coverage.include='src/lib/mention-logic.ts' \
+      --coverage.include='src/lib/markdown.ts' \
+      --coverage.include='src/lib/safe-redirect.ts' \
+      --coverage.include='src/lib/fuzzy-match.ts' \
+      --coverage.include='src/lib/components/tool-cards/preview-consent-card-logic.ts' \
+      --coverage.include='src/routes/api/preview/[id]/token/+server.ts' \
+      --coverage.include='src/routes/api/preview/consent/+server.ts' \
+      --coverage.include='src/lib/components/ExtensionToolSelector.svelte' \
+      --coverage.include='src/lib/components/ModeFormModal.svelte' \
+      --coverage.include='src/lib/chat/page-handlers/inherit-mode.ts' \
+      --coverage.include='src/routes/api/tools/+server.ts' \
+      --coverage.include='src/routes/api/extensions/[id]/reapprove-drift/+server.ts' \
+      --coverage.include='src/lib/settings-nav.ts' \
+      --coverage.include='src/lib/settings-search.ts' \
+      --coverage.include='src/lib/settings-search-config.ts' \
+      --coverage.include='src/routes/api/search/backend/+server.ts' \
+      --coverage.include='src/lib/components/settings/SearchDefaultsSection.svelte' \
+      --coverage.include='src/lib/components/settings/SearchBackendSection.svelte' \
+      --coverage.include='src/lib/capability-policy-ui.ts' \
+      --coverage.include='src/lib/components/extensions/CapabilitiesPanel.svelte' \
+      --coverage.include='src/lib/ezcorp-config-edit.ts' \
+      --coverage.include='src/lib/components/extensions/AuthorCompositionPanel.svelte' \
+      --coverage.include='src/lib/components/extensions/UsesList.svelte' \
+      --coverage.include='src/routes/api/users/+server.ts' \
+      --coverage.include='src/lib/audit-log-view.ts' \
+      --coverage.include='src/lib/settings-models.ts' \
+      --coverage.include='src/lib/save-flash.svelte.ts' \
+      --coverage.include='src/lib/admin-guard.ts' \
+      --coverage.include='src/lib/scroll-to-hash.ts' \
+      --coverage.include='src/lib/chat-prompt-nav.ts' \
+      --coverage.include='src/lib/extensions/extension-sort.ts' \
+      --coverage.include='src/lib/resume-path.ts' \
+      --coverage.include='src/lib/sw-runtime.ts' \
+      --coverage.include='src/service-worker.ts' \
+      --coverage.include='src/lib/components/settings/ProvidersSection.svelte' \
+      --coverage.include='src/lib/components/settings/TeamsSection.svelte' \
+      --coverage.include='src/lib/components/settings/InvitesSection.svelte' \
+      --coverage.include='src/lib/components/settings/ModesSection.svelte' \
+      --coverage.include='src/lib/components/settings/ApiKeyManager.svelte' \
+      --coverage.include='src/lib/components/settings/UsersSection.svelte' \
+      --coverage.include='src/lib/components/settings/SystemHealth.svelte' \
+      --coverage.include='src/lib/components/settings/AuditLogSection.svelte' \
+      --coverage.include='src/lib/components/settings/CustomModelsSection.svelte' \
+      --coverage.include='src/lib/components/settings/SettingsSection.svelte' \
+      --coverage.include='src/lib/components/settings/SaveIndicator.svelte' ) || VITEST_EXIT=$?
+  # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
+  # resolves them against the repo root and the web/src/... threshold keys match.
+  if [ -f "$VITEST_COV/lcov.info" ]; then
+    sed -i 's#^SF:src/#SF:web/src/#' "$VITEST_COV/lcov.info"
   fi
-done
+  if [ "$VITEST_EXIT" != "0" ]; then
+    FAILED_FILES+=("web vitest-coverage leg")
+    echo "--- FAIL: web vitest-coverage leg (exit $VITEST_EXIT) ---"
+  fi
+}
 
-wait
+# Copy every per-shard lcov produced this run into $COV_OUT (CI artifact).
+emit_lcov() {
+  [ -n "$COV_OUT" ] || return 0
+  local n=0
+  for d in "$TMPDIR"/cov_*; do
+    [ -f "$d/lcov.info" ] || continue
+    cp "$d/lcov.info" "$COV_OUT/lcov_${SHARD_INDEX:-x}_$(basename "$d").info"
+    n=$((n + 1))
+  done
+  echo "emitted $n lcov shard(s) → $COV_OUT"
+}
 
-for ((i=0; i<${#FILES[@]}; i++)); do
-  OUTFILE="$TMPDIR/result_$i"
-  [ -f "$OUTFILE" ] || continue
-  OUTPUT=$(cat "$OUTFILE")
+# ── mode dispatch ───────────────────────────────────────────────────────────
 
-  PASS=$(echo "$OUTPUT" | awk '/pass/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="pass") print $j}' | tail -1)
-  FAIL=$(echo "$OUTPUT" | awk '/fail/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="fail") print $j}' | tail -1)
+if [ -n "$COVERAGE_LEGS_ONLY" ]; then
+  echo "== coverage legs-only mode =="
+  run_legs
+  emit_lcov
+  echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | legs"
+  [ "$VITEST_EXIT" = "0" ] || exit 1
+  exit 0
+fi
 
-  TOTAL_PASS=$((TOTAL_PASS + ${PASS:-0}))
-  TOTAL_FAIL=$((TOTAL_FAIL + ${FAIL:-0}))
+# Build the host file list (sliced for shard mode).
+if [ -n "$SHARD_TOTAL" ]; then
+  mapfile -t FILES < <(coverage_host_files | shard_slice "$SHARD_INDEX" "$SHARD_TOTAL")
+  echo "== host-shard mode: shard ${SHARD_INDEX}/${SHARD_TOTAL} → ${#FILES[@]} files =="
+else
+  mapfile -t FILES < <(coverage_host_files)
+  echo "== full local coverage mode: ${#FILES[@]} host files =="
+fi
 
-  if [ "${FAIL:-0}" != "0" ]; then
+run_host_pool FILES
+
+# Tally + collect failing files (by exit code) for the summary (visibility).
+for ((i = 0; i < HOST_COUNT; i++)); do
+  [ -f "$TMPDIR/result_$i" ] || continue
+  OUTPUT=$(cat "$TMPDIR/result_$i")
+  CODE=$(cat "$TMPDIR/code_$i" 2>/dev/null || echo 1)
+  tally "$OUTPUT"
+  if [ "$CODE" != "0" ]; then
     FAILED_FILES+=("${FILES[$i]}")
-    echo "--- FAIL: ${FILES[$i]} ---"
-    echo "$OUTPUT" | awk '/\(fail\)/'
-    echo ""
   fi
 done
 
-# SDK tests bundled into a single shard (no mock.module use).
-# Includes BOTH the top-level test/ suite AND the co-located
-# src/entities/__tests__/ unit suites: the latter are the canonical
-# coverage for entities/{validate,tools,storage,slug}.ts, which the
-# top-level test/ files only touch incidentally (imports, not the
-# validate/store entry points). Without them those entity files drop far
-# below the packages/@ezcorp/sdk/src/**:100 gate. Both dirs are
-# mock.module-free, so bundling preserves the 100% module-load
-# instrumentation parity the SDK baseline relies on.
-SDK_OUT="$TMPDIR/result_sdk"
-SDK_COV="$TMPDIR/cov_sdk"
-SDK_OUTPUT=$(bun test --coverage --coverage-reporter=lcov --coverage-dir="$SDK_COV" ./packages/@ezcorp/sdk/test/ ./packages/@ezcorp/sdk/src/entities/__tests__/ 2>&1) || true
-echo "$SDK_OUTPUT" > "$SDK_OUT"
-SDK_PASS=$(echo "$SDK_OUTPUT" | awk '/pass/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="pass") print $j}' | tail -1)
-SDK_FAIL=$(echo "$SDK_OUTPUT" | awk '/fail/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="fail") print $j}' | tail -1)
-TOTAL_PASS=$((TOTAL_PASS + ${SDK_PASS:-0}))
-TOTAL_FAIL=$((TOTAL_FAIL + ${SDK_FAIL:-0}))
-if [ "${SDK_FAIL:-0}" != "0" ]; then
-  FAILED_FILES+=("packages/@ezcorp/sdk/test/**")
-  echo "--- FAIL: SDK bundled ---"
-  echo "$SDK_OUTPUT" | awk '/\(fail\)/'
+if [ -n "$SHARD_TOTAL" ]; then
+  # SHARDED form of the pre-split coverage job: emit lcov and TOLERATE test
+  # pass/fail (the Per-file coverage gate enforces thresholds — "enforces
+  # thresholds, not shard status"). Failing files are listed for visibility but
+  # do not red the shard; an INFRASTRUCTURE failure (couldn't run) still would,
+  # via a non-zero exit before this point. See the header for why strict shard
+  # gating is intentionally not done.
+  emit_lcov
   echo ""
+  echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | ${#FILES[@]} files (shard ${SHARD_INDEX}/${SHARD_TOTAL})"
+  if [ "${#FAILED_FILES[@]}" -gt 0 ]; then
+    echo ""
+    echo "Files with failing tests under coverage (TOLERATED — thresholds are the gate):"
+    for f in "${FAILED_FILES[@]}"; do echo "  - $f"; done
+  fi
+  exit 0
 fi
 
-# Harness-client package — its own shard (mock.module-free, isolated like SDK)
-# so packages/@ezcorp/harness-client/src/** is measured + gated at 100.
-HC_OUT="$TMPDIR/result_hc"
-HC_COV="$TMPDIR/cov_hc"
-HC_OUTPUT=$(bun test --coverage --coverage-reporter=lcov --coverage-dir="$HC_COV" ./packages/@ezcorp/harness-client/ 2>&1) || true
-echo "$HC_OUTPUT" > "$HC_OUT"
-HC_PASS=$(echo "$HC_OUTPUT" | awk '/pass/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="pass") print $j}' | tail -1)
-HC_FAIL=$(echo "$HC_OUTPUT" | awk '/fail/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="fail") print $j}' | tail -1)
-TOTAL_PASS=$((TOTAL_PASS + ${HC_PASS:-0}))
-TOTAL_FAIL=$((TOTAL_FAIL + ${HC_FAIL:-0}))
-if [ "${HC_FAIL:-0}" != "0" ]; then
-  FAILED_FILES+=("packages/@ezcorp/harness-client/**")
-  echo "--- FAIL: harness-client ---"
-  echo "$HC_OUTPUT" | awk '/\(fail\)/'
-  echo ""
-fi
-
-# Node-run vitest coverage leg for the vitest-only web/src/lib files.
-# WHY node, not bun: @vitest/coverage-v8 needs node:inspector's Coverage
-# domain, which Bun does not implement (`bunx --bun vitest --coverage`
-# fails with "Coverage APIs are not supported"). release-sdk.yml already
-# provisions node 22 before `bun run test:coverage`, so this leg works in
-# the gate CI with no new workflow setup. deep-link-resolve.ts transitively
-# imports a Svelte-rune module, so bun cannot compile it — this leg is the
-# ONLY way those lines get measured. --coverage.include is scoped to JUST
-# the five target lib paths so the leg does not pull all of web/src/lib/**
-# into the gate (which would surface other unmeasured files as violations
-# under the web/src/lib/**:90 wildcard). Run in a subshell so `cd web`
-# never leaks to the rest of the script.
-VITEST_COV="$TMPDIR/cov_vitest"
-VITEST_EXIT=0
-( cd web && npx vitest run \
-    src/__tests__/deep-link-resolve.unit.test.ts \
-    src/lib/components/goal-row-logic.unit.test.ts \
-    src/lib/components/UpdateBanner.component.test.ts \
-    src/__tests__/version-endpoint.server.test.ts \
-    src/__tests__/relative-time.unit.test.ts \
-    src/__tests__/relative-time.test.ts \
-    src/__tests__/http-errors.unit.test.ts \
-    src/__tests__/session-cookie.server.test.ts \
-    src/__tests__/shutdown.server.test.ts \
-    src/__tests__/extension-helpers-clamp.server.test.ts \
-    src/__tests__/conversation-ownership.server.test.ts \
-    src/__tests__/mention-logic.unit.test.ts \
-    src/__tests__/mention-logic-EZ-sigil.unit.test.ts \
-    src/__tests__/mention-logic-feature.unit.test.ts \
-    src/__tests__/mention-logic-lesson-sigil.unit.test.ts \
-    src/lib/__tests__/markdown.unit.test.ts \
-    src/lib/__tests__/safe-redirect.unit.test.ts \
-    src/__tests__/fuzzy-match.unit.test.ts \
-    src/__tests__/chat-input-logic.unit.test.ts \
-    src/__tests__/api-preview-consent.server.test.ts \
-    src/__tests__/preview-dispatch.server.test.ts \
-    src/__tests__/preview-ws-bridge.server.test.ts \
-    src/__tests__/context-register-preview-bus.server.test.ts \
-    src/lib/components/tool-cards/preview-consent-card-logic.unit.test.ts \
-    src/__tests__/ExtensionToolSelector.component.test.ts \
-    src/lib/components/__tests__/ModeFormModal.component.test.ts \
-    src/lib/chat/page-handlers/__tests__/inherit-mode.unit.test.ts \
-    src/__tests__/tools-api-mode-scope.server.test.ts \
-    src/__tests__/api-extensions-id-reapprove-drift.server.test.ts \
-    src/lib/hub.unit.test.ts \
-    src/lib/settings-nav.unit.test.ts \
-    src/lib/settings-search.unit.test.ts \
-    src/lib/settings-search-config.unit.test.ts \
-    src/__tests__/api-search-backend.server.test.ts \
-    src/lib/components/__tests__/SearchDefaultsSection.component.test.ts \
-    src/lib/components/__tests__/SearchBackendSection.component.test.ts \
-    "src/routes/(app)/settings/search/__tests__/page.component.test.ts" \
-    src/lib/capability-policy-ui.unit.test.ts \
-    src/lib/components/__tests__/CapabilitiesPanel.component.test.ts \
-    src/lib/ezcorp-config-edit.unit.test.ts \
-    src/lib/components/__tests__/AuthorCompositionPanel.component.test.ts \
-    src/lib/components/__tests__/UsesList.component.test.ts \
-    "src/routes/(app)/extensions/author/__tests__/page.component.test.ts" \
-    src/__tests__/api-users.server.test.ts \
-    src/lib/audit-log-view.unit.test.ts \
-    src/lib/settings-models.unit.test.ts \
-    src/lib/save-flash.unit.test.ts \
-    src/lib/admin-guard.unit.test.ts \
-    src/lib/scroll-to-hash.unit.test.ts \
-    src/lib/chat-prompt-nav.unit.test.ts \
-    src/lib/extensions/extension-sort.unit.test.ts \
-    src/__tests__/resume-path.unit.test.ts \
-    src/__tests__/sw-runtime.unit.test.ts \
-    src/__tests__/service-worker.shell.unit.test.ts \
-    src/lib/components/__tests__/AuditLogSection.component.test.ts \
-    src/lib/components/__tests__/CustomModelsSection.component.test.ts \
-    src/lib/components/__tests__/SystemHealth.component.test.ts \
-    src/lib/components/__tests__/UsersSection.component.test.ts \
-    src/lib/components/__tests__/settings-save-model.component.test.ts \
-    src/lib/components/__tests__/InvitesSection.component.test.ts \
-    src/lib/components/__tests__/TeamsSection.component.test.ts \
-    src/lib/components/__tests__/ProvidersSection.component.test.ts \
-    src/lib/components/__tests__/ApiKeyManager.component.test.ts \
-    src/lib/components/__tests__/ModesSection.component.test.ts \
-    src/lib/components/__tests__/SaveIndicator.component.test.ts \
-    src/lib/components/__tests__/SettingsSection.component.test.ts \
-    src/__tests__/settings-layout.component.test.ts \
-    --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
-    --coverage.reportsDirectory="$VITEST_COV" \
-    --coverage.include='src/lib/search/*.ts' \
-    --coverage.include='src/lib/hub.ts' \
-    --coverage.include='src/lib/components/goal-row-logic.ts' \
-    --coverage.include='src/lib/components/UpdateBanner.svelte' \
-    --coverage.include='src/lib/components/UpdateBanner.helpers.ts' \
-    --coverage.include='src/routes/api/version/+server.ts' \
-    --coverage.include='src/lib/utils/relative-time.ts' \
-    --coverage.include='src/lib/server/http-errors.ts' \
-    --coverage.include='src/lib/server/auth/session-cookie.ts' \
-    --coverage.include='src/lib/server/shutdown.ts' \
-    --coverage.include='src/lib/server/extension-helpers.ts' \
-    --coverage.include='src/lib/server/conversation-ownership.ts' \
-    --coverage.include='src/lib/mention-logic.ts' \
-    --coverage.include='src/lib/markdown.ts' \
-    --coverage.include='src/lib/safe-redirect.ts' \
-    --coverage.include='src/lib/fuzzy-match.ts' \
-    --coverage.include='src/lib/components/tool-cards/preview-consent-card-logic.ts' \
-    --coverage.include='src/routes/api/preview/[id]/token/+server.ts' \
-    --coverage.include='src/routes/api/preview/consent/+server.ts' \
-    --coverage.include='src/lib/components/ExtensionToolSelector.svelte' \
-    --coverage.include='src/lib/components/ModeFormModal.svelte' \
-    --coverage.include='src/lib/chat/page-handlers/inherit-mode.ts' \
-    --coverage.include='src/routes/api/tools/+server.ts' \
-    --coverage.include='src/routes/api/extensions/[id]/reapprove-drift/+server.ts' \
-    --coverage.include='src/lib/settings-nav.ts' \
-    --coverage.include='src/lib/settings-search.ts' \
-    --coverage.include='src/lib/settings-search-config.ts' \
-    --coverage.include='src/routes/api/search/backend/+server.ts' \
-    --coverage.include='src/lib/components/settings/SearchDefaultsSection.svelte' \
-    --coverage.include='src/lib/components/settings/SearchBackendSection.svelte' \
-    --coverage.include='src/lib/capability-policy-ui.ts' \
-    --coverage.include='src/lib/components/extensions/CapabilitiesPanel.svelte' \
-    --coverage.include='src/lib/ezcorp-config-edit.ts' \
-    --coverage.include='src/lib/components/extensions/AuthorCompositionPanel.svelte' \
-    --coverage.include='src/lib/components/extensions/UsesList.svelte' \
-    --coverage.include='src/routes/api/users/+server.ts' \
-    --coverage.include='src/lib/audit-log-view.ts' \
-    --coverage.include='src/lib/settings-models.ts' \
-    --coverage.include='src/lib/save-flash.svelte.ts' \
-    --coverage.include='src/lib/admin-guard.ts' \
-    --coverage.include='src/lib/scroll-to-hash.ts' \
-    --coverage.include='src/lib/chat-prompt-nav.ts' \
-    --coverage.include='src/lib/extensions/extension-sort.ts' \
-    --coverage.include='src/lib/resume-path.ts' \
-    --coverage.include='src/lib/sw-runtime.ts' \
-    --coverage.include='src/service-worker.ts' \
-    --coverage.include='src/lib/components/settings/ProvidersSection.svelte' \
-    --coverage.include='src/lib/components/settings/TeamsSection.svelte' \
-    --coverage.include='src/lib/components/settings/InvitesSection.svelte' \
-    --coverage.include='src/lib/components/settings/ModesSection.svelte' \
-    --coverage.include='src/lib/components/settings/ApiKeyManager.svelte' \
-    --coverage.include='src/lib/components/settings/UsersSection.svelte' \
-    --coverage.include='src/lib/components/settings/SystemHealth.svelte' \
-    --coverage.include='src/lib/components/settings/AuditLogSection.svelte' \
-    --coverage.include='src/lib/components/settings/CustomModelsSection.svelte' \
-    --coverage.include='src/lib/components/settings/SettingsSection.svelte' \
-    --coverage.include='src/lib/components/settings/SaveIndicator.svelte' ) || VITEST_EXIT=$?
-# vitest (run from web/) emits SF paths web/-relative (SF:src/lib/...).
-# Re-root them so merge-lcov.ts resolves them against the repo root and the
-# repo-root-relative threshold keys (web/src/lib/...) match.
-if [ -f "$VITEST_COV/lcov.info" ]; then
-  sed -i 's#^SF:src/#SF:web/src/#' "$VITEST_COV/lcov.info"
-fi
-if [ "$VITEST_EXIT" != "0" ]; then
-  FAILED_FILES+=("web vitest-coverage leg (deep-link-resolve + goal-row-logic)")
-  echo "--- FAIL: web vitest-coverage leg (exit $VITEST_EXIT) ---"
-  echo ""
-fi
+# ── full local mode: legs + merge + threshold check ─────────────────────────
+run_legs
 
 echo ""
 echo "================================"
 echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | $((${#FILES[@]} + 1)) shards"
 echo "================================"
-
 if [ "${#FAILED_FILES[@]}" -gt 0 ]; then
   echo ""
-  echo "Failed files:"
-  for f in "${FAILED_FILES[@]}"; do
-    echo "  - $f"
-  done
+  echo "Failed files (visibility only — coverage gate below is authoritative):"
+  for f in "${FAILED_FILES[@]}"; do echo "  - $f"; done
 fi
 
-# Merge per-shard lcov → coverage/lcov.info, then enforce thresholds.
 mkdir -p coverage
 bun scripts/merge-lcov.ts "$TMPDIR/cov_*/lcov.info" coverage/lcov.info
 
 CHECK_EXIT=0
 bun scripts/check-coverage.ts || CHECK_EXIT=$?
 
-# This job gates COVERAGE (check-coverage) + the vitest leg's own integrity.
-# It does NOT re-gate test pass/fail: the dedicated `Backend tests` and
-# `Web tests (vitest)` CI jobs own that. Re-running every shard here under
-# `--coverage` instrumentation adds enough memory/time overhead that a few
-# integration/e2e shards flake on the constrained CI runner even though they
-# pass cleanly in the Backend job — which would otherwise hold the coverage
-# gate hostage to unrelated flakiness. TOTAL_FAIL is printed above for
-# visibility but is not a hard failure here. (If a flaky shard ever drops a
-# gated file's coverage, check-coverage catches that and fails CHECK_EXIT.)
+# Full local mode gates COVERAGE + the vitest leg's integrity (not pass/fail —
+# the CI shards own that). check-coverage catches any flaky-shard coverage drop.
 if [ "$CHECK_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ]; then
   exit 1
 fi

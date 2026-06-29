@@ -24,8 +24,12 @@
 /scripts/visual-evidence/           @arch1tect0x
 /scripts/test-coverage.sh           @arch1tect0x
 /scripts/test.sh                    @arch1tect0x
+/scripts/lib/test-file-sets.sh      @arch1tect0x
 /scripts/merge-lcov.ts              @arch1tect0x
 /scripts/lcov-noise-filter.ts       @arch1tect0x
+
+# Shared CI setup/cache machinery (referenced by every job in workflows/).
+/.github/actions/                   @arch1tect0x
 
 # Test-runner + lint config that decides what runs and how strictly.
 /biome.json                         @arch1tect0x
