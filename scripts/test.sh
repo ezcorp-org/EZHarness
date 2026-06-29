@@ -30,18 +30,26 @@
 # It's only the unbounded glob that triggers the cross-spec deadlock.
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/test-file-sets.sh
+source "$SCRIPT_DIR/lib/test-file-sets.sh"
+
 PARALLEL=${PARALLEL:-6}
 TOTAL_PASS=0
 TOTAL_FAIL=0
 FAILED_FILES=()
 
-# Collect all test files. The import-wizard endpoint tests live next
-# to their SvelteKit routes (bun:test, per-file isolated like the rest),
-# so include that dir alongside the canonical src/__tests__ pool.
-mapfile -t FILES < <({
-  find src/__tests__ -name "*.test.ts"
-  find web/src/routes/api/import -name "*.test.ts"
-} | sort)
+# The pass/fail set (P) is defined in scripts/lib/test-file-sets.sh and shared
+# with scripts/test-coverage.sh so the two can never drift. RESIDUAL_ONLY=1
+# runs ONLY the files in P that the coverage shards do NOT run (the
+# *integration* variants) — the CI `residual-tests` job uses this so every
+# pass/fail file runs somewhere without re-running what the coverage shards
+# already cover. Empty residual is fine (the loop is a no-op).
+if [ -n "$RESIDUAL_ONLY" ]; then
+  mapfile -t FILES < <(residual_passfail_files)
+else
+  mapfile -t FILES < <(passfail_files)
+fi
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
