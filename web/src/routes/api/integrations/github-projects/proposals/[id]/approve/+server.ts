@@ -11,7 +11,10 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { errorJson } from "$lib/server/http-errors";
 import { authGithubRoute, resolveProposal, publicProposalView } from "../../../_shared";
-import { approveProposal } from "$server/integrations/github-projects/spawn";
+import {
+  approveProposal,
+  GithubProposalNotPendingError,
+} from "$server/integrations/github-projects/spawn";
 import { getGithubProjectsEmit } from "$server/integrations/github-projects/bus-registry";
 import { GITHUB_PROJECTS_EVENT } from "$server/integrations/github-projects/types";
 import { extensionLogger } from "$server/logger";
@@ -36,6 +39,11 @@ export const POST: RequestHandler = async ({ locals, params }) => {
   try {
     updated = await approveProposal(proposal.id, { kind: "user", userId: user.id });
   } catch (err) {
+    // The atomic claim inside approveProposal is the real gate; losing a
+    // race past the fast-path above lands here and must 409 like it.
+    if (err instanceof GithubProposalNotPendingError) {
+      return errorJson(409, err.message);
+    }
     log.warn("approve failed", {
       proposalId: proposal.id,
       error: err instanceof Error ? err.message : String(err),
