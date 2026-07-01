@@ -17,9 +17,12 @@
  *   - The GitHub token is host-only: read from the scope-isolated secrets store
  *     (`getSecret`) for `pat`, or `gh auth token` for `gh`. Never logged, never
  *     returned.
- *   - Mutating ticket verbs (create/update/move/archive/comment) run through
- *     the PDP (`engine.authorize`) AND write an audit row — parity with the
- *     sibling spawn / append-message handlers' sensitive-op posture.
+ *   - Mutating ticket verbs (create/update/move/archive/comment) are gated by
+ *     the bundled-only allowlist (there is NO `engine.authorize` call here —
+ *     `custom.githubProjects` is not a typed capability, and the
+ *     tool-executor's own PDP gate already authorized the tool CALL; see
+ *     `handleTicketMutation`) AND every mutation writes an audit row — parity
+ *     with the sibling spawn / append-message handlers' sensitive-op posture.
  *   - Control verbs (dashboard-data/approve/dismiss/pause/resume) are scoped to
  *     the VIEWING USER: dashboard-data returns only links the user created (and
  *     their proposals); approve/dismiss/pause/resume verify the user owns the
@@ -50,7 +53,6 @@ import { getDb } from "../db/connection";
 import { githubProjectsLinks } from "../db/schema";
 import { getConversation } from "../db/queries/conversations";
 import { insertAuditEntry } from "../db/queries/audit-log";
-import { getSecret } from "./secrets-store";
 import {
   GITHUB_ACTIVE_STATUSES,
   GITHUB_TERMINAL_STATUSES,
@@ -60,7 +62,7 @@ import {
 } from "../integrations/github-projects/types";
 import { createGithubClient } from "../integrations/github-projects/client";
 import { getGithubProjectsDaemon } from "../integrations/github-projects/daemon";
-import { boardTokenName } from "../integrations/github-projects/auth";
+import { resolveLinkAuth } from "../integrations/github-projects/auth";
 import { approveProposal, dismissProposal } from "../integrations/github-projects/spawn";
 import {
   getLinkById,
@@ -149,27 +151,15 @@ export function _setGhTokenResolverForTests(fn: GhTokenResolver | null): void {
 // ── Auth resolution (host-only) ──────────────────────────────────────
 
 /**
- * Resolve the bearer credential for a link. `pat` reads the board's per-board
- * override token (`apiToken:<linkId>`) from the scope-isolated secrets store
- * first, falling back to the SHARED project token (`apiToken`); `gh` shells out
- * to `gh auth token`. Never logs the token. Throws a clear error when neither
- * token is available (the store returns null for a missing OR undecryptable
- * secret).
+ * Resolve the bearer credential for a link. Delegates to `resolveLinkAuth` —
+ * the ONE place the mapping lives (per-board override `apiToken:<linkId>` →
+ * shared project `apiToken` → `gh auth token`) — injecting this handler's
+ * gh-token resolver seam so `_setGhTokenResolverForTests` keeps working.
+ * Never logs the token; throws `GithubAuthError` when no usable credential
+ * is available.
  */
 export async function resolveAuth(link: GithubProjectsLink): Promise<GithubAuth> {
-  if (link.authMode === "gh") {
-    const token = await ghTokenResolverImpl();
-    return { mode: "gh", token };
-  }
-  // pat (default): per-board override wins, else the shared project token.
-  const override = await getSecret("github-projects", link.projectId, boardTokenName(link.id));
-  const token = override ?? (await getSecret("github-projects", link.projectId, "apiToken"));
-  if (!token) {
-    throw new Error(
-      "GitHub token not configured for this project — reconnect the board with a PAT.",
-    );
-  }
-  return { mode: "pat", token };
+  return resolveLinkAuth(link, ghTokenResolverImpl);
 }
 
 // ── projectId / link derivation (server-side) ────────────────────────
@@ -376,10 +366,13 @@ async function handleList(
 }
 
 /**
- * Shared create/update/move/archive/comment dispatch. PDP-gated + audited.
- * `itemNodeId` (for the non-create verbs) is resolved against THIS board, so a
- * node id from another board is "not found" — a ticket verb can never reach a
- * card the conversation's board doesn't own.
+ * Shared create/update/move/archive/comment dispatch. Allowlist-gated (see the
+ * header) + audited. Board containment for `itemNodeId`: `update` and
+ * `comment` resolve it against THIS board host-side (their GitHub writes hit
+ * the underlying issue/PR, which any board could reach), while `move` /
+ * `archive` pass it into board-scoped GraphQL mutations GitHub itself refuses
+ * for an off-board item — so a ticket verb can never reach a card the
+ * conversation's board doesn't own.
  */
 async function handleTicketMutation(
   verb: "create" | "update" | "move" | "archive" | "comment",
@@ -416,6 +409,14 @@ async function handleTicketMutation(
       case "update": {
         const itemNodeId = typeof params.itemNodeId === "string" ? params.itemNodeId.trim() : "";
         if (!itemNodeId) return rpcError(req.id, -32602, "'itemNodeId' is required");
+        // Board containment: `client.updateItem` resolves the node id bare and
+        // PATCHes the underlying issue/PR, so a forged node id from ANOTHER
+        // board/repo the token can write to would go through. Resolve it
+        // against THIS board first (exactly like `comment`).
+        const item = await findBoardItem(client, link, auth, itemNodeId);
+        if (!item) {
+          return rpcError(req.id, -32602, "Ticket not found on this board.");
+        }
         const ref = await client.updateItem(link.boardNodeId, auth, {
           itemNodeId,
           ...(typeof params.title === "string" ? { title: params.title } : {}),
@@ -535,10 +536,14 @@ async function handleDashboardData(
   }));
 
   const allStatuses = [...GITHUB_ACTIVE_STATUSES, ...GITHUB_TERMINAL_STATUSES];
+  // listProposalsByProject is PROJECT-scoped, but a project may link MANY
+  // boards (some created by OTHER users) — keep only THIS link's proposals so
+  // each proposal appears exactly once, stamped with its own board's title,
+  // and another user's boards' proposals never leak in.
   const proposalsNested = await Promise.all(
     links.map((l) =>
-      listProposalsByProject(l.projectId, { statuses: allStatuses, limit: 100 }).then(
-        (rows) => rows.map((p) => projectionForProposal(p, l)),
+      listProposalsByProject(l.projectId, { statuses: allStatuses, limit: 100 }).then((rows) =>
+        rows.filter((r) => r.linkId === l.id).map((p) => projectionForProposal(p, l)),
       ),
     ),
   );

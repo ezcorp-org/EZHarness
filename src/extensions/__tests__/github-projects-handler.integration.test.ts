@@ -268,6 +268,88 @@ describe("github-projects handler — integration (real DB)", () => {
     expect(data.proposals.map((p) => p.id)).toEqual([mine.proposalId]);
   });
 
+  test("dashboard-data scopes proposals per LINK when one project has many boards", async () => {
+    // ONE project, TWO boards: mine and another user's. listProposalsByProject
+    // is project-scoped, so the per-link filter must (a) keep my proposal
+    // exactly once under MY board's title and (b) exclude the other user's
+    // link's proposal even though it lives in the same project.
+    const { getDb } = await import("../../db/connection");
+    const db = getDb();
+    const schema = await import("../../db/schema");
+    const myUserId = crypto.randomUUID();
+    const otherUserId = crypto.randomUUID();
+    const projectId = crypto.randomUUID();
+    for (const id of [myUserId, otherUserId]) {
+      await db.insert(schema.users).values({
+        id,
+        email: `u${id.slice(0, 8)}@x.test`,
+        passwordHash: "x",
+        name: "U",
+        role: "member",
+      });
+    }
+    await db.insert(schema.projects).values({ id: projectId, name: "MB", path: "/tmp/mb" });
+    const mkLink = async (owner: string, title: string, boardNodeId: string) =>
+      (
+        await db
+          .insert(schema.githubProjectsLinks)
+          .values({
+            projectId,
+            boardNodeId,
+            boardUrl: `https://github.com/orgs/acme/projects/${boardNodeId}`,
+            boardTitle: title,
+            ownerLogin: "acme",
+            authMode: "pat",
+            enabled: true,
+            createdByUserId: owner,
+          })
+          .returning()
+      )[0]!;
+    const mkProposal = async (linkId: string, itemNodeId: string, title: string) =>
+      (
+        await db
+          .insert(schema.githubProjectsProposals)
+          .values({
+            projectId,
+            linkId,
+            itemNodeId,
+            contentNodeId: `I_${itemNodeId}`,
+            statusOptionId: "opt-progress",
+            statusName: "In Progress",
+            action: "execute",
+            title,
+            dedupeKey: `${projectId}:${itemNodeId}:opt-progress:execute`,
+            status: "pending",
+          })
+          .returning()
+      )[0]!;
+    const myLink = await mkLink(myUserId, "My Board", "PVT_mine");
+    const otherLink = await mkLink(otherUserId, "Other Board", "PVT_other");
+    const myProposal = await mkProposal(myLink.id, "PVTI_mine", "Mine");
+    await mkProposal(otherLink.id, "PVTI_other", "Not mine");
+
+    const res = await handleGithubProjectsRpc(
+      "dashboard-data",
+      reqMsg(V("dashboard-data")),
+      makeCtx({ userId: myUserId, conversationId: "any" }),
+    );
+    expect("result" in res).toBe(true);
+    const data = (
+      res as {
+        result: {
+          proposals: { id: string; boardTitle: string }[];
+          boards: { linkId: string }[];
+        };
+      }
+    ).result;
+    expect(data.boards.map((b) => b.linkId)).toEqual([myLink.id]);
+    // Exactly once, under MY board's title; the other user's proposal in the
+    // SAME project never leaks in.
+    expect(data.proposals.map((p) => [p.id, p.boardTitle])).toEqual([
+      [myProposal.id, "My Board"],
+    ]);
+  });
+
   test("approve spawns + is owner-gated on the real proposal row", async () => {
     const { userId, proposalId } = await seed();
     const ok = await handleGithubProjectsRpc(

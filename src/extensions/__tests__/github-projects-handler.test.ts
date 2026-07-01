@@ -52,8 +52,9 @@ mock.module("../../db/queries/conversations", () => ({
   getConversation: (id: string) => getConversationImpl(id),
 }));
 
-// The secrets store is host-only; the handler's `resolveAuth` reads the PAT
-// from it via `getSecret("github-projects", projectId, "apiToken")`.
+// The secrets store is host-only; the handler's `resolveAuth` delegates to
+// the shared `resolveLinkAuth`, which reads the PAT from it via
+// `getSecret("github-projects", projectId, name)`.
 let getSecretImpl: (
   extensionId: string,
   projectId: string | null,
@@ -471,9 +472,10 @@ describe("resolveAuth", () => {
 
   test("pat mode throws a clear error when the store returns null", async () => {
     // The store returns null for a missing OR undecryptable secret — both
-    // surface to the operator as "not configured … reconnect".
+    // surface via the shared resolver's canonical `GithubAuthError` message
+    // (the same one the web connect/refresh routes show the operator).
     getSecretImpl = async () => null;
-    await expect(resolveAuth(link({ authMode: "pat" }))).rejects.toThrow(/not configured/);
+    await expect(resolveAuth(link({ authMode: "pat" }))).rejects.toThrow(/no PAT stored/);
   });
 
   test("gh mode shells out to gh auth token", async () => {
@@ -618,6 +620,53 @@ describe("ticket mutations", () => {
     );
     expect("result" in res).toBe(true);
     expect(called).toBe(true);
+  });
+
+  test("update rejects a node id that is NOT on this board (containment)", async () => {
+    // `client.updateItem` PATCHes the underlying issue of ANY node id the token
+    // can write to, so a forged/off-board id must be refused host-side BEFORE
+    // the client is driven — exactly like `comment`.
+    let updateCalled = false;
+    fakeClient = makeClient({
+      fetchBoardItems: async () => ({ items: [boardItem()], cursor: {} }),
+      updateItem: async () => {
+        updateCalled = true;
+        return { itemNodeId: "PVTI_evil", contentNodeId: "I", url: null, title: "pwned" };
+      },
+    });
+    const res = await handleGithubProjectsRpc(
+      "update",
+      req(V("update"), { itemNodeId: "PVTI_other_board", title: "pwned" }),
+      ctx(),
+    );
+    expect("error" in res && res.error?.code).toBe(-32602);
+    expect("error" in res && res.error?.message).toContain("not found on this board");
+    expect(updateCalled).toBe(false);
+    // No mutation happened, so no ticket-mutate audit row either.
+    expect(auditRows.some((r) => r.action.includes("ticket-mutate"))).toBe(false);
+  });
+
+  test("update still succeeds for an on-board node id (membership resolved first)", async () => {
+    const calls: string[] = [];
+    fakeClient = makeClient({
+      fetchBoardItems: async () => {
+        calls.push("fetchBoardItems");
+        return { items: [boardItem({ itemNodeId: "PVTI_mine" })], cursor: {} };
+      },
+      updateItem: async (_b, _a, input) => {
+        calls.push("updateItem");
+        return { itemNodeId: input.itemNodeId, contentNodeId: "I", url: null, title: "u" };
+      },
+    });
+    const res = await handleGithubProjectsRpc(
+      "update",
+      req(V("update"), { itemNodeId: "PVTI_mine", title: "u" }),
+      ctx(),
+    );
+    expect("result" in res).toBe(true);
+    // Board membership is confirmed BEFORE the write is issued.
+    expect(calls).toEqual(["fetchBoardItems", "updateItem"]);
+    expect(auditRows.some((r) => r.action.includes("ticket-mutate"))).toBe(true);
   });
 
   test("move resolves a status name → option id and sets it", async () => {
@@ -772,6 +821,35 @@ describe("dashboard-data", () => {
     // the project-scoped chat href (`/project/<projectId>/chat/<convId>`).
     expect(data.proposals[0]!.projectId).toBe("proj-7");
     expect(data.proposals[0]!.conversationId).toBe("conv-7");
+  });
+
+  test("multi-board project: each proposal appears ONCE, under its OWN board's title", async () => {
+    // Two of the viewing user's boards share ONE project, and a THIRD link in
+    // the same project belongs to another user. listProposalsByProject is
+    // PROJECT-scoped, so without per-link filtering every proposal would show
+    // once per link (half under the wrong title) and the other user's
+    // proposal would leak in.
+    _setLinksByUserForTests(async () => [
+      link({ id: "link-A", projectId: "proj-1", boardTitle: "Board A" }),
+      link({ id: "link-B", projectId: "proj-1", boardTitle: "Board B" }),
+    ]);
+    listProposalsByProjectImpl = async () => [
+      proposal({ id: "prop-A", linkId: "link-A", title: "On A" }),
+      proposal({ id: "prop-B", linkId: "link-B", title: "On B" }),
+      // Another user's board in the SAME project — must be excluded.
+      proposal({ id: "prop-other", linkId: "link-other-user", title: "Not mine" }),
+    ];
+    const res = await handleGithubProjectsRpc("dashboard-data", req(V("dashboard-data")), ctx());
+    expect("result" in res).toBe(true);
+    const data = (
+      res as { result: { proposals: { id: string; boardTitle: string }[] } }
+    ).result;
+    // Exactly once each — no per-link duplication (duplicate ids would break
+    // keyed rendering) — and each stamped with its OWN board's title.
+    expect(data.proposals.map((p) => [p.id, p.boardTitle]).sort()).toEqual([
+      ["prop-A", "Board A"],
+      ["prop-B", "Board B"],
+    ]);
   });
 
   test("rejects an ownerless fire (no viewing user)", async () => {
