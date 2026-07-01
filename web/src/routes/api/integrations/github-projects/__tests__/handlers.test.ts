@@ -177,7 +177,15 @@ mock.module("$server/integrations/github-projects/client", () => ({
   }),
 }));
 
+// Mirrors spawn.ts's class so the routes' instanceof → 409 mapping is testable.
+class GithubProposalNotPendingError extends Error {
+  constructor(status: string) {
+    super(`Proposal is not pending (status: ${status})`);
+  }
+}
+
 mock.module("$server/integrations/github-projects/spawn", () => ({
+  GithubProposalNotPendingError,
   approveProposal: async (id: string, actor: any) => {
     approveCalls.push({ id, actor });
     return approveImpl(id, actor);
@@ -1167,6 +1175,14 @@ describe("POST proposals/:id/approve", () => {
     expect(res.status).toBe(500);
   });
 
+  test("lost claim race (typed not-pending past the fast-path) → 409", async () => {
+    approveImpl = async () => { throw new GithubProposalNotPendingError("spawned"); };
+    const res = await run(approve, ev({ method: "POST", params: { id: "p1" } }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toContain("not pending");
+  });
+
   test("scope denied → 403", async () => {
     scopeResponse = new Response("{}", { status: 403 });
     const res = await run(approve, ev({ method: "POST", params: { id: "p1" } }));
@@ -1204,6 +1220,14 @@ describe("POST proposals/:id/dismiss", () => {
     dismissImpl = async () => { throw new Error("boom"); };
     const res = await run(dismiss, ev({ method: "POST", params: { id: "p1" } }));
     expect(res.status).toBe(500);
+  });
+
+  test("lost claim race (typed not-pending past the fast-path) → 409", async () => {
+    dismissImpl = async () => { throw new GithubProposalNotPendingError("running"); };
+    const res = await run(dismiss, ev({ method: "POST", params: { id: "p1" } }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toContain("not pending");
   });
 
   test("missing user → 401", async () => {
