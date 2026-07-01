@@ -35,9 +35,9 @@ import type {
 import { setSecret, getSecret, deleteSecret } from "$server/extensions/secrets-store";
 import { upsertLink, listLinksByProjectId, deleteLink } from "$server/db/queries/github-projects";
 import { boardTokenName } from "$server/integrations/github-projects/auth";
-import { logger } from "$server/logger";
+import { extensionLogger } from "$server/logger";
 
-const log = logger.child("api.github-projects.connect");
+const log = extensionLogger("github-projects", "api.connect");
 
 interface ConnectBody {
   projectId?: unknown;
@@ -146,14 +146,19 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   // user (the row stays project-scoped — `actorUserId` is audit-only).
   //
   // Whether this board was ALREADY connected (the upsert will UPDATE, not
-  // INSERT) decides the partial-failure policy for a per-board override below:
-  // a FRESH board whose override fails to persist must be rolled back (else it
-  // would silently fall back to the shared token, defeating the isolation the
-  // user asked for); a PRE-EXISTING board is never destroyed by a failed
+  // INSERT) decides two policies below: (a) a RE-CONNECT must carry the
+  // existing board's config through the upsert — upsertLink's
+  // onConflictDoUpdate resets omitted fields, so a "Replace token" that
+  // omitted them would wipe the column mapping, poll interval and paused
+  // state; (b) the partial-failure policy for a per-board override — a FRESH
+  // board whose override fails to persist must be rolled back (else it would
+  // silently fall back to the shared token, defeating the isolation the user
+  // asked for), while a PRE-EXISTING board is never destroyed by a failed
   // re-connect.
-  const wasPreExisting = (await listLinksByProjectId(projectId)).some(
+  const existing = (await listLinksByProjectId(projectId)).find(
     (l) => l.boardNodeId === board.boardNodeId,
   );
+  const wasPreExisting = existing !== undefined;
 
   const link = await upsertLink({
     projectId,
@@ -166,11 +171,20 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     // columns after a reload (the connect response carries them only transiently).
     statusOptions: board.statusOptions,
     // Optional per-board default model ("<provider>:<model>"); null = instance
-    // default. Set at connect time too so the dropdown can be chosen up front.
-    defaultModel: dmParsed.value,
+    // default. Body-ABSENT on a re-connect means "keep the existing value"
+    // (the replace-token flow doesn't send it); body-PRESENT (incl. null/"")
+    // still applies — the connect form legitimately sets or clears it.
+    defaultModel: body.defaultModel !== undefined ? dmParsed.value : (existing?.defaultModel ?? null),
     // Optional per-board default permission mode ("ask"|"auto-edit"|"yolo");
-    // null = the spawn bridge's "yolo" fallback. Set at connect time too.
-    defaultPermissionMode: pmParsed.value,
+    // null = the spawn bridge's "yolo" fallback. Same body-absent = keep rule.
+    defaultPermissionMode:
+      body.defaultPermissionMode !== undefined ? pmParsed.value : (existing?.defaultPermissionMode ?? null),
+    // Re-connect preserves the board's user-edited config (column mapping,
+    // poll cadence, paused state); a fresh connect leaves them undefined so
+    // upsertLink applies its defaults ({}, 60, true).
+    columnActionMap: existing?.columnActionMap,
+    pollIntervalSec: existing?.pollIntervalSec,
+    enabled: existing?.enabled,
     authMode,
     createdByUserId: user.id,
   });
@@ -197,6 +211,15 @@ export const POST: RequestHandler = async ({ locals, request }) => {
         }
         return errorJson(500, "Failed to store credentials");
       }
+    }
+    // A pre-existing board re-connecting at the SHARED scope must not leave a
+    // stale per-board override behind — resolveLinkAuth prefers the override,
+    // so the new shared token would never take effect for this board.
+    // deleteSecret is idempotent (mirrors the gh branch below).
+    if (tokenScope === "shared" && wasPreExisting) {
+      await deleteSecret("github-projects", projectId, boardTokenName(link.id), {
+        actorUserId: user.id,
+      }).catch(() => {});
     }
   } else {
     // Re-connecting THIS board from PAT → gh must not leave a stale stored

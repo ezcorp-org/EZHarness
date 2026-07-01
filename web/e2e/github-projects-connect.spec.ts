@@ -71,8 +71,12 @@ async function installGhRoutes(
 		links: ReturnType<typeof connectedLink>[];
 		refreshOptions: { id: string; name: string }[];
 		nextId: number;
+		// When set, the next PATCH fails with this status/error (a test seeds it
+		// to prove the page surfaces server rejections instead of swallowing them).
+		patchFailure: { status: number; error: string } | null;
 	} = {
 		links: [],
+		patchFailure: null,
 		// What a board "currently" has on refresh-columns — a THREE-column set
 		// (incl. an extra "Done") so a test can prove a refresh picks up new columns.
 		refreshOptions: [
@@ -106,6 +110,10 @@ async function installGhRoutes(
 		const body = route.request().postDataJSON() as Record<string, unknown>;
 		const link = state.links.find((l) => l.id === body.linkId);
 		if (method === "PATCH") {
+			if (state.patchFailure) {
+				const { status, error } = state.patchFailure;
+				return route.fulfill({ status, json: { error } });
+			}
 			if (link) {
 				if (body.enabled !== undefined) link.enabled = body.enabled as boolean;
 				if (body.columnActionMap !== undefined)
@@ -584,6 +592,86 @@ test.describe("GitHub Projects connect sub-route", () => {
 		await expect(replaceField).toHaveAttribute("type", "password");
 
 		await captureEvidence(page, testInfo, "github-projects-connect");
+	});
+
+	test("replace token: the column mapping SURVIVES the rotate + a weak token warns on the card @evidence", async ({ page, mockApi }, testInfo) => {
+		await mockApi({ projects: [proj] });
+		// The rotated token can't post issue comments → the per-card warning must
+		// carry the warn-at-connect signal (previously discarded by the page).
+		const state = await installGhRoutes(page, { connectCanComment: false });
+		state.links = [
+			connectedLink({
+				id: "link-1",
+				hasTokenOverride: true,
+				columnActionMap: { "opt-doing": { action: "execute", autoSpawn: false } },
+			}),
+		];
+		await page.goto(CONNECT_PATH);
+
+		// The board shows its mapping before the rotate.
+		await expect(page.getByTestId("gh-projects-connected-link-1")).toContainText("1 mapped");
+		await page.getByTestId("gh-projects-card-toggle-link-1").click();
+		await expect(page.getByTestId("gh-projects-column-enable-link-1-opt-doing")).toBeChecked();
+
+		// Rotate the token via "Replace token" (routes through /connect).
+		await page.getByTestId("gh-projects-replace-token-link-1").click();
+		await page.getByTestId("gh-projects-replace-input-link-1").fill("github_pat_rotated");
+		const [connectReq] = await Promise.all([
+			page.waitForRequest(
+				(r) => r.url().includes("/api/integrations/github-projects/connect") && r.method() === "POST",
+			),
+			page.getByTestId("gh-projects-replace-submit-link-1").click(),
+		]);
+		expect((connectReq.postDataJSON() as { tokenScope?: string }).tokenScope).toBe("board");
+		// The page reloads the links after a successful replace.
+		await page.waitForResponse((r) => r.url().includes("/api/integrations/github-projects/link") && r.request().method() === "GET");
+
+		// The mapping SURVIVED the rotate (server preserves config on re-connect;
+		// the mock mirrors that — connect never touches columnActionMap).
+		await expect(page.getByTestId("gh-projects-connected-link-1")).toContainText("1 mapped");
+		await expect(page.getByTestId("gh-projects-column-enable-link-1-opt-doing")).toBeChecked();
+
+		// The per-card comment-scope warning surfaced from the replace response.
+		const banner = page.getByTestId("gh-comment-scope-warning-link-1");
+		await expect(banner).toBeVisible();
+		await expect(banner).toContainText("can't post issue comments");
+
+		await captureEvidence(page, testInfo, "gh-replace-token-mapping-survives");
+	});
+
+	test("a rejected save surfaces the server's error on the card (never silent) @evidence", async ({ page, mockApi }, testInfo) => {
+		await mockApi({ projects: [proj] });
+		const state = await installGhRoutes(page);
+		state.links = [
+			connectedLink({
+				id: "link-1",
+				columnActionMap: { "opt-todo": { action: "plan", autoSpawn: false } },
+			}),
+		];
+		await page.goto(CONNECT_PATH);
+		await page.getByTestId("gh-projects-card-toggle-link-1").click();
+
+		// The server rejects the save (e.g. a stale doneStatusOptionId after a
+		// column was deleted on GitHub).
+		state.patchFailure = {
+			status: 400,
+			error: "columnActionMap[opt-todo].doneStatusOptionId is not a valid status option for this board",
+		};
+		await page.getByTestId("gh-projects-save-map-link-1").click();
+
+		const err = page.getByTestId("gh-projects-action-error-link-1");
+		await expect(err).toBeVisible();
+		await expect(err).toContainText("doneStatusOptionId");
+		// No false success flash.
+		await expect(page.getByTestId("gh-projects-map-saved-link-1")).toHaveCount(0);
+
+		await captureEvidence(page, testInfo, "gh-save-error-surfaced");
+
+		// A later successful save clears the error.
+		state.patchFailure = null;
+		await page.getByTestId("gh-projects-save-map-link-1").click();
+		await expect(page.getByTestId("gh-projects-map-saved-link-1")).toBeVisible();
+		await expect(err).toHaveCount(0);
 	});
 
 	// ── UX-B discoverability: extension detail page → connect link ────────

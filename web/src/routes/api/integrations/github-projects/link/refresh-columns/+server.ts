@@ -32,9 +32,9 @@ import {
 } from "$server/integrations/github-projects/auth";
 import { updateLink } from "$server/db/queries/github-projects";
 import { hasSecret } from "$server/extensions/secrets-store";
-import { logger } from "$server/logger";
+import { extensionLogger } from "$server/logger";
 
-const log = logger.child("api.github-projects.refresh-columns");
+const log = extensionLogger("github-projects", "api.refresh-columns");
 
 export const POST: RequestHandler = async ({ locals, request }) => {
   const auth = authGithubRoute(locals);

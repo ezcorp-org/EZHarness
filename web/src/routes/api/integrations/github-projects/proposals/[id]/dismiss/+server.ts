@@ -14,9 +14,9 @@ import { authGithubRoute, resolveProposal, publicProposalView } from "../../../_
 import { dismissProposal } from "$server/integrations/github-projects/spawn";
 import { getGithubProjectsEmit } from "$server/integrations/github-projects/bus-registry";
 import { GITHUB_PROJECTS_EVENT } from "$server/integrations/github-projects/types";
-import { logger } from "$server/logger";
+import { extensionLogger } from "$server/logger";
 
-const log = logger.child("api.github-projects.dismiss");
+const log = extensionLogger("github-projects", "api.dismiss");
 
 export const POST: RequestHandler = async ({ locals, params }) => {
   const auth = authGithubRoute(locals);

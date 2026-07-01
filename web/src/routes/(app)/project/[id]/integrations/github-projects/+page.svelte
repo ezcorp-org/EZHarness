@@ -68,6 +68,14 @@
 	let mapFlash = $state<Record<string, boolean>>({});
 	let pausing = $state<Record<string, boolean>>({});
 	let disconnecting = $state<Record<string, boolean>>({});
+	// Per-card error from a save / pause / disconnect the server rejected —
+	// mirrors refreshError/replaceError so a PATCH 400 (e.g. a stale
+	// doneStatusOptionId after a column was deleted on GitHub) is never silent.
+	let actionError = $state<Record<string, string>>({});
+	// Per-card canComment tri-state from a "Replace token" response (same
+	// semantics as the connect form's `canComment` below), so rotating to a
+	// token that can't post issue comments keeps the warn-at-connect signal.
+	let cardCanComment = $state<Record<string, "yes" | "no" | "unknown" | null>>({});
 	let refreshing = $state<Record<string, boolean>>({});
 	let refreshError = $state<Record<string, string>>({});
 	let replacingToken = $state<Record<string, boolean>>({});
@@ -206,9 +214,17 @@
 		return Object.values(columnMaps[linkId] ?? {}).some((c) => c.autoSpawn);
 	}
 
+	// Shared error surfacing for the card's save/pause/disconnect actions: a
+	// non-ok response lands its server `error` (or a fallback) in actionError.
+	async function surfaceActionError(linkId: string, res: Response, fallback: string) {
+		const data = (await res.json().catch(() => ({}))) as { error?: string };
+		actionError[linkId] = data.error ?? `${fallback} (${res.status})`;
+	}
+
 	async function saveMap(linkId: string) {
 		savingMap[linkId] = true;
 		mapFlash[linkId] = false;
+		actionError[linkId] = "";
 		try {
 			const res = await fetch("/api/integrations/github-projects/link", {
 				method: "PATCH",
@@ -226,7 +242,11 @@
 				replaceLink(data.link);
 				mapFlash[linkId] = true;
 				setTimeout(() => (mapFlash[linkId] = false), 1500);
+			} else {
+				await surfaceActionError(linkId, res, "Save failed");
 			}
+		} catch (e) {
+			actionError[linkId] = e instanceof Error ? e.message : "Save failed";
 		} finally {
 			savingMap[linkId] = false;
 		}
@@ -234,6 +254,7 @@
 
 	async function togglePause(link: Link) {
 		pausing[link.id] = true;
+		actionError[link.id] = "";
 		try {
 			const res = await fetch("/api/integrations/github-projects/link", {
 				method: "PATCH",
@@ -243,7 +264,11 @@
 			if (res.ok) {
 				const data = (await res.json()) as { link: Link };
 				replaceLink(data.link);
+			} else {
+				await surfaceActionError(link.id, res, "Update failed");
 			}
+		} catch (e) {
+			actionError[link.id] = e instanceof Error ? e.message : "Update failed";
 		} finally {
 			pausing[link.id] = false;
 		}
@@ -254,6 +279,7 @@
 			return;
 		}
 		disconnecting[link.id] = true;
+		actionError[link.id] = "";
 		try {
 			const res = await fetch("/api/integrations/github-projects/link", {
 				method: "DELETE",
@@ -262,7 +288,11 @@
 			});
 			if (res.ok) {
 				links = links.filter((l) => l.id !== link.id);
+			} else {
+				await surfaceActionError(link.id, res, "Disconnect failed");
 			}
+		} catch (e) {
+			actionError[link.id] = e instanceof Error ? e.message : "Disconnect failed";
 		} finally {
 			disconnecting[link.id] = false;
 		}
@@ -274,6 +304,7 @@
 	function startReplaceToken(linkId: string) {
 		replaceToken[linkId] = "";
 		replaceError[linkId] = "";
+		cardCanComment[linkId] = null;
 		replacingToken[linkId] = true;
 	}
 	function cancelReplaceToken(linkId: string) {
@@ -303,6 +334,10 @@
 				}),
 			});
 			if (res.ok) {
+				// The connect response carries the canComment tri-state — keep the
+				// warn-at-connect signal when rotating to a weaker token.
+				const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+				cardCanComment[link.id] = parseCanComment(data);
 				replacingToken[link.id] = false;
 				replaceToken[link.id] = "";
 				await loadLinks();
@@ -334,6 +369,15 @@
 	 *   null      = connect not yet attempted / reset
 	 */
 	let canComment = $state<"yes" | "no" | "unknown" | null>(null);
+
+	/** Map the server's canComment tri-state (true/false/absent) to local string
+	 *  state — shared by the connect form and each card's replace-token flow. */
+	function parseCanComment(data: Record<string, unknown>): "yes" | "no" | "unknown" {
+		// The server omits the canComment key for fine-grained PATs (undefined →
+		// absent in JSON). Absent key → "unknown" (guidance note only, no definitive warn).
+		if (!("canComment" in data)) return "unknown";
+		return data.canComment === true ? "yes" : "no";
+	}
 
 	async function connect() {
 		connectError = "";
@@ -373,16 +417,7 @@
 				return;
 			}
 			grantedScopes = data.scopes ?? [];
-			// Map the server's tri-state (true/false/absent) to local string state.
-			// The server omits the canComment key for fine-grained PATs (undefined →
-			// absent in JSON). Absent key → "unknown" (guidance note only, no definitive warn).
-			if (!("canComment" in data)) {
-				canComment = "unknown";
-			} else if (data.canComment === true) {
-				canComment = "yes";
-			} else {
-				canComment = "no";
-			}
+			canComment = parseCanComment(data);
 			token = ""; // never keep the PAT in memory longer than the request
 			boardUrl = "";
 			useBoardToken = false;
@@ -423,6 +458,26 @@
 		{@render connectForm()}
 	{/if}
 </div>
+
+<!-- canComment warning/note — one source of truth for the connect form
+     (suffix "") and each card's replace-token flow (suffix "-<linkId>"). -->
+{#snippet commentScopeBanner(state: "yes" | "no" | "unknown" | null, testidSuffix: string)}
+	{#if state === "no"}
+		<p
+			class="mt-3 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-300"
+			data-testid={`gh-comment-scope-warning${testidSuffix}`}
+		>
+			⚠ This token can manage the board but can't post issue comments (missing the <code>repo</code> scope). Progress comments won't appear on cards. Re-create the token with <code>repo</code> (classic) or Issues: Read and write (fine-grained).
+		</p>
+	{:else if state === "unknown"}
+		<p
+			class="mt-3 text-xs text-[var(--color-text-muted)]"
+			data-testid={`gh-comment-scope-note${testidSuffix}`}
+		>
+			Note: progress comments require the token to have Issues: Read and write (fine-grained) or <code>repo</code> (classic). The board itself will work regardless.
+		</p>
+	{/if}
+{/snippet}
 
 {#snippet boardCard(link: Link)}
 	<section
@@ -483,6 +538,9 @@
 
 		{#if expanded[link.id]}
 			<div class="space-y-5 border-t border-[var(--color-border)] p-5" data-testid={`gh-projects-card-body-${link.id}`}>
+				{#if actionError[link.id]}
+					<p class="text-sm text-red-400" data-testid={`gh-projects-action-error-${link.id}`}>{actionError[link.id]}</p>
+				{/if}
 				<!-- Pause/resume + token + disconnect controls -->
 				<div class="flex flex-wrap items-center justify-between gap-3">
 					<div class="min-w-0">
@@ -563,6 +621,8 @@
 						</div>
 					</div>
 				{/if}
+
+				{@render commentScopeBanner(cardCanComment[link.id] ?? null, `-${link.id}`)}
 
 				<!-- ── Column → action mapping editor ──────────────────────── -->
 				<div class="border-t border-[var(--color-border)] pt-4" data-testid={`gh-projects-column-editor-${link.id}`}>
@@ -826,20 +886,6 @@
 			{connecting ? "Connecting…" : links.length ? "Connect another board" : "Connect board"}
 		</button>
 
-		{#if canComment === "no"}
-			<p
-				class="mt-3 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-300"
-				data-testid="gh-comment-scope-warning"
-			>
-				⚠ This token can manage the board but can't post issue comments (missing the <code>repo</code> scope). Progress comments won't appear on cards. Re-create the token with <code>repo</code> (classic) or Issues: Read and write (fine-grained).
-			</p>
-		{:else if canComment === "unknown"}
-			<p
-				class="mt-3 text-xs text-[var(--color-text-muted)]"
-				data-testid="gh-comment-scope-note"
-			>
-				Note: progress comments require the token to have Issues: Read and write (fine-grained) or <code>repo</code> (classic). The board itself will work regardless.
-			</p>
-		{/if}
+		{@render commentScopeBanner(canComment, "")}
 	</section>
 {/snippet}

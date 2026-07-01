@@ -57,6 +57,9 @@ let proposalsById: Record<string, any> = {};
 // When true, the setSecret mock throws — exercises the connect handler's
 // token-persist failure branch (→ 500, link NOT upserted).
 let setSecretThrows = false;
+// When true, the deleteSecret mock throws — exercises the DELETE handler's
+// purge-failure warn path (non-fatal: the disconnect still succeeds).
+let deleteSecretThrows = false;
 // When true, updateLink returns null — exercises the refresh-columns handler's
 // "link vanished mid-flight" branch (→ 404).
 let updateLinkReturnsNull = false;
@@ -124,7 +127,12 @@ mock.module("$server/db/queries/github-projects", () => ({
   getProposalById: async (id: string) => proposalsById[id] ?? null,
   upsertLink: async (input: any) => {
     upsertLinkCalls.push(input);
-    const row = { id: "link-new", ...input, columnActionMap: {}, enabled: true, pollIntervalSec: 60, lastError: null, lastErrorAt: null, lastPolledAt: null, createdAt: new Date(0), updatedAt: new Date(0) };
+    // Mirror the real onConflictDoUpdate: a (projectId, boardNodeId) conflict
+    // UPDATEs (keeps the row id); omitted config fields reset to their defaults.
+    const existing = linksByProject(input.projectId).find(
+      (l: any) => l.boardNodeId === input.boardNodeId,
+    );
+    const row = { id: existing?.id ?? "link-new", ...input, columnActionMap: input.columnActionMap ?? {}, enabled: input.enabled ?? true, pollIntervalSec: input.pollIntervalSec ?? 60, lastError: null, lastErrorAt: null, lastPolledAt: null, createdAt: new Date(0), updatedAt: new Date(0) };
     linkByProject[input.projectId] = row;
     return row;
   },
@@ -204,6 +212,7 @@ mock.module("$server/extensions/secrets-store", () => ({
     name: string,
     opts?: { userId?: string | null },
   ) => {
+    if (deleteSecretThrows) throw new Error("secret purge failed");
     deleteSecretCalls.push({ extensionId, projectId, name, userId: opts?.userId });
     return true;
   },
@@ -262,6 +271,7 @@ beforeEach(() => {
   sharedTokenByProject = {};
   proposalsById = {};
   setSecretThrows = false;
+  deleteSecretThrows = false;
   updateLinkReturnsNull = false;
   setSecretCalls.length = 0;
   deleteSecretCalls.length = 0;
@@ -585,6 +595,92 @@ describe("POST connect", () => {
     // undefined becomes absent in JSON; the key won't exist or will be undefined.
     expect(body.canComment).toBeUndefined();
   });
+
+  // ── Re-connect config preservation (replace-token safety) ────────────────
+
+  /** Seed proj-1 with an ALREADY-CONNECTED board (the boardNodeId the default
+   *  resolveBoardImpl resolves) carrying user-edited config, so a connect for
+   *  the same URL is a RE-connect. */
+  function seedConnectedBoard(overrides: Record<string, unknown> = {}) {
+    linkByProject["proj-1"] = {
+      id: "link-1",
+      projectId: "proj-1",
+      boardNodeId: "PVT_board1",
+      boardUrl: "u",
+      boardTitle: "Roadmap",
+      ownerLogin: "acme",
+      statusFieldId: "FIELD_status",
+      statusOptions: [
+        { id: "opt-todo", name: "Todo" },
+        { id: "opt-doing", name: "Doing" },
+      ],
+      defaultModel: "ollama:gemma4:e2b",
+      defaultPermissionMode: "ask",
+      authMode: "pat",
+      columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
+      pollIntervalSec: 300,
+      enabled: false, // paused — a re-connect must NOT silently resume it
+      lastError: null,
+      lastErrorAt: null,
+      lastPolledAt: null,
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+      ...overrides,
+    };
+  }
+
+  test("re-connect ('Replace token' body shape) PRESERVES columnActionMap/pollIntervalSec/enabled + body-absent defaults", async () => {
+    seedConnectedBoard();
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "ghp_rotated", tokenScope: "board" } }));
+    expect(res.status).toBe(200);
+    // The upsert carries the EXISTING board's config through, so the
+    // onConflictDoUpdate can't reset it (the wipe-on-rotate bug).
+    expect(upsertLinkCalls).toHaveLength(1);
+    expect(upsertLinkCalls[0].columnActionMap).toEqual({ "opt-doing": { action: "execute", autoSpawn: true } });
+    expect(upsertLinkCalls[0].pollIntervalSec).toBe(300);
+    expect(upsertLinkCalls[0].enabled).toBe(false); // stays paused
+    // Body-ABSENT defaults mean "keep existing", never "reset to null".
+    expect(upsertLinkCalls[0].defaultModel).toBe("ollama:gemma4:e2b");
+    expect(upsertLinkCalls[0].defaultPermissionMode).toBe("ask");
+  });
+
+  test("re-connect with body-PRESENT defaults still applies them (set wins, explicit clear wins)", async () => {
+    seedConnectedBoard();
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "t", defaultModel: "openai:gpt-4o", defaultPermissionMode: "" } }));
+    expect(res.status).toBe(200);
+    expect(upsertLinkCalls[0].defaultModel).toBe("openai:gpt-4o"); // explicit set
+    expect(upsertLinkCalls[0].defaultPermissionMode).toBeNull(); // explicit clear ("")
+  });
+
+  test("FRESH connect leaves config fields undefined so upsertLink applies its defaults", async () => {
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "t" } }));
+    expect(res.status).toBe(200);
+    expect(upsertLinkCalls[0].columnActionMap).toBeUndefined();
+    expect(upsertLinkCalls[0].pollIntervalSec).toBeUndefined();
+    expect(upsertLinkCalls[0].enabled).toBeUndefined();
+  });
+
+  test("pat re-connect at SHARED scope purges this board's stale override (the new shared token must take effect)", async () => {
+    seedConnectedBoard();
+    tokenOverrides["apiToken:link-1"] = true;
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "ghp_new_shared" } }));
+    expect(res.status).toBe(200);
+    // The new token was written as the SHARED project token…
+    expect(setSecretCalls).toEqual([
+      { extensionId: "github-projects", projectId: "proj-1", name: "apiToken", value: "ghp_new_shared", userId: undefined },
+    ]);
+    // …and the stale per-board override was deleted (resolveLinkAuth prefers
+    // the override, so leaving it would shadow the new shared token forever).
+    expect(deleteSecretCalls).toEqual([
+      { extensionId: "github-projects", projectId: "proj-1", name: "apiToken:link-1", userId: undefined },
+    ]);
+  });
+
+  test("pat FRESH connect at SHARED scope deletes no override (nothing stale to purge)", async () => {
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "t" } }));
+    expect(res.status).toBe(200);
+    expect(deleteSecretCalls).toHaveLength(0);
+  });
 });
 
 // ════════════════════════ link GET ════════════════════════
@@ -890,6 +986,19 @@ describe("PATCH link", () => {
     expect(body.error).toContain("doneStatusOptionId");
   });
 
+  test("PATCH response reports hasTokenOverride:true when a per-board override exists (page adopts this view)", async () => {
+    tokenOverrides["apiToken:link-1"] = true;
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", enabled: false } }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).link.hasTokenOverride).toBe(true);
+  });
+
+  test("PATCH response reports hasTokenOverride:false when the board shares the project token", async () => {
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", enabled: false } }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).link.hasTokenOverride).toBe(false);
+  });
+
   test("no link → 404", async () => {
     linkByProject = {};
     const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", enabled: false } }));
@@ -937,6 +1046,15 @@ describe("DELETE link", () => {
     expect(deleteSecretCalls).toEqual([
       { extensionId: "github-projects", projectId: "proj-1", name: "apiToken:link-1", userId: undefined },
     ]);
+  });
+
+  test("a failed token purge is WARNED, not fatal — the disconnect still succeeds", async () => {
+    deleteSecretThrows = true; // both the override AND the shared-token purge fail
+    const res = await run(linkDelete, ev({ method: "DELETE", body: { projectId: "proj-1", linkId: "link-1" } }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).disconnected).toBe(true);
+    // The link itself is still dropped; only the secret purge failed (logged).
+    expect(deleteLinkCalls).toEqual(["link-1"]);
   });
 
   test("wrong linkId → 404", async () => {

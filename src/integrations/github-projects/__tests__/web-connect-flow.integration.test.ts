@@ -87,7 +87,7 @@ const { createProject } = await import("../../../db/queries/projects");
 const { createUser } = await import("../../../db/queries/users");
 // The host-only secrets store: read the stored PAT plaintext for assertions.
 const { getSecret, setSecret, deleteSecret } = await import("../../../extensions/secrets-store");
-const { boardTokenName } = await import("../auth");
+const { boardTokenName, resolveLinkAuth } = await import("../auth");
 const { getSecretRow } = await import("../../../db/queries/extension-secrets");
 const { decryptWithAad } = await import("../../../providers/encryption");
 const { getLinkByProjectId, insertProposalIfNew, getProposalById } = await import(
@@ -429,6 +429,112 @@ describe("github-projects connect lifecycle (real DB)", () => {
       { id: "opt-todo", name: "Todo" },
       { id: "opt-doing", name: "Doing" },
     ]);
+  });
+
+  test("re-connect ('Replace token') PRESERVES the board's config — column map, defaults, interval, paused state", async () => {
+    // Connect, then configure the board the way a user would.
+    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+    const linkId = (await getLinkByProjectId(projectId))!.id;
+    const configured = await linkPatch(
+      ev("PATCH", {
+        body: {
+          projectId,
+          linkId,
+          columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true, doneStatusOptionId: "opt-todo" } },
+          defaultModel: "ollama:gemma4:e2b",
+          defaultPermissionMode: "ask",
+          pollIntervalSec: 300,
+          enabled: false, // paused
+        },
+      }),
+    );
+    expect(configured.status).toBe(200);
+
+    // Rotate the token — the page's "Replace token" body shape: NO config
+    // fields, board-scope override. Before the fix, upsertLink's
+    // onConflictDoUpdate reset every omitted field (map → {}, model/mode →
+    // null, interval → 60) AND un-paused the board.
+    const res = await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "rotated_tok", tokenScope: "board" } }),
+    );
+    expect(res.status).toBe(200);
+
+    const link = (await getLinkByProjectId(projectId))!;
+    expect(link.id).toBe(linkId); // same row (conflict UPDATE, not insert)
+    expect(link.columnActionMap).toEqual({
+      "opt-doing": { action: "execute", autoSpawn: true, doneStatusOptionId: "opt-todo" },
+    });
+    expect(link.defaultModel).toBe("ollama:gemma4:e2b");
+    expect(link.defaultPermissionMode).toBe("ask");
+    expect(link.pollIntervalSec).toBe(300);
+    expect(link.enabled).toBe(false); // still paused — rotate must not resume
+    // And the rotated token landed as this board's override.
+    expect(await getSecret(GH_EXT, projectId, boardTokenName(linkId))).toBe("rotated_tok");
+  });
+
+  test("re-connect with body-PRESENT defaults still applies them (the connect form sets them legitimately)", async () => {
+    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok", defaultModel: "ollama:gemma4:e2b", defaultPermissionMode: "ask" } }));
+    const linkId = (await getLinkByProjectId(projectId))!.id;
+
+    // Re-connect the SAME board with NEW explicit defaults → they win.
+    const res = await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok2", defaultModel: "openai:gpt-4o", defaultPermissionMode: "yolo" } }),
+    );
+    expect(res.status).toBe(200);
+    const link = (await getLinkByProjectId(projectId))!;
+    expect(link.id).toBe(linkId);
+    expect(link.defaultModel).toBe("openai:gpt-4o");
+    expect(link.defaultPermissionMode).toBe("yolo");
+  });
+
+  test("PATCH response reports hasTokenOverride:true for a board carrying its own token", async () => {
+    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "board_tok", tokenScope: "board" } }));
+    const linkId = (await getLinkByProjectId(projectId))!.id;
+    expect(await getSecret(GH_EXT, projectId, boardTokenName(linkId))).toBe("board_tok");
+
+    // The page adopts the PATCH response wholesale (replaceLink) — it must
+    // carry the recomputed override flag, not the publicLinkView default.
+    const res = await linkPatch(ev("PATCH", { body: { projectId, linkId, enabled: false } }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).link.hasTokenOverride).toBe(true);
+  });
+
+  test("re-connect at SHARED scope purges the stale override; auth then resolves the NEW shared token", async () => {
+    // Board connects shared, then gains a per-board override.
+    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "old_shared" } }));
+    const linkId = (await getLinkByProjectId(projectId))!.id;
+    await setSecret(GH_EXT, projectId, boardTokenName(linkId), "stale_override");
+    expect(await resolveLinkAuth((await getLinkByProjectId(projectId))!)).toEqual({
+      mode: "pat",
+      token: "stale_override", // the override shadows the shared token
+    });
+
+    // Re-connect the SAME board with a NEW shared token. Before the fix the
+    // override survived and kept shadowing it forever.
+    const res = await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "new_shared", tokenScope: "shared" } }));
+    expect(res.status).toBe(200);
+    expect(await getSecret(GH_EXT, projectId, boardTokenName(linkId))).toBeNull();
+    expect(await getSecret(GH_EXT, projectId, "apiToken")).toBe("new_shared");
+    expect(await resolveLinkAuth((await getLinkByProjectId(projectId))!)).toEqual({
+      mode: "pat",
+      token: "new_shared",
+    });
+  });
+
+  test("PATCH with a stale doneStatusOptionId → 400 with a named error (what the page surfaces per-card)", async () => {
+    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+    const linkId = (await getLinkByProjectId(projectId))!.id;
+    const res = await linkPatch(
+      ev("PATCH", {
+        body: {
+          projectId,
+          linkId,
+          columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false, doneStatusOptionId: "opt-deleted-on-github" } },
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("doneStatusOptionId");
   });
 
   test("re-connect of the SAME board pat → gh purges THIS board's override but keeps the shared token (other boards may use it)", async () => {

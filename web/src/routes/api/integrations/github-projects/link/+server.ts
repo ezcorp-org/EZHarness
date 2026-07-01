@@ -40,6 +40,9 @@ import type {
 } from "$server/integrations/github-projects/types";
 import { getGithubProjectsEmit } from "$server/integrations/github-projects/bus-registry";
 import { GITHUB_PROJECTS_EVENT } from "$server/integrations/github-projects/types";
+import { extensionLogger } from "$server/logger";
+
+const log = extensionLogger("github-projects", "api.link");
 
 const MIN_POLL_SEC = 15;
 const MAX_POLL_SEC = 3600;
@@ -214,7 +217,16 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   // Nudge the Hub (pause/resume + map changes alter what it should show).
   getGithubProjectsEmit()?.(GITHUB_PROJECTS_EVENT, { projectId: updated.projectId });
 
-  return json({ link: publicLinkView(updated) });
+  // Mirror GET/refresh-columns: report the boolean presence of a per-board
+  // token override (never the token) — the page adopts this response wholesale
+  // (replaceLink), so omitting it would mislabel an override board as "shared
+  // token" after every save/pause until a reload.
+  const hasOverride = await hasSecret(
+    "github-projects",
+    updated.projectId,
+    boardTokenName(updated.id),
+  );
+  return json({ link: publicLinkView(updated, hasOverride) });
 };
 
 export const DELETE: RequestHandler = async ({ locals, request }) => {
@@ -241,16 +253,25 @@ export const DELETE: RequestHandler = async ({ locals, request }) => {
   // SHARED project token is purged ONLY when this was the project's last board —
   // other boards may still resolve via it. deleteSecret is idempotent; a missing
   // secret is a no-op. `actorUserId` is audit-only (attributes SECRET_DELETED).
+  // A failed purge is non-fatal (the disconnect itself succeeded) but never
+  // silent — an orphaned encrypted PAT with no audit trail is a security smell.
+  const warnPurgeFailure = (what: string) => (err: unknown) => {
+    log.warn(`${what} purge failed on disconnect`, {
+      linkId: link.id,
+      projectId: link.projectId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  };
   const cancelled = await cancelActiveProposalsForLink(link.id);
   await deleteLink(link.id);
   await deleteSecret("github-projects", link.projectId, boardTokenName(link.id), {
     actorUserId: auth.user.id,
-  }).catch(() => {});
+  }).catch(warnPurgeFailure("board override token"));
   const remaining = await listLinksByProjectId(link.projectId);
   if (remaining.length === 0) {
     await deleteSecret("github-projects", link.projectId, "apiToken", {
       actorUserId: auth.user.id,
-    }).catch(() => {});
+    }).catch(warnPurgeFailure("shared token"));
   }
 
   getGithubProjectsEmit()?.(GITHUB_PROJECTS_EVENT, { projectId: link.projectId });
