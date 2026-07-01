@@ -254,6 +254,33 @@ export async function updateProposal(
   return rows[0] ?? null;
 }
 
+/**
+ * Atomic conditional status transition (the TOCTOU-proof approve/dismiss/
+ * terminal gate): `UPDATE … SET patch WHERE id = $1 AND status = ANY(from)
+ * RETURNING *` in ONE statement. Returns the updated row, or null when the
+ * proposal is missing OR its status is not in `fromStatuses` — the caller's
+ * signal that another actor already claimed/decided it (never retry-with-force).
+ */
+export async function claimProposal(
+  id: string,
+  fromStatuses: readonly GithubProposalStatus[],
+  patch: ProposalUpdatePatch & { status: GithubProposalStatus },
+): Promise<GithubProjectsProposal | null> {
+  if (!id) return null;
+  const db = getDb();
+  const rows = (await db
+    .update(githubProjectsProposals)
+    .set(patch)
+    .where(
+      and(
+        eq(githubProjectsProposals.id, id),
+        inArray(githubProjectsProposals.status, [...fromStatuses]),
+      ),
+    )
+    .returning()) as GithubProjectsProposal[];
+  return rows[0] ?? null;
+}
+
 /** Find the proposal owning a run (spawn bridge: run:complete → terminal). */
 export async function getProposalByRunId(
   agentRunId: string,

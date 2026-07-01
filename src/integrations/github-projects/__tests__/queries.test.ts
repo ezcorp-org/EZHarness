@@ -33,10 +33,11 @@ import {
   listProposalsByProject,
   countActiveProposalsForProject,
   updateProposal,
+  claimProposal,
   getProposalByRunId,
   cancelActiveProposalsForLink,
 } from "../../../db/queries/github-projects";
-import { githubProposalDedupeKey } from "../types";
+import { githubProposalDedupeKey, GITHUB_ACTIVE_STATUSES } from "../types";
 
 mockDbConnection();
 
@@ -312,6 +313,53 @@ describe("github-projects queries", () => {
     await updateProposal(p!.id, { conversationId: conv.id });
 
     expect((await getProposalByConversationId(conv.id))?.id).toBe(p!.id);
+  });
+
+  test("claimProposal transitions only from the expected statuses (+ guards)", async () => {
+    expect(await claimProposal("", ["pending"], { status: "dismissed" })).toBeNull();
+    expect(await claimProposal("missing", ["pending"], { status: "dismissed" })).toBeNull();
+
+    const projectId = await seedProject();
+    const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
+    const p = await insertProposalIfNew(proposalInput(projectId, link.id, "i1", "opt", "plan"));
+
+    // pending → spawned succeeds ONCE and stamps the patch atomically.
+    const when = new Date();
+    const claimed = await claimProposal(p!.id, ["pending"], {
+      status: "spawned",
+      agentRunId: "run-1",
+      decidedAt: when,
+    });
+    expect(claimed?.status).toBe("spawned");
+    expect(claimed?.agentRunId).toBe("run-1");
+    // A second pending-claim of the SAME row loses (status no longer matches).
+    expect(await claimProposal(p!.id, ["pending"], { status: "spawned" })).toBeNull();
+
+    // spawned → running; then an active → terminal claim; then terminal is FINAL.
+    expect((await claimProposal(p!.id, ["spawned"], { status: "running" }))?.status).toBe("running");
+    const done = await claimProposal(p!.id, GITHUB_ACTIVE_STATUSES, {
+      status: "done",
+      finishedAt: new Date(),
+    });
+    expect(done?.status).toBe("done");
+    expect(done?.finishedAt).toBeInstanceOf(Date);
+    expect(await claimProposal(p!.id, GITHUB_ACTIVE_STATUSES, { status: "cancelled" })).toBeNull();
+    expect((await getProposalById(p!.id))?.status).toBe("done"); // untouched by the lost claim
+  });
+
+  test("claimProposal: two CONCURRENT pending-claims yield exactly one winner (anti-double-approve)", async () => {
+    const projectId = await seedProject();
+    const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
+    const p = await insertProposalIfNew(proposalInput(projectId, link.id, "i1", "opt", "plan"));
+
+    const [a, b] = await Promise.all([
+      claimProposal(p!.id, ["pending"], { status: "spawned", agentRunId: "run-A" }),
+      claimProposal(p!.id, ["pending"], { status: "spawned", agentRunId: "run-B" }),
+    ]);
+    const winners = [a, b].filter((r) => r !== null);
+    expect(winners).toHaveLength(1);
+    // The row carries exactly the winner's stamp.
+    expect((await getProposalById(p!.id))?.agentRunId).toBe(winners[0]!.agentRunId);
   });
 
   test("cancelActiveProposalsForLink flips active rows to cancelled and returns the count", async () => {
