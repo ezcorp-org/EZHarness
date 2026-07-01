@@ -1,6 +1,6 @@
 import type { AgentRun, AgentEvents } from "../types";
 import type { EventBus } from "./events";
-import type { Agent } from "@mariozechner/pi-agent-core";
+import type { Agent } from "@earendil-works/pi-agent-core";
 import * as activeRunsDb from "../db/queries/active-runs";
 import * as dbRuns from "../db/queries/runs";
 import { logger } from "../logger";

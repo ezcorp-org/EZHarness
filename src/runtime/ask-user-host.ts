@@ -18,7 +18,7 @@
 // is omitted from the `extensionToAgentTool` call. Mirrors `ask_human`
 // in `orchestration-host.ts:300-318`.
 
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { getDb } from "../db/connection";
 import { conversationExtensions } from "../db/schema";
 import { getExtensionByName } from "../db/queries/extensions";

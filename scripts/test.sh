@@ -30,29 +30,26 @@
 # It's only the unbounded glob that triggers the cross-spec deadlock.
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/test-file-sets.sh
+source "$SCRIPT_DIR/lib/test-file-sets.sh"
+
 PARALLEL=${PARALLEL:-6}
 TOTAL_PASS=0
 TOTAL_FAIL=0
 FAILED_FILES=()
 
-# Collect all test files. The import-wizard endpoint tests live next
-# to their SvelteKit routes (bun:test, per-file isolated like the rest),
-# so include that dir alongside the canonical src/__tests__ pool.
-mapfile -t FILES < <({
-  find src/__tests__ -name "*.test.ts"
-  find web/src/routes/api/import -name "*.test.ts"
-  # github-projects integration: tests live next to their source (not under
-  # src/__tests__), so enumerate those dirs explicitly — unit + integration.
-  find src/integrations/github-projects/__tests__ -name "*.test.ts"
-  find src/extensions/__tests__ -name "github-projects-handler*.test.ts"
-  find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
-  # extension-secrets (Phase 0): the secrets-store test lives next to its
-  # source under src/extensions/__tests__ (the queries test under src/__tests__
-  # is already caught above). The web entry-route tests (Phase 1B) land in the
-  # extensions __tests__ dir — empty today, so this find is a no-op until then.
-  find src/extensions/__tests__ -name "secrets-*.test.ts"
-  find web/src/routes/api/extensions/__tests__ -name "*.test.ts"
-} | sort)
+# The pass/fail set (P) is defined in scripts/lib/test-file-sets.sh and shared
+# with scripts/test-coverage.sh so the two can never drift. RESIDUAL_ONLY=1
+# runs ONLY the files in P that the coverage shards do NOT run (the
+# *integration* variants) — the CI `residual-tests` job uses this so every
+# pass/fail file runs somewhere without re-running what the coverage shards
+# already cover. Empty residual is fine (the loop is a no-op).
+if [ -n "$RESIDUAL_ONLY" ]; then
+  mapfile -t FILES < <(residual_passfail_files)
+else
+  mapfile -t FILES < <(passfail_files)
+fi
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT

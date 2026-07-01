@@ -18,7 +18,7 @@
  * model. Production wiring uses `defaultSummarize` which routes through
  * `resolveModel` + `completeLLM`.
  */
-import { Type } from "@mariozechner/pi-ai";
+import { Type } from "@earendil-works/pi-ai";
 import type { BuiltinToolDef } from "../types";
 import { getConversation, getMessages } from "../../../db/queries/conversations";
 

@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
-import type { Message } from "@mariozechner/pi-ai";
+import type { Message } from "@earendil-works/pi-ai";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { stubAssistantMessage } from "./helpers/mock-pi-ai";
@@ -8,7 +8,7 @@ import { stubAssistantMessage } from "./helpers/mock-pi-ai";
 let mockCompleteText = "Hello, I can help you create an agent.";
 let mockCompleteError: Error | null = null;
 
-mock.module("@mariozechner/pi-ai", () => ({
+mock.module("@earendil-works/pi-ai", () => ({
   complete: async () => {
     if (mockCompleteError) throw mockCompleteError;
     return stubAssistantMessage(mockCompleteText);
@@ -68,7 +68,7 @@ async function simulateGenerateEndpoint(body: unknown): Promise<{ status: number
   }
 
   try {
-    const { complete } = await import("@mariozechner/pi-ai");
+    const { complete } = await import("@earendil-works/pi-ai");
     const { resolveModel } = await import("../providers/router");
     const { getCredential } = await import("../providers/credentials");
 

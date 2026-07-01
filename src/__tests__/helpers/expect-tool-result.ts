@@ -30,7 +30,7 @@
  *   const details = expectDetails<{ draftId: string; kind: 'project' }>(result);
  *   expect(details.kind).toBe('project');
  */
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 
 /**
  * Loose result shape — accepts any tool's return without committing to a

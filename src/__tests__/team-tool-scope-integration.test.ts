@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { BuiltinToolDef } from "../runtime/tools/types";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 

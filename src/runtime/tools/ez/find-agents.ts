@@ -12,7 +12,7 @@
  * agent libraries rarely exceed dozens of rows). When that stops being
  * true, swap in tsvector full-text search.
  */
-import { Type } from "@mariozechner/pi-ai";
+import { Type } from "@earendil-works/pi-ai";
 import type { BuiltinToolDef } from "../types";
 import { listAgentConfigs } from "../../../db/queries/agent-configs";
 import type { EzToolContext } from "./propose-create-project";

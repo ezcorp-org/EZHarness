@@ -69,11 +69,11 @@ mock.module("../providers/encryption", () => ({
   _resetKeyCache: () => {},
 }));
 
-mock.module("@mariozechner/pi-ai/oauth", () => ({
+mock.module("@earendil-works/pi-ai/oauth", () => ({
   getOAuthApiKey: mockGetOAuthApiKey,
 }));
 
-mock.module("@mariozechner/pi-ai", () => ({
+mock.module("@earendil-works/pi-ai", () => ({
   getEnvApiKey: mockGetEnvApiKey,
   getModel: mock(() => ({})),
   getModels: mock(() => []),

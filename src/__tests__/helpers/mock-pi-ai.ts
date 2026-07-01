@@ -158,7 +158,7 @@ export function setupPiAiMocks(opts: {
     getApiKey: async () => "test-key",
   }));
 
-  mock.module("@mariozechner/pi-ai", () => ({
+  mock.module("@earendil-works/pi-ai", () => ({
     stream: () => createMockPiStream(streamEvents),
     complete: async () => stubAssistantMessage(completeText),
     getModel: () => ({
@@ -177,7 +177,7 @@ export function setupPiAiMocks(opts: {
     getEnvApiKey: () => undefined,
   }));
 
-  mock.module("@mariozechner/pi-agent-core", () => ({
+  mock.module("@earendil-works/pi-agent-core", () => ({
     Agent: class MockAgent {
       state = { error: null };
       private _subscribers: AgentEventCallback[] = [];

@@ -308,7 +308,7 @@ describe("Executor — memory_unavailable emission", () => {
     }));
 
     // Mock pi-agent-core Agent
-    mock.module("@mariozechner/pi-agent-core", () => ({
+    mock.module("@earendil-works/pi-agent-core", () => ({
       Agent: class {
         state = { error: null };
         subscribe(fn: any) {

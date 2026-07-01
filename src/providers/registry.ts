@@ -9,7 +9,7 @@ import {
   getProviders,
   type Model,
   type KnownProvider,
-} from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-ai";
 import { getSetting } from "../db/queries/settings";
 
 // Fallback entries for OAuth-only users (ChatGPT Codex login).

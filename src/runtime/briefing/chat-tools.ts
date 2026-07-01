@@ -30,8 +30,8 @@
  * setup-tools call site. Category 'write' keeps them excluded from any
  * read-only-restricted turn (including the briefing pipeline run).
  */
-import { Type } from "@mariozechner/pi-ai";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import { Type } from "@earendil-works/pi-ai";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { BuiltinToolDef } from "../tools/types";
 import {
   getBriefingConfig,

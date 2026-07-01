@@ -13,7 +13,7 @@
  * Inputs: either `extensionName` (exact slug/name lookup) or
  * `searchQuery` (free-text browse). At least one is required.
  */
-import { Type } from "@mariozechner/pi-ai";
+import { Type } from "@earendil-works/pi-ai";
 import type { BuiltinToolDef } from "../types";
 import { createDraft } from "../../../db/queries/ez-drafts";
 import { browseMarketplace, getListingBySlug } from "../../../db/queries/marketplace";

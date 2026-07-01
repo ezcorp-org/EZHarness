@@ -2,7 +2,7 @@
  * Provider routing with fallback suggestions.
  */
 
-import { type Model } from "@mariozechner/pi-ai";
+import { type Model } from "@earendil-works/pi-ai";
 import { resolveModelObject, findModelForProviderInTier, resolveDiscoveredModel } from "./registry";
 import { getCircuitBreaker } from "./circuit-breaker";
 import { getSetting } from "../db/queries/settings";

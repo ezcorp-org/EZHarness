@@ -4,7 +4,7 @@ import type { RequestHandler } from "./$types";
 import { encrypt } from "$server/providers/encryption";
 import { getSetting, upsertSetting, deleteSetting } from "$server/db/queries/settings";
 import { requireAuth } from "$server/auth/middleware";
-import type { OAuthCredentials } from "@mariozechner/pi-ai/oauth";
+import type { OAuthCredentials } from "@earendil-works/pi-ai/oauth";
 import { OAUTH_CONFIG } from "$lib/server/oauth-config";
 
 const VALID_PROVIDERS = ["openai", "google"] as const;

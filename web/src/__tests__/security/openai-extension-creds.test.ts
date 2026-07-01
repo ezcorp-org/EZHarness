@@ -25,10 +25,10 @@ mock.module("$server/providers/encryption", () => ({
   decrypt: (s: string) => decryptImpl(s),
   encrypt: (s: string) => encryptImpl(s),
 }));
-mock.module("@mariozechner/pi-ai", () => ({
+mock.module("@earendil-works/pi-ai", () => ({
   getEnvApiKey: (_p: string) => envApiKey,
 }));
-mock.module("@mariozechner/pi-ai/oauth", () => ({
+mock.module("@earendil-works/pi-ai/oauth", () => ({
   getOAuthApiKey: (providerId: string, creds: any) => getOAuthApiKeyImpl(providerId, creds),
 }));
 

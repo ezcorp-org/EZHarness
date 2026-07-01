@@ -14,7 +14,7 @@
  * `://` (full URLs). The Ez panel applies its own `goto`-side
  * validation as defense-in-depth.
  */
-import { Type } from "@mariozechner/pi-ai";
+import { Type } from "@earendil-works/pi-ai";
 import type { BuiltinToolDef } from "../types";
 import type { ClientToolContext } from "./fill-form";
 import { EZ_CLIENT_TOOL_DEFERRED_MARKER } from "./fill-form";

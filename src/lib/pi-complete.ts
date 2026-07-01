@@ -3,7 +3,7 @@
  *
  * Both {@link import("../extensions/llm-handler")}'s extension LLM bridge and
  * {@link import("../runtime/goal-host")}'s goal evaluator need to call
- * `@mariozechner/pi-ai`'s `complete(piModel, body, opts)` with identical
+ * `@earendil-works/pi-ai`'s `complete(piModel, body, opts)` with identical
  * option-threading (apiKey, optional maxTokens / temperature, and a
  * timeout-derived AbortSignal). The dynamic `import()` keeps this module safe
  * to import everywhere — an environment without API keys never trips on
@@ -47,7 +47,7 @@ export type PiCompleteFn = (
 
 /** Default implementation: dynamic-import pi-ai and forward the call. */
 export const piComplete: PiCompleteFn = async (piModel, body, opts) => {
-  const piAi = (await import("@mariozechner/pi-ai")) as {
+  const piAi = (await import("@earendil-works/pi-ai")) as {
     complete: (...args: unknown[]) => Promise<unknown>;
   };
   const piOpts: Record<string, unknown> = { apiKey: opts.apiKey };

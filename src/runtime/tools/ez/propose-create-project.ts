@@ -13,7 +13,7 @@
  * inert until the user submits. Drafts auto-expire after 24h (see
  * `src/db/queries/ez-drafts.ts#sweepExpired`).
  */
-import { Type } from "@mariozechner/pi-ai";
+import { Type } from "@earendil-works/pi-ai";
 import type { BuiltinToolDef } from "../types";
 import { createDraft } from "../../../db/queries/ez-drafts";
 

@@ -36,7 +36,7 @@ const mockSubscribe = mock((fn: (e: any) => void) => {
   return () => {};
 });
 
-mock.module("@mariozechner/pi-agent-core", () => ({
+mock.module("@earendil-works/pi-agent-core", () => ({
   Agent: class MockAgent {
     state = { error: undefined };
     constructor(opts: any) {

@@ -190,9 +190,9 @@ const MODULE_PATHS = [
   "../../../web/src/lib/server/http-errors",
   "../../../web/src/lib/stores/connection",
   "../../../web/src/lib/api",
-  "@mariozechner/pi-ai",
-  "@mariozechner/pi-ai/oauth",
-  "@mariozechner/pi-agent-core",
+  "@earendil-works/pi-ai",
+  "@earendil-works/pi-ai/oauth",
+  "@earendil-works/pi-agent-core",
   // Extension SDK exports. Bundled-extension test files in
   // `docs/extensions/examples/*/` `mock.module("@ezcorp/sdk/runtime",
   // () => ({ getChannel: () => stripped, ... }))` to intercept
@@ -210,7 +210,7 @@ const snapshots = new Map<string, Record<string, unknown>>();
  * Snapshot all commonly-mocked modules BEFORE any test file runs.
  * Must be called from preload.ts at module level (with await).
  * Uses spread to capture real exports as plain values (not live bindings).
- * Uses dynamic import() so ESM-only packages (e.g. @mariozechner/pi-ai) are captured.
+ * Uses dynamic import() so ESM-only packages (e.g. @earendil-works/pi-ai) are captured.
  *
  * Set `EZCORP_FAST_TEST=1` to skip the eager imports. When skipped,
  * `restoreModuleMocks()` falls back to lazy `require()`-based factories

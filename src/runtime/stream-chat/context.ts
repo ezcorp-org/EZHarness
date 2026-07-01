@@ -1,5 +1,5 @@
 import type { AgentRun, Usage } from "../../types";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { BuiltinToolDef } from "../tools/types";
 
 /**

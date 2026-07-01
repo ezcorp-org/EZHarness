@@ -76,7 +76,7 @@ import {
 import { EventBus } from "../runtime/events";
 import type { AgentEvents, AgentRun } from "../types";
 import type { BuiltinToolDef } from "../runtime/tools/types";
-import { Type } from "@mariozechner/pi-ai";
+import { Type } from "@earendil-works/pi-ai";
 
 // ── Fake clock + setInterval capture ───────────────────────────────────
 

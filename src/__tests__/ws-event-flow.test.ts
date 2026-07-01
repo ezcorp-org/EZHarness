@@ -341,7 +341,7 @@ describe("WebSocket event flow (end-to-end)", () => {
 
   test("error chat: WS client receives run:error with { run: { id, status }, error }", async () => {
     // Configure Agent mock to throw error
-    mock.module("@mariozechner/pi-agent-core", () => ({
+    mock.module("@earendil-works/pi-agent-core", () => ({
       Agent: class MockAgent {
         state = { error: null };
         private _subs: any[] = [];
