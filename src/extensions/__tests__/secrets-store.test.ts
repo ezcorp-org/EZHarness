@@ -6,7 +6,9 @@
  * decrypt-fail → null; the lastUsedAt debounce (touch+SECRET_USED gating);
  * hasSecret true/false; deleteSecret hit (SECRET_DELETED) / miss;
  * listSecretMeta (no ciphertext); and the github-projects backfill —
- * success, decrypt-failure, and idempotency.
+ * success, decrypt-failure, FK-miss tolerance (a stray legacy key must never
+ * brick the boot migration), conflict-skip counter correctness, and
+ * idempotency.
  */
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
@@ -258,6 +260,82 @@ describe("backfillGithubProjectsApiTokens", () => {
     const row = await getSecretRow({ extensionId: GH_EXT, projectId, userId: null, name: "apiToken" });
     expect(row).toBeUndefined();
     const left = await getTestDb().select().from(settings).where(eq(settings.key, key));
+    expect(left).toHaveLength(0);
+  });
+
+  test("FK-miss tolerated: no 'github-projects' extensions row — never throws, still clears the settings key", async () => {
+    // Deliberately DO NOT seed the GH_EXT extensions row: the INSERT hits the
+    // extension_secrets.extension_id FK and fails. A stray legacy key must
+    // never brick the boot migration (migrate.ts awaits this un-caught) — the
+    // row is skipped (not migrated) and the settings key is STILL deleted
+    // (policy: the credential leaves the broadly-readable table regardless).
+    const key = `githubProjects:${projectId}:apiToken`;
+    await getTestDb().insert(settings).values({ key, value: encrypt("ghp_orphan") });
+
+    const result = await backfillGithubProjectsApiTokens();
+    expect(result).toEqual({ migrated: 0, cleared: 1 });
+
+    const row = await getSecretRow({ extensionId: GH_EXT, projectId, userId: null, name: "apiToken" });
+    expect(row).toBeUndefined();
+    const left = await getTestDb().select().from(settings).where(eq(settings.key, key));
+    expect(left).toHaveLength(0);
+  });
+
+  test("conflict-skip is NOT counted as migrated: a pre-existing secret row keeps its ciphertext", async () => {
+    await seedExtension(GH_EXT);
+    // A secret already lives at the exact backfill scope (github-projects,
+    // project, user NULL, name 'apiToken') — the backfill's ON CONFLICT DO
+    // NOTHING skips it, so `migrated` must stay 0 (real inserts only, not
+    // attempts) while the legacy settings key is still cleared.
+    await setSecret(GH_EXT, projectId, "apiToken", "ghp_already_migrated");
+    const before = await getSecretRow({ extensionId: GH_EXT, projectId, userId: null, name: "apiToken" });
+    const key = `githubProjects:${projectId}:apiToken`;
+    await getTestDb().insert(settings).values({ key, value: encrypt("ghp_stale_legacy") });
+
+    const result = await backfillGithubProjectsApiTokens();
+    expect(result).toEqual({ migrated: 0, cleared: 1 });
+
+    // The existing row won — same id, same ciphertext, still decrypts to the
+    // already-migrated value (the stale legacy blob did not clobber it).
+    const after = await getSecretRow({ extensionId: GH_EXT, projectId, userId: null, name: "apiToken" });
+    expect(after!.id).toBe(before!.id);
+    expect(after!.ciphertext).toBe(before!.ciphertext);
+    expect(decryptWithAad(after!.ciphertext, `${GH_EXT}:${projectId}`)).toBe("ghp_already_migrated");
+    const left = await getTestDb().select().from(settings).where(eq(settings.key, key));
+    expect(left).toHaveLength(0);
+  });
+
+  test("mixed sweep: one migratable + one FK-orphan + one undecryptable — counts are per-outcome, all keys cleared", async () => {
+    await seedExtension(GH_EXT);
+    // Second project whose settings key exists but whose PAT blob is garbage.
+    const p2 = await getTestDb()
+      .insert(projects)
+      .values({ name: "Secrets Project 2", path: "/tmp/secrets-2" })
+      .returning({ id: projects.id });
+    const project2Id = p2[0]!.id;
+    // A key whose <pid> segment points at a MISSING projects row — the
+    // extension_secrets.project_id FK rejects it (the per-row catch path)
+    // while the sibling rows still migrate/clear.
+    const orphanPid = "00000000-0000-0000-0000-00000000dead";
+    const goodKey = `githubProjects:${projectId}:apiToken`;
+    const orphanKey = `githubProjects:${orphanPid}:apiToken`;
+    const badBlobKey = `githubProjects:${project2Id}:apiToken`;
+    await getTestDb().insert(settings).values([
+      { key: goodKey, value: encrypt("ghp_good") },
+      { key: orphanKey, value: encrypt("ghp_orphan") },
+      { key: badBlobKey, value: "not-a-valid-ciphertext" },
+    ]);
+
+    const result = await backfillGithubProjectsApiTokens();
+    // migrated counts REAL inserts only (1); cleared counts every key (3).
+    expect(result).toEqual({ migrated: 1, cleared: 3 });
+
+    const good = await getSecretRow({ extensionId: GH_EXT, projectId, userId: null, name: "apiToken" });
+    expect(decryptWithAad(good!.ciphertext, `${GH_EXT}:${projectId}`)).toBe("ghp_good");
+    expect(await getSecretRow({ extensionId: GH_EXT, projectId: orphanPid, userId: null, name: "apiToken" })).toBeUndefined();
+    expect(await getSecretRow({ extensionId: GH_EXT, projectId: project2Id, userId: null, name: "apiToken" })).toBeUndefined();
+    // Every legacy key left the broadly-readable table.
+    const left = await getTestDb().select().from(settings).where(sql`${settings.key} LIKE 'githubProjects:%'`);
     expect(left).toHaveLength(0);
   });
 

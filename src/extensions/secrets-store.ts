@@ -15,6 +15,12 @@ import {
 import type { SecretMeta, SecretScope } from "../db/queries/extension-secrets";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
+import { extensionLogger } from "../logger";
+
+/** Backfill-only logger — the legacy-PAT migration below is github-projects
+ *  specific, so its warns land under the extension's `ext.github-projects`
+ *  subsystem namespace (logging convention: docs/extensions/logging.md). */
+const backfillLog = extensionLogger("github-projects", "secrets-backfill");
 
 /**
  * Host-side extension-secrets store: the ONLY place crypto, audit, and the
@@ -28,8 +34,10 @@ import { EXT_AUDIT_ACTIONS } from "./audit-actions";
  * (integration daemons, route handlers running in-process) may call it.
  *
  * Each ciphertext is AES-256-GCM with `${extensionId}:${projectId}` bound as
- * AAD, so a row copied into another scope fails to decrypt — the AAD is
- * reconstructed here at read time, never stored.
+ * AAD, so a row copied to another extension or project fails to decrypt — the
+ * AAD is reconstructed here at read time, never stored. (`userId`/`name` are
+ * NOT in the AAD — see {@link aadFor} — so same-scope renames / user-slot
+ * moves still decrypt; the unique scope tuple + FK cascade isolate those.)
  */
 
 /** Don't re-touch lastUsedAt / re-audit SECRET_USED more than once per this
@@ -195,8 +203,13 @@ function parseGhProjectId(key: string): string {
  * For each matching settings row:
  *   - decrypt(value) → on success, re-encrypt with the scope AAD and INSERT …
  *     ON CONFLICT DO NOTHING (covers the COALESCE-unique index without naming
- *     a target). Counts toward `migrated`.
- *   - decrypt failure (already-unusable blob) → insert nothing.
+ *     a target). Only a row the INSERT actually created (RETURNING id) counts
+ *     toward `migrated` — a conflict-skip does not.
+ *   - decrypt failure (already-unusable blob) → insert nothing; warn naming
+ *     the dropped key (never the value).
+ *   - INSERT failure (e.g. the `extensions.name` FK target is missing on a
+ *     legacy DB that never installed the bundled extension) → warn + move on;
+ *     the boot migration must NEVER fail on a stray legacy key.
  *   - EITHER WAY, DELETE the settings key (counts toward `cleared`) — the
  *     credential must leave the broadly-readable table regardless.
  *
@@ -226,14 +239,31 @@ export async function backfillGithubProjectsApiTokens(
       plaintext = decrypt(stored);
     } catch {
       plaintext = null;
+      // Policy: the unusable blob is dropped from settings below regardless —
+      // name the key (never the value) so an operator can trace the loss.
+      backfillLog.warn("legacy github-projects PAT failed to decrypt — dropping the settings key without migrating", { key });
     }
 
     if (plaintext !== null) {
-      const ciphertext = encryptWithAad(plaintext, aadFor(GH_EXTENSION_ID, projectId));
-      await executor.execute(
-        sql`INSERT INTO extension_secrets (id, extension_id, project_id, user_id, name, ciphertext) VALUES (${crypto.randomUUID()}, ${GH_EXTENSION_ID}, ${projectId}, ${null}, ${"apiToken"}, ${ciphertext}) ON CONFLICT DO NOTHING`,
-      );
-      migrated += 1;
+      try {
+        const ciphertext = encryptWithAad(plaintext, aadFor(GH_EXTENSION_ID, projectId));
+        // RETURNING id so a conflict-skip (0 rows) is distinguishable from a
+        // real insert — `migrated` counts rows actually created.
+        const inserted = (await executor.execute(
+          sql`INSERT INTO extension_secrets (id, extension_id, project_id, user_id, name, ciphertext) VALUES (${crypto.randomUUID()}, ${GH_EXTENSION_ID}, ${projectId}, ${null}, ${"apiToken"}, ${ciphertext}) ON CONFLICT DO NOTHING RETURNING id`,
+        )) as { rows?: Array<{ id: string }> };
+        if ((inserted.rows ?? []).length > 0) migrated += 1;
+      } catch (err) {
+        // e.g. FK violation: no 'github-projects' extensions row on this DB.
+        // A stray legacy key must never brick the boot migration — warn (key
+        // name only, never the token) and still clear the settings key. First
+        // line only: drizzle's failed-query error appends the bind params
+        // (which include the re-encrypted ciphertext) on later lines.
+        backfillLog.warn("legacy github-projects PAT could not be migrated — dropping the settings key anyway", {
+          key,
+          error: String(err).split("\n")[0],
+        });
+      }
     }
 
     await executor.execute(sql`DELETE FROM settings WHERE key = ${key}`);

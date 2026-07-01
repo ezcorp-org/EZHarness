@@ -4,10 +4,14 @@
  * Adds the dedicated, scope-isolated, AEAD-bound credential store that
  * extensions use for third-party API tokens (replacing the bespoke
  * `settings`-table blobs the github-projects extension used). Each row's
- * `ciphertext` is AES-256-GCM with the `extensionId:projectId` scope bound
+ * `ciphertext` is AES-256-GCM with the `extensionId:projectId` pair bound
  * as Additional Authenticated Data (see `encryptWithAad` in
- * src/providers/encryption.ts), so a ciphertext copied into a different scope
- * fails to decrypt. Plaintext is reachable ONLY via the host-side store
+ * src/providers/encryption.ts), so a ciphertext copied to another extension
+ * or project fails to decrypt. (`user_id`/`name` are intentionally NOT part
+ * of the AAD — see `aadFor` in src/extensions/secrets-store.ts — so a
+ * same-scope rename or user→project slot move still decrypts; the unique
+ * scope tuple + FK cascade isolate those.) Plaintext is reachable ONLY via
+ * the host-side store
  * (src/extensions/secrets-store.ts `getSecret`) — it is NEVER wired to the
  * extension sandbox.
  *

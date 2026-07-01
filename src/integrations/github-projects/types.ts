@@ -12,7 +12,11 @@
  *   - The GitHub token is HOST-ONLY. No sandbox/subprocess type carries it.
  *   - Reverse-RPC params NEVER carry a board id — the host derives the board
  *     from the conversation's projectId (confused-deputy fix).
- *   - Spawned runs are pinned to a non-`yolo`, PDP-gated permission mode.
+ *   - Spawned runs resolve their permission mode by precedence: an explicit
+ *     per-column override (`GithubSpawnPermissionMode` — never `yolo`) wins;
+ *     otherwise the board-level `defaultPermissionMode`, falling back to
+ *     `yolo` when unset/invalid (an intentional, user-owned default — see
+ *     src/integrations/github-projects/spawn.ts).
  */
 
 // ── Column → action mapping (stored on the link row) ───────────────────────
@@ -21,9 +25,10 @@
 export type GithubProposalAction = "plan" | "execute";
 
 /**
- * Permission mode a board-triggered run may use. NEVER `yolo`/`bypassPermissions`
- * for these runs — the spawn bridge pins one of these explicitly so a board move
- * can never inherit the platform default (yolo) and auto-run tools unprompted.
+ * Per-column permission-mode OVERRIDE for a board-triggered run. The override
+ * itself can never be `yolo`/`bypassPermissions` — setting one caps the run.
+ * When a column carries NO override, the spawn bridge falls back to the
+ * board-level `defaultPermissionMode`, and then to `yolo` (see spawn.ts).
  */
 export type GithubSpawnPermissionMode = "default" | "plan" | "acceptEdits";
 
@@ -38,7 +43,8 @@ export interface GithubColumnAction {
    * false = create a PENDING proposal the user approves on the Hub (default).
    */
   autoSpawn: boolean;
-  /** Permission mode for the spawned run. Defaults to "default" (PDP-gated). */
+  /** Per-column permission-mode override for the spawned run (never `yolo`).
+   *  Omit → the board's `defaultPermissionMode`, falling back to `yolo`. */
   permissionMode?: GithubSpawnPermissionMode;
   /**
    * Status option id to move the card into when a board-triggered run for this

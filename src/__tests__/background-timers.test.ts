@@ -93,6 +93,11 @@ let githubDaemonCtorMock = mock(() => {});
 let githubDaemonStartMock = mock<() => boolean>(() => true);
 let githubDaemonStopMock = mock(() => {});
 let lastGithubDaemonInstance: object | undefined;
+// The stub module's lazy singleton (mirrors the real module's
+// getGithubProjectsDaemon). Module-level (NOT factory-closure) state so it
+// survives Bun's mock.module materialization freeze the same way the other
+// delegating handles do — reset per test in beforeEach.
+let githubDaemonStubSingleton: object | null = null;
 
 // PreviewPortWatcher stub instrumentation (Phase 2 — Secure Preview).
 // Same capture-mock pattern as the daemons above: the bootstrap reads
@@ -296,8 +301,16 @@ function installModuleMocks(): void {
   // daemon.test.ts in a shared `bun test src/` run (Bun mock.module
   // materialization freeze). CI runs each spec isolated, so this is local-only
   // hygiene — but it keeps the whole-suite run green.
-  mock.module("../integrations/github-projects/daemon", () => ({
-    GithubProjectsDaemon: class {
+  //
+  // The bootstrap consumes the MODULE SINGLETON (getGithubProjectsDaemon), not
+  // a private `new` — the reverse-RPC poll-now path shares the same accessor,
+  // so the stub mirrors the real module's lazy-singleton semantics: the first
+  // accessor call constructs (routing through the ctor spy), later calls
+  // return the SAME instance. The singleton lives in the module-level
+  // `githubDaemonStubSingleton` handle (reset in beforeEach), not the factory
+  // closure, so per-test isolation holds regardless of factory re-runs.
+  mock.module("../integrations/github-projects/daemon", () => {
+    class GithubProjectsDaemonStub {
       constructor() {
         githubDaemonCtorMock();
         // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -305,10 +318,18 @@ function installModuleMocks(): void {
       }
       start() { return githubDaemonStartMock(); }
       stop() { githubDaemonStopMock(); }
-    },
-    getGithubProjectsDaemon: () => undefined,
-    _resetGithubProjectsDaemonForTests: () => {},
-  }));
+    }
+    return {
+      GithubProjectsDaemon: GithubProjectsDaemonStub,
+      getGithubProjectsDaemon: () => {
+        if (!githubDaemonStubSingleton) githubDaemonStubSingleton = new GithubProjectsDaemonStub();
+        return githubDaemonStubSingleton;
+      },
+      _resetGithubProjectsDaemonForTests: () => {
+        githubDaemonStubSingleton = null;
+      },
+    };
+  });
   // The daemon settings resolver + page-cache + engine + project-root the
   // bootstrap dynamic-imports. Inert stubs keep them off the DB / fs.
   mock.module("../db/connection", () => ({
@@ -419,6 +440,7 @@ beforeEach(async () => {
   githubDaemonStartMock = mock<() => boolean>(() => true);
   githubDaemonStopMock = mock(() => {});
   lastGithubDaemonInstance = undefined;
+  githubDaemonStubSingleton = null;
   previewWatcherCtorMock = mock((_opts?: unknown) => {});
   previewWatcherStartMock = mock(() => Promise.resolve<boolean>(true));
   previewWatcherStopMock = mock(() => {});
@@ -955,6 +977,23 @@ describe("startBackgroundTimers — GithubProjectsDaemon bootstrap", () => {
     expect(exposed).toBe(lastGithubDaemonInstance as never);
     expect(loggerInfoMock).toHaveBeenCalledWith("GithubProjectsDaemon started", undefined);
     expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("bootstrap uses the MODULE SINGLETON — the poll-now RPC path's accessor returns the SAME instance", async () => {
+    // The non-reentrancy guard + per-link rate-limit back-off live on the
+    // instance, so the boot poller and the reverse-RPC poll-now path MUST
+    // share one daemon. Assert the bootstrap stored exactly the instance
+    // `getGithubProjectsDaemon()` (the poll-now path's accessor) returns —
+    // a private `new GithubProjectsDaemon(...)` here would fail this.
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    const daemonMod = await import("../integrations/github-projects/daemon");
+    expect(mod._getGithubProjectsDaemonForTests()).toBe(daemonMod.getGithubProjectsDaemon() as never);
+    // The lazy singleton constructed exactly once for both paths.
+    expect(githubDaemonCtorMock).toHaveBeenCalledTimes(1);
   });
 
   test("start() returning false (kill-switch): handle is dropped, boot continues", async () => {

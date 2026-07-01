@@ -65,8 +65,8 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/briefing/run-now", description: "Trigger an immediate briefing run for the current user (rate-limited 1/5min)", category: "briefing", responseDescription: "{ started: true } (202)" },
 
   // GitHub Projects integration
-  { method: "POST", path: "/api/integrations/github-projects/connect", description: "Resolve + validate a GitHub Projects board and link it to a project (stores an encrypted PAT for authMode 'pat')", category: "integrations", scope: "extensions", responseDescription: "{ linkId, boardTitle, ownerLogin, statusOptions, scopes }" },
-  { method: "GET", path: "/api/integrations/github-projects/link", description: "Get the project's GitHub board connection, health, and pause state", category: "integrations", scope: "extensions" },
+  { method: "POST", path: "/api/integrations/github-projects/connect", description: "Resolve + validate a GitHub Projects board and link it to a project (stores an encrypted PAT for authMode 'pat')", category: "integrations", scope: "extensions", responseDescription: "{ linkId, boardTitle, ownerLogin, statusOptions, scopes, canComment }" },
+  { method: "GET", path: "/api/integrations/github-projects/link", description: "List every GitHub board connected to the project, each with health and pause state", category: "integrations", scope: "extensions", responseDescription: "{ links: [...] }" },
   { method: "PATCH", path: "/api/integrations/github-projects/link", description: "Update the board's column→action map, poll interval, or pause/resume state", category: "integrations", scope: "extensions" },
   { method: "DELETE", path: "/api/integrations/github-projects/link", description: "Disconnect the board: purge the stored token, cancel active proposals, drop the link", category: "integrations", scope: "extensions" },
   { method: "POST", path: "/api/integrations/github-projects/link/refresh-columns", description: "Re-fetch the connected board's Status columns (id+name) host-side and persist them — self-heals empty/stale status_options without re-entering the PAT", category: "integrations", scope: "extensions" },
@@ -97,8 +97,8 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/extensions/:id/permissions", description: "Get extension permissions", category: "extensions" },
   { method: "PUT", path: "/api/extensions/:id/permissions", description: "Update extension permissions", category: "extensions" },
   { method: "GET", path: "/api/extensions/:name/tools", description: "List tools provided by extension", category: "extensions" },
-  { method: "POST", path: "/api/extensions/:id/secrets", description: "Set (or rotate) an extension secret — encrypted, scope-isolated, AAD-bound; value never echoed back", category: "extensions" },
-  { method: "DELETE", path: "/api/extensions/:id/secrets", description: "Delete an extension secret", category: "extensions" },
+  { method: "POST", path: "/api/extensions/:id/secrets", description: "Set (or rotate) an extension secret — encrypted, scope-isolated, AAD-bound; value never echoed back", category: "extensions", scope: "extensions" },
+  { method: "DELETE", path: "/api/extensions/:id/secrets", description: "Delete an extension secret", category: "extensions", scope: "extensions" },
 
   // Marketplace
   { method: "GET", path: "/api/marketplace", description: "Browse marketplace listings", category: "marketplace" },

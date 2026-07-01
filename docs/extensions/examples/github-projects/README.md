@@ -1,8 +1,9 @@
 # github-projects
 
-A bundled EZCorp extension that connects **one GitHub Projects v2 board per
-project** and lets an agent plan & execute its tickets, with a live Hub
-dashboard for the board-triggered proposal queue and connection health.
+A bundled EZCorp extension that connects **one or more GitHub Projects v2
+boards per project** and lets an agent plan & execute their tickets, with a
+live Hub dashboard for the board-triggered proposal queue and connection
+health.
 
 ## Security model
 
@@ -18,7 +19,10 @@ params (a title, a body, an `itemNodeId`, …). The host handler
 
 1. derives the `projectId` from the **calling conversation** (never from
    params — the confused-deputy fix),
-2. resolves the connected board from the 1:1 `github_projects_links` row,
+2. resolves WHICH board from the project's `github_projects_links` rows (a
+   project may link many boards): the proposal that spawned the conversation
+   pins its board; otherwise the project's sole board is used; multiple
+   boards with no spawning proposal are **refused as ambiguous**,
 3. resolves the host-only GitHub token (decrypted PAT or `gh auth token`), and
 4. calls the host GitHub client.
 

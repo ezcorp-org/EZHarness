@@ -9,8 +9,8 @@ import { BriefingDaemon } from "../runtime/briefing/daemon";
 import { HostMaintenanceDaemon } from "../extensions/host-maintenance-daemon";
 import { EmbedWorker } from "../extensions/embed-worker";
 import { FileOrganizerDaemon, DEFAULT_SETTINGS, mergeFileOrganizerSettings, type FileOrganizerSettings } from "../extensions/file-organizer-daemon";
-import { GithubProjectsDaemon } from "../integrations/github-projects/daemon";
-import { getGithubProjectsEmit } from "../integrations/github-projects/bus-registry";
+import { getGithubProjectsDaemon } from "../integrations/github-projects/daemon";
+import type { GithubProjectsDaemon } from "../integrations/github-projects/daemon";
 import { PreviewPortWatcher } from "../runtime/preview/preview-port-watcher";
 import { NetnsPortSource, ProcPortSource } from "../runtime/preview/preview-port-source";
 import { previewCapabilities } from "../runtime/preview/preview-netns";
@@ -335,11 +335,13 @@ export async function startBackgroundTimers(): Promise<void> {
   // failing link instead of throwing out of the sweep, so wiring it here is safe
   // in every boot order (no links → empty sweep).
   try {
-    // Thread the live bus-backed Hub-refresh emitter (registered by the web
-    // layer at init). Undefined on a backend-only/pre-web boot → the daemon
-    // defaults `emit` to a no-op (Hub still refreshes via the approve/dismiss
-    // API routes). Mirrors the preview/briefing registry pattern.
-    githubProjectsDaemon = new GithubProjectsDaemon({ emit: getGithubProjectsEmit() });
+    // Use the MODULE SINGLETON (getGithubProjectsDaemon), not a private `new`:
+    // the reverse-RPC poll-now path drives the same accessor, and the daemon's
+    // non-reentrancy guard + per-link rate-limit back-off only work when both
+    // paths share one instance. The singleton carries no `emit` — it falls back
+    // to the registered bus emitter (getGithubProjectsEmit) at emit time, so
+    // the Hub still live-refreshes once the web layer registers the bus.
+    githubProjectsDaemon = getGithubProjectsDaemon();
     const ok = githubProjectsDaemon.start();
     if (ok) {
       log.info("GithubProjectsDaemon started");

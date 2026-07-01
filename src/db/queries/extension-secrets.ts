@@ -56,25 +56,39 @@ export async function getSecretRow(scope: SecretScope): Promise<ExtensionSecret 
   return rows[0];
 }
 
+/** Rotation write: replace the row's ciphertext and stamp `rotatedAt`. */
+async function replaceCiphertext(id: string, ciphertext: string): Promise<void> {
+  await getDb()
+    .update(extensionSecrets)
+    .set({ ciphertext, rotatedAt: new Date() })
+    .where(eq(extensionSecrets.id, id));
+}
+
 /** Inserts a new secret, or replaces an existing one's ciphertext (stamping
  *  `rotatedAt`). Select-then-write because the COALESCE-unique index can't be
- *  an onConflict target. */
+ *  an onConflict target. Two concurrent first-writes can both pass the select
+ *  and race the INSERT — the loser hits the COALESCE-unique index, so on an
+ *  insert failure we retry ONCE: re-select the winner's row and convert this
+ *  write into the rotation update. Any other insert error re-selects nothing
+ *  and rethrows unchanged. */
 export async function insertOrReplaceSecret(scope: SecretScope, ciphertext: string): Promise<void> {
-  const db = getDb();
   const existing = await getSecretRow(scope);
   if (existing) {
-    await db
-      .update(extensionSecrets)
-      .set({ ciphertext, rotatedAt: new Date() })
-      .where(eq(extensionSecrets.id, existing.id));
-  } else {
-    await db.insert(extensionSecrets).values({
+    await replaceCiphertext(existing.id, ciphertext);
+    return;
+  }
+  try {
+    await getDb().insert(extensionSecrets).values({
       extensionId: scope.extensionId,
       projectId: scope.projectId,
       userId: scope.userId,
       name: scope.name,
       ciphertext,
     });
+  } catch (err) {
+    const winner = await getSecretRow(scope);
+    if (!winner) throw err; // not the unique-violation race — surface it
+    await replaceCiphertext(winner.id, ciphertext);
   }
 }
 

@@ -1339,9 +1339,13 @@ export type NewGithubProjectsProposal = typeof githubProjectsProposals.$inferIns
 // ── Extension secrets ──────────────────────────────────────────────────
 // Dedicated, scope-isolated, AEAD-bound credential store for extensions
 // (third-party API tokens etc.). The ciphertext is AES-256-GCM with the
-// `extensionId:projectId` scope bound as AAD (see encryptWithAad in
-// src/providers/encryption.ts) — a row copied into another scope fails to
-// decrypt. Plaintext is reachable ONLY via the host-side store
+// `extensionId:projectId` pair bound as AAD (see encryptWithAad in
+// src/providers/encryption.ts) — a row copied to another extension or
+// project fails to decrypt. (`user_id`/`name` are intentionally NOT part
+// of the AAD — see aadFor in src/extensions/secrets-store.ts — so a
+// same-scope rename or user→project slot move still decrypts; the unique
+// scope tuple + FK cascade isolate those.) Plaintext is reachable ONLY via
+// the host-side store
 // (src/extensions/secrets-store.ts `getSecret`); it is NEVER wired to the
 // extension sandbox. `extension_id` stores the stable manifest slug (e.g.
 // "github-projects"), NOT the UUID `extensions.id`. The scope tuple
@@ -1359,6 +1363,13 @@ export const extensionSecrets = pgTable("extension_secrets", {
   lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: "date" }),
   rotatedAt: timestamp("rotated_at", { withTimezone: true, mode: "date" }),
 }, (table) => [
+  // WARNING — drizzle-side MIRROR only. The REAL index is the COALESCE form
+  // in src/db/migrate.ts (`… ON extension_secrets (extension_id,
+  // COALESCE(project_id,''), COALESCE(user_id,''), name)`): a plain UNIQUE
+  // over nullable columns treats every NULL as distinct, so a `drizzle-kit
+  // push` from this definition would install a WEAKER index that allows
+  // duplicate global / project-scoped secrets. Never push this table's DDL
+  // from drizzle-kit; migrate.ts is the source of truth.
   uniqueIndex("idx_extension_secrets_scope").on(table.extensionId, table.projectId, table.userId, table.name),
 ]);
 

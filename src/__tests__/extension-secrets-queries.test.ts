@@ -17,7 +17,7 @@ import {
   listSecretMeta,
 } from "../db/queries/extension-secrets";
 import type { SecretScope } from "../db/queries/extension-secrets";
-import { extensions, projects, users } from "../db/schema";
+import { extensions, extensionSecrets, projects, users } from "../db/schema";
 import { sql } from "drizzle-orm";
 
 const EXT_ID = "test-ext";
@@ -114,6 +114,37 @@ describe("insertOrReplaceSecret", () => {
     expect(second!.id).toBe(first!.id);
     expect(second!.ciphertext).toBe("ct-2");
     expect(second!.rotatedAt).toBeInstanceOf(Date);
+  });
+
+  test("concurrent first-writes: the unique-index loser retries as an update — one row, no 500", async () => {
+    // Both calls pass the select (no row yet) before either INSERT runs:
+    // Promise.all invokes both synchronously, so both selects enter PGlite's
+    // FIFO queue ahead of both inserts. The second INSERT then hits the
+    // COALESCE-unique index; the retry path re-selects the winner's row and
+    // converts the write into the rotation update. Global (all-NULL) scope on
+    // purpose — that is exactly the scope a plain onConflict target can't
+    // address, so the raced INSERT truly relies on the retry.
+    await Promise.all([
+      insertOrReplaceSecret(globalScope(), "ct-A"),
+      insertOrReplaceSecret(globalScope(), "ct-B"),
+    ]);
+
+    // Exactly ONE row survived the race at the scope.
+    const all = await getTestDb().select().from(extensionSecrets);
+    expect(all).toHaveLength(1);
+    // Queue order pins the outcome: A inserts, B conflicts → re-select →
+    // update. B's rotation write lands last.
+    const row = await getSecretRow(globalScope());
+    expect(row!.ciphertext).toBe("ct-B");
+    expect(row!.rotatedAt).toBeInstanceOf(Date);
+  });
+
+  test("a non-race insert failure is rethrown unchanged (re-select finds no winner)", async () => {
+    // FK violation (extensions row missing), NOT the unique-violation race:
+    // the retry's re-select finds nothing, so the original error surfaces.
+    const orphan: SecretScope = { extensionId: "never-installed", projectId: null, userId: null, name: "apiToken" };
+    await expect(insertOrReplaceSecret(orphan, "ct")).rejects.toThrow();
+    expect(await getSecretRow(orphan)).toBeUndefined();
   });
 });
 
