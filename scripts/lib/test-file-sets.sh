@@ -68,8 +68,12 @@ coverage_host_files() {
     # purpose — widening to the whole web/src/__tests__ dir transitively imports
     # dozens of unrelated modules whose zero-hit DA records inflate the
     # denominator on files already pinned at 100%.
+    # permission-mode-indicator: the github-projects route tests import
+    # $lib/permission-mode (constants only), landing it in the merged lcov at
+    # 25% — this suite exercises the functions so the union clears web/src/lib/**.
     printf '%s\n' \
       web/src/__tests__/snippet-sanitize.test.ts \
+      web/src/__tests__/permission-mode-indicator.test.ts \
       web/src/__tests__/search-mode.test.ts \
       web/src/__tests__/shared-ui-components.test.ts \
       web/src/lib/search/__tests__/palette-results.test.ts \
