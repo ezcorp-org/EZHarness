@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { BuiltinToolDef } from "../runtime/tools/types";
 import { applyToolFilters, ORCHESTRATION_TOOLS } from "../runtime/tools/filter";
 

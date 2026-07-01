@@ -18,7 +18,7 @@ import { stubAssistantMessage } from "./helpers/mock-pi-ai";
 import { resolve, join } from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import type { Model, Api } from "@mariozechner/pi-ai";
+import type { Model, Api } from "@earendil-works/pi-ai";
 import type { AgentEvents } from "../types";
 
 mockDbConnection();
@@ -63,7 +63,7 @@ const MOCK_MODEL: Model<Api> = {
   maxTokens: 4096,
 };
 
-mock.module("@mariozechner/pi-ai", () => ({
+mock.module("@earendil-works/pi-ai", () => ({
   stream: () => ({ [Symbol.asyncIterator]: async function* () {}, result: async () => stubAssistantMessage() }),
   complete: async () => stubAssistantMessage(),
   getModel: () => MOCK_MODEL,
@@ -73,7 +73,7 @@ mock.module("@mariozechner/pi-ai", () => ({
   Type: { Unsafe: (v: any) => v, Object: (v: any) => v, String: () => ({}), Number: () => ({}), Boolean: () => ({}), Array: () => ({}) },
 }));
 
-mock.module("@mariozechner/pi-agent-core", () => ({
+mock.module("@earendil-works/pi-agent-core", () => ({
   Agent: class MockAgent {
     state = { error: null };
     private _subs: any[] = [];

@@ -170,7 +170,7 @@ const {
 import type { AgentEvents } from "../types";
 import type { AgentExecutor } from "../runtime/executor";
 import type { ExtensionManifestV2, ExtensionPermissions } from "../extensions/types";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { RegisteredTool } from "../extensions/registry";
 
 const EXT_ENTRY = join(

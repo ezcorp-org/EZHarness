@@ -1,8 +1,8 @@
-import { Type } from "@mariozechner/pi-ai";
+import { Type } from "@earendil-works/pi-ai";
 import { mkdirSync } from "node:fs";
 import { validateTimeout } from "./validate";
 import type { BuiltinToolDef } from "./types";
-import type { AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
+import type { AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import { buildStreamTruncationMarker, getToolOutputLimit } from "./output-limits";
 import { logger } from "../../logger";
 import { detectDevServerCommand } from "../preview/dev-command-detection";

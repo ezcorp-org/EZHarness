@@ -23,7 +23,7 @@
  * would be a cross-provider output-truncation regression.
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Model as PiModel, Message, UserMessage } from "../../types";
 import { logger } from "../../logger";
 

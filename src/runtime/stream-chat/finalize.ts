@@ -45,7 +45,7 @@ export interface FinalizeOptions {
  * per-turn DB writes, persists a fallback assistant message if no
  * per-turn save happened, and emits run:complete + obs:turn.
  *
- * The caller must already have verified `piAgent.state.error` is unset
+ * The caller must already have verified `piAgent.state.errorMessage` is unset
  * and either rethrown or proceeded to here — this helper is for the
  * "no exception, normal completion" branch only.
  */

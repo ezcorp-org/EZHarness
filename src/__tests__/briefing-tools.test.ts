@@ -33,7 +33,7 @@ import {
   type BriefingToolContext,
 } from "../runtime/briefing/tools";
 import { users, projects, conversations, messages, agentConfigs } from "../db/schema";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 
 let userId: string;
 let otherUserId: string;

@@ -1,4 +1,4 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { logger } from "../../logger";
 import { getProject } from "../../db/queries/projects";
 import { resolveModel } from "../../providers/router";

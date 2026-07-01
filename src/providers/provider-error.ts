@@ -6,7 +6,7 @@
  * that the server process can't actually reach), the underlying `fetch`
  * throws a raw runtime connection error. pi-agent-core catches LLM errors
  * internally and stores only the `.message` string; the executor rethrows
- * it as a plain `Error` (see `executor.ts` — `throw new Error(piAgent.state.error)`),
+ * it as a plain `Error` (see `executor.ts` — `throw new Error(piAgent.state.errorMessage)`),
  * so by the time the error reaches the chat UI the original `.code`/`.name`
  * are gone and only the message TEXT survives.
  *

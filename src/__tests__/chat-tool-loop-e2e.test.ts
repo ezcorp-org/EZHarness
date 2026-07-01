@@ -27,7 +27,7 @@ mock.module("../providers/credentials", () => ({
   getApiKey: async () => "test-key",
 }));
 
-mock.module("@mariozechner/pi-ai", () => ({
+mock.module("@earendil-works/pi-ai", () => ({
   stream: () => ({ [Symbol.asyncIterator]: async function* () {}, result: async () => stubAssistantMessage() }),
   complete: async () => stubAssistantMessage(),
   getModel: () => ({ id: "test-model", provider: "anthropic" }),
@@ -37,7 +37,7 @@ mock.module("@mariozechner/pi-ai", () => ({
 }));
 
 // Mock pi-agent-core Agent to simulate tool call loop
-mock.module("@mariozechner/pi-agent-core", () => ({
+mock.module("@earendil-works/pi-agent-core", () => ({
   Agent: class MockAgent {
     state = { error: null };
     private _subs: any[] = [];

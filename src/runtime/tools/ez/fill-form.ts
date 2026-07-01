@@ -18,7 +18,7 @@
  * tool returns an error result immediately — the LLM sees a concrete
  * failure rather than a 5-minute hang.
  */
-import { Type } from "@mariozechner/pi-ai";
+import { Type } from "@earendil-works/pi-ai";
 import type { BuiltinToolDef } from "../types";
 import type { EventBus } from "../../events";
 import type { AgentEvents } from "../../../types";

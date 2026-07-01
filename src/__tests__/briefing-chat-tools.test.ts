@@ -32,7 +32,7 @@ import { MAX_WATCHLIST_TOPICS, MAX_TOPIC_LENGTH } from "../runtime/briefing/conf
 import { ensureBriefingAgentConfig } from "../runtime/briefing/agent-config";
 import { users, briefingConfigs, projects, conversations } from "../db/schema";
 import { eq } from "drizzle-orm";
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { BuiltinToolDef } from "../runtime/tools/types";
 
 let userId: string;

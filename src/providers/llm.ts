@@ -11,7 +11,7 @@ import {
   type Context,
   type AssistantMessage,
   type AssistantMessageEventStream,
-} from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-ai";
 import { getCredential } from "./credentials";
 
 // Re-export for downstream usage

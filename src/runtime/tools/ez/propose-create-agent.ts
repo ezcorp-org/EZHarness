@@ -13,7 +13,7 @@
  * form has its own validation; this tool is a pass-through serializer.
  * Same goes for capabilities[] (free-form strings).
  */
-import { Type } from "@mariozechner/pi-ai";
+import { Type } from "@earendil-works/pi-ai";
 import type { BuiltinToolDef } from "../types";
 import { createDraft } from "../../../db/queries/ez-drafts";
 import type { EzToolContext } from "./propose-create-project";

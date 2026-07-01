@@ -124,7 +124,7 @@ export interface LlmHandlerContext {
    *  `getCredential`. */
   getCredentialFn?: (provider: string, conversationId?: string) => Promise<{ type: string; token: string }>;
   /** Optional pi-ai complete swap-in for tests. Defaults to dynamic
-   *  import of `@mariozechner/pi-ai`. */
+   *  import of `@earendil-works/pi-ai`. */
   completeFn?: PiCompleteFn;
 }
 

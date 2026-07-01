@@ -1,5 +1,5 @@
-import type { AgentToolResult, AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
-import type { Tool } from "@mariozechner/pi-ai";
+import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
+import type { Tool } from "@earendil-works/pi-ai";
 
 /**
  * "ez" was added in Phase 48 for the in-app concierge tools (propose_*,

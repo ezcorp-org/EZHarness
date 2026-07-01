@@ -1,4 +1,4 @@
-import { stream, complete, type Context } from "@mariozechner/pi-ai";
+import { stream, complete, type Context } from "@earendil-works/pi-ai";
 import { resolveModel } from "../providers/router";
 import { getCredential } from "../providers/credentials";
 import { getDb } from "../db/connection";

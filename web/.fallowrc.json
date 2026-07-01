@@ -5,7 +5,7 @@
     "build/**"
   ],
   "ignoreDependencies": [
-    "@mariozechner/pi-ai",
+    "@earendil-works/pi-ai",
     "drizzle-orm",
     "linkedom",
     "svelte-adapter-bun"

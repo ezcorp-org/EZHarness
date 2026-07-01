@@ -3,7 +3,7 @@ import type { RequestHandler } from "./$types";
 import { requireAuth } from "$server/auth/middleware";
 import { getCredential } from "$server/providers/credentials";
 import { findModelForProviderInTier, resolveModelObject } from "$server/providers/registry";
-import { complete } from "@mariozechner/pi-ai";
+import { complete } from "@earendil-works/pi-ai";
 import { requireAdmin } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 

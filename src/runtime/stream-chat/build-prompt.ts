@@ -27,7 +27,7 @@ export interface BuildPromptResult {
   text: string;
   /** Image parts for the `piAgent.prompt(text, images)` overload. Empty
    *  when the model is text-only or the user attached no images. */
-  images: import("@mariozechner/pi-ai").ImageContent[];
+  images: import("@earendil-works/pi-ai").ImageContent[];
 }
 
 /**
@@ -164,7 +164,7 @@ export async function buildPromptInput(
   // UnsupportedAttachmentError, which the endpoint should have prevented —
   // if we reach here, the user provided a model that can't accept them and
   // we surface the error rather than silently dropping content.
-  const images: import("@mariozechner/pi-ai").ImageContent[] = [];
+  const images: import("@earendil-works/pi-ai").ImageContent[] = [];
   if (options.attachments && options.attachments.length > 0 && options.provider && options.model) {
     const { getCapabilitiesWithExtensions } = await import("../../providers/model-capabilities");
     const { buildUserContent } = await import("../../chat/attachments/content-builder");

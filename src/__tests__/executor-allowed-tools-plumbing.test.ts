@@ -33,7 +33,7 @@
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { AgentEvents } from "../types";
 import type { BuiltinToolDef } from "../runtime/tools/types";
 import { applyToolFilters } from "../runtime/tools/filter";
@@ -192,7 +192,7 @@ function registerHarnessMocks() {
   // Router / credentials / pi-ai defaults, then override the pi-agent
   // mock with a constructor that captures the FILTERED toolset.
   setupPiAiMocks({ textChunks: ["ok"] });
-  mock.module("@mariozechner/pi-agent-core", () => ({
+  mock.module("@earendil-works/pi-agent-core", () => ({
     Agent: class CapturingMockAgent {
       state = { error: null };
       private _subs: Array<(e: unknown) => void> = [];

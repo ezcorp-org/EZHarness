@@ -38,7 +38,7 @@ mock.module("../providers/registry", () => ({
   getModelsForTier: mock(() => []),
 }));
 
-mock.module("@mariozechner/pi-ai", () => ({
+mock.module("@earendil-works/pi-ai", () => ({
   complete: mockComplete,
   stream: mock(() => ({})),
   getModel: mock(() => ({})),
