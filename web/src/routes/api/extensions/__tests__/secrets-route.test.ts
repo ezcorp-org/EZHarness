@@ -15,6 +15,7 @@ import { restoreModuleMocks } from "../../../../../../src/__tests__/helpers/mock
 import {
   mockServerAlias,
   MEMBER_USER,
+  ADMIN_USER,
   createMockEvent,
 } from "../../../../../../src/__tests__/helpers/mock-request";
 
@@ -38,6 +39,31 @@ mock.module("$lib/server/security/api-keys", () => ({
 // requireAuth real impl throws a 401 Response when no user — keep it real.
 import * as middlewareActual from "../../../../../../src/auth/middleware";
 mock.module("$server/auth/middleware", () => middlewareActual);
+
+// Extension RBAC (deny-by-default core). Default mock = "member with the
+// `secrets` scope granted" so the pre-RBAC cases stay valid; the deny matrix
+// narrows it via `grantedScopes`. Admins mirror the core's sentinel. The full
+// real export shape is spread so later files see a complete module.
+import * as rbacActual from "../../../../../../src/auth/extension-rbac";
+let grantedScopes: Set<string> | null = null; // null = every scope granted
+const rbacCalls: Array<{
+  userId: string;
+  role: string;
+  projectId: string | null;
+  extensionId: string | null;
+  scope: string;
+}> = [];
+mock.module("$server/auth/extension-rbac", () => ({
+  ...rbacActual,
+  hasExtensionScope: async (
+    user: { id: string; role: "admin" | "member" },
+    q: { projectId: string | null; extensionId: string | null; scope: string },
+  ) => {
+    rbacCalls.push({ userId: user.id, role: user.role, ...q });
+    if (user.role === "admin") return true; // core admin sentinel — no DB hit
+    return grantedScopes === null ? true : grantedScopes.has(q.scope);
+  },
+}));
 
 // ── Mock state (reset per test) ─────────────────────────────────────────
 let scopeResponse: Response | null = null;
@@ -99,6 +125,8 @@ afterAll(() => restoreModuleMocks());
 
 beforeEach(() => {
   scopeResponse = null;
+  grantedScopes = null;
+  rbacCalls.length = 0;
   extensionsById = { "ext-uuid-1": { id: "ext-uuid-1", name: "github-projects" } };
   projectsById = { "proj-1": { id: "proj-1", name: "Proj One" } };
   deleteResult = true;
@@ -345,5 +373,74 @@ describe("DELETE secrets", () => {
     const res = await run(DELETE, ev({ method: "DELETE", body: { name: "apiToken" } }));
     expect(res.status).toBe(403);
     expect(deleteSecretCalls).toHaveLength(0);
+  });
+});
+
+// ════════════════════════ extension RBAC (`secrets` scope) ════════════════════════
+//
+// Deny-by-default enforcement (spec 2026-07-03): POST + DELETE both require
+// the `secrets` scope for THIS extension ([id] resolved to ext.name) at the
+// request's project scope. The 403 names the scope and only fires AFTER the
+// opaque extension/project 404s; admins pass with no grant.
+describe("extension RBAC — secrets scope", () => {
+  async function expect403Naming(res: Response) {
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe("Missing extension scope 'secrets' for github-projects");
+  }
+
+  test("POST: member no-grant → 403 naming 'secrets', nothing stored", async () => {
+    grantedScopes = new Set();
+    const res = await run(POST, ev({ body: { projectId: "proj-1", name: "apiToken", value: "v" } }));
+    await expect403Naming(res);
+    expect(setSecretCalls).toHaveLength(0);
+  });
+
+  test("POST: member with a WRONG scope (use/configure) → 403; with 'secrets' → 200", async () => {
+    grantedScopes = new Set(["use", "configure", "approve-runs"]);
+    await expect403Naming(await run(POST, ev({ body: { name: "apiToken", value: "v" } })));
+    expect(setSecretCalls).toHaveLength(0);
+    grantedScopes = new Set(["secrets"]);
+    const ok = await run(POST, ev({ body: { name: "apiToken", value: "v" } }));
+    expect(ok.status).toBe(200);
+    expect(setSecretCalls).toHaveLength(1);
+  });
+
+  test("POST: admin with NO grant → 200 (implicit all scopes)", async () => {
+    grantedScopes = new Set();
+    const res = await run(POST, ev({ user: ADMIN_USER, body: { name: "apiToken", value: "v" } }));
+    expect(res.status).toBe(200);
+    expect(setSecretCalls).toHaveLength(1);
+  });
+
+  test("the check is keyed by the RESOLVED extension name + the request's project scope", async () => {
+    grantedScopes = new Set(["secrets"]);
+    await run(POST, ev({ body: { projectId: "proj-1", name: "apiToken", value: "v" } }));
+    expect(rbacCalls).toEqual([
+      { userId: MEMBER_USER.id, role: "member", projectId: "proj-1", extensionId: "github-projects", scope: "secrets" },
+    ]);
+    // Instance-wide (no projectId) → the NULL project coordinate.
+    rbacCalls.length = 0;
+    await run(POST, ev({ body: { name: "apiToken", value: "v" } }));
+    expect(rbacCalls[0]).toMatchObject({ projectId: null, extensionId: "github-projects" });
+  });
+
+  test("opaque 404s stay FIRST: unknown extension / unknown project for a no-grant member → 404, no RBAC check", async () => {
+    grantedScopes = new Set();
+    const extRes = await run(POST, ev({ params: { id: "nope" }, body: { name: "n", value: "v" } }));
+    expect(extRes.status).toBe(404);
+    const projRes = await run(POST, ev({ body: { projectId: "ghost", name: "n", value: "v" } }));
+    expect(projRes.status).toBe(404);
+    expect(rbacCalls).toHaveLength(0);
+  });
+
+  test("DELETE: member no-grant → 403 naming 'secrets', nothing deleted; 'secrets' → 200; admin → 200", async () => {
+    grantedScopes = new Set();
+    await expect403Naming(await run(DELETE, ev({ method: "DELETE", body: { projectId: "proj-1", name: "apiToken" } })));
+    expect(deleteSecretCalls).toHaveLength(0);
+    grantedScopes = new Set(["secrets"]);
+    expect((await run(DELETE, ev({ method: "DELETE", body: { projectId: "proj-1", name: "apiToken" } }))).status).toBe(200);
+    grantedScopes = new Set();
+    expect((await run(DELETE, ev({ method: "DELETE", user: ADMIN_USER, body: { name: "apiToken" } }))).status).toBe(200);
   });
 });

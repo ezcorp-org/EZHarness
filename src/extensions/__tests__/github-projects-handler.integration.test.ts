@@ -64,6 +64,9 @@ mock.module("../../integrations/github-projects/spawn", () => ({
 const { handleGithubProjectsRpc } = await import("../github-projects-handler");
 const { GITHUB_PROJECTS_RPC_PREFIX } = await import("../../integrations/github-projects/types");
 const realQueries = await import("../../db/queries/github-projects");
+// REAL RBAC grants (the resolver + queries run against the test DB) — the
+// deny-by-default core means every seeded member needs an explicit grant.
+const { upsertGrant } = await import("../../db/queries/extension-rbac");
 
 afterAll(() => {
   mock.module("../../integrations/github-projects/client", () => REAL_CLIENT);
@@ -130,7 +133,9 @@ function fakeGithubClient(over: Partial<GithubClient> = {}): GithubClient {
   };
 }
 
-async function seed(opts: { enabled?: boolean } = {}) {
+async function seed(
+  opts: { enabled?: boolean; role?: "admin" | "member"; grants?: string[] | null } = {},
+) {
   const { getDb } = await import("../../db/connection");
   const db = getDb();
   const schema = await import("../../db/schema");
@@ -142,8 +147,20 @@ async function seed(opts: { enabled?: boolean } = {}) {
     email: `u${userId.slice(0, 8)}@x.test`,
     passwordHash: "x",
     name: "Test User",
-    role: "member",
+    role: opts.role ?? "member",
   });
+  // Deny-by-default RBAC: unless a test opts out (`grants: null`), give the
+  // seeded member the scopes the gated verbs need, via a REAL all-projects /
+  // all-extensions grant row (NULL coordinates need no extensions-table FK).
+  if (opts.grants !== null) {
+    await upsertGrant({
+      userId,
+      projectId: null,
+      extensionId: null,
+      scopes: opts.grants ?? ["use", "approve-runs", "write-tickets"],
+      grantedByUserId: null,
+    });
+  }
   await db.insert(schema.projects).values({ id: projectId, name: "P", path: "/tmp/p" });
   await db.insert(schema.conversations).values({ id: convId, title: "C", projectId, userId });
   const [link] = await db
@@ -323,6 +340,14 @@ describe("github-projects handler — integration (real DB)", () => {
           })
           .returning()
       )[0]!;
+    // Deny-by-default RBAC: the viewing user needs `use` for the dashboard.
+    await upsertGrant({
+      userId: myUserId,
+      projectId: null,
+      extensionId: null,
+      scopes: ["use"],
+      grantedByUserId: null,
+    });
     const myLink = await mkLink(myUserId, "My Board", "PVT_mine");
     const otherLink = await mkLink(otherUserId, "Other Board", "PVT_other");
     const myProposal = await mkProposal(myLink.id, "PVTI_mine", "Mine");
@@ -372,5 +397,95 @@ describe("github-projects handler — integration (real DB)", () => {
     );
     expect("error" in denied && denied.error?.code).toBe(-32603);
     expect(spawnCalls.length).toBe(0);
+  });
+});
+
+describe("github-projects handler — extension RBAC (real resolver + real grants)", () => {
+  test("approve by the OWNER without `approve-runs` is denied naming the scope; granting it flips to success", async () => {
+    const { userId, proposalId } = await seed({ grants: ["use", "write-tickets"] });
+    const denied = await handleGithubProjectsRpc(
+      "approve",
+      reqMsg(V("approve"), { proposalId }),
+      makeCtx({ userId, conversationId: "any" }),
+    );
+    expect("error" in denied && denied.error?.code).toBe(-32603);
+    expect("error" in denied && denied.error?.message).toBe(
+      "Missing extension scope 'approve-runs' for github-projects",
+    );
+    expect(spawnCalls.length).toBe(0);
+
+    // Grant the scope (upsert replaces the row's scope list) → allowed.
+    await upsertGrant({
+      userId,
+      projectId: null,
+      extensionId: null,
+      scopes: ["use", "approve-runs"],
+      grantedByUserId: null,
+    });
+    const ok = await handleGithubProjectsRpc(
+      "approve",
+      reqMsg(V("approve"), { proposalId }),
+      makeCtx({ userId, conversationId: "any" }),
+    );
+    expect("result" in ok).toBe(true);
+    expect(spawnCalls[0]?.method).toBe("approve");
+  });
+
+  test("an ADMIN with NO grant rows passes every gated verb (implicit all scopes)", async () => {
+    const { userId, proposalId } = await seed({ role: "admin", grants: null });
+    const ok = await handleGithubProjectsRpc(
+      "approve",
+      reqMsg(V("approve"), { proposalId }),
+      makeCtx({ userId, conversationId: "any" }),
+    );
+    expect("result" in ok).toBe(true);
+    const dash = await handleGithubProjectsRpc(
+      "dashboard-data",
+      reqMsg(V("dashboard-data")),
+      makeCtx({ userId, conversationId: "any" }),
+    );
+    expect("result" in dash).toBe(true);
+    expect(
+      (dash as { result: { boards: unknown[]; permissionDenied?: boolean } }).result.boards,
+    ).toHaveLength(1);
+    expect(
+      (dash as { result: { permissionDenied?: boolean } }).result.permissionDenied,
+    ).toBeUndefined();
+  });
+
+  test("dashboard-data for a MEMBER with boards but no grants → empty + permissionDenied (graceful, not an error)", async () => {
+    const { userId } = await seed({ grants: null });
+    const res = await handleGithubProjectsRpc(
+      "dashboard-data",
+      reqMsg(V("dashboard-data")),
+      makeCtx({ userId, conversationId: "any" }),
+    );
+    expect("result" in res).toBe(true);
+    expect((res as { result: unknown }).result).toEqual({
+      proposals: [],
+      boards: [],
+      permissionDenied: true,
+    });
+  });
+
+  test("a ticket mutation without `write-tickets` is denied naming the custom scope; with it, it lands + audits", async () => {
+    const denied = await seed({ grants: ["use", "approve-runs"] });
+    const deniedRes = await handleGithubProjectsRpc(
+      "create",
+      reqMsg(V("create"), { title: "Nope" }),
+      makeCtx({ userId: denied.userId, conversationId: denied.convId }),
+    );
+    expect("error" in deniedRes && deniedRes.error?.code).toBe(-32603);
+    expect("error" in deniedRes && deniedRes.error?.message).toBe(
+      "Missing extension scope 'write-tickets' for github-projects",
+    );
+
+    const granted = await seed(); // default grants include write-tickets
+    const okRes = await handleGithubProjectsRpc(
+      "create",
+      reqMsg(V("create"), { title: "Yep" }),
+      makeCtx({ userId: granted.userId, conversationId: granted.convId }),
+    );
+    expect("result" in okRes).toBe(true);
   });
 });

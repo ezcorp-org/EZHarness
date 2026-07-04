@@ -11,6 +11,8 @@
  *                         Body: `{ projectId, linkId }`.
  *
  * Authed: `extensions` scope + session/key user. Never echoes the token.
+ * RBAC: GET → `use`; PATCH / DELETE → `configure` — checked after the opaque
+ * project/link resolution so the 404 semantics stay first.
  */
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
@@ -19,6 +21,7 @@ import {
   authGithubRoute,
   resolveProject,
   resolveLinkForProject,
+  requireGithubScope,
   publicLinkView,
   parseDefaultModelInput,
   parsePermissionModeInput,
@@ -126,6 +129,10 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   const projectRes = await resolveProject(url.searchParams.get("projectId"));
   if ("error" in projectRes) return projectRes.error;
 
+  // RBAC: reading the project's board links is a `use` action.
+  const denied = await requireGithubScope(locals, projectRes.projectId, "use");
+  if (denied) return denied;
+
   // EVERY board linked to the project (oldest-first → stable card order). Each
   // is enriched with hasTokenOverride — the boolean presence of a per-board
   // token (never the token), so the card can show "shared token" vs "override".
@@ -161,6 +168,11 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   );
   if ("error" in linkRes) return linkRes.error;
   const { link } = linkRes;
+
+  // RBAC (after the opaque project/link 404s): editing a board's config is a
+  // `configure` action.
+  const denied = await requireGithubScope(locals, projectRes.projectId, "configure");
+  if (denied) return denied;
 
   // Build the patch from only the fields present in the body.
   const patch: {
@@ -247,6 +259,11 @@ export const DELETE: RequestHandler = async ({ locals, request }) => {
   );
   if ("error" in linkRes) return linkRes.error;
   const { link } = linkRes;
+
+  // RBAC (after the opaque project/link 404s): disconnecting a board is a
+  // `configure` action.
+  const denied = await requireGithubScope(locals, projectRes.projectId, "configure");
+  if (denied) return denied;
 
   // Disconnect order: cancel active proposals (so no orphan shows "running" on
   // the Hub), drop the link, then purge THIS board's per-board override. The

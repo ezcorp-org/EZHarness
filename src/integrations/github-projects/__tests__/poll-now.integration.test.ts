@@ -73,6 +73,8 @@ const { upsertLink, getLinkByProjectId, listProposalsByProject } = await import(
   "../../../db/queries/github-projects"
 );
 const { _resetGithubProjectsDaemonForTests } = await import("../daemon");
+// Deny-by-default extension RBAC: poll-now requires `use` — seed a real grant.
+const { upsertGrant } = await import("../../../db/queries/extension-rbac");
 // The handler is the entry point the Hub button reverse-RPCs into.
 const { handleGithubProjectsRpc } = await import("../../../extensions/github-projects-handler");
 const { GITHUB_PROJECTS_RPC_PREFIX } = await import("../types");
@@ -140,6 +142,15 @@ beforeEach(async () => {
         entrypoint: { command: ["true"] },
       })}::jsonb`,
     });
+  // Deny-by-default RBAC: the member needs `use` for the poll-now verb (an
+  // all-projects / all-extensions row — NULL coordinates, no FK parents).
+  await upsertGrant({
+    userId: USER.id,
+    projectId: null,
+    extensionId: null,
+    scopes: ["use"],
+    grantedByUserId: null,
+  });
   const proj = await createProject({ name: "Poll Project", path: "/tmp/poll" });
   projectId = proj.id;
   // Store the PAT (real, encrypted) so the daemon's auth resolution succeeds.

@@ -5,9 +5,15 @@
  * acts on an EZCorp project that the caller can access. Projects in EZCorp are
  * instance-scoped (no per-user owner column — the single-operator / team
  * model), so "can access" reduces to: authenticated AND the project exists.
+ * On top of that, every handler enforces an extension-RBAC scope via
+ * `requireGithubScope` (GET link/proposals → `use`; connect / PATCH / DELETE
+ * link / refresh-columns → `configure`, connect additionally `secrets` when a
+ * token is written; approve/dismiss/rerun → `approve-runs`). Non-admin members
+ * are deny-by-default; admins implicitly hold every scope.
  * These helpers pin that contract in one place so the six handlers below stay
  * DRY and consistent (a 404 for a missing project/link/proposal is never an
- * enumeration oracle — same opaque shape as the rest of the API).
+ * enumeration oracle — same opaque shape as the rest of the API; the RBAC 403
+ * is only ever emitted AFTER the opaque resolution steps).
  *
  * SECURITY: handlers MUST resolve the board/link from the SERVER-derived
  * projectId, never trust a board id or link id smuggled in by a caller for a
@@ -16,6 +22,7 @@
 import { errorJson } from "$lib/server/http-errors";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { hasExtensionScope } from "$server/auth/extension-rbac";
 import { PERMISSION_MODES } from "$lib/permission-mode";
 import { getProject } from "$server/db/queries/projects";
 import {
@@ -44,6 +51,40 @@ export function authGithubRoute(
     // requireAuth throws a Response (401) — surface it as an early return.
     return { error: resp as Response };
   }
+}
+
+/** The extension id every github-projects route's RBAC check is keyed by. */
+const GITHUB_PROJECTS_EXTENSION_ID = "github-projects";
+
+/**
+ * Require an extension-RBAC scope on the acting user for THIS project.
+ * Returns `null` when allowed, or a 403 `errorJson` NAMING the missing scope
+ * (mirroring `authGithubRoute`'s early-return error style).
+ *
+ * Ordering contract: call AFTER `authGithubRoute` and AFTER the project /
+ * link / proposal resolution, so the opaque-404 semantics stay first — an
+ * unauthorized caller probing a nonexistent id still sees the same 404 as
+ * everyone else, never a 403 oracle confirming the id exists.
+ *
+ * Deny-by-default (spec 2026-07-03): non-admin members hold NO scopes until
+ * an `extension_rbac_grants` row says otherwise; admins implicitly hold every
+ * scope and pass WITHOUT a DB hit (the core resolver's admin sentinel).
+ */
+export async function requireGithubScope(
+  locals: GithubRouteLocals,
+  projectId: string,
+  scope: string,
+): Promise<Response | null> {
+  const user = locals.user;
+  // authGithubRoute() must have run first; fail closed if it somehow didn't.
+  if (!user) return errorJson(401, "Authentication required");
+  const allowed = await hasExtensionScope(user, {
+    projectId,
+    extensionId: GITHUB_PROJECTS_EXTENSION_ID,
+    scope,
+  });
+  if (allowed) return null;
+  return errorJson(403, `Missing extension scope '${scope}' for github-projects`);
 }
 
 /** Resolve a project the caller may act on. 400 when missing, 404 when the

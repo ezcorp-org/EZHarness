@@ -28,6 +28,19 @@
  *     their proposals); approve/dismiss/pause/resume verify the user owns the
  *     proposal's / link's project before mutating. Never leak another user's
  *     boards or proposals.
+ *   - Extension RBAC (deny-by-default, admins implicit — src/auth/
+ *     extension-rbac.ts): approve/dismiss/rerun require `approve-runs`;
+ *     poll-now requires `use`; ticket MUTATIONS (create/update/move/archive/
+ *     comment) require the extension-declared custom scope `write-tickets`
+ *     (the manifest declaration lands with the SDK wave — enforcement here
+ *     only checks the string). Checks run AFTER the ownership guards so the
+ *     opaque "not found" responses stay first; a denial is an RPC error
+ *     NAMING the missing scope. dashboard-data is the graceful exception:
+ *     a viewer whose boards are ALL denied `use` gets an EMPTY dashboard
+ *     with `permissionDenied: true` instead of an error, so the Hub renders
+ *     a notice rather than an error card. `list` and pause/resume are NOT
+ *     RBAC-gated (spec v1 scope list): list is read-only + PDP-gated at the
+ *     tool call, pause/resume stay owner-gated.
  *
  * Verbs:
  *   Ticket (conversation-scoped):
@@ -52,7 +65,9 @@ import { extensionLogger } from "../logger";
 import { eq } from "drizzle-orm";
 import { getDb } from "../db/connection";
 import { githubProjectsLinks } from "../db/schema";
+import { hasExtensionScope } from "../auth/extension-rbac";
 import { getConversation } from "../db/queries/conversations";
+import { getUserById } from "../db/queries/users";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import {
   GITHUB_ACTIVE_STATUSES,
@@ -100,6 +115,9 @@ export const BUNDLED_GITHUB_PROJECTS_ALLOWLIST: ReadonlySet<string> = new Set([
 /** Audit action prefix for this feature (picked up by `action LIKE 'ext:%'`). */
 const AUDIT_TICKET_MUTATE = "ext:github-projects:ticket-mutate";
 const AUDIT_CONTROL = "ext:github-projects:control";
+
+/** The extension id every RBAC check in this handler is keyed by. */
+const GITHUB_PROJECTS_EXTENSION_ID = "github-projects";
 
 export interface GithubProjectsContext {
   /** Calling extension NAME (host-resolved from the registry). The allowlist
@@ -169,6 +187,43 @@ export function _setGhTokenResolverForTests(fn: GhTokenResolver | null): void {
  */
 export async function resolveAuth(link: GithubProjectsLink): Promise<GithubAuth> {
   return resolveLinkAuth(link, ghTokenResolverImpl);
+}
+
+// ── Extension RBAC (deny-by-default, admins implicit) ────────────────
+
+/**
+ * Require `scope` on the acting user at (projectId, github-projects), or
+ * return the RPC denial to send verbatim. `null` = allowed.
+ *
+ * The acting user is the host-resolved provenance user (`ctx.userId`) — the
+ * same identity every write is attributed to. A missing user is fail-closed
+ * (-32602, matching the existing "No viewing user" contract); an unknown
+ * user row or a missing grant is a -32603 NAMING the missing scope (per
+ * spec: denials cite the scope — the caller is already past the opaque
+ * ownership guards, so this leaks no cross-user existence). Admins pass
+ * inside `hasExtensionScope` without a grants query (the core sentinel).
+ */
+async function requireRpcScope(
+  req: JsonRpcRequest,
+  ctx: GithubProjectsContext,
+  projectId: string | null,
+  scope: string,
+): Promise<JsonRpcResponse | null> {
+  if (!ctx.userId) return rpcError(req.id, -32602, "No acting user.");
+  const user = await getUserById(ctx.userId);
+  const allowed =
+    user !== undefined &&
+    (await hasExtensionScope(user, {
+      projectId,
+      extensionId: GITHUB_PROJECTS_EXTENSION_ID,
+      scope,
+    }));
+  if (allowed) return null;
+  return rpcError(
+    req.id,
+    -32603,
+    `Missing extension scope '${scope}' for github-projects`,
+  );
 }
 
 // ── projectId / link derivation (server-side) ────────────────────────
@@ -395,6 +450,13 @@ async function handleTicketMutation(
   if (!resolved.ok) return resolved.errorResponse;
   const { projectId, link, auth, client } = resolved;
 
+  // Extension RBAC: mutating tickets requires the extension-declared custom
+  // scope `write-tickets` for the conversation's user at this project (the
+  // manifest declares it in the SDK wave; enforcement only checks the
+  // string). Denial names the scope; nothing is written and no audit row.
+  const rbacDenied = await requireRpcScope(req, ctx, projectId, "write-tickets");
+  if (rbacDenied) return rbacDenied;
+
   // No engine.authorize call here: `custom.githubProjects` is NOT a typed
   // `CapabilityKind`, so it can't be expressed as a PDP cap (parity with the
   // sibling bundled-only `ezcorp/drafts` handler, which also gates on its
@@ -522,6 +584,15 @@ function userOwnsLink(link: GithubProjectsLink, userId: string): boolean {
 /**
  * dashboard-data — return the viewing user's proposals + per-board health,
  * scoped to the links THEY created. Never leaks another user's boards.
+ *
+ * Extension RBAC (documented choice): instead of erroring, `use` is enforced
+ * GRACEFULLY here so the Hub can render a notice rather than an error card —
+ * boards are filtered per-link to the projects the viewer may `use` (a
+ * project-scoped grant never leaks another project's boards in), and a viewer
+ * whose boards were ALL filtered out (or whose provenance user no longer
+ * exists) gets `{ proposals: [], boards: [], permissionDenied: true }`. A
+ * viewer with NO boards at all keeps the plain empty dashboard (nothing is
+ * being withheld). Admins see everything (core sentinel, no grants query).
  */
 async function handleDashboardData(
   req: JsonRpcRequest,
@@ -531,12 +602,30 @@ async function handleDashboardData(
     return rpcError(req.id, -32602, "No viewing user for dashboard-data.");
   }
   const userId = ctx.userId;
+  const viewer = await getUserById(userId);
+  if (!viewer) {
+    // Unknown provenance user — fail closed, but render gracefully.
+    return rpcResult(req.id, { proposals: [], boards: [], permissionDenied: true });
+  }
   // Find every project the user has connected a board to. There's no
   // user→projects index, so we read all proposals' links lazily via the
   // user's links. We resolve the set of links the user created by scanning
   // proposals — but the cleaner source is the links themselves keyed by
   // createdByUserId. Use the dedicated query.
-  const links = await listLinksCreatedByUser(userId);
+  const allLinks = await listLinksCreatedByUser(userId);
+  const links: GithubProjectsLink[] = [];
+  for (const l of allLinks) {
+    const allowed = await hasExtensionScope(viewer, {
+      projectId: l.projectId,
+      extensionId: GITHUB_PROJECTS_EXTENSION_ID,
+      scope: "use",
+    });
+    if (allowed) links.push(l);
+  }
+  if (allLinks.length > 0 && links.length === 0) {
+    // The viewer HAS boards but may `use` none of them — empty + flagged.
+    return rpcResult(req.id, { proposals: [], boards: [], permissionDenied: true });
+  }
   const boards = links.map((l) => ({
     linkId: l.id,
     boardTitle: l.boardTitle,
@@ -592,6 +681,9 @@ async function handleApprove(
 ): Promise<JsonRpcResponse> {
   const guard = await guardProposalOwnership(req, params, ctx);
   if (!guard.ok) return guard.errorResponse;
+  // RBAC (after the opaque ownership guard): approving needs `approve-runs`.
+  const denied = await requireRpcScope(req, ctx, guard.proposal.projectId, "approve-runs");
+  if (denied) return denied;
   try {
     const updated = await approveProposal(guard.proposal.id, {
       kind: "user",
@@ -611,6 +703,9 @@ async function handleDismiss(
 ): Promise<JsonRpcResponse> {
   const guard = await guardProposalOwnership(req, params, ctx);
   if (!guard.ok) return guard.errorResponse;
+  // RBAC (after the opaque ownership guard): dismissing needs `approve-runs`.
+  const denied = await requireRpcScope(req, ctx, guard.proposal.projectId, "approve-runs");
+  if (denied) return denied;
   try {
     const updated = await dismissProposal(guard.proposal.id, guard.userId);
     await writeAudit(AUDIT_CONTROL, ctx, { verb: "dismiss", proposalId: guard.proposal.id });
@@ -636,6 +731,9 @@ async function handleRerun(
 ): Promise<JsonRpcResponse> {
   const guard = await guardProposalOwnership(req, params, ctx);
   if (!guard.ok) return guard.errorResponse;
+  // RBAC (after the opaque ownership guard): re-running needs `approve-runs`.
+  const denied = await requireRpcScope(req, ctx, guard.proposal.projectId, "approve-runs");
+  if (denied) return denied;
   try {
     const fresh = await rerunProposal(guard.proposal.id, {
       kind: "user",
@@ -701,6 +799,9 @@ async function handlePollNow(
   if (!link || !userOwnsLink(link, ctx.userId)) {
     return rpcError(req.id, -32603, "Board not found");
   }
+  // RBAC (after the opaque ownership guard): forcing a poll needs `use`.
+  const denied = await requireRpcScope(req, ctx, link.projectId, "use");
+  if (denied) return denied;
   try {
     const result = await getGithubProjectsDaemon().pollLinkNow(link);
     await writeAudit(AUDIT_CONTROL, ctx, { verb: "poll-now", linkId });

@@ -7,13 +7,15 @@
  *
  * The caller must be authed (`extensions` scope) AND the proposal must belong
  * to a project they can reach — a missing/foreign proposal is an opaque 404.
+ * RBAC: `approve-runs` — checked after the opaque proposal resolution (an
+ * unauthorized probe of a nonexistent id still sees 404, never 403).
  * A still-active proposal is a 409, as is a card that already holds an active
  * proposal (the single-active-per-card index arbitrates atomically).
  */
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { errorJson } from "$lib/server/http-errors";
-import { authGithubRoute, resolveProposal, publicProposalView } from "../../../_shared";
+import { authGithubRoute, resolveProposal, requireGithubScope, publicProposalView } from "../../../_shared";
 import {
   rerunProposal,
   GithubProposalNotRerunnableError,
@@ -36,6 +38,11 @@ export const POST: RequestHandler = async ({ locals, params }) => {
   const res = await resolveProposal(params.id);
   if ("error" in res) return res.error;
   const { proposal } = res;
+
+  // RBAC (after the opaque proposal 404): re-running is an `approve-runs`
+  // action on the proposal's project.
+  const denied = await requireGithubScope(locals, proposal.projectId, "approve-runs");
+  if (denied) return denied;
 
   // Only a TERMINAL proposal can be re-run; an active one is a 409. The
   // atomic insert inside rerunProposal is the real gate; this fails cheaply.

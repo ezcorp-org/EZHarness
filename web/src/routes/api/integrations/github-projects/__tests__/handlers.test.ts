@@ -13,6 +13,7 @@ import { restoreModuleMocks } from "../../../../../../../src/__tests__/helpers/m
 import {
   mockServerAlias,
   MEMBER_USER,
+  ADMIN_USER,
   createMockEvent,
 } from "../../../../../../../src/__tests__/helpers/mock-request";
 
@@ -37,6 +38,32 @@ mock.module("$lib/server/security/api-keys", () => ({
 // requireAuth real impl throws a 401 Response when no user — keep it real.
 import * as middlewareActual from "../../../../../../../src/auth/middleware";
 mock.module("$server/auth/middleware", () => middlewareActual);
+
+// Extension RBAC (deny-by-default core). Default mock = "member with ALL
+// github scopes granted" so the pre-RBAC test cases stay valid; the deny
+// matrix narrows it per test via `grantedScopes`. Admins mirror the core's
+// sentinel (always allowed). Full real export shape is preserved so the
+// module's frozen materialization shape never drops exports for later files.
+import * as rbacActual from "../../../../../../../src/auth/extension-rbac";
+let grantedScopes: Set<string> | null = null; // null = every scope granted
+const rbacCalls: Array<{
+  userId: string;
+  role: string;
+  projectId: string | null;
+  extensionId: string | null;
+  scope: string;
+}> = [];
+mock.module("$server/auth/extension-rbac", () => ({
+  ...rbacActual,
+  hasExtensionScope: async (
+    user: { id: string; role: "admin" | "member" },
+    q: { projectId: string | null; extensionId: string | null; scope: string },
+  ) => {
+    rbacCalls.push({ userId: user.id, role: user.role, ...q });
+    if (user.role === "admin") return true; // core admin sentinel — no DB hit
+    return grantedScopes === null ? true : grantedScopes.has(q.scope);
+  },
+}));
 
 // ── Mock state (reset per test) ─────────────────────────────────────────
 let scopeResponse: Response | null = null;
@@ -301,11 +328,16 @@ const { POST: dismiss } = await import(
 const { POST: rerun } = await import(
   "../../../../../../../web/src/routes/api/integrations/github-projects/proposals/[id]/rerun/+server"
 );
+const { requireGithubScope } = await import(
+  "../../../../../../../web/src/routes/api/integrations/github-projects/_shared"
+);
 
 afterAll(() => restoreModuleMocks());
 
 beforeEach(() => {
   scopeResponse = null;
+  grantedScopes = null;
+  rbacCalls.length = 0;
   projectsById = { "proj-1": { id: "proj-1", name: "Proj One" } };
   linkByProject = {};
   tokenOverrides = {};
@@ -1513,5 +1545,192 @@ describe("POST link/refresh-columns", () => {
     seedEmptyLink();
     const res = await run(refreshColumns, ev({ method: "POST", body: { projectId: "proj-1" }, user: null }));
     expect(res.status).toBe(401);
+  });
+});
+
+// ════════════════════════ extension RBAC scope matrix ════════════════════════
+//
+// Deny-by-default enforcement (spec 2026-07-03): every handler requires an
+// extension scope AFTER auth + opaque project/link/proposal resolution.
+// GET link + GET proposals → use; connect + PATCH/DELETE link +
+// refresh-columns → configure (connect also secrets when a token is written);
+// approve/dismiss/rerun → approve-runs. Members with no / the wrong grant get
+// a 403 NAMING the scope; admins always pass; opaque-404 ordering holds.
+describe("extension RBAC scope matrix", () => {
+  function seedLink() {
+    linkByProject["proj-1"] = { id: "link-1", projectId: "proj-1", boardUrl: "u", boardTitle: "B", ownerLogin: "o", boardNodeId: "PVT", statusFieldId: "F", statusOptions: [], defaultModel: null, authMode: "pat", columnActionMap: {}, pollIntervalSec: 60, enabled: true, lastError: null, lastErrorAt: null, lastPolledAt: null, createdAt: new Date(0), updatedAt: new Date(0) };
+  }
+  function seedPendingProposal() {
+    proposalsById = { "p1": { id: "p1", projectId: "proj-1", status: "pending", linkId: "l", itemNodeId: "i", statusOptionId: "o", statusName: "D", action: "plan", title: "T", ticketUrl: null, conversationId: null, agentRunId: null, proposedAt: new Date(0), decidedAt: null, decidedByUserId: null, finishedAt: null, error: null } };
+  }
+
+  async function expect403Naming(res: Response, scope: string) {
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe(`Missing extension scope '${scope}' for github-projects`);
+  }
+
+  test("GET link: member no-grant → 403 naming 'use'; wrong scope → 403; right scope → 200; admin no-grant → 200", async () => {
+    seedLink();
+    grantedScopes = new Set();
+    await expect403Naming(await run(linkGet, ev({ url: "http://localhost/x?projectId=proj-1" })), "use");
+    grantedScopes = new Set(["configure"]); // wrong scope for a GET
+    await expect403Naming(await run(linkGet, ev({ url: "http://localhost/x?projectId=proj-1" })), "use");
+    grantedScopes = new Set(["use"]);
+    expect((await run(linkGet, ev({ url: "http://localhost/x?projectId=proj-1" }))).status).toBe(200);
+    grantedScopes = new Set(); // admin needs NO grant
+    expect((await run(linkGet, ev({ url: "http://localhost/x?projectId=proj-1", user: ADMIN_USER }))).status).toBe(200);
+  });
+
+  test("the check is keyed by (projectId, 'github-projects') and the acting user", async () => {
+    seedLink();
+    grantedScopes = new Set(["use"]);
+    await run(linkGet, ev({ url: "http://localhost/x?projectId=proj-1" }));
+    expect(rbacCalls).toEqual([
+      { userId: MEMBER_USER.id, role: "member", projectId: "proj-1", extensionId: "github-projects", scope: "use" },
+    ]);
+  });
+
+  test("GET proposals: member no-grant → 403 naming 'use'; with 'use' → 200", async () => {
+    grantedScopes = new Set();
+    await expect403Naming(await run(proposalsList, ev({ url: "http://localhost/x?projectId=proj-1" })), "use");
+    grantedScopes = new Set(["use"]);
+    expect((await run(proposalsList, ev({ url: "http://localhost/x?projectId=proj-1" }))).status).toBe(200);
+  });
+
+  test("connect: member no-grant → 403 naming 'configure', NOTHING persisted, no egress", async () => {
+    grantedScopes = new Set();
+    let resolved = false;
+    resolveBoardImpl = async () => { resolved = true; return { boardNodeId: "PVT", title: "T", ownerLogin: "o", statusFieldId: "F", statusOptions: [] }; };
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "gh" } }));
+    await expect403Naming(res, "configure");
+    expect(resolved).toBe(false);
+    expect(upsertLinkCalls).toHaveLength(0);
+    expect(setSecretCalls).toHaveLength(0);
+  });
+
+  test("connect WRITING a token: 'configure' alone → 403 naming 'secrets'; configure+secrets → 200 stores it", async () => {
+    grantedScopes = new Set(["configure"]);
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "ghp_secret" } }));
+    await expect403Naming(res, "secrets");
+    expect(upsertLinkCalls).toHaveLength(0);
+    expect(setSecretCalls).toHaveLength(0);
+    grantedScopes = new Set(["configure", "secrets"]);
+    const ok = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "ghp_secret" } }));
+    expect(ok.status).toBe(200);
+    expect(setSecretCalls).toHaveLength(1);
+  });
+
+  test("connect WITHOUT a token in the body never demands 'secrets' (configure alone suffices)", async () => {
+    grantedScopes = new Set(["configure"]);
+    const res = await run(connect, ev({ method: "POST", body: { projectId: "proj-1", boardUrl: "u", authMode: "gh" } }));
+    expect(res.status).toBe(200);
+    // Exactly ONE rbac check fired — configure. No secrets check for a
+    // token-free connect (gh mode stores nothing).
+    expect(rbacCalls.map((c) => c.scope)).toEqual(["configure"]);
+  });
+
+  test("connect: admin with NO grant → 200 (implicit all scopes)", async () => {
+    grantedScopes = new Set();
+    const res = await run(connect, ev({ method: "POST", user: ADMIN_USER, body: { projectId: "proj-1", boardUrl: "u", authMode: "pat", token: "t" } }));
+    expect(res.status).toBe(200);
+  });
+
+  test("PATCH link: member no-grant → 403 naming 'configure', nothing updated; 'use' is the WRONG scope; 'configure' → 200", async () => {
+    seedLink();
+    grantedScopes = new Set();
+    await expect403Naming(await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", enabled: false } })), "configure");
+    grantedScopes = new Set(["use"]);
+    await expect403Naming(await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", enabled: false } })), "configure");
+    expect(setEnabledCalls).toHaveLength(0);
+    expect(updateLinkCalls).toHaveLength(0);
+    grantedScopes = new Set(["configure"]);
+    expect((await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", enabled: false } }))).status).toBe(200);
+  });
+
+  test("PATCH link: unknown linkId for an unauthorized member is still an opaque 404, never a 403", async () => {
+    seedLink();
+    grantedScopes = new Set();
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "nope", enabled: false } }));
+    expect(res.status).toBe(404);
+    expect(rbacCalls).toHaveLength(0); // resolution short-circuits FIRST
+  });
+
+  test("DELETE link: member no-grant → 403 naming 'configure', nothing dropped; 'configure' → 200", async () => {
+    seedLink();
+    grantedScopes = new Set();
+    await expect403Naming(await run(linkDelete, ev({ method: "DELETE", body: { projectId: "proj-1", linkId: "link-1" } })), "configure");
+    expect(deleteLinkCalls).toHaveLength(0);
+    expect(cancelActiveCalls).toHaveLength(0);
+    grantedScopes = new Set(["configure"]);
+    expect((await run(linkDelete, ev({ method: "DELETE", body: { projectId: "proj-1", linkId: "link-1" } }))).status).toBe(200);
+  });
+
+  test("refresh-columns: member no-grant → 403 naming 'configure' BEFORE the host credential is touched", async () => {
+    seedLink();
+    grantedScopes = new Set();
+    await expect403Naming(await run(refreshColumns, ev({ method: "POST", body: { projectId: "proj-1", linkId: "link-1" } })), "configure");
+    expect(resolveAuthCalls).toHaveLength(0);
+    expect(updateLinkCalls).toHaveLength(0);
+    grantedScopes = new Set(["configure"]);
+    expect((await run(refreshColumns, ev({ method: "POST", body: { projectId: "proj-1", linkId: "link-1" } }))).status).toBe(200);
+  });
+
+  test("approve: member no-grant → 403 naming 'approve-runs', no spawn; 'approve-runs' → 200; admin → 200", async () => {
+    seedPendingProposal();
+    grantedScopes = new Set();
+    await expect403Naming(await run(approve, ev({ method: "POST", params: { id: "p1" } })), "approve-runs");
+    grantedScopes = new Set(["use", "configure", "secrets"]); // every scope BUT the right one
+    await expect403Naming(await run(approve, ev({ method: "POST", params: { id: "p1" } })), "approve-runs");
+    expect(approveCalls).toHaveLength(0);
+    expect(emitCalls).toHaveLength(0);
+    grantedScopes = new Set(["approve-runs"]);
+    expect((await run(approve, ev({ method: "POST", params: { id: "p1" } }))).status).toBe(200);
+    seedPendingProposal();
+    grantedScopes = new Set();
+    expect((await run(approve, ev({ method: "POST", params: { id: "p1" }, user: ADMIN_USER }))).status).toBe(200);
+  });
+
+  test("approve: unknown proposal for an unauthorized member is an opaque 404, never a 403", async () => {
+    grantedScopes = new Set();
+    const res = await run(approve, ev({ method: "POST", params: { id: "nope" } }));
+    expect(res.status).toBe(404);
+    expect(rbacCalls).toHaveLength(0); // opaque resolution wins the ordering
+  });
+
+  test("dismiss: member no-grant → 403 naming 'approve-runs', no bridge call; granted → 200", async () => {
+    seedPendingProposal();
+    grantedScopes = new Set();
+    await expect403Naming(await run(dismiss, ev({ method: "POST", params: { id: "p1" } })), "approve-runs");
+    expect(dismissCalls).toHaveLength(0);
+    grantedScopes = new Set(["approve-runs"]);
+    expect((await run(dismiss, ev({ method: "POST", params: { id: "p1" } }))).status).toBe(200);
+  });
+
+  test("rerun: member no-grant → 403 naming 'approve-runs', no bridge call; granted → 200; unknown id stays 404", async () => {
+    proposalsById = { "p1": { id: "p1", projectId: "proj-1", status: "done", linkId: "l", itemNodeId: "i", statusOptionId: "o", statusName: "D", action: "plan", title: "T", ticketUrl: null, conversationId: "c", agentRunId: "r", proposedAt: new Date(0), decidedAt: new Date(0), decidedByUserId: "u", finishedAt: new Date(0), error: null } };
+    grantedScopes = new Set();
+    await expect403Naming(await run(rerun, ev({ method: "POST", params: { id: "p1" } })), "approve-runs");
+    expect(rerunCalls).toHaveLength(0);
+    expect((await run(rerun, ev({ method: "POST", params: { id: "missing" } }))).status).toBe(404);
+    grantedScopes = new Set(["approve-runs"]);
+    expect((await run(rerun, ev({ method: "POST", params: { id: "p1" } }))).status).toBe(200);
+  });
+
+  test("requireGithubScope fails CLOSED (401) when called without an authed user in locals", async () => {
+    // Defensive branch: authGithubRoute always runs first in the handlers, but
+    // the helper itself must never authorize a user-less locals slice.
+    const res = await requireGithubScope({}, "proj-1", "use");
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(401);
+    expect(rbacCalls).toHaveLength(0); // no scope check without a principal
+  });
+
+  test("RBAC runs AFTER state resolution but BEFORE the 409 status fast-path (authorization precedes state)", async () => {
+    seedPendingProposal();
+    proposalsById["p1"]!.status = "spawned"; // would be a 409 for an authorized user
+    grantedScopes = new Set();
+    const res = await run(approve, ev({ method: "POST", params: { id: "p1" } }));
+    await expect403Naming(res, "approve-runs");
   });
 });

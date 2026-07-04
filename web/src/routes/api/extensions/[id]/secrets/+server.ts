@@ -10,8 +10,15 @@
  * Body (POST):   `{ projectId?: string|null, name: string, value: string }`
  * Body (DELETE): `{ projectId?: string|null, name: string }`
  *
- * SECURITY:
+ * SECURITY / AUTHZ (the audit flagged this as previously undocumented):
  *   - Authed: `extensions` scope + a real session/key user (BOTH required).
+ *   - Extension RBAC: POST and DELETE both require the `secrets` scope for
+ *     THIS extension (the `[id]` param resolved to `ext.name`) at the request's
+ *     project scope (`projectId` from the body; `null` = the instance-wide
+ *     scope, which only a NULL-project grant satisfies). Non-admin members are
+ *     deny-by-default; admins implicitly hold every scope (no DB hit). The 403
+ *     names the missing scope and is only emitted AFTER the opaque extension/
+ *     project 404s, so it never becomes an existence oracle.
  *   - When `projectId` is supplied it must name a real project (mirrors the
  *     github-projects connect route) — a 404 for a missing project/extension
  *     is opaque, never an enumeration oracle.
@@ -22,6 +29,7 @@ import type { RequestHandler } from "./$types";
 import { errorJson } from "$lib/server/http-errors";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { hasExtensionScope } from "$server/auth/extension-rbac";
 import { getExtension } from "$server/db/queries/extensions";
 import { getProject } from "$server/db/queries/projects";
 import { setSecret, deleteSecret } from "$server/extensions/secrets-store";
@@ -70,6 +78,25 @@ async function resolveProjectId(
   return { projectId };
 }
 
+/** Extension-RBAC gate shared by POST + DELETE: the acting user must hold the
+ *  `secrets` scope for (projectId, extension). Returns `null` when allowed, or
+ *  a 403 naming the missing scope. Called AFTER the opaque extension/project
+ *  404s so an unauthorized probe of a nonexistent id still sees a 404. Admins
+ *  pass without a DB hit (the core resolver's admin sentinel). */
+async function requireSecretsScope(
+  user: AuthUser,
+  projectId: string | null,
+  extensionName: string,
+): Promise<Response | null> {
+  const allowed = await hasExtensionScope(user, {
+    projectId,
+    extensionId: extensionName,
+    scope: "secrets",
+  });
+  if (allowed) return null;
+  return errorJson(403, `Missing extension scope 'secrets' for ${extensionName}`);
+}
+
 export const POST: RequestHandler = async ({ locals, params, request }) => {
   const auth = authSecretsRoute(locals);
   if ("error" in auth) return auth.error;
@@ -88,6 +115,11 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 
   const projectRes = await resolveProjectId(body.projectId);
   if ("error" in projectRes) return projectRes.error;
+
+  // RBAC (after the opaque extension/project 404s): writing a secret needs
+  // the `secrets` scope for this extension at this project scope.
+  const denied = await requireSecretsScope(user, projectRes.projectId, ext.name);
+  if (denied) return denied;
 
   // Project/instance-scoped (no scope userId) so host readers without a user
   // context can resolve it; `actorUserId` attributes the audit to the caller.
@@ -113,6 +145,11 @@ export const DELETE: RequestHandler = async ({ locals, params, request }) => {
 
   const projectRes = await resolveProjectId(body.projectId);
   if ("error" in projectRes) return projectRes.error;
+
+  // RBAC (after the opaque extension/project 404s): clearing a secret needs
+  // the `secrets` scope for this extension at this project scope.
+  const denied = await requireSecretsScope(user, projectRes.projectId, ext.name);
+  if (denied) return denied;
 
   const deleted = await deleteSecret(ext.name, projectRes.projectId, name, {
     actorUserId: user.id,

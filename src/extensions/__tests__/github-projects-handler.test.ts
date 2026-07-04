@@ -65,6 +65,49 @@ mock.module("../secrets-store", () => ({
     getSecretImpl(extensionId, projectId, name),
 }));
 
+// Acting-user lookup for the RBAC checks (getUserById). Default: every id is
+// a MEMBER row — combined with the allow-all hasExtensionScope stub below,
+// this keeps the pre-RBAC cases valid ("member with all scopes granted").
+// `../../db/queries/users` IS in mock-cleanup's MODULE_PATHS, so afterAll's
+// restoreModuleMocks() re-registers the real module.
+const REAL_USERS = { ...(await import("../../db/queries/users")) };
+let getUserByIdImpl: (
+  id: string,
+) => Promise<{ id: string; role: "admin" | "member" } | undefined> = async (id) => ({
+  id,
+  role: "member",
+});
+mock.module("../../db/queries/users", () => ({
+  ...REAL_USERS,
+  getUserById: (id: string) => getUserByIdImpl(id),
+}));
+
+// Extension RBAC — in-file restore pattern (NOT in MODULE_PATHS): snapshot the
+// real exports, stub hasExtensionScope with a programmable impl (default:
+// every scope granted), re-register the real module in afterAll.
+const REAL_RBAC = { ...(await import("../../auth/extension-rbac")) };
+let hasScopeImpl: (
+  user: { id: string; role: "admin" | "member" },
+  q: { projectId: string | null; extensionId: string | null; scope: string },
+) => Promise<boolean> = async () => true;
+const rbacCalls: Array<{
+  userId: string;
+  role: string;
+  projectId: string | null;
+  extensionId: string | null;
+  scope: string;
+}> = [];
+mock.module("../../auth/extension-rbac", () => ({
+  ...REAL_RBAC,
+  hasExtensionScope: (
+    user: { id: string; role: "admin" | "member" },
+    q: { projectId: string | null; extensionId: string | null; scope: string },
+  ) => {
+    rbacCalls.push({ userId: user.id, role: user.role, ...q });
+    return hasScopeImpl(user, q);
+  },
+}));
+
 let auditRows: Array<{ userId: string | null; action: string; target?: string; metadata?: unknown }> =
   [];
 mock.module("../../db/queries/audit-log", () => ({
@@ -217,6 +260,7 @@ afterAll(() => {
   mock.module("../../integrations/github-projects/spawn", () => REAL_SPAWN);
   mock.module("../../db/queries/github-projects", () => REAL_QUERIES);
   mock.module("../../integrations/github-projects/daemon", () => REAL_DAEMON);
+  mock.module("../../auth/extension-rbac", () => REAL_RBAC);
   restoreModuleMocks();
 });
 
@@ -347,6 +391,9 @@ beforeEach(() => {
   queryCalls.length = 0;
   daemonCalls.length = 0;
   pollLinkNowImpl = async () => ({ polled: true });
+  getUserByIdImpl = async (id) => ({ id, role: "member" });
+  hasScopeImpl = async () => true;
+  rbacCalls.length = 0;
   auditRows = [];
   fakeClient = makeClient();
   getConversationImpl = async () => ({ projectId: "proj-1" });
@@ -1288,6 +1335,236 @@ describe("poll-now", () => {
       ctx({ userId: "user-1" }),
     );
     expect("error" in res && res.error?.code).toBe(-32603);
+  });
+});
+
+// ── Extension RBAC (deny-by-default verb matrix) ─────────────────────
+//
+// approve/dismiss/rerun → `approve-runs`; poll-now → `use`; ticket MUTATIONS
+// → the custom scope `write-tickets`; dashboard-data degrades gracefully
+// (empty + permissionDenied) instead of erroring. `list` and pause/resume are
+// NOT gated (spec v1). Ownership guards stay FIRST (opaque), the RBAC denial
+// second (named scope). The resolver itself is core-tested; here we pin the
+// wiring: which scope, at which (project, extension) coordinates, and that a
+// denial short-circuits before any bridge/daemon/client call or audit row.
+describe("extension RBAC — handler verbs", () => {
+  const denyScope = (scope: string) => {
+    hasScopeImpl = async (_u, q) => q.scope !== scope;
+  };
+  const expectScopeDenial = (res: Awaited<ReturnType<typeof handleGithubProjectsRpc>>, scope: string) => {
+    expect("error" in res && res.error?.code).toBe(-32603);
+    expect("error" in res && res.error?.message).toBe(
+      `Missing extension scope '${scope}' for github-projects`,
+    );
+  };
+
+  test.each(["approve", "dismiss", "rerun"] as const)(
+    "%s without 'approve-runs' → denial naming the scope, no bridge call, no audit, no emit",
+    async (verb) => {
+      getProposalByIdImpl = async () => proposal({ status: verb === "rerun" ? "done" : "pending" });
+      denyScope("approve-runs");
+      const res = await handleGithubProjectsRpc(verb, req(V(verb), { proposalId: "prop-1" }), ctx());
+      expectScopeDenial(res, "approve-runs");
+      expect(spawnCalls).toHaveLength(0);
+      expect(auditRows).toHaveLength(0);
+      expect(emitCalls).toHaveLength(0);
+      // Checked at the proposal's OWN (project, extension) coordinates.
+      expect(rbacCalls).toEqual([
+        {
+          userId: "user-1",
+          role: "member",
+          projectId: "proj-1",
+          extensionId: "github-projects",
+          scope: "approve-runs",
+        },
+      ]);
+    },
+  );
+
+  test("the opaque ownership guard runs BEFORE the RBAC check (no scope oracle for foreign proposals)", async () => {
+    getLinkByIdImpl = async () => link({ createdByUserId: "other-user" });
+    denyScope("approve-runs");
+    const res = await handleGithubProjectsRpc(
+      "approve",
+      req(V("approve"), { proposalId: "prop-1" }),
+      ctx({ userId: "user-1" }),
+    );
+    expect("error" in res && res.error?.message).toBe("Proposal not found");
+    expect(rbacCalls).toHaveLength(0);
+  });
+
+  test("approve with 'approve-runs' granted (member) still spawns", async () => {
+    hasScopeImpl = async (_u, q) => q.scope === "approve-runs";
+    const res = await handleGithubProjectsRpc(
+      "approve",
+      req(V("approve"), { proposalId: "prop-1" }),
+      ctx(),
+    );
+    expect("result" in res).toBe(true);
+    expect(spawnCalls[0]?.method).toBe("approve");
+  });
+
+  test("poll-now without 'use' → denial naming the scope, daemon never driven", async () => {
+    getLinkByIdImpl = async () => link({ createdByUserId: "user-1" });
+    denyScope("use");
+    const res = await handleGithubProjectsRpc(
+      "poll-now",
+      req(V("poll-now"), { linkId: "link-1" }),
+      ctx({ userId: "user-1" }),
+    );
+    expectScopeDenial(res, "use");
+    expect(daemonCalls).toHaveLength(0);
+    expect(rbacCalls[0]).toMatchObject({ projectId: "proj-1", extensionId: "github-projects", scope: "use" });
+  });
+
+  test("an unknown acting-user row is fail-closed (denial), without ever consulting grants", async () => {
+    getUserByIdImpl = async () => undefined;
+    const res = await handleGithubProjectsRpc(
+      "poll-now",
+      req(V("poll-now"), { linkId: "link-1" }),
+      ctx({ userId: "user-1" }),
+    );
+    expectScopeDenial(res, "use");
+    expect(rbacCalls).toHaveLength(0);
+    expect(daemonCalls).toHaveLength(0);
+  });
+
+  test.each(["create", "update", "move", "archive", "comment"] as const)(
+    "%s without 'write-tickets' → denial naming the custom scope, no GitHub write, no audit",
+    async (verb) => {
+      let clientDriven = false;
+      fakeClient = makeClient({
+        createIssueOnBoard: async () => {
+          clientDriven = true;
+          return { itemNodeId: "PVTI_new", contentNodeId: null, url: null, title: "New" };
+        },
+        updateItem: async () => {
+          clientDriven = true;
+          return { itemNodeId: "PVTI_item1", contentNodeId: "I", url: null, title: "u" };
+        },
+        setItemStatus: async () => {
+          clientDriven = true;
+        },
+        archiveItem: async () => {
+          clientDriven = true;
+        },
+        addComment: async () => {
+          clientDriven = true;
+        },
+      });
+      denyScope("write-tickets");
+      const res = await handleGithubProjectsRpc(
+        verb,
+        req(V(verb), { title: "t", itemNodeId: "PVTI_item1", statusName: "Done", body: "b" }),
+        ctx(),
+      );
+      expectScopeDenial(res, "write-tickets");
+      expect(clientDriven).toBe(false);
+      expect(auditRows).toHaveLength(0);
+      // Checked at the CONVERSATION-derived project (never from params).
+      expect(rbacCalls).toEqual([
+        {
+          userId: "user-1",
+          role: "member",
+          projectId: "proj-1",
+          extensionId: "github-projects",
+          scope: "write-tickets",
+        },
+      ]);
+    },
+  );
+
+  test("a ticket mutation with NO acting user is fail-closed (-32602), even with a valid conversation", async () => {
+    const res = await handleGithubProjectsRpc(
+      "create",
+      req(V("create"), { title: "t" }),
+      ctx({ userId: null }),
+    );
+    expect("error" in res && res.error?.code).toBe(-32602);
+    expect("error" in res && res.error?.message).toBe("No acting user.");
+    expect(auditRows).toHaveLength(0);
+  });
+
+  test("create WITH 'write-tickets' granted (member) proceeds + audits", async () => {
+    hasScopeImpl = async (_u, q) => q.scope === "write-tickets";
+    const res = await handleGithubProjectsRpc("create", req(V("create"), { title: "ok" }), ctx());
+    expect("result" in res).toBe(true);
+    expect(auditRows.some((r) => r.action.includes("ticket-mutate"))).toBe(true);
+  });
+
+  test("`list` is NOT RBAC-gated (read-only, PDP-gated at the tool call)", async () => {
+    hasScopeImpl = async () => false; // deny EVERYTHING — list must still work
+    const res = await handleGithubProjectsRpc("list", req(V("list")), ctx());
+    expect("result" in res).toBe(true);
+    expect(rbacCalls).toHaveLength(0);
+  });
+
+  test("pause/resume stay owner-gated only (not RBAC-gated in v1)", async () => {
+    hasScopeImpl = async () => false;
+    getLinkByIdImpl = async () => link({ createdByUserId: "user-1" });
+    const res = await handleGithubProjectsRpc(
+      "pause",
+      req(V("pause"), { linkId: "link-1" }),
+      ctx({ userId: "user-1" }),
+    );
+    expect("result" in res).toBe(true);
+    expect(rbacCalls).toHaveLength(0);
+  });
+
+  test("dashboard-data: viewer with boards but NO 'use' anywhere → empty dashboard + permissionDenied (not an error)", async () => {
+    _setLinksByUserForTests(async () => [link()]);
+    hasScopeImpl = async () => false;
+    const res = await handleGithubProjectsRpc("dashboard-data", req(V("dashboard-data")), ctx());
+    expect("result" in res).toBe(true);
+    expect((res as { result: unknown }).result).toEqual({
+      proposals: [],
+      boards: [],
+      permissionDenied: true,
+    });
+  });
+
+  test("dashboard-data: an unknown provenance user is fail-closed to the same graceful shape", async () => {
+    getUserByIdImpl = async () => undefined;
+    const res = await handleGithubProjectsRpc("dashboard-data", req(V("dashboard-data")), ctx());
+    expect((res as { result: unknown }).result).toEqual({
+      proposals: [],
+      boards: [],
+      permissionDenied: true,
+    });
+    expect(rbacCalls).toHaveLength(0);
+  });
+
+  test("dashboard-data: per-board `use` filter — a project-scoped grant never leaks the OTHER project's board in", async () => {
+    _setLinksByUserForTests(async () => [
+      link({ id: "link-A", projectId: "proj-A", boardTitle: "Board A" }),
+      link({ id: "link-B", projectId: "proj-B", boardTitle: "Board B" }),
+    ]);
+    hasScopeImpl = async (_u, q) => q.projectId === "proj-A"; // use granted on proj-A only
+    listProposalsByProjectImpl = async (p) =>
+      p === "proj-A" ? [proposal({ id: "prop-A", linkId: "link-A", projectId: "proj-A" })] : [proposal({ id: "prop-B", linkId: "link-B", projectId: "proj-B" })];
+    const res = await handleGithubProjectsRpc("dashboard-data", req(V("dashboard-data")), ctx());
+    const data = (
+      res as { result: { boards: { linkId: string }[]; proposals: { id: string }[]; permissionDenied?: boolean } }
+    ).result;
+    expect(data.boards.map((b) => b.linkId)).toEqual(["link-A"]);
+    expect(data.proposals.map((p) => p.id)).toEqual(["prop-A"]);
+    // Partial visibility is NOT flagged — only an all-denied dashboard is.
+    expect(data.permissionDenied).toBeUndefined();
+    // One `use` check per board, at each board's own project coordinate.
+    expect(rbacCalls.map((c) => [c.projectId, c.scope])).toEqual([
+      ["proj-A", "use"],
+      ["proj-B", "use"],
+    ]);
+  });
+
+  test("dashboard-data: a viewer with ZERO boards keeps the plain empty dashboard (no flag — nothing withheld)", async () => {
+    _setLinksByUserForTests(async () => []);
+    hasScopeImpl = async () => false;
+    const res = await handleGithubProjectsRpc("dashboard-data", req(V("dashboard-data")), ctx());
+    const data = (res as { result: { boards: unknown[]; proposals: unknown[]; permissionDenied?: boolean } }).result;
+    expect(data.boards).toEqual([]);
+    expect(data.proposals).toEqual([]);
+    expect(data.permissionDenied).toBeUndefined();
   });
 });
 

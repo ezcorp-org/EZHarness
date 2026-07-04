@@ -60,6 +60,9 @@ const { handleGithubProjectsRpc, _setLinksByUserForTests } = await import(
 );
 const { GITHUB_PROJECTS_RPC_PREFIX } = await import("../../integrations/github-projects/types");
 const { upsertLink } = await import("../../db/queries/github-projects");
+// Deny-by-default extension RBAC: the member viewer needs a real `use` grant
+// or dashboard-data returns the empty permissionDenied shape instead of rows.
+const { upsertGrant } = await import("../../db/queries/extension-rbac");
 
 afterAll(() => {
   mock.module("../../integrations/github-projects/client", () => REAL_CLIENT);
@@ -94,6 +97,15 @@ describe("dashboard-data — default links-by-user impl (real DB)", () => {
       role: "member",
     });
     await db.insert(schema.projects).values({ id: projectId, name: "P", path: "/tmp/p" });
+    // Deny-by-default RBAC: grant the member viewer `use` (all projects /
+    // all extensions — NULL coordinates need no extensions-table FK parent).
+    await upsertGrant({
+      userId,
+      projectId: null,
+      extensionId: null,
+      scopes: ["use"],
+      grantedByUserId: null,
+    });
 
     // Seed the link via the REAL upsertLink query, with createdByUserId = ctx user.
     const link = await upsertLink({

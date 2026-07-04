@@ -5,11 +5,12 @@
  * `active` (pending/approved/spawned/running) and `history` (terminal) so the
  * caller can render the two sections without re-deriving the lifecycle bands.
  *
- * Authed: `extensions` scope + session/key user.
+ * Authed: `extensions` scope + session/key user. RBAC: `use` — checked after
+ * the opaque project resolution.
  */
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
-import { authGithubRoute, resolveProject, publicProposalView } from "../_shared";
+import { authGithubRoute, resolveProject, requireGithubScope, publicProposalView } from "../_shared";
 import { listProposalsByProject } from "$server/db/queries/github-projects";
 import {
   GITHUB_ACTIVE_STATUSES,
@@ -23,6 +24,10 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   const projectRes = await resolveProject(url.searchParams.get("projectId"));
   if ("error" in projectRes) return projectRes.error;
   const { projectId } = projectRes;
+
+  // RBAC: reading a project's proposals is a `use` action.
+  const denied = await requireGithubScope(locals, projectId, "use");
+  if (denied) return denied;
 
   const filter = url.searchParams.get("status");
   if (filter === "active") {

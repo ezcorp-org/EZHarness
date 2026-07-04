@@ -72,6 +72,9 @@ mock.module("$lib/server/security/api-keys", () => ({
   requireScope: () => null, // cookie-style: allow
 }));
 mock.module("$server/auth/middleware", () => require("../../../auth/middleware"));
+// REAL extension-RBAC resolver + grants queries (DB-backed) — this is the
+// integration proof of the deny-by-default enforcement on the routes.
+mock.module("$server/auth/extension-rbac", () => require("../../../auth/extension-rbac"));
 mock.module("$server/db/queries/projects", () => require("../../../db/queries/projects"));
 mock.module("$server/db/queries/github-projects", () => require("../../../db/queries/github-projects"));
 mock.module("$server/extensions/secrets-store", () => require("../../../extensions/secrets-store"));
@@ -85,6 +88,8 @@ mock.module("$server/logger", () => require("../../../logger"));
 // Real query modules + helpers (DB-backed via mockDbConnection).
 const { createProject } = await import("../../../db/queries/projects");
 const { createUser } = await import("../../../db/queries/users");
+// REAL RBAC grant rows — deny-by-default means the acting member needs them.
+const { upsertGrant, getGrant, deleteGrant } = await import("../../../db/queries/extension-rbac");
 // The host-only secrets store: read the stored PAT plaintext for assertions.
 const { getSecret, setSecret, deleteSecret } = await import("../../../extensions/secrets-store");
 const { boardTokenName, resolveLinkAuth } = await import("../auth");
@@ -119,7 +124,7 @@ afterAll(async () => {
 
 const USER = { id: "user-1", email: "u@test.local", name: "U", role: "member" as const };
 
-function ev(method: string, opts: { body?: unknown; url?: string } = {}) {
+function ev(method: string, opts: { body?: unknown; url?: string; user?: typeof USER } = {}) {
   const url = new URL(opts.url ?? "http://localhost/api/integrations/github-projects/link");
   const init: RequestInit = { method, headers: { "Content-Type": "application/json" } };
   if (opts.body !== undefined && method !== "GET") init.body = JSON.stringify(opts.body);
@@ -127,7 +132,7 @@ function ev(method: string, opts: { body?: unknown; url?: string } = {}) {
     request: new Request(url.toString(), init),
     url,
     params: {},
-    locals: { user: USER },
+    locals: { user: opts.user ?? USER },
   } as any;
 }
 
@@ -157,6 +162,17 @@ beforeEach(async () => {
       kind: "subprocess",
       entrypoint: { command: ["true"] },
     })}::jsonb`,
+  });
+  // Deny-by-default RBAC: give the acting MEMBER an extension-scoped,
+  // NULL-project grant (github-projects across ALL projects) covering every
+  // scope the lifecycle tests exercise. Seeded AFTER the extensions row —
+  // `extension_rbac_grants.extension_id` FKs `extensions.name`.
+  await upsertGrant({
+    userId: USER.id,
+    projectId: null,
+    extensionId: GH_EXT,
+    scopes: ["use", "configure", "secrets", "approve-runs"],
+    grantedByUserId: null,
   });
   const proj = await createProject({ name: "Integ Project", path: "/tmp/integ" });
   projectId = proj.id;
@@ -596,5 +612,136 @@ describe("github-projects multi-board lifecycle (real DB)", () => {
     await linkDelete(ev("DELETE", { body: { projectId, linkId: linkA.id } }));
     expect(await getSecret(GH_EXT, projectId, "apiToken")).toBeNull();
     expect(await listLinksByProjectId(projectId)).toHaveLength(0);
+  });
+});
+
+describe("github-projects extension RBAC (real resolver + real grant rows)", () => {
+  /** A second MEMBER with NO grants (deny-by-default target). */
+  async function seedMember(id = crypto.randomUUID()) {
+    const user = { id, email: `m${id.slice(0, 8)}@test.local`, name: "M", role: "member" as const };
+    await createUser({ id: user.id, email: user.email, passwordHash: "x", name: user.name, role: user.role });
+    return user;
+  }
+
+  async function expect403Naming(res: Response, scope: string) {
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe(`Missing extension scope '${scope}' for github-projects`);
+  }
+
+  test("member with NO grant: 403 per verb naming the scope; grant → 200; revoke → 403 again", async () => {
+    const member = await seedMember();
+
+    // No grant → every surface denies, each naming ITS scope.
+    await expect403Naming(
+      await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}`, user: member })),
+      "use",
+    );
+    await expect403Naming(
+      await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "gh" }, user: member })),
+      "configure",
+    );
+    expect(await getLinkByProjectId(projectId)).toBeNull(); // nothing persisted
+
+    // Grant use+configure PROJECT-scoped → both flip to 200.
+    await upsertGrant({
+      userId: member.id,
+      projectId,
+      extensionId: GH_EXT,
+      scopes: ["use", "configure"],
+      grantedByUserId: USER.id,
+    });
+    expect(
+      (await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}`, user: member }))).status,
+    ).toBe(200);
+    expect(
+      (await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "gh" }, user: member }))).status,
+    ).toBe(200);
+
+    // Revoke (delete the row) → deny-by-default returns.
+    const row = await getGrant(member.id, projectId, GH_EXT);
+    expect(row).toBeDefined();
+    expect(await deleteGrant(row!.id)).toBe(true);
+    await expect403Naming(
+      await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}`, user: member })),
+      "use",
+    );
+  });
+
+  test("connect that WRITES a token needs `secrets` on top of `configure` — and stores nothing until granted", async () => {
+    const member = await seedMember();
+    await upsertGrant({
+      userId: member.id,
+      projectId,
+      extensionId: GH_EXT,
+      scopes: ["use", "configure"],
+      grantedByUserId: USER.id,
+    });
+    const denied = await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "ghp_member" }, user: member }),
+    );
+    await expect403Naming(denied, "secrets");
+    expect(await getSecret(GH_EXT, projectId, "apiToken")).toBeNull();
+    expect(await getLinkByProjectId(projectId)).toBeNull();
+
+    await upsertGrant({
+      userId: member.id,
+      projectId,
+      extensionId: GH_EXT,
+      scopes: ["use", "configure", "secrets"],
+      grantedByUserId: USER.id,
+    });
+    const ok = await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "ghp_member" }, user: member }),
+    );
+    expect(ok.status).toBe(200);
+    expect(await getSecret(GH_EXT, projectId, "apiToken")).toBe("ghp_member");
+  });
+
+  test("a PROJECT-scoped grant does NOT leak to another project; a NULL-project grant covers them all", async () => {
+    const member = await seedMember();
+    const projB = await createProject({ name: "Other Project", path: "/tmp/other" });
+    await upsertGrant({
+      userId: member.id,
+      projectId, // project A only
+      extensionId: GH_EXT,
+      scopes: ["use"],
+      grantedByUserId: USER.id,
+    });
+    expect(
+      (await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}`, user: member }))).status,
+    ).toBe(200);
+    await expect403Naming(
+      await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projB.id}`, user: member })),
+      "use",
+    );
+
+    // The seeded USER holds an extension-scoped NULL-project grant — it
+    // covers BOTH projects (NULL-covers-all on the project axis).
+    expect(
+      (await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}` }))).status,
+    ).toBe(200);
+    expect(
+      (await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projB.id}` }))).status,
+    ).toBe(200);
+  });
+
+  test("an ADMIN with no grant rows passes (implicit all scopes); opaque 404 ordering survives denial", async () => {
+    const adminId = crypto.randomUUID();
+    const admin = { id: adminId, email: `a${adminId.slice(0, 8)}@test.local`, name: "A", role: "admin" as const };
+    await createUser({ id: admin.id, email: admin.email, passwordHash: "x", name: admin.name, role: admin.role });
+    expect(
+      (await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}`, user: admin }))).status,
+    ).toBe(200);
+    expect(
+      (await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "t" }, user: admin }))).status,
+    ).toBe(200);
+
+    // A NO-grant member probing a nonexistent link still sees the opaque 404
+    // (resolution first), never a 403 confirming/denying anything.
+    const member = await seedMember();
+    const res = await linkPatch(
+      ev("PATCH", { body: { projectId, linkId: "does-not-exist", enabled: false }, user: member }),
+    );
+    expect(res.status).toBe(404);
   });
 });

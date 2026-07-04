@@ -15,6 +15,8 @@
  * The credential is resolved host-side (the board's per-board PAT override, else
  * the shared project PAT, else the `gh` CLI identity) — it is NEVER accepted
  * from or echoed to the client. Authed: `extensions` scope + session/key user.
+ * RBAC: `configure` — checked after the opaque project/link resolution and
+ * before the host-side credential is touched.
  */
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
@@ -23,6 +25,7 @@ import {
   authGithubRoute,
   resolveProject,
   resolveLinkForProject,
+  requireGithubScope,
   publicLinkView,
 } from "../../_shared";
 import { createGithubClient } from "$server/integrations/github-projects/client";
@@ -55,6 +58,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   );
   if ("error" in linkRes) return linkRes.error;
   const { link } = linkRes;
+
+  // RBAC (after the opaque project/link 404s, before the host credential is
+  // resolved): refreshing a board's columns is a `configure` action.
+  const denied = await requireGithubScope(locals, projectRes.projectId, "configure");
+  if (denied) return denied;
 
   // Resolve the host-only credential (per-board override / shared PAT / `gh`).
   // A missing/empty credential is a 401 — the board can't be re-read.

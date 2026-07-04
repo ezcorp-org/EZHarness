@@ -21,12 +21,14 @@
  * The plaintext token is NEVER echoed back; the response carries only the
  * resolved board metadata + granted scopes + the new linkId.
  *
- * Authed: `extensions` scope + session/key user.
+ * Authed: `extensions` scope + session/key user. RBAC: `configure` (always),
+ * plus `secrets` when the body carries a token to be written — checked after
+ * project resolution (opaque 404 first) and before any secret read or egress.
  */
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { errorJson } from "$lib/server/http-errors";
-import { authGithubRoute, resolveProject, parseDefaultModelInput, parsePermissionModeInput, parseTokenScope } from "../_shared";
+import { authGithubRoute, resolveProject, requireGithubScope, parseDefaultModelInput, parsePermissionModeInput, parseTokenScope } from "../_shared";
 import { createGithubClient } from "$server/integrations/github-projects/client";
 import type {
   GithubAuth,
@@ -88,6 +90,16 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   );
   if ("error" in projectRes) return projectRes.error;
   const { projectId } = projectRes;
+
+  // RBAC (after the opaque project 404, before any secret read or egress):
+  // connecting/re-connecting a board is a `configure` action; WRITING a token
+  // (the body carries one) additionally requires `secrets`.
+  const configureDenied = await requireGithubScope(locals, projectId, "configure");
+  if (configureDenied) return configureDenied;
+  if (providedToken !== "") {
+    const secretsDenied = await requireGithubScope(locals, projectId, "secrets");
+    if (secretsDenied) return secretsDenied;
+  }
 
   // The effective VALIDATION token for pat mode: the provided token, else the
   // existing shared project token (so a 2nd board connects without re-pasting).
