@@ -69,6 +69,19 @@ export function buildFailedComment(
 }
 
 /**
+ * Build the interrupted-run comment body posted by boot reconciliation when a
+ * server restart orphaned this proposal's run (the lifecycle subscription was
+ * in-memory, so no terminal write-back ever fired). The user decides how to
+ * proceed: Re-run from the Hub, or continue the linked chat by hand.
+ */
+export function buildInterruptedComment(_proposal: GithubProjectsProposal): string {
+  return (
+    "⚠️ This run was interrupted by a server restart. " +
+    "Use **Re-run** on the EZCorp Hub to start a fresh run, or open the linked chat to continue."
+  );
+}
+
+/**
  * Extract the first GitHub pull-request URL from arbitrary text.
  * Handles null/undefined input (returns null).
  * Pattern: https://github.com/<owner>/<repo>/pull/<n>

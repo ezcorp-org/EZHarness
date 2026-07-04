@@ -93,6 +93,11 @@ let githubDaemonCtorMock = mock(() => {});
 let githubDaemonStartMock = mock<() => boolean>(() => true);
 let githubDaemonStopMock = mock(() => {});
 let lastGithubDaemonInstance: object | undefined;
+// Boot reconciliation sweep (module-level export of the daemon module). The
+// bootstrap awaits it BEFORE githubProjectsDaemon.start(); the delegating
+// handle lets tests assert the ordering and drive the rejection path
+// (a sweep failure must never prevent the daemon start).
+let githubReconcileMock = mock(() => Promise.resolve<number>(0));
 // The stub module's lazy singleton (mirrors the real module's
 // getGithubProjectsDaemon). Module-level (NOT factory-closure) state so it
 // survives Bun's mock.module materialization freeze the same way the other
@@ -325,6 +330,11 @@ function installModuleMocks(): void {
         if (!githubDaemonStubSingleton) githubDaemonStubSingleton = new GithubProjectsDaemonStub();
         return githubDaemonStubSingleton;
       },
+      // Boot reconciliation sweep — delegates so tests can assert call order
+      // vs start() and drive the rejection path. Part of the SAME factory
+      // (extend, never re-mock: Bun freezes the module shape at first
+      // materialization).
+      reconcileOrphanedProposals: () => githubReconcileMock(),
       _resetGithubProjectsDaemonForTests: () => {
         githubDaemonStubSingleton = null;
       },
@@ -439,6 +449,7 @@ beforeEach(async () => {
   githubDaemonCtorMock = mock(() => {});
   githubDaemonStartMock = mock<() => boolean>(() => true);
   githubDaemonStopMock = mock(() => {});
+  githubReconcileMock = mock(() => Promise.resolve<number>(0));
   lastGithubDaemonInstance = undefined;
   githubDaemonStubSingleton = null;
   previewWatcherCtorMock = mock((_opts?: unknown) => {});
@@ -994,6 +1005,56 @@ describe("startBackgroundTimers — GithubProjectsDaemon bootstrap", () => {
     expect(mod._getGithubProjectsDaemonForTests()).toBe(daemonMod.getGithubProjectsDaemon() as never);
     // The lazy singleton constructed exactly once for both paths.
     expect(githubDaemonCtorMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("boot reconciliation sweep runs exactly once, BEFORE the daemon start", async () => {
+    // Orphaned-proposal reconciliation must precede the poll loop arming so a
+    // freed card's re-trigger is observed against post-sweep state. Capture
+    // the relative order via shared markers on the two delegating handles.
+    const order: string[] = [];
+    githubReconcileMock = mock(() => {
+      order.push("reconcile");
+      return Promise.resolve<number>(0);
+    });
+    githubDaemonStartMock = mock<() => boolean>(() => {
+      order.push("start");
+      return true;
+    });
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(githubReconcileMock).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(["reconcile", "start"]);
+    // The sweep registers NO setInterval — count unchanged at 4.
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("sweep rejection does NOT prevent the daemon start (warn logged, boot continues)", async () => {
+    const sweepErr = new Error("simulated reconcile failure");
+    githubReconcileMock = mock(() => Promise.reject(sweepErr));
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    // MUST resolve — the inline .catch swallows the sweep rejection.
+    await mod.startBackgroundTimers();
+
+    // The daemon still started and its handle is exposed.
+    expect(githubDaemonStartMock).toHaveBeenCalledTimes(1);
+    expect(mod._getGithubProjectsDaemonForTests()).toBeDefined();
+    expect(mod._getGithubProjectsDaemonForTests()).toBe(lastGithubDaemonInstance as never);
+    expect(loggerInfoMock).toHaveBeenCalledWith("GithubProjectsDaemon started", undefined);
+    // The sweep failure is surfaced as a warn (not the daemon-start warn).
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      "github-projects boot reconciliation failed",
+      { error: String(sweepErr) },
+    );
+    expect(loggerWarnMock).not.toHaveBeenCalledWith(
+      "Failed to start GithubProjectsDaemon",
+      expect.any(Object) as never,
+    );
+    expect(intervalCalls).toHaveLength(4);
   });
 
   test("start() returning false (kill-switch): handle is dropped, boot continues", async () => {

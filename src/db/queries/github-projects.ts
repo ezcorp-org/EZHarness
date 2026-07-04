@@ -341,6 +341,29 @@ export async function getProposalByConversationId(
 }
 
 /**
+ * Boot reconciliation: flip every proposal a PREVIOUS process left mid-flight
+ * (`spawned`/`running`) to `failed` in ONE atomic UPDATE … RETURNING *.
+ * Run-lifecycle subscriptions are in-memory (spawn.ts's subscribeRunLifecycle),
+ * so after a restart no writer will ever move these rows to a terminal
+ * status — the executor-watchdog `interruptAllRuns` doctrine applied to the
+ * proposals queue. `pending`/`approved` rows are untouched (no run attached
+ * yet); terminal rows are already settled. Returns exactly the flipped rows so
+ * the caller can post best-effort ticket write-backs.
+ */
+export async function failInterruptedProposals(): Promise<GithubProjectsProposal[]> {
+  const db = getDb();
+  return (await db
+    .update(githubProjectsProposals)
+    .set({
+      status: "failed",
+      error: "Interrupted by restart",
+      finishedAt: new Date(),
+    })
+    .where(inArray(githubProjectsProposals.status, ["spawned", "running"]))
+    .returning()) as GithubProjectsProposal[];
+}
+
+/**
  * Disconnect lifecycle: mark every still-active proposal of a link as
  * `cancelled` so the Hub history is accurate and no orphaned run is "running".
  */

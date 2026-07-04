@@ -35,10 +35,13 @@ import {
   listEnabledLinks,
   insertProposalIfNew,
   updateLinkPollState,
+  failInterruptedProposals,
+  getLinkById,
 } from "../../db/queries/github-projects";
 import { resolveLinkAuth } from "./auth";
 import { getGithubProjectsEmit } from "./bus-registry";
 import { createGithubClient } from "./client";
+import { buildInterruptedComment, postTicketComment } from "./progress";
 import { approveProposal as defaultApproveProposal, type ProposalActor } from "./spawn";
 import {
   GithubAuthError,
@@ -51,7 +54,7 @@ import {
   type GithubClient,
   type GithubColumnAction,
 } from "./types";
-import type { GithubProjectsLink } from "../../db/schema";
+import type { GithubProjectsLink, GithubProjectsProposal } from "../../db/schema";
 
 const log = extensionLogger("github-projects", "daemon");
 
@@ -443,6 +446,91 @@ export class GithubProjectsDaemon {
       lastErrorAt: new Date(nowMs),
     });
   }
+}
+
+// ── Boot reconciliation of orphaned proposals ───────────────────────────────
+
+/** Injectable seams for `reconcileOrphanedProposals` (tests: no network). */
+export interface ReconcileOrphansDeps {
+  /**
+   * Ticket write-back. Default: the best-effort `postTicketComment`, which
+   * never throws and skips draft cards without a linked ticket itself.
+   */
+  postComment?: (
+    link: GithubProjectsLink,
+    proposal: GithubProjectsProposal,
+    body: string,
+  ) => Promise<boolean>;
+}
+
+/**
+ * Boot reconciliation of orphaned proposals. Run-lifecycle subscriptions are
+ * IN-MEMORY (spawn.ts's subscribeRunLifecycle) — after a restart no subscriber
+ * is left to move a `spawned`/`running` proposal to a terminal status, so
+ * every such row is definitionally orphaned. This is the same doctrine as
+ * executor-watchdog's `interruptAllRuns` (a fresh process owns zero in-memory
+ * runs ⇒ any row still mid-flight belongs to a dead process), applied to the
+ * proposals queue. One atomic UPDATE flips them all to `failed`
+ * ("Interrupted by restart"); the user then decides per ticket — Re-run from
+ * the EZCorp Hub for a fresh run, or continue in the linked chat.
+ *
+ * NEVER throws — a reconciliation pathology must not block boot. Per-row
+ * ticket write-backs are best-effort: `postTicketComment` swallows its own
+ * failures and skips rows without ticket linkage (null `contentNodeId`)
+ * exactly like the terminal write-back in spawn.ts; a row whose link is gone
+ * (board disconnected) is skipped too, and any per-row throw is swallowed so
+ * one bad row never starves the rest of the sweep.
+ *
+ * Returns the number of proposals flipped.
+ */
+export async function reconcileOrphanedProposals(
+  deps: ReconcileOrphansDeps = {},
+): Promise<number> {
+  let orphans: GithubProjectsProposal[];
+  try {
+    orphans = await failInterruptedProposals();
+  } catch (err) {
+    log.warn("github-projects orphan reconciliation failed (swallowed)", {
+      error: String(err),
+    });
+    return 0;
+  }
+  if (orphans.length === 0) return 0;
+  const postComment = deps.postComment ?? postTicketComment;
+  let commented = 0;
+  for (const proposal of orphans) {
+    try {
+      const link = await getLinkById(proposal.linkId);
+      if (!link) {
+        // Board disconnected since the spawn — the status flip already
+        // landed; there is simply nowhere left to write back to.
+        log.debug("github-projects orphan write-back skipped (link gone)", {
+          proposalId: proposal.id,
+        });
+        continue;
+      }
+      const posted = await postComment(link, proposal, buildInterruptedComment(proposal));
+      if (posted) commented += 1;
+      log.debug("github-projects orphaned proposal reconciled", {
+        proposalId: proposal.id,
+        linkId: proposal.linkId,
+        agentRunId: proposal.agentRunId,
+        commented: posted,
+      });
+    } catch (err) {
+      log.warn("github-projects orphan write-back failed (swallowed)", {
+        proposalId: proposal.id,
+        error: String(err),
+      });
+    }
+  }
+  // Once-per-boot summary — default-visible, but only when something was
+  // actually reconciled (a clean boot stays quiet).
+  log.info(`reconciled ${orphans.length} orphaned proposals`, {
+    count: orphans.length,
+    commented,
+  });
+  return orphans.length;
 }
 
 let singleton: GithubProjectsDaemon | null = null;

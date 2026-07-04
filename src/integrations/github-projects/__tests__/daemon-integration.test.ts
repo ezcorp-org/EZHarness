@@ -9,7 +9,7 @@
  * free the card for re-triggers) + the autoSpawn status transitions with the
  * actual ON CONFLICT semantics — not a mock's stand-in.
  */
-import { test, expect, describe, beforeAll, afterAll, beforeEach } from "bun:test";
+import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
 import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "../../../__tests__/helpers/test-pglite";
 import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
 
@@ -17,7 +17,7 @@ import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
 // touches it (the query layer the daemon + queries use).
 mockDbConnection();
 
-const { GithubProjectsDaemon } = await import("../daemon");
+const { GithubProjectsDaemon, reconcileOrphanedProposals } = await import("../daemon");
 const {
   listProposalsByProject,
   getProposalById,
@@ -208,6 +208,62 @@ describe("GithubProjectsDaemon — integration (real PGlite)", () => {
     expect(final!.agentRunId).toBe("run-int");
     expect(final!.conversationId).toBe("conv-int");
     expect(final!.finishedAt).toBeInstanceOf(Date);
+  });
+
+  test("boot reconciliation: spawned+running flip to failed with ticket comments; pending intact", async () => {
+    const link = await insertLink();
+    const db = getTestDb();
+    // Simulate the pre-restart state directly: three cards, one proposal each.
+    const seed = async (id: string, itemNodeId: string, status: string, agentRunId: string | null) => {
+      await db.insert(githubProjectsProposals).values({
+        id,
+        projectId: "proj-int",
+        linkId: link.id,
+        itemNodeId,
+        contentNodeId: `content-${itemNodeId}`,
+        statusOptionId: "opt-doing",
+        statusName: "Doing",
+        action: "plan",
+        title: `Ticket ${itemNodeId}`,
+        ticketUrl: `https://github.com/x/${itemNodeId}`,
+        dedupeKey: `proj-int:${itemNodeId}:opt-doing:plan`,
+        status,
+        agentRunId,
+      } as never);
+    };
+    await seed("prop-spawned", "item-S", "spawned", "run-S");
+    await seed("prop-running", "item-R", "running", "run-R");
+    await seed("prop-pending", "item-P", "pending", null);
+
+    // The "restart": lifecycle subscriptions are gone; reconcile sweeps.
+    const bodies: string[] = [];
+    const postComment = mock((_l: unknown, _p: unknown, body: string) => {
+      bodies.push(body);
+      return Promise.resolve(true);
+    });
+    const n = await reconcileOrphanedProposals({ postComment: postComment as never });
+
+    expect(n).toBe(2);
+    for (const id of ["prop-spawned", "prop-running"]) {
+      const row = await getProposalById(id);
+      expect(row?.status).toBe("failed");
+      expect(row?.error).toBe("Interrupted by restart");
+      expect(row?.finishedAt).toBeInstanceOf(Date);
+    }
+    // Pending survives the restart untouched — it holds no run.
+    const pending = await getProposalById("prop-pending");
+    expect(pending?.status).toBe("pending");
+    expect(pending?.error).toBeNull();
+    expect(pending?.finishedAt).toBeNull();
+    // One interrupted comment per orphaned row, none for the pending one.
+    expect(postComment).toHaveBeenCalledTimes(2);
+    for (const body of bodies) {
+      expect(body).toContain("interrupted by a server restart");
+      expect(body).toContain("Re-run");
+    }
+    // The freed cards are re-triggerable: a second sweep finds nothing left.
+    expect(await reconcileOrphanedProposals({ postComment: postComment as never })).toBe(0);
+    expect(postComment).toHaveBeenCalledTimes(2);
   });
 
   test("the persisted poll cursor + lastPolledAt advance after a clean sweep", async () => {

@@ -36,6 +36,7 @@ import {
   claimProposal,
   getProposalByRunId,
   cancelActiveProposalsForLink,
+  failInterruptedProposals,
 } from "../../../db/queries/github-projects";
 import { githubProposalDedupeKey, GITHUB_ACTIVE_STATUSES } from "../types";
 
@@ -461,6 +462,72 @@ describe("github-projects queries", () => {
     expect(n).toBe(1);
     expect((await getProposalById(active!.id))?.status).toBe("cancelled");
     expect((await getProposalById(done!.id))?.status).toBe("done");
+  });
+
+  test("failInterruptedProposals: FULL status matrix — only spawned+running flip (error + finishedAt), and exactly those rows return", async () => {
+    const projectId = await seedProject();
+    const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
+
+    // One proposal per lifecycle status (distinct cards so the partial unique
+    // index never conflicts). pending stays as-inserted; the rest are moved
+    // via updateProposal.
+    const statuses = [
+      "pending",
+      "approved",
+      "spawned",
+      "running",
+      "done",
+      "failed",
+      "dismissed",
+      "cancelled",
+    ] as const;
+    const byStatus = new Map<(typeof statuses)[number], string>();
+    for (const status of statuses) {
+      const row = await insertProposalIfNew(
+        proposalInput(projectId, link.id, `card-${status}`, "opt", "plan"),
+      );
+      expect(row).not.toBeNull();
+      if (status !== "pending") await updateProposal(row!.id, { status });
+      byStatus.set(status, row!.id);
+    }
+
+    const flipped = await failInterruptedProposals();
+
+    // Returns EXACTLY the spawned + running rows — nothing else.
+    expect(flipped.map((r) => r.id).sort()).toEqual(
+      [byStatus.get("spawned")!, byStatus.get("running")!].sort(),
+    );
+    for (const row of flipped) {
+      expect(row.status).toBe("failed");
+      expect(row.error).toBe("Interrupted by restart");
+      expect(row.finishedAt).toBeInstanceOf(Date);
+    }
+    // Durable: a fresh read agrees with the RETURNING payload.
+    for (const orphaned of ["spawned", "running"] as const) {
+      const reread = await getProposalById(byStatus.get(orphaned)!);
+      expect(reread?.status).toBe("failed");
+      expect(reread?.error).toBe("Interrupted by restart");
+      expect(reread?.finishedAt).toBeInstanceOf(Date);
+    }
+    // pending/approved (no run attached) + every terminal status: untouched —
+    // status unchanged AND no error/finishedAt stamped (the pre-existing
+    // `failed` row proves the WHERE excluded it: its error stays null).
+    for (const untouched of ["pending", "approved", "done", "failed", "dismissed", "cancelled"] as const) {
+      const reread = await getProposalById(byStatus.get(untouched)!);
+      expect(reread?.status).toBe(untouched);
+      expect(reread?.error).toBeNull();
+      expect(reread?.finishedAt).toBeNull();
+    }
+  });
+
+  test("failInterruptedProposals: no mid-flight rows (empty table) → []", async () => {
+    expect(await failInterruptedProposals()).toEqual([]);
+    // A pending-only table is equally a no-op.
+    const projectId = await seedProject();
+    const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
+    const pending = await insertProposalIfNew(proposalInput(projectId, link.id, "i1", "opt", "plan"));
+    expect(await failInterruptedProposals()).toEqual([]);
+    expect((await getProposalById(pending!.id))?.status).toBe("pending");
   });
 });
 

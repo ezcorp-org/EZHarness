@@ -16,8 +16,10 @@ afterAll(() => restoreModuleMocks());
 
 let listEnabledLinksMock = mock(() => Promise.resolve<unknown[]>([]));
 let getLinkByProjectIdMock = mock((_projectId: string) => Promise.resolve<unknown>(null));
+let getLinkByIdMock = mock((_linkId: string) => Promise.resolve<unknown>(null));
 let insertProposalIfNewMock = mock((_input: unknown) => Promise.resolve<unknown>(null));
 let updateLinkPollStateMock = mock((_id: string, _state: unknown) => Promise.resolve());
+let failInterruptedProposalsMock = mock(() => Promise.resolve<unknown[]>([]));
 let getSecretMock = mock(
   (_extensionId: string, _projectId: string | null, _name: string) =>
     Promise.resolve<string | null>(null),
@@ -46,9 +48,10 @@ function installMocks(): void {
     updateLinkPollState: (id: string, state: unknown) => updateLinkPollStateMock(id, state),
     getProposalById: () => Promise.resolve(null),
     getProposalByRunId: () => Promise.resolve(null),
-    getLinkById: () => Promise.resolve(null),
+    getLinkById: (linkId: string) => getLinkByIdMock(linkId),
     countActiveProposalsForProject: () => Promise.resolve(0),
     updateProposal: () => Promise.resolve(null),
+    failInterruptedProposals: (...a: unknown[]) => failInterruptedProposalsMock(...(a as [])),
   }));
   mock.module("../../../extensions/secrets-store", () => ({
     getSecret: (extensionId: string, projectId: string | null, name: string) =>
@@ -65,8 +68,12 @@ function installMocks(): void {
 
 // Imported AFTER the mocks are installed at module level.
 installMocks();
-const { GithubProjectsDaemon, getGithubProjectsDaemon, _resetGithubProjectsDaemonForTests } =
-  await import("../daemon");
+const {
+  GithubProjectsDaemon,
+  getGithubProjectsDaemon,
+  reconcileOrphanedProposals,
+  _resetGithubProjectsDaemonForTests,
+} = await import("../daemon");
 const {
   GithubAuthError,
   GithubNotFoundError,
@@ -120,6 +127,32 @@ function makeItem(over: Partial<{
   };
 }
 
+/** A flipped orphan row as `failInterruptedProposals` RETURNING * yields it. */
+function makeOrphan(over: Partial<{
+  id: string; linkId: string; itemNodeId: string; contentNodeId: string | null;
+  agentRunId: string | null;
+}> = {}) {
+  return {
+    id: "prop-orphan-1",
+    projectId: "proj-1",
+    linkId: "link-1",
+    itemNodeId: "item-1",
+    contentNodeId: "content-1",
+    statusOptionId: "opt-doing",
+    statusName: "Doing",
+    action: "plan" as const,
+    title: "Orphaned ticket",
+    ticketUrl: "https://github.com/x/1",
+    dedupeKey: "dk-orphan",
+    status: "failed" as const,
+    conversationId: null,
+    agentRunId: "run-orphan",
+    error: "Interrupted by restart",
+    finishedAt: new Date(),
+    ...over,
+  };
+}
+
 /** A minimal injected client whose fetchBoardItems is a spy. */
 function makeClient(page: { items: unknown[]; cursor: Record<string, string> } | (() => never)) {
   const fetchBoardItems = mock((_board: string, _auth: unknown, _cursor: unknown) =>
@@ -131,8 +164,10 @@ function makeClient(page: { items: unknown[]; cursor: Record<string, string> } |
 beforeEach(() => {
   listEnabledLinksMock = mock(() => Promise.resolve<unknown[]>([]));
   getLinkByProjectIdMock = mock((_projectId: string) => Promise.resolve<unknown>(null));
+  getLinkByIdMock = mock((_linkId: string) => Promise.resolve<unknown>(null));
   insertProposalIfNewMock = mock((_input: unknown) => Promise.resolve<unknown>(null));
   updateLinkPollStateMock = mock((_id: string, _state: unknown) => Promise.resolve());
+  failInterruptedProposalsMock = mock(() => Promise.resolve<unknown[]>([]));
   getSecretMock = mock(
     (_extensionId: string, _projectId: string | null, _name: string) =>
       Promise.resolve<string | null>("ghp_token"),
@@ -277,6 +312,53 @@ describe("GithubProjectsDaemon — observability", () => {
     const armed = logLines().find((l) => l.msg === "github-projects daemon wake loop armed");
     expect(armed).toMatchObject({ wakeMs: 10_000 });
     d.stop();
+  });
+
+  test("reconcile: the INFO summary fires ONLY when orphans were flipped (clean boot stays quiet)", async () => {
+    // Clean boot: no orphans → no summary line at all.
+    await reconcileOrphanedProposals({
+      postComment: (() => Promise.resolve(true)) as never,
+    });
+    expect(
+      logLines().find(
+        (l) => typeof l.msg === "string" && l.msg.includes("orphaned proposals"),
+      ),
+    ).toBeUndefined();
+
+    // Two orphans → exactly one default-visible INFO summary naming the count.
+    failInterruptedProposalsMock = mock(() =>
+      Promise.resolve<unknown[]>([makeOrphan({ id: "p-a" }), makeOrphan({ id: "p-b" })]),
+    );
+    getLinkByIdMock = mock((_linkId: string) => Promise.resolve<unknown>(makeLink()));
+    installMocks();
+    await reconcileOrphanedProposals({
+      postComment: (() => Promise.resolve(true)) as never,
+    });
+    const summary = logLines().find((l) => l.msg === "reconciled 2 orphaned proposals");
+    expect(summary).toMatchObject({
+      level: "info",
+      subsystem: "ext.github-projects.daemon",
+      count: 2,
+      commented: 2,
+    });
+    // The per-row line is DEBUG → suppressed at the default LOG_LEVEL.
+    expect(
+      logLines().find((l) => l.msg === "github-projects orphaned proposal reconciled"),
+    ).toBeUndefined();
+  });
+
+  test("EZCORP_DEBUG=ext.github-projects surfaces the per-row reconcile DEBUG line", async () => {
+    process.env.EZCORP_DEBUG = "ext.github-projects";
+    failInterruptedProposalsMock = mock(() =>
+      Promise.resolve<unknown[]>([makeOrphan({ id: "p-dbg" })]),
+    );
+    getLinkByIdMock = mock((_linkId: string) => Promise.resolve<unknown>(makeLink()));
+    installMocks();
+    await reconcileOrphanedProposals({
+      postComment: (() => Promise.resolve(true)) as never,
+    });
+    const row = logLines().find((l) => l.msg === "github-projects orphaned proposal reconciled");
+    expect(row).toMatchObject({ level: "debug", proposalId: "p-dbg", commented: true });
   });
 });
 
@@ -739,5 +821,119 @@ describe("GithubProjectsDaemon.pollOnce — isolation", () => {
     const d = new GithubProjectsDaemon({ client: makeClient({ items: [], cursor: {} }) });
     await d.pollOnce();
     expect(updateLinkPollStateMock).not.toHaveBeenCalled();
+  });
+});
+
+// ── reconcileOrphanedProposals: boot sweep of orphaned rows ─────────────────
+
+describe("reconcileOrphanedProposals", () => {
+  test("posts ONE interrupted comment per orphaned row and returns the flip count", async () => {
+    const rowA = makeOrphan({ id: "p-a", linkId: "link-a" });
+    const rowB = makeOrphan({ id: "p-b", linkId: "link-b" });
+    failInterruptedProposalsMock = mock(() => Promise.resolve<unknown[]>([rowA, rowB]));
+    getLinkByIdMock = mock((linkId: string) => Promise.resolve<unknown>(makeLink({ id: linkId })));
+    installMocks();
+    const postComment = mock((_l: unknown, _p: unknown, _b: string) => Promise.resolve(true));
+
+    const n = await reconcileOrphanedProposals({ postComment: postComment as never });
+
+    expect(n).toBe(2);
+    expect(failInterruptedProposalsMock).toHaveBeenCalledTimes(1);
+    expect(postComment).toHaveBeenCalledTimes(2);
+    // Each write-back carries ITS row's resolved link + the interrupted body.
+    const calls = postComment.mock.calls;
+    expect((calls[0]![0] as { id: string }).id).toBe("link-a");
+    expect((calls[0]![1] as { id: string }).id).toBe("p-a");
+    expect(calls[0]![2]).toContain("interrupted by a server restart");
+    expect(calls[0]![2]).toContain("Re-run");
+    expect((calls[1]![0] as { id: string }).id).toBe("link-b");
+    expect((calls[1]![1] as { id: string }).id).toBe("p-b");
+  });
+
+  test("a failing per-row comment is swallowed — the REST still processed, never throws", async () => {
+    failInterruptedProposalsMock = mock(() =>
+      Promise.resolve<unknown[]>([
+        makeOrphan({ id: "p-1" }),
+        makeOrphan({ id: "p-2" }),
+        makeOrphan({ id: "p-3" }),
+      ]),
+    );
+    getLinkByIdMock = mock((_linkId: string) => Promise.resolve<unknown>(makeLink()));
+    installMocks();
+    let call = 0;
+    const postComment = mock((_l: unknown, _p: unknown, _b: string) => {
+      call += 1;
+      return call === 1
+        ? Promise.reject(new Error("comment api down"))
+        : Promise.resolve(true);
+    });
+
+    // MUST resolve — the first row's rejection is swallowed per-row.
+    const n = await reconcileOrphanedProposals({ postComment: postComment as never });
+
+    expect(n).toBe(3);
+    expect(postComment).toHaveBeenCalledTimes(3); // rows 2+3 still processed
+  });
+
+  test("a row whose link is GONE is skipped (no comment) — others still commented", async () => {
+    failInterruptedProposalsMock = mock(() =>
+      Promise.resolve<unknown[]>([
+        makeOrphan({ id: "p-gone", linkId: "link-gone" }),
+        makeOrphan({ id: "p-live", linkId: "link-live" }),
+      ]),
+    );
+    getLinkByIdMock = mock((linkId: string) =>
+      Promise.resolve<unknown>(linkId === "link-live" ? makeLink({ id: "link-live" }) : null),
+    );
+    installMocks();
+    const postComment = mock((_l: unknown, _p: unknown, _b: string) => Promise.resolve(true));
+
+    const n = await reconcileOrphanedProposals({ postComment: postComment as never });
+
+    // Both rows were flipped (the UPDATE already landed); only the row with a
+    // surviving link gets a write-back.
+    expect(n).toBe(2);
+    expect(postComment).toHaveBeenCalledTimes(1);
+    expect((postComment.mock.calls[0]![1] as { id: string }).id).toBe("p-live");
+  });
+
+  test("default write-back path: a draft orphan (no contentNodeId) is skipped inside postTicketComment — no network", async () => {
+    // No injected postComment → the `deps.postComment ?? postTicketComment`
+    // default binds. The row has no ticket linkage, so the REAL
+    // postTicketComment's draft-card guard returns false before any auth /
+    // client work — the "skip rows without ticket linkage" path progress.ts
+    // already implements.
+    failInterruptedProposalsMock = mock(() =>
+      Promise.resolve<unknown[]>([makeOrphan({ id: "p-draft", contentNodeId: null })]),
+    );
+    getLinkByIdMock = mock((_linkId: string) => Promise.resolve<unknown>(makeLink()));
+    installMocks();
+
+    const n = await reconcileOrphanedProposals();
+
+    expect(n).toBe(1); // flipped even though nothing could be commented
+  });
+
+  test("query failure is swallowed — returns 0, no write-backs attempted", async () => {
+    failInterruptedProposalsMock = mock(() => Promise.reject(new Error("db down")));
+    installMocks();
+    const postComment = mock((_l: unknown, _p: unknown, _b: string) => Promise.resolve(true));
+
+    // MUST resolve — reconciliation never throws (it must not block boot).
+    const n = await reconcileOrphanedProposals({ postComment: postComment as never });
+
+    expect(n).toBe(0);
+    expect(getLinkByIdMock).not.toHaveBeenCalled();
+    expect(postComment).not.toHaveBeenCalled();
+  });
+
+  test("clean boot (no orphans): returns 0 and posts nothing", async () => {
+    installMocks(); // default failInterruptedProposalsMock resolves []
+    const postComment = mock((_l: unknown, _p: unknown, _b: string) => Promise.resolve(true));
+
+    const n = await reconcileOrphanedProposals({ postComment: postComment as never });
+
+    expect(n).toBe(0);
+    expect(postComment).not.toHaveBeenCalled();
   });
 });

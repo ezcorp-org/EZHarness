@@ -48,6 +48,7 @@ const {
   buildStartComment,
   buildDoneComment,
   buildFailedComment,
+  buildInterruptedComment,
   extractPrUrl,
   summarize,
   postTicketComment,
@@ -199,6 +200,32 @@ describe("buildFailedComment", () => {
   test("error string included in the comment", () => {
     const c = buildFailedComment(makeProposal() as never, "network timeout");
     expect(c).toContain("network timeout");
+  });
+});
+
+// ── buildInterruptedComment ──────────────────────────────────────────────────
+
+describe("buildInterruptedComment", () => {
+  test("names the server restart as the cause", () => {
+    const c = buildInterruptedComment(makeProposal() as never);
+    expect(c).toContain("interrupted");
+    expect(c).toContain("server restart");
+  });
+  test("points at Re-run on the EZCorp Hub for a fresh run", () => {
+    const c = buildInterruptedComment(makeProposal() as never);
+    expect(c).toContain("Re-run");
+    expect(c).toContain("EZCorp Hub");
+    expect(c).toContain("fresh run");
+  });
+  test("offers the linked chat as the continue path", () => {
+    const c = buildInterruptedComment(makeProposal() as never);
+    expect(c).toContain("linked chat");
+    expect(c).toContain("continue");
+  });
+  test("identical body for plan and execute proposals (action-agnostic)", () => {
+    expect(buildInterruptedComment(makeProposal({ action: "plan" }) as never)).toBe(
+      buildInterruptedComment(makeProposal({ action: "execute" }) as never),
+    );
   });
 });
 

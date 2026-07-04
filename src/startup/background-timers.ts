@@ -9,7 +9,7 @@ import { BriefingDaemon } from "../runtime/briefing/daemon";
 import { HostMaintenanceDaemon } from "../extensions/host-maintenance-daemon";
 import { EmbedWorker } from "../extensions/embed-worker";
 import { FileOrganizerDaemon, DEFAULT_SETTINGS, mergeFileOrganizerSettings, type FileOrganizerSettings } from "../extensions/file-organizer-daemon";
-import { getGithubProjectsDaemon } from "../integrations/github-projects/daemon";
+import { getGithubProjectsDaemon, reconcileOrphanedProposals } from "../integrations/github-projects/daemon";
 import type { GithubProjectsDaemon } from "../integrations/github-projects/daemon";
 import { PreviewPortWatcher } from "../runtime/preview/preview-port-watcher";
 import { NetnsPortSource, ProcPortSource } from "../runtime/preview/preview-port-source";
@@ -342,6 +342,17 @@ export async function startBackgroundTimers(): Promise<void> {
     // to the registered bus emitter (getGithubProjectsEmit) at emit time, so
     // the Hub still live-refreshes once the web layer registers the bus.
     githubProjectsDaemon = getGithubProjectsDaemon();
+    // Boot reconciliation BEFORE the poll loop arms: run-lifecycle
+    // subscriptions are in-memory, so every proposal a previous process left
+    // `spawned`/`running` is orphaned (the executor-watchdog interruptAllRuns
+    // doctrine). The sweep flips them to `failed` and posts best-effort
+    // ticket comments. reconcileOrphanedProposals never throws by contract;
+    // the inline .catch is belt-and-braces so even a pathological rejection
+    // cannot skip the daemon start below (the outer catch would otherwise
+    // drop the handle and leave boards unpolled).
+    await reconcileOrphanedProposals().catch((e: unknown) => {
+      log.warn("github-projects boot reconciliation failed", { error: String(e) });
+    });
     const ok = githubProjectsDaemon.start();
     if (ok) {
       log.info("GithubProjectsDaemon started");
