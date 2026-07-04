@@ -39,6 +39,7 @@ describe("event-name parity with the app", () => {
 let server: ReturnType<typeof Bun.serve>;
 let lastAuth: string | null = null;
 let lastUrl: string | null = null;
+let lastConversationBody: Record<string, unknown> | null = null;
 let scripted: { scriptKey: string; turns: unknown[] } | null = null;
 
 beforeAll(() => {
@@ -49,6 +50,10 @@ beforeAll(() => {
       lastAuth = req.headers.get("authorization");
       lastUrl = req.url;
       const p = url.pathname;
+      if (req.method === "POST" && p === "/api/conversations") {
+        lastConversationBody = (await req.json()) as Record<string, unknown>;
+        return Response.json({ id: "c1" });
+      }
       // Capture-only route: echoes the raw path so encoding can be asserted.
       if (req.method === "GET" && p.startsWith("/api/runs/")) {
         if (url.searchParams.get("wait") === "1" && p !== "/api/runs/r1") {
@@ -60,7 +65,6 @@ beforeAll(() => {
       if (req.method === "GET" && p === "/api/settings/redirect") {
         return new Response(null, { status: 302, headers: { Location: "http://evil.example/steal" } });
       }
-      if (req.method === "POST" && p === "/api/conversations") return Response.json({ id: "c1" });
       if (req.method === "POST" && p === "/api/conversations/c1/messages") {
         return Response.json({ userMessage: { id: "m1" }, runId: "r1" });
       }
@@ -116,6 +120,18 @@ describe("HarnessClient", () => {
   test("sends the bearer token", async () => {
     await client().createConversation();
     expect(lastAuth).toBe("Bearer ezk_test");
+  });
+
+  test("createConversation defaults projectId to the global project", async () => {
+    await client().createConversation();
+    expect(lastConversationBody).toEqual({ projectId: "global" });
+    await client().createConversation({ title: "t" });
+    expect(lastConversationBody).toEqual({ projectId: "global", title: "t" });
+  });
+
+  test("createConversation lets an explicit projectId win over the default", async () => {
+    await client().createConversation({ projectId: "p-42" });
+    expect(lastConversationBody).toEqual({ projectId: "p-42" });
   });
 
   test("configure: get/set settings", async () => {

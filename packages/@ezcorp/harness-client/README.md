@@ -13,6 +13,12 @@ Mint a key on the instance (cold-start, no UI needed):
 ezcorp key mint --scopes read,chat
 ```
 
+With the embedded PGlite database, run this while the server is **stopped**
+(or use external Postgres via `DATABASE_URL`): the datadir is single-writer,
+and the CLI refuses to open it while a live server holds it. Against a
+running server, mint through it instead — Settings → Developer → API keys,
+or `POST /api/settings/developer/api-keys` with an admin session.
+
 Pass it to the client as a bearer token. Scopes: `read` (observe), `chat`
 (drive + approve), `extensions`, `admin`.
 
@@ -30,6 +36,7 @@ const ez = new HarnessClient({
 await ez.setSetting("provider:defaultTier", "balanced");
 
 // Drive a real conversation and block for the result
+// (`projectId` defaults to "global"; the server requires one)
 const convo = await ez.createConversation({ title: "smoke" });
 const result = await ez.runToCompletion(convo.id, "What is 2 + 2?", {
   provider: "anthropic",
@@ -54,7 +61,7 @@ const r = await ez.runScripted(
   convo.id,
   "read the config",
   [
-    { toolCalls: [{ name: "read_file", arguments: { path: "/etc/hosts" } }] },
+    { toolCalls: [{ name: "readFile", arguments: { path: "README.md" } }] },
     { text: "Here is what I found." },
   ],
 );

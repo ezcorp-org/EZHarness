@@ -9,9 +9,16 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 const settings: Array<[string, unknown]> = [];
 
+// Mutable failure injection for initDb — the mock module's export shape
+// freezes at first materialization, so the mock delegates to this flag
+// instead of being swapped per-test.
+let initDbError: Error | null = null;
+
 // Mock the DB surface the dispatch touches, BEFORE importing ../cli.
 mock.module("../db/connection", () => ({
-  initDb: async () => {},
+  initDb: async () => {
+    if (initDbError) throw initDbError;
+  },
   getDb: () => ({}),
   closeDb: async () => {},
 }));
@@ -37,7 +44,7 @@ let errs: string[] = [];
 const origLog = console.log;
 const origErr = console.error;
 beforeEach(() => {
-  logs = []; errs = []; settings.length = 0;
+  logs = []; errs = []; settings.length = 0; initDbError = null;
   console.log = (...a: unknown[]) => { logs.push(a.join(" ")); };
   console.error = (...a: unknown[]) => { errs.push(a.join(" ")); };
 });
@@ -102,5 +109,24 @@ describe("cli key:mint dispatch", () => {
     expect(out).toContain("Minted API key for admin@x.test");
     expect(out).toContain("read, admin");
     expect(settings.find(([k]) => k.startsWith("apikey:u-admin:"))).toBeDefined();
+  });
+
+  // The datadir-in-use guard: minting against a LIVE server's PGlite dir
+  // must exit 1 with the remediation message, not a stack trace — and must
+  // not mint anything.
+  test("DbInUseError from initDb → friendly message + exit 1, nothing minted", async () => {
+    const { DbInUseError } = await import("../db/live-holder-guard");
+    initDbError = new DbInUseError("/data/ezcorp", 1234);
+    const code = await captureExit(() => cli(["key", "mint"]));
+    expect(code).toBe(1);
+    const err = errs.join("\n");
+    expect(err).toContain("Error: The EZCorp database at /data/ezcorp is open in another EZCorp process (pid 1234)");
+    expect(err).toContain("single-writer");
+    expect(settings.find(([k]) => k.startsWith("apikey:"))).toBeUndefined();
+  });
+
+  test("a non-DbInUseError initDb failure still propagates", async () => {
+    initDbError = new Error("boom");
+    await expect(cli(["key", "mint"])).rejects.toThrow("boom");
   });
 });

@@ -33,6 +33,15 @@ ezcorp key mint --scopes read,chat            # prints the raw key once
 ezcorp key mint --scopes admin --user me@x.com --name ci
 ```
 
+**Embedded-PGlite instances:** the datadir is single-writer, so run `key mint`
+while the server is **stopped** — against a running server the CLI refuses
+(fail-loud `DbInUseError` from the live-holder guard,
+`src/db/live-holder-guard.ts`) because a second process's writes would be
+invisible to the server and risk corrupting the datadir. On a live instance,
+mint through the server instead: Settings → Developer → API keys, or
+`POST /api/settings/developer/api-keys` with an admin session. External
+Postgres (`DATABASE_URL`) has no such restriction.
+
 In production, an operator mints a key and hands it to CI as a secret. For a
 remote **browser** harness, also set `CORS_ALLOWED_ORIGINS` to the harness
 origin; behind a proxy set `TRUSTED_PROXY_COUNT`; over HTTPS set
@@ -52,7 +61,7 @@ const r = await ez.runToCompletion(convoId, "hi", { provider, model });
 
 // Deterministic run (test-mode instance) — scripts the LLM incl. tool calls:
 await ez.runScripted(convoId, "read it", [
-  { toolCalls: [{ name: "read_file", arguments: { path: "/x" } }] },
+  { toolCalls: [{ name: "readFile", arguments: { path: "README.md" } }] },
   { text: "done" },
 ]);
 ```

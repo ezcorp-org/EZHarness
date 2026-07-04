@@ -109,8 +109,11 @@ export class HarnessClient {
   }
 
   // ── Conversations + drive ──────────────────────────────────────────
+  /** `projectId` is REQUIRED by the server (`createConversationSchema`);
+   *  default it to the `"global"` project so the zero-config call works —
+   *  an explicit `input.projectId` always wins. */
   createConversation(input: Record<string, unknown> = {}): Promise<{ id: string; [k: string]: unknown }> {
-    return this.request("POST", `/api/conversations`, input);
+    return this.request("POST", `/api/conversations`, { projectId: "global", ...input });
   }
   sendMessage(conversationId: string, content: string, opts: SendMessageOptions = {}): Promise<SendMessageResult> {
     return this.request("POST", `/api/conversations/${encodeURIComponent(conversationId)}/messages`, { content, ...opts });

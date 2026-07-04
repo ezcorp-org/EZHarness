@@ -44,5 +44,22 @@ test.describe("external harness — remote control end-to-end", () => {
 
     expect(result.outcome).toBe("complete");
     expect(result.run.status).toBe("success");
+
+    // 4. Script a TOOL-CALL turn + a closing text turn: the mock only fakes
+    // the LLM's HTTP boundary, so this drives the real tool loop (execute →
+    // feed result back → next scripted turn) through the same bearer client.
+    const conv2 = await ez.createConversation({ title: "e2e-harness-tools" });
+    const toolResult = await ez.runScripted(
+      conv2.id,
+      "list the project files",
+      [
+        { toolCalls: [{ name: "listFiles", arguments: { path: "." } }] },
+        { text: "Listed the files." },
+      ],
+      { timeoutMs: 30_000 },
+    );
+
+    expect(toolResult.outcome).toBe("complete");
+    expect(toolResult.run.status).toBe("success");
   });
 });

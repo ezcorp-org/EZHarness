@@ -3,9 +3,10 @@
  *
  * This mirrors the app's canonical list at
  * `web/src/lib/runtime-event-names.ts` — the package can't import the app's
- * source (it ships standalone), so a parity test (`events.parity.test.ts`)
- * asserts the two stay in lockstep, and the governance route-contract test
- * cross-checks them in CI. Keep them identical.
+ * source (it ships standalone), so a parity assertion (in `index.test.ts`,
+ * "event-name parity with the app") keeps the two in lockstep, and the
+ * governance route-contract test cross-checks them in CI. Keep them
+ * identical.
  */
 export const RUNTIME_EVENT_NAMES = [
   "run:start", "run:status", "run:log", "run:complete", "run:error", "run:cancel",

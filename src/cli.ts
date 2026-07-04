@@ -7,6 +7,7 @@ import { formatAgentList } from "./ui/format";
 import { connectToEventBus } from "./ui/terminal";
 import type { AgentEvents } from "./types";
 import { initDb } from "./db/connection";
+import { DbInUseError } from "./db/live-holder-guard";
 import { validateEnv } from "./env-validation";
 import { getProjectByName } from "./db/queries/projects";
 import { loadDbPipelines } from "./db/queries/pipelines";
@@ -25,6 +26,23 @@ import { listExtensions, getExtensionByName } from "./db/queries/extensions";
 import { getRequiredPermissions } from "./extensions/permissions";
 import type { ExtensionPermissions, ExtensionManifestV2 } from "./extensions/types";
 import { askLine } from "./ui/prompt";
+
+/**
+ * `initDb()` for CLI commands: a datadir held by a LIVE server (see
+ * `DbInUseError`) is an expected operator situation, not a crash — print
+ * the remediation message without a stack trace and exit non-zero.
+ */
+async function initDbOrExit(): Promise<void> {
+  try {
+    await initDb();
+  } catch (e) {
+    if (e instanceof DbInUseError) {
+      console.error(`Error: ${e.message}`);
+      process.exit(1);
+    }
+    throw e;
+  }
+}
 
 // ── Permission Prompting ─────────────────────────────────────────────
 
@@ -338,7 +356,7 @@ async function setupRunHarness(agentsDir: string): Promise<{
   executor: AgentExecutor;
   disconnect: () => void;
 }> {
-  await initDb();
+  await initDbOrExit();
   const agents = await loadAgents(agentsDir, { includeDb: true });
   const bus = new EventBus<AgentEvents>();
   const executor = new AgentExecutor(agents, bus, { persist: true });
@@ -452,7 +470,7 @@ export async function cli(args: string[]): Promise<void> {
     }
 
     case "pipeline:list": {
-      await initDb();
+      await initDbOrExit();
       const yamlPipelines = await loadYamlPipelines(agentsDir);
       const dbPipelines = await loadDbPipelines();
       const all = [...yamlPipelines, ...dbPipelines];
@@ -517,7 +535,7 @@ export async function cli(args: string[]): Promise<void> {
         process.exit(1);
       }
 
-      await initDb();
+      await initDbOrExit();
 
       try {
         const { existsSync } = await import("node:fs");
@@ -568,7 +586,7 @@ export async function cli(args: string[]): Promise<void> {
     }
 
     case "ext:update": {
-      await initDb();
+      await initDbOrExit();
 
       const checkDependentCompat = async (updatedName: string, newVersion: string) => {
         const allExts = await listExtensions();
@@ -623,7 +641,7 @@ export async function cli(args: string[]): Promise<void> {
     }
 
     case "ext:list": {
-      await initDb();
+      await initDbOrExit();
       const exts = await listExtensions();
 
       if (exts.length === 0) {
@@ -655,7 +673,7 @@ export async function cli(args: string[]): Promise<void> {
         process.exit(1);
       }
 
-      await initDb();
+      await initDbOrExit();
 
       // Check for dependents
       const dependents = await findDependents(parsed.extName);
@@ -685,7 +703,7 @@ export async function cli(args: string[]): Promise<void> {
         process.exit(1);
       }
 
-      await initDb();
+      await initDbOrExit();
 
       const ext = await getExtensionByName(parsed.extName);
       if (!ext) {
@@ -811,7 +829,7 @@ export async function cli(args: string[]): Promise<void> {
     }
 
     case "key:mint": {
-      await initDb();
+      await initDbOrExit();
       const scopes = parseKeyScopes(parsed.scopes);
       const user = await resolveKeyMintUser(parsed.userRef);
       // Scope ceiling: a key must never carry authority its OWNER lacks.
