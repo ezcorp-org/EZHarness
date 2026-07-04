@@ -1303,9 +1303,10 @@ export const githubProjectsLinks = pgTable("github_projects_links", {
 export type GithubProjectsLink = typeof githubProjectsLinks.$inferSelect;
 export type NewGithubProjectsLink = typeof githubProjectsLinks.$inferInsert;
 
-// The proposal queue + idempotency unit. `dedupeKey` (server-derived hash of
-// projectId+itemNodeId+statusOptionId+action) has a UNIQUE index so poll
-// re-detection + card churn cannot double-spawn.
+// The proposal queue + concurrency unit. `dedupeKey` (server-derived
+// projectId:itemNodeId:statusOptionId:action) is stamped for PROVENANCE only —
+// anti-double-spawn is the partial single-active-per-card unique index
+// `idx_gh_proposals_active_item` (see the mirror warning in the index list).
 export const githubProjectsProposals = pgTable("github_projects_proposals", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
@@ -1328,7 +1329,18 @@ export const githubProjectsProposals = pgTable("github_projects_proposals", {
   error: text("error"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
-  uniqueIndex("idx_gh_proposals_dedupe").on(table.dedupeKey),
+  // WARNING — drizzle-side MIRROR only (the extension_secrets pattern). The
+  // REAL index is the PARTIAL unique in src/db/migrate.ts:
+  //   CREATE UNIQUE INDEX idx_gh_proposals_active_item
+  //     ON github_projects_proposals(link_id, item_node_id)
+  //     WHERE status IN ('pending','approved','spawned','running')
+  // ≤1 ACTIVE proposal per card; terminal rows (done/failed/dismissed/
+  // cancelled) free the card so column re-entry re-triggers. Never push this
+  // table's DDL from drizzle-kit; migrate.ts is the source of truth (a
+  // drifted push that lost the WHERE would block re-triggers forever).
+  uniqueIndex("idx_gh_proposals_active_item")
+    .on(table.linkId, table.itemNodeId)
+    .where(sql`${table.status} IN ('pending','approved','spawned','running')`),
   index("idx_gh_proposals_project_status").on(table.projectId, table.status),
   index("idx_gh_proposals_link").on(table.linkId),
 ]);

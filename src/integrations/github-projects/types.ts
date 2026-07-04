@@ -239,9 +239,13 @@ export interface GithubRpcCommentParams {
 export const GITHUB_API_ORIGIN = "https://api.github.com" as const;
 
 /**
- * Server-derived idempotency key for a proposal. Deterministic + unique per
- * (project, item, target column, action) so poll re-detection / card churn
- * upsert ON CONFLICT and never double-spawn. NEVER accept this from a client.
+ * Server-derived PROVENANCE key for a proposal: records which
+ * (project, item, target column, action) trigger created the row. Stamped on
+ * every insert but NO LONGER unique — the anti-double-spawn guarantee moved
+ * to the partial unique index `idx_gh_proposals_active_item`
+ * (link_id, item_node_id WHERE status is active; see migrate.ts), so a card
+ * holds ≤1 active proposal yet re-triggers freely once the previous run is
+ * terminal. NEVER accept this from a client.
  */
 export function githubProposalDedupeKey(
   projectId: string,

@@ -1622,10 +1622,11 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
     sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_gh_links_project_board ON github_projects_links (project_id, board_node_id)`,
   );
 
-  // `github_projects_proposals` — the queue + idempotency unit. `dedupe_key`
-  // is a server-derived hash of (project_id, item_node_id, status_option_id,
-  // action) with a UNIQUE index, so poll re-detection + card churn cannot
-  // double-spawn (the daemon upserts ON CONFLICT (dedupe_key) DO NOTHING).
+  // `github_projects_proposals` — the queue + concurrency unit. `dedupe_key`
+  // (server-derived `${projectId}:${itemNodeId}:${statusOptionId}:${action}`)
+  // is stamped on every row for PROVENANCE only — its legacy once-ever UNIQUE
+  // index is replaced by the partial single-active-per-card index below, so a
+  // card can re-trigger after its previous run reaches a terminal status.
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS github_projects_proposals (
       id TEXT PRIMARY KEY,
@@ -1650,7 +1651,37 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
       created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_gh_proposals_dedupe ON github_projects_proposals(dedupe_key)`);
+  // Re-trigger migration (idempotent): the legacy UNIQUE(dedupe_key) index
+  // made a (card, column, action) trigger once-EVER — a card whose run
+  // finished could never re-trigger on column re-entry. Replace it with a
+  // PARTIAL unique index scoped to ACTIVE statuses: a card
+  // (link_id, item_node_id) holds at most ONE in-flight proposal across ALL
+  // columns (covers cross-column moves mid-run), while terminal rows
+  // (done/failed/dismissed/cancelled) free the card so re-entry re-triggers.
+  // `dedupe_key` stays as a plain provenance column. insertProposalIfNew's
+  // ON CONFLICT arbiter must match this predicate EXACTLY
+  // (src/db/queries/github-projects.ts).
+  await db.execute(sql`DROP INDEX IF EXISTS idx_gh_proposals_dedupe`);
+  // Boot-safe guard for legacy rows: under the old per-column dedupe key a
+  // card could legitimately hold TWO active proposals (one per column), which
+  // would make the CREATE UNIQUE INDEX below fail and abort boot. Keep the
+  // newest active proposal per card and cancel the rest — idempotent (matches
+  // zero rows once the partial index exists and enforces ≤1).
+  await db.execute(sql`
+    UPDATE github_projects_proposals SET status = 'cancelled', finished_at = NOW()
+    WHERE status IN ('pending','approved','spawned','running')
+      AND id NOT IN (
+        SELECT DISTINCT ON (link_id, item_node_id) id
+        FROM github_projects_proposals
+        WHERE status IN ('pending','approved','spawned','running')
+        ORDER BY link_id, item_node_id, proposed_at DESC, id DESC
+      )
+  `);
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_gh_proposals_active_item
+      ON github_projects_proposals(link_id, item_node_id)
+      WHERE status IN ('pending','approved','spawned','running')
+  `);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_project_status ON github_projects_proposals(project_id, status)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_link ON github_projects_proposals(link_id)`);
 

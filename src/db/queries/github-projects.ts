@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../connection";
 import {
   githubProjectsLinks,
@@ -18,10 +18,12 @@ import {
  *
  * `github_projects_links` is many-per-project: an EZCorp project connects to N
  * boards, each board only once (UNIQUE(project_id, board_node_id)).
- * `github_projects_proposals` is the queue + idempotency unit: every insert
- * goes through `insertProposalIfNew` which relies on the UNIQUE(dedupe_key)
- * index + `ON CONFLICT DO NOTHING`, so poll re-detection / card churn can
- * never double-create a proposal (the daemon's anti-spawn-storm guarantee).
+ * `github_projects_proposals` is the queue + concurrency unit: every insert
+ * goes through `insertProposalIfNew`, whose ON CONFLICT arbiter is the
+ * PARTIAL unique index `idx_gh_proposals_active_item` (migrate.ts) —
+ * (link_id, item_node_id) WHERE status is active — so a card holds at most
+ * ONE in-flight proposal (the daemon's anti-spawn-storm guarantee) while a
+ * terminal proposal frees the card for a fresh re-trigger on column re-entry.
  *
  * SECURITY: callers MUST derive `projectId` server-side (from the conversation
  * or the link), never from sandbox/tool input — these functions trust their
@@ -177,9 +179,27 @@ export async function deleteLink(linkId: string): Promise<void> {
 
 // ── Proposals ────────────────────────────────────────────────────────────────
 
+// ON CONFLICT arbiter predicate for `idx_gh_proposals_active_item`. It must
+// match the index's WHERE clause EXACTLY (inline literals, not bind params —
+// Postgres cannot prove a parameterized predicate implies the index predicate,
+// so partial-index arbiter inference would fail and the INSERT would raise
+// instead of no-op'ing). Derived from GITHUB_ACTIVE_STATUSES so an added
+// status here fails LOUDLY (inference error in tests) until migrate.ts's
+// index is updated in lock-step.
+const ACTIVE_PROPOSAL_PREDICATE = sql.raw(
+  `status IN (${GITHUB_ACTIVE_STATUSES.map((s) => `'${s}'`).join(",")})`,
+);
+
 /**
- * Idempotent insert. Returns the new row, or `null` when a proposal with the
- * same server-derived `dedupeKey` already exists (poll re-detection / churn).
+ * Idempotent insert with the single-ACTIVE-per-card guard. Returns the new
+ * row, or `null` when the card (link_id, item_node_id) already holds an
+ * active (pending/approved/spawned/running) proposal — in ANY column, so a
+ * cross-column move mid-run cannot double-spawn. The conflict target is the
+ * partial unique index `idx_gh_proposals_active_item` (migrate.ts), making
+ * the guard atomic at the DB: of N concurrent inserts for one card exactly
+ * one wins. Terminal proposals (done/failed/dismissed/cancelled) do not
+ * conflict — column re-entry re-triggers with a fresh row. `dedupeKey` is
+ * still stamped for provenance but is no longer unique.
  * This is THE anti-double-spawn guarantee — do not bypass it.
  */
 export async function insertProposalIfNew(
@@ -189,7 +209,13 @@ export async function insertProposalIfNew(
   const rows = (await db
     .insert(githubProjectsProposals)
     .values(input)
-    .onConflictDoNothing({ target: githubProjectsProposals.dedupeKey })
+    .onConflictDoNothing({
+      target: [githubProjectsProposals.linkId, githubProjectsProposals.itemNodeId],
+      // onConflictDoNothing's `where` is the ARBITER predicate (it renders as
+      // `ON CONFLICT (cols) WHERE <pred> DO NOTHING`) — the targetWhere/
+      // setWhere split only exists for onConflictDoUpdate.
+      where: ACTIVE_PROPOSAL_PREDICATE,
+    })
     .returning()) as GithubProjectsProposal[];
   return rows[0] ?? null;
 }

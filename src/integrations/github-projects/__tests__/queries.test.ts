@@ -246,13 +246,101 @@ describe("github-projects queries", () => {
     expect(await listProposalsByProject(projectId)).toHaveLength(0);
   });
 
-  test("insertProposalIfNew is idempotent on dedupeKey (ON CONFLICT → null)", async () => {
+  test("insertProposalIfNew is idempotent for a re-detected card (ON CONFLICT → null) and still stamps dedupeKey", async () => {
     const projectId = await seedProject();
     const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
     const first = await insertProposalIfNew(proposalInput(projectId, link.id, "i1", "opt", "plan"));
     expect(first).not.toBeNull();
+    // dedupe_key is provenance now (not unique) but every row still carries it.
+    expect(first!.dedupeKey).toBe(githubProposalDedupeKey(projectId, "i1", "opt", "plan"));
     const dup = await insertProposalIfNew(proposalInput(projectId, link.id, "i1", "opt", "plan"));
     expect(dup).toBeNull();
+  });
+
+  test("insertProposalIfNew: EACH active status blocks a second proposal for the card (→ null)", async () => {
+    const projectId = await seedProject();
+    const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
+    for (const status of GITHUB_ACTIVE_STATUSES) {
+      const item = `card-${status}`;
+      const held = await insertProposalIfNew(proposalInput(projectId, link.id, item, "opt-x", "plan"));
+      expect(held).not.toBeNull();
+      if (status !== "pending") await updateProposal(held!.id, { status });
+      // Re-detection of the same card while a proposal is in-flight → no-op.
+      expect(await insertProposalIfNew(proposalInput(projectId, link.id, item, "opt-x", "plan"))).toBeNull();
+      expect((await getProposalById(held!.id))?.status).toBe(status); // untouched
+    }
+    // Exactly one row per card survived.
+    expect(await listProposalsByProject(projectId)).toHaveLength(GITHUB_ACTIVE_STATUSES.length);
+  });
+
+  test("insertProposalIfNew: EACH terminal status frees the card — re-entry inserts a FRESH proposal", async () => {
+    const projectId = await seedProject();
+    const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
+    for (const status of ["done", "failed", "dismissed", "cancelled"] as const) {
+      const item = `card-${status}`;
+      const finished = await insertProposalIfNew(proposalInput(projectId, link.id, item, "opt-x", "plan"));
+      expect(finished).not.toBeNull();
+      await updateProposal(finished!.id, { status, finishedAt: new Date() });
+      // Terminal row no longer occupies the card → the re-trigger lands.
+      const fresh = await insertProposalIfNew(proposalInput(projectId, link.id, item, "opt-x", "plan"));
+      expect(fresh).not.toBeNull();
+      expect(fresh!.id).not.toBe(finished!.id);
+      expect(fresh!.status).toBe("pending");
+      // History keeps BOTH rows (terminal + fresh).
+      const rows = await listProposalsByProject(projectId);
+      expect(rows.filter((r) => r.itemNodeId === item)).toHaveLength(2);
+    }
+  });
+
+  test("insertProposalIfNew: an active proposal in column X blocks column Y for the SAME card (cross-column move mid-run)", async () => {
+    const projectId = await seedProject();
+    const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
+    const inX = await insertProposalIfNew(proposalInput(projectId, link.id, "card-1", "opt-x", "plan"));
+    expect(inX).not.toBeNull();
+    await updateProposal(inX!.id, { status: "running" });
+    // Different column AND different action ⇒ a different dedupeKey — under
+    // the legacy key this would have double-spawned; the card-scoped guard
+    // blocks it.
+    expect(await insertProposalIfNew(proposalInput(projectId, link.id, "card-1", "opt-y", "execute"))).toBeNull();
+    expect(await listProposalsByProject(projectId)).toHaveLength(1);
+  });
+
+  test("insertProposalIfNew: two CONCURRENT inserts for one card → exactly one wins (atomic at the DB)", async () => {
+    const projectId = await seedProject();
+    const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
+    const [a, b] = await Promise.all([
+      insertProposalIfNew(proposalInput(projectId, link.id, "card-race", "opt-x", "plan")),
+      insertProposalIfNew(proposalInput(projectId, link.id, "card-race", "opt-y", "execute")),
+    ]);
+    const winners = [a, b].filter((r) => r !== null);
+    expect(winners).toHaveLength(1);
+    const rows = await listProposalsByProject(projectId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(winners[0]!.id);
+  });
+
+  test("insertProposalIfNew: different cards on the same link are independent", async () => {
+    const projectId = await seedProject();
+    const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
+    const a = await insertProposalIfNew(proposalInput(projectId, link.id, "card-a", "opt-x", "plan"));
+    const b = await insertProposalIfNew(proposalInput(projectId, link.id, "card-b", "opt-x", "plan"));
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    expect(await listProposalsByProject(projectId)).toHaveLength(2);
+  });
+
+  test("insertProposalIfNew: the same itemNodeId on DIFFERENT links is independent (identity is (link_id, item_node_id))", async () => {
+    const projectId = await seedProject();
+    const linkA = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u1" });
+    const linkB = await upsertLink({ projectId, boardNodeId: "PVT_b", boardUrl: "u2" });
+    const onA = await insertProposalIfNew(proposalInput(projectId, linkA.id, "card-shared", "opt-x", "plan"));
+    expect(onA).not.toBeNull();
+    await updateProposal(onA!.id, { status: "running" });
+    // The other board's view of the "same" card is a separate identity.
+    const onB = await insertProposalIfNew(proposalInput(projectId, linkB.id, "card-shared", "opt-x", "plan"));
+    expect(onB).not.toBeNull();
+    expect(onB!.linkId).toBe(linkB.id);
+    expect(await listProposalsByProject(projectId)).toHaveLength(2);
   });
 
   test("getProposalById + empty-id guard", async () => {

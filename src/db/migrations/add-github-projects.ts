@@ -29,10 +29,15 @@
  *     title, ticket_url, dedupe_key, status, conversation_id FK SET NULL,
  *     agent_run_id, proposed_at, decided_at, decided_by_user_id FK SET NULL,
  *     finished_at, error, created_at).
- *   - UNIQUE INDEX on github_projects_proposals(dedupe_key) — the server-derived
- *     hash of (project_id, item_node_id, status_option_id, action). This is the
- *     anti-double-spawn guarantee: poll re-detection / card churn upsert ON
- *     CONFLICT DO NOTHING and never create a second proposal for the same state.
+ *   - PARTIAL UNIQUE INDEX idx_gh_proposals_active_item ON
+ *     github_projects_proposals(link_id, item_node_id) WHERE status IN
+ *     ('pending','approved','spawned','running') — the anti-double-spawn
+ *     guarantee: a card holds at most ONE active proposal (any column; covers
+ *     cross-column moves mid-run), inserts go ON CONFLICT DO NOTHING against
+ *     it, and terminal rows (done/failed/dismissed/cancelled) free the card so
+ *     a column re-entry re-triggers. The legacy once-ever UNIQUE(dedupe_key)
+ *     index (idx_gh_proposals_dedupe) is DROPPED by the re-trigger migration;
+ *     dedupe_key itself is kept as a stamped provenance column.
  *   - Indexes on (project_id, status) and (link_id) for the Hub queries.
  *
  * Security invariants (enforced at the query/host layer, NOT the DB):
@@ -130,9 +135,27 @@ export async function up(db: any): Promise<void> {
       created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(
-    sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_gh_proposals_dedupe ON github_projects_proposals(dedupe_key)`,
-  );
+  // Re-trigger migration (idempotent): drop the legacy once-ever
+  // UNIQUE(dedupe_key) and replace it with the partial single-active-per-card
+  // unique. The pre-clean keeps the newest active proposal per card and
+  // cancels the rest — under the old per-column dedupe key a card could hold
+  // two active proposals, which would abort the CREATE UNIQUE INDEX at boot.
+  await db.execute(sql`DROP INDEX IF EXISTS idx_gh_proposals_dedupe`);
+  await db.execute(sql`
+    UPDATE github_projects_proposals SET status = 'cancelled', finished_at = NOW()
+    WHERE status IN ('pending','approved','spawned','running')
+      AND id NOT IN (
+        SELECT DISTINCT ON (link_id, item_node_id) id
+        FROM github_projects_proposals
+        WHERE status IN ('pending','approved','spawned','running')
+        ORDER BY link_id, item_node_id, proposed_at DESC, id DESC
+      )
+  `);
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_gh_proposals_active_item
+      ON github_projects_proposals(link_id, item_node_id)
+      WHERE status IN ('pending','approved','spawned','running')
+  `);
   await db.execute(
     sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_project_status ON github_projects_proposals(project_id, status)`,
   );
