@@ -84,10 +84,26 @@ const TYPE_DECL = /^\s*(export\s+)?type\s+\w+\s*=/;
 // Backtick template literal on its own line.
 const TEMPLATE_LITERAL_LINE = /^\s*`(?:[^`\\]|\\.)*`\s*[+;,]?\s*$/;
 
-// SQL keyword fragments inside tagged template strings.
+// SQL keyword fragments inside tagged template strings. DDL keywords
+// (CREATE/ALTER/DROP/ADD/CONSTRAINT) are included: a multi-line
+// `sql\`CREATE TABLE …\`` body executes as ONE statement credited to the
+// `db.execute(...)` line — when the migration actually runs, bun emits DA
+// only for that line (verified: a real migrate() run credits the await
+// line and the next statement, never the body). The body lines only ever
+// appear as phantom zero-hit span-fill from shards that import migrate.ts
+// without executing it.
 const SQL_FRAGMENT =
-  /^\s*(SELECT|FROM|WHERE|JOIN|GROUP|ORDER|LIMIT|HAVING|UNION|INSERT|UPDATE|DELETE|VALUES|SET|RETURNING|WITH|ON|AND|OR|AS|COALESCE|SUM|COUNT|MAX|MIN)\b/i;
+  /^\s*(SELECT|FROM|WHERE|JOIN|GROUP|ORDER|LIMIT|HAVING|UNION|INSERT|UPDATE|DELETE|VALUES|SET|RETURNING|WITH|ON|AND|OR|AS|COALESCE|SUM|COUNT|MAX|MIN|CREATE|ALTER|DROP|ADD|CONSTRAINT)\b/i;
 const SQL_CLOSE = /^\s*\),?\s*0?\)?\s*AS\b/i;
+
+// SQL column-definition line inside a multi-line DDL template:
+// `id TEXT PRIMARY KEY,` / `poll_interval_sec INTEGER NOT NULL DEFAULT 60,` /
+// `created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),`. The
+// UPPERCASE type keyword is the discriminator — a TS line can't have two
+// bare identifiers in a row, and the type list is matched case-SENSITIVE so
+// prose or lowercase identifiers never hit it. Zero-hit-only like the rest.
+const SQL_COLUMN_DEF =
+  /^\s*"?[A-Za-z_][A-Za-z0-9_]*"?\s+(TEXT|INTEGER|BIGINT|SMALLINT|BOOLEAN|TIMESTAMP|TIMESTAMPTZ|JSONB|JSON|UUID|SERIAL|BIGSERIAL|NUMERIC|DECIMAL|REAL|VARCHAR|CHAR|DATE|TIME|BYTEA|INTERVAL)\b/;
 
 // Interface declaration header: `interface Foo {`, `export interface Foo
 // extends Bar {`. Interfaces are erased at compile time → no JS.
@@ -156,6 +172,7 @@ export function isNoiseLine(text: string): boolean {
   if (TEMPLATE_LITERAL_LINE.test(text)) return true;
   if (SQL_FRAGMENT.test(text)) return true;
   if (SQL_CLOSE.test(text)) return true;
+  if (SQL_COLUMN_DEF.test(text)) return true;
   if (TYPE_DECL.test(text)) return true;
   if (INTERFACE_DECL.test(text)) return true;
   if (CLASS_DECL.test(text)) return true;
