@@ -70,6 +70,17 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
 		bareAnchors: ["developer", "api-keys"],
 	},
 	{
+		// Extension RBAC grants (per-project / per-extension user scopes).
+		// adminOnly is a nav/UX gate only — the grants API already serves
+		// manage-grant holders (server-side row scoping); surfacing the nav
+		// entry to managers arrives with a follow-up.
+		id: "permissions",
+		label: "Permissions",
+		href: "/settings/permissions",
+		adminOnly: true,
+		anchors: [],
+	},
+	{
 		id: "admin",
 		label: "Admin",
 		href: "/settings/admin",

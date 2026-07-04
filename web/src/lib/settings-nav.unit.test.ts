@@ -130,6 +130,26 @@ describe("registry invariants", () => {
 	});
 });
 
+describe("Extension RBAC — Permissions entry", () => {
+	test("registry includes the admin-gated Permissions sub-route", () => {
+		const permissions = SETTINGS_NAV.find((i) => i.id === "permissions");
+		expect(permissions).toMatchObject({
+			label: "Permissions",
+			href: "/settings/permissions",
+			adminOnly: true,
+		});
+	});
+
+	test("hidden from members, shown to admins (manager nav visibility is a follow-up)", () => {
+		expect(visibleNavItems(false).map((i) => i.id)).not.toContain("permissions");
+		expect(visibleNavItems(true).map((i) => i.id)).toContain("permissions");
+	});
+
+	test("active-state derives for /settings/permissions", () => {
+		expect(activeNavId("/settings/permissions")).toBe("permissions");
+	});
+});
+
 describe("Settings v2 — additive System/Moderation admin links", () => {
 	test("registry includes System and Moderation, admin-gated, pointing to canonical routes", () => {
 		const system = SETTINGS_NAV.find((i) => i.id === "system");

@@ -101,6 +101,13 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/extensions/:id/secrets", description: "Set (or rotate) an extension secret — encrypted, scope-isolated, AAD-bound; value never echoed back", category: "extensions", scope: "extensions" },
   { method: "DELETE", path: "/api/extensions/:id/secrets", description: "Delete an extension secret", category: "extensions", scope: "extensions" },
 
+  // Extension RBAC grants (runtime gate = the delegation check in
+  // src/auth/extension-rbac.ts; scope "admin" documents the surface for the
+  // docs/OpenAPI tier — see the route headers).
+  { method: "GET", path: "/api/rbac/extension-grants", description: "List extension RBAC grants visible to the caller (admin: all; manage-grant holders: their coverage + own; members: own rows only)", category: "admin", scope: "admin", responseDescription: "{ grants: [{ id, user: {id,email,name}, projectId, extensionId, scopes, grantedBy, updatedAt }] }" },
+  { method: "POST", path: "/api/rbac/extension-grants", description: "Create an extension RBAC grant or replace an existing row's scope list (delegation-gated: admin, or a covering `manage` grant; `manage` itself is admin-only to grant)", category: "admin", scope: "admin" },
+  { method: "DELETE", path: "/api/rbac/extension-grants/:id", description: "Revoke an extension RBAC grant (same delegation rules as create; audit row carries the pre-delete scopes)", category: "admin", scope: "admin" },
+
   // Marketplace
   { method: "GET", path: "/api/marketplace", description: "Browse marketplace listings", category: "marketplace" },
   { method: "POST", path: "/api/marketplace", description: "Publish agent to marketplace", category: "marketplace", schemaKey: "publishListingSchema" },
