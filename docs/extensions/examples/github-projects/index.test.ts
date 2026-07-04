@@ -16,6 +16,7 @@ import { GITHUB_PROJECTS_EVENT } from "../../../../src/integrations/github-proje
 import {
   APPROVE_EVENT,
   DISMISS_EVENT,
+  RERUN_EVENT,
   PAUSE_EVENT,
   RESUME_EVENT,
   POLL_NOW_EVENT,
@@ -29,6 +30,7 @@ import {
   renderDashboard,
   handleApprove,
   handleDismiss,
+  handleRerun,
   handlePause,
   handleResume,
   handlePollNow,
@@ -289,6 +291,47 @@ describe("buildDashboard", () => {
     expect((resume!.action as { payload?: Record<string, unknown> }).payload).toEqual({ linkId: "l2" });
   });
 
+  test("every History (terminal) row gets a Re-run button; active rows get none", () => {
+    const data: DashboardData = {
+      proposals: [
+        // One of each terminal status → each gets its own Re-run button.
+        proposalView({ id: "p-done", status: "done", title: "Done one" }),
+        proposalView({ id: "p-failed", status: "failed", title: "Failed one" }),
+        proposalView({ id: "p-dismissed", status: "dismissed", title: "Dismissed one" }),
+        proposalView({ id: "p-cancelled", status: "cancelled", title: "Cancelled one" }),
+        // Active rows must NOT get a Re-run button (the card is still busy /
+        // the pending row already awaits its own decision).
+        proposalView({ id: "p-pending", status: "pending", title: "Pending one" }),
+        proposalView({ id: "p-running", status: "running", title: "Running one" }),
+      ],
+      boards: [
+        { linkId: "l1", boardTitle: "Roadmap", boardUrl: "u", enabled: true, lastPolledAt: null, lastError: null },
+      ],
+    };
+    const tree = buildDashboard(data);
+    const collect: Array<Record<string, unknown>> = [];
+    const walk = (nodes: unknown[]) => {
+      for (const n of nodes) {
+        const node = n as Record<string, unknown>;
+        if (node.type === "button" && (node.action as { event?: string })?.event === RERUN_EVENT) {
+          collect.push(node);
+        }
+        if (Array.isArray(node.nodes)) walk(node.nodes as unknown[]);
+      }
+    };
+    walk(tree.nodes);
+    // Exactly one Re-run button per TERMINAL proposal, carrying its id.
+    expect(
+      collect.map((b) => (b.action as { payload?: { proposalId?: string } }).payload?.proposalId).sort(),
+    ).toEqual(["p-cancelled", "p-dismissed", "p-done", "p-failed"]);
+    // Confirm-gated (re-running queues real work) + labeled with the ticket.
+    const done = collect.find(
+      (b) => (b.action as { payload?: { proposalId?: string } }).payload?.proposalId === "p-done",
+    )!;
+    expect(done.label).toContain('Re-run "Done one"');
+    expect((done.action as { confirm?: string }).confirm).toContain("fresh proposal");
+  });
+
   test("an enabled board renders a Poll-now button; a paused board does not", () => {
     const enabled = buildDashboard({
       proposals: [],
@@ -369,6 +412,22 @@ describe("page-action handlers", () => {
     await handleDismiss(actionEvent({ proposalId: "p2" }));
     expect(rpcCalls.some((c) => c.method === RPC.dismiss && c.params.proposalId === "p2")).toBe(true);
     expect(pushes.length).toBe(1);
+  });
+
+  test("rerun calls the rerun verb with the proposal id then pushes a refreshed page", async () => {
+    rpcResponse = { proposals: [], boards: [] };
+    await handleRerun(actionEvent({ proposalId: "p-done" }));
+    expect(rpcCalls.some((c) => c.method === RPC.rerun && c.params.proposalId === "p-done")).toBe(true);
+    // dashboard-data re-pull + a push (the new pending row renders).
+    expect(rpcCalls.some((c) => c.method === RPC.dashboardData)).toBe(true);
+    expect(pushes.length).toBe(1);
+    expect(pushes[0]!.pageId).toBe(PAGE_ID);
+  });
+
+  test("rerun is a no-op without a proposalId", async () => {
+    await handleRerun(actionEvent({}));
+    expect(rpcCalls.length).toBe(0);
+    expect(pushes.length).toBe(0);
   });
 
   test("pause + resume call their verbs + push", async () => {

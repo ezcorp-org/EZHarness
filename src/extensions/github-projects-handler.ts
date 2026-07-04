@@ -41,6 +41,7 @@
  *     dashboard-data({})                    → { proposals, boards }
  *     approve({ proposalId })               → { ok, status }
  *     dismiss({ proposalId })               → { ok, status }
+ *     rerun({ proposalId })                 → { ok, status, proposalId }  (the NEW pending row)
  *     pause({ linkId })                     → { ok, enabled: false }
  *     resume({ linkId })                    → { ok, enabled: true }
  */
@@ -56,6 +57,7 @@ import { insertAuditEntry } from "../db/queries/audit-log";
 import {
   GITHUB_ACTIVE_STATUSES,
   GITHUB_TERMINAL_STATUSES,
+  GITHUB_PROJECTS_EVENT,
   type GithubAuth,
   type GithubBoardItem,
   type GithubProjectsRpcVerb,
@@ -63,7 +65,14 @@ import {
 import { createGithubClient } from "../integrations/github-projects/client";
 import { getGithubProjectsDaemon } from "../integrations/github-projects/daemon";
 import { resolveLinkAuth } from "../integrations/github-projects/auth";
-import { approveProposal, dismissProposal } from "../integrations/github-projects/spawn";
+import { getGithubProjectsEmit } from "../integrations/github-projects/bus-registry";
+import {
+  approveProposal,
+  dismissProposal,
+  rerunProposal,
+  GithubProposalNotRerunnableError,
+  GithubCardBusyError,
+} from "../integrations/github-projects/spawn";
 import {
   getLinkById,
   getProposalById,
@@ -221,6 +230,8 @@ export async function handleGithubProjectsRpc(
       return handleApprove(req, params, ctx);
     case "dismiss":
       return handleDismiss(req, params, ctx);
+    case "rerun":
+      return handleRerun(req, params, ctx);
     case "pause":
       return handleSetEnabled(req, params, ctx, false);
     case "resume":
@@ -606,6 +617,42 @@ async function handleDismiss(
     return rpcResult(req.id, { ok: true, status: updated.status });
   } catch (err) {
     return rpcError(req.id, -32603, `dismiss failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * rerun — verify the user owns the proposal's link (same opaque guard as
+ * approve/dismiss), then create a fresh PENDING proposal from a TERMINAL one
+ * via the spawn bridge. NO run is spawned here — the normal approval gate
+ * applies to the new row. The two typed spawn-bridge errors surface as clear
+ * -32602 client errors (not-terminal names the actual status; a busy card
+ * says so); anything else is an opaque -32603. Emits the proposal-update
+ * event so every dashboard (Hub + web) refreshes with the new pending row.
+ */
+async function handleRerun(
+  req: JsonRpcRequest,
+  params: Record<string, unknown>,
+  ctx: GithubProjectsContext,
+): Promise<JsonRpcResponse> {
+  const guard = await guardProposalOwnership(req, params, ctx);
+  if (!guard.ok) return guard.errorResponse;
+  try {
+    const fresh = await rerunProposal(guard.proposal.id, {
+      kind: "user",
+      userId: guard.userId,
+    });
+    await writeAudit(AUDIT_CONTROL, ctx, {
+      verb: "rerun",
+      proposalId: guard.proposal.id,
+      newProposalId: fresh.id,
+    });
+    getGithubProjectsEmit()?.(GITHUB_PROJECTS_EVENT, { projectId: fresh.projectId });
+    return rpcResult(req.id, { ok: true, status: fresh.status, proposalId: fresh.id });
+  } catch (err) {
+    if (err instanceof GithubProposalNotRerunnableError || err instanceof GithubCardBusyError) {
+      return rpcError(req.id, -32602, err.message);
+    }
+    return rpcError(req.id, -32603, `rerun failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

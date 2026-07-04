@@ -233,6 +233,100 @@ test.describe("GitHub Projects Hub", () => {
 		await expect(page.getByText("Spawned")).toBeVisible();
 	});
 
+	test("Re-run on a done History row queues a fresh pending proposal @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		await mockApi({ projects: [proj] });
+
+		// A History tree: a done row with a Re-run button. After the re-run RPC
+		// the fresh tree carries a NEW pending proposal awaiting the NORMAL
+		// approval gate (Approve button — never auto-spawned).
+		const state: { phase: "done" | "rerun-pending"; rerunBody?: unknown } = { phase: "done" };
+		function historyTree(phase: "done" | "rerun-pending") {
+			return {
+				id: HUB_PAGE_ID,
+				title: "GitHub Proposals",
+				nodes: [
+					...(phase === "rerun-pending"
+						? [
+								{ type: "heading", level: 2, text: "Active proposals" },
+								{
+									type: "section",
+									title: "Implement login (re-run)",
+									nodes: [
+										{ type: "status", label: "Awaiting approval", state: "warning" },
+										{
+											type: "button",
+											label: "Approve",
+											style: "primary",
+											action: {
+												event: "github-projects:approve",
+												payload: { proposalId: "prop-2" },
+											},
+										},
+									],
+								},
+							]
+						: []),
+					{ type: "heading", level: 2, text: "History" },
+					{
+						type: "table",
+						columns: ["Ticket", "Status"],
+						rows: [{ cells: ["Implement login", "✓ done"] }],
+					},
+					{
+						type: "button",
+						label: 'Re-run "Implement login"',
+						style: "secondary",
+						action: {
+							event: "github-projects:rerun",
+							payload: { proposalId: "prop-done-1" },
+						},
+					},
+				],
+			};
+		}
+
+		await page.route("**/api/hub/pages", (route) =>
+			route.fulfill({
+				json: { pages: [{ id: HUB_PAGE_ID, title: "GitHub Proposals", icon: "github" }] },
+			}),
+		);
+		await page.route(`**/api/hub/pages/${encodeURIComponent(HUB_PAGE_ID)}`, (route) =>
+			route.fulfill({ json: { page: historyTree(state.phase) } }),
+		);
+		// Re-run action → the fresh tree (new pending row) comes back inline. The
+		// Hub strips the `github-projects:` prefix, so the URL suffix is `rerun`.
+		await page.route("**/api/extensions/github-projects/events/rerun", (route) => {
+			state.rerunBody = route.request().postDataJSON();
+			state.phase = "rerun-pending";
+			return route.fulfill({ json: { ok: true, page: historyTree("rerun-pending") } });
+		});
+
+		await page.goto(`/hub/${encodeURIComponent(HUB_PAGE_ID)}`);
+		await expect(page.getByTestId("hub-page-title")).toContainText("GitHub Proposals");
+		await expect(page.getByText("✓ done")).toBeVisible();
+
+		// Click Re-run → the rerun event POSTs with the source proposal's id.
+		const rerunPost = page.waitForRequest(
+			(req) =>
+				req.method() === "POST" &&
+				req.url().includes("/api/extensions/github-projects/events/rerun"),
+		);
+		await page.getByRole("button", { name: 'Re-run "Implement login"' }).click();
+		const req = await rerunPost;
+		expect(req.postDataJSON()).toMatchObject({ payload: { proposalId: "prop-done-1" } });
+		expect(state.rerunBody).toMatchObject({ payload: { proposalId: "prop-done-1" } });
+
+		// A NEW pending row renders — queued for the normal approval gate (the
+		// done History row stays put; nothing auto-spawned).
+		await expect(page.getByText("Awaiting approval")).toBeVisible();
+		await expect(page.getByRole("button", { name: "Approve" })).toBeVisible();
+		await expect(page.getByText("✓ done")).toBeVisible();
+		await captureEvidence(page, testInfo, "github-projects-rerun-pending");
+	});
+
 	test("connect sub-route AND Hub page visual evidence @evidence", async ({
 		page,
 		mockApi,

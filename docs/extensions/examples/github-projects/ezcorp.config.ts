@@ -252,6 +252,7 @@ export default defineExtension({
     eventSubscriptions: [
       "github-projects:approve",
       "github-projects:dismiss",
+      "github-projects:rerun",
       "github-projects:pause",
       "github-projects:resume",
       "github-projects:poll-now",

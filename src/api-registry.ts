@@ -73,6 +73,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/integrations/github-projects/proposals", description: "List a project's board-move proposals (active + history)", category: "integrations", scope: "extensions" },
   { method: "POST", path: "/api/integrations/github-projects/proposals/:id/approve", description: "Approve a pending proposal — spawn the PDP-gated conversation + run", category: "integrations", scope: "extensions" },
   { method: "POST", path: "/api/integrations/github-projects/proposals/:id/dismiss", description: "Dismiss a pending proposal without spawning", category: "integrations", scope: "extensions" },
+  { method: "POST", path: "/api/integrations/github-projects/proposals/:id/rerun", description: "Re-run a terminal proposal — create a fresh pending proposal for the same card (normal approval gate applies)", category: "integrations", scope: "extensions" },
 
   // Agent Configs
   { method: "GET", path: "/api/agent-configs", description: "List agent configurations", category: "agents" },

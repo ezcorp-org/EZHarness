@@ -417,6 +417,7 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
     eventSubscriptions: [
       "github-projects:approve",
       "github-projects:dismiss",
+      "github-projects:rerun",
       "github-projects:pause",
       "github-projects:resume",
       "github-projects:refresh",

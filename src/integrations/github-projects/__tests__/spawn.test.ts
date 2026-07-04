@@ -20,7 +20,7 @@
  *     failed comment on run:error; cancelled comment on run:cancel; all
  *     best-effort (never block spawn/status update).
  */
-import { test, expect, describe, mock, beforeEach, afterAll } from "bun:test";
+import { test, expect, describe, mock, beforeEach, afterAll, spyOn } from "bun:test";
 import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
 
 afterAll(() => restoreModuleMocks());
@@ -45,6 +45,9 @@ let addConversationExtensionsMock = mock((_cid: string, _entries: unknown) => Pr
 let getExtensionByNameMock = mock((_n: string) => Promise.resolve<unknown>(null));
 let getAgentConfigByNameMock = mock((_n: string) => Promise.resolve<unknown>(undefined));
 let getBriefingRuntimeMock = mock(() => null as unknown);
+let insertProposalIfNewMock = mock((_input: Record<string, unknown>) =>
+  Promise.resolve<unknown>(null),
+);
 
 // ── Progress mock handles ────────────────────────────────────────────────────
 // All four progress side-effect helpers are stubbed via mock.module so that
@@ -72,7 +75,7 @@ function installMocks(): void {
     claimProposal: (id: string, from: readonly string[], patch: Record<string, unknown>) =>
       claimProposalMock(id, from, patch),
     listEnabledLinks: () => Promise.resolve([]),
-    insertProposalIfNew: () => Promise.resolve(null),
+    insertProposalIfNew: (input: Record<string, unknown>) => insertProposalIfNewMock(input),
     updateLinkPollState: () => Promise.resolve(),
   }));
   mock.module("../../../db/queries/conversations", () => ({
@@ -128,12 +131,15 @@ installMocks();
 const {
   approveProposal,
   dismissProposal,
+  rerunProposal,
   toRuntimePermissionMode,
   parseSpawnPermissionMode,
   buildRunPrompt,
   parseDefaultModel,
   GithubProposalCapExceededError,
   GithubProposalNotPendingError,
+  GithubProposalNotRerunnableError,
+  GithubCardBusyError,
   DEFAULT_PROJECT_CONCURRENCY_CAP,
 } = await import("../spawn");
 
@@ -222,6 +228,9 @@ beforeEach(() => {
   getExtensionByNameMock = mock((_n: string) => Promise.resolve<unknown>(null));
   getAgentConfigByNameMock = mock((_n: string) => Promise.resolve<unknown>(undefined));
   getBriefingRuntimeMock = mock(() => null as unknown);
+  insertProposalIfNewMock = mock((_input: Record<string, unknown>) =>
+    Promise.resolve<unknown>(null),
+  );
   // Reset progress mock handles.
   postTicketCommentMock = mock((_l: unknown, _p: unknown, _b: string) => Promise.resolve(true));
   moveCardOnDoneMock = mock((_l: unknown, _p: unknown, _c: unknown) => Promise.resolve(false));
@@ -1146,5 +1155,163 @@ describe("dismissProposal", () => {
     const attempt = dismissProposal("prop-1", "u-1");
     await expect(attempt).rejects.toBeInstanceOf(GithubProposalNotPendingError);
     await expect(attempt).rejects.toThrow("Proposal is not pending (status: running)");
+  });
+});
+
+// ── rerunProposal ────────────────────────────────────────────────────────────
+
+/** A FULL terminal proposal row (all the ticket fields rerun must carry over). */
+function terminalProposal(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: "prop-src",
+    projectId: "proj-REAL",
+    linkId: "link-1",
+    itemNodeId: "PVTI_item1",
+    contentNodeId: "I_issue1",
+    statusOptionId: "opt-doing",
+    statusName: "Doing",
+    action: "plan",
+    title: "Fix the bug",
+    ticketUrl: "https://github.com/x/1",
+    status: "done",
+    ...over,
+  };
+}
+
+/** Arm the mocks for a successful rerun: the source row + a passing insert. */
+function armRerun(over: Record<string, unknown> = {}): void {
+  getProposalByIdMock = mock((_id: string) => Promise.resolve(terminalProposal(over)));
+  insertProposalIfNewMock = mock((input: Record<string, unknown>) =>
+    Promise.resolve<unknown>({ id: "prop-new", ...input }),
+  );
+  installMocks();
+}
+
+describe("rerunProposal — terminal-only matrix", () => {
+  const TERMINAL = ["done", "failed", "dismissed", "cancelled"] as const;
+  const ACTIVE = ["pending", "approved", "spawned", "running"] as const;
+
+  for (const status of TERMINAL) {
+    test(`a ${status} proposal re-runs: fresh PENDING row inserted + returned`, async () => {
+      armRerun({ status });
+      const fresh = await rerunProposal("prop-src", { kind: "user", userId: "u-7" });
+      expect(insertProposalIfNewMock).toHaveBeenCalledTimes(1);
+      expect((fresh as { id: string }).id).toBe("prop-new");
+      expect((fresh as { status: string }).status).toBe("pending");
+    });
+  }
+
+  for (const status of ACTIVE) {
+    test(`a ${status} proposal rejects typed (message names the status), no insert`, async () => {
+      armRerun({ status });
+      const attempt = rerunProposal("prop-src", { kind: "user", userId: "u-7" });
+      await expect(attempt).rejects.toBeInstanceOf(GithubProposalNotRerunnableError);
+      await expect(attempt).rejects.toThrow(`Proposal is not re-runnable (status: ${status})`);
+      expect(insertProposalIfNewMock).not.toHaveBeenCalled();
+    });
+  }
+
+  test("a missing proposal throws not-found (no insert)", async () => {
+    getProposalByIdMock = mock((_id: string) => Promise.resolve(null));
+    installMocks();
+    await expect(rerunProposal("nope", { kind: "user", userId: "u-1" }))
+      .rejects.toThrow("proposal nope not found");
+    expect(insertProposalIfNewMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("rerunProposal — busy card + no auto-approve", () => {
+  test("insertProposalIfNew → null (card holds an active proposal) rejects typed", async () => {
+    getProposalByIdMock = mock((_id: string) => Promise.resolve(terminalProposal()));
+    insertProposalIfNewMock = mock((_input: Record<string, unknown>) =>
+      Promise.resolve<unknown>(null),
+    );
+    installMocks();
+    const attempt = rerunProposal("prop-src", { kind: "user", userId: "u-1" });
+    await expect(attempt).rejects.toBeInstanceOf(GithubCardBusyError);
+    await expect(attempt).rejects.toThrow("Card already has an active proposal");
+  });
+
+  test("NO auto-approve: the new row stays pending — no claim, no conversation, no run", async () => {
+    armRerun();
+    const fresh = await rerunProposal("prop-src", { kind: "user", userId: "u-1" });
+    expect((fresh as { status: string }).status).toBe("pending");
+    // The approval gate is untouched: nothing spawned, nothing claimed, and the
+    // runtime registry was never even consulted.
+    expect(claimProposalMock).not.toHaveBeenCalled();
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(getBriefingRuntimeMock).not.toHaveBeenCalled();
+    // No spawn stamps on the insert (decidedBy/agentRunId absent).
+    const input = insertProposalIfNewMock.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input.status).toBe("pending");
+    expect("agentRunId" in input).toBe(false);
+    expect("decidedByUserId" in input).toBe(false);
+    expect("decidedAt" in input).toBe(false);
+  });
+});
+
+describe("rerunProposal — fresh-row fields + actor stamping", () => {
+  test("the fresh row preserves every ticket field + stamps the daemon-format dedupeKey", async () => {
+    armRerun({ status: "failed" });
+    await rerunProposal("prop-src", { kind: "user", userId: "u-1" });
+    const input = insertProposalIfNewMock.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input).toEqual({
+      projectId: "proj-REAL",
+      linkId: "link-1",
+      itemNodeId: "PVTI_item1",
+      contentNodeId: "I_issue1",
+      statusOptionId: "opt-doing",
+      statusName: "Doing",
+      action: "plan",
+      title: "Fix the bug",
+      ticketUrl: "https://github.com/x/1",
+      // Fresh provenance stamp in the daemon's exact `${projectId}:${item}:
+      // ${column}:${action}` format.
+      dedupeKey: "proj-REAL:PVTI_item1:opt-doing:plan",
+      status: "pending",
+    });
+  });
+
+  /**
+   * spawn.ts's module-level `log` was bound to the REAL logger at preload
+   * time (the daemon → spawn eager-import chain materializes spawn before
+   * this file's logger mock registers), so the actor stamp is asserted at
+   * the logger's real sink: a captured `process.stdout.write`. The
+   * `EZCORP_DEBUG` subsystem raise guarantees the info line passes the
+   * threshold regardless of the ambient `LOG_LEVEL`. Spy restored in
+   * `finally` (the prototype-spy-leak rule).
+   */
+  async function captureRerunLogLine(actor: Parameters<typeof rerunProposal>[1]) {
+    const lines: string[] = [];
+    const prevDebug = process.env.EZCORP_DEBUG;
+    process.env.EZCORP_DEBUG = "ext.github-projects";
+    const spy = spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      lines.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      armRerun();
+      await rerunProposal("prop-src", actor);
+    } finally {
+      spy.mockRestore();
+      if (prevDebug === undefined) delete process.env.EZCORP_DEBUG;
+      else process.env.EZCORP_DEBUG = prevDebug;
+    }
+    const raw = lines.find((l) => l.includes("re-run queued"));
+    return raw ? (JSON.parse(raw) as Record<string, unknown>) : undefined;
+  }
+
+  test("a user actor is stamped into the re-run log line", async () => {
+    const line = await captureRerunLogLine({ kind: "user", userId: "u-7" });
+    expect(line?.level).toBe("info");
+    expect(line?.subsystem).toBe("ext.github-projects.spawn");
+    expect(line?.sourceProposalId).toBe("prop-src");
+    expect(line?.newProposalId).toBe("prop-new");
+    expect(line?.actor).toBe("u-7");
+  });
+
+  test("an auto actor is stamped as 'auto'", async () => {
+    const line = await captureRerunLogLine({ kind: "auto" });
+    expect(line?.actor).toBe("auto");
   });
 });

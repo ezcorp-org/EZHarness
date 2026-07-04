@@ -19,7 +19,7 @@ import {
 mockServerAlias();
 
 // Generated SvelteKit `$types` modules don't exist under bun:test — stub them.
-for (const seg of ["connect", "link", "link/refresh-columns", "proposals", "proposals/[id]/approve", "proposals/[id]/dismiss"]) {
+for (const seg of ["connect", "link", "link/refresh-columns", "proposals", "proposals/[id]/approve", "proposals/[id]/dismiss", "proposals/[id]/rerun"]) {
   mock.module(
     `../../../../../../../web/src/routes/api/integrations/github-projects/${seg}/$types`,
     () => ({}),
@@ -86,6 +86,7 @@ const deleteLinkCalls: string[] = [];
 const cancelActiveCalls: string[] = [];
 const approveCalls: Array<{ id: string; actor: any }> = [];
 const dismissCalls: Array<{ id: string; userId: string }> = [];
+const rerunCalls: Array<{ id: string; actor: any }> = [];
 const emitCalls: Array<{ event: string; payload: any }> = [];
 
 // Client behaviour toggles.
@@ -113,6 +114,19 @@ let approveImpl: (id: string, actor: any) => Promise<any> = async (id) => ({
 let dismissImpl: (id: string, userId: string) => Promise<any> = async (id) => ({
   ...proposalsById[id],
   status: "dismissed",
+});
+// Default: the bridge returns a FRESH pending row for the same card (new id,
+// no decision/run stamps) — mirroring rerunProposal's real contract.
+let rerunImpl: (id: string, actor: any) => Promise<any> = async (id) => ({
+  ...proposalsById[id],
+  id: "p-new",
+  status: "pending",
+  conversationId: null,
+  agentRunId: null,
+  decidedAt: null,
+  decidedByUserId: null,
+  finishedAt: null,
+  error: null,
 });
 
 mock.module("$server/db/queries/projects", () => ({
@@ -177,15 +191,27 @@ mock.module("$server/integrations/github-projects/client", () => ({
   }),
 }));
 
-// Mirrors spawn.ts's class so the routes' instanceof → 409 mapping is testable.
+// Mirrors spawn.ts's classes so the routes' instanceof → 409 mapping is testable.
 class GithubProposalNotPendingError extends Error {
   constructor(status: string) {
     super(`Proposal is not pending (status: ${status})`);
   }
 }
+class GithubProposalNotRerunnableError extends Error {
+  constructor(status: string) {
+    super(`Proposal is not re-runnable (status: ${status})`);
+  }
+}
+class GithubCardBusyError extends Error {
+  constructor() {
+    super("Card already has an active proposal");
+  }
+}
 
 mock.module("$server/integrations/github-projects/spawn", () => ({
   GithubProposalNotPendingError,
+  GithubProposalNotRerunnableError,
+  GithubCardBusyError,
   approveProposal: async (id: string, actor: any) => {
     approveCalls.push({ id, actor });
     return approveImpl(id, actor);
@@ -193,6 +219,10 @@ mock.module("$server/integrations/github-projects/spawn", () => ({
   dismissProposal: async (id: string, userId: string) => {
     dismissCalls.push({ id, userId });
     return dismissImpl(id, userId);
+  },
+  rerunProposal: async (id: string, actor: any) => {
+    rerunCalls.push({ id, actor });
+    return rerunImpl(id, actor);
   },
 }));
 
@@ -268,6 +298,9 @@ const { POST: approve } = await import(
 const { POST: dismiss } = await import(
   "../../../../../../../web/src/routes/api/integrations/github-projects/proposals/[id]/dismiss/+server"
 );
+const { POST: rerun } = await import(
+  "../../../../../../../web/src/routes/api/integrations/github-projects/proposals/[id]/rerun/+server"
+);
 
 afterAll(() => restoreModuleMocks());
 
@@ -290,6 +323,7 @@ beforeEach(() => {
   cancelActiveCalls.length = 0;
   approveCalls.length = 0;
   dismissCalls.length = 0;
+  rerunCalls.length = 0;
   emitCalls.length = 0;
   resolveAuthThrows = false;
   resolveAuthCalls.length = 0;
@@ -311,6 +345,17 @@ beforeEach(() => {
     agentRunId: "run-1",
   });
   dismissImpl = async (id) => ({ ...proposalsById[id], status: "dismissed" });
+  rerunImpl = async (id) => ({
+    ...proposalsById[id],
+    id: "p-new",
+    status: "pending",
+    conversationId: null,
+    agentRunId: null,
+    decidedAt: null,
+    decidedByUserId: null,
+    finishedAt: null,
+    error: null,
+  });
 });
 
 function ev(opts: { method?: string; body?: unknown; url?: string; params?: Record<string, string>; user?: typeof MEMBER_USER | null } = {}) {
@@ -1233,6 +1278,108 @@ describe("POST proposals/:id/dismiss", () => {
   test("missing user → 401", async () => {
     const res = await run(dismiss, ev({ method: "POST", params: { id: "p1" }, user: null }));
     expect(res.status).toBe(401);
+  });
+});
+
+describe("POST proposals/:id/rerun", () => {
+  /** Seed p1 as a TERMINAL (done) proposal — the re-runnable default. */
+  beforeEach(() => {
+    proposalsById = { "p1": { id: "p1", projectId: "proj-1", status: "done", linkId: "l", itemNodeId: "i", statusOptionId: "o", statusName: "D", action: "plan", title: "T", ticketUrl: "https://github.com/x/1", conversationId: "c-old", agentRunId: "r-old", proposedAt: new Date(0), decidedAt: new Date(0), decidedByUserId: "u", finishedAt: new Date(0), error: null } };
+  });
+
+  test("re-runs a done proposal: 200 with the NEW pending proposal view, user actor, emits", async () => {
+    const res = await run(rerun, ev({ method: "POST", params: { id: "p1" } }));
+    expect(res.status).toBe(200);
+    expect(rerunCalls).toEqual([{ id: "p1", actor: { kind: "user", userId: MEMBER_USER.id } }]);
+    const body = await res.json();
+    // The response is the FRESH pending row (new id, ticket fields carried,
+    // no decision/run stamps) — not the terminal source.
+    expect(body.proposal.id).toBe("p-new");
+    expect(body.proposal.status).toBe("pending");
+    expect(body.proposal.title).toBe("T");
+    expect(body.proposal.ticketUrl).toBe("https://github.com/x/1");
+    expect(body.proposal.conversationId).toBeNull();
+    expect(body.proposal.agentRunId).toBeNull();
+    expect(body.proposal.decidedByUserId).toBeNull();
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0]!.payload).toEqual({ projectId: "proj-1" });
+  });
+
+  test("every terminal status is re-runnable (failed / dismissed / cancelled)", async () => {
+    for (const status of ["failed", "dismissed", "cancelled"]) {
+      rerunCalls.length = 0;
+      proposalsById["p1"].status = status;
+      const res = await run(rerun, ev({ method: "POST", params: { id: "p1" } }));
+      expect(res.status).toBe(200);
+      expect(rerunCalls).toHaveLength(1);
+    }
+  });
+
+  test("every ACTIVE status is a 409 fast-path (no bridge call, no emit)", async () => {
+    for (const status of ["pending", "approved", "spawned", "running"]) {
+      proposalsById["p1"].status = status;
+      const res = await run(rerun, ev({ method: "POST", params: { id: "p1" } }));
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.error).toContain(`still ${status}`);
+    }
+    expect(rerunCalls).toHaveLength(0);
+    expect(emitCalls).toHaveLength(0);
+  });
+
+  test("busy card (typed throw past the fast-path) → 409 with the clear message", async () => {
+    rerunImpl = async () => { throw new GithubCardBusyError(); };
+    const res = await run(rerun, ev({ method: "POST", params: { id: "p1" } }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe("Card already has an active proposal");
+    expect(emitCalls).toHaveLength(0);
+  });
+
+  test("lost race (typed not-rerunnable past the fast-path) → 409 naming the status", async () => {
+    rerunImpl = async () => { throw new GithubProposalNotRerunnableError("running"); };
+    const res = await run(rerun, ev({ method: "POST", params: { id: "p1" } }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe("Proposal is not re-runnable (status: running)");
+  });
+
+  test("missing proposal → 404 (opaque)", async () => {
+    const res = await run(rerun, ev({ method: "POST", params: { id: "nope" } }));
+    expect(res.status).toBe(404);
+    expect(rerunCalls).toHaveLength(0);
+  });
+
+  test("proposal in a deleted project → 404", async () => {
+    proposalsById["p1"].projectId = "ghost";
+    const res = await run(rerun, ev({ method: "POST", params: { id: "p1" } }));
+    expect(res.status).toBe(404);
+  });
+
+  test("missing :id param → 404", async () => {
+    const res = await run(rerun, ev({ method: "POST", params: {} }));
+    expect(res.status).toBe(404);
+  });
+
+  test("missing user → 401", async () => {
+    const res = await run(rerun, ev({ method: "POST", params: { id: "p1" }, user: null }));
+    expect(res.status).toBe(401);
+    expect(rerunCalls).toHaveLength(0);
+  });
+
+  test("scope denied → 403", async () => {
+    scopeResponse = new Response("{}", { status: 403 });
+    const res = await run(rerun, ev({ method: "POST", params: { id: "p1" } }));
+    expect(res.status).toBe(403);
+  });
+
+  test("untyped bridge throw → 500", async () => {
+    rerunImpl = async () => { throw new Error("db down"); };
+    const res = await run(rerun, ev({ method: "POST", params: { id: "p1" } }));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe("Failed to re-run proposal");
+    expect(emitCalls).toHaveLength(0);
   });
 });
 

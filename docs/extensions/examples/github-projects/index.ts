@@ -10,7 +10,7 @@
 //   - definePage("dashboard") — pulls `ezcorp/github-projects.dashboard-data`
 //     (the VIEWING USER's proposals + per-board health) and builds the Hub
 //     tree: Active Work, History, and Connection Health sections with
-//     Approve / Dismiss / Pause / Resume / Reconnect actions.
+//     Approve / Dismiss / Re-run / Pause / Resume / Reconnect actions.
 //   - Live refresh — re-render on the daemon's `github-projects:proposal-update`
 //     and on `task:assignment_update` / `run:complete` (a proposal's run moved).
 //
@@ -46,6 +46,7 @@ export const PAGE_ID = "dashboard";
 // `permissions.eventSubscriptions`.
 export const APPROVE_EVENT = "github-projects:approve";
 export const DISMISS_EVENT = "github-projects:dismiss";
+export const RERUN_EVENT = "github-projects:rerun";
 export const PAUSE_EVENT = "github-projects:pause";
 export const RESUME_EVENT = "github-projects:resume";
 export const POLL_NOW_EVENT = "github-projects:poll-now";
@@ -65,6 +66,7 @@ export const RPC = {
   dashboardData: m("dashboard-data"),
   approve: m("approve"),
   dismiss: m("dismiss"),
+  rerun: m("rerun"),
   pause: m("pause"),
   resume: m("resume"),
   pollNow: m("poll-now"),
@@ -342,6 +344,21 @@ export function buildDashboard(data: DashboardData): HubPageTree {
         return href ? { cells, href } : { cells };
       }),
     );
+    // Per-terminal-proposal Re-run buttons (History rows link to their
+    // conversation, and a row carries only one action — so Re-run is a second
+    // surface, mirroring the pending rows' Dismiss buttons). Re-running queues
+    // a FRESH pending proposal through the normal approval gate.
+    for (const p of history) {
+      page.button(
+        `Re-run "${p.title || p.id.slice(0, 8)}"`,
+        {
+          event: RERUN_EVENT,
+          payload: { proposalId: p.id },
+          confirm: `Re-run "${p.title || p.id.slice(0, 8)}"? This queues a fresh proposal for approval.`,
+        },
+        "secondary",
+      );
+    }
   }
 
   // ── Connection Health ──────────────────────────────────────────────
@@ -444,6 +461,11 @@ export async function handleDismiss(event: PageActionEvent): Promise<void> {
   if (proposalId) await controlThenRefresh(RPC.dismiss, { proposalId });
 }
 
+export async function handleRerun(event: PageActionEvent): Promise<void> {
+  const proposalId = reqString(event.payload?.proposalId);
+  if (proposalId) await controlThenRefresh(RPC.rerun, { proposalId });
+}
+
 export async function handlePause(event: PageActionEvent): Promise<void> {
   const linkId = reqString(event.payload?.linkId);
   if (linkId) await controlThenRefresh(RPC.pause, { linkId });
@@ -477,6 +499,7 @@ export function register(): void {
     actions: {
       [APPROVE_EVENT]: handleApprove,
       [DISMISS_EVENT]: handleDismiss,
+      [RERUN_EVENT]: handleRerun,
       [PAUSE_EVENT]: handlePause,
       [RESUME_EVENT]: handleResume,
       [POLL_NOW_EVENT]: handlePollNow,

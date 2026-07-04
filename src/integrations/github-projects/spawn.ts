@@ -46,8 +46,13 @@ import {
   countActiveProposalsForProject,
   updateProposal,
   claimProposal,
+  insertProposalIfNew,
 } from "../../db/queries/github-projects";
-import { GITHUB_ACTIVE_STATUSES } from "./types";
+import {
+  GITHUB_ACTIVE_STATUSES,
+  GITHUB_TERMINAL_STATUSES,
+  githubProposalDedupeKey,
+} from "./types";
 import { createConversation } from "../../db/queries/conversations";
 import { addConversationExtensions } from "../../db/queries/conversation-extensions";
 import { getExtensionByName } from "../../db/queries/extensions";
@@ -85,6 +90,32 @@ export class GithubProposalCapExceededError extends Error {}
 export class GithubProposalNotPendingError extends Error {
   constructor(status: string) {
     super(`Proposal is not pending (status: ${status})`);
+  }
+}
+
+/**
+ * Thrown by `rerunProposal` when the source proposal is not TERMINAL yet —
+ * only a finished (done/failed/dismissed/cancelled) proposal can seed a fresh
+ * run; an active one is still the card's single in-flight proposal. The RPC
+ * handler and web route surface the message verbatim, so it names the actual
+ * status (mirrors `GithubProposalNotPendingError`'s style).
+ */
+export class GithubProposalNotRerunnableError extends Error {
+  constructor(status: string) {
+    super(`Proposal is not re-runnable (status: ${status})`);
+  }
+}
+
+/**
+ * Thrown by `rerunProposal` when the card already holds an ACTIVE proposal —
+ * `insertProposalIfNew` lost to the partial unique index
+ * `idx_gh_proposals_active_item` (≤1 active proposal per (link, card)), e.g.
+ * a re-entry trigger or a concurrent re-run beat us. Operator-readable; the
+ * RPC handler and web route surface the message verbatim.
+ */
+export class GithubCardBusyError extends Error {
+  constructor() {
+    super("Card already has an active proposal");
   }
 }
 
@@ -386,6 +417,64 @@ export async function dismissProposal(
   });
   if (!dismissed) throw await notPendingError(proposalId);
   return dismissed;
+}
+
+/**
+ * Re-run a TERMINAL proposal (Hub/API): insert a fresh PENDING proposal for
+ * the same card + trigger, going through the NORMAL approval gate — this
+ * never spawns a run itself (no auto-approve). The single-active-per-card
+ * partial unique index makes the insert atomic vs. races: a concurrent
+ * re-run / re-entry trigger loses cleanly (`insertProposalIfNew` → null).
+ *
+ * Throws `GithubProposalNotRerunnableError` when the source proposal is not
+ * terminal (done/failed/dismissed/cancelled) — the message names the actual
+ * status — and `GithubCardBusyError` when the card already holds an active
+ * proposal. Returns the NEW pending proposal row.
+ */
+export async function rerunProposal(
+  proposalId: string,
+  actor: ProposalActor,
+): Promise<GithubProjectsProposal> {
+  const proposal = await getProposalById(proposalId);
+  if (!proposal) throw new Error(`github-projects: proposal ${proposalId} not found`);
+  if (!GITHUB_TERMINAL_STATUSES.includes(proposal.status)) {
+    throw new GithubProposalNotRerunnableError(proposal.status);
+  }
+
+  // Fresh provenance stamp in the daemon's exact format (projectId:item:
+  // column:action). The key is no longer unique — the partial index below is
+  // the real guard — but every insert records how/where it was triggered.
+  const dedupeKey = githubProposalDedupeKey(
+    proposal.projectId,
+    proposal.itemNodeId,
+    proposal.statusOptionId,
+    proposal.action,
+  );
+
+  // The A-index (idx_gh_proposals_active_item) arbitrates atomically: null ⇒
+  // some other path (re-entry trigger, concurrent re-run) already holds the
+  // card's single active slot.
+  const inserted = await insertProposalIfNew({
+    projectId: proposal.projectId,
+    linkId: proposal.linkId,
+    itemNodeId: proposal.itemNodeId,
+    contentNodeId: proposal.contentNodeId,
+    statusOptionId: proposal.statusOptionId,
+    statusName: proposal.statusName,
+    action: proposal.action,
+    title: proposal.title,
+    ticketUrl: proposal.ticketUrl,
+    dedupeKey,
+    status: "pending",
+  });
+  if (!inserted) throw new GithubCardBusyError();
+
+  log.info("github-projects proposal re-run queued", {
+    sourceProposalId: proposal.id,
+    newProposalId: inserted.id,
+    actor: actor.kind === "user" ? actor.userId : "auto",
+  });
+  return inserted;
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────

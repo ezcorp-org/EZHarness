@@ -114,13 +114,29 @@ mock.module("../../integrations/github-projects/daemon", () => ({
   }),
 }));
 
-// Spawn bridge.
+// Spawn bridge. The two rerun error classes are re-declared here with the
+// SAME shapes so the handler's `instanceof` mapping is drivable from the stub
+// (the mocked module supplies the class objects the handler imports).
+class GithubProposalNotRerunnableError extends Error {
+  constructor(status: string) {
+    super(`Proposal is not re-runnable (status: ${status})`);
+  }
+}
+class GithubCardBusyError extends Error {
+  constructor() {
+    super("Card already has an active proposal");
+  }
+}
 let approveImpl: (id: string, actor: unknown) => Promise<GithubProjectsProposal> = async (id) =>
   ({ id, status: "spawned" } as GithubProjectsProposal);
 let dismissImpl: (id: string, userId: string) => Promise<GithubProjectsProposal> = async (id) =>
   ({ id, status: "dismissed" } as GithubProjectsProposal);
+let rerunImpl: (id: string, actor: unknown) => Promise<GithubProjectsProposal> = async () =>
+  ({ id: "prop-new", projectId: "proj-1", status: "pending" } as GithubProjectsProposal);
 const spawnCalls: Array<{ method: string; args: unknown[] }> = [];
 mock.module("../../integrations/github-projects/spawn", () => ({
+  GithubProposalNotRerunnableError,
+  GithubCardBusyError,
   approveProposal: (id: string, actor: unknown) => {
     spawnCalls.push({ method: "approve", args: [id, actor] });
     return approveImpl(id, actor);
@@ -128,6 +144,10 @@ mock.module("../../integrations/github-projects/spawn", () => ({
   dismissProposal: (id: string, userId: string) => {
     spawnCalls.push({ method: "dismiss", args: [id, userId] });
     return dismissImpl(id, userId);
+  },
+  rerunProposal: (id: string, actor: unknown) => {
+    spawnCalls.push({ method: "rerun", args: [id, actor] });
+    return rerunImpl(id, actor);
   },
 }));
 
@@ -179,7 +199,15 @@ const {
   _setGhTokenResolverForTests,
   _setLinksByUserForTests,
 } = await import("../github-projects-handler");
-const { GITHUB_PROJECTS_RPC_PREFIX } = await import("../../integrations/github-projects/types");
+const { GITHUB_PROJECTS_RPC_PREFIX, GITHUB_PROJECTS_EVENT } = await import(
+  "../../integrations/github-projects/types"
+);
+// The handler emits the proposal-update event through the REAL bus-registry
+// (a plain registration slot — no mock.module needed): install a recorder.
+const { registerGithubProjectsEmit, _resetGithubProjectsEmitForTests } = await import(
+  "../../integrations/github-projects/bus-registry"
+);
+let emitCalls: Array<{ event: string; payload: unknown }> = [];
 
 afterAll(() => {
   // Re-register the REAL github-projects modules so their stubs don't leak into
@@ -334,11 +362,18 @@ beforeEach(() => {
   setLinkEnabledImpl = async () => link({ enabled: false });
   approveImpl = async (id) => ({ id, status: "spawned" } as GithubProjectsProposal);
   dismissImpl = async (id) => ({ id, status: "dismissed" } as GithubProjectsProposal);
+  rerunImpl = async () =>
+    ({ id: "prop-new", projectId: "proj-1", status: "pending" } as GithubProjectsProposal);
+  emitCalls = [];
+  registerGithubProjectsEmit((event, payload) => {
+    emitCalls.push({ event, payload });
+  });
   _setLinksByUserForTests(async () => [link()]);
   _setGhTokenResolverForTests(async () => "gh-cli-token");
 });
 
 afterEach(() => {
+  _resetGithubProjectsEmitForTests();
   _setLinksByUserForTests(null);
   _setGhTokenResolverForTests(null);
 });
@@ -961,6 +996,134 @@ describe("approve / dismiss ownership", () => {
       ctx(),
     );
     expect("error" in res && res.error?.code).toBe(-32603);
+  });
+});
+
+// ── rerun (ownership + typed-error mapping) ──────────────────────────
+
+describe("rerun", () => {
+  test("re-runs a terminal proposal when the user owns the link (new pending row + audit + emit)", async () => {
+    getProposalByIdImpl = async () => proposal({ status: "done" });
+    getLinkByIdImpl = async () => link({ createdByUserId: "user-1" });
+    const res = await handleGithubProjectsRpc(
+      "rerun",
+      req(V("rerun"), { proposalId: "prop-1" }),
+      ctx({ userId: "user-1" }),
+    );
+    expect("result" in res).toBe(true);
+    expect((res as { result: Record<string, unknown> }).result).toEqual({
+      ok: true,
+      status: "pending",
+      proposalId: "prop-new",
+    });
+    // The spawn bridge got the SOURCE proposal id + the acting user.
+    expect(spawnCalls[0]).toEqual({
+      method: "rerun",
+      args: ["prop-1", { kind: "user", userId: "user-1" }],
+    });
+    // Audit row written (control action, both proposal ids in the metadata).
+    expect(auditRows).toHaveLength(1);
+    expect(auditRows[0]!.action).toBe("ext:github-projects:control");
+    expect(auditRows[0]!.userId).toBe("user-1");
+    expect(auditRows[0]!.metadata).toMatchObject({
+      verb: "rerun",
+      proposalId: "prop-1",
+      newProposalId: "prop-new",
+    });
+    // The proposal-update event fired so every dashboard refreshes.
+    expect(emitCalls).toEqual([
+      { event: GITHUB_PROJECTS_EVENT, payload: { projectId: "proj-1" } },
+    ]);
+  });
+
+  test("rerun is opaque (-32603) when the user does NOT own the link — no bridge call, no audit, no emit", async () => {
+    getLinkByIdImpl = async () => link({ createdByUserId: "other-user" });
+    const res = await handleGithubProjectsRpc(
+      "rerun",
+      req(V("rerun"), { proposalId: "prop-1" }),
+      ctx({ userId: "user-1" }),
+    );
+    expect("error" in res && res.error?.code).toBe(-32603);
+    expect("error" in res && res.error?.message).toBe("Proposal not found");
+    expect(spawnCalls.length).toBe(0);
+    expect(auditRows).toHaveLength(0);
+    expect(emitCalls).toHaveLength(0);
+  });
+
+  test("rerun is opaque when the proposal is missing", async () => {
+    getProposalByIdImpl = async () => null;
+    const res = await handleGithubProjectsRpc(
+      "rerun",
+      req(V("rerun"), { proposalId: "nope" }),
+      ctx(),
+    );
+    expect("error" in res && res.error?.code).toBe(-32603);
+    expect(spawnCalls.length).toBe(0);
+  });
+
+  test("rerun requires a proposalId + a viewing user", async () => {
+    const a = await handleGithubProjectsRpc("rerun", req(V("rerun"), {}), ctx());
+    expect("error" in a && a.error?.code).toBe(-32602);
+    const b = await handleGithubProjectsRpc(
+      "rerun",
+      req(V("rerun"), { proposalId: "p" }),
+      ctx({ userId: null }),
+    );
+    expect("error" in b && b.error?.code).toBe(-32602);
+  });
+
+  test("a not-terminal source maps to a clear -32602 naming the status (no audit, no emit)", async () => {
+    rerunImpl = async () => {
+      throw new GithubProposalNotRerunnableError("running");
+    };
+    const res = await handleGithubProjectsRpc(
+      "rerun",
+      req(V("rerun"), { proposalId: "prop-1" }),
+      ctx(),
+    );
+    expect("error" in res && res.error?.code).toBe(-32602);
+    expect("error" in res && res.error?.message).toBe(
+      "Proposal is not re-runnable (status: running)",
+    );
+    expect(auditRows).toHaveLength(0);
+    expect(emitCalls).toHaveLength(0);
+  });
+
+  test("a busy card maps to a clear -32602", async () => {
+    rerunImpl = async () => {
+      throw new GithubCardBusyError();
+    };
+    const res = await handleGithubProjectsRpc(
+      "rerun",
+      req(V("rerun"), { proposalId: "prop-1" }),
+      ctx(),
+    );
+    expect("error" in res && res.error?.code).toBe(-32602);
+    expect("error" in res && res.error?.message).toBe("Card already has an active proposal");
+  });
+
+  test("an untyped bridge throw maps to -32603", async () => {
+    rerunImpl = async () => {
+      throw new Error("db down");
+    };
+    const res = await handleGithubProjectsRpc(
+      "rerun",
+      req(V("rerun"), { proposalId: "prop-1" }),
+      ctx(),
+    );
+    expect("error" in res && res.error?.code).toBe(-32603);
+    expect("error" in res && res.error?.message).toContain("rerun failed");
+  });
+
+  test("rerun still succeeds when no emit is registered (backend-only boot)", async () => {
+    _resetGithubProjectsEmitForTests();
+    const res = await handleGithubProjectsRpc(
+      "rerun",
+      req(V("rerun"), { proposalId: "prop-1" }),
+      ctx(),
+    );
+    expect("result" in res).toBe(true);
+    expect(emitCalls).toHaveLength(0);
   });
 });
 

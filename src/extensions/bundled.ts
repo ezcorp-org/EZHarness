@@ -858,6 +858,7 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
       eventSubscriptions: [
         "github-projects:approve",
         "github-projects:dismiss",
+        "github-projects:rerun",
         "github-projects:pause",
         "github-projects:resume",
         "github-projects:refresh",
