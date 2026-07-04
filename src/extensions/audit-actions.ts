@@ -525,6 +525,18 @@ export const EXT_AUDIT_ACTIONS = {
   /** A stored secret was deleted via the host-side store (`deleteSecret`).
    *  Metadata: `{projectId, name}`. */
   SECRET_DELETED: "ext:secret-deleted",
+  // ── Extension RBAC grants (per-project / per-extension user scopes) ──
+  /** An `extension_rbac_grants` row was created or its scope list replaced
+   *  (`upsertGrant` — the grants API wave writes this row alongside every
+   *  mutation). Metadata: `{actor: <grantorUserId>, targetUserId,
+   *  projectId, extensionId, scopes}` — scope NAMES only, never secret
+   *  material. NULL projectId/extensionId mean the grant covers all
+   *  projects / all extensions (src/auth/extension-rbac.ts). */
+  RBAC_GRANTED: "ext:rbac-granted",
+  /** An `extension_rbac_grants` row was revoked (`deleteGrant`). Metadata
+   *  mirrors RBAC_GRANTED's shape, with `scopes` carrying the PRE-delete
+   *  scope list for the forensic trail. */
+  RBAC_REVOKED: "ext:rbac-revoked",
 } as const;
 
 // Re-export the three Phase 1 PDP action codes as named constants for

@@ -1387,3 +1387,40 @@ export const extensionSecrets = pgTable("extension_secrets", {
 
 export type ExtensionSecret = typeof extensionSecrets.$inferSelect;
 export type NewExtensionSecret = typeof extensionSecrets.$inferInsert;
+
+// ── Extension RBAC grants ──────────────────────────────────────────────
+// Per-user scope grants over the extension system: what the USER may do
+// WITH an extension (invoke it, configure it, write its secrets, approve
+// its runs, manage other users' grants). Complementary to the PDP in
+// src/extensions/permission-engine.ts, which governs what the EXTENSION
+// may do — do not conflate. NULL `project_id` = the grant covers ALL
+// projects; NULL `extension_id` = ALL extensions. `scopes` is a JSONB
+// array of validated scope names (core verbs + extension-declared custom
+// scopes — see src/db/queries/extension-rbac.ts). `extension_id` stores
+// the stable manifest SLUG (FK to extensions.name), NOT the UUID
+// `extensions.id` — the extension_secrets precedent. Admins hold every
+// scope implicitly and need no rows here; non-admin members are
+// deny-by-default (see src/auth/extension-rbac.ts).
+export const extensionRbacGrants = pgTable("extension_rbac_grants", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  extensionId: text("extension_id").references(() => extensions.name, { onDelete: "cascade" }), // stores the stable slug, NOT the UUID id
+  scopes: jsonb("scopes").notNull().$type<string[]>(),
+  grantedByUserId: text("granted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  // WARNING — drizzle-side MIRROR only. The REAL index is the COALESCE form
+  // in src/db/migrate.ts (`… ON extension_rbac_grants (user_id,
+  // COALESCE(project_id,''), COALESCE(extension_id,''))`): a plain UNIQUE
+  // over nullable columns treats every NULL as distinct, so a `drizzle-kit
+  // push` from this definition would install a WEAKER index that allows
+  // duplicate all-projects / all-extensions grant rows for the same user.
+  // Never push this table's DDL from drizzle-kit; migrate.ts is the source
+  // of truth.
+  uniqueIndex("idx_extension_rbac_grants_scope").on(table.userId, table.projectId, table.extensionId),
+]);
+
+export type ExtensionRbacGrant = typeof extensionRbacGrants.$inferSelect;
+export type NewExtensionRbacGrant = typeof extensionRbacGrants.$inferInsert;

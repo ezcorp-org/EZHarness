@@ -124,6 +124,9 @@ describe("extension audit action constants", () => {
       "SECRET_SET",
       "SECRET_USED",
       "SECRET_DELETED",
+      // Extension RBAC grants (per-project / per-extension user scopes)
+      "RBAC_GRANTED",
+      "RBAC_REVOKED",
     ]));
   });
 

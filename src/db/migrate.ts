@@ -1548,6 +1548,31 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
   `);
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_extension_secrets_scope ON extension_secrets (extension_id, COALESCE(project_id,''), COALESCE(user_id,''), name)`);
 
+  // ── Extension RBAC grants (per-user, per-project/per-extension scopes) ──
+  // See src/db/migrations/add-extension-rbac.ts for the rationale. Governs
+  // what a USER may do with an extension (use/configure/secrets/approve-runs/
+  // manage + custom scopes) — complementary to the PDP, which governs what
+  // the EXTENSION may do. NULL project_id/extension_id = all projects/all
+  // extensions. `extension_id` stores the stable manifest SLUG (FK to
+  // extensions.name), NOT the UUID extensions.id. Placed after users /
+  // projects / extensions so all FK targets exist. Idempotent. The
+  // COALESCE-unique scope index treats NULL project/extension as a single
+  // value (a plain UNIQUE would let every NULL collide-free) — so the query
+  // layer uses select-then-write, not ON CONFLICT.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS extension_rbac_grants (
+      id TEXT PRIMARY KEY,
+      user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      project_id   TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      extension_id TEXT REFERENCES extensions(name) ON DELETE CASCADE,
+      scopes JSONB NOT NULL,
+      granted_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_extension_rbac_grants_scope ON extension_rbac_grants (user_id, COALESCE(project_id,''), COALESCE(extension_id,''))`);
+
   // ── GitHub Projects integration (per-project board link + proposal queue) ──
   // See src/db/migrations/add-github-projects.ts for the rationale.
   // `github_projects_links` — an EZCorp project connects to MANY boards (one row

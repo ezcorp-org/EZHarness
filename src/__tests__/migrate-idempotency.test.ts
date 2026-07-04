@@ -50,6 +50,21 @@ describe("migrate() — fresh DB + idempotent re-run", () => {
     expect(await indexNames("extension_secrets")).toContain("idx_extension_secrets_scope");
   });
 
+  test("creates extension_rbac_grants with the COALESCE grant-scope unique index", async () => {
+    expect(await tableNames()).toContain("extension_rbac_grants");
+    expect(await indexNames("extension_rbac_grants")).toContain("idx_extension_rbac_grants_scope");
+    // The index MUST be the UNIQUE COALESCE form over both nullable scope
+    // columns — a plain UNIQUE treats every NULL as distinct, which would
+    // allow duplicate all-projects / all-extensions grant rows per user.
+    const def = await pglite.query<{ indexdef: string }>(
+      "SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_extension_rbac_grants_scope'",
+    );
+    expect(def.rows[0]!.indexdef).toContain("UNIQUE");
+    expect(def.rows[0]!.indexdef).toContain("user_id");
+    expect(def.rows[0]!.indexdef).toMatch(/COALESCE\(project_id/);
+    expect(def.rows[0]!.indexdef).toMatch(/COALESCE\(extension_id/);
+  });
+
   test("creates github_projects_links with the multi-board unique index (no legacy project-unique)", async () => {
     expect(await tableNames()).toContain("github_projects_links");
     const idx = await indexNames("github_projects_links");
@@ -101,6 +116,9 @@ describe("migrate() — fresh DB + idempotent re-run", () => {
     const pIdx = await indexNames("github_projects_proposals");
     expect(pIdx.filter((i) => i === "idx_gh_proposals_active_item")).toHaveLength(1);
     expect(pIdx).not.toContain("idx_gh_proposals_dedupe");
+    // The RBAC grant-scope unique is stable as well: still exactly one.
+    const rIdx = await indexNames("extension_rbac_grants");
+    expect(rIdx.filter((i) => i === "idx_extension_rbac_grants_scope")).toHaveLength(1);
   });
 
   test("legacy DB (old unique dedupe index + a per-column duplicate active card) migrates to the swapped index", async () => {

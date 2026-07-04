@@ -163,6 +163,7 @@
   "web/src/lib/components/settings/SettingsSection.svelte": 95,
   "web/src/lib/components/settings/SaveIndicator.svelte": 95,
   "src/auth/api-key.ts": 100,
+  "src/auth/extension-rbac.ts": 100,
   "src/auth/mint-api-key.ts": 100,
   "src/test-surface.ts": 100,
   "src/openapi.ts": 100,
@@ -194,6 +195,7 @@
   "web/src/routes/api/integrations/github-projects/proposals/+server.ts": 100,
   "web/src/routes/api/integrations/github-projects/proposals/[id]/approve/+server.ts": 100,
   "web/src/routes/api/integrations/github-projects/proposals/[id]/dismiss/+server.ts": 100,
+  "src/db/queries/extension-rbac.ts": 100,
   "src/db/queries/extension-secrets.ts": 100,
   "src/extensions/secrets-store.ts": 100,
   "web/src/lib/**": 90
