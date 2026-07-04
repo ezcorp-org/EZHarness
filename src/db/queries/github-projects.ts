@@ -10,6 +10,7 @@ import {
 } from "../schema";
 import {
   GITHUB_ACTIVE_STATUSES,
+  GITHUB_TERMINAL_STATUSES,
   type GithubProposalStatus,
 } from "../../integrations/github-projects/types";
 
@@ -338,6 +339,45 @@ export async function getProposalByConversationId(
     .where(eq(githubProjectsProposals.conversationId, conversationId))
     .orderBy(desc(githubProjectsProposals.proposedAt))) as GithubProjectsProposal[];
   return rows[0] ?? null;
+}
+
+/**
+ * The status of the NEWEST TERMINAL proposal for a specific card+column
+ * (link_id, item_node_id, status_option_id), or null when that card+column has
+ * no terminal proposal yet. Terminal = done/failed/dismissed/cancelled; active
+ * rows (pending/approved/spawned/running) are ignored. Ordered proposed_at desc
+ * (created_at desc as a stable tiebreaker) so the most-recent settled outcome
+ * wins. The daemon reads this to SUPPRESS auto-spawn after a prior failed/
+ * cancelled run (self-retrigger fail-loop guard): the pending proposal is still
+ * created for Hub visibility, but a human must re-approve it. A later successful
+ * (manual) run makes the next re-entry's most-recent-terminal `done`, so
+ * auto-spawn resumes. Scoped to the EXACT card+column — a different column or
+ * card never bleeds in.
+ */
+export async function mostRecentTerminalProposalStatus(
+  linkId: string,
+  itemNodeId: string,
+  statusOptionId: string,
+): Promise<GithubProposalStatus | null> {
+  if (!linkId || !itemNodeId || !statusOptionId) return null;
+  const db = getDb();
+  const rows = (await db
+    .select({ status: githubProjectsProposals.status })
+    .from(githubProjectsProposals)
+    .where(
+      and(
+        eq(githubProjectsProposals.linkId, linkId),
+        eq(githubProjectsProposals.itemNodeId, itemNodeId),
+        eq(githubProjectsProposals.statusOptionId, statusOptionId),
+        inArray(githubProjectsProposals.status, [...GITHUB_TERMINAL_STATUSES]),
+      ),
+    )
+    .orderBy(
+      desc(githubProjectsProposals.proposedAt),
+      desc(githubProjectsProposals.createdAt),
+    )
+    .limit(1)) as { status: GithubProposalStatus }[];
+  return rows[0]?.status ?? null;
 }
 
 /**

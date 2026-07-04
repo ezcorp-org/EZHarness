@@ -12,7 +12,10 @@
  *
  * Authed: `extensions` scope + session/key user. Never echoes the token.
  * RBAC: GET → `use`; PATCH / DELETE → `configure` — checked after the opaque
- * project/link resolution so the 404 semantics stay first.
+ * project/link resolution so the 404 semantics stay first. A PATCH that turns
+ * a column's `autoSpawn` ON additionally requires `approve-runs` (auto-spawn
+ * pre-authorizes future agent runs), so a configure-only grantee can edit the
+ * map but never flip autoSpawn on.
  */
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
@@ -188,6 +191,21 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     const parsed = parseColumnActionMap(body.columnActionMap, validOptionIds);
     if ("error" in parsed) return errorJson(400, parsed.error);
     patch.columnActionMap = parsed.map;
+    // Turning a column's autoSpawn ON pre-authorizes future agent runs — that
+    // is the `approve-runs` scope's domain, not merely `configure`. So a map
+    // that flips autoSpawn ON for ANY column additionally requires
+    // `approve-runs` (a configure-only grantee may still edit actions /
+    // agentName / permissionMode / doneStatusOptionId and set autoSpawn:false).
+    // Kept AFTER the opaque link/project resolution so the 404 semantics stay
+    // first — this extra scope check never leaks whether an id exists.
+    if (Object.values(parsed.map).some((c) => c.autoSpawn === true)) {
+      const deniedAutoSpawn = await requireGithubScope(
+        locals,
+        projectRes.projectId,
+        "approve-runs",
+      );
+      if (deniedAutoSpawn) return deniedAutoSpawn;
+    }
   }
 
   if (body.pollIntervalSec !== undefined) {

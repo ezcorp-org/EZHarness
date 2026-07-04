@@ -13,6 +13,7 @@ import {
   setupTestDb,
   closeTestDb,
   mockDbConnection,
+  getTestDb,
 } from "../../../__tests__/helpers/test-pglite";
 import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
 import { createProject } from "../../../db/queries/projects";
@@ -37,7 +38,9 @@ import {
   getProposalByRunId,
   cancelActiveProposalsForLink,
   failInterruptedProposals,
+  mostRecentTerminalProposalStatus,
 } from "../../../db/queries/github-projects";
+import { githubProjectsProposals } from "../../../db/schema";
 import { githubProposalDedupeKey, GITHUB_ACTIVE_STATUSES } from "../types";
 
 mockDbConnection();
@@ -529,7 +532,75 @@ describe("github-projects queries", () => {
     expect(await failInterruptedProposals()).toEqual([]);
     expect((await getProposalById(pending!.id))?.status).toBe("pending");
   });
+
+  test("mostRecentTerminalProposalStatus: newest terminal wins, ignores active rows, and is scoped to the exact card+column", async () => {
+    // Empty-id guard: any missing coordinate short-circuits to null.
+    expect(await mostRecentTerminalProposalStatus("", "i", "o")).toBeNull();
+    expect(await mostRecentTerminalProposalStatus("l", "", "o")).toBeNull();
+    expect(await mostRecentTerminalProposalStatus("l", "i", "")).toBeNull();
+
+    const projectId = await seedProject();
+    const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
+
+    // No proposals yet for this card+column → null (the daemon's first-time path).
+    expect(await mostRecentTerminalProposalStatus(link.id, "card-1", "opt-x")).toBeNull();
+
+    // Seed three TERMINAL proposals for (link, card-1, opt-x) with strictly
+    // increasing proposedAt. Terminal rows can coexist (the partial unique
+    // index only restricts ACTIVE rows). The NEWEST terminal must win.
+    await seedProposalRow(projectId, link.id, "card-1", "opt-x", "done", "2026-06-01T00:00:00Z");
+    await seedProposalRow(projectId, link.id, "card-1", "opt-x", "failed", "2026-06-02T00:00:00Z");
+    await seedProposalRow(projectId, link.id, "card-1", "opt-x", "cancelled", "2026-06-03T00:00:00Z");
+    expect(await mostRecentTerminalProposalStatus(link.id, "card-1", "opt-x")).toBe("cancelled");
+
+    // A NEWER active (pending) row is IGNORED — only terminal outcomes count,
+    // so the answer stays the newest terminal ('cancelled'), not 'pending'.
+    await seedProposalRow(projectId, link.id, "card-1", "opt-x", "pending", "2026-06-04T00:00:00Z");
+    expect(await mostRecentTerminalProposalStatus(link.id, "card-1", "opt-x")).toBe("cancelled");
+
+    // Scoped to the EXACT (link, item, statusOption): a different column, a
+    // different card, and a different link each resolve independently.
+    expect(await mostRecentTerminalProposalStatus(link.id, "card-1", "opt-y")).toBeNull();
+    expect(await mostRecentTerminalProposalStatus(link.id, "card-2", "opt-x")).toBeNull();
+
+    const otherLink = await upsertLink({ projectId, boardNodeId: "PVT_b", boardUrl: "u2" });
+    // The same card id on a DIFFERENT board is a separate identity.
+    expect(await mostRecentTerminalProposalStatus(otherLink.id, "card-1", "opt-x")).toBeNull();
+
+    // A card+column that holds ONLY an active proposal (no terminal) → null.
+    await seedProposalRow(projectId, link.id, "card-3", "opt-x", "running", "2026-06-05T00:00:00Z");
+    expect(await mostRecentTerminalProposalStatus(link.id, "card-3", "opt-x")).toBeNull();
+  });
 });
+
+/** Insert a proposal row directly with an explicit status + proposedAt so the
+ *  newest-terminal ordering is deterministic (the query helpers can't set
+ *  proposedAt). Terminal rows may coexist for one card+column. */
+async function seedProposalRow(
+  projectId: string,
+  linkId: string,
+  itemNodeId: string,
+  statusOptionId: string,
+  status: string,
+  proposedAt: string,
+) {
+  const db = getTestDb();
+  await db.insert(githubProjectsProposals).values({
+    id: crypto.randomUUID(),
+    projectId,
+    linkId,
+    itemNodeId,
+    contentNodeId: null,
+    statusOptionId,
+    statusName: "Doing",
+    action: "plan",
+    title: "A ticket",
+    ticketUrl: null,
+    dedupeKey: githubProposalDedupeKey(projectId, itemNodeId, statusOptionId, "plan"),
+    status,
+    proposedAt: new Date(proposedAt),
+  } as never);
+}
 
 function proposalInput(
   projectId: string,

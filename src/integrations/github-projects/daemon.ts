@@ -37,6 +37,7 @@ import {
   updateLinkPollState,
   failInterruptedProposals,
   getLinkById,
+  mostRecentTerminalProposalStatus,
 } from "../../db/queries/github-projects";
 import { resolveLinkAuth } from "./auth";
 import { getGithubProjectsEmit } from "./bus-registry";
@@ -310,17 +311,39 @@ export class GithubProjectsDaemon {
       changed = true;
       newProposals += 1;
       if (column.autoSpawn) {
-        // Auto-spawn is the dangerous opt-in path. approveProposal enforces
-        // the per-project concurrency cap + pins a non-yolo permission mode.
-        const approve = this.opts.approve ?? defaultApproveProposal;
-        try {
-          await approve(inserted.id, { kind: "auto" });
-          autoSpawned += 1;
-        } catch (err) {
-          log.warn("github-projects auto-spawn failed", {
-            proposalId: inserted.id,
-            error: String(err),
+        // Self-retrigger fail-loop guard. The pending proposal above always
+        // stands (Hub visibility), but auto-spawn is SUPPRESSED when this
+        // card+column's most-recent TERMINAL run ended in failed/cancelled — a
+        // failed auto-run's write-back bumps updatedAt, which re-triggers, which
+        // would auto-spawn → fail → loop. A human re-approves from the Hub
+        // instead; a subsequent successful run makes the next most-recent
+        // terminal `done`, so auto-spawn resumes. No prior terminal (null) →
+        // first-time behavior is unchanged (auto-spawn proceeds).
+        const priorTerminal = await mostRecentTerminalProposalStatus(
+          link.id,
+          item.itemNodeId,
+          statusOptionId,
+        );
+        if (priorTerminal === "failed" || priorTerminal === "cancelled") {
+          log.debug("github-projects auto-spawn suppressed after prior failure — awaiting manual approval", {
+            linkId: link.id,
+            itemNodeId: item.itemNodeId,
+            statusOptionId,
+            priorTerminal,
           });
+        } else {
+          // Auto-spawn is the dangerous opt-in path. approveProposal enforces
+          // the per-project concurrency cap + pins a non-yolo permission mode.
+          const approve = this.opts.approve ?? defaultApproveProposal;
+          try {
+            await approve(inserted.id, { kind: "auto" });
+            autoSpawned += 1;
+          } catch (err) {
+            log.warn("github-projects auto-spawn failed", {
+              proposalId: inserted.id,
+              error: String(err),
+            });
+          }
         }
       }
     }

@@ -210,6 +210,105 @@ describe("GithubProjectsDaemon — integration (real PGlite)", () => {
     expect(final!.finishedAt).toBeInstanceOf(Date);
   });
 
+  test("fail-loop guard: after a FAILED auto-run, a re-trigger creates ONE pending proposal and ZERO further auto-spawns", async () => {
+    await insertLink({
+      columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
+    });
+    const db = getTestDb();
+    await db.insert(conversations).values({ id: "conv-fl", projectId: "proj-int" } as never);
+
+    // A spawn bridge standing in for a FAILING run: moves the proposal through
+    // spawned → failed (as spawn.ts's run-lifecycle would on a crash).
+    const approvedIds: string[] = [];
+    const approve = async (proposalId: string, _actor: unknown) => {
+      approvedIds.push(proposalId);
+      await updateProposal(proposalId, {
+        status: "spawned",
+        agentRunId: `run-${approvedIds.length}`,
+        conversationId: "conv-fl",
+      });
+      return updateProposal(proposalId, { status: "failed", error: "boom", finishedAt: new Date() });
+    };
+
+    let nowMs = Date.UTC(2026, 5, 1, 12, 0, 0);
+    let page = { items: [makeItem("2026-06-01T00:00:00Z")], cursor: { "item-A": "2026-06-01T00:00:00Z" } };
+    const d = new GithubProjectsDaemon({
+      client: { fetchBoardItems: () => Promise.resolve(page) } as never,
+      ghAuthToken: () => Promise.resolve("gho_int"),
+      approve,
+      now: () => nowMs,
+    });
+
+    // Poll 1: first trigger, no prior terminal → auto-spawn fires → run FAILS.
+    await d.pollOnce();
+    expect(approvedIds).toHaveLength(1);
+    let proposals = await listProposalsByProject("proj-int");
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]!.status).toBe("failed");
+
+    // The failed run's write-back bumps updatedAt → the card re-enters the
+    // triggering column. Poll 2: a NEW pending proposal is created (Hub
+    // visibility) but auto-spawn is SUPPRESSED (most-recent terminal = failed).
+    page = { items: [makeItem("2026-06-02T00:00:00Z")], cursor: { "item-A": "2026-06-02T00:00:00Z" } };
+    nowMs += 120_000;
+    await d.pollOnce();
+    expect(approvedIds).toHaveLength(1); // NO further auto-spawn
+    proposals = await listProposalsByProject("proj-int");
+    expect(proposals).toHaveLength(2);
+    expect(proposals.filter((p) => p.status === "pending")).toHaveLength(1);
+
+    // Poll 3: the card churns AGAIN (another updatedAt bump). The pending
+    // proposal still owns the active slot → ON CONFLICT swallows the insert, so
+    // NO third proposal and still zero further auto-spawns. The loop is broken.
+    page = { items: [makeItem("2026-06-03T00:00:00Z")], cursor: { "item-A": "2026-06-03T00:00:00Z" } };
+    nowMs += 120_000;
+    await d.pollOnce();
+    expect(approvedIds).toHaveLength(1);
+    proposals = await listProposalsByProject("proj-int");
+    expect(proposals).toHaveLength(2); // at most ONE pending accrued
+    expect(proposals.filter((p) => p.status === "pending")).toHaveLength(1);
+  });
+
+  test("re-trigger after a DONE terminal RESUMES auto-spawn (a successful prior run clears the guard)", async () => {
+    await insertLink({
+      columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
+    });
+    const db = getTestDb();
+    await db.insert(conversations).values({ id: "conv-ok", projectId: "proj-int" } as never);
+
+    const approvedIds: string[] = [];
+    // Each run SUCCEEDS (done) — the next re-entry must auto-spawn again.
+    const approve = async (proposalId: string, _actor: unknown) => {
+      approvedIds.push(proposalId);
+      await updateProposal(proposalId, {
+        status: "spawned",
+        agentRunId: `run-${approvedIds.length}`,
+        conversationId: "conv-ok",
+      });
+      return updateProposal(proposalId, { status: "done", finishedAt: new Date() });
+    };
+
+    let nowMs = Date.UTC(2026, 5, 1, 12, 0, 0);
+    let page = { items: [makeItem("2026-06-01T00:00:00Z")], cursor: { "item-A": "2026-06-01T00:00:00Z" } };
+    const d = new GithubProjectsDaemon({
+      client: { fetchBoardItems: () => Promise.resolve(page) } as never,
+      ghAuthToken: () => Promise.resolve("gho_int"),
+      approve,
+      now: () => nowMs,
+    });
+
+    await d.pollOnce(); // done
+    expect(approvedIds).toHaveLength(1);
+
+    page = { items: [makeItem("2026-06-02T00:00:00Z")], cursor: { "item-A": "2026-06-02T00:00:00Z" } };
+    nowMs += 120_000;
+    await d.pollOnce(); // most-recent terminal = done → auto-spawn AGAIN
+    expect(approvedIds).toHaveLength(2);
+    const proposals = await listProposalsByProject("proj-int");
+    expect(proposals).toHaveLength(2);
+    expect(proposals.every((p) => p.status === "done")).toBe(true);
+  });
+
   test("boot reconciliation: spawned+running flip to failed with ticket comments; pending intact", async () => {
     const link = await insertLink();
     const db = getTestDb();

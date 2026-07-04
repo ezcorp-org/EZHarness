@@ -1656,6 +1656,68 @@ describe("extension RBAC scope matrix", () => {
     expect(rbacCalls).toHaveLength(0); // resolution short-circuits FIRST
   });
 
+  // ── autoSpawn gate: flipping autoSpawn ON additionally requires approve-runs
+  // (auto-spawn pre-authorizes agent runs — the `approve-runs` scope's domain).
+  test("PATCH link: configure-only enabling autoSpawn → 403 naming 'approve-runs', nothing persisted", async () => {
+    seedLink();
+    grantedScopes = new Set(["configure"]); // configure but NOT approve-runs
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } } } }));
+    await expect403Naming(res, "approve-runs");
+    expect(updateLinkCalls).toHaveLength(0);
+    // configure passed FIRST, then the extra approve-runs check denied — in order.
+    expect(rbacCalls.map((c) => c.scope)).toEqual(["configure", "approve-runs"]);
+  });
+
+  test("PATCH link: configure-only may still edit the map with autoSpawn:false / omitted / coerced → 200, never demands approve-runs", async () => {
+    seedLink();
+    grantedScopes = new Set(["configure"]);
+    // Explicit autoSpawn:false.
+    expect((await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", columnActionMap: { "opt-doing": { action: "execute", autoSpawn: false } } } }))).status).toBe(200);
+    // Non-true autoSpawn coerces to false → still no approve-runs demand.
+    expect((await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", columnActionMap: { "opt-doing": { action: "plan", autoSpawn: "yes" } } } }))).status).toBe(200);
+    // Editing agentName/permissionMode on an autoSpawn:false entry is fine too.
+    expect((await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", columnActionMap: { "opt-doing": { action: "execute", autoSpawn: false, agentName: "coder", permissionMode: "acceptEdits" } } } }))).status).toBe(200);
+    // Across all three configure-only edits, approve-runs was NEVER checked.
+    expect(rbacCalls.every((c) => c.scope !== "approve-runs")).toBe(true);
+  });
+
+  test("PATCH link: configure + approve-runs → autoSpawn:true persists (200)", async () => {
+    seedLink();
+    grantedScopes = new Set(["configure", "approve-runs"]);
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "link-1", columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } } } }));
+    expect(res.status).toBe(200);
+    expect(updateLinkCalls[0].patch.columnActionMap["opt-doing"].autoSpawn).toBe(true);
+    expect(rbacCalls.map((c) => c.scope)).toEqual(["configure", "approve-runs"]);
+  });
+
+  test("PATCH link: admin with NO grants may enable autoSpawn (implicit all scopes)", async () => {
+    seedLink();
+    grantedScopes = new Set(); // admin ignores grants (sentinel)
+    const res = await run(linkPatch, ev({ method: "PATCH", user: ADMIN_USER, body: { projectId: "proj-1", linkId: "link-1", columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } } } }));
+    expect(res.status).toBe(200);
+    expect(updateLinkCalls[0].patch.columnActionMap["opt-doing"].autoSpawn).toBe(true);
+  });
+
+  test("PATCH link: a map mixing ONE autoSpawn:true among autoSpawn:false entries still requires approve-runs", async () => {
+    seedLink();
+    grantedScopes = new Set(["configure"]);
+    const body = { projectId: "proj-1", linkId: "link-1", columnActionMap: {
+      "opt-todo": { action: "plan", autoSpawn: false },
+      "opt-doing": { action: "execute", autoSpawn: true }, // the single hot entry
+      "opt-review": { action: "plan", autoSpawn: false },
+    } };
+    await expect403Naming(await run(linkPatch, ev({ method: "PATCH", body })), "approve-runs");
+    expect(updateLinkCalls).toHaveLength(0);
+  });
+
+  test("PATCH link: autoSpawn:true on an UNKNOWN link stays an opaque 404 (resolution precedes BOTH scope checks)", async () => {
+    seedLink();
+    grantedScopes = new Set(["configure"]);
+    const res = await run(linkPatch, ev({ method: "PATCH", body: { projectId: "proj-1", linkId: "nope", columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } } } }));
+    expect(res.status).toBe(404);
+    expect(rbacCalls).toHaveLength(0); // neither configure nor approve-runs reached
+  });
+
   test("DELETE link: member no-grant → 403 naming 'configure', nothing dropped; 'configure' → 200", async () => {
     seedLink();
     grantedScopes = new Set();

@@ -20,6 +20,10 @@ let getLinkByIdMock = mock((_linkId: string) => Promise.resolve<unknown>(null));
 let insertProposalIfNewMock = mock((_input: unknown) => Promise.resolve<unknown>(null));
 let updateLinkPollStateMock = mock((_id: string, _state: unknown) => Promise.resolve());
 let failInterruptedProposalsMock = mock(() => Promise.resolve<unknown[]>([]));
+let mostRecentTerminalProposalStatusMock = mock(
+  (_linkId: string, _itemNodeId: string, _statusOptionId: string) =>
+    Promise.resolve<string | null>(null),
+);
 let getSecretMock = mock(
   (_extensionId: string, _projectId: string | null, _name: string) =>
     Promise.resolve<string | null>(null),
@@ -52,6 +56,8 @@ function installMocks(): void {
     countActiveProposalsForProject: () => Promise.resolve(0),
     updateProposal: () => Promise.resolve(null),
     failInterruptedProposals: (...a: unknown[]) => failInterruptedProposalsMock(...(a as [])),
+    mostRecentTerminalProposalStatus: (linkId: string, itemNodeId: string, statusOptionId: string) =>
+      mostRecentTerminalProposalStatusMock(linkId, itemNodeId, statusOptionId),
   }));
   mock.module("../../../extensions/secrets-store", () => ({
     getSecret: (extensionId: string, projectId: string | null, name: string) =>
@@ -168,6 +174,10 @@ beforeEach(() => {
   insertProposalIfNewMock = mock((_input: unknown) => Promise.resolve<unknown>(null));
   updateLinkPollStateMock = mock((_id: string, _state: unknown) => Promise.resolve());
   failInterruptedProposalsMock = mock(() => Promise.resolve<unknown[]>([]));
+  mostRecentTerminalProposalStatusMock = mock(
+    (_linkId: string, _itemNodeId: string, _statusOptionId: string) =>
+      Promise.resolve<string | null>(null),
+  );
   getSecretMock = mock(
     (_extensionId: string, _projectId: string | null, _name: string) =>
       Promise.resolve<string | null>("ghp_token"),
@@ -504,6 +514,137 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
     const d = new GithubProjectsDaemon({ client });
     await d.pollOnce();
     expect(updateLinkPollStateMock).toHaveBeenCalledTimes(1);
+  });
+
+  // ── auto-spawn fail-loop suppression (self-retrigger guard) ────────────────
+
+  test("autoSpawn FIRST trigger (no prior terminal → null) auto-spawns as today", async () => {
+    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
+      columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
+    })]));
+    insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-first" }));
+    // Default mock already returns null, but be explicit for the first-time path.
+    mostRecentTerminalProposalStatusMock = mock(() => Promise.resolve<string | null>(null));
+    installMocks();
+    const client = makeClient({ items: [makeItem()], cursor: {} });
+    const d = new GithubProjectsDaemon({ client, approve: approveProposalMock });
+    await d.pollOnce();
+    // The card+column's most-recent terminal was queried with the real coords.
+    expect(mostRecentTerminalProposalStatusMock).toHaveBeenCalledWith("link-1", "item-1", "opt-doing");
+    expect(approveProposalMock).toHaveBeenCalledTimes(1);
+    expect(approveProposalMock.mock.calls[0]![0]).toBe("prop-first");
+  });
+
+  test("autoSpawn re-trigger after a DONE terminal auto-spawns (a successful prior run resumes auto-spawn)", async () => {
+    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
+      columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
+    })]));
+    insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-after-done" }));
+    mostRecentTerminalProposalStatusMock = mock(() => Promise.resolve<string | null>("done"));
+    installMocks();
+    const client = makeClient({ items: [makeItem()], cursor: {} });
+    const d = new GithubProjectsDaemon({ client, approve: approveProposalMock });
+    await d.pollOnce();
+    expect(approveProposalMock).toHaveBeenCalledTimes(1);
+    expect(approveProposalMock.mock.calls[0]![0]).toBe("prop-after-done");
+  });
+
+  test("autoSpawn re-trigger after a FAILED terminal creates the proposal but SUPPRESSES the spawn (awaits manual approval)", async () => {
+    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
+      columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
+    })]));
+    insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-after-fail" }));
+    mostRecentTerminalProposalStatusMock = mock(() => Promise.resolve<string | null>("failed"));
+    const emit = makeEmitMock();
+    installMocks();
+    const client = makeClient({ items: [makeItem()], cursor: { "item-1": "x" } });
+    const d = new GithubProjectsDaemon({ client, emit, approve: approveProposalMock });
+    await d.pollOnce();
+    // The pending proposal IS created (Hub visibility) …
+    expect(insertProposalIfNewMock).toHaveBeenCalledTimes(1);
+    // … the Hub is nudged (a new pending row changed the queue) …
+    expect(emit).toHaveBeenCalledTimes(1);
+    // … but auto-spawn is SUPPRESSED — no run is pre-authorized.
+    expect(approveProposalMock).not.toHaveBeenCalled();
+    // The cursor still advances (a clean poll otherwise).
+    expect(updateLinkPollStateMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("autoSpawn re-trigger after a CANCELLED terminal is SUPPRESSED too", async () => {
+    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
+      columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
+    })]));
+    insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-after-cancel" }));
+    mostRecentTerminalProposalStatusMock = mock(() => Promise.resolve<string | null>("cancelled"));
+    installMocks();
+    const client = makeClient({ items: [makeItem()], cursor: {} });
+    const d = new GithubProjectsDaemon({ client, approve: approveProposalMock });
+    await d.pollOnce();
+    expect(insertProposalIfNewMock).toHaveBeenCalledTimes(1);
+    expect(approveProposalMock).not.toHaveBeenCalled();
+  });
+
+  test("a DISMISSED terminal does NOT suppress auto-spawn (only failed/cancelled do)", async () => {
+    // `dismissed` is a human's explicit "no" on a proposal, not a run failure —
+    // the guard is narrow (failed/cancelled only) so a later card move still
+    // auto-spawns.
+    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
+      columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
+    })]));
+    insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-after-dismiss" }));
+    mostRecentTerminalProposalStatusMock = mock(() => Promise.resolve<string | null>("dismissed"));
+    installMocks();
+    const client = makeClient({ items: [makeItem()], cursor: {} });
+    const d = new GithubProjectsDaemon({ client, approve: approveProposalMock });
+    await d.pollOnce();
+    expect(approveProposalMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("MANUAL (autoSpawn:false) columns never consult the guard and never spawn", async () => {
+    // The suppression is an AUTO-spawn concern only; a manual column always
+    // leaves a pending proposal for a human, guard or not.
+    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
+      columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } },
+    })]));
+    insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-manual" }));
+    // Even if a prior run failed, a manual column is unaffected.
+    mostRecentTerminalProposalStatusMock = mock(() => Promise.resolve<string | null>("failed"));
+    installMocks();
+    const client = makeClient({ items: [makeItem()], cursor: {} });
+    const d = new GithubProjectsDaemon({ client, approve: approveProposalMock });
+    await d.pollOnce();
+    expect(insertProposalIfNewMock).toHaveBeenCalledTimes(1);
+    // The guard is inside the autoSpawn branch → never queried for a manual column.
+    expect(mostRecentTerminalProposalStatusMock).not.toHaveBeenCalled();
+    expect(approveProposalMock).not.toHaveBeenCalled();
+  });
+
+  test("EZCORP_DEBUG=ext.github-projects surfaces the auto-spawn-suppressed DEBUG line", async () => {
+    const prior = process.env.EZCORP_DEBUG;
+    process.env.EZCORP_DEBUG = "ext.github-projects";
+    const out: string[] = [];
+    const origStdout = process.stdout.write;
+    const cap = (chunk: string) => { out.push(chunk); return true; };
+    process.stdout.write = cap as typeof process.stdout.write;
+    try {
+      listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
+        columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
+      })]));
+      insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-dbg" }));
+      mostRecentTerminalProposalStatusMock = mock(() => Promise.resolve<string | null>("failed"));
+      installMocks();
+      const client = makeClient({ items: [makeItem()], cursor: {} });
+      await new GithubProjectsDaemon({ client, approve: approveProposalMock }).pollOnce();
+    } finally {
+      process.stdout.write = origStdout;
+      if (prior === undefined) delete process.env.EZCORP_DEBUG;
+      else process.env.EZCORP_DEBUG = prior;
+    }
+    const line = out
+      .map((c) => { try { return JSON.parse(c) as Record<string, unknown>; } catch { return null; } })
+      .find((l) => l?.msg === "github-projects auto-spawn suppressed after prior failure — awaiting manual approval");
+    expect(line).toMatchObject({ level: "debug", priorTerminal: "failed", itemNodeId: "item-1" });
+    expect(approveProposalMock).not.toHaveBeenCalled();
   });
 });
 
