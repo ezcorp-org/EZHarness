@@ -37,8 +37,8 @@ mock.module("../../../../../../web/src/routes/api/rbac/extension-grants/[id]/$ty
 // Real pass-throughs: response helper, shared view shaping, audit constants.
 import * as httpErrorsActual from "../../../../lib/server/http-errors";
 mock.module("$lib/server/http-errors", () => httpErrorsActual);
-import * as rbacLogicActual from "../../../../lib/rbac-grants-logic";
-mock.module("$lib/rbac-grants-logic", () => rbacLogicActual);
+import * as rbacViewActual from "../../../../lib/rbac-grants-view";
+mock.module("$lib/rbac-grants-view", () => rbacViewActual);
 import * as auditActionsActual from "../../../../../../src/extensions/audit-actions";
 mock.module("$server/extensions/audit-actions", () => auditActionsActual);
 

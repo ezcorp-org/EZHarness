@@ -55,7 +55,7 @@ import { getProject } from "$server/db/queries/projects";
 import { getExtensionByName } from "$server/db/queries/extensions";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "$server/extensions/audit-actions";
-import { toPublicGrantView } from "$lib/rbac-grants-logic";
+import { toPublicGrantView } from "$lib/rbac-grants-view";
 import type { AuthUser } from "$server/auth/types";
 
 /** App.Locals slice this route reads. */

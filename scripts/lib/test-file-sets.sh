@@ -81,6 +81,7 @@ coverage_host_files() {
     # 25% — this suite exercises the functions so the union clears web/src/lib/**.
     printf '%s\n' \
       web/src/__tests__/snippet-sanitize.test.ts \
+      web/src/lib/__tests__/rbac-grants-view.test.ts \
       web/src/__tests__/permission-mode-indicator.test.ts \
       web/src/__tests__/search-mode.test.ts \
       web/src/__tests__/shared-ui-components.test.ts \

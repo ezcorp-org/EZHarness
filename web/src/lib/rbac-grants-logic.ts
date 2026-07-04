@@ -4,10 +4,11 @@
  *
  * NO Svelte imports and NO server imports, so:
  *   - the page's option-derivation / row-shaping is unit-testable under the
- *     node-vitest coverage leg (`rbac-grants-logic.unit.test.ts`), and
- *   - the server routes can share `toPublicGrantView` (the response shape
- *     that guarantees no `passwordHash` — or any other user column — can
- *     ever leak: fields are copied one by one, never spread).
+ *     node-vitest coverage leg (`rbac-grants-logic.unit.test.ts`).
+ *
+ * The server response mapper (`toPublicGrantView`) lives in the sibling
+ * `rbac-grants-view.ts` so it is measured by the bun route shard alone — see
+ * that file's header for the single-instrumenter rationale.
  *
  * The scope-name grammar and the five core verbs MIRROR the backend source
  * of truth in `src/db/queries/extension-rbac.ts` (`CORE_RBAC_SCOPES`,
@@ -16,6 +17,11 @@
  * the DB connection into the client bundle. Keep the two in sync (the
  * backend rejects anything that drifts, so a mismatch fails loudly there).
  */
+
+// The server response shape lives in the sibling module (bun-measured). Re-export
+// the type so existing `$lib/rbac-grants-logic` type importers keep resolving.
+import type { PublicGrantView } from "./rbac-grants-view";
+export type { PublicGrantView };
 
 /** UI option for one grantable scope. `custom: true` = declared by the
  *  selected extension's manifest (`permissions.rbacScopes`), not a core verb. */
@@ -84,52 +90,6 @@ export function scopeOptionsForExtension(
 		options.push({ name: declared.name, description: declared.description, custom: true });
 	}
 	return options;
-}
-
-/** The public wire shape of one grant row — what the API returns and the
- *  page renders. Never contains any credential material. */
-export interface PublicGrantView {
-	id: string;
-	user: { id: string; email: string; name: string };
-	projectId: string | null;
-	extensionId: string | null;
-	scopes: string[];
-	grantedBy: string | null;
-	updatedAt: string;
-}
-
-/**
- * Map a raw `extension_rbac_grants` row + its (optionally resolved) grantee
- * user onto the public view. Fields are copied EXPLICITLY — passing a full
- * `users` row (passwordHash and all) can never leak anything. A missing
- * user (deleted mid-request; FK cascade makes this a razor-thin race)
- * degrades to empty email/name rather than failing the whole list.
- */
-export function toPublicGrantView(
-	grant: {
-		id: string;
-		userId: string;
-		projectId: string | null;
-		extensionId: string | null;
-		scopes: string[];
-		grantedByUserId: string | null;
-		updatedAt: Date | string;
-	},
-	user?: { id: string; email: string; name: string } | null,
-): PublicGrantView {
-	return {
-		id: grant.id,
-		user: {
-			id: grant.userId,
-			email: user?.email ?? "",
-			name: user?.name ?? "",
-		},
-		projectId: grant.projectId,
-		extensionId: grant.extensionId,
-		scopes: [...grant.scopes],
-		grantedBy: grant.grantedByUserId,
-		updatedAt: grant.updatedAt instanceof Date ? grant.updatedAt.toISOString() : String(grant.updatedAt),
-	};
 }
 
 /** Labels for the NULL (covers-all) coordinates. */
