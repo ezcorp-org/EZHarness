@@ -18,17 +18,24 @@ import type { ExtensionRbacGrant } from "../schema";
  * mirroring `insertOrReplaceSecret` in queries/extension-secrets.ts.
  */
 
-/** The five core verbs every extension supports. Custom scopes come from an
- *  extension's manifest (`permissions.rbacScopes`, later wave) and are
- *  implicitly namespaced per-extension; they must match
- *  {@link RBAC_SCOPE_NAME_RE} and must NOT collide with these verbs. */
-export const CORE_RBAC_SCOPES = ["use", "configure", "secrets", "approve-runs", "manage"] as const;
+// Scope-name rules (core verbs, grammar, declaration validation) live in
+// the PURE module `src/extensions/rbac-scopes.ts` — one source of truth
+// shared with the manifest validator, which must not pull this module's
+// Drizzle/connection chain. Re-exported here so the storage-side public
+// API is unchanged (src/auth/extension-rbac.ts re-exports from HERE).
+import {
+  CORE_RBAC_SCOPES,
+  RBAC_SCOPE_NAME_RE,
+  isValidRbacScopeName,
+} from "../../extensions/rbac-scopes";
 
-export type CoreRbacScope = (typeof CORE_RBAC_SCOPES)[number];
-
-/** Grammar for every storable scope name (the core verbs satisfy it too):
- *  lowercase alphanumeric + hyphen, starting with a letter. */
-export const RBAC_SCOPE_NAME_RE = /^[a-z][a-z0-9-]*$/;
+export {
+  CORE_RBAC_SCOPES,
+  RBAC_SCOPE_NAME_RE,
+  isValidRbacScopeName,
+} from "../../extensions/rbac-scopes";
+export { isValidCustomRbacScopeName } from "../../extensions/rbac-scopes";
+export type { CoreRbacScope } from "../../extensions/rbac-scopes";
 
 /** Thrown by {@link upsertGrant} when the scope list fails validation.
  *  Callers (the grants API, later wave) map this to a 400. */
@@ -37,21 +44,6 @@ export class InvalidRbacScopeError extends Error {
     super(message);
     this.name = "InvalidRbacScopeError";
   }
-}
-
-/** True iff `name` is a storable scope name — a core verb or a
- *  grammar-valid custom scope. */
-export function isValidRbacScopeName(name: string): boolean {
-  return RBAC_SCOPE_NAME_RE.test(name);
-}
-
-/** True iff `name` is valid as an extension-DECLARED custom scope: it must
- *  satisfy the grammar AND must not collide with a core verb (a manifest
- *  declaring `use` would silently shadow the built-in semantics). Used by
- *  the manifest clamp (later wave); exported here so declaration and
- *  storage share one source of truth. */
-export function isValidCustomRbacScopeName(name: string): boolean {
-  return isValidRbacScopeName(name) && !(CORE_RBAC_SCOPES as readonly string[]).includes(name);
 }
 
 /** Validates + normalizes a scope list for storage: must be a non-empty

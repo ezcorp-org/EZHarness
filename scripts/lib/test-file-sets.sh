@@ -63,6 +63,9 @@ coverage_host_files() {
     find src/extensions/__tests__ -name "github-projects-handler*.test.ts" ! -name "*integration*"
     # reverse-RPC entry point lives on ToolExecutor, isolated shard.
     find src/extensions/__tests__ -name "tool-executor.github-projects-rpc.test.ts"
+    # ezcorp/rbac-check reverse-RPC entry point (ctx.rbac.check host side) —
+    # same isolated-shard rationale as the github-projects shard above.
+    find src/extensions/__tests__ -name "tool-executor.rbac-rpc.test.ts"
     find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
     find src/extensions/__tests__ -name "secrets-*.test.ts" ! -name "*integration*"
     find web/src/routes/api/extensions/__tests__ -name "*.test.ts"

@@ -40,4 +40,13 @@ describe("github-projects manifest", () => {
       expect.arrayContaining(["github-projects:approve", "github-projects:dismiss"]),
     );
   });
+
+  test("declares the write-tickets custom RBAC scope (declaration, NOT a privilege)", () => {
+    // The declaration only surfaces the scope in the grant UI and makes it
+    // checkable via ctx.rbac.check / ezcorp/rbac-check — holding it always
+    // requires an explicit extension_rbac_grants row (or the admin role).
+    expect(config.permissions?.rbacScopes).toEqual([
+      { name: "write-tickets", description: "Create and mutate board tickets from chat" },
+    ]);
+  });
 });

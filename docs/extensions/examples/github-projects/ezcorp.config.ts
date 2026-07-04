@@ -264,6 +264,19 @@ export default defineExtension({
     // Optional small KV for the dashboard's last-viewed cursor etc. The
     // authoritative proposal/link state lives in DB tables (host-side).
     storage: true,
+    // Custom RBAC scope DECLARATION (extension-RBAC layer — inert, NOT a
+    // privilege): names the per-extension scope gating the ticket-mutation
+    // verbs (create/update/move/archive/comment). Granting lives in
+    // `extension_rbac_grants` (admins implicitly hold every scope); this
+    // declaration only makes the scope appear in the grant UI and be
+    // checkable from extension code via `ctx.rbac.check("write-tickets")`
+    // (the `ezcorp/rbac-check` reverse-RPC).
+    rbacScopes: [
+      {
+        name: "write-tickets",
+        description: "Create and mutate board tickets from chat",
+      },
+    ],
   },
 
   resources: { memory: "128MB" },

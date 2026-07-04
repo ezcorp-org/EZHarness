@@ -28,6 +28,18 @@
  * Scope: bundled extensions only — `getCeiling()` returns `null` for
  * unknown names; `clampToBundledCeiling()` becomes a passthrough on a
  * non-bundled name (callers should not normally invoke it for those).
+ *
+ * `permissions.rbacScopes` (extension-RBAC custom-scope DECLARATIONS) is
+ * deliberately ABSENT from every ceiling row AND ignored by the clamp
+ * comparator: declarations are inert — they only name per-extension
+ * scopes an admin can grant (`extension_rbac_grants`) and extension code
+ * can query via `ctx.rbac.check`; holding one always requires an
+ * explicit grant row. `intersectPermissions` drops them from every
+ * intersection (grants never carry declarations), so without the
+ * comparator exclusion a manifest-shaped request (e.g. the
+ * drift-reapprove heal, which clamps the raw disk `permissions` block)
+ * would read as `clamped: true` on every call — spurious
+ * ceiling-clamp audit noise for a field that grants no privilege.
  */
 
 import type { ExtensionPermissions } from "./types";
@@ -546,6 +558,12 @@ function canonicalizePerms(p: ExtensionPermissions): string {
   for (const k of keys) {
     const v = asRecord[k];
     if (v === undefined) continue;
+    // `rbacScopes` — inert manifest DECLARATIONS (custom RBAC scope names
+    // + descriptions for the grant UI / ctx.rbac.check), NOT privileges.
+    // `intersectPermissions` never carries them into the intersection, so
+    // counting them here would flip `clamped` to true for every
+    // manifest-shaped request that declares scopes (see module doc).
+    if (k === "rbacScopes") continue;
     if (BOOL_FIELDS.has(k) && v === false) continue;
     if (Array.isArray(v)) {
       // Empty arrays are treated as "not granted" — same equivalence

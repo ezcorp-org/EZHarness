@@ -526,6 +526,27 @@ export interface ExtensionManifestV2 {
           providers?: string[] | "inherit";
         };
     /**
+     * Custom RBAC scopes this extension DECLARES (extension-RBAC layer,
+     * user→extension axis). Declarations, NOT privileges: each entry
+     * names a per-extension scope that (a) appears as a grantable
+     * option in the admin grant UI and (b) extension code can query
+     * via `ctx.rbac.check(name)` (`ezcorp/rbac-check` reverse-RPC).
+     * Holding a scope always requires an explicit
+     * `extension_rbac_grants` row (or the admin role) — declaring one
+     * confers nothing by itself, so the bundled ceiling passes these
+     * through un-clamped (see `bundled-ceiling.ts`) and grants never
+     * carry them (`intersectPermissions` drops unknown keys).
+     *
+     * Names are implicitly namespaced per-extension, must match
+     * `/^[a-z][a-z0-9-]*$/`, must NOT collide with the core verbs
+     * (use / configure / secrets / approve-runs / manage), must be
+     * unique, and `description` is required (it is what the grant UI
+     * shows). Max 16 entries. Validated at admit time by
+     * `validateRbacScopeDeclarations` (`src/extensions/rbac-scopes.ts`)
+     * via `validatePermissionsBlock`.
+     */
+    rbacScopes?: Array<{ name: string; description: string }>;
+    /**
      * Custom capability bag for reverse-RPCs that don't fit the
      * primary permission shape. Each key is a sub-capability namespace
      * (e.g. `drafts`); the value is a free-form record interpreted by

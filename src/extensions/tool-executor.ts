@@ -31,6 +31,9 @@ import {
 } from "./github-projects-handler";
 import { GITHUB_PROJECTS_RPC_PREFIX } from "../integrations/github-projects/types";
 import { rpcError } from "./json-rpc";
+import { CORE_RBAC_SCOPES } from "./rbac-scopes";
+import { hasExtensionScope } from "../auth/extension-rbac";
+import { getUserById } from "../db/queries/users";
 import {
   handleRuntimeInvoke,
   isRuntimeInvokeMethod,
@@ -2091,6 +2094,12 @@ export class ToolExecutor {
       if (req.method === "ezcorp/drafts") {
         return this.handlePiDrafts(extensionId, req);
       }
+      // `ezcorp/rbac-check` — brokered extension-RBAC scope check
+      // (`ctx.rbac.check` in the SDK). Identity is provenance/registry-
+      // derived; see handlePiRbacCheck for the contract.
+      if (req.method === "ezcorp/rbac-check") {
+        return this.handlePiRbacCheck(extensionId, req);
+      }
       // `ezcorp/github-projects.<verb>` — bundled-only board control plane.
       // Method names carry the verb suffix (the FROZEN
       // `GITHUB_PROJECTS_RPC_PREFIX`), so match on the prefix and route the
@@ -2355,6 +2364,91 @@ export class ToolExecutor {
       grantedPermissions: granted,
     };
     return handleGithubProjectsRpc(verb, req, ctx);
+  }
+
+  /**
+   * Handle an `ezcorp/rbac-check` reverse-RPC request — the host side of
+   * the SDK's `ctx.rbac.check(scope)` (extension-RBAC layer, user→extension
+   * axis; complementary to the PDP, which governs what the EXTENSION may
+   * do). Returns `{granted: boolean}`.
+   *
+   * Identity contract (parity with `handlePiGithubProjects`):
+   *   - The USER is the host-issued provenance `onBehalfOf` resolved from
+   *     the echoed `ezCallId` token — never the wire, never singletons.
+   *   - The EXTENSION is the registry-resolved manifest name for the
+   *     subprocess (`registry.getManifest(extensionId).name`). Any wire
+   *     param naming another extension is ignored — a subprocess cannot
+   *     probe or ride another extension's scopes (confused-deputy fix).
+   *   - The PROJECT is derived server-side from the calling conversation
+   *     (`conversation.projectId`); a background fire with no conversation
+   *     checks at the "all projects" (null) coordinate, which only
+   *     NULL-project grant rows cover.
+   *
+   * Scope allowlist: the five core verbs are checkable on every extension;
+   * a custom scope must appear in the registry manifest's
+   * `permissions.rbacScopes` declarations. An unknown scope is a hard
+   * `-32602` naming the valid scopes (an authoring bug, not a deny).
+   * A missing grant is NOT an error — deny-by-default resolves
+   * `{granted: false}` (admins resolve true for everything; an unknown
+   * `onBehalfOf` user fails closed the same way).
+   */
+  async handlePiRbacCheck(
+    extensionId: string,
+    req: JsonRpcRequest,
+  ): Promise<JsonRpcResponse> {
+    const granted = this.registry.getGrantedPermissions(extensionId);
+    const manifest = this.registry.getManifest(extensionId);
+    if (!granted || !manifest) {
+      return {
+        jsonrpc: "2.0",
+        id: req.id,
+        error: { code: -32603, message: "Extension not found in registry" },
+      };
+    }
+    const resolved = this.resolveReverseRpcMeta(extensionId, req);
+    if (!resolved.ok) return resolved.errorResponse;
+
+    const scope = (req.params as { scope?: unknown } | undefined)?.scope;
+    if (typeof scope !== "string" || scope.length === 0) {
+      return rpcError(req.id, -32602, "'scope' is required and must be a non-empty string");
+    }
+
+    // Declared-scope allowlist — core verbs always; custom scopes only when
+    // DECLARED by this extension's registry manifest (never the wire).
+    const declaredScopes = (manifest.permissions?.rbacScopes ?? []).map((s) => s.name);
+    const validScopes: string[] = [...CORE_RBAC_SCOPES, ...declaredScopes];
+    if (!validScopes.includes(scope)) {
+      return rpcError(
+        req.id,
+        -32602,
+        `Unknown RBAC scope '${scope}' for extension '${manifest.name}' — valid scopes: ${validScopes.join(", ")}`,
+      );
+    }
+
+    // Resolve the acting user's role for the resolver. Fail-closed: an
+    // unknown/deleted user is a soft deny, not an error.
+    const user = await getUserById(resolved.onBehalfOf);
+    if (!user) {
+      log.warn("rbac-check: provenance user not found — deny-by-default", {
+        extensionId,
+        scope,
+      });
+      return { jsonrpc: "2.0", id: req.id, result: { granted: false } };
+    }
+
+    // projectId is derived SERVER-SIDE from the calling conversation —
+    // params never carry it (same rule as the github-projects handler).
+    let projectId: string | null = null;
+    if (resolved.conversationId && resolved.conversationId !== "unknown") {
+      const conversation = await getConversation(resolved.conversationId);
+      projectId = conversation?.projectId ?? null;
+    }
+
+    const isGranted = await hasExtensionScope(
+      { id: user.id, role: user.role },
+      { projectId, extensionId: manifest.name, scope },
+    );
+    return { jsonrpc: "2.0", id: req.id, result: { granted: isGranted } };
   }
 
   /**

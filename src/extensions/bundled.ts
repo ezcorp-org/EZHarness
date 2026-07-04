@@ -851,6 +851,14 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     // `github-projects-handler.ts` — exactly like the bundled `ezcorp/drafts`
     // handler, whose allowlist (not the custom grant) is the gate. The
     // dashboard page is a manifest declaration, not a permission.
+    //
+    // Likewise `permissions.rbacScopes` (the `write-tickets` custom RBAC
+    // scope) is a manifest DECLARATION, not a permission: grants live in
+    // `extension_rbac_grants` and the `ezcorp/rbac-check` handler reads the
+    // declaration from the REGISTRY manifest, never from this grant.
+    // `intersectPermissions` drops it and `bundled-ceiling.ts`'s comparator
+    // ignores it (inert pass-through), so mirroring it here would be dead
+    // weight — same reasoning as `custom.githubProjects` above.
     name: "github-projects",
     path: "docs/extensions/examples/github-projects",
     bootSpawn: true,
