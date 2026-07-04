@@ -49,11 +49,43 @@ viewing user's:
 - **Active work** — `pending` / `approved` / `spawned` / `running` proposals,
   with **Approve** / **Dismiss** on pending rows and conversation links on
   running ones,
-- **History** — terminal proposals, and
+- **History** — terminal (`done` / `failed` / `dismissed` / `cancelled`)
+  proposals, each with a **Re-run** button, and
 - **Connection health** — per board: state + last poll + last error, with a
   **Pause** / **Resume** toggle and a **Reconnect** hint.
 
 It refreshes live via `pushPage` on the daemon's `github-projects:proposal-update`
 event and on `task:assignment_update` / `run:complete`.
+
+## Proposal lifecycle
+
+- **Re-triggering.** A card triggers a proposal when it enters a mapped Status
+  column. The guard is **one active proposal per card**, not once-ever: a partial
+  unique index (`idx_gh_proposals_active_item` over `(link_id, item_node_id)`
+  WHERE status is active) means a card with a `pending` / `approved` / `spawned` /
+  `running` proposal can never gain a second (even by moving to a different mapped
+  column mid-run), while a card whose proposal reached a **terminal** state is
+  free to re-trigger if it re-enters a mapped column. `dedupe_key` is retained as
+  a provenance column only.
+- **Re-run.** The **Re-run** button on a terminal History row creates a fresh
+  `pending` proposal for the same card via the normal approval gate (auto-spawn
+  columns still auto-spawn). It is refused if the card already has an active
+  proposal (the single-active guard) and requires the `approve-runs` RBAC scope.
+- **Boot reconciliation.** Run-lifecycle listeners are in-memory, so a process
+  restart mid-run would strand a proposal in `spawned` / `running` forever
+  (permanently consuming a concurrency-cap slot). At startup — before the daemon
+  begins polling — `reconcileOrphanedProposals` flips every `spawned` / `running`
+  proposal to `failed` (`error: "Interrupted by restart"`), posts a best-effort
+  ticket comment pointing at **Re-run**, and leaves `pending` rows untouched. The
+  user then decides: **Re-run** the ticket, or open the linked chat to continue.
+
+## Permissions (RBAC)
+
+Board actions are gated by per-project, per-extension RBAC scopes (admins hold all
+implicitly): `use` (view the Hub, poll-now), `configure` (connect / edit boards),
+`secrets` (store the PAT), `approve-runs` (Approve / Dismiss / Re-run), and the
+custom `write-tickets` scope for the agent's ticket-mutation tools. Grants are
+managed at **Settings → Permissions**. See
+[[rbac-and-permission-modes]].
 
 See [`knowledge/playbook.md`](./knowledge/playbook.md) for the agent playbook.

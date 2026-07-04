@@ -1,6 +1,6 @@
 # Extension Runtime & Reverse-RPC
 
-> _How EZCorp runs every extension as a sandboxed JSON-RPC-over-stdio subprocess: the host dispatches `tools/call` into it, the child calls back via ~23 permission-gated `ezcorp/*` reverse-RPC methods, and the registry manages the process lifecycle (idle-kill, crash auto-disable, fs-violation disable)._
+> _How EZCorp runs every extension as a sandboxed JSON-RPC-over-stdio subprocess: the host dispatches `tools/call` into it, the child calls back via ~24 permission-gated `ezcorp/*` reverse-RPC methods, and the registry manages the process lifecycle (idle-kill, crash auto-disable, fs-violation disable)._
 
 ## Intent
 
@@ -29,7 +29,7 @@ In order, for every call:
 
 ### Reverse-RPC method table (`route()` in `ensureSubprocessRpcWired`)
 
-23 exact-match `ezcorp/*` methods, each gated independently (a missing registry grant → `-32603`):
+24 exact-match `ezcorp/*` methods, each gated independently (a missing registry grant → `-32603`):
 
 | Method(s) | Handler | Gate / notes |
 |---|---|---|
@@ -50,6 +50,7 @@ In order, for every call:
 | `ezcorp/finalize-tool-call` | `handlePiFinalizeToolCall` | Flips a `running` tool-call row to terminal. |
 | `ezcorp/network.internal` | `handlePiNetworkInternal` → `network-handler.ts` | Loopback / RFC-1918 fetch SSRF-gated host-side (10MB cap). |
 | `ezcorp/drafts` | `handlePiDrafts` → `drafts-handler.ts` | Bundled-only (`BUNDLED_DRAFTS_ALLOWLIST` by manifest **name**); `verify`/`install` actions are timeout-exempt. |
+| `ezcorp/rbac-check` | `handlePiRbacCheck` | `ctx.rbac.check(scope)` — asks the host whether the acting user holds a per-project/per-extension RBAC scope. Extension identity is the **registry**-resolved name (wire params naming another extension are ignored); user + project come from `ezCallId` provenance + the conversation. Core verbs are always checkable; a custom scope must be declared in `permissions.rbacScopes` else `-32602`. No grant / no admin → `{granted:false}` (not an error). See [[rbac-and-permission-modes]]. |
 
 Anything else → `-32601 Method not found`.
 
