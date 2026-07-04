@@ -1731,6 +1731,7 @@ describe("extension RBAC scope matrix", () => {
     proposalsById["p1"]!.status = "spawned"; // would be a 409 for an authorized user
     grantedScopes = new Set();
     const res = await run(approve, ev({ method: "POST", params: { id: "p1" } }));
+    expect(res.status).toBe(403); // NOT the 409 an authorized caller would see
     await expect403Naming(res, "approve-runs");
   });
 });
