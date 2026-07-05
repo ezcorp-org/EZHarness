@@ -41,6 +41,9 @@ let claimProposalMock = mock(
 let createConversationMock = mock((_pid: string, _opts: unknown) =>
   Promise.resolve<{ id: string }>({ id: "conv-1" }),
 );
+let createMessageMock = mock((_cid: string, _data: Record<string, unknown>) =>
+  Promise.resolve<{ id: string }>({ id: "msg-seed" }),
+);
 let addConversationExtensionsMock = mock((_cid: string, _entries: unknown) => Promise.resolve());
 let getExtensionByNameMock = mock((_n: string) => Promise.resolve<unknown>(null));
 let getAgentConfigByNameMock = mock((_n: string) => Promise.resolve<unknown>(undefined));
@@ -80,6 +83,7 @@ function installMocks(): void {
   }));
   mock.module("../../../db/queries/conversations", () => ({
     createConversation: (pid: string, opts: unknown) => createConversationMock(pid, opts),
+    createMessage: (cid: string, data: Record<string, unknown>) => createMessageMock(cid, data),
   }));
   mock.module("../../../db/queries/conversation-extensions", () => ({
     addConversationExtensions: (cid: string, entries: unknown) => addConversationExtensionsMock(cid, entries),
@@ -224,6 +228,9 @@ beforeEach(() => {
       Promise.resolve<unknown>({ ...makeProposal({ id }), ...patch }),
   );
   createConversationMock = mock((_pid: string, _opts: unknown) => Promise.resolve({ id: "conv-1" }));
+  createMessageMock = mock((_cid: string, _data: Record<string, unknown>) =>
+    Promise.resolve({ id: "msg-seed" }),
+  );
   addConversationExtensionsMock = mock((_cid: string, _entries: unknown) => Promise.resolve());
   getExtensionByNameMock = mock((_n: string) => Promise.resolve<unknown>(null));
   getAgentConfigByNameMock = mock((_n: string) => Promise.resolve<unknown>(undefined));
@@ -381,6 +388,24 @@ describe("approveProposal", () => {
     const msg = runtime.streamChat.mock.calls[0]![1] as string;
     expect(msg).toContain("UNTRUSTED external input");
     expect(msg).toContain("DROP TABLE users;");
+  });
+
+  test("persists the run prompt as the conversation's opening user message + threads it as parentMessageId", async () => {
+    const { runtime } = makeRuntime();
+    installMocks();
+    await approveProposal("prop-1", { kind: "auto" }, { runtime });
+
+    // Exactly one seed message, on the new conversation, role 'user',
+    // content === the prompt streamChat received (so the chat is never headless).
+    expect(createMessageMock).toHaveBeenCalledTimes(1);
+    const [cid, data] = createMessageMock.mock.calls[0]! as [string, Record<string, unknown>];
+    expect(cid).toBe("conv-1");
+    expect(data.role).toBe("user");
+    const streamedPrompt = runtime.streamChat.mock.calls[0]![1] as string;
+    expect(data.content).toBe(streamedPrompt);
+    // The assistant turns chain onto the seed message (mirrors the chat route).
+    const opts = runtime.streamChat.mock.calls[0]![2] as Record<string, unknown>;
+    expect(opts.parentMessageId).toBe("msg-seed");
   });
 
   test("claims pending→spawned atomically, stamps conversationId, then claims running", async () => {

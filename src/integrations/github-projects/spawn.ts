@@ -53,7 +53,7 @@ import {
   GITHUB_TERMINAL_STATUSES,
   githubProposalDedupeKey,
 } from "./types";
-import { createConversation } from "../../db/queries/conversations";
+import { createConversation, createMessage } from "../../db/queries/conversations";
 import { addConversationExtensions } from "../../db/queries/conversation-extensions";
 import { getExtensionByName } from "../../db/queries/extensions";
 import { getAgentConfigByName } from "../../db/queries/agent-configs";
@@ -142,6 +142,7 @@ export interface SpawnRuntime {
       agentConfigId?: string;
       runId?: string;
       system?: string;
+      parentMessageId?: string;
     },
   ) => Promise<AgentRun>;
   /** Subscribe to a run lifecycle event. Returns an unsubscribe fn. */
@@ -351,13 +352,26 @@ export async function approveProposal(
   // bundled extensions; we additionally wire the github-projects ticket-tool
   // extension best-effort (no-op until Agent C ships the package). A failure
   // here reverts the claim (back to pending) so the Hub can retry.
+  //
+  // The run prompt is persisted as the conversation's opening `user` message —
+  // streamChat NEVER stores its userMessage argument (every caller persists it
+  // first: the chat route, briefing/run.ts, …). Without this row the spawned
+  // chat opens EMPTY except for assistant turns, and the operator can't see
+  // what the agent was asked to do. The assistant turns chain onto it via
+  // `parentMessageId` below, mirroring the normal chat route.
   let conversation: { id: string };
+  let seedMessage: { id: string };
   try {
     conversation = await createConversation(projectId, {
       title: `GitHub: ${proposal.title}`.slice(0, 200),
       ...(userId ? { userId } : {}),
     });
     await wireGithubProjectsExtension(conversation.id);
+    seedMessage = await createMessage(conversation.id, {
+      role: "user",
+      content: prompt,
+      runId,
+    });
     await updateProposal(proposal.id, { conversationId: conversation.id });
   } catch (err) {
     await updateProposal(proposal.id, {
@@ -384,6 +398,7 @@ export async function approveProposal(
       projectId,
       permissionMode,
       runId,
+      parentMessageId: seedMessage.id,
       ...(agentConfigId ? { agentConfigId } : {}),
       ...(defaultModel ? { provider: defaultModel.provider, model: defaultModel.model } : {}),
     })
