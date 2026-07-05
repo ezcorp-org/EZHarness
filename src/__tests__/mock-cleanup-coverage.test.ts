@@ -229,15 +229,18 @@ describe("mock-cleanup coverage (meta-test)", () => {
       }
     }
 
+    // Surface the remediation before asserting — the expect() diff below
+    // names each offender, but this block explains what to DO about them.
     if (missing.length > 0) {
       const lines = missing.map((m) => `  ${m.file}: mock.module("${m.path}")`);
-      throw new Error(
+      console.error(
         `mock.module targets missing from MODULE_PATHS (or a known $server/* top level) in ` +
           `src/__tests__/helpers/mock-cleanup.ts. Without a snapshot, restoreModuleMocks() ` +
           `cannot undo the mock and it will leak into subsequent test files. Add the ` +
           `canonical form of each path to the allowlist:\n${lines.join("\n")}`,
       );
     }
+    expect(missing).toEqual([]);
   });
 
   // IDX-07 regression pin: several memory test files (e.g.
