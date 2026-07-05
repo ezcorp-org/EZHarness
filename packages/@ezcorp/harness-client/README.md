@@ -74,9 +74,44 @@ const r = await ez.runScripted(
 is faked — the real tool loop, permission gates, persistence, and runtime
 SSE all execute.
 
+## Extensions
+
+Wire installed extensions to a conversation and invoke their tools directly —
+the typed path a harness uses to drive an extension without the `!ext:name`
+chat mention. The `extensions` scope is required to wire or invoke; `read`
+lists.
+
+```ts
+// Discover what's installed (bare array; scratchpad, task-tracking, …)
+const installed = await ez.listExtensions();
+
+// Wire one (or several) to a conversation. All-or-nothing on unknown names;
+// idempotent, so re-wiring is a safe no-op.
+const { wired, extensionIds } = await ez.wireExtensions(convo.id, ["scratchpad"]);
+console.log(await ez.listWiredExtensions(convo.id)); // [{ id, name: "scratchpad" }]
+
+// Invoke a wired tool. `invocationId` is auto-generated when omitted; a
+// tool-level failure resolves with { success: false, error } (it does NOT
+// throw — only transport/scope/ownership errors throw HarnessApiError).
+const write = await ez.invokeExtensionTool(convo.id, "scratchpad", "scratchpad_write", {
+  key: "greeting",
+  value: "hello",
+});
+const read = await ez.invokeExtensionTool(convo.id, "scratchpad", "scratchpad_read", {
+  key: "greeting",
+});
+console.log(write.success, read.output);
+```
+
+An extension must be **wired** to the conversation before its storage-scoped
+tools succeed (unwired → `{ success: false, error: "Extension not wired to
+this conversation" }`). `GET /api/extensions/:name/tools` reads the LIVE
+registry and 404s until the extension is loaded — expected in v1, not a bug.
+
 ## API
 
 - `createConversation`, `sendMessage`, `runToCompletion`, `awaitRun`, `getRun`
+- `listExtensions`, `wireExtensions`, `listWiredExtensions`, `invokeExtensionTool`
 - `streamEvents` (async iterator over SSE), `SseDataBuffer`
 - `resolveToolPermission(toolCallId, approved, { scope, ttlOverrideMs })`
 - `getSetting`, `setSetting`
