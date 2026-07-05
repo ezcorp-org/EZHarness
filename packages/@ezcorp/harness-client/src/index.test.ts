@@ -41,6 +41,11 @@ let lastAuth: string | null = null;
 let lastUrl: string | null = null;
 let lastConversationBody: Record<string, unknown> | null = null;
 let scripted: { scriptKey: string; turns: unknown[] } | null = null;
+let lastWireBody: Record<string, unknown> | null = null;
+let lastToolInvoke: Record<string, unknown> | null = null;
+// Toggles the shape GET /api/extensions returns so both the bare-array and
+// `{ extensions }` normalization branches are exercised.
+let extListShape: "array" | "wrapper" | "other" = "array";
 
 beforeAll(() => {
   server = Bun.serve({
@@ -67,6 +72,41 @@ beforeAll(() => {
       }
       if (req.method === "POST" && p === "/api/conversations/c1/messages") {
         return Response.json({ userMessage: { id: "m1" }, runId: "r1" });
+      }
+      // ── Extension control surface ──
+      if (req.method === "GET" && p === "/api/extensions") {
+        if (extListShape === "array") return Response.json([{ id: "e1", name: "scratchpad" }]);
+        if (extListShape === "wrapper") return Response.json({ extensions: [{ id: "e2", name: "task-tracking" }] });
+        return Response.json({ note: "neither array nor wrapper" });
+      }
+      if (p.startsWith("/api/conversations/") && p.endsWith("/extensions")) {
+        if (req.method === "POST") {
+          lastWireBody = (await req.json()) as Record<string, unknown>;
+          if (p === "/api/conversations/forbidden/extensions") {
+            return Response.json({ error: "Insufficient scope", required: "extensions" }, { status: 403 });
+          }
+          const names = (lastWireBody.names as string[]) ?? [];
+          const unknown = names.filter((n) => n === "ghost");
+          if (unknown.length > 0) {
+            return Response.json({ error: "Unknown extension(s)", unknown }, { status: 404 });
+          }
+          return Response.json({ wired: names, extensionIds: names.map((n) => `id-${n}`) });
+        }
+        if (req.method === "GET") {
+          return Response.json({ extensions: [{ id: "e1", name: "scratchpad" }] });
+        }
+      }
+      if (req.method === "POST" && p === "/api/tool-invoke") {
+        lastToolInvoke = (await req.json()) as Record<string, unknown>;
+        if (lastToolInvoke.extensionName === "denied") {
+          return Response.json({ error: "Insufficient scope", required: "extensions" }, { status: 403 });
+        }
+        // A tool-level failure is HTTP 200 with { success: false } — the client
+        // must RESOLVE with it, not throw.
+        if (lastToolInvoke.extensionName === "failing") {
+          return Response.json({ success: false, error: "boom", toolCallId: lastToolInvoke.invocationId });
+        }
+        return Response.json({ success: true, output: `${lastToolInvoke.toolName}:ok`, toolCallId: lastToolInvoke.invocationId });
       }
       if (req.method === "GET" && p === "/api/runs/r1" && url.searchParams.get("wait") === "1") {
         return Response.json({ outcome: "complete", run: { id: "r1", status: "success", result: { output: "done" } } });
@@ -259,5 +299,111 @@ describe("HarnessClient", () => {
       events.push(evt.type);
     }
     expect(events).toEqual(["run:start", "run:complete"]);
+  });
+});
+
+describe("HarnessClient — extension control", () => {
+  test("listExtensions returns a bare array (includes scratchpad)", async () => {
+    extListShape = "array";
+    const exts = await client().listExtensions();
+    expect(exts).toEqual([{ id: "e1", name: "scratchpad" }]);
+    expect(exts.some((e) => e.name === "scratchpad")).toBe(true);
+  });
+
+  test("listExtensions normalizes a { extensions } wrapper", async () => {
+    extListShape = "wrapper";
+    const exts = await client().listExtensions();
+    expect(exts).toEqual([{ id: "e2", name: "task-tracking" }]);
+  });
+
+  test("listExtensions throws on an unexpected shape (does not silently return [])", async () => {
+    extListShape = "other";
+    await expect(client().listExtensions()).rejects.toThrow(/unexpected \/api\/extensions response shape/);
+  });
+
+  test("wireExtensions posts { names } and returns wired + extensionIds", async () => {
+    const res = await client().wireExtensions("c1", ["scratchpad"]);
+    expect(res).toEqual({ wired: ["scratchpad"], extensionIds: ["id-scratchpad"] });
+    expect(lastWireBody).toEqual({ names: ["scratchpad"] });
+    expect(new URL(lastUrl!).pathname).toBe("/api/conversations/c1/extensions");
+    expect(lastAuth).toBe("Bearer ezk_test");
+  });
+
+  test("wireExtensions percent-encodes the conversationId path segment", async () => {
+    await client().wireExtensions("c/../x", ["scratchpad"]);
+    expect(new URL(lastUrl!).pathname).toBe("/api/conversations/c%2F..%2Fx/extensions");
+  });
+
+  test("wireExtensions throws HarnessApiError 404 on an unknown name", async () => {
+    try {
+      await client().wireExtensions("c1", ["ghost"]);
+      throw new Error("expected throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(HarnessApiError);
+      expect((e as HarnessApiError).status).toBe(404);
+      expect((e as HarnessApiError).body).toMatchObject({ error: "Unknown extension(s)", unknown: ["ghost"] });
+    }
+  });
+
+  test("wireExtensions maps a 403 to HarnessApiError", async () => {
+    try {
+      await client().wireExtensions("forbidden", ["scratchpad"]);
+      throw new Error("expected throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(HarnessApiError);
+      expect((e as HarnessApiError).status).toBe(403);
+    }
+  });
+
+  test("listWiredExtensions returns the wired set (encoded path)", async () => {
+    const wired = await client().listWiredExtensions("c/../x");
+    expect(wired).toEqual([{ id: "e1", name: "scratchpad" }]);
+    expect(new URL(lastUrl!).pathname).toBe("/api/conversations/c%2F..%2Fx/extensions");
+  });
+
+  test("invokeExtensionTool auto-generates an invocationId and returns the result", async () => {
+    const res = await client().invokeExtensionTool("c1", "scratchpad", "scratchpad_write", { key: "k", value: "v" });
+    expect(res).toMatchObject({ success: true, output: "scratchpad_write:ok" });
+    expect(lastToolInvoke).toMatchObject({
+      conversationId: "c1",
+      extensionName: "scratchpad",
+      toolName: "scratchpad_write",
+      input: { key: "k", value: "v" },
+    });
+    // Auto-generated: a uuid-shaped invocationId is present; messageId is absent.
+    expect(typeof lastToolInvoke!.invocationId).toBe("string");
+    expect((lastToolInvoke!.invocationId as string).length).toBeGreaterThanOrEqual(32);
+    expect("messageId" in lastToolInvoke!).toBe(false);
+  });
+
+  test("invokeExtensionTool honours an explicit invocationId + messageId, defaults input to {}", async () => {
+    const res = await client().invokeExtensionTool("c1", "scratchpad", "scratchpad_read", undefined, {
+      invocationId: "inv-fixed",
+      messageId: "m-9",
+    });
+    expect(res.success).toBe(true);
+    expect(lastToolInvoke).toEqual({
+      conversationId: "c1",
+      extensionName: "scratchpad",
+      toolName: "scratchpad_read",
+      input: {},
+      invocationId: "inv-fixed",
+      messageId: "m-9",
+    });
+  });
+
+  test("invokeExtensionTool RESOLVES with a tool-level failure (HTTP 200 { success:false })", async () => {
+    const res = await client().invokeExtensionTool("c1", "failing", "whatever");
+    expect(res).toMatchObject({ success: false, error: "boom" });
+  });
+
+  test("invokeExtensionTool maps a 403 to HarnessApiError", async () => {
+    try {
+      await client().invokeExtensionTool("c1", "denied", "whatever");
+      throw new Error("expected throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(HarnessApiError);
+      expect((e as HarnessApiError).status).toBe(403);
+    }
   });
 });

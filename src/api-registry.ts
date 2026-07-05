@@ -55,6 +55,8 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "DELETE", path: "/api/conversations/:id", description: "Delete a conversation", category: "conversations", scope: "chat" },
   { method: "GET", path: "/api/conversations/:id/messages", description: "List messages in a conversation", category: "conversations", scope: "read", responseDescription: "Array of message objects with tool calls" },
   { method: "POST", path: "/api/conversations/:id/messages", description: "Send a message and trigger AI response", category: "conversations", scope: "chat", harness: { controllable: true }, schemaKey: "createMessageSchema" },
+  { method: "GET", path: "/api/conversations/:id/extensions", description: "List extensions wired to a conversation", category: "conversations", scope: "read", harness: { controllable: true }, responseDescription: "{ extensions: [{ id, name }] }" },
+  { method: "POST", path: "/api/conversations/:id/extensions", description: "Wire installed extensions to a conversation", category: "conversations", scope: "extensions", harness: { controllable: true }, responseDescription: "{ wired: string[], extensionIds: string[] }" },
   { method: "GET", path: "/api/conversations/:id/export", description: "Export conversation as JSON/Markdown", category: "conversations" },
   { method: "POST", path: "/api/conversations/:id/active-run", description: "Cancel active run in conversation", category: "conversations" },
   { method: "GET", path: "/api/search/messages", description: "Hybrid/keyword/semantic message search (RRF)", category: "conversations", responseDescription: "{ hits, degraded, requestedMode, servedMode }" },
@@ -79,14 +81,14 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/agents/:id/share", description: "Share agent to marketplace", category: "agents" },
 
   // Extensions
-  { method: "GET", path: "/api/extensions", description: "List installed extensions", category: "extensions" },
+  { method: "GET", path: "/api/extensions", description: "List installed extensions", category: "extensions", scope: "read", harness: { controllable: true } },
   { method: "POST", path: "/api/extensions", description: "Install extension from local path or GitHub", category: "extensions", schemaKey: "installExtensionSchema" },
   { method: "GET", path: "/api/extensions/:id", description: "Get extension details", category: "extensions" },
   { method: "DELETE", path: "/api/extensions/:id", description: "Uninstall extension", category: "extensions" },
   { method: "POST", path: "/api/extensions/:id/confirm", description: "Confirm extension installation", category: "extensions" },
   { method: "GET", path: "/api/extensions/:id/permissions", description: "Get extension permissions", category: "extensions" },
   { method: "PUT", path: "/api/extensions/:id/permissions", description: "Update extension permissions", category: "extensions" },
-  { method: "GET", path: "/api/extensions/:name/tools", description: "List tools provided by extension", category: "extensions" },
+  { method: "GET", path: "/api/extensions/:name/tools", description: "List tools provided by extension", category: "extensions", scope: "read" },
 
   // Marketplace
   { method: "GET", path: "/api/marketplace", description: "Browse marketplace listings", category: "marketplace" },
@@ -156,7 +158,7 @@ export const apiRegistry: ApiRouteEntry[] = [
 
   // Tools
   { method: "GET", path: "/api/tools", description: "List available tools", category: "tools" },
-  { method: "POST", path: "/api/tool-invoke", description: "Invoke a tool directly", category: "tools" },
+  { method: "POST", path: "/api/tool-invoke", description: "Invoke a tool directly", category: "tools", scope: "extensions", harness: { controllable: true } },
   { method: "GET", path: "/api/tool-calls/:id/output", description: "Get tool call output", category: "tools" },
   { method: "POST", path: "/api/tool-calls/:id/permission", description: "Approve or deny tool permission", category: "tools" },
 

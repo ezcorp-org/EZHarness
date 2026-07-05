@@ -183,6 +183,10 @@ const MODULE_PATHS = [
   "../../../web/src/lib/server/context",
   "../../../web/src/lib/server/oauth-config",
   "../../../web/src/lib/server/http-errors",
+  // conversation-extensions-route.test.ts (web route __tests__) mocks
+  // `$lib/server/conversation-ownership`; snapshot it here so
+  // restoreModuleMocks() re-registers the real ownership walk.
+  "../../../web/src/lib/server/conversation-ownership",
   "../../../web/src/lib/stores/connection",
   "../../../web/src/lib/api",
   "@earendil-works/pi-ai",

@@ -191,6 +191,14 @@ describe("mock-cleanup coverage (meta-test)", () => {
     const testFiles = [
       ...listTestFiles(import.meta.dir),
       ...listTestFiles(join(import.meta.dir, "..", "extensions", "__tests__")),
+      // Web route __tests__ dirs run in the same per-file bun-test pool and
+      // mock.module() the same shared modules. Scan the extension-control
+      // route tests here (conversation-extensions-route.test.ts). NOT a
+      // blanket walk of every web route dir — extend as those adopt the
+      // restore convention.
+      ...listTestFiles(
+        join(import.meta.dir, "..", "..", "web", "src", "routes", "api", "extensions", "__tests__"),
+      ),
     ];
 
     const missing: Array<{ file: string; path: string }> = [];
