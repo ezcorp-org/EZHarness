@@ -101,6 +101,11 @@ beforeAll(() => {
         if (lastToolInvoke.extensionName === "denied") {
           return Response.json({ error: "Insufficient scope", required: "extensions" }, { status: 403 });
         }
+        // A tool-level failure is HTTP 200 with { success: false } — the client
+        // must RESOLVE with it, not throw.
+        if (lastToolInvoke.extensionName === "failing") {
+          return Response.json({ success: false, error: "boom", toolCallId: lastToolInvoke.invocationId });
+        }
         return Response.json({ success: true, output: `${lastToolInvoke.toolName}:ok`, toolCallId: lastToolInvoke.invocationId });
       }
       if (req.method === "GET" && p === "/api/runs/r1" && url.searchParams.get("wait") === "1") {
@@ -311,9 +316,9 @@ describe("HarnessClient — extension control", () => {
     expect(exts).toEqual([{ id: "e2", name: "task-tracking" }]);
   });
 
-  test("listExtensions returns [] for an unexpected shape", async () => {
+  test("listExtensions throws on an unexpected shape (does not silently return [])", async () => {
     extListShape = "other";
-    expect(await client().listExtensions()).toEqual([]);
+    await expect(client().listExtensions()).rejects.toThrow(/unexpected \/api\/extensions response shape/);
   });
 
   test("wireExtensions posts { names } and returns wired + extensionIds", async () => {
@@ -385,6 +390,11 @@ describe("HarnessClient — extension control", () => {
       invocationId: "inv-fixed",
       messageId: "m-9",
     });
+  });
+
+  test("invokeExtensionTool RESOLVES with a tool-level failure (HTTP 200 { success:false })", async () => {
+    const res = await client().invokeExtensionTool("c1", "failing", "whatever");
+    expect(res).toMatchObject({ success: false, error: "boom" });
   });
 
   test("invokeExtensionTool maps a 403 to HarnessApiError", async () => {

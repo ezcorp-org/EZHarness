@@ -72,6 +72,35 @@ persistence, and runtime SSE all execute. The generated OpenAPI contract
 (`buildOpenApiSpec()` in [`src/openapi.ts`](../src/openapi.ts)) is derived from
 the registry below.
 
+### Extension control
+
+Extensions are wired **per conversation**. A harness lists the installed set,
+wires extensions to a conversation, then invokes their tools directly — via
+`listExtensions`, `wireExtensions`, `listWiredExtensions`, and
+`invokeExtensionTool`:
+
+```ts
+await ez.listExtensions();                         // installed set (read scope)
+await ez.wireExtensions(convoId, ["scratchpad"]);  // extensions scope
+await ez.listWiredExtensions(convoId);             // read scope
+const r = await ez.invokeExtensionTool(convoId, "scratchpad", "scratchpad_write", { key, value });
+```
+
+- **Wiring is required.** An extension's storage-scoped tools fail with
+  "Extension not wired to this conversation" until it is wired — via
+  `POST /api/conversations/:id/extensions` (the client's `wireExtensions`) or an
+  `![ext:name]` chat mention. Wiring is idempotent and all-or-nothing: an
+  unknown name 404s and wires nothing.
+- **Scopes.** `read` lists (installed set + a conversation's wired set);
+  `extensions` is required to wire (`POST /api/conversations/:id/extensions`)
+  and to invoke (`POST /api/tool-invoke`). A tool-level failure RESOLVES with
+  `{ success: false, error }` (HTTP 200) — only an unknown tool, a bad body, or
+  a scope/ownership rejection is a non-2xx (thrown `HarnessApiError`).
+- **`GET /api/extensions/:name/tools` reads the LIVE registry** and 404s until
+  the extension is loaded, so it is not a reliable discovery source in v1. Use
+  the `manifest` (incl. `tools[]`) embedded in each `GET /api/extensions`
+  record instead.
+
 ## The standing rule — keep new features remotely testable
 
 A CI meta-test ([`web/src/__tests__/route-contract.test.ts`](../web/src/__tests__/route-contract.test.ts))

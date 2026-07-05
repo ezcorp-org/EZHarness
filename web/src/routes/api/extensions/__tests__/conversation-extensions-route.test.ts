@@ -14,7 +14,8 @@
  * PGlite); the scope + auth gates run for REAL so 401/403 are genuinely
  * exercised. Same posture as api-runs-id's server test.
  */
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
+import { restoreModuleMocks } from "../../../../../../src/__tests__/helpers/mock-cleanup";
 
 // ── Ownership: resolves to a truthy pair by default; set null to deny. ──
 let ownershipResult: unknown = { conv: { id: "c1" }, root: { id: "c1" } };
@@ -94,6 +95,10 @@ beforeEach(() => {
   mockGetConversationExtensionIds.mockClear();
 });
 
+// mock.module() permanently replaces modules in Bun's loader cache; restore
+// the snapshotted reals in afterAll so nothing leaks into later test files.
+afterAll(() => restoreModuleMocks());
+
 describe("POST /api/conversations/[id]/extensions — gates", () => {
   test("403 when an API key lacks the 'extensions' scope", async () => {
     const res = await POST(postEvent({ locals: { user, apiKeyScopes: ["read", "chat"] }, body: { names: ["a"] } }));
@@ -135,6 +140,21 @@ describe("POST — body validation (400)", () => {
     const res = await POST(postEvent({ locals: { user }, body: { names: [] } }));
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error?: string }).error).toBe("Validation failed");
+  });
+
+  test("400 when a name is an empty string", async () => {
+    const res = await POST(postEvent({ locals: { user }, body: { names: [""] } }));
+    expect(res.status).toBe(400);
+  });
+
+  test("400 when a name is not a string", async () => {
+    const res = await POST(postEvent({ locals: { user }, body: { names: [123] } }));
+    expect(res.status).toBe(400);
+  });
+
+  test("400 when the names key is absent", async () => {
+    const res = await POST(postEvent({ locals: { user }, body: {} }));
+    expect(res.status).toBe(400);
   });
 
   test("400 when names is not an array", async () => {

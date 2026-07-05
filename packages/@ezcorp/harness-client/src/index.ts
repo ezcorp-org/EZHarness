@@ -121,7 +121,8 @@ export class HarnessClient {
 
   // ── Extensions ─────────────────────────────────────────────────────
   /** List installed extensions. `GET /api/extensions` returns a bare array;
-   *  a `{ extensions: [...] }` wrapper is tolerated too. */
+   *  a `{ extensions: [...] }` wrapper is tolerated too. Any other shape throws
+   *  (a silent `[]` would mask a contract drift as "no extensions installed"). */
   async listExtensions(): Promise<Array<{ id: string; name: string; [k: string]: unknown }>> {
     const res = await this.request<unknown>("GET", `/api/extensions`);
     if (Array.isArray(res)) {
@@ -130,7 +131,9 @@ export class HarnessClient {
     if (res && typeof res === "object" && Array.isArray((res as { extensions?: unknown }).extensions)) {
       return (res as { extensions: Array<{ id: string; name: string; [k: string]: unknown }> }).extensions;
     }
-    return [];
+    throw new Error(
+      `listExtensions: unexpected /api/extensions response shape — expected an array or { extensions: [...] }, got ${res === null ? "null" : typeof res}`,
+    );
   }
 
   /** Wire installed extensions (by manifest name) to a conversation. All-or-
