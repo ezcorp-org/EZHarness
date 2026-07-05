@@ -92,6 +92,7 @@
   "web/src/routes/api/version/+server.ts": 100,
   "web/src/routes/api/conversations/[id]/goal-state/+server.ts": 100,
   "web/src/routes/api/conversations/[id]/messages/+server.ts": 100,
+  "web/src/routes/api/conversations/[id]/extensions/+server.ts": 100,
   "web/src/routes/api/search/messages/+server.ts": 100,
   "web/src/lib/search/deep-link-resolve.ts": 100,
   "web/src/lib/search/snippet-sanitize.ts": 100,
