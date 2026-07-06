@@ -11,10 +11,12 @@
  * See README.md for a worked example.
  */
 export * from "./events";
+export * from "./routes";
 export { SseDataBuffer } from "./sse";
 
 import { SseDataBuffer } from "./sse";
 import type { RuntimeEvent } from "./events";
+import { HARNESS_ROUTES, buildPath, type HarnessRouteName } from "./routes";
 
 export interface HarnessClientOptions {
   /** Base origin of the EZCorp instance, e.g. `http://localhost:3000`. */
@@ -54,6 +56,33 @@ export interface RunResult {
   outcome: "complete" | "error" | "cancel";
   run: Record<string, unknown> & { id: string; status: string; result?: { output?: unknown; error?: unknown } };
   error?: string;
+}
+
+/** An installed-extension row as the server returns it. `id` is the extensions-
+ *  table UUID (the `:id` path param for lifecycle routes); `name` is the stable
+ *  manifest slug (used for wiring + secrets). Extra columns pass through. */
+export interface ExtensionRecord {
+  id: string;
+  name: string;
+  enabled?: boolean;
+  [k: string]: unknown;
+}
+
+/** Source for `installExtension`. Mirrors the server's `installExtensionSchema`:
+ *  `local` needs `path`, `github` needs `repo`, `git` needs `url` (+ optional
+ *  `ref`). The server clones/enables nothing beyond the manifest declaration —
+ *  install lands disabled; grant + enable happen via `activateExtension`. */
+export type InstallExtensionInput =
+  | { source: "local"; path: string }
+  | { source: "github"; repo: string }
+  | { source: "git"; url: string; ref?: string };
+
+/** Result of a hub action dispatch: `{ ok }`, optionally with a freshly
+ *  rendered page tree when the action returned one. */
+export interface HubActionResult {
+  ok: boolean;
+  page?: unknown;
+  renderedAt?: number;
 }
 
 export class HarnessApiError extends Error {
@@ -100,12 +129,21 @@ export class HarnessClient {
     return parsed as T;
   }
 
+  /** Drive a named route from the shared `HARNESS_ROUTES` table: resolves the
+   *  HTTP method + path template once, substitutes `:param` segments, and
+   *  delegates to `request()`. Every single-request method routes through here
+   *  so a path string is never written inline. */
+  private route<T>(name: HarnessRouteName, params?: Record<string, string>, body?: unknown): Promise<T> {
+    const r = HARNESS_ROUTES[name];
+    return this.request<T>(r.httpMethod, buildPath(r.pathTemplate, params), body);
+  }
+
   // ── Configure ──────────────────────────────────────────────────────
   getSetting<T = unknown>(key: string): Promise<T> {
-    return this.request("GET", `/api/settings/${encodeURIComponent(key)}`);
+    return this.route("getSetting", { key });
   }
   setSetting(key: string, value: unknown): Promise<unknown> {
-    return this.request("PUT", `/api/settings/${encodeURIComponent(key)}`, { value });
+    return this.route("setSetting", { key }, { value });
   }
 
   // ── Conversations + drive ──────────────────────────────────────────
@@ -113,41 +151,126 @@ export class HarnessClient {
    *  default it to the `"global"` project so the zero-config call works —
    *  an explicit `input.projectId` always wins. */
   createConversation(input: Record<string, unknown> = {}): Promise<{ id: string; [k: string]: unknown }> {
-    return this.request("POST", `/api/conversations`, { projectId: "global", ...input });
+    return this.route("createConversation", undefined, { projectId: "global", ...input });
   }
   sendMessage(conversationId: string, content: string, opts: SendMessageOptions = {}): Promise<SendMessageResult> {
-    return this.request("POST", `/api/conversations/${encodeURIComponent(conversationId)}/messages`, { content, ...opts });
+    return this.route("sendMessage", { id: conversationId }, { content, ...opts });
   }
 
   // ── Extensions ─────────────────────────────────────────────────────
   /** List installed extensions. `GET /api/extensions` returns a bare array;
    *  a `{ extensions: [...] }` wrapper is tolerated too. Any other shape throws
    *  (a silent `[]` would mask a contract drift as "no extensions installed"). */
-  async listExtensions(): Promise<Array<{ id: string; name: string; [k: string]: unknown }>> {
-    const res = await this.request<unknown>("GET", `/api/extensions`);
+  async listExtensions(): Promise<ExtensionRecord[]> {
+    const res = await this.route<unknown>("listExtensions");
     if (Array.isArray(res)) {
-      return res as Array<{ id: string; name: string; [k: string]: unknown }>;
+      return res as ExtensionRecord[];
     }
     if (res && typeof res === "object" && Array.isArray((res as { extensions?: unknown }).extensions)) {
-      return (res as { extensions: Array<{ id: string; name: string; [k: string]: unknown }> }).extensions;
+      return (res as { extensions: ExtensionRecord[] }).extensions;
     }
     throw new Error(
       `listExtensions: unexpected /api/extensions response shape — expected an array or { extensions: [...] }, got ${res === null ? "null" : typeof res}`,
     );
   }
 
+  /** Install an extension from a local path, a GitHub release, or a git clone
+   *  URL (`POST /api/extensions`). Requires an admin-ROLE key. The install lands
+   *  DISABLED with no permissions granted — call `activateExtension` next to
+   *  enable it and grant its manifest-declared permissions. Returns the new
+   *  extension row (its `id` is the `:id` param for the lifecycle routes). */
+  installExtension(input: InstallExtensionInput): Promise<ExtensionRecord> {
+    return this.route("installExtension", undefined, input);
+  }
+
+  /** Enable an installed extension and (optionally) grant permissions
+   *  (`POST /api/extensions/:id/activate`). Requires an admin-ROLE key. Omit
+   *  `grantedPermissions` to just flip enabled=true; when supplied it is clamped
+   *  to the manifest (nothing beyond what the author declared is granted).
+   *  Returns the updated extension row. */
+  activateExtension(
+    extensionId: string,
+    grantedPermissions?: Record<string, unknown>,
+  ): Promise<ExtensionRecord> {
+    return this.route(
+      "activateExtension",
+      { id: extensionId },
+      grantedPermissions !== undefined ? { grantedPermissions } : {},
+    );
+  }
+
+  /** Enable/disable an installed extension (`PATCH /api/extensions/:id`).
+   *  Requires an admin-ROLE key + the `extensions` scope. NOTE: the server only
+   *  permits DISABLING here (`enabled: false`); passing `true` returns 400 —
+   *  enabling must go through `activateExtension` (which does the manifest-
+   *  clamped permission review). Returns the updated extension row. */
+  setExtensionEnabled(extensionId: string, enabled: boolean): Promise<ExtensionRecord> {
+    return this.route("setExtensionEnabled", { id: extensionId }, { enabled });
+  }
+
+  /** Uninstall an extension (`DELETE /api/extensions/:id`). Requires an
+   *  admin-ROLE key + the `extensions` scope. Destructive + instance-wide:
+   *  kills the subprocess, drops the DB row, invalidates cached Hub pages.
+   *  Resolves (204, no body) on success. */
+  uninstallExtension(extensionId: string): Promise<void> {
+    return this.route("uninstallExtension", { id: extensionId });
+  }
+
+  /** Replace an extension's granted permissions (`PUT /api/extensions/:id/permissions`).
+   *  Requires an admin-ROLE key. The submitted permissions are clamped to the
+   *  manifest — anything beyond the author's declaration is dropped silently.
+   *  Returns the updated extension row. */
+  updateExtensionPermissions(
+    extensionId: string,
+    permissions: Record<string, unknown>,
+  ): Promise<ExtensionRecord> {
+    return this.route("updateExtensionPermissions", { id: extensionId }, { permissions });
+  }
+
+  /** Set (or rotate) a scope-isolated extension secret
+   *  (`POST /api/extensions/:id/secrets`). Needs the `extensions` scope plus the
+   *  per-extension `secrets` RBAC scope at `projectId` (`null`/omitted = the
+   *  instance-wide scope; admins hold every scope). The plaintext `value` is
+   *  never echoed back. */
+  setExtensionSecret(
+    extensionId: string,
+    name: string,
+    value: string,
+    opts: { projectId?: string | null } = {},
+  ): Promise<{ ok: true }> {
+    return this.route("setExtensionSecret", { id: extensionId }, {
+      name,
+      value,
+      ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
+    });
+  }
+
+  /** Delete a scope-isolated extension secret
+   *  (`DELETE /api/extensions/:id/secrets`). Same authz as `setExtensionSecret`.
+   *  `deleted` is false when no matching secret existed. */
+  deleteExtensionSecret(
+    extensionId: string,
+    name: string,
+    opts: { projectId?: string | null } = {},
+  ): Promise<{ deleted: boolean }> {
+    return this.route("deleteExtensionSecret", { id: extensionId }, {
+      name,
+      ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
+    });
+  }
+
   /** Wire installed extensions (by manifest name) to a conversation. All-or-
    *  nothing: an unknown name 404s and wires nothing. Idempotent — re-wiring an
    *  already-wired extension is a no-op success. */
   wireExtensions(conversationId: string, names: string[]): Promise<{ wired: string[]; extensionIds: string[] }> {
-    return this.request("POST", `/api/conversations/${encodeURIComponent(conversationId)}/extensions`, { names });
+    return this.route("wireExtensions", { id: conversationId }, { names });
   }
 
   /** List the extensions wired to a conversation. */
   async listWiredExtensions(conversationId: string): Promise<Array<{ id: string; name: string }>> {
-    const res = await this.request<{ extensions: Array<{ id: string; name: string }> }>(
-      "GET",
-      `/api/conversations/${encodeURIComponent(conversationId)}/extensions`,
+    const res = await this.route<{ extensions: Array<{ id: string; name: string }> }>(
+      "listWiredExtensions",
+      { id: conversationId },
     );
     return res.extensions;
   }
@@ -164,7 +287,7 @@ export class HarnessClient {
     input: Record<string, unknown> = {},
     opts: { invocationId?: string; messageId?: string } = {},
   ): Promise<{ success: boolean; output?: unknown; error?: string; [k: string]: unknown }> {
-    return this.request("POST", `/api/tool-invoke`, {
+    return this.route("invokeExtensionTool", undefined, {
       conversationId,
       extensionName,
       toolName,
@@ -174,13 +297,36 @@ export class HarnessClient {
     });
   }
 
+  /** Dispatch a named action on a CORE Hub page
+   *  (`POST /api/hub/pages/:id/actions/:action`). Needs the `chat` scope.
+   *  `payload` values must be scalars (string | number | boolean). Returns
+   *  `{ ok }`, optionally with a freshly rendered `page` tree. */
+  triggerHubAction(
+    pageId: string,
+    action: string,
+    payload?: Record<string, string | number | boolean>,
+  ): Promise<HubActionResult> {
+    return this.route(
+      "triggerHubAction",
+      { id: pageId, action },
+      payload !== undefined ? { payload } : {},
+    );
+  }
+
   // ── Run-to-completion ──────────────────────────────────────────────
   getRun(runId: string): Promise<Record<string, unknown>> {
-    return this.request("GET", `/api/runs/${encodeURIComponent(runId)}`);
+    return this.route("getRun", { id: runId });
   }
   /** Block until the run reaches a terminal state (server-side wait). */
   awaitRun(runId: string, timeoutMs = 120_000): Promise<RunResult> {
-    return this.request("GET", `/api/runs/${encodeURIComponent(runId)}?wait=1&timeoutMs=${timeoutMs}`);
+    const { httpMethod, pathTemplate } = HARNESS_ROUTES.awaitRun;
+    return this.request(httpMethod, `${buildPath(pathTemplate, { id: runId })}?wait=1&timeoutMs=${timeoutMs}`);
+  }
+  /** Cancel an in-flight run (`DELETE /api/runs/:id`). Needs the `chat` scope;
+   *  ownership-gated (a non-owner sees 404). `ok` is false-ish via a 404 when
+   *  the run isn't running. */
+  cancelRun(runId: string): Promise<{ ok: boolean }> {
+    return this.route("cancelRun", { id: runId });
   }
   /** Send a message and block until its run finishes. */
   async runToCompletion(conversationId: string, content: string, opts: SendMessageOptions & { timeoutMs?: number } = {}): Promise<RunResult> {
@@ -196,15 +342,15 @@ export class HarnessClient {
     approved: boolean,
     opts: { scope?: "session" | "conversation" | "project" | "forever"; ttlOverrideMs?: number } = {},
   ): Promise<unknown> {
-    return this.request("POST", `/api/tool-calls/${encodeURIComponent(toolCallId)}/permission`, { approved, ...opts });
+    return this.route("resolveToolPermission", { id: toolCallId }, { approved, ...opts });
   }
 
   // ── Deterministic mock LLM (test-mode instances only) ──────────────
   scriptLlm(scriptKey: string, turns: MockTurn[]): Promise<unknown> {
-    return this.request("POST", `/api/__test/mock-llm/script`, { scriptKey, turns });
+    return this.route("scriptLlm", undefined, { scriptKey, turns });
   }
   clearLlmScripts(): Promise<unknown> {
-    return this.request("DELETE", `/api/__test/mock-llm/script`);
+    return this.route("clearLlmScripts");
   }
   /**
    * Convenience: script a deterministic turn list, then drive a message
@@ -234,16 +380,20 @@ export class HarnessClient {
    * Optional `conversationId` scopes the server-side subscription hint.
    */
   async *streamEvents(opts: { conversationId?: string; signal?: AbortSignal } = {}): AsyncGenerator<RuntimeEvent> {
+    // Path comes from the shared table; the SSE-specific fetch (streaming body,
+    // text/event-stream Accept) stays here.
+    const { httpMethod, pathTemplate } = HARNESS_ROUTES.streamEvents;
+    const path = buildPath(pathTemplate);
     const qs = opts.conversationId ? `?conversationId=${encodeURIComponent(opts.conversationId)}` : "";
-    const res = await this.fetchImpl(`${this.baseUrl}/api/runtime-events${qs}`, {
-      method: "GET",
+    const res = await this.fetchImpl(`${this.baseUrl}${path}${qs}`, {
+      method: httpMethod,
       headers: this.headers({ Accept: "text/event-stream" }),
       signal: opts.signal,
       // Mirror request(): never follow a 3xx — a cross-origin redirect would
       // replay the `Authorization: Bearer ezk_*` header to an attacker host.
       redirect: "error",
     });
-    if (!res.ok || !res.body) throw new HarnessApiError(res.status, "GET", "/api/runtime-events", await res.text().catch(() => ""));
+    if (!res.ok || !res.body) throw new HarnessApiError(res.status, httpMethod, path, await res.text().catch(() => ""));
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     const buf = new SseDataBuffer();
