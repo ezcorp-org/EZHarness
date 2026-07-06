@@ -13,6 +13,7 @@ COPY package.json bun.lock ./
 # Workspace package.json required to resolve `workspace:*` specifiers.
 COPY packages/@ezcorp/sdk/package.json packages/@ezcorp/sdk/
 COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
+COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
 # `--ignore-scripts`: SDK source + tsconfig haven't been COPY'd yet (only
 # the package.json), so the `prepare` script's tsc build can't succeed.
 # Skip lifecycle here; the SDK is rebuilt as needed once `COPY . .` lands.
