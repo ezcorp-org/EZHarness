@@ -176,6 +176,21 @@ describe("POST /api/providers - save API key", () => {
     expect(settingsStore["provider:apiKey:google"]).toBe("enc:AIza-google-key");
   });
 
+  test("valid openrouter provider saves encrypted key", async () => {
+    const event = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/providers",
+      body: { provider: "openrouter", apiKey: "sk-or-v1-abc" },
+      user: ADMIN_USER,
+    });
+    const res = await POST(event as any);
+    const data = await jsonFromResponse(res);
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(settingsStore["provider:apiKey:openrouter"]).toBe("enc:sk-or-v1-abc");
+  });
+
   test("invalid provider returns 400", async () => {
     const event = createMockEvent({
       method: "POST",
@@ -283,6 +298,23 @@ describe("DELETE /api/providers - delete API key", () => {
     expect(settingsStore["provider:apiKey:anthropic"]).toBeUndefined();
   });
 
+  test("valid openrouter provider deletes key and returns success", async () => {
+    settingsStore["provider:apiKey:openrouter"] = "enc:sk-or-old";
+
+    const event = createMockEvent({
+      method: "DELETE",
+      url: "http://localhost/api/providers",
+      body: { provider: "openrouter" },
+      user: ADMIN_USER,
+    });
+    const res = await DELETE(event as any);
+    const data = await jsonFromResponse(res);
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(settingsStore["provider:apiKey:openrouter"]).toBeUndefined();
+  });
+
   test("invalid provider returns 400", async () => {
     const event = createMockEvent({
       method: "DELETE",
@@ -326,7 +358,7 @@ describe("DELETE /api/providers - delete API key", () => {
   });
 
   test("delete for each valid provider works", async () => {
-    for (const provider of ["anthropic", "openai", "google"]) {
+    for (const provider of ["anthropic", "openai", "google", "openrouter"]) {
       settingsStore[`provider:apiKey:${provider}`] = `enc:key-${provider}`;
 
       const event = createMockEvent({

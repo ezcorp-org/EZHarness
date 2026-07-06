@@ -200,6 +200,38 @@ describe("POST /api/providers/[provider]/test", () => {
     expect(callArgs[2]).toMatchObject({ apiKey: "sk-openai" });
   });
 
+  test("happy path: openrouter is a valid provider and walks the same flow", async () => {
+    vi.mocked(getCredential).mockResolvedValue({
+      type: "api-key",
+      token: "sk-or-v1",
+    } as any);
+    vi.mocked(findModelForProviderInTier).mockReturnValue({
+      id: "openrouter/auto",
+    } as any);
+    vi.mocked(resolveModelObject).mockReturnValue({
+      ...piModelStub,
+      provider: "openrouter",
+      api: "openai-completions",
+    } as any);
+    vi.mocked(complete).mockResolvedValue({
+      stopReason: "stop",
+      content: [],
+    } as any);
+
+    const res = await POST(
+      makeEvent({ locals: adminUser, params: { provider: "openrouter" } }),
+    );
+    // openrouter is a VALID provider — not the 400 invalid-provider path.
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { success: boolean };
+    expect(body.success).toBe(true);
+    expect(getCredential).toHaveBeenCalledWith("openrouter");
+    expect(findModelForProviderInTier).toHaveBeenCalledWith("openrouter", "fast");
+    expect(resolveModelObject).toHaveBeenCalledWith("openrouter", "openrouter/auto");
+    const callArgs = vi.mocked(complete).mock.calls[0]!;
+    expect(callArgs[2]).toMatchObject({ apiKey: "sk-or-v1" });
+  });
+
   test("auth failure: missing credential bubbles up as success=false", async () => {
     vi.mocked(getCredential).mockRejectedValue(
       new Error("No credential for openai"),

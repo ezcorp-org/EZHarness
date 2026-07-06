@@ -125,6 +125,38 @@ describe("POST /api/providers/[provider]/refresh-models", () => {
     expect(value).toEqual([{ id: "gpt-5.2" }, { id: "gpt-4o" }]);
   });
 
+  test("openrouter is a valid provider: resolves credential, stores models", async () => {
+    const cred = { type: "apikey", token: "sk-or-v1" };
+    vi.mocked(getCredential).mockResolvedValue(cred as any);
+    vi.mocked(fetchProviderModels).mockResolvedValue([
+      { id: "openrouter/auto" },
+      { id: "anthropic/claude-3.5-sonnet" },
+    ] as any);
+
+    const res = await POST(
+      makeEvent({ locals: adminUser, params: { provider: "openrouter" } }),
+    );
+    // openrouter is a VALID provider — not the 400 invalid-provider path.
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      success: boolean;
+      count: number;
+      ids: string[];
+    };
+    expect(body.success).toBe(true);
+    expect(body.count).toBe(2);
+    expect(body.ids).toEqual(["openrouter/auto", "anthropic/claude-3.5-sonnet"]);
+
+    expect(getCredential).toHaveBeenCalledWith("openrouter");
+    expect(fetchProviderModels).toHaveBeenCalledWith("openrouter", cred);
+    const [key, value] = vi.mocked(upsertSetting).mock.calls[0]!;
+    expect(key).toBe("provider:discoveredModels:openrouter");
+    expect(value).toEqual([
+      { id: "openrouter/auto" },
+      { id: "anthropic/claude-3.5-sonnet" },
+    ]);
+  });
+
   test("missing credential still discovers via catalog (undefined passed)", async () => {
     vi.mocked(getCredential).mockRejectedValue(new Error("no creds"));
     vi.mocked(fetchProviderModels).mockResolvedValue([{ id: "gpt-4o" }] as any);

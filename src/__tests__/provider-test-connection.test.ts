@@ -206,6 +206,21 @@ describe("POST /api/providers/:provider/test - per-provider coverage", () => {
     expect(res.status).toBe(200);
     expect(data.success).toBe(true);
   });
+
+  test("openrouter provider is valid and returns success: true", async () => {
+    const event = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/providers/openrouter/test",
+      params: { provider: "openrouter" },
+      user: ADMIN_USER,
+    });
+    const res = await POST(event as any);
+    const data = await jsonFromResponse(res);
+
+    // openrouter is a VALID provider — not the 400 invalid-provider path.
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+  });
 });
 
 // ── Edge cases: invalid params ──────────────────────────────────
