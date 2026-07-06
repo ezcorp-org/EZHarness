@@ -28,7 +28,7 @@
 
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { getProjectRoot } from "./bundled";
 import type { ExtensionManifestV2, ToolDefinition } from "./types";
 import { logger } from "../logger";
 
@@ -67,28 +67,33 @@ let lockfileCache: { path: string; value: ManifestLockFile | null } | undefined;
 let lockfilePathOverride: string | undefined;
 
 /**
- * Resolve the lockfile path. Walks up from this module to the project
- * root (mirrors `bundled.ts:getProjectRoot`) and joins
- * `manifest.lock.json`. Override available via `setLockfilePathOverride`
- * for tests that exercise verify-against-temp-lockfile flows.
+ * Resolve the lockfile path: `<projectRoot>/manifest.lock.json`, where
+ * `projectRoot` comes from the ONE canonical resolver
+ * `bundled.ts:getProjectRoot()` (env `EZCORP_PROJECT_ROOT` → import-meta
+ * substring → `.git` walk-up → cwd fallback).
+ *
+ * Reusing `getProjectRoot()` — rather than re-deriving the root here — is
+ * load-bearing for the tamper gate: `bundled.ts` loads each bundled
+ * manifest from `join(getProjectRoot(), entry.path)`, so the lockfile it
+ * is validated against MUST resolve from the SAME root. The former local
+ * resolver duplicated only the import-meta→cwd steps and silently ignored
+ * `EZCORP_PROJECT_ROOT` and the `.git` walk-up — so with the env override
+ * set, the gate validated a DIFFERENT tree's `manifest.lock.json`
+ * (spurious fail-closed refusals). Delegating keeps the two in lockstep by
+ * construction.
+ *
+ * Override available via `setLockfilePathOverride` for tests that exercise
+ * verify-against-temp-lockfile flows.
+ *
+ * NOTE on the `./bundled` import: `bundled.ts` imports this module too, so
+ * the dependency is cyclic — but every cross-module reference (here and in
+ * `bundled.ts`) is a hoisted function declaration invoked only at call
+ * time, never at module top-level, so the cycle is inert during
+ * evaluation.
  */
 export function resolveLockfilePath(): string {
   if (lockfilePathOverride) return lockfilePathOverride;
-  // Mirror `bundled.ts:getProjectRoot` — keep this deliberately
-  // duplicated so a future split of bundled.ts doesn't accidentally
-  // change which file we consult.
-  let root: string | undefined;
-  if (typeof import.meta.dir === "string" && import.meta.dir.includes("src/extensions")) {
-    root = join(import.meta.dir, "..", "..");
-  } else {
-    try {
-      const thisFile = fileURLToPath(import.meta.url);
-      const lastIdx = thisFile.lastIndexOf("/src/extensions/");
-      if (lastIdx >= 0) root = thisFile.substring(0, lastIdx);
-    } catch { /* not a file URL */ }
-  }
-  if (!root) root = process.cwd();
-  return join(root, "manifest.lock.json");
+  return join(getProjectRoot(), "manifest.lock.json");
 }
 
 /** Test-only seam: override the lockfile path. Pass `undefined` to reset. */
