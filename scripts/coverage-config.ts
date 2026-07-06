@@ -60,21 +60,16 @@ export const EXCLUDES: readonly string[] = [
   // two type files above. Flagged by the new-file gate as "no measured
   // coverage" because there is, by construction, nothing to line-measure.
   "packages/@ezcorp/sdk/src/runtime/loop-types.ts",
-  // Web security helpers whose bun:test suites rely on per-`beforeEach`
-  // `mock.module` re-registration — a bun-runtime feature with no vitest
-  // equivalent (`vi.mock` is statically hoisted), so they can't run in the
-  // v8/vitest coverage leg, and a bun shard run from web/ pollutes the whole
-  // tree. Each is ≥95% covered behaviourally under `bun test`; same spirit as
-  // the "covered, not line-measurable in this mechanism" excludes above.
-  "web/src/lib/server/security/bearer-auth.ts",
-  "web/src/lib/server/security/openai-extension-creds.ts",
-  "web/src/lib/server/security/payload.ts",
-  "web/src/lib/server/security/internal-auth.ts",
-  "web/src/lib/server/security/system-user.ts",
-  "web/src/lib/server/security/bundled-creds.ts",
-  "web/src/lib/server/security/rate-limiter.ts",
-  "web/src/lib/server/security/api-keys.ts",
-  "web/src/lib/server/security/resource-quotas.ts",
+  // NOTE: the 9 web security helpers (bearer-auth, openai-extension-creds,
+  // payload, internal-auth, system-user, bundled-creds, rate-limiter, api-keys,
+  // resource-quotas) were REMOVED from this list. Their bun:test suites rely on
+  // per-`beforeEach` `mock.module` re-registration (a bun-only feature, no
+  // `vi.mock` equivalent) so they can't run in the v8/vitest leg — but
+  // scripts/security-coverage.sh now measures them under `bun --coverage` and
+  // FILTERS the lcov to exactly these 9 files (no web/src/lib union artifact),
+  // uploaded as an `lcov-cov-*` artifact by the CI `web-security-coverage` job.
+  // Each clears the `web/src/lib/**` 90% floor (measured 97.78–100%). Their
+  // suites are ALSO run for pass/fail by the `web-bun-tests` job.
   // Thin typed fetch client (~75 `fetch().then(json)` wrappers, no branching) —
   // UI I/O glue, same spirit as the excluded `web/src/routes/**/+*.svelte`.
   "web/src/lib/api.ts",

@@ -45,8 +45,14 @@ FAILED_FILES=()
 # *integration* variants) — the CI `residual-tests` job uses this so every
 # pass/fail file runs somewhere without re-running what the coverage shards
 # already cover. Empty residual is fine (the loop is a no-op).
+# CRITICAL_ONLY=1 runs ONLY the curated critical correctness set (RBAC /
+# migrations / gh-projects concurrency / auth / secrets / mention-wiring) that
+# the CI `backend-critical` job gates strictly on pass/fail — see
+# critical_backend_files() in lib/test-file-sets.sh.
 if [ -n "$RESIDUAL_ONLY" ]; then
   mapfile -t FILES < <(residual_passfail_files)
+elif [ -n "$CRITICAL_ONLY" ]; then
+  mapfile -t FILES < <(critical_backend_files)
 else
   mapfile -t FILES < <(passfail_files)
 fi

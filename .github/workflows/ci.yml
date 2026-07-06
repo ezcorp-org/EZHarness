@@ -66,6 +66,25 @@ jobs:
       # *.server.test.ts (route-handler unit tests).
       - run: cd web && bunx --bun vitest run
 
+  # Required check: the ORPHANED web bun-leg pool — plain `web/src/**/*.test.ts`
+  # that vitest does NOT match (no .component/.server/.unit suffix) and the
+  # backend coverage/passfail pools do NOT already run (~225 files, incl. the 15
+  # web/src/__tests__/security/* suites + chat page-handlers + tool-cards).
+  # These ran in NO CI job before — silent test-rot. scripts/test-web.sh runs
+  # them per-file isolated (mock.module contamination) with REAL exit-code
+  # capture (a module-load crash / OOM is a failure, not a false green).
+  web-bun-tests:
+    name: Web tests (bun-leg orphans)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      - run: bash scripts/test-web.sh
+
   e2e-mock:
     name: E2E (mock, no Docker)
     runs-on: ubuntu-latest
@@ -93,6 +112,32 @@ jobs:
             hub.spec.ts \
             extensions-library-tabs.spec.ts \
             extension-detail-pages.spec.ts
+
+  # Real-auth + real-DB + mock-LLM e2e tier (web/playwright.real.config.ts,
+  # specs under web/e2e/real-auth/). Unlike e2e-mock, the preview server boots
+  # WITHOUT PI_SKIP_INIT — the DB initialises, auth runs end-to-end, and the
+  # deterministic /api/__test/* determinism surface is opted-in. This is the
+  # only tier that proves the integrated auth + harness-control + extension
+  # seams (CRIT-2: previously wired to no workflow).
+  #
+  # Validated GREEN locally (7 passed, 47.6s). Left as a plain reporting job
+  # (NOT continue-on-error, so its real pass/fail is honest) but intentionally
+  # NOT yet added to branch protection's required set: a MAINTAINER should
+  # promote it to a required check once it's proven stable across several CI
+  # runs (real server boot can be timing-sensitive on shared runners). If it
+  # proves CI-flaky, gate it behind continue-on-error or a nightly schedule.
+  e2e-real-auth:
+    name: E2E (real auth + real DB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+          playwright: "true"
+      - run: cd web && PI_E2E_REAL=1 bunx playwright test --config playwright.real.config.ts
 
   lint:
     name: Lint (biome)
@@ -199,6 +244,56 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  # Coverage producer for the 9 web security helpers un-excluded from
+  # scripts/coverage-config.ts. Their bun:test suites use per-`beforeEach`
+  # `mock.module` (bun-only), so they can't run in the node/vitest v8 leg;
+  # scripts/security-coverage.sh runs them under `bun --coverage` and FILTERS the
+  # lcov to exactly those 9 files (no web/src/lib union artifact). Emitted as an
+  # `lcov-cov-*` artifact so the `Per-file coverage gate` merges + enforces them.
+  web-security-coverage:
+    name: Web security coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      - name: Run security coverage
+        env:
+          COV_OUT: coverage-shard
+        run: bash scripts/security-coverage.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lcov-cov-security
+          path: coverage-shard
+          retention-days: 1
+          if-no-files-found: error
+
+  # Required check: a CURATED set of high-value, deterministic correctness suites
+  # gated STRICTLY on pass/fail (RBAC engine + resolver + rbac-RPC, migration
+  # idempotency, github-projects concurrency, auth, provider/extension secrets,
+  # mention-wiring). Runs PLAIN (no --coverage) via scripts/test.sh's
+  # CRITICAL_ONLY mode so it REDS CI on any assertion failure — the correctness
+  # gate the coverage shards intentionally don't provide (they tolerate pass/fail
+  # because several backend suites are env-flaky under --coverage). Membership is
+  # narrow + isolation-deterministic (verified over repeated local runs).
+  backend-critical:
+    name: Backend critical (strict pass/fail)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      - name: Run curated critical set
+        env:
+          CRITICAL_ONLY: "1"
+        run: bash scripts/test.sh
+
   # The pass/fail files that the coverage shards do NOT run (the *integration*
   # variants excluded from the coverage set). Empty today on main — a no-op
   # until the integration suites land — but keeps the union of gated pass/fail
@@ -251,13 +346,14 @@ jobs:
     name: Per-file coverage gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [cov-shard, cov-extras]
+    needs: [cov-shard, cov-extras, web-security-coverage]
     if: always()
     steps:
       - name: Require coverage producers to have succeeded
         run: |
           if [ "${{ needs.cov-shard.result }}" != "success" ] || \
-             [ "${{ needs.cov-extras.result }}" != "success" ]; then
+             [ "${{ needs.cov-extras.result }}" != "success" ] || \
+             [ "${{ needs.web-security-coverage.result }}" != "success" ]; then
             echo "::error::coverage producers failed — coverage data is incomplete"
             exit 1
           fi
