@@ -188,7 +188,7 @@ describe("registry ⇄ filesystem parity", () => {
   // unregistered control route pushes it over the line and fails, forcing the
   // author to register it (and so document it + expose it in OpenAPI). Lower
   // this number as gaps close; never raise it without registering the route.
-  const BASELINE_UNREGISTERED = 135;
+  const BASELINE_UNREGISTERED = 130;
 
   test("unregistered control-route count does not grow (ratchet)", () => {
     const registered = new Set(registeredKeys);
