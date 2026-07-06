@@ -14,6 +14,12 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { Glob } from "bun";
 import { apiRegistry } from "../../../src/api-registry";
+// Cross-package relative imports (the standalone package isn't a root dep in
+// this checkout — mirrors index.test.ts importing the app's event list). Both
+// modules are pure data with no side effects.
+import { HARNESS_ROUTES } from "../../../packages/@ezcorp/harness-client/src/routes";
+import { RUNTIME_EVENT_NAMES as HARNESS_EVENT_NAMES } from "../../../packages/@ezcorp/harness-client/src/events";
+import { RUNTIME_EVENT_NAMES as APP_EVENT_NAMES } from "../lib/runtime-event-names";
 
 const routesDir = `${import.meta.dir}/../routes`;
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
@@ -196,12 +202,69 @@ describe("registry ⇄ filesystem parity", () => {
       .map((r) => `${r.method} ${r.path}`)
       .filter((k) => !registered.has(k));
     if (unregistered.length > BASELINE_UNREGISTERED) {
-      const newly = unregistered.filter((k) => !diskKeys.has(k) ? false : true).sort();
+      // Only a COUNT baseline is stored (not a frozen set), so the specific new
+      // offender can't be isolated by name — surface every currently
+      // unregistered control route (sorted) plus how many the count rose by, so
+      // the author can spot the one they just added. The previous
+      // `!diskKeys.has(k) ? false : true` filter was a tautology (every
+      // `unregistered` key is built from `controlDisk`, so `diskKeys.has(k)` is
+      // always true) that silently listed everything under a misleading "newly".
+      const overBy = unregistered.length - BASELINE_UNREGISTERED;
+      const listing = [...unregistered].sort();
       throw new Error(
-        `Unregistered control routes rose to ${unregistered.length} (baseline ${BASELINE_UNREGISTERED}). ` +
-        `Register new /api/* routes in src/api-registry.ts (see docs/harness-contract.md).\n${newly.join("\n")}`,
+        `Unregistered control routes rose to ${unregistered.length} ` +
+        `(baseline ${BASELINE_UNREGISTERED}, ${overBy} over). Register new /api/* routes ` +
+        `in src/api-registry.ts (see docs/harness-contract.md).\n` +
+        `Currently-unregistered control routes (the new one is among these):\n${listing.join("\n")}`,
       );
     }
     expect(unregistered.length).toBeLessThanOrEqual(BASELINE_UNREGISTERED);
+  });
+});
+
+describe("controllable ⇄ harness-client route-table parity", () => {
+  // The registry's `harness.controllable` flag (server side) and the typed
+  // client's HARNESS_ROUTES table (client side) are the two halves of the
+  // remote-control contract. Enforce they agree BOTH ways so neither a
+  // controllable registry entry without a client method nor a client method
+  // without a registered controllable route can ship. Two carve-outs from the
+  // routes.ts header apply: the `/api/__test/**` determinism tier is gated by
+  // isTestSurfaceEnabled and never registered (exclude it), and getRun/awaitRun
+  // deliberately share `GET /api/runs/:id` — the Set collapses that duplicate.
+  const clientRoutes = new Set(
+    Object.values(HARNESS_ROUTES)
+      .filter((r) => !r.pathTemplate.startsWith("/api/__test/"))
+      .map((r) => `${r.httpMethod} ${r.pathTemplate}`),
+  );
+  const controllableRegistered = new Set(
+    apiRegistry
+      .filter((e) => e.harness?.controllable === true)
+      .map((e) => `${e.method} ${e.path}`),
+  );
+
+  test("both sides are non-empty (guards against a vacuous pass)", () => {
+    expect(clientRoutes.size).toBeGreaterThan(0);
+    expect(controllableRegistered.size).toBeGreaterThan(0);
+  });
+
+  test("every controllable registry route has a harness-client method", () => {
+    const missingFromClient = [...controllableRegistered].filter((k) => !clientRoutes.has(k)).sort();
+    expect(missingFromClient).toEqual([]);
+  });
+
+  test("every harness-client route is a registered controllable route", () => {
+    const missingFromRegistry = [...clientRoutes].filter((k) => !controllableRegistered.has(k)).sort();
+    expect(missingFromRegistry).toEqual([]);
+  });
+});
+
+describe("runtime-event name parity (harness-client ⇄ app)", () => {
+  // events.ts mirrors web/src/lib/runtime-event-names.ts by hand (the package
+  // ships standalone and can't import the app's source). This is the CI
+  // cross-check the events.ts header refers to: the two lists must stay
+  // byte-for-byte identical, in the same order, so a harness decoding the SSE
+  // stream sees exactly the app's event set.
+  test("harness-client RUNTIME_EVENT_NAMES === app canonical list", () => {
+    expect([...HARNESS_EVENT_NAMES]).toEqual([...APP_EVENT_NAMES]);
   });
 });
