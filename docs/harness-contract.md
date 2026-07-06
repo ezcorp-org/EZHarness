@@ -146,6 +146,48 @@ const r = await ez.invokeExtensionTool(convoId, "scratchpad", "scratchpad_write"
   the `manifest` (incl. `tools[]`) embedded in each `GET /api/extensions`
   record instead.
 
+### Extension lifecycle (admin-role key)
+
+Beyond wiring, a harness can manage the installed set itself. Install lands an
+extension **disabled with no permissions**; `activate` enables it and grants
+its manifest-clamped permissions. These are `requireRole(admin)` routes — an
+`admin`-**role** key is required (a scope-only key gets a clean 403):
+
+```ts
+const ext = await ez.installExtension({ source: "local", path: "/srv/my-ext" }); // admin role
+await ez.activateExtension(ext.id, { storage: true });   // enable + grant (admin role)
+await ez.updateExtensionPermissions(ext.id, { network: true }); // clamp to manifest (admin role)
+await ez.setExtensionEnabled(ext.id, false);             // disable (admin role + extensions scope)
+await ez.uninstallExtension(ext.id);                     // remove (admin role + extensions scope)
+```
+
+| Method | Route | Auth |
+|---|---|---|
+| `installExtension` | `POST /api/extensions` | admin role |
+| `activateExtension` | `POST /api/extensions/:id/activate` | admin role |
+| `setExtensionEnabled` | `PATCH /api/extensions/:id` | admin role + `extensions` scope — **disable-only** (`enabled:false`); enable via `activateExtension` |
+| `uninstallExtension` | `DELETE /api/extensions/:id` | admin role + `extensions` scope |
+| `updateExtensionPermissions` | `PUT /api/extensions/:id/permissions` | admin role |
+| `setExtensionSecret` / `deleteExtensionSecret` | `POST`/`DELETE /api/extensions/:id/secrets` | `extensions` scope + per-extension `secrets` RBAC grant (admins hold every scope) |
+
+- **`activateExtension` is the only enable path.** `setExtensionEnabled(id, true)`
+  is refused (400) — enabling must run the manifest-clamped permission review in
+  `/activate`. `updateExtensionPermissions` also clamps to the manifest: anything
+  the author didn't declare is dropped silently.
+- **Secrets** are scope-isolated per extension + project; the plaintext `value`
+  is never echoed back. `projectId` omitted/`null` = the instance-wide scope.
+
+### Hub actions + run control
+
+```ts
+await ez.triggerHubAction(pageId, "refresh", { since: 5 }); // core Hub page action (chat scope)
+await ez.cancelRun(runId);                                  // cancel in-flight run (chat scope, ownership-gated)
+```
+
+Hub-action `payload` values must be scalars (string / number / boolean). A
+handler may return a freshly rendered `page` tree in the result. `cancelRun` is
+ownership-gated — a non-owner sees a 404, never a leak.
+
 ## The standing rule — keep new features remotely testable
 
 A CI meta-test ([`web/src/__tests__/route-contract.test.ts`](../web/src/__tests__/route-contract.test.ts))
