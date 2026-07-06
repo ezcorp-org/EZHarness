@@ -11,7 +11,7 @@ import { validateEntitiesArray } from "./entities/clamp";
 import { parseSource } from "./source-parser";
 // PURE import (no DB chain) — the scope-name grammar shared with the
 // storage layer; see src/extensions/rbac-scopes.ts.
-import { validateRbacScopeDeclarations } from "./rbac-scopes";
+import { CORE_RBAC_SCOPES, validateRbacScopeDeclarations } from "./rbac-scopes";
 export { inferPackageType };
 
 const SEMVER_REGEX = /^\d+\.\d+\.\d+$/;
@@ -48,6 +48,47 @@ function validateToolsArray(tools: unknown, errors: string[]): void {
       errors.push(`tools[${i}].inputSchema is required`);
     if (t.capabilities !== undefined) {
       validateToolCapabilities(`tools[${i}].capabilities`, t.capabilities, errors);
+    }
+  }
+}
+
+/**
+ * Cross-field validation: a tool's optional `rbacScope` (the
+ * user→extension gate the host enforces at dispatch) must name a
+ * CHECKABLE scope — a core verb, or a custom scope this manifest declares
+ * in `permissions.rbacScopes`. Mirrors the `ezcorp/rbac-check` allowlist
+ * exactly so the host-enforced pre-dispatch gate can never key off a
+ * scope no grant could ever hold (an authoring bug — rejected at admit
+ * time instead of silently denying every non-admin caller at runtime).
+ */
+function validateToolRbacScopes(
+  tools: unknown,
+  permissions: unknown,
+  errors: string[],
+): void {
+  if (!Array.isArray(tools)) return;
+  const checkable = new Set<string>(CORE_RBAC_SCOPES);
+  const declared = (permissions as { rbacScopes?: unknown } | null | undefined)
+    ?.rbacScopes;
+  if (Array.isArray(declared)) {
+    for (const s of declared) {
+      const name = (s as { name?: unknown })?.name;
+      if (typeof name === "string") checkable.add(name);
+    }
+  }
+  for (let i = 0; i < tools.length; i++) {
+    const t = tools[i];
+    if (!t || typeof t !== "object") continue;
+    const scope = (t as Record<string, unknown>).rbacScope;
+    if (scope === undefined) continue;
+    if (typeof scope !== "string" || scope.length === 0) {
+      errors.push(`tools[${i}].rbacScope must be a non-empty string`);
+      continue;
+    }
+    if (!checkable.has(scope)) {
+      errors.push(
+        `tools[${i}].rbacScope "${scope}" must be a core verb (${CORE_RBAC_SCOPES.join(", ")}) or a scope declared in permissions.rbacScopes`,
+      );
     }
   }
 }
@@ -787,7 +828,12 @@ export function validateManifestV2(
     errors.push("author.name is required and must be a non-empty string");
 
   // Validate each component type if present
-  if (m.tools !== undefined) validateToolsArray(m.tools, errors);
+  if (m.tools !== undefined) {
+    validateToolsArray(m.tools, errors);
+    // Cross-field: per-tool `rbacScope` must reference a checkable scope
+    // (core verb or a `permissions.rbacScopes` declaration).
+    validateToolRbacScopes(m.tools, m.permissions, errors);
+  }
   if (m.skills !== undefined) validateSkillsArray(m.skills, errors);
   if (m.mcpServers !== undefined) validateMcpServersArray(m.mcpServers, errors);
   if (m.agent !== undefined) validateAgentComponent(m.agent, errors);

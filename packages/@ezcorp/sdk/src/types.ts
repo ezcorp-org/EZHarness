@@ -23,6 +23,19 @@ export interface ToolDefinition {
    * Default `false`.
    */
   requiresUserInput?: boolean;
+  /**
+   * Extension-RBAC scope (user→extension axis) REQUIRED to invoke this
+   * tool. When set, the host enforces it at dispatch: the acting user
+   * must hold the scope (an explicit grant, or the admin role) at the
+   * calling conversation's project, else the call is DENIED before the
+   * subprocess runs. This is the ENFORCEMENT counterpart to the advisory
+   * `ctx.rbac.check(scope)` — declaring it here means the host guarantees
+   * the check, so extension code cannot bypass a denied scope.
+   *
+   * Must be a core verb (use / configure / secrets / approve-runs /
+   * manage) or a custom scope declared in `permissions.rbacScopes`.
+   */
+  rbacScope?: string;
 }
 
 export interface SkillDefinition {
