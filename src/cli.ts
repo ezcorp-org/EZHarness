@@ -860,10 +860,15 @@ export async function cli(args: string[]): Promise<void> {
       const webDir = import.meta.dir + "/../web";
 
       if (isDev) {
-        const proc = Bun.spawn(["bun", "run", "dev", "--port", String(parsed.port ?? 3001)], {
+        // Export PORT so the spawned dev server derives mockLlmBaseUrl()
+        // (src/test-surface.ts) against the bound port — without it scripted
+        // mock-LLM runs silently target :3000. Matches the --prod branch below;
+        // EZCORP_MOCK_LLM_BASE_URL still overrides.
+        const port = String(parsed.port ?? 3001);
+        const proc = Bun.spawn(["bun", "run", "dev", "--port", port], {
           cwd: webDir,
           stdio: ["inherit", "inherit", "inherit"],
-          env: { ...process.env },
+          env: { ...process.env, PORT: port },
         });
         process.on("SIGTERM", () => proc.kill());
         process.on("SIGINT", () => proc.kill());
