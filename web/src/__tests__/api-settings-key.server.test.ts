@@ -97,6 +97,15 @@ describe("GET /api/settings/[key]", () => {
     );
     expect(res.status).toBe(403);
   });
+
+  // API-key store rows are deny-listed so an admin can't read/forge key rows
+  // via the generic settings API (bypassing canMintRole / the hash index).
+  test("API-key store key (apikey:*) returns 403 even for an admin", async () => {
+    const res = await GET(
+      makeEvent({ key: "apikey:u1:kid", locals: adminLocals }),
+    );
+    expect(res.status).toBe(403);
+  });
 });
 
 describe("PUT /api/settings/[key]", () => {
@@ -143,6 +152,22 @@ describe("PUT /api/settings/[key]", () => {
       }),
     );
     expect(res.status).toBe(403);
+  });
+
+  // Forging an admin-role key row via the generic PUT is denied even for an
+  // admin — the write never reaches the settings store.
+  test("PUT to an apikey:* row returns 403 even for an admin", async () => {
+    vi.mocked(upsertSetting).mockClear();
+    const res = await PUT(
+      makeEvent({
+        key: "apikey:attacker:forged",
+        locals: adminLocals,
+        body: { value: { hash: "x", userId: "attacker", scopes: ["admin"], role: "admin" } },
+        method: "PUT",
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(upsertSetting).not.toHaveBeenCalled();
   });
 });
 
