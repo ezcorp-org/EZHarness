@@ -55,6 +55,7 @@ const MODULE_PATHS = [
   "../../db/queries/extension-storage",
   "../../db/queries/memories",
   "../../db/queries/password-resets",
+  "../../db/queries/pipelines",
   "../../db/queries/users",
   "../../db/queries/attachments",
   "../../db/queries/modes",
@@ -108,6 +109,7 @@ const MODULE_PATHS = [
   "../../runtime/orchestration-host",
   "../../runtime/ask-user-host",
   "../../runtime/mention-wiring",
+  "../../runtime/pipeline-loader",
   "../../runtime/start-assignment",
   "../../runtime/tools/permissions",
   "../../extensions/migrations/task-tracking-storage",
@@ -188,6 +190,10 @@ const MODULE_PATHS = [
   "../../../web/src/lib/server/context",
   "../../../web/src/lib/server/oauth-config",
   "../../../web/src/lib/server/http-errors",
+  // conversation-extensions-route.test.ts (web route __tests__) mocks
+  // `$lib/server/conversation-ownership`; snapshot it here so
+  // restoreModuleMocks() re-registers the real ownership walk.
+  "../../../web/src/lib/server/conversation-ownership",
   "../../../web/src/lib/stores/connection",
   "../../../web/src/lib/api",
   "@earendil-works/pi-ai",

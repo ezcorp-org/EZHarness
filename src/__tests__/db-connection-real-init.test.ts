@@ -17,6 +17,7 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { existsSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
+import { holderPidPath, readHolderPid } from "../db/live-holder-guard";
 
 let conn: typeof import("../db/connection");
 
@@ -67,5 +68,20 @@ describe("connection.ts — real PGlite init path", () => {
     expect(names).toContain("settings");
     expect(names).toContain("projects");
     expect(names).toContain("runs");
+  });
+
+  test("init claims the datadir via the sidecar pidfile (live-holder guard)", () => {
+    const p = conn.getDbPath();
+    expect(readHolderPid(p)).toBe(process.pid);
+    expect(existsSync(holderPidPath(p))).toBe(true);
+  });
+
+  test("closeDb releases the sidecar claim; re-init re-claims (same process passes the guard)", async () => {
+    const p = conn.getDbPath();
+    await conn.closeDb();
+    expect(readHolderPid(p)).toBeNull();
+    // Re-init in the SAME process must pass the guard and re-claim.
+    await conn.initDb();
+    expect(readHolderPid(p)).toBe(process.pid);
   });
 });

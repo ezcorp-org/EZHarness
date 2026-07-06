@@ -13,6 +13,7 @@ import {
   writeRecoveryMarker,
   clearRecoveryMarker,
 } from "./backup";
+import { assertNoLiveHolder, claimHolder, releaseHolder } from "./live-holder-guard";
 const log = logger.child("db");
 
 const DEFAULT_DB_DIR = `${process.env.HOME}/ez-corp/.data`;
@@ -75,7 +76,15 @@ async function initPglite(): Promise<void> {
   const { pg_trgm } = await import("@electric-sql/pglite/contrib/pg_trgm");
   const { drizzle } = await import("drizzle-orm/pglite");
 
-  if (!IS_MEMORY) mkdirSync(DB_PATH, { recursive: true });
+  if (!IS_MEMORY) {
+    mkdirSync(DB_PATH, { recursive: true });
+    // Refuse to open a datadir another LIVE EZCorp process holds (e.g.
+    // `ezcorp key mint` against a running server): PGlite is single-writer,
+    // and the stale-lock cleanup below would otherwise steal the live
+    // server's datadir. Dead-pid claims (SIGKILL) pass through as stale.
+    assertNoLiveHolder(DB_PATH);
+    claimHolder(DB_PATH);
+  }
   // PGlite uses the URI-style `memory://` scheme for in-memory mode;
   // passing the SQLite-style `:memory:` literal creates a directory of
   // that exact name on disk and uses it as the data dir. Test sentinels
@@ -487,6 +496,7 @@ export function getDbPath(): string {
 export async function closeDb(): Promise<void> {
   if (_pglite) {
     await _pglite.close();
+    if (!IS_MEMORY) releaseHolder(DB_PATH);
   }
   _pglite = null;
   _db = null;

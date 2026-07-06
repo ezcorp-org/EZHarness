@@ -109,11 +109,69 @@ export class HarnessClient {
   }
 
   // ── Conversations + drive ──────────────────────────────────────────
+  /** `projectId` is REQUIRED by the server (`createConversationSchema`);
+   *  default it to the `"global"` project so the zero-config call works —
+   *  an explicit `input.projectId` always wins. */
   createConversation(input: Record<string, unknown> = {}): Promise<{ id: string; [k: string]: unknown }> {
-    return this.request("POST", `/api/conversations`, input);
+    return this.request("POST", `/api/conversations`, { projectId: "global", ...input });
   }
   sendMessage(conversationId: string, content: string, opts: SendMessageOptions = {}): Promise<SendMessageResult> {
     return this.request("POST", `/api/conversations/${encodeURIComponent(conversationId)}/messages`, { content, ...opts });
+  }
+
+  // ── Extensions ─────────────────────────────────────────────────────
+  /** List installed extensions. `GET /api/extensions` returns a bare array;
+   *  a `{ extensions: [...] }` wrapper is tolerated too. Any other shape throws
+   *  (a silent `[]` would mask a contract drift as "no extensions installed"). */
+  async listExtensions(): Promise<Array<{ id: string; name: string; [k: string]: unknown }>> {
+    const res = await this.request<unknown>("GET", `/api/extensions`);
+    if (Array.isArray(res)) {
+      return res as Array<{ id: string; name: string; [k: string]: unknown }>;
+    }
+    if (res && typeof res === "object" && Array.isArray((res as { extensions?: unknown }).extensions)) {
+      return (res as { extensions: Array<{ id: string; name: string; [k: string]: unknown }> }).extensions;
+    }
+    throw new Error(
+      `listExtensions: unexpected /api/extensions response shape — expected an array or { extensions: [...] }, got ${res === null ? "null" : typeof res}`,
+    );
+  }
+
+  /** Wire installed extensions (by manifest name) to a conversation. All-or-
+   *  nothing: an unknown name 404s and wires nothing. Idempotent — re-wiring an
+   *  already-wired extension is a no-op success. */
+  wireExtensions(conversationId: string, names: string[]): Promise<{ wired: string[]; extensionIds: string[] }> {
+    return this.request("POST", `/api/conversations/${encodeURIComponent(conversationId)}/extensions`, { names });
+  }
+
+  /** List the extensions wired to a conversation. */
+  async listWiredExtensions(conversationId: string): Promise<Array<{ id: string; name: string }>> {
+    const res = await this.request<{ extensions: Array<{ id: string; name: string }> }>(
+      "GET",
+      `/api/conversations/${encodeURIComponent(conversationId)}/extensions`,
+    );
+    return res.extensions;
+  }
+
+  /** Invoke an extension tool directly via `POST /api/tool-invoke`. A missing
+   *  `invocationId` is auto-generated. The extension must already be wired to
+   *  the conversation for storage-scoped tools to succeed. A tool-level failure
+   *  resolves (not throws) with `{ success: false, error }`; an unknown tool or
+   *  a scope/ownership rejection throws `HarnessApiError`. */
+  invokeExtensionTool(
+    conversationId: string,
+    extensionName: string,
+    toolName: string,
+    input: Record<string, unknown> = {},
+    opts: { invocationId?: string; messageId?: string } = {},
+  ): Promise<{ success: boolean; output?: unknown; error?: string; [k: string]: unknown }> {
+    return this.request("POST", `/api/tool-invoke`, {
+      conversationId,
+      extensionName,
+      toolName,
+      input,
+      invocationId: opts.invocationId ?? crypto.randomUUID(),
+      ...(opts.messageId !== undefined ? { messageId: opts.messageId } : {}),
+    });
   }
 
   // ── Run-to-completion ──────────────────────────────────────────────
