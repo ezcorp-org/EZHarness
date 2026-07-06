@@ -168,7 +168,7 @@ describe("Seam 7: memory injection token counting", () => {
       makeMemory(1, "User prefers dark mode"),
     ];
 
-    const result = await buildSystemPromptWithMemories(base, "hi", "proj-1");
+    const result = await buildSystemPromptWithMemories(base, "hi", "proj-1", "user-1");
 
     // The base is preserved verbatim at the start — nothing silently
     // elides it.
@@ -209,7 +209,7 @@ describe("Seam 7: memory injection token counting", () => {
     const contents = Array.from({ length: 8 }, (_, i) => `Fact number ${i}`);
     mockMemories = contents.map((c, i) => makeMemory(i, c));
 
-    const result = await buildSystemPromptWithMemories("base", "q", "proj-1");
+    const result = await buildSystemPromptWithMemories("base", "q", "proj-1", "user-1");
 
     expect(result.memoriesUsed).toHaveLength(8);
     for (const c of contents) {
@@ -252,7 +252,7 @@ describe("Seam 7: memory injection token counting", () => {
     );
     mockMemories = big;
 
-    const result = await buildSystemPromptWithMemories(undefined, "q", "proj-1", {
+    const result = await buildSystemPromptWithMemories(undefined, "q", "proj-1", "user-1", {
       tokenBudget: budget,
     });
 
@@ -285,8 +285,8 @@ describe("Seam 7: memory injection token counting", () => {
       makeMemory(i, `Long memory ${i} with padding to eat budget quickly`),
     );
 
-    const tight = await buildSystemPromptWithMemories(undefined, "q", "proj-1", { tokenBudget: 50 });
-    const loose = await buildSystemPromptWithMemories(undefined, "q", "proj-1", { tokenBudget: 500 });
+    const tight = await buildSystemPromptWithMemories(undefined, "q", "proj-1", "user-1", { tokenBudget: 50 });
+    const loose = await buildSystemPromptWithMemories(undefined, "q", "proj-1", "user-1", { tokenBudget: 500 });
 
     expect(loose.memoriesUsed.length).toBeGreaterThan(tight.memoriesUsed.length);
     expect(loose.systemPrompt.length).toBeGreaterThan(tight.systemPrompt.length);
@@ -302,7 +302,7 @@ describe("Seam 7: memory injection token counting", () => {
     mockMemories = [];
 
     const base = "Base prompt.";
-    const result = await buildSystemPromptWithMemories(base, "q", "proj-1");
+    const result = await buildSystemPromptWithMemories(base, "q", "proj-1", "user-1");
 
     expect(result.systemPrompt).toBe(base);
     expect(result.memoriesUsed).toHaveLength(0);

@@ -22,6 +22,14 @@ interface HybridSearchOptions {
   isolateToProject?: boolean;
   limit?: number;
   k?: number;
+  /**
+   * Acting user for per-user PII scoping. Memories are per-user-private, so
+   * the injection entry point (`buildSystemPromptWithMemories`) ALWAYS passes
+   * this. When set (including `null`), results are restricted to memories the
+   * user owns; a `null`/unowned actor therefore matches nothing (fail-closed).
+   * When `undefined` (non-user reuse of hybridSearch), the scope is skipped.
+   */
+  userId?: string | null;
 }
 
 export async function hybridSearch(
@@ -49,6 +57,22 @@ export async function hybridSearch(
   } else {
     // No project context: all non-archived memories
     isolationFilter = `WHERE ${baseFilter}`;
+  }
+
+  // Per-user PII scope. Memories are per-user-private (see ownedByActingUser in
+  // src/extensions/memory-handler.ts). Appended to the SHARED isolationFilter so
+  // BOTH the vector_ranked and keyword_ranked CTEs inherit it. userId is $3 —
+  // always paired with projectId ($2) because the injection entry point always
+  // passes both. Two ownership shapes, mirroring ownedByActingUser:
+  //   (1) memories.user_id = userId              (directly-attributed rows)
+  //   (2) user_id IS NULL, but the source conversation is owned by userId
+  //       (host-extracted rows — dedup/compaction don't stamp user_id).
+  // A null/unowned actor matches neither shape → zero rows (fail-closed).
+  if (opts.userId !== undefined) {
+    // Single-line string on purpose: a multi-line template literal makes Bun's
+    // coverage instrumenter emit phantom (never-hit) DA records for the interior
+    // lines, which trips the patch-coverage gate.
+    isolationFilter += ` AND (memories.user_id = $3 OR (memories.user_id IS NULL AND EXISTS (SELECT 1 FROM conversations c WHERE c.id = memories.conversation_id AND c.user_id = $3)))`;
   }
 
   // Project boost: in global mode, multiply RRF by 1.5 for matching project
@@ -96,6 +120,10 @@ export async function hybridSearch(
 
   const params: (string | null)[] = [query];
   if (projectId) params.push(projectId);
+  // $3 — the acting user (may be null → fail-closed). Only pushed when the
+  // caller opts into user scoping, keeping the placeholder count in sync with
+  // the isolationFilter predicate above.
+  if (opts.userId !== undefined) params.push(opts.userId);
 
   const result = await rawQuery(sql, params);
 
