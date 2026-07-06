@@ -27,10 +27,12 @@ import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-clean
 // failures).
 let verifyApiKeyCalls: string[];
 let verifyApiKeyImpl: (raw: string) => Promise<
-  { userId: string; name: string; scopes: readonly string[] } | null
+  { userId: string; name: string; scopes: readonly string[]; role: "member" | "admin" } | null
 > = async (raw: string) => {
   verifyApiKeyCalls.push(raw);
-  if (raw === "ezk_valid") return { userId: "user-1", name: "Test", scopes: ["chat"] };
+  if (raw === "ezk_valid") return { userId: "user-1", name: "Test", scopes: ["chat"], role: "member" };
+  // A role-carrying admin key: bearer-auth must propagate role:"admin".
+  if (raw === "ezk_admin") return { userId: "user-2", name: "Admin Key", scopes: ["read", "admin"], role: "admin" };
   return null;
 };
 mock.module("$lib/server/security/api-keys", () => ({
@@ -178,6 +180,23 @@ describe("attachBearerAuth — user keys", () => {
     expect(evt.locals.user).toMatchObject({ id: "user-1", name: "Test" });
     expect(evt.locals.apiKeyScopes).toEqual(["chat"]);
     expect(verifyApiKeyCalls).toEqual(["ezk_valid"]);
+  });
+
+  test("a member-role key yields a member principal", async () => {
+    const evt = makeEvent("127.0.0.1");
+    await attachBearerAuth(evt, "Bearer ezk_valid");
+    expect(evt.locals.user?.role).toBe("member");
+  });
+
+  test("an admin-ROLE key yields an admin principal (reaches requireRole routes)", async () => {
+    // The core of role-carrying keys: the ezk_ principal's role comes from
+    // the key's stored role, NOT a hard-coded "member". This is what makes
+    // requireRole(admin) routes reachable by an explicitly minted admin key.
+    const evt = makeEvent("127.0.0.1");
+    expect(await attachBearerAuth(evt, "Bearer ezk_admin")).toBe(true);
+    expect(evt.locals.user?.id).toBe("user-2");
+    expect(evt.locals.user?.role).toBe("admin");
+    expect(evt.locals.apiKeyScopes).toEqual(["read", "admin"]);
   });
 
   test("user-key rejection leaves locals untouched", async () => {

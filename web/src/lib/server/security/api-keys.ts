@@ -7,6 +7,7 @@ import {
 import {
   type ApiKeyEntry,
   type ApiKeyHashIndexEntry,
+  type ApiKeyRole,
   type ApiKeyScope,
   apiKeyHashIndexKey,
   hashApiKey,
@@ -17,19 +18,24 @@ import {
 // See `src/auth/api-key.ts`.
 export {
   type ApiKeyEntry,
+  type ApiKeyRole,
   type ApiKeyScope,
   type GeneratedKey,
   API_KEY_SCOPES,
+  API_KEY_ROLES,
   apiKeySettingsKey,
   apiKeySettingsPrefix,
+  canMintRole,
   generateApiKey,
   hashApiKey,
+  isApiKeyRole,
   isApiKeyScope,
 } from "$server/auth/api-key";
 
 interface VerifiedKey {
   userId: string;
   scopes: ApiKeyScope[];
+  role: ApiKeyRole;
   name: string;
 }
 
@@ -60,7 +66,14 @@ export async function verifyApiKey(raw: string): Promise<VerifiedKey | null> {
     // under a stale index): still verify the hash with constant-time
     // comparison before trusting the row.
     if (entry && hashesEqual(entry.hash, hash)) {
-      return { userId: entry.userId, scopes: entry.scopes, name: entry.name };
+      // `role` is optional on-disk (keys minted before role-carrying keys
+      // existed have none) → default to the least-privileged `member`.
+      return {
+        userId: entry.userId,
+        scopes: entry.scopes,
+        role: entry.role ?? "member",
+        name: entry.name,
+      };
     }
   }
 
@@ -81,7 +94,12 @@ export async function verifyApiKey(raw: string): Promise<VerifiedKey | null> {
       } catch {
         // Best-effort upgrade; a write failure must not fail the auth.
       }
-      return { userId: entry.userId, scopes: entry.scopes, name: entry.name };
+      return {
+        userId: entry.userId,
+        scopes: entry.scopes,
+        role: entry.role ?? "member",
+        name: entry.name,
+      };
     }
   }
   return null;

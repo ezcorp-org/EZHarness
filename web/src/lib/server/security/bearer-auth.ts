@@ -154,7 +154,12 @@ export async function attachBearerAuth(
       id: keyData.userId,
       email: "",
       name: keyData.name,
-      role: "member",
+      // Role-carrying keys: the principal's role is the key's STORED role
+      // (default `member`; `admin` only when explicitly minted). This is what
+      // makes requireRole(admin) routes reachable by an admin-role key. NB:
+      // internal `ezkint_` keys are handled in the branch above and stay
+      // `member` — they are subprocess identities, never admin principals.
+      role: keyData.role,
     };
     event.locals.apiKeyScopes = keyData.scopes;
     return true;

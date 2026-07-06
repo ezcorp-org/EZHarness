@@ -61,6 +61,34 @@ test("verifyApiKey returns null for invalid key", async () => {
   expect(result).toBeNull();
 });
 
+// ── role axis ─────────────────────────────────────────────────────────
+// verifyApiKey surfaces the key's stored role; a row minted before
+// role-carrying keys existed (no `role` field) reads back as `member`.
+
+test("verifyApiKey surfaces a stored admin role (fast path)", async () => {
+  const { raw, hash, keyId } = generateApiKey();
+  const userId = "user-admin-role";
+  mockSettings[apiKeySettingsKey(userId, keyId)] = {
+    hash, userId, scopes: ["read", "admin"], role: "admin", name: "Admin Key", createdAt: 1,
+  };
+  mockSettings[apiKeyHashIndexKey(hash)] = { userId, keyId };
+
+  const result = await verifyApiKey(raw);
+  expect(result!.role).toBe("admin");
+});
+
+test("verifyApiKey defaults a role-less legacy row to member (slow path)", async () => {
+  const { raw, hash, keyId } = generateApiKey();
+  const userId = "user-no-role";
+  // Legacy row: no `role`, no index pointer → slow path + default.
+  mockSettings[apiKeySettingsKey(userId, keyId)] = {
+    hash, userId, scopes: ["read"], name: "Legacy", createdAt: 1,
+  };
+
+  const result = await verifyApiKey(raw);
+  expect(result!.role).toBe("member");
+});
+
 test("requireScope returns 403 when scope missing", () => {
   const result = requireScope({ apiKeyScopes: ["read"] } as any, "admin");
   expect(result).not.toBeNull();

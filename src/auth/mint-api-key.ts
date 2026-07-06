@@ -15,6 +15,7 @@ import {
   apiKeyHashIndexKey,
   type ApiKeyEntry,
   type ApiKeyHashIndexEntry,
+  type ApiKeyRole,
   type ApiKeyScope,
 } from "./api-key";
 import { upsertSetting, deleteSetting } from "../db/queries/settings";
@@ -28,9 +29,10 @@ export async function mintApiKeyForUser(
   userId: string,
   scopes: ApiKeyScope[],
   name: string,
+  role: ApiKeyRole = "member",
 ): Promise<MintedApiKey> {
   const { raw, hash, keyId } = generateApiKey();
-  const entry: ApiKeyEntry = { hash, userId, scopes, name, createdAt: Date.now() };
+  const entry: ApiKeyEntry = { hash, userId, scopes, role, name, createdAt: Date.now() };
   // Canonical per-user row (source of truth for GET-list / DELETE-by-keyId)…
   await upsertSetting(apiKeySettingsKey(userId, keyId), entry);
   // …plus the hash index so verifyApiKey is O(1) instead of a full scan.
