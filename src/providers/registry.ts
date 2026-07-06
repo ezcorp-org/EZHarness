@@ -34,7 +34,7 @@ const LOCAL_OAUTH_OVERRIDES: Model<any>[] = [
 // Returns a flat list across all providers, with pi-ai-registered IDs filtered out to avoid duplicates.
 async function loadDiscoveredModels(): Promise<Model<any>[]> {
   const out: Model<any>[] = [];
-  for (const provider of ["openai", "anthropic", "google"]) {
+  for (const provider of ["openai", "anthropic", "google", "openrouter"]) {
     const stored = (await getSetting(`provider:discoveredModels:${provider}`)) as Model<any>[] | undefined;
     if (!Array.isArray(stored)) continue;
     const piIds = new Set(getModels(provider as KnownProvider).map((m) => m.id));

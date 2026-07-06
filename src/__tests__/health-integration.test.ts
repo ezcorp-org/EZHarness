@@ -214,9 +214,24 @@ describe("buildHealthResponse — provider detection", () => {
     const { buildHealthResponse } = await import("../health");
     const result = await buildHealthResponse(true);
     const providers = need(result.providers, "providers");
-    for (const name of ["anthropic", "openai", "google"]) {
+    for (const name of ["anthropic", "openai", "google", "openrouter"]) {
       expect(need(providers[name], `${name} provider`).status).toBe("not_configured");
     }
+  });
+
+  test("openrouter apiKey present → configured (openrouter included in detail)", async () => {
+    mock.module("../db/queries/settings", () => ({
+      getAllSettings: mock(() => Promise.resolve({
+        "provider:apiKey:openrouter": "sk-or-xxx",
+      })),
+    }));
+
+    const { buildHealthResponse } = await import("../health");
+    const result = await buildHealthResponse(true);
+    const providers = need(result.providers, "providers");
+    expect(need(providers.openrouter, "openrouter provider").status).toBe("configured");
+    // sibling providers still reported (and unconfigured)
+    expect(need(providers.anthropic, "anthropic provider").status).toBe("not_configured");
   });
 
   test("getAllSettings throws → providers is empty object, no crash", async () => {

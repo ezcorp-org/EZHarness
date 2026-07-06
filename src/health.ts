@@ -38,7 +38,7 @@ export async function buildHealthResponse(detail: boolean): Promise<HealthRespon
   try {
     const { getAllSettings } = await import("./db/queries/settings");
     settings = await getAllSettings();
-    const providerNames = ["anthropic", "openai", "google"];
+    const providerNames = ["anthropic", "openai", "google", "openrouter"];
     for (const name of providerNames) {
       const apiKey = settings[`provider:apiKey:${name}`];
       const oauthToken = settings[`provider:oauth:${name}`];

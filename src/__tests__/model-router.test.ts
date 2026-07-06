@@ -63,12 +63,27 @@ describe("resolveModel", () => {
   });
 
   test("no provider with all circuit breakers open throws", async () => {
-    for (const p of ["anthropic", "openai", "google"]) {
+    // openrouter is now part of DEFAULT_PREFERENCE_ORDER, so it must also be
+    // opened for the "no available providers" path to trigger.
+    for (const p of ["anthropic", "openai", "google", "openrouter"]) {
       const cb = getCircuitBreaker(p);
       for (let i = 0; i < 3; i++) cb.recordFailure();
     }
 
     await expect(resolveModel()).rejects.toThrow("No available providers");
+  });
+
+  test("falls through to openrouter when anthropic/openai/google are all open", async () => {
+    // Proves openrouter is now in DEFAULT_PREFERENCE_ORDER (last), reachable
+    // once the three preceding providers' circuit breakers are open.
+    for (const p of ["anthropic", "openai", "google"]) {
+      const cb = getCircuitBreaker(p);
+      for (let i = 0; i < 3; i++) cb.recordFailure();
+    }
+
+    const result = await resolveModel();
+    expect(result.provider).toBe("openrouter");
+    expect(result.model).toBeDefined();
   });
 
   test("respects custom preference order from settings", async () => {
@@ -179,9 +194,24 @@ describe("suggestFallback", () => {
     expect(suggestion!.provider).toBe("google");
   });
 
-  test("returns null when no alternatives available", async () => {
-    // Open all other providers
+  test("suggests openrouter when preceding providers are open", async () => {
+    // Default order is anthropic → openai → google → openrouter. Failing
+    // anthropic and opening openai + google leaves openrouter as the only
+    // suggestion, proving it is part of the preference order.
     for (const p of ["openai", "google"]) {
+      const cb = getCircuitBreaker(p);
+      for (let i = 0; i < 3; i++) cb.recordFailure();
+    }
+
+    const suggestion = await suggestFallback("anthropic", "balanced");
+    expect(suggestion).not.toBeNull();
+    expect(suggestion!.provider).toBe("openrouter");
+    expect(suggestion!.model).toBeDefined();
+  });
+
+  test("returns null when no alternatives available", async () => {
+    // Open all other providers (openrouter now included in default order)
+    for (const p of ["openai", "google", "openrouter"]) {
       const cb = getCircuitBreaker(p);
       for (let i = 0; i < 3; i++) cb.recordFailure();
     }

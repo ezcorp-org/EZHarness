@@ -42,6 +42,10 @@ const PROVIDER_DEFAULTS: Record<
     api: "google-generative-ai",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta",
   },
+  openrouter: {
+    api: "openai-completions",
+    baseUrl: "https://openrouter.ai/api/v1",
+  },
 };
 
 // Providers whose model list we can pull directly via the OpenAI-shaped
@@ -64,6 +68,10 @@ const DIRECT_PROVIDERS: Record<
       "x-api-key": token,
       "anthropic-version": "2023-06-01",
     }),
+  },
+  openrouter: {
+    host: "https://openrouter.ai/api",
+    authHeaders: (token) => ({ Authorization: `Bearer ${token}` }),
   },
 };
 

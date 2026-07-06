@@ -82,6 +82,8 @@ interface RouteCfg {
   openaiStatus?: number; // status for api.openai.com/v1/models (default 200)
   anthropicModels?: unknown;
   anthropicStatus?: number;
+  openrouterModels?: unknown; // body for openrouter.ai/api/v1/models
+  openrouterStatus?: number;
 }
 
 function route(cfg: RouteCfg) {
@@ -100,6 +102,11 @@ function route(cfg: RouteCfg) {
       const s = cfg.anthropicStatus ?? 200;
       if (s !== 200) return Promise.resolve(json({}, s));
       return Promise.resolve(json(cfg.anthropicModels ?? { data: [] }));
+    }
+    if (url.includes("openrouter.ai/api/v1/models")) {
+      const s = cfg.openrouterStatus ?? 200;
+      if (s !== 200) return Promise.resolve(json({}, s));
+      return Promise.resolve(json(cfg.openrouterModels ?? { data: [] }));
     }
     if (url.includes("/api/tags")) return Promise.resolve(json({}, 404));
     return Promise.reject(new Error(`unmocked: ${url}`));
@@ -169,6 +176,48 @@ describe("provider-direct discovery", () => {
     const headers = providerCall.init?.headers as Record<string, string>;
     expect(headers["x-api-key"]).toBe("sk-test-123");
     expect(headers["anthropic-version"]).toBe("2023-06-01");
+  });
+
+  test("openrouter: credential drives the DIRECT /v1/models path with Bearer auth", async () => {
+    route({
+      openrouterModels: {
+        data: [{ id: "anthropic/claude-3.5-sonnet" }, { id: "openai/gpt-4o" }],
+      },
+    });
+
+    const models = await fetchProviderModels("openrouter", APIKEY);
+    const ids = models.map((m) => m.id).sort();
+    expect(ids).toEqual(["anthropic/claude-3.5-sonnet", "openai/gpt-4o"]);
+
+    // api + baseUrl come from PROVIDER_DEFAULTS for openrouter
+    for (const m of models) {
+      expect(m.provider).toBe("openrouter");
+      expect(m.api).toBe("openai-completions");
+      expect(m.baseUrl).toBe("https://openrouter.ai/api/v1");
+    }
+
+    // Bearer header was sent to the openrouter endpoint (DIRECT path used)
+    const providerCall = calls.find((c) =>
+      c.url.includes("openrouter.ai/api/v1/models"),
+    )!;
+    const headers = providerCall.init?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer sk-test-123");
+  });
+
+  test("openrouter is a supported provider — not the unknown-provider guard", async () => {
+    // No credential, and the catalog fixture has no openrouter entry, so this
+    // still throws — but the message must be the catalog-miss, proving
+    // openrouter cleared the PROVIDER_DEFAULTS "not supported" guard.
+    route({});
+    let err: unknown;
+    try {
+      await fetchProviderModels("openrouter");
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).not.toMatch(/not supported for provider/);
+    expect((err as Error).message).toMatch(/no "openrouter" entry/);
   });
 });
 

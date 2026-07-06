@@ -125,4 +125,36 @@ describe("getModelRegistry custom model normalization", () => {
       expect(entry.provider).not.toBe("ollama");
     }
   });
+
+  test("surfaces a stored discovered openrouter model via getModelRegistry", async () => {
+    // Models saved by /api/providers/:provider/refresh-models land under
+    // `provider:discoveredModels:<provider>`. The registry now loads
+    // openrouter too, so a custom id (not in pi-ai's built-in list) surfaces.
+    mockGetSetting.mockImplementation(((key: string) => {
+      if (key === "provider:discoveredModels:openrouter")
+        return Promise.resolve([
+          {
+            id: "ezcorp-test/custom-openrouter-model",
+            name: "Custom OpenRouter Model",
+            api: "openai-completions",
+            provider: "openrouter",
+            baseUrl: "https://openrouter.ai/api/v1",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 128_000,
+            maxTokens: 8_192,
+          },
+        ]);
+      return Promise.resolve(undefined);
+    }) as any);
+
+    const registry = await getModelRegistry();
+    const discovered = registry.find(
+      (m) => m.id === "ezcorp-test/custom-openrouter-model",
+    );
+    expect(discovered).toBeDefined();
+    expect(discovered!.provider).toBe("openrouter");
+    expect(discovered!.displayName).toBe("Custom OpenRouter Model");
+  });
 });

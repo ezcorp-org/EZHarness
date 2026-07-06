@@ -32,7 +32,7 @@ export class ProviderUnavailableError extends Error {
 
 type TierName = "fast" | "balanced" | "powerful";
 
-const DEFAULT_PREFERENCE_ORDER = ["anthropic", "openai", "google"];
+const DEFAULT_PREFERENCE_ORDER = ["anthropic", "openai", "google", "openrouter"];
 const DEFAULT_TIER: TierName = "balanced";
 
 async function getDefaultTier(): Promise<TierName> {
