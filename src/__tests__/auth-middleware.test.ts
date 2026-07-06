@@ -3,7 +3,7 @@ import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers
 
 mockDbConnection(); // Must be at module level BEFORE imports that use db
 
-import { requireAuth, requireRole, requireTeamRole } from "../auth/middleware";
+import { requireAuth, requireRole, checkRole, requireTeamRole } from "../auth/middleware";
 import { createUser } from "../db/queries/users";
 import { createTeam, addTeamMember } from "../db/queries/teams";
 import { users, teams, teamMembers } from "../db/schema";
@@ -64,6 +64,36 @@ describe("requireRole", () => {
       expect(e).toBeInstanceOf(Response);
       expect((e as Response).status).toBe(401);
     }
+  });
+});
+
+// ── checkRole (non-throwing sibling for +server.ts handlers) ─────────
+
+describe("checkRole", () => {
+  test("returns the user (not a Response) when role matches", () => {
+    const result = checkRole(makeLocals(adminUser), "admin");
+    expect(result).not.toBeInstanceOf(Response);
+    expect(result).toEqual(adminUser);
+  });
+
+  test("RETURNS a 403 Response when role does not match (does not throw)", () => {
+    const result = checkRole(makeLocals(memberUser), "admin");
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(403);
+  });
+
+  test("RETURNS a 401 Response when there is no user (does not throw)", () => {
+    const result = checkRole(makeLocals(undefined), "admin");
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(401);
+  });
+
+  test("re-throws a non-Response error unchanged", () => {
+    // Passing a locals whose `user` getter throws a plain Error proves the
+    // catch only swallows Responses — any other throw propagates.
+    const boom = new Error("boom");
+    const locals = { get user(): AuthUser { throw boom; } } as unknown as App.Locals;
+    expect(() => checkRole(locals, "admin")).toThrow(boom);
   });
 });
 

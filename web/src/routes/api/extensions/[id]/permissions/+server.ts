@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { getExtension, updateExtension } from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
-import { requireAuth, requireRole } from "$server/auth/middleware";
+import { requireAuth, checkRole } from "$server/auth/middleware";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS, type ExtensionAuditMetadata } from "$server/extensions/audit-actions";
 import {
@@ -42,7 +42,10 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   // requireScope(locals, "extensions") which is a no-op for cookie auth, so
   // any authenticated member could PUT {shell: true, filesystem: ["/"]} and
   // then invoke the extension's tools — an RCE primitive via /api/tool-invoke.
-  const admin = requireRole(locals, "admin");
+  // checkRole RETURNS the 401/403 Response (a thrown one would 500 for
+  // API-key callers, which SvelteKit doesn't recognise from a handler).
+  const admin = checkRole(locals, "admin");
+  if (admin instanceof Response) return admin;
 
   const ext = await getExtension(params.id);
   if (!ext) return errorJson(404, "Not found");

@@ -9,7 +9,7 @@ import {
 import { activateExtension } from "$lib/server/extensions/activate-extension";
 import { logger } from "$server/logger";
 import { ExtensionRegistry } from "$server/extensions/registry";
-import { requireAuth, requireRole } from "$server/auth/middleware";
+import { requireAuth, checkRole } from "$server/auth/middleware";
 import { cacheableResponse } from "$server/lib/cache-utils";
 import { installExtensionSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
@@ -45,15 +45,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // gating on it allowed any logged-in user to install extensions with
   // attacker-chosen grantedPermissions (e.g. {shell: true, filesystem: ["/"]}).
   // Combined with /api/tool-invoke this was an RCE primitive.
-  // requireRole throws a raw Response; SvelteKit does not recognise that and
-  // surfaces it as a 500. Catch here so non-admin callers see the intended 403.
-  let admin;
-  try {
-    admin = requireRole(locals, "admin");
-  } catch (e) {
-    if (e instanceof Response) return e;
-    throw e;
-  }
+  // checkRole RETURNS the 401/403 Response so non-admin callers see the
+  // intended status (a thrown Response would 500 via SvelteKit).
+  const admin = checkRole(locals, "admin");
+  if (admin instanceof Response) return admin;
   const result = installExtensionSchema.safeParse(await request.json());
   if (!result.success) {
     return validationError(result.error);

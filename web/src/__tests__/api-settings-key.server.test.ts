@@ -49,21 +49,34 @@ const adminLocals = {
 };
 
 describe("GET /api/settings/[key]", () => {
-  test("non-admin throws 403 Response", async () => {
-    let res: Response | undefined;
-    try {
-      await GET(
-        makeEvent({
-          key: "ui:theme",
-          locals: { user: { id: "u1", email: "u@x", name: "u", role: "user" } },
-        }),
-      );
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(403);
+  test("non-admin RETURNS 403 Response (not thrown → no 500)", async () => {
+    const res = await GET(
+      makeEvent({
+        key: "ui:theme",
+        locals: { user: { id: "u1", email: "u@x", name: "u", role: "user" } },
+      }),
+    );
+    expect(res).toBeInstanceOf(Response);
+    expect(res.status).toBe(403);
+  });
+
+  // Track 1 regression: an API-key principal (admin SCOPE but member ROLE)
+  // must get a clean 403 JSON — pre-fix requireRole threw a raw Response that
+  // SvelteKit surfaced as a 500 for key callers.
+  test("API-key caller (member role) RETURNS 403 JSON, never 500", async () => {
+    const res = await GET(
+      makeEvent({
+        key: "ui:theme",
+        locals: {
+          user: { id: "u1", email: "u@x", name: "u", role: "member" },
+          apiKeyScopes: ["read", "admin"],
+        },
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: string };
+    expect(typeof body.error).toBe("string");
+    expect(body.error!.length).toBeGreaterThan(0);
   });
 
   test("sensitive key (instance:jwtSecret) returns 403", async () => {
@@ -87,6 +100,24 @@ describe("GET /api/settings/[key]", () => {
 });
 
 describe("PUT /api/settings/[key]", () => {
+  // Track 1 regression: key caller → 403 RETURNED (not 500).
+  test("API-key caller (member role) RETURNS 403 JSON, never 500", async () => {
+    const res = await PUT(
+      makeEvent({
+        key: "ui:theme",
+        locals: {
+          user: { id: "u1", email: "u@x", name: "u", role: "member" },
+          apiKeyScopes: ["admin"],
+        },
+        body: { value: "x" },
+        method: "PUT",
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: string };
+    expect(typeof body.error).toBe("string");
+  });
+
   test("missing body.value returns 400", async () => {
     const res = await PUT(
       makeEvent({
@@ -116,22 +147,33 @@ describe("PUT /api/settings/[key]", () => {
 });
 
 describe("DELETE /api/settings/[key]", () => {
-  test("non-admin throws 403", async () => {
-    let res: Response | undefined;
-    try {
-      await DELETE(
-        makeEvent({
-          key: "ui:theme",
-          locals: { user: { id: "u1", email: "u@x", name: "u", role: "user" } },
-          method: "DELETE",
-        }),
-      );
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(403);
+  test("non-admin RETURNS 403 (not thrown → no 500)", async () => {
+    const res = await DELETE(
+      makeEvent({
+        key: "ui:theme",
+        locals: { user: { id: "u1", email: "u@x", name: "u", role: "user" } },
+        method: "DELETE",
+      }),
+    );
+    expect(res).toBeInstanceOf(Response);
+    expect(res.status).toBe(403);
+  });
+
+  // Track 1 regression: key caller → 403 RETURNED (not 500).
+  test("API-key caller (member role) RETURNS 403 JSON, never 500", async () => {
+    const res = await DELETE(
+      makeEvent({
+        key: "ui:theme",
+        locals: {
+          user: { id: "u1", email: "u@x", name: "u", role: "member" },
+          apiKeyScopes: ["admin"],
+        },
+        method: "DELETE",
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: string };
+    expect(typeof body.error).toBe("string");
   });
 
   test("sensitive key returns 403", async () => {

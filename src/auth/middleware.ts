@@ -31,6 +31,36 @@ export function requireRole(locals: AuthLocals, role: "admin"): AuthUser {
   return user;
 }
 
+/**
+ * Non-throwing sibling of `requireRole` for `+server.ts` handlers.
+ *
+ * `requireAuth`/`requireRole` throw a raw `Response` on denial. SvelteKit
+ * does NOT recognise a thrown `Response` from a route handler — it surfaces
+ * it as a 500. So a handler that calls `requireRole` directly returns 500
+ * (not the intended 401/403) to any caller that trips the gate — most
+ * notably an API-key principal, which is minted below `admin` role unless it
+ * is an explicitly role-carrying key.
+ *
+ * `checkRole` runs the exact same auth+role logic (delegating to
+ * `requireRole`, the single source of truth) but RETURNS the denial Response
+ * instead of throwing — mirroring `requireScope`'s `Response | null` style
+ * while still yielding the `AuthUser` on success. This is the one place the
+ * throw→return conversion lives, so the "uncaught thrown Response = 500" bug
+ * can't recur by copy-paste. Call sites become:
+ *
+ *   const admin = checkRole(locals, "admin");
+ *   if (admin instanceof Response) return admin;
+ *   // …use admin.id
+ */
+export function checkRole(locals: AuthLocals, role: "admin"): AuthUser | Response {
+  try {
+    return requireRole(locals, role);
+  } catch (e) {
+    if (e instanceof Response) return e;
+    throw e;
+  }
+}
+
 const ROLE_LEVELS: Record<string, number> = { viewer: 0, editor: 1, owner: 2 };
 
 export async function requireTeamRole(
