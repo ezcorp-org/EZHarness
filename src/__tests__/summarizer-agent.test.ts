@@ -88,13 +88,14 @@ describe("summarizer inputSchema", () => {
     expect((schema.file as InputField).required).toBeUndefined();
   });
 
-  test("provider field is a select with anthropic/google/openai options", () => {
+  test("provider field is a select with anthropic/google/openai/openrouter options", () => {
     const schema = summarizerAgent.inputSchema!;
     expect(schema.provider).toBeDefined();
     expect(schema.provider.type).toBe("select");
     expect(schema.provider.options).toContain("anthropic");
     expect(schema.provider.options).toContain("google");
     expect(schema.provider.options).toContain("openai");
+    expect(schema.provider.options).toContain("openrouter");
   });
 
   test("provider field defaults to anthropic", () => {

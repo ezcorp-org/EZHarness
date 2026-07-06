@@ -7,7 +7,7 @@ export default {
   inputSchema: {
     text: { type: "text", label: "Text", description: "Text to summarize", required: true },
     file: { type: "file-path", label: "File", description: "Or read from file path" },
-    provider: { type: "select", label: "Provider", options: ["anthropic", "google", "openai"], default: "anthropic" },
+    provider: { type: "select", label: "Provider", options: ["anthropic", "google", "openai", "openrouter"], default: "anthropic" },
     model: { type: "string", label: "Model", description: "Override model name" },
   },
 
