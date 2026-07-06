@@ -66,6 +66,17 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "PUT", path: "/api/briefing/config", description: "Update the current user's Daily Briefing configuration (cron, timezone, project, instructions, watchlist, model)", category: "briefing" },
   { method: "POST", path: "/api/briefing/run-now", description: "Trigger an immediate briefing run for the current user (rate-limited 1/5min)", category: "briefing", responseDescription: "{ started: true } (202)" },
 
+  // GitHub Projects integration
+  { method: "POST", path: "/api/integrations/github-projects/connect", description: "Resolve + validate a GitHub Projects board and link it to a project (stores an encrypted PAT for authMode 'pat')", category: "integrations", scope: "extensions", responseDescription: "{ linkId, boardTitle, ownerLogin, statusOptions, scopes, canComment }" },
+  { method: "GET", path: "/api/integrations/github-projects/link", description: "List every GitHub board connected to the project, each with health and pause state", category: "integrations", scope: "extensions", responseDescription: "{ links: [...] }" },
+  { method: "PATCH", path: "/api/integrations/github-projects/link", description: "Update the board's column→action map, poll interval, or pause/resume state", category: "integrations", scope: "extensions" },
+  { method: "DELETE", path: "/api/integrations/github-projects/link", description: "Disconnect the board: purge the stored token, cancel active proposals, drop the link", category: "integrations", scope: "extensions" },
+  { method: "POST", path: "/api/integrations/github-projects/link/refresh-columns", description: "Re-fetch the connected board's Status columns (id+name) host-side and persist them — self-heals empty/stale status_options without re-entering the PAT", category: "integrations", scope: "extensions" },
+  { method: "GET", path: "/api/integrations/github-projects/proposals", description: "List a project's board-move proposals (active + history)", category: "integrations", scope: "extensions" },
+  { method: "POST", path: "/api/integrations/github-projects/proposals/:id/approve", description: "Approve a pending proposal — spawn the PDP-gated conversation + run", category: "integrations", scope: "extensions" },
+  { method: "POST", path: "/api/integrations/github-projects/proposals/:id/dismiss", description: "Dismiss a pending proposal without spawning", category: "integrations", scope: "extensions" },
+  { method: "POST", path: "/api/integrations/github-projects/proposals/:id/rerun", description: "Re-run a terminal proposal — create a fresh pending proposal for the same card (normal approval gate applies)", category: "integrations", scope: "extensions" },
+
   // Agent Configs
   { method: "GET", path: "/api/agent-configs", description: "List agent configurations", category: "agents" },
   { method: "POST", path: "/api/agent-configs", description: "Create agent configuration", category: "agents", schemaKey: "createAgentConfigSchema" },
@@ -89,6 +100,15 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/extensions/:id/permissions", description: "Get extension permissions", category: "extensions" },
   { method: "PUT", path: "/api/extensions/:id/permissions", description: "Update extension permissions", category: "extensions" },
   { method: "GET", path: "/api/extensions/:name/tools", description: "List tools provided by extension", category: "extensions", scope: "read" },
+  { method: "POST", path: "/api/extensions/:id/secrets", description: "Set (or rotate) an extension secret — encrypted, scope-isolated, AAD-bound; value never echoed back", category: "extensions", scope: "extensions" },
+  { method: "DELETE", path: "/api/extensions/:id/secrets", description: "Delete an extension secret", category: "extensions", scope: "extensions" },
+
+  // Extension RBAC grants (runtime gate = the delegation check in
+  // src/auth/extension-rbac.ts; scope "admin" documents the surface for the
+  // docs/OpenAPI tier — see the route headers).
+  { method: "GET", path: "/api/rbac/extension-grants", description: "List extension RBAC grants visible to the caller (admin: all; manage-grant holders: their coverage + own; members: own rows only)", category: "admin", scope: "admin", responseDescription: "{ grants: [{ id, user: {id,email,name}, projectId, extensionId, scopes, grantedBy, updatedAt }] }" },
+  { method: "POST", path: "/api/rbac/extension-grants", description: "Create an extension RBAC grant or replace an existing row's scope list (delegation-gated: admin, or a covering `manage` grant; `manage` itself is admin-only to grant)", category: "admin", scope: "admin" },
+  { method: "DELETE", path: "/api/rbac/extension-grants/:id", description: "Revoke an extension RBAC grant (same delegation rules as create; audit row carries the pre-delete scopes)", category: "admin", scope: "admin" },
 
   // Marketplace
   { method: "GET", path: "/api/marketplace", description: "Browse marketplace listings", category: "marketplace" },

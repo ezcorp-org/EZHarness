@@ -9,6 +9,8 @@ import { BriefingDaemon } from "../runtime/briefing/daemon";
 import { HostMaintenanceDaemon } from "../extensions/host-maintenance-daemon";
 import { EmbedWorker } from "../extensions/embed-worker";
 import { FileOrganizerDaemon, DEFAULT_SETTINGS, mergeFileOrganizerSettings, type FileOrganizerSettings } from "../extensions/file-organizer-daemon";
+import { getGithubProjectsDaemon, reconcileOrphanedProposals } from "../integrations/github-projects/daemon";
+import type { GithubProjectsDaemon } from "../integrations/github-projects/daemon";
 import { PreviewPortWatcher } from "../runtime/preview/preview-port-watcher";
 import { NetnsPortSource, ProcPortSource } from "../runtime/preview/preview-port-source";
 import { previewCapabilities } from "../runtime/preview/preview-netns";
@@ -27,6 +29,7 @@ let permSweepDaemon: HostMaintenanceDaemon | undefined;
 let embedWorker: EmbedWorker | undefined;
 let previewPortWatcher: PreviewPortWatcher | undefined;
 let fileOrganizerDaemon: FileOrganizerDaemon | undefined;
+let githubProjectsDaemon: GithubProjectsDaemon | undefined;
 
 /**
  * Intervals + disposers registered by `startBackgroundTimers()`. Tracked
@@ -70,6 +73,12 @@ export function _getEmbedWorkerForTests(): EmbedWorker | undefined {
  *  `_getEmbedWorkerForTests`. */
 export function _getFileOrganizerDaemonForTests(): FileOrganizerDaemon | undefined {
   return fileOrganizerDaemon;
+}
+
+/** Test-only handle to the github-projects daemon singleton — mirrors
+ *  `_getFileOrganizerDaemonForTests`. */
+export function _getGithubProjectsDaemonForTests(): GithubProjectsDaemon | undefined {
+  return githubProjectsDaemon;
 }
 
 /** Test-only handle to the preview-port-watcher singleton — mirrors
@@ -316,6 +325,45 @@ export async function startBackgroundTimers(): Promise<void> {
     fileOrganizerDaemon = undefined;
   }
 
+  // github-projects: GithubProjectsDaemon — host-side poller that turns
+  // GitHub Projects board moves into proposals (+ optional auto-spawn). Sibling
+  // to the daemons above (kill-switch EZCORP_DISABLE_GITHUB_PROJECTS_DAEMON=1,
+  // handled inside start(); its own wake interval). `start()` is synchronous and
+  // returns false when the kill-switch is set. Same fail-safe contract: log +
+  // drop the handle on a false-return / throw; never block boot. The daemon's
+  // tick is itself crash-safe — it polls only enabled links and degrades a
+  // failing link instead of throwing out of the sweep, so wiring it here is safe
+  // in every boot order (no links → empty sweep).
+  try {
+    // Use the MODULE SINGLETON (getGithubProjectsDaemon), not a private `new`:
+    // the reverse-RPC poll-now path drives the same accessor, and the daemon's
+    // non-reentrancy guard + per-link rate-limit back-off only work when both
+    // paths share one instance. The singleton carries no `emit` — it falls back
+    // to the registered bus emitter (getGithubProjectsEmit) at emit time, so
+    // the Hub still live-refreshes once the web layer registers the bus.
+    githubProjectsDaemon = getGithubProjectsDaemon();
+    // Boot reconciliation BEFORE the poll loop arms: run-lifecycle
+    // subscriptions are in-memory, so every proposal a previous process left
+    // `spawned`/`running` is orphaned (the executor-watchdog interruptAllRuns
+    // doctrine). The sweep flips them to `failed` and posts best-effort
+    // ticket comments. reconcileOrphanedProposals never throws by contract;
+    // the inline .catch is belt-and-braces so even a pathological rejection
+    // cannot skip the daemon start below (the outer catch would otherwise
+    // drop the handle and leave boards unpolled).
+    await reconcileOrphanedProposals().catch((e: unknown) => {
+      log.warn("github-projects boot reconciliation failed", { error: String(e) });
+    });
+    const ok = githubProjectsDaemon.start();
+    if (ok) {
+      log.info("GithubProjectsDaemon started");
+    } else {
+      githubProjectsDaemon = undefined;
+    }
+  } catch (e) {
+    log.warn("Failed to start GithubProjectsDaemon", { error: String(e) });
+    githubProjectsDaemon = undefined;
+  }
+
   // Phase 2 (Secure Preview): PreviewPortWatcher — auto-detection of dev
   // servers that start LISTENing inside a conversation's netns. Sibling to
   // the daemons above (lockfile, kill switch, interval). The enumeration
@@ -544,6 +592,10 @@ export async function stopBackgroundTimers(): Promise<void> {
     try { fileOrganizerDaemon.stop(); } catch (e) { log.warn("FileOrganizerDaemon.stop() failed", { error: String(e) }); }
     fileOrganizerDaemon = undefined;
   }
+  if (githubProjectsDaemon) {
+    try { githubProjectsDaemon.stop(); } catch (e) { log.warn("GithubProjectsDaemon.stop() failed", { error: String(e) }); }
+    githubProjectsDaemon = undefined;
+  }
   if (previewPortWatcher) {
     try { previewPortWatcher.stop(); } catch (e) { log.warn("PreviewPortWatcher.stop() failed", { error: String(e) }); }
     previewPortWatcher = undefined;
@@ -592,6 +644,10 @@ export function _resetForTests(): void {
   if (fileOrganizerDaemon) {
     fileOrganizerDaemon.stop();
     fileOrganizerDaemon = undefined;
+  }
+  if (githubProjectsDaemon) {
+    githubProjectsDaemon.stop();
+    githubProjectsDaemon = undefined;
   }
   if (previewPortWatcher) {
     previewPortWatcher.stop();

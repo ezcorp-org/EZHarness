@@ -1,0 +1,11 @@
+{
+  "name": "@ezcorp-example/github-projects",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Connect a GitHub Projects v2 board to the active EZCorp project and plan/execute its tickets from a live Hub dashboard. Host-side GitHub I/O; the token never reaches the sandbox.",
+  "main": "./index.ts",
+  "dependencies": {
+    "@ezcorp/sdk": "workspace:*"
+  }
+}

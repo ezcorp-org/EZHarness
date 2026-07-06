@@ -22,6 +22,7 @@ export const RUNTIME_EVENT_NAMES = [
   "extensions:installed",
   "goal:update",
   "conversation:created",
+  "github-projects:proposal-update",
 ] as const;
 
 export type RuntimeEventName = (typeof RUNTIME_EVENT_NAMES)[number];

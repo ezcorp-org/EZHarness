@@ -9,6 +9,9 @@ import type {
 } from "./types";
 import { validateEntitiesArray } from "./entities/clamp";
 import { parseSource } from "./source-parser";
+// PURE import (no DB chain) — the scope-name grammar shared with the
+// storage layer; see src/extensions/rbac-scopes.ts.
+import { validateRbacScopeDeclarations } from "./rbac-scopes";
 export { inferPackageType };
 
 const SEMVER_REGEX = /^\d+\.\d+\.\d+$/;
@@ -654,6 +657,13 @@ export function validateSettingsSchema(
 function validatePermissionsBlock(perms: unknown, errors: string[]): void {
   if (!perms || typeof perms !== "object") return; // top-level guard handled elsewhere
   const p = perms as Record<string, unknown>;
+  // Custom RBAC scope DECLARATIONS (inert — see src/extensions/rbac-scopes.ts
+  // for the grammar / core-verb-collision / cap rules and the "declarations,
+  // not privileges" contract). Reject-at-admit-time: a bad declaration is an
+  // authoring bug, so there is no clamp-to-subset fallback.
+  if (p.rbacScopes !== undefined) {
+    validateRbacScopeDeclarations(p.rbacScopes, errors);
+  }
   if (p.appendMessages !== undefined) {
     if (typeof p.appendMessages !== "object" || Array.isArray(p.appendMessages)) {
       errors.push("permissions.appendMessages must be an object");

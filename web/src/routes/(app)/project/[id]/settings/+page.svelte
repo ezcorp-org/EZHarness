@@ -13,6 +13,36 @@
 	let savingGlobal = $state(false);
 	let savingProject = $state(false);
 
+	// ── GitHub Projects integration summary ────────────────────────────────
+	// One-line connected/paused status for the Integrations section. The full
+	// connect/disconnect UI lives at the per-project integrations sub-route;
+	// here we only show a discoverable link + a status summary. A 404 (no link)
+	// is the expected "Not connected" case, not an error.
+	// A project can connect to MANY boards; we summarise them here (the full
+	// per-board UI lives at the integrations sub-route).
+	let ghLinks = $state<{ boardTitle: string; enabled: boolean }[]>([]);
+	let ghLinkLoaded = $state(false);
+
+	async function loadGithubProjectsLink() {
+		if (!projectId) return;
+		ghLinkLoaded = false;
+		try {
+			const res = await fetch(
+				`/api/integrations/github-projects/link?projectId=${encodeURIComponent(projectId)}`,
+			);
+			if (res.ok) {
+				const data = (await res.json()) as { links: { boardTitle: string; enabled: boolean }[] };
+				ghLinks = data.links ?? [];
+			} else {
+				ghLinks = []; // 404 / error → "Not connected"
+			}
+		} catch {
+			ghLinks = [];
+		} finally {
+			ghLinkLoaded = true;
+		}
+	}
+
 	async function loadInstructions() {
 		try {
 			const settings = await fetchSettings();
@@ -26,7 +56,10 @@
 	}
 
 	$effect(() => {
-		if (projectId) loadInstructions();
+		if (projectId) {
+			loadInstructions();
+			loadGithubProjectsLink();
+		}
 	});
 
 	async function saveGlobalPrompt() {
@@ -102,6 +135,38 @@
 				from this project's source roots; user-pinned files survive every rescan.
 			</p>
 			<FeatureIndex projectId={project.id} />
+		</div>
+
+		<!-- Integrations -->
+		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6" data-testid="project-settings-integrations">
+			<h3 class="mb-1 text-lg font-semibold text-[var(--color-text-primary)]">Integrations</h3>
+			<p class="mb-3 text-xs text-[var(--color-text-secondary)]">
+				Connect this project to external services. Moving a card on a connected GitHub Projects
+				board can propose (or auto-spawn) an AI agent run.
+			</p>
+			<div class="flex items-center justify-between gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
+				<div class="min-w-0">
+					<p class="text-sm font-medium text-[var(--color-text-primary)]">GitHub Projects</p>
+					<p class="text-xs text-[var(--color-text-muted)]" data-testid="project-settings-gh-status">
+						{#if !ghLinkLoaded}
+							Checking…
+						{:else if ghLinks.length === 1}
+							Connected: {ghLinks[0].boardTitle}{ghLinks[0].enabled ? "" : " (paused)"}
+						{:else if ghLinks.length > 1}
+							Connected: {ghLinks.length} boards
+						{:else}
+							Not connected
+						{/if}
+					</p>
+				</div>
+				<a
+					href={`/project/${projectId}/integrations/github-projects`}
+					data-testid="project-settings-gh-link"
+					class="shrink-0 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm text-[var(--color-accent)] hover:bg-[var(--color-surface-tertiary)]"
+				>
+					Connect a GitHub Projects board →
+				</a>
+			</div>
 		</div>
 
 		<!-- Project Custom Instructions -->

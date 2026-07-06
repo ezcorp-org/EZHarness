@@ -28,6 +28,18 @@
  * Scope: bundled extensions only — `getCeiling()` returns `null` for
  * unknown names; `clampToBundledCeiling()` becomes a passthrough on a
  * non-bundled name (callers should not normally invoke it for those).
+ *
+ * `permissions.rbacScopes` (extension-RBAC custom-scope DECLARATIONS) is
+ * deliberately ABSENT from every ceiling row AND ignored by the clamp
+ * comparator: declarations are inert — they only name per-extension
+ * scopes an admin can grant (`extension_rbac_grants`) and extension code
+ * can query via `ctx.rbac.check`; holding one always requires an
+ * explicit grant row. `intersectPermissions` drops them from every
+ * intersection (grants never carry declarations), so without the
+ * comparator exclusion a manifest-shaped request (e.g. the
+ * drift-reapprove heal, which clamps the raw disk `permissions` block)
+ * would read as `clamped: true` on every call — spurious
+ * ceiling-clamp audit noise for a field that grants no privilege.
  */
 
 import type { ExtensionPermissions } from "./types";
@@ -402,6 +414,34 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
     grantedAt: {},
   },
 
+  // github-projects — board control plane. Mirrors the install grant in
+  // `bundled.ts` VERBATIM: storage + the `github-projects:*` page-action +
+  // proposal-update events plus `task:assignment_update` / `run:complete` for
+  // live refresh. NO network / shell / env (all GitHub I/O is host-side). The
+  // manifest's `custom.githubProjects` marker is intentionally NOT mirrored
+  // here (nor in the install grant) — `intersectPermissions` only carries
+  // `custom.drafts` through the clamp, so listing it would force a spurious
+  // ceiling-clamp every boot. The reverse-RPC gate is the bundled-only
+  // `BUNDLED_GITHUB_PROJECTS_ALLOWLIST` (by name) in
+  // `github-projects-handler.ts`, exactly like the bundled `ezcorp/drafts`
+  // handler. The dashboard page is a manifest declaration, not a permission.
+  "github-projects": {
+    eventSubscriptions: [
+      "github-projects:approve",
+      "github-projects:dismiss",
+      "github-projects:rerun",
+      "github-projects:pause",
+      "github-projects:resume",
+      "github-projects:refresh",
+      "github-projects:poll-now",
+      "github-projects:proposal-update",
+      "task:assignment_update",
+      "run:complete",
+    ],
+    storage: true,
+    grantedAt: {},
+  },
+
   // substack-pipeline — sibling to substack-pilot. LLM (WRITER +
   // ILLUSTRATOR stages) + storage (conversation-scoped scratch state
   // between the 3 tools). No network/shell: the URL fetch is delegated
@@ -518,6 +558,12 @@ function canonicalizePerms(p: ExtensionPermissions): string {
   for (const k of keys) {
     const v = asRecord[k];
     if (v === undefined) continue;
+    // `rbacScopes` — inert manifest DECLARATIONS (custom RBAC scope names
+    // + descriptions for the grant UI / ctx.rbac.check), NOT privileges.
+    // `intersectPermissions` never carries them into the intersection, so
+    // counting them here would flip `clamped` to true for every
+    // manifest-shaped request that declares scopes (see module doc).
+    if (k === "rbacScopes") continue;
     if (BOOL_FIELDS.has(k) && v === false) continue;
     if (Array.isArray(v)) {
       // Empty arrays are treated as "not granted" — same equivalence

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from "$app/stores";
 	import { onMount } from "svelte";
+	import { store } from "$lib/stores.svelte.js";
 	import type { SettingsSchema } from "$server/extensions/types";
 	import SettingsPanel from "./SettingsPanel.svelte";
 	import CapabilitiesPanel from "$lib/components/extensions/CapabilitiesPanel.svelte";
@@ -145,6 +146,39 @@
 
 	const extId = $derived($page.params.id);
 	const hasViolations = $derived(violations.length > 0);
+
+	// github-projects is the ONE extension whose primary configuration is
+	// per-project (connecting a board), not the single global settings panel
+	// above. We surface a discoverable link to that per-project connect
+	// surface here. Gate on the extension name — the top-level `ext.name`
+	// (mirrors `manifest.name`) is the stable identity.
+	const isGithubProjects = $derived(ext?.name === "github-projects");
+	// Where the per-project connect surface lives. This route's `[id]` is the
+	// EXTENSION id, and the (app) layout syncs `store.activeProjectId` to the
+	// URL's `[id]` param — so on this page `activeProjectId` is polluted with
+	// the extension id. We therefore resolve the target project from the real
+	// project list: use `activeProjectId` only if it names an actual project,
+	// else the first non-global project. Falls back to project selection ("/")
+	// when there is none, so the link never dead-ends.
+	const targetProjectId = $derived.by((): string | null => {
+		const active = store.activeProjectId;
+		if (active && active !== "global" && store.projects.some((p) => p.id === active)) {
+			return active;
+		}
+		const firstReal = store.projects.find((p) => p.id !== "global");
+		return firstReal?.id ?? null;
+	});
+	const ghProjectsConnectHref = $derived(
+		targetProjectId ? `/project/${targetProjectId}/integrations/github-projects` : "/",
+	);
+
+	// Hub Pages cards deep-link into the PROJECT-scoped hub route
+	// (`/project/<id>/hub/...`), not the global "home" hub, so the user
+	// stays in their project context and Back returns here. Reuse the
+	// `targetProjectId` resolution above, falling back to the always-valid
+	// synthetic "global" project so the link is always a project hub route
+	// and never dead-ends.
+	const hubProjectId = $derived(targetProjectId ?? "global");
 
 	let settingsSchema = $state<SettingsSchema>({});
 	let userValues = $state<Record<string, unknown>>({});
@@ -877,6 +911,34 @@
 			{/if}
 		</div>
 
+		<!--
+			Per-project integration surface (github-projects only). Unlike every
+			other extension, github-projects is configured per EZCorp project —
+			connecting a board lives at /project/<id>/integrations/github-projects,
+			NOT in the single global Settings panel below. This section is the
+			discoverable entry point to that surface (the top-level nav item was
+			removed).
+		-->
+		{#if isGithubProjects}
+			<div
+				class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4"
+				data-testid="extension-integration-section"
+			>
+				<h3 class="mb-2 text-sm font-medium text-[var(--color-text-secondary)]">Per-project board connection</h3>
+				<p class="mb-3 text-xs text-[var(--color-text-muted)]">
+					This extension is configured per project. Connect a GitHub Projects board to
+					the active project to map columns to AI agent runs.
+				</p>
+				<a
+					href={ghProjectsConnectHref}
+					data-testid="extension-connect-board-link"
+					class="inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-accent)] hover:bg-[var(--color-surface-tertiary)]"
+				>
+					Connect a board per project →
+				</a>
+			</div>
+		{/if}
+
 		<!-- Tools -->
 		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4">
 			<h3 class="mb-3 text-sm font-medium text-[var(--color-text-secondary)]">
@@ -929,22 +991,32 @@
 				</h3>
 				<div class="space-y-2">
 					{#each ext.manifest.pages as page}
-						<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)]/50 p-3">
-							<div class="flex items-center justify-between gap-2">
+						{#if ext.enabled}
+							<!-- Whole card is the click target → project-scoped hub
+							     route. Normal pushState <a> so Back returns here. -->
+							<a
+								href={`/project/${hubProjectId}/hub/${encodeURIComponent(`ext:${ext.name}:${page.id}`)}`}
+								class="block rounded-md border border-[var(--color-border)] bg-[var(--color-surface)]/50 p-3 transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-surface-tertiary)]"
+								data-testid="extension-page-link"
+							>
+								<div class="flex items-center justify-between gap-2">
+									<h4 class="text-sm font-medium text-[var(--color-text-primary)]">{page.title}</h4>
+									<span class="shrink-0 text-xs text-[var(--color-accent)]">Open in Hub →</span>
+								</div>
+								{#if page.description}
+									<p class="mt-1 text-sm text-[var(--color-text-secondary)]">{page.description}</p>
+								{/if}
+							</a>
+						{:else}
+							<!-- Disabled extension: pages stay listed but the tab
+							     would 404, so the card is not a link. -->
+							<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)]/50 p-3">
 								<h4 class="text-sm font-medium text-[var(--color-text-primary)]">{page.title}</h4>
-								{#if ext.enabled}
-									<a
-										href={`/hub/${encodeURIComponent(`ext:${ext.name}:${page.id}`)}`}
-										class="text-xs text-[var(--color-accent)] hover:underline"
-									>
-										Open in Hub →
-									</a>
+								{#if page.description}
+									<p class="mt-1 text-sm text-[var(--color-text-secondary)]">{page.description}</p>
 								{/if}
 							</div>
-							{#if page.description}
-								<p class="mt-1 text-sm text-[var(--color-text-secondary)]">{page.description}</p>
-							{/if}
-						</div>
+						{/if}
 					{/each}
 				</div>
 			</div>

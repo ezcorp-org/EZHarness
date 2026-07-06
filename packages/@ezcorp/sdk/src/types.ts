@@ -294,6 +294,31 @@ export interface ExtensionManifestV2 {
           maxResults?: number;
           providers?: string[] | "inherit";
         };
+    /**
+     * Custom RBAC scopes this extension DECLARES (extension-RBAC layer,
+     * user→extension axis). Declarations, NOT privileges: each entry
+     * names a per-extension scope that (a) appears as a grantable
+     * option in the host's grant UI and (b) your extension code can
+     * query at runtime via `ctx.rbac.check(name)` (the `Rbac` helper in
+     * `@ezcorp/sdk/runtime`, brokered over the `ezcorp/rbac-check`
+     * reverse-RPC). A user only HOLDS a scope when an instance admin /
+     * manager explicitly grants it — declaring one confers nothing by
+     * itself.
+     *
+     * Rules (host-validated at admit time; a bad declaration rejects
+     * the manifest):
+     *   - `name` matches `/^[a-z][a-z0-9-]*$/` and is implicitly
+     *     namespaced to this extension
+     *   - `name` must NOT collide with the built-in core verbs
+     *     (`use` / `configure` / `secrets` / `approve-runs` / `manage`
+     *     — those are checkable on every extension without declaring)
+     *   - names must be unique; `description` is required (it is the
+     *     text the grant UI shows the granting admin)
+     *   - max 16 entries
+     *
+     * Additive to schemaVersion 2 — no schema bump.
+     */
+    rbacScopes?: Array<{ name: string; description: string }>;
   };
 
   // Resource limits for subprocess

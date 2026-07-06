@@ -935,3 +935,123 @@ describe("generateSlug — edge cases", () => {
     expect(generateSlug("Hello_World (v2.1)")).toBe("hello-world-v2-1");
   });
 });
+
+// ── Validation: permissions.rbacScopes (custom RBAC scope declarations) ──
+//
+// Declarations are inert (NOT privileges) but reject-at-admit-time: a bad
+// declaration is an authoring bug, so there is no clamp-to-subset fallback.
+// Rules live in src/extensions/rbac-scopes.ts (shared with the storage
+// layer's grant validation — one grammar, one core-verb list).
+
+import {
+  CORE_RBAC_SCOPES,
+  MAX_RBAC_SCOPE_DECLARATIONS,
+  isValidCustomRbacScopeName,
+  validateRbacScopeDeclarations,
+} from "../extensions/rbac-scopes";
+
+describe("validateManifestV2 — permissions.rbacScopes", () => {
+  const withScopes = (rbacScopes: unknown) =>
+    validateManifestV2(
+      makeValidManifest({
+        permissions: { rbacScopes } as ExtensionManifestV2["permissions"],
+      }),
+    );
+
+  test("a valid declaration list passes", () => {
+    const result = withScopes([
+      { name: "write-tickets", description: "Create and mutate board tickets" },
+      { name: "read-metrics", description: "Read the metrics dashboard" },
+    ]);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  test("absent rbacScopes stays valid (additive, schemaVersion 2 unchanged)", () => {
+    const result = validateManifestV2(makeValidManifest({ permissions: {} }));
+    expect(result.valid).toBe(true);
+  });
+
+  test("non-array rbacScopes is rejected", () => {
+    for (const bad of [{}, "write-tickets", 42, null]) {
+      const result = withScopes(bad);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes("must be an array"))).toBe(true);
+    }
+  });
+
+  test("non-object entries are rejected with their index", () => {
+    const result = withScopes(["write-tickets", null, ["x"]]);
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("permissions.rbacScopes[0] must be an object");
+    expect(result.errors).toContain("permissions.rbacScopes[1] must be an object");
+    expect(result.errors).toContain("permissions.rbacScopes[2] must be an object");
+  });
+
+  test("name grammar: rejects uppercase, leading digit/hyphen, underscores, empty, non-string", () => {
+    for (const name of ["Write-Tickets", "9lives", "-x", "a_b", "", undefined, 7]) {
+      const result = withScopes([{ name, description: "d" }]);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes("[0].name must match"))).toBe(true);
+    }
+  });
+
+  test("every core verb collides", () => {
+    for (const verb of CORE_RBAC_SCOPES) {
+      const result = withScopes([{ name: verb, description: "d" }]);
+      expect(result.valid).toBe(false);
+      expect(
+        result.errors.some((e) => e.includes(`"${verb}" collides with a core RBAC verb`)),
+      ).toBe(true);
+    }
+  });
+
+  test("duplicate names are rejected", () => {
+    const result = withScopes([
+      { name: "write-tickets", description: "a" },
+      { name: "write-tickets", description: "b" },
+    ]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("declared more than once"))).toBe(true);
+  });
+
+  test("description is required and must be non-blank", () => {
+    for (const description of [undefined, "", "   ", 42]) {
+      const result = withScopes([{ name: "write-tickets", description }]);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes("[0].description is required"))).toBe(true);
+    }
+  });
+
+  test("cap: 16 declarations pass, 17 fail", () => {
+    const mk = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ name: `scope-${i}`, description: `scope ${i}` }));
+    expect(withScopes(mk(MAX_RBAC_SCOPE_DECLARATIONS)).valid).toBe(true);
+    const over = withScopes(mk(MAX_RBAC_SCOPE_DECLARATIONS + 1));
+    expect(over.valid).toBe(false);
+    expect(over.errors.some((e) => e.includes("max 16"))).toBe(true);
+  });
+
+  test("one bad entry does not mask sibling errors (error-array style)", () => {
+    const result = withScopes([
+      { name: "use", description: "" },
+      { name: "ok-scope", description: "fine" },
+    ]);
+    expect(result.valid).toBe(false);
+    // Both the collision AND the missing description are reported for [0].
+    expect(result.errors.some((e) => e.includes("collides with a core RBAC verb"))).toBe(true);
+    expect(result.errors.some((e) => e.includes("[0].description is required"))).toBe(true);
+  });
+
+  test("validateRbacScopeDeclarations honors a custom path prefix", () => {
+    const errors: string[] = [];
+    validateRbacScopeDeclarations("nope", errors, "custom.path");
+    expect(errors).toEqual(["custom.path must be an array of {name, description} objects"]);
+  });
+
+  test("isValidCustomRbacScopeName: grammar-valid + non-core only", () => {
+    expect(isValidCustomRbacScopeName("write-tickets")).toBe(true);
+    expect(isValidCustomRbacScopeName("use")).toBe(false); // core verb
+    expect(isValidCustomRbacScopeName("Bad")).toBe(false); // grammar
+  });
+});

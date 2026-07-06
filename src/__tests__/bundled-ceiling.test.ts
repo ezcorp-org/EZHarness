@@ -244,6 +244,60 @@ describe("(f) non-bundled name → passthrough", () => {
   });
 });
 
+// ── (g) rbacScopes declarations are inert pass-through ──────────────
+//
+// `permissions.rbacScopes` names custom extension-RBAC scopes (grant-UI
+// options / ctx.rbac.check names) — declarations, NOT privileges. No
+// ceiling row lists them; `intersectPermissions` drops them from every
+// intersection (grants never carry declarations); and the clamp
+// comparator IGNORES them so a manifest-shaped request that declares
+// scopes (e.g. the drift-reapprove heal clamping the raw disk
+// `permissions` block) never reads as "clamped".
+
+describe("(g) rbacScopes declarations never trip the clamp", () => {
+  // The manifest permissions block is cast the same way the
+  // drift-reapprove / boot paths cast it before clamping.
+  const withDeclaration = (extra: Partial<ExtensionPermissions> = {}): ExtensionPermissions =>
+    ({
+      eventSubscriptions: [
+        "github-projects:approve",
+        "github-projects:dismiss",
+        "github-projects:rerun",
+        "github-projects:pause",
+        "github-projects:resume",
+        "github-projects:refresh",
+        "github-projects:poll-now",
+        "github-projects:proposal-update",
+        "task:assignment_update",
+        "run:complete",
+      ],
+      storage: true,
+      rbacScopes: [{ name: "write-tickets", description: "Create and mutate board tickets from chat" }],
+      grantedAt: { eventSubscriptions: Date.now(), storage: Date.now() },
+      ...extra,
+    }) as unknown as ExtensionPermissions;
+
+  test("github-projects manifest shape (with write-tickets declared) → clamped:false; grant carries no declaration", () => {
+    const { effective, clamped } = clampToBundledCeiling("github-projects", withDeclaration());
+    expect(clamped).toBe(false);
+    // Declarations never land in the persisted grant — the rbac-check
+    // handler reads them from the REGISTRY manifest instead.
+    expect((effective as unknown as Record<string, unknown>).rbacScopes).toBeUndefined();
+    expect(effective.storage).toBe(true);
+  });
+
+  test("declarations do not MASK a real widening — over-ceiling fields still clamp", () => {
+    const { effective, clamped } = clampToBundledCeiling(
+      "github-projects",
+      withDeclaration({ network: ["evil.com"], shell: true }),
+    );
+    expect(clamped).toBe(true);
+    expect(effective.network).toBeUndefined();
+    expect(effective.shell).toBeUndefined();
+    expect((effective as unknown as Record<string, unknown>).rbacScopes).toBeUndefined();
+  });
+});
+
 // ── (network ceiling: allowed-host subset) ──────────────────────────
 
 describe("network host allowlist intersection", () => {

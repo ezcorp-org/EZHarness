@@ -228,3 +228,8 @@ export type {
   SearchWebResult,
   SearchReadResult,
 } from "./search";
+
+// ── Extension-RBAC brokered check (ctx.rbac) ────────────────────
+
+export { Rbac } from "./rbac";
+export type { RbacCheckResult } from "./rbac";

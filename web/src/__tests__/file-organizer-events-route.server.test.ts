@@ -77,6 +77,9 @@ vi.mock("$server/extensions/tool-executor", () => ({
 }));
 vi.mock("$server/logger", () => ({
   logger: { child: () => ({ info: () => {}, warn: () => {}, error: () => {} }) },
+  // secrets-store.ts (transitively imported) builds a module-level
+  // extensionLogger — the mock must export it or module init throws.
+  extensionLogger: () => ({ info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }),
 }));
 
 const { POST } = await import("../routes/api/extensions/[name]/events/[event]/+server");

@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { backfillGithubProjectsApiTokens } from "../extensions/secrets-store";
 
 export async function migrate(db: any): Promise<void> {
   // Enable pgvector extension (must be before any vector column usage)
@@ -1521,4 +1522,200 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
     )
   `);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_briefing_ready ON briefing_configs(enabled, next_fire_at)`);
+
+  // ── Extension secrets (scope-isolated, AEAD-bound credential store) ──
+  // See src/db/migrations/add-extension-secrets.ts for the rationale.
+  // `extension_id` stores the stable manifest SLUG (FK to extensions.name),
+  // NOT the UUID extensions.id. The ciphertext is AES-256-GCM with the
+  // `extensionId:projectId` scope bound as AAD, so a row copied to another
+  // scope fails to decrypt (see src/extensions/secrets-store.ts). Placed
+  // after extensions / projects / users so all three FK targets exist.
+  // Idempotent. The COALESCE-unique scope index treats NULL project/user as
+  // a single value (a plain UNIQUE would let every NULL collide-free) — so
+  // the query layer uses select-then-write, not ON CONFLICT.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS extension_secrets (
+      id TEXT PRIMARY KEY,
+      extension_id TEXT NOT NULL REFERENCES extensions(name) ON DELETE CASCADE,
+      project_id   TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      user_id      TEXT REFERENCES users(id) ON DELETE CASCADE,
+      name         TEXT NOT NULL,
+      ciphertext   TEXT NOT NULL,
+      created_at   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      last_used_at TIMESTAMP WITH TIME ZONE,
+      rotated_at   TIMESTAMP WITH TIME ZONE
+    )
+  `);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_extension_secrets_scope ON extension_secrets (extension_id, COALESCE(project_id,''), COALESCE(user_id,''), name)`);
+
+  // ── Extension RBAC grants (per-user, per-project/per-extension scopes) ──
+  // See src/db/migrations/add-extension-rbac.ts for the rationale. Governs
+  // what a USER may do with an extension (use/configure/secrets/approve-runs/
+  // manage + custom scopes) — complementary to the PDP, which governs what
+  // the EXTENSION may do. NULL project_id/extension_id = all projects/all
+  // extensions. `extension_id` stores the stable manifest SLUG (FK to
+  // extensions.name), NOT the UUID extensions.id. Placed after users /
+  // projects / extensions so all FK targets exist. Idempotent. The
+  // COALESCE-unique scope index treats NULL project/extension as a single
+  // value (a plain UNIQUE would let every NULL collide-free) — so the query
+  // layer uses select-then-write, not ON CONFLICT.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS extension_rbac_grants (
+      id TEXT PRIMARY KEY,
+      user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      project_id   TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      extension_id TEXT REFERENCES extensions(name) ON DELETE CASCADE,
+      scopes JSONB NOT NULL,
+      granted_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_extension_rbac_grants_scope ON extension_rbac_grants (user_id, COALESCE(project_id,''), COALESCE(extension_id,''))`);
+
+  // ── GitHub Projects integration (per-project board link + proposal queue) ──
+  // See src/db/migrations/add-github-projects.ts for the rationale.
+  // `github_projects_links` — an EZCorp project connects to MANY boards (one row
+  // per board); a given board connects to a project only once
+  // (UNIQUE(project_id, board_node_id)). The PAT (when auth_mode='pat') lives
+  // ENCRYPTED in the `extension_secrets` store at `apiToken` (the SHARED project
+  // token) and optionally `apiToken:<linkId>` (a per-board override), never in a
+  // column. `enabled=false` is the user-facing "pause polling" state (board +
+  // token retained; the daemon skips disabled links). Idempotent. The board
+  // uniqueness is declared as a named index below (NOT inline) so an already-
+  // migrated DB carrying the legacy single-board UNIQUE(project_id) can be
+  // migrated to the multi-board constraint.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS github_projects_links (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      board_node_id TEXT NOT NULL,
+      board_url TEXT NOT NULL,
+      board_title TEXT NOT NULL DEFAULT '',
+      owner_login TEXT NOT NULL DEFAULT '',
+      status_field_id TEXT,
+      status_options JSONB NOT NULL DEFAULT '[]',
+      auth_mode TEXT NOT NULL DEFAULT 'pat',
+      column_action_map JSONB NOT NULL DEFAULT '{}',
+      poll_cursor JSONB,
+      poll_interval_sec INTEGER NOT NULL DEFAULT 60,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      last_polled_at TIMESTAMP WITH TIME ZONE,
+      last_error TEXT,
+      last_error_at TIMESTAMP WITH TIME ZONE,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  // Back-compat: CREATE TABLE IF NOT EXISTS skips new columns on already-migrated
+  // DBs, so add status_options to pre-existing link rows. Stores the board's
+  // Status-field columns (id+name) so the mapping editor renders named, complete
+  // columns after a reload — not just the saved map's bare option-id keys.
+  await db.execute(
+    sql`ALTER TABLE github_projects_links ADD COLUMN IF NOT EXISTS status_options JSONB NOT NULL DEFAULT '[]'`,
+  );
+
+  // Per-board default model for spawned runs ("<provider>:<model>"). Nullable —
+  // null/empty keeps the instance default. Added here so pre-existing link rows
+  // (created before this column) gain it without a table rebuild.
+  await db.execute(
+    sql`ALTER TABLE github_projects_links ADD COLUMN IF NOT EXISTS default_model TEXT`,
+  );
+
+  // Per-board default permission mode for spawned runs (runtime PermissionMode:
+  // "ask" | "auto-edit" | "yolo"). Nullable — null/invalid falls back to "yolo"
+  // in the spawn bridge. Added here so pre-existing link rows gain it without a
+  // table rebuild.
+  await db.execute(
+    sql`ALTER TABLE github_projects_links ADD COLUMN IF NOT EXISTS default_permission_mode TEXT`,
+  );
+
+  // Multi-board migration (idempotent, PGlite-safe): a project connects to many
+  // boards, so drop the legacy single-board uniqueness — both forms it can take:
+  //   - the inline `UNIQUE(project_id)` from the old CREATE TABLE → a constraint
+  //     named `github_projects_links_project_id_key`,
+  //   - the older standalone `idx_gh_links_project_unique` index.
+  // Then create the (project_id, board_node_id) uniqueness. `IF EXISTS` /
+  // `IF NOT EXISTS` keep every statement a no-op on a DB already in either state.
+  await db.execute(
+    sql`ALTER TABLE github_projects_links DROP CONSTRAINT IF EXISTS github_projects_links_project_id_key`,
+  );
+  await db.execute(sql`DROP INDEX IF EXISTS idx_gh_links_project_unique`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_gh_links_project_board ON github_projects_links (project_id, board_node_id)`,
+  );
+
+  // `github_projects_proposals` — the queue + concurrency unit. `dedupe_key`
+  // (server-derived `${projectId}:${itemNodeId}:${statusOptionId}:${action}`)
+  // is stamped on every row for PROVENANCE only — its legacy once-ever UNIQUE
+  // index is replaced by the partial single-active-per-card index below, so a
+  // card can re-trigger after its previous run reaches a terminal status.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS github_projects_proposals (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      link_id TEXT NOT NULL REFERENCES github_projects_links(id) ON DELETE CASCADE,
+      item_node_id TEXT NOT NULL,
+      content_node_id TEXT,
+      status_option_id TEXT NOT NULL,
+      status_name TEXT NOT NULL DEFAULT '',
+      action TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      ticket_url TEXT,
+      dedupe_key TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+      agent_run_id TEXT,
+      proposed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      decided_at TIMESTAMP WITH TIME ZONE,
+      decided_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      finished_at TIMESTAMP WITH TIME ZONE,
+      error TEXT,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  // Re-trigger migration (idempotent): the legacy UNIQUE(dedupe_key) index
+  // made a (card, column, action) trigger once-EVER — a card whose run
+  // finished could never re-trigger on column re-entry. Replace it with a
+  // PARTIAL unique index scoped to ACTIVE statuses: a card
+  // (link_id, item_node_id) holds at most ONE in-flight proposal across ALL
+  // columns (covers cross-column moves mid-run), while terminal rows
+  // (done/failed/dismissed/cancelled) free the card so re-entry re-triggers.
+  // `dedupe_key` stays as a plain provenance column. insertProposalIfNew's
+  // ON CONFLICT arbiter must match this predicate EXACTLY
+  // (src/db/queries/github-projects.ts).
+  await db.execute(sql`DROP INDEX IF EXISTS idx_gh_proposals_dedupe`);
+  // Boot-safe guard for legacy rows: under the old per-column dedupe key a
+  // card could legitimately hold TWO active proposals (one per column), which
+  // would make the CREATE UNIQUE INDEX below fail and abort boot. Keep the
+  // newest active proposal per card and cancel the rest — idempotent (matches
+  // zero rows once the partial index exists and enforces ≤1).
+  await db.execute(sql`
+    UPDATE github_projects_proposals SET status = 'cancelled', finished_at = NOW()
+    WHERE status IN ('pending','approved','spawned','running')
+      AND id NOT IN (
+        SELECT DISTINCT ON (link_id, item_node_id) id
+        FROM github_projects_proposals
+        WHERE status IN ('pending','approved','spawned','running')
+        ORDER BY link_id, item_node_id, proposed_at DESC, id DESC
+      )
+  `);
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_gh_proposals_active_item
+      ON github_projects_proposals(link_id, item_node_id)
+      WHERE status IN ('pending','approved','spawned','running')
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_project_status ON github_projects_proposals(project_id, status)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_link ON github_projects_proposals(link_id)`);
+
+  // One-shot, idempotent backfill: move any pre-existing github-projects PATs
+  // out of the broadly-readable `settings` table into the scope-isolated,
+  // AEAD-bound extension_secrets store. Runs LAST (every FK target exists by
+  // now) and takes the migrate `db` handle directly — getDb() is not
+  // guaranteed wired during the migrate pass, so the backfill must use the
+  // passed executor for all its SQL. A second run finds no matching keys and
+  // is a no-op.
+  await backfillGithubProjectsApiTokens(db);
 }

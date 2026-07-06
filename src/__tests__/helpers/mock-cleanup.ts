@@ -77,6 +77,7 @@ const MODULE_PATHS = [
   "../../extensions/sdk/verify",
   "../../extensions/entities/migrate",
   "../../extensions/audit-actions",
+  "../../extensions/secrets-store",
   "../../extensions/storage-handler",
   "../../extensions/security",
   "../../extensions/subprocess",
@@ -146,6 +147,12 @@ const MODULE_PATHS = [
   // Snapshot so restoreModuleMocks() re-registers the real class in afterAll
   // and the stub never leaks into file-organizer-daemon.test.ts.
   "../../extensions/file-organizer-daemon",
+  // github-projects: background-timers.test.ts stubs the GithubProjectsDaemon
+  // class (start()/stop()) during the bootstrap-wiring suite so the real
+  // poller (setInterval) never runs there. Snapshot so restoreModuleMocks()
+  // re-registers the real class+factory in afterAll and the stub never leaks
+  // into integrations/github-projects/__tests__/daemon.test.ts.
+  "../../integrations/github-projects/daemon",
   // background-timers.test.ts also stubs the page cache (invalidate seam) so
   // the daemon-tick wiring assertions don't touch the real in-memory cache.
   // Snapshot so the stub never leaks into extension-events / hub suites.

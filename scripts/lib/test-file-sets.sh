@@ -42,6 +42,8 @@ passfail_files() {
     # extension-secrets store + web entry-route tests.
     find src/extensions/__tests__ -name "secrets-*.test.ts"
     find web/src/routes/api/extensions/__tests__ -name "*.test.ts"
+    # extension-RBAC grants API route tests.
+    find web/src/routes/api/rbac/__tests__ -name "*.test.ts"
   } 2>/dev/null | sort -u
 }
 
@@ -61,15 +63,26 @@ coverage_host_files() {
     find src/extensions/__tests__ -name "github-projects-handler*.test.ts" ! -name "*integration*"
     # reverse-RPC entry point lives on ToolExecutor, isolated shard.
     find src/extensions/__tests__ -name "tool-executor.github-projects-rpc.test.ts"
+    # ezcorp/rbac-check reverse-RPC entry point (ctx.rbac.check host side) —
+    # same isolated-shard rationale as the github-projects shard above.
+    find src/extensions/__tests__ -name "tool-executor.rbac-rpc.test.ts"
     find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
     find src/extensions/__tests__ -name "secrets-*.test.ts" ! -name "*integration*"
     find web/src/routes/api/extensions/__tests__ -name "*.test.ts"
+    # extension-RBAC grants API route tests (coverage for the two rbac
+    # +server.ts files pinned at 100 in coverage-thresholds.json).
+    find web/src/routes/api/rbac/__tests__ -name "*.test.ts"
     # Scoped web search-helper + route-contract bun:test files. SCOPED on
     # purpose — widening to the whole web/src/__tests__ dir transitively imports
     # dozens of unrelated modules whose zero-hit DA records inflate the
     # denominator on files already pinned at 100%.
+    # permission-mode-indicator: the github-projects route tests import
+    # $lib/permission-mode (constants only), landing it in the merged lcov at
+    # 25% — this suite exercises the functions so the union clears web/src/lib/**.
     printf '%s\n' \
       web/src/__tests__/snippet-sanitize.test.ts \
+      web/src/lib/__tests__/rbac-grants-view.test.ts \
+      web/src/__tests__/permission-mode-indicator.test.ts \
       web/src/__tests__/search-mode.test.ts \
       web/src/__tests__/shared-ui-components.test.ts \
       web/src/lib/search/__tests__/palette-results.test.ts \

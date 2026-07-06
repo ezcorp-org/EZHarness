@@ -29,6 +29,11 @@ export const RUNTIME_EVENT_NAMES = [
   "goal:update",
   // Daily Briefing: server-initiated conversation delivery (user-scoped).
   "conversation:created",
+  // github-projects integration: a proposal was created/decided/finished —
+  // a content-free Hub-refresh nudge (mirrors `ext:page-state`). Scoped to
+  // the proposal's project; the poller daemon + approve/dismiss API routes
+  // emit it so the Hub re-fetches.
+  "github-projects:proposal-update",
 ] as const;
 
 export type RuntimeEventName = (typeof RUNTIME_EVENT_NAMES)[number];

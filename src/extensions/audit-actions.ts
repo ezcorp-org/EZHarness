@@ -513,6 +513,30 @@ export const EXT_AUDIT_ACTIONS = {
    * trail covers crashed-mid-migration straggler cleanup as well.
    */
   ENTITY_NAMESPACE_MIGRATION: "ext:entity-namespace-migrated",
+  // ── Extension secrets (scope-isolated, AEAD-bound credential store) ──
+  /** A secret was written or rotated via the host-side secrets store
+   *  (`setSecret`). Metadata: `{projectId, name}` — never the value. */
+  SECRET_SET: "ext:secret-set",
+  /** A stored secret's plaintext was read by the host (`getSecret`). Emitted
+   *  at most once per ~60s per secret (debounced alongside the lastUsedAt
+   *  touch) so high-frequency reads don't flood the audit log. Metadata:
+   *  `{projectId, name}`. */
+  SECRET_USED: "ext:secret-used",
+  /** A stored secret was deleted via the host-side store (`deleteSecret`).
+   *  Metadata: `{projectId, name}`. */
+  SECRET_DELETED: "ext:secret-deleted",
+  // ── Extension RBAC grants (per-project / per-extension user scopes) ──
+  /** An `extension_rbac_grants` row was created or its scope list replaced
+   *  (`upsertGrant` — the grants API wave writes this row alongside every
+   *  mutation). Metadata: `{actor: <grantorUserId>, targetUserId,
+   *  projectId, extensionId, scopes}` — scope NAMES only, never secret
+   *  material. NULL projectId/extensionId mean the grant covers all
+   *  projects / all extensions (src/auth/extension-rbac.ts). */
+  RBAC_GRANTED: "ext:rbac-granted",
+  /** An `extension_rbac_grants` row was revoked (`deleteGrant`). Metadata
+   *  mirrors RBAC_GRANTED's shape, with `scopes` carrying the PRE-delete
+   *  scope list for the forensic trail. */
+  RBAC_REVOKED: "ext:rbac-revoked",
 } as const;
 
 // Re-export the three Phase 1 PDP action codes as named constants for

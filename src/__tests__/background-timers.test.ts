@@ -81,6 +81,29 @@ let lastFileOrgDaemonInstance: object | undefined;
 // the happy path constructs; re-pointable per-test (null = not installed).
 let fileOrgExtMock = mock((_name: string) => Promise.resolve<{ id: string; enabled: boolean } | null>({ id: "ext-fo", enabled: true }));
 
+// GithubProjectsDaemon stub instrumentation. Same capture-mock pattern as the
+// daemons above: the bootstrap reads `new GithubProjectsDaemon()` then
+// `.start()`. The REAL daemon's start() arms its own setInterval (breaking the
+// intervalCalls length assertions); its per-class coverage lives in
+// src/integrations/github-projects/__tests__/daemon.test.ts. NB this daemon's
+// start() is SYNCHRONOUS (returns a boolean, not a Promise) — unlike the other
+// daemons — so the stub returns a raw boolean. Per-test swaps to
+// `githubDaemonStartMock` cover the failure-isolation paths (false-return; throw).
+let githubDaemonCtorMock = mock(() => {});
+let githubDaemonStartMock = mock<() => boolean>(() => true);
+let githubDaemonStopMock = mock(() => {});
+let lastGithubDaemonInstance: object | undefined;
+// Boot reconciliation sweep (module-level export of the daemon module). The
+// bootstrap awaits it BEFORE githubProjectsDaemon.start(); the delegating
+// handle lets tests assert the ordering and drive the rejection path
+// (a sweep failure must never prevent the daemon start).
+let githubReconcileMock = mock(() => Promise.resolve<number>(0));
+// The stub module's lazy singleton (mirrors the real module's
+// getGithubProjectsDaemon). Module-level (NOT factory-closure) state so it
+// survives Bun's mock.module materialization freeze the same way the other
+// delegating handles do — reset per test in beforeEach.
+let githubDaemonStubSingleton: object | null = null;
+
 // PreviewPortWatcher stub instrumentation (Phase 2 — Secure Preview).
 // Same capture-mock pattern as the daemons above: the bootstrap reads
 // `new PreviewPortWatcher({...})` then `.start()`. The REAL watcher would
@@ -273,6 +296,50 @@ function installModuleMocks(): void {
   mock.module("../db/queries/extensions", () => ({
     getExtensionByName: (name: string) => fileOrgExtMock(name),
   }));
+  // github-projects: stub the GithubProjectsDaemon for the same reason — its
+  // per-class coverage lives in
+  // src/integrations/github-projects/__tests__/daemon.test.ts, and the real
+  // daemon would arm a 5th setInterval (breaking the intervalCalls length
+  // assertions). The stub's start() returns true and registers NO interval.
+  // Export the FULL module surface (not just the class) so this stub can't
+  // freeze `../integrations/github-projects/daemon` to a partial shape and break
+  // daemon.test.ts in a shared `bun test src/` run (Bun mock.module
+  // materialization freeze). CI runs each spec isolated, so this is local-only
+  // hygiene — but it keeps the whole-suite run green.
+  //
+  // The bootstrap consumes the MODULE SINGLETON (getGithubProjectsDaemon), not
+  // a private `new` — the reverse-RPC poll-now path shares the same accessor,
+  // so the stub mirrors the real module's lazy-singleton semantics: the first
+  // accessor call constructs (routing through the ctor spy), later calls
+  // return the SAME instance. The singleton lives in the module-level
+  // `githubDaemonStubSingleton` handle (reset in beforeEach), not the factory
+  // closure, so per-test isolation holds regardless of factory re-runs.
+  mock.module("../integrations/github-projects/daemon", () => {
+    class GithubProjectsDaemonStub {
+      constructor() {
+        githubDaemonCtorMock();
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        lastGithubDaemonInstance = this;
+      }
+      start() { return githubDaemonStartMock(); }
+      stop() { githubDaemonStopMock(); }
+    }
+    return {
+      GithubProjectsDaemon: GithubProjectsDaemonStub,
+      getGithubProjectsDaemon: () => {
+        if (!githubDaemonStubSingleton) githubDaemonStubSingleton = new GithubProjectsDaemonStub();
+        return githubDaemonStubSingleton;
+      },
+      // Boot reconciliation sweep — delegates so tests can assert call order
+      // vs start() and drive the rejection path. Part of the SAME factory
+      // (extend, never re-mock: Bun freezes the module shape at first
+      // materialization).
+      reconcileOrphanedProposals: () => githubReconcileMock(),
+      _resetGithubProjectsDaemonForTests: () => {
+        githubDaemonStubSingleton = null;
+      },
+    };
+  });
   // The daemon settings resolver + page-cache + engine + project-root the
   // bootstrap dynamic-imports. Inert stubs keep them off the DB / fs.
   mock.module("../db/connection", () => ({
@@ -338,7 +405,10 @@ function installModuleMocks(): void {
   mock.module("../runtime/preview/preview-bus-registry", () => ({
     getRegisteredPreviewBus: () => null,
   }));
-  mock.module("../logger", () => ({ logger: loggerSpy }));
+  // Superset of the real module shape (logger + extensionLogger) so a shared
+  // run can't freeze `../logger` to a partial shape and break a sibling that
+  // imports `extensionLogger`.
+  mock.module("../logger", () => ({ logger: loggerSpy, extensionLogger: () => loggerSpy }));
 }
 
 beforeEach(async () => {
@@ -376,6 +446,12 @@ beforeEach(async () => {
   fileOrgDaemonStopMock = mock(() => {});
   lastFileOrgDaemonInstance = undefined;
   fileOrgExtMock = mock((_name: string) => Promise.resolve<{ id: string; enabled: boolean } | null>({ id: "ext-fo", enabled: true }));
+  githubDaemonCtorMock = mock(() => {});
+  githubDaemonStartMock = mock<() => boolean>(() => true);
+  githubDaemonStopMock = mock(() => {});
+  githubReconcileMock = mock(() => Promise.resolve<number>(0));
+  lastGithubDaemonInstance = undefined;
+  githubDaemonStubSingleton = null;
   previewWatcherCtorMock = mock((_opts?: unknown) => {});
   previewWatcherStartMock = mock(() => Promise.resolve<boolean>(true));
   previewWatcherStopMock = mock(() => {});
@@ -888,6 +964,151 @@ describe("startBackgroundTimers — FileOrganizerDaemon bootstrap", () => {
     mod._resetForTests();
     expect(fileOrgDaemonStopMock).toHaveBeenCalledTimes(2);
     expect(mod._getFileOrganizerDaemonForTests()).toBeUndefined();
+  });
+});
+
+// github-projects — bootstrap wiring for GithubProjectsDaemon. Mirrors the
+// EmbedWorker block: assert the daemon is constructed + started + exposed, plus
+// the two fail-safe branches (start() returns false → handle dropped; start()
+// throws → handle dropped + warn logged). NB this daemon's start() is
+// SYNCHRONOUS (boolean, not a Promise). The load-bearing assertion from the
+// prior daemon-wiring incident: the daemon's stub registers NO setInterval, so
+// intervalCalls stays at 4.
+describe("startBackgroundTimers — GithubProjectsDaemon bootstrap", () => {
+  test("happy-path bootstrap: GithubProjectsDaemon is instantiated, started, and exposed", async () => {
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(githubDaemonCtorMock).toHaveBeenCalledTimes(1);
+    expect(githubDaemonStartMock).toHaveBeenCalledTimes(1);
+    const exposed = mod._getGithubProjectsDaemonForTests();
+    expect(exposed).toBeDefined();
+    expect(exposed).toBe(lastGithubDaemonInstance as never);
+    expect(loggerInfoMock).toHaveBeenCalledWith("GithubProjectsDaemon started", undefined);
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("bootstrap uses the MODULE SINGLETON — the poll-now RPC path's accessor returns the SAME instance", async () => {
+    // The non-reentrancy guard + per-link rate-limit back-off live on the
+    // instance, so the boot poller and the reverse-RPC poll-now path MUST
+    // share one daemon. Assert the bootstrap stored exactly the instance
+    // `getGithubProjectsDaemon()` (the poll-now path's accessor) returns —
+    // a private `new GithubProjectsDaemon(...)` here would fail this.
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    const daemonMod = await import("../integrations/github-projects/daemon");
+    expect(mod._getGithubProjectsDaemonForTests()).toBe(daemonMod.getGithubProjectsDaemon() as never);
+    // The lazy singleton constructed exactly once for both paths.
+    expect(githubDaemonCtorMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("boot reconciliation sweep runs exactly once, BEFORE the daemon start", async () => {
+    // Orphaned-proposal reconciliation must precede the poll loop arming so a
+    // freed card's re-trigger is observed against post-sweep state. Capture
+    // the relative order via shared markers on the two delegating handles.
+    const order: string[] = [];
+    githubReconcileMock = mock(() => {
+      order.push("reconcile");
+      return Promise.resolve<number>(0);
+    });
+    githubDaemonStartMock = mock<() => boolean>(() => {
+      order.push("start");
+      return true;
+    });
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(githubReconcileMock).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(["reconcile", "start"]);
+    // The sweep registers NO setInterval — count unchanged at 4.
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("sweep rejection does NOT prevent the daemon start (warn logged, boot continues)", async () => {
+    const sweepErr = new Error("simulated reconcile failure");
+    githubReconcileMock = mock(() => Promise.reject(sweepErr));
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    // MUST resolve — the inline .catch swallows the sweep rejection.
+    await mod.startBackgroundTimers();
+
+    // The daemon still started and its handle is exposed.
+    expect(githubDaemonStartMock).toHaveBeenCalledTimes(1);
+    expect(mod._getGithubProjectsDaemonForTests()).toBeDefined();
+    expect(mod._getGithubProjectsDaemonForTests()).toBe(lastGithubDaemonInstance as never);
+    expect(loggerInfoMock).toHaveBeenCalledWith("GithubProjectsDaemon started", undefined);
+    // The sweep failure is surfaced as a warn (not the daemon-start warn).
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      "github-projects boot reconciliation failed",
+      { error: String(sweepErr) },
+    );
+    expect(loggerWarnMock).not.toHaveBeenCalledWith(
+      "Failed to start GithubProjectsDaemon",
+      expect.any(Object) as never,
+    );
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("start() returning false (kill-switch): handle is dropped, boot continues", async () => {
+    githubDaemonStartMock = mock<() => boolean>(() => false);
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(githubDaemonCtorMock).toHaveBeenCalledTimes(1);
+    expect(githubDaemonStartMock).toHaveBeenCalledTimes(1);
+    expect(mod._getGithubProjectsDaemonForTests()).toBeUndefined();
+    expect(loggerInfoMock).not.toHaveBeenCalledWith("GithubProjectsDaemon started", undefined);
+    expect(loggerWarnMock).not.toHaveBeenCalledWith(
+      "Failed to start GithubProjectsDaemon",
+      expect.any(Object) as never,
+    );
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("start() throwing: handle is dropped, log.warn carries the error, no exception bubbles", async () => {
+    const bootErr = new Error("simulated github-projects boot failure");
+    githubDaemonStartMock = mock<() => boolean>(() => { throw bootErr; });
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(githubDaemonCtorMock).toHaveBeenCalledTimes(1);
+    expect(githubDaemonStartMock).toHaveBeenCalledTimes(1);
+    expect(mod._getGithubProjectsDaemonForTests()).toBeUndefined();
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      "Failed to start GithubProjectsDaemon",
+      { error: String(bootErr) },
+    );
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("stopBackgroundTimers() and _resetForTests() tear down the daemon", async () => {
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+    expect(mod._getGithubProjectsDaemonForTests()).toBeDefined();
+
+    await mod.stopBackgroundTimers();
+    expect(githubDaemonStopMock).toHaveBeenCalledTimes(1);
+    expect(mod._getGithubProjectsDaemonForTests()).toBeUndefined();
+
+    await mod.startBackgroundTimers();
+    expect(mod._getGithubProjectsDaemonForTests()).toBeDefined();
+    mod._resetForTests();
+    expect(githubDaemonStopMock).toHaveBeenCalledTimes(2);
+    expect(mod._getGithubProjectsDaemonForTests()).toBeUndefined();
   });
 });
 
