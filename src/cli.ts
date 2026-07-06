@@ -13,9 +13,12 @@ import { getProjectByName } from "./db/queries/projects";
 import { loadDbPipelines } from "./db/queries/pipelines";
 import { getUserByEmail, getUserById, listUsers } from "./db/queries/users";
 import {
+  API_KEY_ROLES,
   API_KEY_SCOPES,
+  isApiKeyRole,
   isApiKeyScope,
   scopesOverCeiling,
+  type ApiKeyRole,
   type ApiKeyScope,
 } from "./auth/api-key";
 import { mintApiKeyForUser } from "./auth/mint-api-key";
@@ -177,6 +180,7 @@ export interface ParsedArgs {
   scopes?: string;       // for key:mint --scopes (comma-separated)
   userRef?: string;      // for key:mint --user (email or id)
   keyName?: string;      // for key:mint --name
+  role?: string;         // for key:mint --role (member|admin)
 }
 
 /**
@@ -285,6 +289,7 @@ export function parseArgs(args: string[]): ParsedArgs {
         scopes: flag("--scopes"),
         userRef: flag("--user"),
         keyName: flag("--name"),
+        role: flag("--role"),
       };
     }
     return { command: "help" };
@@ -323,7 +328,7 @@ Usage:
   ezcorp ext test [dir] [--filter <name>]               Run extension tests in sandbox
   ezcorp ext publish [--token <token>]                  Publish extension to marketplace
   ezcorp serve [--port 3001]                           Start API server
-  ezcorp key mint [--scopes read,chat] [--user <email|id>] [--name <label>]  Mint a remote-control API key
+  ezcorp key mint [--scopes read,chat] [--role member|admin] [--user <email|id>] [--name <label>]  Mint a remote-control API key
   ezcorp help                                          Show this help
 `.trim());
 }
@@ -395,6 +400,27 @@ export function parseKeyScopes(raw: string | undefined): ApiKeyScope[] {
   }
   // De-dupe while preserving order.
   return [...new Set(parts as ApiKeyScope[])];
+}
+
+/**
+ * Parse + validate a `--role member|admin` flag. Defaults to `member` (the
+ * unchanged posture) when omitted. Exits(1) on any unknown role.
+ *
+ * The CLI mint path is operator-trusted (whoever runs it already has shell
+ * access to the host), so — unlike the HTTP route — it does NOT run the
+ * `canMintRole` anti-escalation gate: an operator may mint an admin-role key
+ * directly.
+ */
+export function parseKeyRole(raw: string | undefined): ApiKeyRole {
+  if (!raw) return "member";
+  const trimmed = raw.trim();
+  if (!isApiKeyRole(trimmed)) {
+    console.error(
+      `Error: invalid role "${raw}". Valid roles: ${API_KEY_ROLES.join(", ")}`,
+    );
+    process.exit(1);
+  }
+  return trimmed;
 }
 
 /**
@@ -831,6 +857,7 @@ export async function cli(args: string[]): Promise<void> {
     case "key:mint": {
       await initDbOrExit();
       const scopes = parseKeyScopes(parsed.scopes);
+      const role = parseKeyRole(parsed.role);
       const user = await resolveKeyMintUser(parsed.userRef);
       // Scope ceiling: a key must never carry authority its OWNER lacks.
       // Only an admin-bound key may carry the `admin` scope. Shared with the
@@ -844,9 +871,13 @@ export async function cli(args: string[]): Promise<void> {
         process.exit(1);
       }
       const name = parsed.keyName ?? "cli-minted";
-      const { raw, keyId } = await mintApiKeyForUser(user.id, scopes, name);
+      // The CLI path is operator-trusted (shell access): --role admin is
+      // honored without an actor-role check. The HTTP mint route enforces
+      // anti-escalation via canMintRole() instead.
+      const { raw, keyId } = await mintApiKeyForUser(user.id, scopes, name, role);
       console.log(`\nMinted API key for ${user.email} (${user.id})`);
       console.log(`  scopes: ${scopes.join(", ")}`);
+      console.log(`  role:   ${role}`);
       console.log(`  keyId:  ${keyId}`);
       console.log(`  name:   ${name}`);
       console.log(`\n  ${raw}\n`);

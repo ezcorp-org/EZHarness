@@ -111,6 +111,31 @@ describe("cli key:mint dispatch", () => {
     expect(settings.find(([k]) => k.startsWith("apikey:u-admin:"))).toBeDefined();
   });
 
+  // Role-carrying keys: the CLI is operator-trusted, so --role admin is
+  // honored without an actor-role check (unlike the HTTP mint route).
+  test("mints a member-role key by default (prints role: member)", async () => {
+    await cli(["key", "mint", "--user", "admin@x.test"]);
+    expect(logs.join("\n")).toContain("role:   member");
+    const row = settings.find(([k]) => k.startsWith("apikey:u-admin:"));
+    expect((row?.[1] as { role?: string }).role).toBe("member");
+  });
+
+  test("--role admin persists an admin-role key and prints it", async () => {
+    await cli(["key", "mint", "--user", "admin@x.test", "--role", "admin"]);
+    expect(logs.join("\n")).toContain("role:   admin");
+    const row = settings.find(([k]) => k.startsWith("apikey:u-admin:"));
+    expect((row?.[1] as { role?: string }).role).toBe("admin");
+  });
+
+  test("an invalid --role exits(1) and mints nothing", async () => {
+    const code = await captureExit(() =>
+      cli(["key", "mint", "--user", "admin@x.test", "--role", "superuser"]),
+    );
+    expect(code).toBe(1);
+    expect(errs.join("\n")).toContain('invalid role "superuser"');
+    expect(settings.find(([k]) => k.startsWith("apikey:"))).toBeUndefined();
+  });
+
   // The datadir-in-use guard: minting against a LIVE server's PGlite dir
   // must exit 1 with the remediation message, not a stack trace — and must
   // not mint anything.

@@ -210,6 +210,66 @@ describe("POST /api/settings/developer/api-keys", () => {
     );
     expect(res.status).toBe(201);
   });
+
+  // ── Role axis + anti-escalation ─────────────────────────────────────
+  test("defaults a minted key to role member (201)", async () => {
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: adminUser,
+        body: { name: "default-role", scopes: ["read"] },
+      }),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { role?: string };
+    expect(body.role).toBe("member");
+  });
+
+  test("an admin ACTOR may mint an admin-role key (201, role echoed)", async () => {
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: adminUser,
+        body: { name: "admin-role", scopes: ["read"], role: "admin" },
+      }),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { role?: string };
+    expect(body.role).toBe("admin");
+  });
+
+  // The core anti-escalation case: a MEMBER-role key that holds the admin
+  // SCOPE (enough to reach this route) must NOT be able to mint itself an
+  // admin-ROLE key. Scope is fine, role is refused.
+  test("rejects an admin-role mint by a member-role key with admin scope (403, nothing minted)", async () => {
+    vi.mocked(upsertSetting).mockClear();
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        // member ROLE principal, but carries the admin SCOPE.
+        locals: { ...authedUser, apiKeyScopes: ["admin"] },
+        body: { name: "escalate", scopes: ["read"], role: "admin" },
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("requires admin role");
+    // Refused BEFORE the mint — no settings written.
+    expect(upsertSetting).not.toHaveBeenCalled();
+  });
+
+  test("the same member-role key MAY still mint a member-role key (201, unchanged posture)", async () => {
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: { ...authedUser, apiKeyScopes: ["admin"] },
+        body: { name: "member-ok", scopes: ["read"], role: "member" },
+      }),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { role?: string };
+    expect(body.role).toBe("member");
+  });
 });
 
 describe("DELETE /api/settings/developer/api-keys", () => {

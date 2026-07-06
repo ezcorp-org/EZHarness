@@ -63,6 +63,23 @@ describe("API key CRUD: schema validation", () => {
     expect(result.success).toBe(false);
   });
 
+  test("createApiKeySchema defaults role to member when omitted", () => {
+    const result = createApiKeySchema.safeParse({ name: "My Key", scopes: ["read"] });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.role).toBe("member");
+  });
+
+  test("createApiKeySchema accepts role admin", () => {
+    const result = createApiKeySchema.safeParse({ name: "My Key", scopes: ["read"], role: "admin" });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.role).toBe("admin");
+  });
+
+  test("createApiKeySchema rejects an unknown role", () => {
+    const result = createApiKeySchema.safeParse({ name: "My Key", scopes: ["read"], role: "superuser" });
+    expect(result.success).toBe(false);
+  });
+
   test("deleteApiKeySchema accepts valid UUID", () => {
     const result = deleteApiKeySchema.safeParse({ keyId: "550e8400-e29b-41d4-a716-446655440000" });
     expect(result.success).toBe(true);

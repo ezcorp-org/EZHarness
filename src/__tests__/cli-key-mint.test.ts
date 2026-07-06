@@ -24,7 +24,7 @@ function installUserMocks(): void {
 }
 installUserMocks();
 
-const { parseArgs, parseKeyScopes, resolveKeyMintUser } = await import("../cli");
+const { parseArgs, parseKeyScopes, parseKeyRole, resolveKeyMintUser } = await import("../cli");
 const { scopesOverCeiling, canMintRole, isApiKeyRole } = await import("../auth/api-key");
 
 beforeEach(() => {
@@ -68,11 +68,12 @@ describe("parseArgs: key mint", () => {
   });
 
   test("all flags parsed", () => {
-    const p = parseArgs(["key", "mint", "--scopes", "read,admin", "--user", "a@b.com", "--name", "ci"]);
+    const p = parseArgs(["key", "mint", "--scopes", "read,admin", "--user", "a@b.com", "--name", "ci", "--role", "admin"]);
     expect(p.command).toBe("key:mint");
     expect(p.scopes).toBe("read,admin");
     expect(p.userRef).toBe("a@b.com");
     expect(p.keyName).toBe("ci");
+    expect(p.role).toBe("admin");
   });
 
   test("unknown key subcommand → help", () => {
@@ -98,6 +99,22 @@ describe("parseKeyScopes", () => {
 
   test("invalid scope exits(1)", async () => {
     expect(await captureExit(() => parseKeyScopes("read,frobnicate"))).toBe(1);
+  });
+});
+
+describe("parseKeyRole", () => {
+  test("undefined / empty → default member", () => {
+    expect(parseKeyRole(undefined)).toBe("member");
+    expect(parseKeyRole("")).toBe("member");
+  });
+
+  test("valid roles pass through (trimmed)", () => {
+    expect(parseKeyRole("member")).toBe("member");
+    expect(parseKeyRole(" admin ")).toBe("admin");
+  });
+
+  test("invalid role exits(1)", async () => {
+    expect(await captureExit(() => parseKeyRole("superuser"))).toBe(1);
   });
 });
 
