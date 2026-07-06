@@ -150,16 +150,34 @@ export async function attachBearerAuth(
   try {
     const keyData = await verifyApiKey(raw);
     if (!keyData) return false;
+
+    // Owner re-validation. A key's role/ownership is snapshotted at MINT time,
+    // so a since-demoted or since-banned owner would otherwise keep a live
+    // admin key. Re-load the owner once per request (same pattern the session
+    // path uses) and:
+    //   1. reject the key outright if the owner is gone or not `active` — an
+    //      admin who disables/deletes a user MUST kill that user's keys too;
+    //   2. CLAMP the effective role DOWN to the owner's CURRENT role — the key
+    //      is admin only while its owner is currently admin, so a demoted
+    //      admin's key silently degrades to `member`.
+    // Scopes are NOT clamped here (unchanged pre-existing semantics; the scope
+    // ceiling is enforced at mint time).
+    const owner = await getUserById(keyData.userId);
+    if (!owner || owner.status !== "active") return false;
+    const effectiveRole =
+      keyData.role === "admin" && owner.role === "admin" ? "admin" : "member";
+
     event.locals.user = {
       id: keyData.userId,
       email: "",
       name: keyData.name,
-      // Role-carrying keys: the principal's role is the key's STORED role
-      // (default `member`; `admin` only when explicitly minted). This is what
-      // makes requireRole(admin) routes reachable by an admin-role key. NB:
-      // internal `ezkint_` keys are handled in the branch above and stay
-      // `member` — they are subprocess identities, never admin principals.
-      role: keyData.role,
+      // Role-carrying keys: the principal's role is the key's stored role
+      // CLAMPED to the owner's current role (default `member`; `admin` only
+      // for an explicitly minted admin key whose owner is still admin). This
+      // is what makes requireRole(admin) routes reachable by an admin-role
+      // key. NB: internal `ezkint_` keys are handled in the branch above and
+      // stay `member` — they are subprocess identities, never admin principals.
+      role: effectiveRole,
     };
     event.locals.apiKeyScopes = keyData.scopes;
     return true;

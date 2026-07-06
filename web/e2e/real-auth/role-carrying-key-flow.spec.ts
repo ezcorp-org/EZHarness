@@ -79,13 +79,16 @@ test.describe("role-carrying API keys — requireRole route access", () => {
     const memberGet = await call(memberKeyBody.key, `/api/settings/${PROBE_KEY}`);
     expect(memberGet.status).toBe(403);
 
-    // Anti-escalation: member key can't mint an admin-role key…
+    // Anti-escalation: member key can't mint an admin-role key — 403 with the
+    // specific role-escalation message (not just any 403).
     const escalate = await call(memberKeyBody.key, "/api/settings/developer/api-keys", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "escalate", scopes: ["read"], role: "admin" }),
     });
-    expect(escalate.status).toBe(403);
+    const escalateText = await escalate.text();
+    expect(escalate.status, escalateText).toBe(403);
+    expect(escalateText).toContain("requires admin role");
 
     // …but CAN still mint a member-role key (unchanged posture).
     const memberMint = await call(memberKeyBody.key, "/api/settings/developer/api-keys", {

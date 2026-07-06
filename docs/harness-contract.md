@@ -41,11 +41,25 @@ editing), MCP servers, users/teams, and audit** — need an `admin`-**role**
 key, not just the admin scope. Bearer principals default to `role: "member"`,
 so a scope-only key is refused (a clean 403) on those routes.
 
-**Anti-escalation:** minting an `admin`-role key requires the ACTOR to
-already hold admin role (an admin cookie session or an admin-role key). A
-member-role key that merely holds the `admin` SCOPE is refused when it
-requests `role=admin` — it can still mint member-role keys. The CLI mint path
-is operator-trusted (shell access) and issues any role without that check.
+**Anti-escalation:** minting an `admin`-role key requires the actor/owner to
+already hold admin role. Over HTTP the actor mints for itself, so an
+admin-role mint needs an admin cookie session or an admin-role key — a
+member-role key holding only the `admin` SCOPE is refused `role=admin` (it can
+still mint member-role keys). The CLI (`--role admin --user <email>`) applies
+the same ceiling to the target OWNER: an admin-role key can only be minted for
+a currently-admin user.
+
+**Live re-validation (keys die with their owner).** Role is snapshotted at
+mint, but it is re-checked on **every** request: the owner is re-loaded and
+- if the owner is missing or not `active` (disabled/deleted), the key is
+  **rejected outright (401)** — revoking a user revokes their keys;
+- the effective role is **clamped down to the owner's current role**, so a
+  since-demoted admin's key silently degrades to `member`.
+
+Scopes are not re-clamped (their ceiling is enforced at mint). There is no
+"admin revokes another user's keys" endpoint yet — disable/demote the owner
+to kill their keys. The `apikey:`/`apikeyhash:` settings rows are deny-listed
+from the generic `/api/settings/:key` API so a key row can't be forged there.
 
 Cold-start without a UI session:
 
