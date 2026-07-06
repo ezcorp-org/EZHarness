@@ -15,6 +15,7 @@ import { getUserByEmail, getUserById, listUsers } from "./db/queries/users";
 import {
   API_KEY_ROLES,
   API_KEY_SCOPES,
+  canMintRole,
   isApiKeyRole,
   isApiKeyScope,
   scopesOverCeiling,
@@ -328,7 +329,7 @@ Usage:
   ezcorp ext test [dir] [--filter <name>]               Run extension tests in sandbox
   ezcorp ext publish [--token <token>]                  Publish extension to marketplace
   ezcorp serve [--port 3001]                           Start API server
-  ezcorp key mint [--scopes read,chat] [--role member|admin] [--user <email|id>] [--name <label>]  Mint a remote-control API key
+  ezcorp key mint [--scopes read,chat] [--user <email|id>] [--name <label>]  Mint a remote-control API key
   ezcorp help                                          Show this help
 `.trim());
 }
@@ -870,10 +871,18 @@ export async function cli(args: string[]): Promise<void> {
         );
         process.exit(1);
       }
+      // Role ceiling: mirror the scope ceiling on the ROLE axis. An admin-role
+      // key for a non-admin owner would be clamped to `member` at verify time
+      // anyway (see bearer-auth's owner re-validation), so refuse it up front
+      // rather than mint a misleading key. Shared predicate with the HTTP route.
+      if (!canMintRole(user.role, role)) {
+        console.error(
+          `Error: cannot mint a "${role}"-role key for ${user.email} (role: ${user.role}). ` +
+          `Only an admin user may own an admin-role key.`,
+        );
+        process.exit(1);
+      }
       const name = parsed.keyName ?? "cli-minted";
-      // The CLI path is operator-trusted (shell access): --role admin is
-      // honored without an actor-role check. The HTTP mint route enforces
-      // anti-escalation via canMintRole() instead.
       const { raw, keyId } = await mintApiKeyForUser(user.id, scopes, name, role);
       console.log(`\nMinted API key for ${user.email} (${user.id})`);
       console.log(`  scopes: ${scopes.join(", ")}`);
