@@ -54,6 +54,8 @@ export async function buildSystemPromptWithMemories(
     isolateToProject,
     limit: 20,
     userId,
+    // System-prompt injection reads only auto-inject-eligible memories.
+    injectionEligibleOnly: true,
   });
 
   const tokenBudget = opts?.tokenBudget ?? DEFAULT_TOKEN_BUDGET;

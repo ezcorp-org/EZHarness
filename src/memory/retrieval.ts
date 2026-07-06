@@ -30,6 +30,13 @@ interface HybridSearchOptions {
    * When `undefined` (non-user reuse of hybridSearch), the scope is skipped.
    */
   userId?: string | null;
+  /**
+   * Restrict to auto-inject-eligible memories (`injection_eligible = true`).
+   * Opt-in (default off) so only the system-prompt injection path filters on
+   * it — search/palette/other callers keep seeing injection-ineligible rows.
+   * Set true by `buildSystemPromptWithMemories`.
+   */
+  injectionEligibleOnly?: boolean;
 }
 
 export async function hybridSearch(
@@ -45,8 +52,12 @@ export async function hybridSearch(
   const vectorLiteral = toVectorLiteral(embedding);
 
   // Build WHERE clause: always exclude archived, filter by project scope
-  // projectId is parameterized as $2 to prevent SQL injection
-  const baseFilter = "status != 'archived'";
+  // projectId is parameterized as $2 to prevent SQL injection.
+  // The injection path additionally excludes injection-ineligible memories
+  // (opt-in — search/palette callers still see them).
+  const baseFilter = opts.injectionEligibleOnly === true
+    ? "status != 'archived' AND injection_eligible = true"
+    : "status != 'archived'";
   let isolationFilter: string;
   if (isolate && projectId) {
     // Strict isolation: only memories assigned to this project (no global)

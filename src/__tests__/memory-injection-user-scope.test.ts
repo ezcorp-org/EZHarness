@@ -48,6 +48,8 @@ let memAExtracted: { id: string };
 let memB: { id: string };
 // Fully-orphaned: user_id NULL AND conversation_id NULL — owned by no one.
 let memOrphan: { id: string };
+// Owned by user A but flagged injection-ineligible (injection_eligible=false).
+let memAIneligible: { id: string };
 
 function makeProvenance(): MemoryProvenance {
   return {
@@ -121,6 +123,20 @@ beforeAll(async () => {
     embedding,
     provenance: makeProvenance(),
   });
+
+  // Owned by user A but injection-ineligible — the injection path must skip it,
+  // while owner-scoped CRUD/search still returns it.
+  memAIneligible = await insertMemory({
+    content: "Ineligible secret belonging to user A",
+    category: "biographical",
+    projectId,
+    conversationId: convAId,
+    userId: USER_A,
+    injectionEligible: false,
+    confidence: "high",
+    embedding,
+    provenance: makeProvenance(),
+  });
 });
 
 afterAll(async () => {
@@ -188,5 +204,26 @@ describe("memory injection — per-user PII scope (cross-user leak regression)",
     // user B's injection. CRUD (owner-scoped) still returns them.
     expect(await getMemoryById(memAAttributed.id)).toBeDefined();
     expect(await getMemoryById(memAExtracted.id)).toBeDefined();
+  });
+});
+
+describe("memory injection — injection_eligible enforcement", () => {
+  test("an injection-ineligible memory owned by the acting user is NOT injected", async () => {
+    const result = await buildSystemPromptWithMemories("You are an assistant.", "secret", projectId, USER_A);
+    expect(result.systemPrompt).not.toContain("Ineligible secret");
+    expect(result.memoriesUsed.map((m) => m.id)).not.toContain(memAIneligible.id);
+    // The eligible ones for the same user still inject — proves it's the flag,
+    // not the user scope, doing the exclusion here.
+    expect(result.systemPrompt).toContain("Alpha attributed secret belonging to user A");
+  });
+
+  test("the ineligible memory still exists (CRUD) and is visible to non-injection search", async () => {
+    const row = await getMemoryById(memAIneligible.id);
+    expect(row).toBeDefined();
+    expect(row?.injectionEligible).toBe(false);
+    // hybridSearch WITHOUT injectionEligibleOnly (search/palette path) still
+    // returns it — the eligibility filter is opt-in to the injection path.
+    const results = await hybridSearch("secret", mockEmbedding(), { projectId, userId: USER_A });
+    expect(results.map((r) => r.id)).toContain(memAIneligible.id);
   });
 });
