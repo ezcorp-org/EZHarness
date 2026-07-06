@@ -120,16 +120,23 @@ jobs:
   # only tier that proves the integrated auth + harness-control + extension
   # seams (CRIT-2: previously wired to no workflow).
   #
-  # Validated GREEN locally (7 passed, 47.6s). Left as a plain reporting job
-  # (NOT continue-on-error, so its real pass/fail is honest) but intentionally
-  # NOT yet added to branch protection's required set: a MAINTAINER should
-  # promote it to a required check once it's proven stable across several CI
-  # runs (real server boot can be timing-sensitive on shared runners). If it
-  # proves CI-flaky, gate it behind continue-on-error or a nightly schedule.
+  # Validated GREEN locally (7 passed, 47.6s). NON-BLOCKING (continue-on-error)
+  # on purpose: the extension-spawn specs (extension-author-flow,
+  # extension-control-flow) exercise the real sandbox, which needs kernel
+  # capabilities GitHub's hosted runners don't grant — the subprocess dies with
+  # `prlimit: failed to execute bun: Permission denied` (exit 126), so those two
+  # specs can't pass here even though the code is correct (the auth + harness
+  # -client specs do pass). The job still RUNS and surfaces its result on every
+  # PR for visibility; it just doesn't block merge. A MAINTAINER should move it
+  # to a sandbox-capable (self-hosted / privileged) runner and promote it to a
+  # required check once the extension-spawn specs pass there. Until then the
+  # blocking coverage for these seams is the backend integration suites (real
+  # PGlite, gated via backend-critical) + the mocked e2e tier.
   e2e-real-auth:
     name: E2E (real auth + real DB)
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
