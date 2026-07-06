@@ -101,6 +101,12 @@ describe("scope enforcement coverage", () => {
         !content.includes("requireScope") &&
         !content.includes("requireRole") &&
         !content.includes("requireAuth") &&
+        // `authGithubRoute` (web/.../github-projects/_shared.ts) is the
+        // github-projects routes' gate: it calls `requireScope(locals,
+        // "extensions")` + resolves the session/key user before any handler
+        // logic. Accepting the wrapper keeps this textual scan accurate without
+        // forcing a redundant inline `requireScope` into every route.
+        !content.includes("authGithubRoute") &&
         !(isTestSurfaceRoute && content.includes("isTestSurfaceEnabled"))
       ) {
         missing.push(relative);

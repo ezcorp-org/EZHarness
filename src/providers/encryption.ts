@@ -110,10 +110,16 @@ function getAppSecret(): Buffer {
   return _cachedKey;
 }
 
-export function encrypt(plaintext: string): string {
+// Shared GCM core. `aad`, when non-null, is bound into the auth tag via
+// setAAD — it is NOT stored in the `v1:iv:tag:ct` wire format, so callers
+// MUST reconstruct the same AAD at decrypt time or `decipher.final()`
+// throws on the auth-tag mismatch. This is what gives the extension-secrets
+// store its scope-binding property (see src/extensions/secrets-store.ts).
+function doEncrypt(plaintext: string, aad: Buffer | null): string {
   const key = getAppSecret();
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv(ALGORITHM, key, iv);
+  if (aad) cipher.setAAD(aad);
 
   let encrypted = cipher.update(plaintext, "utf8", "hex");
   encrypted += cipher.final("hex");
@@ -123,7 +129,7 @@ export function encrypt(plaintext: string): string {
   return `${FORMAT_TAG_V1}:${iv.toString("hex")}:${authTag}:${encrypted}`;
 }
 
-export function decrypt(ciphertext: string): string {
+function doDecrypt(ciphertext: string, aad: Buffer | null): string {
   const parts = ciphertext.split(":");
 
   let ivHex: string;
@@ -156,12 +162,37 @@ export function decrypt(ciphertext: string): string {
   const authTag = Buffer.from(tagHex, "hex");
 
   const decipher = createDecipheriv(ALGORITHM, key, iv);
+  if (aad) decipher.setAAD(aad);
   decipher.setAuthTag(authTag);
 
   let decrypted = decipher.update(encryptedHex, "hex", "utf8");
   decrypted += decipher.final("utf8");
 
   return decrypted;
+}
+
+export function encrypt(plaintext: string): string {
+  return doEncrypt(plaintext, null);
+}
+
+export function decrypt(ciphertext: string): string {
+  return doDecrypt(ciphertext, null);
+}
+
+/**
+ * AES-256-GCM with the `aad` string bound into the auth tag. Wire format is
+ * the same `v1:iv:tag:ct` as {@link encrypt} — the AAD is NEVER persisted; it
+ * is reconstructed from the secret's scope at decrypt time. Decrypting with a
+ * different (or absent) AAD fails the GCM auth tag. Used by the
+ * extension-secrets store to bind a ciphertext to its `extensionId:projectId`
+ * scope so a row copied to another scope cannot be decrypted.
+ */
+export function encryptWithAad(plaintext: string, aad: string): string {
+  return doEncrypt(plaintext, Buffer.from(aad, "utf8"));
+}
+
+export function decryptWithAad(ciphertext: string, aad: string): string {
+  return doDecrypt(ciphertext, Buffer.from(aad, "utf8"));
 }
 
 /** Reset cached key and salt (for testing) */

@@ -95,6 +95,22 @@ describe("isNoiseLine — positive matches (noise)", () => {
     expect(isNoiseLine("    WHERE metadata ? 'goal'")).toBe(true);
     expect(isNoiseLine("    COALESCE(SUM(usage_cost), 0) AS total")).toBe(true);
   });
+
+  test("SQL DDL fragments inside tagged template", () => {
+    expect(isNoiseLine("    CREATE TABLE IF NOT EXISTS extension_secrets (")).toBe(true);
+    expect(isNoiseLine("    ALTER TABLE github_projects_links")).toBe(true);
+    expect(isNoiseLine("    DROP CONSTRAINT IF EXISTS github_projects_links_project_id_key")).toBe(true);
+    expect(isNoiseLine("    ADD COLUMN IF NOT EXISTS default_model TEXT")).toBe(true);
+  });
+
+  test("SQL column-definition lines (uppercase type keyword)", () => {
+    expect(isNoiseLine("      id TEXT PRIMARY KEY,")).toBe(true);
+    expect(isNoiseLine("      extension_id TEXT NOT NULL REFERENCES extensions(name) ON DELETE CASCADE,")).toBe(true);
+    expect(isNoiseLine("      poll_interval_sec INTEGER NOT NULL DEFAULT 60,")).toBe(true);
+    expect(isNoiseLine("      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),")).toBe(true);
+    expect(isNoiseLine("      enabled BOOLEAN NOT NULL DEFAULT TRUE,")).toBe(true);
+    expect(isNoiseLine("      status_options JSONB NOT NULL DEFAULT '[]',")).toBe(true);
+  });
 });
 
 describe("isNoiseLine — negative matches (real executable code)", () => {
@@ -124,6 +140,12 @@ describe("isNoiseLine — negative matches (real executable code)", () => {
   test("string-with-call (not a bare literal)", () => {
     expect(isNoiseLine('console.log("hello");')).toBe(false);
     expect(isNoiseLine('return "valid"; // trailing comment')).toBe(false);
+  });
+
+  test("lowercase two-identifier prose is NOT a column def (case-sensitive type)", () => {
+    expect(isNoiseLine("  const text = row.text;")).toBe(false);
+    expect(isNoiseLine("  await db.execute(sql`")).toBe(false);
+    expect(isNoiseLine("  createTable(schema);")).toBe(false);
   });
 
   test("type-field with value assignment is NOT noise", () => {

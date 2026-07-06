@@ -2,9 +2,11 @@
  * Extension detail — "Hub Pages" section (Extension Pages Hub).
  *
  * Declaring a page IS the grant, so the detail page is the user-facing
- * surface of what an extension adds to /hub: every declared page is
- * listed; the "Open in Hub →" deep-link renders ONLY while the
- * extension is enabled (a disabled extension's tab 404s).
+ * surface of what an extension adds to the Hub: every declared page is
+ * listed; while the extension is enabled the WHOLE card is a clickable
+ * deep-link into the PROJECT-scoped hub route (`/project/<id>/hub/...`,
+ * not the global "home" hub). A disabled extension's pages stay listed
+ * but the card is not a link (its tab would 404).
  */
 import { test, expect } from "./fixtures/test-base.js";
 import type { Page } from "@playwright/test";
@@ -64,7 +66,7 @@ async function mockDetailPage(
 }
 
 test.describe("Extension detail — Hub Pages section", () => {
-	test("enabled extension with manifest.pages: section lists pages with Open-in-Hub deep-links", async ({
+	test("enabled extension with manifest.pages: whole card deep-links into the project hub", async ({
 		page,
 		mockApi,
 	}) => {
@@ -78,19 +80,23 @@ test.describe("Extension detail — Hub Pages section", () => {
 		await expect(section).toContainText("Scheduled-run history.");
 		await expect(section).toContainText("Run Stats");
 
-		const links = section.getByRole("link", { name: "Open in Hub →" });
+		// The whole card is the link; href points at the PROJECT hub route
+		// (resolved to the only real project, proj-1), not the global /hub.
+		const links = section.getByTestId("extension-page-link");
 		await expect(links).toHaveCount(2);
+		await expect(links.first()).toContainText("Cron Dashboard");
+		await expect(links.first()).toContainText("Open in Hub →");
 		await expect(links.first()).toHaveAttribute(
 			"href",
-			`/hub/${encodeURIComponent("ext:cron-dashboard:dashboard")}`,
+			`/project/proj-1/hub/${encodeURIComponent("ext:cron-dashboard:dashboard")}`,
 		);
 		await expect(links.nth(1)).toHaveAttribute(
 			"href",
-			`/hub/${encodeURIComponent("ext:cron-dashboard:stats")}`,
+			`/project/proj-1/hub/${encodeURIComponent("ext:cron-dashboard:stats")}`,
 		);
 	});
 
-	test("disabled extension: pages stay listed but the Open-in-Hub link is gone", async ({
+	test("disabled extension: pages stay listed but the card is not a link", async ({
 		page,
 		mockApi,
 	}) => {
@@ -100,7 +106,7 @@ test.describe("Extension detail — Hub Pages section", () => {
 		const section = page.getByTestId("extension-pages-section");
 		await expect(section).toBeVisible({ timeout: 5000 });
 		await expect(section).toContainText("Cron Dashboard");
-		await expect(section.getByRole("link", { name: "Open in Hub →" })).toHaveCount(0);
+		await expect(section.getByTestId("extension-page-link")).toHaveCount(0);
 	});
 
 	test("extension without manifest.pages: no Hub Pages section at all", async ({

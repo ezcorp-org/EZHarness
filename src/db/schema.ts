@@ -3,6 +3,12 @@ import { sql } from "drizzle-orm";
 import type { PipelineStep } from "../types";
 import type { MemoryProvenance } from "../memory/types";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
+import type {
+  GithubColumnActionMap,
+  GithubProposalAction,
+  GithubProposalStatus,
+  GithubStatusOption,
+} from "../integrations/github-projects/types";
 
 export const projects = pgTable("projects", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -1238,3 +1244,183 @@ export const briefingConfigs = pgTable("briefing_configs", {
 
 export type BriefingConfig = typeof briefingConfigs.$inferSelect;
 export type NewBriefingConfig = typeof briefingConfigs.$inferInsert;
+
+// ── GitHub Projects integration ────────────────────────────────────────
+// An EZCorp project connects to MANY GitHub Projects v2 boards (one row per
+// board). A given board connects to a project only once
+// (UNIQUE(project_id, board_node_id)). The PAT (when authMode='pat') is NOT
+// stored here — it lives encrypted in the `extension_secrets` store at
+// `apiToken` (the SHARED project token) and, optionally, `apiToken:<linkId>`
+// (a per-board override). `enabled=false` = "pause polling" (board + token
+// retained; daemon skips disabled links). See
+// src/db/migrations/add-github-projects.ts and src/integrations/github-projects/.
+export const githubProjectsLinks = pgTable("github_projects_links", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  /** GitHub Projects v2 node id (`PVT_…`), resolved from the pasted board URL. */
+  boardNodeId: text("board_node_id").notNull(),
+  boardUrl: text("board_url").notNull(),
+  boardTitle: text("board_title").notNull().default(""),
+  ownerLogin: text("owner_login").notNull().default(""),
+  /** Node id of the single-select "Status" field whose options are the columns. */
+  statusFieldId: text("status_field_id"),
+  /** The board's Status-field options (id+name) captured at connect time. The
+   *  connect response carries these transiently; persisting them lets the
+   *  column-mapping editor render FULL, NAMED columns after a page reload
+   *  (instead of falling back to the saved map's bare option-id keys, which
+   *  shows ids and drops unmapped columns). Refreshed on every (re)connect. */
+  statusOptions: jsonb("status_options").notNull().$type<GithubStatusOption[]>().default([]),
+  /** Default model for spawned runs, stored as "<provider>:<model>". Null/empty
+   *  → keep the instance default (the executor's provider preference order). The
+   *  spawn bridge splits on the FIRST ':' and threads provider+model into
+   *  streamChat so an instance without anthropic creds can pick a working model. */
+  defaultModel: text("default_model"),
+  /** Default permission mode for spawned runs — a runtime PermissionMode string
+   *  ("ask" | "auto-edit" | "yolo"). Null/invalid → the spawn bridge falls back
+   *  to "yolo" (auto-approve everything), matching the platform-wide default. An
+   *  explicit per-column permissionMode override (still never yolo) takes
+   *  precedence when set; this board-level value covers every other card move. */
+  defaultPermissionMode: text("default_permission_mode"),
+  authMode: text("auth_mode").notNull().$type<"pat" | "gh">().default("pat"),
+  /** statusOptionId → action mapping. The daemon reads this every poll. */
+  columnActionMap: jsonb("column_action_map").notNull().$type<GithubColumnActionMap>().default({}),
+  /** Per-item updatedAt high-water marks so polls only diff what changed. */
+  pollCursor: jsonb("poll_cursor").$type<Record<string, string>>(),
+  pollIntervalSec: integer("poll_interval_sec").notNull().default(60),
+  /** false = paused (board kept, polling + spawns stopped). */
+  enabled: boolean("enabled").notNull().default(true),
+  lastPolledAt: timestamp("last_polled_at", { withTimezone: true, mode: "date" }),
+  lastError: text("last_error"),
+  lastErrorAt: timestamp("last_error_at", { withTimezone: true, mode: "date" }),
+  createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  // A project connects to MANY boards, each board only once per project.
+  uniqueIndex("idx_gh_links_project_board").on(table.projectId, table.boardNodeId),
+]);
+
+export type GithubProjectsLink = typeof githubProjectsLinks.$inferSelect;
+export type NewGithubProjectsLink = typeof githubProjectsLinks.$inferInsert;
+
+// The proposal queue + concurrency unit. `dedupeKey` (server-derived
+// projectId:itemNodeId:statusOptionId:action) is stamped for PROVENANCE only —
+// anti-double-spawn is the partial single-active-per-card unique index
+// `idx_gh_proposals_active_item` (see the mirror warning in the index list).
+export const githubProjectsProposals = pgTable("github_projects_proposals", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  linkId: text("link_id").notNull().references(() => githubProjectsLinks.id, { onDelete: "cascade" }),
+  itemNodeId: text("item_node_id").notNull(),
+  contentNodeId: text("content_node_id"),
+  statusOptionId: text("status_option_id").notNull(),
+  statusName: text("status_name").notNull().default(""),
+  action: text("action").notNull().$type<GithubProposalAction>(),
+  title: text("title").notNull().default(""),
+  ticketUrl: text("ticket_url"),
+  dedupeKey: text("dedupe_key").notNull(),
+  status: text("status").notNull().$type<GithubProposalStatus>().default("pending"),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  agentRunId: text("agent_run_id"),
+  proposedAt: timestamp("proposed_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  decidedAt: timestamp("decided_at", { withTimezone: true, mode: "date" }),
+  decidedByUserId: text("decided_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  finishedAt: timestamp("finished_at", { withTimezone: true, mode: "date" }),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  // WARNING — drizzle-side MIRROR only (the extension_secrets pattern). The
+  // REAL index is the PARTIAL unique in src/db/migrate.ts:
+  //   CREATE UNIQUE INDEX idx_gh_proposals_active_item
+  //     ON github_projects_proposals(link_id, item_node_id)
+  //     WHERE status IN ('pending','approved','spawned','running')
+  // ≤1 ACTIVE proposal per card; terminal rows (done/failed/dismissed/
+  // cancelled) free the card so column re-entry re-triggers. Never push this
+  // table's DDL from drizzle-kit; migrate.ts is the source of truth (a
+  // drifted push that lost the WHERE would block re-triggers forever).
+  uniqueIndex("idx_gh_proposals_active_item")
+    .on(table.linkId, table.itemNodeId)
+    .where(sql`${table.status} IN ('pending','approved','spawned','running')`),
+  index("idx_gh_proposals_project_status").on(table.projectId, table.status),
+  index("idx_gh_proposals_link").on(table.linkId),
+]);
+
+export type GithubProjectsProposal = typeof githubProjectsProposals.$inferSelect;
+export type NewGithubProjectsProposal = typeof githubProjectsProposals.$inferInsert;
+
+// ── Extension secrets ──────────────────────────────────────────────────
+// Dedicated, scope-isolated, AEAD-bound credential store for extensions
+// (third-party API tokens etc.). The ciphertext is AES-256-GCM with the
+// `extensionId:projectId` pair bound as AAD (see encryptWithAad in
+// src/providers/encryption.ts) — a row copied to another extension or
+// project fails to decrypt. (`user_id`/`name` are intentionally NOT part
+// of the AAD — see aadFor in src/extensions/secrets-store.ts — so a
+// same-scope rename or user→project slot move still decrypts; the unique
+// scope tuple + FK cascade isolate those.) Plaintext is reachable ONLY via
+// the host-side store
+// (src/extensions/secrets-store.ts `getSecret`); it is NEVER wired to the
+// extension sandbox. `extension_id` stores the stable manifest slug (e.g.
+// "github-projects"), NOT the UUID `extensions.id`. The scope tuple
+// (extension_id, project_id, user_id, name) is UNIQUE — the COALESCE-unique
+// form lives in the raw migration (src/db/migrations/add-extension-secrets.ts),
+// which is the source of truth for the FK + index.
+export const extensionSecrets = pgTable("extension_secrets", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  extensionId: text("extension_id").notNull().references(() => extensions.name, { onDelete: "cascade" }), // stores the stable slug, NOT the UUID id
+  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  ciphertext: text("ciphertext").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: "date" }),
+  rotatedAt: timestamp("rotated_at", { withTimezone: true, mode: "date" }),
+}, (table) => [
+  // WARNING — drizzle-side MIRROR only. The REAL index is the COALESCE form
+  // in src/db/migrate.ts (`… ON extension_secrets (extension_id,
+  // COALESCE(project_id,''), COALESCE(user_id,''), name)`): a plain UNIQUE
+  // over nullable columns treats every NULL as distinct, so a `drizzle-kit
+  // push` from this definition would install a WEAKER index that allows
+  // duplicate global / project-scoped secrets. Never push this table's DDL
+  // from drizzle-kit; migrate.ts is the source of truth.
+  uniqueIndex("idx_extension_secrets_scope").on(table.extensionId, table.projectId, table.userId, table.name),
+]);
+
+export type ExtensionSecret = typeof extensionSecrets.$inferSelect;
+export type NewExtensionSecret = typeof extensionSecrets.$inferInsert;
+
+// ── Extension RBAC grants ──────────────────────────────────────────────
+// Per-user scope grants over the extension system: what the USER may do
+// WITH an extension (invoke it, configure it, write its secrets, approve
+// its runs, manage other users' grants). Complementary to the PDP in
+// src/extensions/permission-engine.ts, which governs what the EXTENSION
+// may do — do not conflate. NULL `project_id` = the grant covers ALL
+// projects; NULL `extension_id` = ALL extensions. `scopes` is a JSONB
+// array of validated scope names (core verbs + extension-declared custom
+// scopes — see src/db/queries/extension-rbac.ts). `extension_id` stores
+// the stable manifest SLUG (FK to extensions.name), NOT the UUID
+// `extensions.id` — the extension_secrets precedent. Admins hold every
+// scope implicitly and need no rows here; non-admin members are
+// deny-by-default (see src/auth/extension-rbac.ts).
+export const extensionRbacGrants = pgTable("extension_rbac_grants", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  extensionId: text("extension_id").references(() => extensions.name, { onDelete: "cascade" }), // stores the stable slug, NOT the UUID id
+  scopes: jsonb("scopes").notNull().$type<string[]>(),
+  grantedByUserId: text("granted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  // WARNING — drizzle-side MIRROR only. The REAL index is the COALESCE form
+  // in src/db/migrate.ts (`… ON extension_rbac_grants (user_id,
+  // COALESCE(project_id,''), COALESCE(extension_id,''))`): a plain UNIQUE
+  // over nullable columns treats every NULL as distinct, so a `drizzle-kit
+  // push` from this definition would install a WEAKER index that allows
+  // duplicate all-projects / all-extensions grant rows for the same user.
+  // Never push this table's DDL from drizzle-kit; migrate.ts is the source
+  // of truth.
+  uniqueIndex("idx_extension_rbac_grants_scope").on(table.userId, table.projectId, table.extensionId),
+]);
+
+export type ExtensionRbacGrant = typeof extensionRbacGrants.$inferSelect;
+export type NewExtensionRbacGrant = typeof extensionRbacGrants.$inferInsert;

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-06-24T16:06:02.385Z",
+  "generatedAt": "2026-07-04T02:21:05.279Z",
   "extensions": {
     "ai-kit": {
       "version": "0.1.0",
@@ -41,6 +41,11 @@
       "version": "1.0.0",
       "entrypoint": "./index.ts",
       "toolsHash": "sha256-ZrbtnX6daOf+dmvPn1BpDsozxuS1sftGmUg4qEvxdNE="
+    },
+    "github-projects": {
+      "version": "0.1.0",
+      "entrypoint": "./index.ts",
+      "toolsHash": "sha256-ho5nuHykIVbb9ZKQvmp7zcBBPVZvFm08Bve09qaQvyo="
     },
     "github-stats": {
       "version": "1.0.0",

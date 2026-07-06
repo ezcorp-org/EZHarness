@@ -332,6 +332,16 @@ export interface AgentEvents {
     conversationId: string;
     projectId: string;
   };
+  /**
+   * github-projects integration: a board-move proposal was created,
+   * decided (approve/dismiss), or reached a terminal state. A content-free
+   * Hub-refresh nudge (mirrors `ext:page-state`) — carries only the owning
+   * `projectId` so the Hub re-fetches the project's proposal list. Emitted
+   * by the poller daemon and the approve/dismiss API routes.
+   */
+  "github-projects:proposal-update": {
+    projectId: string;
+  };
   "obs:turn": { conversationId: string; messageId?: string; llmDurationMs: number; toolDurationMs: number; totalDurationMs: number; tokenUsage: { input: number; output: number } };
   "run:turn_saved": { runId: string; conversationId: string; messageId: string; parentMessageId: string | null; content: string; thinkingContent?: string; final: boolean };
   "run:turn_text_reset": { runId: string };

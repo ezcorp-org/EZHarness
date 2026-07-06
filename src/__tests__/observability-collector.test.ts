@@ -24,22 +24,28 @@ mock.module("../db/queries/observability", () => ({
   },
 }));
 
-// Also stub logger to avoid DB side-effects from error persistence
-mock.module("../logger", () => ({
-  logger: {
+// Also stub logger to avoid DB side-effects from error persistence. Mirrors the
+// real module shape (logger + extensionLogger) so a shared run can't freeze
+// `../logger` to a partial shape and break a sibling importing extensionLogger.
+mock.module("../logger", () => {
+  const child = {
     error: () => {},
     warn: () => {},
     info: () => {},
     debug: () => {},
-    child: () => ({
+    child: () => ({}),
+  };
+  return {
+    logger: {
       error: () => {},
       warn: () => {},
       info: () => {},
       debug: () => {},
-      child: () => ({}),
-    }),
-  },
-}));
+      child: () => child,
+    },
+    extensionLogger: () => child,
+  };
+});
 
 import { ObservabilityCollector, startCollector } from "../observability/collector";
 import { EventBus } from "../runtime/events";
