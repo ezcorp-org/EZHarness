@@ -18,6 +18,7 @@ COPY package.json bun.lock ./
 # gets bind-mounted/COPY'd later.
 COPY packages/@ezcorp/sdk/package.json packages/@ezcorp/sdk/
 COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
+COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
 # `--ignore-scripts`: the @ezcorp/sdk package's `prepare` script (and the
 # root `postinstall`) compile the SDK to dist/ via tsc, but only the
 # package.json files have been COPY'd at this stage (the SDK source +
