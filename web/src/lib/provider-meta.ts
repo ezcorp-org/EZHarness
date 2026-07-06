@@ -10,6 +10,7 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
 	anthropic: { name: "Anthropic (Claude)", shortName: "Anthropic", label: "A", placeholder: "sk-ant-...", oauthLabel: "" },
 	openai: { name: "OpenAI", shortName: "OpenAI", label: "O", placeholder: "sk-...", oauthLabel: "Connect OpenAI Subscription" },
 	google: { name: "Google (Gemini)", shortName: "Google", label: "G", placeholder: "AIza...", oauthLabel: "Connect Google Gemini" },
+	openrouter: { name: "OpenRouter", shortName: "OpenRouter", label: "OR", placeholder: "sk-or-v1-...", oauthLabel: "" },
 	ollama: { name: "Ollama (Local)", shortName: "Ollama", label: "L", placeholder: "", oauthLabel: "" },
 };
 

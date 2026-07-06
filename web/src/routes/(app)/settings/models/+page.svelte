@@ -10,7 +10,7 @@
 
 	let pageLoading = $state(true);
 	let defaultTier = $state<string>("balanced");
-	let preferenceOrder = $state<string[]>(["anthropic", "openai", "google"]);
+	let preferenceOrder = $state<string[]>(["anthropic", "openai", "google", "openrouter"]);
 	let customModels = $state<CustomModelEntry[]>([]);
 	let ollamaUrl = $state("http://localhost:11434");
 
@@ -19,7 +19,7 @@
 			try {
 				const settings = await fetchSettings();
 				defaultTier = (settings["provider:defaultTier"] as string) ?? "balanced";
-				preferenceOrder = (settings["provider:preferenceOrder"] as string[]) ?? ["anthropic", "openai", "google"];
+				preferenceOrder = (settings["provider:preferenceOrder"] as string[]) ?? ["anthropic", "openai", "google", "openrouter"];
 				customModels = (settings["provider:customModels"] as CustomModelEntry[]) ?? [];
 				ollamaUrl = (settings["provider:ollamaUrl"] as string) ?? "http://localhost:11434";
 			} catch { /* silent */ }

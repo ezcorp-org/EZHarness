@@ -32,6 +32,7 @@
 		anthropic: { url: "https://console.anthropic.com/keys", text: "Get your Anthropic API key" },
 		openai: { url: "https://platform.openai.com/api-keys", text: "Get your OpenAI API key" },
 		google: { url: "https://aistudio.google.com/apikey", text: "Get your Google API key" },
+		openrouter: { url: "https://openrouter.ai/keys", text: "Get your OpenRouter API key" },
 	};
 
 	function autofocus(node: HTMLElement) { node.focus(); }
