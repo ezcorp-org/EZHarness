@@ -15,7 +15,14 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export const GET: RequestHandler = async ({ url, locals }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
-  requireAuth(locals); // gate: must be authenticated, but memories are org-wide
+  const user = requireAuth(locals);
+  // Memory content is per-user PII. Mirror the single-row rule in
+  // `[id]/+server.ts` (sec-H3 fail-closed): a non-admin sees ONLY memories
+  // they own — never another user's rows, never unowned (null userId) rows.
+  // Admins keep the full org-wide management view. The `userId` filter in
+  // `searchMemories` uses `eq(memories.userId, …)`, so passing `user.id`
+  // also excludes unowned rows, exactly like the `[id]` route.
+  const isAdmin = user.role === "admin";
   const projectId = url.searchParams.get("projectId") ?? undefined;
   const scope = url.searchParams.get("scope") as "project" | "global" | "all" | undefined;
   const search = url.searchParams.get("search") ?? undefined;
@@ -32,6 +39,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     category,
     limit: limit ? parseInt(limit, 10) : undefined,
     offset: offset ? parseInt(offset, 10) : undefined,
+    ...(isAdmin ? {} : { userId: user.id }),
   });
 
   // Batch-fetch project IDs for all returned memories
