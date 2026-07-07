@@ -46,9 +46,32 @@ const mockRequireScope = mock((_locals: unknown, scope: string) => {
 	});
 });
 
+// checkRole (added when role-gated routes moved to a non-throwing gate): the
+// route handlers import it and RETURN its Response on denial. Mirror the real
+// impl — delegate to requireRole (which throws a Response on 401/403; catch and
+// return it), then enforce the admin-scope axis for API-key principals only
+// (undefined scopes = cookie session ⇒ allow-all). Returns the auth user on
+// success.
+const mockCheckRole = mock((locals: unknown, role: string) => {
+	try {
+		const user = mockRequireRole(locals, role);
+		if (apiKeyScopes && !apiKeyScopes.includes("admin")) {
+			return new Response(JSON.stringify({ error: "Insufficient scope", required: "admin" }), {
+				status: 403,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+		return user;
+	} catch (e) {
+		if (e instanceof Response) return e;
+		throw e;
+	}
+});
+
 mock.module("$server/auth/middleware", () => ({
 	requireAuth: mockRequireAuth,
 	requireRole: mockRequireRole,
+	checkRole: mockCheckRole,
 }));
 
 mock.module("$lib/server/security/api-keys", () => ({
