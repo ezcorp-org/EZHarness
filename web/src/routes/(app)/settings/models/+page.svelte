@@ -6,11 +6,11 @@
 	import PreferenceOrderSection from "$lib/components/settings/PreferenceOrderSection.svelte";
 	import CustomModelsSection from "$lib/components/settings/CustomModelsSection.svelte";
 	import { scrollToLocationHash } from "$lib/scroll-to-hash.js";
-	import type { CustomModelEntry } from "$lib/settings-models.js";
+	import { DEFAULT_PREFERENCE_ORDER, mergePreferenceOrder, type CustomModelEntry } from "$lib/settings-models.js";
 
 	let pageLoading = $state(true);
 	let defaultTier = $state<string>("balanced");
-	let preferenceOrder = $state<string[]>(["anthropic", "openai", "google"]);
+	let preferenceOrder = $state<string[]>([...DEFAULT_PREFERENCE_ORDER]);
 	let customModels = $state<CustomModelEntry[]>([]);
 	let ollamaUrl = $state("http://localhost:11434");
 
@@ -19,7 +19,11 @@
 			try {
 				const settings = await fetchSettings();
 				defaultTier = (settings["provider:defaultTier"] as string) ?? "balanced";
-				preferenceOrder = (settings["provider:preferenceOrder"] as string[]) ?? ["anthropic", "openai", "google"];
+				const storedOrder = settings["provider:preferenceOrder"] as string[] | undefined;
+				preferenceOrder =
+					storedOrder && storedOrder.length > 0
+						? mergePreferenceOrder(storedOrder)
+						: [...DEFAULT_PREFERENCE_ORDER];
 				customModels = (settings["provider:customModels"] as CustomModelEntry[]) ?? [];
 				ollamaUrl = (settings["provider:ollamaUrl"] as string) ?? "http://localhost:11434";
 			} catch { /* silent */ }

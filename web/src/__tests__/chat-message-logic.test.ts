@@ -22,6 +22,7 @@ describe("canonicalProvider", () => {
 		expect(canonicalProvider("anthropic")).toBe("anthropic");
 		expect(canonicalProvider("openai")).toBe("openai");
 		expect(canonicalProvider("google")).toBe("google");
+		expect(canonicalProvider("openrouter")).toBe("openrouter");
 		expect(canonicalProvider("ollama")).toBe("ollama");
 	});
 
@@ -35,6 +36,7 @@ describe("PROVIDER_META", () => {
 		expect(PROVIDER_META["anthropic"]).toBeDefined();
 		expect(PROVIDER_META["openai"]).toBeDefined();
 		expect(PROVIDER_META["google"]).toBeDefined();
+		expect(PROVIDER_META["openrouter"]).toBeDefined();
 		expect(PROVIDER_META["ollama"]).toBeDefined();
 	});
 
@@ -44,6 +46,16 @@ describe("PROVIDER_META", () => {
 
 	test("google display name includes Gemini", () => {
 		expect(PROVIDER_META["google"]!.name).toContain("Gemini");
+	});
+
+	test("openrouter entry carries the BYOK metadata (no OAuth)", () => {
+		const or = PROVIDER_META["openrouter"]!;
+		expect(or.name).toBe("OpenRouter");
+		expect(or.shortName).toBe("OpenRouter");
+		expect(or.label).toBe("OR");
+		expect(or.placeholder).toBe("sk-or-v1-...");
+		// BYOK-only — OpenRouter has no subscription OAuth flow.
+		expect(or.oauthLabel).toBe("");
 	});
 
 	test("returns undefined for unknown provider", () => {

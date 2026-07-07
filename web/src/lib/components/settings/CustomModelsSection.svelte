@@ -13,7 +13,7 @@
 	const hiddenOllamaCount = $derived(customModels.length - registryModels.length);
 
 	const TIERS = ["fast", "balanced", "powerful"] as const;
-	const PROVIDERS = ["anthropic", "openai", "google", "ollama"] as const;
+	const PROVIDERS = ["anthropic", "openai", "google", "openrouter", "ollama"] as const;
 
 	let savingCustom = $state(false);
 	let newModelId = $state("");

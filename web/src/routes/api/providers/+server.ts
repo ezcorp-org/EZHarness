@@ -8,7 +8,7 @@ import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 
-const PROVIDERS = ["anthropic", "openai", "google"] as const;
+const PROVIDERS = ["anthropic", "openai", "google", "openrouter"] as const;
 type Provider = (typeof PROVIDERS)[number];
 
 // Boundary validation. POST upserts an encrypted API key; DELETE removes
@@ -28,6 +28,7 @@ const ENV_KEYS: Record<Provider, string> = {
 	anthropic: "ANTHROPIC_API_KEY",
 	openai: "OPENAI_API_KEY",
 	google: "GOOGLE_API_KEY",
+	openrouter: "OPENROUTER_API_KEY",
 };
 
 // OAuth is supported for openai and google only (anthropic is BYOK-only)
@@ -97,12 +98,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const admin = requireRole(locals, "admin");
 	const parsed = postBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
-		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google");
+		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");
 	}
 	const { provider, apiKey } = parsed.data;
 
 	if (!provider || !isValidProvider(provider)) {
-		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google");
+		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");
 	}
 	if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length === 0) {
 		return errorJson(400, "API key is required");
@@ -125,12 +126,12 @@ export const DELETE: RequestHandler = async ({ request, locals }) => {
 	const admin = requireRole(locals, "admin");
 	const parsed = deleteBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
-		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google");
+		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");
 	}
 	const { provider } = parsed.data;
 
 	if (!provider || !isValidProvider(provider)) {
-		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google");
+		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");
 	}
 
 	await deleteSetting(settingKey(provider));

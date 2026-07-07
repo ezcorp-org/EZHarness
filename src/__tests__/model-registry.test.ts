@@ -71,3 +71,15 @@ test("findModelForProviderInTier returns null for missing combo", () => {
   const result = findModelForProviderInTier("anthropic" as any, "nonexistent" as any);
   expect(result).toBeNull();
 });
+
+test("findModelForProviderInTier prefers openrouter/auto over the alphabetical scan", () => {
+  // pi-ai lists openrouter's ~259 models alphabetically, so the plain scan
+  // would pick e.g. `ai21/jamba-large-1.7` (balanced). The preferred-model
+  // override returns openrouter's own auto-router for every tier instead.
+  for (const tier of ["fast", "balanced", "powerful"] as const) {
+    const result = findModelForProviderInTier("openrouter", tier);
+    expect(result).not.toBeNull();
+    expect(result!.provider).toBe("openrouter");
+    expect(result!.id).toBe("openrouter/auto");
+  }
+});

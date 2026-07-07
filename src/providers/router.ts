@@ -32,7 +32,7 @@ export class ProviderUnavailableError extends Error {
 
 type TierName = "fast" | "balanced" | "powerful";
 
-const DEFAULT_PREFERENCE_ORDER = ["anthropic", "openai", "google"];
+const DEFAULT_PREFERENCE_ORDER = ["anthropic", "openai", "google", "openrouter"];
 const DEFAULT_TIER: TierName = "balanced";
 
 async function getDefaultTier(): Promise<TierName> {
@@ -43,10 +43,27 @@ async function getDefaultTier(): Promise<TierName> {
   return DEFAULT_TIER;
 }
 
+/**
+ * Merge a stored preference order with the known defaults: preserve the
+ * stored order, then append any DEFAULT_PREFERENCE_ORDER providers missing
+ * from it. This self-heals orders saved before a provider (e.g. openrouter)
+ * was added — without it, resolveModel()'s tier routing and suggestFallback()
+ * would never consider a newly-known provider on any deployment where an admin
+ * had previously reordered providers. Mirrored (separate build) in
+ * web/src/lib/settings-models.ts so the settings UI shows the same appended
+ * providers.
+ */
+export function mergePreferenceOrder(
+  stored: string[],
+  defaults: readonly string[] = DEFAULT_PREFERENCE_ORDER,
+): string[] {
+  return [...stored, ...defaults.filter((p) => !stored.includes(p))];
+}
+
 async function getPreferenceOrder(): Promise<string[]> {
   const order = await getSetting("provider:preferenceOrder");
   if (Array.isArray(order) && order.length > 0) {
-    return order as string[];
+    return mergePreferenceOrder(order as string[]);
   }
   return DEFAULT_PREFERENCE_ORDER;
 }

@@ -10,7 +10,7 @@ import { logger } from "$server/logger";
 
 const log = logger.child("api.refresh-models");
 
-const VALID_PROVIDERS = new Set(["anthropic", "openai", "google"]);
+const VALID_PROVIDERS = new Set(["anthropic", "openai", "google", "openrouter"]);
 
 export const POST: RequestHandler = async ({ params, locals }) => {
 	// Refreshing models USES instance provider credentials and overwrites the
@@ -23,7 +23,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 
 	const { provider } = params;
 	if (!provider || !VALID_PROVIDERS.has(provider)) {
-		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google");
+		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");
 	}
 
 	try {

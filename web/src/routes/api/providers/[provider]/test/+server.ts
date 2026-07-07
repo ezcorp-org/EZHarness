@@ -7,7 +7,7 @@ import { complete } from "@earendil-works/pi-ai";
 import { requireAdmin } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 
-const VALID_PROVIDERS = new Set(["anthropic", "openai", "google"]);
+const VALID_PROVIDERS = new Set(["anthropic", "openai", "google", "openrouter"]);
 
 export const POST: RequestHandler = async ({ params, locals }) => {
 	// Live provider-credential test hits instance secrets — admin-only, on
@@ -20,7 +20,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 
 	const { provider } = params;
 	if (!provider || !VALID_PROVIDERS.has(provider)) {
-		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google");
+		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");
 	}
 
 	try {

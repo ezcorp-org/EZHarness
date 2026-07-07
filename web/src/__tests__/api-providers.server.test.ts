@@ -59,6 +59,7 @@ describe("GET /api/providers", () => {
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.OPENAI_API_KEY;
     delete process.env.GOOGLE_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
   });
 
   test("rejects 401 when locals.user is missing", async () => {
@@ -97,9 +98,9 @@ describe("GET /api/providers", () => {
       oauthConnected: boolean;
       oauthSupported: boolean;
     }>;
-    expect(body).toHaveLength(3);
+    expect(body).toHaveLength(4);
     const providers = body.map((b) => b.provider).sort();
-    expect(providers).toEqual(["anthropic", "google", "openai"]);
+    expect(providers).toEqual(["anthropic", "google", "openai", "openrouter"]);
     for (const entry of body) {
       expect(entry.hasKey).toBe(false);
       expect(entry.source).toBe("none");
@@ -110,6 +111,10 @@ describe("GET /api/providers", () => {
     );
     expect(body.find((b) => b.provider === "openai")?.oauthSupported).toBe(true);
     expect(body.find((b) => b.provider === "google")?.oauthSupported).toBe(true);
+    // openrouter is BYOK-only — never OAuth.
+    expect(body.find((b) => b.provider === "openrouter")?.oauthSupported).toBe(
+      false,
+    );
   });
 
   test("reports source='env' when env var is set and no BYOK stored", async () => {

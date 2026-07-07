@@ -57,6 +57,7 @@ beforeEach(() => {
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.OPENAI_API_KEY;
   delete process.env.GOOGLE_API_KEY;
+  delete process.env.OPENROUTER_API_KEY;
 });
 
 // ── Tests ────────────────────────────────────────────────────────
@@ -125,6 +126,36 @@ describe("GET /api/providers - expired OAuth token", () => {
     expect(openai.oauthExpired).toBe(true);
     expect(openai.oauthConnected).toBe(true);
     expect(openai.expiresAt).toBe(new Date(expiredTs).toISOString());
+  });
+});
+
+describe("GET /api/providers - openrouter provider", () => {
+  test("openrouter present with oauthSupported:false and oauthConnected:false (BYOK-only)", async () => {
+    const event = createMockEvent({ url: "http://localhost/api/providers", user: ADMIN_USER });
+    const res = await GET(event as any);
+    const data = await jsonFromResponse(res);
+
+    const openrouter = data.find((p: any) => p.provider === "openrouter");
+    expect(openrouter).toBeDefined();
+    expect(openrouter.oauthSupported).toBe(false);
+    expect(openrouter.oauthConnected).toBe(false);
+    expect(openrouter.source).toBe("none");
+    expect(openrouter.hasKey).toBe(false);
+    expect(openrouter.expiresAt).toBeNull();
+  });
+
+  test("openrouter BYOK key sets source 'byok' and hasKey true", async () => {
+    settingsStore["provider:apiKey:openrouter"] = "enc:sk-or-test";
+
+    const event = createMockEvent({ url: "http://localhost/api/providers", user: ADMIN_USER });
+    const res = await GET(event as any);
+    const data = await jsonFromResponse(res);
+
+    const openrouter = data.find((p: any) => p.provider === "openrouter");
+    expect(openrouter).toBeDefined();
+    expect(openrouter.source).toBe("byok");
+    expect(openrouter.hasKey).toBe(true);
+    expect(openrouter.oauthSupported).toBe(false);
   });
 });
 
@@ -199,8 +230,8 @@ describe("GET /api/providers - mixed states in single response", () => {
     const res = await GET(event as any);
     const data = await jsonFromResponse(res);
 
-    // Verify all three providers are present
-    expect(data).toHaveLength(3);
+    // Verify all providers are present (anthropic, openai, google, openrouter)
+    expect(data).toHaveLength(4);
 
     const anthropic = data.find((p: any) => p.provider === "anthropic");
     expect(anthropic.source).toBe("byok");

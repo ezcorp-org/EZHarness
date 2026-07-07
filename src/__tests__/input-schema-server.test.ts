@@ -73,7 +73,7 @@ describe("GET /api/agents inputSchema", () => {
     // provider field
     expect(schema.provider.type).toBe("select");
     expect(schema.provider.label).toBe("Provider");
-    expect(schema.provider.options).toEqual(["anthropic", "google", "openai"]);
+    expect(schema.provider.options).toEqual(["anthropic", "google", "openai", "openrouter"]);
     expect(schema.provider.default).toBe("anthropic");
 
     // model field

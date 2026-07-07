@@ -176,6 +176,21 @@ describe("POST /api/providers - save API key", () => {
     expect(settingsStore["provider:apiKey:google"]).toBe("enc:AIza-google-key");
   });
 
+  test("valid openrouter provider saves encrypted key", async () => {
+    const event = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/providers",
+      body: { provider: "openrouter", apiKey: "sk-or-v1-abc" },
+      user: ADMIN_USER,
+    });
+    const res = await POST(event as any);
+    const data = await jsonFromResponse(res);
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(settingsStore["provider:apiKey:openrouter"]).toBe("enc:sk-or-v1-abc");
+  });
+
   test("invalid provider returns 400", async () => {
     const event = createMockEvent({
       method: "POST",
@@ -188,6 +203,22 @@ describe("POST /api/providers - save API key", () => {
 
     expect(res.status).toBe(400);
     expect(data.error).toContain("Invalid provider");
+  });
+
+  test("malformed body (unknown field) returns 400 listing openrouter", async () => {
+    // Hits the Zod `.strict()` parse-failure branch (not the isValidProvider
+    // branch): the message must include the openrouter provider we added.
+    const event = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/providers",
+      body: { provider: "anthropic", apiKey: "sk-test", unexpected: true },
+      user: ADMIN_USER,
+    });
+    const res = await POST(event as any);
+    const data = await jsonFromResponse(res);
+
+    expect(res.status).toBe(400);
+    expect(data.error).toContain("openrouter");
   });
 
   test("empty apiKey returns 400", async () => {
@@ -283,6 +314,23 @@ describe("DELETE /api/providers - delete API key", () => {
     expect(settingsStore["provider:apiKey:anthropic"]).toBeUndefined();
   });
 
+  test("valid openrouter provider deletes key and returns success", async () => {
+    settingsStore["provider:apiKey:openrouter"] = "enc:sk-or-old";
+
+    const event = createMockEvent({
+      method: "DELETE",
+      url: "http://localhost/api/providers",
+      body: { provider: "openrouter" },
+      user: ADMIN_USER,
+    });
+    const res = await DELETE(event as any);
+    const data = await jsonFromResponse(res);
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(settingsStore["provider:apiKey:openrouter"]).toBeUndefined();
+  });
+
   test("invalid provider returns 400", async () => {
     const event = createMockEvent({
       method: "DELETE",
@@ -325,8 +373,24 @@ describe("DELETE /api/providers - delete API key", () => {
     expect(data.error).toContain("Invalid provider");
   });
 
+  test("malformed body (unknown field) returns 400 listing openrouter", async () => {
+    // Hits the Zod `.strict()` parse-failure branch for DELETE: the message
+    // must include the openrouter provider we added.
+    const event = createMockEvent({
+      method: "DELETE",
+      url: "http://localhost/api/providers",
+      body: { provider: "anthropic", unexpected: true },
+      user: ADMIN_USER,
+    });
+    const res = await DELETE(event as any);
+    const data = await jsonFromResponse(res);
+
+    expect(res.status).toBe(400);
+    expect(data.error).toContain("openrouter");
+  });
+
   test("delete for each valid provider works", async () => {
-    for (const provider of ["anthropic", "openai", "google"]) {
+    for (const provider of ["anthropic", "openai", "google", "openrouter"]) {
       settingsStore[`provider:apiKey:${provider}`] = `enc:key-${provider}`;
 
       const event = createMockEvent({

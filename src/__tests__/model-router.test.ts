@@ -28,9 +28,47 @@ afterAll(() => restoreModuleMocks());
 import {
   resolveModel,
   suggestFallback,
+  mergePreferenceOrder,
   ProviderUnavailableError,
 } from "../providers/router";
 import { getApiKey } from "../providers/credentials";
+
+describe("mergePreferenceOrder", () => {
+  const DEFAULTS = ["anthropic", "openai", "google", "openrouter"];
+
+  test("appends known defaults missing from a stored order", () => {
+    expect(mergePreferenceOrder(["anthropic", "openai", "google"], DEFAULTS)).toEqual([
+      "anthropic",
+      "openai",
+      "google",
+      "openrouter",
+    ]);
+  });
+
+  test("preserves a full stored order unchanged (no duplicates)", () => {
+    const full = ["google", "anthropic", "openai", "openrouter"];
+    expect(mergePreferenceOrder(full, DEFAULTS)).toEqual(full);
+  });
+
+  test("empty stored order yields all defaults", () => {
+    expect(mergePreferenceOrder([], DEFAULTS)).toEqual(DEFAULTS);
+  });
+
+  test("keeps unknown stored providers and still appends missing defaults", () => {
+    expect(mergePreferenceOrder(["ollama", "anthropic"], DEFAULTS)).toEqual([
+      "ollama",
+      "anthropic",
+      "openai",
+      "google",
+      "openrouter",
+    ]);
+  });
+
+  test("defaults to DEFAULT_PREFERENCE_ORDER when no defaults arg is passed", () => {
+    // Exercises the default-parameter branch; a stored subset gains the rest.
+    expect(mergePreferenceOrder(["openai"])).toEqual(["openai", "anthropic", "google", "openrouter"]);
+  });
+});
 
 describe("resolveModel", () => {
   beforeEach(() => {
@@ -63,12 +101,27 @@ describe("resolveModel", () => {
   });
 
   test("no provider with all circuit breakers open throws", async () => {
-    for (const p of ["anthropic", "openai", "google"]) {
+    // openrouter is now part of DEFAULT_PREFERENCE_ORDER, so it must also be
+    // opened for the "no available providers" path to trigger.
+    for (const p of ["anthropic", "openai", "google", "openrouter"]) {
       const cb = getCircuitBreaker(p);
       for (let i = 0; i < 3; i++) cb.recordFailure();
     }
 
     await expect(resolveModel()).rejects.toThrow("No available providers");
+  });
+
+  test("falls through to openrouter when anthropic/openai/google are all open", async () => {
+    // Proves openrouter is now in DEFAULT_PREFERENCE_ORDER (last), reachable
+    // once the three preceding providers' circuit breakers are open.
+    for (const p of ["anthropic", "openai", "google"]) {
+      const cb = getCircuitBreaker(p);
+      for (let i = 0; i < 3; i++) cb.recordFailure();
+    }
+
+    const result = await resolveModel();
+    expect(result.provider).toBe("openrouter");
+    expect(result.model).toBeDefined();
   });
 
   test("respects custom preference order from settings", async () => {
@@ -81,6 +134,25 @@ describe("resolveModel", () => {
 
     const result = await resolveModel();
     expect(result.provider).toBe("google");
+  });
+
+  test("self-heals a stored order missing openrouter so it stays reachable", async () => {
+    // Simulates an upgraded deployment whose admin saved a 3-provider order
+    // before openrouter existed. getPreferenceOrder must append openrouter,
+    // so once the three stored providers' circuit breakers are open, routing
+    // still falls through to openrouter instead of throwing "No available".
+    mockGetSetting.mockImplementation(((key: string) => {
+      if (key === "provider:preferenceOrder") return Promise.resolve(["anthropic", "openai", "google"]);
+      return Promise.resolve(undefined);
+    }) as any);
+    for (const p of ["anthropic", "openai", "google"]) {
+      const cb = getCircuitBreaker(p);
+      for (let i = 0; i < 3; i++) cb.recordFailure();
+    }
+
+    const result = await resolveModel();
+    expect(result.provider).toBe("openrouter");
+    expect(result.model).toBeDefined();
   });
 
   test("respects custom default tier from settings", async () => {
@@ -179,15 +251,48 @@ describe("suggestFallback", () => {
     expect(suggestion!.provider).toBe("google");
   });
 
-  test("returns null when no alternatives available", async () => {
-    // Open all other providers
+  test("suggests openrouter when preceding providers are open", async () => {
+    // Default order is anthropic → openai → google → openrouter. Failing
+    // anthropic and opening openai + google leaves openrouter as the only
+    // suggestion, proving it is part of the preference order.
     for (const p of ["openai", "google"]) {
       const cb = getCircuitBreaker(p);
       for (let i = 0; i < 3; i++) cb.recordFailure();
     }
 
     const suggestion = await suggestFallback("anthropic", "balanced");
+    expect(suggestion).not.toBeNull();
+    expect(suggestion!.provider).toBe("openrouter");
+    expect(suggestion!.model).toBeDefined();
+  });
+
+  test("returns null when no alternatives available", async () => {
+    // Open all other providers (openrouter now included in default order)
+    for (const p of ["openai", "google", "openrouter"]) {
+      const cb = getCircuitBreaker(p);
+      for (let i = 0; i < 3; i++) cb.recordFailure();
+    }
+
+    const suggestion = await suggestFallback("anthropic", "balanced");
     expect(suggestion).toBeNull();
+  });
+
+  test("self-heals a stored order missing openrouter when suggesting a fallback", async () => {
+    // Stored order predates openrouter; getPreferenceOrder appends it, so with
+    // the stored anthropic/openai/google all failed/open, openrouter is the
+    // only remaining fallback suggestion.
+    mockGetSetting.mockImplementation(((key: string) => {
+      if (key === "provider:preferenceOrder") return Promise.resolve(["anthropic", "openai", "google"]);
+      return Promise.resolve(undefined);
+    }) as any);
+    for (const p of ["openai", "google"]) {
+      const cb = getCircuitBreaker(p);
+      for (let i = 0; i < 3; i++) cb.recordFailure();
+    }
+
+    const suggestion = await suggestFallback("anthropic", "balanced");
+    expect(suggestion).not.toBeNull();
+    expect(suggestion!.provider).toBe("openrouter");
   });
 });
 

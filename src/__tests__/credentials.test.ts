@@ -47,6 +47,7 @@ const mockGetEnvApiKey = mock((provider: string) => {
     openai: "OPENAI_API_KEY",
     anthropic: "ANTHROPIC_API_KEY",
     google: "GOOGLE_API_KEY",
+    openrouter: "OPENROUTER_API_KEY",
   };
   const envKey = envMap[provider];
   return envKey ? process.env[envKey] : undefined;
@@ -109,6 +110,7 @@ beforeEach(() => {
       openai: "OPENAI_API_KEY",
       anthropic: "ANTHROPIC_API_KEY",
       google: "GOOGLE_API_KEY",
+      openrouter: "OPENROUTER_API_KEY",
     };
     const envKey = envMap[provider];
     return envKey ? process.env[envKey] : undefined;
@@ -118,6 +120,7 @@ beforeEach(() => {
   process.env.OPENAI_API_KEY = FAKE_API_KEY;
   process.env.ANTHROPIC_API_KEY = FAKE_API_KEY;
   process.env.GOOGLE_API_KEY = FAKE_API_KEY;
+  process.env.OPENROUTER_API_KEY = FAKE_API_KEY;
 });
 
 // ── OpenAI OAuth Tests ──────────────────────────────────────────────
@@ -160,6 +163,44 @@ test("getCredential('anthropic') always returns apikey credential (never OAuth)"
 
   expect(cred.type).toBe("apikey");
   expect(cred.token).toBe(FAKE_API_KEY);
+});
+
+// ── OpenRouter Always BYOK Tests ────────────────────────────────────
+// OpenRouter is API-key-only (BYOK), exactly like anthropic: no
+// pi-managed OAuth flow, so the default chain must skip DB-OAuth and go
+// straight to a stored key / env var.
+
+test("getCredential('openrouter') returns apikey from stored provider:apiKey:openrouter", async () => {
+  settingsStore["provider:apiKey:openrouter"] = "enc:sk-or-stored";
+  // decrypt is mocked to return `decryptReturn`; point it at the plaintext key.
+  decryptReturn = "sk-or-stored-key";
+
+  const cred = await getCredential("openrouter");
+
+  expect(cred.type).toBe("apikey");
+  expect(cred.token).toBe("sk-or-stored-key");
+  // BYOK-only: OAuth resolver never consulted.
+  expect(mockGetOAuthApiKey).not.toHaveBeenCalled();
+});
+
+test("getCredential('openrouter') falls back to OPENROUTER_API_KEY env var when no stored key", async () => {
+  // No stored key -- resolves via getEnvApiKey('openrouter') → OPENROUTER_API_KEY
+  const cred = await getCredential("openrouter");
+
+  expect(cred.type).toBe("apikey");
+  expect(cred.token).toBe(FAKE_API_KEY);
+  expect(mockGetOAuthApiKey).not.toHaveBeenCalled();
+});
+
+test("getCredential('openrouter') is BYOK-only — never uses OAuth even if an OAuth token exists", async () => {
+  // Even with an OAuth token stored, openrouter must skip the OAuth chain.
+  settingsStore["provider:oauth:openrouter"] = FAKE_ENCRYPTED;
+
+  const cred = await getCredential("openrouter");
+
+  expect(cred.type).toBe("apikey");
+  expect(cred.token).toBe(FAKE_API_KEY); // env-var BYOK, not the OAuth token
+  expect(mockGetOAuthApiKey).not.toHaveBeenCalled();
 });
 
 // ── Token Refresh Tests ─────────────────────────────────────────────

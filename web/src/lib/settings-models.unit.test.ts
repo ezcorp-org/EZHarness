@@ -3,7 +3,13 @@
  * decision 6 — no model id may appear twice on the merged page).
  */
 import { describe, test, expect } from "vitest";
-import { partitionCustomModels, hasModelId, type CustomModelEntry } from "./settings-models";
+import {
+	partitionCustomModels,
+	hasModelId,
+	mergePreferenceOrder,
+	DEFAULT_PREFERENCE_ORDER,
+	type CustomModelEntry,
+} from "./settings-models";
 
 const make = (modelId: string, provider: string): CustomModelEntry => ({
 	modelId,
@@ -71,5 +77,47 @@ describe("hasModelId", () => {
 	test("unknown id and empty list are not duplicates", () => {
 		expect(hasModelId([make("llama3", "ollama")], "mistral")).toBe(false);
 		expect(hasModelId([], "llama3")).toBe(false);
+	});
+});
+
+describe("mergePreferenceOrder", () => {
+	test("appends known defaults missing from a stored order (self-heal)", () => {
+		// An admin who reordered providers before openrouter existed still gets
+		// it appended, so the settings UI can show and route to it.
+		expect(mergePreferenceOrder(["anthropic", "openai", "google"])).toEqual([
+			"anthropic",
+			"openai",
+			"google",
+			"openrouter",
+		]);
+	});
+
+	test("preserves a full stored order unchanged (no duplicates)", () => {
+		const full = ["google", "anthropic", "openai", "openrouter"];
+		expect(mergePreferenceOrder(full)).toEqual(full);
+	});
+
+	test("empty stored order yields all defaults", () => {
+		expect(mergePreferenceOrder([])).toEqual(DEFAULT_PREFERENCE_ORDER);
+	});
+
+	test("keeps unknown stored providers and appends missing defaults", () => {
+		expect(mergePreferenceOrder(["ollama", "anthropic"])).toEqual([
+			"ollama",
+			"anthropic",
+			"openai",
+			"google",
+			"openrouter",
+		]);
+	});
+
+	test("accepts an explicit defaults list", () => {
+		expect(mergePreferenceOrder(["b"], ["a", "b", "c"])).toEqual(["b", "a", "c"]);
+	});
+});
+
+describe("DEFAULT_PREFERENCE_ORDER", () => {
+	test("lists the four known providers with openrouter last", () => {
+		expect(DEFAULT_PREFERENCE_ORDER).toEqual(["anthropic", "openai", "google", "openrouter"]);
 	});
 });

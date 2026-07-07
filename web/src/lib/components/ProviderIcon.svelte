@@ -34,6 +34,7 @@
 		anthropic: "#D97757",
 		openai: "#000000",
 		google: "#131314",
+		openrouter: "#6566F1",
 		ollama: "#1A1A2E",
 	};
 
@@ -73,6 +74,14 @@
 					</linearGradient>
 				</defs>
 				<path d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81" fill="url(#gemini-grad)"/>
+			</svg>
+		{:else if resolved === "openrouter"}
+			<!-- OpenRouter routing mark: one request fanned out to many model endpoints -->
+			<svg class={svgClass} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+				<path d="M6 12h5m0 0 5-4.5M11 12l5 4.5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+				<circle cx="5" cy="12" r="2.3" fill="white"/>
+				<circle cx="18" cy="6.5" r="2.3" fill="white"/>
+				<circle cx="18" cy="17.5" r="2.3" fill="white"/>
 			</svg>
 		{:else if resolved === "ollama"}
 			<!-- Ollama llama — source: simple-icons/ollama -->

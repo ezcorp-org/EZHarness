@@ -17,6 +17,7 @@ const MOCK_MODELS: ModelEntry[] = [
   { id: "claude-sonnet-4-20250514", provider: "anthropic", tier: "balanced", contextWindow: 200_000, vision: true, costTier: "medium", displayName: "Claude Sonnet 4", reasoning: false },
   { id: "gpt-4o", provider: "openai", tier: "balanced", contextWindow: 128_000, vision: true, costTier: "medium", displayName: "GPT-4o", reasoning: false },
   { id: "gemini-2.0-flash", provider: "google", tier: "fast", contextWindow: 1_000_000, vision: true, costTier: "low", displayName: "Gemini 2.0 Flash", reasoning: false },
+  { id: "openrouter/auto", provider: "openrouter", tier: "balanced", contextWindow: 200_000, vision: false, costTier: "medium", displayName: "OpenRouter Auto", reasoning: false },
 ];
 
 function at<T>(arr: readonly T[], i: number, what: string): T {
@@ -123,7 +124,7 @@ beforeEach(() => {
   );
 
   // Clear env vars
-  for (const envKey of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY"]) {
+  for (const envKey of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "OPENROUTER_API_KEY"]) {
     savedEnv[envKey] = process.env[envKey];
     delete process.env[envKey];
   }
@@ -263,10 +264,11 @@ describe("edge cases", () => {
     expect(google.length).toBe(GOOGLE_MODELS.length);
   });
 
-  test("all three providers available", async () => {
+  test("all providers available", async () => {
     process.env.ANTHROPIC_API_KEY = "sk-test";
     process.env.OPENAI_API_KEY = "sk-test";
     process.env.GOOGLE_API_KEY = "test-key";
+    process.env.OPENROUTER_API_KEY = "sk-or-test";
 
     const result = await callEndpoint();
 
@@ -277,5 +279,44 @@ describe("edge cases", () => {
     expect(providers.has("anthropic")).toBe(true);
     expect(providers.has("openai")).toBe(true);
     expect(providers.has("google")).toBe(true);
+    expect(providers.has("openrouter")).toBe(true);
+  });
+});
+
+// ── Tests: OpenRouter availability ────────────────────────────────────
+
+describe("openrouter availability", () => {
+  test("openrouter model marked available when OPENROUTER_API_KEY env is set", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-env";
+
+    const result = await callEndpoint();
+    const openrouterModels = result.filter((m) => m.provider === "openrouter");
+
+    expect(openrouterModels.length).toBeGreaterThan(0);
+    expect(openrouterModels.every((m) => m.available === true)).toBe(true);
+  });
+
+  test("openrouter model marked available when provider:apiKey:openrouter BYOK is set", async () => {
+    configureSetting({
+      "provider:apiKey:openrouter": "encrypted-openrouter-key",
+    });
+
+    const result = await callEndpoint();
+    const openrouterModels = result.filter((m) => m.provider === "openrouter");
+
+    expect(openrouterModels.length).toBeGreaterThan(0);
+    expect(openrouterModels.every((m) => m.available === true)).toBe(true);
+  });
+
+  test("openrouter model marked unavailable with no credentials", async () => {
+    mockGetCredential.mockImplementation(() =>
+      Promise.reject(new Error("No credentials")),
+    );
+
+    const result = await callEndpoint();
+    const openrouterModels = result.filter((m) => m.provider === "openrouter");
+
+    expect(openrouterModels.length).toBeGreaterThan(0);
+    expect(openrouterModels.every((m) => m.available === false)).toBe(true);
   });
 });

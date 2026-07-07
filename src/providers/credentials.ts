@@ -32,6 +32,11 @@ const OAUTH_PROVIDER_IDS: Record<string, string> = {
   anthropic: "anthropic",
 };
 
+// Providers that are BYOK-only (no pi-managed OAuth flow). The default
+// credential chain skips the DB-OAuth attempt for these and goes straight
+// to BYOK -> env var. anthropic and openrouter are both API-key-only.
+const BYOK_ONLY_PROVIDERS = new Set(["anthropic", "openrouter"]);
+
 // ── Refresh Lock ──────────────────────────────────────────────────────
 
 const refreshLocks = new Map<string, Promise<ProviderCredential>>();
@@ -200,8 +205,9 @@ export async function getCredential(
   if (preference === "oauth") return getOAuthCredential(provider);
 
   // 3. Default: try DB OAuth -> BYOK -> env var
-  //    (Skip DB OAuth for anthropic -- BYOK-only, no pi-managed OAuth flow)
-  if (provider !== "anthropic") {
+  //    (Skip DB OAuth for BYOK-only providers like anthropic and openrouter
+  //     -- these have no pi-managed OAuth flow)
+  if (!BYOK_ONLY_PROVIDERS.has(provider)) {
     try {
       return await getOAuthCredential(provider);
     } catch {

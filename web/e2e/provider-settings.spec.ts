@@ -13,15 +13,18 @@ function providerCard(page: Page, name: string) {
 	return page.locator("div.rounded-lg.border").filter({ hasText: name }).first();
 }
 
-function threeProviders(overrides?: {
+function providerFixtures(overrides?: {
 	anthropic?: Partial<ProviderStatus>;
 	openai?: Partial<ProviderStatus>;
 	google?: Partial<ProviderStatus>;
+	openrouter?: Partial<ProviderStatus>;
 }) {
 	return [
 		makeProviderStatus({ provider: "anthropic", oauthSupported: false, ...overrides?.anthropic }),
 		makeProviderStatus({ provider: "openai", oauthSupported: true, ...overrides?.openai }),
 		makeProviderStatus({ provider: "google", oauthSupported: true, ...overrides?.google }),
+		// OpenRouter is BYOK-only — it exposes an API-key field and no OAuth flow.
+		makeProviderStatus({ provider: "openrouter", oauthSupported: false, ...overrides?.openrouter }),
 	];
 }
 
@@ -29,7 +32,7 @@ test.describe("Provider Settings", () => {
 	// A. Accordion & Summary Chips
 	test.describe("Accordion & Summary Chips", () => {
 		test("providers section expanded by default with all three names visible", async ({ page, mockApi }) => {
-			await mockApi({ providers: threeProviders() });
+			await mockApi({ providers: providerFixtures() });
 			await page.goto("/settings/models");
 
 			await expect(page.getByText("Anthropic (Claude)").first()).toBeVisible();
@@ -39,7 +42,7 @@ test.describe("Provider Settings", () => {
 
 		test("summary chips show colored dots matching provider state", async ({ page, mockApi }) => {
 			await mockApi({
-				providers: threeProviders({
+				providers: providerFixtures({
 					anthropic: { hasKey: true, source: "byok" },       // green
 					openai: { oauthConnected: true, oauthExpired: true }, // amber
 					// google: unconfigured                              // gray
@@ -57,7 +60,7 @@ test.describe("Provider Settings", () => {
 		});
 
 		test("click header collapses section, click again re-expands", async ({ page, mockApi }) => {
-			await mockApi({ providers: threeProviders() });
+			await mockApi({ providers: providerFixtures() });
 			await page.goto("/settings/models");
 
 			const header = page.locator("button").filter({ hasText: "Providers" });
@@ -78,7 +81,7 @@ test.describe("Provider Settings", () => {
 	test.describe("Status Indicators", () => {
 		test("BYOK provider shows green Connected", async ({ page, mockApi }) => {
 			await mockApi({
-				providers: threeProviders({ anthropic: { hasKey: true, source: "byok" } }),
+				providers: providerFixtures({ anthropic: { hasKey: true, source: "byok" } }),
 			});
 			await page.goto("/settings/models");
 
@@ -88,7 +91,7 @@ test.describe("Provider Settings", () => {
 		});
 
 		test("unconfigured provider shows gray Not configured", async ({ page, mockApi }) => {
-			await mockApi({ providers: threeProviders() });
+			await mockApi({ providers: providerFixtures() });
 			await page.goto("/settings/models");
 
 			const card = providerCard(page, "Anthropic (Claude)");
@@ -98,7 +101,7 @@ test.describe("Provider Settings", () => {
 
 		test("expired OAuth shows amber Token expired", async ({ page, mockApi }) => {
 			await mockApi({
-				providers: threeProviders({
+				providers: providerFixtures({
 					openai: { oauthConnected: true, oauthExpired: true, oauthSupported: true },
 				}),
 			});
@@ -114,7 +117,7 @@ test.describe("Provider Settings", () => {
 	test.describe("Access Mode Badges", () => {
 		test("BYOK provider shows blue API Key badge", async ({ page, mockApi }) => {
 			await mockApi({
-				providers: threeProviders({ anthropic: { hasKey: true, source: "byok" } }),
+				providers: providerFixtures({ anthropic: { hasKey: true, source: "byok" } }),
 			});
 			await page.goto("/settings/models");
 
@@ -124,7 +127,7 @@ test.describe("Provider Settings", () => {
 
 		test("OAuth provider shows Subscription badge; env shows Env badge", async ({ page, mockApi }) => {
 			await mockApi({
-				providers: threeProviders({
+				providers: providerFixtures({
 					openai: { oauthConnected: true, oauthSupported: true, hasKey: false, source: "none" },
 					google: { hasKey: true, source: "env" },
 				}),
@@ -143,7 +146,7 @@ test.describe("Provider Settings", () => {
 	test.describe("Test Connection", () => {
 		test("click Test shows Testing then Working on success", async ({ page, mockApi }) => {
 			await mockApi({
-				providers: threeProviders({ anthropic: { hasKey: true, source: "byok" } }),
+				providers: providerFixtures({ anthropic: { hasKey: true, source: "byok" } }),
 			});
 			await page.goto("/settings/models");
 
@@ -157,7 +160,7 @@ test.describe("Provider Settings", () => {
 
 		test("test connection failure shows error message", async ({ page, mockApi }) => {
 			await mockApi({
-				providers: threeProviders({ anthropic: { hasKey: true, source: "byok" } }),
+				providers: providerFixtures({ anthropic: { hasKey: true, source: "byok" } }),
 			});
 			await page.goto("/settings/models");
 
@@ -177,7 +180,7 @@ test.describe("Provider Settings", () => {
 	test.describe("Model Refresh", () => {
 		test("manual Refresh models button shows Loaded N models", async ({ page, mockApi }) => {
 			await mockApi({
-				providers: threeProviders({ openai: { hasKey: true, source: "byok", oauthSupported: false } }),
+				providers: providerFixtures({ openai: { hasKey: true, source: "byok", oauthSupported: false } }),
 			});
 			await page.goto("/settings/models");
 
@@ -190,7 +193,7 @@ test.describe("Provider Settings", () => {
 		test("models auto-fetch right after saving an API key (no manual click)", async ({ page, mockApi }) => {
 			let refreshCalled = false;
 			await mockApi({
-				providers: threeProviders({ openai: { hasKey: true, source: "byok", oauthSupported: false } }),
+				providers: providerFixtures({ openai: { hasKey: true, source: "byok", oauthSupported: false } }),
 			});
 			await page.route("**/api/providers/*/refresh-models", (route) => {
 				refreshCalled = true;
@@ -212,7 +215,7 @@ test.describe("Provider Settings", () => {
 
 		test("refresh failure shows Refresh failed", async ({ page, mockApi }) => {
 			await mockApi({
-				providers: threeProviders({ openai: { hasKey: true, source: "byok", oauthSupported: false } }),
+				providers: providerFixtures({ openai: { hasKey: true, source: "byok", oauthSupported: false } }),
 			});
 			await page.route("**/api/providers/*/refresh-models", (route) => {
 				return route.fulfill({ json: { success: false, error: "models.dev returned 503" } });
@@ -230,7 +233,7 @@ test.describe("Provider Settings", () => {
 	test.describe("Inline Key Update", () => {
 		test("click Update shows input with placeholder and Save/Cancel", async ({ page, mockApi }) => {
 			await mockApi({
-				providers: threeProviders({ anthropic: { hasKey: true, source: "byok" } }),
+				providers: providerFixtures({ anthropic: { hasKey: true, source: "byok" } }),
 			});
 			await page.goto("/settings/models");
 
@@ -244,7 +247,7 @@ test.describe("Provider Settings", () => {
 
 		test("click Cancel returns to Key saved state", async ({ page, mockApi }) => {
 			await mockApi({
-				providers: threeProviders({ anthropic: { hasKey: true, source: "byok" } }),
+				providers: providerFixtures({ anthropic: { hasKey: true, source: "byok" } }),
 			});
 			await page.goto("/settings/models");
 
@@ -262,7 +265,7 @@ test.describe("Provider Settings", () => {
 	test.describe("Inline Remove Confirmation", () => {
 		test("click Remove shows confirmation with Confirm and Cancel", async ({ page, mockApi }) => {
 			await mockApi({
-				providers: threeProviders({ anthropic: { hasKey: true, source: "byok" } }),
+				providers: providerFixtures({ anthropic: { hasKey: true, source: "byok" } }),
 			});
 			await page.goto("/settings/models");
 
@@ -276,7 +279,7 @@ test.describe("Provider Settings", () => {
 
 		test("click Confirm calls DELETE and re-fetch shows Not configured", async ({ page, mockApi }) => {
 			await mockApi({
-				providers: threeProviders({ anthropic: { hasKey: true, source: "byok" } }),
+				providers: providerFixtures({ anthropic: { hasKey: true, source: "byok" } }),
 			});
 			await page.goto("/settings/models");
 
@@ -292,7 +295,7 @@ test.describe("Provider Settings", () => {
 					return route.fulfill({ json: { success: true } });
 				}
 				if (route.request().method() === "GET") {
-					return route.fulfill({ json: threeProviders() });
+					return route.fulfill({ json: providerFixtures() });
 				}
 				return route.continue();
 			});
@@ -309,7 +312,7 @@ test.describe("Provider Settings", () => {
 	test.describe("Inline Disconnect Confirmation", () => {
 		test("click Disconnect shows confirmation prompt", async ({ page, mockApi }) => {
 			await mockApi({
-				providers: threeProviders({
+				providers: providerFixtures({
 					openai: { oauthConnected: true, oauthSupported: true },
 				}),
 			});
@@ -325,7 +328,7 @@ test.describe("Provider Settings", () => {
 
 		test("click Cancel dismisses confirmation, Subscription Connected still visible", async ({ page, mockApi }) => {
 			await mockApi({
-				providers: threeProviders({
+				providers: providerFixtures({
 					openai: { oauthConnected: true, oauthSupported: true },
 				}),
 			});
@@ -344,7 +347,7 @@ test.describe("Provider Settings", () => {
 	// H. Onboarding Hints
 	test.describe("Onboarding Hints", () => {
 		test("unconfigured providers show hint text with link to key page", async ({ page, mockApi }) => {
-			await mockApi({ providers: threeProviders() });
+			await mockApi({ providers: providerFixtures() });
 			await page.goto("/settings/models");
 
 			const anthropicCard = providerCard(page, "Anthropic (Claude)");
@@ -359,12 +362,39 @@ test.describe("Provider Settings", () => {
 		});
 	});
 
+	// H2. OpenRouter (BYOK-only provider)
+	test.describe("OpenRouter (BYOK)", () => {
+		test("card renders with an API-key input and no OAuth Connect button", async ({ page, mockApi }) => {
+			await mockApi({ providers: providerFixtures() });
+			await page.goto("/settings/models");
+
+			const card = providerCard(page, "OpenRouter");
+			// The card is present with its display name.
+			await expect(card.getByText("OpenRouter", { exact: true }).first()).toBeVisible();
+			// BYOK key input uses the shared provider placeholder.
+			await expect(card.getByPlaceholder("sk-or-v1-...")).toBeVisible();
+			await expect(card.getByRole("button", { name: "Save Key" })).toBeVisible();
+			// No subscription OAuth — the "Connect" affordance never renders.
+			await expect(card.getByRole("button", { name: /Connect/ })).toHaveCount(0);
+		});
+
+		test("unconfigured OpenRouter card shows onboarding link to openrouter.ai/keys", async ({ page, mockApi }) => {
+			await mockApi({ providers: providerFixtures() });
+			await page.goto("/settings/models");
+
+			const card = providerCard(page, "OpenRouter");
+			await expect(card.getByText("Get your OpenRouter API key")).toBeVisible();
+			const link = card.locator("a[href='https://openrouter.ai/keys']");
+			await expect(link).toBeVisible();
+		});
+	});
+
 	// I. Token Expiry
 	test.describe("Token Expiry", () => {
 		test("expired OAuth with past expiresAt shows amber relative time with ago", async ({ page, mockApi }) => {
 			const pastDate = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(); // 2 hours ago
 			await mockApi({
-				providers: threeProviders({
+				providers: providerFixtures({
 					openai: {
 						oauthConnected: true,
 						oauthExpired: true,

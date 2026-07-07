@@ -34,7 +34,7 @@ const LOCAL_OAUTH_OVERRIDES: Model<any>[] = [
 // Returns a flat list across all providers, with pi-ai-registered IDs filtered out to avoid duplicates.
 async function loadDiscoveredModels(): Promise<Model<any>[]> {
   const out: Model<any>[] = [];
-  for (const provider of ["openai", "anthropic", "google"]) {
+  for (const provider of ["openai", "anthropic", "google", "openrouter"]) {
     const stored = (await getSetting(`provider:discoveredModels:${provider}`)) as Model<any>[] | undefined;
     if (!Array.isArray(stored)) continue;
     const piIds = new Set(getModels(provider as KnownProvider).map((m) => m.id));
@@ -165,11 +165,30 @@ export function getModelsForTier(tier: "fast" | "balanced" | "powerful"): ModelE
   return entries;
 }
 
+/**
+ * Provider → preferred model-id overrides consulted before the alphabetical
+ * tier scan in findModelForProviderInTier. pi-ai lists openrouter's ~259
+ * models in alphabetical order, so the plain scan picks e.g.
+ * `ai21/jamba-large-1.7` (balanced) or `amazon/nova-2-lite-v1` (fast) — poor
+ * implicit defaults for tier routing / fallback / the summarizer. OpenRouter's
+ * own `openrouter/auto` router chooses a sensible model server-side, so we
+ * prefer it for every tier when present. Falls through to the scan if the
+ * preferred id is not in the registry.
+ */
+const PREFERRED_TIER_MODELS: Record<string, string> = {
+  openrouter: "openrouter/auto",
+};
+
 export function findModelForProviderInTier(
   provider: string,
   tier: "fast" | "balanced" | "powerful",
 ): ModelEntry | null {
   const models = getModels(provider as KnownProvider);
+  const preferredId = PREFERRED_TIER_MODELS[provider];
+  if (preferredId) {
+    const preferred = models.find((m) => m.id === preferredId);
+    if (preferred) return piModelToEntry(preferred);
+  }
   for (const model of models) {
     const entry = piModelToEntry(model);
     if (entry.tier === tier) return entry;
