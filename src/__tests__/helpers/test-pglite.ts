@@ -14,15 +14,46 @@ import { migrate } from "../../db/migrate";
 const _pristineFetch: typeof fetch = (globalThis as any).__pristineFetch ?? globalThis.fetch;
 const _pristineWebSocket: typeof WebSocket = (globalThis as any).__pristineWebSocket ?? globalThis.WebSocket;
 
+// Extensions must be registered at construction (see the pg_trgm note above);
+// this same set is passed both to the one-time snapshot build and to every
+// per-test restore so `vector`/`pg_trgm` are live on the restored instance too.
+const EXTENSIONS = { vector, pg_trgm } as const;
+
 let pglite: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
 
+// Migrated datadir snapshot, built lazily ONCE per process on the first
+// setupTestDb() call. Migrating a fresh PGlite replays the entire migrate.ts
+// (267 DDL statements) on every call; instead we run it once, dump the datadir,
+// and let each subsequent setupTestDb() restore that binary blob via
+// `loadDataDir` — far cheaper than re-running the DDL, while still yielding a
+// genuinely fresh, independent DB per test.
+//
+// Isolation: a Blob is immutable, so the cached snapshot is read-only and each
+// `new PGlite({ loadDataDir })` materializes it into a private WASM FS — a write
+// in one test cannot leak into the next. (Every beforeEach-per-test suite that
+// mutates then asserts, e.g. queries-lessons, would fail if it did.)
+let migratedSnapshot: Blob | File | undefined;
+
+async function buildMigratedSnapshot(): Promise<Blob | File> {
+  const seed = new PGlite({ extensions: EXTENSIONS });
+  await seed.waitReady;
+  await migrate(drizzle(seed, { schema }));
+  // Dump BEFORE any test mutates the seed instance so the snapshot is a clean,
+  // representative post-migrate state. "none" (uncompressed) → fastest restore;
+  // the blob is cached once per process, so per-test decompression cost would
+  // outweigh the one-time memory saving of gzip.
+  const snapshot = await seed.dumpDataDir("none");
+  await seed.close();
+  return snapshot;
+}
+
 export async function setupTestDb() {
   if (pglite) await pglite.close().catch(() => {});
-  pglite = new PGlite({ extensions: { vector, pg_trgm } });
+  if (!migratedSnapshot) migratedSnapshot = await buildMigratedSnapshot();
+  pglite = new PGlite({ loadDataDir: migratedSnapshot, extensions: EXTENSIONS });
   await pglite.waitReady;
   db = drizzle(pglite, { schema });
-  await migrate(db);
   return { pglite, db };
 }
 
