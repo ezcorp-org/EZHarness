@@ -43,3 +43,24 @@ export function partitionCustomModels<T extends CustomModelEntry>(
 export function hasModelId(models: CustomModelEntry[], modelId: string): boolean {
 	return models.some((m) => m.modelId === modelId);
 }
+
+/**
+ * Canonical provider preference order. The /settings/models load path
+ * self-heals a stored order by appending any of these providers it is
+ * missing, so a provider added to the platform after an admin last reordered
+ * (e.g. openrouter) still surfaces in the UI and in backend routing. Mirrors
+ * the backend router's getPreferenceOrder merge (separate build, so the pure
+ * logic is duplicated with tests on both sides).
+ */
+export const DEFAULT_PREFERENCE_ORDER = ["anthropic", "openai", "google", "openrouter"];
+
+/**
+ * Merge a stored preference order with the known defaults: keep the stored
+ * order verbatim, then append any default providers missing from it.
+ */
+export function mergePreferenceOrder(
+	stored: string[],
+	defaults: readonly string[] = DEFAULT_PREFERENCE_ORDER,
+): string[] {
+	return [...stored, ...defaults.filter((p) => !stored.includes(p))];
+}
