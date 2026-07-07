@@ -16,6 +16,39 @@ import { isTestSurfaceEnabled } from "$lib/server/test-surface";
 import { setMockScript, clearMockScripts, type MockTurn } from "$lib/server/mock-llm";
 import type { RequestHandler } from "./$types";
 
+const USAGE_FIELDS = ["input", "cacheRead", "cacheWrite", "output"] as const;
+
+/** Validate an optional synthetic-usage block. Returns an error string or null. */
+function validateUsage(raw: unknown, i: number): string | null {
+  if (typeof raw !== "object" || raw === null) return `turns[${i}].usage must be an object`;
+  const usage = raw as Record<string, unknown>;
+  for (const field of USAGE_FIELDS) {
+    const v = usage[field];
+    if (v !== undefined && (typeof v !== "number" || !Number.isFinite(v) || v < 0)) {
+      return `turns[${i}].usage.${field} must be a non-negative number`;
+    }
+  }
+  return null;
+}
+
+/** Validate an optional fault block. Returns an error string or null. */
+function validateFault(raw: unknown, i: number): string | null {
+  if (typeof raw !== "object" || raw === null) return `turns[${i}].fault must be an object`;
+  const fault = raw as Record<string, unknown>;
+  const hasKind = fault.kind !== undefined;
+  const hasStatus = fault.status !== undefined;
+  if (!hasKind && !hasStatus) return `turns[${i}].fault must set status or kind`;
+  if (hasKind && fault.kind !== "connection") return `turns[${i}].fault.kind must be "connection"`;
+  if (hasStatus && (typeof fault.status !== "number" || !Number.isInteger(fault.status) ||
+      fault.status < 400 || fault.status > 599)) {
+    return `turns[${i}].fault.status must be an integer in [400,599]`;
+  }
+  if (fault.message !== undefined && typeof fault.message !== "string") {
+    return `turns[${i}].fault.message must be a string`;
+  }
+  return null;
+}
+
 function parseTurns(raw: unknown): MockTurn[] | { error: string } {
   if (!Array.isArray(raw)) return { error: "`turns` must be an array" };
   const turns: MockTurn[] = [];
@@ -36,6 +69,14 @@ function parseTurns(raw: unknown): MockTurn[] | { error: string } {
           return { error: `turns[${i}].toolCalls[${j}] must have a string name` };
         }
       }
+    }
+    if (turn.usage !== undefined) {
+      const err = validateUsage(turn.usage, i);
+      if (err) return { error: err };
+    }
+    if (turn.fault !== undefined) {
+      const err = validateFault(turn.fault, i);
+      if (err) return { error: err };
     }
     turns.push(turn as MockTurn);
   }

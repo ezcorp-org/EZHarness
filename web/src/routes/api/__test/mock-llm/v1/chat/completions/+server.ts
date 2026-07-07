@@ -15,7 +15,7 @@
 import { errorJson } from "$lib/server/http-errors";
 import { isTestSurfaceEnabled } from "$lib/server/test-surface";
 import {
-  buildMockStreamResponse,
+  buildMockTurnResponse,
   dequeueMockTurn,
   mockScriptKeyFromModel,
 } from "$lib/server/mock-llm";
@@ -33,6 +33,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const key = mockScriptKeyFromModel(body.model);
   const turn = dequeueMockTurn(key);
-  // Always stream — pi-agent-core only ever uses the streaming path.
-  return buildMockStreamResponse(turn);
+  // A normal turn streams (pi-agent-core only uses the streaming path); a
+  // fault turn replies with the simulated provider failure instead.
+  return buildMockTurnResponse(turn);
 };

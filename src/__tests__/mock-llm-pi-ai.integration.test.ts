@@ -13,7 +13,7 @@ import {
   setMockScript,
   dequeueMockTurn,
   mockScriptKeyFromModel,
-  buildMockStreamResponse,
+  buildMockTurnResponse,
 } from "../../web/src/lib/server/mock-llm";
 
 let server: ReturnType<typeof Bun.serve>;
@@ -26,7 +26,7 @@ beforeAll(() => {
       const url = new URL(req.url);
       if (req.method === "POST" && url.pathname.endsWith("/chat/completions")) {
         const body = (await req.json()) as { model?: unknown };
-        return buildMockStreamResponse(dequeueMockTurn(mockScriptKeyFromModel(body.model)));
+        return buildMockTurnResponse(dequeueMockTurn(mockScriptKeyFromModel(body.model)));
       }
       return new Response("not found", { status: 404 });
     },
@@ -79,5 +79,58 @@ describe("pi-ai ⇄ mock-LLM wire contract", () => {
     const textOf = (m: typeof a) => m.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text).join("");
     expect(textOf(a)).toBe("first");
     expect(textOf(b)).toBe("second");
+  });
+
+  test("synthetic usage surfaces cacheRead/cacheWrite on the parsed message", async () => {
+    setMockScript("itest-cache", [
+      { text: "cached", usage: { input: 200, cacheRead: 100, cacheWrite: 50, output: 7 } },
+    ]);
+    const model = resolveModelObject("ezcorp-mock", "mock:itest-cache", baseUrl);
+    const msg = await stream(model, userContext("hi"), { apiKey: "no-key-needed" }).result();
+    // This is what flows into ctx.totalUsage + the run:usage bus event.
+    expect(msg.usage).toMatchObject({ input: 200, cacheRead: 100, cacheWrite: 50, output: 7 });
+    expect(msg.usage!.totalTokens).toBe(357);
+  });
+
+  test("a plain turn reports a cache-miss (cacheRead/cacheWrite 0)", async () => {
+    setMockScript("itest-miss", [{ text: "fresh" }]);
+    const model = resolveModelObject("ezcorp-mock", "mock:itest-miss", baseUrl);
+    const msg = await stream(model, userContext("hi"), { apiKey: "no-key-needed" }).result();
+    expect(msg.usage!.cacheRead).toBe(0);
+    expect(msg.usage!.cacheWrite).toBe(0);
+  });
+
+  test.each([
+    ["429 rate-limit", { status: 429 }, "429"],
+    ["503 server error", { status: 503 }, "503"],
+  ])("fault %s fails the turn pre-first-token", async (_label, fault, marker) => {
+    const key = `itest-fault-${marker}`;
+    setMockScript(key, [{ fault: fault as { status: number } }]);
+    const model = resolveModelObject("ezcorp-mock", "mock:" + key, baseUrl);
+    const msg = await stream(model, userContext("hi"), { apiKey: "no-key-needed" }).result();
+    expect(msg.stopReason).toBe("error");
+    expect(msg.errorMessage).toContain(marker);
+    // No assistant text made it through (failed before the first token).
+    expect(msg.content.filter((b) => b.type === "text")).toHaveLength(0);
+  });
+
+  test("connection fault fails the turn with no HTTP status", async () => {
+    setMockScript("itest-conn", [{ fault: { kind: "connection" } }]);
+    const model = resolveModelObject("ezcorp-mock", "mock:itest-conn", baseUrl);
+    const msg = await stream(model, userContext("hi"), { apiKey: "no-key-needed" }).result();
+    expect(msg.stopReason).toBe("error");
+    expect(msg.content.filter((b) => b.type === "text")).toHaveLength(0);
+  });
+
+  test("a [fault, success] script fails then recovers on the retry (failover)", async () => {
+    setMockScript("itest-retry", [{ fault: { status: 429 } }, { text: "recovered" }]);
+    const model = resolveModelObject("ezcorp-mock", "mock:itest-retry", baseUrl);
+    const first = await stream(model, userContext("hi"), { apiKey: "no-key-needed" }).result();
+    expect(first.stopReason).toBe("error");
+    // The retry pulls the next scripted turn and succeeds deterministically.
+    const second = await stream(model, userContext("hi"), { apiKey: "no-key-needed" }).result();
+    expect(second.stopReason).toBe("stop");
+    const text = second.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
+    expect(text).toBe("recovered");
   });
 });
