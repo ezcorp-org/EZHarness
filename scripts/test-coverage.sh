@@ -108,10 +108,20 @@ run_legs() {
   sdk_out=$(bun test --coverage --coverage-reporter=lcov --coverage-dir="$sdk_cov" ./packages/@ezcorp/sdk/test/ ./packages/@ezcorp/sdk/src/entities/__tests__/ 2>&1) || true
   tally "$sdk_out"
 
-  # harness-client — its own mock.module-free shard.
+  # harness-client — its own mock.module-free shard. Unlike the SDK leg above,
+  # its pass/fail GATES: the event-name parity test + the route-table
+  # meta-assertions in index.test.ts are part of the remote-control contract, so
+  # a failure must red CI, not merely report. Capture the real exit code into the
+  # global HC_EXIT (checked in the mode dispatch below) instead of the
+  # pass/fail-tolerant `|| true`.
+  HC_EXIT=0
   local hc_cov="$TMPDIR/cov_hc" hc_out
-  hc_out=$(bun test --coverage --coverage-reporter=lcov --coverage-dir="$hc_cov" ./packages/@ezcorp/harness-client/ 2>&1) || true
+  hc_out=$(bun test --coverage --coverage-reporter=lcov --coverage-dir="$hc_cov" ./packages/@ezcorp/harness-client/ 2>&1) || HC_EXIT=$?
   tally "$hc_out"
+  if [ "$HC_EXIT" != "0" ]; then
+    FAILED_FILES+=("harness-client coverage leg")
+    echo "--- FAIL: harness-client coverage leg (exit $HC_EXIT) ---"
+  fi
 
   # Node-run vitest leg for the vitest-only web/src/lib files. @vitest/coverage-v8
   # needs node:inspector's Coverage domain, which Bun does not implement, so this
@@ -281,7 +291,10 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
   run_legs
   emit_lcov
   echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | legs"
-  [ "$VITEST_EXIT" = "0" ] || exit 1
+  # The harness-client leg (HC_EXIT) and the node-vitest leg (VITEST_EXIT) both
+  # GATE here — the SDK leg stays pass/fail-tolerant (coverage-only). This is the
+  # exit status the cov-extras CI job reports.
+  if [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ]; then exit 1; fi
   exit 0
 fi
 
@@ -344,9 +357,11 @@ bun scripts/merge-lcov.ts "$TMPDIR/cov_*/lcov.info" coverage/lcov.info
 CHECK_EXIT=0
 bun scripts/check-coverage.ts || CHECK_EXIT=$?
 
-# Full local mode gates COVERAGE + the vitest leg's integrity (not pass/fail —
-# the CI shards own that). check-coverage catches any flaky-shard coverage drop.
-if [ "$CHECK_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ]; then
+# Full local mode gates COVERAGE + the vitest leg's integrity + the
+# harness-client leg's pass/fail (the remote-control contract). It does NOT gate
+# the host pool's pass/fail — the CI shards own that. check-coverage catches any
+# flaky-shard coverage drop.
+if [ "$CHECK_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ]; then
   exit 1
 fi
 exit 0

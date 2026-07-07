@@ -16,7 +16,12 @@
 #                             scoped web search-helper bun:test files.
 #
 # The set difference is small and intentional:
-#   P \ C = the 4 *integration* files (gated for pass/fail, not for coverage).
+#   P \ C = the *integration* files + route-contract.test.ts (the remote-control
+#           governance meta-test). These are gated for pass/fail — via the CI
+#           `residual-tests` job (RESIDUAL_ONLY=1 → residual_passfail_files →
+#           test.sh, real exit code) — but NOT measured for coverage. The
+#           coverage shards TOLERATE pass/fail, so a file that must HARD-gate
+#           has to live in P\C, not merely in C.
 #   C \ P = the example suites + a few coverage-only shards (measured for
 #           coverage; the example e2e cases fail-by-timeout without Docker, so
 #           they are NEVER pass/fail-gated — see the host-shard classifier in
@@ -44,6 +49,15 @@ passfail_files() {
     find web/src/routes/api/extensions/__tests__ -name "*.test.ts"
     # extension-RBAC grants API route tests.
     find web/src/routes/api/rbac/__tests__ -name "*.test.ts"
+    # Remote-control route-contract governance meta-test — a HARD pass/fail gate
+    # (a failing assertion must RED CI, not merely advise). It lives ONLY in P,
+    # deliberately kept OUT of the coverage set C below: the set difference P\C
+    # lands it in the CI `residual-tests` job, whose `test.sh` run propagates a
+    # real exit code. (Were it left in C it would run only under the
+    # pass/fail-TOLERANT coverage shards and never gate.) It covers only the
+    # already-pinned harness-client route table + the unpinned api-registry, so
+    # excluding it from C loses no threshold-gated coverage.
+    printf '%s\n' web/src/__tests__/route-contract.test.ts
   } 2>/dev/null | sort -u
 }
 
@@ -72,10 +86,13 @@ coverage_host_files() {
     # extension-RBAC grants API route tests (coverage for the two rbac
     # +server.ts files pinned at 100 in coverage-thresholds.json).
     find web/src/routes/api/rbac/__tests__ -name "*.test.ts"
-    # Scoped web search-helper + route-contract bun:test files. SCOPED on
-    # purpose — widening to the whole web/src/__tests__ dir transitively imports
-    # dozens of unrelated modules whose zero-hit DA records inflate the
-    # denominator on files already pinned at 100%.
+    # Scoped web search-helper bun:test files. SCOPED on purpose — widening to
+    # the whole web/src/__tests__ dir transitively imports dozens of unrelated
+    # modules whose zero-hit DA records inflate the denominator on files already
+    # pinned at 100%. NOTE: route-contract.test.ts is intentionally NOT in this
+    # coverage set — it is a HARD pass/fail gate in P (see passfail_files); it
+    # covers only the already-pinned harness-client route table + the unpinned
+    # api-registry, so measuring it here would add no threshold-gated coverage.
     # permission-mode-indicator: the github-projects route tests import
     # $lib/permission-mode (constants only), landing it in the merged lcov at
     # 25% — this suite exercises the functions so the union clears web/src/lib/**.
@@ -95,8 +112,7 @@ coverage_host_files() {
       web/src/__tests__/mock-llm-store.test.ts \
       web/src/__tests__/mock-llm-route.test.ts \
       web/src/__tests__/runs-wait-route.test.ts \
-      web/src/__tests__/seed-reset-route.test.ts \
-      web/src/__tests__/route-contract.test.ts
+      web/src/__tests__/seed-reset-route.test.ts
   } 2>/dev/null | sort -u
 }
 
