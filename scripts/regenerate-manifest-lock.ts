@@ -243,8 +243,14 @@ async function main() {
     process.exit(2);
   }
 
-  // Repo root is the parent directory of `scripts/`. Same logic as
-  // `bundled.ts:getProjectRoot` but expressed against import.meta.dir.
+  // Repo root is the parent directory of `scripts/`. This generator
+  // INTENTIONALLY targets the checked-in SOURCE tree only — it derives the
+  // root from this script's own `import.meta.dir` and does NOT honor
+  // `EZCORP_PROJECT_ROOT` or the `.git` walk-up that the runtime resolver
+  // `bundled.ts:getProjectRoot` uses. The lockfile is a repo artifact
+  // committed next to the source it hashes, so an operator's runtime
+  // override root is irrelevant here; regenerating always writes
+  // `<source-tree>/manifest.lock.json`.
   const repoRoot = join(import.meta.dir, "..");
   const lockPath = join(repoRoot, "manifest.lock.json");
 

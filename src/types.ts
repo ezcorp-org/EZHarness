@@ -223,10 +223,12 @@ export interface TeamToolScope {
 
 export interface AgentEvents {
   [key: string]: unknown;
-  "run:start": { run: AgentRun };
+  // `runId` duplicates `run.id` so SSE clients get a top-level `data.runId`
+  // to correlate on (parity with `run:status`), without traversing `data.run`.
+  "run:start": { run: AgentRun; runId: string };
   "run:log": { runId: string; log: AgentLog };
   "run:complete": { run: AgentRun; conversationId?: string };
-  "run:error": { run: AgentRun; error: string; conversationId?: string };
+  "run:error": { run: AgentRun; error: string; conversationId?: string; runId: string };
   "run:cancel": { run: AgentRun; conversationId?: string };
   "run:status": { runId: string; status: string };
   "run:token": { runId: string; token: string; kind?: "thinking" | "text" };

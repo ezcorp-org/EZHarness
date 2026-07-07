@@ -9,11 +9,14 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { isTestSurfaceEnabled } from "$lib/server/test-surface";
+import { isTestSurfaceEnabled, mockLlmBaseUrl } from "$lib/server/test-surface";
 
 const savedE2E = process.env.PI_E2E_REAL;
 const savedNodeEnv = process.env.NODE_ENV;
 const savedAllow = process.env.EZCORP_ALLOW_TEST_SURFACE;
+const savedPort = process.env.PORT;
+const savedEzPort = process.env.EZCORP_PORT;
+const savedMockUrl = process.env.EZCORP_MOCK_LLM_BASE_URL;
 
 function setEnv(
   piE2eReal: string | undefined,
@@ -88,5 +91,49 @@ describe("isTestSurfaceEnabled", () => {
   test("production with no flag → closed", () => {
     setEnv(undefined, "production", undefined);
     expect(isTestSurfaceEnabled()).toBe(false);
+  });
+});
+
+describe("mockLlmBaseUrl", () => {
+  function setPortEnv(
+    port: string | undefined,
+    ezPort: string | undefined,
+    explicit: string | undefined,
+  ): void {
+    if (port === undefined) delete process.env.PORT;
+    else process.env.PORT = port;
+    if (ezPort === undefined) delete process.env.EZCORP_PORT;
+    else process.env.EZCORP_PORT = ezPort;
+    if (explicit === undefined) delete process.env.EZCORP_MOCK_LLM_BASE_URL;
+    else process.env.EZCORP_MOCK_LLM_BASE_URL = explicit;
+  }
+
+  afterEach(() => {
+    setPortEnv(savedPort, savedEzPort, savedMockUrl);
+  });
+
+  test("EZCORP_MOCK_LLM_BASE_URL overrides everything", () => {
+    setPortEnv("4123", "9999", "http://127.0.0.1:4173/api/__test/mock-llm/v1");
+    expect(mockLlmBaseUrl()).toBe("http://127.0.0.1:4173/api/__test/mock-llm/v1");
+  });
+
+  test("derives from PORT when no explicit override", () => {
+    setPortEnv("4123", undefined, undefined);
+    expect(mockLlmBaseUrl()).toBe("http://127.0.0.1:4123/api/__test/mock-llm/v1");
+  });
+
+  test("PORT takes precedence over EZCORP_PORT", () => {
+    setPortEnv("4123", "9999", undefined);
+    expect(mockLlmBaseUrl()).toBe("http://127.0.0.1:4123/api/__test/mock-llm/v1");
+  });
+
+  test("falls back to EZCORP_PORT when PORT is unset", () => {
+    setPortEnv(undefined, "9999", undefined);
+    expect(mockLlmBaseUrl()).toBe("http://127.0.0.1:9999/api/__test/mock-llm/v1");
+  });
+
+  test("defaults to :3000 when neither PORT nor EZCORP_PORT is set", () => {
+    setPortEnv(undefined, undefined, undefined);
+    expect(mockLlmBaseUrl()).toBe("http://127.0.0.1:3000/api/__test/mock-llm/v1");
   });
 });

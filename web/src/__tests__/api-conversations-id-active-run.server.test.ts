@@ -196,4 +196,39 @@ describe("POST /api/conversations/[id]/active-run", () => {
     expect(body.path).toBe("memory");
     expect(cancelRun).toHaveBeenCalledWith("run-1");
   });
+
+  test("db-fallback: no memory run but DB row → interrupts and emits run:error carrying runId", async () => {
+    getActiveRunForConversation.mockReturnValue(null);
+    vi.mocked(getActiveRun).mockResolvedValue({
+      id: "run-db-1",
+      startedAt: new Date(),
+    } as any);
+    vi.mocked(markInterrupted).mockResolvedValue(undefined as any);
+
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: { user },
+        body: { action: "cancel" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { cancelled: boolean; path: string; runId: string };
+    expect(body.cancelled).toBe(true);
+    expect(body.path).toBe("db-fallback");
+    expect(body.runId).toBe("run-db-1");
+    expect(vi.mocked(markInterrupted)).toHaveBeenCalledWith("run-db-1");
+
+    // The synthesized run:error must carry a top-level runId (parity with
+    // run:status) so SSE clients clean up their streaming state.
+    expect(busEmit).toHaveBeenCalledTimes(1);
+    const [evName, payload] = busEmit.mock.calls[0] as [
+      string,
+      { runId: string; run: { id: string }; conversationId: string },
+    ];
+    expect(evName).toBe("run:error");
+    expect(payload.runId).toBe("run-db-1");
+    expect(payload.run.id).toBe("run-db-1");
+    expect(payload.conversationId).toBe("c1");
+  });
 });
