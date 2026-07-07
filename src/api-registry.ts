@@ -93,15 +93,17 @@ export const apiRegistry: ApiRouteEntry[] = [
 
   // Extensions
   { method: "GET", path: "/api/extensions", description: "List installed extensions", category: "extensions", scope: "read", harness: { controllable: true } },
-  { method: "POST", path: "/api/extensions", description: "Install extension from local path or GitHub", category: "extensions", schemaKey: "installExtensionSchema" },
+  { method: "POST", path: "/api/extensions", description: "Install extension from local path, a GitHub release, or a git clone URL — lands disabled with no permissions (requires an admin-role key)", category: "extensions", scope: "admin", harness: { controllable: true }, schemaKey: "installExtensionSchema" },
   { method: "GET", path: "/api/extensions/:id", description: "Get extension details", category: "extensions" },
-  { method: "DELETE", path: "/api/extensions/:id", description: "Uninstall extension", category: "extensions" },
+  { method: "PATCH", path: "/api/extensions/:id", description: "Disable an installed extension (enabled:false only; enable via /activate) (requires an admin-role key)", category: "extensions", scope: "extensions", harness: { controllable: true } },
+  { method: "DELETE", path: "/api/extensions/:id", description: "Uninstall extension (requires an admin-role key)", category: "extensions", scope: "extensions", harness: { controllable: true } },
+  { method: "POST", path: "/api/extensions/:id/activate", description: "Enable an installed extension and (optionally) grant manifest-clamped permissions (requires an admin-role key)", category: "extensions", scope: "admin", harness: { controllable: true } },
   { method: "POST", path: "/api/extensions/:id/confirm", description: "Confirm extension installation", category: "extensions" },
   { method: "GET", path: "/api/extensions/:id/permissions", description: "Get extension permissions", category: "extensions" },
-  { method: "PUT", path: "/api/extensions/:id/permissions", description: "Update extension permissions", category: "extensions" },
+  { method: "PUT", path: "/api/extensions/:id/permissions", description: "Update extension permissions — clamped to the manifest (requires an admin-role key)", category: "extensions", scope: "admin", harness: { controllable: true } },
   { method: "GET", path: "/api/extensions/:name/tools", description: "List tools provided by extension", category: "extensions", scope: "read" },
-  { method: "POST", path: "/api/extensions/:id/secrets", description: "Set (or rotate) an extension secret — encrypted, scope-isolated, AAD-bound; value never echoed back", category: "extensions", scope: "extensions" },
-  { method: "DELETE", path: "/api/extensions/:id/secrets", description: "Delete an extension secret", category: "extensions", scope: "extensions" },
+  { method: "POST", path: "/api/extensions/:id/secrets", description: "Set (or rotate) an extension secret — encrypted, scope-isolated, AAD-bound; value never echoed back", category: "extensions", scope: "extensions", harness: { controllable: true } },
+  { method: "DELETE", path: "/api/extensions/:id/secrets", description: "Delete an extension secret", category: "extensions", scope: "extensions", harness: { controllable: true } },
 
   // Extension RBAC grants (runtime gate = the delegation check in
   // src/auth/extension-rbac.ts; scope "admin" documents the surface for the
@@ -148,8 +150,8 @@ export const apiRegistry: ApiRouteEntry[] = [
 
   // Settings
   { method: "GET", path: "/api/settings", description: "Get application settings", category: "settings" },
-  { method: "GET", path: "/api/settings/:key", description: "Get single setting by key", category: "settings" },
-  { method: "PUT", path: "/api/settings/:key", description: "Update a setting value", category: "settings" },
+  { method: "GET", path: "/api/settings/:key", description: "Get single setting by key (requires an admin-role key)", category: "settings", scope: "admin", harness: { controllable: true } },
+  { method: "PUT", path: "/api/settings/:key", description: "Update a setting value (requires an admin-role key)", category: "settings", scope: "admin", harness: { controllable: true } },
   { method: "GET", path: "/api/settings/developer", description: "Get developer settings and API keys", category: "settings" },
   { method: "POST", path: "/api/settings/developer/api-keys", description: "Create API key", category: "settings", schemaKey: "createApiKeySchema" },
 
@@ -180,15 +182,20 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/tools", description: "List available tools", category: "tools" },
   { method: "POST", path: "/api/tool-invoke", description: "Invoke a tool directly", category: "tools", scope: "extensions", harness: { controllable: true } },
   { method: "GET", path: "/api/tool-calls/:id/output", description: "Get tool call output", category: "tools" },
-  { method: "POST", path: "/api/tool-calls/:id/permission", description: "Approve or deny tool permission", category: "tools" },
+  { method: "POST", path: "/api/tool-calls/:id/permission", description: "Approve or deny tool permission", category: "tools", scope: "chat", harness: { controllable: true } },
+
+  // Hub pages
+  { method: "POST", path: "/api/hub/pages/:id/actions/:action", description: "Dispatch a named action on a core Hub page (scalar payload, rate-limited)", category: "hub", scope: "chat", harness: { controllable: true } },
 
   // Runs
   { method: "GET", path: "/api/runs", description: "List agent runs", category: "runs", scope: "read" },
   { method: "GET", path: "/api/runs/:id", description: "Get run details (append ?wait=1&timeoutMs= to block until terminal — run-to-completion)", category: "runs", scope: "read", harness: { controllable: true } },
+  { method: "DELETE", path: "/api/runs/:id", description: "Cancel an in-flight run (ownership-gated)", category: "runs", scope: "chat", harness: { controllable: true } },
 
   // Observability
   { method: "GET", path: "/api/observability", description: "List observability events", category: "observability" },
   { method: "GET", path: "/api/observability/:conversationId", description: "Get events for conversation", category: "observability" },
+  { method: "GET", path: "/api/runtime-events", description: "SSE stream of runtime events (run/tool/pipeline/agent lifecycle) — consumed by HarnessClient.streamEvents", category: "observability", scope: "read", harness: { controllable: true } },
 
   // Mentions
   { method: "GET", path: "/api/mentions/search", description: "Search mentionable items", category: "mentions" },

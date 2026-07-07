@@ -22,10 +22,27 @@ import { test, expect } from "@playwright/test";
 // Relative import: the package isn't a web dependency; Playwright's TS loader
 // resolves the workspace source directly.
 import { HarnessClient, HarnessApiError } from "../../../packages/@ezcorp/harness-client/src/index";
+import {
+  cleanupExtensionAuthorDraft,
+  cleanupInstalledExtension,
+  seedExtensionAuthorDraft,
+} from "../fixtures/db-seed";
 
 test.describe.configure({ mode: "serial" });
 
 test.describe("external harness — extension control end-to-end", () => {
+  // Handles for the lifecycle test's install + seeded draft. Cleared on a
+  // clean uninstall; afterEach is the safety net if the test fails midway.
+  let installedName: string | null = null;
+  let installedDraftId: string | null = null;
+
+  test.afterEach(async ({ request }) => {
+    if (installedName) await cleanupInstalledExtension(request, installedName).catch(() => {});
+    if (installedDraftId) await cleanupExtensionAuthorDraft(request, installedDraftId).catch(() => {});
+    installedName = null;
+    installedDraftId = null;
+  });
+
   test("list → wire → invoke roundtrip, with scope + unknown-name enforcement", async ({ request, baseURL }) => {
     // 1. Mint two keys with the admin session cookie (storageState):
     //    - full: read (list) + extensions (wire + invoke)
@@ -135,5 +152,96 @@ test.describe("external harness — extension control end-to-end", () => {
     const after = (await ez.listWiredExtensions(conversationId)).map((e) => e.name).sort();
     expect(after).toEqual(before);
     expect(after).not.toContain("definitely-not-a-real-extension");
+  });
+
+  test("admin-role key drives install → activate → wire → invoke → disable → uninstall; member key is 403'd on the role-gated steps", async ({
+    request,
+    baseURL,
+  }) => {
+    // Mint two cookieless bearer principals with the admin session cookie:
+    //   - adminKey: an admin-ROLE key (read+chat+extensions+admin) — reaches
+    //     requireRole(admin) lifecycle routes.
+    //   - memberKey: a member-role key holding the SAME scopes (incl. admin
+    //     scope) — proves the role wall, not just the scope wall, gates
+    //     install/activate/disable/uninstall.
+    async function mintKey(scopes: string[], role?: "admin" | "member"): Promise<string> {
+      const res = await request.post("/api/settings/developer/api-keys", {
+        data: { name: `e2e-life-${role ?? "member"}-${Date.now().toString(36)}`, scopes, ...(role ? { role } : {}) },
+      });
+      expect(res.status(), await res.text()).toBe(201);
+      const body = (await res.json()) as { key: string; role: string };
+      expect(body.role).toBe(role ?? "member");
+      return body.key;
+    }
+    const adminKey = await mintKey(["read", "chat", "extensions", "admin"], "admin");
+    const memberKey = await mintKey(["read", "chat", "extensions", "admin"]); // role omitted → member
+
+    // Seed a local scaffold to install FROM: the seed endpoint writes
+    // ezcorp.config.ts + index.ts to disk and returns the absolute draftDir.
+    installedName = `e2e-life-${Date.now().toString(36)}`;
+    const seeded = await seedExtensionAuthorDraft({
+      request,
+      name: installedName,
+      type: "tool",
+      description: "e2e lifecycle extension",
+    });
+    installedDraftId = seeded.draftId;
+
+    // HarnessClient uses the process's global fetch — NO Playwright request
+    // context, so the admin session cookie is provably absent and the ONLY
+    // authority is the bearer key (this is what proves role comes from the key).
+    const ezAdmin = new HarnessClient({ baseUrl: baseURL!, apiKey: adminKey });
+    const ezMember = new HarnessClient({ baseUrl: baseURL!, apiKey: memberKey });
+    const installBody = { source: "local", path: seeded.draftDir } as const;
+
+    // Role-gated step 1 — install. Member (admin SCOPE, member ROLE) → clean
+    // 403, not 500; admin-role key installs (lands disabled, no permissions).
+    await expect(ezMember.installExtension(installBody)).rejects.toMatchObject({ status: 403 });
+    const installed = await ezAdmin.installExtension(installBody);
+    expect(installed.name).toBe(installedName);
+    expect(typeof installed.id).toBe("string");
+    const extId = installed.id;
+    expect((await ezAdmin.listExtensions()).map((e) => e.name)).toContain(installedName);
+
+    // Role-gated step 2 — activate (enable + grant).
+    await expect(ezMember.activateExtension(extId)).rejects.toMatchObject({ status: 403 });
+    const activated = await ezAdmin.activateExtension(extId);
+    expect(activated).toMatchObject({ id: extId });
+
+    // Wire the freshly-installed extension to a conversation, then best-effort
+    // invoke its first declared tool. A fresh scaffold's subprocess may be
+    // registry-gated on this boot, so a HarnessApiError (e.g. 404 Tool not
+    // found) still proves the invoke plumbing — same spirit as the roundtrip
+    // helper above. Wiring itself is a DB insert and always succeeds.
+    const seedConvo = await request.post("/api/__test/seed", { data: { title: "e2e-lifecycle" } });
+    expect(seedConvo.status(), await seedConvo.text()).toBe(201);
+    const { conversationId } = (await seedConvo.json()) as { conversationId: string };
+    const wired = await ezAdmin.wireExtensions(conversationId, [installedName]);
+    expect(wired.wired).toContain(installedName);
+    const rec = (await ezAdmin.listExtensions()).find((e) => e.name === installedName);
+    const toolName = (rec?.manifest as { tools?: Array<{ name?: string }> } | undefined)?.tools?.[0]?.name;
+    if (typeof toolName === "string") {
+      try {
+        const r = await ezAdmin.invokeExtensionTool(conversationId, installedName, toolName, {});
+        expect(typeof r.success).toBe("boolean");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HarnessApiError);
+      }
+    }
+
+    // Role-gated step 3 — disable (PATCH enabled:false only).
+    await expect(ezMember.setExtensionEnabled(extId, false)).rejects.toMatchObject({ status: 403 });
+    const disabled = await ezAdmin.setExtensionEnabled(extId, false);
+    expect(disabled).toMatchObject({ id: extId, enabled: false });
+
+    // Role-gated step 4 — uninstall (204, no body).
+    await expect(ezMember.uninstallExtension(extId)).rejects.toMatchObject({ status: 403 });
+    await expect(ezAdmin.uninstallExtension(extId)).resolves.toBeUndefined();
+    expect((await ezAdmin.listExtensions()).map((e) => e.name)).not.toContain(installedName);
+
+    // Clean uninstall removed the row + dir; clear handles so afterEach is a
+    // no-op (cleanupInstalledExtension is idempotent regardless).
+    installedName = null;
+    installedDraftId = null;
   });
 });

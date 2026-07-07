@@ -4,7 +4,7 @@
  * driven against a live fake server.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { HarnessClient, HarnessApiError, SseDataBuffer, RUNTIME_EVENT_NAMES } from "./index";
+import { HarnessClient, HarnessApiError, SseDataBuffer, RUNTIME_EVENT_NAMES, HARNESS_ROUTES, buildPath } from "./index";
 // The app's canonical list — must stay identical to the package's copy.
 import { RUNTIME_EVENT_NAMES as APP_EVENT_NAMES } from "../../../../web/src/lib/runtime-event-names";
 
@@ -43,6 +43,13 @@ let lastConversationBody: Record<string, unknown> | null = null;
 let scripted: { scriptKey: string; turns: unknown[] } | null = null;
 let lastWireBody: Record<string, unknown> | null = null;
 let lastToolInvoke: Record<string, unknown> | null = null;
+// Extension-lifecycle + hub-action capture (Track 3 surface).
+let lastInstallBody: Record<string, unknown> | null = null;
+let lastActivateBody: Record<string, unknown> | null = null;
+let lastPatchBody: Record<string, unknown> | null = null;
+let lastPermissionsBody: Record<string, unknown> | null = null;
+let lastSecretBody: Record<string, unknown> | null = null;
+let lastHubActionBody: Record<string, unknown> | null = null;
 // Toggles the shape GET /api/extensions returns so both the bare-array and
 // `{ extensions }` normalization branches are exercised.
 let extListShape: "array" | "wrapper" | "other" = "array";
@@ -107,6 +114,65 @@ beforeAll(() => {
           return Response.json({ success: false, error: "boom", toolCallId: lastToolInvoke.invocationId });
         }
         return Response.json({ success: true, output: `${lastToolInvoke.toolName}:ok`, toolCallId: lastToolInvoke.invocationId });
+      }
+      // ── Extension lifecycle surface (Track 3) ──
+      if (req.method === "POST" && p === "/api/extensions") {
+        lastInstallBody = (await req.json()) as Record<string, unknown>;
+        return Response.json({ id: "ext-new", name: "installed-ext", enabled: false }, { status: 201 });
+      }
+      if (req.method === "POST" && /^\/api\/extensions\/[^/]+\/activate$/.test(p)) {
+        lastActivateBody = (await req.json()) as Record<string, unknown>;
+        return Response.json({ id: p.split("/")[3], name: "installed-ext", enabled: true });
+      }
+      if (req.method === "PUT" && /^\/api\/extensions\/[^/]+\/permissions$/.test(p)) {
+        lastPermissionsBody = (await req.json()) as Record<string, unknown>;
+        return Response.json({
+          id: p.split("/")[3],
+          name: "installed-ext",
+          grantedPermissions: lastPermissionsBody.permissions,
+        });
+      }
+      if (/^\/api\/extensions\/[^/]+\/secrets$/.test(p)) {
+        const body = (await req.json()) as Record<string, unknown>;
+        if (req.method === "POST") {
+          lastSecretBody = body;
+          // id "denied" models a per-extension RBAC refusal.
+          if (p === "/api/extensions/denied/secrets") {
+            return Response.json({ error: "Missing extension scope 'secrets' for denied" }, { status: 403 });
+          }
+          return Response.json({ ok: true });
+        }
+        if (req.method === "DELETE") {
+          lastSecretBody = body;
+          return Response.json({ deleted: body.name === "known" });
+        }
+      }
+      if (/^\/api\/extensions\/[^/]+$/.test(p) && req.method !== "GET") {
+        if (req.method === "PATCH") {
+          lastPatchBody = (await req.json()) as Record<string, unknown>;
+          if (lastPatchBody.enabled === true) {
+            return Response.json({ error: "Use POST /:id/activate to enable an extension" }, { status: 400 });
+          }
+          return Response.json({ id: p.split("/")[3], name: "installed-ext", enabled: false });
+        }
+        if (req.method === "DELETE") {
+          // Uninstall: 204 No Content, empty body.
+          return new Response(null, { status: 204 });
+        }
+      }
+      // ── Hub actions (Track 3) ──
+      if (req.method === "POST" && /^\/api\/hub\/pages\/[^/]+\/actions\/[^/]+$/.test(p)) {
+        lastHubActionBody = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+        const action = p.split("/")[6];
+        if (action === "refresh") {
+          return Response.json({ ok: true, page: { type: "root", children: [] }, renderedAt: 123 });
+        }
+        return Response.json({ ok: true });
+      }
+      // ── Cancel run (Track 3) ──
+      if (req.method === "DELETE" && p.startsWith("/api/runs/")) {
+        if (p === "/api/runs/r1") return Response.json({ ok: true });
+        return Response.json({ error: "Run not found or not running" }, { status: 404 });
       }
       if (req.method === "GET" && p === "/api/runs/r1" && url.searchParams.get("wait") === "1") {
         return Response.json({ outcome: "complete", run: { id: "r1", status: "success", result: { output: "done" } } });
@@ -405,5 +471,148 @@ describe("HarnessClient — extension control", () => {
       expect(e).toBeInstanceOf(HarnessApiError);
       expect((e as HarnessApiError).status).toBe(403);
     }
+  });
+});
+
+describe("route table (HARNESS_ROUTES + buildPath)", () => {
+  test("every table entry has an uppercase HTTP method and an /api path template", () => {
+    const methods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
+    for (const [name, route] of Object.entries(HARNESS_ROUTES)) {
+      expect(methods.has(route.httpMethod), `${name} httpMethod`).toBe(true);
+      expect(route.pathTemplate.startsWith("/api/"), `${name} pathTemplate`).toBe(true);
+    }
+  });
+
+  test("getRun and awaitRun intentionally share GET /api/runs/:id", () => {
+    expect(HARNESS_ROUTES.getRun).toEqual({ httpMethod: "GET", pathTemplate: "/api/runs/:id" });
+    expect(HARNESS_ROUTES.awaitRun).toEqual({ httpMethod: "GET", pathTemplate: "/api/runs/:id" });
+  });
+
+  test("buildPath percent-encodes each param as a single segment", () => {
+    expect(buildPath("/api/settings/:key", { key: "theme:dark" })).toBe("/api/settings/theme%3Adark");
+    expect(buildPath("/api/extensions/:id/activate", { id: "../x" })).toBe("/api/extensions/..%2Fx/activate");
+    expect(buildPath("/api/hub/pages/:id/actions/:action", { id: "p 1", action: "do" })).toBe(
+      "/api/hub/pages/p%201/actions/do",
+    );
+  });
+
+  test("buildPath leaves a template with no params untouched", () => {
+    expect(buildPath("/api/extensions")).toBe("/api/extensions");
+  });
+
+  test("buildPath throws loudly on a missing route param", () => {
+    expect(() => buildPath("/api/extensions/:id/activate", {})).toThrow(
+      /missing route param ':id'/,
+    );
+  });
+});
+
+describe("HarnessClient — extension lifecycle", () => {
+  test("installExtension posts the source body and returns the new row (201)", async () => {
+    const res = await client().installExtension({ source: "local", path: "/srv/ext" });
+    expect(res).toEqual({ id: "ext-new", name: "installed-ext", enabled: false });
+    expect(lastInstallBody).toEqual({ source: "local", path: "/srv/ext" });
+    expect(new URL(lastUrl!).pathname).toBe("/api/extensions");
+    expect(lastAuth).toBe("Bearer ezk_test");
+  });
+
+  test("installExtension supports the git source shape", async () => {
+    await client().installExtension({ source: "git", url: "https://h/r.git", ref: "main" });
+    expect(lastInstallBody).toEqual({ source: "git", url: "https://h/r.git", ref: "main" });
+  });
+
+  test("activateExtension without perms posts an empty body and enables", async () => {
+    const res = await client().activateExtension("e1");
+    expect(res).toMatchObject({ id: "e1", enabled: true });
+    expect(lastActivateBody).toEqual({});
+    expect(new URL(lastUrl!).pathname).toBe("/api/extensions/e1/activate");
+  });
+
+  test("activateExtension forwards grantedPermissions when supplied", async () => {
+    await client().activateExtension("e1", { network: true });
+    expect(lastActivateBody).toEqual({ grantedPermissions: { network: true } });
+  });
+
+  test("setExtensionEnabled(false) disables and returns the updated row", async () => {
+    const res = await client().setExtensionEnabled("e1", false);
+    expect(res).toMatchObject({ id: "e1", enabled: false });
+    expect(lastPatchBody).toEqual({ enabled: false });
+    expect(new URL(lastUrl!).pathname).toBe("/api/extensions/e1");
+  });
+
+  test("setExtensionEnabled(true) is rejected by the server (enable via /activate)", async () => {
+    await expect(client().setExtensionEnabled("e1", true)).rejects.toMatchObject({ status: 400 });
+  });
+
+  test("uninstallExtension resolves with no body on 204", async () => {
+    const res = await client().uninstallExtension("e1");
+    expect(res).toBeUndefined();
+    expect(new URL(lastUrl!).pathname).toBe("/api/extensions/e1");
+  });
+
+  test("updateExtensionPermissions PUTs the permissions and returns the row", async () => {
+    const res = await client().updateExtensionPermissions("e1", { network: true, shell: false });
+    expect(lastPermissionsBody).toEqual({ permissions: { network: true, shell: false } });
+    expect(res).toMatchObject({ id: "e1", grantedPermissions: { network: true, shell: false } });
+    expect(new URL(lastUrl!).pathname).toBe("/api/extensions/e1/permissions");
+  });
+
+  test("lifecycle methods percent-encode the extension id path segment", async () => {
+    await client().activateExtension("e/../x");
+    expect(new URL(lastUrl!).pathname).toBe("/api/extensions/e%2F..%2Fx/activate");
+  });
+});
+
+describe("HarnessClient — extension secrets", () => {
+  test("setExtensionSecret posts name+value (no projectId) and never echoes the value", async () => {
+    const res = await client().setExtensionSecret("e1", "TOKEN", "s3cr3t");
+    expect(res).toEqual({ ok: true });
+    expect(lastSecretBody).toEqual({ name: "TOKEN", value: "s3cr3t" });
+    expect(new URL(lastUrl!).pathname).toBe("/api/extensions/e1/secrets");
+  });
+
+  test("setExtensionSecret forwards an explicit projectId (including null)", async () => {
+    await client().setExtensionSecret("e1", "TOKEN", "v", { projectId: "p-1" });
+    expect(lastSecretBody).toEqual({ name: "TOKEN", value: "v", projectId: "p-1" });
+    await client().setExtensionSecret("e1", "TOKEN", "v", { projectId: null });
+    expect(lastSecretBody).toEqual({ name: "TOKEN", value: "v", projectId: null });
+  });
+
+  test("setExtensionSecret maps a per-extension RBAC 403 to HarnessApiError", async () => {
+    await expect(client().setExtensionSecret("denied", "TOKEN", "v")).rejects.toMatchObject({ status: 403 });
+  });
+
+  test("deleteExtensionSecret returns { deleted } and forwards projectId when given", async () => {
+    const hit = await client().deleteExtensionSecret("e1", "known");
+    expect(hit).toEqual({ deleted: true });
+    expect(lastSecretBody).toEqual({ name: "known" });
+    const miss = await client().deleteExtensionSecret("e1", "absent", { projectId: "p-2" });
+    expect(miss).toEqual({ deleted: false });
+    expect(lastSecretBody).toEqual({ name: "absent", projectId: "p-2" });
+  });
+});
+
+describe("HarnessClient — hub actions + cancel run", () => {
+  test("triggerHubAction posts an empty body when no payload and returns { ok }", async () => {
+    const res = await client().triggerHubAction("core:daily-briefing", "noop");
+    expect(res).toEqual({ ok: true });
+    expect(lastHubActionBody).toEqual({});
+    expect(new URL(lastUrl!).pathname).toBe("/api/hub/pages/core%3Adaily-briefing/actions/noop");
+  });
+
+  test("triggerHubAction forwards a scalar payload and surfaces a rendered page", async () => {
+    const res = await client().triggerHubAction("core:x", "refresh", { since: 5, mode: "full" });
+    expect(lastHubActionBody).toEqual({ payload: { since: 5, mode: "full" } });
+    expect(res).toMatchObject({ ok: true, page: { type: "root" }, renderedAt: 123 });
+  });
+
+  test("cancelRun deletes the run and returns { ok:true }", async () => {
+    const res = await client().cancelRun("r1");
+    expect(res).toEqual({ ok: true });
+    expect(new URL(lastUrl!).pathname).toBe("/api/runs/r1");
+  });
+
+  test("cancelRun maps a not-running 404 to HarnessApiError", async () => {
+    await expect(client().cancelRun("gone")).rejects.toMatchObject({ status: 404 });
   });
 });
