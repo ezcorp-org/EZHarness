@@ -208,25 +208,25 @@ test("connection banner shows Connection failed with Retry button", async ({ pag
 
 // ---- Memory Unavailable ----
 
-test("memory unavailable warning appears in chat", async ({ page, mockApi, emitWs }) => {
+test("memory unavailable warning appears in chat", async ({ page, mockApi, emitSse }) => {
 	await mockApi(chatSetup());
 	await page.goto("/project/proj-1/chat/conv-1");
 	await waitForChatReady(page);
 
-	await emitWs({ type: "run:status", data: { runId: "run-1", status: "memory_unavailable" } });
+	await emitSse({ type: "run:status", data: { runId: "run-1", status: "memory_unavailable" } });
 
 	await expect(page.getByText(/Memory is currently unavailable/)).toBeVisible();
 });
 
-test("memory warning does not repeat for same run", async ({ page, mockApi, emitWs }) => {
+test("memory warning does not repeat for same run", async ({ page, mockApi, emitSse }) => {
 	await mockApi(chatSetup());
 	await page.goto("/project/proj-1/chat/conv-1");
 	await waitForChatReady(page);
 
-	await emitWs({ type: "run:status", data: { runId: "run-1", status: "memory_unavailable" } });
+	await emitSse({ type: "run:status", data: { runId: "run-1", status: "memory_unavailable" } });
 	await expect(page.getByText(/Memory is currently unavailable/)).toBeVisible();
 
-	await emitWs({ type: "run:status", data: { runId: "run-1", status: "memory_unavailable" } });
+	await emitSse({ type: "run:status", data: { runId: "run-1", status: "memory_unavailable" } });
 
 	await expect(page.getByText(/Memory is currently unavailable/)).toHaveCount(1);
 });

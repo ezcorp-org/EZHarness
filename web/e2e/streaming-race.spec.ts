@@ -15,7 +15,7 @@ test.describe("Streaming Race Conditions", () => {
 	const proj = makeProject({ id: "proj-1", name: "Stream Test" });
 	const conv = makeConversation({ id: "conv-1", projectId: "proj-1" });
 
-	test("tokens arriving before POST returns are not wiped", async ({ page, mockApi, emitWs }) => {
+	test("tokens arriving before POST returns are not wiped", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -33,15 +33,15 @@ test.describe("Streaming Race Conditions", () => {
 		await expect(page.getByText("Hello streaming")).toBeVisible({ timeout: 5000 });
 
 		// Now emit tokens — these should appear incrementally
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "First " } });
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "chunk " } });
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "arrives." } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "First " } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "chunk " } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "arrives." } });
 
 		// The accumulated text should be visible
 		await expect(page.getByText("First chunk arrives.")).toBeVisible({ timeout: 5000 });
 	});
 
-	test("incremental tokens stream in progressively", async ({ page, mockApi, emitWs }) => {
+	test("incremental tokens stream in progressively", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -56,11 +56,11 @@ test.describe("Streaming Race Conditions", () => {
 		await expect(page.getByText("Stream test")).toBeVisible({ timeout: 5000 });
 
 		// Send first batch of tokens
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "The answer " } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "The answer " } });
 		await expect(page.getByText("The answer")).toBeVisible({ timeout: 5000 });
 
 		// Send more tokens — text should grow
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "is 42." } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "is 42." } });
 		await expect(page.getByText("The answer is 42.")).toBeVisible({ timeout: 5000 });
 	});
 
@@ -85,7 +85,7 @@ test.describe("Streaming Race Conditions", () => {
 		await expect(page.getByText("Thinking...")).toBeVisible({ timeout: 5000 });
 	});
 
-	test("streaming cursor appears during token flow", async ({ page, mockApi, emitWs }) => {
+	test("streaming cursor appears during token flow", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -100,7 +100,7 @@ test.describe("Streaming Race Conditions", () => {
 		await expect(page.getByText("Cursor test")).toBeVisible({ timeout: 5000 });
 
 		// Send a token so streaming text appears
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Streaming text..." } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Streaming text..." } });
 		await expect(page.getByText("Streaming text...")).toBeVisible({ timeout: 5000 });
 
 		// The blinking cursor should be visible during streaming
@@ -108,7 +108,7 @@ test.describe("Streaming Race Conditions", () => {
 		await expect(cursor).toBeVisible();
 	});
 
-	test("streaming cursor disappears after completion", async ({ page, mockApi, emitWs }) => {
+	test("streaming cursor disappears after completion", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -123,11 +123,11 @@ test.describe("Streaming Race Conditions", () => {
 		await expect(page.getByText("Complete test")).toBeVisible({ timeout: 5000 });
 
 		// Stream tokens
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Done!" } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Done!" } });
 		await expect(page.getByText("Done!")).toBeVisible({ timeout: 5000 });
 
 		// Complete the run
-		await emitWs({
+		await emitSse({
 			type: "run:complete",
 			data: {
 				run: makeRun({ id: "run-stream", status: "success" }),
@@ -139,7 +139,7 @@ test.describe("Streaming Race Conditions", () => {
 		await expect(cursor).not.toBeVisible({ timeout: 5000 });
 	});
 
-	test("stop button disappears after run:complete", async ({ page, mockApi, emitWs }) => {
+	test("stop button disappears after run:complete", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -154,11 +154,11 @@ test.describe("Streaming Race Conditions", () => {
 		await expect(page.getByText("Stop button test")).toBeVisible({ timeout: 5000 });
 
 		// Emit token to establish streaming state
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Processing..." } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Processing..." } });
 		await expect(page.getByRole("button", { name: /stop/i })).toBeVisible({ timeout: 5000 });
 
 		// Complete the run
-		await emitWs({
+		await emitSse({
 			type: "run:complete",
 			data: {
 				run: makeRun({ id: "run-stream", status: "success" }),
@@ -169,7 +169,7 @@ test.describe("Streaming Race Conditions", () => {
 		await expect(page.getByRole("button", { name: /stop/i })).not.toBeVisible({ timeout: 5000 });
 	});
 
-	test("run:error cleans up streaming state", async ({ page, mockApi, emitWs }) => {
+	test("run:error cleans up streaming state", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -186,11 +186,11 @@ test.describe("Streaming Race Conditions", () => {
 		await expect(page.getByText("Error test")).toBeVisible({ timeout: 5000 });
 
 		// Send a token so streaming is active
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Partial..." } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Partial..." } });
 		await expect(page.getByText("Partial...")).toBeVisible({ timeout: 5000 });
 
 		// Emit run:error via WS
-		await emitWs({
+		await emitSse({
 			type: "run:error",
 			data: {
 				run: makeRun({ id: "run-stream", status: "error" }),
@@ -203,7 +203,7 @@ test.describe("Streaming Race Conditions", () => {
 		await expect(page.getByRole("button", { name: /stop/i })).not.toBeVisible({ timeout: 5000 });
 	});
 
-	test("streaming status text shows during processing", async ({ page, mockApi, emitWs }) => {
+	test("streaming status text shows during processing", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -218,11 +218,11 @@ test.describe("Streaming Race Conditions", () => {
 		await expect(page.getByText("Status test")).toBeVisible({ timeout: 5000 });
 
 		// Emit a status update before tokens
-		await emitWs({ type: "run:status", data: { runId: "run-stream", status: "Searching documents..." } });
+		await emitSse({ type: "run:status", data: { runId: "run-stream", status: "Searching documents..." } });
 		await expect(page.getByText("Searching documents...")).toBeVisible({ timeout: 5000 });
 
 		// Then tokens arrive, replacing the skeleton
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Found results." } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Found results." } });
 		await expect(page.getByText("Found results.")).toBeVisible({ timeout: 5000 });
 	});
 });
@@ -231,7 +231,7 @@ test.describe("Streaming Markdown Rendering", () => {
 	const proj = makeProject({ id: "proj-1", name: "MD Test" });
 	const conv = makeConversation({ id: "conv-1", projectId: "proj-1" });
 
-	test("code blocks get syntax highlighting after stream completes", async ({ page, mockApi, emitWs }) => {
+	test("code blocks get syntax highlighting after stream completes", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -247,7 +247,7 @@ test.describe("Streaming Markdown Rendering", () => {
 
 		// Stream a code block
 		const codeBlock = "```js\nconst x = 42;\n```";
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: codeBlock } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: codeBlock } });
 
 		// During streaming: code block should render but WITHOUT hljs classes
 		await expect(page.locator("pre code")).toBeVisible({ timeout: 5000 });
@@ -259,7 +259,7 @@ test.describe("Streaming Markdown Rendering", () => {
 		await expect(page.locator("pre code")).toContainText("const x = 42");
 	});
 
-	test("markdown renders correctly during streaming", async ({ page, mockApi, emitWs }) => {
+	test("markdown renders correctly during streaming", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -274,7 +274,7 @@ test.describe("Streaming Markdown Rendering", () => {
 		await expect(page.getByText("Format test")).toBeVisible({ timeout: 5000 });
 
 		// Stream markdown content
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "**bold** and *italic*" } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "**bold** and *italic*" } });
 
 		// Markdown should be rendered
 		await expect(page.locator("strong").filter({ hasText: "bold" })).toBeVisible({ timeout: 5000 });
@@ -303,7 +303,7 @@ test.describe("Streaming Auto-Scroll", () => {
 		await expect(page.getByText("Optimistic message")).toBeVisible({ timeout: 5000 });
 	});
 
-	test("auto-scroll follows streaming tokens from empty chat", async ({ page, mockApi, emitWs }) => {
+	test("auto-scroll follows streaming tokens from empty chat", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -321,7 +321,7 @@ test.describe("Streaming Auto-Scroll", () => {
 		await expect(page.getByTestId("chat-messages-container").getByText("Scroll test")).toBeVisible({ timeout: 5000 });
 
 		// Stream tokens — the response should be visible (auto-scrolled)
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Streamed response visible." } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Streamed response visible." } });
 		await expect(page.getByTestId("chat-messages-container").getByText("Streamed response visible.")).toBeVisible({ timeout: 5000 });
 	});
 });

@@ -5,7 +5,7 @@ test.describe("Chat Streaming", () => {
 	const proj = makeProject({ id: "proj-1", name: "Stream Project" });
 	const conv = makeConversation({ id: "conv-1", projectId: "proj-1" });
 
-	test("streaming tokens appear in real-time via WebSocket", async ({ page, mockApi, emitWs }) => {
+	test("streaming tokens appear in real-time via WebSocket", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -25,14 +25,14 @@ test.describe("Chat Streaming", () => {
 		await expect(page.getByText("Tell me a joke")).toBeVisible({ timeout: 5000 });
 
 		// Simulate streaming tokens via WS
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Why did " } });
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "the chicken" } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Why did " } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "the chicken" } });
 
 		// Tokens should appear in the page
 		await expect(page.getByText("Why did the chicken")).toBeVisible({ timeout: 5000 });
 	});
 
-	test("stop button appears during streaming", async ({ page, mockApi, emitWs }) => {
+	test("stop button appears during streaming", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -50,13 +50,13 @@ test.describe("Chat Streaming", () => {
 		await expect(page.getByText("Hello")).toBeVisible({ timeout: 5000 });
 
 		// Emit a token to keep stream alive
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Hi " } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Hi " } });
 
 		// The stop button should appear
 		await expect(page.getByRole("button", { name: /stop/i })).toBeVisible({ timeout: 5000 });
 	});
 
-	test("stream completion removes streaming state", async ({ page, mockApi, emitWs }) => {
+	test("stream completion removes streaming state", async ({ page, mockApi, emitSse }) => {
 		const userMsg = makeMessage({
 			id: "m1",
 			conversationId: "conv-1",
@@ -71,7 +71,7 @@ test.describe("Chat Streaming", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		// Simulate a run:complete event
-		await emitWs({
+		await emitSse({
 			type: "run:complete",
 			data: {
 				id: "run-1",

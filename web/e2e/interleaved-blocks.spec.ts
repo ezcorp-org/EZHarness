@@ -40,7 +40,7 @@ test.describe("Interleaved Content Blocks", () => {
 	}
 
 	test.describe("Streaming: text between tool calls is visible", () => {
-		test("text → tool → text renders in order during streaming", async ({ page, mockApi, emitWs }) => {
+		test("text → tool → text renders in order during streaming", async ({ page, mockApi, emitSse }) => {
 			await mockApi({
 				projects: [proj],
 				conversations: [conv],
@@ -53,24 +53,24 @@ test.describe("Interleaved Content Blocks", () => {
 			await sendAndWaitForStream(page, "Search for that");
 
 			// Stream text before tool call
-			await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Let me search." } });
+			await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Let me search." } });
 			await expect(page.getByText("Let me search.")).toBeVisible({ timeout: 5000 });
 
 			// Tool starts
-			await emitWs({
+			await emitSse({
 				type: "tool:start",
 				data: { conversationId: "conv-1", toolName: "web_search", input: { query: "test" }, timestamp: Date.now() },
 			});
 			await expect(page.locator("button").filter({ hasText: "web_search" })).toBeVisible({ timeout: 5000 });
 
 			// Tool completes
-			await emitWs({
+			await emitSse({
 				type: "tool:complete",
 				data: { conversationId: "conv-1", toolName: "web_search", output: "results", duration: 100, success: true },
 			});
 
 			// Stream text after tool call
-			await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Here are the results." } });
+			await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Here are the results." } });
 			await expect(page.getByText("Here are the results.")).toBeVisible({ timeout: 5000 });
 
 			// Both text blocks should be visible simultaneously
@@ -78,7 +78,7 @@ test.describe("Interleaved Content Blocks", () => {
 			await expect(page.getByText("Here are the results.")).toBeVisible();
 		});
 
-		test("tool at start of response (no preceding text)", async ({ page, mockApi, emitWs }) => {
+		test("tool at start of response (no preceding text)", async ({ page, mockApi, emitSse }) => {
 			await mockApi({
 				projects: [proj],
 				conversations: [conv],
@@ -91,24 +91,24 @@ test.describe("Interleaved Content Blocks", () => {
 			await sendAndWaitForStream(page, "Do it");
 
 			// Tool starts immediately (no text before)
-			await emitWs({
+			await emitSse({
 				type: "tool:start",
 				data: { conversationId: "conv-1", toolName: "read_file", input: { path: "/test" }, timestamp: Date.now() },
 			});
 			await expect(page.locator("button").filter({ hasText: "read_file" })).toBeVisible({ timeout: 5000 });
 
 			// Tool completes
-			await emitWs({
+			await emitSse({
 				type: "tool:complete",
 				data: { conversationId: "conv-1", toolName: "read_file", output: "file content", duration: 50, success: true },
 			});
 
 			// Text after tool
-			await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Here is the file content." } });
+			await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Here is the file content." } });
 			await expect(page.getByText("Here is the file content.")).toBeVisible({ timeout: 5000 });
 		});
 
-		test("multiple tools with text between each", async ({ page, mockApi, emitWs }) => {
+		test("multiple tools with text between each", async ({ page, mockApi, emitSse }) => {
 			await mockApi({
 				projects: [proj],
 				conversations: [conv],
@@ -121,29 +121,29 @@ test.describe("Interleaved Content Blocks", () => {
 			await sendAndWaitForStream(page, "Multi tool");
 
 			// Text → tool1 → text → tool2 → text
-			await emitWs({ type: "run:token", data: { runId: "run-stream", token: "First I will read." } });
+			await emitSse({ type: "run:token", data: { runId: "run-stream", token: "First I will read." } });
 
-			await emitWs({
+			await emitSse({
 				type: "tool:start",
 				data: { conversationId: "conv-1", toolName: "read_file", input: {}, timestamp: Date.now() },
 			});
-			await emitWs({
+			await emitSse({
 				type: "tool:complete",
 				data: { conversationId: "conv-1", toolName: "read_file", output: "data", duration: 30, success: true },
 			});
 
-			await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Now I will search." } });
+			await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Now I will search." } });
 
-			await emitWs({
+			await emitSse({
 				type: "tool:start",
 				data: { conversationId: "conv-1", toolName: "grep", input: {}, timestamp: Date.now() },
 			});
-			await emitWs({
+			await emitSse({
 				type: "tool:complete",
 				data: { conversationId: "conv-1", toolName: "grep", output: "matches", duration: 20, success: true },
 			});
 
-			await emitWs({ type: "run:token", data: { runId: "run-stream", token: "All done." } });
+			await emitSse({ type: "run:token", data: { runId: "run-stream", token: "All done." } });
 
 			// All three text blocks should be visible
 			await expect(page.getByText("First I will read.")).toBeVisible({ timeout: 5000 });
@@ -217,7 +217,7 @@ test.describe("Interleaved Content Blocks", () => {
 	});
 
 	test.describe("DOM ordering of interleaved blocks", () => {
-		test("text appears before tool card which appears before trailing text in DOM order", async ({ page, mockApi, emitWs }) => {
+		test("text appears before tool card which appears before trailing text in DOM order", async ({ page, mockApi, emitSse }) => {
 			await mockApi({
 				projects: [proj],
 				conversations: [conv],
@@ -229,16 +229,16 @@ test.describe("Interleaved Content Blocks", () => {
 
 			await sendAndWaitForStream(page, "Check order");
 
-			await emitWs({ type: "run:token", data: { runId: "run-stream", token: "BEFORE_TOOL" } });
-			await emitWs({
+			await emitSse({ type: "run:token", data: { runId: "run-stream", token: "BEFORE_TOOL" } });
+			await emitSse({
 				type: "tool:start",
 				data: { conversationId: "conv-1", toolName: "test_tool", input: {}, timestamp: Date.now() },
 			});
-			await emitWs({
+			await emitSse({
 				type: "tool:complete",
 				data: { conversationId: "conv-1", toolName: "test_tool", output: "ok", duration: 10, success: true },
 			});
-			await emitWs({ type: "run:token", data: { runId: "run-stream", token: "AFTER_TOOL" } });
+			await emitSse({ type: "run:token", data: { runId: "run-stream", token: "AFTER_TOOL" } });
 
 			// Wait for all content to render
 			await expect(page.getByText("BEFORE_TOOL")).toBeVisible({ timeout: 5000 });
