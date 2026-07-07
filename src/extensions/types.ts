@@ -66,6 +66,23 @@ export interface ToolDefinition {
    * field is absent. The PDP uses the FINAL post-migration value.
    */
   capabilities?: CapabilityDeclaration;
+  /**
+   * Extension-RBAC scope (user→extension axis) REQUIRED to invoke this
+   * tool. When set, the host enforces it at dispatch: the acting user
+   * must hold the scope — an explicit `extension_rbac_grants` row, or the
+   * admin role — at the calling conversation's project, else the call is
+   * DENIED before the subprocess runs (`PermissionDeniedError`). This is
+   * the ENFORCEMENT counterpart to the advisory `ctx.rbac.check(scope)`
+   * reverse-RPC: an extension can no longer bypass a denied scope by
+   * ignoring the check result. Complementary to `capabilities` (what the
+   * EXTENSION may do); this governs whether the USER may drive it.
+   *
+   * The value must be a core verb (use / configure / secrets /
+   * approve-runs / manage) or a custom scope this manifest declares in
+   * `permissions.rbacScopes` — validated at admit time. Absent = the tool
+   * carries no user→extension gate (unchanged behavior).
+   */
+  rbacScope?: string;
 }
 
 export interface SkillDefinition {

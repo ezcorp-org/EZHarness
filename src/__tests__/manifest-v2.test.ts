@@ -1055,3 +1055,92 @@ describe("validateManifestV2 — permissions.rbacScopes", () => {
     expect(isValidCustomRbacScopeName("Bad")).toBe(false); // grammar
   });
 });
+
+// ── Validation: tools[].rbacScope (host-enforced user→extension gate) ────
+//
+// A tool's `rbacScope` is the scope the host ENFORCES at dispatch (see
+// ToolExecutor.executeToolCall). Admit-time validation mirrors the
+// `ezcorp/rbac-check` allowlist exactly: it must be a core verb or a
+// scope this manifest declares in `permissions.rbacScopes`. Rejecting an
+// undeclared scope here turns a runtime "silently deny every non-admin"
+// authoring bug into a clear install-time error.
+
+describe("validateManifestV2 — tools[].rbacScope", () => {
+  const withTool = (rbacScope: unknown, rbacScopes?: unknown) =>
+    validateManifestV2(
+      makeValidManifest({
+        tools: [
+          {
+            name: "gated",
+            description: "d",
+            inputSchema: { type: "object" },
+            rbacScope,
+          } as unknown as ToolDefinition,
+        ],
+        permissions: (rbacScopes !== undefined
+          ? { rbacScopes }
+          : {}) as ExtensionManifestV2["permissions"],
+      }),
+    );
+
+  test("a core verb needs no declaration", () => {
+    for (const verb of CORE_RBAC_SCOPES) {
+      const r = withTool(verb);
+      expect(r.valid).toBe(true);
+      expect(r.errors).toEqual([]);
+    }
+  });
+
+  test("a custom scope declared in permissions.rbacScopes passes", () => {
+    const r = withTool("write-tickets", [
+      { name: "write-tickets", description: "Mutate tickets" },
+    ]);
+    expect(r.valid).toBe(true);
+    expect(r.errors).toEqual([]);
+  });
+
+  test("a custom scope NOT declared is rejected (fail-closed at admit time)", () => {
+    const r = withTool("made-up");
+    expect(r.valid).toBe(false);
+    expect(r.errors.some((e) => e.includes('tools[0].rbacScope "made-up"'))).toBe(true);
+    expect(r.errors.some((e) => e.includes("core verb"))).toBe(true);
+  });
+
+  test("a non-string / empty rbacScope is rejected", () => {
+    for (const bad of [42, "", null]) {
+      const r = withTool(bad);
+      expect(r.valid).toBe(false);
+      expect(
+        r.errors.some((e) => e.includes("rbacScope must be a non-empty string")),
+      ).toBe(true);
+    }
+  });
+
+  test("absent rbacScope on every tool stays valid (unchanged path)", () => {
+    const r = validateManifestV2(makeValidManifest()); // default tool has no rbacScope
+    expect(r.valid).toBe(true);
+  });
+
+  test("a non-object tool entry is skipped by the rbacScope pass (no crash)", () => {
+    const r = validateManifestV2(
+      makeValidManifest({
+        tools: [
+          "nope",
+          { name: "ok", description: "d", inputSchema: { type: "object" }, rbacScope: "use" },
+        ] as unknown as ToolDefinition[],
+      }),
+    );
+    // validateToolsArray owns the shape error; the rbacScope pass must not
+    // crash on the non-object entry and must accept the valid sibling.
+    expect(r.errors.some((e) => e.includes("tools[0] must be an object"))).toBe(true);
+    expect(r.errors.some((e) => e.includes("tools[1].rbacScope"))).toBe(false);
+  });
+
+  test("non-array tools short-circuits the rbacScope pass", () => {
+    const r = validateManifestV2(
+      makeValidManifest({ tools: "nope" as unknown as ToolDefinition[] }),
+    );
+    expect(r.valid).toBe(false);
+    expect(r.errors.some((e) => e.includes("tools must be an array"))).toBe(true);
+  });
+});

@@ -731,6 +731,34 @@ export class ToolExecutor {
       ...capabilityDeclarationToSet(tool?.capabilities, input),
     ];
 
+    // Extension-RBAC (user→extension) ENFORCEMENT gate. When the tool's
+    // manifest DECLARES an `rbacScope`, the acting user MUST hold it — the
+    // host resolves the grant and DENIES the call before the subprocess
+    // runs, regardless of whether the extension bothered to call the
+    // advisory `ctx.rbac.check`. This is what makes declared scopes real:
+    // an extension can no longer perform a denied action by ignoring the
+    // check result. Tools with NO declared scope skip this entirely
+    // (unchanged path). The grant coordinate is the manifest NAME (what
+    // `extension_rbac_grants` references), and the project is derived
+    // server-side from the conversation — identical semantics to the
+    // advisory `ctx.rbac.check` via the shared `resolveExtensionScopeGrant`.
+    const requiredScope = tool?.rbacScope;
+    if (requiredScope) {
+      const scopeGranted = await this.resolveExtensionScopeGrant(
+        manifest?.name ?? extensionId,
+        requiredScope,
+        this.currentUserId ?? null,
+        conversationId ?? null,
+      );
+      if (!scopeGranted) {
+        throw new PermissionDeniedError(
+          extensionId,
+          toolName,
+          `requires extension RBAC scope '${requiredScope}'`,
+        );
+      }
+    }
+
     // Mandatory in-chat approval for agent-driven extension install.
     // The bundled `extension-author.install_draft` tool installs
     // model-authored code that then runs with its declared
@@ -2425,30 +2453,63 @@ export class ToolExecutor {
       );
     }
 
-    // Resolve the acting user's role for the resolver. Fail-closed: an
-    // unknown/deleted user is a soft deny, not an error.
-    const user = await getUserById(resolved.onBehalfOf);
-    if (!user) {
-      log.warn("rbac-check: provenance user not found — deny-by-default", {
-        extensionId,
-        scope,
-      });
-      return { jsonrpc: "2.0", id: req.id, result: { granted: false } };
-    }
-
-    // projectId is derived SERVER-SIDE from the calling conversation —
-    // params never carry it (same rule as the github-projects handler).
-    let projectId: string | null = null;
-    if (resolved.conversationId && resolved.conversationId !== "unknown") {
-      const conversation = await getConversation(resolved.conversationId);
-      projectId = conversation?.projectId ?? null;
-    }
-
-    const isGranted = await hasExtensionScope(
-      { id: user.id, role: user.role },
-      { projectId, extensionId: manifest.name, scope },
+    // The decision core is shared with the host-side enforcement gate in
+    // `executeToolCall` (single source of truth — see
+    // `resolveExtensionScopeGrant`). Identity + project come from the
+    // provenance-resolved coordinates; the wire never carries them.
+    const isGranted = await this.resolveExtensionScopeGrant(
+      manifest.name,
+      scope,
+      resolved.onBehalfOf,
+      resolved.conversationId,
     );
     return { jsonrpc: "2.0", id: req.id, result: { granted: isGranted } };
+  }
+
+  /**
+   * The SINGLE decision core for the extension-RBAC (user→extension) axis:
+   * does `onBehalfOf` hold `scope` for `extensionName` at the project
+   * derived from `conversationId`? Shared by the advisory
+   * `ctx.rbac.check` reverse-RPC (`handlePiRbacCheck`) and the host-side
+   * pre-dispatch ENFORCEMENT gate in `executeToolCall`, so the answer the
+   * extension is *told* and the answer the host *enforces* can never
+   * diverge.
+   *
+   * Deny-by-default + fail-closed: no acting user, an unknown/deleted
+   * user, or no covering grant all resolve `false`. Admins resolve `true`
+   * inside `hasExtensionScope` without a grants query (the core sentinel).
+   * The PROJECT coordinate is derived SERVER-SIDE from the conversation —
+   * never the wire (same rule as the github-projects handler); a
+   * background fire with no conversation checks at the "all projects"
+   * (null) coordinate, which only NULL-project grant rows cover.
+   *
+   * `extensionName` MUST be the manifest NAME (`extension_rbac_grants`
+   * references `extensions.name`), NOT the registry instance id.
+   */
+  private async resolveExtensionScopeGrant(
+    extensionName: string,
+    scope: string,
+    onBehalfOf: string | null,
+    conversationId: string | null,
+  ): Promise<boolean> {
+    if (!onBehalfOf) return false;
+    const user = await getUserById(onBehalfOf);
+    if (!user) {
+      log.warn("extension RBAC: acting user not found — deny-by-default", {
+        extension: extensionName,
+        scope,
+      });
+      return false;
+    }
+    let projectId: string | null = null;
+    if (conversationId && conversationId !== "unknown") {
+      const conversation = await getConversation(conversationId);
+      projectId = conversation?.projectId ?? null;
+    }
+    return hasExtensionScope(
+      { id: user.id, role: user.role },
+      { projectId, extensionId: extensionName, scope },
+    );
   }
 
   /**
