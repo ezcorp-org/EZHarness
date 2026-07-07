@@ -120,29 +120,27 @@ jobs:
   # only tier that proves the integrated auth + harness-control + extension
   # seams (CRIT-2: previously wired to no workflow).
   #
-  # Validated GREEN locally (7 passed, 47.6s). NON-BLOCKING (continue-on-error)
-  # on purpose: the extension-spawn specs (extension-author-flow,
-  # extension-control-flow) exercise the real sandbox and currently die on the
-  # hosted runner with `prlimit: failed to execute bun: Permission denied`
-  # (EACCES → exit 126). Root cause (diagnosed from run 28818896405): NOT a
-  # missing kernel capability — the runner HAS landlock and the jail engages
-  # correctly. The failure is a grant-set gap: setup-bun installs bun under
-  # ~/.bun/bin, but the sandbox's read-exec allowlist (DEFAULT_RUNTIME_RO_DIRS
-  # in src/extensions/sandbox/landlock.ts) doesn't include that path, so the
-  # jailed `prlimit … bun` exec is denied. The fix is product-side — grant the
-  # runtime binary's real directory, `dirname(realpathSync(process.execPath))`,
-  # in the sandbox subprocess/landlock grant set — and is deliberately OUT of
-  # scope for this CI-gating PR (which must not touch product sandbox code).
-  # Until that follow-up lands the job still RUNS and surfaces its result on
-  # every PR for visibility; it just doesn't block merge. Once the grant fix
-  # ships a MAINTAINER should promote this to a required check. Until then the
-  # blocking coverage for these seams is the backend integration suites (real
-  # PGlite, gated via backend-critical) + the mocked e2e tier.
+  # BLOCKING gate. Two of the specs (extension-author-flow,
+  # extension-control-flow) spawn a REAL extension subprocess via the sandbox
+  # (`prlimit` + Landlock). On GitHub hosted runners the tier resolves to
+  # `landlock` and the jail engages, but setup-bun's `bun` (under `~/.bun/bin`)
+  # is outside the sandbox read-exec allowlist, so the jailed `prlimit … bun`
+  # exec is denied (`prlimit: failed to execute bun: Permission denied`, EACCES
+  # → exit 126) and the extension dies at bring-up. Those two specs are now
+  # capability-gated: they `test.skip(() => !sandboxSpawnAvailable(), …)` via a
+  # real spawn probe (web/e2e/real-auth/sandbox-probe.ts, which runs the actual
+  # tier probe + jail wrap around the real `prlimit + bun` chain), so on hosted
+  # runners they SKIP cleanly while on a capable runner (dev host / prod
+  # container, where bun resolves under a granted dir) they RUN. The always-run
+  # specs (auth-fixture, harness-client-flow, role-carrying-key-flow) prove
+  # auth + harness-control on every runner, so a genuine failure now reds the
+  # job. (The product-side follow-up — granting the runtime binary's real dir
+  # in DEFAULT_RUNTIME_RO_DIRS so the extension specs run unconditionally on
+  # hosted runners too — is tracked separately and out of scope here.)
   e2e-real-auth:
     name: E2E (real auth + real DB)
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
