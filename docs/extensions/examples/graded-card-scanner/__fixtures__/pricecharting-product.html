@@ -1,0 +1,80 @@
+<!doctype html>
+<!--
+  Trimmed PriceCharting product-page fixture for graded-card-scanner tests.
+  Extracted from tasks/spikes/pricecharting-charizard-fixture.html (the live
+  1999 Pokemon Base Set Charizard #4 capture, 2026-07-06) down to the summary
+  price-table region the parser reads. The six `<td id="…_price">` cells and
+  their nested `.price.js-price` / `.change` spans are byte-for-byte from the
+  live page so the parser is exercised against real markup, not a hand-mock.
+  A blank cell (`box_only_price` here is populated; the blank-cell case lives
+  in pricecharting-product-blanks.html).
+-->
+<html>
+  <head><title>Pokemon Base Set Charizard #4 Prices</title></head>
+  <body>
+    <table id="price_data">
+      <thead>
+        <tr>
+          <th>Ungraded</th>
+          <th>Grade 7</th>
+          <th>Grade 8</span></th>
+          <th class="tablet-portrait-hidden">Grade 9</th>
+          <th class="tablet-portrait-hidden">Grade 9.5</th>
+          <th class="tablet-portrait-hidden">PSA 10</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td id="used_price">
+            <span class="price js-price">
+            $381.55
+            </span>
+            <span class="change" title="dollar change from last update">
+            &#43;<span class="js-price">$28.86</span>
+            </span>
+          </td>
+          <td id="complete_price">
+            <span class="price js-price">
+            $714.50
+            </span>
+            <span class="change" title="dollar change from last update">
+            <span class="js-price">$0.00</span>
+            </span>
+          </td>
+          <td id="new_price">
+            <span class="price js-price">
+            $1,201.99
+            </span>
+            <span class="change" title="dollar change from last update">
+            -<span class="js-price">$7.71</span>
+            </span>
+          </td>
+          <td id="graded_price" class="tablet-portrait-hidden">
+            <span class="price js-price">
+            $2,587.50
+            </span>
+            <span class="change" title="dollar change from last update">
+            &#43;<span class="js-price">$125.68</span>
+            </span>
+          </td>
+          <td id="box_only_price" class="tablet-portrait-hidden">
+            <span class="price js-price">
+            $3,875.00
+            </span>
+            <span class="change" title="dollar change from last update">
+            -<span class="js-price">$51.00</span>
+            </span>
+          </td>
+          <td id="manual_only_price" class="tablet-portrait-hidden">
+            <span class="price js-price">
+            $30,100.00
+            </span>
+            <span class="change" title="dollar change from last update">
+            <span class="js-price">$0.00</span>
+            </span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </body>
+</html>

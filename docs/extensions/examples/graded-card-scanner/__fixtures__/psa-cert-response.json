@@ -1,0 +1,22 @@
+{
+  "PSACert": {
+    "CertNumber": "49392223",
+    "SpecID": 204327,
+    "SpecNumber": "4",
+    "LabelType": "WithLanguage",
+    "ReverseBarCode": false,
+    "Year": "1999",
+    "Brand": "POKEMON GAME",
+    "Category": "TCG Cards",
+    "CardNumber": "4",
+    "Subject": "CHARIZARD",
+    "Variety": "HOLO",
+    "IsPSADNA": false,
+    "IsDualCert": false,
+    "GradeDescription": "MINT 9",
+    "CardGrade": "MINT 9",
+    "TotalPopulation": 2101,
+    "TotalPopulationWithQualifier": 2101,
+    "PopulationHigher": 121
+  }
+}

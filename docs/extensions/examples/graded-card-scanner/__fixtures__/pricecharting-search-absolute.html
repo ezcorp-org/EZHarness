@@ -1,0 +1,28 @@
+<!doctype html>
+<!--
+  Trimmed PriceCharting /search-products results fixture using ABSOLUTE hrefs
+  on PriceCharting's own origin — the shape the live site actually serves for
+  a non-redirecting query (verified 2026-07-06 with "2024 pokemon japanese
+  sv8 super electric breaker pikachu ex 132"). `firstProductHref` must return
+  the PATH portion of the first product link, and the confidence gate then
+  requires that path's slug to carry the card number + a subject token.
+-->
+<html>
+  <head><title>Search results</title></head>
+  <body>
+    <table id="games_table">
+      <tbody>
+        <tr>
+          <td class="title">
+            <a href="https://www.pricecharting.com/game/pokemon-japanese-super-electric-breaker/pikachu-ex-132">Pikachu ex #132</a>
+          </td>
+        </tr>
+        <tr>
+          <td class="title">
+            <a href="https://www.pricecharting.com/game/pokemon-japanese-super-electric-breaker/pikachu-ex-238">Pikachu ex #238 (SIR)</a>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </body>
+</html>

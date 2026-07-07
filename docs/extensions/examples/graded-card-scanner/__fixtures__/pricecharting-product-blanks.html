@@ -1,0 +1,44 @@
+<!doctype html>
+<!--
+  PriceCharting product-page fixture with BLANK / ABSENT price cells, to prove
+  null-honesty: a missing or empty price renders `null`, never $0 or a guess.
+  - used_price:        empty `.price.js-price` span  → null
+  - complete_price:    no price span at all          → null
+  - new_price:         populated                     → 1201.99
+  - graded_price:      whitespace-only span          → null
+  - manual_only_price: populated                     → 30100.00
+  (box_only_price omitted entirely — the parser never reads it anyway.)
+-->
+<html>
+  <head><title>Sparse Card Prices</title></head>
+  <body>
+    <table id="price_data">
+      <tbody>
+        <tr>
+          <td id="used_price">
+            <span class="price js-price"></span>
+          </td>
+          <td id="complete_price">
+            <span class="change" title="dollar change from last update">
+            <span class="js-price">$0.00</span>
+            </span>
+          </td>
+          <td id="new_price">
+            <span class="price js-price">
+            $1,201.99
+            </span>
+          </td>
+          <td id="graded_price" class="tablet-portrait-hidden">
+            <span class="price js-price">
+            </span>
+          </td>
+          <td id="manual_only_price" class="tablet-portrait-hidden">
+            <span class="price js-price">
+            $30,100.00
+            </span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </body>
+</html>

@@ -187,6 +187,15 @@ export const GET: RequestHandler = async ({ params, locals }) => {
     "X-Content-Type-Options": "nosniff",
     "Cache-Control": "private, no-store",
     "Referrer-Policy": "no-referrer",
+    // Scanner-type extensions need getUserMedia on their top-level
+    // extension page, so this route opts camera back IN for its own
+    // served content. hooks.server.ts applies the global
+    // `camera=()` deny only via `if (!response.headers.has(key))`, so
+    // this route-level value wins here while every other route keeps the
+    // deny. Camera still requires the browser's own per-origin user
+    // consent — this header only stops the platform from pre-denying it.
+    // Council trade-off documented in tasks/gcs-phase2.md (Phase D).
+    "Permissions-Policy": "camera=(self), microphone=(), geolocation=()",
   });
 
   // Stream the file rather than buffering. For HTML drafts this is

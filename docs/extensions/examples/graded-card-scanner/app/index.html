@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Graded Card Scanner</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="gcs-header">
+      <h1>Graded Card Scanner</h1>
+      <span class="gcs-session">session: <strong data-testid="gcs-count">0</strong></span>
+    </header>
+
+    <div class="gcs-mock-banner" data-testid="gcs-mock-banner" hidden>
+      Mock mode — backend unreachable, showing sample data.
+    </div>
+
+    <main>
+      <!-- ── Scan ─────────────────────────────────────────────── -->
+      <section class="gcs-scan">
+        <div id="scan-frame" class="gcs-frame">
+          <video data-testid="gcs-video" muted playsinline></video>
+        </div>
+        <p class="gcs-status" data-testid="gcs-status" aria-live="polite"></p>
+        <div class="gcs-controls">
+          <button data-testid="gcs-pause" class="gcs-btn">Pause</button>
+          <label class="gcs-btn gcs-btn-secondary">
+            Photo
+            <input data-testid="gcs-upload" type="file" accept="image/*" capture="environment" hidden />
+          </label>
+          <button data-testid="gcs-simulate" class="gcs-btn gcs-btn-secondary">Simulate scan</button>
+        </div>
+        <form data-testid="gcs-manual-form" class="gcs-manual">
+          <input
+            data-testid="gcs-manual-input"
+            inputmode="numeric"
+            placeholder="…or type a cert number"
+            aria-label="Cert number"
+          />
+          <button data-testid="gcs-manual-add" class="gcs-btn">Add</button>
+        </form>
+      </section>
+
+      <!-- ── Saved list ───────────────────────────────────────── -->
+      <section class="gcs-saved">
+        <div class="gcs-saved-head">
+          <input data-testid="gcs-search" type="search" placeholder="Search cards…" aria-label="Search cards" />
+          <button data-testid="gcs-clear-all" class="gcs-btn gcs-btn-danger">Clear all</button>
+        </div>
+        <p data-testid="gcs-empty" class="gcs-empty">No cards yet — scan a slab to start your list.</p>
+        <ul data-testid="gcs-list" class="gcs-list"></ul>
+      </section>
+    </main>
+
+    <!-- ── Detail ─────────────────────────────────────────────── -->
+    <section class="gcs-detail" data-testid="gcs-detail" hidden>
+      <div class="gcs-detail-head">
+        <div>
+          <h2 data-testid="gcs-detail-title"></h2>
+          <p data-testid="gcs-detail-meta" class="gcs-detail-meta"></p>
+        </div>
+        <button data-testid="gcs-detail-close" class="gcs-icon-btn" aria-label="Close detail">✕</button>
+      </div>
+      <table class="gcs-table" data-testid="gcs-grade-table">
+        <thead>
+          <tr><th>Grade</th><th>Population</th><th>Price</th><th>% vs lower</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="gcs-chart-host" data-testid="gcs-chart"></div>
+      <div class="gcs-sources" data-testid="gcs-sources"></div>
+      <button data-testid="gcs-fetch-fresh" class="gcs-btn">Fetch fresh</button>
+    </section>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

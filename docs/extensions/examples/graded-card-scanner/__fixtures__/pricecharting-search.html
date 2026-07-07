@@ -1,0 +1,27 @@
+<!doctype html>
+<!--
+  Trimmed PriceCharting /search-products results fixture. The parser reads the
+  FIRST `/game/…` product href. The confidence gate then requires that href's
+  slug to contain the card number AND at least one subject token, so the first
+  hit here ("charizard-4") is a confident match for the Charizard #4 identity
+  and a NON-match for, e.g., a "blastoise 2" identity (covered in tests).
+-->
+<html>
+  <head><title>Search results</title></head>
+  <body>
+    <table id="games_table">
+      <tbody>
+        <tr>
+          <td class="title">
+            <a href="/game/pokemon-base-set/charizard-4">Charizard #4</a>
+          </td>
+        </tr>
+        <tr>
+          <td class="title">
+            <a href="/game/pokemon-base-set-unlimited/charizard-4">Charizard #4 (Unlimited)</a>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </body>
+</html>

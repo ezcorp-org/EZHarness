@@ -1,11 +1,13 @@
 {
   "extends": "./tsconfig.json",
   "// purpose": "CI typecheck of production source only. Test files live in src/__tests__ and transitively import from web/src/routes, which pulls web (SvelteKit) files into root tsc's graph without its `$server`/`$lib`/`./$types` aliases. Excluding tests here keeps the root check focused on backend src/. Web (web/) is type-checked separately via scripts/typecheck.sh → `cd web && tsc`.",
+  "// browser code": "The graded-card-scanner extension ships a browser SPA under app/ (getUserMedia, IndexedDB, DOM). Those files are @ts-check'd against the DOM lib at dev time and covered by unit + e2e tests; they must NOT be pulled into this backend (ESNext-lib, no DOM) program, or `document`/`window`/`IDBDatabase` resolve as errors. The subprocess still imports app/lib/cert.js + mock-card.js, which are DOM-free and stay type-checked via those imports.",
   "exclude": [
     "web",
     "**/node_modules/**",
     "**/.svelte-kit/**",
     "**/worktrees/**",
+    "docs/extensions/examples/graded-card-scanner/app/**",
     "src/__tests__/**",
     "**/*.test.ts",
     "packages/**/__tests__/**",

@@ -1,0 +1,150 @@
+/* Graded Card Scanner — phone-first. Chart colors follow the dataviz
+ * token approach: roles as custom properties, dark mode swaps values. */
+
+:root {
+  --gcs-surface: #fcfcfb;
+  --gcs-plane: #f9f9f7;
+  --gcs-ink: #0b0b0b;
+  --gcs-ink-2: #52514e;
+  --gcs-muted: #898781;
+  --gcs-hairline: #e1e0d9;
+  --gcs-axis: #c3c2b7;
+  --gcs-series-pop: #2a78d6;
+  --gcs-series-pop-scanned: #104281;
+  --gcs-series-price: #1baf7a;
+  --gcs-danger: #d03b3b;
+  --gcs-good: #0ca30c;
+  --gcs-warn: #fab219;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --gcs-surface: #1a1a19;
+    --gcs-plane: #0d0d0d;
+    --gcs-ink: #ffffff;
+    --gcs-ink-2: #c3c2b7;
+    --gcs-muted: #898781;
+    --gcs-hairline: #2c2c2a;
+    --gcs-axis: #383835;
+    --gcs-series-pop: #3987e5;
+    --gcs-series-pop-scanned: #86b6ef;
+    --gcs-series-price: #199e70;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--gcs-plane);
+  color: var(--gcs-ink);
+  padding-bottom: 4rem;
+}
+main { max-width: 480px; margin: 0 auto; padding: 0 12px; }
+
+.gcs-header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--gcs-hairline);
+}
+.gcs-header h1 { font-size: 1.05rem; margin: 0; }
+.gcs-session { color: var(--gcs-ink-2); font-size: 0.85rem; }
+
+.gcs-mock-banner {
+  background: var(--gcs-warn); color: #0b0b0b;
+  padding: 6px 16px; font-size: 0.85rem; font-weight: 600;
+}
+
+.gcs-frame {
+  position: relative; margin-top: 12px; border-radius: 12px; overflow: hidden;
+  background: #000; aspect-ratio: 4 / 3;
+  border: 2px solid var(--gcs-hairline);
+}
+.gcs-frame video { width: 100%; height: 100%; object-fit: cover; }
+.gcs-flash { animation: gcs-flash 0.5s ease-out; }
+@keyframes gcs-flash {
+  0% { border-color: var(--gcs-good); box-shadow: 0 0 0 4px var(--gcs-good); }
+  100% { border-color: var(--gcs-hairline); box-shadow: none; }
+}
+
+.gcs-status { min-height: 1.2em; color: var(--gcs-ink-2); font-size: 0.85rem; margin: 8px 2px; }
+.gcs-error-text { color: var(--gcs-danger); }
+
+.gcs-controls { display: flex; gap: 8px; }
+.gcs-btn {
+  appearance: none; border: 1px solid var(--gcs-hairline); border-radius: 8px;
+  background: var(--gcs-surface); color: var(--gcs-ink);
+  padding: 8px 14px; font-size: 0.9rem; cursor: pointer;
+}
+.gcs-btn:disabled { opacity: 0.45; cursor: default; }
+.gcs-btn-secondary { color: var(--gcs-ink-2); }
+.gcs-btn-danger { color: var(--gcs-danger); }
+.gcs-icon-btn {
+  appearance: none; border: none; background: none; color: var(--gcs-muted);
+  font-size: 1rem; cursor: pointer; padding: 6px;
+}
+
+.gcs-manual { display: flex; gap: 8px; margin-top: 8px; }
+.gcs-manual input, .gcs-saved-head input {
+  flex: 1; border: 1px solid var(--gcs-hairline); border-radius: 8px;
+  background: var(--gcs-surface); color: var(--gcs-ink); padding: 8px 10px;
+  font-size: 0.95rem;
+}
+
+.gcs-saved { margin-top: 20px; }
+.gcs-saved-head { display: flex; gap: 8px; }
+.gcs-empty { color: var(--gcs-muted); font-size: 0.9rem; text-align: center; padding: 18px 0; }
+
+.gcs-list { list-style: none; margin: 10px 0 0; padding: 0; }
+.gcs-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--gcs-surface); border: 1px solid var(--gcs-hairline);
+  border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer;
+}
+.gcs-row-main { flex: 1; min-width: 0; }
+.gcs-row-title { font-weight: 600; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gcs-row-sub { color: var(--gcs-ink-2); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.gcs-row-badges { display: flex; gap: 6px; align-items: center; }
+.gcs-grade-badge {
+  background: var(--gcs-series-pop); color: #fff; border-radius: 6px;
+  font-size: 0.72rem; font-weight: 700; padding: 3px 7px; white-space: nowrap;
+}
+.gcs-chip { border-radius: 999px; font-size: 0.7rem; padding: 2px 8px; border: 1px solid var(--gcs-hairline); color: var(--gcs-ink-2); }
+.gcs-chip-pending { border-color: var(--gcs-warn); color: var(--gcs-warn); }
+.gcs-chip-done { border-color: var(--gcs-good); color: var(--gcs-good); }
+.gcs-chip-error { border-color: var(--gcs-danger); color: var(--gcs-danger); }
+
+.gcs-detail {
+  position: fixed; inset: 0; overflow-y: auto; z-index: 10;
+  background: var(--gcs-plane); padding: 16px; max-width: 520px; margin: 0 auto;
+}
+.gcs-detail-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.gcs-detail-head h2 { margin: 0; font-size: 1.05rem; }
+.gcs-detail-meta { color: var(--gcs-ink-2); font-size: 0.85rem; margin: 4px 0 0; }
+
+.gcs-table {
+  width: 100%; border-collapse: collapse; margin: 14px 0;
+  background: var(--gcs-surface); border: 1px solid var(--gcs-hairline); border-radius: 10px;
+  font-size: 0.88rem;
+}
+.gcs-table th {
+  text-align: left; color: var(--gcs-muted); font-weight: 600; font-size: 0.75rem;
+  padding: 8px 10px; border-bottom: 1px solid var(--gcs-hairline);
+}
+.gcs-table td { padding: 7px 10px; border-bottom: 1px solid var(--gcs-hairline); font-variant-numeric: tabular-nums; }
+.gcs-table tr:last-child td { border-bottom: none; }
+.gcs-tr-scanned td { background: color-mix(in srgb, var(--gcs-series-pop) 12%, transparent); font-weight: 700; }
+
+.gcs-chart-host { background: var(--gcs-surface); border: 1px solid var(--gcs-hairline); border-radius: 10px; padding: 8px; }
+.gcs-chart { width: 100%; height: auto; display: block; }
+.gcs-chart-title { fill: var(--gcs-ink-2); font-size: 11px; font-weight: 600; }
+.gcs-chart-label { fill: var(--gcs-ink); font-size: 10px; font-weight: 600; }
+.gcs-chart-tick { fill: var(--gcs-muted); font-size: 9px; font-variant-numeric: tabular-nums; }
+.gcs-chart-muted { fill: var(--gcs-muted); font-size: 11px; }
+.gcs-chart-axis { stroke: var(--gcs-axis); stroke-width: 1; }
+.gcs-bar { fill: var(--gcs-series-pop); }
+.gcs-bar-scanned { fill: var(--gcs-series-pop-scanned); }
+.gcs-scanned-dot { fill: var(--gcs-series-pop-scanned); }
+.gcs-price-line { stroke: var(--gcs-series-price); stroke-width: 2; }
+.gcs-price-dot { fill: var(--gcs-series-price); stroke: var(--gcs-surface); stroke-width: 2; }
+.gcs-dot-scanned { fill: var(--gcs-series-pop-scanned); }
+
+.gcs-sources { color: var(--gcs-muted); font-size: 0.75rem; margin: 12px 2px; display: grid; gap: 2px; }

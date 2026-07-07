@@ -244,6 +244,22 @@ describe("GET /api/extensions/[name]/data/[...path]", () => {
     expect(csp).toContain("frame-ancestors 'self'");
   });
 
+  test("served file opts camera back IN (camera=(self)) so scanner extensions can use getUserMedia", async () => {
+    // This route-level header wins over hooks.server.ts's global
+    // `camera=()` deny, which is applied only when a route hasn't already
+    // set Permissions-Policy. (The global default is applied in
+    // hooks.server.ts, which this unit test does not exercise — it calls
+    // GET directly — so only the route-level value is asserted here.)
+    const res = await GET(
+      makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never,
+    );
+    expect(res.status).toBe(200);
+    const pp = res.headers.get("Permissions-Policy") ?? "";
+    expect(pp).toContain("camera=(self)");
+    expect(pp).toContain("microphone=()");
+    expect(pp).toContain("geolocation=()");
+  });
+
   // ── Rate limit ────────────────────────────────────────────────────
 
   test("per-user rate limit (240/min) returns 429 with Retry-After when exceeded", async () => {

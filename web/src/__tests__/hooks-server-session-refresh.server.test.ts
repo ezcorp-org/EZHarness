@@ -183,6 +183,26 @@ describe("hooks.server.ts — sliding session refresh", () => {
     expect(event.cookies.set).not.toHaveBeenCalled();
   });
 
+  test("non-data route keeps the global Permissions-Policy camera deny", async () => {
+    // The extension data route opts camera back IN (camera=(self)); every
+    // OTHER route keeps hooks.server.ts's global deny, which is applied only
+    // when the response hasn't already set Permissions-Policy. This proves
+    // the data-route opt-in (Phase D) did not widen the default elsewhere.
+    vi.mocked(verifyJWT).mockResolvedValue({
+      ...BASE_PAYLOAD,
+      iat: nowSeconds() - 60,
+      exp: nowSeconds() + 30 * 24 * 3600,
+    } as any);
+
+    const event = makeEvent({ path: "/projects/abc" }); // not the data route
+    const resolve = vi.fn(async () => new Response("ok", { status: 200 }));
+    const res = (await handle({ event, resolve } as any)) as Response;
+
+    expect(res.headers.get("Permissions-Policy")).toBe(
+      "camera=(), microphone=(), geolocation=()",
+    );
+  });
+
   test("CAS race lost (rotateSessionToken returns null) → no Set-Cookie, request still succeeds", async () => {
     const staleIat = nowSeconds() - (REFRESH_AFTER_SECONDS + 60);
     vi.mocked(verifyJWT).mockResolvedValue({
