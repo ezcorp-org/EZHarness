@@ -122,6 +122,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
           logs: [],
           result: { success: false, output: null, error: "Force-cancelled (no in-memory run)" },
         },
+        runId: dbRun.id,
         error: "Force-cancelled (no in-memory run)",
         conversationId: params.id,
       });

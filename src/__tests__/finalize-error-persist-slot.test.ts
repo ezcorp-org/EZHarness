@@ -212,6 +212,28 @@ describe("finalizeError ProviderUnavailableError persist-slot idempotency", () =
     expect(h.runErrors).toHaveLength(1);
     expect(h.runErrors[0]).toContain("provider_unavailable");
   });
+
+  test("run:error payload carries a top-level runId matching run.id", async () => {
+    const h = makeHarness();
+    const run = makeRun();
+    const payloads: AgentEvents["run:error"][] = [];
+    h.bus.on("run:error", (d) => payloads.push(d));
+
+    await finalizeError(
+      makeCtx(run),
+      h.host,
+      CONV_ID,
+      { model: "claude-x", provider: "anthropic" },
+      provErr(),
+    );
+
+    // SSE clients correlate on data.runId (parity with run:status); prove it
+    // behaviorally rather than by the type alone.
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]!.runId).toBe(RUN_ID);
+    expect(payloads[0]!.run.id).toBe(RUN_ID);
+    expect(payloads[0]!.conversationId).toBe(CONV_ID);
+  });
 });
 
 // ── finalizeSetupError ─────────────────────────────────────────────────

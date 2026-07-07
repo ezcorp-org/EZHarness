@@ -437,7 +437,7 @@ export class WatchdogManager {
             });
           });
         }
-        this.host.bus.emit("run:error", { run, error: reason, conversationId });
+        this.host.bus.emit("run:error", { run, runId: run.id, error: reason, conversationId });
         // Abort the in-memory controller so any remaining awaits unblock.
         const controller = this.host.controllers.get(runId);
         if (controller && !controller.signal.aborted) controller.abort();

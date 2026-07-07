@@ -172,7 +172,7 @@ export async function finalizeError(
         host.persist,
       );
     }
-    host.bus.emit("run:error", { run, error: errorPayload, conversationId });
+    host.bus.emit("run:error", { run, runId: run.id, error: errorPayload, conversationId });
     return;
   }
 
@@ -202,7 +202,7 @@ export async function finalizeError(
       host.persist,
     );
   }
-  host.bus.emit("run:error", { run, error: message, conversationId });
+  host.bus.emit("run:error", { run, runId: run.id, error: message, conversationId });
 }
 
 /**
@@ -276,7 +276,7 @@ export async function finalizeSetupError(
     if (claimErrorPersistSlot(host, run.id)) {
       await persistErrorMessage(conversationId, `Error: ${message}`, options, run.id, host.persist);
     }
-    host.bus.emit("run:error", { run, error: message, conversationId });
+    host.bus.emit("run:error", { run, runId: run.id, error: message, conversationId });
   }
   // Abort the controller so any in-flight sub-agents (auto-spin-up) get cancelled
   const ctrl = host.controllers.get(run.id);

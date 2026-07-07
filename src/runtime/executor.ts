@@ -236,7 +236,7 @@ export class AgentExecutor {
       }
     }
 
-    this.bus.emit("run:start", { run });
+    this.bus.emit("run:start", { run, runId: run.id });
 
     try {
       const result = await agent.execute(ctx);
@@ -274,7 +274,7 @@ export class AgentExecutor {
         run.status = "error";
         run.result = { success: false, output: null, error: message };
         run.finishedAt = Date.now();
-        this.bus.emit("run:error", { run, error: message });
+        this.bus.emit("run:error", { run, runId: run.id, error: message });
       }
     } finally {
       this.controllers.delete(run.id);
@@ -483,7 +483,7 @@ export class AgentExecutor {
       await dbRuns.insertRun(run, options.projectId, undefined, conversationId);
     }
 
-    this.bus.emit("run:start", { run });
+    this.bus.emit("run:start", { run, runId: run.id });
     this.bus.emit("run:status", { runId: run.id, status: "Loading conversation history..." });
 
     // Persist active run to DB for crash recovery (fire-and-forget — not on critical path)

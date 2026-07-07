@@ -94,6 +94,41 @@ describe("AgentExecutor", () => {
     expect(events).toEqual(["start", "log", "complete"]);
   });
 
+  test("run:start payload carries runId matching run.id", async () => {
+    const agents = loadAgentsStatic([
+      makeAgent("echo", async () => ({ success: true, output: null })),
+    ]);
+    const bus = new EventBus<AgentEvents>();
+    const payloads: AgentEvents["run:start"][] = [];
+    bus.on("run:start", (data) => payloads.push(data));
+
+    const exec = track(new AgentExecutor(agents, bus));
+    const run = await exec.runAgent("echo", {});
+
+    expect(payloads).toHaveLength(1);
+    // SSE clients correlate on a top-level data.runId (parity with run:status).
+    expect(payloads[0]!.runId).toBe(run.id);
+    expect(payloads[0]!.run.id).toBe(run.id);
+  });
+
+  test("run:error payload carries runId matching run.id", async () => {
+    const agents = loadAgentsStatic([
+      makeAgent("fail", async () => {
+        throw new Error("boom");
+      }),
+    ]);
+    const bus = new EventBus<AgentEvents>();
+    const payloads: AgentEvents["run:error"][] = [];
+    bus.on("run:error", (data) => payloads.push(data));
+
+    const exec = track(new AgentExecutor(agents, bus));
+    const run = await exec.runAgent("fail", {});
+
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]!.runId).toBe(run.id);
+    expect(payloads[0]!.error).toBe("boom");
+  });
+
   test("listAgents returns loaded agents", () => {
     const agents = loadAgentsStatic([
       makeAgent("a", async () => ({ success: true, output: null })),
