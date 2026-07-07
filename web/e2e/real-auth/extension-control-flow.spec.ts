@@ -27,10 +27,24 @@ import {
   cleanupInstalledExtension,
   seedExtensionAuthorDraft,
 } from "../fixtures/db-seed";
+import { sandboxSpawnAvailable } from "./sandbox-probe";
 
 test.describe.configure({ mode: "serial" });
 
 test.describe("external harness — extension control end-to-end", () => {
+  // The invoke roundtrip + lifecycle install/activate spawn REAL extension
+  // subprocesses via the sandbox (`prlimit` + Landlock). Where the jail can't
+  // exec the runtime bun (e.g. GitHub hosted runners, whose setup-bun
+  // `~/.bun/bin` is outside the sandbox read-exec allowlist) the exec is
+  // denied and the subprocess dies at bring-up — so gate the whole group on
+  // the real spawn probe. A conditional skip (not a bare `.skip`) is the
+  // repo's sanctioned capability-gate pattern, allowed by
+  // scripts/gate-integrity.ts.
+  test.skip(
+    () => !sandboxSpawnAvailable(),
+    "extension sandbox needs kernel caps (prlimit/Landlock) not available on this runner",
+  );
+
   // Handles for the lifecycle test's install + seeded draft. Cleared on a
   // clean uninstall; afterEach is the safety net if the test fails midway.
   let installedName: string | null = null;

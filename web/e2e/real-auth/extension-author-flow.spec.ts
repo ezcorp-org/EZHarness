@@ -24,6 +24,7 @@ import {
 	cleanupInstalledExtension,
 	seedExtensionAuthorDraft,
 } from "../fixtures/db-seed";
+import { sandboxSpawnAvailable } from "./sandbox-probe";
 
 // Unique-per-test name keeps any failed cleanup from one test
 // poisoning the next. Suffix is run-id-ish; collisions are not
@@ -33,6 +34,19 @@ function makeName(slug: string): string {
 }
 
 test.describe("extension-author preview flow", () => {
+	// Install spawns a REAL extension subprocess via the sandbox
+	// (`prlimit` + Landlock). On a runner where the jail can't exec the
+	// runtime bun (e.g. GitHub hosted runners, where setup-bun's
+	// `~/.bun/bin` is outside the sandbox read-exec allowlist) that exec
+	// is denied and the subprocess dies at bring-up — so gate the whole
+	// group on the real spawn probe. A conditional skip (not a bare
+	// `.skip`) is the repo's sanctioned pattern for capability-gated
+	// tests and is allowed by scripts/gate-integrity.ts.
+	test.skip(
+		() => !sandboxSpawnAvailable(),
+		"extension sandbox needs kernel caps (prlimit/Landlock) not available on this runner",
+	);
+
 	let draftId: string | null = null;
 	let extensionName: string | null = null;
 
