@@ -34,7 +34,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/test-file-sets.sh
 source "$SCRIPT_DIR/lib/test-file-sets.sh"
 
-PARALLEL=${PARALLEL:-6}
+# Default pool width: 6, capped at the machine's core count. Six concurrent
+# bun+PGlite processes on a 2-core CI runner starve each other into hook/test
+# timeouts (mass '(unnamed) [10s]' failures) — failures the pre-set+e runner
+# used to swallow. Explicit PARALLEL still overrides.
+CORES=$(nproc 2>/dev/null || echo 6)
+PARALLEL=${PARALLEL:-$(( CORES < 6 ? CORES : 6 ))}
 TOTAL_PASS=0
 TOTAL_FAIL=0
 FAILED_FILES=()
@@ -79,7 +84,10 @@ for f in "${FILES[@]}"; do
     # ALWAYS counted. Mirrors the identical guard in test-coverage.sh's
     # run_host_pool, which was fixed for exactly this reason.
     set +e
-    OUTPUT=$(bun test "./$f" 2>&1)
+    # --timeout 30000: DB-heavy suites share the host with PARALLEL-1 sibling
+    # PGlite processes; bun's 5s default per-test ceiling is contention-bound,
+    # not correctness-bound, in this pool. A genuine hang still fails at 30s.
+    OUTPUT=$(bun test --timeout 30000 "./$f" 2>&1)
     # Record bun's per-shard exit code — the authoritative pass/fail signal.
     # Scraping the summary alone is unreliable: a file that errors at module
     # load prints "N fail" with no "(fail)" lines, and a file killed (SIGKILL/

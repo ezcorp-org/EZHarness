@@ -30,7 +30,11 @@ if [ ! -f web/.svelte-kit/tsconfig.json ]; then
   ( cd web && bunx svelte-kit sync )
 fi
 
-PARALLEL=${PARALLEL:-6}
+# Default pool width: 6, capped at the machine's core count — six concurrent
+# bun processes on a 2-core CI runner starve each other into timeouts (see the
+# identical guard in test.sh). Explicit PARALLEL still overrides.
+CORES=$(nproc 2>/dev/null || echo 6)
+PARALLEL=${PARALLEL:-$(( CORES < 6 ? CORES : 6 ))}
 TOTAL_PASS=0
 TOTAL_FAIL=0
 FAILED_FILES=()
@@ -74,7 +78,9 @@ for f in "${FILES[@]}"; do
     # exit-code capture below is defeated without this). set +e records the real
     # exit code so a failing file is ALWAYS counted. Mirrors security-coverage.sh.
     set +e
-    OUTPUT=$(bun test "./$rel" 2>&1)
+    # --timeout 30000: contention-bound ceiling for the shared pool, mirroring
+    # test.sh — a genuine hang still fails at 30s.
+    OUTPUT=$(bun test --timeout 30000 "./$rel" 2>&1)
     # Record bun's per-shard exit code — the authoritative pass/fail signal.
     # Scraping the summary alone is unreliable: a file that errors at module
     # load prints "N fail" with no "(fail)" lines, and a file killed (SIGKILL/
