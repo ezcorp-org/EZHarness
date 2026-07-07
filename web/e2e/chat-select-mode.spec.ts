@@ -147,7 +147,7 @@ test.describe("Chat Select Mode → New Chat", () => {
 		await expect(page.getByText("First assistant answer")).toHaveCount(0);
 	});
 
-	test("Select toggle is disabled while a streaming turn is in flight", async ({ page, mockApi, emitWs }) => {
+	test("Select toggle is disabled while a streaming turn is in flight", async ({ page, mockApi, emitSse }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
@@ -164,7 +164,7 @@ test.describe("Chat Select Mode → New Chat", () => {
 		await expect(page.getByText("Tell me a joke")).toBeVisible({ timeout: 5000 });
 		// Token tick populates `store.streamingMessages[runId]`, flipping
 		// `isStreaming` true and the toggle disabled.
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Hi " } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Hi " } });
 
 		await expect(page.getByTestId("select-mode-toggle")).toBeDisabled({ timeout: 5000 });
 		// The custom Tooltip component renders its text into a separate

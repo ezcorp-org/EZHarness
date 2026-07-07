@@ -51,6 +51,17 @@ mock.module("$server/runtime/tools/builtin-registry", () => ({
 	getBuiltInCategories: () => [],
 }));
 
+// The search route imports `parseGoalEnabled` from `$server/runtime/goal-host`
+// (it gates the `/goal` EZ action in `!`-type searches). Mock it at the
+// boundary — same as mention-search-cmd-api.test.ts — so the route does NOT
+// transitively pull in the real goal-host → `$server/db/queries/conversations`
+// chain (which now imports drizzle's `inArray`/`notInArray` and a wide set of
+// schema tables that this file/path-search test has no reason to load).
+// `parseGoalEnabled`'s value is irrelevant to `type=path`/`type=file` results.
+mock.module("$server/runtime/goal-host", () => ({
+	parseGoalEnabled: () => false,
+}));
+
 // Import AFTER mocks are registered.
 const { GET } = await import("../routes/api/mentions/search/+server");
 

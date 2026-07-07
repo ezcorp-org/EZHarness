@@ -20,7 +20,7 @@ test.describe("Streaming Indicators", () => {
 		await expect(page.locator(".skeleton-line").first()).toBeVisible({ timeout: 5000 });
 	});
 
-	test("skeleton transitions to streamed content", async ({ page, mockApi, emitWs }) => {
+	test("skeleton transitions to streamed content", async ({ page, mockApi, emitSse }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
@@ -33,15 +33,15 @@ test.describe("Streaming Indicators", () => {
 		await expect(page.locator(".skeleton-line").first()).toBeVisible({ timeout: 5000 });
 
 		// Emit streaming tokens
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Here is " } });
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "the answer" } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Here is " } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "the answer" } });
 
 		// Skeleton should disappear, streamed text should appear
 		await expect(page.locator(".skeleton-line")).not.toBeVisible({ timeout: 5000 });
 		await expect(page.getByText("Here is the answer")).toBeVisible({ timeout: 5000 });
 	});
 
-	test("tool call card appears on tool:start", async ({ page, mockApi, emitWs }) => {
+	test("tool call card appears on tool:start", async ({ page, mockApi, emitSse }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
@@ -53,10 +53,10 @@ test.describe("Streaming Indicators", () => {
 		await expect(page.getByText("Search for something")).toBeVisible({ timeout: 5000 });
 
 		// Emit a token to ensure stream is active
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Searching..." } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Searching..." } });
 
 		// Emit tool:start
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -71,7 +71,7 @@ test.describe("Streaming Indicators", () => {
 		await expect(page.locator(".animate-spin")).toBeVisible({ timeout: 5000 });
 	});
 
-	test("tool call card shows complete state with checkmark", async ({ page, mockApi, emitWs }) => {
+	test("tool call card shows complete state with checkmark", async ({ page, mockApi, emitSse }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
@@ -81,9 +81,9 @@ test.describe("Streaming Indicators", () => {
 		await page.getByRole("button", { name: "Send message" }).click();
 		await expect(page.getByText("Do a search")).toBeVisible({ timeout: 5000 });
 
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Working..." } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Working..." } });
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -97,7 +97,7 @@ test.describe("Streaming Indicators", () => {
 		await expect(page.locator(".animate-spin")).toBeVisible({ timeout: 5000 });
 
 		// Complete the tool call
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
@@ -113,7 +113,7 @@ test.describe("Streaming Indicators", () => {
 		await expect(page.locator(".text-green-500")).toBeVisible({ timeout: 5000 });
 	});
 
-	test("tool call card shows error state", async ({ page, mockApi, emitWs }) => {
+	test("tool call card shows error state", async ({ page, mockApi, emitSse }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
@@ -123,9 +123,9 @@ test.describe("Streaming Indicators", () => {
 		await page.getByRole("button", { name: "Send message" }).click();
 		await expect(page.getByText("Try something")).toBeVisible({ timeout: 5000 });
 
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Attempting..." } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Attempting..." } });
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -138,7 +138,7 @@ test.describe("Streaming Indicators", () => {
 		await expect(page.locator(".animate-spin")).toBeVisible({ timeout: 5000 });
 
 		// Error the tool call
-		await emitWs({
+		await emitSse({
 			type: "tool:error",
 			data: {
 				conversationId: "conv-1",
@@ -153,7 +153,7 @@ test.describe("Streaming Indicators", () => {
 		await expect(page.locator(".text-red-500")).toBeVisible({ timeout: 5000 });
 	});
 
-	test("tool call card expands on click to show details", async ({ page, mockApi, emitWs }) => {
+	test("tool call card expands on click to show details", async ({ page, mockApi, emitSse }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
@@ -163,9 +163,9 @@ test.describe("Streaming Indicators", () => {
 		await page.getByRole("button", { name: "Send message" }).click();
 		await expect(page.getByText("Lookup data")).toBeVisible({ timeout: 5000 });
 
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Looking up..." } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Looking up..." } });
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -174,7 +174,7 @@ test.describe("Streaming Indicators", () => {
 				timestamp: Date.now(),
 			},
 		});
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
@@ -200,7 +200,7 @@ test.describe("Streaming Indicators", () => {
 		await expect(page.getByText("Alice")).toBeVisible();
 	});
 
-	test("multiple tool calls stack as separate cards", async ({ page, mockApi, emitWs }) => {
+	test("multiple tool calls stack as separate cards", async ({ page, mockApi, emitSse }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
@@ -210,14 +210,14 @@ test.describe("Streaming Indicators", () => {
 		await page.getByRole("button", { name: "Send message" }).click();
 		await expect(page.getByText("Do multiple things")).toBeVisible({ timeout: 5000 });
 
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Processing..." } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Processing..." } });
 
 		// Emit two tool:start events for different tools
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: { conversationId: "conv-1", toolName: "search", input: { q: "a" }, timestamp: Date.now() },
 		});
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: { conversationId: "conv-1", toolName: "file_read", input: { path: "/x" }, timestamp: Date.now() },
 		});
@@ -305,7 +305,7 @@ test.describe("Message Toolbar", () => {
 		await expect(page.getByRole("button", { name: "Copied!" })).toBeVisible({ timeout: 3000 });
 	});
 
-	test("toolbar is not shown on the streaming message", async ({ page, mockApi, emitWs }) => {
+	test("toolbar is not shown on the streaming message", async ({ page, mockApi, emitSse }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
@@ -316,7 +316,7 @@ test.describe("Message Toolbar", () => {
 		await expect(page.getByText("Stream this")).toBeVisible({ timeout: 5000 });
 
 		// Keep streaming active
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Streaming content" } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Streaming content" } });
 		await expect(page.getByText("Streaming content")).toBeVisible({ timeout: 5000 });
 
 		// The streaming assistant message area should not have Copy/Regenerate buttons

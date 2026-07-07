@@ -29,10 +29,19 @@ const repoRoot = resolve(import.meta.dir, "../../..");
 
 // Files that host chat-page reactive effects, poll intervals, and
 // handlers. Any background fetch in these files is a risk surface.
+//
+// The ChatThread parity refactor (Phase 4 for the main route, Phase 5 for
+// the agent drawer) extracted the message-hydration effect + active-run
+// poll out of `chat/[convId]/+page.svelte` and `AgentDetailPanel.svelte`
+// into the shared `<ChatThread>` engine's page-handlers. `+page.svelte` is
+// now a route shell and `AgentDetailPanel.svelte` is pure chrome — neither
+// fetches `/api/conversations` anymore. The background-fetch call-sites now
+// live in the page-handlers below, so that is where the policy must be
+// enforced. `TeamChatPanel.svelte` keeps its own poll and is unchanged.
 const POLICED_FILES = [
-	"web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte",
+	"web/src/lib/chat/page-handlers/load-messages.ts",
+	"web/src/lib/chat/page-handlers/stream-resume.svelte.ts",
 	"web/src/lib/components/TeamChatPanel.svelte",
-	"web/src/lib/components/AgentDetailPanel.svelte",
 ];
 
 // Sites where a raw `fetch(...)` targeting /api/conversations is

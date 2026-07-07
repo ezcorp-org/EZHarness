@@ -17,7 +17,7 @@ test.describe("Thinking Blocks", () => {
 	}
 
 	test.describe("Streaming: thinking appears in collapsible card", () => {
-		test("thinking → text renders thinking card above response", async ({ page, mockApi, emitWs }) => {
+		test("thinking → text renders thinking card above response", async ({ page, mockApi, emitSse }) => {
 			await mockApi({
 				projects: [proj],
 				conversations: [conv],
@@ -29,13 +29,13 @@ test.describe("Thinking Blocks", () => {
 			await sendAndWaitForStream(page, "Explain quantum computing");
 
 			// Stream thinking tokens
-			await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Let me break this down step by step.", kind: "thinking" } });
+			await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Let me break this down step by step.", kind: "thinking" } });
 
 			// Thinking card should appear with "Thinking" label
 			await expect(page.locator("button").filter({ hasText: "Thinking" })).toBeVisible({ timeout: 5000 });
 
 			// Stream text tokens
-			await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Quantum computing uses qubits.", kind: "text" } });
+			await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Quantum computing uses qubits.", kind: "text" } });
 			await expect(page.getByText("Quantum computing uses qubits.")).toBeVisible({ timeout: 5000 });
 
 			// Both thinking card and text should be visible
@@ -43,7 +43,7 @@ test.describe("Thinking Blocks", () => {
 			await expect(page.getByText("Quantum computing uses qubits.")).toBeVisible();
 		});
 
-		test("thinking card appears above text in DOM order", async ({ page, mockApi, emitWs }) => {
+		test("thinking card appears above text in DOM order", async ({ page, mockApi, emitSse }) => {
 			await mockApi({
 				projects: [proj],
 				conversations: [conv],
@@ -54,8 +54,8 @@ test.describe("Thinking Blocks", () => {
 
 			await sendAndWaitForStream(page, "Think about this");
 
-			await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Analyzing the problem carefully.", kind: "thinking" } });
-			await emitWs({ type: "run:token", data: { runId: "run-stream", token: "RESPONSE_TEXT_MARKER", kind: "text" } });
+			await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Analyzing the problem carefully.", kind: "thinking" } });
+			await emitSse({ type: "run:token", data: { runId: "run-stream", token: "RESPONSE_TEXT_MARKER", kind: "text" } });
 
 			await expect(page.locator("button").filter({ hasText: "Thinking" })).toBeVisible({ timeout: 5000 });
 			await expect(page.getByText("RESPONSE_TEXT_MARKER")).toBeVisible({ timeout: 5000 });
@@ -69,7 +69,7 @@ test.describe("Thinking Blocks", () => {
 			expect(thinkingBox!.y).toBeLessThan(textBox!.y);
 		});
 
-		test("text-only stream (no thinking) renders normally without thinking card", async ({ page, mockApi, emitWs }) => {
+		test("text-only stream (no thinking) renders normally without thinking card", async ({ page, mockApi, emitSse }) => {
 			await mockApi({
 				projects: [proj],
 				conversations: [conv],
@@ -81,14 +81,14 @@ test.describe("Thinking Blocks", () => {
 			await sendAndWaitForStream(page, "Simple question");
 
 			// Stream text tokens only (kind: "text" or no kind)
-			await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Simple answer.", kind: "text" } });
+			await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Simple answer.", kind: "text" } });
 			await expect(page.getByText("Simple answer.")).toBeVisible({ timeout: 5000 });
 
 			// No thinking card should appear
 			await expect(page.locator("button").filter({ hasText: "Thinking" })).not.toBeVisible();
 		});
 
-		test("thinking with tool calls renders all three block types", async ({ page, mockApi, emitWs }) => {
+		test("thinking with tool calls renders all three block types", async ({ page, mockApi, emitSse }) => {
 			await mockApi({
 				projects: [proj],
 				conversations: [conv],
@@ -100,25 +100,25 @@ test.describe("Thinking Blocks", () => {
 			await sendAndWaitForStream(page, "Search and think");
 
 			// Thinking
-			await emitWs({ type: "run:token", data: { runId: "run-stream", token: "I should search for this.", kind: "thinking" } });
+			await emitSse({ type: "run:token", data: { runId: "run-stream", token: "I should search for this.", kind: "thinking" } });
 			await expect(page.locator("button").filter({ hasText: "Thinking" })).toBeVisible({ timeout: 5000 });
 
 			// Text before tool
-			await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Let me search.", kind: "text" } });
+			await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Let me search.", kind: "text" } });
 
 			// Tool call
-			await emitWs({
+			await emitSse({
 				type: "tool:start",
 				data: { conversationId: "conv-think", toolName: "web_search", input: { query: "test" }, timestamp: Date.now() },
 			});
 			await expect(page.locator("button").filter({ hasText: "web_search" })).toBeVisible({ timeout: 5000 });
 
 			// Text after tool
-			await emitWs({
+			await emitSse({
 				type: "tool:complete",
 				data: { conversationId: "conv-think", toolName: "web_search", output: "results", duration: 100, success: true },
 			});
-			await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Found the answer.", kind: "text" } });
+			await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Found the answer.", kind: "text" } });
 
 			// All three types visible
 			await expect(page.locator("button").filter({ hasText: "Thinking" })).toBeVisible();

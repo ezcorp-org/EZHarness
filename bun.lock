@@ -9,6 +9,7 @@
         "@earendil-works/pi-ai": "^0.79.10",
         "@electric-sql/pglite": "^0.3.15",
         "@ezcorp/ai-kit": "workspace:*",
+        "@ezcorp/harness-client": "workspace:*",
         "@ezcorp/sdk": "workspace:*",
         "@huggingface/transformers": "^3.8.1",
         "@modelcontextprotocol/sdk": "^1.29.0",

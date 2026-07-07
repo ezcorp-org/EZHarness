@@ -641,7 +641,18 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]
     expect(prompt).toContain("Test task");
     expect(prompt).toContain("## Your Task");
     expect(opts.agentConfigId).toBe("agent-cfg-1");
-    expect(opts.system).toBe("You are a test agent");
+    // The system prompt is now the agent's base prompt with a "Pinned
+    // Objective" block appended when the autonomy feature is on (default —
+    // `global:agentAutonomyEnabled !== false`). See start-assignment.ts's
+    // `resolveSystem()`: `${agentConfig.prompt}\n\n${objectiveBlock}`, where
+    // `objectiveBlock` restates the task title + description so the goal is
+    // re-anchored on every chat cycle. taskBody = "<title>\n\n<description>".
+    expect(opts.system).toBe(
+      "You are a test agent\n\n" +
+        "## Pinned Objective\n" +
+        "Test task\n\nA task for testing\n\n" +
+        "Stay focused on this objective for the duration of this assignment.",
+    );
   });
 
   test("passes full plan context including all tasks and assignments", async () => {

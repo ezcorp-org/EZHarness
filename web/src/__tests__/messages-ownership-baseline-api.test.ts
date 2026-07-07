@@ -131,6 +131,12 @@ const mockStreamChat = mock(() => ({ catch: () => Promise.resolve(), then: () =>
 mock.module("$lib/server/context", () => ({
   getExecutor: () => ({ streamChat: mockStreamChat }),
   getBus: () => ({ emit: mock(() => {}) }),
+  // The messages POST handler now imports `getGoalHost` and calls it to
+  // rehydrate a conversation's `/goal` record before streaming. Returning
+  // `null` matches the "goal feature off / not initialized" path (see
+  // context.ts:getGoalHost), so the optional rehydrate block is skipped and
+  // the ownership matrix under test is unchanged.
+  getGoalHost: () => null,
 }));
 
 mock.module("$lib/server/command-resolver", () => ({

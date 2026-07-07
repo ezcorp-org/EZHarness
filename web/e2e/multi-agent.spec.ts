@@ -25,7 +25,7 @@ test.describe("Multi-Agent Orchestration", () => {
 
 	// ── Streaming agent tests ──────────────────────────────────────────────
 
-	test("agent:spawn event renders an agent chip in chat", async ({ page, mockApi, emitWs }) => {
+	test("agent:spawn event renders an agent chip in chat", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -38,11 +38,11 @@ test.describe("Multi-Agent Orchestration", () => {
 		await sendAndWaitForStream(page, "Research this topic");
 
 		// Stream some text first
-		await emitWs({ type: "run:token", data: { runId: "run-stream", token: "Let me delegate this." } });
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Let me delegate this." } });
 		await expect(page.getByText("Let me delegate this.")).toBeVisible({ timeout: 5000 });
 
 		// Agent spawns
-		await emitWs({
+		await emitSse({
 			type: "agent:spawn",
 			data: {
 				runId: "run-stream",
@@ -60,7 +60,7 @@ test.describe("Multi-Agent Orchestration", () => {
 		await expect(chip).toContainText("@researcher");
 	});
 
-	test("agent:complete updates chip to complete state", async ({ page, mockApi, emitWs }) => {
+	test("agent:complete updates chip to complete state", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -72,7 +72,7 @@ test.describe("Multi-Agent Orchestration", () => {
 
 		await sendAndWaitForStream(page, "Delegate task");
 
-		await emitWs({
+		await emitSse({
 			type: "agent:spawn",
 			data: {
 				runId: "run-stream",
@@ -86,7 +86,7 @@ test.describe("Multi-Agent Orchestration", () => {
 		await expect(page.getByTestId("agent-chip")).toBeVisible({ timeout: 5000 });
 
 		// Complete with success
-		await emitWs({
+		await emitSse({
 			type: "agent:complete",
 			data: {
 				runId: "run-stream",
@@ -100,7 +100,7 @@ test.describe("Multi-Agent Orchestration", () => {
 		await expect(page.locator(".agent-chip-complete")).toBeVisible({ timeout: 5000 });
 	});
 
-	test("agent:complete with success=false shows error on chip", async ({ page, mockApi, emitWs }) => {
+	test("agent:complete with success=false shows error on chip", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -112,7 +112,7 @@ test.describe("Multi-Agent Orchestration", () => {
 
 		await sendAndWaitForStream(page, "Try something");
 
-		await emitWs({
+		await emitSse({
 			type: "agent:spawn",
 			data: {
 				runId: "run-stream",
@@ -126,7 +126,7 @@ test.describe("Multi-Agent Orchestration", () => {
 		await expect(page.getByTestId("agent-chip")).toBeVisible({ timeout: 5000 });
 
 		// Complete with failure
-		await emitWs({
+		await emitSse({
 			type: "agent:complete",
 			data: {
 				runId: "run-stream",
@@ -140,7 +140,7 @@ test.describe("Multi-Agent Orchestration", () => {
 		await expect(page.locator(".agent-chip-error")).toBeVisible({ timeout: 5000 });
 	});
 
-	test("multiple agent:spawn events render multiple chips", async ({ page, mockApi, emitWs }) => {
+	test("multiple agent:spawn events render multiple chips", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -152,7 +152,7 @@ test.describe("Multi-Agent Orchestration", () => {
 
 		await sendAndWaitForStream(page, "Use two agents");
 
-		await emitWs({
+		await emitSse({
 			type: "agent:spawn",
 			data: {
 				runId: "run-stream",
@@ -164,7 +164,7 @@ test.describe("Multi-Agent Orchestration", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "agent:spawn",
 			data: {
 				runId: "run-stream",
@@ -182,7 +182,7 @@ test.describe("Multi-Agent Orchestration", () => {
 		await expect(chips.nth(1)).toContainText("@coder");
 	});
 
-	test("clicking agent chip opens detail panel", async ({ page, mockApi, emitWs }) => {
+	test("clicking agent chip opens detail panel", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -201,7 +201,7 @@ test.describe("Multi-Agent Orchestration", () => {
 
 		await sendAndWaitForStream(page, "Research this");
 
-		await emitWs({
+		await emitSse({
 			type: "agent:spawn",
 			data: {
 				runId: "run-stream",
@@ -213,7 +213,7 @@ test.describe("Multi-Agent Orchestration", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "agent:complete",
 			data: {
 				runId: "run-stream",
@@ -234,7 +234,7 @@ test.describe("Multi-Agent Orchestration", () => {
 		await expect(panel).toContainText("@researcher");
 	});
 
-	test("agent:status event updates chip status text", async ({ page, mockApi, emitWs }) => {
+	test("agent:status event updates chip status text", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -246,7 +246,7 @@ test.describe("Multi-Agent Orchestration", () => {
 
 		await sendAndWaitForStream(page, "Research task");
 
-		await emitWs({
+		await emitSse({
 			type: "agent:spawn",
 			data: {
 				runId: "run-stream",
@@ -264,7 +264,7 @@ test.describe("Multi-Agent Orchestration", () => {
 		await expect(chip).toContainText("Working...");
 
 		// Send status update
-		await emitWs({
+		await emitSse({
 			type: "agent:status",
 			data: {
 				runId: "run-stream",
@@ -278,7 +278,7 @@ test.describe("Multi-Agent Orchestration", () => {
 		await expect(chip).toContainText("Searching databases...");
 	});
 
-	test("detail panel shows loading state and renders messages", async ({ page, mockApi, emitWs }) => {
+	test("detail panel shows loading state and renders messages", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -296,7 +296,7 @@ test.describe("Multi-Agent Orchestration", () => {
 
 		await sendAndWaitForStream(page, "Research quantum computing");
 
-		await emitWs({
+		await emitSse({
 			type: "agent:spawn",
 			data: {
 				runId: "run-stream",
@@ -308,7 +308,7 @@ test.describe("Multi-Agent Orchestration", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "agent:complete",
 			data: {
 				runId: "run-stream",
@@ -333,7 +333,7 @@ test.describe("Multi-Agent Orchestration", () => {
 		await expect(panel).toContainText("Found 3 relevant papers on quantum computing.");
 	});
 
-	test("clicking panel backdrop closes the panel", async ({ page, mockApi, emitWs }) => {
+	test("clicking panel backdrop closes the panel", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -348,7 +348,7 @@ test.describe("Multi-Agent Orchestration", () => {
 
 		await sendAndWaitForStream(page, "Do stuff");
 
-		await emitWs({
+		await emitSse({
 			type: "agent:spawn",
 			data: {
 				runId: "run-stream",
