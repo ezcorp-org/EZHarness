@@ -107,6 +107,83 @@ residual_passfail_files() {
   comm -23 <(passfail_files) <(coverage_host_files)
 }
 
+# W — the orphaned web bun-leg set. Plain `web/src/**/*.test.ts` files that are
+# NOT matched by vitest's globs (*.component/*.server/*.unit.test.ts, plus the
+# one explicitly-listed relative-time.test.ts) AND are not already run for
+# pass/fail or coverage by the backend pool (the import/gh-projects/extensions/
+# rbac route tests + the scoped web bun:test files in coverage_host_files).
+# These ~225 files ran in NO CI job before `web-bun-tests` — silent test-rot.
+# The CI `web-bun-tests` job runs exactly this set (per-file isolated, with
+# real exit-code capture) via scripts/test-web.sh.
+web_bunleg_files() {
+  {
+    set +e
+    # All plain web bun-leg *.test.ts — vitest owns the three suffixes below,
+    # so exclude them here (they run in the `Web tests (vitest)` job).
+    find web/src -name "*.test.ts" \
+      ! -name "*.component.test.ts" \
+      ! -name "*.server.test.ts" \
+      ! -name "*.unit.test.ts"
+  } 2>/dev/null | sort -u | comm -23 - <(
+    # Files already run elsewhere: vitest's explicitly-listed
+    # relative-time.test.ts + every bun-leg file the coverage/passfail sets
+    # already gate. Non-web entries in those sets simply never match a
+    # web/src path, so they're harmless here.
+    {
+      set +e
+      printf '%s\n' web/src/__tests__/relative-time.test.ts
+      passfail_files
+      coverage_host_files
+    } 2>/dev/null | sort -u
+  )
+}
+
+# SEC — the orphaned web security bun:test suites (web/src/__tests__/security/*).
+# Their source files use per-`beforeEach` `mock.module` (bun-only), so they run
+# under bun, not vitest. Run for pass/fail by `web-bun-tests` (they're a subset
+# of web_bunleg_files) and, separately, under `bun --coverage` by
+# scripts/security-coverage.sh to feed the 9 un-excluded security source files
+# into the coverage gate.
+security_test_files() {
+  {
+    set +e
+    find web/src/__tests__/security -name "*.test.ts"
+  } 2>/dev/null | sort -u
+}
+
+# CRIT — a CURATED set of high-value, deterministic correctness suites gated on
+# PASS/FAIL by the CI `backend-critical` job (via scripts/test.sh's CRITICAL_ONLY
+# mode). Unlike the coverage shards (which TOLERATE test pass/fail because several
+# backend suites are env-flaky under --coverage), this set runs PLAIN (no
+# --coverage) and REDS CI on any assertion failure — a real backend correctness
+# gate for the security-critical seams. Membership is deliberately narrow:
+# security/authz/migration/concurrency invariants that are deterministic under
+# per-file isolation. See the ci-test-gating change for the determinism check.
+critical_backend_files() {
+  {
+    set +e
+    # RBAC: permission engine + audit/override/fail-closed variants, the
+    # extension-rbac resolver, and the ctx.rbac.check reverse-RPC entry point.
+    find src/__tests__ -name "permission-engine*.test.ts"
+    find src/__tests__ -name "extension-rbac-resolver*.test.ts"
+    find src/extensions/__tests__ -name "tool-executor.rbac*.test.ts"
+    # Migrations: idempotency + the db-scoped migration suites (safe-migration
+    # invariant — re-running migrate() must be a no-op).
+    find src/__tests__ -name "migrate-idempotency*.test.ts"
+    find src/__tests__ -name "db-*migrat*.test.ts"
+    # github-projects concurrency: the partial-unique single-active-per-card
+    # queries + the poll-loop daemon (dedupe / re-trigger correctness).
+    find src/integrations/github-projects/__tests__ -name "queries*.test.ts"
+    find src/integrations/github-projects/__tests__ -name "daemon*.test.ts"
+    # Auth + provider-secret encryption + extension-secrets store.
+    find src/__tests__ -name "auth-*.test.ts"
+    find src/__tests__ -name "provider-encryption*.test.ts"
+    find src/extensions/__tests__ -name "secrets-*.test.ts"
+    # Server-side mention expansion (slash-command / feature / lesson / agent).
+    find src/__tests__ -name "mention-wiring*.test.ts"
+  } 2>/dev/null | sort -u
+}
+
 # Select a 1-of-N stride slice of stdin (sorted file list) for CI sharding.
 # Usage: some_files | shard_slice "$SHARD_INDEX" "$SHARD_TOTAL"
 # Stride (i % total == index) balances cost better than contiguous blocks:

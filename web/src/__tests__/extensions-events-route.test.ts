@@ -110,6 +110,11 @@ let mockExt:
 const mockGetExtensionByName = mock(async (_name: string) => mockExt);
 mock.module("$server/db/queries/extensions", () => ({
   getExtensionByName: mockGetExtensionByName,
+  // The registry (pulled in transitively via the route's imports) needs
+  // these named exports; the mock must provide the full imported shape or
+  // every import of the module fails with a missing-export error.
+  listExtensions: mock(async () => []),
+  updateExtension: mock(async () => {}),
 }));
 
 let mockWiredIds: string[] = [];

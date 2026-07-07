@@ -34,7 +34,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/test-file-sets.sh
 source "$SCRIPT_DIR/lib/test-file-sets.sh"
 
-PARALLEL=${PARALLEL:-6}
+# Default pool width: 6, capped at the machine's core count. Six concurrent
+# bun+PGlite processes on a 2-core CI runner starve each other into hook/test
+# timeouts (mass '(unnamed) [10s]' failures) — failures the pre-set+e runner
+# used to swallow. Explicit PARALLEL still overrides.
+CORES=$(nproc 2>/dev/null || echo 6)
+PARALLEL=${PARALLEL:-$(( CORES < 6 ? CORES : 6 ))}
 TOTAL_PASS=0
 TOTAL_FAIL=0
 FAILED_FILES=()
@@ -45,8 +50,14 @@ FAILED_FILES=()
 # *integration* variants) — the CI `residual-tests` job uses this so every
 # pass/fail file runs somewhere without re-running what the coverage shards
 # already cover. Empty residual is fine (the loop is a no-op).
+# CRITICAL_ONLY=1 runs ONLY the curated critical correctness set (RBAC /
+# migrations / gh-projects concurrency / auth / secrets / mention-wiring) that
+# the CI `backend-critical` job gates strictly on pass/fail — see
+# critical_backend_files() in lib/test-file-sets.sh.
 if [ -n "$RESIDUAL_ONLY" ]; then
   mapfile -t FILES < <(residual_passfail_files)
+elif [ -n "$CRITICAL_ONLY" ]; then
+  mapfile -t FILES < <(critical_backend_files)
 else
   mapfile -t FILES < <(passfail_files)
 fi
@@ -62,7 +73,21 @@ for f in "${FILES[@]}"; do
   OUTFILE="$TMPDIR/result_$IDX"
   CODEFILE="$TMPDIR/code_$IDX"
   (
-    OUTPUT=$(bun test "./$f" 2>&1)
+    # set +e (scoped to this subshell): the script runs under `set -e`, so a
+    # FAILING `bun test` makes the `OUTPUT=$(...)` command-substitution
+    # assignment abort the subshell BEFORE the exit-code/output files are
+    # written. That file then leaves no result_$IDX, the collection loop below
+    # `continue`s past the missing file, its failure is never tallied, and
+    # test.sh exits 0 on a genuinely red file — silently swallowing the failure
+    # (proven: a residual-set file failing left no code/result file and the run
+    # reported 0 fail). set +e records the real exit code so a failing file is
+    # ALWAYS counted. Mirrors the identical guard in test-coverage.sh's
+    # run_host_pool, which was fixed for exactly this reason.
+    set +e
+    # --timeout 30000: DB-heavy suites share the host with PARALLEL-1 sibling
+    # PGlite processes; bun's 5s default per-test ceiling is contention-bound,
+    # not correctness-bound, in this pool. A genuine hang still fails at 30s.
+    OUTPUT=$(bun test --timeout 30000 "./$f" 2>&1)
     # Record bun's per-shard exit code — the authoritative pass/fail signal.
     # Scraping the summary alone is unreliable: a file that errors at module
     # load prints "N fail" with no "(fail)" lines, and a file killed (SIGKILL/

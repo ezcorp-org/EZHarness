@@ -1,35 +1,92 @@
 #!/usr/bin/env bash
-# Run web unit tests from the web/ directory.
-# Each file runs in its own bun process to prevent mock.module() contamination.
+# Run the ORPHANED web bun-leg test pool (plain `web/src/**/*.test.ts` that
+# vitest does NOT match and the backend coverage/passfail pools do NOT already
+# run). Each file runs in its own bun process to prevent mock.module()
+# contamination — the same per-file isolation scripts/test.sh uses for the
+# backend pool.
+#
+# The file set is defined ONCE in scripts/lib/test-file-sets.sh
+# (`web_bunleg_files`) so it can never drift from the coverage/passfail sets it
+# subtracts. The CI `web-bun-tests` job runs this script.
+#
+# EXIT-CODE CAPTURE (was a bug): the previous version ran `bun test … || true`
+# and only scraped the "N fail" summary — a module-load crash prints "0 fail"
+# with no "(fail)" line, and a SIGKILL/OOM prints no summary at all, so both
+# counted as PASS. This wrapper now records bun's per-shard exit code (the
+# authoritative signal) exactly like scripts/test.sh, so a crash/kill is a
+# real failure and can never ship green.
 set -e
 
-cd "$(dirname "$0")/../web"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=scripts/lib/test-file-sets.sh
+source "$SCRIPT_DIR/lib/test-file-sets.sh"
 
-# Ensure SvelteKit types exist (needed for $lib alias resolution)
-if [ ! -f .svelte-kit/tsconfig.json ]; then
+cd "$REPO_ROOT"
+
+# Ensure SvelteKit types exist (needed for $lib alias resolution under bun).
+if [ ! -f web/.svelte-kit/tsconfig.json ]; then
   echo "Generating SvelteKit types..."
-  bunx svelte-kit sync
+  ( cd web && bunx svelte-kit sync )
 fi
 
-PARALLEL=${PARALLEL:-6}
+# Default pool width: 6, capped at the machine's core count — six concurrent
+# bun processes on a 2-core CI runner starve each other into timeouts (see the
+# identical guard in test.sh). Explicit PARALLEL still overrides.
+CORES=$(nproc 2>/dev/null || echo 6)
+PARALLEL=${PARALLEL:-$(( CORES < 6 ? CORES : 6 ))}
 TOTAL_PASS=0
 TOTAL_FAIL=0
 FAILED_FILES=()
 
-mapfile -t FILES < <(find src/__tests__ -name "*.test.ts" | sort)
+# Repo-relative web/src/... paths (computed from the repo root so the finds in
+# test-file-sets.sh resolve). bun test itself runs from web/ (below) so the
+# web/ tsconfig + $lib alias resolve — strip the leading `web/` at call time.
+mapfile -t FILES < <(web_bunleg_files)
+
+# Non-empty guard: web_bunleg_files() is a computed set-difference (find minus
+# the passfail/coverage sets). If a find path or the comm pipeline ever breaks
+# it can silently yield ZERO files — the loop below is then a no-op and this
+# required gate exits 0 having tested NOTHING (gate theater). ~225 files are
+# expected; fail loudly instead of green-on-empty.
+if [ "${#FILES[@]}" -eq 0 ]; then
+  echo "::error::web_bunleg_files produced an EMPTY set — the orphaned-web-test gate would pass without running anything. Check scripts/lib/test-file-sets.sh." >&2
+  exit 1
+fi
+
+cd web
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-echo "Running ${#FILES[@]} web unit test files (${PARALLEL} parallel)..."
+echo "Running ${#FILES[@]} orphaned web bun-leg test files (${PARALLEL} parallel)..."
 
 RUNNING=0
 IDX=0
 
 for f in "${FILES[@]}"; do
   OUTFILE="$TMPDIR/result_$IDX"
+  CODEFILE="$TMPDIR/code_$IDX"
+  rel="${f#web/}"
   (
-    OUTPUT=$(bun test "./$f" 2>&1) || true
+    # set +e (scoped to this subshell): the script runs under `set -e`, so a
+    # FAILING `bun test` makes the `OUTPUT=$(...)` command-substitution
+    # assignment abort the subshell BEFORE $CODEFILE/$OUTFILE are written. The
+    # collection loop below then hits `[ -f "$OUTFILE" ] || continue`, skips the
+    # missing file, never tallies its failure, and test-web.sh exits 0 on a
+    # genuinely red file — silently swallowing it (the whole point of the
+    # exit-code capture below is defeated without this). set +e records the real
+    # exit code so a failing file is ALWAYS counted. Mirrors security-coverage.sh.
+    set +e
+    # --timeout 30000: contention-bound ceiling for the shared pool, mirroring
+    # test.sh — a genuine hang still fails at 30s.
+    OUTPUT=$(bun test --timeout 30000 "./$rel" 2>&1)
+    # Record bun's per-shard exit code — the authoritative pass/fail signal.
+    # Scraping the summary alone is unreliable: a file that errors at module
+    # load prints "N fail" with no "(fail)" lines, and a file killed (SIGKILL/
+    # OOM) under parallel load may print no summary at all. The exit code is
+    # the only signal that survives both, so we never silently pass a crash.
+    echo "$?" > "$CODEFILE"
     echo "$OUTPUT" > "$OUTFILE"
   ) &
   IDX=$((IDX + 1))
@@ -47,17 +104,32 @@ for ((i=0; i<${#FILES[@]}; i++)); do
   OUTFILE="$TMPDIR/result_$i"
   [ -f "$OUTFILE" ] || continue
   OUTPUT=$(cat "$OUTFILE")
+  CODE=$(cat "$TMPDIR/code_$i" 2>/dev/null || echo 1)
 
   PASS=$(echo "$OUTPUT" | awk '/pass/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="pass") print $j}' | tail -1)
   FAIL=$(echo "$OUTPUT" | awk '/fail/{for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)=="fail") print $j}' | tail -1)
 
   TOTAL_PASS=$((TOTAL_PASS + ${PASS:-0}))
+  # Count at least one failure when bun exited non-zero but printed no parseable
+  # "N fail" (module-load error, crash, or SIGKILL with no summary).
+  if [ "$CODE" != "0" ] && [ "${FAIL:-0}" = "0" ]; then
+    FAIL=1
+  fi
   TOTAL_FAIL=$((TOTAL_FAIL + ${FAIL:-0}))
 
-  if [ "${FAIL:-0}" != "0" ]; then
+  # A file is failing if bun exited non-zero OR the summary reported failures.
+  if [ "$CODE" != "0" ] || [ "${FAIL:-0}" != "0" ]; then
     FAILED_FILES+=("${FILES[$i]}")
     echo "--- FAIL: ${FILES[$i]} ---"
-    echo "$OUTPUT" | awk '/\(fail\)/'
+    DETAIL=$(echo "$OUTPUT" | awk '/\(fail\)/')
+    if [ -n "$DETAIL" ]; then
+      echo "$DETAIL"
+    else
+      # No per-test "(fail)" line — the file errored at load or was killed.
+      # Surface the tail of its output so CI failures are diagnosable.
+      echo "  (no per-test failures parsed; exit code $CODE — showing output tail)"
+      echo "$OUTPUT" | tail -20 | sed 's/^/  /'
+    fi
     echo ""
   fi
 done
@@ -75,4 +147,4 @@ if [ "${#FAILED_FILES[@]}" -gt 0 ]; then
   done
 fi
 
-[ "$TOTAL_FAIL" = "0" ] && exit 0 || exit 1
+[ "${#FAILED_FILES[@]}" -eq 0 ] && exit 0 || exit 1

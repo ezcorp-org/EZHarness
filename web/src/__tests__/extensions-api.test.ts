@@ -144,6 +144,10 @@ mock.module("$server/extensions/installer", () => ({
 const mockLogWarn = mock((..._a: unknown[]) => {});
 mock.module("$server/logger", () => ({
 	logger: { child: () => ({ warn: mockLogWarn, info: () => {}, error: () => {} }) },
+	// Transitive imports (secrets-store, github-projects-handler) pull
+	// extensionLogger from the same module — the mock must export it too,
+	// or every import of $server/logger fails with a missing-export error.
+	extensionLogger: () => ({ warn: mockLogWarn, info: () => {}, error: () => {}, debug: () => {} }),
 }));
 
 // ── Registry mock (reload is a no-op in tests) ───────────────────────────
