@@ -386,8 +386,8 @@ describe("hydrateToolCallsFromApiData", () => {
 		};
 		const bundle = hydrateToolCallsFromApiData(data);
 		expect(bundle.historicalToolCalls).toEqual([
-			{ id: "t1", messageId: "m1", extensionId: "ext-a", toolName: "tool-a", status: "success" },
-			{ id: "t2", messageId: "m2", extensionId: "ext-b", toolName: "tool-b", status: "error" },
+			{ id: "t1", messageId: "m1", extensionId: "ext-a", toolName: "tool-a", status: "success", cardLayout: null },
+			{ id: "t2", messageId: "m2", extensionId: "ext-b", toolName: "tool-b", status: "error", cardLayout: null },
 		]);
 		expect(bundle.hydrateInput.map((c) => c.id)).toEqual(["t1", "t2"]);
 		expect(bundle.hydrateInput[0]).toMatchObject({ messageId: "m1", input: { x: 1 } });
@@ -731,7 +731,7 @@ describe("makeLoadMessages.hydrateToolCallsFromApi", () => {
 		await makeLoadMessages(host).hydrateToolCallsFromApi();
 
 		expect(state.historicalToolCalls).toEqual([
-			{ id: "t1", messageId: "m1", extensionId: "ext-a", toolName: "tool-a", status: "success" },
+			{ id: "t1", messageId: "m1", extensionId: "ext-a", toolName: "tool-a", status: "success", cardLayout: null },
 		]);
 		expect(hydrateToolCallsMock).toHaveBeenCalled();
 		expect(hydrateToolCallsMock.mock.calls[0]![0]).toBe("conv-1");

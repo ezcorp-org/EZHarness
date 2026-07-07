@@ -68,6 +68,17 @@ for f in "${FILES[@]}"; do
   OUTFILE="$TMPDIR/result_$IDX"
   CODEFILE="$TMPDIR/code_$IDX"
   (
+    # set +e (scoped to this subshell): the script runs under `set -e`, so a
+    # FAILING `bun test` makes the `OUTPUT=$(...)` command-substitution
+    # assignment abort the subshell BEFORE the exit-code/output files are
+    # written. That file then leaves no result_$IDX, the collection loop below
+    # `continue`s past the missing file, its failure is never tallied, and
+    # test.sh exits 0 on a genuinely red file — silently swallowing the failure
+    # (proven: a residual-set file failing left no code/result file and the run
+    # reported 0 fail). set +e records the real exit code so a failing file is
+    # ALWAYS counted. Mirrors the identical guard in test-coverage.sh's
+    # run_host_pool, which was fixed for exactly this reason.
+    set +e
     OUTPUT=$(bun test "./$f" 2>&1)
     # Record bun's per-shard exit code — the authoritative pass/fail signal.
     # Scraping the summary alone is unreliable: a file that errors at module

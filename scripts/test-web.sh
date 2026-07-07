@@ -40,6 +40,16 @@ FAILED_FILES=()
 # web/ tsconfig + $lib alias resolve — strip the leading `web/` at call time.
 mapfile -t FILES < <(web_bunleg_files)
 
+# Non-empty guard: web_bunleg_files() is a computed set-difference (find minus
+# the passfail/coverage sets). If a find path or the comm pipeline ever breaks
+# it can silently yield ZERO files — the loop below is then a no-op and this
+# required gate exits 0 having tested NOTHING (gate theater). ~225 files are
+# expected; fail loudly instead of green-on-empty.
+if [ "${#FILES[@]}" -eq 0 ]; then
+  echo "::error::web_bunleg_files produced an EMPTY set — the orphaned-web-test gate would pass without running anything. Check scripts/lib/test-file-sets.sh." >&2
+  exit 1
+fi
+
 cd web
 
 TMPDIR=$(mktemp -d)
@@ -55,6 +65,15 @@ for f in "${FILES[@]}"; do
   CODEFILE="$TMPDIR/code_$IDX"
   rel="${f#web/}"
   (
+    # set +e (scoped to this subshell): the script runs under `set -e`, so a
+    # FAILING `bun test` makes the `OUTPUT=$(...)` command-substitution
+    # assignment abort the subshell BEFORE $CODEFILE/$OUTFILE are written. The
+    # collection loop below then hits `[ -f "$OUTFILE" ] || continue`, skips the
+    # missing file, never tallies its failure, and test-web.sh exits 0 on a
+    # genuinely red file — silently swallowing it (the whole point of the
+    # exit-code capture below is defeated without this). set +e records the real
+    # exit code so a failing file is ALWAYS counted. Mirrors security-coverage.sh.
+    set +e
     OUTPUT=$(bun test "./$rel" 2>&1)
     # Record bun's per-shard exit code — the authoritative pass/fail signal.
     # Scraping the summary alone is unreliable: a file that errors at module
