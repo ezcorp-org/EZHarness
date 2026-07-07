@@ -91,7 +91,7 @@ describe("buildSystemPromptWithMemories", () => {
       { id: "m1", content: "User prefers dark mode", category: "preferences", projectId: null, confidence: "high", provenance: null, rrfScore: 0.5 },
     ];
 
-    const result = await buildSystemPromptWithMemories("You are a helpful assistant.", "hello", "proj-1");
+    const result = await buildSystemPromptWithMemories("You are a helpful assistant.", "hello", "proj-1", "user-1");
 
     expect(result.systemPrompt).toContain("## Relevant Memories");
     expect(result.systemPrompt).toContain("User prefers dark mode");
@@ -109,7 +109,7 @@ describe("buildSystemPromptWithMemories", () => {
       rrfScore: 0.5 - i * 0.01,
     }));
 
-    const result = await buildSystemPromptWithMemories("Base prompt.", "query", "proj-1");
+    const result = await buildSystemPromptWithMemories("Base prompt.", "query", "proj-1", "user-1");
 
     expect(result.memoriesUsed.length).toBeLessThan(50);
     expect(result.memoriesUsed.length).toBeGreaterThan(0);
@@ -118,7 +118,7 @@ describe("buildSystemPromptWithMemories", () => {
   test("returns base prompt unchanged when no relevant memories found", async () => {
     mockHybridSearchResults = [];
 
-    const result = await buildSystemPromptWithMemories("Base prompt.", "query", "proj-1");
+    const result = await buildSystemPromptWithMemories("Base prompt.", "query", "proj-1", "user-1");
 
     expect(result.systemPrompt).toBe("Base prompt.");
     expect(result.memoriesUsed).toEqual([]);
@@ -130,7 +130,7 @@ describe("buildSystemPromptWithMemories", () => {
       { id: "m1", content: "Should not appear", category: "preferences", projectId: null, confidence: "high", provenance: null, rrfScore: 0.5 },
     ];
 
-    const result = await buildSystemPromptWithMemories("Base prompt.", "query", "proj-1");
+    const result = await buildSystemPromptWithMemories("Base prompt.", "query", "proj-1", "user-1");
 
     expect(result.systemPrompt).toBe("Base prompt.");
     expect(result.memoriesUsed).toEqual([]);
@@ -143,13 +143,16 @@ describe("buildSystemPromptWithMemories", () => {
     await upsertSetting("project:proj-1:memoryIsolation", true);
     mockHybridSearchResults = [];
 
-    await buildSystemPromptWithMemories("Base.", "query", "proj-1");
+    await buildSystemPromptWithMemories("Base.", "query", "proj-1", "user-1");
 
     expect(mockHybridSearchCalls).toHaveLength(1);
     const [query, _embedding, opts] = mockHybridSearchCalls[0]!;
     expect(query).toBe("query");
     expect(opts.isolateToProject).toBe(true);
     expect(opts.projectId).toBe("proj-1");
+    // Per-user PII scope: buildSystemPromptWithMemories must forward the acting
+    // user into hybridSearch on every call (the anti-leak guard).
+    expect(opts.userId).toBe("user-1");
 
     await deleteSetting("project:proj-1:memoryIsolation");
   });
@@ -160,7 +163,7 @@ describe("buildSystemPromptWithMemories", () => {
       { id: "m2", content: "Uses Vim", category: "preferences", projectId: null, confidence: "medium", provenance: null, rrfScore: 0.3 },
     ];
 
-    const result = await buildSystemPromptWithMemories("Base.", "query", "proj-1");
+    const result = await buildSystemPromptWithMemories("Base.", "query", "proj-1", "user-1");
 
     expect(result.memoriesUsed).toHaveLength(2);
     expect(result.memoriesUsed[0]!.id).toBe("m1");
@@ -175,7 +178,7 @@ describe("buildSystemPromptWithMemories", () => {
       { id: "m2", content: "Should not fit", category: "preferences", projectId: null, confidence: "medium", provenance: null, rrfScore: 0.3 },
     ];
 
-    const result = await buildSystemPromptWithMemories("Base.", "query", "proj-1");
+    const result = await buildSystemPromptWithMemories("Base.", "query", "proj-1", "user-1");
 
     expect(result.memoriesUsed.length).toBeGreaterThanOrEqual(1);
   });
@@ -185,7 +188,7 @@ describe("buildSystemPromptWithMemories", () => {
       { id: "m1", content: "A fact", category: "technical", projectId: null, confidence: "high", provenance: null, rrfScore: 0.5 },
     ];
 
-    const result = await buildSystemPromptWithMemories(undefined, "query", "proj-1");
+    const result = await buildSystemPromptWithMemories(undefined, "query", "proj-1", "user-1");
 
     expect(result.systemPrompt).toContain("## Relevant Memories");
     expect(result.systemPrompt).toContain("A fact");
@@ -196,7 +199,7 @@ describe("buildSystemPromptWithMemories", () => {
       { id: "m1", content: "Uses Bun runtime", category: "technical", projectId: null, confidence: "high", provenance: null, rrfScore: 0.5 },
     ];
 
-    const result = await buildSystemPromptWithMemories("Base.", "query", "proj-1");
+    const result = await buildSystemPromptWithMemories("Base.", "query", "proj-1", "user-1");
 
     expect(result.systemPrompt).toContain("- [technical] Uses Bun runtime (confidence: high)");
   });
@@ -206,7 +209,7 @@ describe("buildSystemPromptWithMemories", () => {
       { id: "m1", content: "A".repeat(1000), category: "technical", projectId: null, confidence: "high", provenance: null, rrfScore: 0.5 },
     ];
 
-    const result = await buildSystemPromptWithMemories("Base.", "query", "proj-1", { tokenBudget: 1 });
+    const result = await buildSystemPromptWithMemories("Base.", "query", "proj-1", "user-1", { tokenBudget: 1 });
 
     expect(result.systemPrompt).toBe("Base.");
     expect(result.memoriesUsed).toEqual([]);
@@ -222,7 +225,7 @@ describe("buildSystemPromptWithMemories", () => {
       { id: "kb2", content: "Advanced typing patterns...", chunkIndex: 1, filename: "advanced.md", fileId: "f2", similarity: 0.85 },
     ];
 
-    const result = await buildSystemPromptWithMemories("Base.", "query", "proj-1", { kbChunks });
+    const result = await buildSystemPromptWithMemories("Base.", "query", "proj-1", "user-1", { kbChunks });
 
     expect(result.systemPrompt).toContain("## Knowledge Base");
     expect(result.systemPrompt).toContain("cite your sources using numbered markers");
@@ -238,7 +241,7 @@ describe("buildSystemPromptWithMemories", () => {
       { id: "kb1", content: "Some KB content here", chunkIndex: 3, filename: "notes.md", fileId: "f1", similarity: 0.8 },
     ];
 
-    const result = await buildSystemPromptWithMemories("Base.", "query", "proj-1", { kbChunks });
+    const result = await buildSystemPromptWithMemories("Base.", "query", "proj-1", "user-1", { kbChunks });
 
     expect(result.kbSourcesUsed).toHaveLength(1);
     expect(result.kbSourcesUsed[0]!.id).toBe("kb1");
@@ -252,12 +255,12 @@ describe("buildSystemPromptWithMemories", () => {
     ];
 
     // Test with undefined kbChunks
-    const result1 = await buildSystemPromptWithMemories("Base.", "query", "proj-1");
+    const result1 = await buildSystemPromptWithMemories("Base.", "query", "proj-1", "user-1");
     expect(result1.systemPrompt).not.toContain("## Knowledge Base");
     expect(result1.kbSourcesUsed).toEqual([]);
 
     // Test with empty array
-    const result2 = await buildSystemPromptWithMemories("Base.", "query", "proj-1", { kbChunks: [] });
+    const result2 = await buildSystemPromptWithMemories("Base.", "query", "proj-1", "user-1", { kbChunks: [] });
     expect(result2.systemPrompt).not.toContain("## Knowledge Base");
     expect(result2.kbSourcesUsed).toEqual([]);
   });

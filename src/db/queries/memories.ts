@@ -138,14 +138,30 @@ export async function updateMemory(
 export async function findSimilarMemory(
   embedding: number[],
   threshold: number = 0.85,
+  /**
+   * Per-user ownership scope. Memories are per-user-private, so dedup/
+   * compaction callers MUST constrain candidates to the acting owner's rows —
+   * an unscoped match lets one user's content merge into (or overwrite)
+   * another user's memory. `ownerUserId: null` matches nothing (fail-closed:
+   * an unattributable row may not claim anyone's memories). Omit the param
+   * only for owner-agnostic maintenance reuse.
+   */
+  scope?: { ownerUserId: string | null },
 ): Promise<{ id: string; content: string; similarity: number } | null> {
+  if (scope && scope.ownerUserId === null) return null;
   const db = getDb();
   const vectorLiteral = toVectorLiteral(embedding);
+  // Same two ownership shapes as the injection predicate in
+  // src/memory/retrieval.ts: directly-attributed rows, or unattributed rows
+  // whose source conversation belongs to the owner.
+  const ownerFilter = scope
+    ? sql` AND (user_id = ${scope.ownerUserId} OR (user_id IS NULL AND EXISTS (SELECT 1 FROM conversations c WHERE c.id = memories.conversation_id AND c.user_id = ${scope.ownerUserId})))`
+    : sql``;
   const results = await db.execute(sql`
     SELECT id, content, 1 - (embedding <=> ${sql.raw(vectorLiteral)}) as similarity
     FROM memories
     WHERE embedding IS NOT NULL
-      AND 1 - (embedding <=> ${sql.raw(vectorLiteral)}) > ${threshold}
+      AND 1 - (embedding <=> ${sql.raw(vectorLiteral)}) > ${threshold}${ownerFilter}
     ORDER BY similarity DESC
     LIMIT 1
   `);

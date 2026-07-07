@@ -22,6 +22,21 @@ interface HybridSearchOptions {
   isolateToProject?: boolean;
   limit?: number;
   k?: number;
+  /**
+   * Acting user for per-user PII scoping. Memories are per-user-private, so
+   * the injection entry point (`buildSystemPromptWithMemories`) ALWAYS passes
+   * this. When set (including `null`), results are restricted to memories the
+   * user owns; a `null`/unowned actor therefore matches nothing (fail-closed).
+   * When `undefined` (non-user reuse of hybridSearch), the scope is skipped.
+   */
+  userId?: string | null;
+  /**
+   * Restrict to auto-inject-eligible memories (`injection_eligible = true`).
+   * Opt-in (default off) so only the system-prompt injection path filters on
+   * it — search/palette/other callers keep seeing injection-ineligible rows.
+   * Set true by `buildSystemPromptWithMemories`.
+   */
+  injectionEligibleOnly?: boolean;
 }
 
 export async function hybridSearch(
@@ -36,25 +51,57 @@ export async function hybridSearch(
 
   const vectorLiteral = toVectorLiteral(embedding);
 
+  // Positional params are assembled UP-FRONT so every placeholder ($2, $3, …)
+  // tracks its REAL index in `params`. projectId is optional, so hardcoding $3
+  // for userId broke the userId-without-projectId combination — userId actually
+  // lands at $2 then, and the query bound only two params. `Array.push` returns
+  // the new length, i.e. the 1-based index of the value just pushed, so it is
+  // the correct placeholder number regardless of which optional args are set.
+  const params: (string | null)[] = [query]; // $1 — the text query (always present)
+  const projectParam = projectId ? `$${params.push(projectId)}` : null;
+  // $2 or $3 — the acting user (may be null → fail-closed). Only pushed when the
+  // caller opts into user scoping, keeping the placeholder count in sync.
+  const userParam = opts.userId !== undefined ? `$${params.push(opts.userId)}` : null;
+
   // Build WHERE clause: always exclude archived, filter by project scope
-  // projectId is parameterized as $2 to prevent SQL injection
-  const baseFilter = "status != 'archived'";
+  // (projectParam is parameterized to prevent SQL injection).
+  // The injection path additionally excludes injection-ineligible memories
+  // (opt-in — search/palette callers still see them).
+  const baseFilter = opts.injectionEligibleOnly === true
+    ? "status != 'archived' AND injection_eligible = true"
+    : "status != 'archived'";
   let isolationFilter: string;
   if (isolate && projectId) {
     // Strict isolation: only memories assigned to this project (no global)
-    isolationFilter = `WHERE ${baseFilter} AND EXISTS (SELECT 1 FROM memory_projects WHERE memory_id = memories.id AND project_id = $2)`;
+    isolationFilter = `WHERE ${baseFilter} AND EXISTS (SELECT 1 FROM memory_projects WHERE memory_id = memories.id AND project_id = ${projectParam})`;
   } else if (projectId) {
     // Default: this project's memories + global memories (no cross-project leak)
-    isolationFilter = `WHERE ${baseFilter} AND (EXISTS (SELECT 1 FROM memory_projects WHERE memory_id = memories.id AND project_id = $2) OR NOT EXISTS (SELECT 1 FROM memory_projects WHERE memory_id = memories.id))`;
+    isolationFilter = `WHERE ${baseFilter} AND (EXISTS (SELECT 1 FROM memory_projects WHERE memory_id = memories.id AND project_id = ${projectParam}) OR NOT EXISTS (SELECT 1 FROM memory_projects WHERE memory_id = memories.id))`;
   } else {
     // No project context: all non-archived memories
     isolationFilter = `WHERE ${baseFilter}`;
   }
 
+  // Per-user PII scope. Memories are per-user-private (see ownedByActingUser in
+  // src/extensions/memory-handler.ts). Appended to the SHARED isolationFilter so
+  // BOTH the vector_ranked and keyword_ranked CTEs inherit it. userParam carries
+  // userId's REAL positional index (projectId is optional, so it is not always
+  // $3). Two ownership shapes, mirroring ownedByActingUser:
+  //   (1) memories.user_id = userId              (directly-attributed rows)
+  //   (2) user_id IS NULL, but the source conversation is owned by userId
+  //       (host-extracted rows — dedup doesn't stamp user_id).
+  // A null/unowned actor matches neither shape → zero rows (fail-closed).
+  if (userParam) {
+    // Single-line string on purpose: a multi-line template literal makes Bun's
+    // coverage instrumenter emit phantom (never-hit) DA records for the interior
+    // lines, which trips the patch-coverage gate.
+    isolationFilter += ` AND (memories.user_id = ${userParam} OR (memories.user_id IS NULL AND EXISTS (SELECT 1 FROM conversations c WHERE c.id = memories.conversation_id AND c.user_id = ${userParam})))`;
+  }
+
   // Project boost: in global mode, multiply RRF by 1.5 for matching project
   // In isolation mode, all results are already from the project so no boost needed
   const boostExpr = !isolate && projectId
-    ? `CASE WHEN EXISTS (SELECT 1 FROM memory_projects WHERE memory_id = COALESCE(v.id, k.id) AND project_id = $2) THEN 1.5 ELSE 1.0 END`
+    ? `CASE WHEN EXISTS (SELECT 1 FROM memory_projects WHERE memory_id = COALESCE(v.id, k.id) AND project_id = ${projectParam}) THEN 1.5 ELSE 1.0 END`
     : "1.0";
 
   // Status-aware weight: active=1.0, stale=0.5
@@ -93,9 +140,6 @@ export async function hybridSearch(
     ORDER BY rrf_score DESC
     LIMIT ${limit}
   `;
-
-  const params: (string | null)[] = [query];
-  if (projectId) params.push(projectId);
 
   const result = await rawQuery(sql, params);
 

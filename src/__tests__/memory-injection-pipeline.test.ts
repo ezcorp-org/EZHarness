@@ -14,8 +14,13 @@ const { createProject } = await import("../db/queries/projects");
 const { createConversation } = await import("../db/queries/conversations");
 const { upsertSetting } = await import("../db/queries/settings");
 const { getDb } = await import("../db/connection");
-const { memories } = await import("../db/schema");
+const { memories, users } = await import("../db/schema");
 const { eq } = await import("drizzle-orm");
+
+// The conversation owner. Injection is per-user PII-scoped, so every
+// buildSystemPromptWithMemories call passes this owner; the seeded memories
+// (user_id NULL) resolve to it via their source conversation (shape 2).
+const ownerId = "user-pipeline-owner";
 
 let projectId: string;
 let projectId2: string;
@@ -62,7 +67,14 @@ beforeAll(async () => {
   projectId = project.id;
   const project2 = await createProject({ name: "pipeline-test-2", path: "/tmp/pipeline-test-2" });
   projectId2 = project2.id;
-  const conv = await createConversation(projectId, { title: "pipeline conv" });
+  await getDb().insert(users).values({
+    id: ownerId,
+    email: "pipeline-owner@test.local",
+    name: "Pipeline Owner",
+    passwordHash: "fake-hash",
+  }).onConflictDoNothing();
+
+  const conv = await createConversation(projectId, { title: "pipeline conv", userId: ownerId });
   conversationId = conv.id;
 
   const nameMem = await insertTestMemory("User's name is Geff", { category: "biographical" });
@@ -88,12 +100,12 @@ afterAll(async () => {
 
 describe("Memory injection pipeline", () => {
   test("buildSystemPromptWithMemories injects memories into system prompt", async () => {
-    const result = await buildSystemPromptWithMemories("You are an assistant.", "What is the user's name?", projectId);
+    const result = await buildSystemPromptWithMemories("You are an assistant.", "What is the user's name?", projectId, ownerId);
     expect(result.systemPrompt).toContain("## Relevant Memories");
   });
 
   test("buildSystemPromptWithMemories returns memoriesUsed array", async () => {
-    const result = await buildSystemPromptWithMemories("You are an assistant.", "name greeting", projectId);
+    const result = await buildSystemPromptWithMemories("You are an assistant.", "name greeting", projectId, ownerId);
     expect(result.memoriesUsed.length).toBeGreaterThan(0);
     for (const mem of result.memoriesUsed) {
       expect(mem.id).toBeDefined();
@@ -112,6 +124,7 @@ describe("Memory injection pipeline", () => {
         "Base prompt only.",
         "anything",
         emptyProject.id,
+        ownerId,
         { tokenBudget: 2000 },
       );
       expect(result.systemPrompt).toBe("Base prompt only.");
@@ -170,7 +183,7 @@ describe("Memory injection pipeline", () => {
   test("buildSystemPromptWithMemories respects memoryEnabled setting", async () => {
     await upsertSetting("global:memoryEnabled", false);
     try {
-      const result = await buildSystemPromptWithMemories("Base prompt.", "name", projectId);
+      const result = await buildSystemPromptWithMemories("Base prompt.", "name", projectId, ownerId);
       expect(result.systemPrompt).toBe("Base prompt.");
       expect(result.memoriesUsed).toEqual([]);
     } finally {
@@ -208,6 +221,7 @@ describe("Memory injection pipeline", () => {
       "You are an assistant.",
       "zebra unicorn",
       projectId, // searching in project1
+      ownerId,
     );
 
     // project2's memory should NOT leak into project1's system prompt
@@ -223,6 +237,7 @@ describe("Memory injection pipeline", () => {
       "You are a helpful assistant.",
       "What is the user's name and how should I greet them?",
       projectId,
+      ownerId,
     );
     // The actual memory text should appear in the injected prompt
     expect(result.systemPrompt).toContain("Geff");

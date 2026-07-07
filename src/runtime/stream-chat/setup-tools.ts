@@ -262,7 +262,10 @@ export async function setupTools(
             } catch { return undefined; }
           })(),
         ]);
-        const injection = await injectionModule.buildSystemPromptWithMemories(ctx.system, userMessage, options.projectId!, { kbChunks, queryEmbedding });
+        // Per-user PII scope: only inject memories the conversation owner owns.
+        // A null owner (legacy/agent/CLI run) yields zero injected memories
+        // (fail-closed) rather than leaking every project member's memories.
+        const injection = await injectionModule.buildSystemPromptWithMemories(ctx.system, userMessage, options.projectId!, convRecord?.userId ?? null, { kbChunks, queryEmbedding });
         ctx.system = injection.systemPrompt;
         if (injection.memoriesUsed.length > 0) run.memoriesUsed = injection.memoriesUsed;
       } catch {

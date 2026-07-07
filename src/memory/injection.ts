@@ -25,6 +25,12 @@ export async function buildSystemPromptWithMemories(
   basePrompt: string | undefined,
   query: string,
   projectId: string,
+  // REQUIRED (not optional): memories are per-user PII, so the acting user must
+  // always be supplied. The non-optionality is the compile-time guard that
+  // stops the cross-user injection leak from silently recurring. Pass the
+  // conversation owner's id, or `null` for an unowned run (→ zero memories,
+  // fail-closed).
+  userId: string | null,
   opts?: { tokenBudget?: number; kbChunks?: KBChunkResult[]; queryEmbedding?: number[] },
 ): Promise<MemoryInjectionResult> {
   const base = basePrompt ?? "";
@@ -47,6 +53,9 @@ export async function buildSystemPromptWithMemories(
     projectId,
     isolateToProject,
     limit: 20,
+    userId,
+    // System-prompt injection reads only auto-inject-eligible memories.
+    injectionEligibleOnly: true,
   });
 
   const tokenBudget = opts?.tokenBudget ?? DEFAULT_TOKEN_BUDGET;
