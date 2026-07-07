@@ -24,8 +24,8 @@ function installUserMocks(): void {
 }
 installUserMocks();
 
-const { parseArgs, parseKeyScopes, resolveKeyMintUser } = await import("../cli");
-const { scopesOverCeiling } = await import("../auth/api-key");
+const { parseArgs, parseKeyScopes, parseKeyRole, resolveKeyMintUser } = await import("../cli");
+const { scopesOverCeiling, canMintRole, isApiKeyRole } = await import("../auth/api-key");
 
 beforeEach(() => {
   users = [];
@@ -68,11 +68,12 @@ describe("parseArgs: key mint", () => {
   });
 
   test("all flags parsed", () => {
-    const p = parseArgs(["key", "mint", "--scopes", "read,admin", "--user", "a@b.com", "--name", "ci"]);
+    const p = parseArgs(["key", "mint", "--scopes", "read,admin", "--user", "a@b.com", "--name", "ci", "--role", "admin"]);
     expect(p.command).toBe("key:mint");
     expect(p.scopes).toBe("read,admin");
     expect(p.userRef).toBe("a@b.com");
     expect(p.keyName).toBe("ci");
+    expect(p.role).toBe("admin");
   });
 
   test("unknown key subcommand → help", () => {
@@ -98,6 +99,22 @@ describe("parseKeyScopes", () => {
 
   test("invalid scope exits(1)", async () => {
     expect(await captureExit(() => parseKeyScopes("read,frobnicate"))).toBe(1);
+  });
+});
+
+describe("parseKeyRole", () => {
+  test("undefined / empty → default member", () => {
+    expect(parseKeyRole(undefined)).toBe("member");
+    expect(parseKeyRole("")).toBe("member");
+  });
+
+  test("valid roles pass through (trimmed)", () => {
+    expect(parseKeyRole("member")).toBe("member");
+    expect(parseKeyRole(" admin ")).toBe("admin");
+  });
+
+  test("invalid role exits(1)", async () => {
+    expect(await captureExit(() => parseKeyRole("superuser"))).toBe(1);
   });
 });
 
@@ -152,5 +169,35 @@ describe("scopesOverCeiling (FINDING B: scope ceiling)", () => {
 
   test("undefined role is treated as non-admin", () => {
     expect(scopesOverCeiling(undefined, ["admin"])).toEqual(["admin"]);
+  });
+});
+
+describe("isApiKeyRole", () => {
+  test("accepts the two canonical roles", () => {
+    expect(isApiKeyRole("member")).toBe(true);
+    expect(isApiKeyRole("admin")).toBe(true);
+  });
+
+  test("rejects anything else", () => {
+    expect(isApiKeyRole("owner")).toBe(false);
+    expect(isApiKeyRole("")).toBe(false);
+    expect(isApiKeyRole("Admin")).toBe(false);
+  });
+});
+
+describe("canMintRole (role anti-escalation)", () => {
+  test("anyone may mint a member-role key", () => {
+    expect(canMintRole("member", "member")).toBe(true);
+    expect(canMintRole("admin", "member")).toBe(true);
+    expect(canMintRole(undefined, "member")).toBe(true);
+  });
+
+  test("only an admin actor may mint an admin-role key", () => {
+    expect(canMintRole("admin", "admin")).toBe(true);
+  });
+
+  test("a non-admin actor may NOT mint an admin-role key", () => {
+    expect(canMintRole("member", "admin")).toBe(false);
+    expect(canMintRole(undefined, "admin")).toBe(false);
   });
 });

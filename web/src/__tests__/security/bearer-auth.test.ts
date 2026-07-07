@@ -27,10 +27,20 @@ import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-clean
 // failures).
 let verifyApiKeyCalls: string[];
 let verifyApiKeyImpl: (raw: string) => Promise<
-  { userId: string; name: string; scopes: readonly string[] } | null
+  { userId: string; name: string; scopes: readonly string[]; role: "member" | "admin" } | null
 > = async (raw: string) => {
   verifyApiKeyCalls.push(raw);
-  if (raw === "ezk_valid") return { userId: "user-1", name: "Test", scopes: ["chat"] };
+  if (raw === "ezk_valid") return { userId: "user-1", name: "Test", scopes: ["chat"], role: "member" };
+  // A role-carrying admin key whose owner is a current admin.
+  if (raw === "ezk_admin") return { userId: "user-2", name: "Admin Key", scopes: ["read", "admin"], role: "admin" };
+  // Admin-ROLE key whose owner has since been DEMOTED to member.
+  if (raw === "ezk_demoted") return { userId: "user-demoted", name: "Demoted Key", scopes: ["read", "admin"], role: "admin" };
+  // Admin-ROLE key whose owner has since been BANNED (status inactive).
+  if (raw === "ezk_banned") return { userId: "user-banned", name: "Banned Key", scopes: ["read", "admin"], role: "admin" };
+  // Key whose owner row no longer exists (deleted out of band).
+  if (raw === "ezk_orphan") return { userId: "user-orphan", name: "Orphan Key", scopes: ["read"], role: "admin" };
+  // Member-ROLE key owned by a current admin — the min-clamp keeps it member.
+  if (raw === "ezk_member_adminowner") return { userId: "user-2", name: "Member Key", scopes: ["read"], role: "member" };
   return null;
 };
 mock.module("$lib/server/security/api-keys", () => ({
@@ -72,6 +82,12 @@ beforeEach(() => {
   userStore.clear();
   userStore.set("geff", { id: "geff", name: "Geff", role: "member", status: "active" });
   userStore.set("admin-123", { id: "admin-123", name: "Admin", role: "admin", status: "active" });
+  // Owners for the ezk_ user-key fixtures. Owner re-validation loads these.
+  userStore.set("user-1", { id: "user-1", name: "Test", role: "member", status: "active" });
+  userStore.set("user-2", { id: "user-2", name: "Admin Owner", role: "admin", status: "active" });
+  userStore.set("user-demoted", { id: "user-demoted", name: "Demoted", role: "member", status: "active" });
+  userStore.set("user-banned", { id: "user-banned", name: "Banned", role: "admin", status: "inactive" });
+  // `user-orphan` intentionally absent — models a deleted owner.
 });
 
 // ── No header / wrong scheme ─────────────────────────────────────────────────
@@ -178,6 +194,54 @@ describe("attachBearerAuth — user keys", () => {
     expect(evt.locals.user).toMatchObject({ id: "user-1", name: "Test" });
     expect(evt.locals.apiKeyScopes).toEqual(["chat"]);
     expect(verifyApiKeyCalls).toEqual(["ezk_valid"]);
+  });
+
+  test("a member-role key yields a member principal", async () => {
+    const evt = makeEvent("127.0.0.1");
+    await attachBearerAuth(evt, "Bearer ezk_valid");
+    expect(evt.locals.user?.role).toBe("member");
+  });
+
+  test("an admin-ROLE key yields an admin principal (reaches requireRole routes)", async () => {
+    // The core of role-carrying keys: the ezk_ principal's role comes from
+    // the key's stored role CLAMPED to the (currently admin) owner, NOT a
+    // hard-coded "member". This is what makes requireRole(admin) routes
+    // reachable by an explicitly minted admin key with an admin owner.
+    const evt = makeEvent("127.0.0.1");
+    expect(await attachBearerAuth(evt, "Bearer ezk_admin")).toBe(true);
+    expect(evt.locals.user?.id).toBe("user-2");
+    expect(evt.locals.user?.role).toBe("admin");
+    expect(evt.locals.apiKeyScopes).toEqual(["read", "admin"]);
+  });
+
+  // ── Owner re-validation + role clamp (role is snapshotted at mint) ────
+  test("admin-role key whose owner was DEMOTED clamps down to a member principal", async () => {
+    const evt = makeEvent("127.0.0.1");
+    // Auth still succeeds (the key is valid + owner active) …
+    expect(await attachBearerAuth(evt, "Bearer ezk_demoted")).toBe(true);
+    // … but the stored admin role is clamped to the owner's CURRENT member role.
+    expect(evt.locals.user?.role).toBe("member");
+    // Scopes are NOT clamped — pre-existing semantics.
+    expect(evt.locals.apiKeyScopes).toEqual(["read", "admin"]);
+  });
+
+  test("member-role key owned by a current admin stays member (min-clamp)", async () => {
+    const evt = makeEvent("127.0.0.1");
+    expect(await attachBearerAuth(evt, "Bearer ezk_member_adminowner")).toBe(true);
+    expect(evt.locals.user?.role).toBe("member");
+  });
+
+  test("key whose owner is BANNED (status inactive) is rejected outright (401)", async () => {
+    const evt = makeEvent("127.0.0.1");
+    expect(await attachBearerAuth(evt, "Bearer ezk_banned")).toBe(false);
+    expect(evt.locals.user).toBeUndefined();
+    expect(evt.locals.apiKeyScopes).toBeUndefined();
+  });
+
+  test("key whose owner no longer exists is rejected outright", async () => {
+    const evt = makeEvent("127.0.0.1");
+    expect(await attachBearerAuth(evt, "Bearer ezk_orphan")).toBe(false);
+    expect(evt.locals.user).toBeUndefined();
   });
 
   test("user-key rejection leaves locals untouched", async () => {

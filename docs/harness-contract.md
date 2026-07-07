@@ -9,7 +9,7 @@ working as the app grows.
 
 | Tier | What | Gating | Examples |
 |---|---|---|---|
-| **Control** | Drive + observe a live instance | API-key **scope** only — works in production | `POST /api/conversations/:id/messages`, `GET /api/runs/:id?wait=1`, `/api/runtime-events`, `/api/settings/:key`, `/api/tool-calls/:id/permission` |
+| **Control** | Drive + observe a live instance | API-key **scope** (+ admin **role** for `requireRole` routes) — works in production | `POST /api/conversations/:id/messages`, `GET /api/runs/:id?wait=1`, `/api/runtime-events`, `/api/settings/:key` (admin role), `/api/tool-calls/:id/permission` |
 | **Determinism** | Deterministic LLM + state for tests | `isTestSurfaceEnabled()` (operator opt-in + harness flag + non-prod) **and**, for the mock LLM, loopback | `/api/__test/mock-llm/**`, `/api/__test/seed`, `/api/__test/reset` |
 
 The determinism tier is **fail-CLOSED**: `isTestSurfaceEnabled()` requires
@@ -25,12 +25,57 @@ Playwright harness sets all three in its preview server's env (see
 
 ## Getting access (auth bootstrap)
 
-API keys are bearer tokens (`ezk_*`) with scopes `read`, `chat`, `extensions`,
-`admin`. Cold-start without a UI session:
+API keys are bearer tokens (`ezk_*`) authorized along **two independent
+axes**:
+
+- **Scope** (`read`, `chat`, `extensions`, `admin`) — gates WHICH surfaces a
+  key can touch, via `requireScope`. Works in production.
+- **Role** (`member` | `admin`, default `member`) — gates whether the key is
+  a full **admin principal**, via `requireRole`/`checkRole`. An `admin`-role
+  key is an explicit opt-in.
+
+The two **compose**: an admin route needs a key that is an admin **principal**
+(role `admin`) **and** carries the `admin` **scope**. Role alone is not enough
+(a key minted `--scopes read --role admin` is refused for lack of scope), and
+scope alone is not enough (a member-role key holding the admin scope is refused
+for lack of role). The admin routes are **`/api/settings/:key`, the extension
+lifecycle (install/activate/enable/disable/uninstall + permission editing), MCP
+servers, users/teams, and audit** — mint with `--scopes admin --role admin` to
+reach them.
+
+The refusal *shape* differs by handler. The routes converted to `checkRole`
+(`/api/settings/:key` and the extension install/activate/permission-editing
+routes) return a **clean 403** on either axis. The routes still gated by
+`requireRole` (users/teams, audit, MCP servers, …) return a clean 403 when the
+**scope** is missing, but a **500** when only the **role** is missing —
+SvelteKit surfaces a handler-thrown `Response` as a 500 (a known rough edge,
+not a leak). Providing both axes avoids it.
+
+**Anti-escalation:** minting an `admin`-role key requires the actor/owner to
+already hold admin role. Over HTTP the actor mints for itself, so an
+admin-role mint needs an admin cookie session or an admin-role key — a
+member-role key holding only the `admin` SCOPE is refused `role=admin` (it can
+still mint member-role keys). The CLI (`--role admin --user <email>`) applies
+the same ceiling to the target OWNER: an admin-role key can only be minted for
+a currently-admin user.
+
+**Live re-validation (keys die with their owner).** Role is snapshotted at
+mint, but it is re-checked on **every** request: the owner is re-loaded and
+- if the owner is missing or not `active` (disabled/deleted), the key is
+  **rejected outright (401)** — revoking a user revokes their keys;
+- the effective role is **clamped down to the owner's current role**, so a
+  since-demoted admin's key silently degrades to `member`.
+
+Scopes are not re-clamped (their ceiling is enforced at mint). There is no
+"admin revokes another user's keys" endpoint yet — disable/demote the owner
+to kill their keys. The `apikey:`/`apikeyhash:` settings rows are deny-listed
+from the generic `/api/settings/:key` API so a key row can't be forged there.
+
+Cold-start without a UI session:
 
 ```sh
-ezcorp key mint --scopes read,chat            # prints the raw key once
-ezcorp key mint --scopes admin --user me@x.com --name ci
+ezcorp key mint --scopes read,chat                          # member key, prints raw once
+ezcorp key mint --scopes admin --role admin --user me@x.com --name ci  # admin-role key
 ```
 
 **Embedded-PGlite instances:** the datadir is single-writer, so run `key mint`

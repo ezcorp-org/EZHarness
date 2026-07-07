@@ -7,8 +7,10 @@ import {
 import {
   type ApiKeyEntry,
   type ApiKeyHashIndexEntry,
+  type ApiKeyRole,
   type ApiKeyScope,
   apiKeyHashIndexKey,
+  hasRequiredScope,
   hashApiKey,
 } from "$server/auth/api-key";
 
@@ -17,19 +19,24 @@ import {
 // See `src/auth/api-key.ts`.
 export {
   type ApiKeyEntry,
+  type ApiKeyRole,
   type ApiKeyScope,
   type GeneratedKey,
   API_KEY_SCOPES,
+  API_KEY_ROLES,
   apiKeySettingsKey,
   apiKeySettingsPrefix,
+  canMintRole,
   generateApiKey,
   hashApiKey,
+  isApiKeyRole,
   isApiKeyScope,
 } from "$server/auth/api-key";
 
 interface VerifiedKey {
   userId: string;
   scopes: ApiKeyScope[];
+  role: ApiKeyRole;
   name: string;
 }
 
@@ -60,7 +67,14 @@ export async function verifyApiKey(raw: string): Promise<VerifiedKey | null> {
     // under a stale index): still verify the hash with constant-time
     // comparison before trusting the row.
     if (entry && hashesEqual(entry.hash, hash)) {
-      return { userId: entry.userId, scopes: entry.scopes, name: entry.name };
+      // `role` is optional on-disk (keys minted before role-carrying keys
+      // existed have none) → default to the least-privileged `member`.
+      return {
+        userId: entry.userId,
+        scopes: entry.scopes,
+        role: entry.role ?? "member",
+        name: entry.name,
+      };
     }
   }
 
@@ -81,7 +95,12 @@ export async function verifyApiKey(raw: string): Promise<VerifiedKey | null> {
       } catch {
         // Best-effort upgrade; a write failure must not fail the auth.
       }
-      return { userId: entry.userId, scopes: entry.scopes, name: entry.name };
+      return {
+        userId: entry.userId,
+        scopes: entry.scopes,
+        role: entry.role ?? "member",
+        name: entry.name,
+      };
     }
   }
   return null;
@@ -91,8 +110,9 @@ export function requireScope(
   locals: { apiKeyScopes?: ApiKeyScope[] },
   scope: ApiKeyScope,
 ): Response | null {
-  if (!locals.apiKeyScopes) return null; // cookie auth -- allow all
-  if (locals.apiKeyScopes.includes(scope)) return null;
+  // `hasRequiredScope` encodes the "cookie session (undefined scopes) =>
+  // allow-all" rule, shared with the backend `checkRole` role+scope gate.
+  if (hasRequiredScope(locals.apiKeyScopes, scope)) return null;
   return Response.json({ error: "Insufficient scope", required: scope }, { status: 403 });
 }
 
@@ -105,10 +125,17 @@ export function requireScope(
  * through. The fix is to gate on the principal's ROLE, which is the real
  * authority an admin route cares about:
  *   - A cookie session carries the human's true role (`admin`/`member`).
- *   - An API-key (or internal-auth) principal is ALWAYS minted with
- *     `role: "member"` in bearer-auth.ts, so it can never be admin by role
- *     even if it holds the `admin` SCOPE — exactly the property we want for
- *     "this action requires a real admin human".
+ *   - An API-key (or internal-auth) principal defaults to `role: "member"`.
+ *     It is `admin` ONLY when it is an explicitly minted admin-ROLE key
+ *     (`ezcorp key mint --role admin` / `POST …/api-keys {role:"admin"}`),
+ *     never merely by holding the `admin` SCOPE. And even an admin-role key
+ *     is re-validated on every request in bearer-auth.ts: its owner is
+ *     re-loaded and the effective role is CLAMPED to the owner's CURRENT
+ *     role, so a since-demoted owner's key degrades to `member` (and a
+ *     banned/deleted owner's key is rejected outright). Minting an admin-role
+ *     key requires an admin actor (`canMintRole`), so this stays a
+ *     deliberate, admin-authorized elevation — not something any scoped key
+ *     can reach.
  *
  * Returns a 403 Response when the principal is not an admin, else null —
  * matching `requireScope`'s return-style so call sites stay

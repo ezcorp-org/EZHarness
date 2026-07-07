@@ -98,40 +98,93 @@ describe("PUT /api/extensions/[id]/permissions", () => {
     vi.mocked(updateExtension).mockReset();
   });
 
-  test("unauthenticated request throws 401", async () => {
-    let res: Response | undefined;
-    try {
-      await PUT(
-        makeEvent({
-          locals: {},
-          method: "PUT",
-          body: { permissions: {} },
-        }),
-      );
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(401);
+  test("unauthenticated request RETURNS 401 (not thrown → no 500)", async () => {
+    const res = await PUT(
+      makeEvent({
+        locals: {},
+        method: "PUT",
+        body: { permissions: {} },
+      }),
+    );
+    expect(res).toBeInstanceOf(Response);
+    expect(res.status).toBe(401);
   });
 
-  test("non-admin authenticated user throws 403", async () => {
-    let res: Response | undefined;
-    try {
-      await PUT(
-        makeEvent({
-          locals: { user: regularUser },
-          method: "PUT",
-          body: { permissions: {} },
-        }),
-      );
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(403);
+  test("non-admin authenticated user RETURNS 403 (not thrown → no 500)", async () => {
+    const res = await PUT(
+      makeEvent({
+        locals: { user: regularUser },
+        method: "PUT",
+        body: { permissions: {} },
+      }),
+    );
+    expect(res).toBeInstanceOf(Response);
+    expect(res.status).toBe(403);
+  });
+
+  // Track 1 regression: an API-key principal (extensions/admin SCOPE but
+  // member ROLE) gets a clean 403 JSON — pre-fix the raw thrown Response
+  // surfaced as a 500 for key callers, an RCE-adjacent footgun.
+  test("API-key caller (member role) RETURNS 403 JSON, never 500", async () => {
+    const res = await PUT(
+      makeEvent({
+        locals: {
+          user: { id: "u2", email: "u@x", name: "u", role: "member" },
+          apiKeyScopes: ["extensions", "admin"],
+        },
+        method: "PUT",
+        body: { permissions: { shell: true } },
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: string };
+    expect(typeof body.error).toBe("string");
+    expect(body.error!.length).toBeGreaterThan(0);
+    expect(vi.mocked(updateExtension)).not.toHaveBeenCalled();
+  });
+
+  // Scope-axis regression: an admin-ROLE key needs the admin SCOPE too. A key
+  // minted `--scopes extensions --role admin` clears the role wall but not the
+  // scope wall → clean 403 "Insufficient scope", and the write never happens.
+  test("admin-role key WITHOUT admin scope RETURNS 403; no write (scope axis)", async () => {
+    const res = await PUT(
+      makeEvent({
+        locals: {
+          user: { id: "u1", email: "a@x", name: "a", role: "admin" },
+          apiKeyScopes: ["extensions"],
+        },
+        method: "PUT",
+        body: { permissions: { shell: true } },
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: string; required?: string };
+    expect(body.error).toBe("Insufficient scope");
+    expect(body.required).toBe("admin");
+    expect(vi.mocked(updateExtension)).not.toHaveBeenCalled();
+  });
+
+  // With BOTH the admin role and the admin scope the key clears every gate and
+  // the clamp/write proceeds → 200.
+  test("admin-role key WITH admin scope clears both gates → 200", async () => {
+    vi.mocked(getExtension).mockResolvedValue({
+      id: "ext-1",
+      grantedPermissions: { grantedAt: {} },
+      manifest: { permissions: { shell: true } },
+    } as any);
+    vi.mocked(updateExtension).mockResolvedValue({ id: "ext-1" } as any);
+    const res = await PUT(
+      makeEvent({
+        locals: {
+          user: { id: "u1", email: "a@x", name: "a", role: "admin" },
+          apiKeyScopes: ["extensions", "admin"],
+        },
+        method: "PUT",
+        body: { permissions: { shell: true } },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(vi.mocked(updateExtension)).toHaveBeenCalledTimes(1);
   });
 
   test("unknown extension returns 404", async () => {
@@ -221,20 +274,14 @@ describe("PUT /api/extensions/[id]/permissions", () => {
         grantedPermissions: { grantedAt: {}, search: "inherit" },
         manifest: { permissions: { search: "inherit" } },
       } as any);
-      let res: Response | undefined;
-      try {
-        await PUT(
-          makeEvent({
-            locals: { user: regularUser },
-            method: "PUT",
-            body: { permissions: { search: { quota: 500 } } },
-          }),
-        );
-        expect.fail("should have thrown");
-      } catch (thrown) {
-        res = thrown as Response;
-      }
-      expect(res!.status).toBe(403);
+      const res = await PUT(
+        makeEvent({
+          locals: { user: regularUser },
+          method: "PUT",
+          body: { permissions: { search: { quota: 500 } } },
+        }),
+      );
+      expect(res.status).toBe(403);
       expect(vi.mocked(updateExtension)).not.toHaveBeenCalled();
     });
 

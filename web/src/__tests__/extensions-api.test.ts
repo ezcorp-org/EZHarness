@@ -331,6 +331,25 @@ describe("POST /api/extensions", () => {
 		expect(res.status).toBe(403);
 	});
 
+	// Scope-axis regression: an admin-ROLE key also needs the admin SCOPE. A key
+	// minted `--scopes read --role admin` clears the role wall but not the scope
+	// wall → 403, and no install happens.
+	test("scope axis: admin-role key WITHOUT admin scope → 403; no install", async () => {
+		apiKeyScopes = ["read"]; // admin ROLE (authUser) but no admin SCOPE
+		const res = await runThrowable(() =>
+			installPOST(installReq({ source: "local", path: "/tmp/ext" })) as any,
+		);
+		expect(res.status).toBe(403);
+		expect(mockInstallFromLocal).not.toHaveBeenCalled();
+	});
+
+	test("scope axis: admin-role key WITH admin scope → 201", async () => {
+		apiKeyScopes = ["read", "admin"];
+		const res = await (installPOST(installReq({ source: "local", path: "/tmp/ext" })) as any);
+		expect(res.status).toBe(201);
+		expect(mockInstallFromLocal).toHaveBeenCalledTimes(1);
+	});
+
 	test("FR-2: github install throws 'No tarball found' → rewritten to suggest source:git", async () => {
 		mockInstallFromGitHub.mockImplementationOnce(async () => {
 			throw new Error("No tarball found for release v1.0.0");
@@ -417,6 +436,20 @@ describe("POST /api/extensions/:id/activate", () => {
 		authUser = { id: "u2", email: "u2@test.com", name: "U2", role: "member" };
 		const res = await runThrowable(() => activatePOST(activateReq("ext-1", {})) as any);
 		expect(res.status).toBe(403);
+	});
+
+	// Scope-axis regression: admin-ROLE key still needs the admin SCOPE.
+	test("scope axis: admin-role key WITHOUT admin scope → 403; no activate", async () => {
+		apiKeyScopes = ["read"]; // admin ROLE (authUser) but no admin SCOPE
+		const res = await runThrowable(() => activatePOST(activateReq("ext-1", {})) as any);
+		expect(res.status).toBe(403);
+		expect(mockUpdateExtension).not.toHaveBeenCalled();
+	});
+
+	test("scope axis: admin-role key WITH admin scope → 200", async () => {
+		apiKeyScopes = ["read", "admin"];
+		const res = await (activatePOST(activateReq("ext-1", {})) as any);
+		expect(res.status).toBe(200);
 	});
 
 	test("omitted grantedPermissions → flips enabled without changing perms", async () => {

@@ -100,6 +100,13 @@ describe("scope enforcement coverage", () => {
       if (
         !content.includes("requireScope") &&
         !content.includes("requireRole") &&
+        // `checkRole(locals, "admin")` is the non-throwing role gate for
+        // +server.ts handlers (returns the denial Response instead of throwing
+        // → no SvelteKit 500). It enforces BOTH axes — admin ROLE and, for key
+        // principals, the admin SCOPE — so it is a strictly stronger gate than
+        // requireScope/requireRole. Accept it or the checkRole-only admin
+        // routes (settings/[key], extensions activate) read as ungated.
+        !content.includes("checkRole") &&
         !content.includes("requireAuth") &&
         // `authGithubRoute` (web/.../github-projects/_shared.ts) is the
         // github-projects routes' gate: it calls `requireScope(locals,

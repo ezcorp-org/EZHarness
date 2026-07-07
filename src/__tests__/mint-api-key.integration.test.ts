@@ -42,6 +42,7 @@ describe("mintApiKeyForUser (real DB)", () => {
       hash: string;
       userId: string;
       scopes: string[];
+      role: string;
       name: string;
       createdAt: number;
     };
@@ -51,6 +52,8 @@ describe("mintApiKeyForUser (real DB)", () => {
     expect(entry.hash).toBe(hashApiKey(raw));
     expect(entry.userId).toBe("u-int-1");
     expect(entry.scopes).toEqual(["read", "chat"]);
+    // Role defaults to member when the 4th arg is omitted.
+    expect(entry.role).toBe("member");
     expect(entry.name).toBe("ci-key");
     expect(typeof entry.createdAt).toBe("number");
 
@@ -63,6 +66,13 @@ describe("mintApiKeyForUser (real DB)", () => {
       | { userId: string; keyId: string }
       | undefined;
     expect(pointer).toEqual({ userId: "u-int-1", keyId });
+  });
+
+  test("persists an explicit admin role when passed", async () => {
+    const { keyId } = await mintApiKeyForUser("u-admin-role", ["read", "admin"], "admin-key", "admin");
+    const all = await getAllSettings();
+    const entry = all[apiKeySettingsKey("u-admin-role", keyId)] as { role: string };
+    expect(entry.role).toBe("admin");
   });
 
   test("deleteApiKeyForUser removes BOTH the per-user row and the hash index", async () => {

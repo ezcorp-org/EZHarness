@@ -20,6 +20,43 @@ export function isApiKeyScope(value: string): value is ApiKeyScope {
   return (API_KEY_SCOPES as readonly string[]).includes(value);
 }
 
+/**
+ * Does an API-key principal's scope set satisfy a required scope?
+ *
+ * `undefined` scopes mean the request is a COOKIE session (no API key), which
+ * is NOT scope-gated — those callers are authorized purely by role, so this
+ * returns `true`. For a key-authed request the required scope must be present.
+ * Pure + shared so the web `requireScope` gate and the backend `checkRole`
+ * (role + scope) gate can never drift on the "cookie ⇒ allow-all" rule.
+ */
+export function hasRequiredScope(
+  apiKeyScopes: readonly ApiKeyScope[] | undefined,
+  scope: ApiKeyScope,
+): boolean {
+  if (!apiKeyScopes) return true;
+  return apiKeyScopes.includes(scope);
+}
+
+/**
+ * A key's ROLE — the second authorization axis, orthogonal to scopes.
+ *
+ * Scopes gate WHICH surfaces a key can touch (`requireScope`); role gates
+ * whether it is a full admin principal (`requireRole`/`checkRole`). Every
+ * key defaults to `member`; an `admin`-role key is an explicit opt-in that
+ * makes `requireRole(admin)` routes (settings, extension lifecycle, MCP
+ * servers, users/teams, audit) reachable by an external harness. Bearer
+ * principals were historically hard-coded to `member`, which is why those
+ * routes were unreachable by ANY key before role-carrying keys existed.
+ */
+export type ApiKeyRole = "member" | "admin";
+
+/** Canonical role list — source of truth for CLI/route/schema validation. */
+export const API_KEY_ROLES: readonly ApiKeyRole[] = ["member", "admin"];
+
+export function isApiKeyRole(value: string): value is ApiKeyRole {
+  return (API_KEY_ROLES as readonly string[]).includes(value);
+}
+
 export interface GeneratedKey {
   raw: string;
   hash: string;
@@ -31,6 +68,10 @@ export interface ApiKeyEntry {
   hash: string;
   userId: string;
   scopes: ApiKeyScope[];
+  /** The key's role. Optional on-disk: keys minted before role-carrying keys
+   *  existed have no `role` field and are read back as `member` (see
+   *  `verifyApiKey`). No DB migration is needed — the settings row is JSON. */
+  role?: ApiKeyRole;
   name: string;
   createdAt: number;
 }
@@ -81,6 +122,26 @@ export function scopesOverCeiling(
 ): ApiKeyScope[] {
   if (role === "admin") return []; // admins may mint any scope, incl. admin
   return scopes.filter((s) => s === "admin");
+}
+
+/**
+ * Anti-escalation gate for the ROLE axis: may an actor whose own role is
+ * `actorRole` mint a key carrying `requestedRole`?
+ *
+ * Minting an `admin`-role key requires the actor to ALREADY be an admin —
+ * otherwise a member-role key that merely holds the `admin` SCOPE (which is
+ * enough to reach the mint route) could bootstrap itself an admin-role key
+ * and cross the role wall. Minting a `member`-role key is always allowed
+ * (that is the default posture). Pure + shared by the HTTP route so the
+ * escalation check can never drift from the storage layer. The CLI mint path
+ * is operator-trusted (shell access) and does not run this gate.
+ */
+export function canMintRole(
+  actorRole: string | undefined,
+  requestedRole: ApiKeyRole,
+): boolean {
+  if (requestedRole !== "admin") return true;
+  return actorRole === "admin";
 }
 
 export function generateApiKey(): GeneratedKey {

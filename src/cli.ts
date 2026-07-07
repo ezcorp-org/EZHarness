@@ -13,9 +13,13 @@ import { getProjectByName } from "./db/queries/projects";
 import { loadDbPipelines } from "./db/queries/pipelines";
 import { getUserByEmail, getUserById, listUsers } from "./db/queries/users";
 import {
+  API_KEY_ROLES,
   API_KEY_SCOPES,
+  canMintRole,
+  isApiKeyRole,
   isApiKeyScope,
   scopesOverCeiling,
+  type ApiKeyRole,
   type ApiKeyScope,
 } from "./auth/api-key";
 import { mintApiKeyForUser } from "./auth/mint-api-key";
@@ -177,6 +181,7 @@ export interface ParsedArgs {
   scopes?: string;       // for key:mint --scopes (comma-separated)
   userRef?: string;      // for key:mint --user (email or id)
   keyName?: string;      // for key:mint --name
+  role?: string;         // for key:mint --role (member|admin)
 }
 
 /**
@@ -285,6 +290,7 @@ export function parseArgs(args: string[]): ParsedArgs {
         scopes: flag("--scopes"),
         userRef: flag("--user"),
         keyName: flag("--name"),
+        role: flag("--role"),
       };
     }
     return { command: "help" };
@@ -395,6 +401,29 @@ export function parseKeyScopes(raw: string | undefined): ApiKeyScope[] {
   }
   // De-dupe while preserving order.
   return [...new Set(parts as ApiKeyScope[])];
+}
+
+/**
+ * Parse + validate a `--role member|admin` flag. Defaults to `member` (the
+ * unchanged posture) when omitted. Exits(1) on any unknown role.
+ *
+ * This helper only validates the flag VALUE. The role CEILING is enforced at
+ * the `key:mint` call site via the shared `canMintRole` predicate: with no
+ * acting principal (shell access is the CLI's trust boundary), the CLI applies
+ * it to the TARGET OWNER, so an admin-role key can only be minted for a
+ * currently-admin user (the same predicate the HTTP route runs against the
+ * acting principal to block self-escalation).
+ */
+export function parseKeyRole(raw: string | undefined): ApiKeyRole {
+  if (!raw) return "member";
+  const trimmed = raw.trim();
+  if (!isApiKeyRole(trimmed)) {
+    console.error(
+      `Error: invalid role "${raw}". Valid roles: ${API_KEY_ROLES.join(", ")}`,
+    );
+    process.exit(1);
+  }
+  return trimmed;
 }
 
 /**
@@ -831,6 +860,7 @@ export async function cli(args: string[]): Promise<void> {
     case "key:mint": {
       await initDbOrExit();
       const scopes = parseKeyScopes(parsed.scopes);
+      const role = parseKeyRole(parsed.role);
       const user = await resolveKeyMintUser(parsed.userRef);
       // Scope ceiling: a key must never carry authority its OWNER lacks.
       // Only an admin-bound key may carry the `admin` scope. Shared with the
@@ -843,10 +873,22 @@ export async function cli(args: string[]): Promise<void> {
         );
         process.exit(1);
       }
+      // Role ceiling: mirror the scope ceiling on the ROLE axis. An admin-role
+      // key for a non-admin owner would be clamped to `member` at verify time
+      // anyway (see bearer-auth's owner re-validation), so refuse it up front
+      // rather than mint a misleading key. Shared predicate with the HTTP route.
+      if (!canMintRole(user.role, role)) {
+        console.error(
+          `Error: cannot mint a "${role}"-role key for ${user.email} (role: ${user.role}). ` +
+          `Only an admin user may own an admin-role key.`,
+        );
+        process.exit(1);
+      }
       const name = parsed.keyName ?? "cli-minted";
-      const { raw, keyId } = await mintApiKeyForUser(user.id, scopes, name);
+      const { raw, keyId } = await mintApiKeyForUser(user.id, scopes, name, role);
       console.log(`\nMinted API key for ${user.email} (${user.id})`);
       console.log(`  scopes: ${scopes.join(", ")}`);
+      console.log(`  role:   ${role}`);
       console.log(`  keyId:  ${keyId}`);
       console.log(`  name:   ${name}`);
       console.log(`\n  ${raw}\n`);

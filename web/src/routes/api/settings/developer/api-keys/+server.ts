@@ -14,7 +14,7 @@ import {
   apiKeySettingsPrefix,
   type ApiKeyEntry,
 } from "$lib/server/security/api-keys";
-import { scopesOverCeiling } from "$server/auth/api-key";
+import { canMintRole, scopesOverCeiling } from "$server/auth/api-key";
 import { mintApiKeyForUser, deleteApiKeyForUser } from "$server/auth/mint-api-key";
 import { validationError } from "$lib/server/security/validation";
 import { createApiKeySchema, deleteApiKeySchema } from "../schema";
@@ -32,7 +32,8 @@ export const GET: RequestHandler = async ({ locals }) => {
     .map(([k, v]) => {
       const entry = v as ApiKeyEntry;
       const keyId = k.slice(prefix.length);
-      return { keyId, name: entry.name, scopes: entry.scopes, createdAt: entry.createdAt };
+      // `role` is optional on-disk (legacy rows) → surface the member default.
+      return { keyId, name: entry.name, scopes: entry.scopes, role: entry.role ?? "member", createdAt: entry.createdAt };
     });
   return json({ keys });
 };
@@ -45,7 +46,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const result = createApiKeySchema.safeParse(body);
   if (!result.success) return validationError(result.error);
 
-  const { name, scopes } = result.data;
+  const { name, scopes, role } = result.data;
 
   // Scope ceiling: a key must never carry authority its OWNER lacks. A
   // non-admin self-minting an `admin`-scoped key would be a privilege
@@ -57,9 +58,19 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return errorJson(403, `Cannot mint scope(s) you lack: ${over.join(", ")}`);
   }
 
-  const { raw, keyId } = await mintApiKeyForUser(user.id, scopes, name);
+  // Role anti-escalation: minting an admin-ROLE key requires the ACTOR to
+  // already be an admin. Without this, a member-role key that merely holds
+  // the `admin` SCOPE (enough to reach this route) could mint itself an
+  // admin-role key and cross the role wall — a privilege-escalation hole.
+  // `user.role` is the cookie session's real role, or (for a bearer caller)
+  // the calling key's own stored role.
+  if (!canMintRole(user.role, role)) {
+    return errorJson(403, `Cannot mint a key with role "${role}": requires admin role`);
+  }
 
-  return json({ key: raw, keyId, name, scopes }, { status: 201 });
+  const { raw, keyId } = await mintApiKeyForUser(user.id, scopes, name, role);
+
+  return json({ key: raw, keyId, name, scopes, role }, { status: 201 });
 };
 
 export const DELETE: RequestHandler = async ({ request, locals }) => {

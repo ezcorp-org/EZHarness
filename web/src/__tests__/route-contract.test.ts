@@ -82,6 +82,11 @@ describe("admin-gate pairing (FINDING A regression guard)", () => {
   const SCOPE_ADMIN = /requireScope\s*\(\s*\w+\s*,\s*["']admin["']\s*\)/;
   const ROLE_ADMIN = /requireRole\s*\(\s*\w+\s*,\s*["']admin["']\s*\)/;
   const REQUIRE_ADMIN = /requireAdmin\s*\(/;
+  // `checkRole(locals, "admin")` is the non-throwing role gate for +server.ts
+  // handlers. It is BOTH a role and (for key principals) a scope gate, so it
+  // counts as a role gate here — a route pairing requireScope(admin) with
+  // checkRole(admin) is correctly gated, not a scope-only offender.
+  const CHECK_ROLE = /checkRole\s*\(\s*\w+\s*,\s*["']admin["']\s*\)/;
 
   // Pre-existing routes that gate on the admin SCOPE without a role check.
   // Surfaced by this very scan. Most are user SELF-SERVICE writes
@@ -112,7 +117,7 @@ describe("admin-gate pairing (FINDING A regression guard)", () => {
     for (const rel of glob.scanSync(routesDir)) {
       const src = readFileSync(`${routesDir}/${rel}`, "utf8");
       if (!SCOPE_ADMIN.test(src)) continue;
-      if (ROLE_ADMIN.test(src) || REQUIRE_ADMIN.test(src)) continue;
+      if (ROLE_ADMIN.test(src) || REQUIRE_ADMIN.test(src) || CHECK_ROLE.test(src)) continue;
       if (KNOWN_SCOPE_ONLY_ADMIN.has(rel)) continue;
       offenders.push(rel);
     }
@@ -129,7 +134,7 @@ describe("admin-gate pairing (FINDING A regression guard)", () => {
     for (const rel of glob.scanSync(routesDir)) {
       const src = readFileSync(`${routesDir}/${rel}`, "utf8");
       if (!SCOPE_ADMIN.test(src)) continue;
-      if (ROLE_ADMIN.test(src) || REQUIRE_ADMIN.test(src)) continue;
+      if (ROLE_ADMIN.test(src) || REQUIRE_ADMIN.test(src) || CHECK_ROLE.test(src)) continue;
       scopeOnly.add(rel);
     }
     const extra = [...scopeOnly].filter((r) => !KNOWN_SCOPE_ONLY_ADMIN.has(r)).sort();
@@ -142,10 +147,15 @@ describe("admin-gate pairing (FINDING A regression guard)", () => {
     const offending = `requireScope(locals, "admin");`;
     const safeRole = `requireScope(locals, "admin"); requireRole(locals, "admin");`;
     const safeAdmin = `requireAdmin(locals);`;
+    const safeCheckRole = `requireScope(locals, "admin"); checkRole(locals, "admin");`;
     expect(SCOPE_ADMIN.test(offending)).toBe(true);
     expect(ROLE_ADMIN.test(offending)).toBe(false);
     expect(ROLE_ADMIN.test(safeRole)).toBe(true);
     expect(REQUIRE_ADMIN.test(safeAdmin)).toBe(true);
+    // checkRole is recognized as a role gate; its regex must NOT also match a
+    // plain requireScope offender (else scope-only routes would pass).
+    expect(CHECK_ROLE.test(safeCheckRole)).toBe(true);
+    expect(CHECK_ROLE.test(offending)).toBe(false);
   });
 });
 

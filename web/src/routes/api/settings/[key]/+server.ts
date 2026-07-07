@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import * as settingQueries from "$server/db/queries/settings";
-import { requireRole } from "$server/auth/middleware";
+import { checkRole } from "$server/auth/middleware";
 import { isSensitiveSettingKey } from "../deny-list";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
@@ -27,7 +27,8 @@ function denyIfSensitive(key: string): Response | null {
 }
 
 export const GET: RequestHandler = async ({ params, locals }) => {
-  requireRole(locals, "admin");
+  const admin = checkRole(locals, "admin");
+  if (admin instanceof Response) return admin;
   const denied = denyIfSensitive(params.key);
   if (denied) return denied;
   const value = await settingQueries.getSetting(params.key);
@@ -36,7 +37,8 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 };
 
 export const PUT: RequestHandler = async ({ request, params, locals }) => {
-  requireRole(locals, "admin");
+  const admin = checkRole(locals, "admin");
+  if (admin instanceof Response) return admin;
   const denied = denyIfSensitive(params.key);
   if (denied) return denied;
   const parsed = upsertSettingSchema.safeParse(await request.json().catch(() => ({})));
@@ -51,7 +53,8 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
 };
 
 export const DELETE: RequestHandler = async ({ params, locals }) => {
-  requireRole(locals, "admin");
+  const admin = checkRole(locals, "admin");
+  if (admin instanceof Response) return admin;
   const denied = denyIfSensitive(params.key);
   if (denied) return denied;
   const deleted = await settingQueries.deleteSetting(params.key);

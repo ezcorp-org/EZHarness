@@ -111,6 +111,48 @@ describe("cli key:mint dispatch", () => {
     expect(settings.find(([k]) => k.startsWith("apikey:u-admin:"))).toBeDefined();
   });
 
+  // Role-carrying keys: default is member; --role admin is allowed only for an
+  // admin owner (role ceiling), mirroring the scope ceiling.
+  test("mints a member-role key by default (prints role: member)", async () => {
+    await cli(["key", "mint", "--user", "admin@x.test"]);
+    expect(logs.join("\n")).toContain("role:   member");
+    const row = settings.find(([k]) => k.startsWith("apikey:u-admin:"));
+    expect((row?.[1] as { role?: string }).role).toBe("member");
+  });
+
+  test("--role admin persists an admin-role key for an admin owner and prints it", async () => {
+    await cli(["key", "mint", "--user", "admin@x.test", "--role", "admin"]);
+    expect(logs.join("\n")).toContain("role:   admin");
+    const row = settings.find(([k]) => k.startsWith("apikey:u-admin:"));
+    expect((row?.[1] as { role?: string }).role).toBe("admin");
+  });
+
+  // Role ceiling: an admin-role key for a NON-admin owner is refused up front
+  // (it would clamp to member at verify time anyway).
+  test("--role admin for a member owner exits(1) and mints nothing", async () => {
+    const code = await captureExit(() =>
+      cli(["key", "mint", "--user", "member@x.test", "--role", "admin"]),
+    );
+    expect(code).toBe(1);
+    expect(errs.join("\n")).toContain('cannot mint a "admin"-role key for member@x.test');
+    expect(settings.find(([k]) => k.startsWith("apikey:"))).toBeUndefined();
+  });
+
+  test("--role member for a member owner is allowed", async () => {
+    await cli(["key", "mint", "--user", "member@x.test", "--role", "member"]);
+    expect(logs.join("\n")).toContain("role:   member");
+    expect(settings.find(([k]) => k.startsWith("apikey:u-member:"))).toBeDefined();
+  });
+
+  test("an invalid --role exits(1) and mints nothing", async () => {
+    const code = await captureExit(() =>
+      cli(["key", "mint", "--user", "admin@x.test", "--role", "superuser"]),
+    );
+    expect(code).toBe(1);
+    expect(errs.join("\n")).toContain('invalid role "superuser"');
+    expect(settings.find(([k]) => k.startsWith("apikey:"))).toBeUndefined();
+  });
+
   // The datadir-in-use guard: minting against a LIVE server's PGlite dir
   // must exit 1 with the remediation message, not a stack trace — and must
   // not mint anything.

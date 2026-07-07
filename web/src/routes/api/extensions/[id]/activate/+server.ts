@@ -29,7 +29,7 @@
 
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
-import { requireRole } from "$server/auth/middleware";
+import { checkRole } from "$server/auth/middleware";
 import { errorJson } from "$lib/server/http-errors";
 import { activateExtension } from "$lib/server/extensions/activate-extension";
 import type { ExtensionPermissions } from "$server/extensions/types";
@@ -47,15 +47,10 @@ const activatePostSchema = z.object({
 }).passthrough();
 
 export const POST: RequestHandler = async ({ request, params, locals }) => {
-	// requireRole throws a raw Response; SvelteKit does not recognise that and
-	// surfaces it as a 500. Catch here so non-admin callers see the intended 403.
-	let admin;
-	try {
-		admin = requireRole(locals, "admin");
-	} catch (e) {
-		if (e instanceof Response) return e;
-		throw e;
-	}
+	// checkRole RETURNS the 401/403 Response so non-admin callers see the
+	// intended status (a thrown Response would 500 via SvelteKit).
+	const admin = checkRole(locals, "admin");
+	if (admin instanceof Response) return admin;
 
 	const parsed = activatePostSchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
