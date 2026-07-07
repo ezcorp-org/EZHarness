@@ -58,13 +58,18 @@ const { insertMemory, searchMemories, getMemoryById } = await import("../db/quer
 const { createProject } = await import("../db/queries/projects");
 const { createConversation } = await import("../db/queries/conversations");
 const { getDb } = await import("../db/connection");
-const { memoryAuditLog, memories } = await import("../db/schema");
+const { memoryAuditLog, memories, users } = await import("../db/schema");
 const { eq } = await import("drizzle-orm");
 const { upsertSetting } = await import("../db/queries/settings");
 const { runCompaction, mergeContents } = await import("../memory/compaction");
 
+const OWNER = "compaction-owner";
+const OTHER_USER = "compaction-other";
+
 let projectId: string;
 let conversationId: string;
+let otherConversationId: string;
+let unownedConversationId: string;
 
 // Controllable merge function for tests
 let mergeShouldFail = false;
@@ -75,10 +80,18 @@ const testMergeFn = async (a: string, b: string) => {
 
 beforeAll(async () => {
   await setupTestDb();
+  await getDb().insert(users).values([
+    { id: OWNER, email: "compaction-owner@test.local", name: "Compaction Owner", passwordHash: "fake-hash" },
+    { id: OTHER_USER, email: "compaction-other@test.local", name: "Compaction Other", passwordHash: "fake-hash" },
+  ]).onConflictDoNothing();
   const project = await createProject({ name: "compaction-test", path: "/tmp/compaction" });
   projectId = project.id;
-  const conv = await createConversation(projectId, { title: "compaction conv" });
+  const conv = await createConversation(projectId, { title: "compaction conv", userId: OWNER });
   conversationId = conv.id;
+  const otherConv = await createConversation(projectId, { title: "other user's conv", userId: OTHER_USER });
+  otherConversationId = otherConv.id;
+  const unowned = await createConversation(projectId, { title: "unowned conv" });
+  unownedConversationId = unowned.id;
 });
 
 afterAll(async () => {
@@ -96,10 +109,11 @@ beforeEach(async () => {
   await deleteSetting("compaction:lastRun");
 });
 
-async function insertTestMemory(content: string, opts?: { category?: string; status?: string }) {
+async function insertTestMemory(content: string, opts?: { category?: string; status?: string; conversationId?: string | null }) {
   const embedding = mockEmbedding();
+  const convId = opts?.conversationId === undefined ? conversationId : opts.conversationId;
   const provenance: MemoryProvenance = {
-    sourceConversationId: conversationId,
+    sourceConversationId: convId ?? "",
     sourceMessageIds: ["msg-comp"],
     extractedAt: new Date(),
     confidence: "high",
@@ -109,7 +123,7 @@ async function insertTestMemory(content: string, opts?: { category?: string; sta
     content,
     category: (opts?.category ?? "technical") as any,
     projectId,
-    conversationId,
+    conversationId: convId,
     messageIds: ["msg-comp"],
     confidence: "high",
     embedding,
@@ -145,6 +159,35 @@ describe("Memory Compaction", () => {
     const prov = merged.provenance as MemoryProvenance;
     expect(prov.history).toBeDefined();
     expect(prov.history![0]!.action).toBe("merged");
+
+    // The merged row is stamped with the resolved owner (ownership shape 1) —
+    // without the stamp it has neither user_id nor conversation_id and the
+    // user-scoped injection predicate in retrieval.ts can never return it.
+    expect(merged.userId).toBe(OWNER);
+  });
+
+  test("runCompaction never merges across users — similar rows owned by different users both survive", async () => {
+    const memOwner = await insertTestMemory("Cross-user similar fact");
+    const memOther = await insertTestMemory("Cross-user similar fact too", { conversationId: otherConversationId });
+
+    const mergedCount = await runCompaction(projectId, testMergeFn);
+    expect(mergedCount).toBe(0);
+
+    expect(await getMemoryById(memOwner.id)).toBeDefined();
+    expect(await getMemoryById(memOther.id)).toBeDefined();
+  });
+
+  test("runCompaction skips memories with no resolvable owner (unowned conversation or no conversation)", async () => {
+    const memUnownedConv = await insertTestMemory("Ownerless similar fact", { conversationId: unownedConversationId });
+    const memNoConv = await insertTestMemory("Ownerless similar fact two", { conversationId: null });
+
+    const mergedCount = await runCompaction(projectId, testMergeFn);
+    expect(mergedCount).toBe(0);
+
+    // Both rows survive untouched — merging them would create a row no
+    // user-scoped read could ever see.
+    expect(await getMemoryById(memUnownedConv.id)).toBeDefined();
+    expect(await getMemoryById(memNoConv.id)).toBeDefined();
   });
 
   test("runCompaction skips memories without embeddings", async () => {

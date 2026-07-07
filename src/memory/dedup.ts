@@ -42,6 +42,7 @@
 
 import type { ExtractedFact, MemoryProvenance } from "./types";
 import { findSimilarMemory, insertMemory, updateMemory } from "../db/queries/memories";
+import { getConversation } from "../db/queries/conversations";
 import { logger } from "../logger";
 
 const log = logger.child("memory.dedup");
@@ -146,7 +147,15 @@ export async function dedupAndWriteMemory(
   const embedding = input.embedding ?? (await generateEmbedding(fact.content));
 
   return withDedupLock(dedupLockKey(projectId), async () => {
-    const similar = await findSimilarMemory(embedding, EXTRACTION_DEDUP_THRESHOLD);
+    // Memories are per-user-private: scope the similar-match to the acting
+    // conversation's owner. Unscoped, one user's extracted fact could match —
+    // and then OVERWRITE — another user's memory row via the update branch
+    // below. A conversation with no resolvable owner matches nothing
+    // (fail-closed) and falls through to a fresh insert.
+    const conv = await getConversation(conversationId);
+    const similar = await findSimilarMemory(embedding, EXTRACTION_DEDUP_THRESHOLD, {
+      ownerUserId: conv?.userId ?? null,
+    });
     if (similar) {
       const updatedProvenance: MemoryProvenance = {
         sourceConversationId: conversationId,

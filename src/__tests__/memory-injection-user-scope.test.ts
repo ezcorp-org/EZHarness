@@ -174,6 +174,18 @@ describe("memory injection — per-user PII scope (cross-user leak regression)",
     expect(results).toHaveLength(0);
   });
 
+  test("hybridSearch scopes correctly with userId but NO projectId (placeholder indexing)", async () => {
+    // Regression: the user predicate used a hardcoded $3, which only lined up
+    // when projectId was also passed. Without projectId, userId binds at $2 —
+    // this call crashed (or mis-bound) before params were assembled up-front.
+    const results = await hybridSearch("secret", mockEmbedding(), { userId: USER_A });
+    const ids = results.map((r) => r.id);
+    expect(ids).toContain(memAAttributed.id);
+    expect(ids).toContain(memAExtracted.id);
+    expect(ids).not.toContain(memB.id);
+    expect(ids).not.toContain(memOrphan.id);
+  });
+
   test("buildSystemPromptWithMemories injects ONLY the acting user's memories (user B)", async () => {
     const result = await buildSystemPromptWithMemories("You are an assistant.", "secret", projectId, USER_B);
     expect(result.systemPrompt).toContain("Bravo secret belonging to user B");

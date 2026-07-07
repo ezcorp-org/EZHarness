@@ -1,6 +1,7 @@
 // Memory compaction: merges highly similar memories via LLM
 import { findSimilarMemory, insertMemory, deleteMemory, getMemoryById } from "../db/queries/memories";
 import { searchMemories } from "../db/queries/memories";
+import { getConversation } from "../db/queries/conversations";
 import { getSetting, upsertSetting } from "../db/queries/settings";
 import type { MemoryProvenance } from "./types";
 import { CHEAP_MODEL_BY_PROVIDER } from "../lib/cheap-models";
@@ -64,6 +65,25 @@ export async function mergeContents(contentA: string, contentB: string): Promise
 }
 
 /**
+ * Resolve the owning user of a memory row: the directly-stamped `user_id`,
+ * else the owner of its source conversation (host-extracted rows are stamped
+ * conversationId-but-not-userId). Returns null when no owner is resolvable.
+ * The per-run cache avoids re-fetching the same conversation.
+ */
+async function resolveMemoryOwner(
+  memory: { userId: string | null; conversationId: string | null },
+  cache: Map<string, string | null>,
+): Promise<string | null> {
+  if (memory.userId) return memory.userId;
+  if (!memory.conversationId) return null;
+  if (!cache.has(memory.conversationId)) {
+    const conv = await getConversation(memory.conversationId);
+    cache.set(memory.conversationId, conv?.userId ?? null);
+  }
+  return cache.get(memory.conversationId) ?? null;
+}
+
+/**
  * Run compaction: find similar active memories and merge them.
  * Uses a settings-based lock to prevent concurrent runs.
  */
@@ -87,15 +107,24 @@ export async function runCompaction(projectId?: string, mergeFn?: (a: string, b:
 
   let mergedCount = 0;
   const processedIds = new Set<string>();
+  const ownerCache = new Map<string, string | null>();
 
   for (const memory of memories) {
     if (processedIds.has(memory.id)) continue;
     if (!memory.embedding) continue;
 
-    // Find a similar memory (threshold 0.90)
+    // Memories are per-user-private: only merge within one owner's rows, and
+    // skip rows with no resolvable owner — merging them would produce an
+    // unattributable row that the user-scoped injection predicate in
+    // retrieval.ts can never return (silently shrinking usable memory).
+    const owner = await resolveMemoryOwner(memory, ownerCache);
+    if (!owner) continue;
+
+    // Find a similar memory (threshold 0.90) owned by the same user
     const similar = await findSimilarMemory(
       memory.embedding as number[],
       COMPACTION_SIMILARITY_THRESHOLD,
+      { ownerUserId: owner },
     );
 
     if (!similar || similar.id === memory.id) continue;
@@ -126,12 +155,15 @@ export async function runCompaction(projectId?: string, mergeFn?: (a: string, b:
       ],
     };
 
-    // Create merged memory
+    // Create merged memory. Stamp the resolved owner directly (ownership
+    // shape 1) so the merged row stays visible to the user-scoped injection
+    // predicate even if the source conversations are later deleted.
     await insertMemory({
       content: mergedContent,
       category: memory.category,
       projectId: memory.projectId,
       confidence: memory.confidence,
+      userId: owner,
       embedding,
       provenance,
     });

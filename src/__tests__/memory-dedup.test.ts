@@ -56,23 +56,40 @@ const { searchMemories } = await import("../db/queries/memories");
 const { createProject } = await import("../db/queries/projects");
 const { createConversation } = await import("../db/queries/conversations");
 const { getDb } = await import("../db/connection");
+const { users } = await import("../db/schema");
 const { sql } = await import("drizzle-orm");
+
+const OWNER_A = "dedup-user-a";
+const OWNER_B = "dedup-user-b";
 
 let projectAId: string;
 let projectBId: string;
 let conversationAId: string;
 let conversationBId: string;
+// Same owner as conversationAId but no owner at all — exercises the
+// fail-closed no-owner path (similar-match disabled, always insert).
+let conversationUnownedId: string;
+// Owned by OWNER_B in project A — exercises the cross-user scope wall.
+let conversationB2Id: string;
 
 beforeAll(async () => {
   await setupTestDb();
+  await getDb().insert(users).values([
+    { id: OWNER_A, email: "dedup-a@test.local", name: "Dedup A", passwordHash: "fake-hash" },
+    { id: OWNER_B, email: "dedup-b@test.local", name: "Dedup B", passwordHash: "fake-hash" },
+  ]).onConflictDoNothing();
   const a = await createProject({ name: "dedup-A", path: "/tmp/dedup-a" });
   const b = await createProject({ name: "dedup-B", path: "/tmp/dedup-b" });
   projectAId = a.id;
   projectBId = b.id;
-  const convA = await createConversation(projectAId, { title: "A" });
-  const convB = await createConversation(projectBId, { title: "B" });
+  const convA = await createConversation(projectAId, { title: "A", userId: OWNER_A });
+  const convB = await createConversation(projectBId, { title: "B", userId: OWNER_A });
   conversationAId = convA.id;
   conversationBId = convB.id;
+  const convUnowned = await createConversation(projectAId, { title: "unowned" });
+  conversationUnownedId = convUnowned.id;
+  const convB2 = await createConversation(projectAId, { title: "B's conv", userId: OWNER_B });
+  conversationB2Id = convB2.id;
 });
 
 afterAll(async () => {
@@ -153,6 +170,59 @@ describe("dedupAndWriteMemory — UPDATE branch (similar existing)", () => {
     // Total rows in projectA still 1 — no duplicates.
     const rows = await searchMemories({ projectId: projectAId });
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe("dedupAndWriteMemory — per-user scope wall", () => {
+  test("a similar fact from ANOTHER user's conversation inserts fresh — never overwrites the first user's row", async () => {
+    const fact = { content: "Shared-sounding fact for scope wall", category: "preferences" as const, confidence: "high" as const, messageIds: ["m1"] };
+
+    // User A writes the fact via A's conversation.
+    const first = await dedupAndWriteMemory({
+      fact,
+      conversationId: conversationAId,
+      projectId: projectAId,
+      provenanceFactory: legacyExtractionProvenance,
+    });
+    expect(first.action).toBe("inserted");
+
+    // User B extracts the SAME content via B's conversation. Unscoped dedup
+    // would take the update branch and overwrite A's row with B's write —
+    // the cross-user leak this scope closes.
+    const second = await dedupAndWriteMemory({
+      fact,
+      conversationId: conversationB2Id,
+      projectId: projectAId,
+      provenanceFactory: legacyExtractionProvenance,
+    });
+    expect(second.action).toBe("inserted");
+    expect(second.memoryId).not.toBe(first.memoryId);
+
+    const rows = await searchMemories({ projectId: projectAId });
+    expect(rows).toHaveLength(2);
+  });
+
+  test("a conversation with no resolvable owner matches nothing (fail-closed) and inserts", async () => {
+    const fact = { content: "Unowned-conversation fact", category: "technical" as const, confidence: "medium" as const, messageIds: ["m1"] };
+
+    const first = await dedupAndWriteMemory({
+      fact,
+      conversationId: conversationUnownedId,
+      projectId: projectAId,
+      provenanceFactory: legacyExtractionProvenance,
+    });
+    expect(first.action).toBe("inserted");
+
+    // Identical repeat from the same unowned conversation still inserts —
+    // an unattributable writer may not claim (or mutate) any existing row.
+    const second = await dedupAndWriteMemory({
+      fact,
+      conversationId: conversationUnownedId,
+      projectId: projectAId,
+      provenanceFactory: legacyExtractionProvenance,
+    });
+    expect(second.action).toBe("inserted");
+    expect(second.memoryId).not.toBe(first.memoryId);
   });
 });
 
