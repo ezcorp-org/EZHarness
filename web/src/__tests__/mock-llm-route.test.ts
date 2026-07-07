@@ -67,6 +67,30 @@ describe("completions endpoint", () => {
     const res = await completions({ request: bad } as any);
     expect(res.status).toBe(400);
   });
+
+  test("a seeded status fault turn → non-2xx OpenAI error body", async () => {
+    await seedScript({ request: jsonReq({ scriptKey: "f", turns: [{ fault: { status: 429, message: "slow" } }] }), locals: cookieLocals } as any);
+    const res = await completions({ request: jsonReq({ model: "mock:f" }) } as any);
+    expect(res.status).toBe(429);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toBe("slow");
+  });
+
+  test("a seeded connection fault turn → aborted body (transport failure)", async () => {
+    await seedScript({ request: jsonReq({ scriptKey: "c", turns: [{ fault: { kind: "connection" } }] }), locals: cookieLocals } as any);
+    const res = await completions({ request: jsonReq({ model: "mock:c" }) } as any);
+    expect(res.status).toBe(200);
+    let threw = false;
+    try { await res.text(); } catch { threw = true; }
+    expect(threw).toBe(true);
+  });
+
+  test("a seeded usage turn streams cache details in the final chunk", async () => {
+    await seedScript({ request: jsonReq({ scriptKey: "u", turns: [{ text: "hi", usage: { input: 5, cacheRead: 9 } }] }), locals: cookieLocals } as any);
+    const res = await completions({ request: jsonReq({ model: "mock:u" }) } as any);
+    const text = await res.text();
+    expect(text).toContain('"cached_tokens":9');
+  });
 });
 
 describe("/script seed endpoint", () => {
@@ -95,6 +119,39 @@ describe("/script seed endpoint", () => {
     expect((await seedScript({ request: jsonReq({ scriptKey: "k", turns: [{ text: 123 }] }), locals: cookieLocals } as any)).status).toBe(400);
     expect((await seedScript({ request: jsonReq({ scriptKey: "k", turns: ["nope"] }), locals: cookieLocals } as any)).status).toBe(400);
     expect((await seedScript({ request: jsonReq({ scriptKey: "k", turns: [{ toolCalls: "x" }] }), locals: cookieLocals } as any)).status).toBe(400);
+  });
+
+  test("accepts valid usage + fault turns", async () => {
+    const res = await seedScript({
+      request: jsonReq({ scriptKey: "ok", turns: [
+        { text: "cached", usage: { input: 10, cacheRead: 5, cacheWrite: 2, output: 3 } },
+        { fault: { status: 503 } },
+        { fault: { kind: "connection" } },
+      ] }),
+      locals: cookieLocals,
+    } as any);
+    expect(res.status).toBe(201);
+    expect(dequeueMockTurn("ok").usage?.cacheRead).toBe(5);
+    expect(dequeueMockTurn("ok").fault?.status).toBe(503);
+    expect(dequeueMockTurn("ok").fault?.kind).toBe("connection");
+  });
+
+  test("rejects bad usage shapes", async () => {
+    const bad = (turns: unknown) => seedScript({ request: jsonReq({ scriptKey: "k", turns }), locals: cookieLocals } as any);
+    expect((await bad([{ usage: "nope" }])).status).toBe(400);
+    expect((await bad([{ usage: { input: -1 } }])).status).toBe(400);
+    expect((await bad([{ usage: { cacheRead: "x" } }])).status).toBe(400);
+    expect((await bad([{ usage: { output: Number.POSITIVE_INFINITY } }])).status).toBe(400);
+  });
+
+  test("rejects bad fault shapes", async () => {
+    const bad = (turns: unknown) => seedScript({ request: jsonReq({ scriptKey: "k", turns }), locals: cookieLocals } as any);
+    expect((await bad([{ fault: "nope" }])).status).toBe(400);
+    expect((await bad([{ fault: {} }])).status).toBe(400); // neither status nor kind
+    expect((await bad([{ fault: { kind: "boom" } }])).status).toBe(400);
+    expect((await bad([{ fault: { status: 200 } }])).status).toBe(400); // out of [400,599]
+    expect((await bad([{ fault: { status: 4.5 } }])).status).toBe(400); // non-integer
+    expect((await bad([{ fault: { status: 429, message: 7 } }])).status).toBe(400);
   });
 
   test("invalid JSON body → 400", async () => {
