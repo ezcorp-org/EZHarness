@@ -166,6 +166,30 @@ describe("resolveModel", () => {
     expect(result.model).toBeDefined();
   });
 
+  test("WS3: explicit requestedTier overrides the configured default tier", async () => {
+    // Default tier is "fast" from settings, but the caller requests
+    // "powerful" — the requested tier must win (the classifier decided).
+    mockGetSetting.mockImplementation(((key: string) => {
+      if (key === "provider:defaultTier") return Promise.resolve("fast");
+      return Promise.resolve(undefined);
+    }) as any);
+
+    const fast = await resolveModel("anthropic", undefined, "fast");
+    const powerful = await resolveModel("anthropic", undefined, "powerful");
+    expect(fast.model).toBeDefined();
+    expect(powerful.model).toBeDefined();
+    // Different tiers resolve to different anthropic models.
+    expect(powerful.model).not.toBe(fast.model);
+  });
+
+  test("WS3: requestedTier is ignored for an explicit provider+model pin", async () => {
+    // Level-1 passthrough must be honored regardless of the requested tier
+    // (an established/pinned model is never re-routed — cache protection).
+    const result = await resolveModel("anthropic", "claude-sonnet-4-20250514", "fast");
+    expect(result.provider).toBe("anthropic");
+    expect(result.model).toBe("claude-sonnet-4-20250514");
+  });
+
   describe("resolveModel with custom models", () => {
     test("custom model with baseUrl passes it through to piModel", async () => {
       mockGetSetting.mockImplementation(((key: string) => {

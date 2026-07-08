@@ -7,6 +7,9 @@ import { resolveModelObject, findModelForProviderInTier, resolveDiscoveredModel 
 import { getCircuitBreaker } from "./circuit-breaker";
 import { getSetting } from "../db/queries/settings";
 import { isTestSurfaceEnabled, MOCK_PROVIDER, mockLlmBaseUrl } from "../test-surface";
+// Tier vocabulary lives in the pure routing classifier (single source of
+// truth). Type-only import — erased at build, so it adds no runtime dep.
+import type { RoutingTier } from "../runtime/tier-classifier";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -30,7 +33,7 @@ export class ProviderUnavailableError extends Error {
 
 // ── Settings helpers ─────────────────────────────────────────────────
 
-type TierName = "fast" | "balanced" | "powerful";
+type TierName = RoutingTier;
 
 const DEFAULT_PREFERENCE_ORDER = ["anthropic", "openai", "google", "openrouter"];
 const DEFAULT_TIER: TierName = "balanced";
@@ -73,8 +76,15 @@ async function getPreferenceOrder(): Promise<string[]> {
 export async function resolveModel(
   provider?: string,
   modelId?: string,
+  requestedTier?: RoutingTier,
 ): Promise<{ provider: string; model: string; piModel: Model<any> }> {
-  const tier = await getDefaultTier();
+  // WS3 quality-tier routing. When the caller passes a tier (the heuristic
+  // classifier picked it for a thread with NO established model — see
+  // stream-chat/setup-tools.ts), route by that tier; otherwise fall back to
+  // the configured default tier (`provider:defaultTier`). Explicit
+  // provider+model pins (Level 1 below) ignore tier entirely and pass
+  // through unchanged, so an established/pinned model is never re-routed.
+  const tier = requestedTier ?? (await getDefaultTier());
 
   // Level 1: Explicit provider + model -- passthrough
   if (provider && modelId) {
