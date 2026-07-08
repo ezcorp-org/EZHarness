@@ -5,8 +5,26 @@ import { getDb } from "../db/connection";
 import { toolCalls } from "../db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { logger } from "../logger";
+import type { FallbackSuggestion } from "../providers/router";
+import type { FailoverAttempt } from "./stream-chat/failover";
 
 const log = logger.child("executor.helpers");
+
+/**
+ * Resolve a fallback suggestion into a full failover attempt: the resolved
+ * model plus its pre-validated credential. Lives here (not inline in
+ * executor.ts) so `getCredential` access stays inside the audited host-side
+ * allowlist — see `get-credential-boundary.test.ts`. Used by the WS2
+ * pre-stream failover loop (`runWithFailover`).
+ */
+export async function resolveFailoverAttempt(
+  suggestion: FallbackSuggestion,
+  credentialConversationId: string,
+): Promise<FailoverAttempt> {
+  const r = await resolveModel(suggestion.provider, suggestion.model);
+  const cred = await getCredential(r.provider, credentialConversationId);
+  return { provider: r.provider, model: r.model, resolved: { resolved: r, initialCred: cred } };
+}
 
 /** Loose message shape accepted by the adapter. Code-based agents assemble
  *  plain `{role, content}` objects — we forward them verbatim to pi-ai and

@@ -25,8 +25,7 @@ import { applyAutoSpinUp } from "./stream-chat/auto-spin-up";
 import { buildPiAgent } from "./stream-chat/build-pi-agent";
 import { runWithFailover } from "./stream-chat/failover";
 import { buildPromptInput } from "./stream-chat/build-prompt";
-import { resolveModel, suggestFallback } from "../providers/router";
-import { getCredential } from "../providers/credentials";
+import { suggestFallback } from "../providers/router";
 import { ToolExecutor } from "../extensions/tool-executor";
 import type { ExtensionStateMediator } from "../extensions/state-mediator";
 import { createSpawnQuota, type SpawnQuota } from "../extensions/spawn-quota";
@@ -48,7 +47,7 @@ import { logger } from "../logger";
 const log = logger.child("executor");
 import * as activeRunsDb from "../db/queries/active-runs";
 import { WatchdogManager } from "./executor-watchdog";
-import { createPiLlmAdapter, persistErrorMessage } from "./executor-helpers";
+import { createPiLlmAdapter, persistErrorMessage, resolveFailoverAttempt } from "./executor-helpers";
 
 export interface ExecutorOptions {
   shell?: ShellProvider;
@@ -656,6 +655,13 @@ export class AgentExecutor {
       // and the `catch` below (existing error handling) takes over —
       // mid-stream failover is a documented follow-up (see
       // docs/plans/2026-07-07-pi-caching-routing-integration.md §5).
+      // The initial (already-resolved) attempt. Captured as a stable
+      // reference so `subscribe` can distinguish it from a fallback attempt.
+      const initialAttempt = {
+        provider: resolvedModel.resolved.provider,
+        model: resolvedModel.resolved.model,
+        resolved: resolvedModel,
+      };
       await runWithFailover({
         ctx,
         host,
@@ -663,24 +669,23 @@ export class AgentExecutor {
         // Fallback quality tier: honor an explicit hint, else "balanced"
         // (router's DEFAULT_TIER) — a pinned model carries no known tier.
         tier: options.tier ?? "balanced",
-        initial: {
-          provider: resolvedModel.resolved.provider,
-          model: resolvedModel.resolved.model,
-          resolved: resolvedModel,
-        },
+        initial: initialAttempt,
         buildAgent: (resolved) =>
           buildPiAgent(ctx, history, { ...options, compaction, cacheRetention }, resolved, credentialConversationId),
         // Bridge pi-agent-core events into the local EventBus + persist tool
-        // calls / per-turn assistant messages, tagging persistence with the
-        // provider/model that actually served the turn (may differ from the
-        // user's pick after a failover).
+        // calls / per-turn assistant messages. The INITIAL attempt keeps the
+        // requested provider/model (baseline persistence semantics); only a
+        // real failover overrides them, so the persisted message names the
+        // model that actually served the turn.
         subscribe: (agent, attempt) =>
           subscribeBridge(
             ctx,
             host,
             agent,
             conversationId,
-            { ...options, provider: attempt.provider, model: attempt.model },
+            attempt === initialAttempt
+              ? options
+              : { ...options, provider: attempt.provider, model: attempt.model },
             convRecord ?? null,
           ),
         runPrompt: (agent) =>
@@ -689,10 +694,9 @@ export class AgentExecutor {
             : agent.prompt(promptInput),
         suggestFallback,
         resolveAttempt: async (suggestion) => {
-          const r = await resolveModel(suggestion.provider, suggestion.model);
-          run.provider = r.provider;
-          const cred = await getCredential(r.provider, credentialConversationId);
-          return { provider: r.provider, model: r.model, resolved: { resolved: r, initialCred: cred } };
+          const attempt = await resolveFailoverAttempt(suggestion, credentialConversationId);
+          run.provider = attempt.provider;
+          return attempt;
         },
       });
 
