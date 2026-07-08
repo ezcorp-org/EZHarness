@@ -58,19 +58,30 @@ blocks* — a `user` message plus every following assistant / toolResult
 message up to the next `user` message. The **last block (the active
 turn) is always kept intact**, so the user's current prompt and its
 in-flight tool loop are never broken and no toolCall/toolResult pair is
-orphaned. The `trim` strategy is **cache-aware** (see [Cache-aware trim
-+ retention](#cache-aware-trim--retention)): it keeps a byte-stable
-prefix of the OLDEST turns (the "cache anchor") plus the most RECENT
-turns, and evicts the **middle**, laying out the compacted history as:
+orphaned. **By default the `trim` strategy evicts the OLDEST turns**
+(conventional recency), inserting the ephemeral marker at the front:
+
+```
+[ marker ][ …recent turns… ][ active turn ]
+```
+
+The strategy is also **cache-aware and can be run in an anchored mode**
+(opt-in via `compaction:cacheAnchorFraction` > 0; see [Cache-aware trim
++ retention](#cache-aware-trim--retention) and the [decision
+record](decisions/2026-07-08-compaction-cache-anchor.md)). When enabled,
+it keeps a byte-stable prefix of the OLDEST turns (the "cache anchor")
+plus the most RECENT turns and evicts the **middle**, and relocates the
+marker to **after the anchor** so its per-turn-changing text can't shift
+the cached region:
 
 ```
 [ …oldest anchor turns… ][ marker ][ …recent turns… ][ active turn ]
   └── byte-stable prefix ┘           └──── shifts (uncached) ────┘
 ```
 
-The single ephemeral marker is placed **after the anchor** (not at the
-front of the array), so its per-turn-changing text can't shift the
-cached region:
+The broad prompt-cache win — 1h retention on the system + tools + memory
+prefix — is independent of the anchor and applies with the default
+(anchor `0`). The ephemeral marker text:
 
 ```
 [Context note: 23 earlier messages omitted to fit this model's
@@ -143,7 +154,7 @@ malformed keys fall back to the defaults.
 | `compaction:responseReserveCap` | number | `16000` | Upper bound on output headroom reserved from the context window. |
 | `compaction:responseReserveFloor` | number | `1024` | Lower bound on that reservation. |
 | `compaction:safetyFraction` | number (0–1) | `0.08` | Fraction of the context window held back to absorb estimator error. |
-| `compaction:cacheAnchorFraction` | number (0–1) | `0.5` | Fraction of the input budget the `trim` strategy reserves for a byte-stable prefix of the OLDEST turns (the cache anchor). `0` disables the anchor (recent-only trim, marker at the front). |
+| `compaction:cacheAnchorFraction` | number (0–1) | `0` | Fraction of the input budget the `trim` strategy reserves for a byte-stable prefix of the OLDEST turns (the cache anchor). Default `0` = conventional recent-only trim (evict oldest, marker at front). **Opt-in**: raise it to cache conversation history on long, compacting threads — at the cost of pinning the stalest turns. See [decision record](decisions/2026-07-08-compaction-cache-anchor.md). |
 | `compaction:cacheRetention` | string | `long` | Prompt-cache TTL for the stable prefix: `long` (~1h), `short` (~5 min), or `none` (disable caching). Anthropic-only; other providers ignore it. |
 
 `responseReserve = clamp(model.maxTokens, floor, cap)`, so a model

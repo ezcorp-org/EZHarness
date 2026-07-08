@@ -80,7 +80,9 @@ async function twoCompactedTurns(cacheAnchorFraction: number) {
 
 describe("WS1: cache prefix survives compaction", () => {
   test("compacted turn keeps a non-zero cache hit-rate (WS-H usage → WS0 stats)", async () => {
-    const { cfg, sentN, sentN1 } = await twoCompactedTurns(DEFAULTS.cacheAnchorFraction);
+    // The anchor is opt-in (default 0). This test proves the anchor, when
+    // enabled, keeps the compacted turn's cache hit-rate non-zero.
+    const { cfg, sentN, sentN1 } = await twoCompactedTurns(0.5);
 
     // Both sends actually compacted.
     expect(sentN.some(isCompactionMarker)).toBe(true);

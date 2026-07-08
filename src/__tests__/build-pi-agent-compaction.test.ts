@@ -65,7 +65,8 @@ describe("buildPiAgent + compaction", () => {
 
   test("wired transformContext trims a long history below budget + marks it", async () => {
     const piModel = { id: "small", contextWindow: 1_000, maxTokens: 128_000 };
-    const compaction = { safetyFraction: 0, responseReserveFloor: 0, responseReserveCap: 0 };
+    // Anchor is opt-in (default 0); this test exercises the anchor layout.
+    const compaction = { safetyFraction: 0, responseReserveFloor: 0, responseReserveCap: 0, cacheAnchorFraction: 0.5 };
     build(piModel, compaction);
 
     const budget = computeInputBudget(piModel, { ...DEFAULTS, ...compaction });

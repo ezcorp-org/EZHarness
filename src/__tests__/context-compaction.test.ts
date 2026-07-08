@@ -210,7 +210,8 @@ describe("trim strategy", () => {
 
   test("keeps a stable oldest anchor + active turn, marker AFTER the anchor", async () => {
     const turns = Array.from({ length: 10 }, (_, i) => userMsg("x".repeat(400) + i));
-    const res = await trim.compact(turns, mkCtx(300));
+    // Anchor is opt-in (default 0); this test exercises the anchor feature.
+    const res = await trim.compact(turns, mkCtx(300, { ...DEFAULTS, cacheAnchorFraction: 0.5 }));
 
     // Cache-stable prefix: the OLDEST original turn leads (byte-stable),
     // NOT a per-turn-changing marker.
@@ -233,8 +234,10 @@ describe("trim strategy", () => {
     const turnsN = Array.from({ length: 12 }, (_, i) => userMsg("x".repeat(400) + "_" + i));
     const turnsN1 = [...turnsN, asstText("reply".repeat(80)), userMsg("next question")];
 
-    const outN = (await trim.compact(turnsN, mkCtx(300))).messages;
-    const outN1 = (await trim.compact(turnsN1, mkCtx(300))).messages;
+    // Anchor is opt-in (default 0); this test exercises the anchor feature.
+    const anchorCfg = { ...DEFAULTS, cacheAnchorFraction: 0.5 };
+    const outN = (await trim.compact(turnsN, mkCtx(300, anchorCfg))).messages;
+    const outN1 = (await trim.compact(turnsN1, mkCtx(300, anchorCfg))).messages;
 
     // Both actually compacted (a marker was injected).
     expect(outN.some(isCompactionMarker)).toBe(true);
@@ -391,10 +394,13 @@ describe("makeCompactionTransform", () => {
   });
 
   test("trims a long history below the computed budget", async () => {
+    // Anchor is opt-in (default 0); this test exercises the anchor layout
+    // (oldest turn leads, marker relocated after it).
     const transform = makeCompactionTransform(fakeModel(1_000, 1_000), {
       safetyFraction: 0,
       responseReserveFloor: 0,
       responseReserveCap: 0,
+      cacheAnchorFraction: 0.5,
     });
     const turns = Array.from({ length: 30 }, (_, i) => userMsg("z".repeat(400) + i));
     const out = await transform(turns);

@@ -51,8 +51,14 @@ export interface CompactionConfig {
    * This bound depends only on the (per-model, per-cfg) budget and the
    * immutable oldest history, so the anchor is identical every turn and
    * stays warm in the provider's prefix cache even as newer turns are
-   * evicted. `0` disables the anchor (recent-only trim, marker at front —
-   * the pre-cache-aware behavior). Clamped to `[0, 1]`.
+   * evicted. `0` (the default) disables the anchor: conventional
+   * recent-only trim (evict the OLDEST turns), marker at front. The anchor
+   * is opt-in because it only helps threads long enough to trigger
+   * compaction, and it does so by PINNING the stalest turns (evicting the
+   * more-relevant middle) — a cache-vs-recency tradeoff operators opt into.
+   * The broad cache win (1h retention on the system+tools+memory prefix, see
+   * cache-retention.ts) is independent of this and applies at `0`. See
+   * docs/decisions/2026-07-08-compaction-cache-anchor.md. Clamped to `[0, 1]`.
    */
   cacheAnchorFraction: number;
 }
@@ -64,7 +70,9 @@ export const DEFAULTS: CompactionConfig = {
   safetyFraction: 0.08,
   charsPerToken: 4,
   imageTokens: 1_200,
-  cacheAnchorFraction: 0.5,
+  // Default 0 = conventional trim-oldest. The oldest-anchor cache
+  // optimization is opt-in (see the field doc + decision record).
+  cacheAnchorFraction: 0,
 };
 
 const PER_MESSAGE_OVERHEAD = 4;
