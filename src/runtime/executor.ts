@@ -33,6 +33,10 @@ import { createFileProvider } from "../providers/file";
 import { getProject } from "../db/queries/projects";
 import { getAllSettings, getSetting } from "../db/queries/settings";
 import type { CompactionConfig } from "./stream-chat/context-compaction";
+import {
+  resolveCacheRetentionSetting,
+  type CacheRetention,
+} from "./stream-chat/cache-retention";
 import * as dbRuns from "../db/queries/runs";
 import { getConversation } from "../db/queries/conversations";
 import { ExtensionRegistry } from "../extensions/registry";
@@ -71,6 +75,7 @@ async function resolveCompactionConfig(): Promise<Partial<CompactionConfig>> {
     ["compaction:responseReserveCap", "responseReserveCap"],
     ["compaction:responseReserveFloor", "responseReserveFloor"],
     ["compaction:safetyFraction", "safetyFraction"],
+    ["compaction:cacheAnchorFraction", "cacheAnchorFraction"],
   ];
   for (const [key, field] of numeric) {
     const v = await getSetting(key);
@@ -616,10 +621,13 @@ export class AgentExecutor {
     });
 
     const compaction = await resolveCompactionConfig();
+    const cacheRetention: CacheRetention | undefined = resolveCacheRetentionSetting(
+      await getSetting("compaction:cacheRetention"),
+    );
     const piAgent = buildPiAgent(
       ctx,
       history,
-      { ...options, compaction },
+      { ...options, compaction, cacheRetention },
       resolvedModel,
       credentialConversationId,
     );

@@ -45,6 +45,16 @@ export interface CompactionConfig {
   charsPerToken: number;
   /** Flat token cost charged per image part. */
   imageTokens: number;
+  /**
+   * Fraction of the input budget the `trim` strategy reserves for a
+   * BYTE-STABLE prefix of the OLDEST whole turns (the "cache anchor").
+   * This bound depends only on the (per-model, per-cfg) budget and the
+   * immutable oldest history, so the anchor is identical every turn and
+   * stays warm in the provider's prefix cache even as newer turns are
+   * evicted. `0` disables the anchor (recent-only trim, marker at front —
+   * the pre-cache-aware behavior). Clamped to `[0, 1]`.
+   */
+  cacheAnchorFraction: number;
 }
 
 export const DEFAULTS: CompactionConfig = {
@@ -54,6 +64,7 @@ export const DEFAULTS: CompactionConfig = {
   safetyFraction: 0.08,
   charsPerToken: 4,
   imageTokens: 1_200,
+  cacheAnchorFraction: 0.5,
 };
 
 const PER_MESSAGE_OVERHEAD = 4;
@@ -152,6 +163,11 @@ export function splitTurnBlocks(messages: AgentMessage[]): AgentMessage[][] {
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
+}
+
+/** Clamp a fraction into `[0, 1]` (a non-finite value floors to 0). */
+function clamp01(v: number): number {
+  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
 }
 
 /**
@@ -280,6 +296,38 @@ function truncateOversizedToolResults(
   return { messages: out, truncatedTokens };
 }
 
+/**
+ * Cache-aware trim.
+ *
+ * Anthropic's prompt cache is PREFIX-matched: the provider serves from
+ * cache the longest byte-identical leading run of a request that a recent
+ * request already cached. The naive trim (evict the OLDEST turns, prepend
+ * a per-turn-changing marker at index 0) mutates that prefix on every
+ * compacted turn → a guaranteed cache MISS on the whole conversation body
+ * plus a 25% cache-WRITE surcharge, i.e. a possible net cost *increase* on
+ * long threads.
+ *
+ * This strategy keeps a BYTE-STABLE prefix so caching pays off:
+ *
+ *   [ …oldest anchor blocks… ][ marker ][ …recent blocks… ][ active turn ]
+ *     └── stable across turns ┘           └── shifts (uncached) ──┘
+ *
+ *   1. ANCHOR — the oldest whole turn blocks, greedily kept up to
+ *      `cacheAnchorFraction × budget`. That bound depends only on the
+ *      per-model budget and the immutable oldest history, so the anchor is
+ *      byte-identical every turn and its prefix stays warm in the cache.
+ *   2. RECENT window + the (always-kept) active turn fill the remaining
+ *      budget from the NEWEST blocks, so recent context is preserved.
+ *   3. The MIDDLE is evicted; the omission marker is placed AFTER the
+ *      anchor (never at index 0 when an anchor exists) so its
+ *      per-turn-changing text can't shift the cached region.
+ *
+ * The system prompt + tool/RBAC schemas + extension registry (pi-ai's
+ * separate `system`/`tools` cache breakpoints) are never touched by trim
+ * and remain the outermost stable prefix; this strategy additionally keeps
+ * the FRONT of the conversation body stable. Retention (1h vs 5m) for the
+ * stable prefix is wired separately in `cache-retention.ts`.
+ */
 class TrimStrategy implements CompactionStrategy {
   readonly name = "trim";
 
@@ -287,72 +335,104 @@ class TrimStrategy implements CompactionStrategy {
     messages: AgentMessage[],
     ctx: CompactionContext,
   ): Promise<CompactionResult> {
+    const noop: CompactionResult = {
+      messages,
+      droppedCount: 0,
+      droppedTokens: 0,
+      strategy: this.name,
+    };
+
     // Drop prior markers so they neither accumulate nor skew estimates.
     const base = messages.filter((m) => !isCompactionMarker(m));
     const blocks = ctx.splitTurnBlocks(base);
-    if (blocks.length === 0) {
-      return { messages, droppedCount: 0, droppedTokens: 0, strategy: this.name };
-    }
+    if (blocks.length === 0) return noop;
 
-    const lastBlock = blocks[blocks.length - 1]!;
-    const kept = blocks.slice(0, -1);
-    const dropped: AgentMessage[][] = [];
+    // The active turn (current prompt + its in-flight tool loop) is ALWAYS
+    // kept intact; the rest of the history is the droppable/anchorable body.
+    const active = blocks[blocks.length - 1]!;
+    const body = blocks.slice(0, -1);
 
-    // Reserve the marker's own token cost so the composed result
-    // (marker + survivors) — not just the survivors — fits the budget.
-    // Use the message count as an upper bound on the count digits.
+    // Reserve the marker's own token cost so [anchor + marker + tail] — not
+    // just the survivors — fits the budget. The message count bounds its digits.
     const markerCost = estimateMessageTokens(
       makeMarker(base.length, ctx.budget),
       ctx.cfg,
     );
-    const effectiveBudget = Math.max(1, ctx.budget - markerCost);
 
-    // Evict oldest whole turns while still over budget.
-    while (
-      kept.length > 0 &&
-      ctx.estimateTokens([...kept.flat(), ...lastBlock]) > effectiveBudget
-    ) {
-      dropped.push(kept.shift()!);
+    // ── 1. Stable oldest ANCHOR ───────────────────────────────────────
+    // Cap the anchor by BOTH the configured fraction AND the room left for
+    // the (mandatory) active turn + marker, so the anchor can never starve
+    // the active turn. For a small active turn + a sane fraction (≤ ~0.5)
+    // the fraction term binds — a per-model-budget constant — keeping the
+    // anchor byte-stable across turns; the active-room term only binds in
+    // the pathological "active turn ≈ the whole budget" case.
+    const anchorCap = Math.min(
+      Math.floor(ctx.budget * clamp01(ctx.cfg.cacheAnchorFraction)),
+      Math.max(0, ctx.budget - markerCost - ctx.estimateTokens(active)),
+    );
+    const anchorBlocks: AgentMessage[][] = [];
+    let a = 0;
+    while (a < body.length) {
+      const candidate = [...anchorBlocks.flat(), ...body[a]!];
+      if (ctx.estimateTokens(candidate) > anchorCap) break;
+      anchorBlocks.push(body[a]!);
+      a++;
+    }
+    const anchor = anchorBlocks.flat();
+
+    // ── 2. Recent WINDOW (newest droppable blocks) + the active turn ──
+    const tailBudget = Math.max(
+      1,
+      ctx.budget - markerCost - ctx.estimateTokens(anchor),
+    );
+    let tail: AgentMessage[] = [...active];
+    let t = body.length - 1;
+    while (t >= a) {
+      const candidate = [...body[t]!, ...tail];
+      if (ctx.estimateTokens(candidate) > tailBudget) break;
+      tail = candidate;
+      t--;
     }
 
-    const droppedMsgs = dropped.flat();
+    // Evicted middle = the blocks between the anchor and the recent window.
+    const droppedMsgs = body.slice(a, t + 1).flat();
     const droppedTokens = ctx.estimateTokens(droppedMsgs);
 
-    if (droppedMsgs.length === 0) {
-      // Either it already fits (no-op), or only the active turn remains
-      // and it alone is too big → degenerate tool-result truncation.
-      if (ctx.estimateTokens([...kept.flat(), ...lastBlock]) <= ctx.budget) {
-        return { messages, droppedCount: 0, droppedTokens: 0, strategy: this.name };
-      }
-      const t = truncateOversizedToolResults([...kept.flat(), ...lastBlock], ctx);
-      return {
-        messages: t.messages,
-        droppedCount: 0,
-        droppedTokens: t.truncatedTokens,
-        strategy: this.name,
-      };
+    // Nothing to drop and it already fits → identity no-op.
+    if (
+      droppedMsgs.length === 0 &&
+      ctx.estimateTokens([...anchor, ...tail]) <= ctx.budget
+    ) {
+      return noop;
     }
 
-    const marker = makeMarker(droppedMsgs.length, ctx.budget);
-    let result: AgentMessage[] = [marker, ...kept.flat(), ...lastBlock];
+    // Marker sits AFTER the stable anchor (only when we actually dropped
+    // something). With an empty anchor (`cacheAnchorFraction: 0` or a
+    // single oversized oldest block) it naturally lands at the front —
+    // the cache can't be helped there anyway.
+    const marker =
+      droppedMsgs.length > 0 ? makeMarker(droppedMsgs.length, ctx.budget) : undefined;
+    const assemble = (tailPart: AgentMessage[]): AgentMessage[] =>
+      marker ? [...anchor, marker, ...tailPart] : [...anchor, ...tailPart];
 
-    // Dropped every evictable turn and still over → truncate tool
-    // results in what remains (keeps the marker first).
-    if (ctx.estimateTokens(result) > ctx.budget) {
-      const t = truncateOversizedToolResults([...kept.flat(), ...lastBlock], ctx);
-      result = [marker, ...t.messages];
+    const assembled = assemble(tail);
+    if (ctx.estimateTokens(assembled) <= ctx.budget) {
       return {
-        messages: result,
+        messages: assembled,
         droppedCount: droppedMsgs.length,
-        droppedTokens: droppedTokens + t.truncatedTokens,
+        droppedTokens,
         strategy: this.name,
       };
     }
 
+    // Still over budget (a single oversized block in the recent window, or
+    // the active turn alone). Truncate oversized toolResults in the
+    // NON-anchor region so the stable anchor stays byte-identical.
+    const truncated = truncateOversizedToolResults(tail, ctx);
     return {
-      messages: result,
+      messages: assemble(truncated.messages),
       droppedCount: droppedMsgs.length,
-      droppedTokens,
+      droppedTokens: droppedTokens + truncated.truncatedTokens,
       strategy: this.name,
     };
   }
