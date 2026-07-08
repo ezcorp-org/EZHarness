@@ -46,6 +46,7 @@
   "src/lib/cheap-models.ts": 100,
   "src/lib/pi-complete.ts": 100,
   "src/runtime/sentinels.ts": 100,
+  "src/runtime/tier-classifier.ts": 100,
   "src/db/queries/briefing-configs.ts": 100,
   "src/runtime/briefing/config-validation.ts": 100,
   "src/runtime/briefing/runtime-registry.ts": 100,
