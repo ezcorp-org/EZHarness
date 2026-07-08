@@ -58,8 +58,19 @@ blocks* — a `user` message plus every following assistant / toolResult
 message up to the next `user` message. The **last block (the active
 turn) is always kept intact**, so the user's current prompt and its
 in-flight tool loop are never broken and no toolCall/toolResult pair is
-orphaned. Oldest whole blocks are evicted until the result fits, then a
-single ephemeral marker is prepended:
+orphaned. The `trim` strategy is **cache-aware** (see [Cache-aware trim
++ retention](#cache-aware-trim--retention)): it keeps a byte-stable
+prefix of the OLDEST turns (the "cache anchor") plus the most RECENT
+turns, and evicts the **middle**, laying out the compacted history as:
+
+```
+[ …oldest anchor turns… ][ marker ][ …recent turns… ][ active turn ]
+  └── byte-stable prefix ┘           └──── shifts (uncached) ────┘
+```
+
+The single ephemeral marker is placed **after the anchor** (not at the
+front of the array), so its per-turn-changing text can't shift the
+cached region:
 
 ```
 [Context note: 23 earlier messages omitted to fit this model's
@@ -68,9 +79,9 @@ single ephemeral marker is prepended:
 
 Degenerate case (only the active turn remains and it alone is too big):
 the oldest oversized `toolResult` contents are truncated with a
-`…[truncated to fit context]…` mark. The user's own prompt text is
-never silently truncated — a precise overflow error is better than a
-mangled question.
+`…[truncated to fit context]…` mark, leaving the stable anchor
+untouched. The user's own prompt text is never silently truncated — a
+precise overflow error is better than a mangled question.
 
 **Input-only invariant.** Compaction never mutates the model. In
 particular it does **not** shrink `model.maxTokens`:
@@ -88,7 +99,9 @@ never written back to the model and never changes generation.
 **Marker is ephemeral.** The `[Context note: …]` message exists only in
 the array sent to the provider for that one call. It is never persisted
 and never rendered in the chat UI — there is no new user-visible
-artifact.
+artifact. It sits **after** the stable cache anchor (never at index 0
+when an anchor exists), so trimming does not invalidate the cached
+prefix.
 
 **Backstop.** If a request still overflows (e.g. strategy `none`, or an
 estimate that undershot), pi-ai's `isContextOverflow` detection
@@ -130,6 +143,8 @@ malformed keys fall back to the defaults.
 | `compaction:responseReserveCap` | number | `16000` | Upper bound on output headroom reserved from the context window. |
 | `compaction:responseReserveFloor` | number | `1024` | Lower bound on that reservation. |
 | `compaction:safetyFraction` | number (0–1) | `0.08` | Fraction of the context window held back to absorb estimator error. |
+| `compaction:cacheAnchorFraction` | number (0–1) | `0.5` | Fraction of the input budget the `trim` strategy reserves for a byte-stable prefix of the OLDEST turns (the cache anchor). `0` disables the anchor (recent-only trim, marker at the front). |
+| `compaction:cacheRetention` | string | `long` | Prompt-cache TTL for the stable prefix: `long` (~1h), `short` (~5 min), or `none` (disable caching). Anthropic-only; other providers ignore it. |
 
 `responseReserve = clamp(model.maxTokens, floor, cap)`, so a model
 advertising a huge `maxTokens` (e.g. Codex's 128k) is reserved at most
@@ -181,6 +196,58 @@ the API is the supported switch.
 
 ---
 
+## Cache-aware trim + retention
+
+Anthropic's prompt cache is **prefix-matched**: the provider serves back
+the longest byte-identical *leading* run of a request that a recent
+request already cached, and charges a **25% surcharge** to *write* any
+uncached prefix into the cache. On a long thread that is compacted every
+turn, a naive trim that evicts the oldest turns and prepends a
+per-turn-changing marker at index 0 mutates that prefix on **every**
+compacted turn — a guaranteed cache miss on the whole conversation body
+*plus* the write surcharge, i.e. a possible net cost **increase**.
+
+`trim` avoids this by keeping a **byte-stable prefix**:
+
+- **Cache anchor.** The oldest whole turn blocks are kept up to
+  `cacheAnchorFraction × inputBudget`. That bound depends only on the
+  (per-model, per-cfg) budget and the *immutable* oldest history, so the
+  anchor is byte-identical every turn and its prefix stays warm in the
+  provider's cache even as newer turns are evicted.
+- **Recent window.** The remaining budget is filled from the NEWEST
+  turns, so recent context is preserved; the **middle** is what gets
+  evicted.
+- **Marker placement.** The single ephemeral omission marker is inserted
+  *after* the anchor, so its changing text never shifts the cached
+  region. With `cacheAnchorFraction: 0` (or a single oversized oldest
+  block) the anchor is empty and the marker falls at the front — the
+  cache can't be helped there anyway.
+
+Two outer, always-stable breakpoints sit ahead of the conversation body:
+pi-ai places `cache_control` on the **system prompt** (system + memory +
+RBAC preamble) and on the **last tool** (the tool/extension/EZ-action
+schemas). Compaction never touches `systemPrompt` or `tools`, so those
+breakpoints — the largest fixed prefix — are always cache-stable; the
+anchor extends stability into the front of the conversation itself.
+
+**Retention.** `compaction:cacheRetention` (default `long`) controls the
+TTL. Because the anchored prefix is reused for many turns, a `long`
+(~1h) TTL keeps it warm across inter-turn pauses that would expire a
+`short` (~5 min) entry. Retention is applied per-request in
+`build-pi-agent.ts`'s `onPayload` hook (`cache-retention.ts`): the
+**stable prefix** (system + last tool) gets the long TTL while the
+**conversation tail** — the last-message breakpoint, re-written every
+turn — is left short so it isn't charged the higher 1h write price. This
+is Anthropic-specific; other providers carry no `cache_control` blocks
+and the hook is a no-op for them. Operators can also set pi-ai's native
+`PI_CACHE_RETENTION=long` env var as a process-wide fallback.
+
+> **pi-ai caveat.** pi-agent-core's `Agent` does not forward
+> `cacheRetention` to the provider stream options, so retention is shaped
+> in `onPayload` rather than threaded through the Agent. The TTLs written
+> there are a strict subset of what pi-ai's own `"long"` path emits, so
+> the wire shape is never novel.
+
 ## Custom strategies
 
 The registry is a process-global map. Implement `CompactionStrategy`
@@ -228,9 +295,12 @@ Notes:
 
 | Concern | Location |
 |---------|----------|
-| Algorithm, budget math, registry, `trim`/`none` | `src/runtime/stream-chat/context-compaction.ts` |
-| `transformContext` wiring (input-only; model not mutated) | `src/runtime/stream-chat/build-pi-agent.ts` |
+| Algorithm, budget math, registry, cache-aware `trim`/`none` | `src/runtime/stream-chat/context-compaction.ts` |
+| Cache-retention TTL shaping (stable prefix long, tail short) | `src/runtime/stream-chat/cache-retention.ts` |
+| `transformContext` + `onPayload` wiring (input-only; model not mutated) | `src/runtime/stream-chat/build-pi-agent.ts` |
 | Settings resolution per turn | `src/runtime/executor.ts` (`resolveCompactionConfig`) |
-| Unit tests (estimation, budget, registry, `trim` invariants) | `src/__tests__/context-compaction.test.ts` |
-| Integration (wiring, model untouched) | `src/__tests__/build-pi-agent-compaction.test.ts` |
+| Unit tests (estimation, budget, registry, cache-anchor `trim` invariants) | `src/__tests__/context-compaction.test.ts` |
+| Cache-prefix-survives-compaction proof (WS-H usage → WS0 stats) | `src/__tests__/context-compaction-cache-prefix.test.ts` |
+| Retention shaping unit tests | `src/__tests__/cache-retention.test.ts` |
+| Integration (wiring, model untouched, retention onPayload) | `src/__tests__/build-pi-agent-compaction.test.ts` |
 | E2E regression guard (Docker harness) | `web/e2e/chat-context-compaction.spec.ts` |
