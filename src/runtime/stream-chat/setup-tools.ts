@@ -2,6 +2,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { logger } from "../../logger";
 import { getProject } from "../../db/queries/projects";
 import { resolveModel } from "../../providers/router";
+import { chooseTurnTier, type RoutingTier } from "../tier-classifier";
 import { getCredential } from "../../providers/credentials";
 import { extensionToAgentTool, ToolExecutor } from "../../extensions/tool-executor";
 import { ExtensionRegistry } from "../../extensions/registry";
@@ -68,6 +69,9 @@ export interface SetupToolsOptions {
   attachments?: import("../../chat/attachments/content-builder").StagedAttachment[];
   provider?: string;
   model?: string;
+  /** WS3: explicit quality-tier hint. When set (and no model is pinned),
+   *  the classifier honors it over the length/tools heuristic. */
+  tier?: RoutingTier;
 }
 
 /** Subset of the conversation row the setup-tools phase reads — the
@@ -83,6 +87,10 @@ export interface SetupToolsConvRecord {
    *  Ez tools (propose_*, summarize_conversation, find_agents,
    *  fill_form, navigate_to) BEFORE the allowlist filter runs. */
   kind?: "regular" | "ez" | null;
+  /** WS3: the conversation's extension-tool toggle map (keyed by extension
+   *  ID). Feeds the quality-tier classifier so an attached extension can
+   *  declare a tier need via its manifest `routing.tier`. */
+  extensionTools?: Record<string, string[]> | null;
 }
 
 export interface SetupToolsResult {
@@ -837,7 +845,28 @@ export async function setupTools(
 
     // 3. Model resolution + credential pre-validation (runs in parallel with 1 & 2)
     (async (): Promise<SetupToolsResult> => {
-      const r = await resolveModel(options.provider, options.model);
+      // WS3 quality-tier routing. `options.model` already folds in BOTH the
+      // per-turn UI pin AND the conversation's established model (see
+      // web/.../conversations/[id]/messages/+server.ts), so a set value means
+      // "honor this model" — pass it straight through (Level-1 passthrough in
+      // resolveModel). We only classify a tier when the thread has NO
+      // established model yet. This is deliberate cache protection: WS1 gives
+      // the prompt a byte-stable, prefix-cached block, and the Anthropic cache
+      // is prefix-matched — SWITCHING models mid-conversation discards it
+      // (guaranteed miss + a 25% cache-write surcharge next turn). Preferring
+      // tier-STABILITY (route once, at thread start; never re-route an
+      // established thread) keeps the cache warm. The strong-signal escape
+      // (an extension/EZ-declared tier or an explicit hint) still applies at
+      // thread start via the classifier; we intentionally do NOT bust an
+      // established model even on a strong signal, because at this layer
+      // options.model cannot be distinguished from a user's explicit pin.
+      const routedTier: RoutingTier | undefined = options.model
+        ? undefined
+        : chooseTurnTier(
+            { userMessage, options, convExtensionTools: convRecord?.extensionTools ?? null },
+            (extId) => ExtensionRegistry.getInstance().getManifest(extId),
+          );
+      const r = await resolveModel(options.provider, options.model, routedTier);
       run.provider = r.provider;
       const cred = await getCredential(r.provider, credentialConversationId);
       return { resolved: r, initialCred: cred };

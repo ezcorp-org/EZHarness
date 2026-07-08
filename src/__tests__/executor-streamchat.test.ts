@@ -58,6 +58,20 @@ mock.module("../observability/collector", () => ({
   startCollector: () => () => {},
 }));
 
+// WS3: records which extension manifests the tier router looked up (so a
+// test can prove an extension-declared routing tier is consulted), plus the
+// manifests the mock registry serves.
+let routingManifestLookups: string[] = [];
+const routingManifests: Record<string, { routing?: { tier: string } }> = {};
+const mockRegistry = {
+  getToolsForAgent: async () => [],
+  getToolsForExtension: () => [],
+  getManifest: (id: string) => {
+    routingManifestLookups.push(id);
+    return routingManifests[id];
+  },
+};
+
 // Re-establish all mocks before each test to survive concurrent restoreModuleMocks()
 beforeEach(() => {
   mock.module("../db/connection", () => ({
@@ -113,7 +127,7 @@ beforeEach(() => {
     getExtensionsByNames: async () => new Map(),
   }));
   mock.module("../extensions/registry", () => ({
-    ExtensionRegistry: { getInstance: () => ({ getToolsForAgent: async () => [] }) },
+    ExtensionRegistry: { getInstance: () => mockRegistry },
   }));
   setupPiAiMocks({ textChunks: ["Hello", " world"] });
 });
@@ -151,7 +165,7 @@ mock.module("../memory/embeddings", () => ({
 }));
 
 mock.module("../extensions/registry", () => ({
-  ExtensionRegistry: { getInstance: () => ({ getToolsForAgent: async () => [] }) },
+  ExtensionRegistry: { getInstance: () => mockRegistry },
 }));
 
 mock.module("../extensions/tool-executor", () => ({
@@ -194,6 +208,62 @@ describe("AgentExecutor.streamChat", () => {
     expect(run.status).toBe("success");
     expect(tokens.join("")).toBe("Hello world");
     expect((run.result?.output as any)?.fullText).toBe("Hello world");
+  });
+
+  test("WS3: an extension's declared routing tier is consulted on a model-less thread", async () => {
+    // A conversation with NO established model + a routing-declaring
+    // extension wired in → the classifier consults the extension's manifest
+    // (routing.tier) via the registry. Proves the extension-declared-tier
+    // capability is wired end-to-end at the routing decision point.
+    routingManifestLookups = [];
+    routingManifests["ext-routing"] = { routing: { tier: "powerful" } };
+    mock.module("../db/queries/conversations", () => ({
+      getConversation: async () => ({
+        id: "conv-routing",
+        projectId: null,
+        parentConversationId: null,
+        extensionTools: { "ext-routing": ["tool-a"] },
+      }),
+      getConversationPath: async () => [],
+      getLatestLeaf: async () => null,
+      resolveSystemPrompt: async () => undefined,
+      createConversation: async () => ({ id: "test" }),
+      createMessage: async () => ({ id: "msg-1" }),
+      getMessages: async () => [],
+    }));
+    setupPiAiMocks({ textChunks: ["routed"] });
+
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus, { persist: false });
+
+    // No provider/model → fresh thread → classifier runs and reads the
+    // extension's declared tier.
+    const run = await exec.streamChat("conv-routing", "hi", {});
+
+    expect(run.status).toBe("success");
+    expect(routingManifestLookups).toContain("ext-routing");
+
+    setupPiAiMocks({ textChunks: ["Hello", " world"] });
+  });
+
+  test("WS3: an explicit model pin passes through (no tier classification)", async () => {
+    // options.model set → the tier classifier is skipped and the pinned
+    // model is honored verbatim (Level-1 passthrough / cache protection).
+    setupPiAiMocks({ textChunks: ["pinned"] });
+
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus, { persist: false });
+
+    const run = await exec.streamChat("conv-pinned", "Hi", {
+      provider: "anthropic",
+      model: "claude-sonnet-4-20250514",
+    });
+
+    expect(run.status).toBe("success");
+    expect(run.provider).toBe("anthropic");
+    expect((run.result?.output as any)?.fullText).toBe("pinned");
+
+    setupPiAiMocks({ textChunks: ["Hello", " world"] });
   });
 
   test("streamChat handles stream error", async () => {
