@@ -44,7 +44,7 @@ test("cache meter pill renders hit-rate + cached tokens for a cached turn @evide
 			id: "a1",
 			conversationId: "A",
 			role: "assistant",
-			content: "cached answer",
+			content: "reply from a cached turn",
 			model: "claude",
 			provider: "anthropic",
 			parentMessageId: "u1",
@@ -56,7 +56,7 @@ test("cache meter pill renders hit-rate + cached tokens for a cached turn @evide
 			id: "a2",
 			conversationId: "A",
 			role: "assistant",
-			content: "uncached answer",
+			content: "reply with fresh input only",
 			model: "claude",
 			provider: "anthropic",
 			parentMessageId: "a1",
@@ -71,7 +71,8 @@ test("cache meter pill renders hit-rate + cached tokens for a cached turn @evide
 
 	await page.goto(`/project/p1/chat/A`, { waitUntil: "networkidle" });
 
-	await expect(page.getByText("cached answer")).toBeVisible({ timeout: 5000 });
+	await expect(page.getByText("reply from a cached turn")).toBeVisible({ timeout: 5000 });
+	await expect(page.getByText("reply with fresh input only")).toBeVisible();
 
 	// The cached turn shows exactly one pill with the rounded hit-rate + tokens.
 	const pill = page.getByTestId("cache-stats-pill");
