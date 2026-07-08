@@ -210,6 +210,74 @@ declare tiers, a settings toggle + UI.
 
 ---
 
+#### WS3 — as built (implementation notes)
+
+**Classifier location (deviation from the file plan above).** The pure
+classifier ships at **`src/runtime/tier-classifier.ts`**, NOT
+`src/providers/tier-classifier.ts`. Reason: the whole `src/providers/**`
+tree is a coverage-gate EXCLUDE (`scripts/coverage-config.ts`), so a file
+placed there is skipped by check-coverage, the new-file gate, AND the patch
+gate — it could never be enforced at 100% and any `coverage-thresholds.json`
+key for it would be inert. The feature contract requires REAL 100%
+enforcement, so the file lives in the enforced `src/runtime/**` tree,
+co-located with its only consumer (`stream-chat/setup-tools.ts`). The tier
+vocabulary (`RoutingTier`) is owned there and `src/providers/router.ts`
+type-imports it (type-only → erased, zero runtime coupling). New thresholds
+key: `"src/runtime/tier-classifier.ts": 100`.
+
+**Classifier signals + thresholds (heuristic only — no LLM pre-call).**
+Precedence: (1) an extension/EZ-action **declared tier** (correctness
+requirement) → (2) an explicit caller **tier hint** → (3) heuristic:
+`hasComplexTools` (write/shell/orchestration) → `powerful`; est. tokens
+(`chars/4`) `≥ 8000` → `powerful`; any tool present → `≥ balanced`; est.
+tokens `≤ 500` and tool-less → `fast`; else `balanced`. Tool signals are
+derived synchronously from the turn `options` (project/agent-config/
+restriction/orchestration-depth) so the decision adds zero latency and never
+waits on the racing tool-load phase.
+
+**Wiring / where.** `src/runtime/stream-chat/setup-tools.ts` — the model
+resolution IIFE (the `resolveModel(options.provider, options.model)` site).
+`resolveModel` gains an optional 3rd param `tier?: RoutingTier`; when passed
+it routes by that tier instead of `getDefaultTier()`, and explicit
+provider+model pins (Level-1) ignore it entirely (passthrough unchanged).
+
+**Extension / EZ-action tier declaration.** Extensions declare
+`routing: { tier }` in their manifest (validated at admit time by
+`validateRoutingBlock` in `src/extensions/manifest.ts`); the classifier
+reads the strongest declared tier across the extensions wired into the
+conversation (via the conversation's `extensionTools` map → the in-memory
+registry `getManifest`, no extra DB round-trip). EZ actions carry the
+parallel `EzAction.tier` declaration surface (`strongestTier` combines
+both); threading a mixed EZ+content turn's declared tier into chat routing
+is a documented follow-up (v1 EZ actions are code-defined and mostly
+action-only).
+
+**Cache interaction / tier-stability (the per-turn tradeoff).** WS1 gives
+the prompt a byte-stable, prefix-cached block; the Anthropic cache is
+prefix-matched, so SWITCHING models mid-conversation discards it (guaranteed
+miss + a 25% cache-write surcharge next turn). Because `options.model`
+already folds in BOTH the per-turn UI pin AND the conversation's established
+model (`web/.../conversations/[id]/messages/+server.ts`), the wiring only
+classifies a tier when there is NO established model (a fresh thread) — once
+a thread has a model it is honored verbatim. This is deliberate
+**tier-stability**: route once, at thread start; never re-route an
+established thread. The strong-signal escape (a declared/hint tier) still
+applies at thread start; we intentionally do NOT bust an established model
+even on a strong signal, because at the routing layer `options.model` cannot
+be distinguished from a user's explicit per-turn pin (honoring pins wins).
+
+**e2e / harness limitation.** The routing DECISION is a backend concern and
+the mock LLM is only reachable via a Level-1 pin (`provider: "ezcorp-mock"`),
+which is exactly the passthrough path — so the no-model tier-classification
+path cannot be completed end-to-end in CI (no real keys) until the mock is
+made routing-reachable (a WS-H follow-up). `web/e2e/real-auth/tier-routing-
+flow.spec.ts` therefore asserts the pinned-model passthrough end-to-end (the
+invariant this change most risks); the classification logic itself is proven
+by the pure unit tests (100%) + a real-executor integration test that drives
+a model-less turn through `setupTools`.
+
+---
+
 ### WS-V — Adversarial validator  *(agent: `general-purpose`, own worktree, after each WS)*
 
 - Runs in a **fresh detached worktree at the WS's SHA** (never shares the builder's tree — avoids
