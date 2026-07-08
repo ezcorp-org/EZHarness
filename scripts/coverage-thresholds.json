@@ -86,6 +86,7 @@
   "src/search/search-quota.ts": 100,
   "src/extensions/search-handler.ts": 100,
   "src/runtime/tools/grep.ts": 100,
+  "src/runtime/usage/cache-stats.ts": 100,
   "src/runtime/start-assignment.ts": 100,
   "src/runtime/goal-host.ts": 100,
   "src/runtime/import/staging.ts": 100,
