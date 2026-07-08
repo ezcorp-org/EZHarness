@@ -860,12 +860,23 @@ export async function setupTools(
       // thread start via the classifier; we intentionally do NOT bust an
       // established model even on a strong signal, because at this layer
       // options.model cannot be distinguished from a user's explicit pin.
-      const routedTier: RoutingTier | undefined = options.model
-        ? undefined
-        : chooseTurnTier(
+      // Tier routing is a best-effort optimization: it must NEVER break a
+      // turn. If the registry can't resolve a manifest (or isn't ready), fall
+      // back to the default tier rather than failing model resolution.
+      let routedTier: RoutingTier | undefined;
+      if (!options.model) {
+        try {
+          routedTier = chooseTurnTier(
             { userMessage, options, convExtensionTools: convRecord?.extensionTools ?? null },
             (extId) => ExtensionRegistry.getInstance().getManifest(extId),
           );
+        } catch (err) {
+          log.warn("tier classification failed — using default tier this turn", {
+            err: err instanceof Error ? err.message : String(err),
+          });
+          routedTier = undefined;
+        }
+      }
       const r = await resolveModel(options.provider, options.model, routedTier);
       run.provider = r.provider;
       const cred = await getCredential(r.provider, credentialConversationId);
