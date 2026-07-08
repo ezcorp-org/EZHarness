@@ -117,6 +117,36 @@ persistence, and runtime SSE all execute. The generated OpenAPI contract
 (`buildOpenApiSpec()` in [`src/openapi.ts`](../src/openapi.ts)) is derived from
 the registry below.
 
+#### Scripted usage + fault injection (cache / failover harness)
+
+A scripted `MockTurn` carries two optional fields so tests can assert cache
+behaviour and provider failures **without real keys** (both go through the
+existing per-key FIFO — no extra route, no global flag):
+
+- **`usage`** — synthetic token counts reported on the turn:
+  `{ input?, cacheRead?, cacheWrite?, output? }`. These map 1:1 onto pi-ai's
+  parsed `AssistantMessage.usage` (`cacheRead` → `prompt_tokens_details.cached_tokens`,
+  `cacheWrite` → `…cache_write_tokens`), so they flow through `ctx.totalUsage`
+  and the `run:usage` event. A plain turn keeps the historic `input:0,
+  output:1` (cache-miss) shape.
+- **`fault`** — fail the turn deterministically **before the first token**
+  (so a retry/failover loop can be exercised): `{ status }` (400–599) replies
+  with an OpenAI-shaped error body at that HTTP status (429 rate-limit / 5xx
+  server error), and `{ kind: "connection" }` aborts the response body (a
+  transport-style connection drop). Because faults are just FIFO turns, a
+  `[{ fault }, { text }]` script fails the first attempt and succeeds on the
+  retry.
+
+```ts
+await ez.scriptLlm("conv-cache", [
+  { text: "cached reply", usage: { input: 200, cacheRead: 800, cacheWrite: 0 } },
+]);
+await ez.scriptLlm("conv-failover", [
+  { fault: { status: 429 } },          // first attempt: rate-limited
+  { text: "served by the fallback" },  // retry: succeeds
+]);
+```
+
 ### Extension control
 
 Extensions are wired **per conversation**. A harness lists the installed set,

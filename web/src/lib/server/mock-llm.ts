@@ -22,6 +22,50 @@ export interface MockToolCall {
   arguments?: Record<string, unknown> | string;
 }
 
+/**
+ * Synthetic token usage for a turn. Lets a harness assert cache hit/miss
+ * behaviour (WS0 meter, WS1 cache-survives-trim proof) WITHOUT a real
+ * provider. The values map 1:1 onto pi-ai's parsed `AssistantMessage.usage`
+ * (which then flows through `ctx.totalUsage` + the `run:usage` bus event):
+ * `cacheRead` → `prompt_tokens_details.cached_tokens`, `cacheWrite` →
+ * `prompt_tokens_details.cache_write_tokens`, `input` → the non-cached
+ * remainder, `output` → `completion_tokens`. Everything defaults to the
+ * prior fixed shape (`input:0, output:1`) so unseeded turns are unchanged.
+ */
+export interface MockUsage {
+  /** Non-cached prompt (input) tokens. Default 0. */
+  input?: number;
+  /** Cache-READ (hit) tokens → `prompt_tokens_details.cached_tokens`. Default 0. */
+  cacheRead?: number;
+  /** Cache-WRITE (creation) tokens → `prompt_tokens_details.cache_write_tokens`. Default 0. */
+  cacheWrite?: number;
+  /** Completion (output) tokens. Default 1. */
+  output?: number;
+}
+
+/**
+ * A deterministic provider FAILURE for a turn. Lets a harness exercise a
+ * retry/failover loop (WS2) without a real outage. Two mutually-exclusive
+ * shapes, both failing PRE-first-token:
+ *   - `status` (400–599): the endpoint replies with an OpenAI-shaped error
+ *     body at that HTTP status, so pi-ai's SDK raises its typed error
+ *     (429 = rate-limit, 5xx = server error). The parsed message carries
+ *     `stopReason:"error"` with the status in `errorMessage`.
+ *   - `kind:"connection"`: the response body is aborted before any token —
+ *     a transport-style failure with no usable stream (models a dropped /
+ *     refused connection). pi-ai fails pre-first-token as well.
+ * Because faults are just turns in the FIFO, a `[fault, success]` script
+ * fails the first attempt and succeeds on retry — deterministic failover.
+ */
+export interface MockFault {
+  /** HTTP error status to fail with (429, 500, 502, 503, …). */
+  status?: number;
+  /** Non-HTTP transport failure: abort the body before any token streams. */
+  kind?: "connection";
+  /** Optional message echoed in the OpenAI-shaped error body (status faults). */
+  message?: string;
+}
+
 export interface MockTurn {
   /** Assistant text for this turn (optional — a turn may be tool-only). */
   text?: string;
@@ -30,6 +74,10 @@ export interface MockTurn {
   /** Override the finish_reason. Defaults to "tool_calls" when toolCalls are
    *  present, else "stop". Use "tool_calls" to make the agent loop iterate. */
   finishReason?: "stop" | "tool_calls" | "length";
+  /** Synthetic usage (incl. cache hits/misses) reported on this turn. */
+  usage?: MockUsage;
+  /** Fail this turn deterministically instead of replying (retry/failover). */
+  fault?: MockFault;
 }
 
 const queues = new Map<string, MockTurn[]>();
@@ -97,10 +145,33 @@ export function mockTurnToChunks(turn: MockTurn): unknown[] {
   chunks.push({
     object: "chat.completion.chunk",
     choices: [{ index: 0, delta: {}, finish_reason: finish }],
-    usage: { prompt_tokens: 0, completion_tokens: 1, total_tokens: 1 },
+    usage: buildChunkUsage(turn.usage),
   });
 
   return chunks;
+}
+
+/** Shape a turn's synthetic {@link MockUsage} into the OpenAI final-chunk
+ *  `usage` object pi-ai's `parseChunkUsage` reads. `prompt_tokens` is the
+ *  sum of input + cache tokens (pi-ai subtracts the cache parts back out),
+ *  and `prompt_tokens_details` is only emitted when a cache value is set so
+ *  a plain turn keeps its historic `{prompt_tokens:0, completion_tokens:1}`
+ *  shape. Pure — unit-tested directly. */
+export function buildChunkUsage(usage: MockUsage | undefined): Record<string, unknown> {
+  const input = usage?.input ?? 0;
+  const cacheRead = usage?.cacheRead ?? 0;
+  const cacheWrite = usage?.cacheWrite ?? 0;
+  const output = usage?.output ?? 1;
+  const promptTokens = input + cacheRead + cacheWrite;
+  const shaped: Record<string, unknown> = {
+    prompt_tokens: promptTokens,
+    completion_tokens: output,
+    total_tokens: promptTokens + output,
+  };
+  if (cacheRead > 0 || cacheWrite > 0) {
+    shaped.prompt_tokens_details = { cached_tokens: cacheRead, cache_write_tokens: cacheWrite };
+  }
+  return shaped;
 }
 
 /** Encode a turn as the full SSE frame sequence (chunks + terminator). */
@@ -128,4 +199,35 @@ export function buildMockStreamResponse(turn: MockTurn): Response {
       "Content-Encoding": "identity",
     },
   });
+}
+
+/** Build the failing `Response` for a {@link MockFault}. A `status` fault
+ *  returns an OpenAI-shaped error body at that HTTP status (the SDK raises
+ *  its typed 429/5xx error); a `connection` fault aborts the body before
+ *  any bytes (a transport-style pre-first-token failure). */
+export function buildMockFaultResponse(fault: MockFault): Response {
+  if (fault.kind === "connection") {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new Error("[mock-llm] simulated connection failure"));
+      },
+    });
+    return new Response(stream, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream", "Connection": "close" },
+    });
+  }
+  const status = fault.status ?? 500;
+  const message = fault.message ?? `[mock-llm] simulated ${status} failure`;
+  return new Response(
+    JSON.stringify({ error: { message, type: "mock_fault", code: `mock_${status}` } }),
+    { status, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+/** Dispatch a dequeued turn to the right `Response`: a fault fails the call,
+ *  otherwise it replays as a streamed reply. The single entry point the
+ *  completions route (and the wire integration test) use. */
+export function buildMockTurnResponse(turn: MockTurn): Response {
+  return turn.fault ? buildMockFaultResponse(turn.fault) : buildMockStreamResponse(turn);
 }
