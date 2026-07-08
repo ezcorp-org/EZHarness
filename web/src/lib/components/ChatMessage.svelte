@@ -16,6 +16,7 @@
 	import ProviderIcon from "./ProviderIcon.svelte";
 	import MessageAttachments from "./MessageAttachments.svelte";
 	import { getSegments } from "$lib/mention-logic.js";
+	import { fmtTokens } from "$lib/context-usage-logic.js";
 	import { formatMessageForCopy } from "$lib/message-copy.js";
 	import { extensionToolbarStore } from "$lib/stores/extension-toolbar.svelte.js";
 	import {
@@ -196,6 +197,18 @@
 		message.usage
 			? `Input: ${message.usage.inputTokens} tokens | Output: ${message.usage.outputTokens} tokens`
 			: undefined,
+	);
+
+	// WS0 prompt-cache meter — the hit-rate percent for THIS turn, or null when
+	// there was no cache activity (fresh input only / non-caching provider), so
+	// the pill stays silent rather than showing a noisy "0% cached" everywhere.
+	// The rate itself is computed server-side (single source of the math) and
+	// persisted on the message; here we only round it for display.
+	let cacheHitPct = $derived(
+		message.usage &&
+			((message.usage.cacheReadTokens ?? 0) > 0 || (message.usage.cacheWriteTokens ?? 0) > 0)
+			? Math.round((message.usage.cacheHitRate ?? 0) * 100)
+			: null,
 	);
 
 	let hasSiblings = $derived(siblings && siblings.length > 1 && onnavigate);
@@ -755,6 +768,18 @@
 			<div class="mt-1 flex items-center gap-2">
 				{#if message.model && !isStreaming}
 					<span class="text-xs text-[var(--color-text-muted)]">{message.model}</span>
+				{/if}
+				{#if cacheHitPct !== null && !isStreaming}
+					<span
+						class="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] tabular-nums text-[var(--color-text-muted)]"
+						data-testid="cache-stats-pill"
+						title="Prompt cache this turn — {message.usage?.cacheReadTokens ?? 0} tokens served from cache, {message.usage?.cacheWriteTokens ?? 0} written"
+					>
+						<svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+						</svg>
+						{cacheHitPct}% cached · {fmtTokens(message.usage?.cacheReadTokens ?? 0)}
+					</span>
 				{/if}
 				{#if hasSources && !isStreaming}
 					<div class="relative">
