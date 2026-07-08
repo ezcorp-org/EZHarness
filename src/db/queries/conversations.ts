@@ -424,6 +424,20 @@ export async function getOrCreateEzConversation(userId: string): Promise<Convers
 
 // ── Messages ─────────────────────────────────────────────────────────
 
+/**
+ * Per-turn usage persisted on `messages.usage`. `cache*` are the WS0
+ * prompt-cache meter (tokens served from / written to the provider cache this
+ * turn + the derived hit-rate [0,1]). Optional so pre-cache rows and
+ * non-caching providers stay valid — jsonb, so no migration.
+ */
+export interface CreateMessageUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  cacheHitRate?: number;
+}
+
 export async function createMessage(
   conversationId: string,
   data: {
@@ -432,16 +446,7 @@ export async function createMessage(
     thinkingContent?: string;
     model?: string;
     provider?: string;
-    usage?: {
-      inputTokens: number;
-      outputTokens: number;
-      /** WS0 prompt-cache meter — tokens served from / written to the
-       *  provider cache this turn, plus the derived hit-rate [0,1]. Optional
-       *  so pre-cache rows and non-caching providers stay valid. */
-      cacheReadTokens?: number;
-      cacheWriteTokens?: number;
-      cacheHitRate?: number;
-    };
+    usage?: CreateMessageUsage;
     runId?: string;
     parentMessageId?: string;
   },
