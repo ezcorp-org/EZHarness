@@ -189,6 +189,77 @@ separate worktree (mutate→run→revert) to avoid the shared-worktree race (see
 
 ---
 
+#### WS2 — as built (implementation notes)
+
+**Retry loop location.** The pre-stream failover loop is a dedicated pure-ish
+module at **`src/runtime/stream-chat/failover.ts`** (`runWithFailover`), wired
+into `src/runtime/stream-chat`'s owner, **`AgentExecutor.streamChat`
+(`src/runtime/executor.ts`, the `await runWithFailover({...})` call ~L659)**.
+It replaced the old inline `buildPiAgent` → `activeAgents.set` →
+`subscribeBridge` → `piAgent.prompt()` → `if (state.errorMessage) throw`
+block. The executor passes injectable seams (`buildAgent`, `subscribe`,
+`runPrompt`, `suggestFallback`, `resolveAttempt`) so the loop is unit-testable
+in isolation AND drives the real path in prod. The module lives under the
+enforced `src/runtime/**` tree (not `src/providers/**`, which is a
+coverage-gate EXCLUDE) so its 100% threshold is real; new thresholds key
+`"src/runtime/stream-chat/failover.ts": 100`.
+
+**Pre/post-first-token boundary.** A new explicit context flag
+`StreamChatContext.emittedToClient` (context.ts) is set `true` by
+`subscribe-bridge.ts` the instant ANY client-visible output streams — a text
+`text_delta`, a `thinking_delta`, or a `tool_execution_start` (a tool card).
+`runWithFailover` resets it to `false` at the top of every attempt and, on a
+failure, retries ONLY while it is still `false`. Once something has streamed
+the error is rethrown unchanged and the executor's existing `catch →
+finalizeError` renders it — **mid-stream failover is out of scope** (see §5).
+
+**Circuit-breaker prod wiring.** Previously dead: `recordFailure`/
+`recordSuccess` had no prod callers. Now `runWithFailover` calls the REAL
+`getCircuitBreaker(provider).recordFailure()` on each provider-availability
+failure and `.recordSuccess()` on the turn that completes cleanly. The router's
+`resolveModel`/`suggestFallback` already skip open breakers, so a provider that
+trips its threshold (3 failures) is transparently avoided on the next turn.
+
+**Failure classification.** `classifyProviderAvailabilityError(msg)` decides
+retryable-vs-not from the flattened pi-ai `stopReason:"error"` message text
+(pi-agent-core keeps only `.message`). Retryable = an HTTP `429/500/502/503/
+504/529` marker OR a connection-class signature (reused `isProviderConnection
+Error`: ECONNREFUSED/reset/DNS-miss/socket-closed/timeout/fetch-failed).
+Everything else (400 bad request, 401/403 auth, content filter, tool bug) is
+NON-availability and rethrows unchanged — a different provider wouldn't help.
+
+**Single-provider graceful path.** When `suggestFallback` returns `null`
+(single-provider BYOK, every alternative's breaker open, or the suggestion
+loops back to an already-tried provider), `runWithFailover` throws the existing
+`ProviderUnavailableError` (suggestion `null`). `finalize.ts` already renders it
+into the structured `provider_unavailable` payload — the run ends in `error`,
+never a crash. Bounded by an `attempted` provider set + `MAX_FAILOVER_ATTEMPTS`
+(4) cap.
+
+**Tests.** `src/__tests__/failover.test.ts` (100% unit coverage) drives the
+real loop with fakes: classifier truth table; initial success; fault→fallback
+success (asserts the fallback's output is delivered + the previous
+subscription is detached); no-fallback → `ProviderUnavailableError`;
+already-tried loop-back; mid-stream boundary (no retry); non-availability
+passthrough; budget exhaustion; and **failure→breaker-opens-after-threshold on
+the REAL breaker**. `src/__tests__/executor-failover.integration.test.ts`
+drives the ACTUAL `executor.streamChat` retry loop (pi-agent-core + router
+mocked, everything between real): asserts `run.result.output.fullText ===
+"served by fallback"` after a pre-token 429, the clean no-fallback payload, and
+the mid-stream boundary (fallback never consulted once a token streamed).
+
+**Harness limitation (why not a live-server Playwright e2e).** The real mock
+LLM (`ezcorp-mock`) is only reachable via a Level-1 pin, and the real router's
+`suggestFallback` only proposes the real preference-order providers (which have
+no CI credentials) — so a genuine cross-provider failover can't complete
+end-to-end against the live server until the mock is made routing-reachable as
+a fallback (a WS-H follow-up, same gap WS3 documented). The real-executor
+integration test above therefore stands in for the live e2e (explicitly
+permitted by the feature contract), exercising the actual retry loop wired into
+`streamChat`.
+
+---
+
 ### WS3 — Quality-tier routing  *(agent: `general-purpose`, effort M, after WS0; parallel w/ WS1/WS2)*
 
 **Scope**
@@ -301,7 +372,32 @@ a model-less turn through `setupTools`.
    review, all required checks green. Squash-merge; release via `app-vX.Y.Z` tag when the set is done.
 
 ## 5. Explicit non-goals / follow-ups
-- Mid-stream (post-first-token) failover — hard; separate issue.
+- **Mid-stream (post-first-token) failover — FOLLOW-UP (WS2).** Once a text
+  token, thinking token, or tool card has streamed to the client
+  (`StreamChatContext.emittedToClient === true`), `runWithFailover` deliberately
+  does NOT retry — it rethrows and the existing error path renders the failure.
+  Transparent mid-stream failover needs partial-output re-emission + client-side
+  dedup (re-issuing the prompt on a fallback would replay already-streamed text
+  unless the bridge can suppress the overlap), which the council flagged as
+  genuinely hard. File as a separate issue; do not attempt inside WS2. Code
+  markers: `src/runtime/stream-chat/failover.ts` (module header + the
+  `emittedToClient` throw) and the `runWithFailover` call in
+  `src/runtime/executor.ts`.
+- **Failover provenance — FOLLOW-UP (WS2).** After a failover the turn is served
+  by the fallback provider/model; `runWithFailover` threads the effective
+  provider/model into `subscribeBridge` so persisted `tool_calls`/assistant
+  messages + the WS0 cache meter are segmented by the SERVING provider (not the
+  user's original pick). The `run.provider` field is likewise updated in
+  `resolveAttempt`. Any residual UI copy that says "you picked X" on a
+  failed-over turn is a cosmetic follow-up.
+- **Mock LLM not routing-reachable as a fallback — FOLLOW-UP (WS-H).** The
+  deterministic `ezcorp-mock` provider is only reachable via a Level-1 pin, and
+  the real `suggestFallback` only proposes real preference-order providers (no
+  CI credentials) — so a genuine cross-provider failover can't be driven end-to-
+  end against the live server yet. WS2 proves failover through a real-executor
+  integration test (pi-agent-core + router mocked) instead; a WS-H change that
+  makes the mock selectable as a fallback candidate would unlock a full
+  live-server Playwright e2e. Same gap WS3 documented for tier classification.
 - An external gateway — ruled out (OAuth-BYOK + single-container).
 - LLM-based prompt classification for tiering — rejected (latency).
 - Cross-provider cache portability — impossible (cache is per-provider/per-model).
