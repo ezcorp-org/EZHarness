@@ -57,6 +57,15 @@ export interface StreamChatContext {
   turnThinking: string;
   /** True once the current turn has emitted any tool_execution_start. */
   turnHasToolCalls: boolean;
+  /**
+   * True once ANYTHING client-visible has streamed for this run — a text or
+   * thinking token, or a tool card (tool_execution_start). WS2's pre-stream
+   * failover reads this as the pre/post-first-token boundary: while it is
+   * false a provider failure can be transparently retried on a fallback;
+   * once true, mid-stream failover is out of scope and the error is
+   * surfaced instead. Reset to false at the start of each failover attempt.
+   */
+  emittedToClient: boolean;
   /** Latest persisted assistant-message id; used as parentMessageId for the next turn save. */
   lastSavedMessageId: string | null;
   /** Total token usage from the last turn_end (forwarded to obs:turn). */
@@ -104,6 +113,7 @@ export function createStreamChatContext(
     turnText: "",
     turnThinking: "",
     turnHasToolCalls: false,
+    emittedToClient: false,
     lastSavedMessageId: parentMessageId ?? null,
     totalUsage: {
       input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,

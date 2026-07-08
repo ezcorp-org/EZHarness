@@ -112,15 +112,22 @@ export function subscribeBridge(
         if (ame.type === "text_delta") {
           ctx.turnText += ame.delta;
           ctx.allTurnsText += ame.delta;
+          // First client-visible output → past the pre-stream failover
+          // boundary (see StreamChatContext.emittedToClient / WS2).
+          ctx.emittedToClient = true;
           host.bus.emit("run:token", { runId: run.id, token: ame.delta, kind: "text" });
         } else if (ame.type === "thinking_delta") {
           ctx.turnThinking += ame.delta;
+          ctx.emittedToClient = true;
           host.bus.emit("run:token", { runId: run.id, token: ame.delta, kind: "thinking" });
         }
         break;
       }
       case "tool_execution_start": {
         ctx.turnHasToolCalls = true;
+        // A tool card is client-visible committed output → past the
+        // pre-stream failover boundary (see WS2 / emittedToClient).
+        ctx.emittedToClient = true;
         const args = (event.args ?? {}) as Record<string, unknown>;
         ctx.pendingToolArgs.set(event.toolCallId, args);
         // invoke_agent has its own agent:spawn/agent:complete events — skip tool:start
