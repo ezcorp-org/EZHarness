@@ -5,6 +5,11 @@ import { getCredential } from "../../providers/credentials";
 import type { StreamChatContext } from "./context";
 import type { SetupToolsResult } from "./setup-tools";
 import { makeCompactionTransform, type CompactionConfig } from "./context-compaction";
+import {
+  applyCacheRetention,
+  DEFAULT_CACHE_RETENTION,
+  type CacheRetention,
+} from "./cache-retention";
 
 /** Subset of streamChat's options the pi-agent construction reads. */
 export interface BuildPiAgentOptions {
@@ -14,6 +19,12 @@ export interface BuildPiAgentOptions {
    * the streamChat entry). Omitted keys fall back to module DEFAULTS.
    */
   compaction?: Partial<CompactionConfig>;
+  /**
+   * Prompt-cache retention for the stable prefix (resolved from the
+   * `compaction:cacheRetention` setting). Omitted → {@link DEFAULT_CACHE_RETENTION}
+   * (`"long"` — keep the system/tools/anchor prefix warm for ~1h).
+   */
+  cacheRetention?: CacheRetention;
 }
 
 /**
@@ -58,6 +69,15 @@ export function buildPiAgent(
     }
   }
 
+  // Prefix-cache retention for THIS turn. Anthropic caches the system
+  // prompt + tools + conversation prefix; a long TTL keeps that stable
+  // prefix warm across inter-turn pauses. `compat.supportsLongCacheRetention`
+  // mirrors pi-ai's own guard (undefined ⇒ supported for non-Fireworks).
+  const cacheRetention = options.cacheRetention ?? DEFAULT_CACHE_RETENTION;
+  const supportsLongRetention =
+    (model as { compat?: { supportsLongCacheRetention?: boolean } }).compat
+      ?.supportsLongCacheRetention !== false;
+
   return new Agent({
     initialState: {
       systemPrompt: ctx.system ?? "",
@@ -88,7 +108,9 @@ export function buildPiAgent(
       if (payload?.reasoning && payload.reasoning.summary === "auto") {
         payload.reasoning.summary = "detailed";
       }
-      return body;
+      // Shape prompt-cache retention: 1h TTL on the stable prefix (system +
+      // tools), tail stays short. No-op for non-Anthropic payloads.
+      return applyCacheRetention(body, supportsLongRetention, cacheRetention);
     },
   });
 }
