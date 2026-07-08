@@ -23,7 +23,10 @@ import { subscribeBridge } from "./stream-chat/subscribe-bridge";
 import { setupTools } from "./stream-chat/setup-tools";
 import { applyAutoSpinUp } from "./stream-chat/auto-spin-up";
 import { buildPiAgent } from "./stream-chat/build-pi-agent";
+import { runWithFailover } from "./stream-chat/failover";
 import { buildPromptInput } from "./stream-chat/build-prompt";
+import { resolveModel, suggestFallback } from "../providers/router";
+import { getCredential } from "../providers/credentials";
 import { ToolExecutor } from "../extensions/tool-executor";
 import type { ExtensionStateMediator } from "../extensions/state-mediator";
 import { createSpawnQuota, type SpawnQuota } from "../extensions/spawn-quota";
@@ -624,28 +627,12 @@ export class AgentExecutor {
     const cacheRetention: CacheRetention | undefined = resolveCacheRetentionSetting(
       await getSetting("compaction:cacheRetention"),
     );
-    const piAgent = buildPiAgent(
-      ctx,
-      history,
-      { ...options, compaction, cacheRetention },
-      resolvedModel,
-      credentialConversationId,
-    );
-    this.activeAgents.set(run.id, piAgent);
-
     // Streaming state lives entirely on the per-call context. Re-zero
     // allTurnsText here — the watchdog already captured the closure
-    // earlier and reads it lazily on each tick.
+    // earlier and reads it lazily on each tick. runWithFailover also resets
+    // it per attempt, so a failed pre-token attempt leaves nothing behind.
     ctx.allTurnsText = "";
     ctx.turnStart = Date.now();
-
-    // Bridge pi-agent-core events into the local EventBus + persist tool
-    // calls / per-turn assistant messages. Sub-agent events are also wired
-    // back to the watchdog so multi-minute auto-spin-up turns aren't killed.
-    // Note: the watchdog started earlier (before auto-spin-up) already
-    // handles heartbeat refresh + partial-response persistence via its
-    // closure over allTurnsText. The activity-based tick covers both.
-    subscribeBridge(ctx, host, piAgent, conversationId, options, convRecord ?? null);
 
     try {
       this.bus.emit("run:status", { runId: run.id, status: "Generating response..." });
@@ -659,17 +646,55 @@ export class AgentExecutor {
         // no-ops in that case (mirrors the projectId-missing path).
         ownerId: convRecord?.userId ?? undefined,
       });
-      if (attachmentImages.length > 0) {
-        await piAgent.prompt(promptInput, attachmentImages);
-      } else {
-        await piAgent.prompt(promptInput);
-      }
 
-      // pi-agent-core catches LLM errors internally (stopReason: "error")
-      // without rethrowing. Surface agent errors so they reach the UI.
-      if (piAgent.state.errorMessage) {
-        throw new Error(piAgent.state.errorMessage);
-      }
+      // WS2 — pre-stream provider failover. runWithFailover builds the
+      // pi-agent, wires the event bridge, and prompts it; if the FIRST token
+      // never streams and the provider fails with an availability error
+      // (429/5xx/connection), it feeds the provider's circuit breaker,
+      // asks the router for a fallback, rebuilds the agent on it, and
+      // retries. Once a token/tool card has reached the client it rethrows
+      // and the `catch` below (existing error handling) takes over —
+      // mid-stream failover is a documented follow-up (see
+      // docs/plans/2026-07-07-pi-caching-routing-integration.md §5).
+      await runWithFailover({
+        ctx,
+        host,
+        runId: run.id,
+        // Fallback quality tier: honor an explicit hint, else "balanced"
+        // (router's DEFAULT_TIER) — a pinned model carries no known tier.
+        tier: options.tier ?? "balanced",
+        initial: {
+          provider: resolvedModel.resolved.provider,
+          model: resolvedModel.resolved.model,
+          resolved: resolvedModel,
+        },
+        buildAgent: (resolved) =>
+          buildPiAgent(ctx, history, { ...options, compaction, cacheRetention }, resolved, credentialConversationId),
+        // Bridge pi-agent-core events into the local EventBus + persist tool
+        // calls / per-turn assistant messages, tagging persistence with the
+        // provider/model that actually served the turn (may differ from the
+        // user's pick after a failover).
+        subscribe: (agent, attempt) =>
+          subscribeBridge(
+            ctx,
+            host,
+            agent,
+            conversationId,
+            { ...options, provider: attempt.provider, model: attempt.model },
+            convRecord ?? null,
+          ),
+        runPrompt: (agent) =>
+          attachmentImages.length > 0
+            ? agent.prompt(promptInput, attachmentImages)
+            : agent.prompt(promptInput),
+        suggestFallback,
+        resolveAttempt: async (suggestion) => {
+          const r = await resolveModel(suggestion.provider, suggestion.model);
+          run.provider = r.provider;
+          const cred = await getCredential(r.provider, credentialConversationId);
+          return { provider: r.provider, model: r.model, resolved: { resolved: r, initialCred: cred } };
+        },
+      });
 
       // Scratchpad cleanup is no longer needed — Phase 1 moved the
       // scratchpad to a bundled extension whose entries auto-expire via
