@@ -5,6 +5,11 @@ import { logger } from "../../logger";
 import { getDb } from "../../db/connection";
 import { toolCalls, conversations } from "../../db/schema";
 import { persistToolCall } from "../../db/queries/tool-calls";
+import {
+  computeTurnCacheStats,
+  aggregateCacheStats,
+  type CacheTurnInput,
+} from "../usage/cache-stats";
 import { ExtensionRegistry } from "../../extensions/registry";
 import { DEFAULT_BUILTIN_CALL_TIMEOUT_MS } from "../executor-watchdog";
 import type { StreamChatContext } from "./context";
@@ -75,6 +80,15 @@ export function subscribeBridge(
   convRecord: SubscribeBridgeConvRecord | null,
 ): void {
   const { run } = ctx;
+
+  // Provider/model that produced this run's turns — used to SEGMENT the cache
+  // meter (cache benefit is provider-specific; never fold providers together).
+  const turnProvider = options.provider ?? convRecord?.provider ?? "unknown";
+  const turnModel = options.model ?? convRecord?.model ?? "unknown";
+  // Per-run accumulator of this run's turns, for the once-per-run conversation
+  // cache summary logged on the terminal turn. Closure-local (subscribeBridge
+  // runs once per streamChat) so it needs no ctx field.
+  const runCacheTurns: CacheTurnInput[] = [];
 
   // Serialize async DB operations from the sync subscribe callback.
   // Closure over `ctx.dbQueue` so the success/cancel paths can `await ctx.dbQueue`.
@@ -259,6 +273,35 @@ export function subscribeBridge(
           ctx.totalUsage = am.usage;
           host.bus.emit("run:usage", { runId: run.id, usage: am.usage });
 
+          // ── Prompt-cache observability (WS0) ──────────────────────────────
+          // pi-ai already parses cacheRead/cacheWrite off the stream; surface
+          // it. Once-per-turn `info` summary (segmented by provider+model);
+          // per-block detail at `debug` (raise via EZCORP_DEBUG). Token counts
+          // only — never secrets.
+          const cacheStats = computeTurnCacheStats(am.usage);
+          runCacheTurns.push({
+            provider: turnProvider,
+            model: turnModel,
+            input: am.usage.input,
+            output: am.usage.output,
+            cacheRead: am.usage.cacheRead,
+            cacheWrite: am.usage.cacheWrite,
+          });
+          log.info("turn cache", {
+            provider: turnProvider,
+            model: turnModel,
+            hitRate: Number(cacheStats.hitRate.toFixed(4)),
+            cachedTokens: cacheStats.cachedTokens,
+            cacheWriteTokens: cacheStats.cacheWriteTokens,
+            promptTokens: cacheStats.promptTokens,
+          });
+          log.debug("turn cache detail", {
+            input: am.usage.input,
+            output: am.usage.output,
+            cacheRead: am.usage.cacheRead,
+            cacheWrite: am.usage.cacheWrite,
+          });
+
           // Persist this turn as its own assistant message
           // Extract text and thinking separately from the final AssistantMessage content array
           const textContent = am.content
@@ -298,7 +341,13 @@ export function subscribeBridge(
                 thinkingContent: capturedThinking,
                 model: options.model,
                 provider: options.provider,
-                usage: { inputTokens: am.usage.input, outputTokens: am.usage.output },
+                usage: {
+                  inputTokens: am.usage.input,
+                  outputTokens: am.usage.output,
+                  cacheReadTokens: cacheStats.cachedTokens,
+                  cacheWriteTokens: cacheStats.cacheWriteTokens,
+                  cacheHitRate: cacheStats.hitRate,
+                },
                 runId: run.id,
                 parentMessageId: capturedParent ?? undefined,
               });
@@ -346,6 +395,23 @@ export function subscribeBridge(
         }
         if (ctx.turnHasToolCalls) {
           host.bus.emit("run:status", { runId: run.id, status: "Analyzing results..." });
+        } else if (runCacheTurns.length > 0) {
+          // Terminal turn (no tool calls → the agent loop ends here): emit a
+          // once-per-run conversation cache summary, segmented by provider+model.
+          const convCache = aggregateCacheStats(runCacheTurns);
+          log.info("conversation cache summary", {
+            turns: runCacheTurns.length,
+            overallHitRate: Number(convCache.overall.hitRate.toFixed(4)),
+            cachedTokens: convCache.overall.cachedTokens,
+            promptTokens: convCache.overall.promptTokens,
+            segments: convCache.segments.map((s) => ({
+              provider: s.provider,
+              model: s.model,
+              hitRate: Number(s.hitRate.toFixed(4)),
+              cachedTokens: s.cachedTokens,
+              turns: s.turnCount,
+            })),
+          });
         }
         ctx.turnText = "";
         break;

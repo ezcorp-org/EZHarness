@@ -379,7 +379,16 @@ export interface Message {
 	thinkingContent: string | null;
 	model: string | null;
 	provider: string | null;
-	usage: { inputTokens: number; outputTokens: number } | null;
+	usage: {
+		inputTokens: number;
+		outputTokens: number;
+		/** WS0 prompt-cache meter: tokens served from / written to the provider
+		 *  cache this turn + the derived hit-rate [0,1]. Optional — absent on
+		 *  pre-cache rows and non-caching providers. */
+		cacheReadTokens?: number;
+		cacheWriteTokens?: number;
+		cacheHitRate?: number;
+	} | null;
 	runId: string | null;
 	parentMessageId: string | null;
 	/** When true, this message is hidden from the LLM context on subsequent
