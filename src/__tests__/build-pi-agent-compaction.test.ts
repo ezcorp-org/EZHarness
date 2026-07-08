@@ -73,10 +73,49 @@ describe("buildPiAgent + compaction", () => {
     const out = await capturedOpts.transformContext(turns);
 
     expect(out.length).toBeLessThan(turns.length);
-    expect(isCompactionMarker(out[0])).toBe(true);
+    // Cache-stable prefix: the oldest turn leads, marker is relocated after it.
+    expect(isCompactionMarker(out[0])).toBe(false);
+    expect(out[0]).toBe(turns[0]);
+    expect(out.some(isCompactionMarker)).toBe(true);
     expect(estimateTokens(out)).toBeLessThanOrEqual(budget);
     // Model still untouched after the transform ran.
     const agentModel = (build(piModel, compaction) as any).state.model;
     expect(agentModel.maxTokens).toBe(128_000);
+  });
+});
+
+describe("buildPiAgent + cache retention (onPayload)", () => {
+  const anthropicPayload = () => ({
+    system: [{ type: "text", text: "sys", cache_control: { type: "ephemeral" } }],
+    tools: [
+      { name: "a" },
+      { name: "b", cache_control: { type: "ephemeral" } },
+    ],
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "text", text: "hi", cache_control: { type: "ephemeral" } }],
+      },
+    ],
+  });
+
+  test("default retention (long) → 1h TTL on the stable prefix, tail stays short", async () => {
+    build({ id: "claude", contextWindow: 200_000, maxTokens: 8_000 }, undefined);
+    const payload = anthropicPayload();
+    const out = (await capturedOpts.onPayload(payload)) as any;
+    // system prompt + LAST tool = the stable prefix → 1h.
+    expect(out.system[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(out.tools[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    // Conversation tail (last message block) is left short (5m).
+    expect(out.messages[0].content[0].cache_control).toEqual({ type: "ephemeral" });
+  });
+
+  test("preserves the existing reasoning-summary detail behavior + no-ops non-Anthropic", async () => {
+    build({ id: "gpt", contextWindow: 200_000, maxTokens: 8_000 }, undefined);
+    const body: any = { reasoning: { summary: "auto" } };
+    const out = await capturedOpts.onPayload(body);
+    expect(body.reasoning.summary).toBe("detailed");
+    // A payload with no cache_control blocks is returned untouched.
+    expect(out).toBe(body);
   });
 });
