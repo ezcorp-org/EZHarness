@@ -614,6 +614,20 @@ export interface ExtensionManifestV2 {
     expect: { isError?: boolean; textIncludes?: string };
   };
 
+  /**
+   * WS3 quality-tier routing (pi-caching/routing integration). Declares
+   * the model tier this extension's work needs — a `powerful`-declaring
+   * extension wired into a conversation nudges the heuristic tier
+   * classifier up so its turns route to a strong model (and vice-versa for
+   * `fast`). OPTIONAL: absent = the extension expresses no tier preference
+   * and the length/tools heuristic decides. The declaration only takes
+   * effect when the conversation has NO established model yet (routing is
+   * tier-stable within a thread to protect the prompt cache — see
+   * `src/runtime/tier-classifier.ts`). Validated at admit time by
+   * `validateRoutingBlock` (./manifest.ts).
+   */
+  routing?: { tier: "fast" | "balanced" | "powerful" };
+
   // Marketplace metadata (optional for local installs)
   tags?: string[];
   changelog?: string;

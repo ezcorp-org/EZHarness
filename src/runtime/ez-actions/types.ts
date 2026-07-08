@@ -92,4 +92,16 @@ export interface EzAction {
   name: string;
   description: string;
   handler: (ctx: EzActionContext) => Promise<EzActionResult>;
+  /**
+   * WS3 quality-tier routing (pi-caching/routing integration). Optional
+   * model-tier need this action declares — the parallel declaration
+   * surface to an extension manifest's `routing.tier`. Combined with any
+   * extension-declared tiers by `strongestTier` and fed to the classifier
+   * as its `declaredTier` signal (see `src/runtime/tier-classifier.ts`).
+   * v1 EZ actions are code-defined and mostly action-only (they invoke a
+   * handler without an LLM turn), so this field is the declaration surface;
+   * threading a mixed EZ+content turn's declared tier into chat routing is
+   * a documented follow-up. Absent = no tier preference.
+   */
+  tier?: import("../tier-classifier").RoutingTier;
 }

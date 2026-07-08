@@ -695,6 +695,23 @@ export function validateSettingsSchema(
   }
 }
 
+// WS3 quality-tier routing. An extension may declare the model tier its
+// work needs; the tier classifier reads it when the conversation has no
+// established model. Reject-at-admit — a bad declaration is an authoring
+// bug, not something to silently drop.
+const ROUTING_TIERS = new Set(["fast", "balanced", "powerful"]);
+
+export function validateRoutingBlock(routing: unknown, errors: string[]): void {
+  if (!routing || typeof routing !== "object" || Array.isArray(routing)) {
+    errors.push("routing must be an object");
+    return;
+  }
+  const tier = (routing as Record<string, unknown>).tier;
+  if (typeof tier !== "string" || !ROUTING_TIERS.has(tier)) {
+    errors.push(`routing.tier must be one of "fast"|"balanced"|"powerful"`);
+  }
+}
+
 function validatePermissionsBlock(perms: unknown, errors: string[]): void {
   if (!perms || typeof perms !== "object") return; // top-level guard handled elsewhere
   const p = perms as Record<string, unknown>;
@@ -855,6 +872,7 @@ export function validateManifestV2(
     );
   }
   if (m.pages !== undefined) validatePagesArray(m.pages, errors);
+  if (m.routing !== undefined) validateRoutingBlock(m.routing, errors);
   if (m.settings !== undefined) validateSettingsSchema(m.settings, errors);
   if (m.entities !== undefined) validateEntitiesArray(m, m.entities, errors);
 
