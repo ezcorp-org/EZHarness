@@ -86,8 +86,11 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 
 interface ParsedBody {
   content: string;
-  provider?: string;
-  model?: string;
+  /** `null` = explicit Auto (smart routing) sentinel; `undefined` = absent
+   *  field (legacy conv fallback). Multipart has no sentinel — empty form
+   *  fields parse as absent. */
+  provider?: string | null;
+  model?: string | null;
   parentMessageId?: string;
   editOf?: string;
   permissionMode?: "ask" | "auto-edit" | "yolo";
@@ -196,8 +199,17 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 
   // Resolve the effective provider/model early so we can validate files
   // against the model we're about to actually call.
-  const provider = body.provider ?? conv.provider ?? undefined;
-  const model = body.model ?? conv.model ?? undefined;
+  //
+  // Auto (smart routing) sentinel: an EXPLICIT `model: null` in the JSON
+  // body bypasses the conv.provider/conv.model fallback entirely, so
+  // streamChat receives `model: undefined` and tier routing fires
+  // (setup-tools). This is deliberate and distinct from an ABSENT field,
+  // which keeps today's fallback exactly (API/harness compat). After the
+  // routed turn is served, the route-once block below pins the SERVED
+  // identity onto the conversation so subsequent turns are cache-stable.
+  const autoRouting = body.model === null;
+  const provider = autoRouting ? undefined : body.provider ?? conv.provider ?? undefined;
+  const model = autoRouting ? undefined : body.model ?? conv.model ?? undefined;
 
   // ── Attachment pipeline ──────────────────────────────────────────
   const stagedAttachments: StagedAttachment[] = [];
@@ -496,6 +508,44 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   streamPromise.catch((err) => {
     log.error("streamChat error", { error: err instanceof Error ? err.message : String(err) });
   });
+
+  // ── Route-once-per-conversation ───────────────────────────────────
+  // For an explicit Auto turn, pin the SERVED model/provider onto the
+  // conversation once the stream finishes. The runtime persists the served
+  // identity on the assistant message row (subscribe-bridge writes the
+  // attempt's provider/model, failover included), so this route — the layer
+  // that already owns conv reads/writes — is the seam: read the turn's
+  // assistant row by runId post-stream and copy its identity to
+  // conv.provider/conv.model. Subsequent turns then resolve to the pinned
+  // model (reload hydration + the composer's route-once mirror), keeping the
+  // prompt cache stable instead of re-routing every turn. Deliberately NOT
+  // applied to absent-field turns: an API/harness caller that omits the
+  // field keeps today's stateless behavior exactly.
+  if (autoRouting) {
+    streamPromise
+      .then(async () => {
+        const all = await convQueries.getMessages(conversationId);
+        const served = [...all]
+          .reverse()
+          .find((m) => m.runId === runId && m.role === "assistant" && m.provider && m.model);
+        if (!served?.provider || !served.model) return;
+        await convQueries.updateConversation(conversationId, {
+          provider: served.provider,
+          model: served.model,
+        });
+        log.debug("route-once: pinned served model onto conversation", {
+          conversationId,
+          provider: served.provider,
+          model: served.model,
+        });
+      })
+      .catch((err) => {
+        log.warn("route-once model pin failed (conversation stays unpinned)", {
+          conversationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+  }
 
   const userMessageWithAttachments =
     attachmentSummaries.length > 0

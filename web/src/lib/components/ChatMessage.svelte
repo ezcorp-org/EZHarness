@@ -216,6 +216,17 @@
 	// (`· <tokens> @1h (2×)`) only when it was actually paid.
 	let cacheWrite1hTokens = $derived(message.usage?.cacheWrite1hTokens ?? 0);
 
+	// Routing provenance pills. `usage.requestedModel === null` is the
+	// runtime's "no user pin — the router chose this turn's model" marker
+	// (STRICT null: legacy rows without the provenance key stay silent), so
+	// the footer badges the served model as auto-picked. `usage.failover`
+	// marks a turn served by a fallback provider after the resolved one
+	// failed pre-stream.
+	let isAutoRouted = $derived(
+		message.usage != null && message.usage.requestedModel === null && !!message.model,
+	);
+	let isFailover = $derived(message.usage?.failover === true);
+
 	let hasSiblings = $derived(siblings && siblings.length > 1 && onnavigate);
 
 	let userSegments = $derived(message.role === "user" ? getSegments(message.content) : []);
@@ -773,6 +784,24 @@
 			<div class="mt-1 flex items-center gap-2">
 				{#if message.model && !isStreaming}
 					<span class="text-xs text-[var(--color-text-muted)]">{message.model}</span>
+				{/if}
+				{#if isAutoRouted && !isStreaming}
+					<span
+						class="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]"
+						data-testid="auto-routed-pill"
+						title="Auto (smart routing) — no model was pinned for this turn; the router served it with {message.provider}/{message.model}"
+					>
+						auto
+					</span>
+				{/if}
+				{#if isFailover && !isStreaming}
+					<span
+						class="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400"
+						data-testid="failover-pill"
+						title="Provider failover — the originally resolved provider was unavailable; this turn was served by {message.provider}/{message.model}"
+					>
+						failover
+					</span>
 				{/if}
 				{#if cacheHitPct !== null && !isStreaming}
 					<span

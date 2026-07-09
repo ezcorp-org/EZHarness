@@ -94,6 +94,7 @@ import { isModelCommand } from "$lib/commands.js";
 import { startStreaming } from "$lib/stores.svelte.js";
 import { subConversationStore } from "$lib/sub-conversation-store.svelte.js";
 import { parseMentions } from "$lib/mention-logic.js";
+import { resolveWireModel } from "$lib/model-selector-logic.js";
 import { userFetch } from "$lib/utils/fetch-policy.js";
 import type { SubConvoRecord } from "$lib/sub-convo-agent-state.js";
 import type { PermissionMode } from "$lib/permission-mode.js";
@@ -444,11 +445,18 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		}
 
 		try {
-			const selectedModel = host.selectedModel.get();
+			// Wire identity: a concrete selection passes through verbatim; the
+			// Auto sentinel becomes the EXPLICIT `model: null, provider: null`
+			// pair on turn 1 (server routes + pins the served model), then the
+			// served pair once a routed turn has reconciled (route-once).
+			const wire = resolveWireModel(
+				host.selectedModel.get(),
+				host.allMessages.get(),
+			);
 			const result = await sendMessage(convIdNow, {
 				content,
-				provider: selectedModel?.provider,
-				model: selectedModel?.model,
+				provider: wire.provider,
+				model: wire.model,
 				parentMessageId: optimisticUserMsg.parentMessageId ?? undefined,
 				permissionMode: host.permissionModeOverride.get(),
 				thinkingLevel: host.modelSupportsReasoning()
@@ -532,8 +540,8 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 				id: `streaming-${result.runId}`,
 				conversationId: convIdNow,
 				role: "assistant",
-				model: selectedModel?.model ?? null,
-				provider: selectedModel?.provider ?? null,
+				model: wire.model ?? null,
+				provider: wire.provider ?? null,
 				runId: result.runId,
 				parentMessageId: result.userMessage.id,
 			});
@@ -592,11 +600,14 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		host.editingMessageId.set(null);
 
 		try {
-			const selectedModel = host.selectedModel.get();
+			const wire = resolveWireModel(
+				host.selectedModel.get(),
+				host.allMessages.get(),
+			);
 			const result = await sendMessage(convId, {
 				content: editContent,
-				provider: selectedModel?.provider,
-				model: selectedModel?.model,
+				provider: wire.provider,
+				model: wire.model,
 				editOf: msg.id,
 				thinkingLevel: host.modelSupportsReasoning()
 					? host.thinkingLevel.get()
@@ -626,8 +637,8 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 				id: `streaming-${result.runId}`,
 				conversationId: convId,
 				role: "assistant",
-				model: selectedModel?.model ?? null,
-				provider: selectedModel?.provider ?? null,
+				model: wire.model ?? null,
+				provider: wire.provider ?? null,
 				runId: result.runId,
 				parentMessageId: result.userMessage.id,
 			});
@@ -653,11 +664,14 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 			// sibling user turn under the same parent, then streams a new
 			// assistant response. Identical wire shape to a no-op edit;
 			// the UX win is skipping the edit modal.
-			const selectedModel = host.selectedModel.get();
+			const wire = resolveWireModel(
+				host.selectedModel.get(),
+				host.allMessages.get(),
+			);
 			const result = await sendMessage(convId, {
 				content: msg.content,
-				provider: selectedModel?.provider,
-				model: selectedModel?.model,
+				provider: wire.provider,
+				model: wire.model,
 				editOf: msg.id,
 				thinkingLevel: host.modelSupportsReasoning()
 					? host.thinkingLevel.get()
@@ -679,8 +693,8 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 				id: `streaming-${result.runId}`,
 				conversationId: convId,
 				role: "assistant",
-				model: selectedModel?.model ?? null,
-				provider: selectedModel?.provider ?? null,
+				model: wire.model ?? null,
+				provider: wire.provider ?? null,
 				runId: result.runId,
 				parentMessageId: result.userMessage.id,
 			});
@@ -710,11 +724,14 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		try {
 			// Re-send the user message content with editOf pointing to
 			// the assistant message — the server forks a sibling.
-			const selectedModel = host.selectedModel.get();
+			const wire = resolveWireModel(
+				host.selectedModel.get(),
+				host.allMessages.get(),
+			);
 			const result = await sendMessage(convId, {
 				content: precedingUserMsg.content,
-				provider: selectedModel?.provider,
-				model: selectedModel?.model,
+				provider: wire.provider,
+				model: wire.model,
 				editOf: msg.id,
 				thinkingLevel: host.modelSupportsReasoning()
 					? host.thinkingLevel.get()
@@ -742,8 +759,8 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 				id: `streaming-${result.runId}`,
 				conversationId: convId,
 				role: "assistant",
-				model: selectedModel?.model ?? null,
-				provider: selectedModel?.provider ?? null,
+				model: wire.model ?? null,
+				provider: wire.provider ?? null,
 				runId: result.runId,
 				parentMessageId: result.userMessage.id,
 			});

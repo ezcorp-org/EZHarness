@@ -25,6 +25,7 @@
 		describeRejection,
 		type ClientCapabilities,
 	} from "$lib/chat/attachment-client";
+	import { isAutoSelection, type ModelSelection } from "$lib/model-selector-logic.js";
 
 	let connState = $state<"connected" | "disconnected" | "reconnecting" | "failed">("connected");
 	connectionState.subscribe((info) => { connState = info.state; });
@@ -42,6 +43,8 @@
 		selectedModel = null,
 		onmodelchange = () => {},
 		onautoselect,
+		allowAuto = false,
+		autoServed = null,
 		thinkingLevel = "medium",
 		onthinkinglevelchange,
 		modelSupportsReasoning = false,
@@ -72,6 +75,10 @@
 		selectedModel?: { provider: string; model: string } | null;
 		onmodelchange?: (provider: string, model: string) => void;
 		onautoselect?: (provider: string, model: string) => void;
+		/** Offer the "Auto (smart routing)" picker row (chat composer only). */
+		allowAuto?: boolean;
+		/** Served model of the last routed turn — picker shows "Auto → <model>". */
+		autoServed?: ModelSelection | null;
 		thinkingLevel?: string;
 		onthinkinglevelchange?: (level: string) => void;
 		modelSupportsReasoning?: boolean;
@@ -244,7 +251,10 @@
 	// stays hidden and the user falls back to text-only messaging.
 	$effect(() => {
 		const sel = selectedModel;
-		if (!sel) { capabilities = null; return; }
+		// Auto (smart routing) has no concrete model until the first turn is
+		// served — capabilities can't be resolved, so the paperclip stays
+		// hidden (text-only) exactly like the no-selection state.
+		if (!sel || isAutoSelection(sel)) { capabilities = null; return; }
 		// Re-read pendingExtensionNames inside the effect so Svelte tracks it.
 		const extNames = pendingExtensionNames;
 		let cancelled = false;
@@ -731,7 +741,7 @@
 				<div class="flex items-center gap-3">
 					<div class="flex flex-col">
 						<span class="toolbar-label" data-tip="Choose which AI model powers this conversation">Model</span>
-						<ModelSelector selected={selectedModel} onselect={onmodelchange} {onreasoningchange} {oncontextwindowchange} {onautoselect} />
+						<ModelSelector selected={selectedModel} onselect={onmodelchange} {onreasoningchange} {oncontextwindowchange} {onautoselect} {allowAuto} {autoServed} />
 					</div>
 					{#if modelSupportsReasoning && onthinkinglevelchange}
 						<div class="flex flex-col">
