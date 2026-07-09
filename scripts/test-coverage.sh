@@ -200,6 +200,9 @@ run_legs() {
       src/lib/components/__tests__/SaveIndicator.component.test.ts \
       src/lib/components/__tests__/SettingsSection.component.test.ts \
       src/__tests__/settings-layout.component.test.ts \
+      src/__tests__/savings-format.unit.test.ts \
+      src/__tests__/savings-page-loaders.server.test.ts \
+      src/lib/components/savings/SavingsDashboard.component.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -260,7 +263,10 @@ run_legs() {
       --coverage.include='src/lib/components/settings/AuditLogSection.svelte' \
       --coverage.include='src/lib/components/settings/CustomModelsSection.svelte' \
       --coverage.include='src/lib/components/settings/SettingsSection.svelte' \
-      --coverage.include='src/lib/components/settings/SaveIndicator.svelte' ) || VITEST_EXIT=$?
+      --coverage.include='src/lib/components/settings/SaveIndicator.svelte' \
+      --coverage.include='src/lib/savings-format.ts' \
+      --coverage.include='src/lib/components/savings/SavingsDashboard.svelte' \
+      --coverage.include='src/routes/**/savings/+page.server.ts' ) || VITEST_EXIT=$?
   # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
   # resolves them against the repo root and the web/src/... threshold keys match.
   if [ -f "$VITEST_COV/lcov.info" ]; then

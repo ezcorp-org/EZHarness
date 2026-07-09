@@ -217,5 +217,9 @@
   "web/src/routes/api/integrations/github-projects/proposals/[id]/rerun/+server.ts": 100,
   "src/db/queries/extension-secrets.ts": 100,
   "src/extensions/secrets-store.ts": 100,
+  "web/src/lib/savings-format.ts": 100,
+  "web/src/lib/components/savings/SavingsDashboard.svelte": 100,
+  "web/src/routes/(app)/analytics/savings/+page.server.ts": 100,
+  "web/src/routes/(app)/project/[id]/savings/+page.server.ts": 100,
   "web/src/lib/**": 90
 }

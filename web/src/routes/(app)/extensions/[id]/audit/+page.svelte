@@ -10,6 +10,9 @@
 	 */
 	import { onMount } from "svelte";
 	import { addToast } from "$lib/toast.svelte.js";
+	// Shared sign-aware USD formatter (renders identically to the old
+	// local `fmtCost` for this page's non-negative cost inputs).
+	import { fmtUsd } from "$lib/savings-format";
 	import type { PageData } from "./$types";
 
 	const { data }: { data: PageData } = $props();
@@ -107,13 +110,6 @@
 	function fmtDate(d: string | Date): string {
 		const date = typeof d === "string" ? new Date(d) : d;
 		return date.toLocaleString();
-	}
-
-	function fmtCost(n: number | null | undefined): string {
-		if (n == null) return "—";
-		if (n === 0) return "$0.00";
-		if (n < 0.01) return "<$0.01";
-		return `$${n.toFixed(3)}`;
 	}
 
 	function fmtPercent(rate: number): string {
@@ -254,7 +250,7 @@
 								<div class="text-right text-xs text-[var(--color-text-muted)]">
 									{#if entry.kind === "capability"}
 										<div>{entry.durationMs}ms</div>
-										{#if entry.costUsd != null}<div>{fmtCost(entry.costUsd)}</div>{/if}
+										{#if entry.costUsd != null}<div>{fmtUsd(entry.costUsd)}</div>{/if}
 									{/if}
 									<div class="whitespace-nowrap">{fmtDate(entry.createdAt)}</div>
 								</div>
@@ -334,7 +330,7 @@
 				</div>
 				<div>
 					<dt class="text-[var(--color-text-muted)]">Cost</dt>
-					<dd class="text-base font-semibold text-[var(--color-text-primary)]" data-testid="audit-stats-cost">{fmtCost(stats.totalCostUsd)}</dd>
+					<dd class="text-base font-semibold text-[var(--color-text-primary)]" data-testid="audit-stats-cost">{fmtUsd(stats.totalCostUsd)}</dd>
 				</div>
 				<div>
 					<dt class="text-[var(--color-text-muted)]">Success</dt>
