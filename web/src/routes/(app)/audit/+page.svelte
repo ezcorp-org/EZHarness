@@ -10,6 +10,9 @@
 	 */
 	import { onMount } from "svelte";
 	import { addToast } from "$lib/toast.svelte.js";
+	// Shared sign-aware USD formatter (renders identically to the old
+	// local `fmtCost` for this page's non-negative cost inputs).
+	import { fmtUsd } from "$lib/savings-format";
 	import type { PageData } from "./$types";
 
 	const { data }: { data: PageData } = $props();
@@ -89,13 +92,6 @@
 		return date.toLocaleString();
 	}
 
-	function fmtCost(n: number | null | undefined): string {
-		if (n == null) return "—";
-		if (n === 0) return "$0.00";
-		if (n < 0.01) return "<$0.01";
-		return `$${n.toFixed(3)}`;
-	}
-
 	function entryIcon(entry: Entry): string {
 		if (entry.kind === "governance") return "⚙️";
 		if (entry.kind === "resource") return entry.resourceKind === "memory" ? "🧠" : "📚";
@@ -152,7 +148,7 @@
 		</div>
 		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-3">
 			<div class="text-xs text-[var(--color-text-muted)]">24h LLM spend</div>
-			<div class="text-2xl font-semibold text-[var(--color-text-primary)]" data-testid="stats-cost">{fmtCost(stats.totalCostUsd)}</div>
+			<div class="text-2xl font-semibold text-[var(--color-text-primary)]" data-testid="stats-cost">{fmtUsd(stats.totalCostUsd)}</div>
 			<div class="text-[10px] text-[var(--color-text-muted)]">approximate; provider billing may differ</div>
 		</div>
 		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-3">
@@ -180,7 +176,7 @@
 				{#each stats.topLlmSpenders as ext (ext.extensionId)}
 					<li class="flex items-baseline justify-between gap-2">
 						<span class="truncate text-[var(--color-text-primary)]">{ext.name}</span>
-						<span class="text-[var(--color-text-muted)]">{fmtCost(ext.costUsd)}</span>
+						<span class="text-[var(--color-text-muted)]">{fmtUsd(ext.costUsd)}</span>
 					</li>
 				{/each}
 			</ol>
@@ -278,7 +274,7 @@
 								</div>
 								<p class="truncate text-xs text-[var(--color-text-secondary)]">
 									{#if entry.kind === "capability"}
-										{entry.model ?? ""} {#if entry.tokensUsed != null}· {(entry.tokensUsed / 1000).toFixed(1)}k tok{/if} {#if entry.costUsd != null}· {fmtCost(entry.costUsd)}{/if} · {entry.durationMs}ms
+										{entry.model ?? ""} {#if entry.tokensUsed != null}· {(entry.tokensUsed / 1000).toFixed(1)}k tok{/if} {#if entry.costUsd != null}· {fmtUsd(entry.costUsd)}{/if} · {entry.durationMs}ms
 									{:else if entry.kind === "resource"}
 										{entry.resourceKind} {entry.resourceId.slice(0, 12)}
 									{:else}
