@@ -27,11 +27,14 @@ type AgentScenario = "pre-token-fail" | "midstream-fail";
 let agentScenario: AgentScenario = "pre-token-fail";
 let suggestFallbackResult: { provider: string; model: string; tier: string } | null = null;
 let suggestFallbackCalls = 0;
+// Tier the executor passed to suggestFallback on each failover lookup —
+// proves a pinned powerful-tier model fails over IN-tier (not "balanced").
+let suggestFallbackTiers: string[] = [];
 let resolveModelCalls: string[] = [];
 
-function piModelFor(provider: string) {
+function piModelFor(provider: string, id = `${provider}-model`) {
   return {
-    id: `${provider}-model`,
+    id,
     provider,
     api: "anthropic-messages",
     baseUrl: "",
@@ -46,15 +49,19 @@ function piModelFor(provider: string) {
 mock.module("../providers/router", () => ({
   // Initial resolution (setup-tools) passes no pinned provider → "prov-fail".
   // The failover resolveAttempt closure passes the suggested "prov-ok".
-  resolveModel: async (provider?: string) => {
+  // A pinned modelId is honored so the REAL tierForModel sees the pin's id.
+  resolveModel: async (provider?: string, modelId?: string) => {
     const p = provider === "prov-ok" ? "prov-ok" : "prov-fail";
     resolveModelCalls.push(p);
-    return { provider: p, model: `${p}-model`, piModel: piModelFor(p) };
+    const model = modelId ?? `${p}-model`;
+    return { provider: p, model, piModel: piModelFor(p, model) };
   },
-  suggestFallback: async () => {
+  suggestFallback: async (_failedProvider: string, tier: string) => {
     suggestFallbackCalls++;
+    suggestFallbackTiers.push(tier);
     return suggestFallbackResult;
   },
+  getDefaultTier: async () => "balanced",
   ProviderUnavailableError: class extends Error {
     failedProvider: string;
     failedModel: string;
@@ -77,7 +84,11 @@ mock.module("../providers/credentials", () => ({
 mock.module("@earendil-works/pi-ai", () => ({
   stream: () => ({ [Symbol.asyncIterator]: async function* () {}, result: async () => ({}) }),
   complete: async () => ({}),
-  getModel: () => ({ id: "prov-fail-model", provider: "prov-fail" }),
+  // Full model shape — the pinned-turn path reaches the REAL registry
+  // (model-capabilities → resolveModelObject → getModel) which reads
+  // `model.input`, so a bare {id, provider} stub would throw there.
+  getModel: (provider?: string, modelId?: string) =>
+    piModelFor(provider ?? "prov-fail", modelId ?? undefined),
   getModels: () => [],
   getProviders: () => ["anthropic", "openai", "google"],
   getEnvApiKey: () => undefined,
@@ -139,8 +150,16 @@ mock.module("@earendil-works/pi-agent-core", () => ({
 import { AgentExecutor } from "../runtime/executor";
 import { EventBus } from "../runtime/events";
 import { createProject } from "../db/queries/projects";
-import { createConversation } from "../db/queries/conversations";
+import { createConversation, getMessages } from "../db/queries/conversations";
 import { resetAllCircuitBreakers, getCircuitBreaker } from "../providers/circuit-breaker";
+
+/** Fetch the single persisted assistant row for a conversation. */
+async function getAssistantRow(convId: string) {
+  const msgs = await getMessages(convId);
+  const assistant = msgs.find((m) => m.role === "assistant");
+  expect(assistant).toBeDefined();
+  return assistant!;
+}
 
 let projectId: string;
 
@@ -159,6 +178,7 @@ beforeEach(() => {
   agentScenario = "pre-token-fail";
   suggestFallbackResult = null;
   suggestFallbackCalls = 0;
+  suggestFallbackTiers = [];
   resolveModelCalls = [];
   resetAllCircuitBreakers();
 });
@@ -168,7 +188,7 @@ describe("AgentExecutor.streamChat — pre-stream provider failover", () => {
     suggestFallbackResult = { provider: "prov-ok", model: "prov-ok-model", tier: "balanced" };
     const conv = await createConversation(projectId, { title: "Failover Success" });
     const bus = new EventBus<AgentEvents>();
-    const executor = new AgentExecutor(new Map(), bus);
+    const executor = new AgentExecutor(new Map(), bus, { persist: true });
 
     const run = await executor.streamChat(conv.id, "hello", {});
 
@@ -180,6 +200,18 @@ describe("AgentExecutor.streamChat — pre-stream provider failover", () => {
     expect(resolveModelCalls).toEqual(["prov-fail", "prov-ok"]);
     // The circuit breaker recorded the prov-fail failure (prod wiring live).
     expect(getCircuitBreaker("prov-fail")).toBeDefined();
+
+    // The persisted assistant row names the model that SERVED the turn (the
+    // fallback), with truthful provenance: no user pin (Auto/routed turn),
+    // the classifier's tier, and the failover flag set.
+    const assistant = await getAssistantRow(conv.id);
+    expect(assistant.provider).toBe("prov-ok");
+    expect(assistant.model).toBe("prov-ok-model");
+    expect(assistant.usage?.failover).toBe(true);
+    expect(assistant.usage?.requestedProvider).toBeNull();
+    expect(assistant.usage?.requestedModel).toBeNull();
+    // Unpinned short tool-less turn → the classifier routed "fast".
+    expect(assistant.usage?.routedTier).toBe("fast");
   });
 
   test("single-provider / no fallback → clean ProviderUnavailableError payload, no crash", async () => {
@@ -196,6 +228,65 @@ describe("AgentExecutor.streamChat — pre-stream provider failover", () => {
     expect(payload.failedProvider).toBe("prov-fail");
     expect(payload.suggestion).toBeNull();
     expect(suggestFallbackCalls).toBe(1);
+  });
+
+  test("routed initial attempt succeeds → row persists the SERVED provider/model + routedTier (not undefined)", async () => {
+    // No pinned model → routing fires (classifier picks a tier). The INITIAL
+    // attempt serves the turn (provider-only hint resolves to the healthy
+    // "prov-ok"), so no failover is involved — this is exactly the path that
+    // used to persist undefined provider/model and meter as "unknown".
+    const conv = await createConversation(projectId, { title: "Routed Success" });
+    const bus = new EventBus<AgentEvents>();
+    const executor = new AgentExecutor(new Map(), bus, { persist: true });
+
+    const run = await executor.streamChat(conv.id, "hello", { provider: "prov-ok" });
+
+    expect(run.status).toBe("success");
+    // Initial attempt served — the failover loop never consulted the router.
+    expect(suggestFallbackCalls).toBe(0);
+    expect(resolveModelCalls).toEqual(["prov-ok"]);
+
+    const assistant = await getAssistantRow(conv.id);
+    // SERVED identity persisted on the row columns — NOT undefined/null.
+    expect(assistant.provider).toBe("prov-ok");
+    expect(assistant.model).toBe("prov-ok-model");
+    // Provenance: provider hint recorded, no model pin (routed turn), the
+    // classifier's tier (short tool-less prompt → "fast"), no failover.
+    expect(assistant.usage?.requestedProvider).toBe("prov-ok");
+    expect(assistant.usage?.requestedModel).toBeNull();
+    expect(assistant.usage?.routedTier).toBe("fast");
+    expect(assistant.usage?.failover).toBe(false);
+  });
+
+  test("pinned powerful-tier model 429s pre-token → failover searches the PINNED tier, not 'balanced'", async () => {
+    // Pin a model whose id infers "powerful" (real tierForModel heuristic).
+    // The pinned provider 429s before the first token; the fallback lookup
+    // must ask the router for a POWERFUL-tier peer — the old hardcode passed
+    // "balanced" and silently downgraded pinned-Opus-class turns.
+    suggestFallbackResult = { provider: "prov-ok", model: "prov-ok-model", tier: "powerful" };
+    const conv = await createConversation(projectId, { title: "Pinned Powerful Failover" });
+    const bus = new EventBus<AgentEvents>();
+    const executor = new AgentExecutor(new Map(), bus, { persist: true });
+
+    const run = await executor.streamChat(conv.id, "hello", {
+      provider: "prov-fail",
+      model: "prov-fail-opus",
+    });
+
+    expect(run.status).toBe("success");
+    // THE defect assertion: the tier handed to suggestFallback is the pinned
+    // model's own tier.
+    expect(suggestFallbackTiers).toEqual(["powerful"]);
+
+    const assistant = await getAssistantRow(conv.id);
+    // Served by the fallback; the pin is preserved as provenance.
+    expect(assistant.provider).toBe("prov-ok");
+    expect(assistant.model).toBe("prov-ok-model");
+    expect(assistant.usage?.requestedProvider).toBe("prov-fail");
+    expect(assistant.usage?.requestedModel).toBe("prov-fail-opus");
+    expect(assistant.usage?.failover).toBe(true);
+    // Pinned turn → routing never fired → no routedTier written.
+    expect(assistant.usage?.routedTier).toBeUndefined();
   });
 
   test("failure AFTER the first token → NOT retried (mid-stream boundary)", async () => {

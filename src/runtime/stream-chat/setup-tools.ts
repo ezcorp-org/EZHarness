@@ -1,7 +1,8 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { logger } from "../../logger";
 import { getProject } from "../../db/queries/projects";
-import { resolveModel } from "../../providers/router";
+import { resolveModel, getDefaultTier } from "../../providers/router";
+import { tierForModel } from "../../providers/registry";
 import { chooseTurnTier, type RoutingTier } from "../tier-classifier";
 import { getCredential } from "../../providers/credentials";
 import { extensionToAgentTool, ToolExecutor } from "../../extensions/tool-executor";
@@ -96,6 +97,17 @@ export interface SetupToolsConvRecord {
 export interface SetupToolsResult {
   resolved: Awaited<ReturnType<typeof resolveModel>>;
   initialCred: Awaited<ReturnType<typeof getCredential>>;
+  /**
+   * The quality tier that actually produced this turn's model. A pinned
+   * turn (`options.model` set) carries the tier of the PINNED model
+   * (inferred via {@link tierForModel}); a routed turn carries the
+   * classifier's tier, falling back to the configured default tier when
+   * classification failed. The executor threads this into the failover
+   * loop so a fallback candidate is a tier PEER of the model that was
+   * serving the turn — a pinned Opus must never silently fail over to
+   * the "balanced" default.
+   */
+  effectiveTier: RoutingTier;
 }
 
 /**
@@ -181,6 +193,65 @@ export async function wireBriefingChatToolsIfEligible(args: {
       error: String(briefingChatWireErr),
     });
   }
+}
+
+/**
+ * Model resolution + credential pre-validation (setup phase 3 — runs in
+ * parallel with memory injection and tool loading inside {@link setupTools}'s
+ * `Promise.all`). Exported so the tier semantics are directly unit-testable
+ * without driving the whole tool-setup phase.
+ *
+ * WS3 quality-tier routing. `options.model` already folds in BOTH the
+ * per-turn UI pin AND the conversation's established model (see
+ * web/.../conversations/[id]/messages/+server.ts), so a set value means
+ * "honor this model" — pass it straight through (Level-1 passthrough in
+ * resolveModel). We only classify a tier when the thread has NO
+ * established model yet. This is deliberate cache protection: WS1 gives
+ * the prompt a byte-stable, prefix-cached block, and the Anthropic cache
+ * is prefix-matched — SWITCHING models mid-conversation discards it
+ * (guaranteed miss + a 25% cache-write surcharge next turn). Preferring
+ * tier-STABILITY (route once, at thread start; never re-route an
+ * established thread) keeps the cache warm. The strong-signal escape
+ * (an extension/EZ-declared tier or an explicit hint) still applies at
+ * thread start via the classifier; we intentionally do NOT bust an
+ * established model even on a strong signal, because at this layer
+ * options.model cannot be distinguished from a user's explicit pin.
+ * Tier routing is a best-effort optimization: it must NEVER break a
+ * turn. If the registry can't resolve a manifest (or isn't ready), fall
+ * back to the default tier rather than failing model resolution.
+ */
+export async function resolveModelTierAndCredential(
+  run: AgentRun,
+  userMessage: string,
+  options: SetupToolsOptions,
+  convRecord: SetupToolsConvRecord | null,
+  credentialConversationId: string,
+): Promise<SetupToolsResult> {
+  let routedTier: RoutingTier | undefined;
+  if (!options.model) {
+    try {
+      routedTier = chooseTurnTier(
+        { userMessage, options, convExtensionTools: convRecord?.extensionTools ?? null },
+        (extId) => ExtensionRegistry.getInstance().getManifest(extId),
+      );
+    } catch (err) {
+      log.warn("tier classification failed — using default tier this turn", {
+        err: err instanceof Error ? err.message : String(err),
+      });
+      routedTier = undefined;
+    }
+  }
+  const r = await resolveModel(options.provider, options.model, routedTier);
+  // Effective tier for THIS turn (see SetupToolsResult.effectiveTier): a
+  // pinned model carries its OWN tier so failover stays tier-peer; a routed
+  // turn carries the classifier's tier, or the configured default when
+  // classification failed above (best-effort — never aborts the turn).
+  const effectiveTier = options.model
+    ? tierForModel(r.piModel)
+    : (routedTier ?? (await getDefaultTier()));
+  run.provider = r.provider;
+  const cred = await getCredential(r.provider, credentialConversationId);
+  return { resolved: r, initialCred: cred, effectiveTier };
 }
 
 /**
@@ -844,44 +915,7 @@ export async function setupTools(
     })(),
 
     // 3. Model resolution + credential pre-validation (runs in parallel with 1 & 2)
-    (async (): Promise<SetupToolsResult> => {
-      // WS3 quality-tier routing. `options.model` already folds in BOTH the
-      // per-turn UI pin AND the conversation's established model (see
-      // web/.../conversations/[id]/messages/+server.ts), so a set value means
-      // "honor this model" — pass it straight through (Level-1 passthrough in
-      // resolveModel). We only classify a tier when the thread has NO
-      // established model yet. This is deliberate cache protection: WS1 gives
-      // the prompt a byte-stable, prefix-cached block, and the Anthropic cache
-      // is prefix-matched — SWITCHING models mid-conversation discards it
-      // (guaranteed miss + a 25% cache-write surcharge next turn). Preferring
-      // tier-STABILITY (route once, at thread start; never re-route an
-      // established thread) keeps the cache warm. The strong-signal escape
-      // (an extension/EZ-declared tier or an explicit hint) still applies at
-      // thread start via the classifier; we intentionally do NOT bust an
-      // established model even on a strong signal, because at this layer
-      // options.model cannot be distinguished from a user's explicit pin.
-      // Tier routing is a best-effort optimization: it must NEVER break a
-      // turn. If the registry can't resolve a manifest (or isn't ready), fall
-      // back to the default tier rather than failing model resolution.
-      let routedTier: RoutingTier | undefined;
-      if (!options.model) {
-        try {
-          routedTier = chooseTurnTier(
-            { userMessage, options, convExtensionTools: convRecord?.extensionTools ?? null },
-            (extId) => ExtensionRegistry.getInstance().getManifest(extId),
-          );
-        } catch (err) {
-          log.warn("tier classification failed — using default tier this turn", {
-            err: err instanceof Error ? err.message : String(err),
-          });
-          routedTier = undefined;
-        }
-      }
-      const r = await resolveModel(options.provider, options.model, routedTier);
-      run.provider = r.provider;
-      const cred = await getCredential(r.provider, credentialConversationId);
-      return { resolved: r, initialCred: cred };
-    })(),
+    resolveModelTierAndCredential(run, userMessage, options, convRecord, credentialConversationId),
   ]);
 
   // The third tuple slot is the only one we surface upward.

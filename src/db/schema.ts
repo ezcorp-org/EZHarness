@@ -143,6 +143,14 @@ export const messages = pgTable("messages", {
     cacheReadTokens?: number;
     cacheWriteTokens?: number;
     cacheHitRate?: number;
+    // Routing provenance (WS3). `requested*` = the user's pin for the turn
+    // (null ⇒ Auto/routed); `routedTier` set only when routing fired;
+    // `failover` = served provider ≠ initially resolved. The SERVED identity
+    // is NOT duplicated here — it lives in the model/provider columns above.
+    requestedProvider?: string | null;
+    requestedModel?: string | null;
+    routedTier?: "fast" | "balanced" | "powerful";
+    failover?: boolean;
   }>(),
   runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
   parentMessageId: text("parent_message_id"),

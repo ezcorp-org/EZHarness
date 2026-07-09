@@ -666,26 +666,40 @@ export class AgentExecutor {
         ctx,
         host,
         runId: run.id,
-        // Fallback quality tier: honor an explicit hint, else "balanced"
-        // (router's DEFAULT_TIER) — a pinned model carries no known tier.
-        tier: options.tier ?? "balanced",
+        // Fallback quality tier: the tier that actually produced this turn's
+        // model (setup-tools). A pinned model carries its OWN inferred tier
+        // (a pinned Opus fails over to a powerful-tier peer, never silently
+        // to "balanced"); a routed turn carries the classifier/default tier.
+        // The failover loop re-passes this tier to suggestFallback on every
+        // iteration, so a chained 2nd failover stays in-tier too.
+        tier: resolvedModel.effectiveTier,
         initial: initialAttempt,
         buildAgent: (resolved) =>
           buildPiAgent(ctx, history, { ...options, compaction, cacheRetention }, resolved, credentialConversationId),
         // Bridge pi-agent-core events into the local EventBus + persist tool
-        // calls / per-turn assistant messages. The INITIAL attempt keeps the
-        // requested provider/model (baseline persistence semantics); only a
-        // real failover overrides them, so the persisted message names the
-        // model that actually served the turn.
+        // calls / per-turn assistant messages. EVERY attempt (initial AND
+        // fallback) passes the attempt's own provider/model — the SERVED
+        // identity — so a routed turn persists the model that actually
+        // served it (previously the initial attempt passed options verbatim
+        // and routed turns persisted undefined + metered as "unknown").
+        // The requested*/routedTier/failover fields are provenance for the
+        // messages.usage JSONB (requested pin vs served, and whether a
+        // pre-stream failover rebuilt the agent).
         subscribe: (agent, attempt) =>
           subscribeBridge(
             ctx,
             host,
             agent,
             conversationId,
-            attempt === initialAttempt
-              ? options
-              : { ...options, provider: attempt.provider, model: attempt.model },
+            {
+              ...options,
+              provider: attempt.provider,
+              model: attempt.model,
+              requestedProvider: options.provider ?? null,
+              requestedModel: options.model ?? null,
+              routedTier: options.model ? undefined : resolvedModel.effectiveTier,
+              failover: attempt !== initialAttempt,
+            },
             convRecord ?? null,
           ),
         runPrompt: (agent) =>

@@ -436,6 +436,14 @@ export interface CreateMessageUsage {
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
   cacheHitRate?: number;
+  /** Routing provenance (WS3): the user's pin for the turn (null ⇒
+   *  Auto/routed), the tier routing picked (only when routing fired), and
+   *  whether a pre-stream failover rebuilt the agent. The SERVED identity
+   *  is the message row's model/provider columns — not duplicated here. */
+  requestedProvider?: string | null;
+  requestedModel?: string | null;
+  routedTier?: "fast" | "balanced" | "powerful";
+  failover?: boolean;
 }
 
 export async function createMessage(

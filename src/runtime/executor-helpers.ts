@@ -1,5 +1,7 @@
 import { stream, complete, type Context } from "@earendil-works/pi-ai";
 import { resolveModel } from "../providers/router";
+import { tierForModel } from "../providers/registry";
+import { isRoutingTier } from "./tier-classifier";
 import { getCredential } from "../providers/credentials";
 import { getDb } from "../db/connection";
 import { toolCalls } from "../db/schema";
@@ -23,7 +25,20 @@ export async function resolveFailoverAttempt(
 ): Promise<FailoverAttempt> {
   const r = await resolveModel(suggestion.provider, suggestion.model);
   const cred = await getCredential(r.provider, credentialConversationId);
-  return { provider: r.provider, model: r.model, resolved: { resolved: r, initialCred: cred } };
+  return {
+    provider: r.provider,
+    model: r.model,
+    resolved: {
+      resolved: r,
+      initialCred: cred,
+      // The candidate was selected IN the loop's tier (suggestFallback
+      // returns it verbatim); carry it so the rebuilt attempt's
+      // SetupToolsResult stays complete. `suggestion.tier` is a plain
+      // string on the wire — narrow it, falling back to the resolved
+      // model's own inferred tier rather than a hardcoded default.
+      effectiveTier: isRoutingTier(suggestion.tier) ? suggestion.tier : tierForModel(r.piModel),
+    },
+  };
 }
 
 /** Loose message shape accepted by the adapter. Code-based agents assemble

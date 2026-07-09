@@ -38,7 +38,10 @@ type TierName = RoutingTier;
 const DEFAULT_PREFERENCE_ORDER = ["anthropic", "openai", "google", "openrouter"];
 const DEFAULT_TIER: TierName = "balanced";
 
-async function getDefaultTier(): Promise<TierName> {
+/** Configured default routing tier (`provider:defaultTier` setting, falling
+ *  back to "balanced"). Exported so the stream-chat wiring can label a turn
+ *  whose tier classification failed with the same tier `resolveModel` used. */
+export async function getDefaultTier(): Promise<TierName> {
   const tier = await getSetting("provider:defaultTier");
   if (tier && typeof tier === "string" && ["fast", "balanced", "powerful"].includes(tier)) {
     return tier as TierName;
