@@ -192,6 +192,10 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/runs/:id", description: "Get run details (append ?wait=1&timeoutMs= to block until terminal — run-to-completion)", category: "runs", scope: "read", harness: { controllable: true } },
   { method: "DELETE", path: "/api/runs/:id", description: "Cancel an in-flight run (ownership-gated)", category: "runs", scope: "chat", harness: { controllable: true } },
 
+  // Savings analytics (read-only human dashboards — deliberately NOT harness-controllable)
+  { method: "GET", path: "/api/analytics/savings", description: "Calling user's prompt-cache + model-routing savings estimate (tokens + est. $; negatives shown honestly)", category: "analytics", scope: "read", responseDescription: "{ rangeDays, stats, perModel, subscriptionProviders, estimated }" },
+  { method: "GET", path: "/api/analytics/savings/project/:id", description: "Project-scoped savings estimate (admin: whole project; member: own conversations only; unknown project 404s fail-closed)", category: "analytics", scope: "read", responseDescription: "{ rangeDays, stats, perModel, subscriptionProviders, estimated }" },
+
   // Observability
   { method: "GET", path: "/api/observability", description: "List observability events", category: "observability" },
   { method: "GET", path: "/api/observability/:conversationId", description: "Get events for conversation", category: "observability" },
