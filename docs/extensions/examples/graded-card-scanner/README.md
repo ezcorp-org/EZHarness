@@ -56,13 +56,19 @@ manual cert entry exercise everything without a camera.
 ## PSA API token setup
 
 Identity + population come from PSA's **official public API**, which needs
-a free developer token (get one at `api.psacard.com`). Provide it either
-way — the token is **never** written to code, logs, or a tool result:
+a free developer token (get one at `api.psacard.com`). The token is
+**never** written to code, logs, or a tool result:
 
 - **In chat:** paste the token and the model calls `set_psa_token`. It is
-  stored **encrypted** in per-user extension Storage.
-- **By env var:** set `PSA_API_TOKEN` for the server process. The env var
-  wins over the stored token when both are present.
+  stored **encrypted** in per-user extension Storage and used for every
+  subsequent lookup. This is the supported way to supply the token.
+
+> Local dev only: the `scripts/sanity-check.ts` CLI reads a `PSA_API_TOKEN`
+> environment variable if one is already set in the process (see
+> [Verifying live data](#verifying-live-data-sanity-check)). This is a
+> convenience for a local sanity check — it is **not** an install or
+> runtime credential path (the manifest declares no `env` grant, so the
+> host never passes it through to the running extension).
 
 No token → identity and population come back **null** and the record is
 stamped `psa-api:no-token` (the UI shows N/A). Prices still work — they
@@ -114,7 +120,8 @@ silent PSA/PriceCharting field rename would slip past the offline unit
 tests. The sanity script is the deliberate **live** check:
 
 ```bash
-# live — needs PSA_API_TOKEN in the environment
+# live — local dev only: this CLI reads PSA_API_TOKEN from the environment.
+# (The installed extension gets its token from set_psa_token, not this var.)
 PSA_API_TOKEN=… bun docs/extensions/examples/graded-card-scanner/scripts/sanity-check.ts 49392223 [more certs…]
 
 # offline — runs the same checks against the bundled fixtures
