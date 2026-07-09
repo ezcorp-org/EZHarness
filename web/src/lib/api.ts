@@ -687,8 +687,12 @@ export async function sendMessage(
 	conversationId: string,
 	data: {
 		content: string;
-		provider?: string;
-		model?: string;
+		/** Explicit `null` (JSON path only) is the Auto (smart routing)
+		 *  sentinel — the server bypasses the conv.model fallback and
+		 *  routes the turn. Omitting the field keeps the legacy
+		 *  conv.model fallback. */
+		provider?: string | null;
+		model?: string | null;
 		parentMessageId?: string;
 		editOf?: string;
 		permissionMode?: string;

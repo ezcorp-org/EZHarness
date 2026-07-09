@@ -66,6 +66,7 @@
 	import type { LoadedTool } from "$lib/loaded-tools-logic";
 	import { recordSnapshot, type StreamSnapshot } from "$lib/chat/reconcile-stream.js";
 	import { runReconcileAfterStream } from "$lib/chat/reconcile-after-stream.js";
+	import { autoServedFromMessages, isAutoSelection, resolveWireModel } from "$lib/model-selector-logic.js";
 	import { filterEmptyAssistantTurns } from "$lib/chat/filter-empty-turns.js";
 	import { shouldShowPill } from "$lib/ez/pill-visibility";
 	import { parseCapabilityEventContent } from "$lib/components/CapabilityEventPill.svelte";
@@ -642,12 +643,25 @@
 
 	function handleModelChange(provider: string, model: string) {
 		selectedModel = { provider, model };
-		persistModel?.(provider, model);
+		// The Auto (smart routing) sentinel is a client-side selection state,
+		// never a persisted identity: writing "auto"/"auto" to the
+		// conversation row (or localStorage last-model) would defeat routing
+		// on reload AND leak a fake model id into the API surface. The
+		// server pins the SERVED model onto the conversation after the first
+		// routed turn instead (route-once-per-conversation).
+		if (!isAutoSelection(selectedModel)) persistModel?.(provider, model);
 	}
 	function handleModelAutoSelect(provider: string, model: string) {
+		// Any existing selection — including the Auto sentinel — suppresses
+		// the picker's models[0] default (see shouldAutoSelectDefault).
 		if (selectedModel) return;
 		selectedModel = { provider, model };
 	}
+	// Served identity of the last auto-routed turn (usage.requestedModel ===
+	// null provenance). Drives the picker's "Auto → <model>" label and the
+	// client half of route-once: sends after the first routed turn re-send
+	// the served pair instead of the null sentinel.
+	let autoServed = $derived(autoServedFromMessages(allMessages));
 	function handleThinkingLevelChange(level: string) {
 		thinkingLevel = level;
 		if (typeof localStorage !== "undefined")
@@ -1108,14 +1122,18 @@
 
 			if (runId !== activeRunId) return;
 
+			// Optimistic identity: never stamp the Auto sentinel strings onto
+			// a row — resolveWireModel yields the served pin (or null on the
+			// first routed turn; the reconcile fetch fills in the real one).
+			const optimisticWire = resolveWireModel(selectedModel, allMessages);
 			const realMsg = makeOptimisticMessage({
 				id: messageId,
 				conversationId,
 				role: "assistant",
 				content,
 				thinkingContent: thinkingContent ?? null,
-				model: selectedModel?.model ?? null,
-				provider: selectedModel?.provider ?? null,
+				model: optimisticWire.model ?? null,
+				provider: optimisticWire.provider ?? null,
 				runId,
 				parentMessageId,
 			});
@@ -1140,8 +1158,8 @@
 				id: `streaming-${runId}`,
 				conversationId,
 				role: "assistant",
-				model: selectedModel?.model ?? null,
-				provider: selectedModel?.provider ?? null,
+				model: optimisticWire.model ?? null,
+				provider: optimisticWire.provider ?? null,
 				runId,
 				parentMessageId: messageId,
 			});
@@ -2204,6 +2222,8 @@
 			{selectedModel}
 			onmodelchange={handleModelChange}
 			onautoselect={handleModelAutoSelect}
+			allowAuto={true}
+			{autoServed}
 			{thinkingLevel}
 			onthinkinglevelchange={handleThinkingLevelChange}
 			{modelSupportsReasoning}

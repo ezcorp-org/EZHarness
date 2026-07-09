@@ -1180,3 +1180,105 @@ describe("sub-conversation handlers", () => {
 		expect(state.subConversations.length).toBe(0);
 	});
 });
+
+// ── Auto (smart routing) wire sentinel ──────────────────────────────────
+//
+// With the `{provider:"auto",model:"auto"}` picker sentinel selected, the
+// send path must put the EXPLICIT `model: null, provider: null` pair on the
+// wire (turn 1 — the server routes), then — once a routed turn has
+// reconciled with `usage.requestedModel === null` provenance — re-send the
+// SERVED identity (route-once: Auto never re-routes mid-conversation).
+
+const AUTO = { provider: "auto", model: "auto" };
+
+describe("handleSend — Auto (smart routing) sentinel", () => {
+	test("first Auto turn sends explicit nulls (never the literal 'auto' strings)", async () => {
+		const { host } = makeHost({ selectedModel: { ...AUTO } });
+		const handlers = makeSendMessage(host);
+
+		await handlers.handleSend("route me");
+
+		expect(sendMessageMock).toHaveBeenCalledTimes(1);
+		const [, dataArg] = sendMessageMock.mock.calls[0]!;
+		expect(dataArg.provider).toBeNull();
+		expect(dataArg.model).toBeNull();
+	});
+
+	test("Auto placeholder rows carry null identity, not the sentinel strings", async () => {
+		const { host, state } = makeHost({ selectedModel: { ...AUTO } });
+		const handlers = makeSendMessage(host);
+
+		await handlers.handleSend("route me");
+
+		const placeholder = state.allMessages.find((m) => m.id === "streaming-run-1")!;
+		expect(placeholder.model).toBeNull();
+		expect(placeholder.provider).toBeNull();
+	});
+
+	test("after a routed turn, Auto re-sends the SERVED pair (route-once mirror)", async () => {
+		const served = makeMessage("a-1", {
+			role: "assistant",
+			provider: "anthropic",
+			model: "claude-sonnet",
+			usage: { inputTokens: 1, outputTokens: 1, requestedProvider: null, requestedModel: null },
+		});
+		const { host } = makeHost({
+			selectedModel: { ...AUTO },
+			allMessages: [makeMessage("u-1"), served],
+			activeLeafId: "a-1",
+		});
+		const handlers = makeSendMessage(host);
+
+		await handlers.handleSend("follow-up");
+
+		const [, dataArg] = sendMessageMock.mock.calls[0]!;
+		expect(dataArg.provider).toBe("anthropic");
+		expect(dataArg.model).toBe("claude-sonnet");
+	});
+
+	test("a concrete selection is unaffected by prior routed turns", async () => {
+		const served = makeMessage("a-1", {
+			role: "assistant",
+			provider: "anthropic",
+			model: "claude-sonnet",
+			usage: { inputTokens: 1, outputTokens: 1, requestedProvider: null, requestedModel: null },
+		});
+		const { host } = makeHost({
+			selectedModel: { provider: "openai", model: "gpt-4o" },
+			allMessages: [makeMessage("u-1"), served],
+			activeLeafId: "a-1",
+		});
+		const handlers = makeSendMessage(host);
+
+		await handlers.handleSend("pinned");
+
+		const [, dataArg] = sendMessageMock.mock.calls[0]!;
+		expect(dataArg.provider).toBe("openai");
+		expect(dataArg.model).toBe("gpt-4o");
+	});
+
+	test("handleRegenerate under Auto re-sends the served pair from the routed turn", async () => {
+		const userMsg = makeMessage("u-1");
+		const served = makeMessage("a-1", {
+			role: "assistant",
+			provider: "anthropic",
+			model: "claude-sonnet",
+			parentMessageId: "u-1",
+			usage: { inputTokens: 1, outputTokens: 1, requestedProvider: null, requestedModel: null },
+		});
+		const { host } = makeHost({
+			selectedModel: { ...AUTO },
+			allMessages: [userMsg, served],
+			activeLeafId: "a-1",
+		});
+		const handlers = makeSendMessage(host);
+
+		await handlers.handleRegenerate(served);
+
+		expect(sendMessageMock).toHaveBeenCalledTimes(1);
+		const [, dataArg] = sendMessageMock.mock.calls[0]!;
+		expect(dataArg.editOf).toBe("a-1");
+		expect(dataArg.provider).toBe("anthropic");
+		expect(dataArg.model).toBe("claude-sonnet");
+	});
+});
