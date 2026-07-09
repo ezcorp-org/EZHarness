@@ -293,6 +293,7 @@ export function subscribeBridge(
             output: am.usage.output,
             cacheRead: am.usage.cacheRead,
             cacheWrite: am.usage.cacheWrite,
+            cacheWrite1h: am.usage.cacheWrite1h ?? 0,
           });
           log.info("turn cache", {
             provider: turnProvider,
@@ -300,6 +301,7 @@ export function subscribeBridge(
             hitRate: Number(cacheStats.hitRate.toFixed(4)),
             cachedTokens: cacheStats.cachedTokens,
             cacheWriteTokens: cacheStats.cacheWriteTokens,
+            cacheWrite1hTokens: cacheStats.cacheWrite1hTokens,
             promptTokens: cacheStats.promptTokens,
           });
           log.debug("turn cache detail", {
@@ -353,6 +355,7 @@ export function subscribeBridge(
                   outputTokens: am.usage.output,
                   cacheReadTokens: cacheStats.cachedTokens,
                   cacheWriteTokens: cacheStats.cacheWriteTokens,
+                  cacheWrite1hTokens: cacheStats.cacheWrite1hTokens,
                   cacheHitRate: cacheStats.hitRate,
                 },
                 runId: run.id,

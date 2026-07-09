@@ -29,6 +29,14 @@ export interface CacheUsageLike {
   cacheRead: number;
   /** Prompt tokens WRITTEN INTO the provider cache this turn (cache creation). */
   cacheWrite: number;
+  /**
+   * SUBSET of `cacheWrite` written with 1h retention (pi-ai `Usage.cacheWrite1h`,
+   * types.d.ts:194 — only Anthropic reports this split). Because it is already
+   * counted inside `cacheWrite`, it must NEVER be added into the `promptTokens`
+   * or `cacheWrite` sums — it is carried for display/observability of the 1h
+   * write premium (Anthropic bills 1h writes at 2× the base input rate) only.
+   */
+  cacheWrite1h?: number;
 }
 
 /** Per-turn cache stats derived from a single turn's usage. */
@@ -37,6 +45,8 @@ export interface TurnCacheStats {
   cachedTokens: number;
   /** Tokens written into the cache this turn (== cacheWrite). */
   cacheWriteTokens: number;
+  /** Subset of `cacheWriteTokens` written with 1h retention (== cacheWrite1h). */
+  cacheWrite1hTokens: number;
   /** Total prompt tokens = input + cacheRead + cacheWrite. */
   promptTokens: number;
   /** cachedTokens / promptTokens, clamped to [0,1]; 0 when no prompt tokens. */
@@ -58,6 +68,8 @@ export interface CacheSegment extends TurnCacheStats {
   output: number;
   cacheRead: number;
   cacheWrite: number;
+  /** Raw sum of per-turn `cacheWrite1h` (subset of `cacheWrite`, see CacheUsageLike). */
+  cacheWrite1h: number;
 }
 
 /** Per-conversation cache stats: one segment per provider+model, plus an overall roll-up. */
@@ -79,9 +91,17 @@ export function computeTurnCacheStats(u: CacheUsageLike): TurnCacheStats {
   const input = num(u.input);
   const cacheRead = num(u.cacheRead);
   const cacheWrite = num(u.cacheWrite);
+  // Subset of cacheWrite — deliberately NOT part of the promptTokens sum below.
+  const cacheWrite1h = num(u.cacheWrite1h ?? 0);
   const promptTokens = input + cacheRead + cacheWrite;
   const hitRate = promptTokens > 0 ? cacheRead / promptTokens : 0;
-  return { cachedTokens: cacheRead, cacheWriteTokens: cacheWrite, promptTokens, hitRate };
+  return {
+    cachedTokens: cacheRead,
+    cacheWriteTokens: cacheWrite,
+    cacheWrite1hTokens: cacheWrite1h,
+    promptTokens,
+    hitRate,
+  };
 }
 
 function emptySegment(provider: string, model: string): CacheSegment {
@@ -93,8 +113,10 @@ function emptySegment(provider: string, model: string): CacheSegment {
     output: 0,
     cacheRead: 0,
     cacheWrite: 0,
+    cacheWrite1h: 0,
     cachedTokens: 0,
     cacheWriteTokens: 0,
+    cacheWrite1hTokens: 0,
     promptTokens: 0,
     hitRate: 0,
   };
@@ -107,12 +129,15 @@ function accumulate(seg: CacheSegment, t: CacheUsageLike): void {
   seg.output += num(t.output);
   seg.cacheRead += num(t.cacheRead);
   seg.cacheWrite += num(t.cacheWrite);
+  seg.cacheWrite1h += num(t.cacheWrite1h ?? 0);
 }
 
 /** Derive the cached-token / prompt-token / hit-rate fields from the folded totals. */
 function finalizeSegment(seg: CacheSegment): void {
   seg.cachedTokens = seg.cacheRead;
   seg.cacheWriteTokens = seg.cacheWrite;
+  seg.cacheWrite1hTokens = seg.cacheWrite1h;
+  // cacheWrite1h is a SUBSET of cacheWrite — never folded into promptTokens.
   seg.promptTokens = seg.input + seg.cacheRead + seg.cacheWrite;
   seg.hitRate = seg.promptTokens > 0 ? seg.cacheRead / seg.promptTokens : 0;
 }

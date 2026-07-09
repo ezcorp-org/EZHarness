@@ -388,6 +388,17 @@ export interface Message {
 		cacheReadTokens?: number;
 		cacheWriteTokens?: number;
 		cacheHitRate?: number;
+		/** Subset of cacheWriteTokens written with 1h retention (Anthropic-only;
+		 *  billed at 2× the base input rate). */
+		cacheWrite1hTokens?: number;
+		/** Routing provenance — requested (pinned) values; null ⇒ Auto/routed.
+		 *  Served provider/model live on the message columns. */
+		requestedProvider?: string | null;
+		requestedModel?: string | null;
+		/** Tier the router selected — only present when routing fired. */
+		routedTier?: "fast" | "balanced" | "powerful";
+		/** True when the served provider ≠ the initially resolved provider. */
+		failover?: boolean;
 	} | null;
 	runId: string | null;
 	parentMessageId: string | null;

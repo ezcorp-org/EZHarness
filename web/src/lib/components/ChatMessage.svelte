@@ -211,6 +211,11 @@
 			: null,
 	);
 
+	// Subset of this turn's cache writes stored with 1h retention — Anthropic
+	// bills those at 2× the base input rate, so the pill surfaces the premium
+	// (`· <tokens> @1h (2×)`) only when it was actually paid.
+	let cacheWrite1hTokens = $derived(message.usage?.cacheWrite1hTokens ?? 0);
+
 	let hasSiblings = $derived(siblings && siblings.length > 1 && onnavigate);
 
 	let userSegments = $derived(message.role === "user" ? getSegments(message.content) : []);
@@ -773,12 +778,12 @@
 					<span
 						class="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] tabular-nums text-[var(--color-text-muted)]"
 						data-testid="cache-stats-pill"
-						title="Prompt cache this turn — {message.usage?.cacheReadTokens ?? 0} tokens served from cache, {message.usage?.cacheWriteTokens ?? 0} written"
+						title="Prompt cache this turn — {message.usage?.cacheReadTokens ?? 0} tokens served from cache, {message.usage?.cacheWriteTokens ?? 0} written{cacheWrite1hTokens > 0 ? ` (${cacheWrite1hTokens} with 1h retention — 1h cache writes bill at 2× the base input rate)` : ''}"
 					>
 						<svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
 							<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
 						</svg>
-						{cacheHitPct}% cached · {fmtTokens(message.usage?.cacheReadTokens ?? 0)}
+						{cacheHitPct}% cached · {fmtTokens(message.usage?.cacheReadTokens ?? 0)}{#if cacheWrite1hTokens > 0} · {fmtTokens(cacheWrite1hTokens)} @1h (2×){/if}
 					</span>
 				{/if}
 				{#if hasSources && !isStreaming}

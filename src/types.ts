@@ -239,6 +239,8 @@ export interface AgentEvents {
       output: number;
       cacheRead: number;
       cacheWrite: number;
+      /** Subset of `cacheWrite` written with 1h retention (Anthropic-only split). */
+      cacheWrite1h?: number;
       totalTokens: number;
       cost: {
         input: number;

@@ -96,7 +96,7 @@ function makeHost(bus: any): StreamChatHost {
 	};
 }
 
-function assistantTurn(usage: { input: number; output: number; cacheRead: number; cacheWrite: number }) {
+function assistantTurn(usage: { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h?: number }) {
 	return {
 		type: "turn_end",
 		message: {
@@ -153,6 +153,48 @@ describe("subscribeBridge — prompt-cache meter", () => {
 		expect(usageEvt!.data.usage.cacheWrite).toBe(90);
 		// First-turn write only → 0% hit-rate persisted.
 		expect(createMessageCalls[0]!.data.usage.cacheHitRate).toBe(0);
+	});
+
+	test("cacheWrite1h (1h-retention subset) persists as cacheWrite1hTokens and rides run:usage", async () => {
+		const emits: EmittedEvent[] = [];
+		const bus = makeBus(emits);
+		const piAgent = makePiAgent();
+		const ctx = makeCtx();
+		subscribeBridge(ctx, makeHost(bus), piAgent as any, "conv-1", { provider: "anthropic", model: "claude" }, null);
+
+		piAgent.fire({ type: "turn_start" });
+		// 300 written this turn, 120 of them with 1h retention (subset).
+		piAgent.fire(assistantTurn({ input: 100, output: 50, cacheRead: 800, cacheWrite: 300, cacheWrite1h: 120 }));
+
+		await ctx.dbQueue;
+
+		expect(createMessageCalls).toHaveLength(1);
+		const usage = createMessageCalls[0]!.data.usage;
+		expect(usage.cacheWrite1hTokens).toBe(120);
+		// Subset — cacheWriteTokens/hitRate stay based on the full write count.
+		expect(usage.cacheWriteTokens).toBe(300);
+		expect(usage.cacheHitRate).toBeCloseTo(800 / 1200, 10);
+
+		// run:usage forwards the raw pi-ai usage, 1h split included.
+		const usageEvt = emits.find((e) => e.name === "run:usage");
+		expect(usageEvt, "run:usage emitted").toBeDefined();
+		expect(usageEvt!.data.usage.cacheWrite1h).toBe(120);
+		expect(usageEvt!.data.usage.cacheWrite).toBe(300);
+	});
+
+	test("turn without cacheWrite1h persists cacheWrite1hTokens: 0 (non-Anthropic providers)", async () => {
+		const emits: EmittedEvent[] = [];
+		const bus = makeBus(emits);
+		const piAgent = makePiAgent();
+		const ctx = makeCtx();
+		subscribeBridge(ctx, makeHost(bus), piAgent as any, "conv-1", { provider: "openai", model: "gpt" }, null);
+
+		piAgent.fire({ type: "turn_start" });
+		piAgent.fire(assistantTurn({ input: 10, output: 5, cacheRead: 0, cacheWrite: 90 }));
+
+		await ctx.dbQueue;
+
+		expect(createMessageCalls[0]!.data.usage.cacheWrite1hTokens).toBe(0);
 	});
 
 	test("multi-turn run (tool turn then terminal turn) persists cache for each turn", async () => {

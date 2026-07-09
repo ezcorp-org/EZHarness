@@ -37,6 +37,32 @@ describe("computeTurnCacheStats", () => {
     expect(s.promptTokens).toBe(500);
     expect(s.hitRate).toBe(1);
   });
+
+  test("cacheWrite1h (1h-retention subset) is surfaced but NEVER double-counted", () => {
+    // 120 of the 300 written tokens carry 1h retention — they are a SUBSET of
+    // cacheWrite, so promptTokens/cacheWriteTokens must be identical to the
+    // same turn without the split.
+    const s = computeTurnCacheStats({ input: 100, output: 50, cacheRead: 800, cacheWrite: 300, cacheWrite1h: 120 });
+    expect(s.cacheWrite1hTokens).toBe(120);
+    expect(s.cacheWriteTokens).toBe(300);
+    // promptTokens = 100 + 800 + 300 — the 120 must NOT be added again.
+    expect(s.promptTokens).toBe(1200);
+    expect(s.hitRate).toBeCloseTo(800 / 1200, 10);
+    const without = computeTurnCacheStats({ input: 100, output: 50, cacheRead: 800, cacheWrite: 300 });
+    expect(s.promptTokens).toBe(without.promptTokens);
+    expect(s.cacheWriteTokens).toBe(without.cacheWriteTokens);
+    expect(s.hitRate).toBe(without.hitRate);
+  });
+
+  test("missing cacheWrite1h (non-Anthropic providers) coerces to 0", () => {
+    const s = computeTurnCacheStats({ input: 10, output: 5, cacheRead: 0, cacheWrite: 90 });
+    expect(s.cacheWrite1hTokens).toBe(0);
+  });
+
+  test("non-finite cacheWrite1h (NaN) coerces to 0", () => {
+    const s = computeTurnCacheStats({ input: 10, output: 5, cacheRead: 0, cacheWrite: 90, cacheWrite1h: Number.NaN });
+    expect(s.cacheWrite1hTokens).toBe(0);
+  });
 });
 
 describe("aggregateCacheStats", () => {
@@ -97,5 +123,27 @@ describe("aggregateCacheStats", () => {
     ];
     const agg = aggregateCacheStats(turns);
     expect(agg.segments).toHaveLength(2);
+  });
+
+  test("cacheWrite1h sums across turns without inflating cacheWrite/promptTokens", () => {
+    const turns: CacheTurnInput[] = [
+      // Turn 1: 900 written, 120 of them at 1h. Turn 2: mixed provider missing
+      // the field entirely (must fold as 0, not NaN).
+      { provider: "anthropic", model: "claude", input: 100, output: 10, cacheRead: 0, cacheWrite: 900, cacheWrite1h: 120 },
+      { provider: "anthropic", model: "claude", input: 50, output: 5, cacheRead: 900, cacheWrite: 30, cacheWrite1h: 30 },
+      { provider: "openai", model: "gpt", input: 40, output: 4, cacheRead: 0, cacheWrite: 0 },
+    ];
+    const agg = aggregateCacheStats(turns);
+    const anthropic = agg.segments.find((s) => s.provider === "anthropic")!;
+    expect(anthropic.cacheWrite1h).toBe(150);
+    expect(anthropic.cacheWrite1hTokens).toBe(150);
+    // Sums stay subset-safe: cacheWrite = 930, promptTokens = 150 + 900 + 930.
+    expect(anthropic.cacheWrite).toBe(930);
+    expect(anthropic.promptTokens).toBe(1980);
+    const openai = agg.segments.find((s) => s.provider === "openai")!;
+    expect(openai.cacheWrite1hTokens).toBe(0);
+    // Overall roll-up carries the 1h subset too.
+    expect(agg.overall.cacheWrite1hTokens).toBe(150);
+    expect(agg.overall.cacheWrite).toBe(930);
   });
 });

@@ -7,7 +7,10 @@ import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
  * An assistant turn whose persisted `usage` carries the cache meter
  * (`cacheReadTokens` / `cacheWriteTokens` / `cacheHitRate`) renders a small
  * "N% cached · <tokens>" pill in the message footer. A turn with no cache
- * activity renders no pill (silent, not a noisy "0% cached").
+ * activity renders no pill (silent, not a noisy "0% cached"). A turn whose
+ * writes include a 1h-retention subset (`cacheWrite1hTokens`) appends a
+ * "· <tokens> @1h (2×)" premium segment — Anthropic bills 1h cache writes at
+ * 2× the base input rate, and the tooltip explains that.
  *
  * Frontend-visual change → `@evidence`-tagged so the visual gate captures a
  * screenshot of the rendered pill.
@@ -62,6 +65,27 @@ test("cache meter pill renders hit-rate + cached tokens for a cached turn @evide
 			parentMessageId: "a1",
 			usage: { inputTokens: 300, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0, cacheHitRate: 0 },
 		}),
+		// A third turn whose cache writes include a 1h-retention subset —
+		// must append the "@1h (2×)" premium segment to its pill.
+		makeMessage({
+			id: "a3",
+			conversationId: "A",
+			role: "assistant",
+			content: "reply with a 1h cache write premium",
+			model: "claude",
+			provider: "anthropic",
+			parentMessageId: "a2",
+			// input 100 + cacheRead 800 + cacheWrite 300 = 1200 prompt tokens;
+			// 120 of the 300 written tokens carry 1h retention (subset).
+			usage: {
+				inputTokens: 100,
+				outputTokens: 30,
+				cacheReadTokens: 800,
+				cacheWriteTokens: 300,
+				cacheWrite1hTokens: 120,
+				cacheHitRate: 800 / 1200,
+			},
+		}),
 	];
 
 	await mockApi({ projects: [proj], conversations: [conv], messages });
@@ -73,13 +97,30 @@ test("cache meter pill renders hit-rate + cached tokens for a cached turn @evide
 
 	await expect(page.getByText("reply from a cached turn")).toBeVisible({ timeout: 5000 });
 	await expect(page.getByText("reply with fresh input only")).toBeVisible();
+	await expect(page.getByText("reply with a 1h cache write premium")).toBeVisible();
 
-	// The cached turn shows exactly one pill with the rounded hit-rate + tokens.
+	// The two cached turns each show a pill; the no-cache turn shows none.
 	const pill = page.getByTestId("cache-stats-pill");
-	await expect(pill).toHaveCount(1);
-	await expect(pill).toBeVisible();
-	await expect(pill).toContainText("80% cached");
-	await expect(pill).toContainText("800");
+	await expect(pill).toHaveCount(2);
+	// First cached turn: rounded hit-rate + tokens, and NO 1h premium segment
+	// (its writes carry no 1h-retention subset).
+	await expect(pill.first()).toBeVisible();
+	await expect(pill.first()).toContainText("80% cached");
+	await expect(pill.first()).toContainText("800");
+	await expect(pill.first()).not.toContainText("@1h");
 
 	await captureEvidence(page, testInfo, "cache-stats-pill");
+
+	// The 1h-premium turn appends "· <tokens> @1h (2×)" and its tooltip
+	// explains the 2× write premium.
+	const premiumPill = pill.nth(1);
+	await expect(premiumPill).toBeVisible();
+	await expect(premiumPill).toContainText("67% cached");
+	await expect(premiumPill).toContainText("120 @1h (2×)");
+	await expect(premiumPill).toHaveAttribute(
+		"title",
+		/120 with 1h retention — 1h cache writes bill at 2× the base input rate/,
+	);
+
+	await captureEvidence(page, testInfo, "cache-stats-pill-1h");
 });
