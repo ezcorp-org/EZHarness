@@ -19,12 +19,14 @@ The phases run in this fixed order:
 
 1. **Register the run.** A `running` `AgentRun` is stored in `runs` + `controllers` + `runConversations`; `run:start` and a `run:status` ("Loading conversation history…") are emitted. If `persist`, the run row + an `active_runs` row (crash recovery) are written.
 2. **`loadHistory`** (`stream-chat/load-history.ts`) — resolve the branch path (`getConversationPath` from `parentMessageId`, else from `getLatestLeaf`), **drop `excluded` rows** so pi-ai never sees them, rehydrate past-turn attachments + tool-generated images (newest-first, capped at `MAX_REHYDRATED_IMAGES`=5 / ~5 MB), and map each row to a pi-ai message — `ez-action-result` and `capability-event` rows map to `null` (UI-only, never sent to the LLM). Resolves the system prompt (conversation > project > global) onto `ctx.system`.
-3. **`setupTools`** (`stream-chat/setup-tools.ts`) — resolve the provider model + initial credential and load the tool surface (built-ins + wired extension tools). Returns `SetupToolsResult { resolved, initialCred }`; the resolved endpoint base URL is stashed on `ctx.modelBaseUrl` so a connection error can name the unreachable host.
+3. **`setupTools`** (`stream-chat/setup-tools.ts`) — in parallel: run memory/KB retrieval (the injected block is stashed on `ctx.systemMemoryTail`, kept **out** of the cached system prefix — see [[persistent-memory]]), load the tool surface (built-ins + wired extension tools), and resolve the provider model + initial credential (routing a quality tier via the heuristic classifier when no model is pinned). Returns `SetupToolsResult { resolved, initialCred, effectiveTier }`; the resolved endpoint base URL is stashed on `ctx.modelBaseUrl` so a connection error can name the unreachable host.
 4. **Start the watchdog** (`executor-watchdog.ts`) — an activity-based liveness tracker. It refreshes the heartbeat while progress signals arrive and auto-cancels the run after `WATCHDOG_IDLE_MS` (default **90s**, longer for reasoning models) of silence with no pending permission. Its closure reads `ctx.allTurnsText` lazily so a watchdog-kill can persist the latest partial response, and it can write the single visible error message.
 5. **`applyAutoSpinUp`** + tool-scope filters — auto-spin-up team members (if flagged) and inject the orchestrator prompt; then apply mode tool restrictions (`computeModeToolScope` + `applyToolFilters`) and invocation-level team allow/deny scoping.
-6. **`buildPiAgent`** (`stream-chat/build-pi-agent.ts`) — construct the pi-agent-core `Agent` for this turn: system prompt, model, tools, history, thinking level. It wires `transformContext` (the compaction hook), `convertToLlm` (filters to user/assistant/toolResult), an async `getApiKey` (fetches a *fresh* credential per call via `credentialConversationId` — sub-conversations inherit the parent's credentials), and `onPayload` (forces detailed reasoning summaries so thinking text is visible). OAuth-eligible models are swapped to their subscription-compatible `Model` object. The agent is registered on `host.activeAgents` so cancel/watchdog can `.abort()` it.
+6. **`buildPiAgent`** (`stream-chat/build-pi-agent.ts`) — construct the pi-agent-core `Agent` for this turn: system prompt, model, tools, history, thinking level. It wires `transformContext` (the compaction hook), `convertToLlm` (filters to user/assistant/toolResult), an async `getApiKey` (fetches a *fresh* credential per call via `credentialConversationId` — sub-conversations inherit the parent's credentials), and `onPayload` (forces detailed reasoning summaries so thinking text is visible; on Anthropic, appends the memory/KB tail as an uncached trailing system block and shapes cache-retention TTLs). OAuth-eligible models are swapped to their subscription-compatible `Model` object. The agent is registered on `host.activeAgents` so cancel/watchdog can `.abort()` it.
 7. **`subscribeBridge`** (`stream-chat/subscribe-bridge.ts`) — subscribe to the pi-agent `AgentEvent` stream and translate it onto the local EventBus (details below).
 8. **`buildPromptInput`** (`stream-chat/build-prompt.ts`) — produce the LLM-facing prompt text + image parts via four literal, non-fatal expansions (EZ-token strip → slash-command → `@file`/`$feature`/`%lesson` prepended notes → multi-modal attachment lift). Then `piAgent.prompt(text[, images])` runs the agentic loop.
+
+Steps 6–8 (agent build → subscribe → prompt) run **inside `runWithFailover`** (`stream-chat/failover.ts`): if the provider fails before the first token reaches the client, the loop retries the same provider once (jittered backoff), then rebuilds the agent on a tier-peer fallback provider (feeding the per-user circuit breaker); each attempt re-runs 6–7 with the attempt's own model and passes the **served** provider/model into `subscribeBridge` so persisted rows and the usage meter reflect what actually served the turn. See [LLM routing & failover](../../llm-routing-and-failover.md).
 9. **Finalize** (`stream-chat/finalize.ts`) — `finalizeSuccess` / `finalizeError` / always-`finalizeCleanup`; a setup-phase safety net (`finalizeSetupError`) wraps the whole inner block to catch credential/model-resolution failures.
 
 ### Event bridge (`subscribeBridge`)
@@ -72,7 +74,7 @@ Sub-agent bus events (`agent:spawn`/`agent:status`/`agent:complete`) for this `r
 
 ### Settings & env vars
 
-- `compaction:strategy` (`trim` default, `none` to disable), `compaction:responseReserveCap` / `:responseReserveFloor` / `:safetyFraction` — per-model context trimming.
+- `compaction:strategy` (`trim` default, `none` to disable), `compaction:responseReserveCap` / `:responseReserveFloor` / `:safetyFraction` / `:cacheAnchorFraction` — per-model context trimming; `compaction:cacheRetention` — Anthropic prompt-cache TTL shaping.
 - `EZCORP_WATCHDOG_IDLE_MS` (default `90000`), `EZCORP_WATCHDOG_IDLE_REASONING_MS` (`300000`), `EZCORP_WATCHDOG_IDLE_REASONING_HIGH_MS` (`900000`) — idle-kill thresholds.
 
 ## Key files
@@ -83,8 +85,10 @@ Sub-agent bus events (`agent:spawn`/`agent:status`/`agent:complete`) for this `r
 - `src/runtime/stream-chat/load-history.ts` — branch load (`excluded` filtered out), attachment + tool-image rehydration, pi-ai message mapping (`ez-action-result`/`capability-event` → null).
 - `src/runtime/stream-chat/setup-tools.ts` — model + credential resolution and tool-surface loading (`SetupToolsResult`).
 - `src/runtime/stream-chat/build-prompt.ts` — `buildPromptInput`: EZ-strip → slash-command → file/feature/lesson prepended notes → attachment lift.
-- `src/runtime/stream-chat/build-pi-agent.ts` — constructs the pi-agent-core `Agent`; OAuth model swap; wires `transformContext`/`convertToLlm`/`getApiKey`/`onPayload`.
-- `src/runtime/stream-chat/subscribe-bridge.ts` — bridges pi-agent `AgentEvent`s onto the EventBus; persists tool calls + per-turn assistant messages; feeds the watchdog.
+- `src/runtime/stream-chat/build-pi-agent.ts` — constructs the pi-agent-core `Agent`; OAuth model swap; wires `transformContext`/`convertToLlm`/`getApiKey`/`onPayload` (memory-tail append + cache-retention shaping on Anthropic).
+- `src/runtime/stream-chat/failover.ts` — `runWithFailover`: same-provider retry + pre-stream cross-provider failover around the agent build/subscribe/prompt phases; feeds the per-user circuit breaker.
+- `src/runtime/stream-chat/system-cache-split.ts` — appends the memory/KB tail as an uncached trailing system block (cache-prefix protection).
+- `src/runtime/stream-chat/subscribe-bridge.ts` — bridges pi-agent `AgentEvent`s onto the EventBus; persists tool calls + per-turn assistant messages (served provider/model + routing provenance in `messages.usage`); feeds the watchdog.
 - `src/runtime/stream-chat/finalize.ts` — `finalizeSuccess` / `finalizeError` / `finalizeCleanup` / `finalizeSetupError`; single-error-bubble guard.
 - `src/runtime/stream-chat/context-compaction.ts` — per-model input-budget trimming; `trim`/`none` strategies; `makeCompactionTransform`.
 - `src/runtime/executor-watchdog.ts` — activity-based liveness, idle auto-cancel, orphan cleanup, per-tool `callTimeoutMs`.
@@ -119,6 +123,7 @@ Sub-agent bus events (`agent:spawn`/`agent:status`/`agent:complete`) for this `r
 ## Related docs
 
 - [context-compaction](../../context-compaction.md) — the input-only trimming wired into this runtime's `transformContext`.
+- [llm-routing-and-failover](../../llm-routing-and-failover.md) — tier routing + the pre-stream failover loop wrapped around this pipeline.
 - [conversations.md](conversations.md) — the upstream send pipeline that calls `streamChat`.
 - [harness-contract](../../harness-contract.md) — the external harness's view of runs + the runtime event stream.
 

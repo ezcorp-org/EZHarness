@@ -1,10 +1,10 @@
 # Knowledge Base (RAG)
 
-> _Project-scoped uploaded documents (≤10MB) that are chunked, locally embedded into a 384-dim pgvector index, and retrieved by cosine similarity for automatic injection into the chat system prompt._
+> _Project-scoped uploaded documents (≤10MB) that are chunked, locally embedded into a 384-dim pgvector index, and retrieved by cosine similarity for automatic injection into each chat turn (as an uncached block outside the cached system prefix)._
 
 ## Intent
 
-The Knowledge Base lets a user attach reference documents to a project and have their contents surface automatically in chat, without copy-pasting. On upload a file is split into overlapping text chunks, each chunk is embedded with a local model, and the vectors are stored in Postgres (pgvector). On every chat turn, the user's message is embedded and the top-K most similar chunks for the active project are pulled into the system prompt under a "## Knowledge Base" section. This is **distinct** from [[persistent-memory]] (auto-extracted facts about the user) and [[lessons]] (mention-expanded `%[lesson:…]` tokens): KB content is verbatim user-uploaded document text, retrieved by vector similarity, and rides the **same memory-injection code path** as memories.
+The Knowledge Base lets a user attach reference documents to a project and have their contents surface automatically in chat, without copy-pasting. On upload a file is split into overlapping text chunks, each chunk is embedded with a local model, and the vectors are stored in Postgres (pgvector). On every chat turn, the user's message is embedded and the top-K most similar chunks for the active project are pulled into the prompt under a "## Knowledge Base" section. This is **distinct** from [[persistent-memory]] (auto-extracted facts about the user) and [[lessons]] (mention-expanded `%[lesson:…]` tokens): KB content is verbatim user-uploaded document text, retrieved by vector similarity, and rides the **same memory-injection code path** as memories.
 
 ## How it works
 
@@ -40,9 +40,9 @@ KB retrieval is wired **inside** the chat stream's parallel setup phase, not as 
 1. `src/runtime/stream-chat/setup-tools.ts` runs a fast-path gate `hasKBChunks(projectId)` (alongside `hasMemories`) — if the project has **no** memories and **no** ready KB chunks, it skips embedding the query entirely.
 2. The user message is embedded once (`generateEmbedding`), then reused for both the memory hybrid search and KB search.
 3. `searchKBChunksForQuery` (`src/memory/retrieval.ts`) wraps `searchKBChunks(embedding, projectId, 5)` — top-5 by cosine distance (`embedding <=> $vec`), filtered to `f.status = 'ready'` and the active `project_id`, joined back to `knowledge_base_files` for the `filename`.
-4. `buildSystemPromptWithMemories` (`src/memory/injection.ts`) appends a `## Knowledge Base` block to the system prompt, prefixed with an instruction to cite sources as `[1]`, `[2]`. Each chunk renders as `[Source N: <filename>] <content>`. Memories and KB chunks **share one 2000-token budget** (`DEFAULT_TOKEN_BUDGET`); memories are greedily filled first, then KB chunks until the budget runs out.
+4. `buildSystemPromptWithMemories` (`src/memory/injection.ts`) builds a `## Knowledge Base` block, prefixed with an instruction to cite sources as `[1]`, `[2]`. Each chunk renders as `[Source N: <filename>] <content>`. Memories and KB chunks **share one 2000-token budget** (`DEFAULT_TOKEN_BUDGET`); memories are greedily filled first, then KB chunks until the budget runs out. The raw block is returned as `injectionBlock`.
 
-The resulting `systemPrompt` is set on `ctx.system` and handed to the LLM. See [[context-compaction]] / [[streaming-runtime]] for how the system prompt feeds the model.
+The injected block is **not** merged into `ctx.system` — `setup-tools.ts` stashes it on `ctx.systemMemoryTail`, and at payload time (`build-pi-agent.ts`) Anthropic requests carry it as a separate **trailing system block with no `cache_control`** (`src/runtime/stream-chat/system-cache-split.ts`), so the query-dependent recall varies per turn without busting the cached region-1 prefix (system + tools); other providers get it merged into the plain `systemPrompt` string. See [[context-compaction]] / [[streaming-runtime]] for how the prompt feeds the model.
 
 ### Lifecycle UI feedback
 
@@ -93,8 +93,8 @@ The resulting `systemPrompt` is set on `ctx.system` and handed to the LLM. See [
 ## Features it touches
 
 - [[persistent-memory]] — KB retrieval rides the exact same injection function (`buildSystemPromptWithMemories`), shares the embedder, the `hasMemories`/`hasKBChunks` fast-path gate, and one 2000-token budget.
-- [[streaming-runtime]] — KB injection happens in `setup-tools.ts` during the per-turn parallel setup before the LLM call; the augmented system prompt streams the answer back.
-- [[context-compaction]] — injected KB text is part of the input window; the shared 2000-token budget caps how much KB content lands in context.
+- [[streaming-runtime]] — KB injection happens in `setup-tools.ts` during the per-turn parallel setup before the LLM call; the block rides `ctx.systemMemoryTail` into the payload.
+- [[context-compaction]] — injected KB text is part of the input window; the shared 2000-token budget caps how much KB content lands in context, and the block is kept out of the cached system prefix (`system-cache-split.ts`).
 - [[lessons]] — a sibling "Memories" page tab and a distinct retrieval mechanism (mention-expanded, not vector-retrieved); easy to conflate.
 - [[attachments]] — also user-uploaded files, but per-message and capability-gated for the model, **not** chunked/embedded into a project-wide vector index.
 - [[projects]] — KB files are project-scoped; `projectId` is required to list and upload.
@@ -103,7 +103,7 @@ The resulting `systemPrompt` is set on `ctx.system` and handed to the LLM. See [
 
 ## Related docs
 
-None yet — this is the primary reference. (See [conversations](conversations.md) for the chat substrate and [context-compaction](../../context-compaction.md) for how the injected system prompt becomes the input window.)
+None yet — this is the primary reference. (See [conversations](conversations.md) for the chat substrate and [context-compaction](../../context-compaction.md) for how the injected prompt becomes the input window and why the KB block rides outside the cached system prefix.)
 
 ## Notes & gotchas
 

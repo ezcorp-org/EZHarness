@@ -1,10 +1,10 @@
 # Persistent Memory
 
-> _Durable, project-scoped facts about a user, extracted from completed chats, embedded locally with all-MiniLM-L6-v2, and injected back into future system prompts via hybrid (vector + keyword) retrieval under a token budget._
+> _Durable, project-scoped facts about a user, extracted from completed chats, embedded locally with all-MiniLM-L6-v2, and injected back into future turns via hybrid (vector + keyword) retrieval under a token budget — as an uncached block kept out of the cached system prefix._
 
 ## Intent
 
-Persistent Memory gives EZCorp a long-term recollection layer that survives across conversations: it captures durable facts (preferences, biographical details, technical context, decisions/goals) from completed chat runs, stores them with a 384-dim embedding, and re-injects the most relevant ones into the system prompt of later turns so the model "remembers" the user without re-reading old threads. Embedding generation runs **locally** (Transformers.js, no API key), so memory works in fully self-hosted / offline deployments. Memories decay on an access-driven schedule and are de-duplicated/merged so the store stays small and high-signal. Extensions can author and read their own memories over a reverse-RPC capability.
+Persistent Memory gives EZCorp a long-term recollection layer that survives across conversations: it captures durable facts (preferences, biographical details, technical context, decisions/goals) from completed chat runs, stores them with a 384-dim embedding, and re-injects the most relevant ones into later turns so the model "remembers" the user without re-reading old threads. Embedding generation runs **locally** (Transformers.js, no API key), so memory works in fully self-hosted / offline deployments. Memories decay on an access-driven schedule and are de-duplicated/merged so the store stays small and high-signal. Extensions can author and read their own memories over a reverse-RPC capability.
 
 ## How it works
 
@@ -49,7 +49,8 @@ The system spans a host-side `src/memory/*` library, a DB table, a bundled exten
 - The chat runtime hooks memory injection in `src/runtime/stream-chat/setup-tools.ts` (non-fatal; degrades to `run:status: memory_unavailable` on error):
   1. **Fast-path skip** — if the project has no memories and no KB chunks (`hasMemories` / `hasKBChunks`), skip embedding entirely.
   2. Embed the user message once (`generateEmbedding`), reuse it for both memory and KB search.
-  3. `src/memory/injection.ts#buildSystemPromptWithMemories` calls `hybridSearch` and greedily fills memory lines (`- [category] content (confidence: …)`) into a `## Relevant Memories` block under a **2000-token budget** (`estimateTokens = len/4`), then fills a `## Knowledge Base` block from KB chunks with the remaining budget.
+  3. `src/memory/injection.ts#buildSystemPromptWithMemories` calls `hybridSearch` and greedily fills memory lines (`- [category] content (confidence: …)`) into a `## Relevant Memories` block under a **2000-token budget** (`estimateTokens = len/4`), then fills a `## Knowledge Base` block from KB chunks with the remaining budget. It returns the raw block as `injectionBlock` alongside the merged `systemPrompt`.
+  4. **The injected block is kept OUT of the cached system prefix.** `setup-tools.ts` does **not** merge it into `ctx.system`; it stashes `injection.injectionBlock` on `ctx.systemMemoryTail`. At payload time (`build-pi-agent.ts`), Anthropic requests get it appended as a separate **trailing system block with no `cache_control`** (`src/runtime/stream-chat/system-cache-split.ts`) so the query-dependent recall can vary per turn without busting the byte-stable, prompt-cached region-1 prefix (system + tools); non-Anthropic providers get it merged into the plain `systemPrompt` string. See [context-compaction](../../context-compaction.md).
 - `src/memory/retrieval.ts#hybridSearch` combines two rankings with **Reciprocal Rank Fusion** (`k = 60`): vector cosine (`embedding <=> $vec`) and keyword (`ts_rank` over `to_tsvector('english', content)` / `plainto_tsquery`), `FULL OUTER JOIN`ed and scored `(1/(k+rank_v) + 1/(k+rank_k)) * boost * statusWeight`. Archived memories are always excluded; **`stale` memories are weighted ×0.5**; in non-isolated project mode, memories belonging to the active project get a **×1.5 boost**.
 - **Scoping:** default = this project's memories **+** global (no-project) memories, no cross-project leak. With `project:<id>:memoryIsolation` set, only memories explicitly assigned to that project are searched. `global:memoryEnabled === false` disables injection entirely.
 - The injected memories ride back on `run.memoriesUsed` (set in `setup-tools.ts`) → `runs.result.output.memoriesUsed` (written in `src/runtime/stream-chat/finalize.ts`), surfaced on the assistant message (`Message.memoriesUsed` in `web/src/lib/api.ts`, rendered by `MemoriesCard.svelte`) so the UI can show which memories shaped a reply.
@@ -100,7 +101,8 @@ The system spans a host-side `src/memory/*` library, a DB table, a bundled exten
 - `src/memory/embeddings.ts` — local all-MiniLM-L6-v2 embedder singleton; `EMBEDDING_MODEL_ID`, 384-dim, 256-token input cap, warmup.
 - `src/memory/message-chunker.ts` — token-aware chunker (`CHUNK_TOKENS=256`, 32-token overlap) + embed-eligibility predicate.
 - `src/memory/retrieval.ts` — `hybridSearch` (vector + tsvector RRF, project/status/isolation weighting) + KB-chunk wrapper.
-- `src/memory/injection.ts` — `buildSystemPromptWithMemories`: greedy token-budgeted system-prompt assembly.
+- `src/memory/injection.ts` — `buildSystemPromptWithMemories`: greedy token-budgeted assembly; returns the raw `injectionBlock` for cache-aware callers.
+- `src/runtime/stream-chat/system-cache-split.ts` — appends the memory/KB block as an uncached trailing system block on Anthropic (cache-prefix protection).
 - `src/memory/dedup.ts` — host-side cross-extension dedup (`dedupAndWriteMemory`, `withDedupLock`, 0.85 threshold).
 - `src/memory/compaction.ts` — periodic LLM merge of ≥0.90-similar memories (`runCompaction`, `mergeContents`).
 - `src/memory/lifecycle.ts` — access-driven decay sweep (active→stale@30d→archived@60d).
@@ -120,9 +122,9 @@ The system spans a host-side `src/memory/*` library, a DB table, a bundled exten
 
 ## Features it touches
 
-- [[knowledge-base]] — shares the same 384-dim embedder; KB chunks are injected into the same system-prompt budget alongside memories (`searchKBChunksForQuery`, `## Knowledge Base` block).
-- [[streaming-runtime]] — `setup-tools.ts` runs memory/KB injection as a non-fatal step before the LLM call; degraded state rides `run:status`.
-- [[context-compaction]] — injection is input-only and respects the same "never touch `model.maxTokens`" invariant; the 256-token embed cap is set on the tokenizer, not the model.
+- [[knowledge-base]] — shares the same 384-dim embedder; KB chunks are injected into the same token budget alongside memories (`searchKBChunksForQuery`, `## Knowledge Base` block).
+- [[streaming-runtime]] — `setup-tools.ts` runs memory/KB injection as a non-fatal step before the LLM call (stashing the block on `ctx.systemMemoryTail`); degraded state rides `run:status`.
+- [[context-compaction]] — injection is input-only and respects the same "never touch `model.maxTokens`" invariant; the 256-token embed cap is set on the tokenizer, not the model. The injected block rides outside the cached system prefix (`system-cache-split.ts`).
 - [[runs-lifecycle]] — extraction fires on the `run:complete` event for successful `chat` runs; `run.memoriesUsed` is recorded in the run result.
 - [[scheduling-and-loops]] — extraction + compaction are `defineLoop` loops; compaction rides the extension cron schedule.
 - [[bundled-catalog]] — `memory-extractor` is a boot-spawned bundled extension; the only one granted `memory.selfOnly: false`.

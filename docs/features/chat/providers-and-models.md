@@ -61,13 +61,15 @@ All stored secrets (API keys, OAuth blobs) round-trip through `encrypt`/`decrypt
 
 ### Routing & resilience (`src/providers/router.ts`, `circuit-breaker.ts`, `provider-error.ts`)
 
-`resolveModel(provider?, modelId?)` is the three-level resolver every chat path calls:
+`resolveModel(provider?, modelId?, requestedTier?, credentialScope?)` is the three-level resolver every chat path calls:
 
-1. **Explicit provider + model** → passthrough (mock-provider gate; else discovered model → custom-model baseUrl → `resolveModelObject`).
-2. **Provider only** → best model in the default tier (`provider:defaultTier`, default `balanced`), else first model.
-3. **Neither** → iterate `provider:preferenceOrder` (default `[anthropic, openai, google]`), **skipping providers whose circuit breaker `isOpen()`**, picking the first tier-matching model.
+1. **Explicit provider + model** → passthrough (mock-provider gate; else discovered model → custom-model baseUrl → `resolveModelObject`). Pins are never re-routed; tier is ignored here.
+2. **Provider only** → best model in the requested tier (else `provider:defaultTier`, default `balanced`), else first model.
+3. **Neither** → iterate `provider:preferenceOrder` (default `[anthropic, openai, google, openrouter]`; stored orders self-heal via `mergePreferenceOrder`), **skipping providers whose circuit breaker `isOpen()`**, picking the first tier-matching model.
 
-`suggestFallback(failedProvider, tier)` returns the next healthy provider's tier model. The `CircuitBreaker` is a standard closed/open/half-open machine (3 failures → open, 60 s reset). `friendlyProviderError(err, { provider, model, baseUrl })` detects connection-class failures (by message pattern, since `.code`/`.name` are lost across the executor's error rethrow) and rewrites Bun's cryptic `"typo in the url or port?"` text into an actionable "Couldn't reach the `<provider>` endpoint at `<baseUrl>`…" message; it's invoked in `src/runtime/stream-chat/finalize.ts`.
+The `requestedTier` comes from the heuristic quality-tier classifier (`src/runtime/tier-classifier.ts`) — it fires only when a thread has **no** established model, routing once at thread start (see [LLM routing & failover](../../llm-routing-and-failover.md)).
+
+`suggestFallback(failedProvider, tier, credentialScope?)` returns the next healthy provider's tier-peer model. The `CircuitBreaker` is a standard closed/open/half-open machine (3 failures → open, 60 s reset), keyed per `(provider, scope)` — the scope is the conversation owner's user id in prod, so one user's rate-limit failures never open the breaker for other users; context-free callers share the `"shared"` scope. `friendlyProviderError(err, { provider, model, baseUrl })` detects connection-class failures (by message pattern, since `.code`/`.name` are lost across the executor's error rethrow) and rewrites Bun's cryptic `"typo in the url or port?"` text into an actionable "Couldn't reach the `<provider>` endpoint at `<baseUrl>`…" message; it's invoked in `src/runtime/stream-chat/finalize.ts`.
 
 ## Usage
 
@@ -105,8 +107,8 @@ All stored secrets (API keys, OAuth blobs) round-trip through `encrypt`/`decrypt
 - `src/providers/registry.ts` — `getModelRegistry`, `resolveModelObject`, `resolveOAuthModel`, `inferTier`, custom + discovered + OAuth-override merge.
 - `src/providers/model-discovery.ts` — `fetchProviderModels` (direct `/v1/models` + models.dev catalog enrichment/fallback).
 - `src/providers/model-capabilities.ts` — per-model attachment caps + extension-MIME union; `classifyMime`, `getCapabilitiesWithExtensions`.
-- `src/providers/router.ts` — `resolveModel` (3-level), `suggestFallback`, `ProviderUnavailableError`.
-- `src/providers/circuit-breaker.ts` — closed/open/half-open breaker keyed by provider.
+- `src/providers/router.ts` — `resolveModel` (3-level, tier-aware), `suggestFallback`, `ProviderUnavailableError`, `mergePreferenceOrder`.
+- `src/providers/circuit-breaker.ts` — closed/open/half-open breaker keyed per `(provider, scope)` (per-user in prod); bounded map.
 - `src/providers/provider-error.ts` — `isProviderConnectionError` / `friendlyProviderError` translation.
 - `src/providers/local-model-check.ts` — pure fetch-based local endpoint reachability / availability / inference + `listModels` (shared by discovery).
 - `web/src/routes/api/models/+server.ts` — `GET /api/models`; availability + OAuth-variant model filtering.
@@ -134,11 +136,12 @@ All stored secrets (API keys, OAuth blobs) round-trip through `encrypt`/`decrypt
 
 ## Related docs
 
-None yet — this is the primary reference. (See [context-compaction](../../context-compaction.md) for how a model's `contextWindow` becomes the input budget.)
+- [LLM routing & failover](../../llm-routing-and-failover.md) — the operator view of tier routing, pre-stream failover, per-user breakers, and the OpenRouter alternative.
+- (See [context-compaction](../../context-compaction.md) for how a model's `contextWindow` becomes the input budget.)
 
 ## Notes & gotchas
 
-- **Circuit breaker & `ProviderUnavailableError` are wired but dormant.** `router.ts` *consults* `cb.isOpen()` when no provider is specified, but **nothing in production source ever calls `recordFailure`/`recordSuccess`** — so a breaker never opens and the open-circuit skip never fires. Likewise **`ProviderUnavailableError` is never thrown** in production (only caught in `finalize.ts` and constructed in tests). Provider failures today surface via `friendlyProviderError`, not the fallback machine. Treat automatic provider failover as aspirational scaffolding, not active behavior.
+- **Failover is live — pre-stream only.** `runWithFailover` (`src/runtime/stream-chat/failover.ts`, wired into `executor.streamChat`) feeds the breaker in prod (`recordFailure` on provider-availability failures, `recordSuccess` on clean turns) and throws `ProviderUnavailableError` when no usable fallback exists (single-provider BYOK, all breakers open) — `finalize.ts` renders it as a structured `provider_unavailable` payload. Failures **before the first streamed token** get one same-provider retry (jittered backoff), then a cross-provider tier-peer fallback; once anything has streamed to the client the error is rendered as-is (mid-stream failover is a documented follow-up). Non-availability errors (400/401/403, content filter, tool bugs) still surface via `friendlyProviderError`, unretried. See [LLM routing & failover](../../llm-routing-and-failover.md).
 - **Admin gating is role-based, not scope-based.** The provider mutation/test/local-probe routes use `requireRole(locals, "admin")` / `requireAdmin`. The earlier `requireScope(locals, "admin")` was a **no-op for cookie sessions** (allow-all for non-API-key principals) — pre-fix any authenticated member could overwrite the org's API key (billing redirect, sec-C5) or drive arbitrary server-side `fetch` (SSRF, sec-H1). Don't reintroduce scope-only checks here.
 - **SSRF guard covers the *probe* routes only, not custom-model *save*.** `local/test` and `local/models` validate `baseUrl` (scheme allow-list + `isPrivateOrLoopback` + DNS-pinned `resolveAndValidateHostname`). But `CustomModelsSection` persists `provider:customModels` through the generic `upsertSetting`/`/api/settings` path with **no** SSRF re-check — a saved-then-used local `baseUrl` is only as safe as whatever validated it at probe time. The probe and the persisted endpoint are decoupled.
 - **OAuth providers see a filtered model list.** When a provider resolves an `oauth` credential, `/api/models` shows only the OAuth-variant's ids (`openai → openai-codex`, `google → google-gemini-cli`) plus any models explicitly pulled in via refresh-models — because the standard `/v1/models` endpoint can't be called with an OAuth token. `LOCAL_OAUTH_OVERRIDES` backfills OAuth-only models (e.g. `gpt-5.5`).
