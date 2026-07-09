@@ -30,7 +30,7 @@ const postBodySchema = z.object({
 export const POST: RequestHandler = async ({ request, locals }) => {
   const scopeErr = requireScope(locals, "extensions");
   if (scopeErr) return scopeErr;
-  requireAuth(locals);
+  const user = requireAuth(locals);
   await ensureInitialized();
 
   let raw: unknown;
@@ -91,6 +91,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // factory throws clearly if the singleton isn't pre-init.
   const engine = getPermissionEngine();
   const toolExecutor = new ToolExecutor(registry, engine, { bus: getBus() });
+  // Set the acting user BEFORE executing so user-scoped extension storage
+  // resolves to the caller's own bucket. Without this, `resolveScopeId("user",
+  // ctx)` sees a null `ctx.userId` and the RPC fails with "User scope
+  // unavailable in this context" (src/extensions/storage-handler.ts). Mirrors
+  // the EZ-action forwarder (api/ez-actions/[name]/+server.ts), which likewise
+  // calls `executor.setCurrentUserId(userId)`. The authenticated caller is the
+  // acting user, so storage is keyed to their bucket (no cross-user exposure).
+  toolExecutor.setCurrentUserId(user.id);
   const metadata = { invocationId, source: 'inline' as const };
   let lastResult = { content: [{ type: "text" as const, text: "Unknown error" }], isError: true };
   let retryCount = 0;

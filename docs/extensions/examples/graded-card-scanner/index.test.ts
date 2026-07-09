@@ -191,12 +191,15 @@ describe("set_psa_token", () => {
 });
 
 describe("manifest", () => {
-  test("declares both tools, the Hub page, and Phase-2 grants", async () => {
+  test("declares both tools, the Hub page, and grants (no credential env grant)", async () => {
     const manifest = (await import("./ezcorp.config.ts")).default;
     expect(manifest.name).toBe("graded-card-scanner");
     expect(manifest.tools?.map((t) => t.name)).toEqual(["lookup_card", "set_psa_token"]);
     expect(manifest.permissions?.storage).toBe(true);
-    expect(manifest.permissions?.env).toEqual(["PSA_API_TOKEN"]);
+    // No credential-shaped `env` grant is declared — the PSA token is
+    // supplied at runtime via the `set_psa_token` tool (encrypted secret),
+    // which keeps the example installable past the env-key-leak install gate.
+    expect("env" in manifest.permissions).toBe(false);
     expect(manifest.permissions?.network).toEqual([
       "api.psacard.com",
       "www.pricecharting.com",

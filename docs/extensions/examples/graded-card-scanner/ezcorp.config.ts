@@ -10,9 +10,9 @@ export default defineExtension({
     "data route) that saves every scanned cert to an on-device list, a " +
     "lookup_card tool the app — and the LLM in chat — can call, and a Hub " +
     "dashboard of recent lookups. Live lookups use PSA's official API for " +
-    "identity + population (free token via set_psa_token or the " +
-    "PSA_API_TOKEN env var) and PriceCharting for prices; missing values " +
-    "are always N/A, never a guess.",
+    "identity + population (free token supplied via the set_psa_token tool) " +
+    "and PriceCharting for prices; missing values are always N/A, never a " +
+    "guess.",
   author: { name: "EZCorp" },
   entrypoint: "./index.ts",
   persistent: false,
@@ -98,12 +98,10 @@ export default defineExtension({
     shell: false,
     storage: true,
     eventSubscriptions: [],
-    // The free-tier PSA API token may be supplied via this env var (the
-    // alternative to the `set_psa_token` tool). Declaring it lets the
-    // host pass it through to the subprocess.
-    env: ["PSA_API_TOKEN"],
     // PSA official API (identity + population, free-tier token) and
-    // PriceCharting (keyless prices).
+    // PriceCharting (keyless prices). The free-tier PSA token is supplied
+    // at runtime via the `set_psa_token` tool (encrypted extension secret),
+    // so no credential-shaped `env` grant is declared.
     network: ["api.psacard.com", "www.pricecharting.com"],
   },
 

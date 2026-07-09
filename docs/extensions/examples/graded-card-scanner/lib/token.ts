@@ -4,9 +4,14 @@
 // a free user-supplied token (spec invariant #3). The token is NEVER in
 // code — it is resolved at call time from, in order:
 //
-//   1. env `PSA_API_TOKEN` (manifest grants `permissions.env`)
+//   1. env `PSA_API_TOKEN` — a LOCAL-DEV / CLI-sanity-check fallback only.
+//      The manifest does NOT grant `permissions.env` (a credential-shaped
+//      env grant would fail the install gate), so at runtime the host does
+//      not pass this through; it is honored only when the process already
+//      has it set (e.g. the `scripts/sanity-check.ts` live run).
 //   2. extension Storage key `psa-token` (written by the `set_psa_token`
-//      tool into an owner-bound, encrypted scope)
+//      tool into an owner-bound, encrypted scope) — the supported runtime
+//      credential path.
 //   3. null — no token → the caller degrades identity/pop to null and
 //      stamps `psa-api:no-token` (honest, never a guess).
 //
