@@ -77,6 +77,10 @@ export async function resolveModel(
   provider?: string,
   modelId?: string,
   requestedTier?: RoutingTier,
+  // Circuit-breaker credential scope (the acting user's id). Defaults to
+  // the process-wide "shared" breaker so context-free callers are
+  // behavior-identical to the old provider-only keying.
+  credentialScope = "shared",
 ): Promise<{ provider: string; model: string; piModel: Model<any> }> {
   // WS3 quality-tier routing. When the caller passes a tier (the heuristic
   // classifier picked it for a thread with NO established model — see
@@ -123,7 +127,7 @@ export async function resolveModel(
   // Level 3: No provider -- iterate preference order, skip open circuit breakers
   const order = await getPreferenceOrder();
   for (const p of order) {
-    const cb = getCircuitBreaker(p);
+    const cb = getCircuitBreaker(p, credentialScope);
     if (cb.isOpen()) continue;
 
     const entry = findModelForProviderInTier(p, tier);
@@ -140,13 +144,16 @@ export async function resolveModel(
 export async function suggestFallback(
   failedProvider: string,
   tier: string,
+  // Circuit-breaker credential scope (the acting user's id) — see
+  // resolveModel. Default keeps context-free callers behavior-identical.
+  credentialScope = "shared",
 ): Promise<FallbackSuggestion | null> {
   const order = await getPreferenceOrder();
 
   for (const provider of order) {
     if (provider === failedProvider) continue;
 
-    const cb = getCircuitBreaker(provider);
+    const cb = getCircuitBreaker(provider, credentialScope);
     if (cb.isOpen()) continue;
 
     const entry = findModelForProviderInTier(provider, tier as TierName);

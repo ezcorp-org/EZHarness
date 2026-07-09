@@ -19,6 +19,16 @@
  *   - Only provider-AVAILABILITY failures (429 / 5xx / connection-class) are
  *     retried; every other error (bad request, auth, content filter, tool
  *     bug) rethrows unchanged.
+ *   - SAME-PROVIDER RETRY FIRST. Before consulting the router for a
+ *     cross-provider fallback, the failing provider gets exactly
+ *     {@link SAME_PROVIDER_RETRIES} rebuild+reprompt retries after a
+ *     jittered backoff — a transient 429/5xx often clears in a few hundred
+ *     ms, and staying on the same provider preserves Anthropic prompt-cache
+ *     locality and avoids a cross-model quality discontinuity. The breaker
+ *     records exactly ONE failure per provider per turn (after its retry
+ *     budget is spent), not one per intra-provider attempt. Retry-After
+ *     cannot be honored: pi-agent-core keeps only a string `errorMessage`,
+ *     so the header is gone by the time we classify.
  *   - No usable fallback (single-provider BYOK user, every breaker open, or
  *     the suggestion loops back to a provider we already tried) surfaces a
  *     clean {@link ProviderUnavailableError} — finalize.ts renders it as a
@@ -44,6 +54,46 @@ const log = logger.child("executor.streamChat.failover");
  * candidates.
  */
 export const MAX_FAILOVER_ATTEMPTS = 4;
+
+/**
+ * Number of SAME-provider rebuild+reprompt retries a failing provider gets
+ * (after a jittered backoff) before the loop records a breaker failure and
+ * asks the router for a cross-provider fallback. Intra-provider retries do
+ * NOT consume the {@link MAX_FAILOVER_ATTEMPTS} budget — that cap counts
+ * providers, so total LLM calls stay bounded at
+ * `maxAttempts × (1 + SAME_PROVIDER_RETRIES)`.
+ */
+export const SAME_PROVIDER_RETRIES = 1;
+
+/**
+ * Base backoff before a same-provider retry. The actual wait is jittered:
+ * `RETRY_BACKOFF_MS + Math.random() * RETRY_BACKOFF_MS` (150–300 ms), so
+ * concurrent turns hitting the same rate limit don't retry in lockstep.
+ */
+export const RETRY_BACKOFF_MS = 150;
+
+/** Real wall-clock sleep; unit tests inject a recording fake instead. */
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Detach everything the previous attempt's `subscribe` seam wired up, so a
+ * failed attempt's bridge can't double-emit into the retry and no bus
+ * listeners are orphaned:
+ *   - `ctx.unsub` — the pi-agent event subscription;
+ *   - `ctx.unsubAgentActivity` — the agent:spawn/status/complete bus
+ *     listeners. subscribe-bridge REASSIGNS this array per attempt, so
+ *     without detaching here every retry leaked its three host.bus
+ *     listeners for the life of the process.
+ * Resetting to undefined/[] keeps `finalizeCleanup` idempotent (it detaches
+ * only what is still attached).
+ */
+function detachAttemptSubscriptions(ctx: StreamChatContext): void {
+  ctx.unsub?.();
+  ctx.unsub = undefined;
+  for (const off of ctx.unsubAgentActivity) off();
+  ctx.unsubAgentActivity = [];
+}
 
 /**
  * HTTP status markers that mean "provider temporarily unavailable" and are
@@ -92,6 +142,20 @@ export interface RunWithFailoverParams {
   initial: FailoverAttempt;
   /** Optional cap on total attempts (defaults to {@link MAX_FAILOVER_ATTEMPTS}). */
   maxAttempts?: number;
+  /**
+   * Circuit-breaker credential scope for this turn — the conversation
+   * owner's userId (`convRecord?.userId`). Keys breaker state per
+   * (provider, user) so one user's rate-limit failures don't open the
+   * breaker for everyone else. Omitted → the process-wide `"shared"`
+   * breaker (old behavior).
+   */
+  credentialScope?: string;
+  /**
+   * Sleep used for the same-provider retry backoff. Defaults to a real
+   * `setTimeout` wait; unit tests inject a recording fake so the retry
+   * path is deterministic and wall-clock-free.
+   */
+  sleep?: (ms: number) => Promise<void>;
 
   // ── seams: real impls wired by the executor, fakes in unit tests ──
   /** Construct a fresh pi-agent for the given resolved model. */
@@ -102,8 +166,13 @@ export interface RunWithFailoverParams {
    *  the failure on `agent.state.errorMessage` rather than throwing). */
   runPrompt(agent: Agent): Promise<void>;
   /** Ask the router for the next provider to try (it skips open breakers and
-   *  the failed provider). Real impl: providers/router.suggestFallback. */
-  suggestFallback(failedProvider: string, tier: string): Promise<FallbackSuggestion | null>;
+   *  the failed provider). Real impl: providers/router.suggestFallback —
+   *  `credentialScope` keys its breaker checks per user. */
+  suggestFallback(
+    failedProvider: string,
+    tier: string,
+    credentialScope?: string,
+  ): Promise<FallbackSuggestion | null>;
   /** Resolve a suggested fallback into a full attempt (model object + cred). */
   resolveAttempt(suggestion: FallbackSuggestion): Promise<FailoverAttempt>;
 }
@@ -114,12 +183,15 @@ export interface RunWithFailoverParams {
  * runs `finalizeSuccess`); throws on failure (the caller runs
  * `finalizeError`, which already renders {@link ProviderUnavailableError}).
  *
- * Feeds the circuit breaker in prod: `recordFailure()` on each provider
- * failure, `recordSuccess()` on the turn that completes cleanly.
+ * Feeds the circuit breaker in prod — keyed per `(provider,
+ * credentialScope)`: exactly one `recordFailure()` per provider per turn
+ * (after its same-provider retry budget is spent), `recordSuccess()` on the
+ * turn that completes cleanly.
  */
 export async function runWithFailover(params: RunWithFailoverParams): Promise<void> {
-  const { ctx, host, runId, tier, initial } = params;
+  const { ctx, host, runId, tier, initial, credentialScope } = params;
   const maxAttempts = params.maxAttempts ?? MAX_FAILOVER_ATTEMPTS;
+  const sleep = params.sleep ?? defaultSleep;
 
   // Providers we've already tried (incl. the initial) — prevents a
   // suggestFallback loop (A→B→A) from cycling forever.
@@ -128,56 +200,75 @@ export async function runWithFailover(params: RunWithFailoverParams): Promise<vo
   let lastErrorMessage = "";
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    // Detach the previous attempt's event subscription before rebuilding so
-    // a failed attempt's bridge can't double-emit into the retry.
-    ctx.unsub?.();
-    ctx.unsub = undefined;
-    // Fresh streaming state per attempt. A pre-token failure left nothing,
-    // but reset defensively so no stale partial leaks into the retry and the
-    // emitted-to-client boundary is re-armed for this attempt.
-    ctx.allTurnsText = "";
-    ctx.turnText = "";
-    ctx.emittedToClient = false;
+    // Intra-provider tries: each provider gets 1 + SAME_PROVIDER_RETRIES
+    // shots before the loop records a breaker failure and consults the
+    // router — same-provider retry FIRST (cache locality, no cross-model
+    // quality discontinuity), cross-provider failover second.
+    for (let tryIdx = 0; tryIdx <= SAME_PROVIDER_RETRIES; tryIdx++) {
+      // Detach the previous attempt's event subscriptions before rebuilding
+      // so a failed attempt's bridge can't double-emit into the retry and
+      // its bus listeners aren't orphaned.
+      detachAttemptSubscriptions(ctx);
+      // Fresh streaming state per attempt. A pre-token failure left nothing,
+      // but reset defensively so no stale partial leaks into the retry and
+      // the emitted-to-client boundary is re-armed for this attempt.
+      ctx.allTurnsText = "";
+      ctx.turnText = "";
+      ctx.emittedToClient = false;
 
-    const agent = params.buildAgent(current.resolved);
-    host.activeAgents.set(runId, agent);
-    params.subscribe(agent, current);
-    await params.runPrompt(agent);
+      const agent = params.buildAgent(current.resolved);
+      host.activeAgents.set(runId, agent);
+      params.subscribe(agent, current);
+      await params.runPrompt(agent);
 
-    const errorMessage = agent.state.errorMessage;
-    if (!errorMessage) {
-      // Clean turn → close the breaker for the serving provider.
-      getCircuitBreaker(current.provider).recordSuccess();
-      return;
+      const errorMessage = agent.state.errorMessage;
+      if (!errorMessage) {
+        // Clean turn → close the breaker for the serving provider.
+        getCircuitBreaker(current.provider, credentialScope).recordSuccess();
+        return;
+      }
+      lastErrorMessage = errorMessage;
+
+      // Something already streamed to the client → mid-stream failure, out
+      // of scope. Rethrow so the caller's error path renders it (no retry,
+      // no re-emission). This is the explicit pre/post-first-token boundary.
+      if (ctx.emittedToClient) {
+        throw new Error(errorMessage);
+      }
+      // Not an availability failure (bad request / auth / content filter) →
+      // retrying anywhere won't help; surface it unchanged.
+      if (!classifyProviderAvailabilityError(errorMessage)) {
+        throw new Error(errorMessage);
+      }
+
+      // Retryable, pre-first-token, retry budget left → jittered backoff,
+      // then rebuild+reprompt on the SAME provider. No breaker failure yet.
+      if (tryIdx < SAME_PROVIDER_RETRIES) {
+        const backoffMs = RETRY_BACKOFF_MS + Math.random() * RETRY_BACKOFF_MS;
+        log.info("provider failure before first token — same-provider retry", {
+          provider: current.provider,
+          model: current.model,
+          retry: tryIdx + 1,
+          backoffMs: Math.round(backoffMs),
+        });
+        await sleep(backoffMs);
+      }
     }
-    lastErrorMessage = errorMessage;
 
-    // Something already streamed to the client → mid-stream failure, out of
-    // scope. Rethrow so the caller's error path renders it (no retry, no
-    // re-emission). This is the explicit pre/post-first-token boundary.
-    if (ctx.emittedToClient) {
-      throw new Error(errorMessage);
-    }
-    // Not an availability failure (bad request / auth / content filter) →
-    // a different provider won't help; surface it unchanged.
-    if (!classifyProviderAvailabilityError(errorMessage)) {
-      throw new Error(errorMessage);
-    }
-
-    // Provider-availability failure, pre-first-token → feed the breaker and
-    // try a fallback.
-    getCircuitBreaker(current.provider).recordFailure();
+    // Provider spent its same-provider retry budget → feed the breaker
+    // (exactly ONE failure per provider per turn) and try a fallback.
+    getCircuitBreaker(current.provider, credentialScope).recordFailure();
     log.info("provider failure before first token — attempting failover", {
       failedProvider: current.provider,
       failedModel: current.model,
       attempt: attempt + 1,
     });
 
-    const suggestion = await params.suggestFallback(current.provider, tier);
+    const suggestion = await params.suggestFallback(current.provider, tier, credentialScope);
     if (!suggestion || attempted.has(suggestion.provider)) {
       // Single-provider BYOK, every alternative's breaker open, or a loop
       // back to an already-tried provider → clean, rendered outcome.
-      throw new ProviderUnavailableError(errorMessage, current.provider, current.model, null);
+      throw new ProviderUnavailableError(lastErrorMessage, current.provider, current.model, null);
     }
     attempted.add(suggestion.provider);
     current = await params.resolveAttempt(suggestion);

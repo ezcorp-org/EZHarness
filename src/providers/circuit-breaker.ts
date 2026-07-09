@@ -43,13 +43,40 @@ export class CircuitBreaker {
   }
 }
 
+/**
+ * Upper bound on distinct `(provider, scope)` breaker entries kept in
+ * memory. Scopes are per-user (see {@link getCircuitBreaker}), so an
+ * unbounded map would grow with the user population; past the cap the
+ * OLDEST-INSERTED entry is evicted (simple insertion-order eviction —
+ * a rarely-used scope losing its breaker state is harmless: it just
+ * starts closed again).
+ */
+export const MAX_BREAKER_ENTRIES = 512;
+
 const breakers = new Map<string, CircuitBreaker>();
 
-export function getCircuitBreaker(provider: string): CircuitBreaker {
-  let cb = breakers.get(provider);
+/**
+ * Get (or lazily create) the circuit breaker for a `(provider, scope)`
+ * pair.
+ *
+ * `scope` is the credential scope the failure/success signals belong to —
+ * in prod the conversation owner's userId. Keying per scope stops one
+ * user's 429s (their key's rate limit) from opening the breaker for every
+ * other user of the same provider. Context-free callers (router tier
+ * routing, legacy paths) omit it and share the process-wide `"shared"`
+ * breaker — behavior-identical to the old provider-only keying.
+ */
+export function getCircuitBreaker(provider: string, scope = "shared"): CircuitBreaker {
+  const key = `${provider} ${scope}`;
+  let cb = breakers.get(key);
   if (!cb) {
     cb = new CircuitBreaker();
-    breakers.set(provider, cb);
+    if (breakers.size >= MAX_BREAKER_ENTRIES) {
+      // Evict the oldest-inserted entry (Map iterates in insertion order).
+      const oldest = breakers.keys().next().value;
+      if (oldest !== undefined) breakers.delete(oldest);
+    }
+    breakers.set(key, cb);
   }
   return cb;
 }

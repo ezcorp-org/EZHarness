@@ -190,6 +190,19 @@ describe("resolveModel", () => {
     expect(result.model).toBe("claude-sonnet-4-20250514");
   });
 
+  test("Level-3 breaker check is credentialScope-keyed: one user's open breaker doesn't reroute others", async () => {
+    // Open anthropic's breaker for user-a ONLY.
+    const cb = getCircuitBreaker("anthropic", "user-a");
+    for (let i = 0; i < 3; i++) cb.recordFailure();
+
+    // user-a is rerouted past anthropic…
+    const scoped = await resolveModel(undefined, undefined, undefined, "user-a");
+    expect(scoped.provider).toBe("openai");
+    // …while a context-free (shared-scope) caller still gets anthropic.
+    const shared = await resolveModel();
+    expect(shared.provider).toBe("anthropic");
+  });
+
   describe("resolveModel with custom models", () => {
     test("custom model with baseUrl passes it through to piModel", async () => {
       mockGetSetting.mockImplementation(((key: string) => {
@@ -273,6 +286,21 @@ describe("suggestFallback", () => {
     const suggestion = await suggestFallback("anthropic", "fast");
     expect(suggestion).not.toBeNull();
     expect(suggestion!.provider).toBe("google");
+  });
+
+  test("breaker checks are credentialScope-keyed: one user's open breaker doesn't affect other scopes", async () => {
+    // Open openai's breaker for user-a ONLY.
+    const cb = getCircuitBreaker("openai", "user-a");
+    for (let i = 0; i < 3; i++) cb.recordFailure();
+
+    // user-a's fallback skips openai…
+    const scoped = await suggestFallback("anthropic", "fast", "user-a");
+    expect(scoped).not.toBeNull();
+    expect(scoped!.provider).toBe("google");
+    // …while the shared-scope (default) fallback still suggests it.
+    const shared = await suggestFallback("anthropic", "fast");
+    expect(shared).not.toBeNull();
+    expect(shared!.provider).toBe("openai");
   });
 
   test("suggests openrouter when preceding providers are open", async () => {
