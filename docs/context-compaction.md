@@ -79,9 +79,11 @@ the cached region:
   └── byte-stable prefix ┘           └──── shifts (uncached) ────┘
 ```
 
-The broad prompt-cache win — 1h retention on the system + tools + memory
+The broad prompt-cache win — 1h retention on the system + tools
 prefix — is independent of the anchor and applies with the default
-(anchor `0`). The ephemeral marker text:
+(anchor `0`). Per-turn memory/KB recall is deliberately **not** part of
+that cached prefix (see [Cache-aware trim +
+retention](#cache-aware-trim--retention)). The ephemeral marker text:
 
 ```
 [Context note: 23 earlier messages omitted to fit this model's
@@ -235,9 +237,21 @@ compacted turn — a guaranteed cache miss on the whole conversation body
   cache can't be helped there anyway.
 
 Two outer, always-stable breakpoints sit ahead of the conversation body:
-pi-ai places `cache_control` on the **system prompt** (system + memory +
-RBAC preamble) and on the **last tool** (the tool/extension/EZ-action
-schemas). Compaction never touches `systemPrompt` or `tools`, so those
+pi-ai places `cache_control` on the **system prompt** (the frozen
+`ctx.system` — system + RBAC preamble) and on the **last tool** (the
+tool/extension/EZ-action schemas). Per-turn **memory/KB recall is
+deliberately excluded** from that cached region: it is query-dependent,
+so concatenating it into the system prompt would re-write (bust) the
+prefix on every memory/KB turn. Instead `setup-tools.ts` stashes the
+injected block on `ctx.systemMemoryTail` and, on Anthropic,
+`build-pi-agent.ts`'s `onPayload` appends it as a separate **trailing
+system block with NO `cache_control`**
+(`src/runtime/stream-chat/system-cache-split.ts`) — it varies per turn
+without invalidating the cached prefix, and it is inert to retention
+shaping (which only rewrites blocks that already carry `cache_control`).
+Non-Anthropic providers get the tail merged into the plain
+`systemPrompt` string (no `cache_control` concept to protect).
+Compaction never touches `systemPrompt` or `tools`, so those
 breakpoints — the largest fixed prefix — are always cache-stable; the
 anchor extends stability into the front of the conversation itself.
 
@@ -258,6 +272,11 @@ and the hook is a no-op for them. Operators can also set pi-ai's native
 > in `onPayload` rather than threaded through the Agent. The TTLs written
 > there are a strict subset of what pi-ai's own `"long"` path emits, so
 > the wire shape is never novel.
+
+Model switching interacts with the cache too — routing is
+route-once-per-conversation and failover retries the same provider
+before falling over, both to protect the warm prefix. See
+[LLM routing & failover](llm-routing-and-failover.md).
 
 ## Custom strategies
 
@@ -308,10 +327,12 @@ Notes:
 |---------|----------|
 | Algorithm, budget math, registry, cache-aware `trim`/`none` | `src/runtime/stream-chat/context-compaction.ts` |
 | Cache-retention TTL shaping (stable prefix long, tail short) | `src/runtime/stream-chat/cache-retention.ts` |
+| Memory/KB tail split (uncached trailing system block) | `src/runtime/stream-chat/system-cache-split.ts` |
 | `transformContext` + `onPayload` wiring (input-only; model not mutated) | `src/runtime/stream-chat/build-pi-agent.ts` |
 | Settings resolution per turn | `src/runtime/executor.ts` (`resolveCompactionConfig`) |
 | Unit tests (estimation, budget, registry, cache-anchor `trim` invariants) | `src/__tests__/context-compaction.test.ts` |
 | Cache-prefix-survives-compaction proof (WS-H usage → WS0 stats) | `src/__tests__/context-compaction-cache-prefix.test.ts` |
 | Retention shaping unit tests | `src/__tests__/cache-retention.test.ts` |
+| Memory-tail split unit tests | `src/__tests__/system-cache-split.test.ts` |
 | Integration (wiring, model untouched, retention onPayload) | `src/__tests__/build-pi-agent-compaction.test.ts` |
 | E2E regression guard (Docker harness) | `web/e2e/chat-context-compaction.spec.ts` |

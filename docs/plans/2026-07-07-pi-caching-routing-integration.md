@@ -409,3 +409,59 @@ a model-less turn through `setupTools`.
   "green theater." Mitigation: WS-V behavioral proof on a real local run before merge.
 - **R3 (Med):** BYOK single-provider users derive no failover / uneven cache benefit. Mitigation:
   §2 graceful degradation + provider-segmented meter; honest UI copy.
+
+---
+
+## 7. Post-audit addendum (2026-07-09)
+
+A 4-agent audit of the PR built from this plan found the architecture right but
+the first implementation partial. The following fixes landed on the same
+branch. §1's ground-truth table and the "as built" notes above are **left
+as-written** — they were accurate at their stated SHAs; this addendum is the
+delta.
+
+- **Cache prefix (CRITICAL, fixed).** Per-turn memory/KB recall was
+  concatenated into `ctx.system`, re-writing (busting) the cached region-1
+  prefix on every memory/KB turn — with the shipped `long` (2× write price)
+  retention, caching was cost-negative exactly where the memory feature is
+  used. Fixed by splitting it out: `ctx.system` stays byte-stable (region-1 =
+  **system + tools only**) and the injected block rides as a separate
+  **uncached trailing system block** on Anthropic
+  (`src/runtime/stream-chat/system-cache-split.ts`; stash:
+  `ctx.systemMemoryTail` in `setup-tools.ts`; non-Anthropic providers get it
+  merged into the plain `systemPrompt`). See the
+  [cache-anchor decision record](../decisions/2026-07-08-compaction-cache-anchor.md).
+- **1h cache-write visibility (fixed).** `cacheWrite1h` was parsed by pi-ai
+  but dropped app-side, so the meter couldn't see the 2× 1h-write surcharge.
+  Now threaded compute → persist (`messages.usage.cacheWrite1hTokens`) →
+  `run:usage` → the chat cache pill (`… @1h (2×)` segment).
+- **Failover tier hardcode (fixed).** The failover loop hardcoded tier
+  `"balanced"`, so a pinned Opus could silently fail over to a mid-tier
+  model. `setup-tools.ts` now computes an `effectiveTier` per turn (a pinned
+  model's own inferred tier; the classifier/default tier when routed) and
+  `executor.ts` passes `tier: resolvedModel.effectiveTier` — fallbacks are
+  tier peers, including chained ones.
+- **Routed-turn provenance (fixed).** Routed turns persisted `null`
+  provider/model (metered as "unknown"). Every attempt now passes the
+  **served** provider/model into `subscribeBridge`, and `messages.usage`
+  records `requestedProvider`/`requestedModel` (null ⇒ routed), `routedTier`,
+  and `failover`.
+- **Failover hardening (fixed).** Circuit breakers were process-global per
+  provider (one user's 429s degraded everyone); now keyed per
+  `(provider, scope)` with the conversation owner's userId as the scope
+  (bounded map, context-free callers keep the shared scope). A failing
+  provider gets one same-provider jittered-backoff retry **before**
+  cross-provider fallback (preserves cache locality; exactly one
+  `recordFailure` per provider per turn), and the per-attempt
+  `unsubAgentActivity` bus listener is detached on every rebuild (leak fix).
+- **Proof honesty.** The WS1 "0 → 0.40 hit-rate" proof ran at
+  `cacheAnchorFraction = 0.5`, not the shipped default `0`; tests were
+  relabeled as opt-in proofs and shipped-default assertions added, plus a
+  real-Anthropic-SSE usage-shape test (the mock's `cache_write_tokens` field
+  is synthetic — no real provider emits it).
+
+Operator-facing docs for the resulting behavior:
+[docs/llm-routing-and-failover.md](../llm-routing-and-failover.md) (native
+routing/failover vs the OpenRouter alternative) and
+[docs/context-compaction.md](../context-compaction.md) (cache regions +
+retention).
