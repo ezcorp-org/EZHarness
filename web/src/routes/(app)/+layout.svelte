@@ -221,12 +221,14 @@
 					{ href: "/marketplace", label: "Marketplace", group: "Discover" },
 					{ href: "/memories", label: "Memories", group: "Discover" },
 					{ href: "/observability", label: "Analytics", group: "Manage" },
+					{ href: "/analytics/savings", label: "Savings", group: "Manage" },
 					{ href: "/settings", label: "Settings", group: "Manage" },
 				]
 			: [
 					{ href: `/project/${store.activeProjectId}/chat`, label: "Chat" },
 					{ href: "/hub", label: "Hub" },
 					{ href: "/memories", label: "Memories" },
+					{ href: `/project/${store.activeProjectId}/savings`, label: "Savings" },
 					{ href: `/project/${store.activeProjectId}/settings`, label: "Project Settings" },
 					{ href: "/agents", label: "Agents", group: "Platform" },
 					{ href: "/commands", label: "Commands", group: "Platform" },
