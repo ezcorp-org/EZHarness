@@ -176,6 +176,8 @@ run_legs() {
       src/lib/components/__tests__/UsesList.component.test.ts \
       "src/routes/(app)/extensions/author/__tests__/page.component.test.ts" \
       src/__tests__/api-users.server.test.ts \
+      src/__tests__/api-analytics-savings.server.test.ts \
+      src/__tests__/api-analytics-savings-project.server.test.ts \
       src/lib/audit-log-view.unit.test.ts \
       src/lib/settings-models.unit.test.ts \
       src/__tests__/model-selector-logic.unit.test.ts \
@@ -240,6 +242,8 @@ run_legs() {
       --coverage.include='src/lib/components/extensions/AuthorCompositionPanel.svelte' \
       --coverage.include='src/lib/components/extensions/UsesList.svelte' \
       --coverage.include='src/routes/api/users/+server.ts' \
+      --coverage.include='src/routes/api/analytics/savings/+server.ts' \
+      --coverage.include='src/routes/api/analytics/savings/project/[id]/+server.ts' \
       --coverage.include='src/lib/audit-log-view.ts' \
       --coverage.include='src/lib/settings-models.ts' \
       --coverage.include='src/lib/model-selector-logic.ts' \
