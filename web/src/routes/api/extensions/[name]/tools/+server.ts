@@ -15,9 +15,12 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   const extensionName = params.name;
   const registry = ExtensionRegistry.getInstance();
 
-  // Find tools that belong to this extension (namespaced as extensionName.toolName)
+  // Find tools that belong to this extension. The registry namespaces
+  // extension tools as `<ext>__<tool>` (double underscore — NOT a dot;
+  // see src/extensions/registry.ts). Anthropic's tool-name pattern
+  // `^[a-zA-Z0-9_-]+$` rejects dots, so `__` is the separator.
   const allTools = registry.getAllTools();
-  const extensionTools = allTools.filter(t => t.name.startsWith(`${extensionName}.`));
+  const extensionTools = allTools.filter(t => t.name.startsWith(`${extensionName}__`));
 
   if (extensionTools.length === 0) {
     // Check if this is a built-in tool category (e.g. "task-tracking", "scratchpad")
@@ -31,7 +34,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 
   return json({
     tools: extensionTools.map(t => ({
-      name: t.name.slice(extensionName.length + 1), // Strip namespace prefix
+      name: t.name.slice(extensionName.length + 2), // Strip `<ext>__` prefix (`__` is 2 chars)
       description: t.description,
       inputSchema: t.inputSchema,
     })),

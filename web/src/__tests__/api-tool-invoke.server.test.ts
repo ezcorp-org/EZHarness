@@ -22,9 +22,11 @@ vi.mock("$server/extensions/registry", () => ({
 }));
 
 const executeToolCall = vi.fn();
+const setCurrentUserId = vi.fn();
 vi.mock("$server/extensions/tool-executor", () => ({
   ToolExecutor: class {
     executeToolCall = executeToolCall;
+    setCurrentUserId = setCurrentUserId;
   },
 }));
 
@@ -101,6 +103,7 @@ describe("POST /api/tool-invoke", () => {
     registryGetTool.mockReset();
     registryLoadFromDb.mockClear();
     executeToolCall.mockReset();
+    setCurrentUserId.mockClear();
     getPermissionEngineSpy.mockClear();
   });
 
@@ -209,6 +212,40 @@ describe("POST /api/tool-invoke", () => {
     expect(body.success).toBe(true);
     expect(body.output).toBe("done");
     expect(body.toolCallId).toBe("i1");
+  });
+
+  // Regression — the endpoint MUST set the acting user on the executor
+  // before executing so user-scoped extension storage (e.g. graded-card-
+  // scanner's set_psa_token) resolves to the caller's own bucket. Under the
+  // pre-fix code `setCurrentUserId` was never called → `ctx.userId` was null
+  // → the storage RPC failed with "User scope unavailable in this context".
+  // This test FAILS on the old code (spy never invoked) and PASSES now.
+  test("sets the acting (authenticated) user id on the executor before executing", async () => {
+    registryGetTool.mockReturnValue({ name: "ext__ok" });
+    executeToolCall.mockResolvedValue({
+      isError: false,
+      content: [{ type: "text", text: "ok" }],
+    });
+    await POST(
+      makeEvent({
+        locals: authedUser,
+        body: {
+          extensionName: "ext",
+          toolName: "ok",
+          input: {},
+          conversationId: "c1",
+          invocationId: "i1",
+        },
+      }),
+    );
+    // Called with the authenticated caller's id (acting-user semantics).
+    expect(setCurrentUserId).toHaveBeenCalledTimes(1);
+    expect(setCurrentUserId).toHaveBeenCalledWith("u1");
+    // …and BEFORE the tool is executed, or the scope is still unset when the
+    // tool's storage RPC runs.
+    expect(setCurrentUserId.mock.invocationCallOrder[0]!).toBeLessThan(
+      executeToolCall.mock.invocationCallOrder[0]!,
+    );
   });
 
   // Regression sentinel — Phase 54 gap-closure (2026-05-11).

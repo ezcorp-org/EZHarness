@@ -88,11 +88,15 @@ describe("GET /api/extensions/[name]/tools", () => {
     expect(body.tools[0].name).toBe("scratch-set");
   });
 
-  test("returns namespaced extension tools with prefix stripped", async () => {
+  // The registry namespaces extension tools as `<ext>__<tool>` (double
+  // underscore — see src/extensions/registry.ts). This case FAILS under
+  // the old dot-filter (`startsWith("my-ext.")` matches none of these
+  // `__`-namespaced tools → 404) and PASSES with the `__` filter/strip.
+  test("returns __-namespaced extension tools with prefix stripped", async () => {
     getAllTools.mockReturnValue([
-      { name: "my-ext.do-thing", description: "d1", inputSchema: {} },
-      { name: "my-ext.other", description: "d2", inputSchema: {} },
-      { name: "other-ext.tool", description: "d3", inputSchema: {} },
+      { name: "my-ext__do-thing", description: "d1", inputSchema: {} },
+      { name: "my-ext__other", description: "d2", inputSchema: {} },
+      { name: "other-ext__tool", description: "d3", inputSchema: {} },
     ]);
     const res = await GET(makeEvent({ locals: { user }, name: "my-ext" }));
     expect(res.status).toBe(200);
@@ -101,5 +105,8 @@ describe("GET /api/extensions/[name]/tools", () => {
     };
     expect(body.tools).toHaveLength(2);
     expect(body.tools.map((t) => t.name).sort()).toEqual(["do-thing", "other"]);
+    // Descriptions/schemas are forwarded verbatim alongside the stripped name.
+    const doThing = body.tools.find((t) => t.name === "do-thing");
+    expect(doThing?.description).toBe("d1");
   });
 });
