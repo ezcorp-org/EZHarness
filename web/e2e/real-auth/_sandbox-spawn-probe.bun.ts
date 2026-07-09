@@ -13,20 +13,22 @@
  * launched by `src/extensions/subprocess.ts` (getSpawnArgs) as the exact
  * inner chain `prlimit --rss=<bytes> bun run …`, wrapped for the resolved
  * sandbox tier by the SAME `buildSandboxArgv` seam we call here. On GitHub
- * hosted runners the tier resolves to `landlock` and the jail engages
- * correctly, but the runner's `bun` (installed by setup-bun under
- * `~/.bun/bin`) is OUTSIDE the sandbox read-exec allowlist
- * (`DEFAULT_RUNTIME_RO_DIRS`), so the jailed `prlimit … bun` exec is denied
- * — `prlimit: failed to execute bun: Permission denied` (EACCES → exit 126)
- * — and every extension dies at bring-up. On a NixOS/dev host or the prod
- * container `bun` resolves under a granted dir (`/nix`, `/usr`), so the same
- * jailed exec succeeds.
+ * hosted runners the tier resolves to `landlock` and the jail engages. The
+ * runner's `bun` (installed by setup-bun under `~/.bun/bin`) is OUTSIDE the
+ * conventional read-exec dirs (`DEFAULT_RUNTIME_RO_DIRS`), so this probe — like
+ * subprocess.ts — ALSO grants the runtime's own bin-dir via `runtimeExecRoDirs`
+ * (#55); with that grant the jailed `prlimit … bun` execvp succeeds and the
+ * probe exits 0. Before that grant landed the jailed exec was denied
+ * (`prlimit: failed to execute bun: Permission denied`, EACCES → exit 126) and
+ * every extension died at bring-up. On a NixOS/dev host or the prod container
+ * `bun` also resolves under a granted dir (`/nix`, `/usr`), so the jailed exec
+ * succeeds there too.
  *
  * Because this probe runs that identical machinery — the real tier probe,
- * the real `buildSandboxArgv`, the real landlock shim + spec — around the
- * real `prlimit + bun` chain, its verdict CANNOT drift from what the server
- * actually does when it spawns an extension. It is the primitive, not a
- * heuristic (no "is this CI?" / userns / arch guessing).
+ * the real `buildSandboxArgv`, the real landlock shim + spec, the SAME grant
+ * set — around the real `prlimit + bun` chain, its verdict CANNOT drift from
+ * what the server actually does when it spawns an extension. It is the
+ * primitive, not a heuristic (no "is this CI?" / userns / arch guessing).
  *
  * Relative (not `$server`) imports on purpose: `$server` is a SvelteKit
  * build-time alias that a bare `bun run` does not resolve.
@@ -36,7 +38,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildSandboxArgv } from "../../../src/extensions/sandbox/build-sandbox-argv";
 import { getSandboxTier } from "../../../src/extensions/sandbox/capability-probe";
-import { DEFAULT_RUNTIME_RO_DIRS } from "../../../src/extensions/sandbox/landlock";
+import {
+  DEFAULT_RUNTIME_RO_DIRS,
+  runtimeExecRoDirs,
+} from "../../../src/extensions/sandbox/landlock";
 
 // Mirror MIN_MEMORY_LIMIT_MB in src/extensions/subprocess.ts (512 MB). The
 // exact value is immaterial to the probe — any valid RLIMIT_RSS exercises
@@ -73,7 +78,12 @@ function canSpawnSandboxed(): boolean {
     // isn't reachable in that grant set the jailed exec is denied, exactly as
     // on the hosted runner.
     const workspaceDir = mkdtempSync(join(tmpdir(), "ezcorp-spawn-probe-"));
-    const roPaths = [...DEFAULT_RUNTIME_RO_DIRS];
+    // Byte-faithful to subprocess.ts resolveSandboxWrap()'s grant set: the
+    // conventional runtime RO dirs, the Bun runtime's own bin-dir (so the
+    // jailed `prlimit … bun` execvp succeeds even where `bun` lives outside the
+    // conventional dirs — hosted runners install it under `~/.bun/bin`, #55),
+    // and the workspace deps.
+    const roPaths = [...DEFAULT_RUNTIME_RO_DIRS, ...runtimeExecRoDirs()];
     for (const dep of [join(projectRoot, "node_modules"), join(projectRoot, "packages")]) {
       if (existsSync(dep)) roPaths.push(dep);
     }

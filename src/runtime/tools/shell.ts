@@ -8,6 +8,10 @@ import { logger } from "../../logger";
 import { detectDevServerCommand } from "../preview/dev-command-detection";
 import { getSandboxTier } from "../../extensions/sandbox/capability-probe";
 import { buildSandboxArgv } from "../../extensions/sandbox/build-sandbox-argv";
+import {
+  DEFAULT_RUNTIME_RO_DIRS,
+  runtimeExecRoDirs,
+} from "../../extensions/sandbox/landlock";
 
 const log = logger.child("shell-tool");
 
@@ -87,6 +91,12 @@ export function resolveShellSandbox(
       tier,
       workspaceDir: sandbox.workspaceDir,
       projectRoot: sandbox.projectRoot,
+      // Make the RO grant explicit (not the builder default) so the Bun
+      // runtime's own bin-dir is granted read-exec: a sandboxed shell command
+      // that execs `bun` (or `/bin/sh` itself resolving it) would otherwise
+      // EACCES where `bun` lives outside the conventional system dirs — e.g.
+      // GitHub hosted runners install it under `~/.bun/bin` (#55).
+      roPaths: [...DEFAULT_RUNTIME_RO_DIRS, ...runtimeExecRoDirs()],
       command: "/bin/sh",
       args: ["-c", command],
     });

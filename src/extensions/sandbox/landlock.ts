@@ -18,7 +18,7 @@
  * (DRY — one definition of "never expose the DB/secret dir").
  */
 
-import { resolve, sep } from "node:path";
+import { dirname, resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
 import { assertOutsideDataDir, forbiddenDataDir } from "../preview-jail";
 import { applyReadWriteJail, landlockAbiVersion } from "./landlock-ffi";
@@ -57,6 +57,46 @@ export const DEFAULT_RUNTIME_RO_DIRS: readonly string[] = [
   "/dev",
   "/nix",
 ];
+
+/**
+ * Read-exec dirs holding the Bun RUNTIME BINARY itself, so a jailed
+ * `prlimit … bun …` can `execvp` its own interpreter. `DEFAULT_RUNTIME_RO_DIRS`
+ * covers the conventional system locations (`/usr`, `/nix`, …) where a distro
+ * or Nix install of `bun` lives, but GitHub HOSTED runners install `bun` via
+ * setup-bun under `~/.bun/bin` — OUTSIDE every conventional dir. Without a grant
+ * for that dir the jailed exec is EACCES (`prlimit: failed to execute bun:
+ * Permission denied` → exit 126) and every sandboxed subprocess dies at
+ * bring-up. Granting the runtime's OWN bin-dir read-exec closes that.
+ *
+ * Each candidate is realpath-resolved: Landlock binds the kernel INODE (parity
+ * with `canonicalizeForJail`), and `~/.bun/bin/bun` is commonly a symlink into
+ * the versioned install dir — the grant must name the real dir the kernel walks
+ * to. Candidates are `process.execPath` (the interpreter currently running) and
+ * `Bun.which("bun")` (what a child's `bun` execvp actually finds on PATH); they
+ * usually resolve to the SAME dir, so the result is deduped.
+ *
+ * Minimal by construction: read-exec of the runtime's bin-dir ONLY — never any
+ * user data. Every returned dir still passes `assertOutsideDataDir` when the
+ * caller feeds it into `buildLandlockJailSpec`'s ro set (a runtime bin-dir is
+ * never `.ezcorp/data` nor an ancestor of it). Never throws — a candidate that
+ * can't be resolved (missing / permission) is skipped, leaving the conventional
+ * RO dirs to cover the common install.
+ */
+export function runtimeExecRoDirs(): string[] {
+  const dirs = new Set<string>();
+  for (const candidate of [
+    process.execPath,
+    typeof Bun !== "undefined" ? Bun.which("bun") : null,
+  ]) {
+    if (!candidate) continue;
+    try {
+      dirs.add(dirname(realpathSync(candidate)));
+    } catch {
+      // Unresolvable candidate — skip it; the conventional RO dirs remain.
+    }
+  }
+  return [...dirs];
+}
 
 export interface LandlockJailInput {
   /** The single writable workspace dir for the run (rw). */

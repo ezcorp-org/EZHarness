@@ -123,20 +123,17 @@ jobs:
   # BLOCKING gate. Two of the specs (extension-author-flow,
   # extension-control-flow) spawn a REAL extension subprocess via the sandbox
   # (`prlimit` + Landlock). On GitHub hosted runners the tier resolves to
-  # `landlock` and the jail engages, but setup-bun's `bun` (under `~/.bun/bin`)
-  # is outside the sandbox read-exec allowlist, so the jailed `prlimit … bun`
-  # exec is denied (`prlimit: failed to execute bun: Permission denied`, EACCES
-  # → exit 126) and the extension dies at bring-up. Those two specs are now
-  # capability-gated: they `test.skip(() => !sandboxSpawnAvailable(), …)` via a
-  # real spawn probe (web/e2e/real-auth/sandbox-probe.ts, which runs the actual
-  # tier probe + jail wrap around the real `prlimit + bun` chain), so on hosted
-  # runners they SKIP cleanly while on a capable runner (dev host / prod
-  # container, where bun resolves under a granted dir) they RUN. The always-run
-  # specs (auth-fixture, harness-client-flow, role-carrying-key-flow) prove
-  # auth + harness-control on every runner, so a genuine failure now reds the
-  # job. (The product-side follow-up — granting the runtime binary's real dir
-  # in DEFAULT_RUNTIME_RO_DIRS so the extension specs run unconditionally on
-  # hosted runners too — is tracked separately and out of scope here.)
+  # `landlock` and the jail engages; setup-bun's `bun` (under `~/.bun/bin`) is
+  # outside the conventional read-exec dirs, but the sandbox now grants the Bun
+  # runtime's own bin-dir (`runtimeExecRoDirs`, issue #55), so the jailed
+  # `prlimit … bun` execvp succeeds and those two specs RUN and gate here — no
+  # longer skipped on hosted runners. They stay `test.skip(() =>
+  # !sandboxSpawnAvailable(), …)`-gated via a real spawn probe
+  # (web/e2e/real-auth/sandbox-probe.ts → _sandbox-spawn-probe.bun.ts, which
+  # runs the actual tier probe + jail wrap around the real `prlimit + bun`
+  # chain): a genuine loss of spawn capability skips them cleanly rather than
+  # red-flaking, and the fail-fast step below turns that silent skip into a hard
+  # job failure so the two specs can never quietly drop out.
   e2e-real-auth:
     name: E2E (real auth + real DB)
     runs-on: ubuntu-latest
@@ -148,6 +145,9 @@ jobs:
           web: "true"
           sync: "true"
           playwright: "true"
+      # Fail fast if the sandbox can't spawn here — otherwise the two extension
+      # specs would silently skip and the job would go green without them (#55).
+      - run: bun web/e2e/real-auth/_sandbox-spawn-probe.bun.ts
       - run: cd web && PI_E2E_REAL=1 bunx playwright test --config playwright.real.config.ts
 
   lint:

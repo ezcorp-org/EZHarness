@@ -18,7 +18,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import * as realNodeFs from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import {
   buildSandboxArgv,
 } from "../extensions/sandbox/build-sandbox-argv";
@@ -26,6 +26,7 @@ import {
   buildLandlockJailSpec,
   applyLandlockJailSpec,
   DEFAULT_RUNTIME_RO_DIRS,
+  runtimeExecRoDirs,
 } from "../extensions/sandbox/landlock";
 import {
   parseShimArgv,
@@ -386,6 +387,51 @@ describe("buildLandlockJailSpec — pure spec + deny invariants", () => {
         traversePaths: [join(ROOT, ".ezcorp", "data", "sub")],
       }),
     ).toThrow(/data dir/);
+  });
+});
+
+describe("runtimeExecRoDirs — runtime bin-dir read-exec grant (#55)", () => {
+  // The grant that lets a jailed `prlimit … bun` execvp its own interpreter
+  // even where `bun` lives outside DEFAULT_RUNTIME_RO_DIRS (GitHub hosted
+  // runners install it under `~/.bun/bin`). It must yield the REAL (symlink-
+  // resolved) parent dir of the running runtime, deduped, and never throw.
+  test("contains dirname(realpathSync(process.execPath)) — the running runtime's bin-dir", () => {
+    expect(runtimeExecRoDirs()).toContain(
+      dirname(realpathSync(process.execPath)),
+    );
+  });
+
+  test("entries are deduped (execPath + Bun.which usually resolve to one dir)", () => {
+    const dirs = runtimeExecRoDirs();
+    expect(new Set(dirs).size).toBe(dirs.length);
+  });
+
+  test("every entry is absolute AND a realpath fixed-point (inode parity)", () => {
+    const dirs = runtimeExecRoDirs();
+    expect(dirs.length).toBeGreaterThan(0);
+    for (const d of dirs) {
+      expect(isAbsolute(d)).toBe(true);
+      // Fully symlink-resolved: realpath of the dir is the dir itself.
+      expect(realpathSync(d)).toBe(d);
+    }
+  });
+
+  test("never throws", () => {
+    expect(() => runtimeExecRoDirs()).not.toThrow();
+  });
+
+  test("each entry passes the data-dir invariant as an ro grant (buildLandlockJailSpec accepts it)", () => {
+    // A runtime bin-dir is never `.ezcorp/data` nor an ancestor of it, so
+    // feeding the grant into the jail builder must NOT fail closed — this is
+    // exactly how subprocess.ts / shell.ts thread it into the ro set.
+    const spec = buildLandlockJailSpec({
+      workspaceDir: WORKSPACE,
+      projectRoot: ROOT,
+      roPaths: [...DEFAULT_RUNTIME_RO_DIRS, ...runtimeExecRoDirs()],
+    });
+    for (const dir of runtimeExecRoDirs()) {
+      expect(spec.ro).toContain(resolve(dir));
+    }
   });
 });
 

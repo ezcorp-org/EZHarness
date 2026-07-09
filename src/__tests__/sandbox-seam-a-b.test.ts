@@ -25,6 +25,7 @@ import { buildSandboxArgv } from "../extensions/sandbox/build-sandbox-argv";
 import {
   buildLandlockJailSpec,
   DEFAULT_RUNTIME_RO_DIRS,
+  runtimeExecRoDirs,
 } from "../extensions/sandbox/landlock";
 import { probeLandlockAbi } from "../extensions/sandbox/capability-probe";
 
@@ -75,6 +76,38 @@ describe("Seam A — ExtensionProcess.getSpawnArgs sandbox wrap", () => {
     const spec = JSON.parse(built.env.EZCORP_LANDLOCK_SPEC!);
     for (const p of [...spec.ro, ...spec.rw]) {
       expect(p.startsWith(join(ROOT, ".ezcorp", "data"))).toBe(false);
+    }
+  });
+
+  test("wrap grants the Bun runtime's own bin-dir so the jailed `bun` can exec (#55)", () => {
+    // Faithful to subprocess.ts: read the ACTUAL wrap resolveSandboxWrap builds
+    // for THIS host's tier (landlock on the dev host + GitHub hosted runners),
+    // then assert the runtime bin-dir (runtimeExecRoDirs) is in its grant set.
+    // Without this grant the jailed `prlimit … bun` execvp is EACCES where bun
+    // lives outside DEFAULT_RUNTIME_RO_DIRS (hosted runners: `~/.bun/bin`).
+    const ep = new ExtensionProcess("ext-runtime-grant", "/path/ext.ts", {
+      EZCORP_PROJECT_ROOT: ROOT,
+      TMPDIR: join(ROOT, "tmp"),
+    });
+    const wrap = (
+      ep as unknown as {
+        resolveSandboxWrap(): {
+          argv: string[];
+          env: Record<string, string>;
+        } | null;
+      }
+    ).resolveSandboxWrap();
+    expect(wrap).not.toBeNull();
+    const runtimeDirs = runtimeExecRoDirs();
+    expect(runtimeDirs.length).toBeGreaterThan(0);
+    const specJson = wrap!.env.EZCORP_LANDLOCK_SPEC;
+    if (specJson) {
+      // landlock tier: every runtime bin-dir is in the read-only grant set.
+      const ro: string[] = JSON.parse(specJson).ro;
+      for (const dir of runtimeDirs) expect(ro).toContain(dir);
+    } else {
+      // bwrap tier: each runtime bin-dir is bound into the argv (ro-bind).
+      for (const dir of runtimeDirs) expect(wrap!.argv).toContain(dir);
     }
   });
 
@@ -220,6 +253,24 @@ describe("Seam B — createShellTool per-run workspace jail", () => {
         }
       }
       expect(jail!.argv.some((a) => a === join(ROOT, ".ezcorp", "data"))).toBe(false);
+    }
+  });
+
+  test("jailed shell grants the Bun runtime's own bin-dir (#55)", () => {
+    // Seam B parity with Seam A: a sandboxed shell command that execs `bun`
+    // must find its interpreter in the read-exec grant set even where `bun`
+    // lives outside DEFAULT_RUNTIME_RO_DIRS (hosted runners: `~/.bun/bin`).
+    const workspaceDir = join(ROOT, "run-runtime-grant");
+    const jail = resolveShellSandbox("bun --version", { workspaceDir, projectRoot: ROOT });
+    expect(jail).not.toBeNull();
+    const runtimeDirs = runtimeExecRoDirs();
+    expect(runtimeDirs.length).toBeGreaterThan(0);
+    if (jail!.env.EZCORP_LANDLOCK_SPEC) {
+      const ro: string[] = JSON.parse(jail!.env.EZCORP_LANDLOCK_SPEC).ro;
+      for (const dir of runtimeDirs) expect(ro).toContain(dir);
+    } else {
+      // bwrap tier: each runtime bin-dir is bound into the argv (ro-bind).
+      for (const dir of runtimeDirs) expect(jail!.argv).toContain(dir);
     }
   });
 
