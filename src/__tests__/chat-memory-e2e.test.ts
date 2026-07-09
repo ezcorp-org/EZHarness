@@ -47,13 +47,28 @@ mock.module("@earendil-works/pi-ai", () => ({
 mock.module("@earendil-works/pi-agent-core", () => ({
   Agent: class MockAgent {
     private _subs: any[] = [];
+    private _opts: any;
     constructor(opts: any) {
       _capturedAgentOpts = opts;
+      this._opts = opts;
       capturedSystemPrompt = opts.initialState?.systemPrompt ?? "";
     }
     subscribe(cb: any) { this._subs.push(cb); return () => {}; }
     abort() {}
     async prompt() {
+      // Replicate pi-ai's request build enough to exercise the onPayload
+      // hook: on anthropic-messages models the memory/KB tail is appended
+      // there as a separate uncached trailing system block, so the full
+      // wire-visible system content = initialState.systemPrompt + tail.
+      const payload: any = {
+        system: [{
+          type: "text",
+          text: this._opts.initialState?.systemPrompt ?? "",
+          cache_control: { type: "ephemeral" },
+        }],
+      };
+      await this._opts.onPayload?.(payload);
+      capturedSystemPrompt = payload.system.map((b: any) => b.text).join("\n\n");
       // Emit text response
       for (const sub of this._subs) {
         sub({
@@ -79,15 +94,25 @@ import { EventBus } from "../runtime/events";
 import { createProject } from "../db/queries/projects";
 import { createConversation } from "../db/queries/conversations";
 import { getDb } from "../db/connection";
-import { memories, knowledgeBaseFiles, knowledgeBaseChunks } from "../db/schema";
+import { memories, knowledgeBaseFiles, knowledgeBaseChunks, users } from "../db/schema";
 import type { AgentEvents } from "../types";
 
 let projectId: string;
+let ownerUserId: string;
 
 beforeAll(async () => {
   await setupTestDb();
   const project = await createProject({ name: "Memory E2E", path: "/tmp/memory-e2e" });
   projectId = project.id;
+  // Memory injection is fail-closed per-user: only memories owned by the
+  // conversation owner are injected. Seed an owner for both sides.
+  const [user] = await getDb().insert(users).values({
+    email: "memory-e2e@example.com",
+    passwordHash: "x",
+    name: "Memory E2E",
+    role: "member",
+  }).returning();
+  ownerUserId = user!.id;
 });
 
 afterAll(async () => {
@@ -103,12 +128,13 @@ describe("Chat Memory Injection E2E", () => {
       content: "The user prefers dark mode for all interfaces",
       category: "preferences",
       projectId,
+      userId: ownerUserId,
       confidence: "high",
       status: "active",
       embedding: FIXED_EMBEDDING,
     });
 
-    const conv = await createConversation(projectId, { title: "Memory Injection Test" });
+    const conv = await createConversation(projectId, { title: "Memory Injection Test", userId: ownerUserId });
     const bus = new EventBus<AgentEvents>();
     const executor = new AgentExecutor(new Map(), bus);
 

@@ -38,6 +38,9 @@ const MODULE_PATHS = [
   // so restoreModuleMocks() re-registers the real upsert helper in afterAll
   // and the throwing stub never leaks into subsequent test files.
   "../../db/queries/message-embed-outbox",
+  // setup-tools-memory-tail.test.ts stubs KB search to drive the memory/KB
+  // injection success path; snapshot so the stub never leaks.
+  "../../db/queries/knowledge-base",
   "../../db/queries/runs",
   "../../db/queries/projects",
   "../../db/queries/extensions",
