@@ -89,6 +89,7 @@
   "src/runtime/tools/grep.ts": 100,
   "src/runtime/usage/cache-stats.ts": 100,
   "src/runtime/stream-chat/cache-retention.ts": 100,
+  "src/runtime/stream-chat/system-cache-split.ts": 100,
   "src/runtime/stream-chat/failover.ts": 100,
   "src/runtime/start-assignment.ts": 100,
   "src/runtime/goal-host.ts": 100,

@@ -185,7 +185,7 @@ export async function wireBriefingChatToolsIfEligible(args: {
 
 /**
  * Drive the parallel "memory injection + tool loading + model resolution"
- * setup phase. Mutates `ctx.system`, `ctx.agentTools`,
+ * setup phase. Mutates `ctx.systemMemoryTail`, `ctx.agentTools`,
  * `ctx.toolAbortControllers`, `ctx.builtinToolDefsMap`, `ctx.unsubModeChange`,
  * and stashes orchestration metadata on `run` (the legacy `_mentionedAgents`,
  * `_teamConfig`, `_memberOverrides`, etc. fields the post-Promise.all auto-spin-up
@@ -274,7 +274,14 @@ export async function setupTools(
         // A null owner (legacy/agent/CLI run) yields zero injected memories
         // (fail-closed) rather than leaking every project member's memories.
         const injection = await injectionModule.buildSystemPromptWithMemories(ctx.system, userMessage, options.projectId!, convRecord?.userId ?? null, { kbChunks, queryEmbedding });
-        ctx.system = injection.systemPrompt;
+        // ctx.system stays memory-FREE: applyAutoSpinUp later composes
+        // `orchestrator? + base + taskBlock` onto it, and that composite
+        // must be byte-stable across turns for prompt caching (region 1).
+        // The query-dependent injection block is stashed separately;
+        // build-pi-agent appends it as an UNCACHED trailing system block
+        // (Anthropic) or merges it into the systemPrompt string (other
+        // providers) — see system-cache-split.ts.
+        if (injection.injectionBlock) ctx.systemMemoryTail = injection.injectionBlock;
         if (injection.memoriesUsed.length > 0) run.memoriesUsed = injection.memoriesUsed;
       } catch {
         // run:status carries extra `degraded` + `message` fields when

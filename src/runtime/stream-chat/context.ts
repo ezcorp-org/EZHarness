@@ -37,8 +37,18 @@ export interface StreamChatContext {
   modelBaseUrl: string | undefined;
 
   // ── prompt / tools (mutated during setup phase) ──
-  /** System prompt — re-assigned by memory injection + orchestrator-prompt builders. */
+  /** System prompt — re-assigned by orchestrator-prompt builders. Stays
+   *  memory-FREE so the composed `orchestrator? + base + taskBlock` is
+   *  byte-stable across turns (the cached region-1 prefix). */
   system: string | undefined;
+  /**
+   * Query-dependent memory/KB injection block for this turn (set by
+   * setup-tools when recall found anything). Kept OUT of `system` so prompt
+   * caching sees a frozen prefix; build-pi-agent appends it as a separate
+   * UNCACHED trailing system block (Anthropic) or merges it into the
+   * systemPrompt string (other providers) — see system-cache-split.ts.
+   */
+  systemMemoryTail?: string;
   /** Tool list passed to pi-agent-core; mutated/filtered by tool loaders + scope filters. */
   agentTools: AgentTool[];
   /** Per-tool abort controllers, used by tool:kill bus handler + cleared in finally. */
@@ -105,6 +115,7 @@ export function createStreamChatContext(
     controller,
     modelBaseUrl: undefined,
     system: undefined,
+    systemMemoryTail: undefined,
     agentTools: [],
     toolAbortControllers: new Map(),
     builtinToolDefsMap: new Map(),
