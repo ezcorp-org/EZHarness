@@ -11,6 +11,8 @@ import {
   type KnownProvider,
 } from "@earendil-works/pi-ai";
 import { getSetting } from "../db/queries/settings";
+// Tier vocabulary single source of truth (type-only — erased at build).
+import type { RoutingTier } from "../runtime/tier-classifier";
 
 // Fallback entries for OAuth-only users (ChatGPT Codex login).
 // The OAuth token can't call api.openai.com/v1/models, so discovery can't
@@ -100,6 +102,18 @@ function inferTier(model: Model<any>): { tier: ModelEntry["tier"]; costTier: Mod
   }
 
   return { tier, costTier };
+}
+
+/**
+ * Routing tier of a resolved pi-ai model — thin public wrapper over the
+ * private `inferTier` heuristic (which stays the single source of tier
+ * truth). Lets the stream-chat wiring label a PINNED turn with the tier of
+ * the model that actually serves it, so pre-stream failover searches for a
+ * tier PEER (a pinned Opus falls back to another powerful-tier model)
+ * instead of silently dropping to the "balanced" default.
+ */
+export function tierForModel(model: Model<any>): RoutingTier {
+  return inferTier(model).tier;
 }
 
 // ── Convert pi-ai Model to local ModelEntry ──────────────────────────

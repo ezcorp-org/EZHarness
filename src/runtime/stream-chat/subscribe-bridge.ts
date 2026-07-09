@@ -12,6 +12,7 @@ import {
 } from "../usage/cache-stats";
 import { ExtensionRegistry } from "../../extensions/registry";
 import { DEFAULT_BUILTIN_CALL_TIMEOUT_MS } from "../executor-watchdog";
+import type { RoutingTier } from "../tier-classifier";
 import type { StreamChatContext } from "./context";
 import type { StreamChatHost } from "./host";
 
@@ -41,11 +42,25 @@ function normalizeCardLayout(
   return undefined;
 }
 
-/** Subset of streamChat's options the subscribe handler reads. */
+/** Subset of streamChat's options the subscribe handler reads. The
+ *  executor's subscribe seam always passes the SERVED `provider`/`model`
+ *  (the failover attempt that actually produced the turn) plus the routing
+ *  provenance fields below, so persisted rows and the cache meter name the
+ *  real serving model on routed turns too. */
 export interface SubscribeBridgeOptions {
   agentConfigId?: string;
   model?: string;
   provider?: string;
+  /** The user's pin for this turn; null ⇒ Auto/routed (no pin). Provenance
+   *  only — the served identity is `provider`/`model` above. */
+  requestedProvider?: string | null;
+  requestedModel?: string | null;
+  /** Tier the classifier routed this turn to — set only when routing fired
+   *  (no pinned model). */
+  routedTier?: RoutingTier;
+  /** True when the serving attempt differs from the initially resolved one
+   *  (a pre-stream failover rebuilt the agent). */
+  failover?: boolean;
 }
 
 /** Subset of the conversation row the subscribe handler reads
@@ -83,6 +98,9 @@ export function subscribeBridge(
 
   // Provider/model that produced this run's turns — used to SEGMENT the cache
   // meter (cache benefit is provider-specific; never fold providers together).
+  // The executor always passes the SERVED attempt identity in options, so
+  // routed turns no longer meter as "unknown"; the convRecord/"unknown"
+  // fallbacks remain only for direct callers outside the executor seam.
   const turnProvider = options.provider ?? convRecord?.provider ?? "unknown";
   const turnModel = options.model ?? convRecord?.model ?? "unknown";
   // Per-run accumulator of this run's turns, for the once-per-run conversation
@@ -357,6 +375,15 @@ export function subscribeBridge(
                   cacheWriteTokens: cacheStats.cacheWriteTokens,
                   cacheWrite1hTokens: cacheStats.cacheWrite1hTokens,
                   cacheHitRate: cacheStats.hitRate,
+                  // Routing provenance (WS3) — written only when the caller
+                  // (the executor's subscribe seam) supplied it, so direct
+                  // subscribeBridge callers keep today's usage shape. The
+                  // SERVED identity is NOT duplicated here — it lives in the
+                  // message row's model/provider columns above.
+                  ...(options.requestedProvider !== undefined ? { requestedProvider: options.requestedProvider } : {}),
+                  ...(options.requestedModel !== undefined ? { requestedModel: options.requestedModel } : {}),
+                  ...(options.routedTier !== undefined ? { routedTier: options.routedTier } : {}),
+                  ...(options.failover !== undefined ? { failover: options.failover } : {}),
                 },
                 runId: run.id,
                 parentMessageId: capturedParent ?? undefined,
