@@ -10,10 +10,14 @@ WS1 made context-compaction cache-aware. Two independent mechanisms came out of 
 
 1. **Marker relocation + 1h retention on the stable prefix (Region 1).** pi-ai places Anthropic
    `cache_control` breakpoints on the system prompt, the last tool, and the last user message.
-   The system + tool/RBAC schemas + injected memory sit *before* the conversation history and are
-   byte-stable, so they are cached in every case. WS1 (a) stopped the compaction marker from
-   corrupting that region and (b) shapes a **1h** TTL on it (`cache-retention.ts`) so it survives
-   human-paced pauses instead of expiring on pi-ai's default ~5-min TTL.
+   Region 1 is the **system prompt + tool/RBAC schemas ONLY** — per-turn injected memory/KB is
+   **query-dependent**, and while it was concatenated into the system prompt it re-wrote (busted)
+   Region 1 on every memory/KB turn. The cache-prefix fix moved it out: `ctx.system` stays
+   byte-stable and the memory/KB block rides as a separate **uncached trailing system block**
+   (`system-cache-split.ts`), so Region 1 is byte-stable and cached in every case. WS1 (a) stopped
+   the compaction marker from corrupting that region and (b) shapes a **1h** TTL on it
+   (`cache-retention.ts`) so it survives human-paced pauses instead of expiring on pi-ai's default
+   ~5-min TTL.
 
 2. **The oldest-turn cache anchor (Region 2), `cacheAnchorFraction`.** On a thread long enough to
    trigger compaction, trimming the oldest turns breaks the *message-history* prefix, so history
@@ -31,9 +35,11 @@ opposed.
 
 ## Quantified analysis
 
-- **Region 1 (system + tools + memory)** — the large stable block — is cached regardless of the
-  anchor. WS1's **1h retention** win applies at `cacheAnchorFraction = 0`. This is the broad,
-  always-on benefit.
+- **Region 1 (system + tools — memory excluded)** — the large stable block — is cached regardless
+  of the anchor. WS1's **1h retention** win applies at `cacheAnchorFraction = 0`. This is the
+  broad, always-on benefit. (Injected memory/KB is query-dependent and deliberately NOT part of
+  this region — it is appended as a separate uncached system block so it can vary per turn without
+  invalidating the prefix.)
 - **Region 2 (history)** — the anchor is the *only* thing that caches it under compaction, and only
   for threads long enough to compact (the minority). Normal-length threads cache history naturally
   (append-only) with no anchor.
@@ -58,9 +64,13 @@ cost-sensitive operators. This also keeps #53's recency contract and conventiona
 - No stale-context pinning; the more-relevant middle turns are retained.
 
 **Cons of the default:**
-- On long, *rapid* threads (e.g. agentic tool loops that re-call the LLM within the cache TTL),
-  history-prefix caching (Region 2) is left on the table — potential extra token spend that the
-  anchor would have captured.
+- Region-2 (history) caching rides the conversation-TAIL breakpoint (last user message, ~5-min
+  TTL). That breakpoint **hits on rapid threads** (agentic tool loops that re-call the LLM inside
+  the TTL) and **fails on slow, human-paced threads** (any >5-min gap expires it before the next
+  turn). The anchor is **orthogonal** to that pacing trade-off: what it recovers is Region-2
+  byte-stability **under compaction** — once trimming rewrites the history prefix, the tail
+  breakpoint alone can't cache it at any pace. With the anchor off (default), compacting threads
+  leave that Region-2 spend on the table.
 
 **When to reconsider / flip to anchor > 0 (globally or per-deployment):**
 - Measured (via WS0's cache meter) low hit-rate on long, high-volume threads where Region-2 caching

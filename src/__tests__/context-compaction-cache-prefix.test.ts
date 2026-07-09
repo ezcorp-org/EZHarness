@@ -1,19 +1,26 @@
 /**
- * WS1 PROOF TEST — "the cached prefix survives compaction".
+ * WS1 PROOF TEST — the OPT-IN oldest-turn cache anchor
+ * (`cacheAnchorFraction > 0`) keeps the REGION-2 (message-history) prefix
+ * cache alive under compaction.
  *
- * This is the test that would have caught the cache/compaction war: on a
- * long thread the OLD `trim` evicted the oldest turns and prepended a
- * per-turn-CHANGING marker at index 0, so Anthropic's PREFIX-matched cache
- * missed the whole conversation body every compacted turn (a guaranteed
- * miss + 25% write surcharge → possible net cost INCREASE).
+ * Scope disclaimers (see docs/decisions/2026-07-08-compaction-cache-anchor.md):
+ * - The anchor is OPT-IN. The SHIPPED default is `cacheAnchorFraction = 0`
+ *   (conventional trim-oldest, #53's recency contract) — the tests that
+ *   pass 0.5 below are the opt-in proof, NOT a description of default
+ *   behavior. The shipped-default test asserts what IS true at 0.
+ * - Everything here models REGION 2 ONLY: `bytePrefixCacheTokens` scans the
+ *   message array's leading prefix. Region-1 (system + tools) stability at
+ *   shipped defaults — memory tail split into an uncached trailing system
+ *   block — is proven at the payload level in
+ *   build-pi-agent-compaction.test.ts, not here.
  *
- * It drives two consecutive compacted turns through the REAL compaction
- * transform, models Anthropic's prefix cache against the transform output,
- * feeds the resulting synthetic usage through WS-H's mock-LLM usage shape
- * (`buildChunkUsage`) and WS0's cache-stats math
+ * The opt-in proof drives two consecutive compacted turns through the REAL
+ * compaction transform, models Anthropic's prefix cache against the
+ * transform output, feeds the resulting synthetic usage through WS-H's
+ * mock-LLM usage shape (`buildChunkUsage`) and WS0's cache-stats math
  * (`computeTurnCacheStats` / `aggregateCacheStats`), and asserts the
- * compacted turn's hit-rate does NOT collapse to 0. The fraction-0 knob
- * reproduces the pre-fix front-marker behavior for a crisp before/after.
+ * compacted turn's REGION-2 hit-rate does NOT collapse to 0 when the
+ * anchor is enabled.
  */
 import { test, expect, describe } from "bun:test";
 import {
@@ -79,9 +86,11 @@ async function twoCompactedTurns(cacheAnchorFraction: number) {
 }
 
 describe("WS1: cache prefix survives compaction", () => {
-  test("compacted turn keeps a non-zero cache hit-rate (WS-H usage → WS0 stats)", async () => {
-    // The anchor is opt-in (default 0). This test proves the anchor, when
-    // enabled, keeps the compacted turn's cache hit-rate non-zero.
+  test("OPT-IN anchor (0.5): compacted turn keeps a non-zero REGION-2 hit-rate (WS-H usage → WS0 stats)", async () => {
+    // OPT-IN ANCHOR PROOF — 0.5 is NOT the shipped default (that is 0; see
+    // the shipped-default test below). This proves the anchor, when an
+    // operator enables it, keeps the compacted turn's history hit-rate
+    // non-zero.
     const { cfg, sentN, sentN1 } = await twoCompactedTurns(0.5);
 
     // Both sends actually compacted.
@@ -120,20 +129,45 @@ describe("WS1: cache prefix survives compaction", () => {
     expect(agg.overall.cachedTokens).toBe(hit);
   });
 
-  test("structural before/after: fraction 0 puts a changing marker at the FRONT", async () => {
+  test("structural anchored-vs-unanchored: fraction 0 puts a changing marker at the FRONT", async () => {
+    // OPT-IN ANCHOR PROOF (structural leg): contrasts the anchored layout
+    // (0.5, opt-in) with the unanchored one (0, the shipped default).
     const stable = await twoCompactedTurns(0.5);
     const naive = await twoCompactedTurns(0);
 
-    // NEW (anchored): the oldest original turn leads → stable prefix.
+    // Anchored (opt-in): the oldest original turn leads → stable prefix.
     expect(isCompactionMarker(stable.sentN[0]!)).toBe(false);
     expect(isCompactionMarker(stable.sentN1[0]!)).toBe(false);
     const stableHit = bytePrefixCacheTokens(stable.sentN, stable.sentN1, stable.cfg);
     expect(stableHit).toBeGreaterThan(0);
 
-    // OLD behavior (fraction 0): a marker leads — exactly the shape that
-    // invalidated the cache every compacted turn.
+    // Unanchored (fraction 0): a marker leads — the shape that forfeits
+    // REGION-2 caching on every compacted turn.
     expect(isCompactionMarker(naive.sentN[0]!)).toBe(true);
     expect(isCompactionMarker(naive.sentN1[0]!)).toBe(true);
+  });
+
+  test("SHIPPED DEFAULT (anchor = 0): marker leads REGION 2; history prefix cache is forfeited under compaction", async () => {
+    // What IS true at the shipped default (DEFAULTS.cacheAnchorFraction = 0,
+    // conventional trim-oldest per #53's recency contract): the per-turn
+    // compaction marker fronts the message array, so the REGION-2 (history)
+    // byte-prefix shared by two consecutive compacted sends is zero. That
+    // is the accepted trade — region-1 (system + tools) stays cached at
+    // defaults (proven at the payload level in
+    // build-pi-agent-compaction.test.ts) and recovering region-2 under
+    // compaction is exactly the opt-in anchor's job (tests above).
+    expect(DEFAULTS.cacheAnchorFraction).toBe(0);
+    const { cfg, sentN, sentN1 } = await twoCompactedTurns(DEFAULTS.cacheAnchorFraction);
+
+    // Both sends compacted; the changing marker leads the history.
+    expect(sentN.some(isCompactionMarker)).toBe(true);
+    expect(sentN1.some(isCompactionMarker)).toBe(true);
+    expect(isCompactionMarker(sentN[0]!)).toBe(true);
+    expect(isCompactionMarker(sentN1[0]!)).toBe(true);
+
+    // Region-2 prefix cache: zero at the default (the marker text differs
+    // per turn, so no leading byte-run is shared).
+    expect(bytePrefixCacheTokens(sentN, sentN1, cfg)).toBe(0);
   });
 
   test("a changing FRONT marker collapses the prefix cache to 0 (the caught bug)", () => {

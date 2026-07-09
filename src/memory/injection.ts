@@ -10,6 +10,14 @@ import { getSetting } from "../db/queries/settings";
 
 export interface MemoryInjectionResult {
   systemPrompt: string;
+  /**
+   * The raw injected memory/KB block WITHOUT the base prompt (`""` when
+   * nothing was injected). `systemPrompt` is always `base + injectionBlock`;
+   * cache-aware callers (setup-tools → build-pi-agent) consume the block
+   * alone so the base system prompt stays byte-stable for prompt caching —
+   * see src/runtime/stream-chat/system-cache-split.ts.
+   */
+  injectionBlock: string;
   memoriesUsed: { id: string; content: string; category: string }[];
   kbSourcesUsed: { id: string; filename: string; chunkIndex: number }[];
 }
@@ -38,7 +46,7 @@ export async function buildSystemPromptWithMemories(
   // Check if memory system is globally disabled
   const memoryEnabled = await getSetting("global:memoryEnabled");
   if (memoryEnabled === false) {
-    return { systemPrompt: base, memoriesUsed: [], kbSourcesUsed: [] };
+    return { systemPrompt: base, injectionBlock: "", memoriesUsed: [], kbSourcesUsed: [] };
   }
 
   // Check per-project isolation setting
@@ -95,7 +103,7 @@ export async function buildSystemPromptWithMemories(
   }
 
   if (memoriesUsed.length === 0 && kbSourcesUsed.length === 0) {
-    return { systemPrompt: base, memoriesUsed: [], kbSourcesUsed: [] };
+    return { systemPrompt: base, injectionBlock: "", memoriesUsed: [], kbSourcesUsed: [] };
   }
 
   let injectionBlock = "";
@@ -110,6 +118,7 @@ export async function buildSystemPromptWithMemories(
 
   return {
     systemPrompt: base + injectionBlock,
+    injectionBlock,
     memoriesUsed,
     kbSourcesUsed,
   };

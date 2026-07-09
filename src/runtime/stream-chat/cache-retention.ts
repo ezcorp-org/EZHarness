@@ -33,6 +33,18 @@ export type CacheRetention = "short" | "long" | "none";
 /**
  * Default: keep the stable prefix warm for ~1h. Unset threads a `"long"`
  * retention onto the prefix while the tail stays short (see `applyCacheRetention`).
+ *
+ * Why `"long"` is the shipped default (break-even math): with a stable
+ * prefix of R tokens, a 1h write costs 2.0R (2× input price) once, and
+ * every reused turn reads at 0.1R — total `2.0R + (N−1)·0.1R` over N
+ * turns. A 5m retention re-writes at 1.25R whenever the >5m TTL lapses
+ * between turns — worst case `N·1.25R`. Long wins from the 2nd reused
+ * turn (break-even N* ≈ 1.65): a single >5-minute pause (any human-paced
+ * thread) repays the 1h surcharge. Rapid-loop operators whose turns
+ * always land inside the 5m TTL should set the `compaction:cacheRetention`
+ * setting to `"short"`; the 1h write premium is observable per-turn via
+ * the cache-stats `cacheWrite1hTokens` field, so the choice is
+ * data-driven, not faith-based.
  */
 export const DEFAULT_CACHE_RETENTION: CacheRetention = "long";
 
