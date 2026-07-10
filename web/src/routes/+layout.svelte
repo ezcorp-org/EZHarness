@@ -2,6 +2,7 @@
 	import "../app.css";
 	import { onMount } from "svelte";
 	import UpdateBanner from "$lib/components/UpdateBanner.svelte";
+	import DevBadge from "$lib/components/DevBadge.svelte";
 	import { installFaviconBadge } from "$lib/favicon-badge.js";
 
 	let { children } = $props();
@@ -21,4 +22,5 @@
 </script>
 
 <UpdateBanner />
+<DevBadge />
 {@render children()}

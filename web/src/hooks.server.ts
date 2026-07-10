@@ -3,6 +3,7 @@ import { redirect } from "@sveltejs/kit";
 import { ensureInitialized } from "$lib/server/context";
 import { verifyJWT, getJwtSecret, signJWT } from "$server/auth/jwt";
 import { getUserCount, getUserById } from "$server/db/queries/users";
+import { devPageTransform } from "$server/dev-git-info";
 import { logger } from "$server/logger";
 import { RateLimiter } from "$lib/server/security/rate-limiter";
 import { attachBearerAuth } from "$lib/server/security/bearer-auth";
@@ -663,13 +664,12 @@ export const handle: Handle = async ({ event, resolve }) => {
   }
 
   const response = await resolve(event, {
-    transformPageChunk: process.env.EZCORP_DEV_INDICATOR === "1"
-      ? ({ html }) => html
-          .replace("<html ", '<html data-dev-indicator="1" ')
-          .replace(/<title>(?!DEV )([^<]*)<\/title>/g, "<title>DEV $1</title>")
-          .replaceAll("/favicon-192.png", "/favicon-dev-192.png")
-          .replaceAll("/favicon.ico", "/favicon-dev.ico")
-      : undefined,
+    // Dev-indicator transform (undefined in production) — stamps
+    // `data-dev-indicator` + git branch/commit attrs on `<html>`, the "DEV "
+    // title prefix and dev favicons. Built once per request (not per streamed
+    // chunk, and not module-level — so switching branches shows up on the
+    // next reload). See src/dev-git-info.ts.
+    transformPageChunk: devPageTransform(),
   });
 
   // ── Security headers on ALL responses ───────────────────────────
