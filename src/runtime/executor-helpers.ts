@@ -1,12 +1,45 @@
 import { stream, complete, type Context } from "@earendil-works/pi-ai";
 import { resolveModel } from "../providers/router";
+import { tierForModel } from "../providers/registry";
+import { isRoutingTier } from "./tier-classifier";
 import { getCredential } from "../providers/credentials";
 import { getDb } from "../db/connection";
 import { toolCalls } from "../db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { logger } from "../logger";
+import type { FallbackSuggestion } from "../providers/router";
+import type { FailoverAttempt } from "./stream-chat/failover";
 
 const log = logger.child("executor.helpers");
+
+/**
+ * Resolve a fallback suggestion into a full failover attempt: the resolved
+ * model plus its pre-validated credential. Lives here (not inline in
+ * executor.ts) so `getCredential` access stays inside the audited host-side
+ * allowlist — see `get-credential-boundary.test.ts`. Used by the WS2
+ * pre-stream failover loop (`runWithFailover`).
+ */
+export async function resolveFailoverAttempt(
+  suggestion: FallbackSuggestion,
+  credentialConversationId: string,
+): Promise<FailoverAttempt> {
+  const r = await resolveModel(suggestion.provider, suggestion.model);
+  const cred = await getCredential(r.provider, credentialConversationId);
+  return {
+    provider: r.provider,
+    model: r.model,
+    resolved: {
+      resolved: r,
+      initialCred: cred,
+      // The candidate was selected IN the loop's tier (suggestFallback
+      // returns it verbatim); carry it so the rebuilt attempt's
+      // SetupToolsResult stays complete. `suggestion.tier` is a plain
+      // string on the wire — narrow it, falling back to the resolved
+      // model's own inferred tier rather than a hardcoded default.
+      effectiveTier: isRoutingTier(suggestion.tier) ? suggestion.tier : tierForModel(r.piModel),
+    },
+  };
+}
 
 /** Loose message shape accepted by the adapter. Code-based agents assemble
  *  plain `{role, content}` objects — we forward them verbatim to pi-ai and

@@ -21,6 +21,7 @@ const getMessages = vi.fn();
 const getMessagesWithToolCalls = vi.fn();
 const getSubConversationToolCalls = vi.fn();
 const createMessage = vi.fn();
+const updateConversation = vi.fn();
 const insertAttachment = vi.fn();
 const deleteAttachmentsForMessage = vi.fn();
 const getProject = vi.fn();
@@ -35,6 +36,7 @@ vi.mock("$server/db/queries/conversations", () => ({
   getMessagesWithToolCalls,
   getSubConversationToolCalls,
   createMessage,
+  updateConversation,
 }));
 
 vi.mock("$server/db/queries/attachments", () => ({
@@ -327,5 +329,157 @@ describe("POST /api/conversations/[id]/messages — parent resolution", () => {
     expect(res.status).toBe(200);
     expect(getLatestLeaf).not.toHaveBeenCalled();
     expect(createMessage.mock.calls[0]![1].parentMessageId).toBeUndefined();
+  });
+});
+
+describe("POST /api/conversations/[id]/messages — Auto sentinel + route-once", () => {
+  /** Flush the fire-and-forget route-once `.then` chain (2 awaits inside). */
+  const flushRouteOnce = async () => {
+    for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+  };
+
+  beforeEach(() => {
+    getConversation.mockReset();
+    getConversation.mockResolvedValue({
+      id: "c1",
+      userId: "u1",
+      projectId: "p1",
+      agentConfigId: null,
+      modeId: null,
+      // A STORED conversation pin — the exact state that used to defeat
+      // Auto via the `body.model ?? conv.model` fallback.
+      provider: "openai",
+      model: "gpt-4o",
+    });
+    createMessage.mockReset();
+    createMessage.mockResolvedValue({ id: "m1", role: "user", content: "hi" });
+    getMessages.mockReset();
+    getMessages.mockResolvedValue([]);
+    getLatestLeaf.mockReset();
+    getLatestLeaf.mockResolvedValue(null);
+    updateConversation.mockReset();
+    vi.mocked(checkTokenBudget).mockReset();
+    vi.mocked(checkTokenBudget).mockResolvedValue({ allowed: true } as any);
+    streamChat.mockReset();
+    // Real resolved promise — the route-once path chains `.then` on it.
+    streamChat.mockReturnValue(Promise.resolve({ id: "run-x" }) as any);
+  });
+
+  test("explicit `model: null` bypasses the conv.model fallback → routing fires", async () => {
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: { user },
+        body: { content: "hi", provider: null, model: null },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(streamChat).toHaveBeenCalledTimes(1);
+    const opts = (streamChat.mock.calls[0] as unknown as [string, string, { provider?: string; model?: string }])[2];
+    expect(opts.provider).toBeUndefined();
+    expect(opts.model).toBeUndefined();
+  });
+
+  test("absent field keeps today's behavior exactly: falls back to conv.model", async () => {
+    const res = await POST(
+      makeEvent({ method: "POST", locals: { user }, body: { content: "hi" } }),
+    );
+    expect(res.status).toBe(200);
+    const opts = (streamChat.mock.calls[0] as unknown as [string, string, { provider?: string; model?: string }])[2];
+    expect(opts.provider).toBe("openai");
+    expect(opts.model).toBe("gpt-4o");
+    // Absent-field turns never trigger the route-once pin.
+    await flushRouteOnce();
+    expect(updateConversation).not.toHaveBeenCalled();
+  });
+
+  test("an explicit model string still wins over the conv pin", async () => {
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: { user },
+        body: { content: "hi", provider: "anthropic", model: "claude-opus" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const opts = (streamChat.mock.calls[0] as unknown as [string, string, { provider?: string; model?: string }])[2];
+    expect(opts.provider).toBe("anthropic");
+    expect(opts.model).toBe("claude-opus");
+    await flushRouteOnce();
+    expect(updateConversation).not.toHaveBeenCalled();
+  });
+
+  test("route-once: after an Auto turn, the SERVED model is pinned onto the conversation", async () => {
+    let seenRunId: string | undefined;
+    streamChat.mockImplementation(((_conv: string, _content: string, opts: { runId?: string }) => {
+      seenRunId = opts.runId;
+      return Promise.resolve({ id: opts.runId });
+    }) as any);
+    getMessages.mockImplementation(async () => [
+      { id: "u-row", role: "user", runId: null, provider: null, model: null },
+      // Served assistant row persisted by the runtime for THIS run.
+      { id: "a-row", role: "assistant", runId: seenRunId, provider: "anthropic", model: "claude-sonnet" },
+      // A later row from another run must not win.
+      { id: "a-other", role: "assistant", runId: "other-run", provider: "openai", model: "gpt-4o" },
+    ]);
+
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: { user },
+        body: { content: "route me", provider: null, model: null },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const { runId } = (await res.json()) as { runId: string };
+    expect(seenRunId).toBe(runId);
+
+    await flushRouteOnce();
+    expect(updateConversation).toHaveBeenCalledTimes(1);
+    expect(updateConversation).toHaveBeenCalledWith("c1", {
+      provider: "anthropic",
+      model: "claude-sonnet",
+    });
+  });
+
+  test("route-once: no pin when the turn produced no served assistant row", async () => {
+    getMessages.mockResolvedValue([
+      { id: "u-row", role: "user", runId: null, provider: null, model: null },
+    ]);
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: { user },
+        body: { content: "route me", provider: null, model: null },
+      }),
+    );
+    expect(res.status).toBe(200);
+    await flushRouteOnce();
+    expect(updateConversation).not.toHaveBeenCalled();
+  });
+
+  test("route-once: a failing pin read is swallowed (response already sent)", async () => {
+    getMessages.mockRejectedValue(new Error("db gone"));
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: { user },
+        body: { content: "route me", provider: null, model: null },
+      }),
+    );
+    expect(res.status).toBe(200);
+    await flushRouteOnce();
+    expect(updateConversation).not.toHaveBeenCalled();
+  });
+
+  test("rejects 400 when model is a non-string, non-null value", async () => {
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: { user },
+        body: { content: "hi", model: 42 },
+      }),
+    );
+    expect(res.status).toBe(400);
   });
 });

@@ -23,7 +23,9 @@ import { subscribeBridge } from "./stream-chat/subscribe-bridge";
 import { setupTools } from "./stream-chat/setup-tools";
 import { applyAutoSpinUp } from "./stream-chat/auto-spin-up";
 import { buildPiAgent } from "./stream-chat/build-pi-agent";
+import { runWithFailover } from "./stream-chat/failover";
 import { buildPromptInput } from "./stream-chat/build-prompt";
+import { suggestFallback } from "../providers/router";
 import { ToolExecutor } from "../extensions/tool-executor";
 import type { ExtensionStateMediator } from "../extensions/state-mediator";
 import { createSpawnQuota, type SpawnQuota } from "../extensions/spawn-quota";
@@ -33,6 +35,10 @@ import { createFileProvider } from "../providers/file";
 import { getProject } from "../db/queries/projects";
 import { getAllSettings, getSetting } from "../db/queries/settings";
 import type { CompactionConfig } from "./stream-chat/context-compaction";
+import {
+  resolveCacheRetentionSetting,
+  type CacheRetention,
+} from "./stream-chat/cache-retention";
 import * as dbRuns from "../db/queries/runs";
 import { getConversation } from "../db/queries/conversations";
 import { ExtensionRegistry } from "../extensions/registry";
@@ -41,7 +47,7 @@ import { logger } from "../logger";
 const log = logger.child("executor");
 import * as activeRunsDb from "../db/queries/active-runs";
 import { WatchdogManager } from "./executor-watchdog";
-import { createPiLlmAdapter, persistErrorMessage } from "./executor-helpers";
+import { createPiLlmAdapter, persistErrorMessage, resolveFailoverAttempt } from "./executor-helpers";
 
 export interface ExecutorOptions {
   shell?: ShellProvider;
@@ -71,6 +77,7 @@ async function resolveCompactionConfig(): Promise<Partial<CompactionConfig>> {
     ["compaction:responseReserveCap", "responseReserveCap"],
     ["compaction:responseReserveFloor", "responseReserveFloor"],
     ["compaction:safetyFraction", "safetyFraction"],
+    ["compaction:cacheAnchorFraction", "cacheAnchorFraction"],
   ];
   for (const [key, field] of numeric) {
     const v = await getSetting(key);
@@ -429,7 +436,7 @@ export class AgentExecutor {
   async streamChat(
     conversationId: string,
     userMessage: string,
-    options: { projectId?: string; provider?: string; model?: string; system?: string; runId?: string; parentMessageId?: string; agentConfigId?: string; permissionMode?: import("./tools/types").PermissionMode; thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"; modeId?: string; orchestrationDepth?: number; toolRestriction?: "all" | "read-only" | "none"; allowedTools?: string[]; deniedTools?: string[]; readOnlyAllowedTools?: string[]; memberOverrides?: Map<string, import("../types").TeamMemberOverrides>; subAgentMembers?: import("../types").TeamMember[]; attachments?: import("../chat/attachments/content-builder").StagedAttachment[]; commandResolver?: import("./mention-wiring").CommandResolver },
+    options: { projectId?: string; provider?: string; model?: string; tier?: import("./tier-classifier").RoutingTier; system?: string; runId?: string; parentMessageId?: string; agentConfigId?: string; permissionMode?: import("./tools/types").PermissionMode; thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"; modeId?: string; orchestrationDepth?: number; toolRestriction?: "all" | "read-only" | "none"; allowedTools?: string[]; deniedTools?: string[]; readOnlyAllowedTools?: string[]; memberOverrides?: Map<string, import("../types").TeamMemberOverrides>; subAgentMembers?: import("../types").TeamMember[]; attachments?: import("../chat/attachments/content-builder").StagedAttachment[]; commandResolver?: import("./mention-wiring").CommandResolver },
   ): Promise<AgentRun> {
     const run: AgentRun = {
       id: options.runId ?? crypto.randomUUID(),
@@ -616,28 +623,15 @@ export class AgentExecutor {
     });
 
     const compaction = await resolveCompactionConfig();
-    const piAgent = buildPiAgent(
-      ctx,
-      history,
-      { ...options, compaction },
-      resolvedModel,
-      credentialConversationId,
+    const cacheRetention: CacheRetention | undefined = resolveCacheRetentionSetting(
+      await getSetting("compaction:cacheRetention"),
     );
-    this.activeAgents.set(run.id, piAgent);
-
     // Streaming state lives entirely on the per-call context. Re-zero
     // allTurnsText here — the watchdog already captured the closure
-    // earlier and reads it lazily on each tick.
+    // earlier and reads it lazily on each tick. runWithFailover also resets
+    // it per attempt, so a failed pre-token attempt leaves nothing behind.
     ctx.allTurnsText = "";
     ctx.turnStart = Date.now();
-
-    // Bridge pi-agent-core events into the local EventBus + persist tool
-    // calls / per-turn assistant messages. Sub-agent events are also wired
-    // back to the watchdog so multi-minute auto-spin-up turns aren't killed.
-    // Note: the watchdog started earlier (before auto-spin-up) already
-    // handles heartbeat refresh + partial-response persistence via its
-    // closure over allTurnsText. The activity-based tick covers both.
-    subscribeBridge(ctx, host, piAgent, conversationId, options, convRecord ?? null);
 
     try {
       this.bus.emit("run:status", { runId: run.id, status: "Generating response..." });
@@ -651,17 +645,77 @@ export class AgentExecutor {
         // no-ops in that case (mirrors the projectId-missing path).
         ownerId: convRecord?.userId ?? undefined,
       });
-      if (attachmentImages.length > 0) {
-        await piAgent.prompt(promptInput, attachmentImages);
-      } else {
-        await piAgent.prompt(promptInput);
-      }
 
-      // pi-agent-core catches LLM errors internally (stopReason: "error")
-      // without rethrowing. Surface agent errors so they reach the UI.
-      if (piAgent.state.errorMessage) {
-        throw new Error(piAgent.state.errorMessage);
-      }
+      // WS2 — pre-stream provider failover. runWithFailover builds the
+      // pi-agent, wires the event bridge, and prompts it; if the FIRST token
+      // never streams and the provider fails with an availability error
+      // (429/5xx/connection), it feeds the provider's circuit breaker,
+      // asks the router for a fallback, rebuilds the agent on it, and
+      // retries. Once a token/tool card has reached the client it rethrows
+      // and the `catch` below (existing error handling) takes over —
+      // mid-stream failover is a documented follow-up (see
+      // docs/plans/2026-07-07-pi-caching-routing-integration.md §5).
+      // The initial (already-resolved) attempt. Captured as a stable
+      // reference so `subscribe` can distinguish it from a fallback attempt.
+      const initialAttempt = {
+        provider: resolvedModel.resolved.provider,
+        model: resolvedModel.resolved.model,
+        resolved: resolvedModel,
+      };
+      await runWithFailover({
+        ctx,
+        host,
+        runId: run.id,
+        // Fallback quality tier: the tier that actually produced this turn's
+        // model (setup-tools). A pinned model carries its OWN inferred tier
+        // (a pinned Opus fails over to a powerful-tier peer, never silently
+        // to "balanced"); a routed turn carries the classifier/default tier.
+        // The failover loop re-passes this tier to suggestFallback on every
+        // iteration, so a chained 2nd failover stays in-tier too.
+        tier: resolvedModel.effectiveTier,
+        // Scope circuit-breaker state to the conversation owner's credentials
+        // so one user's provider outage never degrades another's routing.
+        credentialScope: convRecord?.userId ?? undefined,
+        initial: initialAttempt,
+        buildAgent: (resolved) =>
+          buildPiAgent(ctx, history, { ...options, compaction, cacheRetention }, resolved, credentialConversationId),
+        // Bridge pi-agent-core events into the local EventBus + persist tool
+        // calls / per-turn assistant messages. EVERY attempt (initial AND
+        // fallback) passes the attempt's own provider/model — the SERVED
+        // identity — so a routed turn persists the model that actually
+        // served it (previously the initial attempt passed options verbatim
+        // and routed turns persisted undefined + metered as "unknown").
+        // The requested*/routedTier/failover fields are provenance for the
+        // messages.usage JSONB (requested pin vs served, and whether a
+        // pre-stream failover rebuilt the agent).
+        subscribe: (agent, attempt) =>
+          subscribeBridge(
+            ctx,
+            host,
+            agent,
+            conversationId,
+            {
+              ...options,
+              provider: attempt.provider,
+              model: attempt.model,
+              requestedProvider: options.provider ?? null,
+              requestedModel: options.model ?? null,
+              routedTier: options.model ? undefined : resolvedModel.effectiveTier,
+              failover: attempt !== initialAttempt,
+            },
+            convRecord ?? null,
+          ),
+        runPrompt: (agent) =>
+          attachmentImages.length > 0
+            ? agent.prompt(promptInput, attachmentImages)
+            : agent.prompt(promptInput),
+        suggestFallback,
+        resolveAttempt: async (suggestion) => {
+          const attempt = await resolveFailoverAttempt(suggestion, credentialConversationId);
+          run.provider = attempt.provider;
+          return attempt;
+        },
+      });
 
       // Scratchpad cleanup is no longer needed — Phase 1 moved the
       // scratchpad to a bundled extension whose entries auto-expire via

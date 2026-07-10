@@ -29,9 +29,34 @@ import {
   resolveModel,
   suggestFallback,
   mergePreferenceOrder,
+  getDefaultTier,
   ProviderUnavailableError,
 } from "../providers/router";
 import { getApiKey } from "../providers/credentials";
+
+describe("getDefaultTier", () => {
+  // The onboarding wizard historically stored quality/budget — the router
+  // must honor the stored INTENT, not silently coerce to "balanced".
+  test.each([
+    ["quality", "powerful"],
+    ["budget", "fast"],
+    ["powerful", "powerful"],
+    ["fast", "fast"],
+    ["balanced", "balanced"],
+  ] as const)("stored %s resolves to %s", async (stored, expected) => {
+    mockGetSetting.mockImplementation(((key: string) =>
+      Promise.resolve(key === "provider:defaultTier" ? stored : undefined)) as any);
+    expect(await getDefaultTier()).toBe(expected);
+  });
+
+  test("unknown or missing values fall back to balanced", async () => {
+    mockGetSetting.mockImplementation(((key: string) =>
+      Promise.resolve(key === "provider:defaultTier" ? "turbo" : undefined)) as any);
+    expect(await getDefaultTier()).toBe("balanced");
+    mockGetSetting.mockImplementation((() => Promise.resolve(undefined)) as any);
+    expect(await getDefaultTier()).toBe("balanced");
+  });
+});
 
 describe("mergePreferenceOrder", () => {
   const DEFAULTS = ["anthropic", "openai", "google", "openrouter"];
@@ -166,6 +191,43 @@ describe("resolveModel", () => {
     expect(result.model).toBeDefined();
   });
 
+  test("WS3: explicit requestedTier overrides the configured default tier", async () => {
+    // Default tier is "fast" from settings, but the caller requests
+    // "powerful" — the requested tier must win (the classifier decided).
+    mockGetSetting.mockImplementation(((key: string) => {
+      if (key === "provider:defaultTier") return Promise.resolve("fast");
+      return Promise.resolve(undefined);
+    }) as any);
+
+    const fast = await resolveModel("anthropic", undefined, "fast");
+    const powerful = await resolveModel("anthropic", undefined, "powerful");
+    expect(fast.model).toBeDefined();
+    expect(powerful.model).toBeDefined();
+    // Different tiers resolve to different anthropic models.
+    expect(powerful.model).not.toBe(fast.model);
+  });
+
+  test("WS3: requestedTier is ignored for an explicit provider+model pin", async () => {
+    // Level-1 passthrough must be honored regardless of the requested tier
+    // (an established/pinned model is never re-routed — cache protection).
+    const result = await resolveModel("anthropic", "claude-sonnet-4-20250514", "fast");
+    expect(result.provider).toBe("anthropic");
+    expect(result.model).toBe("claude-sonnet-4-20250514");
+  });
+
+  test("Level-3 breaker check is credentialScope-keyed: one user's open breaker doesn't reroute others", async () => {
+    // Open anthropic's breaker for user-a ONLY.
+    const cb = getCircuitBreaker("anthropic", "user-a");
+    for (let i = 0; i < 3; i++) cb.recordFailure();
+
+    // user-a is rerouted past anthropic…
+    const scoped = await resolveModel(undefined, undefined, undefined, "user-a");
+    expect(scoped.provider).toBe("openai");
+    // …while a context-free (shared-scope) caller still gets anthropic.
+    const shared = await resolveModel();
+    expect(shared.provider).toBe("anthropic");
+  });
+
   describe("resolveModel with custom models", () => {
     test("custom model with baseUrl passes it through to piModel", async () => {
       mockGetSetting.mockImplementation(((key: string) => {
@@ -249,6 +311,21 @@ describe("suggestFallback", () => {
     const suggestion = await suggestFallback("anthropic", "fast");
     expect(suggestion).not.toBeNull();
     expect(suggestion!.provider).toBe("google");
+  });
+
+  test("breaker checks are credentialScope-keyed: one user's open breaker doesn't affect other scopes", async () => {
+    // Open openai's breaker for user-a ONLY.
+    const cb = getCircuitBreaker("openai", "user-a");
+    for (let i = 0; i < 3; i++) cb.recordFailure();
+
+    // user-a's fallback skips openai…
+    const scoped = await suggestFallback("anthropic", "fast", "user-a");
+    expect(scoped).not.toBeNull();
+    expect(scoped!.provider).toBe("google");
+    // …while the shared-scope (default) fallback still suggests it.
+    const shared = await suggestFallback("anthropic", "fast");
+    expect(shared).not.toBeNull();
+    expect(shared!.provider).toBe("openai");
   });
 
   test("suggests openrouter when preceding providers are open", async () => {

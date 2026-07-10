@@ -32,10 +32,31 @@ export interface MockToolCall {
   name: string;
   arguments?: Record<string, unknown> | string;
 }
+/** Synthetic token usage (incl. cache hits/misses) reported on a mock turn.
+ *  Mirrors the server's `MockUsage`; maps 1:1 onto the parsed
+ *  `AssistantMessage.usage` that flows through the `run:usage` event. */
+export interface MockUsage {
+  input?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  output?: number;
+}
+/** A deterministic provider failure for a mock turn. Mirrors the server's
+ *  `MockFault`: `status` (400–599) fails at that HTTP status (429/5xx);
+ *  `kind:"connection"` aborts the body pre-first-token (transport failure). */
+export interface MockFault {
+  status?: number;
+  kind?: "connection";
+  message?: string;
+}
 export interface MockTurn {
   text?: string;
   toolCalls?: MockToolCall[];
   finishReason?: "stop" | "tool_calls" | "length";
+  /** Synthetic usage (incl. cache hits/misses) reported on this turn. */
+  usage?: MockUsage;
+  /** Fail this turn deterministically instead of replying (retry/failover). */
+  fault?: MockFault;
 }
 
 export interface SendMessageOptions {

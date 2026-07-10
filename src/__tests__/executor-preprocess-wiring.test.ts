@@ -48,8 +48,13 @@ mock.module("@earendil-works/pi-agent-core", () => ({
 mock.module("../providers/router", () => ({
   resolveModel: mock(async () => ({
     provider: "anthropic",
+    // An ANTHROPIC model (api stamped by pi-ai) so region-1 (the frozen
+    // systemPrompt) is observably SEPARATE from the uncached memory/preprocess
+    // tail, which build-pi-agent applies in onPayload — matching
+    // setup-tools-memory-tail.test.ts. This lets us assert the grounding note
+    // rides the tail and NEVER the cached region-1 (the WS1 cache invariant).
     model: "claude-sonnet-4",
-    piModel: { provider: "anthropic", id: "claude-sonnet-4" },
+    piModel: { provider: "anthropic", id: "claude-sonnet-4", api: "anthropic-messages" },
   })),
   ProviderUnavailableError: class extends Error {
     failedProvider = "";
@@ -343,18 +348,86 @@ describe("executor deterministic-preprocess wiring (setup-tools 2c)", () => {
       output: '{"cert":"49392223","grader":"PSA"}',
     });
 
-    // 3. The grounding note landed in the Agent's system prompt
-    //    (preprocess completed BEFORE the pi-agent was constructed).
+    // 3. The grounding note rides the UNCACHED systemMemoryTail, NOT the
+    //    byte-stable cached region-1 (preprocess completed BEFORE the
+    //    pi-agent was constructed). Region-1 = the frozen systemPrompt must
+    //    stay note-FREE so the system+tools prefix cache survives every
+    //    preprocess-bearing turn (the WS1 cache invariant); the note is
+    //    appended by onPayload as the LAST uncached Anthropic system block.
     expect(capturedAgentOpts).not.toBeNull();
     const systemPrompt: string = capturedAgentOpts.initialState.systemPrompt;
-    expect(systemPrompt).toContain(
-      "[Deterministic preprocess graded-card-scanner:identify_slab on slab.png]",
-    );
-    // Injection hardening: the tool output sits INSIDE explicit
-    // untrusted-data delimiters, in header → open → output → close order.
-    expect(systemPrompt).toContain(
+    expect(systemPrompt).not.toContain("[Deterministic preprocess");
+
+    const wire: any = {
+      system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+    };
+    const out = (await capturedAgentOpts.onPayload(wire)) as any;
+    // The frozen region-1 block is untouched (keeps its breakpoint); the note
+    // rides a SEPARATE trailing block with NO cache_control.
+    expect(out.system).toHaveLength(2);
+    expect("cache_control" in out.system[1]).toBe(false);
+    const tailText: string = out.system[1].text;
+    // Injection hardening: the tool output sits INSIDE explicit untrusted-data
+    // delimiters, in header → open → output → close order.
+    expect(tailText).toContain(
       `[Deterministic preprocess graded-card-scanner:identify_slab on slab.png]\n${PREPROCESS_NOTE_OPEN}\n{"cert":"49392223","grader":"PSA"}\n${PREPROCESS_NOTE_CLOSE}`,
     );
+  });
+
+  test("region-1 cache invariant: a preprocess-note turn yields a BYTE-IDENTICAL frozen systemPrompt to a note-less turn; the note rides only the uncached tail (#56)", async () => {
+    // The WS1 regression guard: a per-turn grounding note must NOT perturb the
+    // cached region-1 (system + tools) prefix — otherwise every
+    // preprocess-bearing turn rewrites it and busts Anthropic's prompt cache
+    // (the cost-negative class this fix closes, mirroring the memory-injection
+    // split in setup-tools-memory-tail.test.ts). Run one turn WITH a note and
+    // one WITHOUT, and assert their frozen systemPrompt is byte-for-byte equal.
+    const { executor } = createExecutor();
+    toolResultMode = "success";
+
+    // Turn WITH a preprocess note (attachment present → preprocessor fires).
+    toolCalls.length = 0;
+    capturedAgentOpts = null;
+    const withNote = await seedTurn();
+    await executor.streamChat(withNote.conv.id, "what is this slab worth?", {
+      projectId,
+      parentMessageId: withNote.userMsg.id,
+      attachments: stagedFor(withNote.attRow),
+    });
+    expect(toolCalls).toHaveLength(1);
+    const region1WithNote: string = capturedAgentOpts.initialState.systemPrompt;
+    const withWire: any = {
+      system: [{ type: "text", text: region1WithNote, cache_control: { type: "ephemeral" } }],
+    };
+    const withOut = (await capturedAgentOpts.onPayload(withWire)) as any;
+
+    // Turn WITHOUT a note (no attachment → preprocess never fires).
+    toolCalls.length = 0;
+    capturedAgentOpts = null;
+    const noNote = await seedTurn();
+    await executor.streamChat(noNote.conv.id, "what is this slab worth?", {
+      projectId,
+      parentMessageId: noNote.userMsg.id,
+    });
+    expect(toolCalls).toHaveLength(0);
+    const region1NoNote: string = capturedAgentOpts.initialState.systemPrompt;
+    const noWire: any = {
+      system: [{ type: "text", text: region1NoNote, cache_control: { type: "ephemeral" } }],
+    };
+    const noOut = (await capturedAgentOpts.onPayload(noWire)) as any;
+
+    // Region-1 is BYTE-IDENTICAL across the two turns — the note never touches
+    // the cached prefix — and carries none of the note text.
+    expect(region1WithNote).toBe(region1NoNote);
+    expect(region1WithNote).not.toContain("[Deterministic preprocess");
+
+    // The note appears ONLY in the with-note turn's uncached trailing block;
+    // the note-less turn emits no tail block at all (onPayload no-op).
+    expect(withOut.system).toHaveLength(2);
+    expect(withOut.system[1].text).toContain(
+      "[Deterministic preprocess graded-card-scanner:identify_slab on slab.png]",
+    );
+    expect("cache_control" in withOut.system[1]).toBe(false);
+    expect(noOut.system).toHaveLength(1);
   });
 
   test("failing preprocessor → ok:false row persisted, NO note, turn still completes", async () => {

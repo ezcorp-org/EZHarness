@@ -1143,6 +1143,51 @@ describe("validateManifestV2 — tools[].rbacScope", () => {
     expect(r.valid).toBe(false);
     expect(r.errors.some((e) => e.includes("tools must be an array"))).toBe(true);
   });
+
+  // ── WS3 routing (quality-tier declaration) ─────────────────────
+  describe("routing", () => {
+    test("a valid routing.tier passes", () => {
+      const r = validateManifestV2(makeValidManifest({ routing: { tier: "powerful" } }));
+      expect(r.valid).toBe(true);
+    });
+
+    test("absent routing block is fine (optional)", () => {
+      const r = validateManifestV2(makeValidManifest());
+      expect(r.errors.some((e) => e.includes("routing"))).toBe(false);
+    });
+
+    test("routing must be an object (array rejected)", () => {
+      const r = validateManifestV2(
+        makeValidManifest({ routing: ["powerful"] as unknown as { tier: "powerful" } }),
+      );
+      expect(r.valid).toBe(false);
+      expect(r.errors).toContain("routing must be an object");
+    });
+
+    test("routing must be an object (null rejected)", () => {
+      const r = validateManifestV2(
+        makeValidManifest({ routing: null as unknown as { tier: "fast" } }),
+      );
+      expect(r.valid).toBe(false);
+      expect(r.errors).toContain("routing must be an object");
+    });
+
+    test("missing tier is rejected", () => {
+      const r = validateManifestV2(
+        makeValidManifest({ routing: {} as unknown as { tier: "fast" } }),
+      );
+      expect(r.valid).toBe(false);
+      expect(r.errors.some((e) => e.includes("routing.tier must be one of"))).toBe(true);
+    });
+
+    test("an unknown tier value is rejected", () => {
+      const r = validateManifestV2(
+        makeValidManifest({ routing: { tier: "reasoning" } as unknown as { tier: "fast" } }),
+      );
+      expect(r.valid).toBe(false);
+      expect(r.errors.some((e) => e.includes("routing.tier must be one of"))).toBe(true);
+    });
+  });
 });
 
 

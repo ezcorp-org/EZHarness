@@ -139,7 +139,31 @@ export const messages = pgTable("messages", {
   thinkingContent: text("thinking_content"),
   model: text("model"),
   provider: text("provider"),
-  usage: jsonb("usage").$type<{ inputTokens: number; outputTokens: number }>(),
+  // `cache*` fields are the WS0 prompt-cache meter (tokens served from / written
+  // to the provider cache this turn + the derived hit-rate). `requested*` /
+  // `routedTier` / `failover` are routing provenance (requested vs served —
+  // the `model`/`provider` COLUMNS carry the served values; the jsonb carries
+  // only what the columns can't). All optional — jsonb, so pre-cache rows and
+  // non-caching providers remain valid with no migration. This is the ONE
+  // canonical usage shape — `CreateMessageUsage` (queries/conversations.ts) and
+  // the web `Message.usage` type (web/src/lib/api.ts) mirror it.
+  usage: jsonb("usage").$type<{
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    cacheHitRate?: number;
+    /** Subset of cacheWriteTokens written with 1h retention (Anthropic-only; billed at 2× input). */
+    cacheWrite1hTokens?: number;
+    /** User-pinned provider at request time; null ⇒ Auto/routed. */
+    requestedProvider?: string | null;
+    /** User-pinned model at request time; null ⇒ Auto/routed. */
+    requestedModel?: string | null;
+    /** Tier the router selected — only present when routing fired. */
+    routedTier?: "fast" | "balanced" | "powerful";
+    /** True when the served provider ≠ the initially resolved provider. */
+    failover?: boolean;
+  }>(),
   runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
   parentMessageId: text("parent_message_id"),
   // When true, load-history drops this row from the array sent to pi-ai on

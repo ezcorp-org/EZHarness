@@ -424,6 +424,33 @@ export async function getOrCreateEzConversation(userId: string): Promise<Convers
 
 // ── Messages ─────────────────────────────────────────────────────────
 
+/**
+ * Per-turn usage persisted on `messages.usage`. `cache*` are the WS0
+ * prompt-cache meter (tokens served from / written to the provider cache this
+ * turn + the derived hit-rate [0,1]). `requested*`/`routedTier`/`failover` are
+ * routing provenance — requested vs served; the served values live on the
+ * `model`/`provider` columns. Optional so pre-cache rows and non-caching
+ * providers stay valid — jsonb, so no migration. Mirrors the canonical
+ * `messages.usage` `$type` in schema.ts.
+ */
+export interface CreateMessageUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  cacheHitRate?: number;
+  /** Subset of cacheWriteTokens written with 1h retention (Anthropic-only; billed at 2× input). */
+  cacheWrite1hTokens?: number;
+  /** User-pinned provider at request time; null ⇒ Auto/routed. */
+  requestedProvider?: string | null;
+  /** User-pinned model at request time; null ⇒ Auto/routed. */
+  requestedModel?: string | null;
+  /** Tier the router selected — only present when routing fired. */
+  routedTier?: "fast" | "balanced" | "powerful";
+  /** True when the served provider ≠ the initially resolved provider. */
+  failover?: boolean;
+}
+
 export async function createMessage(
   conversationId: string,
   data: {
@@ -432,7 +459,7 @@ export async function createMessage(
     thinkingContent?: string;
     model?: string;
     provider?: string;
-    usage?: { inputTokens: number; outputTokens: number };
+    usage?: CreateMessageUsage;
     runId?: string;
     parentMessageId?: string;
   },

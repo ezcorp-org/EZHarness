@@ -208,17 +208,129 @@ describe("strategy registry", () => {
 describe("trim strategy", () => {
   const trim = getCompactionStrategy("trim");
 
-  test("drops oldest turns, keeps the active turn, inserts one marker", async () => {
+  test("keeps a stable oldest anchor + active turn, marker AFTER the anchor", async () => {
     const turns = Array.from({ length: 10 }, (_, i) => userMsg("x".repeat(400) + i));
-    const res = await trim.compact(turns, mkCtx(300));
+    // Anchor is opt-in (default 0); this test exercises the anchor feature.
+    const res = await trim.compact(turns, mkCtx(300, { ...DEFAULTS, cacheAnchorFraction: 0.5 }));
 
-    expect(isCompactionMarker(res.messages[0])).toBe(true);
+    // Cache-stable prefix: the OLDEST original turn leads (byte-stable),
+    // NOT a per-turn-changing marker.
+    expect(isCompactionMarker(res.messages[0])).toBe(false);
+    expect(res.messages[0]).toBe(turns[0]);
+    // Exactly one marker, and it is NOT at index 0.
     expect(res.messages.filter(isCompactionMarker).length).toBe(1);
+    expect(res.messages.findIndex(isCompactionMarker)).toBeGreaterThan(0);
     // Active (last) turn preserved by identity.
     expect(res.messages[res.messages.length - 1]).toBe(turns[turns.length - 1]);
     expect(res.droppedCount).toBeGreaterThan(0);
+    // dropped + survivors (survivors = everything except the one marker).
     expect(res.droppedCount).toBe(10 - (res.messages.length - 1));
     expect(estimateTokens(res.messages)).toBeLessThanOrEqual(300);
+  });
+
+  test("anchor is BYTE-STABLE across consecutive compacted turns (cache survives)", async () => {
+    // Turn N history, then the follow-up turn appends an assistant reply +
+    // a new user prompt — exactly how a thread grows.
+    const turnsN = Array.from({ length: 12 }, (_, i) => userMsg("x".repeat(400) + "_" + i));
+    const turnsN1 = [...turnsN, asstText("reply".repeat(80)), userMsg("next question")];
+
+    // Anchor is opt-in (default 0); this test exercises the anchor feature.
+    const anchorCfg = { ...DEFAULTS, cacheAnchorFraction: 0.5 };
+    const outN = (await trim.compact(turnsN, mkCtx(300, anchorCfg))).messages;
+    const outN1 = (await trim.compact(turnsN1, mkCtx(300, anchorCfg))).messages;
+
+    // Both actually compacted (a marker was injected).
+    expect(outN.some(isCompactionMarker)).toBe(true);
+    expect(outN1.some(isCompactionMarker)).toBe(true);
+
+    // The leading byte-identical run (the provider's reusable cache prefix)
+    // is non-empty AND begins at the oldest original turn — so the cached
+    // prefix is NOT invalidated by the trim. The naive front-marker trim
+    // would put a different-count marker at index 0, collapsing this to 0.
+    let shared = 0;
+    while (shared < outN.length && shared < outN1.length && outN[shared] === outN1[shared]) {
+      shared++;
+    }
+    expect(shared).toBeGreaterThan(0);
+    expect(outN[0]).toBe(turnsN[0]);
+    expect(outN1[0]).toBe(turnsN[0]);
+  });
+
+  test("cacheAnchorFraction: 0 disables the anchor → marker at the front", async () => {
+    const turns = Array.from({ length: 10 }, (_, i) => userMsg("x".repeat(400) + i));
+    const cfg = { ...DEFAULTS, cacheAnchorFraction: 0 };
+    const ctx: CompactionContext = {
+      model: { id: "m", contextWindow: 1, maxTokens: 1 } as any,
+      budget: 300,
+      cfg,
+      estimateTokens: (m) => estimateTokens(m, cfg),
+      splitTurnBlocks,
+    };
+    const res = await trim.compact(turns, ctx);
+    expect(isCompactionMarker(res.messages[0])).toBe(true);
+    // Recent-only: the active turn is still the last message.
+    expect(res.messages[res.messages.length - 1]).toBe(turns[turns.length - 1]);
+    expect(estimateTokens(res.messages)).toBeLessThanOrEqual(300);
+  });
+
+  test("cacheAnchorFraction > 1 is clamped (anchor never exceeds the budget)", async () => {
+    const turns = Array.from({ length: 12 }, (_, i) => userMsg("x".repeat(400) + i));
+    const cfg = { ...DEFAULTS, cacheAnchorFraction: 5 };
+    const ctx: CompactionContext = {
+      model: { id: "m", contextWindow: 1, maxTokens: 1 } as any,
+      budget: 300,
+      cfg,
+      estimateTokens: (m) => estimateTokens(m, cfg),
+      splitTurnBlocks,
+    };
+    const res = await trim.compact(turns, ctx);
+    expect(estimateTokens(res.messages)).toBeLessThanOrEqual(300);
+    // Still keeps the oldest turn as a stable anchor.
+    expect(res.messages[0]).toBe(turns[0]);
+  });
+
+  test("preserves recent context (newest non-active turns kept)", async () => {
+    const turns = Array.from({ length: 12 }, (_, i) => userMsg("q".repeat(200) + "#" + i));
+    const res = await trim.compact(turns, mkCtx(600));
+    // The block immediately before the active turn survives (recent window).
+    expect(res.messages).toContain(turns[turns.length - 2]);
+    expect(estimateTokens(res.messages)).toBeLessThanOrEqual(600);
+  });
+
+  test("huge oldest block → empty anchor → marker leads, still fits", async () => {
+    const msgs = [
+      userMsg("HUGE".repeat(4_000)), // block 0: far bigger than the anchor cap
+      userMsg("m1"),
+      userMsg("m2"),
+      userMsg("active"),
+    ];
+    const res = await trim.compact(msgs, mkCtx(200));
+    expect(isCompactionMarker(res.messages[0])).toBe(true);
+    expect(res.messages[res.messages.length - 1]).toBe(msgs[msgs.length - 1]);
+    expect(estimateTokens(res.messages)).toBeLessThanOrEqual(200);
+  });
+
+  test("drops the middle AND truncates an oversized recent tool result", async () => {
+    const msgs: Msg[] = [];
+    for (let i = 0; i < 6; i++) msgs.push(userMsg("small" + i)); // cheap oldest blocks
+    // Active turn carries a giant tool result that alone blows the budget.
+    msgs.push(userMsg("final question"));
+    msgs.push(asstToolCall("c-big", "search", {}));
+    msgs.push(toolResult("c-big", "BIG".repeat(5_000)));
+    const res = await trim.compact(msgs, mkCtx(120));
+
+    // A middle turn was dropped (marker present) …
+    expect(res.messages.filter(isCompactionMarker).length).toBe(1);
+    // … and the oversized tool result was truncated to fit.
+    const tr = res.messages.find((m: any) => m.role === "toolResult") as any;
+    expect(tr.content[0].text).toContain("truncated to fit context");
+    // The user's own prompt text is never mangled.
+    const finalUser = res.messages.find(
+      (m: any) => m.role === "user" && m.content === "final question",
+    );
+    expect(finalUser).toBeDefined();
+    expect(res.droppedCount).toBeGreaterThan(0);
+    expect(estimateTokens(res.messages)).toBeLessThanOrEqual(120);
   });
 
   test("no-op when already within budget", async () => {
@@ -282,15 +394,21 @@ describe("makeCompactionTransform", () => {
   });
 
   test("trims a long history below the computed budget", async () => {
+    // Anchor is opt-in (default 0); this test exercises the anchor layout
+    // (oldest turn leads, marker relocated after it).
     const transform = makeCompactionTransform(fakeModel(1_000, 1_000), {
       safetyFraction: 0,
       responseReserveFloor: 0,
       responseReserveCap: 0,
+      cacheAnchorFraction: 0.5,
     });
     const turns = Array.from({ length: 30 }, (_, i) => userMsg("z".repeat(400) + i));
     const out = await transform(turns);
     expect(out.length).toBeLessThan(turns.length);
-    expect(isCompactionMarker(out[0])).toBe(true);
+    // Cache-stable: the oldest turn leads (byte-stable prefix), not the marker.
+    expect(isCompactionMarker(out[0])).toBe(false);
+    expect(out[0]).toBe(turns[0]);
+    expect(out.some(isCompactionMarker)).toBe(true);
     expect(estimateTokens(out)).toBeLessThanOrEqual(1_000);
   });
 

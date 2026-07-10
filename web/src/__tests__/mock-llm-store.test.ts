@@ -9,6 +9,10 @@ import {
   mockScriptKeyFromModel,
   mockTurnToChunks,
   mockTurnToSseFrames,
+  buildChunkUsage,
+  buildMockFaultResponse,
+  buildMockStreamResponse,
+  buildMockTurnResponse,
 } from "$lib/server/mock-llm";
 
 afterEach(() => clearMockScripts());
@@ -108,5 +112,91 @@ describe("mockTurnToSseFrames", () => {
     // first frame parses back to a chunk
     const first = JSON.parse(frames[0]!.slice("data: ".length));
     expect(first.choices[0].delta.content).toBe("hi");
+  });
+});
+
+describe("buildChunkUsage (synthetic cache usage)", () => {
+  test("undefined usage → historic default shape (no cache details)", () => {
+    expect(buildChunkUsage(undefined)).toEqual({
+      prompt_tokens: 0,
+      completion_tokens: 1,
+      total_tokens: 1,
+    });
+  });
+
+  test("cache values map onto prompt_tokens_details; prompt_tokens sums them", () => {
+    const u = buildChunkUsage({ input: 200, cacheRead: 100, cacheWrite: 50, output: 7 }) as any;
+    // pi-ai subtracts the cache parts back out of prompt_tokens → input=200.
+    expect(u.prompt_tokens).toBe(350);
+    expect(u.completion_tokens).toBe(7);
+    expect(u.total_tokens).toBe(357);
+    expect(u.prompt_tokens_details).toEqual({ cached_tokens: 100, cache_write_tokens: 50 });
+  });
+
+  test("cache-write only still emits prompt_tokens_details", () => {
+    const u = buildChunkUsage({ input: 10, cacheWrite: 5 }) as any;
+    expect(u.prompt_tokens_details).toEqual({ cached_tokens: 0, cache_write_tokens: 5 });
+    expect(u.completion_tokens).toBe(1); // output defaulted
+  });
+
+  test("no cache tokens → prompt_tokens_details omitted", () => {
+    const u = buildChunkUsage({ input: 42, output: 3 }) as any;
+    expect(u.prompt_tokens).toBe(42);
+    expect(u.prompt_tokens_details).toBeUndefined();
+  });
+
+  test("mockTurnToChunks threads the turn usage into the final chunk", () => {
+    const chunks = mockTurnToChunks({ text: "hi", usage: { input: 1, cacheRead: 2 } }) as any[];
+    expect(chunks.at(-1).usage.prompt_tokens_details).toEqual({ cached_tokens: 2, cache_write_tokens: 0 });
+  });
+});
+
+describe("buildMockFaultResponse (simulated provider failures)", () => {
+  test("status fault → OpenAI-shaped error body at that HTTP status", async () => {
+    const res = buildMockFaultResponse({ status: 429, message: "slow down" });
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Content-Type")).toBe("application/json");
+    const body = (await res.json()) as { error: { message: string; code: string } };
+    expect(body.error.message).toBe("slow down");
+    expect(body.error.code).toBe("mock_429");
+  });
+
+  test("status fault defaults status→500 and synthesizes a message", async () => {
+    const res = buildMockFaultResponse({});
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toContain("500");
+  });
+
+  test("connection fault → body errors before any bytes (transport failure)", async () => {
+    const res = buildMockFaultResponse({ kind: "connection" });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Connection")).toBe("close");
+    // Reading the aborted body throws rather than yielding data.
+    let threw = false;
+    try {
+      await res.text();
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+  });
+});
+
+describe("buildMockTurnResponse (dispatcher)", () => {
+  test("plain turn → streamed reply", () => {
+    const res = buildMockTurnResponse({ text: "hi" });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("text/event-stream");
+  });
+
+  test("fault turn → failing response", () => {
+    const res = buildMockTurnResponse({ fault: { status: 503 } });
+    expect(res.status).toBe(503);
+  });
+
+  test("matches buildMockStreamResponse for a non-fault turn", () => {
+    expect(buildMockTurnResponse({ text: "x" }).headers.get("Content-Type"))
+      .toBe(buildMockStreamResponse({ text: "x" }).headers.get("Content-Type"));
   });
 });

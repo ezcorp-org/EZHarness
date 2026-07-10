@@ -7,6 +7,9 @@ import { resolveModelObject, findModelForProviderInTier, resolveDiscoveredModel 
 import { getCircuitBreaker } from "./circuit-breaker";
 import { getSetting } from "../db/queries/settings";
 import { isTestSurfaceEnabled, MOCK_PROVIDER, mockLlmBaseUrl } from "../test-surface";
+// Tier vocabulary lives in the pure routing classifier (single source of
+// truth). Type-only import — erased at build, so it adds no runtime dep.
+import type { RoutingTier } from "../runtime/tier-classifier";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -30,15 +33,24 @@ export class ProviderUnavailableError extends Error {
 
 // ── Settings helpers ─────────────────────────────────────────────────
 
-type TierName = "fast" | "balanced" | "powerful";
+type TierName = RoutingTier;
 
 const DEFAULT_PREFERENCE_ORDER = ["anthropic", "openai", "google", "openrouter"];
 const DEFAULT_TIER: TierName = "balanced";
 
-async function getDefaultTier(): Promise<TierName> {
+/** The onboarding wizard historically stored `provider:defaultTier` as
+ *  quality/budget; the router vocabulary is fast/balanced/powerful. Accept
+ *  the legacy values at read time so stored settings keep their intent. */
+const TIER_ALIASES: Record<string, TierName> = { quality: "powerful", budget: "fast" };
+
+/** Configured default routing tier (`provider:defaultTier` setting, falling
+ *  back to "balanced"). Exported so the stream-chat wiring can label a turn
+ *  whose tier classification failed with the same tier `resolveModel` used. */
+export async function getDefaultTier(): Promise<TierName> {
   const tier = await getSetting("provider:defaultTier");
-  if (tier && typeof tier === "string" && ["fast", "balanced", "powerful"].includes(tier)) {
-    return tier as TierName;
+  if (tier && typeof tier === "string") {
+    if (["fast", "balanced", "powerful"].includes(tier)) return tier as TierName;
+    if (TIER_ALIASES[tier]) return TIER_ALIASES[tier];
   }
   return DEFAULT_TIER;
 }
@@ -73,8 +85,19 @@ async function getPreferenceOrder(): Promise<string[]> {
 export async function resolveModel(
   provider?: string,
   modelId?: string,
+  requestedTier?: RoutingTier,
+  // Circuit-breaker credential scope (the acting user's id). Defaults to
+  // the process-wide "shared" breaker so context-free callers are
+  // behavior-identical to the old provider-only keying.
+  credentialScope = "shared",
 ): Promise<{ provider: string; model: string; piModel: Model<any> }> {
-  const tier = await getDefaultTier();
+  // WS3 quality-tier routing. When the caller passes a tier (the heuristic
+  // classifier picked it for a thread with NO established model — see
+  // stream-chat/setup-tools.ts), route by that tier; otherwise fall back to
+  // the configured default tier (`provider:defaultTier`). Explicit
+  // provider+model pins (Level 1 below) ignore tier entirely and pass
+  // through unchanged, so an established/pinned model is never re-routed.
+  const tier = requestedTier ?? (await getDefaultTier());
 
   // Level 1: Explicit provider + model -- passthrough
   if (provider && modelId) {
@@ -113,7 +136,7 @@ export async function resolveModel(
   // Level 3: No provider -- iterate preference order, skip open circuit breakers
   const order = await getPreferenceOrder();
   for (const p of order) {
-    const cb = getCircuitBreaker(p);
+    const cb = getCircuitBreaker(p, credentialScope);
     if (cb.isOpen()) continue;
 
     const entry = findModelForProviderInTier(p, tier);
@@ -130,13 +153,16 @@ export async function resolveModel(
 export async function suggestFallback(
   failedProvider: string,
   tier: string,
+  // Circuit-breaker credential scope (the acting user's id) — see
+  // resolveModel. Default keeps context-free callers behavior-identical.
+  credentialScope = "shared",
 ): Promise<FallbackSuggestion | null> {
   const order = await getPreferenceOrder();
 
   for (const provider of order) {
     if (provider === failedProvider) continue;
 
-    const cb = getCircuitBreaker(provider);
+    const cb = getCircuitBreaker(provider, credentialScope);
     if (cb.isOpen()) continue;
 
     const entry = findModelForProviderInTier(provider, tier as TierName);

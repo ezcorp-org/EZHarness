@@ -123,21 +123,30 @@ export function setupPiAiMocks(opts: {
 
   // Paths are relative to THIS file (src/__tests__/helpers/), so ../../ reaches src/
   mock.module("../../providers/router", () => ({
-    resolveModel: async () => ({
-      provider: "anthropic",
-      model: "test-model",
-      piModel: {
-        id: "test-model",
-        provider: "anthropic",
-        api: "anthropic-messages",
-        baseUrl: "",
-        reasoning: false,
-        input: ["text"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 200000,
-        maxTokens: 4096,
-      },
-    }),
+    // Mirrors the REAL resolveModel contract: an explicit provider+model pin
+    // passes through verbatim (Level-1 passthrough — the persisted message
+    // row must name the pin, see chat-e2e-comprehensive), everything else
+    // resolves to the default anthropic/test-model stub.
+    resolveModel: async (provider?: string, modelId?: string) => {
+      const p = provider && modelId ? provider : "anthropic";
+      const m = provider && modelId ? modelId : "test-model";
+      return {
+        provider: p,
+        model: m,
+        piModel: {
+          id: m,
+          provider: p,
+          api: "anthropic-messages",
+          baseUrl: "",
+          reasoning: false,
+          input: ["text"],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 200000,
+          maxTokens: 4096,
+        },
+      };
+    },
+    getDefaultTier: async () => "balanced",
     createRoutedStream: async () => createMockPiStream(streamEvents),
     createRoutedComplete: async () => stubAssistantMessage(completeText),
     ProviderUnavailableError: class extends Error {

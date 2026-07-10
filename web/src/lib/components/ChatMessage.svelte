@@ -18,6 +18,7 @@
 	import ProviderIcon from "./ProviderIcon.svelte";
 	import MessageAttachments from "./MessageAttachments.svelte";
 	import { getSegments } from "$lib/mention-logic.js";
+	import { fmtTokens } from "$lib/context-usage-logic.js";
 	import { formatMessageForCopy } from "$lib/message-copy.js";
 	import { extensionToolbarStore } from "$lib/stores/extension-toolbar.svelte.js";
 	import {
@@ -199,6 +200,34 @@
 			? `Input: ${message.usage.inputTokens} tokens | Output: ${message.usage.outputTokens} tokens`
 			: undefined,
 	);
+
+	// WS0 prompt-cache meter — the hit-rate percent for THIS turn, or null when
+	// there was no cache activity (fresh input only / non-caching provider), so
+	// the pill stays silent rather than showing a noisy "0% cached" everywhere.
+	// The rate itself is computed server-side (single source of the math) and
+	// persisted on the message; here we only round it for display.
+	let cacheHitPct = $derived(
+		message.usage &&
+			((message.usage.cacheReadTokens ?? 0) > 0 || (message.usage.cacheWriteTokens ?? 0) > 0)
+			? Math.round((message.usage.cacheHitRate ?? 0) * 100)
+			: null,
+	);
+
+	// Subset of this turn's cache writes stored with 1h retention — Anthropic
+	// bills those at 2× the base input rate, so the pill surfaces the premium
+	// (`· <tokens> @1h (2×)`) only when it was actually paid.
+	let cacheWrite1hTokens = $derived(message.usage?.cacheWrite1hTokens ?? 0);
+
+	// Routing provenance pills. `usage.requestedModel === null` is the
+	// runtime's "no user pin — the router chose this turn's model" marker
+	// (STRICT null: legacy rows without the provenance key stay silent), so
+	// the footer badges the served model as auto-picked. `usage.failover`
+	// marks a turn served by a fallback provider after the resolved one
+	// failed pre-stream.
+	let isAutoRouted = $derived(
+		message.usage != null && message.usage.requestedModel === null && !!message.model,
+	);
+	let isFailover = $derived(message.usage?.failover === true);
 
 	let hasSiblings = $derived(siblings && siblings.length > 1 && onnavigate);
 
@@ -786,6 +815,36 @@
 			<div class="mt-1 flex items-center gap-2">
 				{#if message.model && !isStreaming}
 					<span class="text-xs text-[var(--color-text-muted)]">{message.model}</span>
+				{/if}
+				{#if isAutoRouted && !isStreaming}
+					<span
+						class="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]"
+						data-testid="auto-routed-pill"
+						title="Auto (smart routing) — no model was pinned for this turn; the router served it with {message.provider}/{message.model}"
+					>
+						auto
+					</span>
+				{/if}
+				{#if isFailover && !isStreaming}
+					<span
+						class="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400"
+						data-testid="failover-pill"
+						title="Provider failover — the originally resolved provider was unavailable; this turn was served by {message.provider}/{message.model}"
+					>
+						failover
+					</span>
+				{/if}
+				{#if cacheHitPct !== null && !isStreaming}
+					<span
+						class="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] tabular-nums text-[var(--color-text-muted)]"
+						data-testid="cache-stats-pill"
+						title="Prompt cache this turn — {message.usage?.cacheReadTokens ?? 0} tokens served from cache, {message.usage?.cacheWriteTokens ?? 0} written{cacheWrite1hTokens > 0 ? ` (${cacheWrite1hTokens} with 1h retention — 1h cache writes bill at 2× the base input rate)` : ''}"
+					>
+						<svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+						</svg>
+						{cacheHitPct}% cached · {fmtTokens(message.usage?.cacheReadTokens ?? 0)}{#if cacheWrite1hTokens > 0} · {fmtTokens(cacheWrite1hTokens)} @1h (2×){/if}
+					</span>
 				{/if}
 				{#if hasSources && !isStreaming}
 					<div class="relative">

@@ -5,6 +5,12 @@ import { getCredential } from "../../providers/credentials";
 import type { StreamChatContext } from "./context";
 import type { SetupToolsResult } from "./setup-tools";
 import { makeCompactionTransform, type CompactionConfig } from "./context-compaction";
+import {
+  applyCacheRetention,
+  DEFAULT_CACHE_RETENTION,
+  type CacheRetention,
+} from "./cache-retention";
+import { appendMemoryTailBlock } from "./system-cache-split";
 
 /** Subset of streamChat's options the pi-agent construction reads. */
 export interface BuildPiAgentOptions {
@@ -14,6 +20,12 @@ export interface BuildPiAgentOptions {
    * the streamChat entry). Omitted keys fall back to module DEFAULTS.
    */
   compaction?: Partial<CompactionConfig>;
+  /**
+   * Prompt-cache retention for the stable prefix (resolved from the
+   * `compaction:cacheRetention` setting). Omitted → {@link DEFAULT_CACHE_RETENTION}
+   * (`"long"` — keep the system/tools/anchor prefix warm for ~1h).
+   */
+  cacheRetention?: CacheRetention;
 }
 
 /**
@@ -24,7 +36,8 @@ export interface BuildPiAgentOptions {
  * subscription-eligible Model object so the correct API + endpoint +
  * metadata is wired in.
  *
- * Pure function — touches `ctx.system` + `ctx.agentTools` for read only,
+ * Pure function — touches `ctx.system` + `ctx.systemMemoryTail` +
+ * `ctx.agentTools` for read only,
  * does NOT subscribe (that's {@link subscribeBridge}'s job). Callers
  * register the agent on the host's `activeAgents` map themselves so the
  * cancel + watchdog paths can `.abort()` it.
@@ -58,9 +71,36 @@ export function buildPiAgent(
     }
   }
 
+  // Prefix-cache retention for THIS turn. Anthropic caches the system
+  // prompt + tools + conversation prefix; a long TTL keeps that stable
+  // prefix warm across inter-turn pauses. `compat.supportsLongCacheRetention`
+  // mirrors pi-ai's own guard (undefined ⇒ supported for non-Fireworks).
+  const cacheRetention = options.cacheRetention ?? DEFAULT_CACHE_RETENTION;
+  const supportsLongRetention =
+    (model as { compat?: { supportsLongCacheRetention?: boolean } }).compat
+      ?.supportsLongCacheRetention !== false;
+
+  // System-block cache split (see system-cache-split.ts). pi-ai stamps
+  // `api: "anthropic-messages"` on every Anthropic Model (its provider
+  // registration in providers/anthropic.js), including the OAuth swap above.
+  // Failover-correct by construction: each attempt calls buildPiAgent with
+  // its own resolved model, so the closures below capture THAT attempt's
+  // gate — an Anthropic→OpenAI fallback merges the tail into the prompt
+  // string, never leaving it behind in a stale onPayload.
+  //
+  // - Anthropic: systemPrompt = frozen ctx.system only; the query-dependent
+  //   memory/KB tail is appended in onPayload as a separate UNCACHED
+  //   trailing system block, so region-1 (system + tools) stays byte-stable.
+  // - Non-Anthropic: no cache_control concept to protect — merge the tail
+  //   into the systemPrompt string. Memory lands after the task block
+  //   (a benign reorder vs the pre-split concatenation); onPayload stays a
+  //   strict wire no-op for these providers, like applyCacheRetention.
+  const isAnthropic = model.api === "anthropic-messages";
+  const memoryTail = ctx.systemMemoryTail;
+
   return new Agent({
     initialState: {
-      systemPrompt: ctx.system ?? "",
+      systemPrompt: isAnthropic ? (ctx.system ?? "") : (ctx.system ?? "") + (memoryTail ?? ""),
       model,
       tools: ctx.agentTools,
       messages: history,
@@ -88,7 +128,13 @@ export function buildPiAgent(
       if (payload?.reasoning && payload.reasoning.summary === "auto") {
         payload.reasoning.summary = "detailed";
       }
-      return body;
+      // Anthropic only: append the volatile memory/KB tail as the LAST
+      // system block, with NO cache_control — BEFORE retention shaping so
+      // the frozen prefix blocks keep their breakpoints untouched.
+      if (isAnthropic) appendMemoryTailBlock(body, memoryTail);
+      // Shape prompt-cache retention: 1h TTL on the stable prefix (system +
+      // tools), tail stays short. No-op for non-Anthropic payloads.
+      return applyCacheRetention(body, supportsLongRetention, cacheRetention);
     },
   });
 }

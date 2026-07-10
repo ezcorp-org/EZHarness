@@ -1,7 +1,9 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { logger } from "../../logger";
 import { getProject } from "../../db/queries/projects";
-import { resolveModel } from "../../providers/router";
+import { resolveModel, getDefaultTier } from "../../providers/router";
+import { tierForModel } from "../../providers/registry";
+import { chooseTurnTier, type RoutingTier } from "../tier-classifier";
 import { getCredential } from "../../providers/credentials";
 import { extensionToAgentTool, ToolExecutor } from "../../extensions/tool-executor";
 import { ExtensionRegistry } from "../../extensions/registry";
@@ -68,6 +70,9 @@ export interface SetupToolsOptions {
   attachments?: import("../../chat/attachments/content-builder").StagedAttachment[];
   provider?: string;
   model?: string;
+  /** WS3: explicit quality-tier hint. When set (and no model is pinned),
+   *  the classifier honors it over the length/tools heuristic. */
+  tier?: RoutingTier;
 }
 
 /** Subset of the conversation row the setup-tools phase reads — the
@@ -83,11 +88,26 @@ export interface SetupToolsConvRecord {
    *  Ez tools (propose_*, summarize_conversation, find_agents,
    *  fill_form, navigate_to) BEFORE the allowlist filter runs. */
   kind?: "regular" | "ez" | null;
+  /** WS3: the conversation's extension-tool toggle map (keyed by extension
+   *  ID). Feeds the quality-tier classifier so an attached extension can
+   *  declare a tier need via its manifest `routing.tier`. */
+  extensionTools?: Record<string, string[]> | null;
 }
 
 export interface SetupToolsResult {
   resolved: Awaited<ReturnType<typeof resolveModel>>;
   initialCred: Awaited<ReturnType<typeof getCredential>>;
+  /**
+   * The quality tier that actually produced this turn's model. A pinned
+   * turn (`options.model` set) carries the tier of the PINNED model
+   * (inferred via {@link tierForModel}); a routed turn carries the
+   * classifier's tier, falling back to the configured default tier when
+   * classification failed. The executor threads this into the failover
+   * loop so a fallback candidate is a tier PEER of the model that was
+   * serving the turn — a pinned Opus must never silently fail over to
+   * the "balanced" default.
+   */
+  effectiveTier: RoutingTier;
 }
 
 /**
@@ -176,8 +196,67 @@ export async function wireBriefingChatToolsIfEligible(args: {
 }
 
 /**
+ * Model resolution + credential pre-validation (setup phase 3 — runs in
+ * parallel with memory injection and tool loading inside {@link setupTools}'s
+ * `Promise.all`). Exported so the tier semantics are directly unit-testable
+ * without driving the whole tool-setup phase.
+ *
+ * WS3 quality-tier routing. `options.model` already folds in BOTH the
+ * per-turn UI pin AND the conversation's established model (see
+ * web/.../conversations/[id]/messages/+server.ts), so a set value means
+ * "honor this model" — pass it straight through (Level-1 passthrough in
+ * resolveModel). We only classify a tier when the thread has NO
+ * established model yet. This is deliberate cache protection: WS1 gives
+ * the prompt a byte-stable, prefix-cached block, and the Anthropic cache
+ * is prefix-matched — SWITCHING models mid-conversation discards it
+ * (guaranteed miss + a 25% cache-write surcharge next turn). Preferring
+ * tier-STABILITY (route once, at thread start; never re-route an
+ * established thread) keeps the cache warm. The strong-signal escape
+ * (an extension/EZ-declared tier or an explicit hint) still applies at
+ * thread start via the classifier; we intentionally do NOT bust an
+ * established model even on a strong signal, because at this layer
+ * options.model cannot be distinguished from a user's explicit pin.
+ * Tier routing is a best-effort optimization: it must NEVER break a
+ * turn. If the registry can't resolve a manifest (or isn't ready), fall
+ * back to the default tier rather than failing model resolution.
+ */
+export async function resolveModelTierAndCredential(
+  run: AgentRun,
+  userMessage: string,
+  options: SetupToolsOptions,
+  convRecord: SetupToolsConvRecord | null,
+  credentialConversationId: string,
+): Promise<SetupToolsResult> {
+  let routedTier: RoutingTier | undefined;
+  if (!options.model) {
+    try {
+      routedTier = chooseTurnTier(
+        { userMessage, options, convExtensionTools: convRecord?.extensionTools ?? null },
+        (extId) => ExtensionRegistry.getInstance().getManifest(extId),
+      );
+    } catch (err) {
+      log.warn("tier classification failed — using default tier this turn", {
+        err: err instanceof Error ? err.message : String(err),
+      });
+      routedTier = undefined;
+    }
+  }
+  const r = await resolveModel(options.provider, options.model, routedTier);
+  // Effective tier for THIS turn (see SetupToolsResult.effectiveTier): a
+  // pinned model carries its OWN tier so failover stays tier-peer; a routed
+  // turn carries the classifier's tier, or the configured default when
+  // classification failed above (best-effort — never aborts the turn).
+  const effectiveTier = options.model
+    ? tierForModel(r.piModel)
+    : (routedTier ?? (await getDefaultTier()));
+  run.provider = r.provider;
+  const cred = await getCredential(r.provider, credentialConversationId);
+  return { resolved: r, initialCred: cred, effectiveTier };
+}
+
+/**
  * Drive the parallel "memory injection + tool loading + model resolution"
- * setup phase. Mutates `ctx.system`, `ctx.agentTools`,
+ * setup phase. Mutates `ctx.systemMemoryTail`, `ctx.agentTools`,
  * `ctx.toolAbortControllers`, `ctx.builtinToolDefsMap`, `ctx.unsubModeChange`,
  * and stashes orchestration metadata on `run` (the legacy `_mentionedAgents`,
  * `_teamConfig`, `_memberOverrides`, etc. fields the post-Promise.all auto-spin-up
@@ -273,7 +352,14 @@ export async function setupTools(
         // A null owner (legacy/agent/CLI run) yields zero injected memories
         // (fail-closed) rather than leaking every project member's memories.
         const injection = await injectionModule.buildSystemPromptWithMemories(ctx.system, userMessage, options.projectId!, convRecord?.userId ?? null, { kbChunks, queryEmbedding });
-        ctx.system = injection.systemPrompt;
+        // ctx.system stays memory-FREE: applyAutoSpinUp later composes
+        // `orchestrator? + base + taskBlock` onto it, and that composite
+        // must be byte-stable across turns for prompt caching (region 1).
+        // The query-dependent injection block is stashed separately;
+        // build-pi-agent appends it as an UNCACHED trailing system block
+        // (Anthropic) or merges it into the systemPrompt string (other
+        // providers) — see system-cache-split.ts.
+        if (injection.injectionBlock) ctx.systemMemoryTail = injection.injectionBlock;
         if (injection.memoriesUsed.length > 0) run.memoriesUsed = injection.memoriesUsed;
       } catch {
         // run:status carries extra `degraded` + `message` fields when
@@ -911,21 +997,25 @@ export async function setupTools(
     })(),
 
     // 3. Model resolution + credential pre-validation (runs in parallel with 1 & 2)
-    (async (): Promise<SetupToolsResult> => {
-      const r = await resolveModel(options.provider, options.model);
-      run.provider = r.provider;
-      const cred = await getCredential(r.provider, credentialConversationId);
-      return { resolved: r, initialCred: cred };
-    })(),
+    resolveModelTierAndCredential(run, userMessage, options, convRecord, credentialConversationId),
   ]);
 
-  // Deterministic-preprocess grounding notes — appended to the turn's
-  // system prompt AFTER the parallel setup so the memory-injection
-  // closure can't clobber them (it re-assigns ctx.system). CURRENT turn
-  // only: history replay of past preprocess rows is stripped by role in
-  // load-history.ts, so this note is the LLM's only view of the result.
+  // Deterministic-preprocess grounding notes ride the UNCACHED
+  // systemMemoryTail trailing block, NOT the byte-stable cached region-1
+  // (ctx.system). The notes vary per turn (attachment content, preprocessor
+  // output), so folding them into ctx.system would rewrite region-1 on every
+  // preprocess-bearing turn and bust Anthropic's system+tools prefix cache —
+  // the exact cost-negative class the memory-injection split closes (memory
+  // rides systemMemoryTail too, set by the recall closure above). build-pi-agent
+  // appends the tail as a separate no-cache_control system block (Anthropic) /
+  // merges it into the systemPrompt string (other providers) — see
+  // system-cache-split.ts.
+  // CURRENT turn only: history replay of past preprocess rows is stripped by
+  // role in load-history.ts, so this note is the LLM's only view of the result.
   if (preprocessNotes.length > 0) {
-    ctx.system = [ctx.system, ...preprocessNotes].filter(Boolean).join("\n\n");
+    ctx.systemMemoryTail = [ctx.systemMemoryTail, ...preprocessNotes]
+      .filter(Boolean)
+      .join("\n\n");
   }
 
   // The third tuple slot is the only one we surface upward.

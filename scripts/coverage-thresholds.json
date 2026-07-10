@@ -46,6 +46,7 @@
   "src/lib/cheap-models.ts": 100,
   "src/lib/pi-complete.ts": 100,
   "src/runtime/sentinels.ts": 100,
+  "src/runtime/tier-classifier.ts": 100,
   "src/runtime/stream-chat/preprocess.ts": 100,
   "src/runtime/stream-chat/preprocess-shared.ts": 100,
   "src/db/queries/briefing-configs.ts": 100,
@@ -88,6 +89,11 @@
   "src/search/search-quota.ts": 100,
   "src/extensions/search-handler.ts": 100,
   "src/runtime/tools/grep.ts": 100,
+  "src/runtime/usage/cache-stats.ts": 100,
+  "src/runtime/stream-chat/cache-retention.ts": 100,
+  "src/runtime/stream-chat/system-cache-split.ts": 100,
+  "src/runtime/stream-chat/failover.ts": 100,
+  "src/providers/circuit-breaker.ts": 100,
   "src/runtime/start-assignment.ts": 100,
   "src/runtime/goal-host.ts": 100,
   "src/runtime/import/staging.ts": 100,
@@ -216,5 +222,6 @@
   "web/src/routes/api/integrations/github-projects/proposals/[id]/rerun/+server.ts": 100,
   "src/db/queries/extension-secrets.ts": 100,
   "src/extensions/secrets-store.ts": 100,
+  "web/src/lib/model-selector-logic.ts": 100,
   "web/src/lib/**": 90
 }

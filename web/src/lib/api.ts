@@ -379,7 +379,27 @@ export interface Message {
 	thinkingContent: string | null;
 	model: string | null;
 	provider: string | null;
-	usage: { inputTokens: number; outputTokens: number } | null;
+	usage: {
+		inputTokens: number;
+		outputTokens: number;
+		/** WS0 prompt-cache meter: tokens served from / written to the provider
+		 *  cache this turn + the derived hit-rate [0,1]. Optional — absent on
+		 *  pre-cache rows and non-caching providers. */
+		cacheReadTokens?: number;
+		cacheWriteTokens?: number;
+		cacheHitRate?: number;
+		/** Subset of cacheWriteTokens written with 1h retention (Anthropic-only;
+		 *  billed at 2× the base input rate). */
+		cacheWrite1hTokens?: number;
+		/** Routing provenance — requested (pinned) values; null ⇒ Auto/routed.
+		 *  Served provider/model live on the message columns. */
+		requestedProvider?: string | null;
+		requestedModel?: string | null;
+		/** Tier the router selected — only present when routing fired. */
+		routedTier?: "fast" | "balanced" | "powerful";
+		/** True when the served provider ≠ the initially resolved provider. */
+		failover?: boolean;
+	} | null;
 	runId: string | null;
 	parentMessageId: string | null;
 	/** When true, this message is hidden from the LLM context on subsequent
@@ -667,8 +687,12 @@ export async function sendMessage(
 	conversationId: string,
 	data: {
 		content: string;
-		provider?: string;
-		model?: string;
+		/** Explicit `null` (JSON path only) is the Auto (smart routing)
+		 *  sentinel — the server bypasses the conv.model fallback and
+		 *  routes the turn. Omitting the field keeps the legacy
+		 *  conv.model fallback. */
+		provider?: string | null;
+		model?: string | null;
 		parentMessageId?: string;
 		editOf?: string;
 		permissionMode?: string;
