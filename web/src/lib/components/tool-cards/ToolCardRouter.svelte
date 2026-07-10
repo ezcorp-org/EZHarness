@@ -12,6 +12,7 @@
 	import DesignBriefCard from "./DesignBriefCard.svelte";
 	import KokoroTtsPlayerCard from "./KokoroTtsPlayerCard.svelte";
 	import PriceChartCard from "./PriceChartCard.svelte";
+	import GradeDeltaCard from "./GradeDeltaCard.svelte";
 	import SubstackReviewCard from "./SubstackReviewCard.svelte";
 	import WeatherCard from "./WeatherCard.svelte";
 	import { parseWeatherPayload } from "./weather-card-logic.js";
@@ -102,6 +103,8 @@
 	<KokoroTtsPlayerCard {toolCall} {conversationId} {messageId} />
 {:else if cardName === 'PriceChartCard'}
 	<PriceChartCard {toolCall} />
+{:else if cardName === 'GradeDeltaCard'}
+	<GradeDeltaCard {toolCall} />
 {:else if cardName === 'SubstackReviewCard'}
 	<SubstackReviewCard {toolCall} {conversationId} />
 {:else if shouldRenderWeatherCard}

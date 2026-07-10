@@ -35,6 +35,10 @@ export function getCardComponentName(cardType: string | undefined, permissionPen
 		case 'design-brief': return 'DesignBriefCard';
 		case 'kokoro-tts-player': return 'KokoroTtsPlayerCard';
 		case 'price-chart': return 'PriceChartCard';
+		// `grade-delta-chart` is declared by graded-card-scanner's
+		// identify_slab tool (the deterministic-preprocess consumer) —
+		// renders per-company adjacent-grade % steps + a price table.
+		case 'grade-delta-chart': return 'GradeDeltaCard';
 		case 'substack-review': return 'SubstackReviewCard';
 		case 'weather-panel': return 'WeatherCard';
 		case 'time-clock': return 'TimeClockCard';

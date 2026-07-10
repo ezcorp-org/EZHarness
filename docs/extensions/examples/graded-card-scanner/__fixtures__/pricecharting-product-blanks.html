@@ -40,5 +40,24 @@
         </tr>
       </tbody>
     </table>
+    <!--
+      Sparse full price guide — proves per-company null-honesty:
+      - Grade 9:  empty price cell            → PSA "9" null
+      - Grade 9.5: whitespace-only price cell → BGS "9.5" null
+      - PSA 10:   populated                   → PSA "10" = 30100
+      - CGC 10:   row with NO price cell      → CGC "10" null
+      - SGC 10:   non-dollar text ("N/A")     → SGC "10" null
+      - BGS 10:   row absent entirely         → key absent (not guessed)
+    -->
+    <table id="full-prices">
+      <tbody>
+        <tr><td>Grade 9</td><td class="price js-price"></td></tr>
+        <tr><td>Grade 9.5</td><td class="price js-price">
+        </td></tr>
+        <tr><td>PSA 10</td><td class="price js-price">$30,100.00</td></tr>
+        <tr><td>CGC 10</td></tr>
+        <tr><td>SGC 10</td><td class="price js-price">N/A</td></tr>
+      </tbody>
+    </table>
   </body>
 </html>

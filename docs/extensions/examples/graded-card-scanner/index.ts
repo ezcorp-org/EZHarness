@@ -29,11 +29,14 @@ import {
 } from "@ezcorp/sdk/runtime";
 import { parseCertInput } from "./app/lib/cert.js";
 import { mockCard } from "./app/lib/mock-card.js";
+import { decodeSlabImage } from "./lib/decode";
+import { buildIdentify, type IdentifySlabRecord } from "./lib/identify";
 import { createHostQueue, createQueuedFetch, createRobots, type FetchImpl } from "./lib/politeness";
 import { pushDashboard, registerDashboardPage } from "./lib/page";
 import { buildLookup } from "./lib/pipeline";
+import { fetchCgcCert } from "./lib/sources/cgc";
 import { fetchPsaCert } from "./lib/sources/psa-api";
-import { fetchPrices } from "./lib/sources/pricecharting";
+import { fetchAllPrices, fetchPrices } from "./lib/sources/pricecharting";
 import { TOKEN_STORAGE_KEY, resolveToken } from "./lib/token";
 
 /** @see app/lib/format.js CardRecord — the shared record shape. */
@@ -66,6 +69,19 @@ const realLookup = buildLookup({
   onLookup: () => pushDashboard(cacheStorage),
 });
 
+// The multi-grader identify pipeline (deterministic-preprocess consumer):
+// decode → classify → identity (PSA API / CGC cert page) → per-company
+// prices → adjacent-grade deltas. Shares the SAME politeness queue +
+// robots gate + token resolution as lookup_card.
+const realIdentify = buildIdentify({
+  decodeImage: decodeSlabImage,
+  getToken: () => resolveToken(process.env, tokenStorage),
+  fetchPsa: (cert, token) => fetchPsaCert(cert, token, queuedFetch),
+  fetchCgc: (cert) => fetchCgcCert(cert, queuedFetch, robots),
+  fetchAllPrices: (identity) => fetchAllPrices(identity, queuedFetch, robots),
+  now: () => new Date().toISOString(),
+});
+
 // ── Capability seam (swappable for tests) ───────────────────────────
 
 export type LookupImpl = (cert: string, fresh: boolean) => Promise<CardRecord>;
@@ -79,6 +95,20 @@ export function _setLookupForTests(impl: LookupImpl): void {
 }
 export function _resetLookupForTests(): void {
   lookupImpl = mockLookup;
+}
+
+export type IdentifyImpl = (
+  bytes: Uint8Array,
+  mimeType: string,
+) => Promise<IdentifySlabRecord>;
+
+let identifyImpl: IdentifyImpl = realIdentify;
+
+export function _setIdentifyForTests(impl: IdentifyImpl): void {
+  identifyImpl = impl;
+}
+export function _resetIdentifyForTests(): void {
+  identifyImpl = realIdentify;
 }
 
 // ── lookup_card ──────────────────────────────────────────────────────
@@ -97,6 +127,52 @@ const lookupCard: ToolHandler = async (args) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return toolError(`lookup failed for cert ${parsed}: ${msg}`);
+  }
+};
+
+// ── identify_slab ────────────────────────────────────────────────────
+//
+// Deterministic-preprocess entry point: the host invokes this tool with
+// `{ attachment: "ez-attachment://<id>", filename, mimeType }` and the
+// executor's args resolver substitutes the handle for a
+// `data:<mime>;base64,` URI before the subprocess sees it. The LLM (or
+// the tool-invoke route) can also call it directly with any image
+// attachment handle.
+
+const DATA_URI_RE = /^data:([^;,]*);base64,(.*)$/s;
+
+const identifySlab: ToolHandler = async (args) => {
+  const { attachment, filename, mimeType } = args as {
+    attachment?: unknown;
+    filename?: unknown;
+    mimeType?: unknown;
+  };
+  if (typeof attachment !== "string" || attachment.length === 0) {
+    return toolError(
+      "'attachment' must be an ez-attachment:// handle (the host resolves it to a data: URI)",
+    );
+  }
+  const m = DATA_URI_RE.exec(attachment);
+  if (!m) {
+    return toolError(
+      "'attachment' did not resolve to a data: URI — pass the ez-attachment:// handle of an image attachment on this conversation",
+    );
+  }
+  // The data URI's own MIME is authoritative (it is what the host read
+  // from disk); the caller-supplied mimeType is the fallback.
+  const uriMime = m[1]!;
+  const effectiveMime = uriMime !== "" ? uriMime : typeof mimeType === "string" ? mimeType : "";
+  const bytes = Uint8Array.from(Buffer.from(m[2]!, "base64"));
+  if (bytes.length === 0) {
+    return toolError("'attachment' data URI carries an empty payload");
+  }
+  const label = typeof filename === "string" && filename !== "" ? filename : "attachment";
+  try {
+    const record = await identifyImpl(bytes, effectiveMime);
+    return toolResult(JSON.stringify(record));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return toolError(`identify_slab failed for ${label}: ${msg}`);
   }
 };
 
@@ -121,6 +197,7 @@ const setPsaToken: ToolHandler = async (args) => {
 
 export const tools: Record<string, ToolHandler> = {
   lookup_card: lookupCard,
+  identify_slab: identifySlab,
   set_psa_token: setPsaToken,
 };
 

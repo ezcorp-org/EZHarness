@@ -59,6 +59,38 @@ export default defineExtension({
       },
     },
     {
+      name: "identify_slab",
+      description:
+        "Identify a graded-card slab from a photo (any grader: PSA, CGC, " +
+        "BGS, SGC). Decodes the label barcode/QR host-side, extracts cert " +
+        "+ grader, looks up identity (PSA API; CGC public cert page) and " +
+        "PriceCharting prices per grading company, and computes the % " +
+        "price difference between adjacent grades for each company. " +
+        "Missing values are null — never a guess. Pass the image's " +
+        "ez-attachment:// handle; the host substitutes the bytes.",
+      cardType: "grade-delta-chart",
+      inputSchema: {
+        type: "object",
+        properties: {
+          attachment: {
+            type: "string",
+            description:
+              "ez-attachment:// handle of a slab photo on this " +
+              "conversation (resolved to a data: URI at dispatch).",
+          },
+          filename: {
+            type: "string",
+            description: "Original filename (for labeling only).",
+          },
+          mimeType: {
+            type: "string",
+            description: "Image MIME type (image/png or image/jpeg).",
+          },
+        },
+        required: ["attachment"],
+      },
+    },
+    {
       name: "set_psa_token",
       description:
         "Save the user's free PSA API token so lookups can return card " +
@@ -81,11 +113,28 @@ export default defineExtension({
     },
   ],
 
+  // Deterministic pre-processing (host feature): when this extension is
+  // wired to a conversation and a user message carries a PNG/JPEG
+  // attachment, the host runs identify_slab on it automatically — no LLM
+  // tool-call needed — persisting a grade-delta-chart card and grounding
+  // the reply with the result.
+  preprocessors: [
+    {
+      tool: "identify_slab",
+      accepts: ["image/png", "image/jpeg"],
+      description: "Identify a graded-card slab photo (PSA/CGC/BGS/SGC).",
+    },
+  ],
+
   agent: {
     prompt: [
       "You can look up PSA-graded cards by cert number with `lookup_card`.",
       "It returns identity, population per grade, and price per grade as",
       "JSON; null means the source had no value (report it as N/A, never 0).",
+      "Slab PHOTOS attached to a message are identified automatically",
+      "(deterministic preprocess) — the result card appears in the chat and",
+      "the JSON is provided to you as a system note; you can also call",
+      "`identify_slab` with an image's ez-attachment:// handle directly.",
       "The user also has a phone scanner page at",
       "`/api/extensions/graded-card-scanner/data/app/index.html` — mention it",
       "if they want continuous scanning rather than one-off lookups.",
@@ -98,11 +147,19 @@ export default defineExtension({
     shell: false,
     storage: true,
     eventSubscriptions: [],
-    // PSA official API (identity + population, free-tier token) and
-    // PriceCharting (keyless prices). The free-tier PSA token is supplied
+    // PSA official API (identity + population, free-tier token),
+    // PriceCharting (keyless prices), and the CGC public cert-lookup
+    // pages (multi-grader identity). The free-tier PSA token is supplied
     // at runtime via the `set_psa_token` tool (encrypted extension secret),
-    // so no credential-shaped `env` grant is declared.
-    network: ["api.psacard.com", "www.pricecharting.com"],
+    // so no credential-shaped `env` grant is declared. NOTE: a decoded QR
+    // may carry a cgccomics.com URL (lib/classify.ts recognises it), but
+    // the actual lookup always fetches www.cgccards.com (lib/sources/cgc.ts
+    // HOST) — so that is the ONLY CGC host granted (least privilege).
+    network: [
+      "api.psacard.com",
+      "www.pricecharting.com",
+      "www.cgccards.com",
+    ],
   },
 
   resources: {

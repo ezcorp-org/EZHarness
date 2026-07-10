@@ -57,6 +57,7 @@ import { resolveModel as defaultResolveModel } from "../providers/router";
 import { getCredential as defaultGetCredential } from "../providers/credentials";
 import { dequeue as dequeuePendingDefault } from "./pending-messages";
 import { TASK_DONE_RE, TASK_BLOCKED_RE } from "./sentinels";
+import { PREPROCESS_RESULT_ROLE } from "./stream-chat/preprocess-shared";
 import { piComplete, type PiCompleteFn } from "../lib/pi-complete";
 import { CHEAP_MODEL_BY_PROVIDER } from "../lib/cheap-models";
 import type { EzActionResult } from "./ez-actions/types";
@@ -540,8 +541,9 @@ export type CompleteFn = PiCompleteFn;
 /**
  * Filter the conversation transcript down to a slim text-only history
  * the cheap model can judge from. Strip non-conversational rows
- * (`ez-action-result`, `capability-event`, `extension`) AND any row
- * with `excluded:true` (already dropped from the LLM history pipeline).
+ * (`ez-action-result`, `capability-event`, `extension`,
+ * `preprocess-result`) AND any row with `excluded:true` (already
+ * dropped from the LLM history pipeline).
  * Tool blocks are not in `messages.content` for this codebase
  * (tool-call payloads ride in a separate table) so no extra stripping
  * is needed here, but we DEFENSIVELY map unknown roles to "user"
@@ -556,6 +558,11 @@ export function buildEvaluatorTranscript(
     if (m.role === "ez-action-result") return false;
     if (m.role === "capability-event") return false;
     if (m.role === "extension") return false;
+    // Deterministic-preprocess rows carry raw tool JSON — without this
+    // strip they'd feed the evaluator as a fake "user" turn (the
+    // defensive unknown-role → "user" mapping below). Same
+    // filter-at-the-source shape as ez-action-result / load-history.ts.
+    if (m.role === PREPROCESS_RESULT_ROLE) return false;
     return true;
   });
   const sliced = filtered.slice(-window);

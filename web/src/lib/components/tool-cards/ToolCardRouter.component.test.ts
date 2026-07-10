@@ -90,6 +90,51 @@ describe("ToolCardRouter — image-gen-grid routing", () => {
 
 });
 
+describe("ToolCardRouter — grade-delta-chart routing (deterministic preprocess)", () => {
+	test("cardType='grade-delta-chart' mounts GradeDeltaCard", () => {
+		const toolCall: ToolCallState = {
+			toolName: "graded-card-scanner__identify_slab",
+			status: "complete",
+			startedAt: 0,
+			cardType: "grade-delta-chart",
+			output: JSON.stringify({
+				cert: "49392223",
+				grader: "PSA",
+				identity: {
+					subject: "Charizard",
+					year: "1999",
+					set: "Pokemon Base Set",
+					cardNo: "4",
+					variety: "",
+					grade: "PSA 9",
+				},
+				grades: { PSA: { "9": 2587.5, "10": 30100 } },
+				deltas: [
+					{
+						company: "PSA",
+						steps: [
+							{ from: "9", to: "10", fromPrice: 2587.5, toPrice: 30100, pct: 1063.3 },
+						],
+					},
+				],
+				sources: {},
+			}),
+		};
+
+		const { getByTestId } = render(ToolCardRouter, {
+			toolCall,
+			conversationId: "conv-1",
+			messageId: "msg-1",
+		});
+
+		// `grade-delta-card` is on GradeDeltaCard's root <article>. Its
+		// presence proves the router picked GradeDeltaCard — the map entry
+		// and the `{#if}` branch travel together (image-gen pin pattern).
+		expect(getByTestId("grade-delta-card")).toBeInTheDocument();
+		expect(getByTestId("grade-delta-grader")).toHaveTextContent("PSA");
+	});
+});
+
 describe("ToolCardRouter — ez-preview-consent routing (Secure Preview Phase 2)", () => {
 	test("cardType='ez-preview-consent' mounts PreviewConsentCard (rendered once)", () => {
 		const toolCall: ToolCallState = {

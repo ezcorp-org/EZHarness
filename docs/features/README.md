@@ -67,6 +67,7 @@ Docs are grouped into six domain folders:
 - [Extension Hub Pages](extensions/hub-pages.md) — Extensions contribute Hub tabs from a declarative, server-validated JSON component tree rendered to native Svelte — extension code never touches the DOM, so XSS is impossible by construction.
 - [Canvas Cards & Dock](extensions/canvas-cards.md) — Custom interactive tool-result cards: a `cardType` routes a result to a Svelte component, a sandboxed iframe renders bidirectional `createCanvas` events, and `cardLayout: "dock"` floats cards in a persistent panel.
 - [Message Toolbar Contributions](extensions/message-toolbar.md) — An extension point that adds a per-turn action icon to the chat message toolbar; clicking it POSTs a declared event to the host, which can append a forced-excluded follow-up turn.
+- [Deterministic Extension Pre-processing](extensions/deterministic-preprocess.md) — Manifest `preprocessors` run a declared tool on matching attachments deterministically — no LLM decision — before the assistant turn: the result persists as a `preprocess-result` tool card and grounds the reply via a system note.
 - [Marketplace](extensions/marketplace.md) — A public catalog of shareable agent configs: browse, search, filter, install (minting a private copy), rate, flag, version, and import/export — backed by four `marketplace_*` tables.
 - [Bundled Extension Catalog](extensions/bundled-catalog.md) — The 24 first-party extensions EZCorp auto-installs on first boot — the default tool/agent/canvas surface, gated by a hardcoded per-extension capability ceiling.
 

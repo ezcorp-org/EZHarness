@@ -11,6 +11,8 @@
 	import AgentChip from "./AgentChip.svelte";
 	import MentionChip from "./MentionChip.svelte";
 	import EzActionCard, { type EzActionCardResult } from "./EzActionCard.svelte";
+	import ToolCardRouter from "./tool-cards/ToolCardRouter.svelte";
+	import { parsePreprocessToolCall } from "./preprocess-result-logic.js";
 	import { inferGoalKind } from "./goal-row-logic.js";
 	import CapabilityEventPill, { parseCapabilityEventContent } from "./CapabilityEventPill.svelte";
 	import ProviderIcon from "./ProviderIcon.svelte";
@@ -501,6 +503,35 @@
 		     this branch is mostly defensive. -->
 		<div class="flex justify-center py-2" data-message-id={message.id}>
 			<span class="text-xs text-rose-400 italic">EZ action result unreadable.</span>
+		</div>
+	{/if}
+{:else if message.role === "preprocess-result"}
+	{@const preprocessCall = parsePreprocessToolCall(message.content)}
+	{#if preprocessCall}
+		<!--
+		  Deterministic extension pre-processing: the host ran a declared
+		  preprocessor tool on this turn's attachment(s) BEFORE the
+		  assistant reply and persisted one row per invocation
+		  (src/runtime/stream-chat/preprocess.ts). The JSON payload routes
+		  through the tool-card router by cardType (grade-delta-chart →
+		  GradeDeltaCard; none → DefaultCard). ok:false rows synthesize
+		  status "error" with no cardType, so DefaultCard renders the
+		  honest error state. Rows are stripped from LLM context by
+		  load-history; this branch is their only consumer.
+		-->
+		<div
+			class="px-4 py-2"
+			data-message-id={message.id}
+			data-testid="preprocess-result-row"
+			data-preprocess-status={preprocessCall.status}
+		>
+			<ToolCardRouter toolCall={preprocessCall} {conversationId} messageId={message.id} />
+		</div>
+	{:else}
+		<!-- Malformed payload — keep the row minimally observable (same
+		     defensive shape as the ez-action-result fallback above). -->
+		<div class="flex justify-center py-2" data-message-id={message.id}>
+			<span class="text-xs text-rose-400 italic">Preprocess result unreadable.</span>
 		</div>
 	{/if}
 {:else if message.role === "system"}

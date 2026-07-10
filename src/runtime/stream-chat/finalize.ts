@@ -64,8 +64,12 @@ export async function finalizeSuccess(
   // Wait for all queued per-turn DB operations to complete
   await ctx.dbQueue;
 
-  // Fallback: if no turns were saved (edge case), save allTurnsText as single message
-  if (host.persist && ctx.allTurnsText && ctx.lastSavedMessageId === (options.parentMessageId ?? null)) {
+  // Fallback: if no turns were saved (edge case), save allTurnsText as single
+  // message. "No turn saved" is detected against ctx.turnParentMessageId (not
+  // options.parentMessageId): the deterministic-preprocess runner may have
+  // chained `preprocess-result` rows and re-based the turn's parent onto the
+  // last row — the two fields are identical when preprocess didn't run.
+  if (host.persist && ctx.allTurnsText && ctx.lastSavedMessageId === ctx.turnParentMessageId) {
     try {
       const { createMessage } = await import("../../db/queries/conversations");
       const fallbackMsg = await createMessage(conversationId, {
@@ -74,7 +78,7 @@ export async function finalizeSuccess(
         model: options.model,
         provider: options.provider,
         runId: run.id,
-        parentMessageId: options.parentMessageId,
+        parentMessageId: ctx.turnParentMessageId ?? undefined,
       });
       await getDb()
         .update(toolCalls)

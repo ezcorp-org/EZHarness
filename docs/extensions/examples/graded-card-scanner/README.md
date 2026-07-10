@@ -1,7 +1,9 @@
 # Graded Card Scanner
 
-Scan PSA graded-card slabs with your phone, build a saved list, and see
-**price + population by grade** for every card — inside EZCorp.
+Scan graded-card slabs with your phone, build a saved list, and see
+**price + population by grade** for every card — inside EZCorp. Attach a
+slab photo in chat and it is identified **automatically** (any grader:
+PSA / CGC / BGS / SGC) with a per-company grade-price chart.
 
 ## What ships
 
@@ -9,11 +11,42 @@ Scan PSA graded-card slabs with your phone, build a saved list, and see
 |---|---|
 | Scanner web app (camera + upload + manual entry, saved list, detail view with grade table + chart) | `app/`, deployed by postinstall and served session-authed at `/api/extensions/graded-card-scanner/data/app/index.html` |
 | `lookup_card(cert, fresh?)` tool | `index.ts` — called by the app via `POST /api/tool-invoke`, and callable by the LLM in chat |
+| `identify_slab(attachment, filename?, mimeType?)` tool + **deterministic preprocessor** | `index.ts` + `ezcorp.config.ts` `preprocessors` — the host runs it automatically on PNG/JPEG attachments (see [Slab photos in chat](#slab-photos-in-chat-deterministic-preprocess)) |
 | `set_psa_token(token)` tool | `index.ts` — saves your free PSA API token (encrypted, never echoed) |
 | Live lookup pipeline (PSA API + PriceCharting, per-host politeness, per-cert cache) | `lib/` — `pipeline.ts`, `sources/psa-api.ts`, `sources/pricecharting.ts`, `politeness.ts`, `token.ts` |
+| Multi-grader identify pipeline (host-side barcode decode, grader classify, CGC cert page, per-company prices, adjacent-grade deltas) | `lib/` — `identify.ts`, `decode.ts`, `classify.ts`, `sources/cgc.ts`, `deltas.ts` |
 | "Card Scanner" Hub dashboard (recent lookups, stats, scanner link) | `lib/page.ts` — tab at `/hub/ext:graded-card-scanner:dashboard` |
-| Shared pure logic (cert parsing, dedupe gate, table math, chart SVG) | `app/lib/*.js` — one source for both the browser and the subprocess |
+| Shared pure logic (cert parsing, dedupe gate, table math, chart SVG, decode ladder geometry) | `app/lib/*.js` — one source for both the browser and the subprocess |
 | Live sanity check (verify PSA/PriceCharting field-name assumptions) | `scripts/sanity-check.ts` |
+
+## Slab photos in chat (deterministic preprocess)
+
+Wire the extension to a conversation (mention `![ext:graded-card-scanner]`
+or use it once) and attach a slab photo (PNG/JPEG): the host runs
+`identify_slab` on it **deterministically — no LLM tool-call needed —
+before the reply streams** (see
+[docs/features/extensions/deterministic-preprocess.md](../../../features/extensions/deterministic-preprocess.md)).
+The transcript shows a **grade-delta chart card** (grader badge, cert,
+identity, per-company adjacent-grade % price steps, price table) and the
+model's reply is grounded in the same JSON.
+
+What `identify_slab` does, per grader:
+
+- **Decode** happens host-side with the same proven ladder geometry the
+  phone app uses (`app/lib/decode-plan.js`): whole frame, upscaled bands,
+  then a quiet-zone tile grid. Formats: ITF, QR, Code 128.
+- **PSA** — `psacard.com/cert` QR or the bare ITF front label → identity
+  + population from the official API (token optional → honest nulls).
+- **CGC** — `cgccards.com`/`cgccomics.com` cert QR → identity scraped
+  from the **public cert page** (robots-gated, per-host queue). The
+  lookup always fetches `www.cgccards.com`, whichever host the QR
+  encodes — it is the only CGC host in the network grant.
+- **BGS / SGC** — v1 is **decode-only**: cert + grader with identity
+  nulls, stamped `decode-only`. (OCR identity is documented out of scope.)
+- **Prices** — the PriceCharting product page's **full price guide**
+  supplies per-company graded columns (PSA/BGS/CGC/SGC × grades); the
+  card charts the % step between each adjacent priced grade pair per
+  company. Missing values are always null/N/A, never a guess.
 
 ## Run it
 

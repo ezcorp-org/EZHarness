@@ -67,6 +67,7 @@ import {
   type ResolvedEvaluatorModel,
 } from "../runtime/goal-host";
 import { EventBus } from "../runtime/events";
+import { PREPROCESS_RESULT_ROLE } from "../runtime/stream-chat/preprocess-shared";
 import type { AgentEvents, AgentRun } from "../types";
 import type { AgentExecutor } from "../runtime/executor";
 
@@ -1370,6 +1371,26 @@ describe("pure helpers", () => {
     ]);
     expect(t).toHaveLength(4);
     expect(t.every((m) => m.role !== "ez-action-result" as never)).toBe(true);
+  });
+
+  test("buildEvaluatorTranscript strips preprocess-result rows (raw tool JSON never reaches the evaluator)", () => {
+    // Without the strip, the defensive unknown-role → "user" mapping
+    // would feed the row's raw JSON to the evaluator as a fake user turn.
+    const rawPayload = JSON.stringify({
+      extensionName: "graded-card-scanner",
+      toolName: "identify_slab",
+      cardType: "grade-delta-chart",
+      ok: true,
+      output: '{"cert":"49392223","grader":"PSA"}',
+    });
+    const t = buildEvaluatorTranscript([
+      { role: "user", content: "what is this slab worth?" },
+      { role: PREPROCESS_RESULT_ROLE, content: rawPayload },
+      { role: "assistant", content: "It is a PSA 9 Charizard." },
+    ]);
+    expect(t).toHaveLength(2);
+    expect(t.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(t.some((m) => m.content.includes("grade-delta-chart"))).toBe(false);
   });
 
   test("buildEvaluatorTranscript window slice keeps the LAST N", () => {

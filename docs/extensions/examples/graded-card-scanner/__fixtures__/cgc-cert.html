@@ -1,0 +1,36 @@
+<!doctype html>
+<!--
+  Trimmed CGC cert-verification fixture (cgccards.com/certlookup/<cert>/)
+  for graded-card-scanner tests. The parser is fixtures-first and
+  DEFENSIVE by contract (mirrors psa-api.ts): it reads label/value pairs
+  from <dt>/<dd> AND <th>/<td> shapes, matches labels case-insensitively,
+  and degrades any missing field to "" — live-markup verification belongs
+  to the sanity script, never to install-time behavior. This fixture
+  carries both pair shapes so both parser paths run against one file.
+-->
+<html>
+  <head><title>Certification Verification | CGC Cards</title></head>
+  <body>
+    <div class="cert-result">
+      <h2>CGC Certification Lookup</h2>
+      <dl class="cert-details">
+        <dt>Certification #</dt>
+        <dd>4189145001</dd>
+        <dt>Card Name</dt>
+        <dd>Charizard</dd>
+        <dt>Set Name</dt>
+        <dd>Pokemon Base Set</dd>
+        <dt>Grade</dt>
+        <dd>9.5</dd>
+      </dl>
+      <table class="cert-attributes">
+        <tbody>
+          <tr><th>Year</th><td>1999</td></tr>
+          <tr><th>Card Number</th><td>4</td></tr>
+          <tr><th>Variant / Pedigree</th><td>Holo</td></tr>
+          <tr><th>Language</th><td>English</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </body>
+</html>

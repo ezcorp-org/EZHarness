@@ -59,6 +59,17 @@ export interface StreamChatContext {
   turnHasToolCalls: boolean;
   /** Latest persisted assistant-message id; used as parentMessageId for the next turn save. */
   lastSavedMessageId: string | null;
+  /**
+   * The message id this turn's FIRST assistant save should parent off.
+   * Starts as the caller's `parentMessageId` (the user message);
+   * advanced by the deterministic-preprocess runner (setup-tools) when
+   * it chains `preprocess-result` rows into the branch, so the
+   * transcript path walks user → preprocess-result… → assistant.
+   * `finalizeSuccess` compares `lastSavedMessageId` against THIS field
+   * (not `options.parentMessageId`) to detect the "no turn was saved"
+   * fallback case — the two are identical when preprocess didn't run.
+   */
+  turnParentMessageId: string | null;
   /** Total token usage from the last turn_end (forwarded to obs:turn). */
   totalUsage: Usage;
   /** Serializes async DB writes triggered from the sync subscribe callback. */
@@ -105,6 +116,7 @@ export function createStreamChatContext(
     turnThinking: "",
     turnHasToolCalls: false,
     lastSavedMessageId: parentMessageId ?? null,
+    turnParentMessageId: parentMessageId ?? null,
     totalUsage: {
       input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },

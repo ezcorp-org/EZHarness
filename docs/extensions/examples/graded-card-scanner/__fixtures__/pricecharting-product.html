@@ -76,5 +76,39 @@
         </tr>
       </tbody>
     </table>
+    <!--
+      Full price guide table (label + price rows) — the per-company graded
+      columns the multi-grader identify_slab flow reads. Row labels follow
+      the live page's vocabulary: generic "Grade N" rows (PSA-tracked;
+      "Grade 9.5" is the BGS 9.5 column, matching the summary table's
+      box_only mapping), explicit "PSA/BGS/CGC/SGC N" rows for the top
+      tiers, and qualified rows ("BGS 10 Black", "CGC 10 Pristine") that
+      the parser deliberately IGNORES (not comparable grade points).
+      Values are consistent with the summary cells above.
+    -->
+    <table id="full-prices">
+      <thead>
+        <tr><th colspan="2">Full Price Guide</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Ungraded</td><td class="price js-price">$381.55</td></tr>
+        <tr><td>Grade 1</td><td class="price js-price">$120.00</td></tr>
+        <tr><td>Grade 2</td><td class="price js-price">$185.00</td></tr>
+        <tr><td>Grade 3</td><td class="price js-price">$252.99</td></tr>
+        <tr><td>Grade 4</td><td class="price js-price">$322.02</td></tr>
+        <tr><td>Grade 5</td><td class="price js-price">$400.00</td></tr>
+        <tr><td>Grade 6</td><td class="price js-price">$495.00</td></tr>
+        <tr><td>Grade 7</td><td class="price js-price">$714.50</td></tr>
+        <tr><td>Grade 8</td><td class="price js-price">$1,201.99</td></tr>
+        <tr><td>Grade 9</td><td class="price js-price">$2,587.50</td></tr>
+        <tr><td>Grade 9.5</td><td class="price js-price">$3,875.00</td></tr>
+        <tr><td>SGC 10</td><td class="price js-price">$8,494.97</td></tr>
+        <tr><td>CGC 10</td><td class="price js-price">$11,300.00</td></tr>
+        <tr><td>PSA 10</td><td class="price js-price">$30,100.00</td></tr>
+        <tr><td>BGS 10</td><td class="price js-price">$46,000.00</td></tr>
+        <tr><td>BGS 10 Black</td><td class="price js-price">$102,500.00</td></tr>
+        <tr><td>CGC 10 Pristine</td><td class="price js-price">$32,500.00</td></tr>
+      </tbody>
+    </table>
   </body>
 </html>

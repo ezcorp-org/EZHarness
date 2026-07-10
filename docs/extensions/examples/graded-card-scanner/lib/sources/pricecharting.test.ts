@@ -7,9 +7,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   GRADE_PRICE_ID,
+  companyForLabel,
+  fetchAllPrices,
   fetchPrices,
   firstProductHref,
   isConfidentMatch,
+  parseCompanyPrices,
   parsePrices,
   type PriceMap,
 } from "./pricecharting";
@@ -144,6 +147,96 @@ describe("parsePrices", () => {
   });
   test("the mapping covers exactly the five publishable grades", () => {
     expect(Object.keys(GRADE_PRICE_ID)).toEqual(["Ungraded", "PSA 7", "PSA 8", "PSA 9", "PSA 10"]);
+  });
+});
+
+// ── per-company graded columns (identify_slab flow) ─────────────────
+
+describe("companyForLabel", () => {
+  test("explicit company rows map verbatim (case-insensitive)", () => {
+    expect(companyForLabel("PSA 10")).toEqual({ company: "PSA", grade: "10" });
+    expect(companyForLabel("bgs 9.5")).toEqual({ company: "BGS", grade: "9.5" });
+    expect(companyForLabel("CGC 10")).toEqual({ company: "CGC", grade: "10" });
+    expect(companyForLabel("SGC 10")).toEqual({ company: "SGC", grade: "10" });
+  });
+
+  test("generic 'Grade N' rows are PSA-tracked, EXCEPT 9.5 which is BGS", () => {
+    expect(companyForLabel("Grade 7")).toEqual({ company: "PSA", grade: "7" });
+    expect(companyForLabel("Grade 9.5")).toEqual({ company: "BGS", grade: "9.5" });
+  });
+
+  test("qualified and non-grade labels are ignored", () => {
+    expect(companyForLabel("BGS 10 Black")).toBeNull();
+    expect(companyForLabel("CGC 10 Pristine")).toBeNull();
+    expect(companyForLabel("Ungraded")).toBeNull();
+    expect(companyForLabel("Box Only")).toBeNull();
+  });
+});
+
+describe("parseCompanyPrices", () => {
+  test("captures every per-company graded column from the full price guide", () => {
+    expect(parseCompanyPrices(productHtml)).toEqual({
+      PSA: {
+        "1": 120,
+        "2": 185,
+        "3": 252.99,
+        "4": 322.02,
+        "5": 400,
+        "6": 495,
+        "7": 714.5,
+        "8": 1201.99,
+        "9": 2587.5,
+        "10": 30100,
+      },
+      BGS: { "9.5": 3875, "10": 46000 },
+      CGC: { "10": 11300 },
+      SGC: { "10": 8494.97 },
+    });
+  });
+
+  test("blank / absent / non-dollar cells → null; absent rows → absent keys", () => {
+    expect(parseCompanyPrices(blanksHtml)).toEqual({
+      PSA: { "9": null, "10": 30100 },
+      BGS: { "9.5": null },
+      CGC: { "10": null },
+      SGC: { "10": null },
+    });
+  });
+
+  test("a page WITHOUT the full-prices table → {} (older captures degrade honestly)", () => {
+    expect(parseCompanyPrices("<html><body>no table here</body></html>")).toEqual({});
+  });
+});
+
+describe("fetchAllPrices", () => {
+  test("one page fetch yields BOTH the summary map and the company map", async () => {
+    let calls = 0;
+    const prices = await fetchAllPrices(
+      identity(),
+      makeFetch({ onCall: () => calls++ }),
+      allowAll,
+    );
+    expect(prices.prices["PSA 9"]).toBe(2587.5);
+    expect(prices.companies.PSA?.["10"]).toBe(30100);
+    expect(prices.companies.SGC).toEqual({ "10": 8494.97 });
+    expect(calls).toBe(2); // search + product — same budget as fetchPrices
+  });
+
+  test("soft miss (unconfident match) → all-null summary + empty companies", async () => {
+    const prices = await fetchAllPrices(
+      identity({ subject: "Blastoise" }),
+      makeFetch(),
+      allowAll,
+    );
+    expect(prices.prices).toEqual(ALL_NULL);
+    expect(prices.companies).toEqual({});
+  });
+
+  test("hard network error propagates (caller stamps pricecharting:error)", async () => {
+    const boom: FetchImpl = async () => {
+      throw new Error("ECONNRESET");
+    };
+    await expect(fetchAllPrices(identity(), boom, allowAll)).rejects.toThrow("ECONNRESET");
   });
 });
 

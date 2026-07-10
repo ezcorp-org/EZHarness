@@ -117,6 +117,11 @@ export const messages = pgTable("messages", {
    *  - "user", "assistant", "system" — standard chat turns.
    *  - "extension" — synthetic placeholder rows for tool-card payloads.
    *  - "ez-action-result" — JSON-encoded EzActionResult cards.
+   *  - "preprocess-result" — deterministic-preprocess tool cards
+   *    (JSON `{extensionName, toolName, cardType?, ok, output}`),
+   *    persisted by `src/runtime/stream-chat/preprocess.ts`, chained
+   *    into the branch path, and stripped from LLM context by
+   *    `load-history.ts`.
    *  - "capability-event" (Phase 52.5) — JSON sentinel inserted by
    *    `recordCapabilityCall` (write 3). Carries the
    *    `sdkCapabilityCallId` FK + a redacted summary of the call.

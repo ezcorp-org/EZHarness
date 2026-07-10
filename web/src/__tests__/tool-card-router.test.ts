@@ -52,6 +52,14 @@ describe("getCardComponentName", () => {
 		expect(getCardComponentName("price-chart", true)).toBe("PermissionGate");
 	});
 
+	test("maps 'grade-delta-chart' cardType to GradeDeltaCard (graded-card-scanner identify_slab)", () => {
+		expect(getCardComponentName("grade-delta-chart", false)).toBe("GradeDeltaCard");
+	});
+
+	test("grade-delta-chart still respects permissionPending gate", () => {
+		expect(getCardComponentName("grade-delta-chart", true)).toBe("PermissionGate");
+	});
+
 	test("maps 'weather-panel' cardType to WeatherCard (weather extension custom web component card)", () => {
 		expect(getCardComponentName("weather-panel", false)).toBe("WeatherCard");
 	});

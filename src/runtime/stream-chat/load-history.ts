@@ -269,6 +269,11 @@ export async function loadHistory(
     // EZ action result rows are UI-only — never send the JSON-encoded
     // EzActionResult payload to the LLM. Spec invariant.
     if (m.role === "ez-action-result") return null;
+    // Deterministic-preprocess result rows are UI-only tool cards. The
+    // CURRENT turn is grounded via a system note added in setup-tools;
+    // history replay would inject the JSON payload as a fake user turn.
+    // Same filter-at-the-source shape as ez-action-result above.
+    if (m.role === "preprocess-result") return null;
     // Phase 50 capability-event rows are the chat-pill renderings of an
     // sdk_capability_calls row (recordCapabilityCall write 3). The
     // content is a JSON sentinel for the UI's pill component, NOT a

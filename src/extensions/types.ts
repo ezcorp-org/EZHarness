@@ -92,6 +92,32 @@ export interface SkillDefinition {
   files?: string[]; // Paths relative to package root
 }
 
+/**
+ * Deterministic attachment preprocessor declaration (top-level manifest
+ * field, schemaVersion 2 AND 3).
+ *
+ * When a user message carries attachments and this extension is wired to
+ * the conversation (mention or prior wiring), the host invokes `tool`
+ * deterministically — no LLM decision — once per matching attachment
+ * BEFORE the assistant turn, with input
+ * `{ attachment: "ez-attachment://<id>", filename, mimeType }` (the
+ * handle resolves to a `data:<mime>;base64,` URI through the same
+ * resolver LLM tool calls use). Results persist as `preprocess-result`
+ * message rows and ground the LLM via a per-result system note.
+ *
+ * `tool` MUST name a tool declared in this manifest's `tools[]` —
+ * validated at admit time by `validatePreprocessorsArray`
+ * (./manifest.ts). `accepts` is a non-empty list of exact MIME strings
+ * or `type/*` globs (e.g. `image/*`). No new permission axis: the
+ * referenced tool runs under the extension's EXISTING granted
+ * permissions and the PDP still gates inside `executeToolCall`.
+ */
+export interface PreprocessorDecl {
+  tool: string;
+  accepts: string[];
+  description?: string;
+}
+
 export type McpTransport = "stdio" | "http" | "sse";
 
 export interface McpServerStdio {
@@ -389,6 +415,13 @@ export interface ExtensionManifestV2 {
    * core. Each entry must be a fully-qualified MIME type string.
    */
   acceptedAttachmentMimes?: string[];
+
+  /**
+   * Deterministic attachment preprocessors. Each entry names a declared
+   * tool the host runs automatically on matching attachments before the
+   * assistant turn — see {@link PreprocessorDecl} for the full contract.
+   */
+  preprocessors?: PreprocessorDecl[];
 
   /**
    * Per-turn action icons contributed to `MessageToolbar`. Each item must

@@ -27,6 +27,12 @@ const NAME_REGEX = /^[a-z0-9][a-z0-9-_.]{0,63}$/;
 // whitespace, no traversal-friendly chars.
 const MIME_REGEX = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$/;
 
+// Preprocessor `accepts` entries additionally allow a type-level glob
+// ("image/*"): a valid RFC 6838 type token followed by a literal "/*".
+// Note the type token still can't start with "*" — a bare "*/*" is
+// rejected (the spec's contract is exact MIME or `type/*`, nothing wider).
+const MIME_GLOB_REGEX = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*\/\*$/;
+
 // ── Component Validators ─────────────────────────────────────────
 
 function validateToolsArray(tools: unknown, errors: string[]): void {
@@ -719,6 +725,75 @@ function validatePermissionsBlock(perms: unknown, errors: string[]): void {
   }
 }
 
+// ── Preprocessors Validator ──────────────────────────────────────
+
+/**
+ * Validate the optional top-level `preprocessors` array (deterministic
+ * attachment pre-processing — see `PreprocessorDecl` in ./types.ts).
+ * Applies to BOTH schemaVersion 2 and 3 manifests: `validateManifestV2`
+ * accepts both versions, and `migrateManifestV2ToV3` passes the field
+ * through untouched (asserted by preprocess-manifest-validation.test.ts).
+ *
+ * Rules (spec-locked):
+ *   - `tool` MUST name a tool declared in this manifest's `tools[]` — a
+ *     preprocessor pointing at a tool the extension doesn't export could
+ *     never run, so it's an authoring bug rejected at admit time (mirrors
+ *     `validateSmokeTest`'s cross-check).
+ *   - `accepts` is a non-empty array of exact MIME strings ("image/png")
+ *     or type-level globs ("image/*").
+ */
+export function validatePreprocessorsArray(
+  preprocessors: unknown,
+  declaredToolNames: string[],
+  errors: string[],
+): void {
+  if (!Array.isArray(preprocessors)) {
+    errors.push("preprocessors must be an array");
+    return;
+  }
+  for (let i = 0; i < preprocessors.length; i++) {
+    const p = preprocessors[i] as Record<string, unknown> | null;
+    if (!p || typeof p !== "object" || Array.isArray(p)) {
+      errors.push(`preprocessors[${i}] must be an object`);
+      continue;
+    }
+    if (typeof p.tool !== "string" || p.tool.length === 0) {
+      errors.push(
+        `preprocessors[${i}].tool is required and must be a non-empty string`,
+      );
+    } else if (!declaredToolNames.includes(p.tool)) {
+      // Hoisted out of the template literal: mid-template continuation
+      // lines lose DA attribution under bun's sharded coverage (same
+      // jitter class as the preprocess-shared split) — plain statement
+      // lines keep the patch-coverage gate honest.
+      const declared = declaredToolNames.length > 0 ? declaredToolNames.join(", ") : "<none>";
+      errors.push(
+        `preprocessors[${i}].tool "${p.tool}" is not a declared tool (declared: ${declared})`,
+      );
+    }
+    if (!Array.isArray(p.accepts) || p.accepts.length === 0) {
+      errors.push(
+        `preprocessors[${i}].accepts must be a non-empty array of MIME types`,
+      );
+    } else {
+      for (let j = 0; j < p.accepts.length; j++) {
+        const a = p.accepts[j];
+        if (
+          typeof a !== "string" ||
+          !(MIME_REGEX.test(a) || MIME_GLOB_REGEX.test(a))
+        ) {
+          errors.push(
+            `preprocessors[${i}].accepts[${j}] must be an exact MIME ("type/subtype") or a type glob ("type/*")`,
+          );
+        }
+      }
+    }
+    if (p.description !== undefined && typeof p.description !== "string") {
+      errors.push(`preprocessors[${i}].description must be a string`);
+    }
+  }
+}
+
 // ── smokeTest Validator ──────────────────────────────────────────
 
 /**
@@ -858,16 +933,26 @@ export function validateManifestV2(
   if (m.settings !== undefined) validateSettingsSchema(m.settings, errors);
   if (m.entities !== undefined) validateEntitiesArray(m, m.entities, errors);
 
+  // Declared tool names — shared cross-check input for the smokeTest and
+  // preprocessors validators below (both must reference a tool this
+  // manifest actually exports).
+  const declaredToolNames = Array.isArray(m.tools)
+    ? (m.tools as Array<Record<string, unknown>>)
+        .map((t) => (typeof t?.name === "string" ? t.name : ""))
+        .filter((n) => n.length > 0)
+    : [];
+
   // Optional deterministic acceptance smoke test. Only checked when
   // present — kept OPTIONAL here so the existing bundled corpus stays
   // valid; the author path enforces presence for tool/multi.
   if (m.smokeTest !== undefined) {
-    const declaredToolNames = Array.isArray(m.tools)
-      ? (m.tools as Array<Record<string, unknown>>)
-          .map((t) => (typeof t?.name === "string" ? t.name : ""))
-          .filter((n) => n.length > 0)
-      : [];
     validateSmokeTest(m.smokeTest, declaredToolNames, errors);
+  }
+
+  // Optional deterministic attachment preprocessors (schemaVersion 2 AND
+  // 3 — this validator gates both). See validatePreprocessorsArray.
+  if (m.preprocessors !== undefined) {
+    validatePreprocessorsArray(m.preprocessors, declaredToolNames, errors);
   }
 
   // Entrypoint required if tools are declared -- except for MCP-kind manifests,

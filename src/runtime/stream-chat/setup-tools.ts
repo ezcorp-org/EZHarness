@@ -229,6 +229,13 @@ export async function setupTools(
     return buildAttachmentHandleResolver(toResolvableAttachments(Array.from(byId.values())));
   })();
 
+  // Grounding notes produced by the deterministic-preprocess runner (2c
+  // below). Collected into a local and appended to ctx.system AFTER the
+  // Promise.all — the memory-injection closure (IIFE 1) reads AND writes
+  // ctx.system concurrently, so an in-flight append here could be
+  // clobbered by its `ctx.system = injection.systemPrompt` assignment.
+  const preprocessNotes: string[] = [];
+
   const [, , resolvedModel] = await Promise.all([
     // 1. Memory/KB injection (non-fatal) — skip entirely if project has no data
     (async () => {
@@ -541,6 +548,57 @@ export async function setupTools(
               }
             }
           }
+
+          // Deterministic extension pre-processing (spec:
+          // tasks/deterministic-preprocess.md). Runs AFTER
+          // wireMentionedExtensions so a same-message `![ext:…]` mention
+          // + attachment triggers in one turn, and completes BEFORE the
+          // prompt is built (setupTools resolves before buildPromptInput
+          // fires in executor.ts). Reuses THIS block's toolExec — the
+          // attachment-handle resolver + acting user
+          // (setCurrentUserId(convRecord.userId)) are already threaded,
+          // so preprocessor calls resolve `ez-attachment://` handles and
+          // act on-behalf-of the conversation owner exactly like LLM
+          // tool calls. Gated on host.persist: the cards ARE the
+          // user-facing contract, and a persist-less executor has no
+          // transcript to show them in. runPreprocessorsForTurn never
+          // throws (failure-isolated).
+          const turnAttachments = options.attachments ?? [];
+          if (host.persist && turnAttachments.length > 0) {
+            const { runPreprocessorsForTurn } = await import("./preprocess");
+            const { createMessage } = await import("../../db/queries/conversations");
+            const { listAttachmentsForMessage } = await import("../../db/queries/attachments");
+            const preprocessResult = await runPreprocessorsForTurn({
+              runId: run.id,
+              attachments: turnAttachments,
+              extensionIds: convExtIds,
+              registry,
+              executeToolCall: (toolName, input) =>
+                toolExec.executeToolCall(toolName, input, conversationId, null),
+              getAttachmentSizes: async () => {
+                // This turn's attachments all hang off the user message
+                // (options.parentMessageId) — one query resolves every
+                // size. A missing parent (rare CLI path) yields an empty
+                // map; the runner treats unknown sizes as 0 (allowed).
+                if (!options.parentMessageId) return new Map<string, number>();
+                const rows = await listAttachmentsForMessage(options.parentMessageId);
+                return new Map(rows.map((r) => [r.id, r.sizeBytes]));
+              },
+              persistMessage: (data) => createMessage(conversationId, data),
+              parentMessageId: options.parentMessageId ?? null,
+              log,
+            });
+            preprocessNotes.push(...preprocessResult.notes);
+            if (preprocessResult.lastRowId) {
+              // Chain the turn off the last preprocess row so the
+              // transcript path includes the cards (user →
+              // preprocess-result… → assistant). finalizeSuccess's
+              // "no turn saved" fallback compares against
+              // turnParentMessageId, so both fields move together.
+              ctx.lastSavedMessageId = preprocessResult.lastRowId;
+              ctx.turnParentMessageId = preprocessResult.lastRowId;
+            }
+          }
         }
       } catch { /* Dynamic tool wiring failure is non-fatal */ }
 
@@ -843,6 +901,15 @@ export async function setupTools(
       return { resolved: r, initialCred: cred };
     })(),
   ]);
+
+  // Deterministic-preprocess grounding notes — appended to the turn's
+  // system prompt AFTER the parallel setup so the memory-injection
+  // closure can't clobber them (it re-assigns ctx.system). CURRENT turn
+  // only: history replay of past preprocess rows is stripped by role in
+  // load-history.ts, so this note is the LLM's only view of the result.
+  if (preprocessNotes.length > 0) {
+    ctx.system = [ctx.system, ...preprocessNotes].filter(Boolean).join("\n\n");
+  }
 
   // The third tuple slot is the only one we surface upward.
   return resolvedModel;
