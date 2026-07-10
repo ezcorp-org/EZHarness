@@ -111,6 +111,16 @@ services:
       # hostname also needs the extension's network grant widened — see
       # docs/deployment.md "Web search sidecar").
       SEARXNG_BASE_URL: "${SEARXNG_BASE_URL:-http://searxng:8080}"
+      # Composer suggestions: local model endpoint for the prompt-enhancement
+      # half, reached over the compose bridge by service name (the tool-chip
+      # half is in-process embeddings — no sidecar involved). The app
+      # degrades gracefully when the service is down/removed, so this is
+      # NOT a hard dependency. Point at a BYO Ollama / llama.cpp / any
+      # OpenAI-compatible endpoint to skip the bundled sidecar entirely.
+      EZCORP_SUGGEST_OLLAMA_URL: "${EZCORP_SUGGEST_OLLAMA_URL:-http://ollama:11434}"
+      # 1B-class is the CPU-viable default; GPU hosts can set qwen3:4b (or
+      # any Ollama tag) — ollama-init pulls whatever is configured here.
+      EZCORP_SUGGEST_MODEL: "${EZCORP_SUGGEST_MODEL:-qwen3:1.7b}"
     volumes:
       # Local host bind mount for ALL persistent DB state — the live
       # PGlite data dir (./.ezcorp/data/ezcorp) AND its snapshots
@@ -195,6 +205,46 @@ services:
       SEARXNG_SECRET: "${SEARXNG_SECRET:-ezcorp-internal-only-default}"
 
   # ────────────────────────────────────────────────────────────────────────
+  # Local suggestion model for the composer's prompt-enhancement row.
+  #
+  # Same optional-sidecar contract as searxng: always-on with hard resource
+  # caps, internal-only (NO published port — the app reaches it as
+  # http://ollama:11434 over the compose bridge), and deliberately NO
+  # depends_on: the app degrades gracefully (tool chips stay embedding-only,
+  # the ✨ enhancement row hides) whenever this service is down or removed.
+  # Delete both services (and the volume) to run without it.
+  #
+  # Model weights persist in the `ollama-models` named volume — the ~1GB
+  # first pull happens once, then survives image upgrades. `ollama-init`
+  # is a one-shot puller (restart "no"): it fetches EZCORP_SUGGEST_MODEL
+  # once the server is healthy, then exits; re-runs are no-ops.
+  # ────────────────────────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    mem_limit: 4g
+    cpus: 4
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+    environment:
+      OLLAMA_HOST: "http://ollama:11434"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull ${EZCORP_SUGGEST_MODEL:-qwen3:1.7b}"]
+
+  # ────────────────────────────────────────────────────────────────────────
   # Optional: automatic image updates via Watchtower.
   #
   # Only useful once you switch off the default local build and start
@@ -248,4 +298,5 @@ volumes:
   # bind mount (./.ezcorp/data → /app/data), not a docker-managed
   # volume. See the `app.volumes` block above.
   ext-data:
+  ollama-models:
   # ezcorp-pg:

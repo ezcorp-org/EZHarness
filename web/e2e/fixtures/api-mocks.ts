@@ -51,6 +51,24 @@ export interface MockOverrides {
 	extensions?: ExtensionData[];
 	marketplace?: { listings: any[]; featured?: any[] };
 	settings?: Record<string, unknown>;
+	/**
+	 * Composer-suggestion responses for `POST /api/composer/suggest`.
+	 * `tools` fills the chip row; `enhancement` (with `llmAvailable`
+	 * defaulting to its presence) fills the ✨ rewrite row; `enabled:false`
+	 * simulates the admin kill-switch short-circuit.
+	 */
+	composerSuggest?: {
+		enabled?: boolean;
+		tools?: Array<{
+			name: string;
+			extension: string;
+			extensionType: string;
+			description: string;
+			score: number;
+		}>;
+		enhancement?: { enhanced: string; reason: string } | null;
+		llmAvailable?: boolean;
+	};
 	subConversations?: SubConversationMock[];
 	/**
 	 * Tool calls produced inside sub-conversations, keyed by sub-conversation id.
@@ -366,6 +384,9 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 
 	// Phase 66 — message-search fixture. Default: empty hits, not degraded.
 	const searchMessages = overrides.searchMessages ?? {};
+
+	// Composer suggestions — default: enabled, no matches (popover stays shut).
+	const composerSuggest = overrides.composerSuggest ?? {};
 
 	await page.route("**/api/**", (route) => {
 		const url = new URL(route.request().url());
@@ -1518,6 +1539,30 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 				],
 				count: 4,
 			}});
+		}
+
+		// Composer suggestions — POST, body-aware: the `include` field picks
+		// which halves the response carries (mirrors the real route's split
+		// so tool chips never wait on the enhance half). Overridable via
+		// mockApi's `composerSuggest` option; feedback events 201 into the
+		// void (specs that assert telemetry intercept the request instead).
+		if (path === "/api/composer/suggest/feedback" && method === "POST") {
+			return route.fulfill({ status: 201, json: { ok: true } });
+		}
+		if (path === "/api/composer/suggest" && method === "POST") {
+			if (composerSuggest.enabled === false) {
+				return route.fulfill({ json: { enabled: false, tools: [], enhancement: null, llmAvailable: false } });
+			}
+			const body = (route.request().postDataJSON() ?? {}) as { include?: string[] };
+			const include = body.include ?? ["tools"];
+			const json: Record<string, unknown> = { enabled: true, latencyMs: 5 };
+			if (include.includes("tools")) json.tools = composerSuggest.tools ?? [];
+			if (include.includes("enhance")) {
+				const enhancement = composerSuggest.enhancement ?? null;
+				json.llmAvailable = composerSuggest.llmAvailable ?? enhancement !== null;
+				json.enhancement = enhancement;
+			}
+			return route.fulfill({ json });
 		}
 
 

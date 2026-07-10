@@ -6,6 +6,7 @@
 	import ModesSection from "$lib/components/settings/ModesSection.svelte";
 	import AuditVisibilitySection from "$lib/components/settings/AuditVisibilitySection.svelte";
 	import AdvancedSection from "$lib/components/settings/AdvancedSection.svelte";
+	import ComposerSuggestSection from "$lib/components/settings/ComposerSuggestSection.svelte";
 	import { scrollToLocationHash } from "$lib/scroll-to-hash.js";
 
 	let pageLoading = $state(true);
@@ -15,6 +16,7 @@
 	let showBuiltinPills = $state(true);
 	let showInstalledPills = $state(false);
 	let eventAuditSampleN = $state(100);
+	let suggestEnabled = $state(true);
 
 	$effect(() => {
 		(async () => {
@@ -31,6 +33,10 @@
 				eventAuditSampleN = typeof sampleN === "number" && sampleN >= 1 && sampleN <= 10000
 					? Math.floor(sampleN)
 					: 100;
+				// Composer suggestions default ON — only an explicit true disables
+				// the disable (i.e. anything but `false` keeps the feature on),
+				// mirroring getSuggestConfig's server-side read.
+				suggestEnabled = settings["suggest:enabled"] !== false;
 			} catch { /* silent */ }
 			pageLoading = false;
 			scrollToLocationHash();
@@ -43,6 +49,7 @@
 {:else}
 	<GlobalInstructionsSection bind:globalPrompt />
 	<ModesSection />
+	<ComposerSuggestSection bind:suggestEnabled />
 	<BriefingCardSection />
 	<AuditVisibilitySection bind:showBuiltinPills bind:showInstalledPills bind:eventAuditSampleN />
 	<AdvancedSection bind:showObservability bind:agentAutonomyEnabled />

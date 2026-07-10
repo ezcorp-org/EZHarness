@@ -10,7 +10,22 @@
 	import ToolPicker from "./ToolPicker.svelte";
 	import InlineToolForm from "./InlineToolForm.svelte";
 	import StagedAttachmentTray from "./StagedAttachmentTray.svelte";
+	import SuggestionPopover from "./SuggestionPopover.svelte";
 	import type { MentionItem } from "./MentionPopover.svelte";
+	import {
+		SUGGEST_DEBOUNCE_MS,
+		suggestKey,
+		isDraftEligible,
+		isFresh,
+		canApplyEnhancement,
+		enhanceAllowed,
+		nextEnhanceBackoff,
+		popoverVisible,
+		buildSuggestBody,
+		appendExtensionMention,
+		type SuggestedTool,
+		type Enhancement,
+	} from "$lib/composer-suggest-logic";
 	import type { ToolDefinition } from '../../../../src/extensions/types';
 	import { connectionState } from "$lib/stores/connection";
 	import { isChatDisabled, chatPlaceholder } from "$lib/chat-input-logic";
@@ -427,6 +442,195 @@
 		formInitialValues = {};
 	}
 
+	// ── Composer suggestions (tool chips + prompt enhancement) ──────
+	// Decisions live in $lib/composer-suggest-logic; this block owns only
+	// timers, fetches, and Svelte state. Debounced on typing PAUSE (600ms),
+	// suppressed while mention/inline-tool UIs are open, and every response
+	// is staleness-guarded by the normalized draft key.
+	let suggestTools = $state<SuggestedTool[]>([]);
+	let suggestEnhancement = $state<Enhancement | null>(null);
+	let suggestEnhanceLoading = $state(false);
+	let suggestApplied = $state(false);
+	let suggestDismissed = $state(false); // per-draft-key dismiss (Esc / ×)
+	let suggestMuted = $state(false); // session mute: server said disabled
+	let suggestKeyCurrent = "";
+	let suggestShownPosted = "";
+	let suggestUndoWire: string | null = null;
+	let suggestTimer: ReturnType<typeof setTimeout> | undefined;
+	let suggestAbort: AbortController | null = null;
+	let enhanceBackoffUntil = 0;
+	let suggestOpen = $derived(
+		!suggestDismissed &&
+			!mentionOpen &&
+			!showToolPicker &&
+			!showToolForm &&
+			popoverVisible({ tools: suggestTools, enhancement: suggestEnhancement }),
+	);
+
+	/** Fire-and-forget telemetry — content-free by contract (never draft text). */
+	function postSuggestFeedback(
+		kind: "tool" | "enhance",
+		action: "shown" | "accepted" | "dismissed",
+		toolName?: string,
+	) {
+		fetch("/api/composer/suggest/feedback", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				kind,
+				action,
+				...(toolName ? { toolName } : {}),
+				...(conversationId ? { conversationId } : {}),
+			}),
+		}).catch(() => {});
+	}
+
+	function clearSuggestions() {
+		suggestTools = [];
+		suggestEnhancement = null;
+		suggestEnhanceLoading = false;
+		suggestApplied = false;
+		suggestUndoWire = null;
+	}
+
+	function dismissSuggest() {
+		if (suggestTools.length > 0) postSuggestFeedback("tool", "dismissed");
+		if (suggestEnhancement) postSuggestFeedback("enhance", "dismissed");
+		suggestDismissed = true;
+		clearSuggestions();
+	}
+
+	function scheduleSuggest() {
+		clearTimeout(suggestTimer);
+		const key = suggestKey(value);
+		if (key !== suggestKeyCurrent) {
+			// Draft changed: any in-flight/rendered suggestions are stale, and a
+			// previous Esc-dismiss only covers the OLD draft.
+			suggestKeyCurrent = key;
+			suggestAbort?.abort();
+			suggestDismissed = false;
+			clearSuggestions();
+		}
+		if (
+			!isDraftEligible(value, {
+				mentionOpen,
+				inlineToolOpen: showToolPicker || showToolForm,
+				muted: suggestMuted || suggestDismissed,
+			})
+		) {
+			return;
+		}
+		suggestTimer = setTimeout(fireSuggest, SUGGEST_DEBOUNCE_MS);
+	}
+
+	function fireSuggest() {
+		const wire = value;
+		if (
+			!isDraftEligible(wire, {
+				mentionOpen,
+				inlineToolOpen: showToolPicker || showToolForm,
+				muted: suggestMuted || suggestDismissed,
+			})
+		) {
+			return;
+		}
+		const key = suggestKey(wire);
+		suggestAbort?.abort();
+		const ctrl = new AbortController();
+		suggestAbort = ctrl;
+
+		fetch("/api/composer/suggest", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			signal: ctrl.signal,
+			body: buildSuggestBody({
+				draft: wire,
+				conversationId: conversationId || undefined,
+				projectId: projectId || undefined,
+				modeId: selectedMode?.id ?? null,
+				include: ["tools"],
+			}),
+		})
+			.then((res) => (res.ok ? res.json() : null))
+			.then((resp) => {
+				if (!resp || !isFresh(key, suggestKeyCurrent)) return;
+				if (resp.enabled === false) {
+					suggestMuted = true;
+					return;
+				}
+				suggestTools = resp.tools ?? [];
+				if (suggestTools.length > 0 && suggestShownPosted !== key) {
+					suggestShownPosted = key;
+					postSuggestFeedback("tool", "shown");
+				}
+			})
+			.catch(() => {});
+
+		// The rewrite half rides the same pause but its own request, so tool
+		// chips render immediately while the local model thinks. Skipped
+		// entirely for drafts carrying mention chips (apply would clobber
+		// them) and while the sidecar-unavailable backoff holds.
+		if (enhanceAllowed(Date.now(), enhanceBackoffUntil) && canApplyEnhancement(wire)) {
+			suggestEnhanceLoading = true;
+			fetch("/api/composer/suggest", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				signal: ctrl.signal,
+				body: buildSuggestBody({
+					draft: wire,
+					conversationId: conversationId || undefined,
+					projectId: projectId || undefined,
+					modeId: selectedMode?.id ?? null,
+					include: ["enhance"],
+				}),
+			})
+				.then((res) => (res.ok ? res.json() : null))
+				.then((resp) => {
+					if (!isFresh(key, suggestKeyCurrent)) return;
+					suggestEnhanceLoading = false;
+					if (!resp || resp.enabled === false) return;
+					enhanceBackoffUntil = nextEnhanceBackoff(Date.now(), resp.llmAvailable !== false);
+					suggestEnhancement = resp.enhancement ?? null;
+					if (suggestEnhancement) postSuggestFeedback("enhance", "shown");
+				})
+				.catch(() => {
+					if (isFresh(key, suggestKeyCurrent)) suggestEnhanceLoading = false;
+				});
+		}
+	}
+
+	function handleSuggestToolSelect(tool: SuggestedTool) {
+		postSuggestFeedback("tool", "accepted", `${tool.extension}__${tool.name}`);
+		const result = appendExtensionMention(value, tool.extension);
+		setWire(result.wire, result.cursor);
+		suggestDismissed = true;
+		clearSuggestions();
+		adjustHeight();
+	}
+
+	function applySuggestEnhancement() {
+		if (!suggestEnhancement) return;
+		postSuggestFeedback("enhance", "accepted");
+		suggestUndoWire = value;
+		setWire(suggestEnhancement.enhanced, suggestEnhancement.enhanced.length);
+		suggestApplied = true;
+		// The applied text IS the current suggestion — pin the key so the
+		// rewrite itself doesn't immediately re-trigger a fetch cycle.
+		suggestKeyCurrent = suggestKey(suggestEnhancement.enhanced);
+		adjustHeight();
+	}
+
+	function undoSuggestEnhancement() {
+		if (suggestUndoWire === null) return;
+		const restored = suggestUndoWire;
+		suggestUndoWire = null;
+		suggestApplied = false;
+		suggestKeyCurrent = suggestKey(restored);
+		setWire(restored, restored.length);
+		adjustHeight();
+	}
+
+
 	const MAX_ROWS = 6;
 	const LINE_HEIGHT = 24;
 
@@ -453,6 +657,14 @@
 		const activeMenu = mentionOpen ? popoverRef : showToolPicker ? toolPickerRef : null;
 		if (activeMenu && MENU_NAV_KEYS.has(e.key)) {
 			activeMenu.handleKeydown(e);
+			return;
+		}
+
+		// Suggestions are non-modal: only Escape interacts with them, and
+		// only when no menu consumed it above.
+		if (e.key === "Escape" && suggestOpen) {
+			e.preventDefault();
+			dismissSuggest();
 			return;
 		}
 
@@ -535,6 +747,11 @@
 
 		if (isComposing) return;
 		if (!textarea) return;
+
+		// Debounced suggestions (tool chips + prompt enhancement). Scheduled
+		// on every edit; eligibility is re-checked when the timer fires so a
+		// mention popover that opened in the meantime suppresses it.
+		scheduleSuggest();
 
 		// Close tool form/picker if the associated mention chip was deleted
 		if (activeExtension) {
@@ -702,6 +919,11 @@
 		mentionOpen = false;
 		mentionItems = [];
 		resetInlineToolState();
+		clearTimeout(suggestTimer);
+		suggestAbort?.abort();
+		suggestKeyCurrent = "";
+		suggestDismissed = false;
+		clearSuggestions();
 		if (textarea) {
 			textarea.style.height = "auto";
 		}
@@ -788,6 +1010,18 @@
 				</div>
 			{/if}
 			<div class="relative">
+				<SuggestionPopover
+					open={suggestOpen}
+					tools={suggestTools}
+					enhancement={suggestEnhancement}
+					enhanceLoading={suggestEnhanceLoading}
+					applied={suggestApplied}
+					onselecttool={handleSuggestToolSelect}
+					onapply={applySuggestEnhancement}
+					onundo={undoSuggestEnhancement}
+					ondismiss={dismissSuggest}
+				/>
+
 				<MentionPopover
 					bind:this={popoverRef}
 					items={mentionItems}

@@ -431,6 +431,41 @@ engines; the default bridge in both stacks provides it. If a hardened
 deploy later air-gaps the app network, give `searxng` a second
 egress-capable network.
 
+## Suggestion-model sidecar (Ollama)
+
+Both compose stacks ship an `ollama` service powering the composer's
+prompt-enhancement suggestions (the tool-suggestion chips are in-process
+embeddings and do not involve this sidecar). Same soft-dependency
+contract as SearXNG: **no `depends_on`**, and when the service is down
+or removed the app degrades gracefully — tool chips keep working, the
+✨ enhancement row hides. Full feature doc:
+[docs/features/composer/suggestions.md](features/composer/suggestions.md).
+
+| Stack | App networking | Ollama reachability | `EZCORP_SUGGEST_OLLAMA_URL` default |
+|---|---|---|---|
+| dev (`docker-compose.yml`) | `network_mode: host` | publishes `127.0.0.1:11434` (loopback only) | `http://localhost:11434` |
+| prod (`compose.prod.yml`) | compose bridge | service DNS, **no published port** | `http://ollama:11434` |
+
+**Model provisioning:** the one-shot `ollama-init` service pulls
+`EZCORP_SUGGEST_MODEL` (default `qwen3:1.7b`, ~1 GB, Apache-2.0) once
+the server is healthy, then exits; weights persist in the
+`ollama-models` named volume so the download happens once. GPU hosts
+can set `EZCORP_SUGGEST_MODEL=qwen3:4b` (or any Ollama tag — including
+a self-fine-tuned `ezcorp-suggest`, see the feature doc's runbook);
+`ollama-init` pulls whatever is configured.
+
+**Resource footprint:** capped at `mem_limit: 4g` / `cpus: 4` — a
+1B-class Q4 model needs ~1.5 GB resident while generating and idles
+near zero (Ollama unloads idle models after ~5 min). Expect 2–6 s per
+enhancement on CPU; the UI treats it as ambient (never blocks typing).
+
+**Opting out / BYO:** delete the `ollama` + `ollama-init` services and
+the `ollama-models` volume to run without local suggestions — or point
+`EZCORP_SUGGEST_OLLAMA_URL` at any existing Ollama / llama.cpp /
+OpenAI-compatible endpoint (host-side reads only; this URL is never
+handed to extensions). Admins can also kill the whole feature at
+Settings → Personalization → Composer suggestions.
+
 ## Upgrade notes — bundled extensions disabled after a release
 
 After upgrading EZCorp, a bundled extension whose manifest permissions

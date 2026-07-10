@@ -6,12 +6,14 @@
 	import ProjectForm from "$lib/components/ProjectForm.svelte";
 	import InfoTooltip from "$lib/components/InfoTooltip.svelte";
 	import FeatureIndex from "$lib/components/FeatureIndex.svelte";
+	import ComposerSuggestSection from "$lib/components/settings/ComposerSuggestSection.svelte";
 
 	let submitting = $state(false);
 	let globalPrompt = $state("");
 	let projectPrompt = $state("");
 	let savingGlobal = $state(false);
 	let savingProject = $state(false);
+	let projectSuggestEnabled = $state(true);
 
 	// ── GitHub Projects integration summary ────────────────────────────────
 	// One-line connected/paused status for the Integrations section. The full
@@ -49,6 +51,8 @@
 			globalPrompt = (settings["global:systemPrompt"] as string) ?? "";
 			if (projectId) {
 				projectPrompt = (settings[`project:${projectId}:systemPrompt`] as string) ?? "";
+				// Default ON — mirrors isSuggestEnabledForProject's server read.
+				projectSuggestEnabled = settings[`project:${projectId}:suggest:enabled`] !== false;
 			}
 		} catch {
 			// silent
@@ -168,6 +172,12 @@
 				</a>
 			</div>
 		</div>
+
+		<!-- Composer suggestions (per-project toggle; global override lives
+		     under Settings → Personalization) -->
+		{#if projectId}
+			<ComposerSuggestSection {projectId} bind:suggestEnabled={projectSuggestEnabled} />
+		{/if}
 
 		<!-- Project Custom Instructions -->
 		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">

@@ -1710,6 +1710,26 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_project_status ON github_projects_proposals(project_id, status)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_link ON github_projects_proposals(link_id)`);
 
+  // ── Composer suggestions: telemetry table ─────────────────────────
+  // See src/db/migrations/add-suggestion-feedback.ts for the rationale.
+  // Content-free impression/acceptance events (kind/action/tool name/
+  // latency — never draft text). user_id CASCADE: deleting a user takes
+  // their telemetry with them.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS suggestion_feedback (
+      id TEXT PRIMARY KEY,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+      kind TEXT NOT NULL,
+      action TEXT NOT NULL,
+      tool_name TEXT,
+      latency_ms INTEGER,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_suggestion_feedback_created ON suggestion_feedback(created_at)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_suggestion_feedback_kind_action ON suggestion_feedback(kind, action, created_at)`);
+
   // One-shot, idempotent backfill: move any pre-existing github-projects PATs
   // out of the broadly-readable `settings` table into the scope-isolated,
   // AEAD-bound extension_secrets store. Runs LAST (every FK target exists by

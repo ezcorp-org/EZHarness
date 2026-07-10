@@ -18,6 +18,7 @@ import { installExtensionSchema } from "../extensions/schema";
 import { publishListingSchema } from "../marketplace/schema";
 import { importManifestSchema } from "../marketplace/import/schema";
 import { createApiKeySchema } from "../settings/developer/schema";
+import { suggestRequestSchema, suggestFeedbackSchema } from "../composer/suggest/schema";
 
 /** Map of schemaKey -> Zod schema for JSON Schema conversion */
 const schemaMap: Record<string, z.ZodType> = {
@@ -36,6 +37,8 @@ const schemaMap: Record<string, z.ZodType> = {
   publishListingSchema,
   importManifestSchema,
   createApiKeySchema,
+  suggestRequestSchema,
+  suggestFeedbackSchema,
 };
 
 export const GET: RequestHandler = async ({ locals }) => {

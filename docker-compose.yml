@@ -64,6 +64,15 @@ services:
       # the SearXNG sidecar below. The app is host-network, so Docker DNS
       # names don't resolve for it — use the localhost-published port.
       - SEARXNG_BASE_URL=${SEARXNG_BASE_URL:-http://localhost:8889}
+      # Composer suggestions: local model endpoint for the prompt-enhancement
+      # half (the tool-suggestion half is in-process embeddings and needs no
+      # sidecar). Same host-network reasoning as SEARXNG_BASE_URL — use the
+      # loopback-published port of the ollama service below. The app degrades
+      # gracefully when unreachable (enhancement row hides).
+      - EZCORP_SUGGEST_OLLAMA_URL=${EZCORP_SUGGEST_OLLAMA_URL:-http://localhost:11434}
+      # 1B-class is the CPU-viable default; GPU boxes can swap in a larger
+      # tier (e.g. qwen3:4b) — ollama-init pulls whatever is set here.
+      - EZCORP_SUGGEST_MODEL=${EZCORP_SUGGEST_MODEL:-qwen3:1.7b}
     command:
       - sh
       - -c
@@ -146,8 +155,45 @@ services:
       # is fine because the port is loopback-only.
       - SEARXNG_SECRET=${SEARXNG_SECRET:-dev-only-secret}
 
+  # Local suggestion model for the composer's prompt-enhancement row.
+  # Same optional-sidecar contract as searxng: always-on with hard resource
+  # caps, loopback-only port, and deliberately NO depends_on — the app falls
+  # back (tool chips stay embedding-only, the ✨ row hides) whenever this
+  # service is down or removed. Model weights persist in the named volume,
+  # so the ~1GB download happens once.
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    mem_limit: 4g
+    cpus: 4
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  # One-shot puller: fetches the suggestion model on first `up`, then exits
+  # (restart "no"). Idempotent — `ollama pull` no-ops when the tag is
+  # already current in the shared volume.
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull ${EZCORP_SUGGEST_MODEL:-qwen3:1.7b}"]
+
 volumes:
   testenv-pgdata:
   testenv-state:
   model-cache:
   ext-data:
+  ollama-models:

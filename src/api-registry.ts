@@ -200,6 +200,10 @@ export const apiRegistry: ApiRouteEntry[] = [
   // Mentions
   { method: "GET", path: "/api/mentions/search", description: "Search mentionable items", category: "mentions" },
 
+  // Composer suggestions
+  { method: "POST", path: "/api/composer/suggest", description: "Rank the active mode/toolset's tools against a draft prompt (embedding retrieval + per-user usage prior) and optionally generate a local-LLM prompt enhancement", category: "composer", scope: "read", schemaKey: "suggestRequestSchema", responseDescription: "{ enabled, tools?: [{name, extension, extensionType, description, score}], enhancement?: {enhanced, reason} | null, llmAvailable?, latencyMs }" },
+  { method: "POST", path: "/api/composer/suggest/feedback", description: "Record composer-suggestion telemetry (shown/accepted/dismissed; never draft text)", category: "composer", scope: "chat", schemaKey: "suggestFeedbackSchema", responseDescription: "{ ok: true } (201)" },
+
   // System
   { method: "GET", path: "/api/health", description: "Health check endpoint", category: "system" },
   { method: "GET", path: "/api/warmup", description: "Pre-warm application caches", category: "system" },

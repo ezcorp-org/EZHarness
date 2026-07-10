@@ -450,6 +450,31 @@ export const toolCalls = pgTable("tool_calls", {
   index("idx_tool_calls_model_created").on(table.model, table.createdAt),
 ]);
 
+// ── Composer suggestion telemetry ─────────────────────────────────
+// Impression/acceptance events for composer suggestions (tool chips +
+// prompt-enhancement). Deliberately content-free: kind/action/tool name/
+// latency only — NEVER draft text (privacy contract; see
+// docs/features/composer/suggestions.md). Acceptance rates are the
+// measurement that decides whether the enhancement half keeps earning
+// its sidecar.
+
+export const suggestionFeedback = pgTable("suggestion_feedback", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  kind: text("kind").notNull().$type<"tool" | "enhance">(),
+  action: text("action").notNull().$type<"shown" | "accepted" | "dismissed">(),
+  toolName: text("tool_name"),
+  latencyMs: integer("latency_ms"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_suggestion_feedback_created").on(table.createdAt),
+  index("idx_suggestion_feedback_kind_action").on(table.kind, table.action, table.createdAt),
+]);
+
+export type SuggestionFeedbackRow = typeof suggestionFeedback.$inferSelect;
+export type NewSuggestionFeedbackRow = typeof suggestionFeedback.$inferInsert;
+
 // ── Observability ─────────────────────────────────────────────────
 
 export const observabilityEvents = pgTable("observability_events", {

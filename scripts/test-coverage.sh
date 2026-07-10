@@ -123,6 +123,23 @@ run_legs() {
     echo "--- FAIL: harness-client coverage leg (exit $HC_EXIT) ---"
   fi
 
+  # Composer-suggest backend leg — dedicated bun-coverage shard feeding the
+  # `src/suggest/**` + suggestion-feedback threshold keys. The host-shard set
+  # (coverage_host_files) deliberately doesn't sweep these dirs; small
+  # isolated suites also dodge Bun's large-suite attribution drift. Pass/fail
+  # is tolerated like the SDK leg (thresholds are the gate); the suites also
+  # run for correctness in `bun run test`.
+  local suggest_cov="$TMPDIR/cov_suggest" suggest_out
+  suggest_out=$(bun test --coverage --coverage-reporter=lcov --coverage-dir="$suggest_cov" \
+    ./src/suggest/__tests__/intent-rank.test.ts \
+    ./src/suggest/__tests__/embedding-cache.test.ts \
+    ./src/suggest/__tests__/user-tool-priors.test.ts \
+    ./src/suggest/__tests__/enhance.test.ts \
+    ./src/suggest/__tests__/config.test.ts \
+    ./src/suggest/__tests__/training-export.test.ts \
+    ./src/db/queries/__tests__/suggestion-feedback.test.ts 2>&1) || true
+  tally "$suggest_out"
+
   # Node-run vitest leg for the vitest-only web/src/lib files. @vitest/coverage-v8
   # needs node:inspector's Coverage domain, which Bun does not implement, so this
   # leg MUST run under node (CI provisions node 22). --coverage.include is scoped
@@ -204,6 +221,11 @@ run_legs() {
       src/lib/components/preprocess-result-logic.unit.test.ts \
       src/lib/components/tool-cards/grade-delta-logic.unit.test.ts \
       src/lib/components/tool-cards/GradeDeltaCard.component.test.ts \
+      src/__tests__/composer-suggest-logic.unit.test.ts \
+      src/__tests__/api-composer-suggest.server.test.ts \
+      src/__tests__/api-composer-suggest-feedback.server.test.ts \
+      src/lib/components/__tests__/SuggestionPopover.component.test.ts \
+      src/lib/components/__tests__/ComposerSuggestSection.component.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -268,7 +290,14 @@ run_legs() {
       --coverage.include='src/lib/components/settings/SaveIndicator.svelte' \
       --coverage.include='src/lib/components/preprocess-result-logic.ts' \
       --coverage.include='src/lib/components/tool-cards/grade-delta-logic.ts' \
-      --coverage.include='src/lib/components/tool-cards/GradeDeltaCard.svelte' ) || VITEST_EXIT=$?
+      --coverage.include='src/lib/components/tool-cards/GradeDeltaCard.svelte' \
+      --coverage.include='src/lib/composer-suggest-logic.ts' \
+      --coverage.include='src/lib/components/SuggestionPopover.svelte' \
+      --coverage.include='src/lib/components/settings/ComposerSuggestSection.svelte' \
+      --coverage.include='src/lib/server/scoped-tools.ts' \
+      --coverage.include='src/routes/api/composer/suggest/+server.ts' \
+      --coverage.include='src/routes/api/composer/suggest/schema.ts' \
+      --coverage.include='src/routes/api/composer/suggest/feedback/+server.ts' ) || VITEST_EXIT=$?
   # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
   # resolves them against the repo root and the web/src/... threshold keys match.
   if [ -f "$VITEST_COV/lcov.info" ]; then
