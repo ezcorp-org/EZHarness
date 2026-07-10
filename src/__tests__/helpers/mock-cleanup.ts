@@ -69,6 +69,17 @@ const MODULE_PATHS = [
   "../../db/schema",
   "../../extensions/registry",
   "../../extensions/tool-executor",
+  // tool-executor-legacy-handler-provenance.test.ts mock.module's the six
+  // LEGACY singleton-reading reverse-RPC handlers to capture the ctx the
+  // executor builds (token-wins-over-singleton provenance suite). Snapshot
+  // so restoreModuleMocks() re-registers the real handlers in afterAll and
+  // the capture stubs never leak into subsequent test files.
+  "../../extensions/task-events-handler",
+  "../../extensions/spawn-assignment-handler",
+  "../../extensions/cancel-run-handler",
+  "../../extensions/network-handler",
+  "../../extensions/finalize-tool-call-handler",
+  "../../extensions/agent-configs-handler",
   "../../extensions/permissions",
   "../../extensions/installer",
   "../../extensions/manifest",
