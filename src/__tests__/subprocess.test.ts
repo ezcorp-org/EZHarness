@@ -17,6 +17,16 @@ import { JsonRpcTransport } from "../extensions/json-rpc";
 // Workaround: Bun <=1.3.9 JIT bug causes child processes spawned from the
 // original compiled ensureRunning method to crash with SIGILL. Overriding the
 // prototype with functionally identical code avoids the JIT-compiled path.
+//
+// This override mutates the SHARED prototype, and `bun test` runs files in one
+// process — so leaving it in place leaks into every other suite that drives the
+// REAL `ensureRunning` (e.g. subprocess-spawn-cwd.test.ts, whose spawn-option
+// assertions + coverage depend on the real method). Capture + restore it in
+// afterAll so the leak is contained to this file (prototype-spy-leak hygiene).
+const originalEnsureRunning = ExtensionProcess.prototype.ensureRunning;
+afterAll(() => {
+  ExtensionProcess.prototype.ensureRunning = originalEnsureRunning;
+});
 ExtensionProcess.prototype.ensureRunning = function (this: any) {
   if (this.proc && !this.killed) return;
   this.killed = false;
@@ -197,6 +207,12 @@ main();
     // NOT fire (the slow extension hasn't responded, but it's still up).
     expect(ep.isRunning).toBe(true);
   });
+
+  // NOTE: the spawn cwd-pin coverage (getSpawnCwd + ensureRunning spawn
+  // options, #61) lives in the sibling `subprocess-spawn-cwd.test.ts` — this
+  // suite overrides `ensureRunning` (a JIT-SIGILL workaround) so it cannot
+  // attribute coverage to the real method; the isolated file drives the real
+  // `ensureRunning` with `Bun.spawn` spied.
 
   test("ensureRunning is idempotent", () => {
     ep = new ExtensionProcess("test-ext", echoPath, allowedEnv);

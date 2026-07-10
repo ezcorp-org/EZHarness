@@ -316,6 +316,36 @@ export class ExtensionProcess {
   }
 
   /**
+   * Resolve the working directory to PIN on the spawn (for testing/inspection).
+   *
+   * `ensureRunning()`'s `Bun.spawn` starts the OUTER, still-UNJAILED process —
+   * the landlock shim's `bun` (landlock tier) or the bare `prlimit … bun`
+   * (advisory tier). With NO `cwd` option that process INHERITS the host
+   * server's current working directory. If the host's cwd is ever invalid —
+   * e.g. a bundled preview/prod server whose launch directory was removed out
+   * from under it (a git-worktree churn scenario) — the outer `bun` aborts at
+   * startup reading `.` with "error loading current directory
+   * (CouldntReadCurrentDirectory)" (exit 1) BEFORE any extension code runs, so
+   * EVERY extension subprocess dies at bring-up (#61). This is the OUTER-process
+   * analogue of the shim's own `chdir(workspace)` (which protects only the
+   * jailed INNER process): the shim can't rescue the outer `bun` because that
+   * `bun` must already be running to apply the jail.
+   *
+   * Pin the spawn to the canonical project root instead: it's the resolver's
+   * stable anchor (set by the harness + prod entrypoint, and the tree the
+   * extension entrypoint + its `node_modules` live under — if IT is gone the
+   * spawn can't read the entrypoint anyway), so it's a known-good cwd that does
+   * NOT depend on inherited host state. Mirrors the sandbox capability probe,
+   * which already spawnSyncs with `cwd: PROJECT_ROOT`. Returns undefined when
+   * no project root was injected (back-compat: inherit exactly as before) — the
+   * landlock shim still chdirs into the rw workspace before applying the jail,
+   * so the jailed inner process's cwd is unchanged either way.
+   */
+  getSpawnCwd(): string | undefined {
+    return this.allowedEnv.EZCORP_PROJECT_ROOT || undefined;
+  }
+
+  /**
    * Build the env passed to the subprocess: the explicit allowlist plus sandbox
    * permission flags consumed by `sandbox-preload.ts`.
    */
@@ -336,11 +366,15 @@ export class ExtensionProcess {
     if (this.proc && !this.killed) return;
     this.killed = false;
 
+    const spawnCwd = this.getSpawnCwd();
     this.proc = Bun.spawn(this.getSpawnArgs(), {
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
       env: this.buildSpawnEnv(), // CRITICAL: explicit env, never process.env
+      // Pin a known-good cwd so a spawn never depends on the host server's
+      // (possibly-invalid) inherited working directory — see getSpawnCwd (#61).
+      ...(spawnCwd ? { cwd: spawnCwd } : {}),
     });
 
     // Drain stderr so the kernel pipe buffer (~64KB on Linux) never
