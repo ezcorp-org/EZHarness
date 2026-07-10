@@ -7,6 +7,7 @@
 // the identify-composition suite).
 
 import { describe, expect, test } from "bun:test";
+import { encode as encodePng } from "fast-png";
 import {
   blankImage,
   renderItfRgba,
@@ -19,6 +20,7 @@ import {
   QUIET_PAD_Y,
   decodeImageBytes,
   decodeSlabImage,
+  toRgba8,
   decodeSlabPixels,
   extractLuminance,
   tryDecodeVariant,
@@ -167,4 +169,44 @@ describe("decodeSlabPixels / decodeSlabImage", () => {
   test("undecodable mime propagates as a throw (tool layer maps to toolError)", () => {
     expect(() => decodeSlabImage(new Uint8Array([0]), "text/plain")).toThrow();
   });
+});
+
+describe("toRgba8 (fast-png raster normalization)", () => {
+	// fast-png returns the file's native channel count / bit depth; the
+	// normalizer must expand every shape to RGBA8888. One 2×1 raster per
+	// shape keeps each branch pinned with exact byte expectations.
+	test("greyscale (1ch, 8-bit) expands to opaque grey RGBA", () => {
+		const out = toRgba8(new Uint8Array([0, 200]), 2, 1, 1);
+		expect(Array.from(out)).toEqual([0, 0, 0, 255, 200, 200, 200, 255]);
+	});
+
+	test("grey+alpha (2ch, 8-bit) carries the alpha sample", () => {
+		const out = toRgba8(new Uint8Array([50, 128, 250, 10]), 2, 1, 2);
+		expect(Array.from(out)).toEqual([50, 50, 50, 128, 250, 250, 250, 10]);
+	});
+
+	test("RGB (3ch, 8-bit) gains an opaque alpha", () => {
+		const out = toRgba8(new Uint8Array([1, 2, 3, 4, 5, 6]), 2, 1, 3);
+		expect(Array.from(out)).toEqual([1, 2, 3, 255, 4, 5, 6, 255]);
+	});
+
+	test("RGBA (4ch, 8-bit) passes through unchanged", () => {
+		const src = [9, 8, 7, 6, 5, 4, 3, 2];
+		const out = toRgba8(new Uint8Array(src), 2, 1, 4);
+		expect(Array.from(out)).toEqual(src);
+	});
+
+	test("16-bit samples downshift to 8-bit (>>8)", () => {
+		const out = toRgba8(new Uint16Array([0xffff, 0x8000, 0x0100, 0x0000]), 1, 1, 4);
+		expect(Array.from(out)).toEqual([0xff, 0x80, 0x01, 0x00]);
+	});
+
+	test("a real greyscale fast-png round-trip decodes through decodeImageBytes", () => {
+		// Encode a 1-channel PNG so decodeImageBytes exercises the
+		// channels-from-file path (not just the direct helper calls above).
+		const grey = encodePng({ width: 2, height: 1, data: new Uint8Array([0, 255]), channels: 1 });
+		const img = decodeImageBytes(grey, "image/png");
+		expect(img.width).toBe(2);
+		expect(Array.from(img.data)).toEqual([0, 0, 0, 255, 255, 255, 255, 255]);
+	});
 });

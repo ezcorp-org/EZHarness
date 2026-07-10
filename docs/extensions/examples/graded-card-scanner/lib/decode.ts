@@ -2,7 +2,7 @@
 //
 // Port of the phone app's proven decode strategy (app/lib/scanner.js)
 // for the extension SUBPROCESS: no DOM, no canvas, no CDN. Pixels come
-// from pngjs / jpeg-js; region extraction + scaling + quiet-zone padding
+// from fast-png / jpeg-js; region extraction + scaling + quiet-zone padding
 // are done over raw RGBA buffers; ZXing's low-level MultiFormatReader +
 // HybridBinarizer pipeline decodes each attempt.
 //
@@ -26,8 +26,8 @@ import {
   MultiFormatReader,
   RGBLuminanceSource,
 } from "@zxing/library";
+import { decode as decodePng } from "fast-png";
 import jpeg from "jpeg-js";
-import { PNG } from "pngjs";
 import { buildDecodeVariants } from "../app/lib/decode-plan.js";
 
 /** One region-attempt from the shared ladder (app/lib/decode-plan.js). */
@@ -55,12 +55,51 @@ export interface RgbaImage {
 export const QUIET_PAD_X = 0.12;
 export const QUIET_PAD_Y = 0.4;
 
-/** Decode PNG/JPEG bytes into an RGBA raster. Throws on other MIMEs. */
+/**
+ * Normalize a fast-png raster (any channel count, 8/16-bit) to RGBA8888.
+ * fast-png returns exactly what the file stores — greyscale (1ch),
+ * grey+alpha (2ch), RGB (3ch), or RGBA (4ch), at depth 8 or 16 — unlike
+ * pngjs which always expanded to RGBA. 16-bit samples downshift (>>8).
+ */
+export function toRgba8(
+  data: Uint8Array | Uint8ClampedArray | Uint16Array,
+  width: number,
+  height: number,
+  channels: number,
+): Uint8Array {
+  const px = width * height;
+  const out = new Uint8Array(px * 4);
+  const is16 = data instanceof Uint16Array;
+  const sample = (i: number): number => (is16 ? data[i]! >> 8 : data[i]!);
+  for (let p = 0; p < px; p++) {
+    const s = p * channels;
+    let r: number, g: number, b: number, a: number;
+    if (channels === 1) {
+      r = g = b = sample(s); a = 255;
+    } else if (channels === 2) {
+      r = g = b = sample(s); a = sample(s + 1);
+    } else if (channels === 3) {
+      r = sample(s); g = sample(s + 1); b = sample(s + 2); a = 255;
+    } else {
+      r = sample(s); g = sample(s + 1); b = sample(s + 2); a = sample(s + 3);
+    }
+    const o = p * 4;
+    out[o] = r; out[o + 1] = g; out[o + 2] = b; out[o + 3] = a;
+  }
+  return out;
+}
+
+/** Decode PNG/JPEG bytes into an RGBA raster. Throws on other MIMEs.
+ *  PNG goes through fast-png (pure JS, NO `fs` dependency) — pngjs's
+ *  `PNG.sync.read` touches the poisoned `fs` module at call time inside
+ *  the sandboxed extension subprocess and kills the RPC transport (see
+ *  lesson: extensions must not pull node:fs; test the real subprocess). */
 export function decodeImageBytes(bytes: Uint8Array, mimeType: string): RgbaImage {
   const mime = mimeType.toLowerCase();
   if (mime === "image/png") {
-    const png = PNG.sync.read(Buffer.from(bytes));
-    return { data: new Uint8Array(png.data.buffer, png.data.byteOffset, png.data.length), width: png.width, height: png.height };
+    const png = decodePng(bytes);
+    const channels = png.channels ?? 4;
+    return { data: toRgba8(png.data, png.width, png.height, channels), width: png.width, height: png.height };
   }
   if (mime === "image/jpeg" || mime === "image/jpg") {
     const decoded = jpeg.decode(bytes, { useTArray: true, formatAsRGBA: true });

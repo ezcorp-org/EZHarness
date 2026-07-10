@@ -8,7 +8,7 @@
 
 import { BarcodeFormat, EncodeHintType, QRCodeWriter } from "@zxing/library";
 import jpeg from "jpeg-js";
-import { PNG } from "pngjs";
+import { encode as encodePng } from "fast-png";
 import type { RgbaImage } from "../../lib/decode";
 
 /** ITF digit patterns (n = narrow, w = wide) — standard Interleaved 2 of 5. */
@@ -98,9 +98,9 @@ export function renderQrRgba(contents: string, size = 240): RgbaImage {
 }
 
 export function rgbaToPng(img: RgbaImage): Uint8Array {
-  const png = new PNG({ width: img.width, height: img.height });
-  Buffer.from(img.data.buffer, img.data.byteOffset, img.data.length).copy(png.data);
-  return new Uint8Array(PNG.sync.write(png));
+  // fast-png (pure JS, no `fs`) — mirrors the runtime decoder swap in
+  // lib/decode.ts; pngjs pulls node:fs which the extension sandbox poisons.
+  return encodePng({ width: img.width, height: img.height, data: img.data, channels: 4 });
 }
 
 export function rgbaToJpeg(img: RgbaImage, quality = 95): Uint8Array {

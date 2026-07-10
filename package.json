@@ -33,7 +33,6 @@
     "@types/bun": "latest",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.6.0",
-    "@types/pngjs": "^6.0.5",
     "drizzle-kit": "^0.31.9"
   },
   "peerDependencies": {
@@ -51,10 +50,10 @@
     "@zxing/library": "^0.23.0",
     "drizzle-orm": "^0.45.2",
     "exceljs": "^4.4.0",
+    "fast-png": "^8.0.0",
     "file-type": "^22.0.1",
     "jpeg-js": "^0.4.4",
     "pdf-parse": "^2.4.5",
-    "pngjs": "^7.0.0",
     "yaml": "^2.8.2"
   }
 }
