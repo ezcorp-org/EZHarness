@@ -41,7 +41,7 @@ import {
   unsatisfiedDeps,
   type ReadonlyTask,
   type ReadonlySnapshot,
-} from "../../../../src/runtime/task-dependencies";
+} from "./task-dependencies";
 
 // ── Types (mirrored from the legacy built-in) ───────────────────────
 

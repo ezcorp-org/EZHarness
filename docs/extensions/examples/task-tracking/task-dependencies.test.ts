@@ -1,14 +1,7 @@
-// Unit tests for src/runtime/task-dependencies.ts — the pure-function
-// module extracted during Phase 3 commit-1 so the host's /start endpoint
-// pre-start gate and the task-tracking bundled extension share one
-// implementation.
-//
-// This file REPLACES the legacy tool-surface tests that lived here. The
-// dependsOn behavior they covered is still exercised through the built-in
-// task-tracking tool suite (src/__tests__/task-tracking.test.ts,
-// task-autostart.test.ts) until commit-5 deletes the built-in, at which
-// point those suites are rewritten against the bundled extension and
-// this file is the sole home for the pure-graph assertions.
+// Unit tests for ./task-dependencies — the pure-function module owned by the
+// task-tracking extension (colocated here after issue #60 moved it out of
+// src/runtime so the jailed subprocess can read it). Sole home for the
+// pure-graph assertions over the extension's dependency helpers.
 
 import { test, expect, describe } from "bun:test";
 import {
@@ -17,7 +10,7 @@ import {
   unsatisfiedDeps,
   type ReadonlyTask,
   type ReadonlySnapshot,
-} from "../runtime/task-dependencies";
+} from "./task-dependencies";
 
 function task(
   id: string,

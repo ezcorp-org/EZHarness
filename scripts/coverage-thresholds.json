@@ -79,6 +79,8 @@
   "src/update-check.ts": 100,
   "docs/extensions/examples/*/index.ts": 90,
   "docs/extensions/examples/*/lib/**": 90,
+  "docs/extensions/examples/github-projects/contract.ts": 100,
+  "docs/extensions/examples/task-tracking/task-dependencies.ts": 100,
   "src/search/egress.ts": 100,
   "src/search/providers.ts": 100,
   "src/search/cache.ts": 100,

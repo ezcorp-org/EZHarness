@@ -59,16 +59,12 @@ export interface GithubColumnAction {
 /** statusOptionId → action. Options absent from this map never trigger. */
 export type GithubColumnActionMap = Record<string, GithubColumnAction>;
 
-/** Lifecycle of a proposal (the queue unit). */
-export type GithubProposalStatus =
-  | "pending"
-  | "approved"
-  | "spawned"
-  | "running"
-  | "done"
-  | "failed"
-  | "dismissed"
-  | "cancelled";
+// The ext-facing contract slice (status type + RPC prefix + event name + the
+// active/terminal status arrays) is DEFINED in the extension's own dir so the
+// sandboxed subprocess can read it under the landlock jail (issue #60). It is
+// re-exported HERE so every host/web/test importer of these symbols keeps
+// resolving them from `…/github-projects/types` unchanged.
+export type { GithubProposalStatus } from "../../../docs/extensions/examples/github-projects/contract";
 
 // ── Auth (host-only) ───────────────────────────────────────────────────────
 
@@ -196,8 +192,10 @@ export class GithubRateLimitError extends Error {
 // The sandbox extension's ticket tools emit these. The handler derives
 // projectId from the conversation and the board from the link — params NEVER
 // carry a board id.
-
-export const GITHUB_PROJECTS_RPC_PREFIX = "ezcorp/github-projects." as const;
+//
+// GITHUB_PROJECTS_RPC_PREFIX is re-exported from the extension-owned contract
+// (jail-readable — issue #60); every host importer resolves it here unchanged.
+export { GITHUB_PROJECTS_RPC_PREFIX } from "../../../docs/extensions/examples/github-projects/contract";
 
 export type GithubProjectsRpcVerb =
   | "list"
@@ -256,21 +254,11 @@ export function githubProposalDedupeKey(
   return `${projectId}:${itemNodeId}:${statusOptionId}:${action}`;
 }
 
-/** The single runtime event name registered in runtime-event-names.ts. */
-export const GITHUB_PROJECTS_EVENT = "github-projects:proposal-update" as const;
-
-/** Proposal statuses considered "active work" (Hub Active section). */
-export const GITHUB_ACTIVE_STATUSES: readonly GithubProposalStatus[] = [
-  "pending",
-  "approved",
-  "spawned",
-  "running",
-] as const;
-
-/** Proposal statuses considered terminal (Hub History section). */
-export const GITHUB_TERMINAL_STATUSES: readonly GithubProposalStatus[] = [
-  "done",
-  "failed",
-  "dismissed",
-  "cancelled",
-] as const;
+// The runtime event name + the active/terminal status arrays are DEFINED in
+// the extension-owned contract (jail-readable — issue #60) and re-exported
+// here so host/web/test importers resolve them from this module unchanged.
+export {
+  GITHUB_PROJECTS_EVENT,
+  GITHUB_ACTIVE_STATUSES,
+  GITHUB_TERMINAL_STATUSES,
+} from "../../../docs/extensions/examples/github-projects/contract";

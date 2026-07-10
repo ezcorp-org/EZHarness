@@ -36,7 +36,7 @@ import {
   GITHUB_ACTIVE_STATUSES,
   GITHUB_TERMINAL_STATUSES,
   type GithubProposalStatus,
-} from "../../../../src/integrations/github-projects/types";
+} from "./contract";
 
 export const PAGE_ID = "dashboard";
 
