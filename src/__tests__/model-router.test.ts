@@ -29,9 +29,34 @@ import {
   resolveModel,
   suggestFallback,
   mergePreferenceOrder,
+  getDefaultTier,
   ProviderUnavailableError,
 } from "../providers/router";
 import { getApiKey } from "../providers/credentials";
+
+describe("getDefaultTier", () => {
+  // The onboarding wizard historically stored quality/budget — the router
+  // must honor the stored INTENT, not silently coerce to "balanced".
+  test.each([
+    ["quality", "powerful"],
+    ["budget", "fast"],
+    ["powerful", "powerful"],
+    ["fast", "fast"],
+    ["balanced", "balanced"],
+  ] as const)("stored %s resolves to %s", async (stored, expected) => {
+    mockGetSetting.mockImplementation(((key: string) =>
+      Promise.resolve(key === "provider:defaultTier" ? stored : undefined)) as any);
+    expect(await getDefaultTier()).toBe(expected);
+  });
+
+  test("unknown or missing values fall back to balanced", async () => {
+    mockGetSetting.mockImplementation(((key: string) =>
+      Promise.resolve(key === "provider:defaultTier" ? "turbo" : undefined)) as any);
+    expect(await getDefaultTier()).toBe("balanced");
+    mockGetSetting.mockImplementation((() => Promise.resolve(undefined)) as any);
+    expect(await getDefaultTier()).toBe("balanced");
+  });
+});
 
 describe("mergePreferenceOrder", () => {
   const DEFAULTS = ["anthropic", "openai", "google", "openrouter"];

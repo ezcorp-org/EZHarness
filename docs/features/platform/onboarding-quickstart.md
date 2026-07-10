@@ -53,7 +53,7 @@ There are three distinct gates, evaluated in this order across a user's lifecycl
 ### Settings keys touched
 
 - `instance:initialized` (set `true` by setup) — instance-level bootstrap marker.
-- `provider:defaultTier` (`quality`/`balanced`/`budget`) — written by wizard step 2 only if the user picked a tier.
+- `provider:defaultTier` (`quality`/`balanced`/`budget`) — written by wizard step 2 only if the user picked a tier. The router reads these via a legacy-alias map (`quality`→`powerful`, `budget`→`fast`; see `getDefaultTier` in `src/providers/router.ts`) alongside the canonical `fast`/`balanced`/`powerful` written by the settings page.
 - `provider:apiKey:*` / `provider:oauth:*` — their presence drives the `provider` quickstart step (written elsewhere, by the provider-key flow).
 
 ## Key files
