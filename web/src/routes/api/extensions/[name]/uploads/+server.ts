@@ -8,6 +8,7 @@ import * as attachmentsDb from "$server/db/queries/attachments";
 import { getProject } from "$server/db/queries/projects";
 import { getExtensionByName } from "$server/db/queries/extensions";
 import { getConversationExtensionIds } from "$server/db/queries/conversation-extensions";
+import { listToolCallExtensionIdsForMessage } from "$server/db/queries/tool-calls";
 import { writeAttachment } from "$server/chat/attachments/storage";
 import type { AuthUser } from "$server/auth/types";
 
@@ -29,8 +30,11 @@ import type { AuthUser } from "$server/auth/types";
 //      table the event route + reverse-RPC handlers consult)
 //   5. The extension must declare `appendMessages` permission
 //   6. The active user must own the conversation
-//   7. The supplied `messageId` must belong to the same conversation
-//      AND be authored by THIS extension (role:"extension")
+//   7. The supplied `messageId` must belong to the same conversation,
+//      be extension-authored (role:"extension"), AND carry a tool-call
+//      row from THIS extension — the recorded identity of an
+//      append-message turn lives on its tool_calls rows, so this is
+//      what stops extension A attaching bytes to extension B's card
 //   8. MIME whitelist (audio only for v1)
 //   9. Size cap
 
@@ -133,6 +137,19 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
   if (!targetMsg) return errorJson(404, "Not found");
   if (targetMsg.role !== "extension") {
     return errorJson(403, "messageId must belong to an extension-authored turn");
+  }
+
+  // The message must belong to THIS extension, not merely be
+  // extension-authored. `messages` has no extension column; the recorded
+  // identity is the extension id on the tool-call rows the
+  // `ezcorp/append-message` turn persisted (option (c): the card mints
+  // its message WITH the tool-call it later finalizes). Without this
+  // check, any wired extension with appendMessages could attach bytes to
+  // another extension's card. A message with NO tool-call rows has no
+  // recorded identity — it binds to nothing and is refused the same way.
+  const authoringExtIds = await listToolCallExtensionIdsForMessage(messageId);
+  if (!authoringExtIds.includes(ext.id)) {
+    return errorJson(403, "messageId does not belong to this extension");
   }
 
   // MIME validation. We trust the caller's claimed MIME (no magic-byte

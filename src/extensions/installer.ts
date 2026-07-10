@@ -3,6 +3,7 @@
  */
 
 import type { ExtensionManifestV2, ExtensionPermissions, InstalledExtension } from "./types";
+import { clampExtensionPermissions } from "./clamp-permissions";
 import { compareVersions } from "./manifest";
 import { loadManifest } from "./loader";
 import { resolveDependencies, formatDepTree } from "./dependency-resolver";
@@ -262,13 +263,32 @@ export async function installFromLocal(
       // upgrade, not a consent reset). The S6/S9 gates remain the only
       // permission-escalation paths. Do NOT re-run entity install
       // hooks here — a second seed would double-write declared records.
-      const refreshed = await dbUpdateExtension(existing.id, {
+      //
+      // Re-clamp the stored grants against the REFRESHED manifest for
+      // NON-BUNDLED refreshes: a refreshed manifest that drops shell /
+      // a network host must drop the matching grant, or the registry
+      // spawn options (`networkAllowed`/`shellAllowed`) keep the stale
+      // looser sandbox. Bundled boot refreshes are exempt — the S6/S9
+      // bundled-install gates already clamp those with their own
+      // ceiling rules, and double-clamping here would fight them.
+      const refreshUpdate: Parameters<typeof dbUpdateExtension>[1] = {
         version: manifest.version,
         description: manifest.description || "",
         manifest: { ...manifest, checksum, packageChecksums, packageChecksumsAlgo: PACKAGE_CHECKSUM_ALGO },
         installPath: localPath,
         checksumVerified: !!checksum,
-      });
+      };
+      if (opts.isBundled !== true) {
+        refreshUpdate.grantedPermissions = clampExtensionPermissions(
+          (existing.grantedPermissions ?? { grantedAt: {} }) as Partial<ExtensionPermissions>,
+          manifest.permissions ?? {},
+          {
+            acceptsCallerCaps: manifest.acceptsCallerCaps,
+            escalateChildCaps: manifest.escalateChildCaps,
+          },
+        );
+      }
+      const refreshed = await dbUpdateExtension(existing.id, refreshUpdate);
       // Registry must observe the refreshed manifest (tool schema fixes
       // etc.). Swallow reload failures the same way the other install
       // paths do — test environments without a live DB still pass.
@@ -635,15 +655,36 @@ export async function updateExtension(
     throw new Error(`"${name}" is already at latest version (${ext.version})`);
   }
 
-  // Fetch and checkout latest tag
+  // Fetch and checkout latest tag. Remember the pre-update ref so a
+  // refused update (env-leak gate below) can restore the working tree —
+  // the DB row keeps the OLD manifest on refusal, and the subprocess
+  // spawns from DISK, so leaving the new tag checked out would run new
+  // code under old grants.
+  const prevHead = gitExec(["rev-parse", "HEAD"], { cwd: installPath });
   gitExec(["fetch", "--tags"], { cwd: installPath });
   const checkoutResult = gitExec(["checkout", latest.raw], { cwd: installPath });
   if (!checkoutResult.ok) {
     throw new Error(`Failed to checkout ${latest.raw}: ${checkoutResult.stderr}`);
   }
 
-  // Re-validate manifest after checkout
-  const manifest = await loadManifest(installPath);
+  let manifest: ExtensionManifestV2;
+  try {
+    // Re-validate manifest after checkout
+    manifest = await loadManifest(installPath);
+
+    // v1.4 env-leak gate — same rule as every install path: refuse to
+    // persist a manifest that DECLARES a credential-shaped env name.
+    // Updates are never bundled (bundled extensions are local:-sourced
+    // and rejected above), so no escape hatch applies. Runs BEFORE the
+    // DB write; the catch below restores the previous checkout so a
+    // refused update leaves disk AND DB at the old version.
+    await runEnvKeyLeakInstallGate(manifest, { isBundled: false });
+  } catch (err) {
+    if (prevHead.ok && prevHead.stdout) {
+      gitExec(["checkout", prevHead.stdout], { cwd: installPath });
+    }
+    throw err;
+  }
 
   // Recompute checksum
   let checksum: string | undefined;
@@ -654,10 +695,27 @@ export async function updateExtension(
 
   const oldVersion = ext.version;
 
+  // Re-clamp the stored grants against the NEW manifest. Without this,
+  // a new tag that DROPS a permission (shell, a network host, …) left
+  // the old grant in place — the registry spawn options
+  // (registry.ts `networkAllowed`/`shellAllowed`) would keep the looser
+  // sandbox forever. Clamping grant∩new-manifest preserves everything
+  // the new manifest still declares (grantedAt survives via the clamp)
+  // and drops what it no longer requests. `enabled` is untouched.
+  const reclamped = clampExtensionPermissions(
+    (ext.grantedPermissions ?? { grantedAt: {} }) as Partial<ExtensionPermissions>,
+    manifest.permissions ?? {},
+    {
+      acceptsCallerCaps: manifest.acceptsCallerCaps,
+      escalateChildCaps: manifest.escalateChildCaps,
+    },
+  );
+
   // Update DB
   await dbUpdateExtension(ext.id, {
     version: manifest.version,
     manifest: checksum ? { ...manifest, checksum } : manifest,
+    grantedPermissions: reclamped,
   });
 
   try {

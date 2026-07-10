@@ -17,6 +17,17 @@ For permissions and the `ezcorp/storage` key-value API, see [API Reference](api-
 
 Inside that directory the extension owns the layout. Use subdirectories for logical groupings (e.g. `vault/`, `cache/`) and keep top-level files for small singletons like `config.json`.
 
+> **Visibility: the tree is PROJECT-SHARED, not per-user.** Everything an
+> extension writes here is served to *every* chat-scoped user of the
+> deployment via `GET /api/extensions/<name>/data/<path>` (the route
+> requires the extension to be installed **and enabled**, but it does not
+> — and cannot — partition files by user). Never write per-user private
+> data (personal notes, tokens, per-user documents) into this tree. Use
+> the `ezcorp/storage` key-value API with **user scope** for per-user
+> state, and the extension **secrets** capability for credentials — both
+> are host-mediated and scoped to the acting user. See
+> [API Reference](api-reference.md).
+
 ---
 
 ## Why

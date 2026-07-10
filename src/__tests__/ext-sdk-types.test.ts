@@ -1,3 +1,9 @@
+// Template assertions retargeted (fix-wave B Phase 4): the dead legacy
+// copies at src/extensions/sdk/templates/* were deleted — the LIVE
+// scaffold templates live in packages/@ezcorp/sdk/src/scaffold/templates
+// (consumed by scaffoldExtension, covered end-to-end by
+// sdk-scaffold.test.ts). Every assertion below exercises the live
+// scaffold output; nothing was dropped except the import target.
 import { describe, test, expect } from "bun:test";
 import { validateManifestV2 } from "../extensions/manifest";
 import { join } from "path";
@@ -35,7 +41,7 @@ describe("SDK types re-exports", () => {
 
 describe("tool template", () => {
   test("toolManifest generates valid manifest", async () => {
-    const { toolManifest } = await import("../extensions/sdk/templates/tool");
+    const { toolManifest } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/tool");
     const ts = toolManifest("my-tool", "A cool tool");
     const manifest = await evalTemplateManifest(ts);
     const result = validateManifestV2(manifest);
@@ -51,21 +57,21 @@ describe("tool template", () => {
   });
 
   test("toolEntrypoint returns non-empty string", async () => {
-    const { toolEntrypoint } = await import("../extensions/sdk/templates/tool");
+    const { toolEntrypoint } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/tool");
     const code = toolEntrypoint("my-tool", "A cool tool");
     expect(code.length).toBeGreaterThan(0);
     expect(code).toContain("jsonrpc");
   });
 
   test("toolTest returns test skeleton", async () => {
-    const { toolTest } = await import("../extensions/sdk/templates/tool");
+    const { toolTest } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/tool");
     const code = toolTest("my-tool", "A cool tool");
     expect(code).toContain("bun:test");
     expect(code).toContain("test");
   });
 
   test("toolReadme returns markdown", async () => {
-    const { toolReadme } = await import("../extensions/sdk/templates/tool");
+    const { toolReadme } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/tool");
     const md = toolReadme("my-tool", "A cool tool");
     expect(md).toContain("# my-tool");
     expect(md).toContain("A cool tool");
@@ -74,7 +80,7 @@ describe("tool template", () => {
 
 describe("skill template", () => {
   test("skillManifest generates valid manifest with skills array", async () => {
-    const { skillManifest } = await import("../extensions/sdk/templates/skill");
+    const { skillManifest } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/skill");
     const ts = skillManifest("my-skill", "A cool skill");
     const manifest = await evalTemplateManifest(ts);
     const result = validateManifestV2(manifest);
@@ -84,24 +90,24 @@ describe("skill template", () => {
   });
 
   test("skillEntrypoint returns empty string", async () => {
-    const { skillEntrypoint } = await import("../extensions/sdk/templates/skill");
+    const { skillEntrypoint } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/skill");
     expect(skillEntrypoint("my-skill", "A cool skill")).toBe("");
   });
 
   test("skillTest returns test skeleton", async () => {
-    const { skillTest } = await import("../extensions/sdk/templates/skill");
+    const { skillTest } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/skill");
     expect(skillTest("my-skill", "A cool skill")).toContain("bun:test");
   });
 
   test("skillReadme returns markdown", async () => {
-    const { skillReadme } = await import("../extensions/sdk/templates/skill");
+    const { skillReadme } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/skill");
     expect(skillReadme("my-skill", "A cool skill")).toContain("# my-skill");
   });
 });
 
 describe("agent template", () => {
   test("agentManifest generates valid manifest with agent component", async () => {
-    const { agentManifest } = await import("../extensions/sdk/templates/agent");
+    const { agentManifest } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/agent");
     const ts = agentManifest("my-agent", "A cool agent");
     const manifest = await evalTemplateManifest(ts);
     const result = validateManifestV2(manifest);
@@ -112,24 +118,24 @@ describe("agent template", () => {
   });
 
   test("agentEntrypoint returns empty string", async () => {
-    const { agentEntrypoint } = await import("../extensions/sdk/templates/agent");
+    const { agentEntrypoint } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/agent");
     expect(agentEntrypoint("my-agent", "A cool agent")).toBe("");
   });
 
   test("agentTest returns test skeleton", async () => {
-    const { agentTest } = await import("../extensions/sdk/templates/agent");
+    const { agentTest } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/agent");
     expect(agentTest("my-agent", "A cool agent")).toContain("bun:test");
   });
 
   test("agentReadme returns markdown", async () => {
-    const { agentReadme } = await import("../extensions/sdk/templates/agent");
+    const { agentReadme } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/agent");
     expect(agentReadme("my-agent", "A cool agent")).toContain("# my-agent");
   });
 });
 
 describe("multi template", () => {
   test("multiManifest generates valid manifest with tools, skills, and agent", async () => {
-    const { multiManifest } = await import("../extensions/sdk/templates/multi");
+    const { multiManifest } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/multi");
     const ts = multiManifest("my-multi", "A cool multi");
     const manifest = await evalTemplateManifest(ts);
     const result = validateManifestV2(manifest);
@@ -141,19 +147,19 @@ describe("multi template", () => {
   });
 
   test("multiEntrypoint returns non-empty string", async () => {
-    const { multiEntrypoint } = await import("../extensions/sdk/templates/multi");
+    const { multiEntrypoint } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/multi");
     const code = multiEntrypoint("my-multi", "A cool multi");
     expect(code.length).toBeGreaterThan(0);
     expect(code).toContain("jsonrpc");
   });
 
   test("multiTest returns test skeleton", async () => {
-    const { multiTest } = await import("../extensions/sdk/templates/multi");
+    const { multiTest } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/multi");
     expect(multiTest("my-multi", "A cool multi")).toContain("bun:test");
   });
 
   test("multiReadme returns markdown", async () => {
-    const { multiReadme } = await import("../extensions/sdk/templates/multi");
+    const { multiReadme } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/multi");
     expect(multiReadme("my-multi", "A cool multi")).toContain("# my-multi");
   });
 });

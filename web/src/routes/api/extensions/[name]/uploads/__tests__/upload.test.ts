@@ -67,6 +67,15 @@ mock.module("$server/db/queries/attachments", () => ({
   },
 }));
 
+// Extension identity of the target message = the extension ids on its
+// tool-call rows (append-message-handler persists them). Default: the
+// message was minted by ext-1 (this extension) so every pre-existing
+// suite runs unchanged; the binding tests below repoint it.
+let mockMsgToolCallExtIds: string[] = [];
+mock.module("$server/db/queries/tool-calls", () => ({
+  listToolCallExtensionIdsForMessage: async (_messageId: string) => mockMsgToolCallExtIds,
+}));
+
 const { POST } = await import(
   "../../../../../../../../web/src/routes/api/extensions/[name]/uploads/+server"
 );
@@ -85,6 +94,7 @@ beforeEach(() => {
   };
   mockWiredExtIds = ["ext-1"];
   mockMsgs = [{ id: "msg-1", conversationId: "conv-1", role: "extension" }];
+  mockMsgToolCallExtIds = ["ext-1"];
   insertCalls.length = 0;
   writeCalls.length = 0;
 });
@@ -185,6 +195,33 @@ describe("uploads — message gate", () => {
     mockMsgs = [{ id: "msg-1", conversationId: "conv-1", role: "user" }];
     const res = await POST(evt(makeForm({})) as any);
     expect(res.status).toBe(403);
+  });
+
+  test("cross-extension attach rejected: message minted by ANOTHER extension → 403", async () => {
+    // The target message is extension-authored, in this conversation,
+    // and this extension is wired with appendMessages — but the
+    // message's tool-call rows belong to a different extension. The
+    // binding gate must refuse the attach.
+    mockMsgToolCallExtIds = ["ext-other"];
+    const res = await POST(evt(makeForm({})) as any);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain("does not belong to this extension");
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  test("message with NO tool-call rows has no recorded identity → 403", async () => {
+    mockMsgToolCallExtIds = [];
+    const res = await POST(evt(makeForm({})) as any);
+    expect(res.status).toBe(403);
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  test("message minted by THIS extension passes the binding gate", async () => {
+    // Default fixture: mockMsgToolCallExtIds = ["ext-1"] (this ext).
+    const res = await POST(evt(makeForm({})) as any);
+    expect(res.status).toBe(200);
+    expect(insertCalls).toHaveLength(1);
   });
 });
 

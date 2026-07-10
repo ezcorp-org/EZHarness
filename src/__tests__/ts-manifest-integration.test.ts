@@ -147,7 +147,7 @@ describe("template generates valid ezcorp.config.ts", () => {
   for (const type of templateTypes) {
     describe(`${type} template`, () => {
       test("generates source containing defineExtension import", async () => {
-        const mod = await import(`../extensions/sdk/templates/${type}`);
+        const mod = await import(`../../packages/@ezcorp/sdk/src/scaffold/templates/${type}`);
         const manifestFn = mod[`${type}Manifest`] as (name: string, desc: string) => string;
         const source = manifestFn("test-ext", "A test extension");
 
@@ -156,9 +156,14 @@ describe("template generates valid ezcorp.config.ts", () => {
       });
 
       test("generated source is syntactically valid TypeScript", async () => {
-        const mod = await import(`../extensions/sdk/templates/${type}`);
+        const mod = await import(`../../packages/@ezcorp/sdk/src/scaffold/templates/${type}`);
         const manifestFn = mod[`${type}Manifest`] as (name: string, desc: string) => string;
         const source = manifestFn("test-ext", "A test extension");
+        // Non-empty precondition — an empty template would make the
+        // Function() eval below vacuously "valid". (Also keeps this
+        // block visibly asserted for the gate-integrity scanner, whose
+        // brace matcher stops early on the regex literals below.)
+        expect(source.length).toBeGreaterThan(0);
 
         // Strip imports and export default, eval with shims to check syntax
         const transformed = source
@@ -177,7 +182,7 @@ describe("template generates valid ezcorp.config.ts", () => {
       });
 
       test("generated config references correct entrypoint pattern", async () => {
-        const mod = await import(`../extensions/sdk/templates/${type}`);
+        const mod = await import(`../../packages/@ezcorp/sdk/src/scaffold/templates/${type}`);
         const manifestFn = mod[`${type}Manifest`] as (name: string, desc: string) => string;
         const source = manifestFn("test-ext", "A test extension");
 

@@ -67,6 +67,7 @@ import {
 } from "./fs-handler";
 import { buildEntityToolHandlers } from "@ezcorp/sdk/entities";
 import { createHostEntityStore } from "./entities/host-store";
+import { redactLargeDataUris } from "./audit-redaction";
 import { logger } from "../logger";
 import {
   registerCallProvenance,
@@ -685,7 +686,12 @@ export class ToolExecutor {
         conversationId,
         extensionId,
         toolName,
-        input,
+        // `input` is read at CALL time — after the args resolver has
+        // substituted attachment handles with real `data:` URIs. Redact
+        // large base64 payloads at the emit boundary so SSE consumers
+        // never carry multi-MB frames; execution below still uses the
+        // unredacted resolved input.
+        input: redactLargeDataUris(input),
         timestamp,
         ...(registered.cardType && { cardType: registered.cardType }),
         ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
@@ -1809,13 +1815,15 @@ export class ToolExecutor {
         error: { code: -32603, message: "Extension not found in registry" },
       };
     }
+    // Per-call provenance: token wins, singletons are the fallback.
+    const scope = this.resolveHandlerScope(req);
     const ctx: AgentConfigsContext = {
-      userId: this.currentUserId ?? "unknown",
+      userId: scope.userId,
       grantedPermissions: granted,
       // Phase 6: thread the PDP. The engine reuses the same audit-log
       // + always-allow infrastructure as every other dispatch.
       engine: this.engine,
-      conversationId: this.currentConversationId ?? "unknown",
+      conversationId: scope.conversationId,
     };
     return handleAgentConfigsRpc(extensionId, req, ctx);
   }
@@ -1839,9 +1847,11 @@ export class ToolExecutor {
         error: { code: -32603, message: "Extension not found in registry" },
       };
     }
+    // Per-call provenance: token wins, singletons are the fallback.
+    const scope = this.resolveHandlerScope(req);
     const ctx: TaskEventsContext = {
-      conversationId: this.currentConversationId ?? "unknown",
-      userId: this.currentUserId ?? "unknown",
+      conversationId: scope.conversationId,
+      userId: scope.userId,
       grantedPermissions: granted,
       bus: this.bus,
       // Phase 6: thread the PDP for the canonical permission decision.
@@ -1881,8 +1891,11 @@ export class ToolExecutor {
       };
     }
 
+    // Per-call provenance: token wins, singletons are the fallback.
+    const scope = this.resolveHandlerScope(req);
+
     // Resolve parent conversation metadata for scope + depth gates.
-    const convId = this.currentConversationId ?? "unknown";
+    const convId = scope.conversationId;
     let projectId: string | null = null;
     let spawnDepth = 0;
     if (convId && convId !== "unknown") {
@@ -1893,7 +1906,7 @@ export class ToolExecutor {
 
     const ctx: SpawnAssignmentContext = {
       conversationId: convId,
-      userId: this.currentUserId ?? "unknown",
+      userId: scope.userId,
       projectId,
       grantedPermissions: granted,
       executor: this.executor,
@@ -1938,14 +1951,16 @@ export class ToolExecutor {
         error: { code: -32603, message: "Cancel path unavailable in this context" },
       };
     }
+    // Per-call provenance: token wins, singletons are the fallback.
+    const scope = this.resolveHandlerScope(req);
     const ctx: CancelRunContext = {
-      userId: this.currentUserId ?? "unknown",
+      userId: scope.userId,
       grantedPermissions: granted,
       executor: this.executor,
       quota: this.spawnQuota,
       // Phase 6: thread the PDP for the canonical permission decision.
       engine: this.engine,
-      conversationId: this.currentConversationId ?? "unknown",
+      conversationId: scope.conversationId,
     };
     return handleCancelRunRpc(extensionId, req, ctx);
   }
@@ -1975,10 +1990,12 @@ export class ToolExecutor {
         error: { code: -32603, message: "Extension not found in registry" },
       };
     }
+    // Per-call provenance: token wins, singletons are the fallback.
+    const scope = this.resolveHandlerScope(req);
     const ctx: NetworkInternalContext = {
       extensionId,
-      conversationId: this.currentConversationId ?? "unknown",
-      userId: this.currentUserId ?? "unknown",
+      conversationId: scope.conversationId,
+      userId: scope.userId,
       // Reuse the Phase 1 PDP singleton — wired at runtime boot. The
       // ToolExecutor's own `this.engine` field already holds the same
       // reference, but referring to the singleton keeps the handler
@@ -2611,6 +2628,44 @@ export class ToolExecutor {
    * rejects ownerless fires; `resolveStorageProvenance` allows them for the
    * install-wide global scope).
    */
+  /**
+   * Per-call provenance for the LEGACY singleton-reading reverse-RPC
+   * handlers (emit-task-event, spawn-assignment, cancel-run,
+   * network-internal, finalize-tool-call, agent-configs). TOKEN WINS:
+   * when the request carries a resolvable host-issued `ezCallId` whose
+   * snapshot has an owner, identity comes from that per-call snapshot —
+   * correct under concurrency and for long-running tools. Otherwise
+   * (no token, unresolved token, or an ownerless snapshot) fall back to
+   * the instance singletons — EXACTLY the pre-migration behavior, so
+   * background paths and legacy callers are unaffected.
+   *
+   * Deliberately softer than `resolveReverseRpcMeta` (which fail-fasts
+   * on a missing token): these six handlers predate the token plumbing
+   * and their downstream contracts already handle the "unknown"
+   * sentinel. Tightening to fail-fast is a follow-up, not this change.
+   */
+  private resolveHandlerScope(req: JsonRpcRequest): {
+    userId: string;
+    conversationId: string;
+  } {
+    const rawMeta = (req.params as { _meta?: Record<string, unknown> } | undefined)?._meta;
+    const ezCallId = typeof rawMeta?.ezCallId === "string" ? rawMeta.ezCallId : undefined;
+    // Only consult the registry when a token is actually on the wire —
+    // `resolveCallProvenance(undefined)` warn-logs, and the tokenless
+    // fallback is an expected (legacy) path here, not an anomaly.
+    const prov = ezCallId ? resolveCallProvenance(ezCallId) : undefined;
+    if (prov && !prov.ownerless && prov.onBehalfOf) {
+      return {
+        userId: prov.onBehalfOf,
+        conversationId: prov.conversationId ?? "unknown",
+      };
+    }
+    return {
+      userId: this.currentUserId ?? "unknown",
+      conversationId: this.currentConversationId ?? "unknown",
+    };
+  }
+
   private resolveCallToken(
     extensionId: string,
     req: JsonRpcRequest,
@@ -2774,9 +2829,11 @@ export class ToolExecutor {
         error: { code: -32603, message: "Extension not found in registry" },
       };
     }
+    // Per-call provenance: token wins, singletons are the fallback.
+    const scope = this.resolveHandlerScope(req);
     const ctx: FinalizeToolCallContext = {
-      conversationId: this.currentConversationId ?? "unknown",
-      userId: this.currentUserId ?? "unknown",
+      conversationId: scope.conversationId,
+      userId: scope.userId,
       grantedPermissions: granted,
       // Phase 6: thread the PDP for the canonical permission decision.
       engine: this.engine,
@@ -2799,12 +2856,20 @@ export class ToolExecutor {
     // tool_calls across the extension-tool path here and the built-in
     // path in executor.ts. The helper swallows DB errors itself so tool
     // execution is never blocked by a DB glitch.
+    //
+    // `input` here is the POST-resolver value (attachment handles already
+    // substituted with real `data:` URIs by the args resolver) — redact
+    // large base64 payloads at this persist boundary so multi-MB blobs
+    // never land in the jsonb. This is the extension-executor chokepoint:
+    // every dispatch path (subprocess, MCP, entity, cross-ext invoke,
+    // error arm) records through here. The built-in path (executor.ts)
+    // never carries resolved attachment payloads.
     await persistToolCall({
       conversationId,
       messageId,
       extensionId,
       toolName,
-      input,
+      input: redactLargeDataUris(input) as Record<string, unknown>,
       output: result,
       success: !result.isError,
       durationMs: Date.now() - startTime,

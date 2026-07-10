@@ -61,6 +61,23 @@ mock.module("$server/chat/attachments/ext-files-resolver", () => ({
     join(fakeRoot, ".ezcorp", "extension-data", name),
 }));
 
+// ── Mock installed-extension lookup (enabled gate) ──────────────────
+//
+// The route 404s unless the [name] resolves to an installed AND enabled
+// extension. Default fixture: `claude-design` installed + enabled so the
+// pre-gate suites (traversal, symlink, MIME, rate-limit) run unchanged.
+// Individual tests flip `enabled` / clear the map to drive the gate.
+
+const mockExtRows = new Map<string, { id: string; name: string; enabled: boolean }>();
+function resetMockExtRows(): void {
+  mockExtRows.clear();
+  mockExtRows.set("claude-design", { id: "ext-cd", name: "claude-design", enabled: true });
+}
+resetMockExtRows();
+mock.module("$server/db/queries/extensions", () => ({
+  getExtensionByName: async (name: string) => mockExtRows.get(name) ?? null,
+}));
+
 // ── Import handler AFTER mocks ────────────────────────────────────
 
 const { GET } = await import(
@@ -86,6 +103,37 @@ function makeEvent(params: { name?: string; path?: string }): unknown {
 describe("GET /api/extensions/[name]/data/[...path]", () => {
   beforeEach(() => {
     mockScopeResponse = null;
+    resetMockExtRows();
+  });
+
+  // ── Installed + enabled gate ────────────────────────────────────
+
+  test("extension not installed (no DB row) → 404 even when the data dir exists on disk", async () => {
+    // The claude-design DATA DIR exists (fixture above) — but with no
+    // extensions row, the route must refuse before touching disk.
+    mockExtRows.clear();
+    const res = await GET(
+      makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never,
+    );
+    expect(res.status).toBe(404);
+    expect(await res.text()).not.toContain("hello draft");
+  });
+
+  test("extension installed but DISABLED → 404 (collapses with not-found, opaque)", async () => {
+    mockExtRows.set("claude-design", { id: "ext-cd", name: "claude-design", enabled: false });
+    const res = await GET(
+      makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never,
+    );
+    expect(res.status).toBe(404);
+    expect(await res.text()).not.toContain("hello draft");
+  });
+
+  test("enabled extension still serves (gate does not over-reject)", async () => {
+    const res = await GET(
+      makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("hello draft");
   });
 
   // ── Auth ────────────────────────────────────────────────────────

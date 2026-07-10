@@ -701,6 +701,28 @@ export function validateSettingsSchema(
   }
 }
 
+/** Structural check for the string-array permission fields (`network`,
+ *  `env`, `filesystem`, and the array form of `eventSubscriptions`):
+ *  must be an array whose every element is a non-empty string. An EMPTY
+ *  array is valid — several manifests declare `eventSubscriptions: []`
+ *  as an explicit "none" (the per-element rule is what's enforced). */
+function validateStringArrayPerm(
+  field: string,
+  value: unknown,
+  errors: string[],
+): void {
+  if (!Array.isArray(value)) {
+    errors.push(`permissions.${field} must be an array of non-empty strings`);
+    return;
+  }
+  for (let i = 0; i < value.length; i++) {
+    const v = value[i];
+    if (typeof v !== "string" || v.length === 0) {
+      errors.push(`permissions.${field}[${i}] must be a non-empty string`);
+    }
+  }
+}
+
 function validatePermissionsBlock(perms: unknown, errors: string[]): void {
   if (!perms || typeof perms !== "object") return; // top-level guard handled elsewhere
   const p = perms as Record<string, unknown>;
@@ -722,6 +744,71 @@ function validatePermissionsBlock(perms: unknown, errors: string[]): void {
         );
       }
     }
+  }
+
+  // ── Structural validation for the core fields (fix-wave B Phase 4) ──
+  //
+  // Reject-at-admit-time: a `network: "api.example.com"` (string, not
+  // array) or a `shell: "yes"` used to sail through validation and only
+  // misbehave deep in the clamp / spawn plumbing. Each rule below is the
+  // field's ACTUAL type per `ExtensionManifestV2["permissions"]` — NOT a
+  // tightening: every bundled + example manifest validates unchanged
+  // (asserted by bundled-manifests-installable + the examples suites).
+
+  // Arrays of non-empty strings.
+  if (p.network !== undefined) validateStringArrayPerm("network", p.network, errors);
+  if (p.env !== undefined) validateStringArrayPerm("env", p.env, errors);
+  if (p.filesystem !== undefined) validateStringArrayPerm("filesystem", p.filesystem, errors);
+
+  // eventSubscriptions: string[] OR the Phase 51.4 object form
+  // `{events: string[], includeFullPayload?: boolean}`.
+  if (p.eventSubscriptions !== undefined) {
+    if (Array.isArray(p.eventSubscriptions)) {
+      validateStringArrayPerm("eventSubscriptions", p.eventSubscriptions, errors);
+    } else if (p.eventSubscriptions && typeof p.eventSubscriptions === "object") {
+      const es = p.eventSubscriptions as Record<string, unknown>;
+      validateStringArrayPerm("eventSubscriptions.events", es.events, errors);
+      if (es.includeFullPayload !== undefined && typeof es.includeFullPayload !== "boolean") {
+        errors.push("permissions.eventSubscriptions.includeFullPayload must be a boolean");
+      }
+    } else {
+      errors.push(
+        "permissions.eventSubscriptions must be an array of event names or {events, includeFullPayload?}",
+      );
+    }
+  }
+
+  // Booleans where declared.
+  for (const field of ["shell", "storage", "taskEvents"] as const) {
+    if (p[field] !== undefined && typeof p[field] !== "boolean") {
+      errors.push(`permissions.${field} must be a boolean`);
+    }
+  }
+
+  // spawnAgents: structured — {maxPerHour: positive number,
+  // maxConcurrent?: positive number} (the type's shape; the clamp's
+  // numeric ceilings assume real numbers here).
+  if (p.spawnAgents !== undefined) {
+    if (!p.spawnAgents || typeof p.spawnAgents !== "object" || Array.isArray(p.spawnAgents)) {
+      errors.push("permissions.spawnAgents must be an object {maxPerHour, maxConcurrent?}");
+    } else {
+      const sa = p.spawnAgents as Record<string, unknown>;
+      if (typeof sa.maxPerHour !== "number" || !Number.isFinite(sa.maxPerHour) || sa.maxPerHour <= 0) {
+        errors.push("permissions.spawnAgents.maxPerHour must be a positive number");
+      }
+      if (
+        sa.maxConcurrent !== undefined &&
+        (typeof sa.maxConcurrent !== "number" || !Number.isFinite(sa.maxConcurrent) || sa.maxConcurrent <= 0)
+      ) {
+        errors.push("permissions.spawnAgents.maxConcurrent must be a positive number");
+      }
+    }
+  }
+
+  // agentConfig: "read" is the only value today (the type leaves room
+  // for a future "write" tier — widen HERE when that lands).
+  if (p.agentConfig !== undefined && p.agentConfig !== "read") {
+    errors.push(`permissions.agentConfig must be "read"`);
   }
 }
 

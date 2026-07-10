@@ -414,7 +414,11 @@ export async function handlePiLlmComplete(
       messageCount: params.messages.length,
       // Include a stable hash of the prompt so the audit row can be
       // correlated to the call without persisting message content.
-      promptSha256: hashStable(params.systemPrompt ?? "" + JSON.stringify(params.messages)),
+      // Parenthesization is load-bearing: the old
+      // `a ?? "" + JSON.stringify(b)` bound as `a ?? ("" + ...)`, so any
+      // call WITH a systemPrompt hashed the systemPrompt alone — every
+      // distinct message payload collided into one audit hash.
+      promptSha256: hashStable((params.systemPrompt ?? "") + JSON.stringify(params.messages)),
     },
     after: {
       finishReason,

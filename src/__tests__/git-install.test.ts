@@ -55,6 +55,15 @@ mock.module("../extensions/registry", () => ({
   },
 }));
 
+// The env-leak gate writes forensic audit rows before refusing — no live
+// DB in this suite, so stub the insert (the gate treats audit failures
+// as non-fatal anyway; this keeps the log clean and deterministic).
+mock.module("../db/queries/audit-log", () => ({
+  insertAuditEntry: async () => {},
+  listAuditLog: async () => [],
+  listAuditForExtension: async () => [],
+}));
+
 // Import after mocks
 const { installFromGit, updateExtension, removeExtension, checkForUpdates } = await import("../extensions/installer");
 
@@ -409,6 +418,131 @@ describe("updateExtension", () => {
     });
 
     await expect(updateExtension("local-ext")).rejects.toThrow(/local/i);
+  });
+});
+
+// ── fix-wave B Phase 2: env-leak gate on update + grant re-clamp ──────
+
+/** Build a bare repo whose history carries one tagged commit per entry
+ *  of `versions` (each with its own manifest). Returns the file:// URL. */
+async function makeVersionedRepo(
+  slug: string,
+  versions: Array<Partial<ExtensionManifestV2> & { version: string }>,
+): Promise<string> {
+  const bare = join(tempBase, `${slug}.git`);
+  spawn(["git", "init", "--bare", bare]);
+  const work = join(tempBase, `${slug}-work`);
+  spawn(["git", "clone", bare, work]);
+  spawn(["git", "config", "user.email", "test@test.com"], { cwd: work });
+  spawn(["git", "config", "user.name", "Test"], { cwd: work });
+  for (const overrides of versions) {
+    const m = makeManifest(overrides);
+    await Bun.write(join(work, "ezcorp.config.ts"), configContent(m));
+    await Bun.write(join(work, "index.ts"), 'console.log("ext");');
+    spawn(["git", "add", "."], { cwd: work });
+    spawn(["git", "commit", "-m", `v${overrides.version}`], { cwd: work });
+    spawn(["git", "tag", `v${overrides.version}`], { cwd: work });
+  }
+  spawn(["git", "push", "origin", "HEAD", "--tags"], { cwd: work });
+  return `file://${bare}`;
+}
+
+describe("updateExtension — env-leak gate (v1.4 parity with install)", () => {
+  test("new-tag manifest declaring FOO_API_TOKEN env is refused; DB + disk stay at old version", async () => {
+    const url = await makeVersionedRepo("leaky-update", [
+      { name: "leaky-update-ext", version: "1.0.0", permissions: {} },
+      { name: "leaky-update-ext", version: "1.1.0", permissions: { env: ["FOO_API_TOKEN"] } },
+    ]);
+
+    const installed = await installFromGit(`${url}@v1.0.0`, defaultPerms, {
+      extensionsDir: installBase,
+      enabled: true,
+    });
+    expect(installed.version).toBe("1.0.0");
+
+    await expect(updateExtension("leaky-update-ext")).rejects.toThrow(
+      /credential-shaped env name/,
+    );
+
+    // DB row untouched — old version, old manifest, still enabled.
+    const row = Array.from(mockExtensions.values()).find(
+      (e: any) => e.name === "leaky-update-ext",
+    );
+    expect(row.version).toBe("1.0.0");
+    expect(row.manifest.permissions?.env).toBeUndefined();
+    expect(row.enabled).toBe(true);
+
+    // Disk restored — the subprocess spawns from disk, so a refused
+    // update must NOT leave the new tag checked out.
+    const onDisk = await Bun.file(join(row.installPath, "ezcorp.config.ts")).text();
+    expect(onDisk.includes("FOO_API_TOKEN")).toBe(false);
+    expect(onDisk.includes("1.0.0")).toBe(true);
+  });
+});
+
+describe("updateExtension — grant re-clamp against the new manifest", () => {
+  const wideGrant: ExtensionPermissions = {
+    network: ["api.example.com", "cdn.example.com"],
+    shell: true,
+    grantedAt: { network: 111, shell: 222 },
+  };
+  const widePerms = {
+    network: ["api.example.com", "cdn.example.com"],
+    shell: true,
+  };
+
+  test("narrowing manifest drops granted shell + the removed network host", async () => {
+    const url = await makeVersionedRepo("narrow-update", [
+      { name: "narrow-update-ext", version: "1.0.0", permissions: widePerms },
+      // v1.1.0 drops shell entirely and removes cdn.example.com.
+      { name: "narrow-update-ext", version: "1.1.0", permissions: { network: ["api.example.com"] } },
+    ]);
+
+    await installFromGit(`${url}@v1.0.0`, wideGrant, {
+      extensionsDir: installBase,
+      enabled: true,
+    });
+
+    const result = await updateExtension("narrow-update-ext");
+    expect(result.to).toBe("1.1.0");
+
+    const row = Array.from(mockExtensions.values()).find(
+      (e: any) => e.name === "narrow-update-ext",
+    );
+    // Stale looser sandbox closed: shell gone, cdn host gone.
+    expect(row.grantedPermissions.shell).toBeUndefined();
+    expect(row.grantedPermissions.network).toEqual(["api.example.com"]);
+    // grantedAt timestamps survive the clamp.
+    expect(row.grantedPermissions.grantedAt.network).toBe(111);
+    // Enabled state preserved — re-clamp never flips consent.
+    expect(row.enabled).toBe(true);
+  });
+
+  test("unchanged manifest = no-op on the stored grants", async () => {
+    const url = await makeVersionedRepo("noop-update", [
+      { name: "noop-update-ext", version: "1.0.0", permissions: widePerms },
+      // v1.1.0 bumps the version only — permissions identical.
+      { name: "noop-update-ext", version: "1.1.0", permissions: widePerms },
+    ]);
+
+    await installFromGit(`${url}@v1.0.0`, wideGrant, {
+      extensionsDir: installBase,
+      enabled: true,
+    });
+
+    const result = await updateExtension("noop-update-ext");
+    expect(result.to).toBe("1.1.0");
+
+    const row = Array.from(mockExtensions.values()).find(
+      (e: any) => e.name === "noop-update-ext",
+    );
+    expect(row.grantedPermissions.network).toEqual([
+      "api.example.com",
+      "cdn.example.com",
+    ]);
+    expect(row.grantedPermissions.shell).toBe(true);
+    expect(row.grantedPermissions.grantedAt).toEqual({ network: 111, shell: 222 });
+    expect(row.enabled).toBe(true);
   });
 });
 

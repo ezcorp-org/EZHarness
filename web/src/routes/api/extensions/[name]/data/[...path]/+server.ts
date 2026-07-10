@@ -8,6 +8,7 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { extensionDataRoot } from "$server/chat/attachments/ext-files-resolver";
+import { getExtensionByName } from "$server/db/queries/extensions";
 import { RateLimiter } from "$lib/server/security/rate-limiter";
 
 // ── /api/extensions/[name]/data/[...path] — Phase A2 static-file route ──
@@ -23,6 +24,15 @@ import { RateLimiter } from "$lib/server/security/rate-limiter";
 //   - `requireAuth(locals)` — pulls the session user.
 //   - Extension name is validated against the manifest regex
 //     (defense-in-depth on the URL router).
+//   - The extension must be INSTALLED and ENABLED (DB lookup) — without
+//     this, any chat-scoped user could read the data dir of a disabled
+//     (or never-installed but dir-present) extension name. Not-found
+//     and disabled collapse to the same opaque 404.
+//   - NOTE the served tree is PROJECT-SHARED, not per-user: every
+//     chat-scoped user of the deployment can read any enabled
+//     extension's data files here. Extensions must keep per-user
+//     private data in `ctx.storage` (user scope) or `ctx.secrets` —
+//     see docs/extensions/data-storage.md.
 //   - Path is decoded once, normalized via `path.resolve`, and the
 //     resolved absolute path MUST live under the extension's data
 //     dir. `..` segments / `%2e%2e` survive into the resolved path
@@ -136,6 +146,15 @@ export const GET: RequestHandler = async ({ params, locals }) => {
     // control bytes here would be a bug elsewhere, but we reject.)
     if (/[\u0000-\u001f\u007f]/.test(seg)) return errorJson(404, "Not found");
   }
+
+  // Enabled gate — the name must resolve to an INSTALLED and ENABLED
+  // extension. A disabled extension's data dir stays on disk (disable
+  // is not uninstall), and nothing stops a request from naming an
+  // arbitrary `<name>` whose dir happens to exist; both cases must be
+  // unreadable. Unknown and disabled collapse to the same opaque 404
+  // as every other failure mode on this route.
+  const ext = await getExtensionByName(name);
+  if (!ext || !ext.enabled) return errorJson(404, "Not found");
 
   // Use the existing `extensionDataRoot` helper — single source of
   // truth for the `.ezcorp/extension-data/<name>/` layout. Defaults

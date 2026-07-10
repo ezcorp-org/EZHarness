@@ -1144,3 +1144,144 @@ describe("validateManifestV2 — tools[].rbacScope", () => {
     expect(r.errors.some((e) => e.includes("tools must be an array"))).toBe(true);
   });
 });
+
+
+// ── Validation: structural permission shapes (fix-wave B Phase 4) ──
+//
+// Core-field structural validation added to validatePermissionsBlock:
+// arrays of non-empty strings for network/env/filesystem/
+// eventSubscriptions; booleans for shell/storage/taskEvents; the
+// structured shapes for spawnAgents / agentConfig / the
+// eventSubscriptions object form. ADDITIVE — every shape a bundled or
+// example manifest actually declares stays valid (the positive arms
+// below mirror the corpus; bundled-manifests-installable.test.ts and
+// the examples suites re-assert the real files).
+
+describe("validateManifestV2 — permissions structural validation", () => {
+  const withPerms = (permissions: unknown) =>
+    validateManifestV2(
+      makeValidManifest({
+        permissions: permissions as ExtensionManifestV2["permissions"],
+      }),
+    );
+
+  test("corpus-shaped permissions block stays valid (additive)", () => {
+    const result = withPerms({
+      network: ["api.example.com", "*"],
+      env: ["GITHUB_TOKEN"],
+      filesystem: ["$CWD"],
+      shell: false,
+      storage: true,
+      taskEvents: true,
+      spawnAgents: { maxPerHour: 5, maxConcurrent: 2 },
+      agentConfig: "read",
+      eventSubscriptions: ["task:assignment_update"],
+      appendMessages: { excludedDefault: true },
+    });
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  test("EMPTY string arrays stay valid (graded-card-scanner declares eventSubscriptions: [])", () => {
+    const result = withPerms({ network: [], env: [], filesystem: [], eventSubscriptions: [] });
+    expect(result.valid).toBe(true);
+  });
+
+  test("eventSubscriptions object form {events, includeFullPayload} stays valid", () => {
+    const result = withPerms({
+      eventSubscriptions: { events: ["run:complete"], includeFullPayload: true },
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  test("non-array network/env/filesystem are rejected", () => {
+    for (const field of ["network", "env", "filesystem"]) {
+      for (const bad of ["api.example.com", 42, { host: "x" }, null]) {
+        const result = withPerms({ [field]: bad });
+        expect(result.valid).toBe(false);
+        expect(
+          result.errors.some((e) => e.includes(`permissions.${field} must be an array of non-empty strings`)),
+        ).toBe(true);
+      }
+    }
+  });
+
+  test("array elements must be non-empty strings (indexed errors)", () => {
+    const result = withPerms({ network: ["ok.example.com", "", 42] });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("permissions.network[1] must be a non-empty string");
+    expect(result.errors).toContain("permissions.network[2] must be a non-empty string");
+  });
+
+  test("shell/storage/taskEvents must be booleans", () => {
+    for (const field of ["shell", "storage", "taskEvents"]) {
+      for (const bad of ["yes", 1, {}, []]) {
+        const result = withPerms({ [field]: bad });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some((e) => e.includes(`permissions.${field} must be a boolean`))).toBe(true);
+      }
+      // Both boolean values pass (the corpus declares shell: false).
+      expect(withPerms({ [field]: true }).valid).toBe(true);
+      expect(withPerms({ [field]: false }).valid).toBe(true);
+    }
+  });
+
+  test("spawnAgents must be {maxPerHour: positive number, maxConcurrent?: positive number}", () => {
+    for (const bad of [true, "5/hr", 5, [], null]) {
+      const result = withPerms({ spawnAgents: bad });
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes("permissions.spawnAgents must be an object"))).toBe(true);
+    }
+    for (const badHourly of [undefined, "5", 0, -1, Number.NaN]) {
+      const result = withPerms({ spawnAgents: { maxPerHour: badHourly } });
+      expect(result.valid).toBe(false);
+      expect(
+        result.errors.some((e) => e.includes("spawnAgents.maxPerHour must be a positive number")),
+      ).toBe(true);
+    }
+    const badConcurrent = withPerms({ spawnAgents: { maxPerHour: 5, maxConcurrent: 0 } });
+    expect(badConcurrent.valid).toBe(false);
+    expect(
+      badConcurrent.errors.some((e) => e.includes("spawnAgents.maxConcurrent must be a positive number")),
+    ).toBe(true);
+    // maxConcurrent omitted is fine.
+    expect(withPerms({ spawnAgents: { maxPerHour: 5 } }).valid).toBe(true);
+  });
+
+  test('agentConfig must be exactly "read"', () => {
+    for (const bad of ["write", true, 1, {}]) {
+      const result = withPerms({ agentConfig: bad });
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes('permissions.agentConfig must be "read"'))).toBe(true);
+    }
+    expect(withPerms({ agentConfig: "read" }).valid).toBe(true);
+  });
+
+  test("eventSubscriptions object form: events must be a non-empty-string array; includeFullPayload boolean", () => {
+    const badEvents = withPerms({ eventSubscriptions: { events: "run:complete" } });
+    expect(badEvents.valid).toBe(false);
+    expect(
+      badEvents.errors.some((e) => e.includes("permissions.eventSubscriptions.events must be an array")),
+    ).toBe(true);
+
+    const badFlag = withPerms({
+      eventSubscriptions: { events: ["run:complete"], includeFullPayload: "yes" },
+    });
+    expect(badFlag.valid).toBe(false);
+    expect(
+      badFlag.errors.some((e) => e.includes("includeFullPayload must be a boolean")),
+    ).toBe(true);
+  });
+
+  test("eventSubscriptions neither array nor object → rejected", () => {
+    for (const bad of ["run:complete", 42]) {
+      const result = withPerms({ eventSubscriptions: bad });
+      expect(result.valid).toBe(false);
+      expect(
+        result.errors.some((e) =>
+          e.includes("permissions.eventSubscriptions must be an array of event names or {events, includeFullPayload?}"),
+        ),
+      ).toBe(true);
+    }
+  });
+});

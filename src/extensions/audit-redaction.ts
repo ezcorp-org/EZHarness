@@ -327,3 +327,64 @@ export function redactForAudit(
 export function redactToolCallOutputContent(content: unknown): unknown {
   return redactForAudit(content, { truncate: false }).redacted;
 }
+
+// ── Resolved-attachment data-URI redaction ───────────────────────────
+//
+// The tool-executor's args resolver substitutes symbolic attachment
+// handles (`ez-attachment://<id>`) with concrete `data:<mime>;base64,…`
+// URIs BEFORE dispatch, so the subprocess receives real bytes. That
+// resolved input used to flow verbatim into the `tool:start` SSE frame
+// and the persisted `tool_calls.input` jsonb — multi-MB base64 blobs in
+// every stream consumer and in the DB. This shared redactor replaces any
+// base64 data-URI string value larger than 1 KB with a compact
+// `[data:<mime>;<n> bytes]` marker (n = decoded payload size). Applied
+// at the EMIT and PERSIST boundaries only — execution always uses the
+// unredacted resolved input.
+
+const DATA_URI_PREFIX_RE = /^data:([^;,]+);base64,/;
+
+/** Strings at or below this length pass through untouched — small data
+ *  URIs (icons, tiny fixtures) stay inspectable in the UI and audit. */
+const DATA_URI_REDACT_THRESHOLD_CHARS = 1024;
+
+/** Decoded byte count of the base64 payload after the `data:` prefix. */
+function dataUriDecodedBytes(value: string, prefixLen: number): number {
+  const payloadLen = value.length - prefixLen;
+  let padding = 0;
+  if (value.endsWith("==")) padding = 2;
+  else if (value.endsWith("=")) padding = 1;
+  const bytes = Math.floor((payloadLen * 3) / 4) - padding;
+  if (bytes < 0) return 0;
+  return bytes;
+}
+
+/**
+ * Deep-copy `value`, replacing every base64 data-URI string larger than
+ * 1 KB with a `[data:<mime>;<n> bytes]` marker. Non-matching values are
+ * returned as-is; the input is NEVER mutated (callers keep using the
+ * original for execution). Defensive circular-reference guard mirrors
+ * `walk` above.
+ */
+export function redactLargeDataUris(
+  value: unknown,
+  visited: WeakSet<object> = new WeakSet<object>(),
+): unknown {
+  if (typeof value === "string") {
+    if (value.length <= DATA_URI_REDACT_THRESHOLD_CHARS) return value;
+    const m = DATA_URI_PREFIX_RE.exec(value);
+    if (!m) return value;
+    const bytes = dataUriDecodedBytes(value, m[0].length);
+    return `[data:${m[1]};${bytes} bytes]`;
+  }
+  if (value === null || typeof value !== "object") return value;
+  if (visited.has(value)) return "[Circular]";
+  visited.add(value);
+  if (Array.isArray(value)) {
+    return value.map((v) => redactLargeDataUris(v, visited));
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out[k] = redactLargeDataUris(v, visited);
+  }
+  return out;
+}

@@ -128,14 +128,39 @@ function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
 }
 
-// ── Collect the extension-tree source files (excluding tests) ────────
+// ── Collect the scanned source files (excluding tests) ───────────────
+//
+// Scan roots (fix-wave B Phase 4 widened the SCOPE — the RULES are
+// unchanged):
+//   - `src/extensions/`                 — the host-side handler surface.
+//   - `docs/extensions/examples/`       — the bundled/example extension
+//     corpus. Extensions never hold a DB handle by design; a raw
+//     `INSERT INTO users` in an example would be a copy-paste template
+//     for every future extension, so the same three prongs apply.
+//   - `packages/@ezcorp/sdk/src/`       — the SDK every extension links.
+//
+// Test files are excluded in every root (the pre-existing `__tests__/`
+// dir rule plus `*.test.ts` files that live beside example entrypoints).
+// Non-extDir files keep their repo-relative prefix in `rel` so the
+// extDir-relative SCHEMA_IMPORT_ALLOWLIST entries can never collide with
+// a same-named file in another root.
+
+const repoRoot = `${extDir}/../..`;
+const SCAN_ROOTS: ReadonlyArray<{ dir: string; prefix: string }> = [
+  { dir: extDir, prefix: "" },
+  { dir: `${repoRoot}/docs/extensions/examples`, prefix: "docs/extensions/examples/" },
+  { dir: `${repoRoot}/packages/@ezcorp/sdk/src`, prefix: "packages/@ezcorp/sdk/src/" },
+];
 
 function collectFiles(): { rel: string; src: string }[] {
   const glob = new Glob("**/*.ts");
   const files: { rel: string; src: string }[] = [];
-  for (const rel of glob.scanSync(extDir)) {
-    if (rel.startsWith("__tests__/") || rel.includes("/__tests__/")) continue;
-    files.push({ rel, src: readFileSync(`${extDir}/${rel}`, "utf8") });
+  for (const { dir, prefix } of SCAN_ROOTS) {
+    for (const rel of glob.scanSync(dir)) {
+      if (rel.startsWith("__tests__/") || rel.includes("/__tests__/")) continue;
+      if (rel.endsWith(".test.ts")) continue;
+      files.push({ rel: `${prefix}${rel}`, src: readFileSync(`${dir}/${rel}`, "utf8") });
+    }
   }
   return files;
 }
@@ -148,6 +173,15 @@ describe("extension DB isolation — guard integrity", () => {
   test("the scan actually visits the extension tree", () => {
     // A broken glob / wrong base dir would make every prong pass vacuously.
     expect(FILES.length).toBeGreaterThan(30);
+  });
+
+  test("every scan root contributes files (a moved dir cannot silently drop out)", () => {
+    const examples = FILES.filter((f) => f.rel.startsWith("docs/extensions/examples/"));
+    const sdk = FILES.filter((f) => f.rel.startsWith("packages/@ezcorp/sdk/src/"));
+    const host = FILES.length - examples.length - sdk.length;
+    expect(host).toBeGreaterThan(30);
+    expect(examples.length).toBeGreaterThan(30);
+    expect(sdk.length).toBeGreaterThan(10);
   });
 
   test("the security-table map matches src/db/schema.ts", () => {

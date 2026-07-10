@@ -119,6 +119,27 @@ export async function getToolCallConversationById(
   return rows[0] ?? null;
 }
 
+/**
+ * Distinct extension ids that authored tool-call rows anchored to a
+ * message. This IS the recorded extension identity of an
+ * extension-authored message: the `messages` table carries no extension
+ * column, but every `ezcorp/append-message` turn that a card can upload
+ * to persists its tool-call rows with the calling extension's id
+ * (append-message-handler.ts step 9). The uploads route uses this to
+ * bind a target message to the uploading extension — a message with no
+ * tool-call rows has no recorded identity and binds to nothing.
+ */
+export async function listToolCallExtensionIdsForMessage(
+  messageId: string,
+): Promise<string[]> {
+  if (!messageId) return [];
+  const rows: Array<{ extensionId: string }> = await getDb()
+    .select({ extensionId: toolCalls.extensionId })
+    .from(toolCalls)
+    .where(eq(toolCalls.messageId, messageId));
+  return [...new Set(rows.map((r) => r.extensionId))];
+}
+
 export async function persistToolCall(row: ToolCallRow): Promise<void> {
   try {
     await getDb().insert(toolCalls).values({

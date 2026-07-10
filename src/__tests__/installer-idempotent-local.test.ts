@@ -112,7 +112,17 @@ describe("installFromLocal — idempotent same-source re-install", () => {
   });
 
   test("refresh preserves `enabled` and granted permissions", async () => {
-    const pkg = makeLocalPackage({ name: "preserve-ext", version: "1.0.0" });
+    // The manifest DECLARES the granted network host: since fix-wave B
+    // Phase 2 the refresh path re-clamps stored grants against the
+    // refreshed manifest (grant ∩ manifest), so preservation is asserted
+    // for a manifest-covered grant — the "unchanged manifest = no-op"
+    // arm. Out-of-manifest grants are now DROPPED by design (see the
+    // re-clamp describe below).
+    const pkg = makeLocalPackage({
+      name: "preserve-ext",
+      version: "1.0.0",
+      permissions: { network: ["api.example.com"] },
+    });
     try {
       // First install: enabled=true with a real grant.
       const first = await installFromLocal(pkg.path, defaultPerms, true);
@@ -249,6 +259,121 @@ describe("installFromLocal — fresh name regression", () => {
       expect(ext.name).toBe("fresh-ext");
       expect(ext.version).toBe("3.1.4");
       expect(ext.enabled).toBe(false);
+    } finally {
+      pkg.cleanup();
+    }
+  });
+});
+
+// ── fix-wave B Phase 2: same-source refresh re-clamps grants ──────────
+//
+// A refreshed manifest that DROPS a permission must drop the matching
+// stored grant, or the registry spawn options (`networkAllowed` /
+// `shellAllowed`) keep the stale looser sandbox forever. Bundled boot
+// refreshes are exempt (S6/S9 clamp those with their own ceiling rules).
+// The `preloadedManifest` option stands in for the refreshed config —
+// Bun caches `ezcorp.config.ts` by path, so an in-place rewrite would
+// yield the stale cached module (same test artifact documented on the
+// version-bump test above).
+
+describe("installFromLocal — same-source refresh re-clamp", () => {
+  const manifestBase = {
+    schemaVersion: 2 as const,
+    name: "reclamp-ext",
+    description: "Fixture extension for installer tests",
+    author: { name: "test" },
+    entrypoint: "./index.ts",
+    tools: [
+      { name: "noop", description: "noop tool", inputSchema: { type: "object", properties: {} } },
+    ],
+  };
+  const widePerms = { network: ["api.example.com", "cdn.example.com"], shell: true };
+  const wideGrant = {
+    network: ["api.example.com", "cdn.example.com"],
+    shell: true,
+    grantedAt: { network: 111, shell: 222 },
+  };
+
+  test("narrowing manifest drops granted shell + removed network host", async () => {
+    const pkg = makeLocalPackage({
+      name: "reclamp-ext",
+      version: "1.0.0",
+      permissions: widePerms,
+    });
+    try {
+      await installFromLocal(pkg.path, wideGrant, true);
+
+      const refreshed = await installFromLocal(pkg.path, wideGrant, true, {
+        preloadedManifest: {
+          ...manifestBase,
+          version: "1.1.0",
+          // shell dropped; cdn host removed.
+          permissions: { network: ["api.example.com"] },
+        } as any,
+      });
+
+      expect(refreshed.grantedPermissions.shell).toBeUndefined();
+      expect(refreshed.grantedPermissions.network).toEqual(["api.example.com"]);
+      // grantedAt timestamps survive; enabled untouched.
+      expect(refreshed.grantedPermissions.grantedAt.network).toBe(111);
+      expect(refreshed.enabled).toBe(true);
+    } finally {
+      pkg.cleanup();
+    }
+  });
+
+  test("unchanged manifest = no-op on stored grants", async () => {
+    const pkg = makeLocalPackage({
+      name: "reclamp-ext",
+      version: "1.0.0",
+      permissions: widePerms,
+    });
+    try {
+      await installFromLocal(pkg.path, wideGrant, true);
+
+      const refreshed = await installFromLocal(pkg.path, wideGrant, true, {
+        preloadedManifest: {
+          ...manifestBase,
+          version: "1.1.0",
+          permissions: widePerms,
+        } as any,
+      });
+
+      expect(refreshed.grantedPermissions.network).toEqual([
+        "api.example.com",
+        "cdn.example.com",
+      ]);
+      expect(refreshed.grantedPermissions.shell).toBe(true);
+      expect(refreshed.grantedPermissions.grantedAt).toEqual({ network: 111, shell: 222 });
+      expect(refreshed.enabled).toBe(true);
+    } finally {
+      pkg.cleanup();
+    }
+  });
+
+  test("bundled refresh (isBundled: true) leaves grants completely untouched", async () => {
+    const pkg = makeLocalPackage({
+      name: "reclamp-ext",
+      version: "1.0.0",
+      permissions: widePerms,
+    });
+    try {
+      await installFromLocal(pkg.path, wideGrant, true, { isBundled: true });
+
+      const refreshed = await installFromLocal(pkg.path, wideGrant, true, {
+        isBundled: true,
+        preloadedManifest: {
+          ...manifestBase,
+          version: "1.1.0",
+          // Narrowed manifest — but bundled refreshes must NOT re-clamp
+          // here: S6/S9 own the bundled clamp with their ceiling rules.
+          permissions: { network: ["api.example.com"] },
+        } as any,
+      });
+
+      // Grants verbatim from install — the refresh wrote no
+      // grantedPermissions field at all for the bundled path.
+      expect(refreshed.grantedPermissions).toEqual(wideGrant);
     } finally {
       pkg.cleanup();
     }
