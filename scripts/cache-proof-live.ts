@@ -55,7 +55,12 @@ const TAILS = [
 ];
 
 async function runTurn(turn: number): Promise<{ cacheRead: number; cacheWrite: number; cacheWrite1h: number }> {
-  const model = getModel("anthropic", MODEL_ID as Parameters<typeof getModel<"anthropic">>[1]);
+  // MODEL_ID is operator input — validate at runtime, bypass the literal-union
+  // constraint the generated MODELS map imposes at compile time.
+  const model = (getModel as (p: string, id: string) => ReturnType<typeof getModel> | undefined)(
+    "anthropic",
+    MODEL_ID,
+  );
   if (!model) throw new Error(`unknown anthropic model: ${MODEL_ID}`);
   const supportsLong =
     (model as { compat?: { supportsLongCacheRetention?: boolean } }).compat
