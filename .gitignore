@@ -98,3 +98,4 @@ worktrees/
 !.claude/workflows/
 .claude/workflows/*
 !.claude/workflows/feature-docs-review.js
+coverage-shard/
