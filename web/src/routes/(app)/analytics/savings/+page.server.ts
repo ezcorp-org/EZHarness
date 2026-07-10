@@ -1,4 +1,3 @@
-import { requireAuth } from "$server/auth/middleware";
 import { DEFAULT_RANGE_DAYS, savingsUrl, type SavingsResponse } from "$lib/savings-format";
 import type { PageServerLoad } from "./$types";
 
@@ -21,7 +20,6 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
   if (!locals.user) {
     return { savings: null as SavingsResponse | null, rangeDays: DEFAULT_RANGE_DAYS };
   }
-  requireAuth(locals);
 
   const res = await fetch(savingsUrl(DEFAULT_RANGE_DAYS));
   return {

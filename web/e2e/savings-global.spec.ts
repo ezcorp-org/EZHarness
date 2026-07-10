@@ -140,9 +140,18 @@ test("global savings: negative cache savings render honestly; range refetches @e
 	await expect(page.getByTestId("savings-model-row-routing")).toHaveCount(2);
 
 	// Sidebar nav link (house pattern: (app) layout navLinks, Manage group).
-	const navLink = page.getByTestId("desktop-sidebar").getByRole("link", { name: "Savings" });
+	// Below `lg` (<1024px) the desktop sidebar is hidden and the links live
+	// in the hamburger-opened SwipeDrawer — assert whichever surface renders.
+	const isMobileNav = (page.viewportSize()?.width ?? 0) < 1024;
+	if (isMobileNav) await page.getByTestId("mobile-menu-toggle").click();
+	const navScope = isMobileNav ? page.getByTestId("swipe-drawer") : page.getByTestId("desktop-sidebar");
+	const navLink = navScope.getByRole("link", { name: "Savings" });
 	await expect(navLink).toHaveAttribute("href", "/analytics/savings");
 	await expect(navLink).toHaveAttribute("aria-current", "page");
+	if (isMobileNav) {
+		await page.getByTestId("swipe-drawer-backdrop").click();
+		await expect(page.getByTestId("swipe-drawer-panel")).not.toBeVisible();
+	}
 
 	await captureEvidence(page, testInfo, "savings-global-negative");
 

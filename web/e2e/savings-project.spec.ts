@@ -131,10 +131,18 @@ test("project savings: negative cache AND routing savings render honestly; range
 	await expect(routingRows.nth(0).locator(".h-bar-fill")).toHaveClass(/neg/);
 
 	// Project sidebar link (house pattern: project branch of the (app)
-	// layout navLinks, alongside Project Settings).
-	const navLink = page.getByTestId("desktop-sidebar").getByRole("link", { name: "Savings" });
+	// layout navLinks, alongside Project Settings). Below `lg` the desktop
+	// sidebar is hidden — the links live in the hamburger SwipeDrawer.
+	const isMobileNav = (page.viewportSize()?.width ?? 0) < 1024;
+	if (isMobileNav) await page.getByTestId("mobile-menu-toggle").click();
+	const navScope = isMobileNav ? page.getByTestId("swipe-drawer") : page.getByTestId("desktop-sidebar");
+	const navLink = navScope.getByRole("link", { name: "Savings" });
 	await expect(navLink).toHaveAttribute("href", "/project/p1/savings");
 	await expect(navLink).toHaveAttribute("aria-current", "page");
+	if (isMobileNav) {
+		await page.getByTestId("swipe-drawer-backdrop").click();
+		await expect(page.getByTestId("swipe-drawer-panel")).not.toBeVisible();
+	}
 
 	await captureEvidence(page, testInfo, "savings-project-negative");
 
