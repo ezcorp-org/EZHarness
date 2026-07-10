@@ -125,3 +125,59 @@ describe("subscriptionNote", () => {
 		);
 	});
 });
+
+// ── Sign-honesty audit (validation agent V1) ─────────────────────────────
+// A sub-cent LOSS must never be silently rounded into looking like zero or a
+// gain, and a signed-zero must read as zero (not "−$0.00").
+describe("fmtUsd sign-honesty at the rounding boundary", () => {
+	test("a sub-cent negative is distinguishable from zero AND from a sub-cent gain", () => {
+		expect(fmtUsd(-0.0004)).toBe(`${MINUS_SIGN}<$0.01`);
+		expect(fmtUsd(0.0004)).toBe("<$0.01");
+		expect(fmtUsd(0)).toBe("$0.00");
+		// All three render distinctly — a loss is never dressed as zero/gain.
+		expect(fmtUsd(-0.0004)).not.toBe(fmtUsd(0));
+		expect(fmtUsd(-0.0004)).not.toBe(fmtUsd(0.0004));
+	});
+
+	test("arbitrarily tiny losses keep the minus (never collapse to $0.00)", () => {
+		expect(fmtUsd(-1e-9)).toBe(`${MINUS_SIGN}<$0.01`);
+		expect(fmtUsd(-1e-300)).toBe(`${MINUS_SIGN}<$0.01`);
+	});
+
+	test("signed zero renders as plain zero (−0 is not a loss)", () => {
+		expect(fmtUsd(-0)).toBe("$0.00");
+		expect(isLoss(-0)).toBe(false);
+	});
+
+	test("the one-cent boundary switches presentation but keeps the sign", () => {
+		expect(fmtUsd(-0.0099)).toBe(`${MINUS_SIGN}<$0.01`);
+		expect(fmtUsd(-0.01)).toBe(`${MINUS_SIGN}$0.010`);
+		expect(fmtUsd(0.0099)).toBe("<$0.01");
+		expect(fmtUsd(0.01)).toBe("$0.010");
+	});
+});
+
+describe("fmtHitRate rounding + fmtUsd cannot overstate", () => {
+	test("hit-rate rounds half-up at one decimal; 100% shows fully", () => {
+		expect(fmtHitRate(0.4149)).toBe("41.5%");
+		expect(fmtHitRate(0.4144)).toBe("41.4%");
+		expect(fmtHitRate(1)).toBe("100.0%");
+	});
+});
+
+describe("bar scaling with negative values cannot exceed 100%", () => {
+	test("a negative fills by magnitude and clamps at the scale ceiling", () => {
+		const vals = [0.02, -0.08, 0.05];
+		const scale = barScaleMax(vals);
+		expect(scale).toBe(0.08); // largest |value|
+		for (const v of vals) {
+			const w = barWidthPct(v, scale);
+			expect(w).toBeGreaterThanOrEqual(0);
+			expect(w).toBeLessThanOrEqual(100);
+		}
+		// The dominant (negative) magnitude fills exactly the bar, no overflow.
+		expect(barWidthPct(-0.08, scale)).toBe(100);
+		// An out-of-scale value still clamps rather than exceeding 100.
+		expect(barWidthPct(-1, scale)).toBe(100);
+	});
+});
