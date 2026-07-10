@@ -7,7 +7,7 @@ EZCorp extension that lets you define unlimited Substack **post types** (each wi
 - **Post-type CRUD in chat** — natural-language `create / list / get / update / delete`.
 - **`summarize_urls`** — fetch each URL, extract the article text, return a short structured summary.
 - **`generate_substack_draft`** — pick a post type, summarize URLs, compose the body using the type's system prompt, and create a draft via [substack-mcp](https://github.com/marcomoauro/substack-mcp).
-- **Three default post types** seeded on first use: `weekly`, `monthly`, `ad-hoc`.
+- **Three default post types** seeded at install time: `weekly`, `monthly`, `ad-hoc`.
 - **One bundled skill** (`substack-author`) that teaches the LLM the right tool-call order.
 
 ## Architecture
@@ -18,10 +18,10 @@ chat:  "Use the weekly post type, here are this week's links: <urls>"
   ▼
 LLM (sees the substack-author skill + tool list)
   │
-  ├─ get_post_type({slug:"weekly"})            ── post-types.ts ─► Storage (user scope)
+  ├─ get_post_type({slug:"weekly"})            ── SDK auto-CRUD ─► Storage (user scope)
   ├─ generate_substack_draft({postTypeSlug, urls})
   │     ├─ summarize_urls       ── summarize.ts ─► fetch + ctx.llm
-  │     ├─ compose body         ── summarize.ts ─► ctx.llm
+  │     ├─ compose body         ── substack.ts  ─► ctx.llm
   │     └─ substack-mcp.create_draft_post
   │            ── substack.ts ─► npx substack-mcp@latest (stdio MCP)
   ▼
@@ -58,7 +58,7 @@ Type `![ext:substack-pilot]` in the composer to wire the extension into the conv
 
 > What Substack post types do I have?
 
-The LLM calls `list_post_types`, which auto-seeds the three defaults if your storage is empty.
+The LLM calls `list_post_types`, which returns the three defaults (`weekly`, `monthly`, `ad-hoc`) — seeded at install time, not lazily on list.
 
 ## Usage
 
@@ -96,9 +96,9 @@ The skill instructs the LLM to read back the system prompt and ask for explicit 
 
 | Tool                       | Args                                                              | Returns                              |
 | -------------------------- | ----------------------------------------------------------------- | ------------------------------------ |
-| `list_post_types`          | —                                                                 | `{ postTypes: [{slug,name,cadence}] }` |
-| `get_post_type`            | `{ slug }`                                                        | `{ name, slug, systemPrompt, … }`    |
-| `create_post_type`         | `{ name, slug, systemPrompt, cadence?, defaults? }`               | created record                       |
+| `list_post_types`          | —                                                                 | `{ items: [{ slug, data, _validationWarning? }] }` |
+| `get_post_type`            | `{ slug }`                                                        | `{ slug, data: { name, systemPrompt, cadence, defaults }, _validationWarning? }` |
+| `create_post_type`         | `{ slug, data: { name, systemPrompt, cadence?, defaults? } }`     | created record                       |
 | `update_post_type`         | `{ slug, patch }`                                                 | updated record                       |
 | `delete_post_type`         | `{ slug }`                                                        | confirmation or NOT_FOUND error      |
 | `summarize_urls`           | `{ urls: string[], maxWordsPerSummary?: number }`                 | `{ summaries: [{url,title,summary}] }` |
@@ -126,7 +126,7 @@ Or from the repo root:
 bun test --cwd docs/extensions/examples/substack-pilot
 ```
 
-The test suite has zero external dependencies — fetch, LLM, and the substack-mcp caller are all injected via test seams (`_setStoreForTests`, `_setBackendsForTests`, `_setMcpCallerForTests`).
+The test suite has zero external dependencies — fetch, LLM, and the substack-mcp caller are all injected via test seams (`_setPostTypeStoreForTests`, `_setBackendsForTests`, `_setMcpCallerForTests`).
 
 ## Out of scope
 
@@ -141,7 +141,6 @@ substack-pilot/
 ├── ezcorp.config.ts             — manifest
 ├── index.ts                     — JSON-RPC tool dispatcher
 ├── lib/
-│   ├── post-types.ts            — CRUD over extensionStorage (user scope) + lazy seed loader
 │   ├── summarize.ts             — fetch + LLM per-URL summarization
 │   └── substack.ts              — generate_substack_draft + substack-mcp caller
 ├── skills/substack-author/

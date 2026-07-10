@@ -59,10 +59,10 @@ The intuitive design — one tool that internally
 `invoke()`s `ask-user__ask_user_question` for a self-contained
 approve/revise loop — **does not work** with the current host:
 
-- `src/extensions/tool-executor.ts:1180` — `handlePiInvoke` calls
+- `src/extensions/tool-executor.ts:1697` — `handlePiInvoke` calls
   `executeToolCall` **without** the 6th `invocationMetadata` argument on
   the cross-ext path.
-- `src/extensions/tool-executor.ts:780` — `executeToolCall` only sets
+- `src/extensions/tool-executor.ts:1208` — `executeToolCall` only sets
   `_meta.invocationMetadata` from that (absent) arg, so a cross-ext
   invoked `ask_user_question` receives no `toolCallId`/`conversationId`
   and returns `"Error: missing tool-call context"`

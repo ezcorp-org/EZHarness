@@ -1,6 +1,6 @@
 # code-quality Extension
 
-A tool extension that performs static quality analysis on source files. Checks for complexity, naming issues, long lines, and style problems. This example demonstrates **cross-extension composition** via `ezcorp/invoke`, **dependencies**, and **preuninstall lifecycle scripts**.
+A tool extension that performs static quality analysis on source files. Checks for complexity, long lines, and style problems. This example demonstrates **cross-extension composition** via `ezcorp/invoke`, **dependencies**, and **preuninstall lifecycle scripts**.
 
 ## Install
 
@@ -45,7 +45,7 @@ The `preuninstall` script runs before the extension is removed, allowing cleanup
 
 ## Tools
 
-- **analyzeFile** - Analyze a single source file for quality issues (complexity, naming, style)
+- **analyzeFile** - Analyze a single source file for quality issues (complexity, style)
 - **analyzeDirectory** - Analyze all source files in a directory and return an aggregate report
 
 ## Testing

@@ -8,12 +8,15 @@ in non-Docker mode) fails on the branch with:
     [UNRESOLVED_IMPORT] Could not resolve './pending-messages'
     in .svelte-kit/adapter-bun/chunks/context.js
 
-Root cause: `web/src/routes/api/conversations/[id]/agent-chat/+server.ts:12`
-imports `$server/runtime/pending-messages`, but
-`web/src/lib/server/runtime/pending-messages.ts` exists nowhere in the
-repo (not on disk, not in HEAD, not tracked). This is committed on the
-branch and is unrelated to substack-engagement — none of the Phase 1-4
-changes touch agent-chat, the runtime dir, or that import.
+Not the root cause (corrected): `web/src/routes/api/conversations/[id]/agent-chat/+server.ts:12`
+imports `$server/runtime/pending-messages`. The `$server` alias is
+overridden to `../src` in `web/svelte.config.js:8`, so that import
+resolves to the repo-root `src/runtime/pending-messages.ts`, which DOES
+exist — the earlier "file exists nowhere in the repo" diagnosis was
+wrong, and this import is not the build-break cause. (Whatever breaks the
+`build && preview` step is unrelated to substack-engagement either way —
+none of the Phase 1-4 changes touch agent-chat, the runtime dir, or that
+import.)
 
 Impact: the production build is broken branch-wide, so Playwright's
 `webServer` (`build && preview`) cannot start — this blocks EVERY e2e
@@ -41,6 +44,6 @@ What WAS verified for the e2e:
   which exercises the identical render + edit + approve&send + reject +
   defer + failure paths against a stubbed fetch.
 
-Action for the validation team: once `pending-messages` is restored on
-the branch (or the broken import removed), run
+Action for the validation team: once the branch build break is resolved
+(the `pending-messages` import is not the cause — see above), run
 `cd web && bunx playwright test substack-review-card --project=chromium`.

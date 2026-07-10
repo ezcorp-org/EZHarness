@@ -44,6 +44,8 @@ See [`price-chart/README.md`](examples/price-chart/README.md) for a full walkthr
 ```typescript
 import { createCanvas, createToolDispatcher, getChannel, toolResult } from "@ezcorp/sdk/runtime";
 
+const ch = getChannel();   // arm the channel FIRST — createToolDispatcher throws "channel not ready" otherwise
+
 createToolDispatcher({
   "open-thing": async () => toolResult(JSON.stringify({ cardType: "my-thing" })),
 });
@@ -54,7 +56,7 @@ createCanvas<{ "user-action": { thingId: string; choice: string } }>({
   events: { "user-action": async ({ payload, context }) => { /* handle */ } },
 });
 
-getChannel().start();
+ch.start();
 ```
 
 That's the whole subprocess wiring. Everything else is your handler logic.

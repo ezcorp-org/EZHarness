@@ -59,7 +59,7 @@ See the [Getting Started guide](getting-started.md) for the full walkthrough.
 Extensions are sandboxed with multiple layers of isolation:
 
 - **Process isolation** — each extension runs as a separate subprocess with `prlimit` memory limits
-- **Environment isolation** — only 4 env vars passed (`PATH`, `HOME`, `NODE_ENV`, `TMPDIR`); others require explicit grants
+- **Environment isolation** — the host builds a minimal env from scratch instead of passing through the operator's ambient environment: a `PATH`/`HOME`/`NODE_ENV`/`TMPDIR` base, plus host-injected `EZCORP_EXTENSION_DATA_ROOT` and `EZCORP_PROJECT_ROOT`, plus grant-derived host-control vars (`EZCORP_PERMITTED_HOSTS`, `EZCORP_FS_ALLOWED`, `EZCORP_TOOL_NETWORK_CAPS`); any other env var requires an explicit grant
 - **Filesystem isolation** — `realpath`-resolved permission checks prevent traversal attacks; violations auto-disable the extension
 - **Storage isolation** — each extension gets its own DB namespace; extension A cannot read extension B's data
 - **Rate limiting** — several RPC channels are rate-limited (storage, append-message, task events, spawn-assignment, agent-configs, event delivery — 50 ops/s per extension); the `ezcorp/fs.*` and `ezcorp/invoke` channels have no per-second limiter and are bounded by other limits (per-turn tool-call cap, call depth, timeouts)

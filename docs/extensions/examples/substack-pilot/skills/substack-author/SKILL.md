@@ -36,13 +36,15 @@ The user gives a name and a system prompt; you fill the rest:
 
 ```json
 {
-  "name": "Deep Dive",
   "slug": "deep-dive",
-  "systemPrompt": "Write a long-form analytical piece, 1500-2500 words. Lead with a contrarian thesis...",
-  "cadence": "monthly",
-  "defaults": {
-    "titlePrefix": "Deep Dive: ",
-    "subtitleTemplate": "{date} • {count} sources"
+  "data": {
+    "name": "Deep Dive",
+    "systemPrompt": "Write a long-form analytical piece, 1500-2500 words. Lead with a contrarian thesis...",
+    "cadence": "monthly",
+    "defaults": {
+      "titlePrefix": "Deep Dive: ",
+      "subtitleTemplate": "{date} • {count} sources"
+    }
   }
 }
 ```

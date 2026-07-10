@@ -44,7 +44,7 @@ path.
 
 | Tool | What it does |
 |---|---|
-| `dispatch_run` | Spawn a coding-agent run (`spawnAssignment`), persist a run record, surface it live on the dashboard. `agentName` is **optional** — omit it (or pass `coder`) to use the bundled default coder. |
+| `dispatch_run` | Spawn a coding-agent run (`spawnAssignment`) and persist a run record to the caller's **per-user** store — visible via `list_runs`, NOT on the shared Hub dashboard (which renders only global cron/system runs). `agentName` is **optional** — omit it (or pass `coder`) to use the bundled default coder. |
 | `list_runs` | List dispatched runs (newest first) with status + latest event. |
 | `steer_run` *(B2)* | Inject a steering message into a run's sub-conversation (`appendMessages`). |
 | `cancel_run` *(B2)* | Cancel a live run (`cancelRun`) + update its record. |
@@ -94,6 +94,10 @@ and `schedule`.
 
 ## Storage
 
-Run records live in SDK `Storage` (global scope, key `runs`), capped at the
-last 100 runs with up to 50 event-log entries each. The `.ezcorp/` directory is
-gitignored.
+Run records live in SDK `Storage` as one key per run
+(`loop:ez-code:run:<runId>`) plus a small index key (`loop:ez-code:index`),
+capped at the last 100 runs with up to 50 event-log entries each. They are
+split across TWO scopes: runs dispatched by the user-facing `dispatch_run`
+tool go to the per-user store (`Storage("user")`), while cron/system runs go
+to the global store (`Storage("global")`) that backs the shared dashboard.
+The `.ezcorp/` directory is gitignored.
