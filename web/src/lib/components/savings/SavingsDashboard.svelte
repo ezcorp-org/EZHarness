@@ -52,18 +52,26 @@
 	let rangeDays = $state(initialRange);
 	let loading = $state(false);
 	let loadError = $state(false);
+	// Monotonic fetch token: a stale (superseded) response must never win —
+	// without it, a slow earlier range response arriving out of order would
+	// overwrite the newer one and show old-range numbers under the newly
+	// active range button (dishonest labeling).
+	let fetchSeq = 0;
 
 	async function refetch() {
+		const seq = ++fetchSeq;
 		loading = true;
 		loadError = false;
 		try {
 			const res = await fetch(endpoint(rangeDays));
-			if (res.ok) savings = (await res.json()) as SavingsResponse;
+			const body = res.ok ? ((await res.json()) as SavingsResponse) : null;
+			if (seq !== fetchSeq) return; // superseded by a newer selection
+			if (body) savings = body;
 			else loadError = true;
 		} catch {
-			loadError = true;
+			if (seq === fetchSeq) loadError = true;
 		} finally {
-			loading = false;
+			if (seq === fetchSeq) loading = false;
 		}
 	}
 

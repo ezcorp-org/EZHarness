@@ -218,6 +218,102 @@ describe("SavingsDashboard", () => {
 		expect(queryByTestId("savings-subscription-note")).toBeNull();
 	});
 
+	test("out-of-order range responses: a stale response never overwrites the newer range", async () => {
+		// Click 90d (slow response) then 7d (fast response). The 90d payload
+		// arrives LAST — it must be discarded, or the dashboard would show 90d
+		// numbers under an active 7d button (dishonest labeling).
+		let resolve90!: (v: unknown) => void;
+		let resolve7!: (v: unknown) => void;
+		const fetchMock = vi
+			.fn()
+			.mockReturnValueOnce(
+				new Promise((r) => {
+					resolve90 = r;
+				}),
+			)
+			.mockReturnValueOnce(
+				new Promise((r) => {
+					resolve7 = r;
+				}),
+			);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const ninety = makeResponse();
+		ninety.rangeDays = 90;
+		ninety.stats.cacheSavedUsd = 9.999;
+		const seven = makeResponse();
+		seven.rangeDays = 7;
+		seven.stats.cacheSavedUsd = 0.777;
+
+		const { getByTestId } = render(SavingsDashboard, {
+			props: { heading: "Savings", endpoint, initial: makeResponse() },
+		});
+		await fireEvent.click(getByTestId("savings-range-90"));
+		await fireEvent.click(getByTestId("savings-range-7"));
+		expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/analytics/savings?days=90");
+		expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/analytics/savings?days=7");
+
+		resolve7({ ok: true, status: 200, json: async () => seven });
+		await waitFor(() =>
+			expect(getByTestId("savings-stat-cache-value")).toHaveTextContent("$0.777"),
+		);
+
+		resolve90({ ok: true, status: 200, json: async () => ninety });
+		await new Promise((r) => setTimeout(r, 0)); // flush the stale handler
+		expect(getByTestId("savings-stat-cache-value")).toHaveTextContent("$0.777");
+		expect(getByTestId("savings-range-7")).toHaveAttribute("aria-pressed", "true");
+	});
+
+	test("a stale failed response neither errors nor blanks the newer range's data", async () => {
+		let reject90!: (e: unknown) => void;
+		let resolve7!: (v: unknown) => void;
+		const fetchMock = vi
+			.fn()
+			.mockReturnValueOnce(
+				new Promise((_, rej) => {
+					reject90 = rej;
+				}),
+			)
+			.mockReturnValueOnce(
+				new Promise((r) => {
+					resolve7 = r;
+				}),
+			);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const seven = makeResponse();
+		seven.stats.cacheSavedUsd = 0.777;
+
+		const { getByTestId, queryByTestId } = render(SavingsDashboard, {
+			props: { heading: "Savings", endpoint, initial: makeResponse() },
+		});
+		await fireEvent.click(getByTestId("savings-range-90"));
+		await fireEvent.click(getByTestId("savings-range-7"));
+
+		resolve7({ ok: true, status: 200, json: async () => seven });
+		await waitFor(() =>
+			expect(getByTestId("savings-stat-cache-value")).toHaveTextContent("$0.777"),
+		);
+
+		reject90(new Error("slow network loss"));
+		await new Promise((r) => setTimeout(r, 0));
+		expect(queryByTestId("savings-error")).toBeNull();
+		expect(getByTestId("savings-stat-cache-value")).toHaveTextContent("$0.777");
+	});
+
+	test("negative zero renders as plain $0.00 — never a signed zero", () => {
+		const resp = makeResponse();
+		resp.stats.cacheSavedUsd = -0;
+		resp.stats.routingSavedUsd = -0;
+		const { getByTestId } = render(SavingsDashboard, {
+			props: { heading: "Savings", endpoint, initial: resp },
+		});
+		const cache = getByTestId("savings-stat-cache-value");
+		expect(cache).toHaveTextContent("$0.00");
+		expect(cache.textContent).not.toContain(MINUS);
+		expect(cache).toHaveAttribute("data-negative", "false");
+	});
+
 	test("empty range renders the empty state instead of cards", () => {
 		const { getByTestId, queryByTestId } = render(SavingsDashboard, {
 			props: { heading: "Savings", endpoint, initial: emptyResponse() },
