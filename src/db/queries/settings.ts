@@ -16,11 +16,22 @@ export async function getSetting(key: string): Promise<unknown | undefined> {
 
 export async function upsertSetting(key: string, value: unknown): Promise<void> {
   const db = getDb();
+  // jsonb params must be EXPLICITLY encoded: the Bun.sql driver (external
+  // Postgres) infers a wire type from the JS value, so a bare boolean/number
+  // arrives typed boolean/numeric and the jsonb column rejects the insert
+  // with a 500 ("Failed query: insert into settings…"). PGlite tolerates the
+  // bare value, which is why unit tests never saw it — found live when the
+  // composer-suggestions toggle PUT `false` on the dev (external-PG) stack.
+  // The ::text hop is load-bearing: a param cast straight to ::jsonb makes
+  // the driver JSON-encode the (already-encoded) string a second time, so
+  // `false` lands as the jsonb STRING "false" (the classic double-encode).
+  // text→jsonb parses the JSON exactly once on every driver.
+  const encoded = sql`${JSON.stringify(value) ?? "null"}::text::jsonb`;
   const rows = await db.select().from(settings).where(eq(settings.key, key));
   if (rows[0]) {
-    await db.update(settings).set({ value, updatedAt: new Date() }).where(eq(settings.key, key));
+    await db.update(settings).set({ value: encoded, updatedAt: new Date() }).where(eq(settings.key, key));
   } else {
-    await db.insert(settings).values({ key, value, updatedAt: new Date() });
+    await db.insert(settings).values({ key, value: encoded, updatedAt: new Date() });
   }
 }
 
