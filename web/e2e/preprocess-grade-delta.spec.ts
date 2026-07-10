@@ -29,6 +29,7 @@ import {
 const PROJECT_ID = "proj-preprocess";
 const CONV_ID = "conv-preprocess";
 const CONV_ERR_ID = "conv-preprocess-err";
+const CONV_HINT_ID = "conv-preprocess-hint";
 
 const project = makeProject({ id: PROJECT_ID, name: "Preprocess Project" });
 
@@ -62,6 +63,23 @@ const IDENTIFY_RECORD = {
 		decode: { source: "zxing", fetchedAt: "2026-07-09T00:00:00.000Z" },
 		identity: { source: "psa-api", fetchedAt: "2026-07-09T00:00:00.000Z" },
 		price: { source: "pricecharting", fetchedAt: "2026-07-09T00:00:00.000Z" },
+	},
+};
+
+/** A PSA slab that decoded fine but whose identity lookup was skipped
+ *  for want of a token: empty identity/grades/deltas, identity source
+ *  stamped "psa-api:no-token" — the exact degradation the actionable
+ *  set_psa_token hint owns (identify.ts stamps decode/identity/price). */
+const NO_TOKEN_RECORD = {
+	cert: "49392223",
+	grader: "PSA",
+	identity: { subject: "", year: "", set: "", cardNo: "", variety: "", grade: "" },
+	grades: {},
+	deltas: [],
+	sources: {
+		decode: { source: "zxing", fetchedAt: "2026-07-09T00:00:00.000Z" },
+		identity: { source: "psa-api:no-token", fetchedAt: "2026-07-09T00:00:00.000Z" },
+		price: { source: "not-searched", fetchedAt: "2026-07-09T00:00:00.000Z" },
 	},
 };
 
@@ -214,5 +232,72 @@ test.describe("Deterministic preprocess — GradeDeltaCard in the transcript", (
 		await expect(
 			page.locator(`[data-message-id="${CONV_ERR_ID}-a1"]`),
 		).toContainText("PSA 9");
+	});
+
+	test("no-token degradation renders the actionable set_psa_token hint in the empty state, and captures evidence @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		await mockApi({
+			projects: [project],
+			conversations: [
+				makeConversation({
+					id: CONV_HINT_ID,
+					projectId: PROJECT_ID,
+					title: "Slab chat (no PSA token)",
+				}),
+			],
+			messages: seedMessages(
+				CONV_HINT_ID,
+				JSON.stringify({
+					extensionName: "graded-card-scanner",
+					toolName: "identify_slab",
+					cardType: "grade-delta-chart",
+					ok: true,
+					output: JSON.stringify(NO_TOKEN_RECORD),
+				}),
+			),
+		});
+		await page.goto(`/project/${PROJECT_ID}/chat/${CONV_HINT_ID}`);
+
+		const row = page.getByTestId("preprocess-result-row");
+		await expect(row).toBeVisible({ timeout: 5000 });
+		await expect(row).toHaveAttribute("data-preprocess-status", "complete");
+
+		// The card renders its honest empty/identity-unavailable state…
+		const card = page.getByTestId("grade-delta-card");
+		await expect(card).toBeVisible();
+		await expect(page.getByTestId("grade-delta-title")).toContainText(
+			"Identity unavailable",
+		);
+		await expect(page.getByTestId("grade-delta-chart")).toHaveCount(0);
+		await expect(page.getByTestId("grade-delta-table")).toHaveCount(0);
+
+		// …with the ACTIONABLE hint: name the tool and the token source so
+		// the user knows exactly what to ask the assistant for.
+		const hint = page.getByTestId("grade-delta-hint");
+		await expect(hint).toBeVisible();
+		await expect(hint).toContainText("set_psa_token");
+		await expect(hint).toContainText("api.psacard.com");
+
+		await captureEvidence(page, testInfo, "preprocess-grade-delta-no-token-hint");
+
+		// Capture contract (mirrors the first spec) — meaningful in both
+		// modes rather than a bare screenshot call.
+		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
+			expect(
+				testInfo.attachments.some(
+					(a) =>
+						a.name === "preprocess-grade-delta-no-token-hint" &&
+						a.contentType === "image/png",
+				),
+			).toBe(true);
+		} else {
+			expect(
+				testInfo.attachments.some(
+					(a) => a.name === "preprocess-grade-delta-no-token-hint",
+				),
+			).toBe(false);
+		}
 	});
 });

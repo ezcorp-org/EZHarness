@@ -8,8 +8,10 @@
   Pure client-side; no network. Null-safe by design: companies with
   fewer than two priced grades carry no deltas (the backend omits them)
   so they are absent from the chart but still listed in the table;
-  missing prices render "N/A" (never $0). Style follows the
-  PriceChartCard conventions (article.card + scoped CSS variables).
+  missing prices render "N/A" (never $0). Known degradations surface an
+  actionable hint (e.g. identity stamped "psa-api:no-token" → how to
+  save a free PSA token); unknown stamps show nothing. Style follows
+  the PriceChartCard conventions (article.card + scoped CSS variables).
 -->
 
 <script lang="ts">
@@ -66,6 +68,10 @@
 				{/if}
 			</div>
 		</header>
+
+		{#if payload.hint}
+			<p class="hint" data-testid="grade-delta-hint">{payload.hint}</p>
+		{/if}
 
 		{#if chart}
 			<svg
@@ -225,6 +231,15 @@
 	}
 	.no-chart {
 		margin: 0;
+		font-size: 0.8125rem;
+		color: var(--color-text-muted, #9ca3af);
+	}
+	.hint {
+		margin: 0;
+		padding: 0.5rem 0.625rem;
+		border: 1px solid var(--color-border, #2a2a2a);
+		border-radius: 6px;
+		background: color-mix(in srgb, var(--color-primary, #2563eb) 8%, transparent);
 		font-size: 0.8125rem;
 		color: var(--color-text-muted, #9ca3af);
 	}

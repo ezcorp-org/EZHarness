@@ -31,6 +31,19 @@ export interface GradeDeltaCompany {
 	steps: GradeDeltaStep[];
 }
 
+/** Honest per-stage provenance stamp (identify.ts SourceStamp). */
+export interface GradeDeltaSourceStamp {
+	source: string;
+	fetchedAt: string;
+}
+
+/** The three pipeline-stage stamps; null when absent or malformed. */
+export interface GradeDeltaSources {
+	decode: GradeDeltaSourceStamp | null;
+	identity: GradeDeltaSourceStamp | null;
+	price: GradeDeltaSourceStamp | null;
+}
+
 export interface GradeDeltaPayload {
 	cert: string | null;
 	grader: string;
@@ -38,7 +51,14 @@ export interface GradeDeltaPayload {
 	/** company → (grade label → price|null). */
 	grades: Record<string, Record<string, number | null>>;
 	deltas: GradeDeltaCompany[];
+	sources: GradeDeltaSources;
+	/** Actionable guidance for a KNOWN degradation stamp; null otherwise. */
+	hint: string | null;
 }
+
+/** Hint shown when the PSA identity lookup was skipped for want of a token. */
+export const PSA_NO_TOKEN_HINT =
+	"Identity lookup skipped — no PSA API token saved. Ask the assistant to save a free token from api.psacard.com using the set_psa_token tool.";
 
 /** Extract the payload object from any of the three output shapes. */
 function extractObject(out: unknown): Record<string, unknown> | null {
@@ -73,6 +93,36 @@ function stringOr(v: unknown, fallback: string): string {
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
 	return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Lenient stamp validation — `source` is required, `fetchedAt` optional. */
+function parseSourceStamp(v: unknown): GradeDeltaSourceStamp | null {
+	if (!isPlainObject(v)) return null;
+	if (typeof v.source !== "string") return null;
+	return { source: v.source, fetchedAt: stringOr(v.fetchedAt, "") };
+}
+
+/** Parse the three pipeline-stage stamps; anything unusable → null slot. */
+function parseSources(v: unknown): GradeDeltaSources {
+	const raw = isPlainObject(v) ? v : {};
+	return {
+		decode: parseSourceStamp(raw.decode),
+		identity: parseSourceStamp(raw.identity),
+		price: parseSourceStamp(raw.price),
+	};
+}
+
+/**
+ * Map KNOWN degradation stamps to actionable user guidance. Only
+ * `identity.source === "psa-api:no-token"` carries a hint today —
+ * every other stamp (ok, error, unknown, missing) yields null so the
+ * card never speculates about failures it can't explain.
+ */
+function degradationHint(sources: GradeDeltaSources): string | null {
+	if (sources.identity !== null && sources.identity.source === "psa-api:no-token") {
+		return PSA_NO_TOKEN_HINT;
+	}
+	return null;
 }
 
 /** Lenient step validation — every numeric field must be finite. */
@@ -132,12 +182,16 @@ export function parseGradeDeltaPayload(out: unknown): GradeDeltaPayload | null {
 		grade: stringOr(rawIdentity.grade, ""),
 	};
 
+	const sources = parseSources(obj.sources);
+
 	return {
 		cert: typeof obj.cert === "string" ? obj.cert : null,
 		grader: obj.grader,
 		identity,
 		grades,
 		deltas,
+		sources,
+		hint: degradationHint(sources),
 	};
 }
 

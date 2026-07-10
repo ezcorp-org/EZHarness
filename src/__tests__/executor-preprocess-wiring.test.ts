@@ -16,6 +16,8 @@
  * REAL so the row chain is asserted from the DB.
  */
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 
@@ -238,7 +240,9 @@ const { createConversation, createMessage, getMessages } = await import(
 );
 const { createUser } = await import("../db/queries/users");
 const { insertAttachment } = await import("../db/queries/attachments");
-const { PREPROCESS_RESULT_ROLE } = await import("../runtime/stream-chat/preprocess");
+const { PREPROCESS_NOTE_CLOSE, PREPROCESS_NOTE_OPEN, PREPROCESS_RESULT_ROLE } = await import(
+  "../runtime/stream-chat/preprocess"
+);
 type AgentEvents = import("../types").AgentEvents;
 
 let projectId: string;
@@ -346,7 +350,11 @@ describe("executor deterministic-preprocess wiring (setup-tools 2c)", () => {
     expect(systemPrompt).toContain(
       "[Deterministic preprocess graded-card-scanner:identify_slab on slab.png]",
     );
-    expect(systemPrompt).toContain('{"cert":"49392223","grader":"PSA"}');
+    // Injection hardening: the tool output sits INSIDE explicit
+    // untrusted-data delimiters, in header → open → output → close order.
+    expect(systemPrompt).toContain(
+      `[Deterministic preprocess graded-card-scanner:identify_slab on slab.png]\n${PREPROCESS_NOTE_OPEN}\n{"cert":"49392223","grader":"PSA"}\n${PREPROCESS_NOTE_CLOSE}`,
+    );
   });
 
   test("failing preprocessor → ok:false row persisted, NO note, turn still completes", async () => {
@@ -517,5 +525,73 @@ describe("executor deterministic-preprocess wiring (setup-tools 2c)", () => {
     expect(toolCalls).toHaveLength(0);
     const rows = await getMessages(conv.id);
     expect(rows.filter((m) => m.role === PREPROCESS_RESULT_ROLE)).toHaveLength(0);
+  });
+
+  test("run:status surfaces 'Running <ext> preprocessor…' during the loop, then restores 'Preparing...'", async () => {
+    const { executor, bus } = createExecutor();
+    toolCalls.length = 0;
+    toolResultMode = "success";
+    const statuses: string[] = [];
+    bus.on("run:status", (data) => {
+      statuses.push((data as { status: string }).status);
+    });
+    const { conv, userMsg, attRow } = await seedTurn();
+
+    await executor.streamChat(conv.id, "what is this slab worth?", {
+      projectId,
+      parentMessageId: userMsg.id,
+      attachments: stagedFor(attRow),
+    });
+
+    // The preprocess loop announced itself on the run-status channel…
+    const runningIdx = statuses.indexOf("Running graded-card-scanner preprocessor…");
+    expect(runningIdx).toBeGreaterThanOrEqual(0);
+    // …AFTER the initial "Preparing..." emit at the top of setupTools…
+    const firstPreparingIdx = statuses.indexOf("Preparing...");
+    expect(firstPreparingIdx).toBeGreaterThanOrEqual(0);
+    expect(firstPreparingIdx).toBeLessThan(runningIdx);
+    // …and the generic setup status was RESTORED once the loop finished
+    // (the preprocessor line must not stay stuck for the rest of setup).
+    const restoredIdx = statuses.indexOf("Preparing...", runningIdx + 1);
+    expect(restoredIdx).toBeGreaterThan(runningIdx);
+  });
+
+  test("turn without preprocess work emits no preprocessor status line", async () => {
+    const { executor, bus } = createExecutor();
+    toolCalls.length = 0;
+    toolResultMode = "success";
+    const statuses: string[] = [];
+    bus.on("run:status", (data) => {
+      statuses.push((data as { status: string }).status);
+    });
+    const { conv, userMsg } = await seedTurn();
+
+    await executor.streamChat(conv.id, "plain text turn", {
+      projectId,
+      parentMessageId: userMsg.id,
+    });
+
+    expect(statuses.some((s) => s.includes("preprocessor"))).toBe(false);
+  });
+});
+
+describe("setup-tools source ordering (locked decision 3)", () => {
+  // wireMentionedExtensions is MOCKED to a no-op in this harness, so the
+  // behavioral suites above can't pin that the preprocess runner fires
+  // AFTER the same-message `![ext:…]` mention wire. Pin it structurally
+  // instead (indexOf pattern from executor-attachment-resolver-wiring):
+  // the 2c block awaits wireMentionedExtensions BEFORE it awaits
+  // runPreprocessorsForTurn, so a mention + attachment in ONE message
+  // triggers the preprocessor in the SAME turn.
+  test("setupTools awaits wireMentionedExtensions BEFORE runPreprocessorsForTurn", () => {
+    const src = readFileSync(
+      join(import.meta.dir, "..", "runtime", "stream-chat", "setup-tools.ts"),
+      "utf-8",
+    );
+    const wireIdx = src.indexOf("await wireMentionedExtensions(");
+    const preprocessIdx = src.indexOf("await runPreprocessorsForTurn(");
+    expect(wireIdx).toBeGreaterThan(-1);
+    expect(preprocessIdx).toBeGreaterThan(-1);
+    expect(wireIdx).toBeLessThan(preprocessIdx);
   });
 });

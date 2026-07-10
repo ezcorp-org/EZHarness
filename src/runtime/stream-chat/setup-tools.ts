@@ -568,6 +568,12 @@ export async function setupTools(
             const { runPreprocessorsForTurn } = await import("./preprocess");
             const { createMessage } = await import("../../db/queries/conversations");
             const { listAttachmentsForMessage } = await import("../../db/queries/attachments");
+            // Surface preprocess progress on the run-status channel
+            // (mirrors the "Preparing..." emit at the top of setupTools)
+            // so the user sees "Running <ext> preprocessor…" instead of a
+            // silent stall while the subprocess works. Tracked so the
+            // status is restored to the generic setup line afterwards.
+            let preprocessStatusEmitted = false;
             const preprocessResult = await runPreprocessorsForTurn({
               runId: run.id,
               attachments: turnAttachments,
@@ -587,7 +593,18 @@ export async function setupTools(
               persistMessage: (data) => createMessage(conversationId, data),
               parentMessageId: options.parentMessageId ?? null,
               log,
+              onStatus: (status) => {
+                preprocessStatusEmitted = true;
+                host.bus.emit("run:status", { runId: run.id, status });
+              },
             });
+            if (preprocessStatusEmitted) {
+              // Restore/advance the status once the preprocess loop is
+              // done — setup is still running, so back to the generic
+              // line rather than leaving "Running <ext> preprocessor…"
+              // stuck for the rest of the (possibly long) setup phase.
+              host.bus.emit("run:status", { runId: run.id, status: "Preparing..." });
+            }
             preprocessNotes.push(...preprocessResult.notes);
             if (preprocessResult.lastRowId) {
               // Chain the turn off the last preprocess row so the

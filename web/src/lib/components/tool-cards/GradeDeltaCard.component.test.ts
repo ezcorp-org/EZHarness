@@ -164,4 +164,59 @@ describe("GradeDeltaCard — degraded payloads", () => {
 		expect(getByTestId("grade-delta-missing")).toHaveTextContent("Cannot render slab card");
 		expect(queryByTestId("grade-delta-card")).toBeNull();
 	});
+
+	test("psa-api:no-token identity stamp → actionable hint in the identity-unavailable state", () => {
+		const { getByTestId } = render(GradeDeltaCard, {
+			toolCall: makeToolCall({
+				cert: "49392223",
+				grader: "PSA",
+				identity: { subject: "", year: "", set: "", cardNo: "", variety: "", grade: "" },
+				grades: {},
+				deltas: [],
+				sources: {
+					decode: { source: "zxing", fetchedAt: "t" },
+					identity: { source: "psa-api:no-token", fetchedAt: "t" },
+					price: { source: "not-searched", fetchedAt: "t" },
+				},
+			}),
+		});
+		expect(getByTestId("grade-delta-title")).toHaveTextContent("Identity unavailable");
+		const hint = getByTestId("grade-delta-hint");
+		// Actionable: tells the user HOW to fix it (ask the assistant to
+		// save a free PSA token via set_psa_token).
+		expect(hint).toHaveTextContent("set_psa_token");
+		expect(hint).toHaveTextContent("api.psacard.com");
+	});
+
+	test("ok identity data → no hint element", () => {
+		const { queryByTestId } = render(GradeDeltaCard, {
+			toolCall: makeToolCall({
+				...FULL_PAYLOAD,
+				sources: {
+					decode: { source: "zxing", fetchedAt: "t" },
+					identity: { source: "psa-api", fetchedAt: "t" },
+					price: { source: "pricecharting", fetchedAt: "t" },
+				},
+			}),
+		});
+		expect(queryByTestId("grade-delta-hint")).toBeNull();
+	});
+
+	test("unknown identity stamp → no hint (never speculate)", () => {
+		const { queryByTestId } = render(GradeDeltaCard, {
+			toolCall: makeToolCall({
+				cert: "0012345678",
+				grader: "BGS",
+				identity: { subject: "", year: "", set: "", cardNo: "", variety: "", grade: "" },
+				grades: {},
+				deltas: [],
+				sources: {
+					decode: { source: "zxing", fetchedAt: "t" },
+					identity: { source: "decode-only", fetchedAt: "t" },
+					price: { source: "not-searched", fetchedAt: "t" },
+				},
+			}),
+		});
+		expect(queryByTestId("grade-delta-hint")).toBeNull();
+	});
 });

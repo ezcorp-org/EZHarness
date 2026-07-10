@@ -44,6 +44,15 @@
 		(cardName === 'DefaultCard' && toolCall.status === 'complete' && isTimeClockOutput(toolCall.output)),
 	);
 
+	// grade-delta-chart parses a full identify_slab record out of the
+	// output — during a live run there is no (or only partial) output, so
+	// a running call must show the generic running treatment
+	// (DefaultCard), never a transient "Cannot render slab card" error
+	// box. Same status gate as the Weather/TimeClock fallbacks above.
+	let shouldRenderGradeDeltaCard = $derived(
+		cardName === 'GradeDeltaCard' && toolCall.status === 'complete',
+	);
+
 	// EzToolResultCard renders only once the result actually carries a
 	// usable `openUrl` (running call / no deep-link → null); otherwise we
 	// fall back to DefaultCard so a streaming or malformed result degrades
@@ -103,7 +112,7 @@
 	<KokoroTtsPlayerCard {toolCall} {conversationId} {messageId} />
 {:else if cardName === 'PriceChartCard'}
 	<PriceChartCard {toolCall} />
-{:else if cardName === 'GradeDeltaCard'}
+{:else if shouldRenderGradeDeltaCard}
 	<GradeDeltaCard {toolCall} />
 {:else if cardName === 'SubstackReviewCard'}
 	<SubstackReviewCard {toolCall} {conversationId} />

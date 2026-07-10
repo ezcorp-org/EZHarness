@@ -133,6 +133,30 @@ describe("ToolCardRouter — grade-delta-chart routing (deterministic preprocess
 		expect(getByTestId("grade-delta-card")).toBeInTheDocument();
 		expect(getByTestId("grade-delta-grader")).toHaveTextContent("PSA");
 	});
+
+	test("RUNNING grade-delta-chart call renders the generic running treatment, never the error box", () => {
+		// During a live run the tool has no output yet — parsing would fail
+		// and flash a transient "Cannot render slab card" ERROR BOX until
+		// tool:complete lands. The router must status-gate the card (same
+		// shape as the Weather/TimeClock gates) so running/pending falls
+		// back to DefaultCard's running treatment.
+		const toolCall: ToolCallState = {
+			toolName: "graded-card-scanner__identify_slab",
+			status: "running",
+			startedAt: 0,
+			cardType: "grade-delta-chart",
+		};
+
+		const { getByTestId, queryByTestId } = render(ToolCardRouter, {
+			toolCall,
+			conversationId: "conv-1",
+			messageId: "msg-1",
+		});
+
+		expect(queryByTestId("grade-delta-card")).toBeNull();
+		expect(queryByTestId("grade-delta-missing")).toBeNull();
+		expect(getByTestId("tool-card-default")).toBeInTheDocument();
+	});
 });
 
 describe("ToolCardRouter — ez-preview-consent routing (Secure Preview Phase 2)", () => {

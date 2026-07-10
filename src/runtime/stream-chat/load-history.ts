@@ -5,6 +5,10 @@ import type {
 } from "../../types";
 import { getConversationPath, getLatestLeaf, resolveSystemPrompt } from "../../db/queries/conversations";
 import { logger } from "../../logger";
+// preprocess-shared, NOT preprocess.ts — a constant-only import of the
+// runner module breaks its per-file coverage attribution under bun's
+// sharded coverage (see preprocess-shared.ts header).
+import { PREPROCESS_RESULT_ROLE } from "./preprocess-shared";
 import type { StreamChatContext } from "./context";
 
 const log = logger.child("executor.loadHistory.rehydrate");
@@ -273,7 +277,7 @@ export async function loadHistory(
     // CURRENT turn is grounded via a system note added in setup-tools;
     // history replay would inject the JSON payload as a fake user turn.
     // Same filter-at-the-source shape as ez-action-result above.
-    if (m.role === "preprocess-result") return null;
+    if (m.role === PREPROCESS_RESULT_ROLE) return null;
     // Phase 50 capability-event rows are the chat-pill renderings of an
     // sdk_capability_calls row (recordCapabilityCall write 3). The
     // content is a JSON sentinel for the UI's pill component, NOT a

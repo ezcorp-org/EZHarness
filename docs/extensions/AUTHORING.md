@@ -212,9 +212,52 @@ any of these fail:
   `kind: "mcp"`); MUST be a relative path with no `..` segments.
 - Each tool's `inputSchema` MUST be a JSON Schema object.
 - Permissions MUST validate per `validatePermissionsBlock`.
+- `preprocessors[]`, when declared, MUST pass
+  `validatePreprocessorsArray`: each entry's `tool` MUST name a tool
+  declared in this manifest's `tools[]`, and `accepts` MUST be a
+  non-empty array of exact MIMEs (`"image/png"`) or type globs
+  (`"image/*"`).
 
 Run `validate_extension({ draftId })` from the `extension-author`
 bundled extension to check before install.
+
+### Deterministic attachment preprocessors (`preprocessors[]`)
+
+Declare a top-level `preprocessors` array when one of your tools should
+run **automatically** on matching user attachments — deterministically,
+before the assistant turn, with no LLM tool-choice involved:
+
+```ts
+preprocessors: [
+  {
+    tool: "identify_slab",                 // must exist in tools[]
+    accepts: ["image/png", "image/jpeg"],  // exact MIMEs or "type/*" globs
+    description: "Identify a graded-card slab photo.", // optional
+  },
+],
+```
+
+Contract highlights (full spec:
+[docs/features/extensions/deterministic-preprocess.md](../features/extensions/deterministic-preprocess.md);
+field reference: [manifest-schema.md](manifest-schema.md#preprocessors----preprocessordecl)):
+
+- **Input shape** — your tool is called with
+  `{ attachment: "ez-attachment://<id>", filename, mimeType }`; the
+  host substitutes the handle for a `data:<mime>;base64,...` URI
+  before your subprocess sees it. Same permission gating and
+  `resources.callTimeoutMs` as an LLM-initiated call.
+- **Caps** — max 4 invocations per turn (extras dropped; the model is
+  told via a trailing `[preprocess: N additional attachment(s)
+  skipped — per-turn cap]` note); attachments over 8 MB are skipped.
+- **Result card** — each run persists a `preprocess-result` row the
+  transcript renders as a tool card. Give the referenced tool a
+  `cardType` to route a specialized card; failures always render the
+  default error card.
+- **Grounding note** — a successful result grounds the model's reply
+  via a one-turn system note; the tool output is wrapped in explicit
+  untrusted-data delimiters, and failures produce no note. Keep the
+  output compact (notes truncate at 4 KB) and machine-readable (JSON
+  works well — the note and the card both carry it verbatim).
 
 ---
 

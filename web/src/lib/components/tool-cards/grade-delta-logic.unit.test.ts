@@ -11,6 +11,7 @@ import {
 	formatPrice,
 	identityTitle,
 	parseGradeDeltaPayload,
+	PSA_NO_TOKEN_HINT,
 	type ChartPlot,
 	type GradeDeltaCompany,
 	type GradeDeltaIdentity,
@@ -127,6 +128,78 @@ describe("parseGradeDeltaPayload", () => {
 			grade: "",
 		});
 		expect(p!.cert).toBeNull();
+	});
+});
+
+describe("parseGradeDeltaPayload — sources + degradation hint", () => {
+	const STAMPS = {
+		decode: { source: "zxing", fetchedAt: "2026-07-09T00:00:00.000Z" },
+		identity: { source: "psa-api", fetchedAt: "2026-07-09T00:00:00.000Z" },
+		price: { source: "pricecharting", fetchedAt: "2026-07-09T00:00:00.000Z" },
+	};
+
+	test("parses the three source stamps verbatim", () => {
+		const p = parseGradeDeltaPayload(record({ sources: STAMPS }));
+		expect(p!.sources).toEqual(STAMPS);
+	});
+
+	test("missing / non-object sources → all-null slots and no hint", () => {
+		expect(parseGradeDeltaPayload(record({ sources: undefined }))!.sources).toEqual({
+			decode: null,
+			identity: null,
+			price: null,
+		});
+		const p = parseGradeDeltaPayload(record({ sources: "junk" }));
+		expect(p!.sources).toEqual({ decode: null, identity: null, price: null });
+		expect(p!.hint).toBeNull();
+	});
+
+	test("malformed stamps degrade per-slot (non-object, missing source, bad fetchedAt)", () => {
+		const p = parseGradeDeltaPayload(
+			record({
+				sources: {
+					decode: "junk",
+					identity: { fetchedAt: "2026-07-09" },
+					price: { source: "pricecharting", fetchedAt: 42 },
+				},
+			}),
+		);
+		expect(p!.sources.decode).toBeNull();
+		expect(p!.sources.identity).toBeNull();
+		// Non-string fetchedAt falls back to "" — the stamp survives.
+		expect(p!.sources.price).toEqual({ source: "pricecharting", fetchedAt: "" });
+	});
+
+	test('identity source "psa-api:no-token" → actionable set_psa_token hint', () => {
+		const p = parseGradeDeltaPayload(
+			record({
+				sources: { ...STAMPS, identity: { source: "psa-api:no-token", fetchedAt: "t" } },
+			}),
+		);
+		expect(p!.hint).toBe(PSA_NO_TOKEN_HINT);
+		// The hint must be actionable: name the tool and where the free
+		// token comes from.
+		expect(p!.hint).toContain("set_psa_token");
+		expect(p!.hint).toContain("api.psacard.com");
+	});
+
+	test("ok data (psa-api) → no hint", () => {
+		expect(parseGradeDeltaPayload(record({ sources: STAMPS }))!.hint).toBeNull();
+	});
+
+	test("unknown / error stamps → no hint (never speculate)", () => {
+		const err = parseGradeDeltaPayload(
+			record({
+				sources: { ...STAMPS, identity: { source: "psa-api:error(http-500)", fetchedAt: "t" } },
+			}),
+		);
+		expect(err!.hint).toBeNull();
+		const unknown = parseGradeDeltaPayload(
+			record({
+				sources: { ...STAMPS, identity: { source: "some-future-source", fetchedAt: "t" } },
+			}),
+		);
+		expect(unknown!.hint).toBeNull();
 	});
 });
 
