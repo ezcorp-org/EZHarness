@@ -149,7 +149,11 @@ test("global savings: negative cache savings render honestly; range refetches @e
 	await expect(navLink).toHaveAttribute("href", "/analytics/savings");
 	await expect(navLink).toHaveAttribute("aria-current", "page");
 	if (isMobileNav) {
-		await page.getByTestId("swipe-drawer-backdrop").click();
+		// Click the VISIBLE backdrop strip right of the 296px panel (Pixel 5 is
+		// 393px wide) — the element's center is under the fully-open panel, so a
+		// bare click() only wins by racing the 300ms slide-in and times out
+		// under CPU load (sidebar-mobile.spec.ts precedent).
+		await page.getByTestId("swipe-drawer-backdrop").click({ position: { x: 350, y: 100 } });
 		await expect(page.getByTestId("swipe-drawer-panel")).not.toBeVisible();
 	}
 

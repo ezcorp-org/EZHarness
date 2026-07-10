@@ -70,7 +70,9 @@ export function savingsUrl(days: number, projectId?: string | null): string {
  * precedent: null → em-dash, exact zero → "$0.00", magnitudes under a
  * cent collapse to "<$0.01" — but negative values keep an explicit
  * leading minus ("−$0.123") so losses are never silently rounded into
- * looking like savings.
+ * looking like savings. Integer parts ≥ 1,000 are comma-grouped
+ * ("$1,234.568") so a four-digit premium can't be misread as a smaller
+ * digit-wall.
  */
 export function fmtUsd(n: number | null | undefined): string {
 	if (n == null) return "—";
@@ -78,7 +80,8 @@ export function fmtUsd(n: number | null | undefined): string {
 	const sign = n < 0 ? MINUS_SIGN : "";
 	const abs = Math.abs(n);
 	if (abs < 0.01) return `${sign}<$0.01`;
-	return `${sign}$${abs.toFixed(3)}`;
+	const [int, frac] = abs.toFixed(3).split(".");
+	return `${sign}$${Number(int).toLocaleString("en-US")}.${frac}`;
 }
 
 /** Compact token-count formatter: 950 → "950", 84_200 → "84.2k", 1_230_000 → "1.23M". */

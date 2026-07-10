@@ -18,6 +18,15 @@ import {
 	savingsUrl,
 	subscriptionNote,
 } from "$lib/savings-format";
+import type { SavingsPerModel, SavingsResponse, SavingsStats } from "$lib/savings-format";
+import type { SavingsReport } from "$server/db/queries/savings-analytics";
+import {
+	AWKWARD_30D,
+	DISTINCT_365D,
+	EMPTY_MODELS_7D,
+	NULL_HITRATE_30D,
+	SIGN_BOUNDARY_30D,
+} from "../../e2e/fixtures/savings-fidelity-data";
 
 describe("range constants", () => {
 	test("selector offers 7/30/90/365 and the default is a member", () => {
@@ -61,6 +70,17 @@ describe("fmtUsd (sign-aware)", () => {
 	test("negative renders explicit − sign with the magnitude", () => {
 		expect(fmtUsd(-0.123)).toBe(`${MINUS_SIGN}$0.123`);
 		expect(fmtUsd(-2)).toBe(`${MINUS_SIGN}$2.000`);
+	});
+
+	test("≥$1,000 magnitudes group the integer part — no misread digit-wall", () => {
+		expect(fmtUsd(1234.5678)).toBe("$1,234.568");
+		expect(fmtUsd(-1234567.8912)).toBe(`${MINUS_SIGN}$1,234,567.891`);
+		expect(fmtUsd(999.9994)).toBe("$999.999");
+		expect(fmtUsd(999.9996)).toBe("$1,000.000");
+	});
+
+	test("negative zero is zero — never renders a − sign", () => {
+		expect(fmtUsd(-0)).toBe("$0.00");
 	});
 });
 
@@ -114,6 +134,7 @@ describe("isLoss", () => {
 	test("negative only", () => {
 		expect(isLoss(-0.001)).toBe(true);
 		expect(isLoss(0)).toBe(false);
+		expect(isLoss(-0)).toBe(false);
 		expect(isLoss(0.001)).toBe(false);
 	});
 });
@@ -179,5 +200,85 @@ describe("bar scaling with negative values cannot exceed 100%", () => {
 		expect(barWidthPct(-0.08, scale)).toBe(100);
 		// An out-of-scale value still clamps rather than exceeding 100.
 		expect(barWidthPct(-1, scale)).toBe(100);
+	});
+});
+
+describe("API-contract conformance (mock-drift gate)", () => {
+	// COMPILE-TIME: the web mirror (`SavingsResponse`) must stay mutually
+	// assignable with the backend truth (`SavingsReport` from
+	// src/db/queries/savings-analytics.ts). This file is in the web tsc
+	// graph, so `bun run typecheck` fails on these constants if either
+	// side gains, loses, or retypes a field.
+	type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+	const responseMirrorsReport: MutuallyAssignable<SavingsResponse, SavingsReport> = true;
+	const statsMirror: MutuallyAssignable<SavingsStats, SavingsReport["stats"]> = true;
+	const perModelMirror: MutuallyAssignable<
+		SavingsPerModel,
+		SavingsReport["perModel"][number]
+	> = true;
+
+	// Key lists compile-tied to the types (`satisfies` forbids strays; the
+	// Exclude<> check forbids omissions) so the RUNTIME checks below pin
+	// the e2e mocks to the real contract even without tsc in the loop.
+	const RESPONSE_KEYS = [
+		"rangeDays",
+		"stats",
+		"perModel",
+		"subscriptionProviders",
+		"estimated",
+	] as const satisfies readonly (keyof SavingsResponse)[];
+	const STAT_KEYS = [
+		"cacheSavedUsd",
+		"cacheReadSavedUsd",
+		"cacheWriteSurchargeUsd",
+		"write1hPremiumUsd",
+		"routingSavedUsd",
+		"tokensCachedRead",
+		"tokensCacheWritten",
+		"cacheHitRate",
+		"turnsTotal",
+		"turnsRouted",
+		"turnsFailover",
+	] as const satisfies readonly (keyof SavingsStats)[];
+	const PER_MODEL_KEYS = [
+		"provider",
+		"model",
+		"turns",
+		"cacheSavedUsd",
+		"routingSavedUsd",
+		"tokensCachedRead",
+		"cacheHitRate",
+		"estimated",
+	] as const satisfies readonly (keyof SavingsPerModel)[];
+	const keysExhaustive: [
+		Exclude<keyof SavingsResponse, (typeof RESPONSE_KEYS)[number]>,
+		Exclude<keyof SavingsStats, (typeof STAT_KEYS)[number]>,
+		Exclude<keyof SavingsPerModel, (typeof PER_MODEL_KEYS)[number]>,
+	] extends [never, never, never]
+		? true
+		: false = true;
+
+	test("web SavingsResponse ⇄ backend SavingsReport stay mutually assignable", () => {
+		expect(responseMirrorsReport).toBe(true);
+		expect(statsMirror).toBe(true);
+		expect(perModelMirror).toBe(true);
+		expect(keysExhaustive).toBe(true);
+	});
+
+	test("e2e fidelity mocks carry exactly the contract's fields", () => {
+		const mocks: SavingsResponse[] = [
+			AWKWARD_30D,
+			DISTINCT_365D,
+			SIGN_BOUNDARY_30D,
+			NULL_HITRATE_30D,
+			EMPTY_MODELS_7D,
+		];
+		for (const mock of mocks) {
+			expect(Object.keys(mock).sort()).toEqual([...RESPONSE_KEYS].sort());
+			expect(Object.keys(mock.stats).sort()).toEqual([...STAT_KEYS].sort());
+			for (const row of mock.perModel) {
+				expect(Object.keys(row).sort()).toEqual([...PER_MODEL_KEYS].sort());
+			}
+		}
 	});
 });
