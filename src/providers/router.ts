@@ -38,13 +38,19 @@ type TierName = RoutingTier;
 const DEFAULT_PREFERENCE_ORDER = ["anthropic", "openai", "google", "openrouter"];
 const DEFAULT_TIER: TierName = "balanced";
 
+/** The onboarding wizard historically stored `provider:defaultTier` as
+ *  quality/budget; the router vocabulary is fast/balanced/powerful. Accept
+ *  the legacy values at read time so stored settings keep their intent. */
+const TIER_ALIASES: Record<string, TierName> = { quality: "powerful", budget: "fast" };
+
 /** Configured default routing tier (`provider:defaultTier` setting, falling
  *  back to "balanced"). Exported so the stream-chat wiring can label a turn
  *  whose tier classification failed with the same tier `resolveModel` used. */
 export async function getDefaultTier(): Promise<TierName> {
   const tier = await getSetting("provider:defaultTier");
-  if (tier && typeof tier === "string" && ["fast", "balanced", "powerful"].includes(tier)) {
-    return tier as TierName;
+  if (tier && typeof tier === "string") {
+    if (["fast", "balanced", "powerful"].includes(tier)) return tier as TierName;
+    if (TIER_ALIASES[tier]) return TIER_ALIASES[tier];
   }
   return DEFAULT_TIER;
 }

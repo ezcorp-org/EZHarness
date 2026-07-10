@@ -446,6 +446,7 @@ export function subscribeBridge(
               model: s.model,
               hitRate: Number(s.hitRate.toFixed(4)),
               cachedTokens: s.cachedTokens,
+              cacheWrite1hTokens: s.cacheWrite1hTokens,
               turns: s.turnCount,
             })),
           });
