@@ -94,7 +94,13 @@ a free developer token (get one at `api.psacard.com`). The token is
 
 - **In chat:** paste the token and the model calls `set_psa_token`. It is
   stored **encrypted** in per-user extension Storage and used for every
-  subsequent lookup. This is the supported way to supply the token.
+  subsequent lookup.
+- **Or add it on the extension settings page:** open the extension's
+  detail page (`/extensions/<id>`) and paste the token into the
+  **PSA API token** field under Settings. The host encrypts it into the
+  same per-user Storage row (`psa-token`) the tool writes, so both paths
+  are interchangeable. The field is write-only — after saving you only
+  see a "Set" badge, never the value; use **Clear** to remove it.
 
 > Local dev only: the `scripts/sanity-check.ts` CLI reads a `PSA_API_TOKEN`
 > environment variable if one is already set in the process (see

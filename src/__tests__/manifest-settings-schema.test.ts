@@ -3,12 +3,16 @@
 // both the `valid` flag and the user-visible error strings.
 
 import { test, expect, describe } from "bun:test";
-import { validateManifestV2 } from "../manifest";
+import {
+  isValidForField,
+  SECRET_SETTING_MAX_LENGTH,
+  validateManifestV2,
+} from "../extensions/manifest";
 import type {
   ExtensionManifestV2,
   SettingsField,
   SettingsSchema,
-} from "../types";
+} from "../extensions/types";
 
 function makeManifest(
   extra: Partial<ExtensionManifestV2> = {},
@@ -627,6 +631,221 @@ describe("validateSettingsSchema — number", () => {
     );
     expect(r.valid).toBe(false);
     expect(r.errors).toContain("settings.v.integer must be a boolean");
+  });
+});
+
+describe("validateSettingsSchema — secret", () => {
+  test("secret with valid storageKey admits", () => {
+    const r = validateManifestV2(
+      makeManifest({
+        settings: {
+          psa_api_token: {
+            type: "secret",
+            label: "PSA API token",
+            description: "Free token from api.psacard.com.",
+            storageKey: "psa-token",
+          },
+        },
+      }),
+    );
+    expect(r.valid).toBe(true);
+    expect(r.errors).toEqual([]);
+  });
+
+  test.each([
+    ["a", "single char"],
+    ["psa-token", "the graded-card-scanner reference key"],
+    ["0key", "leading digit"],
+    ["a.b-c_d9", "dots, dashes, underscores, digits"],
+    ["trailing_", "trailing underscore"],
+    ["trailing-", "trailing dash"],
+    [`k${"x".repeat(63)}`, "exactly 64 chars"],
+  ])("accepts storageKey %p (%s)", (storageKey) => {
+    const r = validateManifestV2(
+      makeManifest({
+        settings: {
+          tok: { type: "secret", label: "Token", storageKey },
+        },
+      }),
+    );
+    expect(r.valid).toBe(true);
+  });
+
+  test("rejects missing storageKey", () => {
+    const r = validateManifestV2(
+      makeManifest({
+        settings: {
+          tok: { type: "secret", label: "Token" } as unknown as SettingsField,
+        },
+      }),
+    );
+    expect(r.valid).toBe(false);
+    expect(
+      r.errors.some((e) =>
+        e.includes("settings.tok.storageKey is required on secret fields"),
+      ),
+    ).toBe(true);
+  });
+
+  test.each([
+    ["", "empty"],
+    ["-lead", "leading dash"],
+    [".lead", "leading dot"],
+    ["_lead", "leading underscore"],
+    ["UPPER", "uppercase"],
+    ["has space", "space"],
+    ["a/b", "slash"],
+    // Trailing dot: storage-handler's validateKey rejects it on READ, so
+    // admitting it would create a key the extension can never read back.
+    ["token.", "trailing dot"],
+    ["a.", "single char + trailing dot"],
+    [`k${"x".repeat(64)}`, "65 chars"],
+  ])("rejects storageKey %p (%s)", (storageKey) => {
+    const r = validateManifestV2(
+      makeManifest({
+        settings: {
+          tok: { type: "secret", label: "Token", storageKey },
+        },
+      }),
+    );
+    expect(r.valid).toBe(false);
+    expect(
+      r.errors.some((e) =>
+        e.includes("settings.tok.storageKey is required on secret fields"),
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects non-string storageKey", () => {
+    const r = validateManifestV2(
+      makeManifest({
+        settings: {
+          tok: {
+            type: "secret",
+            label: "Token",
+            storageKey: 42 as unknown as string,
+          },
+        },
+      }),
+    );
+    expect(r.valid).toBe(false);
+    expect(
+      r.errors.some((e) =>
+        e.includes("settings.tok.storageKey is required on secret fields"),
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects a default on secret fields (write-only, no plaintext in manifest)", () => {
+    const r = validateManifestV2(
+      makeManifest({
+        settings: {
+          tok: {
+            type: "secret",
+            label: "Token",
+            storageKey: "tok",
+            default: "leaked-credential",
+          } as unknown as SettingsField,
+        },
+      }),
+    );
+    expect(r.valid).toBe(false);
+    expect(r.errors).toContain(
+      "settings.tok.default is not allowed on secret fields",
+    );
+  });
+
+  test.each([
+    ["text", { type: "text", label: "T" }],
+    ["number", { type: "number", label: "N" }],
+    ["boolean", { type: "boolean", label: "B" }],
+    [
+      "select",
+      { type: "select", label: "S", options: [{ value: "a", label: "A" }] },
+    ],
+  ])("rejects storageKey on %s fields", (_kind, base) => {
+    const r = validateManifestV2(
+      makeManifest({
+        settings: {
+          v: { ...base, storageKey: "some-key" } as unknown as SettingsField,
+        },
+      }),
+    );
+    expect(r.valid).toBe(false);
+    expect(r.errors).toContain(
+      "settings.v.storageKey is only allowed on secret fields",
+    );
+  });
+
+  test("secret still requires a label", () => {
+    const r = validateManifestV2(
+      makeManifest({
+        settings: {
+          tok: { type: "secret", storageKey: "tok" } as unknown as SettingsField,
+        },
+      }),
+    );
+    expect(r.valid).toBe(false);
+    expect(
+      r.errors.some((e) => e.includes("settings.tok.label is required")),
+    ).toBe(true);
+  });
+
+  test("unknown-type error message lists secret", () => {
+    const r = validateManifestV2(
+      makeManifest({
+        settings: {
+          v: { type: "color", label: "C" } as unknown as SettingsField,
+        },
+      }),
+    );
+    expect(r.valid).toBe(false);
+    expect(
+      r.errors.some((e) =>
+        e.includes(
+          'settings.v.type must be one of "select"|"text"|"number"|"boolean"|"secret"',
+        ),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("isValidForField — secret", () => {
+  const field: SettingsField = {
+    type: "secret",
+    label: "Token",
+    storageKey: "tok",
+  };
+
+  test("accepts a non-empty string within the cap", () => {
+    expect(isValidForField(field, "abc123")).toBe(true);
+  });
+
+  test("accepts a string of exactly the max length", () => {
+    expect(isValidForField(field, "x".repeat(SECRET_SETTING_MAX_LENGTH))).toBe(
+      true,
+    );
+  });
+
+  test("rejects the empty string", () => {
+    expect(isValidForField(field, "")).toBe(false);
+  });
+
+  test("rejects a string over the max length", () => {
+    expect(
+      isValidForField(field, "x".repeat(SECRET_SETTING_MAX_LENGTH + 1)),
+    ).toBe(false);
+  });
+
+  test.each([
+    [42, "number"],
+    [true, "boolean"],
+    [null, "null"],
+    [{ v: "x" }, "object"],
+    [["x"], "array"],
+    [undefined, "undefined"],
+  ])("rejects non-string value %p (%s)", (value) => {
+    expect(isValidForField(field, value)).toBe(false);
   });
 });
 

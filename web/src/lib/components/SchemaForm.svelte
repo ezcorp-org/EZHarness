@@ -25,12 +25,17 @@
   let {
     schema,
     values,
+    secrets = {},
     disabled = false,
     oninput,
     onsubmit,
   }: {
     schema: SettingsSchema;
     values: Record<string, unknown>;
+    /** Per secret-field existence probe from the settings GET (`{ isSet }`).
+     *  Drives the Set / Not set badge and the Clear affordance — the value
+     *  itself is never sent to the client. */
+    secrets?: Record<string, { isSet: boolean }>;
     disabled?: boolean;
     oninput?: (next: Record<string, unknown>) => void;
     onsubmit?: (next: Record<string, unknown>) => void | Promise<void>;
@@ -39,6 +44,24 @@
   function setValue(key: string, value: unknown): void {
     const next = { ...values, [key]: value };
     oninput?.(next);
+  }
+
+  function removeValue(key: string): void {
+    const next = { ...values };
+    delete next[key];
+    oninput?.(next);
+  }
+
+  // Secret-field draft semantics: ABSENT key = leave the stored secret
+  // untouched; non-empty string = replace on save; EXPLICIT "" = clear on
+  // save ("" is only ever queued via the Clear button — erasing the input
+  // back to empty removes the key so an abandoned edit is a no-op).
+  function setSecretInput(key: string, raw: string): void {
+    if (raw === "") {
+      removeValue(key);
+    } else {
+      setValue(key, raw);
+    }
   }
 
   function effectiveValue(key: string, field: SettingsField): unknown {
@@ -79,6 +102,18 @@
           class="mb-1 block text-sm font-medium text-[var(--color-text-secondary)]"
         >
           {field.label}
+          {#if field.type === "secret"}
+            <span
+              class={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                secrets[key]?.isSet
+                  ? "bg-green-600/20 text-green-400"
+                  : "bg-[var(--color-surface-tertiary)] text-[var(--color-text-muted)]"
+              }`}
+              data-testid={`schema-secret-status-${key}`}
+            >
+              {secrets[key]?.isSet ? "Set" : "Not set"}
+            </span>
+          {/if}
         </label>
         {#if field.description}
           <p class="mb-1.5 text-xs text-[var(--color-text-muted)]">{field.description}</p>
@@ -133,6 +168,57 @@
             onchange={(e) => setValue(key, (e.currentTarget as HTMLInputElement).checked)}
             data-testid={`schema-input-${key}`}
           />
+        {:else if field.type === "secret"}
+          {@const isSet = secrets[key]?.isSet ?? false}
+          {@const pendingClear = values[key] === ""}
+          <div class="flex items-center gap-2">
+            <!-- NEVER prefilled: the server never sends the value, so the
+                 input only ever shows what the user typed this session. -->
+            <input
+              id={`schema-field-${key}`}
+              type="password"
+              autocomplete="new-password"
+              class={inputClass}
+              disabled={disabled || pendingClear}
+              value={typeof values[key] === "string" ? (values[key] as string) : ""}
+              placeholder={isSet ? "Enter a new value to replace" : "Enter value"}
+              oninput={(e) => setSecretInput(key, (e.currentTarget as HTMLInputElement).value)}
+              data-testid={`schema-input-${key}`}
+            />
+            {#if pendingClear}
+              <button
+                type="button"
+                {disabled}
+                onclick={() => removeValue(key)}
+                class="shrink-0 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] px-3 py-2 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-secondary)] disabled:opacity-50"
+                data-testid={`schema-secret-undo-${key}`}
+              >
+                Undo
+              </button>
+            {:else if isSet}
+              <button
+                type="button"
+                {disabled}
+                onclick={() => setValue(key, "")}
+                class="shrink-0 rounded-md border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs font-medium text-red-400 transition-colors hover:bg-red-900/40 disabled:opacity-50"
+                data-testid={`schema-secret-clear-${key}`}
+              >
+                Clear
+              </button>
+            {/if}
+          </div>
+          <p
+            class="mt-1 text-xs text-[var(--color-text-muted)]"
+            data-testid={`schema-secret-hint-${key}`}
+          >
+            {#if pendingClear}
+              Will be cleared when you save.
+            {:else if isSet}
+              A value is set. It is stored encrypted and never shown again — enter a new value to replace it.
+            {:else}
+              Stored encrypted. Once saved, the value is never shown again.
+            {/if}
+          </p>
         {/if}
       </div>
     {/each}

@@ -95,6 +95,45 @@ mock.module("$server/db/queries/audit-log", () => ({
   insertAuditEntry: mockAudit,
 }));
 
+// Secret-settings host helpers — in-memory store keyed by
+// `${extensionId}:${userId}:${storageKey}`. The real module (PGlite +
+// AES-GCM round-trip) is covered by src/extensions/__tests__/
+// secret-settings.test.ts; here the route's own partition/validate/
+// probe logic is the thing under test.
+const mockSecretStore = new Map<string, string>();
+const secretKeyOf = (extId: string, userId: string, storageKey: string) =>
+  `${extId}:${userId}:${storageKey}`;
+const mockSetSecret = mock(
+  async (extId: string, userId: string, storageKey: string, value: string) => {
+    mockSecretStore.set(secretKeyOf(extId, userId, storageKey), value);
+  },
+);
+const mockClearSecret = mock(
+  async (extId: string, userId: string, storageKey: string) =>
+    mockSecretStore.delete(secretKeyOf(extId, userId, storageKey)),
+);
+mock.module("$server/extensions/secret-settings", () => ({
+  setSecretSetting: mockSetSecret,
+  clearSecretSetting: mockClearSecret,
+  isSecretSettingSet: async (extId: string, userId: string, storageKey: string) =>
+    mockSecretStore.has(secretKeyOf(extId, userId, storageKey)),
+  secretFieldEntries: (schema: Record<string, { type?: string }> | null | undefined) =>
+    Object.entries(schema ?? {}).filter(([, f]) => f.type === "secret"),
+  probeSecretSettings: async (
+    extId: string,
+    userId: string,
+    schema: Record<string, { type?: string; storageKey?: string }> | null | undefined,
+  ) => {
+    const out: Record<string, { isSet: boolean }> = {};
+    for (const [k, f] of Object.entries(schema ?? {})) {
+      if (f.type === "secret" && typeof f.storageKey === "string") {
+        out[k] = { isSet: mockSecretStore.has(secretKeyOf(extId, userId, f.storageKey)) };
+      }
+    }
+    return out;
+  },
+}));
+
 // §5.2 — the route delegates held-capability resolution to the search
 // policy module. Mock it so the route's projection is the only thing
 // under test (the resolver itself is covered by search-policy.test.ts).
@@ -164,9 +203,12 @@ describe("extension settings API", () => {
     };
     mockUserValues = {};
     mockResolved = { voice: "af_bella", speed: 1.0 };
+    mockSecretStore.clear();
     mockGetExtension.mockClear();
     mockSetUser.mockClear();
     mockClearUser.mockClear();
+    mockSetSecret.mockClear();
+    mockClearSecret.mockClear();
     mockAudit.mockClear();
     mockCapabilities = [];
     mockGetHeldCapabilities.mockClear();
@@ -219,6 +261,7 @@ describe("extension settings API", () => {
         declaredDefaults: {},
         userValues: {},
         resolved: {},
+        secrets: {},
         capabilities: [],
       });
     });
@@ -428,6 +471,185 @@ describe("extension settings API", () => {
       );
       expect(arrValsRes.status).toBe(400);
       expect(mockSetUser).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Secret-typed fields (write-only, encrypted extension storage) ──
+  describe("secret settings fields", () => {
+    const PLAINTEXT = "psa-live-token-abcdef-123456";
+    const SECRET_SCHEMA = {
+      ...SETTINGS_SCHEMA,
+      psa_api_token: {
+        type: "secret",
+        label: "PSA API token",
+        storageKey: "psa-token",
+      },
+    };
+
+    beforeEach(() => {
+      mockExt = { id: "ext-1", manifest: { settings: SECRET_SCHEMA } };
+      (mockExt as { grantedPermissions?: unknown }).grantedPermissions = { grantedAt: {} };
+    });
+
+    describe("GET /settings", () => {
+      test("returns { isSet: false } when no row exists — never a value key", async () => {
+        const res = await call(settingsRoute.GET, makeEvent("GET", undefined));
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.secrets).toEqual({ psa_api_token: { isSet: false } });
+      });
+
+      test("returns { isSet: true } once stored — and no response byte carries the value", async () => {
+        mockSecretStore.set(secretKeyOf("ext-1", "user-1", "psa-token"), PLAINTEXT);
+        const res = await call(settingsRoute.GET, makeEvent("GET", undefined));
+        expect(res.status).toBe(200);
+        const raw = await res.text();
+        expect(JSON.parse(raw).secrets).toEqual({ psa_api_token: { isSet: true } });
+        // The whole payload — every byte — must be free of the plaintext.
+        expect(raw).not.toContain(PLAINTEXT);
+      });
+
+      test("defense-in-depth: stale plaintext persisted under a secret-typed key is stripped from userValues on read", async () => {
+        // Simulate a text→secret field-type migration: the RAW persisted
+        // blob still carries a plaintext under what is NOW a secret key
+        // (write-time clamping only guards new writes, not old rows).
+        mockUserValues = { psa_api_token: PLAINTEXT, voice: "am_adam" };
+        // Storage row exists too — isSet must reflect storage, not the blob.
+        mockSecretStore.set(secretKeyOf("ext-1", "user-1", "psa-token"), PLAINTEXT);
+
+        const res = await call(settingsRoute.GET, makeEvent("GET", undefined));
+        expect(res.status).toBe(200);
+        const raw = await res.text();
+        const body = JSON.parse(raw);
+        // The secret-typed key is absent from userValues; siblings survive.
+        expect(body.userValues).toEqual({ voice: "am_adam" });
+        expect("psa_api_token" in body.userValues).toBe(false);
+        // secrets.isSet still reflects extension storage.
+        expect(body.secrets).toEqual({ psa_api_token: { isSet: true } });
+        // No response byte carries the stale plaintext.
+        expect(raw).not.toContain(PLAINTEXT);
+      });
+
+      test("probe is scoped to the CALLING user (cross-user isolation)", async () => {
+        mockSecretStore.set(secretKeyOf("ext-1", "user-2", "psa-token"), PLAINTEXT);
+        const res = await call(settingsRoute.GET, makeEvent("GET", undefined));
+        const body = await res.json();
+        expect(body.secrets).toEqual({ psa_api_token: { isSet: false } });
+      });
+    });
+
+    describe("PUT /settings/user — set", () => {
+      test("stores via setSecretSetting and strips the key from the settings blob", async () => {
+        const res = await call(
+          userRoute.PUT,
+          makeEvent("PUT", { values: { voice: "am_adam", psa_api_token: PLAINTEXT } }),
+        );
+        expect(res.status).toBe(200);
+
+        // Encrypted-storage write got the plaintext, keyed by storageKey.
+        expect(mockSetSecret).toHaveBeenCalledTimes(1);
+        expect(mockSetSecret).toHaveBeenCalledWith(
+          "ext-1",
+          "user-1",
+          "psa-token",
+          PLAINTEXT,
+        );
+        // The settings JSON write NEVER sees the secret key.
+        expect(mockSetUser).toHaveBeenCalledTimes(1);
+        expect(mockSetUser.mock.calls[0]![2]).toEqual({ voice: "am_adam" });
+
+        // Response reports the new isSet state and echoes NO value byte.
+        const raw = await res.text();
+        const body = JSON.parse(raw);
+        expect(body.ok).toBe(true);
+        expect(body.secrets).toEqual({ psa_api_token: { isSet: true } });
+        expect(body.userValues).toEqual({ voice: "am_adam" });
+        expect(raw).not.toContain(PLAINTEXT);
+      });
+
+      test("audit row is NAME-ONLY: secretsSet lists the field, no arg carries the plaintext", async () => {
+        await call(
+          userRoute.PUT,
+          makeEvent("PUT", { values: { psa_api_token: PLAINTEXT } }),
+        );
+        expect(mockAudit).toHaveBeenCalledTimes(1);
+        const args = mockAudit.mock.calls[0]!;
+        const meta = args[3] as Record<string, unknown>;
+        expect(meta.secretsSet).toEqual(["psa_api_token"]);
+        expect(meta.secretsCleared).toEqual([]);
+        expect(meta.submitted).toEqual({});
+        // NOTHING in the whole audit call may contain the plaintext.
+        expect(JSON.stringify(args)).not.toContain(PLAINTEXT);
+      });
+
+      test("untouched secret (key absent from values) is left alone", async () => {
+        mockSecretStore.set(secretKeyOf("ext-1", "user-1", "psa-token"), PLAINTEXT);
+        const res = await call(
+          userRoute.PUT,
+          makeEvent("PUT", { values: { voice: "am_adam" } }),
+        );
+        expect(res.status).toBe(200);
+        expect(mockSetSecret).not.toHaveBeenCalled();
+        expect(mockClearSecret).not.toHaveBeenCalled();
+        const body = await res.json();
+        expect(body.secrets).toEqual({ psa_api_token: { isSet: true } });
+      });
+    });
+
+    describe("PUT /settings/user — clear", () => {
+      test("empty string deletes the stored row", async () => {
+        mockSecretStore.set(secretKeyOf("ext-1", "user-1", "psa-token"), PLAINTEXT);
+        const res = await call(
+          userRoute.PUT,
+          makeEvent("PUT", { values: { psa_api_token: "" } }),
+        );
+        expect(res.status).toBe(200);
+        expect(mockClearSecret).toHaveBeenCalledTimes(1);
+        expect(mockClearSecret).toHaveBeenCalledWith("ext-1", "user-1", "psa-token");
+        expect(mockSetSecret).not.toHaveBeenCalled();
+        const body = await res.json();
+        expect(body.secrets).toEqual({ psa_api_token: { isSet: false } });
+
+        const meta = mockAudit.mock.calls[0]![3] as Record<string, unknown>;
+        expect(meta.secretsCleared).toEqual(["psa_api_token"]);
+        expect(meta.secretsSet).toEqual([]);
+      });
+    });
+
+    describe("PUT /settings/user — validation (all-or-nothing)", () => {
+      test("400 when the secret value is not a string; nothing applied", async () => {
+        const res = await call(
+          userRoute.PUT,
+          makeEvent("PUT", { values: { voice: "am_adam", psa_api_token: 42 } }),
+        );
+        expect(res.status).toBe(400);
+        expect(mockSetUser).not.toHaveBeenCalled();
+        expect(mockSetSecret).not.toHaveBeenCalled();
+        expect(mockClearSecret).not.toHaveBeenCalled();
+        expect(mockAudit).not.toHaveBeenCalled();
+      });
+
+      test("400 when the secret value exceeds 512 chars; nothing applied", async () => {
+        const res = await call(
+          userRoute.PUT,
+          makeEvent("PUT", { values: { psa_api_token: "x".repeat(513) } }),
+        );
+        expect(res.status).toBe(400);
+        const body = await res.json();
+        expect(body.error).toContain("psa_api_token");
+        expect(mockSetUser).not.toHaveBeenCalled();
+        expect(mockSetSecret).not.toHaveBeenCalled();
+      });
+
+      test("512-char value is accepted (boundary)", async () => {
+        const max = "x".repeat(512);
+        const res = await call(
+          userRoute.PUT,
+          makeEvent("PUT", { values: { psa_api_token: max } }),
+        );
+        expect(res.status).toBe(200);
+        expect(mockSetSecret).toHaveBeenCalledWith("ext-1", "user-1", "psa-token", max);
+      });
     });
   });
 

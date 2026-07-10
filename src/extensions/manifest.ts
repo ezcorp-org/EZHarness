@@ -415,7 +415,19 @@ export function validatePagesArray(items: unknown, errors: string[]): void {
 // keys exposed to extension authors — keep them lowercase, no traversal,
 // no leading digit/underscore.
 const SETTINGS_KEY_REGEX = /^[a-z][a-z0-9_]{0,63}$/;
-const SETTINGS_FIELD_TYPES = new Set(["select", "text", "number", "boolean"]);
+const SETTINGS_FIELD_TYPES = new Set(["select", "text", "number", "boolean", "secret"]);
+
+// Secret fields write into extension storage — the storageKey must satisfy
+// the storage layer's own key rules (see storage-handler's KEY_REGEX) while
+// staying conservative: lowercase alnum start, then alnum/underscore/dot/dash,
+// ≤ 64 chars total, and NO trailing dot — storage-handler's validateKey
+// rejects keys ending in "." on read, so admitting one here would create a
+// storageKey the extension could never read back. e.g. the
+// graded-card-scanner's "psa-token".
+const SECRET_STORAGE_KEY_REGEX = /^(?!.*\.$)[a-z0-9][a-z0-9_.-]{0,63}$/;
+
+/** Max plaintext length accepted for a secret settings value (chars). */
+export const SECRET_SETTING_MAX_LENGTH = 512;
 
 function isFiniteNumber(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v);
@@ -499,6 +511,16 @@ export function isValidForField(field: SettingsField, value: unknown): boolean {
     }
     case "boolean":
       return typeof value === "boolean";
+    case "secret":
+      // Write-path validity only: the PUT route uses this to accept a new
+      // plaintext value before encrypting it into extension storage. The
+      // value itself is NEVER persisted in the settings JSON blob —
+      // `clampSettings` drops secret fields unconditionally.
+      return (
+        typeof value === "string" &&
+        value.length > 0 &&
+        value.length <= SECRET_SETTING_MAX_LENGTH
+      );
   }
 }
 
@@ -651,6 +673,26 @@ function validateBooleanField(
   }
 }
 
+function validateSecretField(
+  path: string,
+  field: Record<string, unknown>,
+  errors: string[],
+): void {
+  if (
+    typeof field.storageKey !== "string" ||
+    !SECRET_STORAGE_KEY_REGEX.test(field.storageKey)
+  ) {
+    errors.push(
+      `${path}.storageKey is required on secret fields and must match /^[a-z0-9][a-z0-9_.-]{0,63}$/ with no trailing dot`,
+    );
+  }
+  // Secrets are write-only: a declared default would be a plaintext
+  // credential in the manifest — reject at admit time.
+  if (field.default !== undefined) {
+    errors.push(`${path}.default is not allowed on secret fields`);
+  }
+}
+
 export function validateSettingsSchema(
   settings: unknown,
   errors: string[],
@@ -674,7 +716,7 @@ export function validateSettingsSchema(
     const field = raw as Record<string, unknown>;
     if (typeof field.type !== "string" || !SETTINGS_FIELD_TYPES.has(field.type)) {
       errors.push(
-        `${path}.type must be one of "select"|"text"|"number"|"boolean"`,
+        `${path}.type must be one of "select"|"text"|"number"|"boolean"|"secret"`,
       );
       continue;
     }
@@ -683,6 +725,11 @@ export function validateSettingsSchema(
     }
     if (field.description !== undefined && typeof field.description !== "string") {
       errors.push(`${path}.description must be a string`);
+    }
+    // storageKey is the secret-field storage target — meaningless (and a
+    // likely authoring bug) on any other type, so reject it there.
+    if (field.type !== "secret" && field.storageKey !== undefined) {
+      errors.push(`${path}.storageKey is only allowed on secret fields`);
     }
     switch (field.type) {
       case "select":
@@ -696,6 +743,9 @@ export function validateSettingsSchema(
         break;
       case "boolean":
         validateBooleanField(path, field, errors);
+        break;
+      case "secret":
+        validateSecretField(path, field, errors);
         break;
     }
   }

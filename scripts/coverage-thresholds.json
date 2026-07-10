@@ -9,6 +9,7 @@
   "src/extensions/registry.ts": 95,
   "src/extensions/loader.ts": 90,
   "src/extensions/storage-handler.ts": 95,
+  "src/extensions/secret-settings.ts": 100,
   "src/extensions/lifecycle-dispatcher.ts": 95,
   "src/extensions/tool-executor.ts": 95,
   "src/extensions/embed-worker.ts": 95,

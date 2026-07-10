@@ -968,8 +968,9 @@ Returns the schema and the user's resolution chain.
 {
   schema: SettingsSchema | null,             // null when manifest has no settings block
   declaredDefaults: Record<string, unknown>, // empty when schema is null
-  userValues:       Record<string, unknown>, // calling user's overrides
-  resolved:         Record<string, unknown>, // declared < user, clamped to schema
+  userValues:       Record<string, unknown>, // calling user's overrides (secret keys never appear)
+  resolved:         Record<string, unknown>, // declared < user, clamped to schema (secret keys never appear)
+  secrets: Record<string, { isSet: boolean }>, // per secret field: row-existence probe, NEVER the value
 }
 ```
 
@@ -980,26 +981,26 @@ Returns the schema and the user's resolution chain.
 
 ### `PUT /api/extensions/[id]/settings/user`
 
-Replaces the calling user's override blob. No audit (per-user preferences are not security-relevant).
+Replaces the calling user's override blob. Secret-typed keys are diverted out of the blob: each value is validated (non-empty string ≤ 512 chars), encrypted, and upserted into extension storage at the field's `storageKey` (scope `user`); an explicit `""` clears the stored row. Validation is all-or-nothing — a `400` applies nothing. Audited (name-only for secrets: `secretsSet` / `secretsCleared`).
 
 ```typescript
 // Body
 { values: Record<string, unknown> }
 
-// Response (200)
-{ ok: true, userValues: Record<string, unknown> }
+// Response (200) — no secret value in any response byte
+{ ok: true, userValues: Record<string, unknown>, secrets: Record<string, { isSet: boolean }> }
 ```
 
 | Status | Meaning |
 |--------|---------|
 | `200` | Saved. |
-| `400` | Body lacks `values` or `values` is not an object. |
+| `400` | Body lacks `values`, `values` is not an object, or a secret value is not a string / exceeds 512 chars. |
 | `404` | Extension not found. |
 | `409` | Extension's manifest declares no settings block. |
 
 ### `DELETE /api/extensions/[id]/settings/user`
 
-Clears the calling user's overrides. The next `resolved` blob falls back to declared defaults.
+Clears the calling user's overrides. The next `resolved` blob falls back to declared defaults. Stored secrets are NOT touched — clear those per-field by `PUT`ing `""`.
 
 ```typescript
 // Response (200)

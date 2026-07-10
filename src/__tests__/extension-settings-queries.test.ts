@@ -116,6 +116,36 @@ describe("clampSettings (pure)", () => {
     });
     expect(out).toEqual({ theme: "dark", count: 4 });
   });
+
+  test("drops secret fields UNCONDITIONALLY — plaintext never persists in the blob", () => {
+    const schemaWithSecret: SettingsSchema = {
+      ...SCHEMA,
+      api_token: { type: "secret", label: "API token", storageKey: "api-token" },
+    };
+    const out = clampSettings(schemaWithSecret, {
+      theme: "light",
+      // A value that WOULD pass isValidForField for a secret — the clamp
+      // must still drop it (secrets are stored encrypted in extension
+      // storage by the host, never in extension_settings_user JSON).
+      api_token: "totally-valid-secret-value",
+    });
+    expect(out).toEqual({ theme: "light" });
+    expect(JSON.stringify(out)).not.toContain("totally-valid-secret-value");
+  });
+});
+
+describe("getDeclaredDefaults — secret fields", () => {
+  test("secret fields never contribute a default", () => {
+    const schemaWithSecret: SettingsSchema = {
+      ...SCHEMA,
+      api_token: { type: "secret", label: "API token", storageKey: "api-token" },
+    };
+    expect(getDeclaredDefaults(schemaWithSecret)).toEqual({
+      theme: "dark",
+      nick: "anon",
+      count: 3,
+    });
+  });
 });
 
 describe("getUserSettings", () => {

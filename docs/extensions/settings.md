@@ -113,13 +113,38 @@ When you change the schema between versions, the resolver's clamp protects the r
 
 There is no schema-version field on settings rows — the resolver always validates against the **current** manifest. If a breaking change matters to your users (e.g. a renamed select option), surface it in your README or in a new banner before shipping; the host won't.
 
+## Secret fields (API tokens, credentials)
+
+Declare `type: "secret"` with a `storageKey` and the host renders a masked, write-only input on the settings page:
+
+```typescript
+settings: {
+  psa_api_token: {
+    type: "secret",
+    label: "PSA API token",
+    description: "Free token from api.psacard.com. Stored encrypted; never shown again.",
+    storageKey: "psa-token",
+  },
+}
+```
+
+Secret fields are different from every other type:
+
+- **The value never enters the settings JSON blob** — it is not in `userValues`, not in `resolved`, and never injected into tool calls. The clamp drops secret keys unconditionally.
+- **On save the host encrypts it** (the same AES-256-GCM path as the storage RPC's `encrypted: true`) and upserts it into extension storage at `(scope: "user", scopeId: <saving user>, key: storageKey)`. Your extension reads it through its ordinary Storage surface — `new Storage("user")` then `storage.get(storageKey)` — with **zero extra code**. Secrets are implicitly per-user.
+- **The GET payload carries only `secrets: { <key>: { isSet } } `** — a row-existence probe. No response byte ever contains the value; after saving, the UI shows a "Set" badge and a replace-only input.
+- **Saving an empty string clears** the stored row (the panel's **Clear** button queues exactly that). Values are otherwise non-empty strings of at most 512 characters.
+- **Audit is name-only** — the mutation is audited with `secretsSet` / `secretsCleared` field-name lists, never the plaintext.
+
+The reference consumer is `graded-card-scanner`: its `psa_api_token` field writes the same `psa-token` storage row its `set_psa_token` tool writes, so `lib/token.ts`'s `resolveToken` works untouched whichever path supplied the token.
+
 ## FAQ
 
 **Can settings hold secrets?**
 
-No. The `GET /api/extensions/<id>/settings` response is returned to any authenticated session user, and the `resolved` blob ships into the chat browser bundle as part of the per-conversation hydration. `userValues` is visible to that user; the schema and any defaults are visible to every user who can see the extension's detail page.
+Yes — but **only** via `type: "secret"` (see [Secret fields](#secret-fields-api-tokens-credentials)). Never put a credential in a `text` field: the `GET /api/extensions/<id>/settings` response is returned to the calling authenticated session, and the `resolved` blob ships into the chat browser bundle as part of the per-conversation hydration. `userValues` is visible to that user; the schema and any defaults are visible to every user who can see the extension's detail page. Secret fields avoid all of that by storing the value outside the settings blob entirely.
 
-For secrets (API keys, OAuth tokens, signed credentials), use the [Storage API](api-reference.md#storage-api) with `scope: "user"` and `encrypted: true` — the value is encrypted at rest with AES-256-GCM. The scope matters: the default `global` scope is one install-wide bucket shared by **every** user of the extension, so the server rejects encrypted writes to it (`-32602`). Note that the extension sends the value in plaintext over the stdio RPC channel; the **server** encrypts it before writing to the database (see `src/extensions/storage-handler.ts`).
+If your extension collects the credential itself (e.g. through a tool call rather than the settings page), use the [Storage API](api-reference.md#storage-api) with `scope: "user"` and `encrypted: true` — the value is encrypted at rest with AES-256-GCM, and it is the exact row a secret settings field with the same `storageKey` writes. The scope matters: the default `global` scope is one install-wide bucket shared by **every** user of the extension, so the server rejects encrypted writes to it (`-32602`). Note that the extension sends the value in plaintext over the stdio RPC channel; the **server** encrypts it before writing to the database (see `src/extensions/storage-handler.ts`).
 
 **Why is there no per-conversation scope?**
 

@@ -182,6 +182,8 @@
 
 	let settingsSchema = $state<SettingsSchema>({});
 	let userValues = $state<Record<string, unknown>>({});
+	// Per secret-field `{ isSet }` existence probes — never the values.
+	let secretsState = $state<Record<string, { isSet: boolean }>>({});
 	let capabilities = $state<HeldCapabilityView[]>([]);
 	let settingsLoaded = $state(false);
 	let settingsError = $state("");
@@ -208,6 +210,7 @@
 			const data = await res.json();
 			settingsSchema = (data.schema ?? {}) as SettingsSchema;
 			userValues = (data.userValues ?? {}) as Record<string, unknown>;
+			secretsState = (data.secrets ?? {}) as Record<string, { isSet: boolean }>;
 			capabilities = (data.capabilities ?? []) as HeldCapabilityView[];
 			settingsLoaded = true;
 		} catch (e) {
@@ -1054,6 +1057,7 @@
 					title="Your settings"
 					schema={settingsSchema}
 					values={userValues}
+					secrets={secretsState}
 					canReset={true}
 					onsave={saveUserSettings}
 					onreset={resetUserSettings}

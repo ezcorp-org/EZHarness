@@ -14,6 +14,7 @@
     title,
     schema,
     values,
+    secrets = {},
     canReset = false,
     onsave,
     onreset,
@@ -22,6 +23,9 @@
     title: string;
     schema: SettingsSchema;
     values: Record<string, unknown>;
+    /** Per secret-field `{ isSet }` probes (settings GET payload) —
+     *  forwarded to SchemaForm's Set/Not-set + Clear affordances. */
+    secrets?: Record<string, { isSet: boolean }>;
     canReset?: boolean;
     onsave: (next: Record<string, unknown>) => Promise<void>;
     onreset?: () => Promise<void>;
@@ -66,6 +70,7 @@
   <SchemaForm
     {schema}
     values={draft}
+    {secrets}
     disabled={saving || resetting}
     oninput={(next) => (draft = next)}
     onsubmit={handleSave}
