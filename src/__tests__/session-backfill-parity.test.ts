@@ -2,7 +2,7 @@ import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import { Session } from "@earendil-works/pi-agent-core";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
-import { agentSessionEntries, conversations, messageAttachments, messages, projects } from "../db/schema";
+import { agentSessionEntries, agentSessions, conversations, messageAttachments, messages, projects } from "../db/schema";
 import type { StreamChatContext } from "../runtime/stream-chat/context";
 
 // Must mock before importing modules that use db/connection.
@@ -210,6 +210,52 @@ describe("session backfill — dark read-parity vs loadHistory", () => {
     const sessRows = await getTestDb().select().from(agentSessionEntries).where(eq(agentSessionEntries.sessionId, firstId));
     // 2 message entries + 1 leaf pointer (setLeafId) — unchanged after re-run.
     expect(sessRows.length).toBe(3);
+  });
+
+  test("concurrent backfill: loser resolves to the same session (no unhandled unique violation)", async () => {
+    const c = await newConversation();
+    await seedMsg({ id: "u1", convId: c, role: "user", content: "u1", parentId: null, createdAt: at(0) });
+    await seedMsg({ id: "a1", convId: c, role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+
+    // Two concurrent calls both pass into DbSessionStorage.create; the INSERT
+    // serializes them — one wins, the loser catches 23505 and opens the same
+    // session. Must NOT throw, must resolve to one session id.
+    const [s1, s2] = await Promise.all([
+      backfillSessionForConversation(c),
+      backfillSessionForConversation(c),
+    ]);
+    expect((await s1.getMetadata()).id).toBe((await s2.getMetadata()).id);
+
+    const sessRows = await getTestDb().select().from(agentSessions).where(eq(agentSessions.conversationId, c));
+    expect(sessRows.length).toBe(1);
+  });
+
+  test("parent absent from the loaded set is re-rooted — buildContext degrades, no invalid_session throw", async () => {
+    // A parentMessageId can be FK-legal yet absent from THIS conversation's
+    // rows: messages.parent_message_id is a self-FK to messages(id) (NOT
+    // scoped to conversation), so a pointer can reference a row in ANOTHER
+    // conversation. getMessages loads only this conversation, so that parent
+    // is not in knownIds and backfill re-roots it to null — getPathToRoot
+    // then degrades gracefully instead of throwing invalid_session.
+    //
+    // NOTE (honest scope): a *same-conversation* dangling pointer is
+    // unreachable (self-FK ON DELETE SET NULL). loadHistory parity is NOT
+    // asserted for this case — its recursive CTE is unfiltered by
+    // conversation and would FOLLOW the cross-conversation pointer (a
+    // pre-existing quirk), so the two intentionally differ here; backfill
+    // prefers graceful truncation over a throw.
+    const other = await newConversation();
+    await seedMsg({ id: "d1", convId: other, role: "assistant", content: "d1", parentId: null, createdAt: at(0) });
+    const c = await newConversation();
+    await seedMsg({ id: "u2", convId: c, role: "user", content: "u2", parentId: "d1", createdAt: at(1) });
+    await seedMsg({ id: "a2", convId: c, role: "assistant", content: "a2", parentId: "u2", createdAt: at(2) });
+
+    const storage = await backfillSessionForConversation(c);
+    const ctx = (await new Session(storage).buildContext()).messages; // must NOT throw
+    expect(ctx.map(textOf)).toEqual(["u2", "a2"]);
+
+    const u2entry = (await storage.getEntries()).find((e) => e.id === "u2");
+    expect(u2entry?.parentId).toBeNull();
   });
 
   test("empty conversation: empty session, empty context, null leaf", async () => {
