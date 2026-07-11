@@ -1193,9 +1193,16 @@ const sendToAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
       );
     }
     if (res.queued) {
+      // P3: on a live child the host STEERS — the message lands mid-run at the
+      // next turn boundary (best-effort; the host falls back to next-run
+      // delivery if the run ends first). Word it honestly per the host signal;
+      // the pre-P3 enqueue fallback keeps the "next cycle" wording.
+      const steered = res.delivery === "steered";
       return toolResult(
-        `Message queued for "${target.agentName}" — will be delivered when its current cycle completes.`,
-        { details: { _agentMeta: { ...meta, status: "queued" } } },
+        steered
+          ? `Message sent to "${target.agentName}" — injected into its current run at the next turn boundary (best-effort; delivered on its next run if the current one ends first).`
+          : `Message queued for "${target.agentName}" — will be delivered when its current cycle completes.`,
+        { details: { _agentMeta: { ...meta, status: steered ? "steered" : "queued" } } },
       );
     }
     // Our map still tracked this child as running, but the host reports no LIVE

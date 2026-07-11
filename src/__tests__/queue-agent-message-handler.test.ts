@@ -186,7 +186,49 @@ describe("handleQueueAgentMessageRpc", () => {
     expect(enqueued).toHaveLength(1);
   });
 
-  test("liveness: owned child with a LIVE run → enqueues (queued: true)", async () => {
+  test("liveness: owned child with a LIVE run → STEERS (delivery: steered, no enqueue)", async () => {
+    const { deps, enqueued } = makeDeps();
+    const steerCalls: Array<{ sub: string; message: string; hasCallback: boolean }> = [];
+    const executor = {
+      getActiveRunForConversation: (id: string) =>
+        id === SUB ? ({ id: "run-live" } as unknown) : undefined,
+      steerConversation: (sub: string, message: string, onUndelivered?: () => void) => {
+        steerCalls.push({ sub, message, hasCallback: typeof onUndelivered === "function" });
+        return { status: "steered", runId: "run-live" };
+      },
+    } as unknown as QueueAgentMessageContext["executor"];
+    const resp = await handleQueueAgentMessageRpc(
+      EXT,
+      req({ v: 1, subConversationId: SUB, message: "steer" }),
+      makeCtx({ executor }),
+      deps,
+    );
+    // Atomic: steered ⇒ delivery signal + NO enqueue. The re-enqueue fallback
+    // callback is handed to the executor (fired only if the steer is dropped).
+    expect(resp.result).toEqual({ v: 1, queued: true, delivery: "steered" });
+    expect(steerCalls).toEqual([{ sub: SUB, message: "steer", hasCallback: true }]);
+    expect(enqueued).toHaveLength(0);
+  });
+
+  test("liveness: LIVE run but steer declined (no-agent) → enqueue fallback (queued: true)", async () => {
+    const { deps, enqueued } = makeDeps();
+    const executor = {
+      getActiveRunForConversation: (id: string) =>
+        id === SUB ? ({ id: "run-live" } as unknown) : undefined,
+      // Pre-first-token window: a live run but no Agent registered yet.
+      steerConversation: () => ({ status: "no-agent", runId: "run-live" }),
+    } as unknown as QueueAgentMessageContext["executor"];
+    const resp = await handleQueueAgentMessageRpc(
+      EXT,
+      req({ v: 1, subConversationId: SUB, message: "steer" }),
+      makeCtx({ executor }),
+      deps,
+    );
+    expect(resp.result).toEqual({ v: 1, queued: true }); // unchanged fallback shape
+    expect(enqueued).toEqual([{ sub: SUB, content: "steer" }]);
+  });
+
+  test("liveness: LIVE run, executor without steerConversation (pre-P3) → enqueue fallback", async () => {
     const { deps, enqueued } = makeDeps();
     const executor = {
       getActiveRunForConversation: (id: string) =>

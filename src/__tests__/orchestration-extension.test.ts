@@ -1376,10 +1376,13 @@ describe("send_to_agent", () => {
     expect(expectText(out)).toContain("too long");
   });
 
-  test("running background child → message queued for steering (via mocked RPC)", async () => {
+  test("running background child, host enqueue fallback (no delivery) → queued-for-next-cycle text", async () => {
     _setSpawnForTests(makeFakeSpawn().fn);
     const id = await startBackground(); // owned by OWNER_CONV, not terminal
 
+    // Default fake returns { queued: true } with NO delivery → the P3 enqueue
+    // fallback path (host had no live Agent to steer), so the tool keeps the
+    // pre-P3 "next cycle" wording.
     const out = await send({ assignmentId: id, message: "also check the logs" });
     expect(expectIsError(out)).toBe(false);
     expect(expectText(out)).toContain("queued for");
@@ -1387,6 +1390,23 @@ describe("send_to_agent", () => {
     // The mocked RPC was called with the child's sub-conversation + message.
     expect(queueCalls).toHaveLength(1);
     expect(queueCalls[0]!.subConversationId).toBe("sub-asn-1");
+    expect(queueCalls[0]!.message).toBe("also check the logs");
+  });
+
+  test("running background child, host STEERED → mid-run injection text (P3)", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    const id = await startBackground();
+    // Host steered the live run: delivery: "steered".
+    _setQueueAgentMessageForTests(async (subConversationId: string, message: string) => {
+      queueCalls.push({ subConversationId, message });
+      return { queued: true, delivery: "steered" };
+    });
+
+    const out = await send({ assignmentId: id, message: "also check the logs" });
+    expect(expectIsError(out)).toBe(false);
+    expect(expectText(out)).toContain("injected into its current run at the next turn boundary");
+    expect(expectText(out)).not.toContain("when its current cycle completes");
+    expect(queueCalls).toHaveLength(1);
     expect(queueCalls[0]!.message).toBe("also check the logs");
   });
 
