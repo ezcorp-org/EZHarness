@@ -636,13 +636,16 @@ export interface QueueAgentMessageDeps {
   enqueue: typeof enqueue;
 }
 
-const defaultQueueDeps: QueueAgentMessageDeps = { getSubConversations, enqueue };
-
 export async function handleQueueAgentMessageRpc(
   extensionId: string,
   req: JsonRpcRequest,
   ctx: QueueAgentMessageContext,
-  deps: QueueAgentMessageDeps = defaultQueueDeps,
+  // Built at call time — NOT hoisted to a module-scope const — so merely
+  // importing this module never eagerly reads the `getSubConversations` /
+  // `enqueue` bindings. A module-scope read trips any test that mocks those
+  // query modules without re-exporting these symbols. Production callers pass
+  // no `deps`, so this default is the real wiring.
+  deps: QueueAgentMessageDeps = { getSubConversations, enqueue },
 ): Promise<JsonRpcResponse> {
   const params = (req.params ?? {}) as Record<string, unknown>;
   const auditUser = ctx.userId && ctx.userId !== "unknown" ? ctx.userId : null;
