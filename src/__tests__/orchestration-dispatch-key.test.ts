@@ -49,7 +49,9 @@ const BARE_NAME = "invoke_agent";
 const EXT_ID = "orch-ext-probe";
 
 function seedRegistry(opts: { originalName?: string; bundled?: boolean } = {}): {
-  registry: InstanceType<typeof ExtensionRegistry>;
+  // `ReturnType<getInstance>` — ExtensionRegistry has a private constructor, so
+  // `InstanceType<typeof ExtensionRegistry>` is rejected under the full tsconfig.
+  registry: ReturnType<typeof ExtensionRegistry.getInstance>;
   callToolNames: string[];
   callToolOptions: Array<{ skipTimeout?: boolean } | undefined>;
 } {

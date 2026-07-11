@@ -624,7 +624,18 @@ export async function setupTools(
           toolExec.setCurrentModel(options.model ?? convRecord?.model);
           toolExec.setCurrentProvider(options.provider ?? convRecord?.provider);
           toolExec.setCurrentAgentConfigId(options.agentConfigId ?? convRecord?.agentConfigId);
+          // SINGLE-SOURCE orchestration: `wireOrchestrationToolsForTurn` (2d
+          // below) is the SOLE owner of the orchestration tools — it wires
+          // `invoke_agent` with the per-turn `agentConfigId` enum allowlist +
+          // event-suppression, and `collect_agent_result`. Wiring the
+          // orchestration extension here too (it's in convExtIds on turn 2+
+          // since it's wire-on-first-use) would produce a NAMESPACED
+          // `orchestration__invoke_agent` dup that BYPASSES that enum
+          // allowlist. Skip it.
+          const { getOrchestrationExtensionId } = await import("../orchestration-host");
+          const orchExtId = await getOrchestrationExtensionId();
           for (const extId of convExtIds) {
+            if (orchExtId && extId === orchExtId) continue;
             for (const t of registry.getToolsForExtension(extId)) {
               if (!ctx.agentTools.some(at => at.name === t.name)) {
                 ctx.agentTools.push(extensionToAgentTool(
@@ -982,6 +993,38 @@ export async function setupTools(
             // Store flag for auto-spin-up (executed after Promise.all to avoid blocking tool loading)
             if (orchRun._teamConfig?.autoSpinUp) {
               orchRun._pendingAutoSpinUp = true;
+            }
+          } else {
+            // No @mentioned agents this turn. If orchestration is ALREADY wired
+            // to this conversation (a prior invoke_agent), keep
+            // collect_agent_result available so the orchestrator can collect a
+            // previously-spawned BACKGROUND agent on a follow-up turn ("is it
+            // done yet?"). Since the general convExt wiring above no longer
+            // wires orchestration, this is the sole path for that case.
+            // wireOrchestrationToolsForTurn with an empty availableAgents wires
+            // ONLY collect_agent_result (invoke_agent is enum-gated on mentions).
+            // Gated on already-wired so a plain chat that never delegated does
+            // NOT get collect_agent_result. A throw here is caught by the outer
+            // `catch (agentWireErr)` (non-fatal — the turn proceeds without collect).
+            const { getOrchestrationExtensionId, wireOrchestrationToolsForTurn } =
+              await import("../orchestration-host");
+            const { getConversationExtensionIds } = await import("../../db/queries/conversation-extensions");
+            const orchExtId = await getOrchestrationExtensionId();
+            if (orchExtId && (await getConversationExtensionIds(conversationId)).includes(orchExtId)) {
+              await wireOrchestrationToolsForTurn({
+                agentTools: ctx.agentTools,
+                conversationId,
+                runId: run.id,
+                availableAgents: [],
+                parentModel: options.model,
+                parentProvider: options.provider,
+                depth,
+                registry: ExtensionRegistry.getInstance(),
+                executor: host.executor,
+                stateMediator: host.stateMediator,
+                spawnQuota: host.spawnQuota,
+                userId: convRecord?.userId ?? undefined,
+              });
             }
           }
         }

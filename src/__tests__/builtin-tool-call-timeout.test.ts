@@ -166,6 +166,7 @@ describe("WatchdogManager honors a declared callTimeoutMs > WATCHDOG_IDLE_MS", (
       activeAgents: new Map(),
       runConversations: new Map(),
       pendingPermissions: new Map(),
+      errorMessagePersisted: new Set<string>(),
       bus,
       persist: true,
     };
@@ -288,6 +289,7 @@ function buildBridgeHarness(builtinToolDefsMap: Map<string, BuiltinToolDef>): Br
     controllers,
     runConversations: new Map(),
     activeAgents: new Map(),
+    errorMessagePersisted: new Set<string>(),
     runs,
     watchdog: watchdogStub,
     stateMediator: undefined,
@@ -467,6 +469,7 @@ describe("subscribe-bridge — long-blocking orchestration tools (F1)", () => {
       activeAgents: new Map(),
       runConversations: new Map(),
       pendingPermissions: new Map(),
+      errorMessagePersisted: new Set<string>(),
       bus,
       persist: true,
     });

@@ -398,22 +398,32 @@ describe("wireOrchestrationToolsForTurn", () => {
     expect(override.properties.agentConfigId.enum).toEqual(["a1", "a2"]);
   });
 
-  test("empty availableAgents: tool NOT appended, warn logged", async () => {
-    const warnSpy = spyOn(process.stderr, "write").mockImplementation(() => true);
-    try {
-      const params = baseParams({ availableAgents: [] });
-      await wireOrchestrationToolsForTurn(params);
+  test("empty availableAgents: invoke_agent NOT wired (enum-gated), collect_agent_result IS wired (follow-up collect turn)", async () => {
+    // FU1 single-source: on a follow-up turn with no @mentioned agents,
+    // invoke_agent is skipped (its enum would be empty) but collect_agent_result
+    // must stay available so a previously-spawned background agent can be
+    // collected ("is it done yet?").
+    const params = baseParams({
+      availableAgents: [],
+      registry: makeFakeRegistryWithCollect() as never,
+    });
+    await wireOrchestrationToolsForTurn(params);
 
-      expect(params.agentTools).toHaveLength(0);
-      expect(captured).toHaveLength(0);
-      // Confirm a warn was emitted — the logger writes JSON to stderr.
-      const emitted = warnSpy.mock.calls
-        .map((c) => String(c[0]))
-        .join("\n");
-      expect(emitted.toLowerCase()).toContain("no availableagents");
-    } finally {
-      warnSpy.mockRestore();
-    }
+    expect(params.agentTools.map((t) => t.name)).toEqual(["collect_agent_result"]);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.extTool.name).toBe("collect_agent_result");
+    expect(captured[0]!.extTool.dispatchName).toBe("orchestration__collect_agent_result");
+    // collect has no per-turn agent enum.
+    expect(captured[0]!.schemaOverride).toBeUndefined();
+    expect(captured[0]!.invocationMetadata).toEqual({ conversationId: "conv-wire-3" });
+  });
+
+  test("empty availableAgents + registry without collect → nothing wired (no invoke, no collect)", async () => {
+    // Default makeFakeRegistry exposes only invoke_agent.
+    const params = baseParams({ availableAgents: [] });
+    await wireOrchestrationToolsForTurn(params);
+    expect(params.agentTools).toHaveLength(0);
+    expect(captured).toHaveLength(0);
   });
 
   test("invocationMetadata: populated fields carry through when defined", async () => {

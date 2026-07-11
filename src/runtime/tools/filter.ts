@@ -86,6 +86,35 @@ export const LONG_BLOCKING_ORCHESTRATION_TOOLS: ReadonlySet<string> = new Set([
  */
 export const LONG_BLOCKING_WATCHDOG_BUDGET_MS = 3_600_000;
 
+/** Strip a leading `<ns>__` namespace prefix. Extension tools reach the filter
+ *  under their runtime AgentTool name, which is `<ext>__<tool>` for every
+ *  extension EXCEPT orchestration (wired bare), so a bare set entry never
+ *  matches a namespaced tool name without this. Returns the input unchanged
+ *  when there's no `__`. */
+function stripToolNamespace(name: string): string {
+  const i = name.indexOf("__");
+  return i === -1 ? name : name.slice(i + 2);
+}
+
+/**
+ * True iff `name` is an always-preserved orchestration/coordination tool.
+ * Matches BOTH forms so the carve-out works regardless of how a tool is wired:
+ *   • the raw name — for entries listed namespaced (e.g.
+ *     `ask-user__ask_user_question`, `scratchpad__scratchpad_write`) and for
+ *     orchestration's bare-wired `invoke_agent` / `collect_agent_result`;
+ *   • the namespace-stripped name — for tools wired NAMESPACED whose set entry
+ *     is bare. task-tracking wires `task-tracking__task_plan` etc., but the set
+ *     lists bare `task_plan` — without the stripped check those bare entries
+ *     were DEAD and the task tools got stripped under `read-only` / `none` /
+ *     restrictive `deniedTools` scopes (an orchestrator lost task_plan et al.).
+ */
+export function isPreservedOrchestrationTool(name: string): boolean {
+  return (
+    ORCHESTRATION_TOOLS.has(name) ||
+    ORCHESTRATION_TOOLS.has(stripToolNamespace(name))
+  );
+}
+
 export interface ToolFilterOptions {
   /**
    * Coarse restriction by tool category.
@@ -149,13 +178,13 @@ export function applyToolFilters<T extends { name: string }>(
   if (opts.toolRestriction === "read-only") {
     const readOnlyVouched = new Set(opts.readOnlyAllowedTools ?? []);
     out = out.filter((t) => {
-      if (ORCHESTRATION_TOOLS.has(t.name)) return true;
+      if (isPreservedOrchestrationTool(t.name)) return true;
       if (readOnlyVouched.has(t.name)) return true;
       const def = builtinDefs.get(t.name);
       return def ? def.category === "read" : false;
     });
   } else if (opts.toolRestriction === "none") {
-    out = out.filter((t) => ORCHESTRATION_TOOLS.has(t.name));
+    out = out.filter((t) => isPreservedOrchestrationTool(t.name));
   } else if (opts.toolRestriction === "allowlist") {
     // Fail-closed: 'allowlist' restriction without an allowedTools list is a
     // misconfiguration. Strip everything except orchestration tools so a stray
@@ -163,18 +192,18 @@ export function applyToolFilters<T extends { name: string }>(
     // The intended path supplies allowedTools below; this branch only fires
     // if allowedTools is missing/empty alongside restriction='allowlist'.
     if (!opts.allowedTools || opts.allowedTools.length === 0) {
-      out = out.filter((t) => ORCHESTRATION_TOOLS.has(t.name));
+      out = out.filter((t) => isPreservedOrchestrationTool(t.name));
     }
   }
 
   if (opts.allowedTools && opts.allowedTools.length > 0) {
     const allow = new Set(opts.allowedTools);
-    out = out.filter((t) => ORCHESTRATION_TOOLS.has(t.name) || allow.has(t.name));
+    out = out.filter((t) => isPreservedOrchestrationTool(t.name) || allow.has(t.name));
   }
 
   if (opts.deniedTools && opts.deniedTools.length > 0) {
     const deny = new Set(opts.deniedTools);
-    out = out.filter((t) => ORCHESTRATION_TOOLS.has(t.name) || !deny.has(t.name));
+    out = out.filter((t) => isPreservedOrchestrationTool(t.name) || !deny.has(t.name));
   }
 
   if (opts.forceDeniedTools && opts.forceDeniedTools.length > 0) {

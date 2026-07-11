@@ -75,8 +75,14 @@ let cachedExtId: string | undefined;
  * up as a non-throwing `ensureOrchestrationWired → false` so a
  * misconfigured boot skips orchestration for the turn rather than
  * killing the whole run.
+ *
+ * Exported so the executor's tool-wiring (setup-tools) can (a) EXCLUDE the
+ * orchestration extension from the generic conversation-extension wiring —
+ * this helper is the SOLE owner of the orchestration tools — and (b) detect
+ * whether orchestration is already wired to a conversation, to keep
+ * `collect_agent_result` available on a follow-up turn that @mentions no agent.
  */
-async function getOrchestrationExtensionId(): Promise<string | undefined> {
+export async function getOrchestrationExtensionId(): Promise<string | undefined> {
   if (cachedExtId) return cachedExtId;
   const row = await getExtensionByName("orchestration");
   if (!row) return undefined;
@@ -224,14 +230,16 @@ export async function wireOrchestrationToolsForTurn(
     userId,
   } = params;
 
-  if (availableAgents.length === 0) {
-    log.warn(
-      "wireOrchestrationToolsForTurn called with no availableAgents — tool not appended",
-      { conversationId, runId },
-    );
-    return;
-  }
-
+  // This helper is the SOLE owner of the orchestration tools (they're excluded
+  // from the generic conversation-extension wiring in setup-tools). It wires:
+  //   • collect_agent_result — ALWAYS (when orchestration is installed),
+  //     because an orchestrator must be able to collect a previously-spawned
+  //     background agent on a FOLLOW-UP turn that @mentions no new agent ("is
+  //     it done yet?"). It needs no per-turn agent enum.
+  //   • invoke_agent — ONLY when this turn has available agents to delegate to
+  //     (its `agentConfigId` is enum-constrained to exactly those; an empty
+  //     enum is unsatisfiable — and exposing it un-constrained is the exact
+  //     allowlist-bypass the single-source fix removes).
   const extId = await getOrchestrationExtensionId();
   if (!extId) {
     log.warn(
@@ -242,6 +250,60 @@ export async function wireOrchestrationToolsForTurn(
   }
 
   const registeredTools = registry.getToolsForExtension(extId);
+
+  // ToolExecutor — shared by both tools (built once). Same set of wires the
+  // scratchpad auto-wire block builds at executor.ts:828-835 so the
+  // extension's reverse-RPC handlers (storage / agent-configs /
+  // spawn-assignment / cancel-run) are all routable. Phase 1: every
+  // ToolExecutor site requires the PDP — `getPermissionEngine()` returns the
+  // singleton initialized at executor boot. We pass NO deps here: the executor
+  // boot in runtime/executor.ts is the canonical initializer; the factory
+  // throws with a clear message if the singleton isn't pre-init.
+  const engine = getPermissionEngine();
+  const toolExec = new ToolExecutor(registry, engine);
+  if (stateMediator) toolExec.setStateMediator(stateMediator);
+  toolExec.setExecutor(executor);
+  if (spawnQuota) toolExec.setSpawnQuota(spawnQuota);
+  if (userId) toolExec.setCurrentUserId(userId);
+  toolExec.setCurrentModel(parentModel);
+  toolExec.setCurrentProvider(parentProvider);
+
+  // ── collect_agent_result — ALWAYS (dedup-safe) ──────────────────────
+  //    Bare LLM-visible name; namespaced dispatch key (see invoke_agent).
+  //    Carries only the caller `conversationId` (F3 authz). Absent from the
+  //    registry (older manifest) → silently skipped.
+  const collectTool = registeredTools.find(
+    (t) => t.originalName === "collect_agent_result",
+  );
+  if (
+    collectTool &&
+    !agentTools.some((t) => t.name === collectTool.originalName)
+  ) {
+    agentTools.push(
+      extensionToAgentTool(
+        {
+          name: collectTool.originalName,
+          description: collectTool.description,
+          inputSchema: collectTool.inputSchema as Record<string, unknown>,
+          dispatchName: collectTool.name,
+        },
+        toolExec,
+        conversationId,
+        runId,
+        undefined,
+        { conversationId },
+      ),
+    );
+  }
+
+  // ── invoke_agent — ONLY when there are agents to delegate to ─────────
+  if (availableAgents.length === 0) {
+    // No @mentioned agents this turn — collect (above) is still wired; skip
+    // invoke_agent (its enum would be empty). Normal on a follow-up turn that
+    // only collects a prior background spawn.
+    return;
+  }
+
   const invokeAgentTool = registeredTools.find(
     (t) => t.originalName === "invoke_agent",
   );
@@ -293,87 +355,29 @@ export async function wireOrchestrationToolsForTurn(
   if (memberOverrides !== undefined) invocationMetadata.overrides = memberOverrides;
   if (teamToolScope !== undefined) invocationMetadata.teamToolScope = teamToolScope;
 
-  // 3. ToolExecutor wiring — same set of wires the scratchpad auto-wire
-  //    block builds at executor.ts:828-835 so the extension's reverse-
-  //    RPC handlers (storage / agent-configs / spawn-assignment /
-  //    cancel-run) are all routable. Phase 1: every ToolExecutor site
-  //    requires the PDP — `getPermissionEngine()` returns the
-  //    singleton initialized at executor boot. We pass NO deps here:
-  //    the executor boot in runtime/executor.ts is the canonical
-  //    initializer (it has the real bus + registry refs); a stale
-  //    placeholder bus/db here would silently lose if this caller
-  //    won the init race. Phase 6 will tighten this further when the
-  //    engine starts reading from `bus`/`db` directly. The factory
-  //    throws with a clear message if the singleton isn't pre-init,
-  //    making any boot-order regression loud.
-  const engine = getPermissionEngine();
-  const toolExec = new ToolExecutor(registry, engine);
-  if (stateMediator) toolExec.setStateMediator(stateMediator);
-  toolExec.setExecutor(executor);
-  if (spawnQuota) toolExec.setSpawnQuota(spawnQuota);
-  if (userId) toolExec.setCurrentUserId(userId);
-  toolExec.setCurrentModel(parentModel);
-  toolExec.setCurrentProvider(parentProvider);
-
-  // 4. Wrap `invoke_agent` via extensionToAgentTool. The LLM-visible `name`
-  //    stays the unnamespaced `originalName` so the bare-name special cases
-  //    keep working (subscribe-bridge event-suppression on pi's
-  //    tool_execution_start `event.toolName`, auto-spin-up lookup, the
+  // 3. Wrap `invoke_agent` via extensionToAgentTool (toolExec built above).
+  //    The LLM-visible `name` stays the unnamespaced `originalName` so the
+  //    bare-name special cases keep working (subscribe-bridge event-suppression
+  //    on pi's tool_execution_start `event.toolName`, auto-spin-up lookup, the
   //    ORCHESTRATION_TOOLS filter, and the orchestrator prompt). `dispatchName`
   //    carries the NAMESPACED registry key (`registered.name`) so
   //    `executeToolCall → getRegisteredTool` resolves the tool instead of
   //    returning "Unknown tool" — the registry's toolMap is keyed by the
   //    namespaced form. (Before this, the bare name failed to resolve; see the
   //    dispatch-key fix.)
-  const invokeAgentAgentTool = extensionToAgentTool(
-    {
-      name: invokeAgentTool.originalName,
-      description: invokeAgentTool.description,
-      inputSchema: invokeAgentTool.inputSchema as Record<string, unknown>,
-      dispatchName: invokeAgentTool.name,
-    },
-    toolExec,
-    conversationId,
-    runId,
-    schemaOverride,
-    invocationMetadata,
+  agentTools.push(
+    extensionToAgentTool(
+      {
+        name: invokeAgentTool.originalName,
+        description: invokeAgentTool.description,
+        inputSchema: invokeAgentTool.inputSchema as Record<string, unknown>,
+        dispatchName: invokeAgentTool.name,
+      },
+      toolExec,
+      conversationId,
+      runId,
+      schemaOverride,
+      invocationMetadata,
+    ),
   );
-  agentTools.push(invokeAgentAgentTool);
-
-  // 5. Also wire `collect_agent_result` (Phase B2) so a background
-  //    invoke_agent dispatched THIS turn can be collected in the SAME turn's
-  //    tool loop — the general conversation-extension wiring only reaches
-  //    orchestration on turn 2+ (orchestration is wire-on-first-use, so it
-  //    isn't in `conversation_extensions` yet when that earlier block runs).
-  //    Unlike invoke_agent it needs NO per-turn schema override or invocation
-  //    metadata (it reads the extension's own background-spawn map). Dedup-
-  //    safe: on later turns the general path may already have added it, so
-  //    skip if a tool of the same name is present. Absent from the registry
-  //    (older manifest) → silently skipped.
-  const collectTool = registeredTools.find(
-    (t) => t.originalName === "collect_agent_result",
-  );
-  if (
-    collectTool &&
-    !agentTools.some((t) => t.name === collectTool.originalName)
-  ) {
-    agentTools.push(
-      extensionToAgentTool(
-        {
-          name: collectTool.originalName,
-          description: collectTool.description,
-          inputSchema: collectTool.inputSchema as Record<string, unknown>,
-          // Bare LLM-visible name; namespaced dispatch key (see invoke_agent).
-          dispatchName: collectTool.name,
-        },
-        toolExec,
-        conversationId,
-        runId,
-        undefined,
-        // F3: the calling conversation id (host-set _meta) so the handler can
-        // authorize collect against the background spawn's owning conversation.
-        { conversationId },
-      ),
-    );
-  }
 }
