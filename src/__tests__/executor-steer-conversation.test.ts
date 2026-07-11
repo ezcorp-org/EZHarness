@@ -57,7 +57,7 @@ describe("AgentExecutor.steerConversation", () => {
     expect((agent.queue[0] as { timestamp: number }).timestamp).toBeGreaterThan(0);
   });
 
-  test("preserves drain order across multiple steers", () => {
+  test("preserves enqueue order across multiple steers", () => {
     const exec = new AgentExecutor(new Map(), new EventBus<AgentEvents>());
     const agent = new StubAgent();
     seed(exec, makeRun({ id: "r1" }), "conv-1", agent);

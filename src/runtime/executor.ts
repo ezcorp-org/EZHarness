@@ -62,8 +62,10 @@ export interface ExecutorOptions {
  * steer-vs-enqueue decision on top of these variants (a non-`steered`
  * result is the signal to fall back to the pending-messages mailbox).
  *
- * - `steered`   — a live run AND its live pi Agent existed; the message was
- *                 queued via pi `steer()` for next-turn-boundary delivery.
+ * - `steered`   — a live run + its live pi Agent existed and the message was
+ *                 accepted into the run's steering queue (best-effort, NOT a
+ *                 delivery guarantee — see {@link AgentExecutor.steerConversation}
+ *                 for the drop conditions and the P2 shadow-track requirement).
  * - `no-live-run` — no running run owns this conversation (idle conversation,
  *                 or the run reached a terminal state before this call).
  * - `no-agent`  — a run is live but no Agent instance is registered for it yet
@@ -519,24 +521,36 @@ export class AgentExecutor {
   }
 
   /**
-   * Queue a user message into the live pi Agent serving `conversationId` so it
-   * is delivered at the next turn boundary of the in-flight run (pi `steer()`).
+   * Offer a user message to the live pi Agent serving `conversationId` for
+   * best-effort delivery at the next steering poll of the in-flight run (pi
+   * `steer()`).
+   *
+   * A `steered` result means the message was ACCEPTED into the live run's
+   * steering queue — it is NOT a delivery guarantee. pi's runLoop polls the
+   * steering queue at loop start and after each tool round, but does NOT
+   * re-poll before `agent_end` (`agent-loop.js:159-171`), and a
+   * pre-first-token failover discards the Agent that holds the queue
+   * (`failover.ts:220`). So if the run finishes — abort, a subsequent failover
+   * swap, or the loop already past its final steering poll — before the queue
+   * is next drained, the queued message is dropped. **P2 callers MUST
+   * shadow-track each steered message and fall back to the pending-messages
+   * mailbox on any non-complete terminal.**
    *
    * P1: PLUMBING ONLY — nothing wires this yet; the sole callers are unit
    * tests. It returns a discriminated {@link SteerResult} so P2 can build the
-   * atomic steer-vs-enqueue decision (fall back to the pending-messages
-   * mailbox on any non-`steered` result) without re-deriving liveness.
+   * atomic steer-vs-enqueue decision (fall back to pending-messages on any
+   * non-`steered` result) without re-deriving liveness.
    *
-   * `activeAgents` is resolved at call time and never cached: a
-   * pre-first-token failover swaps the Agent instance mid-run —
+   * `activeAgents` is read fresh on each call (never cached across calls):
    * `failover.ts:220` re-runs `activeAgents.set(runId, agent)` on every
-   * attempt — so a reference captured earlier could steer into a discarded
-   * instance whose queue is dropped on abort. Resolving the run and then its
-   * agent freshly here always targets the instance that will actually serve
-   * the next turn. The narrow race that remains — the run reaching a terminal
-   * state between `getActiveRunForConversation` and the `activeAgents` lookup —
-   * surfaces as `no-live-run` / `no-agent` (never a throw), which P2's fallback
-   * treats as "enqueue instead".
+   * attempt, so only the entry live AT CALL TIME is the instance that will
+   * actually serve the next turn — a reference captured on an earlier call
+   * could point at a discarded instance whose queue is dropped on abort. The
+   * method itself is fully synchronous (no intra-method interleaving), so
+   * `no-live-run` and `no-agent` are the states OBSERVED AT CALL TIME, not an
+   * async race: `no-agent` is the pre-first-token window (a running run exists
+   * but no Agent is registered yet). Both are returned, never thrown, for P2's
+   * fallback to treat as "enqueue instead".
    */
   steerConversation(conversationId: string, message: string): SteerResult {
     const run = this.getActiveRunForConversation(conversationId);
