@@ -10,6 +10,7 @@ import type {
 } from "../types";
 import type { EventBus } from "./events";
 import type { Agent } from "@earendil-works/pi-agent-core";
+import type { UserMessage } from "@earendil-works/pi-ai";
 import { createStreamChatContext } from "./stream-chat/context";
 import type { PendingPermissionInfo, StreamChatHost } from "./stream-chat/host";
 import {
@@ -54,6 +55,27 @@ export interface ExecutorOptions {
   file?: FileProvider;
   persist?: boolean;
 }
+
+/**
+ * Discriminated outcome of {@link AgentExecutor.steerConversation}. P1 is
+ * plumbing only — nothing calls it yet; P2 builds the atomic
+ * steer-vs-enqueue decision on top of these variants (a non-`steered`
+ * result is the signal to fall back to the pending-messages mailbox).
+ *
+ * - `steered`   — a live run + its live pi Agent existed and the message was
+ *                 accepted into the run's steering queue (best-effort, NOT a
+ *                 delivery guarantee — see {@link AgentExecutor.steerConversation}
+ *                 for the drop conditions and the P2 shadow-track requirement).
+ * - `no-live-run` — no running run owns this conversation (idle conversation,
+ *                 or the run reached a terminal state before this call).
+ * - `no-agent`  — a run is live but no Agent instance is registered for it yet
+ *                 (the pre-first-token window before failover's first
+ *                 `buildAgent`); `runId` is returned for the caller's fallback.
+ */
+export type SteerResult =
+  | { status: "steered"; runId: string }
+  | { status: "no-live-run" }
+  | { status: "no-agent"; runId: string };
 
 // ── AgentExecutor ───────────────────────────────────────────────────
 
@@ -496,6 +518,52 @@ export class AgentExecutor {
 
   getPendingPermissions(conversationId: string): PendingPermissionInfo[] {
     return [...this.pendingPermissions.values()].filter(p => p.conversationId === conversationId);
+  }
+
+  /**
+   * Offer a user message to the live pi Agent serving `conversationId` for
+   * best-effort delivery at the next steering poll of the in-flight run (pi
+   * `steer()`).
+   *
+   * A `steered` result means the message was ACCEPTED into the live run's
+   * steering queue — it is NOT a delivery guarantee. pi's runLoop polls the
+   * steering queue at loop start and after each tool round, but does NOT
+   * re-poll before `agent_end` (`agent-loop.js:159-171`), and a
+   * pre-first-token failover discards the Agent that holds the queue
+   * (`failover.ts:220`). So if the run finishes — abort, a subsequent failover
+   * swap, or the loop already past its final steering poll — before the queue
+   * is next drained, the queued message is dropped. **P2 callers MUST
+   * shadow-track each steered message and fall back to the pending-messages
+   * mailbox on any non-complete terminal.**
+   *
+   * P1: PLUMBING ONLY — nothing wires this yet; the sole callers are unit
+   * tests. It returns a discriminated {@link SteerResult} so P2 can build the
+   * atomic steer-vs-enqueue decision (fall back to pending-messages on any
+   * non-`steered` result) without re-deriving liveness.
+   *
+   * `activeAgents` is read fresh on each call (never cached across calls):
+   * `failover.ts:220` re-runs `activeAgents.set(runId, agent)` on every
+   * attempt, so only the entry live AT CALL TIME is the instance that will
+   * actually serve the next turn — a reference captured on an earlier call
+   * could point at a discarded instance whose queue is dropped on abort. The
+   * method itself is fully synchronous (no intra-method interleaving), so
+   * `no-live-run` and `no-agent` are the states OBSERVED AT CALL TIME, not an
+   * async race: `no-agent` is the pre-first-token window (a running run exists
+   * but no Agent is registered yet). Both are returned, never thrown, for P2's
+   * fallback to treat as "enqueue instead".
+   */
+  steerConversation(conversationId: string, message: string): SteerResult {
+    const run = this.getActiveRunForConversation(conversationId);
+    if (!run) return { status: "no-live-run" };
+    const agent = this.activeAgents.get(run.id);
+    if (!agent) return { status: "no-agent", runId: run.id };
+    const userMessage: UserMessage = {
+      role: "user",
+      content: message,
+      timestamp: Date.now(),
+    };
+    agent.steer(userMessage);
+    return { status: "steered", runId: run.id };
   }
 
   /**
