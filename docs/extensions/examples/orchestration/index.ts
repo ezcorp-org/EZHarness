@@ -983,6 +983,69 @@ function resolveSendTarget(opts: {
   return match;
 }
 
+/** Continue an agent on its REUSED sub-conversation via a fresh background run
+ *  (full prior context). Shared by the terminal-target branch and the
+ *  running-but-idle (`not-running`) fall-through. The continuation inherits the
+ *  orchestrator's per-turn scope (parentRunId / depth / message-anchor /
+ *  overrides / teamToolScope) from `md` so a scoped member stays scoped. */
+async function continueAgent(
+  agentConfigId: string,
+  message: string,
+  md: Record<string, unknown>,
+  callerConv?: string,
+) {
+  const config = await agentConfigs.resolve(agentConfigId);
+  if (!config) {
+    return toolResult(`Error: Unknown agent "${agentConfigId}".`, { isError: true });
+  }
+  const spawnInput: SpawnAssignmentInput = {
+    task: message,
+    agentConfigId,
+    reuseSubConversationFor: agentConfigId,
+    title: config.name,
+    // Continuation runs background-style: no blocking wait here, the caller
+    // collects later. Ask the host to notify the parent on terminal (same as
+    // invoke_agent background).
+    notifyParentOnTerminal: true,
+    ...(typeof md.parentMessageId === "string"
+      ? { parentMessageId: md.parentMessageId }
+      : {}),
+    ...(md.overrides && typeof md.overrides === "object"
+      ? { overrides: md.overrides as Record<string, unknown> }
+      : {}),
+    ...(md.teamToolScope && typeof md.teamToolScope === "object"
+      ? { teamToolScope: md.teamToolScope as { allowedTools?: string[]; deniedTools?: string[] } }
+      : {}),
+    ...(typeof md.orchestrationDepth === "number"
+      ? { orchestrationDepth: md.orchestrationDepth }
+      : {}),
+    ...(typeof md.parentRunId === "string" ? { parentRunId: md.parentRunId } : {}),
+  };
+  let handle: SpawnAssignmentHandle;
+  try {
+    handle = await spawn(spawnInput);
+  } catch (err) {
+    const m = err instanceof Error ? err.message : String(err);
+    return toolResult(`Agent "${config.name}" failed to continue: ${m}`, { isError: true });
+  }
+  registerBackgroundSpawn(handle, config.name, agentConfigId, callerConv);
+  return toolResult(
+    `Agent "${config.name}" is continuing on its existing sub-conversation with full prior context ` +
+      `(new assignmentId: ${handle.assignmentId}, subConversation: ${handle.subConversationId}). It runs ` +
+      `in the background — get its result with collect_agent_result using the new assignmentId.`,
+    {
+      details: {
+        _agentMeta: {
+          subConversationId: handle.subConversationId,
+          agentName: config.name,
+          agentConfigId,
+          assignmentId: handle.assignmentId,
+        },
+      },
+    },
+  );
+}
+
 const sendToAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
   const { assignmentId, agentConfigId, message } = args as {
     assignmentId?: string;
@@ -1040,6 +1103,8 @@ const sendToAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
     assignmentId: target.assignmentId,
   };
 
+  const md = ctx?.invocationMetadata ?? {};
+
   // ── RUNNING child → steer via enqueue ────────────────────────────
   if (!target.terminal) {
     let res: QueueAgentMessageResult;
@@ -1052,71 +1117,23 @@ const sendToAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
         { isError: true, details: { _agentMeta: meta } },
       );
     }
-    // Host fail-closed (sub-conversation not a child of the caller conv) →
-    // surface the same not-found as an unknown target.
-    if (!res.queued) return notFound();
-    return toolResult(
-      `Message queued for "${target.agentName}" — will be delivered when its current cycle completes.`,
-      { details: { _agentMeta: { ...meta, status: "queued" } } },
-    );
+    if (res.queued) {
+      return toolResult(
+        `Message queued for "${target.agentName}" — will be delivered when its current cycle completes.`,
+        { details: { _agentMeta: { ...meta, status: "queued" } } },
+      );
+    }
+    // Our map still tracked this child as running, but the host reports no LIVE
+    // run to drain the queue (`not-running`) — the child went idle between our
+    // check and the host's. Continue it on a fresh run instead so the message
+    // is not lost. Any other `queued: false` (host fail-closed `not-found`,
+    // e.g. the sub-conversation isn't a child of the caller) → not-found.
+    if (res.reason !== "not-running") return notFound();
+    return continueAgent(target.agentConfigId, message, md, callerConv);
   }
 
   // ── TERMINAL child → continue on the reused sub-conversation ──────
-  const config = await agentConfigs.resolve(target.agentConfigId);
-  if (!config) {
-    return toolResult(`Error: Unknown agent "${target.agentConfigId}".`, {
-      isError: true,
-    });
-  }
-  const md = ctx?.invocationMetadata ?? {};
-  const spawnInput: SpawnAssignmentInput = {
-    task: message,
-    agentConfigId: target.agentConfigId,
-    reuseSubConversationFor: target.agentConfigId,
-    title: config.name,
-    // Continuation runs background-style: no blocking wait here, the caller
-    // collects later. Ask the host to notify the parent on terminal (same as
-    // invoke_agent background).
-    notifyParentOnTerminal: true,
-    ...(typeof md.parentMessageId === "string"
-      ? { parentMessageId: md.parentMessageId }
-      : {}),
-    ...(md.overrides && typeof md.overrides === "object"
-      ? { overrides: md.overrides as Record<string, unknown> }
-      : {}),
-    ...(md.teamToolScope && typeof md.teamToolScope === "object"
-      ? { teamToolScope: md.teamToolScope as { allowedTools?: string[]; deniedTools?: string[] } }
-      : {}),
-    ...(typeof md.orchestrationDepth === "number"
-      ? { orchestrationDepth: md.orchestrationDepth }
-      : {}),
-    ...(typeof md.parentRunId === "string" ? { parentRunId: md.parentRunId } : {}),
-  };
-  let handle: SpawnAssignmentHandle;
-  try {
-    handle = await spawn(spawnInput);
-  } catch (err) {
-    const m = err instanceof Error ? err.message : String(err);
-    return toolResult(`Agent "${config.name}" failed to continue: ${m}`, {
-      isError: true,
-    });
-  }
-  registerBackgroundSpawn(handle, config.name, target.agentConfigId, callerConv);
-  return toolResult(
-    `Agent "${config.name}" is continuing on its existing sub-conversation with full prior context ` +
-      `(new assignmentId: ${handle.assignmentId}, subConversation: ${handle.subConversationId}). It runs ` +
-      `in the background — get its result with collect_agent_result using the new assignmentId.`,
-    {
-      details: {
-        _agentMeta: {
-          subConversationId: handle.subConversationId,
-          agentName: config.name,
-          agentConfigId: target.agentConfigId,
-          assignmentId: handle.assignmentId,
-        },
-      },
-    },
-  );
+  return continueAgent(target.agentConfigId, message, md, callerConv);
 };
 
 export const tools: Record<string, ToolHandler> = {

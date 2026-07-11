@@ -1011,6 +1011,15 @@ export async function setupTools(
             const { getConversationExtensionIds } = await import("../../db/queries/conversation-extensions");
             const orchExtId = await getOrchestrationExtensionId();
             if (orchExtId && (await getConversationExtensionIds(conversationId)).includes(orchExtId)) {
+              // Thread the SAME team scope the @mention site does. `send_to_agent`
+              // is wired on this no-mention turn (invoke_agent is enum-gated off),
+              // and its CONTINUATION path spawns a member — so without the
+              // persisted teamToolScope / memberOverrides / parentMessageId a
+              // read-only member would be continued UNRESTRICTED (a scope escape
+              // invoke_agent cannot cause, since it's absent this turn). Resolve
+              // from `options` (nested sub-agent run) then the run's persisted
+              // scratch, mirroring lines 887-894.
+              const followUpMemberOverrides = options.memberOverrides ?? orchRun._memberOverrides;
               await wireOrchestrationToolsForTurn({
                 agentTools: ctx.agentTools,
                 conversationId,
@@ -1018,7 +1027,13 @@ export async function setupTools(
                 availableAgents: [],
                 parentModel: options.model,
                 parentProvider: options.provider,
+                parentMessageId: options.parentMessageId,
                 depth,
+                memberOverrides: followUpMemberOverrides
+                  ? Object.fromEntries(followUpMemberOverrides)
+                  : undefined,
+                subAgentMembers: options.subAgentMembers ?? orchRun._subAgentMembers,
+                teamToolScope: orchRun._teamToolScope,
                 registry: ExtensionRegistry.getInstance(),
                 executor: host.executor,
                 stateMediator: host.stateMediator,

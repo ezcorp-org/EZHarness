@@ -454,6 +454,12 @@ describe("queueAgentMessage — JSON-RPC frame shape + result mapping", () => {
     expect(res).toEqual({ queued: false, reason: "not-found" });
   });
 
+  test("passes through a not-running reason (queued:false)", async () => {
+    stubRequest({ v: 1 as const, queued: false, reason: "not-running" as const });
+    const res = await queueAgentMessage("sub-idle", "hi");
+    expect(res).toEqual({ queued: false, reason: "not-running" });
+  });
+
   test("omits reason key when host returns none", async () => {
     stubRequest({ v: 1 as const, queued: true });
     const res = await queueAgentMessage("sub-9", "hi");

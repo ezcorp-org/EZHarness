@@ -211,19 +211,24 @@ export async function spawnAssignment(
 export interface QueueAgentMessageResult {
   /** True iff the host enqueued the message onto the child's sub-conversation. */
   queued: boolean;
-  /** Only present when `queued === false`. `"not-found"` = the
-   *  sub-conversation is not a child of the caller's conversation (or no longer
-   *  exists) — the same fail-closed response used for a cross-conversation
-   *  target so the caller can't probe another conversation's sub-agents. */
-  reason?: "not-found";
+  /** Only present when `queued === false`.
+   *  `"not-found"` = the sub-conversation is not a child of the caller's
+   *  conversation (or no longer exists) — the same fail-closed response used for
+   *  a cross-conversation target so the caller can't probe another
+   *  conversation's sub-agents.
+   *  `"not-running"` = the child IS owned but has no LIVE run to drain the
+   *  queue, so steering would sit forever; the caller should continue it on a
+   *  fresh run instead. */
+  reason?: "not-found" | "not-running";
 }
 
 /**
  * Enqueue a steering message onto a RUNNING sub-agent's sub-conversation. The
  * message is delivered as the child's next turn when its current run completes.
- * Resolves `{ queued: true }` on success, `{ queued: false, reason: "not-found" }`
- * when the sub-conversation isn't owned by the caller. Protocol-level failures
- * (permission, malformed input) throw `JsonRpcError`.
+ * Resolves `{ queued: true }` on success, `{ queued: false, reason }` when the
+ * sub-conversation isn't owned by the caller (`not-found`) or has no live run
+ * (`not-running`). Protocol-level failures (permission, malformed input) throw
+ * `JsonRpcError`.
  */
 export async function queueAgentMessage(
   subConversationId: string,
@@ -238,7 +243,7 @@ export async function queueAgentMessage(
   const result = await getChannel().request<{
     v: 1;
     queued: boolean;
-    reason?: "not-found";
+    reason?: "not-found" | "not-running";
   }>("ezcorp/queue-agent-message", {
     v: 1,
     subConversationId,

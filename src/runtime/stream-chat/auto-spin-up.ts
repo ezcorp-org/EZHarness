@@ -1,9 +1,19 @@
 import { logger } from "../../logger";
+import {
+  CONCURRENT_CAP_REACHED_MESSAGE,
+  SPAWN_QUOTA_EXCEEDED_MESSAGE,
+} from "../../extensions/spawn-assignment-handler";
 import type { StreamChatContext } from "./context";
 import type { StreamChatHost } from "./host";
 import type { OrchestratedRun } from "./setup-tools";
 
 const log = logger.child("executor.streamChat.autoSpinUp");
+
+/** Escape a literal for embedding in a RegExp (the quota phrases have no special
+ *  chars today, but this keeps the derived signature sound if they change). */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 /**
  * Max `invoke_agent` calls fanned out concurrently per wave. The orchestration
@@ -17,11 +27,15 @@ const log = logger.child("executor.streamChat.autoSpinUp");
  */
 export const AUTO_SPINUP_BATCH = 5;
 
-/** Distinctive host error phrases raised when the spawn quota is exhausted
- *  (`spawn-assignment-handler.ts` → surfaced by `invoke_agent` as
- *  `Agent "X" failed: <phrase>`). Matching these — not a loose /quota/ — avoids
- *  misclassifying a legitimate member output that merely mentions "quota". */
-const QUOTA_SIGNATURE = /Concurrent spawn cap reached|Spawn quota exceeded/;
+/** Distinctive host error phrases raised when the spawn quota is exhausted,
+ *  derived from the SINGLE-SOURCE constants the handler emits (surfaced by
+ *  `invoke_agent` as `Agent "X" failed: <phrase>`). Matching these exact
+ *  strings — not a loose /quota/ — avoids misclassifying a legitimate member
+ *  output that merely mentions "quota". Exported so a drift test can assert the
+ *  regex still matches both constants. */
+export const QUOTA_SIGNATURE = new RegExp(
+  [CONCURRENT_CAP_REACHED_MESSAGE, SPAWN_QUOTA_EXCEEDED_MESSAGE].map(escapeRegExp).join("|"),
+);
 
 interface SpinMember {
   id: string;

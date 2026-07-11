@@ -2038,6 +2038,10 @@ export class ToolExecutor {
       grantedPermissions: granted,
       // Phase 6: thread the PDP for the canonical permission decision.
       engine: this.engine,
+      // Liveness gate — a steer only lands if the child has a live run to drain
+      // it; otherwise the handler reports `not-running` and the ext continues on
+      // a fresh run instead. Undefined in executor-less contexts (gate skipped).
+      ...(this.executor ? { executor: this.executor } : {}),
     };
     return handleQueueAgentMessageRpc(extensionId, req, ctx);
   }

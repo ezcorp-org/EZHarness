@@ -76,6 +76,14 @@ export const MAX_SPAWN_DEPTH = 10;
  *  accidental or adversarial huge schema can't bloat either. */
 export const MAX_OUTPUT_SCHEMA_BYTES = 8192;
 
+/** Host error messages raised when the spawn quota is exhausted. Exported as the
+ *  SINGLE SOURCE so downstream classifiers (auto-spin-up's quota detector) match
+ *  the exact strings this handler emits — a drift test asserts they stay in
+ *  sync. `hourly-exceeded` → {@link SPAWN_QUOTA_EXCEEDED_MESSAGE}; the concurrent
+ *  cap → {@link CONCURRENT_CAP_REACHED_MESSAGE}. */
+export const SPAWN_QUOTA_EXCEEDED_MESSAGE = "Spawn quota exceeded";
+export const CONCURRENT_CAP_REACHED_MESSAGE = "Concurrent spawn cap reached";
+
 export interface SpawnAssignmentContext {
   /** The parent conversation — always forced from `currentConversationId`. */
   conversationId: string;
@@ -321,8 +329,8 @@ export async function handleSpawnAssignmentRpc(
       req.id,
       -32000,
       quotaCheck.reason === "hourly-exceeded"
-        ? "Spawn quota exceeded"
-        : "Concurrent spawn cap reached",
+        ? SPAWN_QUOTA_EXCEEDED_MESSAGE
+        : CONCURRENT_CAP_REACHED_MESSAGE,
       { reason: quotaCheck.reason, ...quotaCheck.details },
     );
   }
@@ -612,6 +620,12 @@ export interface QueueAgentMessageContext {
   grantedPermissions: ExtensionPermissions;
   /** Phase 6: PDP. Optional for back-compat with pre-PDP unit tests. */
   engine?: PermissionEngine;
+  /** Liveness check — used to reject a steer for a child that has no LIVE run
+   *  (`getActiveRunForConversation`). Without it a steer for an already-idle
+   *  child would report a false `queued: true` (nothing drains the queue), and
+   *  the ext would never fall through to the terminal-continuation path. When
+   *  absent (pre-executor unit contexts) the liveness gate is skipped. */
+  executor?: Pick<AgentExecutor, "getActiveRunForConversation">;
 }
 
 /** Injectable seams so unit tests can exercise the handler without a DB /
@@ -700,7 +714,16 @@ export async function handleQueueAgentMessageRpc(
     return rpcResult(req.id, { v: 1, queued: false, reason: "not-found" });
   }
 
-  // 6. Enqueue — the child's run:complete drain delivers it as the next turn.
+  // 6. Liveness — the queue is only drained by a live run's `run:complete`. If
+  //    the child has NO active run, enqueuing would silently sit forever, so
+  //    report `not-running` (a DIFFERENT signal from `not-found`) and let the
+  //    caller (send_to_agent) fall through to the terminal-continuation path
+  //    that starts a fresh run instead. Skipped when no executor is wired.
+  if (ctx.executor && !ctx.executor.getActiveRunForConversation(subConversationId)) {
+    return rpcResult(req.id, { v: 1, queued: false, reason: "not-running" });
+  }
+
+  // 7. Enqueue — the child's run:complete drain delivers it as the next turn.
   deps.enqueue(subConversationId, {
     messageId: crypto.randomUUID(),
     content: message,

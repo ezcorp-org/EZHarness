@@ -185,4 +185,49 @@ describe("handleQueueAgentMessageRpc", () => {
     expect(resp.result).toEqual({ v: 1, queued: true });
     expect(enqueued).toHaveLength(1);
   });
+
+  test("liveness: owned child with a LIVE run → enqueues (queued: true)", async () => {
+    const { deps, enqueued } = makeDeps();
+    const executor = {
+      getActiveRunForConversation: (id: string) =>
+        id === SUB ? ({ id: "run-live" } as unknown) : undefined,
+    } as unknown as QueueAgentMessageContext["executor"];
+    const resp = await handleQueueAgentMessageRpc(
+      EXT,
+      req({ v: 1, subConversationId: SUB, message: "steer" }),
+      makeCtx({ executor }),
+      deps,
+    );
+    expect(resp.result).toEqual({ v: 1, queued: true });
+    expect(enqueued).toHaveLength(1);
+  });
+
+  test("liveness: owned child with NO live run → not-running, no enqueue", async () => {
+    const { deps, enqueued } = makeDeps();
+    const executor = {
+      getActiveRunForConversation: () => undefined,
+    } as unknown as QueueAgentMessageContext["executor"];
+    const resp = await handleQueueAgentMessageRpc(
+      EXT,
+      req({ v: 1, subConversationId: SUB, message: "steer" }),
+      makeCtx({ executor }),
+      deps,
+    );
+    expect(resp.result).toEqual({ v: 1, queued: false, reason: "not-running" });
+    expect(enqueued).toHaveLength(0);
+  });
+
+  test("an idle-but-foreign target still fails not-found before the liveness check", async () => {
+    const { deps } = makeDeps();
+    const executor = {
+      getActiveRunForConversation: () => undefined,
+    } as unknown as QueueAgentMessageContext["executor"];
+    const resp = await handleQueueAgentMessageRpc(
+      EXT,
+      req({ v: 1, subConversationId: "sub-foreign", message: "hi" }),
+      makeCtx({ executor }),
+      deps,
+    );
+    expect(resp.result).toEqual({ v: 1, queued: false, reason: "not-found" });
+  });
 });

@@ -120,12 +120,22 @@ mock.module("../db/queries/conversation-extensions", () => ({
 
 // Orchestration host: the SOLE owner. Spy the wire helper + mimic its real
 // contract (collect always; invoke only when there are available agents).
-const wireCalls: Array<{ availableAgents: Array<{ id: string }> }> = [];
+const wireCalls: Array<{
+  availableAgents: Array<{ id: string }>;
+  teamToolScope?: unknown;
+  memberOverrides?: unknown;
+  parentMessageId?: unknown;
+}> = [];
 mock.module("../runtime/orchestration-host", () => ({
   getOrchestrationExtensionId: async () => ORCH_EXT_ID,
   ensureOrchestrationWired: async () => true,
   wireOrchestrationToolsForTurn: async (params: any) => {
-    wireCalls.push({ availableAgents: params.availableAgents });
+    wireCalls.push({
+      availableAgents: params.availableAgents,
+      teamToolScope: params.teamToolScope,
+      memberOverrides: params.memberOverrides,
+      parentMessageId: params.parentMessageId,
+    });
     const push = (name: string) =>
       params.agentTools.push({ name, label: name, description: "d", parameters: {}, execute: async () => ({ content: [] }) });
     push("collect_agent_result"); // always
@@ -202,6 +212,31 @@ describe("FU1: single-source orchestration wiring", () => {
     // 2d ran via the persisted-but-no-mention path with an empty agent list.
     expect(wireCalls).toHaveLength(1);
     expect(wireCalls[0]!.availableAgents).toHaveLength(0);
+  });
+
+  test("no-mention follow-up threads the team scope (memberOverrides + parentMessageId) into the wiring — send_to_agent continuation stays scoped", async () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus, { persist: false });
+    capturedAgentOpts = null;
+    wireCalls.length = 0;
+    mentionedAgents = []; // no @mention this turn (send_to_agent-only follow-up)
+    convExtIds = [ORCH_EXT_ID, OTHER_EXT_ID];
+
+    // A sub-agent/nested run carries the member scope on options — it MUST reach
+    // the wiring so a send_to_agent CONTINUATION spawns the member restricted,
+    // not unrestricted (the escape the fix closes).
+    const memberOverrides = new Map([["m1", { toolRestriction: "read-only" as const }]]);
+    await exec.streamChat(convId, "continue the researcher", {
+      projectId,
+      memberOverrides,
+      parentMessageId: "msg-anchor-1",
+    });
+
+    expect(wireCalls).toHaveLength(1);
+    expect(wireCalls[0]!.availableAgents).toHaveLength(0);
+    // The persisted/options scope flowed into the follow-up wiring call.
+    expect(wireCalls[0]!.memberOverrides).toEqual({ m1: { toolRestriction: "read-only" } });
+    expect(wireCalls[0]!.parentMessageId).toBe("msg-anchor-1");
   });
 
   test("no-mention turn where orchestration was NEVER used: no orchestration tools wired at all", async () => {

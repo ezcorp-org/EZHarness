@@ -5,7 +5,15 @@
 // orchestrator prompt.
 
 import { test, expect, describe } from "bun:test";
-import { applyAutoSpinUp, AUTO_SPINUP_BATCH } from "../runtime/stream-chat/auto-spin-up";
+import {
+  applyAutoSpinUp,
+  AUTO_SPINUP_BATCH,
+  QUOTA_SIGNATURE,
+} from "../runtime/stream-chat/auto-spin-up";
+import {
+  CONCURRENT_CAP_REACHED_MESSAGE,
+  SPAWN_QUOTA_EXCEEDED_MESSAGE,
+} from "../extensions/spawn-assignment-handler";
 import type { StreamChatContext } from "../runtime/stream-chat/context";
 import type { StreamChatHost } from "../runtime/stream-chat/host";
 
@@ -23,6 +31,12 @@ function textResult(text: string) {
 function makeHarness(members: Array<{ id: string; name: string }>, script: FakeExecuteScript) {
   const calls: Array<{ id: string; nth: number }> = [];
   const perId = new Map<string, number>();
+  // Concurrency instrumentation: increment when an execute enters, decrement
+  // after it awaits+settles. Because a wave launches every invoke synchronously
+  // before any `await` resolves, `maxInFlight` equals the largest wave size —
+  // if batching were removed (all members fired at once) it would exceed
+  // AUTO_SPINUP_BATCH, so the assertion below would fail.
+  const stats = { inFlight: 0, maxInFlight: 0 };
   const invokeAgentTool = {
     name: "invoke_agent",
     async execute(_callId: string, args: { agentConfigId: string }) {
@@ -30,19 +44,28 @@ function makeHarness(members: Array<{ id: string; name: string }>, script: FakeE
       const n = (perId.get(id) ?? 0) + 1;
       perId.set(id, n);
       calls.push({ id, nth: n });
-      const behavior = script[id] ?? "output:ok";
-      if (behavior === "quota") {
-        return textResult(`Agent "${id}" failed: Concurrent spawn cap reached`);
+      stats.inFlight++;
+      stats.maxInFlight = Math.max(stats.maxInFlight, stats.inFlight);
+      try {
+        // Yield so all invokes launched in the same wave overlap before any
+        // settles — that's what makes maxInFlight reflect the true wave size.
+        await Promise.resolve();
+        const behavior = script[id] ?? "output:ok";
+        if (behavior === "quota") {
+          return textResult(`Agent "${id}" failed: Concurrent spawn cap reached`);
+        }
+        if (behavior.startsWith("quota-then:")) {
+          return n === 1
+            ? textResult(`Agent "${id}" failed: Spawn quota exceeded`)
+            : textResult(behavior.slice("quota-then:".length));
+        }
+        if (behavior.startsWith("error:")) {
+          throw new Error(behavior.slice("error:".length));
+        }
+        return textResult(behavior.slice("output:".length));
+      } finally {
+        stats.inFlight--;
       }
-      if (behavior.startsWith("quota-then:")) {
-        return n === 1
-          ? textResult(`Agent "${id}" failed: Spawn quota exceeded`)
-          : textResult(behavior.slice("quota-then:".length));
-      }
-      if (behavior.startsWith("error:")) {
-        throw new Error(behavior.slice("error:".length));
-      }
-      return textResult(behavior.slice("output:".length));
     },
   };
 
@@ -62,7 +85,7 @@ function makeHarness(members: Array<{ id: string; name: string }>, script: FakeE
   const host = {
     bus: { emit: (ev: string, data: unknown) => emitted.push({ ev, data }) },
   } as unknown as StreamChatHost;
-  return { ctx, host, calls, emitted };
+  return { ctx, host, calls, emitted, stats };
 }
 
 describe("applyAutoSpinUp — bounded waves", () => {
@@ -73,12 +96,18 @@ describe("applyAutoSpinUp — bounded waves", () => {
     }));
     const script: FakeExecuteScript = {};
     for (const m of members) script[m.id] = `output:done-${m.id}`;
-    const { ctx, host, calls } = makeHarness(members, script);
+    const { ctx, host, calls, stats } = makeHarness(members, script);
 
     await applyAutoSpinUp(ctx, host, "do the work");
 
     // Every member invoked exactly once (no quota → no retry).
     expect(calls.length).toBe(members.length);
+    // Batching is real: never more than AUTO_SPINUP_BATCH executes overlapped,
+    // even though there are more members than the batch size. (If the code
+    // fired all members at once, maxInFlight would be members.length.)
+    expect(members.length).toBeGreaterThan(AUTO_SPINUP_BATCH);
+    expect(stats.maxInFlight).toBeLessThanOrEqual(AUTO_SPINUP_BATCH);
+    expect(stats.maxInFlight).toBe(AUTO_SPINUP_BATCH); // first wave fills the batch
     // The synthesized prompt carries each member's real output.
     for (const m of members) expect(ctx.system).toContain(`done-${m.id}`);
   });
@@ -122,5 +151,20 @@ describe("applyAutoSpinUp — bounded waves", () => {
     expect(calls.filter((c) => c.id === "cfg-recover").length).toBe(2);
     expect(ctx.system).toContain("RECOVERED_OUTPUT");
     expect(ctx.system).not.toContain("[deferred: quota");
+  });
+});
+
+describe("QUOTA_SIGNATURE — no drift from the host constants", () => {
+  test("the derived regex matches BOTH exported host quota phrases", () => {
+    // Guards against the classifier and the handler's error strings drifting
+    // apart: if either constant changes, this asserts the regex still matches
+    // it (they share the single-source constants, so it always should).
+    expect(QUOTA_SIGNATURE.test(CONCURRENT_CAP_REACHED_MESSAGE)).toBe(true);
+    expect(QUOTA_SIGNATURE.test(SPAWN_QUOTA_EXCEEDED_MESSAGE)).toBe(true);
+    // And matches them inside the invoke_agent wrapper text form.
+    expect(QUOTA_SIGNATURE.test(`Agent "x" failed: ${CONCURRENT_CAP_REACHED_MESSAGE}`)).toBe(true);
+    expect(QUOTA_SIGNATURE.test(`Agent "x" failed: ${SPAWN_QUOTA_EXCEEDED_MESSAGE}`)).toBe(true);
+    // Sanity: does NOT match a benign output that merely mentions "quota".
+    expect(QUOTA_SIGNATURE.test("Checked the quota dashboard, all good.")).toBe(false);
   });
 });

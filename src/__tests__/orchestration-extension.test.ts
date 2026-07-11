@@ -1326,10 +1326,13 @@ function collect(
 function send(
   args: Record<string, unknown>,
   conversationId: string | null = OWNER_CONV,
+  extraMeta: Record<string, unknown> = {},
 ) {
   return tools.send_to_agent!(
     args,
-    conversationId === null ? undefined : { invocationMetadata: { conversationId } },
+    conversationId === null
+      ? undefined
+      : { invocationMetadata: { conversationId, ...extraMeta } },
   );
 }
 
@@ -1442,6 +1445,45 @@ describe("send_to_agent", () => {
     const out = await send({ assignmentId: id, message: "hi" });
     expect(expectIsError(out)).toBe(true);
     expect(expectText(out)).toContain("no sub-agent is tracked");
+  });
+
+  test("host reports not-running (child went idle) → falls through to a fresh continuation run", async () => {
+    const { fn, calls } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+    // The child is still in our RUNNING map, but the host says its run ended.
+    _setQueueAgentMessageForTests(async () => ({ queued: false, reason: "not-running" }));
+    const id = await startBackground(); // asn-1, tracked as running
+
+    const out = await send({ assignmentId: id, message: "carry on" });
+    expect(expectIsError(out)).toBe(false);
+    expect(expectText(out)).toContain("continuing on its existing sub-conversation");
+    // A continuation spawn was issued on the reused sub-conversation.
+    const continueCall = calls[calls.length - 1]!.input;
+    expect(continueCall.task).toBe("carry on");
+    expect(continueCall.reuseSubConversationFor).toBe("agent-builder");
+    expect(_internals.backgroundSpawns.get("asn-2")).toBeDefined();
+  });
+
+  test("continuation inherits teamToolScope + overrides from invocationMetadata (no scope escape)", async () => {
+    const { fn, calls } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+    const id = await startBackground();
+    await driveTerminal(id);
+
+    const teamToolScope = { allowedTools: ["read"], deniedTools: ["bash"] };
+    const overrides = { toolRestriction: "read-only" };
+    const out = await send(
+      { assignmentId: id, message: "again" },
+      OWNER_CONV,
+      { teamToolScope, overrides, parentRunId: "orch-run-7", orchestrationDepth: 2 },
+    );
+    expect(expectIsError(out)).toBe(false);
+    const continueCall = calls[calls.length - 1]!.input;
+    // The scoped member is continued WITH its restrictions — not unrestricted.
+    expect(continueCall.teamToolScope).toEqual(teamToolScope);
+    expect(continueCall.overrides).toEqual(overrides);
+    expect(continueCall.parentRunId).toBe("orch-run-7");
+    expect(continueCall.orchestrationDepth).toBe(2);
   });
 });
 
