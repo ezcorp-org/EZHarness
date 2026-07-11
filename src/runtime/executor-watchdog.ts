@@ -3,6 +3,7 @@ import type { EventBus } from "./events";
 import type { Agent } from "@earendil-works/pi-agent-core";
 import * as activeRunsDb from "../db/queries/active-runs";
 import * as dbRuns from "../db/queries/runs";
+import { reconcileInterruptedAssignments } from "./boot-reconcile-assignments";
 import { logger } from "../logger";
 
 const log = logger.child("executor.watchdog");
@@ -183,6 +184,14 @@ export class WatchdogManager {
     // kill that skipped finalizeCleanup — no manual DB surgery needed.
     dbRuns.terminalizeOrphanedRuns().then((count) => {
       if (count > 0) log.info("Terminalized orphaned runs rows from previous process", { count });
+      // C2: reconcile task-tracking assignments a restart left `running`.
+      // Runs AFTER terminalization so each dangling assignment's run row is
+      // already terminal. Fire-and-forget + self-catching so a slow/failing
+      // reconcile never delays or fails boot. Full resume is a deliberate
+      // v1 non-goal — see boot-reconcile-assignments.ts.
+      void reconcileInterruptedAssignments(this.host.bus).catch((err) => {
+        log.error("assignment reconciliation on startup failed", { error: String(err) });
+      });
     }).catch((err) => {
       log.error("terminalizeOrphanedRuns on startup failed", { error: String(err) });
     });

@@ -120,6 +120,11 @@ const MODULE_PATHS = [
   "../../lib/cache-utils",
   "../../mcp/client",
   "../../runtime/task-tracking-host",
+  // watchdog-runs-terminalize.integration.test.ts mocks the C2 boot
+  // reconciliation pass to exercise the watchdog's wiring (call +
+  // self-catch) without a DB. Snapshot so restoreModuleMocks()
+  // re-registers the real function and the stub never leaks.
+  "../../runtime/boot-reconcile-assignments",
   "../../runtime/orchestration-host",
   "../../runtime/ask-user-host",
   "../../runtime/mention-wiring",

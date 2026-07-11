@@ -1,4 +1,4 @@
-import { eq, desc, and, isNull, sql } from "drizzle-orm";
+import { eq, desc, and, isNull, sql, inArray } from "drizzle-orm";
 import { getDb } from "../connection";
 import { runs, runLogs } from "../schema";
 import type { AgentRun, AgentLog, AgentResult } from "../../types";
@@ -198,6 +198,27 @@ export async function terminalizeOrphanedRuns(): Promise<number> {
     .where(and(eq(runs.status, "running"), isNull(runs.finishedAt)))
     .returning({ id: runs.id });
   return rows.length;
+}
+
+/**
+ * Batch-resolve the persisted `status` of many runs by id in one query.
+ * Returns a Map keyed by run id; an id with no `runs` row is simply absent
+ * from the map (the caller decides how to treat a missing run).
+ *
+ * Used by the boot reconciliation of interrupted sub-agent assignments
+ * (`src/runtime/boot-reconcile-assignments.ts`): after boot terminalization,
+ * an assignment whose `agentRunId` maps to a run that is no longer `running`
+ * (or is absent entirely) is dangling and gets failed.
+ */
+export async function getRunStatusesByIds(
+  ids: readonly string[],
+): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const rows = await getDb()
+    .select({ id: runs.id, status: runs.status })
+    .from(runs)
+    .where(inArray(runs.id, ids as string[]));
+  return new Map(rows.map((r: { id: string; status: string }) => [r.id, r.status]));
 }
 
 export async function insertLog(runId: string, log: AgentLog): Promise<void> {

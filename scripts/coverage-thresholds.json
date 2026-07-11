@@ -98,6 +98,7 @@
   "src/runtime/stream-chat/failover.ts": 100,
   "src/providers/circuit-breaker.ts": 100,
   "src/runtime/start-assignment.ts": 100,
+  "src/runtime/boot-reconcile-assignments.ts": 100,
   "src/runtime/structured-output.ts": 100,
   "src/runtime/goal-host.ts": 100,
   "src/runtime/import/staging.ts": 100,

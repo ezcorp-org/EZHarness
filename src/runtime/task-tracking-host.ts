@@ -55,7 +55,10 @@ export interface TaskSnapshot {
   activeTaskId?: string;
 }
 
-const STORAGE_KEY = "tasks";
+/** Extension-storage key under which the task-tracking extension persists
+ *  its per-conversation snapshot. Exported so the boot reconciliation pass
+ *  (`boot-reconcile-assignments.ts`) enumerates the same key. */
+export const STORAGE_KEY = "tasks";
 
 // ── Extension-id resolution (cached) ────────────────────────────────
 
