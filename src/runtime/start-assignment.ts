@@ -742,6 +742,15 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       // (3) Terminal completion. stripSignals keeps the preview clean;
       // for non-autonomous runs the output never carries a sentinel so
       // this branch is byte-for-byte the legacy behavior.
+      //
+      // Idempotency (mirrors the run:cancel listener): the task panel's
+      // Stop endpoint and the task_stop tool flip the assignment to
+      // "assigned" BEFORE cancelling the run. When the natural completion
+      // wins that race, run:complete lands here with the assignment
+      // already transitioned — leave it alone to preserve the resumable
+      // state instead of clobbering it back to "completed". Branches
+      // (2)/(2.5) already carry the same status === "running" guard.
+      if (assignment.status !== "running") return;
       assignment.status = "completed";
       assignment.completedAt = new Date().toISOString();
 

@@ -638,6 +638,53 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
     expect(assignment.resultPreview).not.toBe("Run was cancelled");
   });
 
+  test("idempotent: run:complete no-op when assignment.status !== 'running' (Stop racing natural completion)", async () => {
+    const { executor } = makeMockExecutor();
+    const task = makeTask();
+    const assignment = makeAssignment();
+    const snapshot = makeSnapshot(task, "conv-parent");
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+
+    const opts = baseOpts({ executor, bus, task, assignment, snapshot });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Simulate the Stop endpoint's pre-cancel mutation landing FIRST:
+    // flip to "assigned", then let the natural completion win the race
+    // (run:complete fires before cancelRun's run:cancel).
+    assignment.status = "assigned";
+    const priorPreview = assignment.resultPreview;
+
+    // Terminal branch (3) must not emit for an already-transitioned
+    // assignment — record post-Stop bus traffic only.
+    const taskSnapshots: unknown[] = [];
+    const assignmentUpdates: unknown[] = [];
+    const agentCompletes: unknown[] = [];
+    bus.on("task:snapshot", (d) => taskSnapshots.push(d));
+    bus.on("task:assignment_update", (d) => assignmentUpdates.push(d));
+    bus.on("agent:complete", (d) => agentCompletes.push(d));
+
+    bus.emit("run:complete", {
+      run: {
+        id: agentRunId,
+        agentName: "alice",
+        status: "success",
+        startedAt: Date.now(),
+        logs: [],
+        result: { success: true, output: "natural completion output" },
+      },
+      conversationId: "conv-parent",
+    });
+
+    // Branch (3) saw status !== "running" and preserved the resumable
+    // Stop state instead of clobbering it back to "completed".
+    expect(assignment.status).toBe("assigned");
+    expect(assignment.completedAt).toBeUndefined();
+    expect(assignment.resultPreview).toBe(priorPreview);
+    expect(taskSnapshots).toHaveLength(0);
+    expect(assignmentUpdates).toHaveLength(0);
+    expect(agentCompletes).toHaveLength(0);
+  });
+
   test("unsubscribes on cancel — subsequent run:complete does not mutate", async () => {
     const { executor } = makeMockExecutor();
     const task = makeTask();
