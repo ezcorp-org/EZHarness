@@ -106,7 +106,11 @@ export function generateEntryId(byId: Map<string, SessionTreeEntry>, gen: () => 
 /** Decompose a pi entry into its `agent_session_entries` row: the base fields
  *  (type/id/parentId/timestamp) become columns; everything else is the
  *  jsonb payload. */
-export function entryToRow(sessionId: string, entry: SessionTreeEntry): NewAgentSessionEntryRow {
+export function entryToRow(
+  sessionId: string,
+  entry: SessionTreeEntry,
+  ezMessageId: string | null = null,
+): NewAgentSessionEntryRow {
   const { type, id, parentId, timestamp, ...payload } = entry as SessionTreeEntry & Record<string, unknown>;
   return {
     sessionId,
@@ -115,6 +119,10 @@ export function entryToRow(sessionId: string, entry: SessionTreeEntry): NewAgent
     parentId,
     timestamp,
     payload: payload as Record<string, unknown>,
+    // Cross-link to the source EZCorp `messages` row. Set only for
+    // `message` entries by the backfill (src/db/session-backfill.ts); the
+    // live JSONL-parity append path leaves it null.
+    ezMessageId,
   };
 }
 
@@ -222,8 +230,8 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
     return generateEntryId(this.byId);
   }
 
-  async appendEntry(entry: SessionTreeEntry): Promise<void> {
-    await this.persist(entry);
+  async appendEntry(entry: SessionTreeEntry, ezMessageId: string | null = null): Promise<void> {
+    await this.persist(entry, ezMessageId);
     updateLabelCache(this.labelsById, entry);
     this.currentLeafId = leafIdAfterEntry(entry);
     await this.writeLeafCache();
@@ -236,9 +244,12 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
   async findEntries<TType extends SessionTreeEntry["type"]>(
     type: TType,
   ): Promise<Array<Extract<SessionTreeEntry, { type: TType }>>> {
-    return this.entries.filter((entry) => entry.type === type) as Array<
-      Extract<SessionTreeEntry, { type: TType }>
-    >;
+    // Single-line body (no wrapped cast) — a multi-line `as Array<Extract…>`
+    // leaves a type-only continuation line that Bun's per-line coverage marks
+    // executable-but-unhittable; once a 2nd shard instruments this file the
+    // merged lcov reads it as a 0-hit miss. Keep it on one statement.
+    const matches = this.entries.filter((entry) => entry.type === type);
+    return matches as Array<Extract<SessionTreeEntry, { type: TType }>>;
   }
 
   async getLabel(id: string): Promise<string | undefined> {
@@ -267,8 +278,8 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
   /** INSERT the entry (PK enforces intra-session id uniqueness — a
    *  duplicate rejects here BEFORE any in-memory mutation) then mirror it
    *  into the in-memory maps in append order. */
-  private async persist(entry: SessionTreeEntry): Promise<void> {
-    await this.db.insert(agentSessionEntries).values(entryToRow(this.sessionRow.id, entry));
+  private async persist(entry: SessionTreeEntry, ezMessageId: string | null = null): Promise<void> {
+    await this.db.insert(agentSessionEntries).values(entryToRow(this.sessionRow.id, entry, ezMessageId));
     this.entries.push(entry);
     this.byId.set(entry.id, entry);
   }
