@@ -16,9 +16,12 @@
  *     client, mid-stream failover is OUT OF SCOPE (partial-output
  *     re-emission + dedup is a documented follow-up) — the error is
  *     rethrown and the caller's existing error handling renders it.
- *   - Only provider-AVAILABILITY failures (429 / 5xx / connection-class) are
- *     retried; every other error (bad request, auth, content filter, tool
- *     bug) rethrows unchanged.
+ *   - Only provider-AVAILABILITY failures are retried — the rate-limit /
+ *     overload / 5xx / transport-drop / premature-stream-end class that
+ *     pi-ai's own `isRetryableAssistantError` recognizes, plus connection-error
+ *     shapes and Anthropic 529 (see provider-error-classifier.ts). Every other
+ *     error (bad request, auth, content filter, tool bug, and hard
+ *     quota/billing limits) rethrows unchanged.
  *   - SAME-PROVIDER RETRY FIRST. Before consulting the router for a
  *     cross-provider fallback, the failing provider gets exactly
  *     {@link SAME_PROVIDER_RETRIES} rebuild+reprompt retries after a
@@ -38,11 +41,16 @@
 import type { Agent } from "@earendil-works/pi-agent-core";
 import { getCircuitBreaker } from "../../providers/circuit-breaker";
 import { ProviderUnavailableError, type FallbackSuggestion } from "../../providers/router";
-import { isProviderConnectionError } from "../../providers/provider-error";
+import { classifyProviderAvailabilityError } from "./provider-error-classifier";
 import { logger } from "../../logger";
 import type { SetupToolsResult } from "./setup-tools";
 import type { StreamChatContext } from "./context";
 import type { StreamChatHost } from "./host";
+
+// Re-exported so existing importers (and the failover unit tests) keep their
+// `from "./failover"` path. The classification logic itself lives in
+// provider-error-classifier.ts, grounded in pi-ai 0.80.6's error templates.
+export { classifyProviderAvailabilityError } from "./provider-error-classifier";
 
 const log = logger.child("executor.streamChat.failover");
 
@@ -93,35 +101,6 @@ function detachAttemptSubscriptions(ctx: StreamChatContext): void {
   ctx.unsub = undefined;
   for (const off of ctx.unsubAgentActivity) off();
   ctx.unsubAgentActivity = [];
-}
-
-/**
- * HTTP status markers that mean "provider temporarily unavailable" and are
- * therefore worth failing over: 429 (rate limited), 500/502/503/504
- * (server / bad-gateway / overloaded / gateway-timeout), 529 (Anthropic
- * "overloaded"). A 4xx that ISN'T 429 (400 bad request, 401/403 auth, 404,
- * 422) is the caller's fault — retrying a different provider won't help.
- */
-const AVAILABILITY_STATUS = /\b(?:429|500|502|503|504|529)\b/;
-
-/**
- * Classify a pi-ai `stopReason:"error"` message as a provider-AVAILABILITY
- * failure (retryable via a different provider) vs a normal error.
- *
- * pi-agent-core catches the provider error internally and keeps only its
- * `.message` string (see provider-error.ts), so classification is text-based:
- * an HTTP 429/5xx marker, OR a connection-class signature (refused / reset /
- * DNS-miss / socket-closed / timeout). An absent or empty message, or any
- * other error text, is treated as NON-availability (not retried).
- */
-export function classifyProviderAvailabilityError(
-  errorMessage: string | undefined | null,
-): boolean {
-  if (!errorMessage) return false;
-  if (AVAILABILITY_STATUS.test(errorMessage)) return true;
-  // Reuse the connection-class detector (ECONNREFUSED, socket closed, DNS
-  // failure, fetch failed, timeout, …). It accepts a raw string.
-  return isProviderConnectionError(errorMessage);
 }
 
 /** One resolved model attempt: the provider/model plus the built

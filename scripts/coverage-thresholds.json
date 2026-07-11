@@ -97,6 +97,7 @@
   "src/runtime/stream-chat/cache-retention.ts": 100,
   "src/runtime/stream-chat/system-cache-split.ts": 100,
   "src/runtime/stream-chat/failover.ts": 100,
+  "src/runtime/stream-chat/provider-error-classifier.ts": 100,
   "src/providers/circuit-breaker.ts": 100,
   "src/runtime/start-assignment.ts": 100,
   "src/runtime/boot-reconcile-assignments.ts": 100,
