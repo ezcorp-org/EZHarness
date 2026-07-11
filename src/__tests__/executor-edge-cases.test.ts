@@ -147,6 +147,50 @@ describe("AgentExecutor edge cases", () => {
     expect(logsByRun.get(runB.id)).toEqual(["b-log"]);
   });
 
+  test("storeRun LRU eviction never evicts a still-running run", async () => {
+    // A long-running agent that blocks until released. Its run is
+    // inserted FIRST, so the old insertion-order LRU would evict it once
+    // the map crosses MAX_RUNS (100) — silently stopping its watchdog
+    // supervision. The guard must skip running entries and evict the
+    // oldest TERMINAL run instead.
+    let releaseWaiter: () => void = () => {};
+    const agents = loadAgentsStatic([
+      makeAgent("waiter", async (ctx) => {
+        await new Promise<void>((resolve, reject) => {
+          releaseWaiter = resolve;
+          ctx.signal.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+        return { success: true, output: "waited" };
+      }),
+      makeAgent("instant", async () => ({ success: true, output: "done" })),
+    ]);
+    const bus = new EventBus<AgentEvents>();
+    const startedIds: string[] = [];
+    bus.on("run:start", ({ runId }) => startedIds.push(runId));
+    const exec = track(new AgentExecutor(agents, bus));
+
+    // Start the blocker (inserted first → oldest by insertion order).
+    const waiterP = exec.runAgent("waiter", {});
+    await new Promise((r) => setTimeout(r, 5));
+    const waiterId = startedIds[0]!;
+    expect(waiterId).toBeDefined();
+
+    // Cross MAX_RUNS (100) with terminal runs so eviction fires.
+    for (let i = 0; i < 105; i++) {
+      await exec.runAgent("instant", {});
+    }
+
+    // The still-running waiter survived every eviction pass...
+    expect(await exec.getRun(waiterId)).toBeDefined();
+    expect((await exec.getRun(waiterId))!.status).toBe("running");
+    // ...while an early terminal run was evicted (map is bounded).
+    const firstInstantId = startedIds[1]!;
+    expect(await exec.getRun(firstInstantId)).toBeUndefined();
+
+    releaseWaiter();
+    await waiterP;
+  });
+
   test("destroy() is idempotent (safe to call twice)", () => {
     const exec = new AgentExecutor(new Map(), new EventBus<AgentEvents>());
     // intentionally not tracked: we verify the double-destroy ourselves.

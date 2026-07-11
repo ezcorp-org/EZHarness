@@ -742,8 +742,22 @@ export class AgentExecutor {
     this.runs.set(run.id, run);
 
     if (this.runs.size > MAX_RUNS) {
-      const oldest = this.runs.keys().next().value!;
-      this.runs.delete(oldest);
+      // Evict the oldest TERMINAL run, never a still-`running` one. The
+      // old code evicted strictly by insertion order, so a fan-out of
+      // >100 concurrent sub-runs (spawn quota is 25 concurrent × nested
+      // depth) could evict a live run's record — after which the
+      // watchdog tick early-returns on the missing map entry and
+      // liveness monitoring silently stops (the run wedges with no
+      // supervisor). Walk insertion order for the first non-running
+      // entry; if every retained run is still running (pathological
+      // burst), skip eviction this call and let the map grow — a live
+      // run's record is never sacrificed to a soft cap.
+      for (const [id, r] of this.runs) {
+        if (r.status !== "running") {
+          this.runs.delete(id);
+          break;
+        }
+      }
     }
   }
 

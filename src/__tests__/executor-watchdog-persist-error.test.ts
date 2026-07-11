@@ -96,6 +96,8 @@ interface Harness {
   host: WatchdogHost;
   runs: Map<string, AgentRun>;
   controllers: Map<string, AbortController>;
+  activeAgents: Map<string, { abort: () => void }>;
+  runConversations: Map<string, string>;
   errorMessagePersisted: Set<string>;
   persistCalls: PersistCall[];
   events: Array<{ type: string }>;
@@ -109,12 +111,14 @@ function makeHarness(): Harness {
   }
   const runs = new Map<string, AgentRun>();
   const controllers = new Map<string, AbortController>();
+  const activeAgents = new Map<string, { abort: () => void }>();
+  const runConversations = new Map<string, string>();
   const errorMessagePersisted = new Set<string>();
   const host: WatchdogHost = {
     runs,
     controllers,
-    activeAgents: new Map(),
-    runConversations: new Map(),
+    activeAgents: activeAgents as WatchdogHost["activeAgents"],
+    runConversations,
     pendingPermissions: new Map(),
     bus,
     persist: true,
@@ -125,6 +129,8 @@ function makeHarness(): Harness {
     host,
     runs,
     controllers,
+    activeAgents,
+    runConversations,
     errorMessagePersisted,
     persistCalls: [],
     events,
@@ -309,5 +315,57 @@ describe("shared slot lifecycle (P4)", () => {
     // missing bubble, and the run:error event still rendered).
     expect(h.errorMessagePersisted.has(RUN_ID)).toBe(true);
     expect(h.events.filter((e) => e.type === "run:error")).toHaveLength(1);
+  });
+});
+
+// ── Map hygiene: trip reaps in-memory maps for a wedged run ─────────
+//
+// The watchdog exists because the suspended streamChat await may never
+// reach finalizeCleanup (the normal deleter of these maps). The trip
+// branch must reap controllers/activeAgents/runConversations + its own
+// per-run timer state itself — while PRESERVING the shared
+// errorMessagePersisted slot so a late finalizeError can't double-persist.
+
+describe("watchdog trip — in-memory map hygiene", () => {
+  test("reaps controllers, activeAgents, runConversations on the kill path", async () => {
+    const h = makeHarness();
+    const run = startWithPersist(h, recordingPersist(h));
+    let aborted = false;
+    h.activeAgents.set(RUN_ID, { abort: () => { aborted = true; } });
+    h.runConversations.set(RUN_ID, CONV_ID);
+
+    await advanceAndTick(95_000);
+
+    expect(run.status).toBe("error");
+    // Live agent aborted, then all three maps cleared so a wedged run
+    // no longer leaks for the process lifetime.
+    expect(aborted).toBe(true);
+    expect(h.controllers.has(RUN_ID)).toBe(false);
+    expect(h.activeAgents.has(RUN_ID)).toBe(false);
+    expect(h.runConversations.has(RUN_ID)).toBe(false);
+  });
+
+  test("PRESERVES the errorMessagePersisted slot so a late finalizeError can't double-persist", async () => {
+    const h = makeHarness();
+    startWithPersist(h, recordingPersist(h));
+    h.runConversations.set(RUN_ID, CONV_ID);
+
+    await advanceAndTick(95_000);
+
+    // Trip claimed + kept the slot (the guard the trip must not release).
+    expect(h.errorMessagePersisted.has(RUN_ID)).toBe(true);
+    expect(h.persistCalls).toHaveLength(1);
+  });
+
+  test("clearRun (healthy teardown) still releases the slot", () => {
+    const h = makeHarness();
+    startWithPersist(h, recordingPersist(h));
+    h.errorMessagePersisted.add(RUN_ID);
+
+    h.manager.clearRun(RUN_ID);
+
+    // The normal finalizeCleanup path releases the slot (unbounded-growth
+    // guard) — only the trip path preserves it.
+    expect(h.errorMessagePersisted.has(RUN_ID)).toBe(false);
   });
 });
