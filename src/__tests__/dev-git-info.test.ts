@@ -16,15 +16,22 @@ import { devIndicatorAttrs, devPageTransform, escapeAttr, getDevGitInfo } from "
 // git working tree, so `git rev-parse` (which walks up) succeeds from here.
 const REPO_DIR = import.meta.dir;
 
-let savedIndicator: string | undefined;
+const SAVED_ENV_KEYS = [
+  "EZCORP_DEV_INDICATOR",
+  "EZCORP_PROJECT_ROOT",
+  "EZCORP_SELF_PROJECT_PATH",
+] as const;
+let savedEnv: Record<string, string | undefined>;
 
 beforeEach(() => {
-  savedIndicator = process.env.EZCORP_DEV_INDICATOR;
+  savedEnv = Object.fromEntries(SAVED_ENV_KEYS.map((k) => [k, process.env[k]]));
 });
 
 afterEach(() => {
-  if (savedIndicator === undefined) delete process.env.EZCORP_DEV_INDICATOR;
-  else process.env.EZCORP_DEV_INDICATOR = savedIndicator;
+  for (const k of SAVED_ENV_KEYS) {
+    if (savedEnv[k] === undefined) delete process.env[k];
+    else process.env[k] = savedEnv[k];
+  }
 });
 
 describe("getDevGitInfo", () => {
@@ -50,6 +57,25 @@ describe("getDevGitInfo", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("without cwd, EZCORP_PROJECT_ROOT takes precedence", () => {
+    process.env.EZCORP_DEV_INDICATOR = "1";
+    process.env.EZCORP_PROJECT_ROOT = REPO_DIR;
+    // Would fail if the (broken) self path were consulted first.
+    process.env.EZCORP_SELF_PROJECT_PATH = "/nonexistent-self-path";
+    expect(getDevGitInfo()).not.toBeNull();
+  });
+
+  test("without cwd or EZCORP_PROJECT_ROOT, falls back to EZCORP_SELF_PROJECT_PATH", () => {
+    // The compose dev container case: /app has no .git, but the full
+    // checkout is the self-project mount (/repo).
+    process.env.EZCORP_DEV_INDICATOR = "1";
+    delete process.env.EZCORP_PROJECT_ROOT;
+    process.env.EZCORP_SELF_PROJECT_PATH = REPO_DIR;
+    const info = getDevGitInfo();
+    expect(info).not.toBeNull();
+    expect(info!.commit).toMatch(/^[0-9a-f]+$/);
   });
 });
 

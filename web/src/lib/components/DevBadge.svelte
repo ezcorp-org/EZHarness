@@ -16,20 +16,25 @@
 {/if}
 
 <style>
+	/* Solid status-chip styling — the ghosted currentColor mix was near
+	   invisible on the light theme. A dark slate chip reads on both themes
+	   (border + shadow separate it from dark backgrounds) while staying
+	   non-interactive and out of content's way. */
 	.dev-badge {
 		position: fixed;
-		bottom: 0.5rem;
-		right: 0.5rem;
+		bottom: 0.75rem;
+		right: 0.75rem;
 		z-index: 40;
 		pointer-events: none;
-		opacity: 0.7;
-		padding: 0.125rem 0.375rem;
+		padding: 0.25rem 0.5rem;
 		font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-		font-size: 0.6875rem;
+		font-size: 0.75rem;
 		line-height: 1.2;
-		color: color-mix(in srgb, currentColor 75%, transparent);
-		background: color-mix(in srgb, currentColor 8%, transparent);
-		border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-		border-radius: 0.3125rem;
+		font-weight: 500;
+		color: #f9fafb;
+		background: rgb(31 41 55 / 0.92);
+		border: 1px solid rgb(107 114 128 / 0.5);
+		border-radius: 0.375rem;
+		box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
 	}
 </style>
