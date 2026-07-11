@@ -87,7 +87,7 @@ Both are unit-tested (`web/src/__tests__/tool-card-router.test.ts`).
 
 | Test file | What it covers |
 |---|---|
-| `docs/extensions/examples/price-chart/index.test.ts` | Tool handler input validation, symbol resolution, mocked-fetch happy path, error wrapping (15 tests) |
+| `docs/extensions/examples/price-chart/index.test.ts` | Tool handler input validation, symbol resolution, mocked-fetch happy path, error wrapping (17 tests) |
 | `web/src/lib/components/tool-cards/price-chart-logic.test.ts` | Payload parsing (string / MCP envelope / object), range slicing, SVG path generation, nearest-point hit testing, formatters, change derivation across range switches (24 tests) |
 | `web/src/lib/components/tool-cards/PriceChartCard.component.test.ts` | DOM tests: header rendering, default range, range-tab clicks, accent-color sync across bar/line/gradient (regression pin for the "bar green / line red" bug), unique gradient ID per instance (regression pin for ID collision), hover tooltip, error fallback, logo placeholder + onerror (14 tests) |
 | `web/src/__tests__/tool-card-router.test.ts` | `cardType: "price-chart"` → `PriceChartCard` (+ permissionPending gate respect) |

@@ -5,12 +5,16 @@
 > **VERDICT (do we have FULL e2e coverage?): NO — and it cannot be FULL
 > in the dev container.** The host fs/daemon/applier + pure logic are
 > thoroughly real-tested and CI-gated (`bun test`). The browser-level e2e
-> is now split into: (a) a 23-case **mock** UI suite, and (b) an
-> 8-passing / 4-skipping **real-backend** Docker-gated suite that asserts
-> on real validator responses + real on-disk `config.json`. The single
-> residual blocker to a true "add → SEE it in the Hub" e2e is the
-> **data-dir split** (§7); those assertions are written as `test.skip` so
-> the suite is structurally complete and flips on when the split is fixed.
+> is now split into: (a) a 23-case **mock** UI suite, and (b) a 12-case
+> **real-backend** Docker-gated suite (all active `test()`; only the
+> proposal-accept case self-skips at runtime when no daemon proposal is on
+> disk) that asserts on real validator responses + real on-disk
+> `config.json`. The former blocker to a true "add → SEE it in the Hub"
+> e2e — the **data-dir split** (§7) — is now FIXED (the render subprocess
+> resolves its data dir from `EZCORP_EXTENSION_DATA_ROOT`, the project root
+> the host writes to, instead of the vite-SSR `process.cwd()` of
+> `/app/web`), so those "add → see it in the Hub" assertions are now
+> ACTIVE `test()` cases ("data dirs aligned").
 > e2e gates **nothing** in CI (there is no Playwright job) — see §6.
 > **Honesty framing:** this document distinguishes **mock-backend** tests
 > (which validate UI rendering / wiring against stubbed HTTP) from
@@ -29,7 +33,7 @@
   suites. These are the load-bearing safety guarantees and they are
   CI-gated (`test-backend` job).
 - The **e2e layer is 100% mock-backend** today
-  (`web/e2e/file-organizer-hub.spec.ts`, 14 cases). It never starts the
+  (`web/e2e/file-organizer-hub.spec.ts`, 23 cases). It never starts the
   render subprocess, never calls the real add-folder validator, never
   touches the daemon or `/api/fs/list`. Every real bug found this session
   (data-dir split, picker 403, render provenance) was **invisible** to it.
@@ -127,7 +131,7 @@ would let these flip from host-unit-only to real-backend e2e.
 
 | Concern | Covered? | Where | Backend | CI |
 |---|---|---|---|---|
-| **Data-dir split** (daemon writes `/app/.ezcorp/…`, render reads `/app/web/.ezcorp/…` in dev) | ❌ NOT covered by any test; documented here + asserted-as-known-limitation in the real spec | — | — | ❌ |
+| **Data-dir split** (FIXED: render + daemon now agree on the data dir via `EZCORP_EXTENSION_DATA_ROOT`) | ✅ covered by active `test()` "data dirs aligned" cases (add-folder appears / config reflects / Review renders) | `file-organizer-real.spec.ts` | real | e2e ❌ |
 | **Picker → real `/api/fs/list`** (Browse) | ❌ no real coverage; real endpoint **403s** for `dir=/` (jailed to project root) | — | — | ❌ |
 | **Picker → validation** (typed path → `normalizeFolderPath`) | ✅ `file-organizer-picker-path-integration.test.ts` | real validator | ✅ |
 | toast on refused add (`ok:false`) | ✅ mock hub.spec + **NEW real spec (real refusal string)** | mock + **real** | e2e ❌ |
@@ -199,18 +203,25 @@ component regression guard.)
    persistence + all three refusal branches, plus a full config-mutation
    round-trip (set-mode/toggle-preset/add-ignore/set-backlog-policy/
    add-rule/remove-folder) asserted against the real on-disk config, plus
-   add-rule DSL refusal and the picker 403. **8 pass / 4 skip live.**
-   The remaining proposal/quarantine-lifecycle events still lack a
-   real-backend e2e (they need an on-disk proposal/quarantine fixture —
-   see §2b).
-3. **[P0/unfixed product bug] Data-dir split.** In the dev container an
-   add succeeds (`/app/.ezcorp/…/config.json` gains the entry) but the
-   Hub render reads `/app/web/.ezcorp/…/config.json` (vite cwd) and shows
-   "No folders watched". Verified live this session. No test guards this;
-   the real spec `test.skip`s the "appears in the Hub" assertion with a
-   comment citing the split, and instead asserts on the real response +
-   on-disk config (the path that *is* truthful). Prod (cwd `/app`) agrees
-   on both sides, so prod works.
+   add-rule DSL refusal, the picker 403, and — now that the data-dir split
+   is fixed (item 3) — the "add → see it in the Hub render" round-trip
+   ("data dirs aligned"). **12 cases, all active `test()`; only the
+   proposal-accept case self-skips live when no daemon-produced proposal is
+   on disk (11 pass / 1 skip, or 12 / 0 when one is pending).** The
+   remaining proposal/quarantine-lifecycle events still lack a real-backend
+   e2e (they need an on-disk proposal/quarantine fixture — see §2b).
+3. **[RESOLVED] Data-dir split.** Previously, in the dev container an add
+   succeeded (`/app/.ezcorp/…/config.json` gained the entry) but the Hub
+   render read `/app/web/.ezcorp/…/config.json` (the vite-SSR `process.cwd()`)
+   and showed "No folders watched". → **fixed**: the extension now resolves
+   its data dir from `EZCORP_EXTENSION_DATA_ROOT` (the project root, e.g.
+   `/app`, injected by the host) instead of `process.cwd()`, so reader and
+   writer agree; the `$CWD` fs-grant likewise expands to the project root so
+   the host-mediated read of `/app/.ezcorp/…` is covered by the extension's
+   `["$CWD"]` grant. The real spec's three "appears/reflects in the Hub
+   render" assertions ("data dirs aligned") are now **active `test()`**
+   cases, not skips. Prod (cwd `/app`) always agreed on both sides, so prod
+   was never affected.
 4. **[P1] Picker Browse is unreachable in the real app (403).** Product
    decision needed: either relax the fs-list jail for the Hub picker, or
    drop Browse from the file-path prompt and document "typed absolute
@@ -240,8 +251,10 @@ component regression guard.)
   **Docstring updated** to state these validate UI rendering against
   MOCKED backends only, and to flag the Browse case as component-logic.
 - **Real bucket** (`file-organizer-real.spec.ts`, Docker-gated,
-  **8 pass / 4 skip** live on `ez-corp-ai-app-1`): log in to the live
-  container and assert on **real** responses + **real** on-disk
+  **12 cases, all active `test()`** — only the proposal-accept case
+  self-skips live when no daemon proposal is on disk — on
+  `ez-corp-ai-app-1`): log in to the live container and assert on **real**
+  responses + **real** on-disk
   `config.json` (read via `docker exec … cat
   /app/.ezcorp/extension-data/file-organizer/config.json`, the WRITER
   dir). Cases:
@@ -266,12 +279,22 @@ component regression guard.)
      (documents the sandbox jail; only typed-absolute add works).
   8. **UI refusal toast** → the real Folders page + relative path renders
      the real refusal as an error `alert`.
-  - **Skips (4):** the proposal-accept case `test.skip`s when no
-    daemon-produced pending proposal is on disk (honest — it asserts a
-    REAL file move when one exists); the three "appears/reflects in the
-    Hub render" cases (`add-folder`, config-mutation, proposals on
-    Review) are `test.skip`ped citing the **data-dir split** so the suite
-    is structurally complete and flips on when the split is fixed.
+  9. **add-folder APPEARS in the Hub render** ("data dirs aligned") → a
+     real add surfaces in the Folders render (reader + writer now share the
+     data dir — see §4.3).
+  10. **config mutation REFLECTS in the Folders Hub render** ("data dirs
+      aligned") → a toggled preset on a sibling folder renders post-mutation.
+  11. **Review Hub render loads** against the live backend ("data dirs
+      aligned") → the render succeeds reading the same dir the daemon writes.
+  12. **proposal-lifecycle accept** → accepts a REAL pending daemon proposal
+      and asserts the row is no longer pending (the ONLY case that
+      self-skips, and only when no pending proposal is on disk).
+  - **Skip (1, conditional):** only the proposal-accept case (#12)
+    `test.skip`s at runtime — when no daemon-produced pending proposal is on
+    disk (honest — it asserts a REAL file move when one exists). The three
+    "appears/reflects in the Hub render" cases ("data dirs aligned") are now
+    **active** — the data-dir split they used to be blocked on is fixed
+    (§4.3).
   - **Rate limiter:** the events route allows **10 actions/min/user**
     (fixed 60s window). The suite fires more than that, so `postEvent`
     rides out a 429 by waiting `Retry-After` and retrying — a real user
@@ -314,46 +337,48 @@ builds):
   other mock e2e spec). It would have caught a broken tree render, a
   wrong POST body, a missing testid, a dialog regression.
 - **What it does NOT gate:** the real subprocess render, the daemon, the
-  real validator, the data-dir split, the picker 403 — because the mock
-  suite stubs all of those. **Do not let a green `e2e-mock` job be read
-  as "the feature works end-to-end."**
+  real validator, the data-dir alignment, the picker 403 — because the mock
+  suite stubs all of those (the data-dir alignment is instead covered by the
+  Docker-gated real spec's "data dirs aligned" cases). **Do not let a green
+  `e2e-mock` job be read as "the feature works end-to-end."**
 
 The **Docker real-backend suite** (`DOCKER_TEST=1`) should **not** be
 wired into PR-blocking CI yet: it needs a seeded container
-(`docker-auth-setup.ts` expects `test@test.com`/`Test123!` on `:3000`)
-and it surfaces the unfixed data-dir split as a real failure if the
-skipped assertion is ever un-skipped. Run it as a **manual /
-nightly non-blocking** workflow (or locally) until the data-dir split
-and picker decisions land. Gate it explicitly so a missing container
-fails fast rather than silently passing.
+(`docker-auth-setup.ts` expects `test@test.com`/`Test123!` on `:3000`).
+Run it as a **manual / nightly non-blocking** workflow (or locally) until
+that seeded container (and the picker decision) can be provided in CI.
+Gate it explicitly so a missing container fails fast rather than silently
+passing.
 
 ---
 
 ## 7. Plain answer: do we have a "validate everything" e2e?
 
-**No.** After this pass we have, for the headline add-folder flow:
+**Not as one CI-enforced gate — but the add-folder round-trip is now
+covered.** After this pass we have, for the headline add-folder flow:
 
 - ✅ a **real-backend** assertion that the validator + config persistence
-  work (typed absolute add, real refusal), AND
+  work (typed absolute add, real refusal),
+- ✅ a **real-backend** "add a folder **and see it appear in the Hub
+  render**" assertion — the data-dir split that used to block this is now
+  **FIXED** (§2d, §4.3), so those "data dirs aligned" cases are active
+  `test()` in the Docker-gated spec, AND
 - ✅ a much stronger **mock** UI suite.
 
-But a single test that drives the **entire** stack from the browser —
-add a folder **and see it appear in the Hub render** — is still
-**blocked by three things**:
+Two things still keep this short of a single "validate everything" gate
+that runs on every PR:
 
-1. **Data-dir split (unfixed, dev-only):** the render subprocess reads a
-   different `.ezcorp/extension-data` dir than the events route writes,
-   so "added folder appears in Hub" fails in the dev container. Needs the
-   render subprocess and the events route to agree on cwd (or an explicit
-   data-dir env), then the `test.skip` in the real spec can be flipped.
-2. **Picker decision (unresolved):** Browse 403s against the jailed
+1. **Picker decision (unresolved):** Browse 403s against the jailed
    `/api/fs/list`, so the realistic point-and-click add can't reach a
-   watch folder. Needs a product decision (relax jail for the Hub picker,
-   or drop Browse).
-3. **No e2e CI job:** even the coverage we *do* have isn't enforced on PRs.
+   watch folder — the working real add-folder path is a **typed absolute
+   path**. Needs a product decision (relax jail for the Hub picker, or
+   drop Browse).
+2. **No e2e CI job:** even the coverage we *do* have — mock and
+   Docker-gated real — isn't enforced on PRs.
 
 Until those land, the honest statement is: **the host fs/daemon/applier
 and pure logic are thoroughly real-tested and CI-gated; the browser-level
-e2e is mock-backend except for one Docker-gated real add-folder spec; and
-there is no end-to-end "add → see it in the Hub" validation in the dev
-container because of the data-dir split.**
+e2e is mock-backend plus a Docker-gated real suite that DOES assert the
+full "add → see it in the Hub" round-trip (the data-dir split is fixed);
+what's missing is a point-and-click Browse path (jailed 403) and any e2e
+job wiring so this runs on PRs.**

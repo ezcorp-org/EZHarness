@@ -310,14 +310,14 @@ via `resources.callTimeoutMs`.
 
 Tool subprocesses can call back into the host using **reverse-RPC**
 methods on the same stdio channel. The host inspects `req.method` and
-routes to the matching handler (`src/extensions/tool-executor.ts:1370+`).
+routes to the matching handler (`src/extensions/tool-executor.ts:2066+`).
 
 | Method                    | What it does                              | Required permission                |
 | ------------------------- | ----------------------------------------- | ---------------------------------- |
 | `ezcorp/storage`          | KV store (get/set/delete/list/batch)      | `storage: true`                    |
 | `ezcorp/memory`           | Read/write user memories                  | `memory: { access: "..." }`        |
 | `ezcorp/lessons`          | Read/write the lessons corpus             | `lessons: { access: "..." }`       |
-| `ezcorp/append-message`   | Insert a turn into the conversation       | `appendMessages: {}`               |
+| `ezcorp/append-message`   | Insert a turn into the conversation       | `appendMessages: { excludedDefault: true }` |
 | `ezcorp/spawn-assignment` | Run a sub-agent                           | `spawnAgents: { maxPerHour }`      |
 | `ezcorp/llm-complete`     | Call an LLM through the host              | `llm: { providers, ... }`          |
 | `ezcorp/drafts`           | Create an Ez proposal-card draft (bundled-only) | `custom: { drafts: { kinds } }` |

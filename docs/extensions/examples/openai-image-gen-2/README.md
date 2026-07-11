@@ -21,16 +21,19 @@ OAuth flow or store a BYOK key in admin settings.
 - **`generate`** — text → image.
 - **`edit`** — input images + prompt → edited image.
 
-Both return a markdown snippet `![<alt>](data:image/<fmt>;base64,…)`
+Both return a markdown snippet `![<alt>](/api/ext-files/openai-image-gen-2/<relPath>)`
 that the chat UI renders inline with lightbox + broken-URL fallback.
 
 ## Permissions
 
 - `network`: `api.openai.com`, `chatgpt.com`
 - `env`: `OPENAI_API_KEY`, `OPENAI_ACCESS_TOKEN`
+- `filesystem`: `$CWD`
 
-No filesystem or shell access — images are returned as base64
-in-memory.
+Generated images are written to disk under
+`.ezcorp/extension-data/openai-image-gen-2/generated/` and served via a
+short `/api/ext-files/…` URL — keeping image bytes out of the model's
+context window rather than inlining base64. No shell access.
 
 ## Run the tests
 

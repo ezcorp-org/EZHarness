@@ -48,7 +48,7 @@ on one building:
 |---|---|---|
 | **Loan covenant at risk** — DSCR 1.22 vs covenant 1.15 (gap 0.07) | a technical breach is 0.07 away | `get-covenant-status` |
 | **NOI underperformance** — $1.08M YTD vs $1.30M budget | **−16.9% / −$220K** | `get-noi-trend` + `get-budget-vs-actual` |
-| **Unbilled rent escalations** on L-301 and L-302 | **~$10.5K recoverable** | `find-unbilled-escalations` |
+| **Unbilled rent escalations** on L-301 and L-302 | **~$12.1K recoverable** | `find-unbilled-escalations` |
 | **CAM 2024 under-recovery** | **$13K** unissued true-up | `get-cam-status` |
 | **Insurance policy expiring in 22 days** | critical compliance clock | `get-compliance` |
 | **OpEx Utilities +25%** over budget | **$13K** investigation target | `get-budget-vs-actual` |
@@ -59,7 +59,7 @@ on one building:
 1. *"First — overview, leases, rent roll. Sanity check on the building."*
 2. *"Here's where the value starts. The agent noticed that two tenants,
    L-301 and L-302, have been billed at last year's rate for four months.
-   That's $10,500 of revenue we haven't invoiced. Not estimated — actual
+   That's $12,124 of revenue we haven't invoiced. Not estimated — actual
    uncollected dollars. The agent drafted the catch-up billing task."*
 3. *"Financial performance: NOI is 17% below plan, with Utilities running
    25% over budget. Every variance is traced to a source tool — the

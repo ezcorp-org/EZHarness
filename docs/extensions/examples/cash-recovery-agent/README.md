@@ -18,7 +18,7 @@ rest of the repo.
 
 ```
  ┌──────────────────────┐
- │  data/*.csv          │  8 projects, 459 cost entries, 48 invoices
+ │  data/*.csv          │  8 projects, 459 cost entries, 47 invoices
  └──────────┬───────────┘
             │ parse
  ┌──────────▼───────────┐     ┌────────────────────────────────────┐

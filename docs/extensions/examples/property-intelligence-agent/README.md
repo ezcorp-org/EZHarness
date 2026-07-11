@@ -42,8 +42,9 @@ property-intelligence-agent/
 
 ## Quick start (under 5 minutes)
 
-The extension is auto-installed by the harness via `src/extensions/bundled.ts`.
-For standalone development:
+Install the extension from the Library / marketplace (it auto-enables on
+install — see "How to register with the harness" below). For standalone
+development:
 
 ```bash
 # 1. Generate the demo CSVs (seed 42 is the default).
@@ -65,23 +66,16 @@ bun --print '
 
 ## How to register with the harness
 
-Already done — `src/extensions/bundled.ts` contains the entry:
-
-```ts
-{
-  name: "property-intelligence-agent",
-  path: "docs/extensions/examples/property-intelligence-agent",
-  permissions: {
-    filesystem: ["$CWD"],
-    grantedAt: { filesystem: Date.now() },
-  },
-},
-```
-
-The harness's `ensureBundledExtensions` pulls the on-disk manifest into the DB
-on each boot, so tool schemas and agent prompt stay in sync with source. On
-next startup, `ezcorp ext list` will show `property-intelligence-agent` among
-the installed extensions.
+This extension is **not** force-installed at boot — it is **not** listed in
+`BUNDLED_EXTENSIONS` in `src/extensions/bundled.ts`. Install it from the
+Library / marketplace like any other example extension. Its name is in the
+`AUTO_ENABLE_ON_INSTALL` allowlist (`src/extensions/installer.ts`), so the
+moment it's installed it lands enabled with its declared manifest permissions
+granted (`filesystem: ["$CWD"]`, capped by the bundled permission ceiling in
+`src/extensions/bundled-ceiling.ts`) rather than disabled with empty
+permissions — no separate `POST /:id/activate` consent step. After installing,
+`ezcorp ext list` will show `property-intelligence-agent` among the installed
+extensions.
 
 ## Tool surface
 
@@ -129,7 +123,7 @@ or by re-running `bun run generate-data.ts --seed=<n>`.
 
 None beyond the existing workspace SDK (`@ezcorp/sdk`, `@ezcorp/sdk/runtime`)
 and Bun standard library. No pandas, no pydantic — the code is pure
-TypeScript and one ~110-line no-dep CSV parser.
+TypeScript and one ~30-line no-dep CSV parser.
 
 ## Testing
 

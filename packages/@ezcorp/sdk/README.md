@@ -32,15 +32,15 @@ import {
 const greet: ToolHandler = async ({ name }) =>
   toolResult(`Hello, ${name ?? "world"}.`);
 
-const dispatcher = createToolDispatcher({ greet });
-const channel = getChannel();
-channel.onRequest(dispatcher);
+getChannel().start();
+createToolDispatcher({ greet });
 
 export default defineExtension({
-  manifestVersion: 2,
+  schemaVersion: 2,
   name: "hello",
   version: "0.1.0",
   description: "Minimal extension showing tool dispatch.",
+  author: { name: "Your Name" },
   tools: [
     {
       name: "greet",
@@ -59,12 +59,13 @@ Run the extension host with your extension registered. Every request routed to
 
 ## Exports map
 
-The package exposes three entry points:
+The package exposes four entry points:
 
 | Specifier | Purpose |
 |---|---|
 | `@ezcorp/sdk` | Manifest types (`ExtensionManifestV2`, `ToolDefinition`, `SkillDefinition`, …) and the `defineExtension` helper. |
 | `@ezcorp/sdk/runtime` | Runtime helpers that speak the host protocol: fs (`atomicRead`, `atomicWrite`, `loadJSON`, `saveJSON`, `findProjectRoot`, `getExtensionDataDir`), lock (`withLock`, `createMutex`), rpc (`createToolDispatcher`, `toolResult`, `toolError`), channel (`getChannel`, `JsonRpcError`), plus Phase 2 wrappers `fetchPermitted`, `invoke`, `PanelBuilder`, `registerLifecycleHook`, and `Storage`. |
+| `@ezcorp/sdk/entities` | Declarative-entity toolkit: the `EntityDeclaration` type, slug helpers (`isValidSlug`, `assertValidSlug`), record validation (`validateRecord`, `assertRecord`), KV-backed storage (`readEntityRecord`, `writeEntityRecord`, `listEntityRecords`), and tool builders (`buildEntityToolDefinitions`, `buildEntityToolHandlers`). |
 | `@ezcorp/sdk/test` | Reserved for a test-harness barrel. Empty today; populated in a follow-up release — import from `@ezcorp/sdk/runtime` for now. |
 
 ## Persistent extension data

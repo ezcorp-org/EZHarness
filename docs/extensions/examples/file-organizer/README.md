@@ -17,9 +17,9 @@ that workflow. **No network access** — nothing calls home.
 - **Deletes are never hard.** "Delete" means move to a reversible quarantine
   under `.ezcorp/extension-data/file-organizer/.trash/`. Only the TTL / size-cap
   prune ever hard-deletes.
-- **Three Hub pages**: Overview (status + alerts + pending count), Review
-  (accept/reject + quarantine), Folders & Rules (watched folders, modes,
-  presets, ignores).
+- **One Hub page** ("File Organizer") with three stacked sections: Status
+  (status + alerts + pending count), Review (accept/reject + quarantine), and
+  Folders & Rules (watched folders, modes, presets, ignores).
 
 ## Modes
 

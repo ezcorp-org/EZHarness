@@ -134,7 +134,6 @@ The `ctx` the primitive hands you:
 | `ctx.llm` | host-brokered `Llm` (the API token never reaches your code) |
 | `ctx.spawn(...)` | `spawnAssignment` — for deferred dispatch |
 | `ctx.fire` | `{ id, firedAt, trigger, catchUp }` |
-| `ctx.state` | the current open run record (deferred re-entry) |
 | `ctx.log(msg, level?)` | append a note to the fire's audit log |
 
 - **Terminal** loops resolve in the fire: `return { kind: "terminal", … }`
@@ -187,7 +186,7 @@ page.table(["Run", "Status"], runs.map((r) => ({
   action: {
     event: "myloop:steer",
     payload: { runId: r.id },
-    prompt: { label: "Steer message", field: "message", format: "text" },
+    prompt: { label: "Steer message", field: "message" },
   },
 })));
 // rowActions: { "myloop:steer": (e) => steer(e.payload.runId, e.payload.message) }
