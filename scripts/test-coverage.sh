@@ -227,6 +227,7 @@ run_legs() {
       src/__tests__/api-composer-suggest-feedback.server.test.ts \
       src/lib/components/__tests__/SuggestionPopover.component.test.ts \
       src/lib/components/__tests__/ComposerSuggestSection.component.test.ts \
+      src/__tests__/sse-resume-buffer.unit.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -298,7 +299,8 @@ run_legs() {
       --coverage.include='src/lib/server/scoped-tools.ts' \
       --coverage.include='src/routes/api/composer/suggest/+server.ts' \
       --coverage.include='src/routes/api/composer/suggest/schema.ts' \
-      --coverage.include='src/routes/api/composer/suggest/feedback/+server.ts' ) || VITEST_EXIT=$?
+      --coverage.include='src/routes/api/composer/suggest/feedback/+server.ts' \
+      --coverage.include='src/lib/server/sse-resume-buffer.ts' ) || VITEST_EXIT=$?
   # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
   # resolves them against the repo root and the web/src/... threshold keys match.
   if [ -f "$VITEST_COV/lcov.info" ]; then

@@ -4,7 +4,11 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { getConversation } from "$server/db/queries/conversations";
 import { shouldDeliverEvent, type RunScope } from "$server/runtime/sse-conversation-filter";
-import { BUS_EVENTS } from "./bus-events";
+import {
+  addSink,
+  replayFrom,
+  type BufferedEvent,
+} from "$lib/server/sse-resume-buffer";
 
 /**
  * Server-Sent Events (SSE) endpoint for the runtime event bus.
@@ -34,12 +38,22 @@ import { BUS_EVENTS } from "./bus-events";
 // non-handler exports from +server.ts, and tests must be able to import
 // the real list to catch events that emit but never reach this pipe.
 
-export const GET: RequestHandler = async ({ locals, url }) => {
+export const GET: RequestHandler = async ({ locals, url, request }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
 
   const bus = getBus();
+
+  // Resume cursor (C3): a reconnecting client presents the id of the last
+  // event it saw, via the standard `Last-Event-ID` header (native
+  // EventSource auto-reconnect) or a `?lastEventId=` query param (our manual
+  // reconnect in ws.ts). Buffered events with a greater id are replayed —
+  // through the SAME per-subscriber filter — before switching to live.
+  const cursorRaw =
+    request.headers.get("last-event-id") ?? url.searchParams.get("lastEventId");
+  const cursor =
+    cursorRaw !== null && /^\d+$/.test(cursorRaw) ? Number(cursorRaw) : null;
 
   // Subscriber context captured at connect-time. conversationId is an
   // optional scoping hint from the client — the UI passes it when the
@@ -89,32 +103,42 @@ export const GET: RequestHandler = async ({ locals, url }) => {
         controller.enqueue(encodeFrame(": connected\n\n"));
       } catch { /* stream closed before we got here — ignore */ }
 
-      for (const event of BUS_EVENTS) {
-        unsubs.push(
-          bus.on(event, (data: unknown) => {
-            // Fire-and-forget async delivery check. We cannot await
-            // inside a synchronous bus handler without blocking other
-            // handlers; schedule the check on a microtask and only
-            // enqueue if authorized. Events deliver out of strict
-            // handler-registration order but in causal order per-type
-            // (microtasks run FIFO), which is what the client expects.
-            shouldDeliverEvent(event, data, subscriber, getConversation, getRunScope)
-              .then((deliver) => {
-                if (!deliver) return;
-                try {
-                  const payload = JSON.stringify({ type: event, data });
-                  controller.enqueue(encodeFrame(`data: ${payload}\n\n`));
-                } catch {
-                  // Encoding error or controller closed — ignore.
-                }
-              })
-              .catch(() => {
-                // Should not happen — shouldDeliverEvent catches its own
-                // errors and fails open. If it escapes, drop the event
-                // rather than crash the stream.
-              });
-          }),
-        );
+      // Deliver one buffered event to THIS subscriber: re-run the exact
+      // per-subscriber filter (live and replayed events take the identical
+      // authorization path) and, if authorized, write an SSE frame stamped
+      // with the buffer id so the client's Last-Event-ID advances. The
+      // filter is async; we schedule it on a microtask and never await
+      // inside the synchronous fan-out. Microtasks run FIFO, so replayed
+      // frames (their promises created first, below) always precede live
+      // ones — causal order per-type is preserved.
+      const deliver = (buffered: BufferedEvent): void => {
+        shouldDeliverEvent(buffered.event, buffered.data, subscriber, getConversation, getRunScope)
+          .then((ok) => {
+            if (!ok) return;
+            try {
+              const payload = JSON.stringify({ type: buffered.event, data: buffered.data });
+              controller.enqueue(encodeFrame(`id: ${buffered.id}\ndata: ${payload}\n\n`));
+            } catch {
+              // Encoding error or controller closed — ignore.
+            }
+          })
+          .catch(() => {
+            // Should not happen — shouldDeliverEvent catches its own
+            // errors and fails open. If it escapes, drop the event
+            // rather than crash the stream.
+          });
+      };
+
+      // Register the live sink FIRST so no event fired during replay is
+      // lost. `record` assigns strictly increasing ids, so future (live)
+      // ids are all greater than any replayed id — the two sets never
+      // overlap, giving no gaps and no duplicates.
+      unsubs.push(addSink(bus, deliver));
+
+      // Replay everything the client missed (best-effort; a cursor that fell
+      // off the ring tail just replays the tail and the client refetches).
+      if (cursor !== null) {
+        for (const buffered of replayFrom(cursor)) deliver(buffered);
       }
 
       // Send a heartbeat every 15s. 30s loses races against many

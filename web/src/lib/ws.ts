@@ -57,6 +57,13 @@ export function createWSClient() {
 	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	let closed = false;
 	let attempt = 0;
+	// SSE resume cursor (C3). Because we intercept `onerror` and reconnect
+	// with a FRESH EventSource (which loses the native Last-Event-ID memory),
+	// we track the last seen event id ourselves and hand it back as a
+	// `?lastEventId=` query param so the server can replay the gap. The
+	// server also honours the standard `Last-Event-ID` header for any native
+	// auto-reconnect path.
+	let lastEventId: string | null = null;
 
 	// Connection-issue UI (banner + disabled chat input) is gated behind a
 	// grace window: a transient blip shorter than CONNECTION_GRACE_MS never
@@ -120,7 +127,11 @@ export function createWSClient() {
 	function connect() {
 		if (closed) return;
 
-		es = new EventSource("/api/runtime-events");
+		es = new EventSource(
+			lastEventId
+				? `/api/runtime-events?lastEventId=${encodeURIComponent(lastEventId)}`
+				: "/api/runtime-events",
+		);
 
 		es.onopen = () => {
 			attempt = 0;
@@ -131,6 +142,9 @@ export function createWSClient() {
 		};
 
 		es.onmessage = (event) => {
+			// Track the server-assigned id so a manual reconnect can resume
+			// from it (EventSource exposes the `id:` field as `lastEventId`).
+			if (event.lastEventId) lastEventId = event.lastEventId;
 			try {
 				const parsed: WSEvent = JSON.parse(event.data);
 				subscribers.forEach((fn) => {

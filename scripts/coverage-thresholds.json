@@ -232,6 +232,7 @@
   "web/src/lib/composer-suggest-logic.ts": 100,
   "web/src/lib/components/SuggestionPopover.svelte": 100,
   "web/src/lib/server/scoped-tools.ts": 100,
+  "web/src/lib/server/sse-resume-buffer.ts": 100,
   "web/src/routes/api/composer/suggest/+server.ts": 100,
   "web/src/routes/api/composer/suggest/schema.ts": 100,
   "web/src/routes/api/composer/suggest/feedback/+server.ts": 100,

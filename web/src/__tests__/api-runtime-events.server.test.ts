@@ -6,7 +6,7 @@
  * itself subscribes to the runtime bus and is integration territory.
  */
 
-import { test, expect, describe, vi } from "vitest";
+import { test, expect, describe, vi, beforeEach } from "vitest";
 
 const { busOn, getConversationMock, getRunConversationIdMock, getRunOwnershipMock } = vi.hoisted(() => ({
   busOn: vi.fn((_event: string, _handler: (data: unknown) => void) => () => undefined),
@@ -32,6 +32,31 @@ vi.mock("$server/db/queries/conversations", () => ({
 
 const { GET } = await import("../routes/api/runtime-events/+server");
 const { BUS_EVENTS } = await import("../routes/api/runtime-events/bus-events");
+const { __resetSseResumeBufferForTests } = await import(
+  "$lib/server/sse-resume-buffer"
+);
+
+// The resume buffer is a process singleton (one lazy bus subscription that
+// survives connect/disconnect). Reset it before each test so every GET is a
+// clean "first connection" — the recorder re-subscribes the mocked bus, which
+// the subscribe-every-event + run:token cases assert on.
+beforeEach(() => {
+  __resetSseResumeBufferForTests();
+});
+
+/** Read `n` SSE chunks from a response body and return the concatenated text. */
+async function readChunks(res: Response, n: number): Promise<string> {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let out = "";
+  for (let i = 0; i < n; i++) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    out += decoder.decode(value);
+  }
+  await reader.cancel();
+  return out;
+}
 
 function makeEvent(opts: {
   locals?: Record<string, unknown>;
@@ -164,6 +189,106 @@ describe("GET /api/runtime-events", () => {
     expect(frame).not.toContain("other-users-secret");
 
     await reader.cancel();
+    __clearMembershipCacheForTests();
+    __clearRunScopeCacheForTests();
+  });
+});
+
+// C3: reconnecting SSE clients replay events fired during the gap via
+// Last-Event-ID, through the SAME per-subscriber filter as live delivery.
+describe("GET /api/runtime-events — Last-Event-ID resume (C3)", () => {
+  test("replays buffered events to the OWNER on reconnect and drops them for a non-owner", async () => {
+    const { __clearMembershipCacheForTests, __clearRunScopeCacheForTests } =
+      await import("$server/runtime/sse-conversation-filter");
+    __clearMembershipCacheForTests();
+    __clearRunScopeCacheForTests();
+
+    getRunConversationIdMock.mockImplementation(async (runId: string) =>
+      runId === "run-owned"
+        ? "conv-owned"
+        : runId === "run-u2"
+          ? "conv-u2"
+          : undefined,
+    );
+    getConversationMock.mockImplementation(async (id: string) =>
+      id === "conv-owned"
+        ? { userId: "u1" }
+        : id === "conv-u2"
+          ? { userId: "u2" }
+          : null,
+    );
+
+    busOn.mockClear();
+    // Connection #1 (owner u1) primes the recorder's bus subscription so
+    // events buffer even while this is the only client.
+    const res1 = await GET(makeEvent({ locals: authedUser }));
+    const emit = busOn.mock.calls.find((c) => c[0] === "run:token")?.[1] as
+      | ((data: unknown) => void)
+      | undefined;
+    expect(emit).toBeDefined();
+
+    // Two events fire "while disconnected" — buffered as ids 1 and 2.
+    emit!({ runId: "run-owned", token: "gap-token-1", kind: "text" });
+    emit!({ runId: "run-owned", token: "gap-token-2", kind: "text" });
+    await res1.body!.cancel();
+
+    // Owner u1 reconnects from cursor 0 → both replayed, each carrying its id.
+    const res2 = await GET(
+      makeEvent({ locals: authedUser, query: { lastEventId: "0" } }),
+    );
+    const owned = await readChunks(res2, 3); // priming + 2 replayed frames
+    expect(owned).toContain("gap-token-1");
+    expect(owned).toContain("gap-token-2");
+    expect(owned).toContain("id: 1");
+    expect(owned).toContain("id: 2");
+
+    // A different user u2 reconnects from cursor 0 → both dropped. Prove it via
+    // ordering: a live u2-owned event (id 3) is emitted AFTER the replay is
+    // scheduled, and it is the first frame after priming — the replayed u1
+    // events never reach u2.
+    const u2 = { user: { id: "u2", email: "u2@x", name: "u2", role: "user" } };
+    const res3 = await GET(
+      makeEvent({ locals: u2, query: { lastEventId: "0" } }),
+    );
+    emit!({ runId: "run-u2", token: "u2-live-token", kind: "text" });
+    const foreign = await readChunks(res3, 2); // priming + the live u2 frame
+    expect(foreign).toContain("u2-live-token");
+    expect(foreign).not.toContain("gap-token-1");
+    expect(foreign).not.toContain("gap-token-2");
+
+    __clearMembershipCacheForTests();
+    __clearRunScopeCacheForTests();
+  });
+
+  test("no cursor → no replay (a fresh connection only sees live events)", async () => {
+    const { __clearMembershipCacheForTests, __clearRunScopeCacheForTests } =
+      await import("$server/runtime/sse-conversation-filter");
+    __clearMembershipCacheForTests();
+    __clearRunScopeCacheForTests();
+
+    getRunConversationIdMock.mockImplementation(async (runId: string) =>
+      runId === "run-owned" ? "conv-owned" : undefined,
+    );
+    getConversationMock.mockImplementation(async (id: string) =>
+      id === "conv-owned" ? { userId: "u1" } : null,
+    );
+
+    busOn.mockClear();
+    const res1 = await GET(makeEvent({ locals: authedUser }));
+    const emit = busOn.mock.calls.find((c) => c[0] === "run:token")?.[1] as
+      | ((data: unknown) => void)
+      | undefined;
+    emit!({ runId: "run-owned", token: "buffered-before", kind: "text" });
+    await res1.body!.cancel();
+
+    // Reconnect WITHOUT a cursor: the buffered event is not replayed; only the
+    // next live event (id 2) reaches the client.
+    const res2 = await GET(makeEvent({ locals: authedUser }));
+    emit!({ runId: "run-owned", token: "live-after", kind: "text" });
+    const frames = await readChunks(res2, 2); // priming + the live frame
+    expect(frames).toContain("live-after");
+    expect(frames).not.toContain("buffered-before");
+
     __clearMembershipCacheForTests();
     __clearRunScopeCacheForTests();
   });
