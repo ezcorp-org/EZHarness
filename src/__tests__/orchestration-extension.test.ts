@@ -16,10 +16,15 @@ import {
   _setAgentConfigsForTests,
   _setSpawnForTests,
   _setDefaultTimeoutMsForTests,
+  _setCancelRunForTests,
   _resetBindingsForTests,
   _internals,
 } from "../../docs/extensions/examples/orchestration/index";
-import type { SpawnAssignmentInput, SpawnAssignmentHandle } from "@ezcorp/sdk/runtime";
+import type {
+  SpawnAssignmentInput,
+  SpawnAssignmentHandle,
+  CancelRunResult,
+} from "@ezcorp/sdk/runtime";
 
 // ── In-memory fakes ────────────────────────────────────────────────
 
@@ -102,6 +107,10 @@ function expectAgentMeta(out: unknown): { subConversationId: string; agentName: 
 }
 
 let fakeAgents: FakeAgentConfigs;
+// Records every agentRunId the give-up path reaps. Reset per test; a default
+// safe fake is injected in beforeEach so timeout tests never fall through to
+// the real SDK `cancelRun` (which would block on an absent host channel).
+let cancelRunCalls: string[];
 
 beforeEach(() => {
   fakeAgents = new FakeAgentConfigs([
@@ -112,6 +121,11 @@ beforeEach(() => {
   // Default: identity-passthrough spawn. Tests that need specific
   // behavior override via _setSpawnForTests.
   _setDefaultTimeoutMsForTests(60_000);
+  cancelRunCalls = [];
+  _setCancelRunForTests(async (agentRunId: string): Promise<CancelRunResult> => {
+    cancelRunCalls.push(agentRunId);
+    return { cancelled: true };
+  });
   _internals.pendingInvocations.clear();
 });
 
@@ -354,43 +368,44 @@ describe("orchestration extension — foreign assignmentId", () => {
   });
 });
 
-// ── invoke_agent — non-terminal status no-op ───────────────────────
+// ── invoke_agent — sliding (activity-aware) deadline ───────────────
+//
+// A non-terminal `task:assignment_update` for a tracked invocation is no
+// longer a no-op: it RESETS the give-up timer (the host emits one on every
+// auto-continue / autonomous cycle transition), so a long, legitimately-
+// active multi-cycle child stays alive as long as it shows lifecycle
+// activity. The pending entry is preserved (same object) and the invocation
+// promise still does NOT resolve until a terminal status arrives.
 
-describe("orchestration extension — non-terminal status no-op", () => {
-  test("non-terminal status for a known assignmentId leaves pending entry intact; subsequent terminal resolves normally", async () => {
+describe("orchestration extension — sliding deadline", () => {
+  test("a non-terminal update re-arms the timer (new handle, same pending entry); promise does not resolve", async () => {
+    _setDefaultTimeoutMsForTests(100);
     const { fn } = makeFakeSpawn();
     _setSpawnForTests(fn);
 
     const invocation = tools.invoke_agent!({ agentConfigId: "agent-builder", task: "go" });
 
-    // Wait for the pending entry to appear.
     let assignmentId: string | undefined;
-    for (let i = 0; i < 20 && !assignmentId; i++) {
+    for (let i = 0; i < 50 && !assignmentId; i++) {
       await new Promise((r) => setTimeout(r, 1));
       assignmentId = Array.from(_internals.pendingInvocations.keys())[0];
     }
     expect(assignmentId).toBeDefined();
 
-    const before = _internals.pendingInvocations.get(assignmentId!);
-    expect(before).toBeDefined();
-    const timerBefore = before!.timeoutHandle;
+    const before = _internals.pendingInvocations.get(assignmentId!)!;
+    const timerBefore = before.timeoutHandle;
 
-    // Fire a non-terminal status against the same assignmentId — this
-    // drives the `status !== "completed" && status !== "failed"` early
-    // return at orchestration/index.ts:246. The pending entry must NOT
-    // be deleted, its timer must NOT be cleared, and the invocation
-    // promise must NOT resolve.
+    // Non-terminal status → timer RESET (clearTimeout + re-arm). Same
+    // pending object, but a NEW timeout handle.
     await _internals.handleAssignmentUpdate({
       conversationId: "conv-x",
       taskId: "task-x",
       assignment: { id: assignmentId!, status: "running", resultPreview: "still working" },
     });
 
-    // Pending entry still present, exact same object + same timer.
-    const after = _internals.pendingInvocations.get(assignmentId!);
-    expect(after).toBeDefined();
+    const after = _internals.pendingInvocations.get(assignmentId!)!;
     expect(after).toBe(before);
-    expect(after!.timeoutHandle).toBe(timerBefore);
+    expect(after.timeoutHandle).not.toBe(timerBefore);
     expect(_internals.pendingInvocations.size).toBe(1);
 
     // Invocation promise did NOT resolve — race it against a microtask
@@ -402,17 +417,7 @@ describe("orchestration extension — non-terminal status no-op", () => {
     ]);
     expect(raceResult).toBe(sentinel);
 
-    // Fire a second non-terminal status — still a no-op.
-    await _internals.handleAssignmentUpdate({
-      conversationId: "conv-x",
-      taskId: "task-x",
-      assignment: { id: assignmentId!, status: "assigned" },
-    });
-    expect(_internals.pendingInvocations.size).toBe(1);
-
-    // Now fire the terminal status — the state from the non-terminal
-    // drops should not have corrupted anything; invocation resolves
-    // with the terminal's resultPreview.
+    // Terminal resolves normally.
     await _internals.handleAssignmentUpdate({
       conversationId: "conv-x",
       taskId: "task-x",
@@ -422,6 +427,44 @@ describe("orchestration extension — non-terminal status no-op", () => {
     expect(expectText(out)).toBe("done at last");
     expect(expectIsError(out)).toBe(false);
     expect(_internals.pendingInvocations.size).toBe(0);
+  });
+
+  test("staggered non-terminal updates keep the invocation alive well past 2× the base timeout, then it completes normally", async () => {
+    // Base 100ms. Each activity update lands ~60ms apart (< base, so the
+    // timer never fires between updates) and total elapsed exceeds 2× base
+    // (200ms) — proving the deadline slides on activity rather than the
+    // flat base firing at 100ms. cancelRun must never be invoked here.
+    _setDefaultTimeoutMsForTests(100);
+    const { fn } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+
+    const invocation = tools.invoke_agent!({ agentConfigId: "agent-builder", task: "loopy" });
+    const key = await drainPendingKey();
+
+    for (let i = 0; i < 4; i++) {
+      await new Promise((r) => setTimeout(r, 60));
+      // Still alive at each 60ms tick (< 100ms base).
+      expect(_internals.pendingInvocations.size).toBe(1);
+      await _internals.handleAssignmentUpdate({
+        conversationId: "conv-x",
+        taskId: `task-${key}`,
+        assignment: { id: key, status: "running" },
+      });
+    }
+
+    // ~240ms elapsed (> 2× the 100ms base) and the invocation survived
+    // because every activity update reset the timer.
+    expect(_internals.pendingInvocations.size).toBe(1);
+
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: `task-${key}`,
+      assignment: { id: key, status: "completed", resultPreview: "loop done" },
+    });
+    const out = await invocation;
+    expect(expectText(out)).toBe("loop done");
+    expect(expectIsError(out)).toBe(false);
+    expect(cancelRunCalls).toHaveLength(0); // never reaped — it stayed active
   });
 });
 
@@ -708,5 +751,157 @@ describe("orchestration extension — autonomous opt-in", () => {
     const out = await invocation;
     expect(expectText(out)).toBe("loop done");
     expect(expectIsError(out)).toBe(false);
+  });
+});
+
+// ── invoke_agent — configurable timeout resolution ─────────────────
+//
+// Base timeout precedence (highest first): a valid per-call
+// `timeoutSeconds` (30..3600s) → host-threaded `md.invokeTimeoutMs` →
+// module `defaultTimeoutMs`. Each branch is exercised by making the
+// resolved timeout tiny (fires fast) or large (survives).
+
+describe("orchestration extension — configurable timeout resolution", () => {
+  test("md.invokeTimeoutMs is the base timeout (a tiny value fires fast, not the 60s default)", async () => {
+    const { fn } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+    // Default is 60s (beforeEach); a 20ms md value means the timer fires
+    // in ~20ms — proving md.invokeTimeoutMs, not the default, is the base.
+    const out = await tools.invoke_agent!(
+      { agentConfigId: "agent-builder", task: "x" },
+      { invocationMetadata: { invokeTimeoutMs: 20 } },
+    );
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toMatch(/timed out/i);
+    expect(cancelRunCalls).toHaveLength(1); // reaped on give-up
+  });
+
+  test("a valid per-call timeoutSeconds overrides md.invokeTimeoutMs", async () => {
+    const { fn } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+    // md base is a tiny 20ms; the 30s per-call override must win so the
+    // invocation survives well past 20ms.
+    const invocation = tools.invoke_agent!(
+      { agentConfigId: "agent-builder", task: "x", timeoutSeconds: 30 },
+      { invocationMetadata: { invokeTimeoutMs: 20 } },
+    );
+    const key = await drainPendingKey();
+    await new Promise((r) => setTimeout(r, 60)); // past the 20ms md base
+    expect(_internals.pendingInvocations.size).toBe(1); // 30s override in effect
+    expect(cancelRunCalls).toHaveLength(0);
+
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: `task-${key}`,
+      assignment: { id: key, status: "completed", resultPreview: "ok" },
+    });
+    const out = await invocation;
+    expect(expectIsError(out)).toBe(false);
+  });
+
+  test("an out-of-range timeoutSeconds (< 30) falls back to md.invokeTimeoutMs", async () => {
+    const { fn } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+    const out = await tools.invoke_agent!(
+      { agentConfigId: "agent-builder", task: "x", timeoutSeconds: 5 },
+      { invocationMetadata: { invokeTimeoutMs: 20 } },
+    );
+    // 5s is below the 30s floor → ignored → md base (20ms) applies → fires.
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toMatch(/timed out/i);
+  });
+
+  test("an out-of-range timeoutSeconds (> 3600) falls back to md.invokeTimeoutMs", async () => {
+    const { fn } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+    const out = await tools.invoke_agent!(
+      { agentConfigId: "agent-builder", task: "x", timeoutSeconds: 99_999 },
+      { invocationMetadata: { invokeTimeoutMs: 20 } },
+    );
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toMatch(/timed out/i);
+  });
+
+  test("an invalid md.invokeTimeoutMs falls back to defaultTimeoutMs", async () => {
+    _setDefaultTimeoutMsForTests(20);
+    const { fn } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+    const out = await tools.invoke_agent!(
+      { agentConfigId: "agent-builder", task: "x" },
+      { invocationMetadata: { invokeTimeoutMs: -1 } }, // non-positive → invalid
+    );
+    // Falls back to the 20ms default → fires fast.
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toMatch(/timed out/i);
+  });
+});
+
+// ── invoke_agent — reap child on give-up ───────────────────────────
+//
+// On timeout the handler cancels the still-running child (best-effort,
+// awaited) BEFORE rejecting, so the child stops burning tokens and its
+// quota slot frees before the orchestrator can re-dispatch. A cancel
+// failure must NOT mask the timeout — it is folded into the error text.
+
+describe("orchestration extension — reap child on give-up", () => {
+  test("timeout cancels the child via cancelRun(handle.agentRunId) and reports it", async () => {
+    _setDefaultTimeoutMsForTests(20);
+    const { fn } = makeFakeSpawn(); // handle.agentRunId === "run-asn-1"
+    _setSpawnForTests(fn);
+
+    const out = await tools.invoke_agent!({ agentConfigId: "agent-builder", task: "x" });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toMatch(/timed out/i);
+    // Reaped with the spawn handle's agentRunId.
+    expect(cancelRunCalls).toEqual(["run-asn-1"]);
+    expect(expectText(out)).toContain("the child run was cancelled");
+    // Pending map cleaned up.
+    expect(_internals.pendingInvocations.size).toBe(0);
+  });
+
+  test("a throwing cancelRun still rejects with the timeout error and notes the failure", async () => {
+    _setDefaultTimeoutMsForTests(20);
+    _setSpawnForTests(makeFakeSpawn().fn);
+    _setCancelRunForTests(async () => {
+      throw new Error("rpc down");
+    });
+
+    const out = await tools.invoke_agent!({ agentConfigId: "agent-builder", task: "x" });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toMatch(/timed out/i);
+    expect(expectText(out)).toContain("could not be cancelled");
+    expect(expectText(out)).toContain("rpc down");
+    expect(_internals.pendingInvocations.size).toBe(0);
+  });
+
+  test("cancelRun resolving { cancelled: false } notes the reason in the error", async () => {
+    _setDefaultTimeoutMsForTests(20);
+    _setSpawnForTests(makeFakeSpawn().fn);
+    _setCancelRunForTests(async (): Promise<CancelRunResult> => ({
+      cancelled: false,
+      reason: "missing-run",
+    }));
+
+    const out = await tools.invoke_agent!({ agentConfigId: "agent-builder", task: "x" });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("could not be cancelled");
+    expect(expectText(out)).toContain("missing-run");
+  });
+
+  test("timeout error text carries agent name, seconds, and subConversationId; _agentMeta preserved", async () => {
+    _setDefaultTimeoutMsForTests(600); // Math.round(0.6) === 1 → "1s"
+    const { fn } = makeFakeSpawn({ assignmentIdPrefix: "z" }); // subConversationId === "sub-z-1"
+    _setSpawnForTests(fn);
+
+    const out = await tools.invoke_agent!({ agentConfigId: "agent-builder", task: "x" });
+    const text = expectText(out);
+    expect(text).toContain("builder"); // agent name
+    expect(text).toMatch(/timed out after 1s/); // effective timeout in seconds
+    expect(text).toContain("sub-z-1"); // subConversationId to open the sub-conversation
+    // _agentMeta is still attached to the error tool-result.
+    const meta = expectAgentMeta(out);
+    expect(meta).toBeDefined();
+    expect(meta!.agentName).toBe("builder");
+    expect(meta!.subConversationId).toBe("sub-z-1");
   });
 });

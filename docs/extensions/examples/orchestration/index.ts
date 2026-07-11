@@ -22,9 +22,11 @@ import {
   AgentConfigs,
   registerEventHandler,
   spawnAssignment,
+  cancelRun,
   toolResult,
   type SpawnAssignmentInput,
   type SpawnAssignmentHandle,
+  type CancelRunResult,
   type ToolHandler,
   type ToolHandlerContext,
 } from "@ezcorp/sdk/runtime";
@@ -42,10 +44,12 @@ interface AgentConfigsLike {
 
 type SpawnFn = (input: SpawnAssignmentInput) => Promise<SpawnAssignmentHandle>;
 type RegisterEventHandlerFn = typeof registerEventHandler;
+type CancelRunFn = (agentRunId: string) => Promise<CancelRunResult>;
 
 let agentConfigs: AgentConfigsLike = new AgentConfigs();
 let spawn: SpawnFn = spawnAssignment;
 let registerEventHandlerImpl: RegisterEventHandlerFn = registerEventHandler;
+let cancelRunImpl: CancelRunFn = cancelRun;
 
 /** Test-only: inject a fake AgentConfigs resolver. */
 export function _setAgentConfigsForTests(fake: AgentConfigsLike): void {
@@ -62,26 +66,52 @@ export function _setSpawnForTests(fake: SpawnFn): void {
 export function _setRegisterEventHandlerForTests(fake: RegisterEventHandlerFn): void {
   registerEventHandlerImpl = fake;
 }
+/** Test-only: inject a fake cancel-run client. The give-up path reaps the
+ *  child through this seam; the real SDK `cancelRun` talks to the host over
+ *  the channel, so unit tests that exercise the timeout branch MUST inject a
+ *  stub or the reap would block on an absent host. */
+export function _setCancelRunForTests(fake: CancelRunFn): void {
+  cancelRunImpl = fake;
+}
 /** Test-only: restore real SDK bindings. */
 export function _resetBindingsForTests(): void {
   agentConfigs = new AgentConfigs();
   spawn = spawnAssignment;
   registerEventHandlerImpl = registerEventHandler;
+  cancelRunImpl = cancelRun;
 }
 
 // ── Timeouts (injectable for tests) ────────────────────────────────
-
-const DEFAULT_AGENT_TIMEOUT_MS = 60_000;
+//
+// The base give-up timeout is resolved per call (see `invokeAgent`):
+//   1. a valid per-call `timeoutSeconds` arg (30..3600s) wins, else
+//   2. the host-threaded `invokeTimeoutMs` metadata (from the operator's
+//      `orchestration:invokeTimeoutMs` setting; host default 300s), else
+//   3. this module `defaultTimeoutMs` floor.
+// The wait is ALSO activity-aware: every non-terminal
+// `task:assignment_update` for a live invocation resets the timer (sliding
+// deadline), so a long multi-cycle child survives as long as it shows
+// lifecycle activity. `defaultTimeoutMs` was raised 60s→300s to align the
+// floor with the host's own idle watchdog (90s / 300s / 900s), so the tool
+// no longer gives up BEFORE the platform considers the child idle.
+const DEFAULT_AGENT_TIMEOUT_MS = 300_000;
 let defaultTimeoutMs = DEFAULT_AGENT_TIMEOUT_MS;
 
 // Autonomous-mode wait budget. A looping sub-agent does NOT reach a
 // terminal `task:assignment_update` until it self-reports done/blocked
 // or exhausts its cycle cap, so the synchronous `invoke_agent` wait
-// must be widened from the bounded 60s default. Per-cycle budget is
-// generous (each cycle is itself a full run guarded by the host's 90s
-// idle watchdog); +1 covers the final terminal cycle.
+// must be widened. Per-cycle budget is generous (each cycle is itself a
+// full run guarded by the host's idle watchdog); +1 covers the final
+// terminal cycle. The resolved base is a FLOOR — a larger operator /
+// per-call timeout still wins (see `Math.max` at the resolution site).
 const AUTONOMOUS_PER_CYCLE_MS = 120_000;
 const ORCH_DEFAULT_MAX_CYCLES = 8;
+
+/** Per-call `timeoutSeconds` bounds — mirror the manifest inputSchema
+ *  (`minimum` / `maximum`). A value outside this window is ignored and the
+ *  metadata/base timeout applies instead. */
+const MIN_TIMEOUT_SECONDS = 30;
+const MAX_TIMEOUT_SECONDS = 3600;
 
 /** Test-only: shrink the default 60s timeout so the timeout branch can
  *  be exercised without waiting a real minute. */
@@ -101,9 +131,18 @@ interface PendingInvocation {
   resolve: (result: { result: string; success: boolean }) => void;
   reject: (err: Error) => void;
   timeoutHandle: ReturnType<typeof setTimeout>;
+  /** Duration used to (re-)arm the give-up timer. The sliding-deadline path
+   *  in `handleAssignmentUpdate` re-arms with this same duration on activity. */
+  timeoutMs: number;
+  /** Bound give-up handler — reaps the child then rejects. Re-armed by the
+   *  subscription handler on each non-terminal activity update. */
+  fireTimeout: () => void;
   agentName: string;
   agentConfigId: string;
   subConversationId: string;
+  /** Sub-agent run id — used to reap (cancel) the child on give-up so it
+   *  stops burning tokens and its quota slot frees for re-dispatch. */
+  agentRunId: string;
 }
 
 const pendingInvocations = new Map<string, PendingInvocation>();
@@ -119,11 +158,12 @@ const pendingInvocations = new Map<string, PendingInvocation>();
 // time via `extensionToAgentTool`'s `invocationMetadata` seam.
 
 const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
-  const { agentConfigId, task, autonomous, maxCycles } = args as {
+  const { agentConfigId, task, autonomous, maxCycles, timeoutSeconds } = args as {
     agentConfigId: string;
     task: string;
     autonomous?: boolean;
     maxCycles?: number;
+    timeoutSeconds?: number;
   };
 
   // Validate: agent must exist and be visible to this user. Legacy
@@ -139,6 +179,30 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
     });
   }
 
+  // Build spawn input from ctx.invocationMetadata (set by the host at
+  // tool-invoke time in commit 4). Spread each field optionally — only
+  // include when metadata has it.
+  const md = ctx?.invocationMetadata ?? {};
+
+  // Resolve the base give-up timeout (see the Timeouts block for the
+  // precedence ladder). A per-call `timeoutSeconds` in the accepted window
+  // overrides the host-threaded `invokeTimeoutMs` metadata, which in turn
+  // overrides the module `defaultTimeoutMs`.
+  const metaTimeoutMs =
+    typeof md.invokeTimeoutMs === "number" &&
+    Number.isFinite(md.invokeTimeoutMs) &&
+    md.invokeTimeoutMs > 0
+      ? md.invokeTimeoutMs
+      : defaultTimeoutMs;
+  const perCallTimeoutMs =
+    typeof timeoutSeconds === "number" &&
+    Number.isFinite(timeoutSeconds) &&
+    timeoutSeconds >= MIN_TIMEOUT_SECONDS &&
+    timeoutSeconds <= MAX_TIMEOUT_SECONDS
+      ? timeoutSeconds * 1000
+      : undefined;
+  const resolvedBaseMs = perCallTimeoutMs ?? metaTimeoutMs;
+
   // Autonomous opt-in: presence of `autonomous: true` enables the
   // host-side self-continuation loop. A positive finite `maxCycles`
   // overrides the runtime default; otherwise the runtime default
@@ -149,14 +213,12 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
         : {})
     : undefined;
   const effectiveMaxCycles = autonomousCfg?.maxCycles ?? ORCH_DEFAULT_MAX_CYCLES;
+  // Autonomous mode widens the wait to cover every self-continuation cycle,
+  // but never shrinks below the resolved base — a large operator/per-call
+  // timeout still wins.
   const timeoutMs = autonomousCfg
-    ? AUTONOMOUS_PER_CYCLE_MS * (effectiveMaxCycles + 1)
-    : defaultTimeoutMs;
-
-  // Build spawn input from ctx.invocationMetadata (set by the host at
-  // tool-invoke time in commit 4). Spread each field optionally — only
-  // include when metadata has it.
-  const md = ctx?.invocationMetadata ?? {};
+    ? Math.max(AUTONOMOUS_PER_CYCLE_MS * (effectiveMaxCycles + 1), resolvedBaseMs)
+    : resolvedBaseMs;
   const spawnInput: SpawnAssignmentInput = {
     task,
     agentConfigId,
@@ -200,23 +262,54 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
   // sub-agent output (event `resultFull`), not the 200-char preview.
   const completion = new Promise<{ result: string; success: boolean }>(
     (resolve, reject) => {
-      const timeoutHandle = setTimeout(() => {
-        if (pendingInvocations.has(handle.assignmentId)) {
-          pendingInvocations.delete(handle.assignmentId);
-          reject(
-            new Error(
-              `Agent "${config.name}" timed out after ${Math.round(timeoutMs / 1000)}s`,
-            ),
-          );
+      // Give-up path: reap the still-running child, THEN reject with an
+      // actionable error. On timeout the child would otherwise keep
+      // running (orphaned, burning tokens) and the orchestrator would get
+      // a non-actionable error and often re-dispatch (double execution).
+      const reapAndReject = async () => {
+        const seconds = Math.round(timeoutMs / 1000);
+        // Best-effort reap: cancel the child so it stops running (Phase A1's
+        // cascade-cancel also tears down any grandchildren) and its quota
+        // slot frees BEFORE the orchestrator can re-dispatch. Awaited so the
+        // slot release lands; a cancel failure must NOT mask the timeout —
+        // it is folded into the error text instead.
+        let reapNote: string;
+        try {
+          const res = await cancelRunImpl(handle.agentRunId);
+          reapNote = res.cancelled
+            ? "the child run was cancelled"
+            : `the child run could not be cancelled (${res.reason ?? "unknown"})`;
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err);
+          reapNote = `the child run could not be cancelled (${m})`;
         }
-      }, timeoutMs);
+        reject(
+          new Error(
+            `Agent "${config.name}" timed out after ${seconds}s; ${reapNote}. ` +
+              `Open sub-conversation ${handle.subConversationId} to inspect or ` +
+              `resume the sub-agent.`,
+          ),
+        );
+      };
+      // `fireTimeout` is stored on the pending entry so the sliding-deadline
+      // path can re-arm the exact same behavior on each activity update.
+      // First-fire-wins: a terminal update that raced in already removed
+      // the entry, making this a no-op.
+      const fireTimeout = () => {
+        if (!pendingInvocations.has(handle.assignmentId)) return;
+        pendingInvocations.delete(handle.assignmentId);
+        void reapAndReject();
+      };
       pendingInvocations.set(handle.assignmentId, {
         resolve,
         reject,
-        timeoutHandle,
+        timeoutHandle: setTimeout(fireTimeout, timeoutMs),
+        timeoutMs,
+        fireTimeout,
         agentName: config.name,
         agentConfigId,
         subConversationId: handle.subConversationId,
+        agentRunId: handle.agentRunId,
       });
     },
   );
@@ -275,10 +368,27 @@ async function handleAssignmentUpdate(
   payload: IncomingAssignmentUpdate,
 ): Promise<void> {
   const pending = pendingInvocations.get(payload.assignment.id);
+  // Miss = either a foreign assignment (another extension's update — the map
+  // is keyed on globally-unique assignmentIds) OR a terminal update arriving
+  // for an invocation we already gave up on and reaped. The latter is a
+  // deliberate silent no-op: the timeout path cancels the child before
+  // rejecting, so a late terminal update for a reaped invocation is
+  // near-impossible, and if one still arrives there is no pending waiter to
+  // resolve — dropping it is correct, not a lost result.
   if (!pending) return;
 
   const status = payload.assignment.status;
-  if (status !== "completed" && status !== "failed") return;
+  if (status !== "completed" && status !== "failed") {
+    // Sliding (activity-aware) deadline: a non-terminal lifecycle update for
+    // a tracked invocation proves the child is still alive. The host emits
+    // one on every auto-continue / autonomous cycle transition, so reset the
+    // give-up timer (same duration) instead of ignoring the update — this
+    // keeps a long, legitimately-active multi-cycle child from being reaped
+    // mid-run while still bounding a genuinely-stuck child to one idle window.
+    clearTimeout(pending.timeoutHandle);
+    pending.timeoutHandle = setTimeout(pending.fireTimeout, pending.timeoutMs);
+    return;
+  }
 
   clearTimeout(pending.timeoutHandle);
   pendingInvocations.delete(payload.assignment.id);

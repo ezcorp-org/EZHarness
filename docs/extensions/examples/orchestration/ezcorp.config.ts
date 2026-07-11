@@ -29,6 +29,13 @@ const INVOKE_AGENT_SCHEMA = {
       description:
         "Cap on autonomous self-continuation cycles (only meaningful when `autonomous` is true). Defaults to 8.",
     },
+    timeoutSeconds: {
+      type: "integer",
+      minimum: 30,
+      maximum: 3600,
+      description:
+        "Max seconds to wait for this agent before giving up (child is cancelled on timeout).",
+    },
   },
   required: ["agentConfigId", "task"],
 } as const;

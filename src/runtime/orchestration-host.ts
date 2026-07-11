@@ -27,6 +27,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { getDb } from "../db/connection";
 import { conversationExtensions } from "../db/schema";
 import { getExtensionByName } from "../db/queries/extensions";
+import { getSetting } from "../db/queries/settings";
 import type { ExtensionRegistry } from "../extensions/registry";
 import { ToolExecutor, extensionToAgentTool } from "../extensions/tool-executor";
 import { getPermissionEngine } from "../extensions/permission-engine";
@@ -35,6 +36,33 @@ import type { SpawnQuota } from "../extensions/spawn-quota";
 import type { AgentExecutor } from "./executor";
 import { logger } from "../logger";
 const log = logger.child("orchestration-host");
+
+// Default base give-up timeout the extension applies when the operator has
+// not set `orchestration:invokeTimeoutMs`. Aligned with the host's own idle
+// watchdog (90s / 300s / 900s) so `invoke_agent` no longer gives up BEFORE
+// the platform considers a child idle. The extension re-derives its own
+// fallback (see docs/extensions/examples/orchestration/index.ts) — this
+// value is the host-side default threaded through `invocationMetadata`.
+const DEFAULT_INVOKE_TIMEOUT_MS = 300_000;
+
+/**
+ * Resolve the operator-configured `invoke_agent` base timeout in ms from the
+ * `orchestration:invokeTimeoutMs` setting. A positive finite number wins;
+ * anything else (unset, malformed, non-positive) falls back to
+ * {@link DEFAULT_INVOKE_TIMEOUT_MS}. A settings-read failure must NOT kill
+ * the turn — it is logged and treated as "unset".
+ */
+async function resolveInvokeTimeoutMs(): Promise<number> {
+  try {
+    const v = await getSetting("orchestration:invokeTimeoutMs");
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) return v;
+  } catch (err) {
+    log.warn("Failed to read orchestration:invokeTimeoutMs — using default", {
+      error: String(err),
+    });
+  }
+  return DEFAULT_INVOKE_TIMEOUT_MS;
+}
 
 // ── Extension-id resolution (cached) ────────────────────────────────
 
@@ -242,13 +270,18 @@ export async function wireOrchestrationToolsForTurn(
   }
 
   // 2. Per-turn invocation metadata for `invoke_agent`. Only include
-  //    defined sources. `orchestrationDepth` + `parentRunId` are always
-  //    set. `parentRunId` is THIS turn's orchestrator run id: the handler
-  //    threads it into the spawn so the child registers under it and a
-  //    Stop on the orchestrator cascades to the child (P1 cascade cancel).
+  //    defined sources. `orchestrationDepth`, `parentRunId`, and
+  //    `invokeTimeoutMs` are always set. `parentRunId` is THIS turn's
+  //    orchestrator run id: the handler threads it into the spawn so the
+  //    child registers under it and a Stop on the orchestrator cascades to
+  //    the child (P1 cascade cancel). `invokeTimeoutMs` is the resolved
+  //    operator base give-up timeout — the handler uses it as the base for
+  //    its activity-aware wait (a valid per-call `timeoutSeconds` overrides).
+  const invokeTimeoutMs = await resolveInvokeTimeoutMs();
   const invocationMetadata: Record<string, unknown> = {
     orchestrationDepth: depth,
     parentRunId: runId,
+    invokeTimeoutMs,
   };
   if (parentMessageId !== undefined) invocationMetadata.parentMessageId = parentMessageId;
   if (memberOverrides !== undefined) invocationMetadata.overrides = memberOverrides;

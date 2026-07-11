@@ -123,9 +123,15 @@ describe("autonomous continuation ↔ orchestration wait (integration)", () => {
       },
       reject: (e: Error) => { throw e; },
       timeoutHandle: setTimeout(() => {}, 0),
+      // Sliding-deadline / reap fields (Phase A2). This test drives a
+      // terminal update, so the give-up path is never exercised — dummy
+      // values satisfy the PendingInvocation shape without being used.
+      timeoutMs: 60_000,
+      fireTimeout: () => {},
       agentName: "worker",
       agentConfigId: "cfg-int",
       subConversationId: "sub-int",
+      agentRunId: "run-int",
     });
     bus.on("task:assignment_update", (payload) => {
       void _internals.handleAssignmentUpdate(

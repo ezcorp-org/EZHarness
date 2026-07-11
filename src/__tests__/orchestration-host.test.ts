@@ -104,6 +104,18 @@ mock.module("../extensions/tool-executor", () => ({
   },
 }));
 
+// Controllable `getSetting` so the `orchestration:invokeTimeoutMs`
+// resolution branches (unset / valid / non-positive / read-throws) are all
+// driven deterministically. The real module (backed by the mocked test
+// PGlite) is spread first so `upsertSetting` etc. stay intact for other
+// importers (permission-engine imports both). Reset in beforeEach.
+const _realSettings = await import("../db/queries/settings");
+let settingsGetImpl: (key: string) => Promise<unknown> = async () => undefined;
+mock.module("../db/queries/settings", () => ({
+  ..._realSettings,
+  getSetting: (key: string) => settingsGetImpl(key),
+}));
+
 const {
   ensureOrchestrationWired,
   wireOrchestrationToolsForTurn,
@@ -195,6 +207,8 @@ afterAll(async () => {
 beforeEach(() => {
   captured.length = 0;
   _resetOrchestrationExtensionIdCache();
+  // Default: setting unset → resolveInvokeTimeoutMs falls back to the default.
+  settingsGetImpl = async () => undefined;
 });
 
 // ── ensureOrchestrationWired ───────────────────────────────────────
@@ -388,6 +402,9 @@ describe("wireOrchestrationToolsForTurn", () => {
     // parentRunId is THIS turn's orchestrator run id (baseParams runId),
     // threaded so the spawned child registers under it for cascade cancel.
     expect(md.parentRunId).toBe("run-123");
+    // invokeTimeoutMs is always present — the resolved operator base
+    // give-up timeout (default here, no setting seeded).
+    expect(md.invokeTimeoutMs).toBe(300_000);
   });
 
   test("invocationMetadata: undefined source fields are omitted (only always-set fields remain)", async () => {
@@ -396,11 +413,63 @@ describe("wireOrchestrationToolsForTurn", () => {
     await wireOrchestrationToolsForTurn(params);
 
     const md = captured[0]!.invocationMetadata!;
-    // orchestrationDepth + parentRunId are the two always-present fields.
-    expect(md).toEqual({ orchestrationDepth: 7, parentRunId: "run-123" });
+    // orchestrationDepth + parentRunId + invokeTimeoutMs are the three
+    // always-present fields (invokeTimeoutMs is the resolved default here).
+    expect(md).toEqual({
+      orchestrationDepth: 7,
+      parentRunId: "run-123",
+      invokeTimeoutMs: 300_000,
+    });
     expect("parentMessageId" in md).toBe(false);
     expect("overrides" in md).toBe(false);
     expect("teamToolScope" in md).toBe(false);
+  });
+
+  test("invokeTimeoutMs defaults to 300000 when orchestration:invokeTimeoutMs is unset", async () => {
+    settingsGetImpl = async () => undefined;
+    const params = baseParams();
+    await wireOrchestrationToolsForTurn(params);
+    expect(captured[0]!.invocationMetadata!.invokeTimeoutMs).toBe(300_000);
+  });
+
+  test("invokeTimeoutMs reflects orchestration:invokeTimeoutMs when set to a positive number", async () => {
+    settingsGetImpl = async (key) =>
+      key === "orchestration:invokeTimeoutMs" ? 123_456 : undefined;
+    const params = baseParams();
+    await wireOrchestrationToolsForTurn(params);
+    expect(captured[0]!.invocationMetadata!.invokeTimeoutMs).toBe(123_456);
+  });
+
+  test("invokeTimeoutMs falls back to the default when the setting is non-positive", async () => {
+    settingsGetImpl = async () => -5;
+    const params = baseParams();
+    await wireOrchestrationToolsForTurn(params);
+    expect(captured[0]!.invocationMetadata!.invokeTimeoutMs).toBe(300_000);
+  });
+
+  test("invokeTimeoutMs falls back to the default when the setting is non-numeric", async () => {
+    settingsGetImpl = async () => "not-a-number";
+    const params = baseParams();
+    await wireOrchestrationToolsForTurn(params);
+    expect(captured[0]!.invocationMetadata!.invokeTimeoutMs).toBe(300_000);
+  });
+
+  test("a settings read failure does not kill the turn — invokeTimeoutMs falls back to the default", async () => {
+    const warnSpy = spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      settingsGetImpl = async () => {
+        throw new Error("settings backend down");
+      };
+      const params = baseParams();
+      await wireOrchestrationToolsForTurn(params);
+      // The tool is still wired and the default timeout applies.
+      expect(params.agentTools).toHaveLength(1);
+      expect(captured[0]!.invocationMetadata!.invokeTimeoutMs).toBe(300_000);
+      const emitted = warnSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(emitted).toContain("orchestration:invokeTimeoutMs");
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   test("schema override de-duplicates agent ids", async () => {
