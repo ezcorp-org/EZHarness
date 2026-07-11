@@ -74,7 +74,7 @@ mock.module("@earendil-works/pi-ai/oauth", () => ({
   getOAuthApiKey: mockGetOAuthApiKey,
 }));
 
-mock.module("@earendil-works/pi-ai", () => ({
+mock.module("@earendil-works/pi-ai/compat", () => ({
   getEnvApiKey: mockGetEnvApiKey,
   getModel: mock(() => ({})),
   getModels: mock(() => []),

@@ -399,7 +399,7 @@ describe("loadHistory image-rehydration", () => {
     const { history } = await loadHistory(mkCtx(), convId, {
       parentMessageId: leafId,
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
     });
     expect(history).toHaveLength(3);
     // Assistant message: text-only (pi-ai contract).
@@ -461,7 +461,7 @@ describe("loadHistory image-rehydration", () => {
     const { history } = await loadHistory(mkCtx(), convId, {
       parentMessageId: leafId,
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
     });
     const allImages = history.flatMap((m: any) =>
       Array.isArray(m.content) ? m.content.filter((p: any) => p.type === "image") : [],
@@ -494,7 +494,7 @@ describe("loadHistory image-rehydration", () => {
     const { history } = await loadHistory(mkCtx(), convId, {
       parentMessageId: leafId,
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
     });
     const allImages = history.flatMap((m: any) =>
       Array.isArray(m.content) ? m.content.filter((p: any) => p.type === "image") : [],
@@ -522,7 +522,7 @@ describe("loadHistory image-rehydration", () => {
     const { history } = await loadHistory(mkCtx(), convId, {
       parentMessageId: leafId,
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
     });
     const allImages = history.flatMap((m: any) =>
       Array.isArray(m.content) ? m.content.filter((p: any) => p.type === "image") : [],
@@ -545,7 +545,7 @@ describe("loadHistory image-rehydration", () => {
     const { history } = await loadHistory(mkCtx(), convId, {
       parentMessageId: leafId,
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
     });
     const allImages = history.flatMap((m: any) =>
       Array.isArray(m.content) ? m.content.filter((p: any) => p.type === "image") : [],
@@ -563,7 +563,7 @@ describe("loadHistory image-rehydration", () => {
     const { history } = await loadHistory(mkCtx(), convId, {
       parentMessageId: leafId,
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
     });
     expect(history).toHaveLength(2);
     // No user message receives injected images (there is none to attach to).
@@ -582,7 +582,7 @@ describe("loadHistory image-rehydration", () => {
     const { history } = await loadHistory(mkCtx(), convId, {
       parentMessageId: leafId,
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
     });
     const allImages = history.flatMap((m: any) =>
       Array.isArray(m.content) ? m.content.filter((p: any) => p.type === "image") : [],
@@ -618,7 +618,7 @@ describe("loadHistory image-rehydration", () => {
     const { history } = await loadHistory(mkCtx(), conv.id, {
       parentMessageId: m3.id,
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
     });
     const parts = partsOf((history[2] as any).content);
     const images = parts.filter((p) => p.type === "image");
@@ -651,7 +651,7 @@ describe("loadHistory image-rehydration", () => {
     const { history } = await loadHistory(mkCtx(), conv.id, {
       parentMessageId: m3.id,
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
     });
     const parts = partsOf((history[2] as any).content);
     expect(parts.filter((p) => p.type === "image")).toHaveLength(1);
@@ -689,7 +689,7 @@ describe("loadHistory image-rehydration", () => {
     const { history } = await loadHistory(mkCtx(), conv.id, {
       parentMessageId: m3.id,
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
     });
     const parts = partsOf((history[2] as any).content);
     expect(parts.filter((p) => p.type === "image")).toHaveLength(2);
@@ -715,7 +715,7 @@ describe("loadHistory image-rehydration", () => {
     const { history } = await loadHistory(mkCtx(), conv.id, {
       parentMessageId: m3.id,
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
     });
     const allImages = history.flatMap((m: any) =>
       Array.isArray(m.content) ? m.content.filter((p: any) => p.type === "image") : [],
@@ -735,7 +735,7 @@ describe("loadHistory image-rehydration", () => {
     const { history } = await loadHistory(mkCtx(), convId, {
       parentMessageId: leafId,
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
     });
     const parts = partsOf((history[2] as any).content);
     expect(parts.filter((p) => p.type === "image")).toHaveLength(2);

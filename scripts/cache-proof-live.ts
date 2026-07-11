@@ -24,7 +24,7 @@
  * Cost: two small completions over a ~6k-token prefix on Haiku — roughly a
  * cent. Runs entirely outside the app server; no DB, no container.
  */
-import { complete, getModel } from "@earendil-works/pi-ai";
+import { complete, getModel } from "@earendil-works/pi-ai/compat";
 import { applyCacheRetention } from "../src/runtime/stream-chat/cache-retention";
 import { appendMemoryTailBlock } from "../src/runtime/stream-chat/system-cache-split";
 

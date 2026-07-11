@@ -209,7 +209,7 @@ mock.module("../extensions/permissions", () => ({
   checkSensitiveConfirmation: async () => "allowed",
 }));
 
-mock.module("@earendil-works/pi-ai", () => ({
+mock.module("@earendil-works/pi-ai/compat", () => ({
   stream: () => ({ [Symbol.asyncIterator]: async function* () {} }),
   complete: async () => stubAssistantMessage(),
 }));

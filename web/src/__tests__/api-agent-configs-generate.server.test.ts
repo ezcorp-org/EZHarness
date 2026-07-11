@@ -10,7 +10,7 @@
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
 
-vi.mock("@earendil-works/pi-ai", () => ({
+vi.mock("@earendil-works/pi-ai/compat", () => ({
   complete: vi.fn(),
 }));
 
@@ -30,7 +30,7 @@ vi.mock("$server/db/queries/modes", () => ({
   getMode: vi.fn(async () => null),
 }));
 
-const { complete } = await import("@earendil-works/pi-ai");
+const { complete } = await import("@earendil-works/pi-ai/compat");
 const { resolveModel } = await import("$server/providers/router");
 const { getCredential } = await import("$server/providers/credentials");
 const { POST } = await import(

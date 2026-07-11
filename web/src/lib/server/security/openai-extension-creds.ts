@@ -22,7 +22,7 @@
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { getSetting, upsertSetting } from "$server/db/queries/settings";
 import { decrypt, encrypt } from "$server/providers/encryption";
-import { getEnvApiKey } from "@earendil-works/pi-ai";
+import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
 import { getOAuthApiKey, type OAuthCredentials } from "@earendil-works/pi-ai/oauth";
 
 export const OPENAI_IMAGE_GEN_EXT_NAME = "openai-image-gen-2";

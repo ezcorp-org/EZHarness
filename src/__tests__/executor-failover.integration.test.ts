@@ -81,7 +81,7 @@ mock.module("../providers/credentials", () => ({
   getApiKey: async () => "test-key",
 }));
 
-mock.module("@earendil-works/pi-ai", () => ({
+mock.module("@earendil-works/pi-ai/compat", () => ({
   stream: () => ({ [Symbol.asyncIterator]: async function* () {}, result: async () => ({}) }),
   complete: async () => ({}),
   // Full model shape — the pinned-turn path reaches the REAL registry

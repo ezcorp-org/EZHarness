@@ -41,7 +41,7 @@ function pickCompactionModel(activeProvider: string): { provider: string; model:
  */
 export async function mergeContents(contentA: string, contentB: string): Promise<string> {
   try {
-    const { complete } = await import("@earendil-works/pi-ai");
+    const { complete } = await import("@earendil-works/pi-ai/compat");
     const { resolveModel } = await import("../providers/router");
     const { getCredential } = await import("../providers/credentials");
 

@@ -47,7 +47,7 @@ export type PiCompleteFn = (
 
 /** Default implementation: dynamic-import pi-ai and forward the call. */
 export const piComplete: PiCompleteFn = async (piModel, body, opts) => {
-  const piAi = (await import("@earendil-works/pi-ai")) as {
+  const piAi = (await import("@earendil-works/pi-ai/compat")) as {
     complete: (...args: unknown[]) => Promise<unknown>;
   };
   const piOpts: Record<string, unknown> = { apiKey: opts.apiKey };

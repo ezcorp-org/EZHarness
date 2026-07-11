@@ -3,13 +3,8 @@
  * Replaces ~480 lines of CURATED_MODELS array and live API fetching.
  */
 
-import {
-  getModel,
-  getModels,
-  getProviders,
-  type Model,
-  type KnownProvider,
-} from "@earendil-works/pi-ai";
+import { getModel, getModels, getProviders } from "@earendil-works/pi-ai/compat";
+import type { Model, KnownProvider } from "@earendil-works/pi-ai";
 import { getSetting } from "../db/queries/settings";
 // Tier vocabulary single source of truth (type-only — erased at build).
 import type { RoutingTier } from "../runtime/tier-classifier";

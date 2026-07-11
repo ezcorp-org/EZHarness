@@ -3,14 +3,13 @@
  * Replaces ~500 lines of hand-rolled HTTP/SSE code with pi-ai calls.
  */
 
-import {
-  stream,
-  complete,
-  type Api,
-  type Model,
-  type Context,
-  type AssistantMessage,
-  type AssistantMessageEventStream,
+import { stream, complete } from "@earendil-works/pi-ai/compat";
+import type {
+  Api,
+  Model,
+  Context,
+  AssistantMessage,
+  AssistantMessageEventStream,
 } from "@earendil-works/pi-ai";
 import { getCredential } from "./credentials";
 

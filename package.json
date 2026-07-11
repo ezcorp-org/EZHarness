@@ -39,8 +39,8 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "^0.79.10",
-    "@earendil-works/pi-ai": "^0.79.10",
+    "@earendil-works/pi-agent-core": "^0.80.6",
+    "@earendil-works/pi-ai": "^0.80.6",
     "@electric-sql/pglite": "^0.3.15",
     "@ezcorp/ai-kit": "workspace:*",
     "@ezcorp/harness-client": "workspace:*",
