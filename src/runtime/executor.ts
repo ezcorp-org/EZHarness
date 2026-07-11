@@ -89,6 +89,12 @@ interface SteerShadow {
    *  emits `message_start` carrying THIS object when it drains the steer, so
    *  an identity match confirms delivery. */
   message: UserMessage;
+  /** The Agent instance this steer was queued into. A pre-first-token failover
+   *  swaps the run's Agent (failover.ts:220) and rebuilds the retry's context
+   *  from the DB — which never held the steer — so a steer "delivered" to an
+   *  instance that is no longer the run's live one was actually lost. Compared
+   *  against the live instance at terminal (see flushSteerShadows). */
+  agent: Agent;
   /** Fired at most once, iff this steer reaches its run's terminal undelivered. */
   onUndelivered: () => void;
   /** Set when the delivery `message_start` for {@link message} is observed. */
@@ -584,6 +590,18 @@ export class AgentExecutor {
    * delivered steer never fires it (no double-delivery). The wired consumer is
    * the agent-chat route's active-run branch (P2); `send_to_agent` is P3.
    *
+   * P4 — UNGUARDED mid-run semantics (both P2 and the P3 caller inherit this):
+   * this steers ANY live run, including a start-assignment-managed autonomous
+   * or schema-correction run. That shifts start-assignment's "user steering
+   * wins / abandons the in-flight schema correction" invariant from the
+   * run-boundary (where the drain path clears `schemaRepromptInFlight`) to a
+   * turn-boundary — a mid-run steer can interleave with a correction run.
+   * NOT guarded here: the executor only sees `AgentRun` (id/name/projectId/
+   * status); autonomous-mode + `schemaRepromptInFlight` are start-assignment
+   * closure-local, so a "don't steer those runs" guard needs run-mode plumbing
+   * = P4. Until then a caller that must not risk this should gate on its own
+   * run-type knowledge and enqueue instead of calling this.
+   *
    * `activeAgents` is read fresh on each call (never cached across calls):
    * `failover.ts:220` re-runs `activeAgents.set(runId, agent)` on every
    * attempt, so only the entry live AT CALL TIME is the instance that will
@@ -616,6 +634,7 @@ export class AgentExecutor {
     };
     const shadow: SteerShadow = {
       message: userMessage,
+      agent,
       onUndelivered,
       delivered: false,
       unsubscribe: () => {},
@@ -636,21 +655,32 @@ export class AgentExecutor {
 
   /**
    * Settle every steer shadow-tracked for a run at its terminal (P2). A steer
-   * whose delivery `message_start` was observed is done; one still undelivered
-   * — the loop finished past its final steering poll, the run aborted, or a
-   * failover swap discarded the queue-holding Agent — is re-offered via its
-   * `onUndelivered` callback (the route re-enqueues it to pending-messages).
-   * This is what makes `steered` best-effort-but-not-lossy: NO silent loss,
-   * and NO double-delivery (a delivered steer is skipped). Idempotent — the
-   * run's entry is removed, so a second terminal event is a no-op.
+   * is truly delivered ONLY if its delivery `message_start` was observed AND
+   * the Agent it was queued into is still the run's live instance. Any other
+   * case is re-offered via `onUndelivered` (the route re-enqueues it to
+   * pending-messages):
+   *   - never drained (loop finished past its final steering poll, or the run
+   *     aborted before the next poll) — `!delivered`;
+   *   - drained into an Agent that a pre-first-token failover then swapped out
+   *     (failover.ts:220): the retry rebuilds context from the DB, which never
+   *     held the steer, so it was lost even though `delivered` is set —
+   *     `shadow.agent !== live`. No double-delivery: failover only swaps
+   *     PRE-first-token, so the swapped-out attempt produced no user-visible
+   *     response to the steer.
+   * `activeAgents[runId]` is still populated here because finalize emits the
+   * terminal event BEFORE finalizeCleanup deletes it (finalize.ts). This is
+   * what makes `steered` best-effort-but-not-lossy: NO silent loss, NO
+   * double-delivery. Idempotent — the run's entry is removed, so a second
+   * terminal event is a no-op.
    */
   private flushSteerShadows(runId: string): void {
     const shadows = this.steerShadows.get(runId);
     if (!shadows) return;
     this.steerShadows.delete(runId);
+    const live = this.activeAgents.get(runId);
     for (const shadow of shadows) {
       shadow.unsubscribe();
-      if (!shadow.delivered) shadow.onUndelivered();
+      if (!shadow.delivered || shadow.agent !== live) shadow.onUndelivered();
     }
   }
 
@@ -1075,6 +1105,14 @@ export class AgentExecutor {
    */
   destroy(): void {
     this.watchdog.destroy();
+    // Detach every steer delivery-listener BEFORE dropping the terminal
+    // listeners below (which would otherwise strand them, leaking Agent
+    // subscriptions). No re-enqueue on shutdown: the pending-messages mailbox
+    // is in-memory and dies with the process, so re-offering would be a no-op.
+    for (const shadows of this.steerShadows.values()) {
+      for (const shadow of shadows) shadow.unsubscribe();
+    }
+    this.steerShadows.clear();
     for (const unsub of this.childRunUnsubs) unsub();
     this.childRunUnsubs = [];
     this.childRuns.clear();

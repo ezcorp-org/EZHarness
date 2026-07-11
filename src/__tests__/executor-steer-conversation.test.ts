@@ -22,6 +22,10 @@ class StubAgent {
   emitEvent(event: unknown): void {
     for (const listener of [...this.listeners]) listener(event);
   }
+  /** Test helper: how many delivery-listeners are still attached. */
+  listenerCount(): number {
+    return this.listeners.size;
+  }
 }
 
 function makeRun(partial: Partial<AgentRun> & { id: string }): AgentRun {
@@ -231,5 +235,42 @@ describe("AgentExecutor.steerConversation", () => {
     bus.emit("run:complete", { run } as AgentEvents["run:complete"]);
 
     expect(undelivered).toBe(1); // fired once, not twice
+  });
+
+  test("delivered-then-failover-swapped steer is re-offered (delivered to a discarded attempt)", () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus);
+    const attempt1 = new StubAgent();
+    const run = makeRun({ id: "r1" });
+    seed(exec, run, "conv-1", attempt1);
+
+    let undelivered = 0;
+    exec.steerConversation("conv-1", "hi", () => { undelivered++; });
+    // Drained on attempt-1's loop-start poll → message_start fires (delivered).
+    // But a user-message injection doesn't set emittedToClient, so a
+    // pre-first-token failure fails over: the run's live Agent is swapped to
+    // attempt-2, whose context (rebuilt from DB) never held the steer.
+    attempt1.emitEvent({ type: "message_start", message: steered(attempt1) });
+    const attempt2 = new StubAgent();
+    (exec as any).activeAgents.set("r1", attempt2);
+    bus.emit("run:complete", { run } as AgentEvents["run:complete"]);
+
+    expect(undelivered).toBe(1); // delivered to a since-discarded instance → re-offered
+  });
+
+  test("destroy() detaches steer delivery-listeners and does NOT re-offer", () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus);
+    const agent = new StubAgent();
+    seed(exec, makeRun({ id: "r1" }), "conv-1", agent);
+
+    let undelivered = 0;
+    exec.steerConversation("conv-1", "hi", () => { undelivered++; });
+    expect(agent.listenerCount()).toBe(1);
+
+    exec.destroy();
+
+    expect(agent.listenerCount()).toBe(0); // listener detached, no leak
+    expect(undelivered).toBe(0); // in-memory mailbox dies with the process
   });
 });
