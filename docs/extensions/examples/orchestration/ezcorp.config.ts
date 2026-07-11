@@ -36,6 +36,11 @@ const INVOKE_AGENT_SCHEMA = {
       description:
         "Max seconds to wait for this agent before giving up (child is cancelled on timeout).",
     },
+    outputSchema: {
+      type: "object",
+      description:
+        "Optional JSON Schema (object schemas only) that the agent's FINAL answer must satisfy. When provided, the sub-agent's final output is validated against this schema host-side; on failure the agent is automatically re-prompted (bounded) to emit corrected JSON, and you receive the validated JSON object instead of free text (or a clear schema-failure error). Supported keywords: type (object/array/string/number/integer/boolean/null), properties, required, items, enum, additionalProperties.",
+    },
   },
   required: ["agentConfigId", "task"],
 } as const;

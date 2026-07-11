@@ -37,6 +37,11 @@ import {
   TASK_BLOCKED_RE_G,
 } from "./sentinels";
 import { logger } from "../logger";
+import {
+  validateStructuredOutput,
+  buildSchemaInstruction,
+  buildSchemaCorrection,
+} from "./structured-output";
 import type {
   TaskAssignment,
   TaskSnapshot,
@@ -53,6 +58,14 @@ const log = logger.child("start-assignment");
 // output sentinel; the cycle cap is the hard backstop if it never does.
 
 const DEFAULT_MAX_AUTONOMOUS_CYCLES = 8;
+
+/**
+ * Bounded structured-output re-prompt budget. When an `outputSchema` is
+ * set and the child's final output fails validation, the child is
+ * re-prompted with the violations at most this many times before the run
+ * terminates with a `structuredResultError`.
+ */
+const MAX_SCHEMA_RETRIES = 2;
 
 /**
  * Cap for the FULL sub-agent result returned to the orchestrator LLM
@@ -165,6 +178,19 @@ export interface StartAssignmentOpts {
    *  run (the handler reserves/​swaps that itself post-dispatch), nor when a
    *  cycle is refused because the parent already ended. */
   onCycleRunIdChange?: (oldRunId: string, newRunId: string) => void;
+  /** Optional JSON Schema (object) the sub-agent's FINAL output must
+   *  satisfy (Phase B1). When set, startAssignment appends an explicit
+   *  output-format instruction to the child's first message, validates
+   *  the child's final text host-side against the documented JSON-Schema
+   *  subset (`structured-output.ts`), and re-prompts the SAME
+   *  sub-conversation (bounded, {@link MAX_SCHEMA_RETRIES}) with the
+   *  violations on failure. The terminal `task:assignment_update` carries
+   *  `structuredResult` (parsed object) on success, or `structuredResultError`
+   *  (violation summary) when the retry budget is exhausted — the child
+   *  still completes either way. If both `autonomousContinuation` and
+   *  `outputSchema` are set, autonomous looping runs first and the schema
+   *  validates the FINAL cycle's output. */
+  outputSchema?: Record<string, unknown>;
 }
 
 export interface StartAssignmentResult {
@@ -189,12 +215,15 @@ function emitAssignmentUpdate(
   taskId: string,
   assignment: TaskAssignment,
   resultFull?: string,
+  structured?: { result?: unknown; error?: string },
 ): void {
   bus.emit("task:assignment_update", {
     conversationId,
     taskId,
     assignment,
     ...(resultFull !== undefined ? { resultFull } : {}),
+    ...(structured?.result !== undefined ? { structuredResult: structured.result } : {}),
+    ...(structured?.error !== undefined ? { structuredResultError: structured.error } : {}),
   });
 }
 
@@ -218,7 +247,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     projectId, agentConfig, parentModel, parentProvider,
     reuseSubConversationId, parentMessageId, overrides, teamToolScope,
     orchestrationDepth, autonomousContinuation, parentRunId,
-    onCycleRunIdChange,
+    onCycleRunIdChange, outputSchema,
   } = opts;
 
   // Master kill-switch (Advanced Settings → "Agent goal pinning &
@@ -234,6 +263,9 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
   const maxAutoCycles =
     autonomousContinuation?.maxCycles ?? DEFAULT_MAX_AUTONOMOUS_CYCLES;
   let autoCycle = 0;
+  // Structured-output re-prompt counter (Phase B1). Independent of the
+  // autonomy kill-switch: schema validation is its own feature.
+  let schemaRetries = 0;
 
   // Reuse an existing sub-conversation for this agent, or create one.
   // If the caller pre-resolved a reuse id, honor it verbatim and skip the
@@ -313,8 +345,12 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
   const objectiveBlock =
     `## Pinned Objective\n${taskBody}\n\n` +
     `Stay focused on this objective for the duration of this assignment.`;
+  // Structured-output instruction rides ONLY on the first message. When
+  // no outputSchema is set this appends the empty string, so the prompt is
+  // byte-identical to the legacy behavior.
   const taskDescription =
-    `## Your Task\n${taskBody}\n\n## Full Plan Context\nThis task is part of a larger plan. Here are all tasks:\n${planContext}\n\nFocus on completing YOUR task. If you need information from other tasks, note it in your output.\n\nIMPORTANT: Do NOT call task_complete, task_fail, or task_plan in this run. Your parent conversation tracks your completion automatically when this run ends — calling those tools here only writes to your own (empty) sub-conversation storage and wastes turns. Just finish the work and stop.`;
+    `## Your Task\n${taskBody}\n\n## Full Plan Context\nThis task is part of a larger plan. Here are all tasks:\n${planContext}\n\nFocus on completing YOUR task. If you need information from other tasks, note it in your output.\n\nIMPORTANT: Do NOT call task_complete, task_fail, or task_plan in this run. Your parent conversation tracks your completion automatically when this run ends — calling those tools here only writes to your own (empty) sub-conversation storage and wastes turns. Just finish the work and stop.` +
+    (outputSchema ? buildSchemaInstruction(outputSchema) : "");
 
   const resolveSentinel = (value: string | undefined | null, fallback: string | undefined): string | undefined =>
     value === CURRENT_MODEL_SENTINEL ? fallback : value ?? undefined;
@@ -483,6 +519,48 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
         // signal.kind === "done" → no note; normal completion below.
       }
 
+      // (2.5) Structured-output validation + bounded re-prompt (Phase B1).
+      // Runs only when the run would otherwise terminally complete — i.e.
+      // AFTER autonomous sentinel handling (a schema child's autonomous
+      // loop, if any, has already stopped here). On a validation failure
+      // the SAME sub-conversation is re-prompted with the violations, up to
+      // MAX_SCHEMA_RETRIES times, reusing the exact cycle mechanics
+      // (parentRunId registration + onCycleRunIdChange quota re-key) as an
+      // autonomous cycle. A valid parse rides the terminal update as
+      // `structuredResult`; an exhausted budget as `structuredResultError`
+      // (the child still completes — success is unchanged).
+      let structuredResult: unknown | undefined;
+      let structuredResultError: string | undefined;
+      if (outputSchema && assignment.status === "running") {
+        const finalText = stripSignals(extractFullText(data.run.result?.output));
+        const outcome = validateStructuredOutput(outputSchema, finalText);
+        if (outcome.ok) {
+          structuredResult = outcome.value;
+        } else if (schemaRetries < MAX_SCHEMA_RETRIES) {
+          schemaRetries++;
+          const correction = buildSchemaCorrection(outputSchema, outcome.summary);
+          const newRunId = crypto.randomUUID();
+          assignment.agentRunId = newRunId;
+          emitTaskSnapshot(bus, snapshot);
+          emitAssignmentUpdate(bus, conversationId, taskId, assignment);
+
+          bus.emit("agent:spawn", {
+            runId: newRunId, agentRunId: newRunId, subConversationId,
+            agentName: agentConfig.name, agentConfigId: assignment.agentConfigId,
+            task: correction, parentConversationId: conversationId,
+          });
+
+          startRun(newRunId, correction, undefined, runId);
+          log.info("Structured-output re-prompt", {
+            conversationId, taskId, newRunId,
+            retry: schemaRetries, maxRetries: MAX_SCHEMA_RETRIES,
+          });
+          return;
+        } else {
+          structuredResultError = outcome.summary;
+        }
+      }
+
       // (3) Terminal completion. stripSignals keeps the preview clean;
       // for non-autonomous runs the output never carries a sentinel so
       // this branch is byte-for-byte the legacy behavior.
@@ -509,8 +587,20 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
         resultFull = capFullResult(full);
       }
 
+      // Structured-output payload (Phase B1) rides the terminal update
+      // alongside resultFull: a validated object as `structuredResult`, or
+      // an exhausted-retry violation summary as `structuredResultError`.
+      let structuredArg: { result?: unknown; error?: string } | undefined;
+      if (structuredResult !== undefined) {
+        structuredArg = { result: structuredResult };
+      } else if (structuredResultError !== undefined) {
+        structuredArg = { error: structuredResultError };
+      }
+
       emitTaskSnapshot(bus, snapshot);
-      emitAssignmentUpdate(bus, conversationId, taskId, assignment, resultFull);
+      emitAssignmentUpdate(
+        bus, conversationId, taskId, assignment, resultFull, structuredArg,
+      );
     });
 
     unsubError = bus.on("run:error", (data) => {

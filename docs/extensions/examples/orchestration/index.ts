@@ -160,12 +160,13 @@ const pendingInvocations = new Map<string, PendingInvocation>();
 // time via `extensionToAgentTool`'s `invocationMetadata` seam.
 
 const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
-  const { agentConfigId, task, autonomous, maxCycles, timeoutSeconds } = args as {
+  const { agentConfigId, task, autonomous, maxCycles, timeoutSeconds, outputSchema } = args as {
     agentConfigId: string;
     task: string;
     autonomous?: boolean;
     maxCycles?: number;
     timeoutSeconds?: number;
+    outputSchema?: Record<string, unknown>;
   };
 
   // Validate: agent must exist and be visible to this user. Legacy
@@ -242,6 +243,13 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
     // child so a Stop on the orchestrator cascades to the sub-agent.
     ...(typeof md.parentRunId === "string" ? { parentRunId: md.parentRunId } : {}),
     ...(autonomousCfg ? { autonomousContinuation: autonomousCfg } : {}),
+    // Structured output: forward the caller's JSON Schema so the host
+    // validates the child's final output against it (and re-prompts on
+    // failure). Only a plain object is threaded — arrays/primitives are
+    // dropped here and would also be rejected host-side.
+    ...(outputSchema && typeof outputSchema === "object" && !Array.isArray(outputSchema)
+      ? { outputSchema }
+      : {}),
   };
 
   let handle: SpawnAssignmentHandle;
@@ -377,6 +385,16 @@ interface IncomingAssignmentUpdate {
    *  host-side). Preferred over `resultPreview` for the orchestrator's
    *  tool result; falls back to the preview for older host builds. */
   resultFull?: string;
+  /** Phase B1: the host-validated structured output (parsed value) when
+   *  the invocation carried an `outputSchema` and the child satisfied it.
+   *  Preferred over resultFull — returned to the orchestrator as
+   *  pretty-printed JSON. */
+  structuredResult?: unknown;
+  /** Phase B1: set instead of `structuredResult` when the child completed
+   *  but never produced schema-valid JSON within the re-prompt budget — a
+   *  summary of the violations. Surfaced as an error carrying the raw
+   *  output so the orchestrator can salvage. */
+  structuredResultError?: string;
 }
 
 async function handleAssignmentUpdate(
@@ -422,15 +440,42 @@ async function handleAssignmentUpdate(
   clearTimeout(pending.timeoutHandle);
   pendingInvocations.delete(payload.assignment.id);
 
-  // Prefer the full result; fall back to the panel preview, then a
-  // placeholder. This is what the orchestrator LLM synthesizes from —
-  // the 200-char clip was the biggest functional gap vs Claude Code.
-  const result =
+  // Raw final text — the fallback and the "salvage" body on a schema
+  // failure. Prefer the full result; fall back to the panel preview, then
+  // a placeholder (the 200-char clip was the biggest functional gap vs
+  // Claude Code).
+  const rawText =
     payload.resultFull ?? payload.assignment.resultPreview ?? "(no result)";
+
+  // Structured output (Phase B1). A host-validated object wins: the
+  // orchestrator receives pretty-printed JSON and a success result. A
+  // schema failure (child completed but never satisfied the schema within
+  // the re-prompt budget) surfaces as an ERROR carrying the violation
+  // summary AND the raw output so the orchestrator can salvage.
+  if (payload.structuredResult !== undefined) {
+    pending.resolve({
+      result: JSON.stringify(payload.structuredResult, null, 2),
+      success: true,
+    });
+    return;
+  }
+  if (
+    typeof payload.structuredResultError === "string" &&
+    payload.structuredResultError
+  ) {
+    pending.resolve({
+      result:
+        `Structured output did not satisfy the schema: ${payload.structuredResultError}\n\n` +
+        `Raw output:\n${rawText}`,
+      success: false,
+    });
+    return;
+  }
+
   // Both terminal statuses resolve (not reject) — timeout is the only
   // reject path. Success flag distinguishes for the tool-result builder.
   pending.resolve({
-    result,
+    result: rawText,
     success: status === "completed",
   });
 }

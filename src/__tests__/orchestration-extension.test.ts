@@ -967,3 +967,139 @@ describe("orchestration extension — reap follows the live cycle run", () => {
     expect(cancelRunCalls).toEqual(["run-asn-1"]);
   });
 });
+
+// ── invoke_agent — structured output (Phase B1) ────────────────────
+//
+// When the invocation carried an `outputSchema`, the terminal
+// assignment_update carries a `structuredResult` (host-validated parsed
+// object → pretty JSON, success) or a `structuredResultError` (schema
+// failure → isError with the violation summary + the raw output).
+
+describe("orchestration extension — structured output", () => {
+  const SCHEMA = {
+    type: "object",
+    properties: { grade: { type: "integer" }, notes: { type: "string" } },
+    required: ["grade"],
+  };
+
+  test("outputSchema tool arg is threaded into spawnInput.outputSchema", async () => {
+    const { fn, calls } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+
+    const invocation = tools.invoke_agent!({
+      agentConfigId: "agent-builder",
+      task: "grade this",
+      outputSchema: SCHEMA,
+    });
+    const key = await drainPendingKey();
+    expect(calls[0]!.input.outputSchema).toEqual(SCHEMA);
+
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: `task-${key}`,
+      assignment: { id: key, status: "completed", resultPreview: "done" },
+    });
+    await invocation;
+  });
+
+  test("a non-object outputSchema arg is dropped (not forwarded)", async () => {
+    const { fn, calls } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+
+    const invocation = tools.invoke_agent!({
+      agentConfigId: "agent-builder",
+      task: "go",
+      // Array is not a valid schema object — the ext must not forward it.
+      outputSchema: [{ type: "string" }] as unknown as Record<string, unknown>,
+    });
+    const key = await drainPendingKey();
+    expect(calls[0]!.input.outputSchema).toBeUndefined();
+
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: `task-${key}`,
+      assignment: { id: key, status: "completed", resultPreview: "done" },
+    });
+    await invocation;
+  });
+
+  test("structuredResult → tool result text is pretty-printed JSON; success; _agentMeta preserved", async () => {
+    const { fn } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+
+    const invocation = tools.invoke_agent!({
+      agentConfigId: "agent-builder",
+      task: "grade",
+      outputSchema: SCHEMA,
+    });
+    const key = await drainPendingKey();
+
+    const parsed = { grade: 9, notes: "sharp corners" };
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: `task-${key}`,
+      assignment: { id: key, status: "completed", resultPreview: "some raw preview" },
+      resultFull: '{"grade":9,"notes":"sharp corners"}',
+      structuredResult: parsed,
+    });
+
+    const out = await invocation;
+    expect(expectText(out)).toBe(JSON.stringify(parsed, null, 2));
+    expect(expectIsError(out)).toBe(false);
+    const meta = expectAgentMeta(out);
+    expect(meta).toBeDefined();
+    expect(meta!.agentConfigId).toBe("agent-builder");
+  });
+
+  test("structuredResultError → isError with the violation summary AND the raw output", async () => {
+    const { fn } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+
+    const invocation = tools.invoke_agent!({
+      agentConfigId: "agent-builder",
+      task: "grade",
+      outputSchema: SCHEMA,
+    });
+    const key = await drainPendingKey();
+
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: `task-${key}`,
+      assignment: { id: key, status: "completed", resultPreview: "raw-preview" },
+      resultFull: "I could not produce valid JSON for you.",
+      structuredResultError: "grade: required property is missing",
+    });
+
+    const out = await invocation;
+    expect(expectIsError(out)).toBe(true);
+    const text = expectText(out);
+    expect(text).toContain("did not satisfy the schema");
+    expect(text).toContain("grade: required property is missing");
+    // The raw output rides along so the orchestrator can salvage.
+    expect(text).toContain("I could not produce valid JSON for you.");
+  });
+
+  test("structuredResult wins over structuredResultError when both are present", async () => {
+    const { fn } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+
+    const invocation = tools.invoke_agent!({
+      agentConfigId: "agent-builder",
+      task: "grade",
+      outputSchema: SCHEMA,
+    });
+    const key = await drainPendingKey();
+
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: `task-${key}`,
+      assignment: { id: key, status: "completed", resultPreview: "raw" },
+      structuredResult: { grade: 10 },
+      structuredResultError: "should be ignored",
+    });
+
+    const out = await invocation;
+    expect(expectIsError(out)).toBe(false);
+    expect(expectText(out)).toBe(JSON.stringify({ grade: 10 }, null, 2));
+  });
+});

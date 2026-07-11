@@ -683,6 +683,93 @@ describe("spawn-assignment — Phase 4 pass-through fields", () => {
   });
 });
 
+// ── Phase B1: outputSchema validation + threading ──────────────────
+
+describe("spawn-assignment — outputSchema (structured output)", () => {
+  const baseParams = { v: 1, task: "grade the slab", agentConfigId: "cfg-alice-helper" };
+  const validSchema = {
+    type: "object",
+    properties: { grade: { type: "integer" }, notes: { type: "string" } },
+    required: ["grade"],
+    additionalProperties: false,
+  };
+
+  test("valid object schema is threaded verbatim into startAssignment", async () => {
+    const ext = `os-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, outputSchema: validSchema }, "os-1"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls).toHaveLength(1);
+    expect(startAssignmentCalls[0]!.outputSchema).toEqual(validSchema);
+  });
+
+  test("absent outputSchema → no outputSchema key on the startAssignment opts", async () => {
+    const ext = `os2-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext, rpc(baseParams, "os-2"), makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls).toHaveLength(1);
+    expect(startAssignmentCalls[0]!).not.toHaveProperty("outputSchema");
+  });
+
+  test("array outputSchema → -32602 (must be an object)", async () => {
+    const ext = `os3-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, outputSchema: [{ type: "string" }] }, "os-3"),
+      makeCtx(),
+    );
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.error?.message).toMatch(/outputSchema.*object/i);
+    expect(startAssignmentCalls).toHaveLength(0);
+  });
+
+  test("primitive outputSchema → -32602", async () => {
+    const ext = `os4-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, outputSchema: "not-a-schema" }, "os-4"),
+      makeCtx(),
+    );
+    expect(resp.error?.code).toBe(-32602);
+    expect(startAssignmentCalls).toHaveLength(0);
+  });
+
+  test("null outputSchema → -32602", async () => {
+    const ext = `os5-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, outputSchema: null }, "os-5"),
+      makeCtx(),
+    );
+    expect(resp.error?.code).toBe(-32602);
+    expect(startAssignmentCalls).toHaveLength(0);
+  });
+
+  test("oversized outputSchema (> 8KB serialized) → -32602", async () => {
+    const ext = `os6-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const huge = { type: "object", description: "x".repeat(9000) };
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, outputSchema: huge }, "os-6"),
+      makeCtx(),
+    );
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.error?.message).toMatch(/too large/i);
+    expect(startAssignmentCalls).toHaveLength(0);
+  });
+});
+
 // ── Phase 6: PDP-deny path + quota-invalid audit reason ─────────────
 
 describe("spawn-assignment — Phase 6 PDP-deny + quota-invalid reason", () => {

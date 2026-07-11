@@ -76,6 +76,7 @@ const {
 const { EventBus } = await import("../runtime/events");
 const { enqueue } = await import("../runtime/pending-messages");
 const { CURRENT_MODEL_SENTINEL } = await import("../types");
+const { buildSchemaInstruction } = await import("../runtime/structured-output");
 
 import type { AgentExecutor } from "../runtime/executor";
 import type { EventBus as EventBusType } from "../runtime/events";
@@ -1329,5 +1330,209 @@ describe("startAssignment — global:agentAutonomyEnabled kill-switch", () => {
     const opts = baseOpts({ executor, reuseSubConversationId: "sub-ks4" });
     await startAssignment(opts);
     expect(calls[0]!.options.system).toBe(withObjective("you are alice"));
+  });
+});
+
+// ── 11. Structured output (Phase B1) ───────────────────────────────
+//
+// When `outputSchema` is set, startAssignment appends an output-format
+// instruction to the FIRST message, validates the child's final output
+// host-side, re-prompts (bounded) on failure, and emits the terminal
+// update with `structuredResult` (valid) or `structuredResultError`
+// (retries exhausted). No outputSchema → byte-identical prompt + no new
+// behavior.
+
+const SCHEMA = {
+  type: "object",
+  properties: { answer: { type: "string" } },
+  required: ["answer"],
+  additionalProperties: false,
+} as Record<string, unknown>;
+
+type StructuredUpdate = {
+  resultFull?: string;
+  structuredResult?: unknown;
+  structuredResultError?: string;
+  assignment: { status: string };
+};
+
+describe("startAssignment — structured output", () => {
+  test("no outputSchema → first message omits the schema instruction (byte-identical prompt)", async () => {
+    const { executor: exA, calls: callsA } = makeMockExecutor();
+    await startAssignment(baseOpts({ executor: exA, reuseSubConversationId: "sub-so-none" }));
+    const msgNoSchema = callsA[0]!.userMessage;
+    expect(msgNoSchema).not.toContain("Required Output Format");
+
+    // Same setup WITH a schema appends EXACTLY buildSchemaInstruction(schema)
+    // and nothing else — proving the no-schema prompt is unchanged.
+    const { executor: exB, calls: callsB } = makeMockExecutor();
+    await startAssignment(
+      baseOpts({ executor: exB, reuseSubConversationId: "sub-so-with", outputSchema: SCHEMA }),
+    );
+    expect(callsB[0]!.userMessage).toBe(msgNoSchema + buildSchemaInstruction(SCHEMA));
+  });
+
+  test("valid first try: structuredResult on the terminal update; prompt carries the schema", async () => {
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: StructuredUpdate[] = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-1",
+      outputSchema: SCHEMA,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // First message carries the serialized schema instruction.
+    expect(calls[0]!.userMessage).toContain("## Required Output Format");
+    expect(calls[0]!.userMessage).toContain('"answer"');
+
+    emitComplete(bus, agentRunId, 'All set.\n```json\n{"answer":"42"}\n```');
+
+    expect(calls).toHaveLength(1); // no re-prompt
+    const terminal = updates.at(-1)!;
+    expect(terminal.structuredResult).toEqual({ answer: "42" });
+    expect(terminal.structuredResultError).toBeUndefined();
+    expect(assignment.status).toBe("completed");
+  });
+
+  test("JSON extraction variants (raw / fenced / trailing prose) all validate first try", async () => {
+    for (const [label, output, expected] of [
+      ["raw", '{"answer":"a"}', { answer: "a" }],
+      ["fenced", '```json\n{"answer":"b"}\n```', { answer: "b" }],
+      ["trailing prose", 'Done! {"answer":"c"} — cheers', { answer: "c" }],
+    ] as const) {
+      const { executor } = makeMockExecutor();
+      const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+      const assignment = makeAssignment();
+      const updates: StructuredUpdate[] = [];
+      bus.on("task:assignment_update", (d) => updates.push(d as never));
+      const opts = baseOpts({
+        executor, bus, assignment,
+        reuseSubConversationId: `sub-so-var-${label.replace(/\s/g, "")}`,
+        outputSchema: SCHEMA,
+      });
+      const { agentRunId } = await startAssignment(opts);
+      emitComplete(bus, agentRunId, output);
+      expect(updates.at(-1)!.structuredResult).toEqual(expected);
+    }
+  });
+
+  test("invalid then valid: exactly one re-prompt; new run registered under parent + quota re-key fired", async () => {
+    const { executor, calls, childRegistrations } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const swaps: Array<[string, string]> = [];
+    const updates: StructuredUpdate[] = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-2",
+      parentRunId: "parent-so",
+      outputSchema: SCHEMA,
+      onCycleRunIdChange: (o: string, n: string) => swaps.push([o, n]),
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Cycle 1: schema-invalid JSON (missing required "answer") → re-prompt.
+    emitComplete(bus, agentRunId, '{"wrong":"shape"}');
+    expect(calls).toHaveLength(2);
+    const newRunId = calls[1]!.options.runId as string;
+    expect(newRunId).not.toBe(agentRunId);
+    // Corrective message quotes the violations + restates the schema.
+    expect(calls[1]!.userMessage).toContain("did not satisfy the required output schema");
+    expect(calls[1]!.userMessage).toContain("Validation errors:");
+    expect(calls[1]!.userMessage).toContain('"answer"');
+    // Cycle mechanics: new run registered under parent + quota re-key.
+    expect(childRegistrations).toContainEqual({ parentRunId: "parent-so", childRunId: newRunId });
+    expect(swaps).toContainEqual([agentRunId, newRunId]);
+    // Mid-loop: still running, no terminal structured payload yet.
+    expect(assignment.status).toBe("running");
+
+    // Cycle 2: now valid → terminal with structuredResult, no further run.
+    emitComplete(bus, newRunId, '{"answer":"ok"}');
+    expect(calls).toHaveLength(2);
+    const terminal = updates.at(-1)!;
+    expect(terminal.structuredResult).toEqual({ answer: "ok" });
+    expect(terminal.structuredResultError).toBeUndefined();
+    expect(assignment.status).toBe("completed");
+  });
+
+  test("retries exhausted: structuredResultError on the terminal update; status still completed", async () => {
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: StructuredUpdate[] = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-3",
+      outputSchema: SCHEMA,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Two re-prompts (MAX_SCHEMA_RETRIES = 2), then the third failure is terminal.
+    emitComplete(bus, agentRunId, '{"nope":1}');
+    expect(calls).toHaveLength(2);
+    emitComplete(bus, assignment.agentRunId!, '{"still":"wrong"}');
+    expect(calls).toHaveLength(3);
+    emitComplete(bus, assignment.agentRunId!, '{"final":"miss"}');
+    expect(calls).toHaveLength(3); // budget exhausted — no 4th run
+
+    expect(assignment.status).toBe("completed");
+    const terminal = updates.at(-1)!;
+    expect(terminal.structuredResult).toBeUndefined();
+    expect(terminal.structuredResultError).toContain("answer");
+    // The raw final text still rides resultFull for salvage.
+    expect(terminal.resultFull).toContain("final");
+  });
+
+  test("no JSON at all in the output → treated as a schema failure and re-prompted", async () => {
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-nojson",
+      outputSchema: SCHEMA,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    emitComplete(bus, agentRunId, "I finished but forgot to emit JSON.");
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.userMessage).toContain("no JSON value found");
+  });
+
+  test("autonomous + outputSchema: autonomous loops first; schema validates the FINAL cycle output", async () => {
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: StructuredUpdate[] = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-auto",
+      autonomousContinuation: { maxCycles: 3 },
+      outputSchema: SCHEMA,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Cycle 1: no sentinel → autonomous continues FIRST; schema not yet checked.
+    emitComplete(bus, agentRunId, "still working, no json yet");
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.userMessage).toMatch(/Continue working toward the Pinned Objective/);
+
+    // Cycle 2: DONE sentinel + schema-valid JSON → autonomous stops, schema validates.
+    emitComplete(bus, assignment.agentRunId!, '<<TASK_DONE>>\n```json\n{"answer":"final"}\n```');
+    expect(calls).toHaveLength(2); // no further run
+    const terminal = updates.at(-1)!;
+    expect(terminal.structuredResult).toEqual({ answer: "final" });
+    expect(assignment.status).toBe("completed");
   });
 });

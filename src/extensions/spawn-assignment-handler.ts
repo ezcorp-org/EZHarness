@@ -70,6 +70,11 @@ const consumeTokens = createRateLimiter(MAX_OPS_PER_SECOND);
  *  still allowed. */
 export const MAX_SPAWN_DEPTH = 10;
 
+/** Serialized-size ceiling for a caller-supplied `outputSchema`. Bounds
+ *  what rides in the child's first message + on the bus/SSE payload so an
+ *  accidental or adversarial huge schema can't bloat either. */
+export const MAX_OUTPUT_SCHEMA_BYTES = 8192;
+
 export interface SpawnAssignmentContext {
   /** The parent conversation — always forced from `currentConversationId`. */
   conversationId: string;
@@ -263,6 +268,26 @@ export async function handleSpawnAssignmentRpc(
       ? { maxCycles: mc }
       : {};
   })();
+  // outputSchema (structured-output opt-in). Must be a plain JSON object —
+  // arrays/primitives rejected — and the serialized form is size-capped.
+  // Threaded verbatim into startAssignment, which validates the child's
+  // final output against it and re-prompts on failure.
+  let callerOutputSchema: Record<string, unknown> | undefined;
+  if (params.outputSchema !== undefined) {
+    const os = params.outputSchema;
+    if (typeof os !== "object" || os === null || Array.isArray(os)) {
+      return rpcError(req.id, -32602, "'outputSchema' must be a JSON Schema object");
+    }
+    const serialized = JSON.stringify(os);
+    if (serialized.length > MAX_OUTPUT_SCHEMA_BYTES) {
+      return rpcError(
+        req.id,
+        -32602,
+        `'outputSchema' too large (${serialized.length} > ${MAX_OUTPUT_SCHEMA_BYTES} bytes)`,
+      );
+    }
+    callerOutputSchema = os as Record<string, unknown>;
+  }
 
   // 9. Hourly + concurrent quota.
   const cfg = {
@@ -360,6 +385,7 @@ export async function handleSpawnAssignmentRpc(
       ...(callerOrchestrationDepth !== undefined ? { orchestrationDepth: callerOrchestrationDepth } : {}),
       ...(callerParentRunId ? { parentRunId: callerParentRunId } : {}),
       ...(callerAutonomous ? { autonomousContinuation: callerAutonomous } : {}),
+      ...(callerOutputSchema ? { outputSchema: callerOutputSchema } : {}),
       // Re-key the quota reservation onto each new cycle's run id so the
       // concurrent slot follows the LIVE run (not the stale cycle-1 id) and
       // `ezcorp/cancel-run` — the invoke_agent timeout reap — can still

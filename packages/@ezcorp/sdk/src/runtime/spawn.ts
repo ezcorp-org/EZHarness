@@ -93,6 +93,16 @@ export interface SpawnAssignmentInput {
    *  reach a terminal `task:assignment_update` for much longer than a
    *  single run. */
   autonomousContinuation?: { maxCycles?: number };
+  /** Optional JSON Schema (object schemas only) the sub-agent's FINAL
+   *  answer must satisfy. When set, the host appends an output-format
+   *  instruction to the child's first message, validates the child's
+   *  final output against the schema, and re-prompts it (bounded) on a
+   *  validation failure; the terminal `task:assignment_update` then
+   *  carries the validated `structuredResult` (or a `structuredResultError`
+   *  summary if the re-prompt budget is exhausted). Supplied by the host
+   *  at tool-invoke time from the `outputSchema` tool argument, not by
+   *  extension authors directly. */
+  outputSchema?: Record<string, unknown>;
 }
 
 export interface SpawnAssignmentHandle {
@@ -160,6 +170,7 @@ export async function spawnAssignment(
     ...(input.autonomousContinuation
       ? { autonomousContinuation: input.autonomousContinuation }
       : {}),
+    ...(input.outputSchema ? { outputSchema: input.outputSchema } : {}),
   });
   return {
     subConversationId: result.subConversationId,

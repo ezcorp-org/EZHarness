@@ -463,6 +463,23 @@ export interface AgentEvents {
      * 200-char `resultPreview`.
      */
     resultFull?: string;
+    /**
+     * Structured output (Phase B1): when the invocation carried an
+     * `outputSchema` and the child's final text validated against it, the
+     * host-validated parsed value — present only on the terminal update.
+     * Kept OFF the `assignment` object for the same reason as
+     * `resultFull`: only the orchestration extension reads it, to return
+     * validated JSON to the orchestrator LLM.
+     */
+    structuredResult?: unknown;
+    /**
+     * Structured output (Phase B1): set INSTEAD of `structuredResult` when
+     * the child completed but never produced schema-valid JSON within the
+     * bounded re-prompt budget — a human-readable summary of the
+     * violations. The child's status stays `completed` (it did finish);
+     * the orchestration extension surfaces this as a distinct error.
+     */
+    structuredResultError?: string;
   };
   // ── Extension Panel State ──
   "ext:state": {

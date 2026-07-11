@@ -268,6 +268,27 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
     ).toEqual({});
   });
 
+  test("outputSchema: echoed verbatim when provided", async () => {
+    const { calls } = happy();
+    const outputSchema = {
+      type: "object",
+      properties: { verdict: { type: "string", enum: ["pass", "fail"] } },
+      required: ["verdict"],
+    };
+    await spawnAssignment({
+      agentConfigId: "cfg-1",
+      task: "t",
+      outputSchema,
+    });
+    expect((calls[0]?.params as Record<string, unknown>).outputSchema).toEqual(outputSchema);
+  });
+
+  test("outputSchema: omitted when absent (no key on the wire)", async () => {
+    const { calls } = happy();
+    await spawnAssignment({ agentConfigId: "cfg-1", task: "t" });
+    expect(calls[0]?.params as Record<string, unknown>).not.toHaveProperty("outputSchema");
+  });
+
   test("all 5 Phase 4 fields together — each sits at its own key", async () => {
     const { calls } = happy();
     const overrides = { model: "gpt-4o" };
