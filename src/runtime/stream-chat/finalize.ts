@@ -48,6 +48,11 @@ export interface FinalizeOptions {
  * The caller must already have verified `piAgent.state.errorMessage` is unset
  * and either rethrown or proceeded to here — this helper is for the
  * "no exception, normal completion" branch only.
+ *
+ * Skips entirely if `run.status === "cancelled"` (same guard as
+ * `finalizeError`): cancelRun already recorded the terminal state and
+ * emitted run:cancel, so a clean completion racing a user Stop must not
+ * overwrite the status back to success or emit a second terminal event.
  */
 export async function finalizeSuccess(
   ctx: StreamChatContext,
@@ -56,6 +61,7 @@ export async function finalizeSuccess(
   options: FinalizeOptions,
 ): Promise<void> {
   const { run } = ctx;
+  if (run.status === "cancelled") return;
   run.status = "success";
   run.result = { success: true, output: { fullText: ctx.allTurnsText, memoriesUsed: run.memoriesUsed } };
   run.finishedAt = Date.now();
