@@ -12,7 +12,6 @@ import { test, expect, describe, beforeEach, mock } from "bun:test";
 import type { Agent } from "@earendil-works/pi-agent-core";
 import {
   runWithFailover,
-  classifyProviderAvailabilityError,
   MAX_FAILOVER_ATTEMPTS,
   SAME_PROVIDER_RETRIES,
   RETRY_BACKOFF_MS,
@@ -83,34 +82,9 @@ function baseParams(
 
 beforeEach(() => resetAllCircuitBreakers());
 
-// ── classifier ───────────────────────────────────────────────────────
-describe("classifyProviderAvailabilityError", () => {
-  test("undefined / null / empty → not an availability failure", () => {
-    expect(classifyProviderAvailabilityError(undefined)).toBe(false);
-    expect(classifyProviderAvailabilityError(null)).toBe(false);
-    expect(classifyProviderAvailabilityError("")).toBe(false);
-  });
-
-  test("429 rate-limit → availability failure", () => {
-    expect(classifyProviderAvailabilityError("HTTP 429 Too Many Requests")).toBe(true);
-  });
-
-  test("5xx server errors → availability failure", () => {
-    expect(classifyProviderAvailabilityError("500 Internal Server Error")).toBe(true);
-    expect(classifyProviderAvailabilityError("upstream returned 503")).toBe(true);
-    expect(classifyProviderAvailabilityError("529 overloaded")).toBe(true);
-  });
-
-  test("connection-class signature → availability failure", () => {
-    expect(classifyProviderAvailabilityError("fetch failed: ECONNREFUSED")).toBe(true);
-  });
-
-  test("normal 4xx / other error → NOT an availability failure", () => {
-    expect(classifyProviderAvailabilityError("400 Bad Request: invalid schema")).toBe(false);
-    expect(classifyProviderAvailabilityError("401 Unauthorized")).toBe(false);
-    expect(classifyProviderAvailabilityError("tool crashed")).toBe(false);
-  });
-});
+// Classification itself is exhaustively pinned against pi-ai 0.80.6's error
+// templates in provider-error-classifier.test.ts; here we exercise how the
+// runWithFailover LOOP acts on each classified outcome.
 
 // ── runWithFailover ──────────────────────────────────────────────────
 describe("runWithFailover", () => {
@@ -375,6 +349,83 @@ describe("runWithFailover", () => {
   test("retry constants match the shipped policy (one retry, 150ms base)", () => {
     expect(SAME_PROVIDER_RETRIES).toBe(1);
     expect(RETRY_BACKOFF_MS).toBe(150);
+  });
+});
+
+// ── account-limit: failover-only (no same-provider retry) ────────────
+describe("runWithFailover — account-limit (failover-only)", () => {
+  test("quota-exhausted provider → ZERO same-provider retries, straight to cross-provider failover which serves the turn", async () => {
+    const ctx = makeCtx();
+    const host = makeHost();
+    const events: string[] = [];
+    let sleeps = 0;
+
+    await runWithFailover(
+      baseParams(ctx, host, {
+        initial: makeAttempt("p1"),
+        buildAgent: (r) => {
+          const p = (r as { resolved: { provider: string } }).resolved.provider;
+          events.push(`build:${p}`);
+          // p1 is billing-exhausted; the fallback provider serves cleanly.
+          return p === "p1"
+            ? makeAgent('429: {"error":{"type":"insufficient_quota"}}')
+            : makeAgent();
+        },
+        sleep: async () => {
+          sleeps++;
+        },
+        runPrompt: async (agent) => {
+          if (!agent.state.errorMessage) {
+            ctx.allTurnsText = "served by fallback";
+            ctx.emittedToClient = true;
+          }
+        },
+        suggestFallback: async (failed) => {
+          events.push(`suggest:${failed}`);
+          return { provider: "p2", model: "p2-model", tier: "balanced" };
+        },
+      }),
+    );
+
+    // p1 built exactly ONCE (no same-provider retry — a quota state can't
+    // clear), then straight to the router and a rebuild on the fallback.
+    expect(events).toEqual(["build:p1", "suggest:p1", "build:p2"]);
+    expect(sleeps).toBe(0); // no backoff — the same-provider retry was skipped
+    expect(ctx.allTurnsText).toBe("served by fallback");
+    // The active agent is the fallback (p2) — a clean agent with no error.
+    expect((host.activeAgents.get("run-1") as Agent).state.errorMessage).toBeUndefined();
+    // The breaker recorded p1's one failure (prod wiring live).
+    expect(getCircuitBreaker("p1").isOpen()).toBe(false);
+  });
+
+  test("quota-exhausted single-provider user → clean ProviderUnavailableError (not a raw Error)", async () => {
+    const ctx = makeCtx();
+    const host = makeHost();
+    let builds = 0;
+    let sleeps = 0;
+
+    const promise = runWithFailover(
+      baseParams(ctx, host, {
+        initial: makeAttempt("solo"),
+        buildAgent: () => {
+          builds++;
+          return makeAgent("quota exceeded for this account");
+        },
+        sleep: async () => {
+          sleeps++;
+        },
+        suggestFallback: async () => null, // BYOK: only one provider key
+      }),
+    );
+
+    await expect(promise).rejects.toBeInstanceOf(ProviderUnavailableError);
+    const err = await promise.catch((e) => e);
+    // Structured (rendered by finalize.ts), NOT the raw quota Error string.
+    expect(err.failedProvider).toBe("solo");
+    expect(err.suggestion).toBeNull();
+    // One build, no same-provider retry backoff.
+    expect(builds).toBe(1);
+    expect(sleeps).toBe(0);
   });
 });
 
