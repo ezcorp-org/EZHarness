@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, integer, real, serial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { PipelineStep } from "../types";
 import type { MemoryProvenance } from "../memory/types";
@@ -191,6 +191,71 @@ export const messageAttachments = pgTable("message_attachments", {
 
 export type MessageAttachment = typeof messageAttachments.$inferSelect;
 export type NewMessageAttachment = typeof messageAttachments.$inferInsert;
+
+// ── Agent session-tree storage (pi SessionStorage port) ───────────
+// Durable substrate for src/db/session-storage.ts (DbSessionStorage), a
+// faithful port of pi-agent-core's JsonlSessionStorage onto
+// Postgres/PGlite. P1 is UNWIRED — no runtime code imports it yet. See
+// tasks/2026-07-11-postgres-session-storage-design.md §3 and
+// src/db/migrations/add-session-storage.ts.
+//
+// NAMING: the design doc calls these `sessions`/`session_entries`, but
+// EZCorp already has an auth `sessions` table above — so these are
+// namespaced `agent_sessions` / `agent_session_entries` (pi AGENT
+// session tree, distinct from auth sessions). The authoritative DDL
+// (incl. the parent_session_id self-FK and the partial unique index)
+// lives in src/db/migrate.ts; these drizzle definitions carry column
+// names/types for the query builder (parent_session_id is a soft ref
+// here, mirroring messages.parentMessageId).
+
+export const agentSessions = pgTable("agent_sessions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "cascade" }),
+  cwd: text("cwd"),
+  // Fork lineage (P6). Soft ref in drizzle; migrate.ts declares the
+  // self-referential FK with ON DELETE SET NULL.
+  parentSessionId: text("parent_session_id"),
+  // O(1) getLeafId cache. The leaf is still AUTHORITATIVELY recovered by
+  // replaying entries in seq order on open — this column is a convenience
+  // for readers that don't load the tree.
+  leafEntryId: text("leaf_entry_id"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("agent_sessions_conversation_unique").on(table.conversationId).where(sql`${table.conversationId} IS NOT NULL`),
+]);
+
+export const agentSessionEntries = pgTable("agent_session_entries", {
+  sessionId: text("session_id").notNull().references(() => agentSessions.id, { onDelete: "cascade" }),
+  // pi's 8-char entry id — unique only WITHIN a session (forks reuse
+  // source ids), hence the composite PK below.
+  entryId: text("entry_id").notNull(),
+  // Load-bearing INSERTION-order axis: pi ids are uuidv7 slices, NOT
+  // monotonic, so getEntries / leaf-recovery / findEntries order by seq.
+  seq: bigserial("seq", { mode: "number" }).notNull(),
+  type: text("type").notNull(),
+  // Soft tree pointer (the parent entry within this session's tree).
+  parentId: text("parent_id"),
+  // pi's ISO timestamp, round-tripped VERBATIM (TEXT, not timestamptz).
+  timestamp: text("timestamp").notNull(),
+  // Type-specific entry fields (incl. the full pi AgentMessage for
+  // `message` entries). Written ONLY via this column-mapped drizzle
+  // insert — never string-cast SQL (Bun.sql double-encode gotcha).
+  payload: jsonb("payload").notNull().$type<Record<string, unknown>>().default({}),
+  // Cross-link to the EZCorp message row (message entries only). Unset in
+  // P1; populated when the append seam is wired (P3).
+  ezMessageId: text("ez_message_id").references(() => messages.id, { onDelete: "set null" }),
+}, (table) => [
+  primaryKey({ columns: [table.sessionId, table.entryId] }),
+  index("idx_agent_session_entries_seq").on(table.sessionId, table.seq),
+  index("idx_agent_session_entries_type").on(table.sessionId, table.type),
+  index("idx_agent_session_entries_parent").on(table.sessionId, table.parentId),
+]);
+
+export type AgentSessionRow = typeof agentSessions.$inferSelect;
+export type NewAgentSessionRow = typeof agentSessions.$inferInsert;
+export type AgentSessionEntryRow = typeof agentSessionEntries.$inferSelect;
+export type NewAgentSessionEntryRow = typeof agentSessionEntries.$inferInsert;
 
 // ── Phase 63: Message Chunks (hybrid chat search index) ───────────
 // Durable per-message chunk store mirroring knowledge_base_chunks with
