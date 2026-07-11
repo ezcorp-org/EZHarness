@@ -179,14 +179,15 @@ describe("ensureBundledExtensions — first-boot install", () => {
     ]);
   });
 
-  test("manifest declares invoke_agent + collect_agent_result — ask_human moved to the `ask-user` extension", async () => {
+  test("manifest declares invoke_agent + collect_agent_result + send_to_agent — ask_human moved to the `ask-user` extension", async () => {
     await ensureBundledExtensions();
     const row = store.get("orchestration")!;
     const manifest = row.manifest as { tools?: Array<{ name: string }>; version?: string };
     const names = (manifest.tools ?? []).map((t) => t.name).sort();
     // ask_human is gone (ask-user migration); Phase B2 added the background
-    // sub-agent collector alongside invoke_agent.
-    expect(names).toEqual(["collect_agent_result", "invoke_agent"]);
+    // sub-agent collector and B3 the steering/continuation tool alongside
+    // invoke_agent.
+    expect(names).toEqual(["collect_agent_result", "invoke_agent", "send_to_agent"]);
     // Version bumped when ask_human shipped (1.1.0); the ask-user
     // migration may bump it again, so just assert the major+minor are
     // ≥ 1.1 rather than pin a specific point release.
