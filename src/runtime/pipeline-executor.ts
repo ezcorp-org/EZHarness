@@ -237,11 +237,13 @@ export class PipelineExecutor {
 
       if (result.success) return result;
 
-      lastError = `Step "${step.name}" failed: ${
-        typeof result.error === "string"
-          ? result.error
-          : (result.error?.message ?? "unknown error")
-      }`;
+      // Single-line statements on purpose: a multi-line template
+      // interpolation makes Bun attribute the closing line's hit
+      // inconsistently across merged coverage shards (spurious 0-hit).
+      let errText = "unknown error";
+      if (typeof result.error === "string") errText = result.error;
+      else if (result.error) errText = result.error.message;
+      lastError = `Step "${step.name}" failed: ${errText}`;
 
       // A cancelled run (external abort / sibling cancel cascaded onto this
       // run) is never retried — the pipeline is already unwinding.
