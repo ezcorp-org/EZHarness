@@ -136,11 +136,11 @@ process-global registry (`src/runtime/stream-chat/context-compaction.ts`).
 | Strategy | Behavior |
 |----------|----------|
 | `trim` (default) | Evict oldest whole turn blocks + insert the ephemeral marker. Deterministic, zero extra cost, cannot itself fail or overflow. |
+| `summarize` | Replace the OLDER turns with an LLM-generated summary, keeping as much RECENT verbatim context as the budget allows. Costs one extra (cheap) LLM call when trimming fires; **fails open to `trim`** on any summarizer error/timeout. See [The `summarize` strategy](#the-summarize-strategy). |
 | `none` | Passthrough — disables trimming. The budget is still computed and the `isContextOverflow` backstop still applies, so overflow surfaces as a precise error rather than being silently ignored. |
 
-An LLM-based `summarize` strategy is intentionally not shipped; the
-registry seam makes it (or any custom algorithm) a drop-in addition
-with no rewiring — see [Custom strategies](#custom-strategies).
+Any other algorithm is a drop-in registry addition with no rewiring — see
+[Custom strategies](#custom-strategies).
 
 ---
 
@@ -158,6 +158,8 @@ malformed keys fall back to the defaults.
 | `compaction:safetyFraction` | number (0–1) | `0.08` | Fraction of the context window held back to absorb estimator error. |
 | `compaction:cacheAnchorFraction` | number (0–1) | `0` | Fraction of the input budget the `trim` strategy reserves for a byte-stable prefix of the OLDEST turns (the cache anchor). Default `0` = conventional recent-only trim (evict oldest, marker at front). **Opt-in**: raise it to cache conversation history on long, compacting threads — at the cost of pinning the stalest turns. See [decision record](decisions/2026-07-08-compaction-cache-anchor.md). |
 | `compaction:cacheRetention` | string | `long` | Prompt-cache TTL for the stable prefix: `long` (~1h), `short` (~5 min), or `none` (disable caching). Anthropic-only; other providers ignore it. |
+| `compaction:summarizeMaxTokens` | number | `1024` | Output-token cap for the `summarize` strategy's summary, and the budget it reserves for the inserted summary marker. Raise it for models that need richer recall; lower it to shrink the marker. Ignored by `trim`/`none`. |
+| `compaction:summarizeModel` | string | *(turn model)* | Model the `summarize` strategy uses, as `"provider/modelId"` (e.g. `anthropic/claude-haiku-4-5`). Unset, malformed, or unresolvable → the conversation's own turn model. Ignored by `trim`/`none`. |
 
 `responseReserve = clamp(model.maxTokens, floor, cap)`, so a model
 advertising a huge `maxTokens` (e.g. Codex's 128k) is reserved at most
@@ -278,6 +280,73 @@ route-once-per-conversation and failover retries the same provider
 before falling over, both to protect the warm prefix. See
 [LLM routing & failover](llm-routing-and-failover.md).
 
+## The `summarize` strategy
+
+Selected with `compaction:strategy = "summarize"`. Where `trim` drops the
+oldest turns and leaves a `[Context note: N … omitted]` marker, `summarize`
+condenses the older turns into an LLM summary and keeps the recent turns
+verbatim, so the model still "remembers" the gist of what was evicted:
+
+```
+[ summary marker ][ …recent turns… ][ active turn ]
+  └── LLM summary of the older body ┘  └─ kept verbatim ─┘
+```
+
+**Cut point.** It reuses the same turn-block + budget machinery as `trim`.
+The active turn (current prompt + its in-flight tool loop) is always kept.
+It then fills a recent window from the NEWEST turns up to
+`budget − summarizeReserve − active`, and everything older than that window
+is summarized. `summarizeReserve` is `compaction:summarizeMaxTokens` (plus a
+small marker pad), so the summary marker is sized into the budget up front.
+
+**Summary generation.** Runs through pi-agent-core's `generateSummary`
+helper (its structured summarization prompt + conversation serialization).
+The actual model call is routed through the mockable `complete` seam
+(`@earendil-works/pi-ai/compat`) over a minimal `Models` shim that injects
+the resolved credential — the same seam the rest of the runtime mocks in
+tests. Thinking is forced off (cheap, deterministic).
+
+**Summarizer model.** `compaction:summarizeModel` (`"provider/modelId"`)
+when set and resolvable; otherwise the conversation's **own turn model**
+(the zero-config default — the turn is already streaming with it, so its
+credential is always available). A malformed or unresolvable setting logs a
+`warn` and falls back to the turn model.
+
+**Fail-open.** If the summary call fails, times out, aborts, or returns an
+empty string, the strategy falls back to the `trim` behavior for that call.
+`transformContext` therefore never throws or blocks the user's turn on a
+wedged summarizer — the worst case degrades to plain trimming.
+
+**Input-only + ephemeral.** Like `trim`, this only rewrites the array sent
+to the provider for one call; `model.maxTokens` is never mutated and the
+summary marker is never persisted or rendered in the UI. It shares the
+`[Context note:` prefix with the trim marker so a stray marker is always
+stripped before the next compaction.
+
+**Memoization (v1).** Because `transformContext` runs before **every** LLM
+call (each tool-loop iteration + retries) and the persisted history is
+re-sent untrimmed each turn, the same older body would otherwise be
+re-summarized repeatedly. A bounded (256-entry), in-process memo keyed by
+`conversationId` + a fingerprint of the exact messages being summarized
+reuses a summary across the many calls **within a turn** and across
+short-term identical cut points.
+
+> **Limitations (v1).** The memo is in-process only — it does **not**
+> survive a restart, and it is **not** a durable, incrementally-updated
+> conversation summary (pi's `previousSummary` threading, which belongs with
+> durable session-tree compaction, is out of scope). As a thread grows the
+> summarized body grows too, so a genuinely new (larger) cut point is
+> re-summarized on later turns. And unlike anchored `trim`, `summarize` is
+> **not** prompt-cache-friendly: the leading summary marker's text changes
+> as the thread grows, shifting the cached prefix — prefer `trim` with
+> `cacheAnchorFraction > 0` when cache stability on long threads matters
+> more than semantic recall.
+
+The module must be imported during boot so its registration runs before the
+first turn; it is, via `build-pi-agent.ts` (which also binds the per-turn
+summarizer). An unknown `compaction:strategy` value still falls back to
+`trim` with a warning.
+
 ## Custom strategies
 
 The registry is a process-global map. Implement `CompactionStrategy`
@@ -326,11 +395,13 @@ Notes:
 | Concern | Location |
 |---------|----------|
 | Algorithm, budget math, registry, cache-aware `trim`/`none` | `src/runtime/stream-chat/context-compaction.ts` |
+| `summarize` strategy + default LLM summarizer (fail-open, memo) | `src/runtime/stream-chat/context-summarize.ts` |
 | Cache-retention TTL shaping (stable prefix long, tail short) | `src/runtime/stream-chat/cache-retention.ts` |
 | Memory/KB tail split (uncached trailing system block) | `src/runtime/stream-chat/system-cache-split.ts` |
 | `transformContext` + `onPayload` wiring (input-only; model not mutated) | `src/runtime/stream-chat/build-pi-agent.ts` |
 | Settings resolution per turn | `src/runtime/executor.ts` (`resolveCompactionConfig`) |
 | Unit tests (estimation, budget, registry, cache-anchor `trim` invariants) | `src/__tests__/context-compaction.test.ts` |
+| Unit tests (`summarize` cut-point/fail-open + default summarizer/memo) | `src/__tests__/context-summarize.test.ts` |
 | Cache-prefix-survives-compaction proof (WS-H usage → WS0 stats) | `src/__tests__/context-compaction-cache-prefix.test.ts` |
 | Retention shaping unit tests | `src/__tests__/cache-retention.test.ts` |
 | Memory-tail split unit tests | `src/__tests__/system-cache-split.test.ts` |

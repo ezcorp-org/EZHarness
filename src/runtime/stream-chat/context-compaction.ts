@@ -61,6 +61,12 @@ export interface CompactionConfig {
    * docs/decisions/2026-07-08-compaction-cache-anchor.md. Clamped to `[0, 1]`.
    */
   cacheAnchorFraction: number;
+  /**
+   * Output-token cap for the `summarize` strategy's LLM summary. Doubles as
+   * the budget the strategy reserves for the inserted summary marker, so the
+   * recent verbatim window is sized around it. Ignored by `trim`/`none`.
+   */
+  summarizeMaxTokens: number;
 }
 
 export const DEFAULTS: CompactionConfig = {
@@ -73,10 +79,15 @@ export const DEFAULTS: CompactionConfig = {
   // Default 0 = conventional trim-oldest. The oldest-anchor cache
   // optimization is opt-in (see the field doc + decision record).
   cacheAnchorFraction: 0,
+  // ~1k-token summaries keep the marker small on the common path; raise it
+  // (`compaction:summarizeMaxTokens`) for models that need richer recall.
+  summarizeMaxTokens: 1_024,
 };
 
 const PER_MESSAGE_OVERHEAD = 4;
-const MARKER_PREFIX = "[Context note:";
+/** Shared prefix for every ephemeral context-note marker (trim omission +
+ *  summarize summary), so {@link isCompactionMarker} strips both kinds. */
+export const MARKER_PREFIX = "[Context note:";
 const TRUNCATION_MARK = "…[truncated to fit context]…";
 
 // ── Token estimation ─────────────────────────────────────────────────
@@ -231,12 +242,26 @@ export function isCompactionMarker(m: AgentMessage): boolean {
 
 // ── Strategy interface + registry ────────────────────────────────────
 
+/**
+ * Injectable LLM summarizer used by the `summarize` strategy. Given the
+ * older messages to condense, resolves to summary text — or `null` on any
+ * failure/timeout so the strategy can fail open to `trim`. Bound per-turn to
+ * the turn's model + credential in build-pi-agent.ts; absent when no
+ * summarizer is wired. Kept as an injected seam so tests stay deterministic.
+ */
+export type SummarizeFn = (
+  messages: AgentMessage[],
+  opts: { reserveTokens: number; signal?: AbortSignal },
+) => Promise<string | null>;
+
 export interface CompactionContext {
   model: Model;
   budget: number;
   cfg: CompactionConfig;
   estimateTokens: (m: AgentMessage[]) => number;
   splitTurnBlocks: (m: AgentMessage[]) => AgentMessage[][];
+  /** Present only when a summarizer was wired (see {@link SummarizeFn}). */
+  summarize?: SummarizeFn;
 }
 
 export interface CompactionResult {
@@ -458,6 +483,16 @@ registerCompactionStrategy(new NoneStrategy());
 
 // ── transformContext factory ─────────────────────────────────────────
 
+/** Per-turn dependencies injected into strategies that need side effects. */
+export interface CompactionDeps {
+  /**
+   * LLM summarizer for the `summarize` strategy (build-pi-agent binds it to
+   * the turn's model + credential). Absent → `summarize` falls back to
+   * `trim`. Ignored by `trim`/`none`.
+   */
+  summarize?: SummarizeFn;
+}
+
 /**
  * Build the pi-agent-core `transformContext` hook for `model`. Returns
  * messages untouched while under budget; otherwise runs the configured
@@ -466,6 +501,7 @@ registerCompactionStrategy(new NoneStrategy());
 export function makeCompactionTransform(
   model: Model,
   override?: Partial<CompactionConfig>,
+  deps?: CompactionDeps,
 ): (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]> {
   const cfg: CompactionConfig = { ...DEFAULTS, ...(override ?? {}) };
   const budget = computeInputBudget(model, cfg);
@@ -480,8 +516,24 @@ export function makeCompactionTransform(
       cfg,
       estimateTokens: (m) => estimateTokens(m, cfg),
       splitTurnBlocks,
+      summarize: deps?.summarize,
     };
-    const res = await strategy.compact(messages, ctx, signal);
+    // Last-resort fail-open net: a compaction strategy must NEVER fail the
+    // user's turn. `trim`/`none` can't throw today and `summarize` catches
+    // internally, so this only fires on a future custom-strategy bug — pass
+    // the history through unchanged (pi-ai's `isContextOverflow` backstop
+    // still surfaces a precise overflow rather than an opaque failure).
+    let res: CompactionResult;
+    try {
+      res = await strategy.compact(messages, ctx, signal);
+    } catch (err) {
+      logger.warn("compaction strategy threw; passing history through unchanged", {
+        strategy: cfg.strategy,
+        model: model.id,
+        error: String(err),
+      });
+      return messages;
+    }
 
     logger.warn("context compaction applied", {
       strategy: res.strategy,

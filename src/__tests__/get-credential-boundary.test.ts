@@ -51,6 +51,11 @@ const ALLOWLIST = new Set<string>([
   "src/runtime/executor-helpers.ts",
   "src/runtime/stream-chat/setup-tools.ts",
   "src/runtime/stream-chat/build-pi-agent.ts",
+  // `summarize` context-compaction strategy — resolves a credential for the
+  // history-summarization LLM call (same host-internal LLM-call category as
+  // build-pi-agent + memory/compaction). Runtime-only, never bundled into
+  // extension subprocesses.
+  "src/runtime/stream-chat/context-summarize.ts",
   // Memory subsystem — compaction merge LLM call. Cross-extension,
   // host-internal, exposed via `runtime.memory.compact` invoke handler.
   "src/memory/compaction.ts",

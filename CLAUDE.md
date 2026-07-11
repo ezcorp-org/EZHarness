@@ -127,8 +127,9 @@ Conversation history is trimmed per-model before every LLM call via
 pi-agent-core's `transformContext` hook, wired in
 `src/runtime/stream-chat/build-pi-agent.ts` and configured from
 `src/runtime/stream-chat/context-compaction.ts`. It is a swappable
-strategy (`trim` default, `none` to disable) selected by the
-`compaction:strategy` setting.
+strategy (`trim` default, `summarize` for an LLM condense that fails open
+to `trim`, `none` to disable) selected by the `compaction:strategy`
+setting.
 
 **Invariant — input-only:** never mutate `model.maxTokens` (or clone
 the model) to "save context". For the Codex API that field is metadata

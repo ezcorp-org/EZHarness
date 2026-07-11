@@ -100,6 +100,7 @@ async function resolveCompactionConfig(): Promise<Partial<CompactionConfig>> {
     ["compaction:responseReserveFloor", "responseReserveFloor"],
     ["compaction:safetyFraction", "safetyFraction"],
     ["compaction:cacheAnchorFraction", "cacheAnchorFraction"],
+    ["compaction:summarizeMaxTokens", "summarizeMaxTokens"],
   ];
   for (const [key, field] of numeric) {
     const v = await getSetting(key);
@@ -891,7 +892,7 @@ export class AgentExecutor {
         credentialScope: convRecord?.userId ?? undefined,
         initial: initialAttempt,
         buildAgent: (resolved) =>
-          buildPiAgent(ctx, history, { ...options, compaction, cacheRetention }, resolved, credentialConversationId),
+          buildPiAgent(ctx, history, { ...options, compaction, cacheRetention }, resolved, credentialConversationId, conversationId),
         // Bridge pi-agent-core events into the local EventBus + persist tool
         // calls / per-turn assistant messages. EVERY attempt (initial AND
         // fallback) passes the attempt's own provider/model — the SERVED
