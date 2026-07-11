@@ -11,66 +11,82 @@
  * `errorMessage: error instanceof Error ? error.message : String(error)`), so
  * classification is necessarily text-based.
  *
- * pi-ai 0.80.6 already ships the canonical text classifier for exactly this
- * string: `isRetryableAssistantError`
+ * ── Three actions, not two ───────────────────────────────────────────
+ * failover.ts needs a THREE-way decision, because "should I retry the SAME
+ * provider?" and "should I try a DIFFERENT provider?" are distinct questions:
+ *
+ *   - `"rethrow"`             — not an availability failure (bad request, auth,
+ *                               content filter, context-length, unknown). No
+ *                               retry, no failover; surface it unchanged.
+ *   - `"retry-then-failover"` — transient provider/transport failure. Same-
+ *                               provider retry FIRST (cache locality), then
+ *                               cross-provider failover.
+ *   - `"failover-only"`       — account/billing limit (quota exhausted, out of
+ *                               budget, usage cap). A same-provider retry can
+ *                               NEVER clear it, but a DIFFERENT provider may
+ *                               well serve the turn, so skip the doomed retry
+ *                               and go straight to cross-provider failover.
+ *
+ * pi-ai 0.80.6's `isRetryableAssistantError`
  * (node_modules/@earendil-works/pi-ai/dist/utils/retry.js, re-exported from the
- * package root via dist/index.js `export * from "./utils/retry.js"`). It
- * encodes ~30 transient / transport patterns AND a non-retryable account-limit
- * exclusion (quota / billing / usage-limit) that it checks FIRST. Delegating to
- * it — instead of hand-maintaining a parallel regex — is the whole point of
- * this module: the failover decision now moves in lockstep with the pinned
- * pi-ai version and cannot silently drift on the next upgrade (the exact defect
- * that motivated this PR — the previous `/\b(?:429|5xx|529)\b/` table had never
- * been checked against what pi-ai actually emits).
+ * package root via dist/index.js `export * from "./utils/retry.js"`) answers a
+ * NARROWER question than failover needs: "should the last assistant turn be
+ * restarted?" — i.e. same-model/same-provider (pi has no provider-routing
+ * concept). It returns `false` for BOTH the account-limit class AND genuine
+ * non-availability errors, collapsing our `"failover-only"` and `"rethrow"`
+ * into one bucket. So we split them: detect the account-limit class explicitly
+ * (mirroring pi's own NON_RETRYABLE list — see PATTERN NOTE) and route it to
+ * `"failover-only"`; everything pi still calls retryable is
+ * `"retry-then-failover"`.
  *
  * ── Pattern table (each row cites the upstream site it matches) ───────
- * PRIMARY — delegated to pi-ai's `isRetryableAssistantError`
- *   (dist/utils/retry.js). Its RETRYABLE_PROVIDER_ERROR_PATTERN covers, among
- *   others: overloaded · rate.?limit · too many requests · 429 · 500 · 502 ·
- *   503 · 504 · 524 · service.?unavailable · server.?error · internal.?error ·
- *   provider.?returned.?error · network/connection.?error · connection.?refused
- *   · connection.?lost · other side closed · fetch failed · upstream.?connect ·
- *   reset before headers · socket hang up · socket connection was closed ·
- *   timed?.?out · timeout · terminated · websocket.?closed/error · ended
- *   without · stream ended before message_stop · http2 request did not get a
- *   response · retry delay · "you can retry your request" / "try your request
- *   again" / "please retry your request" · ResourceExhausted. These are the
- *   `.message` strings produced by the provider `formatProviderError(
- *   normalizeProviderError(error))` path (dist/utils/error-body.js →
- *   dist/api/openai-completions.js:370, openai-responses.js:55,
- *   google-generative-ai.js:214, openai-codex-responses.js:315) and the raw
- *   throws in dist/api/*.js (e.g. anthropic-messages.js:296 "Anthropic stream
- *   ended before message_stop", openai-completions.js:357 "Stream ended without
- *   finish_reason").
- *   pi's NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN (checked first) excludes:
- *   insufficient_quota · quota exceeded · billing · out of budget · Monthly
- *   usage limit reached · available balance · GoUsageLimitError ·
- *   FreeUsageLimitError — hard account/billing states that no retry or failover
- *   can clear.
+ * ACCOUNT-LIMIT (→ "failover-only"): mirrors retry.js
+ *   NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN — GoUsageLimitError /
+ *   FreeUsageLimitError / "Monthly usage limit reached" / "available balance" /
+ *   insufficient_quota / "out of budget" / "quota exceeded" / billing. These are
+ *   the 4xx JSON bodies surfaced via `formatProviderError(
+ *   normalizeProviderError(error))` (dist/utils/error-body.js) at
+ *   dist/api/openai-completions.js:370 etc. (e.g. OpenAI 429 insufficient_quota).
  *
- * SUPPLEMENT 1 — connection-error *shapes* pi's word-based patterns miss:
- *   bare Node errno codes (ECONNREFUSED / ECONNRESET / ENOTFOUND / EAI_AGAIN /
- *   ETIMEDOUT), Bun error names (ConnectionClosed / FailedToOpenSocket), and
- *   Bun's fetch hints ("Was there a typo in the url or port?", "Unable to
- *   connect…"). Delegated to the sibling `isProviderConnectionError`
- *   (providers/provider-error.ts) — the same detector `friendlyProviderError`
- *   uses — so the two stay DRY.
+ * TRANSIENT (→ "retry-then-failover"), delegated to pi's
+ *   `isRetryableAssistantError` RETRYABLE_PROVIDER_ERROR_PATTERN
+ *   (dist/utils/retry.js): overloaded · rate.?limit · too many requests · 429 ·
+ *   500 · 502 · 503 · 504 · 524 · service.?unavailable · server.?error ·
+ *   internal.?error · provider.?returned.?error · network/connection.?error ·
+ *   connection.?refused · connection.?lost · other side closed · fetch failed ·
+ *   upstream.?connect · reset before headers · socket hang up · socket
+ *   connection was closed · timed?.?out · timeout · terminated ·
+ *   websocket.?closed/error · ended without · stream ended before message_stop ·
+ *   http2 request did not get a response · retry delay · "you can retry your
+ *   request" / "try your request again" / "please retry your request" ·
+ *   ResourceExhausted. These are the `.message` strings from the same
+ *   formatProviderError path plus the raw throws in dist/api/*.js (e.g.
+ *   anthropic-messages.js:296 "Anthropic stream ended before message_stop",
+ *   openai-completions.js:357 "Stream ended without finish_reason").
+ *   Delegating (vs re-copying the ~30-entry regex) keeps this classifier in
+ *   lockstep with the pinned pi-ai version so it can't silently drift on the
+ *   next upgrade — the exact defect this module was created to fix.
  *
- * SUPPLEMENT 2 — Anthropic HTTP 529 ("overloaded") as a bare status number.
- *   pi catches the *text* "overloaded" and the Anthropic SDK message for a 529
- *   does carry "overloaded_error" (dist/api/anthropic-messages.js:275
- *   `throw new Error(sse.data)` for mid-stream error events, :555
- *   `output.errorMessage = error.message` for the SDK APIError), but 529 is not
- *   in pi's numeric list — so we retain the numeric marker to stay robust to a
- *   body-less 529 and identical to the pre-hardening behavior.
+ * SUPPLEMENT (→ "retry-then-failover") — two transient shapes pi's word-based
+ *   patterns miss:
+ *   1. connection-error shapes — bare Node errno codes (ECONNREFUSED / ENOTFOUND
+ *      / …) and Bun fetch hints ("Was there a typo in the url or port?"),
+ *      delegated to the sibling `isProviderConnectionError`
+ *      (providers/provider-error.ts) so the two stay DRY.
+ *   2. Anthropic HTTP 529 ("overloaded") as a bare status number — pi catches
+ *      the TEXT "overloaded" (and the Anthropic SDK 529 message does carry
+ *      "overloaded_error", dist/api/anthropic-messages.js:275/:555) but 529 is
+ *      absent from pi's numeric set (429/500/502/503/504/524), so we retain the
+ *      numeric marker to stay robust to a body-less 529.
  *
- * ── Precedence invariant ─────────────────────────────────────────────
- * The account-limit exclusion must win over EVERY retryable signal, including
- * the two supplements. It does, by construction: a quota/billing message is a
- * 4xx JSON body (insufficient_quota / billing / …) that contains neither a
- * connection-error shape nor the number 529, so the supplements are disjoint
- * from the account-limit class and OR-ing them can never re-admit an excluded
- * error. (This is why no separate exclusion re-check is needed here.)
+ * ── PATTERN NOTE (drift) ─────────────────────────────────────────────
+ * `ACCOUNT_LIMIT_PATTERN` is the ONE piece we must re-declare from pi's source
+ * (pi exports only `isRetryableAssistantError`, not the raw patterns), because
+ * the three-way split needs to distinguish account-limit from other
+ * non-retryable errors — a distinction pi collapses. Keep it in sync with
+ * dist/utils/retry.js NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN on pi upgrades;
+ * the classifier tests pin it to verbatim dist strings so a drift shows up as a
+ * red test.
  */
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -78,35 +94,52 @@ import { isRetryableAssistantError } from "@earendil-works/pi-ai";
 import { isProviderConnectionError } from "../../providers/provider-error";
 
 /**
+ * How failover.ts should react to a pre-stream provider error:
+ *  - `"rethrow"`             surface unchanged (not an availability failure);
+ *  - `"retry-then-failover"` same-provider retry first, then cross-provider;
+ *  - `"failover-only"`       skip the same-provider retry, cross-provider only.
+ */
+export type ProviderErrorAction = "rethrow" | "retry-then-failover" | "failover-only";
+
+/**
+ * Account / billing limits — mirror of pi-ai 0.80.6 dist/utils/retry.js
+ * NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN. Same-provider retry can't clear
+ * these, but a different provider may serve the turn → `"failover-only"`.
+ */
+const ACCOUNT_LIMIT_PATTERN =
+  /GoUsageLimitError|FreeUsageLimitError|Monthly usage limit reached|available balance|insufficient_quota|out of budget|quota exceeded|billing/i;
+
+/**
  * Anthropic HTTP 529 "overloaded" surfaced as a bare status number. pi-ai's
  * retry patterns match the *text* "overloaded" but omit 529 from their numeric
- * set (dist/utils/retry.js lists 429/500/502/503/504/524, not 529), so this
- * supplements pi for a body-less 529.
+ * set (dist/utils/retry.js lists 429/500/502/503/504/524, not 529).
  */
 const ANTHROPIC_OVERLOADED_STATUS = /\b529\b/;
 
 /**
- * Classify a pi-ai `stopReason:"error"` message as a provider-AVAILABILITY
- * failure (retryable via a same-provider retry or a cross-provider failover)
- * vs a normal error that must surface unchanged.
+ * Classify a pi-ai `stopReason:"error"` message into the failover action to
+ * take. An absent/empty message is `"rethrow"` (nothing to fail over on).
  *
- * Returns `false` for an absent/empty message, for hard account-limit failures
- * (quota / billing — excluded by pi's own classifier), and for any error text
- * that is neither a pi-recognized transient signal nor a connection-error shape
- * nor a 529.
+ * Account-limit is checked FIRST, and that ORDER is load-bearing: a quota/billing
+ * body can incidentally carry a "529" or a connection token — e.g.
+ * `insufficient_quota ... retry after 529 seconds` or
+ * `insufficient_quota; connect ECONNREFUSED 10.0.0.1:443` — so if the 529 marker
+ * or the connection detector ran first they would misroute a hard account limit
+ * to the same-provider retry path. Matching the account-limit pattern before
+ * pi's classifier AND before the two supplements is what prevents that (there is
+ * no "disjoint by construction" guarantee — the classes genuinely overlap).
  */
-export function classifyProviderAvailabilityError(
-  errorMessage: string | undefined | null,
-): boolean {
-  if (!errorMessage) return false;
-  // PRIMARY: pi-ai's authoritative transient-error classifier. It applies the
-  // non-retryable account-limit exclusion (quota/billing) FIRST, so those never
-  // count as retryable here either. We hand it the same field shape it reads —
-  // `{ stopReason: "error", errorMessage }` — nothing else is inspected.
-  if (isRetryableAssistantError({ stopReason: "error", errorMessage } as AssistantMessage)) return true;
-  // SUPPLEMENT 1: connection-error shapes pi's word patterns miss (errno codes,
-  // Bun fetch hints). Disjoint from the account-limit class, so OR-ing is safe.
-  if (isProviderConnectionError(errorMessage)) return true;
-  // SUPPLEMENT 2: Anthropic 529 surfaced as a bare status number.
-  return ANTHROPIC_OVERLOADED_STATUS.test(errorMessage);
+export function classifyProviderError(errorMessage: string | undefined | null): ProviderErrorAction {
+  if (!errorMessage) return "rethrow";
+  // Account/billing limit → failover-eligible but NOT same-provider-retryable.
+  // MUST stay ahead of the pi/supplement checks below (see the ordering note).
+  if (ACCOUNT_LIMIT_PATTERN.test(errorMessage)) return "failover-only";
+  // Transient provider/transport failure per pi-ai's own classifier (it already
+  // excludes the account-limit class, handled above), plus the two shapes pi's
+  // word patterns miss (connection errno/Bun hints, bare Anthropic 529).
+  if (isRetryableAssistantError({ stopReason: "error", errorMessage } as AssistantMessage))
+    return "retry-then-failover";
+  if (isProviderConnectionError(errorMessage)) return "retry-then-failover";
+  if (ANTHROPIC_OVERLOADED_STATUS.test(errorMessage)) return "retry-then-failover";
+  return "rethrow";
 }

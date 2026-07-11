@@ -1,5 +1,5 @@
 /**
- * Ground-truth tests for the provider-availability classifier
+ * Ground-truth tests for the provider-error classifier
  * (src/runtime/stream-chat/provider-error-classifier.ts).
  *
  * Unlike the hand-written mock strings the failover suite drives, every string
@@ -8,30 +8,32 @@
  * classifier is pinned to what the pinned SDK actually emits — not to a guess.
  * Each group cites the dist file it mirrors.
  *
- * The headline regression guard is the account-limit block: an OpenAI
- * `429 insufficient_quota` (billing exhaustion) must NOT be treated as a
- * retryable availability failure. The pre-hardening `/\b(?:429|5xx|529)\b/`
- * table matched the bare "429" and would have burned a same-provider retry, a
- * cross-provider failover, AND a circuit-breaker failure on a hard billing
- * state — pi-ai's own `isRetryableAssistantError` excludes it, and now so do we.
+ * The classifier returns a THREE-way action. The headline case is the
+ * account-limit block: an OpenAI `429 insufficient_quota` (billing exhaustion)
+ * is `"failover-only"` — a same-provider retry can't clear it (the pre-hardening
+ * `/\b(?:429|5xx|529)\b/` table wrongly treated it as fully retryable), but a
+ * DIFFERENT provider may still serve the turn, so it must NOT collapse to
+ * `"rethrow"` either.
  */
 import { test, expect, describe } from "bun:test";
-import { classifyProviderAvailabilityError } from "../runtime/stream-chat/provider-error-classifier";
+import { classifyProviderError } from "../runtime/stream-chat/provider-error-classifier";
 
-// ── PRIMARY: pi-ai isRetryableAssistantError (dist/utils/retry.js) ────
+// ── TRANSIENT → "retry-then-failover" (pi-ai retry.js) ────────────────
 // Realistic `.message` strings produced by the provider HTTP-error path
 // `formatProviderError(normalizeProviderError(error))` (dist/utils/error-body.js
 // composing "<status>: <body>" / "<prefix> (<status>): <message>") and by the
 // raw `throw new Error(...)` sites across dist/api/*.js.
-const RETRYABLE_PRIMARY: Array<[label: string, message: string]> = [
+const TRANSIENT: Array<[label: string, message: string]> = [
   // openai-completions.js:370 — no-prefix "<status>: <body>", 429 rate limit.
   ["openai 429 rate limit", '429: {"error":{"message":"Rate limit reached for requests","type":"requests","code":"rate_limit_exceeded"}}'],
   // openai-responses.js:55 — prefixed "OpenAI API error (<status>): <message>".
   ["openai responses 503", "OpenAI API error (503): Service Unavailable"],
   // openai-completions.js:370 — 500 internal server error body.
   ["openai 500 server error", '500: {"error":{"message":"The server had an error while processing your request","type":"server_error"}}'],
-  // google-generative-ai.js:214 — messageCarriesBody happy path, 429.
-  ["google 429 too many requests", "[GoogleGenerativeAI Error]: got status: 429 Too Many Requests"],
+  // google-generative-ai.js:214 — errorMessage = formatProviderError(...); the
+  // "<status>: <body>" shape from error-body.js for a Google 429 rate limit
+  // (a transient throttle, NOT a quota-exhaustion body).
+  ["google 429 (formatProviderError <status>: <body>)", '429: {"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"The service is temporarily rate limited, please retry."}}'],
   // retry.js "ResourceExhausted" — gRPC providers e.g. NVIDIA NIM (no HTTP number).
   ["grpc ResourceExhausted (nvidia nim)", "14 ResourceExhausted: model server queue is full"],
   // anthropic-messages.js:555 — SDK APIError message, 529 carries overloaded_error.
@@ -46,7 +48,9 @@ const RETRYABLE_PRIMARY: Array<[label: string, message: string]> = [
   ["openai stream ended without finish_reason", "Stream ended without finish_reason"],
   // openai-responses-shared.js:445 — mid-stream error code event.
   ["openai responses error code", "Error Code rate_limit_exceeded: Rate limit reached"],
-  // openai-codex-responses.js:277 — Codex raw-fetch transport failure (#733).
+  // retry.js "upstream.?connect" + "reset before headers" — Codex raw-fetch
+  // transport failure text (#733), matched by codex's own isRetryableError
+  // regex (openai-codex-responses.js:56) and pi's retry.js.
   ["codex upstream connect / reset before headers", "upstream connect error or disconnect/reset before headers"],
   // retry.js "provider.?returned.?error" — OpenRouter wrapper text (#2264).
   ["openrouter provider returned error", "Provider returned error"],
@@ -73,18 +77,19 @@ const RETRYABLE_PRIMARY: Array<[label: string, message: string]> = [
   ["retry delay cap", "Exceeded max retry delay"],
 ];
 
-describe("classifyProviderAvailabilityError — retryable (grounded in pi-ai retry.js)", () => {
-  test.each(RETRYABLE_PRIMARY)("%s → availability failure", (_label, message) => {
-    expect(classifyProviderAvailabilityError(message)).toBe(true);
+describe("classifyProviderError — transient → retry-then-failover (grounded in pi-ai retry.js)", () => {
+  test.each(TRANSIENT)("%s", (_label, message) => {
+    expect(classifyProviderError(message)).toBe("retry-then-failover");
   });
 });
 
-// ── PRIMARY exclusion: NON-retryable account/billing limits ───────────
-// retry.js NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN is checked FIRST, so
-// these are NOT availability failures even though several contain "429".
-const NON_RETRYABLE_ACCOUNT_LIMITS: Array<[label: string, message: string]> = [
-  // THE headline fix: OpenAI 429 insufficient_quota (billing). Old regex →
-  // TRUE (matched "429"); pi + this classifier → FALSE.
+// ── ACCOUNT LIMITS → "failover-only" ──────────────────────────────────
+// retry.js NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN. A same-provider retry is
+// futile (the account/billing state won't clear), but a DIFFERENT provider may
+// serve the turn — so these are failover-eligible, NOT a hard rethrow.
+const ACCOUNT_LIMITS: Array<[label: string, message: string]> = [
+  // THE headline case: OpenAI 429 insufficient_quota (billing). Old regex →
+  // fully retryable (matched "429"); this classifier → failover-only.
   ["openai 429 insufficient_quota", '429: {"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","code":"insufficient_quota"}}'],
   ["quota exceeded", "Your quota exceeded the allowed limit"],
   ["out of budget", "Request rejected: out of budget"],
@@ -92,20 +97,31 @@ const NON_RETRYABLE_ACCOUNT_LIMITS: Array<[label: string, message: string]> = [
   // opencode-go zen API subscription limits returned as 429 JSON error types.
   ["opencode GoUsageLimitError 429", '429: {"type":"GoUsageLimitError","message":"Monthly usage limit reached, enable available balance usage"}'],
   ["opencode FreeUsageLimitError", "FreeUsageLimitError: free tier limit hit"],
+  // Adversarial (validator-proven): account-limit bodies that ALSO carry a
+  // "529" or a connection token. These MUST stay failover-only — the
+  // account-limit check runs BEFORE the bare-529 / connection supplements, so a
+  // hard billing state is never misrouted to a same-provider retry.
+  ["adversarial insufficient_quota + 529 retry-after", 'error: {"type":"insufficient_quota","message":"You exceeded your quota"}; retry after 529 seconds'],
+  ["adversarial monthly-limit + 529 credits + billing", "Monthly usage limit reached: used 529/1000 credits; billing suspended"],
+  ["adversarial billing + 529 plan cap", "billing error - plan cap 529/mo exceeded"],
+  ["adversarial out-of-budget + 529 code", "Request rejected: out of budget (code 529)"],
+  ["adversarial insufficient_quota + ECONNREFUSED", "insufficient_quota; connect ECONNREFUSED 10.0.0.1:443"],
 ];
 
-describe("classifyProviderAvailabilityError — non-retryable account limits (excluded first by retry.js)", () => {
-  test.each(NON_RETRYABLE_ACCOUNT_LIMITS)("%s → NOT an availability failure", (_label, message) => {
-    expect(classifyProviderAvailabilityError(message)).toBe(false);
+describe("classifyProviderError — account limits → failover-only (excluded from same-provider retry)", () => {
+  test.each(ACCOUNT_LIMITS)("%s", (_label, message) => {
+    expect(classifyProviderError(message)).toBe("failover-only");
   });
 
-  test("regression: the 429 insufficient_quota body carries both '429' and the exclusion token", () => {
-    // Proves the string really does contain the '429' the old table keyed on,
-    // so the FALSE result above is the exclusion winning — not a missing digit.
-    const msg = NON_RETRYABLE_ACCOUNT_LIMITS[0]![1];
+  test("regression: 429 insufficient_quota is failover-only, not retry-then-failover", () => {
+    // Proves the string carries the '429' the old table keyed on, so the
+    // account-limit branch is winning — not a missing digit. The single-bit
+    // predecessor collapsed this to a no-failover rethrow; the three-way split
+    // preserves cross-provider failover for a billing-exhausted provider.
+    const msg = ACCOUNT_LIMITS[0]![1];
     expect(msg).toContain("429");
     expect(msg).toContain("insufficient_quota");
-    expect(classifyProviderAvailabilityError(msg)).toBe(false);
+    expect(classifyProviderError(msg)).toBe("failover-only");
   });
 });
 
@@ -120,23 +136,23 @@ const CONNECTION_SHAPES: Array<[label: string, message: string]> = [
   ["bun unable to connect", "Unable to connect. Is the computer able to access the url?"],
 ];
 
-describe("classifyProviderAvailabilityError — connection shapes (supplement 1, pi-ai misses these)", () => {
-  test.each(CONNECTION_SHAPES)("%s → availability failure", (_label, message) => {
-    expect(classifyProviderAvailabilityError(message)).toBe(true);
+describe("classifyProviderError — connection shapes → retry-then-failover (supplement 1, pi-ai misses these)", () => {
+  test.each(CONNECTION_SHAPES)("%s", (_label, message) => {
+    expect(classifyProviderError(message)).toBe("retry-then-failover");
   });
 });
 
 // ── SUPPLEMENT 2: Anthropic bare 529 (pi omits 529 from its numeric set) ──
-describe("classifyProviderAvailabilityError — bare 529 (supplement 2)", () => {
-  test("body-less 529 with no 'overloaded' text → availability failure", () => {
+describe("classifyProviderError — bare 529 → retry-then-failover (supplement 2)", () => {
+  test("body-less 529 with no 'overloaded' text", () => {
     // pi-ai's numeric list is 429/500/502/503/504/524 — NOT 529 — and there is
     // no "overloaded" text here, so only the 529 marker catches it.
-    expect(classifyProviderAvailabilityError("Anthropic API returned status 529")).toBe(true);
+    expect(classifyProviderError("Anthropic API returned status 529")).toBe("retry-then-failover");
   });
 });
 
-// ── NEGATIVES: benign / caller-fault errors that must NOT fail over ───
-const NON_AVAILABILITY: Array<[label: string, message: string]> = [
+// ── NEGATIVES → "rethrow" (surface unchanged, no retry, no failover) ──
+const RETHROW: Array<[label: string, message: string]> = [
   // error-body.js "<status>: <body>" for 4xx caller faults.
   ["400 bad request", '400: {"error":{"message":"messages: array must not be empty"}}'],
   ["401 unauthorized", '401: {"error":{"message":"Incorrect API key provided"}}'],
@@ -155,14 +171,14 @@ const NON_AVAILABILITY: Array<[label: string, message: string]> = [
   ["content filter", "Content was blocked by the safety filter"],
 ];
 
-describe("classifyProviderAvailabilityError — negatives (surface unchanged)", () => {
-  test("empty / null / undefined → not an availability failure", () => {
-    expect(classifyProviderAvailabilityError(undefined)).toBe(false);
-    expect(classifyProviderAvailabilityError(null)).toBe(false);
-    expect(classifyProviderAvailabilityError("")).toBe(false);
+describe("classifyProviderError — negatives → rethrow (surface unchanged)", () => {
+  test("empty / null / undefined → rethrow", () => {
+    expect(classifyProviderError(undefined)).toBe("rethrow");
+    expect(classifyProviderError(null)).toBe("rethrow");
+    expect(classifyProviderError("")).toBe("rethrow");
   });
 
-  test.each(NON_AVAILABILITY)("%s → NOT an availability failure", (_label, message) => {
-    expect(classifyProviderAvailabilityError(message)).toBe(false);
+  test.each(RETHROW)("%s", (_label, message) => {
+    expect(classifyProviderError(message)).toBe("rethrow");
   });
 });

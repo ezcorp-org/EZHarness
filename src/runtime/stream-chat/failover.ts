@@ -16,12 +16,15 @@
  *     client, mid-stream failover is OUT OF SCOPE (partial-output
  *     re-emission + dedup is a documented follow-up) — the error is
  *     rethrown and the caller's existing error handling renders it.
- *   - Only provider-AVAILABILITY failures are retried — the rate-limit /
- *     overload / 5xx / transport-drop / premature-stream-end class that
- *     pi-ai's own `isRetryableAssistantError` recognizes, plus connection-error
- *     shapes and Anthropic 529 (see provider-error-classifier.ts). Every other
- *     error (bad request, auth, content filter, tool bug, and hard
- *     quota/billing limits) rethrows unchanged.
+ *   - The error is classified into one of three actions (see
+ *     provider-error-classifier.ts, grounded in pi-ai 0.80.6's own error
+ *     templates): `retry-then-failover` for transient rate-limit / overload /
+ *     5xx / transport-drop / premature-stream-end failures (same-provider retry
+ *     first, then cross-provider); `failover-only` for account/billing limits
+ *     (quota exhausted, out of budget) where a same-provider retry is futile
+ *     but a DIFFERENT provider may serve the turn — so it skips straight to
+ *     cross-provider failover; and `rethrow` for everything else (bad request,
+ *     auth, content filter, context-length, tool bug), surfaced unchanged.
  *   - SAME-PROVIDER RETRY FIRST. Before consulting the router for a
  *     cross-provider fallback, the failing provider gets exactly
  *     {@link SAME_PROVIDER_RETRIES} rebuild+reprompt retries after a
@@ -41,16 +44,11 @@
 import type { Agent } from "@earendil-works/pi-agent-core";
 import { getCircuitBreaker } from "../../providers/circuit-breaker";
 import { ProviderUnavailableError, type FallbackSuggestion } from "../../providers/router";
-import { classifyProviderAvailabilityError } from "./provider-error-classifier";
+import { classifyProviderError } from "./provider-error-classifier";
 import { logger } from "../../logger";
 import type { SetupToolsResult } from "./setup-tools";
 import type { StreamChatContext } from "./context";
 import type { StreamChatHost } from "./host";
-
-// Re-exported so existing importers (and the failover unit tests) keep their
-// `from "./failover"` path. The classification logic itself lives in
-// provider-error-classifier.ts, grounded in pi-ai 0.80.6's error templates.
-export { classifyProviderAvailabilityError } from "./provider-error-classifier";
 
 const log = logger.child("executor.streamChat.failover");
 
@@ -214,15 +212,20 @@ export async function runWithFailover(params: RunWithFailoverParams): Promise<vo
       if (ctx.emittedToClient) {
         throw new Error(errorMessage);
       }
-      // Not an availability failure (bad request / auth / content filter) →
-      // retrying anywhere won't help; surface it unchanged.
-      if (!classifyProviderAvailabilityError(errorMessage)) {
+      const action = classifyProviderError(errorMessage);
+      // Not an availability failure (bad request / auth / content filter /
+      // context-length / unknown) → retrying anywhere won't help; surface it
+      // unchanged.
+      if (action === "rethrow") {
         throw new Error(errorMessage);
       }
 
-      // Retryable, pre-first-token, retry budget left → jittered backoff,
-      // then rebuild+reprompt on the SAME provider. No breaker failure yet.
-      if (tryIdx < SAME_PROVIDER_RETRIES) {
+      // Transient failure with same-provider budget left → jittered backoff,
+      // then rebuild+reprompt on the SAME provider (cache locality). No breaker
+      // failure yet. Account-limit ("failover-only") skips this: a same-provider
+      // retry can't clear a quota/billing state, so fall straight through to
+      // cross-provider failover.
+      if (action === "retry-then-failover" && tryIdx < SAME_PROVIDER_RETRIES) {
         const backoffMs = RETRY_BACKOFF_MS + Math.random() * RETRY_BACKOFF_MS;
         log.info("provider failure before first token — same-provider retry", {
           provider: current.provider,
@@ -231,11 +234,16 @@ export async function runWithFailover(params: RunWithFailoverParams): Promise<vo
           backoffMs: Math.round(backoffMs),
         });
         await sleep(backoffMs);
+        continue;
       }
+      // failover-only, or the same-provider retry budget is spent → stop
+      // retrying this provider and drop to the breaker + cross-provider lookup.
+      break;
     }
 
-    // Provider spent its same-provider retry budget → feed the breaker
-    // (exactly ONE failure per provider per turn) and try a fallback.
+    // Provider exhausted its same-provider retries (transient), or was skipped
+    // straight here (account-limit / failover-only) → feed the breaker (exactly
+    // ONE failure per provider per turn) and try a fallback.
     getCircuitBreaker(current.provider, credentialScope).recordFailure();
     log.info("provider failure before first token — attempting failover", {
       failedProvider: current.provider,
