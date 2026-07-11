@@ -9,7 +9,7 @@ import type {
   LogLevel,
 } from "../types";
 import type { EventBus } from "./events";
-import type { Agent } from "@earendil-works/pi-agent-core";
+import type { Agent, AgentEvent } from "@earendil-works/pi-agent-core";
 import type { UserMessage } from "@earendil-works/pi-ai";
 import { createStreamChatContext } from "./stream-chat/context";
 import type { PendingPermissionInfo, StreamChatHost } from "./stream-chat/host";
@@ -77,6 +77,26 @@ export type SteerResult =
   | { status: "no-live-run" }
   | { status: "no-agent"; runId: string };
 
+/**
+ * Per-steer tracking entry (P2) — see {@link AgentExecutor.steerConversation}.
+ * Shadow-tracks a `steered` message so the executor can re-offer it to the
+ * caller's fallback if the run terminates without delivering it. Kept in a
+ * `runId → SteerShadow[]` map and settled by {@link AgentExecutor.flushSteerShadows}
+ * on the run's terminal bus event.
+ */
+interface SteerShadow {
+  /** Identity key — the exact UserMessage object handed to `agent.steer`. pi
+   *  emits `message_start` carrying THIS object when it drains the steer, so
+   *  an identity match confirms delivery. */
+  message: UserMessage;
+  /** Fired at most once, iff this steer reaches its run's terminal undelivered. */
+  onUndelivered: () => void;
+  /** Set when the delivery `message_start` for {@link message} is observed. */
+  delivered: boolean;
+  /** Detaches the delivery listener from the Agent. */
+  unsubscribe: () => void;
+}
+
 // ── AgentExecutor ───────────────────────────────────────────────────
 
 const MAX_RUNS = 100;
@@ -115,6 +135,10 @@ export class AgentExecutor {
   private controllers = new Map<string, AbortController>();
   private activeAgents = new Map<string, Agent>();
   private runConversations = new Map<string, string>();
+  // Per-run shadow copies of steered messages (P2). Lets a run's terminal
+  // event re-offer any steer that was accepted but never delivered — see
+  // steerConversation / flushSteerShadows.
+  private steerShadows = new Map<string, SteerShadow[]>();
   private pendingPermissions = new Map<string, PendingPermissionInfo>();
   // Per-run "an assistant error message has been persisted" guard,
   // shared by the watchdog trip branch and the streamChat finalize
@@ -220,13 +244,27 @@ export class AgentExecutor {
       for (const childId of children) this.cancelRunInternal(childId, visited);
       this.childRuns.delete(runId);
     };
+    // flushSteerShadows runs FIRST in each terminal handler: this listener is
+    // registered at construction (a process-wide singleton), ahead of any
+    // per-assignment run:complete drainer in start-assignment. So when an
+    // undelivered steer is re-enqueued to pending-messages on a clean
+    // run:complete, branch (1)'s drainer — which fires later in the same emit
+    // — still picks it up this cycle (EventBus fires listeners in
+    // registration order).
     this.childRunUnsubs = [
-      this.bus.on("run:complete", ({ run }) => deregister(run.id)),
+      this.bus.on("run:complete", ({ run }) => {
+        this.flushSteerShadows(run.id);
+        deregister(run.id);
+      }),
       this.bus.on("run:error", ({ run }) => {
+        this.flushSteerShadows(run.id);
         cancelOrphanedChildren(run.id);
         deregister(run.id);
       }),
-      this.bus.on("run:cancel", ({ run }) => deregister(run.id)),
+      this.bus.on("run:cancel", ({ run }) => {
+        this.flushSteerShadows(run.id);
+        deregister(run.id);
+      }),
     ];
   }
 
@@ -536,10 +574,15 @@ export class AgentExecutor {
    * shadow-track each steered message and fall back to the pending-messages
    * mailbox on any non-complete terminal.**
    *
-   * P1: PLUMBING ONLY — nothing wires this yet; the sole callers are unit
-   * tests. It returns a discriminated {@link SteerResult} so P2 can build the
-   * atomic steer-vs-enqueue decision (fall back to pending-messages on any
-   * non-`steered` result) without re-deriving liveness.
+   * Callers make an ATOMIC steer-vs-enqueue decision on the discriminated
+   * {@link SteerResult}: `steered` → do NOT enqueue; `no-live-run` / `no-agent`
+   * → enqueue to the pending-messages mailbox exactly as before. To honor the
+   * best-effort caveat WITHOUT silent loss, a `steered` caller passes
+   * `onUndelivered` — the executor shadow-tracks the message and invokes that
+   * callback at most once if (and only if) the run reaches its terminal without
+   * a delivery `message_start` for it (see {@link flushSteerShadows}). A
+   * delivered steer never fires it (no double-delivery). The wired consumer is
+   * the agent-chat route's active-run branch (P2); `send_to_agent` is P3.
    *
    * `activeAgents` is read fresh on each call (never cached across calls):
    * `failover.ts:220` re-runs `activeAgents.set(runId, agent)` on every
@@ -552,18 +595,63 @@ export class AgentExecutor {
    * but no Agent is registered yet). Both are returned, never thrown, for P2's
    * fallback to treat as "enqueue instead".
    */
-  steerConversation(conversationId: string, message: string): SteerResult {
+  steerConversation(
+    conversationId: string,
+    message: string,
+    onUndelivered: () => void = () => {},
+  ): SteerResult {
     const run = this.getActiveRunForConversation(conversationId);
     if (!run) return { status: "no-live-run" };
     const agent = this.activeAgents.get(run.id);
     if (!agent) return { status: "no-agent", runId: run.id };
+
+    // The exact object we enqueue is the delivery-signal identity key: pi
+    // emits `message_start` carrying THIS object when it drains the steer into
+    // the run (agent-loop.js:94-99), so an identity match confirms delivery
+    // and never false-matches the prompt / tool-result message_start events.
     const userMessage: UserMessage = {
       role: "user",
       content: message,
       timestamp: Date.now(),
     };
+    const shadow: SteerShadow = {
+      message: userMessage,
+      onUndelivered,
+      delivered: false,
+      unsubscribe: () => {},
+    };
+    shadow.unsubscribe = agent.subscribe((event: AgentEvent) => {
+      if (event.type === "message_start" && event.message === userMessage) {
+        shadow.delivered = true;
+        shadow.unsubscribe();
+      }
+    });
+    const shadows = this.steerShadows.get(run.id);
+    if (shadows) shadows.push(shadow);
+    else this.steerShadows.set(run.id, [shadow]);
+
     agent.steer(userMessage);
     return { status: "steered", runId: run.id };
+  }
+
+  /**
+   * Settle every steer shadow-tracked for a run at its terminal (P2). A steer
+   * whose delivery `message_start` was observed is done; one still undelivered
+   * — the loop finished past its final steering poll, the run aborted, or a
+   * failover swap discarded the queue-holding Agent — is re-offered via its
+   * `onUndelivered` callback (the route re-enqueues it to pending-messages).
+   * This is what makes `steered` best-effort-but-not-lossy: NO silent loss,
+   * and NO double-delivery (a delivered steer is skipped). Idempotent — the
+   * run's entry is removed, so a second terminal event is a no-op.
+   */
+  private flushSteerShadows(runId: string): void {
+    const shadows = this.steerShadows.get(runId);
+    if (!shadows) return;
+    this.steerShadows.delete(runId);
+    for (const shadow of shadows) {
+      shadow.unsubscribe();
+      if (!shadow.delivered) shadow.onUndelivered();
+    }
   }
 
   /**

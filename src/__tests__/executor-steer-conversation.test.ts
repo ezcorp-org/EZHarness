@@ -1,16 +1,26 @@
 import { test, expect, describe } from "bun:test";
 import { AgentExecutor } from "../runtime/executor";
 import { EventBus } from "../runtime/events";
+import { dequeue, enqueue, hasPending } from "../runtime/pending-messages";
 import type { AgentEvents, AgentRun } from "../types";
 
-// Minimal stub of pi's Agent exposing only the steer queue the P1 plumbing
-// touches. steerConversation resolves activeAgents by reference, so seeding a
-// stub into the private map exercises the queue path without a real streamChat
-// run / LLM.
+// Stub of pi's Agent exposing the steer queue + the subscribe seam
+// steerConversation uses. `emitEvent` simulates pi's runLoop draining a steer
+// (which emits `message_start` carrying the exact injected object) or any other
+// Agent event, without a real streamChat run / LLM.
 class StubAgent {
   readonly queue: unknown[] = [];
+  private listeners = new Set<(event: unknown) => void>();
   steer(message: unknown): void {
     this.queue.push(message);
+  }
+  subscribe(listener: (event: unknown) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  /** Test helper: deliver an Agent event to every current subscriber. */
+  emitEvent(event: unknown): void {
+    for (const listener of [...this.listeners]) listener(event);
   }
 }
 
@@ -40,6 +50,12 @@ function seed(
   (exec as any).runs.set(run.id, run);
   (exec as any).runConversations.set(run.id, conversationId);
   if (agent) (exec as any).activeAgents.set(run.id, agent);
+}
+
+/** The exact UserMessage object handed to the stub's steer queue (identity
+ *  key for pi's delivery `message_start`). */
+function steered(agent: StubAgent, i = 0): unknown {
+  return agent.queue[i];
 }
 
 describe("AgentExecutor.steerConversation", () => {
@@ -98,5 +114,122 @@ describe("AgentExecutor.steerConversation", () => {
     seed(exec, makeRun({ id: "r1", status: "running" }), "conv-1");
 
     expect(exec.steerConversation("conv-1", "hi")).toEqual({ status: "no-agent", runId: "r1" });
+  });
+
+  // ── P2 shadow-track: delivered vs dropped at the run's terminal ──────
+
+  test("delivered steer (message_start observed) is NOT re-offered on run:complete", () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus);
+    const agent = new StubAgent();
+    const run = makeRun({ id: "r1" });
+    seed(exec, run, "conv-1", agent);
+
+    let undelivered = 0;
+    exec.steerConversation("conv-1", "hi", () => { undelivered++; });
+    // pi drains the steer → emits message_start carrying the exact object.
+    agent.emitEvent({ type: "message_start", message: steered(agent) });
+    bus.emit("run:complete", { run } as AgentEvents["run:complete"]);
+
+    expect(undelivered).toBe(0); // no double-delivery
+  });
+
+  test("undelivered steer is re-enqueued on run:complete and drainable by branch (1)", () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus);
+    const agent = new StubAgent();
+    const run = makeRun({ id: "r1" });
+    const conv = "conv-p2-reenqueue";
+    seed(exec, run, conv, agent);
+
+    // The route's real fallback: re-enqueue to the pending-messages mailbox.
+    const pending = { messageId: "m1", content: "hi", createdAt: "2026-07-11T00:00:00.000Z" };
+    exec.steerConversation(conv, "hi", () => enqueue(conv, pending));
+    // No message_start → the steer was never delivered before the run ended.
+    bus.emit("run:complete", { run } as AgentEvents["run:complete"]);
+
+    expect(hasPending(conv)).toBe(true);
+    // Branch (1) drains via dequeue — prove the re-enqueued message is exactly it.
+    expect(dequeue(conv)).toEqual(pending);
+    expect(hasPending(conv)).toBe(false);
+  });
+
+  test("steer dropped on run:cancel is re-offered (cancel mid-run)", () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus);
+    const agent = new StubAgent();
+    const run = makeRun({ id: "r1" });
+    seed(exec, run, "conv-1", agent);
+
+    let undelivered = 0;
+    exec.steerConversation("conv-1", "hi", () => { undelivered++; });
+    bus.emit("run:cancel", { run } as AgentEvents["run:cancel"]);
+
+    expect(undelivered).toBe(1);
+  });
+
+  test("steer dropped on run:error is re-offered", () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus);
+    const agent = new StubAgent();
+    const run = makeRun({ id: "r1" });
+    seed(exec, run, "conv-1", agent);
+
+    let undelivered = 0;
+    exec.steerConversation("conv-1", "hi", () => { undelivered++; });
+    bus.emit("run:error", { run } as AgentEvents["run:error"]);
+
+    expect(undelivered).toBe(1);
+  });
+
+  test("only the undelivered steer is re-offered when multiple are queued", () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus);
+    const agent = new StubAgent();
+    const run = makeRun({ id: "r1" });
+    seed(exec, run, "conv-1", agent);
+
+    let firstDropped = 0;
+    let secondDropped = 0;
+    exec.steerConversation("conv-1", "first", () => { firstDropped++; });
+    exec.steerConversation("conv-1", "second", () => { secondDropped++; });
+    // Only the FIRST steer is drained/delivered.
+    agent.emitEvent({ type: "message_start", message: steered(agent, 0) });
+    bus.emit("run:complete", { run } as AgentEvents["run:complete"]);
+
+    expect(firstDropped).toBe(0);
+    expect(secondDropped).toBe(1);
+  });
+
+  test("a non-matching event never marks the steer delivered", () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus);
+    const agent = new StubAgent();
+    const run = makeRun({ id: "r1" });
+    seed(exec, run, "conv-1", agent);
+
+    let undelivered = 0;
+    exec.steerConversation("conv-1", "hi", () => { undelivered++; });
+    // Wrong type, and a message_start for a DIFFERENT object (e.g. the prompt).
+    agent.emitEvent({ type: "turn_start" });
+    agent.emitEvent({ type: "message_start", message: { role: "user", content: "other", timestamp: 1 } });
+    bus.emit("run:complete", { run } as AgentEvents["run:complete"]);
+
+    expect(undelivered).toBe(1);
+  });
+
+  test("a second terminal event for the same run is a no-op", () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus);
+    const agent = new StubAgent();
+    const run = makeRun({ id: "r1" });
+    seed(exec, run, "conv-1", agent);
+
+    let undelivered = 0;
+    exec.steerConversation("conv-1", "hi", () => { undelivered++; });
+    bus.emit("run:complete", { run } as AgentEvents["run:complete"]);
+    bus.emit("run:complete", { run } as AgentEvents["run:complete"]);
+
+    expect(undelivered).toBe(1); // fired once, not twice
   });
 });

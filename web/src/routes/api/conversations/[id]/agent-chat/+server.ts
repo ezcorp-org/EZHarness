@@ -132,12 +132,28 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   const activeRun = executor.getActiveRunForConversation(params.id);
 
   if (activeRun) {
-    // Agent is running — queue the message for auto-continue after run completes
-    enqueue(params.id, {
+    // Agent is running (P2). Steer the live run so the message lands mid-run
+    // at the next turn boundary instead of waiting for the run to finish. The
+    // decision is ATOMIC — EITHER steer OR enqueue, never both — keyed on the
+    // steerConversation result. steer() is best-effort: the executor
+    // shadow-tracks the message and calls the fallback below if it reaches the
+    // run's terminal undelivered (abort / failover swap / loop already past
+    // its final steering poll), so nothing is silently lost and branch (1)
+    // still drains it. Content is passed verbatim to match branch (1)'s
+    // verbatim pending-message re-prompt (start-assignment.ts).
+    const pending = {
       messageId: userMessage.id,
       content,
       createdAt: userMessage.createdAt instanceof Date ? userMessage.createdAt.toISOString() : String(userMessage.createdAt),
-    });
+    };
+    const enqueuePending = () => enqueue(params.id, pending);
+    const steerResult = executor.steerConversation(params.id, content, enqueuePending);
+    if (steerResult.status === "steered") {
+      return json({ status: "steered", messageId: userMessage.id });
+    }
+    // No live run / no Agent registered yet → enqueue exactly as before so
+    // branch (1) drains it at the current run's completion.
+    enqueuePending();
     return json({ status: "queued", messageId: userMessage.id });
   }
 
