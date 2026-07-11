@@ -50,7 +50,7 @@ mock.module("../db/connection", () => ({
 // ToolExecutor class is still exported for the host module's `new
 // ToolExecutor(...)` call site; we simply swap the function.
 interface CapturedExtToolCall {
-  extTool: { name: string; description: string; inputSchema: Record<string, unknown> };
+  extTool: { name: string; description: string; inputSchema: Record<string, unknown>; dispatchName?: string };
   toolExecutor: unknown;
   conversationId: string;
   messageId: string;
@@ -384,7 +384,11 @@ describe("wireOrchestrationToolsForTurn", () => {
     expect(params.agentTools).toHaveLength(1);
     expect(captured).toHaveLength(1);
     const call = captured[0]!;
-    expect(call.extTool.name).toBe("invoke_agent"); // un-namespaced
+    expect(call.extTool.name).toBe("invoke_agent"); // un-namespaced (LLM-visible)
+    // Dispatch-key P0 fix: the LLM sees the bare name, but executeToolCall must
+    // resolve against the NAMESPACED registry key — else getRegisteredTool
+    // returns null and dispatch fails with "Unknown tool: invoke_agent".
+    expect(call.extTool.dispatchName).toBe("orchestration__invoke_agent");
     expect(call.conversationId).toBe("conv-wire-3");
     expect(call.messageId).toBe("run-123"); // runId IS messageId
 
@@ -446,12 +450,14 @@ describe("wireOrchestrationToolsForTurn", () => {
     await wireOrchestrationToolsForTurn(params);
 
     const md = captured[0]!.invocationMetadata!;
-    // orchestrationDepth + parentRunId + invokeTimeoutMs are the three
-    // always-present fields (invokeTimeoutMs is the resolved default here).
+    // orchestrationDepth + parentRunId + invokeTimeoutMs + conversationId are
+    // the always-present fields (invokeTimeoutMs is the resolved default here;
+    // conversationId (F3) is the caller-authz owner threaded to the ext).
     expect(md).toEqual({
       orchestrationDepth: 7,
       parentRunId: "run-123",
       invokeTimeoutMs: 300_000,
+      conversationId: "conv-wire-3",
     });
     expect("parentMessageId" in md).toBe(false);
     expect("overrides" in md).toBe(false);
@@ -551,9 +557,12 @@ describe("wireOrchestrationToolsForTurn", () => {
     ]);
     const collectCall = captured.find((c) => c.extTool.name === "collect_agent_result");
     expect(collectCall).toBeDefined();
-    // collect needs no per-turn agent enum + no invocation metadata.
+    // Bare LLM-visible name, namespaced dispatch key (same P0 fix as invoke_agent).
+    expect(collectCall!.extTool.dispatchName).toBe("orchestration__collect_agent_result");
+    // collect needs no per-turn agent enum override...
     expect(collectCall!.schemaOverride).toBeUndefined();
-    expect(collectCall!.invocationMetadata).toBeUndefined();
+    // ...but DOES carry the caller conversationId (F3 authz) in invocationMetadata.
+    expect(collectCall!.invocationMetadata).toEqual({ conversationId: "conv-wire-3" });
     expect(collectCall!.conversationId).toBe("conv-wire-3");
     expect(collectCall!.messageId).toBe("run-123");
   });

@@ -202,8 +202,20 @@ interface BackgroundSpawn {
   /** Sub-agent run id — updated to the LIVE cycle run on every non-terminal
    *  activity update (the spawn handle's id is frozen at cycle 1). */
   agentRunId: string;
+  /** F3 (caller authorization): the conversation that SPAWNED this background
+   *  agent. The map is process-GLOBAL across every user/conversation on the
+   *  shared orchestration subprocess, so `collect_agent_result` must reject a
+   *  call whose conversation id doesn't match this — otherwise conversation A
+   *  could read (or confirm the existence of) conversation B's results by
+   *  guessing an assignmentId. Undefined only for spawns registered without a
+   *  host-set conversation id (fail-closed: such an entry is uncollectable). */
+  ownerConversationId?: string;
   /** Set once a terminal `task:assignment_update` lands. */
   terminal: boolean;
+  /** F5: set once a `collect_agent_result` has RETURNED this spawn's terminal
+   *  result. Eviction prefers collected-terminal entries (their result has been
+   *  read) over terminal-but-uncollected ones. */
+  collected: boolean;
   /** Shaped { result, success } — present iff `terminal`. Uses the SAME
    *  resultFull / structuredResult / structuredResultError precedence as the
    *  synchronous path (see {@link shapeTerminalResult}). */
@@ -219,33 +231,40 @@ const MAX_BACKGROUND_SPAWNS = 50;
 
 const backgroundSpawns = new Map<string, BackgroundSpawn>();
 
-/** Register a background spawn, evicting the oldest terminal entry first when
- *  the map is at capacity. Map iteration is insertion-ordered, so the first
- *  terminal entry encountered is the oldest terminal one. */
+/** Register a background spawn, evicting to stay within
+ *  {@link MAX_BACKGROUND_SPAWNS}. Eviction order (Map iteration is
+ *  insertion-ordered, so "first found" == oldest): (F5) the oldest
+ *  COLLECTED-terminal entry (its result has already been read), then the oldest
+ *  terminal-but-uncollected entry. An in-flight entry is NEVER evicted (a live
+ *  collect may still be waiting on it) — the map may briefly run over the soft
+ *  cap in the pathological all-in-flight case. */
 function registerBackgroundSpawn(
   handle: SpawnAssignmentHandle,
   agentName: string,
   agentConfigId: string,
+  ownerConversationId?: string,
 ): void {
   while (backgroundSpawns.size >= MAX_BACKGROUND_SPAWNS) {
-    let evicted = false;
+    let evictKey: string | undefined;
     for (const [key, val] of backgroundSpawns) {
-      if (val.terminal) {
-        backgroundSpawns.delete(key);
-        evicted = true;
-        break;
+      if (val.terminal && val.collected) { evictKey = key; break; }
+    }
+    if (evictKey === undefined) {
+      for (const [key, val] of backgroundSpawns) {
+        if (val.terminal) { evictKey = key; break; }
       }
     }
-    // Every tracked entry is still in-flight (rare — bounded by maxConcurrent):
-    // don't drop a live one, just let the map run slightly over the soft cap.
-    if (!evicted) break;
+    if (evictKey === undefined) break; // all in-flight — don't drop a live one
+    backgroundSpawns.delete(evictKey);
   }
   backgroundSpawns.set(handle.assignmentId, {
     agentName,
     agentConfigId,
     subConversationId: handle.subConversationId,
     agentRunId: handle.agentRunId,
+    ...(ownerConversationId ? { ownerConversationId } : {}),
     terminal: false,
+    collected: false,
     waiters: new Set(),
   });
 }
@@ -379,14 +398,25 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
   // usually ends before the child finishes, and run:complete cascade-cancel
   // does NOT fire for a background child by design. It stays cancellable via
   // a Stop on the assignment/task panel. The result is fetched later via
-  // `collect_agent_result`, and the host separately notifies the parent
-  // conversation on terminal (agent:complete + a pending-message nudge).
+  // `collect_agent_result`.
+  //
+  // F4 (honest notify): on terminal the host emits `agent:complete` (UI chip +
+  // observability) AND enqueues a pending-message nudge on the parent
+  // conversation — but that pending message is only DRAINED when the parent is
+  // itself a sub-agent whose run later ends (nested teams) or a goal-host loop.
+  // A TOP-LEVEL orchestrator (the user's main chat) has no idle-queue drainer,
+  // so it is NOT auto-notified in-conversation. The returned text therefore does
+  // NOT promise notification: the orchestrator must POLL with collect_agent_result.
   if (background === true) {
-    registerBackgroundSpawn(handle, config.name, agentConfigId);
+    const ownerConversationId =
+      typeof md.conversationId === "string" ? md.conversationId : undefined;
+    registerBackgroundSpawn(handle, config.name, agentConfigId, ownerConversationId);
     return toolResult(
       `Agent "${config.name}" started in the background (assignmentId: ${handle.assignmentId}, ` +
-        `subConversation: ${handle.subConversationId}). You will be notified when it finishes; ` +
-        `use collect_agent_result to wait for / fetch it. Note: a background agent holds a ` +
+        `subConversation: ${handle.subConversationId}). Its progress and completion show in the ` +
+        `task panel. To get its result, call collect_agent_result with this assignmentId (it ` +
+        `blocks up to waitSeconds, or returns a non-error "still running" status) — do NOT assume ` +
+        `you will be auto-notified in this conversation. Note: a background agent holds a ` +
         `concurrent spawn slot until it reaches a terminal state, so many parallel background ` +
         `agents can exhaust the spawn quota.`,
       {
@@ -754,7 +784,7 @@ function stillRunningToolResult(bg: BackgroundSpawn, meta: CollectMeta) {
   );
 }
 
-const collectAgentResult: ToolHandler = async (args) => {
+const collectAgentResult: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
   const { assignmentId, waitSeconds } = args as {
     assignmentId: string;
     waitSeconds?: number;
@@ -767,12 +797,27 @@ const collectAgentResult: ToolHandler = async (args) => {
     );
   }
 
+  // F3: caller authorization. The backgroundSpawns map is process-GLOBAL across
+  // every conversation on the shared subprocess, so a collect is only honored
+  // when the CALLING conversation (host-set `conversationId` in the _meta
+  // side-channel — never LLM-visible/spoofable) owns the spawn. An unknown id,
+  // a cross-conversation owner, OR a missing caller conversation id all return
+  // the SAME not-found error — the handler never confirms another conversation's
+  // assignment exists (fail closed against cross-tenant probing).
+  const callerConversationId = (
+    (ctx?.invocationMetadata ?? {}) as { conversationId?: unknown }
+  ).conversationId;
   const bg = backgroundSpawns.get(assignmentId);
-  if (!bg) {
+  if (
+    !bg ||
+    typeof callerConversationId !== "string" ||
+    bg.ownerConversationId !== callerConversationId
+  ) {
     return toolResult(
-      `Error: no background agent is tracked for assignmentId "${assignmentId}". It may have ` +
-        `been started synchronously (without background: true), never started, or evicted after ` +
-        `many later background spawns. Re-dispatch it if you still need the work.`,
+      `Error: no background agent is tracked for assignmentId "${assignmentId}" in this ` +
+        `conversation. It may have been started synchronously (without background: true), never ` +
+        `started, started in a different conversation, or evicted after many later background ` +
+        `spawns. Re-dispatch it if you still need the work.`,
       { isError: true },
     );
   }
@@ -786,6 +831,7 @@ const collectAgentResult: ToolHandler = async (args) => {
 
   // Already terminal → return the memoized shaped result.
   if (bg.terminal && bg.result) {
+    bg.collected = true; // F5: this entry is now eviction-preferred.
     return terminalToolResult(bg.result, meta);
   }
 
@@ -820,6 +866,7 @@ const collectAgentResult: ToolHandler = async (args) => {
   if (!outcome.done) {
     return stillRunningToolResult(bg, meta);
   }
+  bg.collected = true; // F5: this entry is now eviction-preferred.
   return terminalToolResult(outcome.result, meta);
 };
 

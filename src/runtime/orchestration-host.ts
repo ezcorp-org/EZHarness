@@ -282,6 +282,12 @@ export async function wireOrchestrationToolsForTurn(
     orchestrationDepth: depth,
     parentRunId: runId,
     invokeTimeoutMs,
+    // F3: the OWNING conversation id, threaded via the host-set _meta
+    // side-channel (never LLM-visible). A `background: true` invoke records it
+    // on the process-global backgroundSpawns entry so a later collect from a
+    // DIFFERENT conversation on the same shared subprocess is rejected as
+    // not-found (no cross-tenant read of another conversation's results).
+    conversationId,
   };
   if (parentMessageId !== undefined) invocationMetadata.parentMessageId = parentMessageId;
   if (memberOverrides !== undefined) invocationMetadata.overrides = memberOverrides;
@@ -309,14 +315,22 @@ export async function wireOrchestrationToolsForTurn(
   toolExec.setCurrentModel(parentModel);
   toolExec.setCurrentProvider(parentProvider);
 
-  // 4. Wrap `invoke_agent` via the 6-arg extensionToAgentTool. `name`
-  //    uses the unnamespaced `originalName` so executor.ts's special-
-  //    cases keep working.
+  // 4. Wrap `invoke_agent` via extensionToAgentTool. The LLM-visible `name`
+  //    stays the unnamespaced `originalName` so the bare-name special cases
+  //    keep working (subscribe-bridge event-suppression on pi's
+  //    tool_execution_start `event.toolName`, auto-spin-up lookup, the
+  //    ORCHESTRATION_TOOLS filter, and the orchestrator prompt). `dispatchName`
+  //    carries the NAMESPACED registry key (`registered.name`) so
+  //    `executeToolCall → getRegisteredTool` resolves the tool instead of
+  //    returning "Unknown tool" — the registry's toolMap is keyed by the
+  //    namespaced form. (Before this, the bare name failed to resolve; see the
+  //    dispatch-key fix.)
   const invokeAgentAgentTool = extensionToAgentTool(
     {
       name: invokeAgentTool.originalName,
       description: invokeAgentTool.description,
       inputSchema: invokeAgentTool.inputSchema as Record<string, unknown>,
+      dispatchName: invokeAgentTool.name,
     },
     toolExec,
     conversationId,
@@ -349,10 +363,16 @@ export async function wireOrchestrationToolsForTurn(
           name: collectTool.originalName,
           description: collectTool.description,
           inputSchema: collectTool.inputSchema as Record<string, unknown>,
+          // Bare LLM-visible name; namespaced dispatch key (see invoke_agent).
+          dispatchName: collectTool.name,
         },
         toolExec,
         conversationId,
         runId,
+        undefined,
+        // F3: the calling conversation id (host-set _meta) so the handler can
+        // authorize collect against the background spawn's owning conversation.
+        { conversationId },
       ),
     );
   }

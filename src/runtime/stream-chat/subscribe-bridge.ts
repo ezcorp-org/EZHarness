@@ -12,6 +12,10 @@ import {
 } from "../usage/cache-stats";
 import { ExtensionRegistry } from "../../extensions/registry";
 import { DEFAULT_BUILTIN_CALL_TIMEOUT_MS } from "../executor-watchdog";
+import {
+  LONG_BLOCKING_ORCHESTRATION_TOOLS,
+  LONG_BLOCKING_WATCHDOG_BUDGET_MS,
+} from "../tools/filter";
 import type { RoutingTier } from "../tier-classifier";
 import type { StreamChatContext } from "./context";
 import type { StreamChatHost } from "./host";
@@ -198,11 +202,22 @@ export function subscribeBridge(
         const manifestCallTimeout = startManifest?.resources?.callTimeoutMs;
         const builtinCallTimeout = toolDef?.callTimeoutMs;
         const callTimeoutMs =
-          typeof manifestCallTimeout === "number" && manifestCallTimeout > 0
-            ? manifestCallTimeout
-            : typeof builtinCallTimeout === "number" && builtinCallTimeout > 0
-              ? builtinCallTimeout
-              : DEFAULT_BUILTIN_CALL_TIMEOUT_MS;
+          // F1: a host long-blocking orchestration tool (currently only
+          // `collect_agent_result` reaches this — `invoke_agent`'s tool:start is
+          // suppressed above) gets a BOUNDED, widened watchdog defer budget so a
+          // synchronous collect isn't idle-killed at ~90s while legitimately
+          // awaiting a background child. Keyed on the BARE `event.toolName`
+          // because the orchestration tool is wired bare and `startRegistered`
+          // (resolved from that bare name) is null — the same reason the manifest
+          // path below can't see its `resources.callTimeoutMs`. Host-controlled:
+          // only host wiring produces these bare names (see filter.ts).
+          LONG_BLOCKING_ORCHESTRATION_TOOLS.has(event.toolName)
+            ? LONG_BLOCKING_WATCHDOG_BUDGET_MS
+            : typeof manifestCallTimeout === "number" && manifestCallTimeout > 0
+              ? manifestCallTimeout
+              : typeof builtinCallTimeout === "number" && builtinCallTimeout > 0
+                ? builtinCallTimeout
+                : DEFAULT_BUILTIN_CALL_TIMEOUT_MS;
         host.watchdog.noteToolStart(run.id, event.toolCallId, {
           toolName: event.toolName,
           conversationId,

@@ -1211,6 +1211,12 @@ describe("orchestration extension — background spawn", () => {
     expect(expectIsError(out)).toBe(false);
     expect(text).toContain("started in the background");
     expect(text).toContain("collect_agent_result");
+    // F4 (honest notify): the text must NOT falsely promise in-conversation
+    // notification — a top-level orchestrator is never auto-notified, so it must
+    // poll. The UI (task panel) is where completion actually shows.
+    expect(text.toLowerCase()).not.toContain("you will be notified when it finishes");
+    expect(text.toLowerCase()).toContain("do not assume you will be auto-notified");
+    expect(text).toContain("task panel");
     const meta = expectAgentMetaBg(out);
     expect(meta.agentName).toBe("builder");
     expect(meta.agentConfigId).toBe("agent-builder");
@@ -1272,16 +1278,36 @@ describe("orchestration extension — background spawn", () => {
 // ── collect_agent_result (Phase B2) ────────────────────────────────
 
 /** Dispatch a background invoke and return its assignmentId. */
+// F3: the conversation that owns a background spawn. invoke_agent records it
+// (from the host-set invocationMetadata.conversationId), and collect must be
+// called from the SAME conversation to be authorized.
+const OWNER_CONV = "conv-owner";
+
 async function startBackground(
   args: Record<string, unknown> = {},
+  conversationId: string = OWNER_CONV,
 ): Promise<string> {
-  const out = await tools.invoke_agent!({
-    agentConfigId: "agent-builder",
-    task: "bg",
-    background: true,
-    ...args,
-  });
+  const out = await tools.invoke_agent!(
+    { agentConfigId: "agent-builder", task: "bg", background: true, ...args },
+    { invocationMetadata: { conversationId } },
+  );
   return expectAgentMetaBg(out).assignmentId;
+}
+
+/** Collect as the owning conversation (or an override for cross-tenant tests).
+ *  Pass `null` for `conversationId` to omit the ctx entirely (missing-metadata
+ *  fail-closed case) — an explicit `undefined` would trigger the default. */
+function collect(
+  assignmentId: string,
+  waitSeconds?: number,
+  conversationId: string | null = OWNER_CONV,
+) {
+  return tools.collect_agent_result!(
+    { assignmentId, ...(waitSeconds !== undefined ? { waitSeconds } : {}) },
+    conversationId === null
+      ? undefined
+      : { invocationMetadata: { conversationId } },
+  );
 }
 
 describe("collect_agent_result", () => {
@@ -1297,7 +1323,7 @@ describe("collect_agent_result", () => {
       resultFull: full,
     });
 
-    const out = await tools.collect_agent_result!({ assignmentId: id });
+    const out = await collect(id);
     expect(expectIsError(out)).toBe(false);
     expect(expectText(out)).toBe(full);
     const meta = expectAgentMetaBg(out);
@@ -1318,7 +1344,7 @@ describe("collect_agent_result", () => {
       structuredResult: parsed,
     });
 
-    const out = await tools.collect_agent_result!({ assignmentId: id });
+    const out = await collect(id);
     expect(expectIsError(out)).toBe(false);
     expect(expectText(out)).toBe(JSON.stringify(parsed, null, 2));
   });
@@ -1334,7 +1360,7 @@ describe("collect_agent_result", () => {
       resultFull: "the agent failed: boom",
     });
 
-    const out = await tools.collect_agent_result!({ assignmentId: id });
+    const out = await collect(id);
     expect(expectIsError(out)).toBe(true);
     expect(expectText(out)).toBe("the agent failed: boom");
   });
@@ -1343,7 +1369,7 @@ describe("collect_agent_result", () => {
     _setSpawnForTests(makeFakeSpawn().fn);
     const id = await startBackground();
 
-    const out = await tools.collect_agent_result!({ assignmentId: id });
+    const out = await collect(id);
     expect(expectIsError(out)).toBe(false);
     expect(expectText(out)).toMatch(/still running/i);
     expect(expectText(out)).toContain(id);
@@ -1354,7 +1380,7 @@ describe("collect_agent_result", () => {
     const id = await startBackground();
 
     // Kick off a waiting collect (does NOT resolve yet).
-    const collectPromise = tools.collect_agent_result!({ assignmentId: id, waitSeconds: 30 });
+    const collectPromise = collect(id, 30);
 
     // A gate registered on the background entry.
     let waiters = 0;
@@ -1385,7 +1411,7 @@ describe("collect_agent_result", () => {
     const id = await startBackground();
 
     // waitSeconds:1 → ~1s idle window; no terminal arrives → expiry.
-    const out = await tools.collect_agent_result!({ assignmentId: id, waitSeconds: 1 });
+    const out = await collect(id, 1);
     expect(expectIsError(out)).toBe(false);
     expect(expectText(out)).toMatch(/still running/i);
     // A collect timeout must NOT cancel the child.
@@ -1402,7 +1428,7 @@ describe("collect_agent_result", () => {
     // waitSeconds:1 base. Deliver a non-terminal activity update at ~0.6s
     // (< 1s base, so the timer never fired) which RESETS the deadline; total
     // elapsed then exceeds 1s, proving the slide. Finally a terminal resolves.
-    const collectPromise = tools.collect_agent_result!({ assignmentId: id, waitSeconds: 1 });
+    const collectPromise = collect(id, 1);
     for (let i = 0; i < 50 && _internals.backgroundSpawns.get(id)!.waiters.size === 0; i++) {
       await new Promise((r) => setTimeout(r, 1));
     }
@@ -1429,16 +1455,55 @@ describe("collect_agent_result", () => {
   });
 
   test("unknown assignmentId → clear error", async () => {
-    const out = await tools.collect_agent_result!({ assignmentId: "not-a-real-id" });
+    const out = await collect("not-a-real-id");
     expect(expectIsError(out)).toBe(true);
     expect(expectText(out)).toContain("no background agent");
     expect(expectText(out)).toContain("not-a-real-id");
   });
 
   test("empty / missing assignmentId → clear error", async () => {
-    const out = await tools.collect_agent_result!({ assignmentId: "  " });
+    const out = await collect("  ");
     expect(expectIsError(out)).toBe(true);
     expect(expectText(out)).toMatch(/non-empty 'assignmentId'/);
+  });
+
+  // ── F3: caller authorization (process-global map) ────────────────
+  test("cross-conversation collect → not-found (does not leak another conversation's result)", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    const id = await startBackground({}, "conv-A");
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: "task-x",
+      assignment: { id, status: "completed", resultPreview: "secret" },
+      resultFull: "conv-A's private result",
+    });
+
+    // A DIFFERENT conversation asks for the same assignmentId → not-found,
+    // and the real (terminal) result never leaks.
+    const out = await collect(id, undefined, "conv-B");
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("no background agent");
+    expect(expectText(out)).not.toContain("conv-A's private result");
+
+    // The owning conversation still collects it fine.
+    const owned = await collect(id, undefined, "conv-A");
+    expect(expectIsError(owned)).toBe(false);
+    expect(expectText(owned)).toBe("conv-A's private result");
+  });
+
+  test("missing caller conversation id → not-found (fail closed)", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    const id = await startBackground();
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: "task-x",
+      assignment: { id, status: "completed", resultPreview: "p" },
+      resultFull: "done",
+    });
+    // No invocationMetadata.conversationId on the collect → not-found.
+    const out = await collect(id, undefined, null);
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("no background agent");
   });
 
   test("clampWaitSeconds bounds waitSeconds into [0, MAX] and floors fractions", () => {
@@ -1512,5 +1577,42 @@ describe("orchestration extension — backgroundSpawns bounding", () => {
     expect(_internals.backgroundSpawns.size).toBe(MAX + 1);
     expect(_internals.backgroundSpawns.has("live-0")).toBe(true);
     expect(_internals.backgroundSpawns.has("live-extra")).toBe(true);
+  });
+
+  test("F5: eviction prefers a COLLECTED-terminal entry over an older uncollected-terminal one", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    const MAX = _internals.MAX_BACKGROUND_SPAWNS;
+    for (let i = 0; i < MAX; i++) {
+      const asn = `bg-${i}`;
+      _internals.registerBackgroundSpawn(
+        { assignmentId: asn, subConversationId: `sub-${asn}`, agentRunId: `run-${asn}`, taskId: `task-${asn}` },
+        "builder",
+        "agent-builder",
+        OWNER_CONV,
+      );
+      await _internals.handleAssignmentUpdate({
+        conversationId: "conv-x",
+        taskId: `task-${asn}`,
+        assignment: { id: asn, status: "completed", resultPreview: "done" },
+      });
+    }
+    // Collect a MIDDLE entry (bg-5) → marks it collected; bg-0..bg-4 stay
+    // terminal-but-uncollected and are OLDER.
+    const collected = await collect("bg-5");
+    expect(expectIsError(collected)).toBe(false);
+    expect(_internals.backgroundSpawns.get("bg-5")!.collected).toBe(true);
+    expect(_internals.backgroundSpawns.get("bg-0")!.collected).toBe(false);
+
+    // Register one more → the COLLECTED bg-5 is evicted first, NOT the older bg-0.
+    _internals.registerBackgroundSpawn(
+      { assignmentId: "bg-new", subConversationId: "sub-new", agentRunId: "run-new", taskId: "task-new" },
+      "builder",
+      "agent-builder",
+      OWNER_CONV,
+    );
+    expect(_internals.backgroundSpawns.size).toBe(MAX);
+    expect(_internals.backgroundSpawns.has("bg-5")).toBe(false); // collected → evicted first
+    expect(_internals.backgroundSpawns.has("bg-0")).toBe(true); // older but uncollected → kept
+    expect(_internals.backgroundSpawns.has("bg-new")).toBe(true);
   });
 });

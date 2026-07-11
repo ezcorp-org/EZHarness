@@ -38,6 +38,54 @@ export const ORCHESTRATION_TOOLS: ReadonlySet<string> = new Set([
   "task_unassign",
 ]);
 
+/**
+ * Bare tool names the HOST's orchestration wiring makes legitimately
+ * LONG-BLOCKING: they await async events (sub-agent completion / background
+ * poll) the host does not observe as forward-call traffic, so the flat 30s
+ * subprocess RPC timeout (and the ~90s parent-run watchdog) would otherwise
+ * kill them mid-wait — and killing the SHARED orchestration subprocess drops
+ * every backgroundSpawn + in-flight invoke across all conversations.
+ *
+ * HOST-CONTROLLED — a third-party manifest CANNOT self-grant this exemption:
+ *   1. These bare names are only ever produced by the host's own
+ *      `wireOrchestrationToolsForTurn`; every third-party extension tool is
+ *      wired NAMESPACED (`<ext>__<tool>`), so its `event.toolName` / dispatch
+ *      name never bare-matches this set.
+ *   2. The subprocess-timeout skip additionally requires the tool to belong to
+ *      a BUNDLED extension (`registry.isBundled`) — the same trust root the
+ *      integrity-skip uses.
+ * A third-party tool that blocks a long time is still bounded by the parent-run
+ * watchdog (which it cannot defer — the widened budget below is host-only).
+ */
+export const LONG_BLOCKING_ORCHESTRATION_TOOLS: ReadonlySet<string> = new Set([
+  // Blocks up to its resolved (sliding) give-up timeout awaiting the child's
+  // terminal `task:assignment_update`.
+  "invoke_agent",
+  // Blocks up to `waitSeconds` (sliding on child activity) awaiting a
+  // background child's terminal.
+  "collect_agent_result",
+]);
+
+/**
+ * BOUNDED parent-run watchdog defer budget for a synchronous
+ * {@link LONG_BLOCKING_ORCHESTRATION_TOOLS} call. Only `collect_agent_result`
+ * reaches the run watchdog — `invoke_agent`'s tool:start is suppressed in
+ * subscribe-bridge (it streams its own agent:* liveness), so the orchestrator
+ * run stays alive via those bumps. A blocking `collect` emits no such events,
+ * so without this it trips the ~90s idle kill (F1).
+ *
+ * Bounded (not indefinite) per the "prefer bounded" preference: sized to the
+ * `invoke_agent` per-call timeout ceiling (3600s) so a legitimate collect wait
+ * (≤600s of child idle, extended while the child keeps emitting activity) is
+ * never killed, while a genuinely-wedged collect is still bounded rather than
+ * deferred forever. A subprocess-level `skipTimeout` (see tool-executor) keeps
+ * the shared subprocess alive across the same window — the subprocess cap must
+ * be UNBOUNDED there because the activity-sliding deadline + configurable
+ * `maxCycles` exceed any fixed cap, and the tool self-bounds via its own
+ * reap/gate.
+ */
+export const LONG_BLOCKING_WATCHDOG_BUDGET_MS = 3_600_000;
+
 export interface ToolFilterOptions {
   /**
    * Coarse restriction by tool category.

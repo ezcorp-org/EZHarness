@@ -201,14 +201,22 @@ export interface StartAssignmentOpts {
    *  regardless of this flag (it is the immediate UI / observability / ext-
    *  subscription signal); this flag ONLY gates the parent-queue nudge.
    *
-   *  Drain semantics (v1, Claude-Code-style "notify on next turn"): the
-   *  pending-messages queue is drained by (a) `startAssignment`'s own
-   *  run:complete when the PARENT is itself a sub-agent whose run later ends
-   *  (nested teams → the orchestrator auto-continues with the notify text),
-   *  and (b) the goal-host loop. A top-level orchestrator (the user's main
-   *  chat) has no idle-queue drainer, so its notify is delivered whenever the
-   *  parent is next driven through a draining path; the `agent:complete`
-   *  event is the reliable immediate signal in that case. */
+   *  Drain semantics — WHICH parents actually get the queued nudge delivered
+   *  to their LLM (be precise; do NOT over-promise):
+   *    • PARENT IS ITSELF A SUB-AGENT (nested teams): delivered. Its own
+   *      `startAssignment` run:complete drains `dequeue(conversationId)` and
+   *      auto-continues the orchestrator with the notify text.
+   *    • PARENT IS A GOAL-HOST conversation: delivered — the goal loop drains
+   *      it (as a supersede signal) on its next evaluated turn.
+   *    • PARENT IS A TOP-LEVEL user chat: NOT delivered in-conversation. Nothing
+   *      drains a plain chat's pending-messages queue (the main chat + agent-
+   *      chat idle paths do NOT dequeue). The message sits until such a drainer
+   *      runs, which for a plain chat never happens — so `collect_agent_result`
+   *      is the ONLY reliable path for a top-level orchestrator, and the tool's
+   *      returned text says so. `agent:complete` (emitted regardless of this
+   *      flag) still drives the UI chip + observability + ext subscriptions in
+   *      every case. The enqueue is kept because it's free and correct for the
+   *      nested/goal-host cases; it is simply a no-op for top-level chats. */
   notifyParentOnTerminal?: boolean;
 }
 
@@ -412,6 +420,13 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
   //     `sse-conversation-filter.ts` and is consumed by `observability/
   //     collector.ts` + `lifecycle-dispatcher.ts` — this is purely the missing
   //     emit.
+  //     F6 CALLOUT (intended behavior change): `agent:complete` now ALSO fires
+  //     for SYNCHRONOUS invoke_agent (and team/task-panel spawns), not just the
+  //     agent-chat idle path. So `observability/collector.ts` writes an
+  //     agent_call/agent_error row per sync sub-agent, and any
+  //     `lifecycle-dispatcher` `agent:complete` subscriber now receives these
+  //     events. This is the deliberate gap-fill — consumers should expect the
+  //     new events (they were previously emitted only from the agent-chat route).
   // (2) For a background spawn (`notifyParentOnTerminal`), ALSO enqueues a
   //     plain, capped completion-notify pending message onto the PARENT
   //     conversation so an orchestrator that dispatched this child without

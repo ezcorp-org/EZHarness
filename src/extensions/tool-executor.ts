@@ -53,6 +53,7 @@ import {
   createExtensionPermissionGate,
   type ApprovalResolution,
 } from "../runtime/tools/permissions";
+import { LONG_BLOCKING_ORCHESTRATION_TOOLS } from "../runtime/tools/filter";
 import { handleNetworkInternalRpc, type NetworkInternalContext } from "./network-handler";
 import {
   handleFsReadRpc,
@@ -384,13 +385,33 @@ export function clearFsDeprecationForExtension(extensionId: string): void {
  *    which surfaces it to the subprocess via the JSON-RPC `_meta` channel.
  */
 export function extensionToAgentTool(
-  extTool: { name: string; description: string; inputSchema: Record<string, unknown> },
+  extTool: {
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+    /** Optional DISPATCH key, decoupled from the LLM-visible `name`. The
+     *  registry's `toolMap` is keyed by the NAMESPACED name
+     *  (`<ext>__<tool>`), but some callers want the LLM to see the BARE
+     *  `originalName` (orchestration's `invoke_agent` — subscribe-bridge
+     *  event-suppression, auto-spin-up, and the ORCHESTRATION_TOOLS filter
+     *  all key on the bare AgentTool name). Those callers keep `name` bare
+     *  and set `dispatchName` to the namespaced `registered.name` so
+     *  `executeToolCall` resolves the tool instead of returning "Unknown
+     *  tool". When absent, dispatch falls back to `name` (the common case —
+     *  every caller that already passes the namespaced name is unaffected). */
+    dispatchName?: string;
+  },
   toolExecutor: ToolExecutor,
   conversationId: string,
   messageId: string,
   schemaOverride?: Record<string, unknown>,
   invocationMetadata?: Record<string, unknown>,
 ): AgentTool {
+  // Dispatch key: prefer the explicit `dispatchName` (namespaced registry
+  // key) over the LLM-visible `name`. Keeps the bare name in the model's
+  // toolset while routing `executeToolCall` → `getRegisteredTool` to the
+  // real (namespaced) toolMap entry.
+  const dispatchName = extTool.dispatchName ?? extTool.name;
   return {
     name: extTool.name,
     label: extTool.name,
@@ -411,7 +432,7 @@ export function extensionToAgentTool(
       // — which carries no `cardType`, breaking specialized cards
       // like AskUserQuestionCard.
       const result = await toolExecutor.executeToolCall(
-        extTool.name, params as Record<string, unknown>, conversationId, messageId,
+        dispatchName, params as Record<string, unknown>, conversationId, messageId,
         { metadata: { invocationId: toolCallId } }, callMetadata,
       );
       return {
@@ -1231,8 +1252,28 @@ export class ToolExecutor {
         // strict `toHaveBeenCalledWith` arity). The token is released the
         // moment the forward call returns — all reverse-RPCs for it have
         // necessarily completed by then.
+        // Long-blocking exemption from the flat per-call subprocess RPC timeout
+        // (subprocess.ts kills the process on any call exceeding callTimeoutMs,
+        // default 30s). Two host-controlled cases opt out:
+        //   1. `requiresUserInput` — human-in-the-loop (ask-user); bounded by the
+        //      user.
+        //   2. A BUNDLED orchestration tool that legitimately awaits async events
+        //      (invoke_agent / collect_agent_result — see
+        //      LONG_BLOCKING_ORCHESTRATION_TOOLS). Without this, a >30s wait kills
+        //      the SHARED orchestration subprocess, dropping every backgroundSpawn
+        //      + in-flight invoke across all conversations.
+        // Gated on `registry.isBundled` so a third-party manifest cannot self-grant
+        // supervision evasion (the bare-name set is host-produced; see filter.ts).
+        // Unbounded here (not a raised finite cap) because the activity-sliding
+        // give-up deadline + configurable maxCycles exceed any fixed cap; the tool
+        // self-bounds via its own reap/gate, and the parent-run watchdog provides
+        // the run-level bound (bounded for collect; agent:* liveness for invoke).
+        const skipCallTimeout =
+          registered.requiresUserInput === true ||
+          (LONG_BLOCKING_ORCHESTRATION_TOOLS.has(originalName) &&
+            this.registry.isBundled?.(extensionId) === true);
         try {
-          result = registered.requiresUserInput === true
+          result = skipCallTimeout
             ? await proc.callTool(originalName, callArgs, meta, { skipTimeout: true })
             : await proc.callTool(originalName, callArgs, meta);
         } finally {

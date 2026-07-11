@@ -44,7 +44,7 @@ const INVOKE_AGENT_SCHEMA = {
     background: {
       type: "boolean",
       description:
-        "When true, dispatch the agent and return IMMEDIATELY with a handle (assignmentId) instead of blocking until it finishes — the Claude-Code-style background sub-agent. Use it to fan out several long-running agents in parallel and gather their results later with collect_agent_result; you are also notified when each finishes. A background agent holds a concurrent spawn slot until it reaches a terminal state, so many parallel background agents can exhaust the spawn quota. Omit (or false) for a normal blocking call that returns the agent's result inline.",
+        "When true, dispatch the agent and return IMMEDIATELY with a handle (assignmentId) instead of blocking until it finishes — the Claude-Code-style background sub-agent. Use it to fan out several long-running agents in parallel, then gather their results with collect_agent_result (using each assignmentId). Its progress/completion show in the task panel; you are NOT auto-notified in-conversation, so you must poll with collect_agent_result. A background agent holds a concurrent spawn slot until it reaches a terminal state, so many parallel background agents can exhaust the spawn quota. Omit (or false) for a normal blocking call that returns the agent's result inline.",
     },
   },
   required: ["agentConfigId", "task"],
