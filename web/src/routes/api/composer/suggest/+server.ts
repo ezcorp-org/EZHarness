@@ -7,7 +7,7 @@ import { resolveScopedTools, scopedToolKey, type ScopedToolRow } from "$lib/serv
 import { generateEmbedding } from "$server/memory/embeddings";
 import { getToolEmbedding } from "$server/suggest/embedding-cache";
 import { getUserToolPriors } from "$server/suggest/user-tool-priors";
-import { rankCandidates } from "$server/suggest/intent-rank";
+import { contentTokens, rankCandidates } from "$server/suggest/intent-rank";
 import { getSuggestConfig, isSuggestEnabledForProject } from "$server/suggest/config";
 import { enhancePrompt, isEnhanceAvailable } from "$server/suggest/enhance";
 import { suggestRequestSchema } from "./schema";
@@ -23,9 +23,10 @@ interface SuggestedToolPayload {
 
 /**
  * Rank the scoped tool surface against the draft: transient draft embedding
- * (never persisted) × content-cached tool-description embeddings, blended
- * with the user's usage prior (see src/suggest/intent-rank.ts for the
- * popular-tool-spam guard).
+ * (never persisted) × content-cached tool-description embeddings, plus a
+ * lexical token-overlap signal (hybrid relevance — see intent-rank.ts for
+ * the live-measured MiniLM recall gap it papers over), blended with the
+ * user's usage prior (same module documents the popular-tool-spam guard).
  */
 async function rankScopedTools(
   draft: string,
@@ -36,12 +37,18 @@ async function rankScopedTools(
   if (candidates.length === 0) return [];
 
   const byKey = new Map(candidates.map((t) => [scopedToolKey(t), t]));
+  // Human-readable label for BOTH the embedded text and the lexical name
+  // tokens — the namespaced `ext__tool` key measurably drags the cosine
+  // down (-0.04 live), while "extension name" wording is what users type.
+  const labelFor = (t: ScopedToolRow) => `${t.extension} ${t.name}`;
   const [draftEmbedding, embedded, priors] = await Promise.all([
     generateEmbedding(draft),
     Promise.all(
       candidates.map(async (t) => ({
         key: scopedToolKey(t),
-        embedding: await getToolEmbedding(scopedToolKey(t), t.description),
+        embedding: await getToolEmbedding(labelFor(t), t.description),
+        nameTokens: contentTokens(labelFor(t)),
+        descTokens: contentTokens(t.description),
       })),
     ),
     getUserToolPriors(userId),
@@ -56,7 +63,13 @@ async function rankScopedTools(
     priorForCandidates[key] = priors[key] ?? priors[t.name] ?? 0;
   }
 
-  return rankCandidates(draftEmbedding, embedded, priorForCandidates).map((r) => {
+  return rankCandidates(
+    draftEmbedding,
+    embedded,
+    priorForCandidates,
+    undefined,
+    contentTokens(draft),
+  ).map((r) => {
     const tool = byKey.get(r.key)!;
     return {
       name: tool.name,

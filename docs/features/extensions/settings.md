@@ -8,7 +8,9 @@ Extensions need user-tunable knobs — a TTS voice, a playback speed, a refresh 
 
 ## How it works
 
-The schema is one map of `key → SettingsField` on the manifest (`SettingsSchema` in `src/extensions/types.ts`). Four field types exist: `select`, `text`, `number`, `boolean` — there is no generic `string` type. Keys must match `/^[a-z][a-z0-9_]{0,63}$/`.
+The schema is one map of `key → SettingsField` on the manifest (`SettingsSchema` in `src/extensions/types.ts`). Five field types exist: `select`, `text`, `number`, `boolean`, `secret` — there is no generic `string` type. Keys must match `/^[a-z][a-z0-9_]{0,63}$/`.
+
+`secret` is the write-only credential type (requires `storageKey`, forbids `default`): its value never enters the settings JSON blob — the host encrypts it into extension storage at `(scope "user", scopeId <saving user>, key storageKey)` via `src/extensions/secret-settings.ts`, using the exact cipher path of the storage RPC's `encrypted: true` write. The extension reads it back through its normal SDK Storage surface; the settings routes expose only a per-field `{ isSet }` existence probe.
 
 ### Resolution & clamping
 
@@ -55,9 +57,9 @@ Tool cards run in the browser bundle and read settings synchronously from a modu
 
 | Method & path | Purpose |
 |---|---|
-| `GET /api/extensions/[id]/settings` | Returns `{ schema, declaredDefaults, userValues, resolved, capabilities }` for the calling user. `schema: null` when the extension declares none. Instance-wide `capabilities` (held host-capability schemas, v1: search) ride along on the same payload. |
-| `PUT /api/extensions/[id]/settings/user` | Persist the calling user's values. Body `{ values: {...} }`. Clamped server-side before write. **409** if the extension has no `settings` schema; **400** if `values` is absent/not a plain object. Returns `{ ok, userValues }` (post-clamp). Audited. |
-| `DELETE /api/extensions/[id]/settings/user` | Reset — deletes the user's row so the resolver falls back to declared defaults. **409** if no schema. Audited. |
+| `GET /api/extensions/[id]/settings` | Returns `{ schema, declaredDefaults, userValues, resolved, secrets, capabilities }` for the calling user. `schema: null` when the extension declares none. `secrets` maps each secret field to a bare `{ isSet }` existence probe — never the value. Instance-wide `capabilities` (held host-capability schemas, v1: search) ride along on the same payload. |
+| `PUT /api/extensions/[id]/settings/user` | Persist the calling user's values. Body `{ values: {...} }`. Non-secret keys are clamped server-side before write. Secret keys are validated (non-empty string ≤ 512 chars) then encrypted into extension storage; an explicit `""` clears the stored row; validation is all-or-nothing (a 400 applies nothing). **409** if the extension has no `settings` schema; **400** if `values` is absent/not a plain object or a secret value is invalid. Returns `{ ok, userValues, secrets }` (post-clamp + post-apply probes; no secret value in any response byte). Audited name-only for secrets. |
+| `DELETE /api/extensions/[id]/settings/user` | Reset — deletes the user's row so the resolver falls back to declared defaults. Does **not** touch stored secrets (clear those per-field via the panel's Clear affordance). **409** if no schema. Audited. |
 
 All three call `requireAuth(locals)` and operate on the **caller's** `user.id` — there is no cross-user read/write surface here.
 
@@ -90,8 +92,9 @@ The reference implementation is `kokoro-tts` (`docs/extensions/examples/kokoro-t
 
 ## Key files
 
-- `src/extensions/types.ts` — `SettingsField` (`select` / `text` / `number` / `boolean`), `SettingsSchema`, and `settings?` on the manifest type.
-- `src/db/queries/extension-settings.ts` — `getDeclaredDefaults`, `clampSettings`, `getUserSettings`, `setUserSettings`, `clearUserSettings`, `resolveExtensionSettings` (the merge `default < override` + clamp logic).
+- `src/extensions/types.ts` — `SettingsField` (`select` / `text` / `number` / `boolean` / `secret`), `SettingsSchema`, and `settings?` on the manifest type.
+- `src/extensions/secret-settings.ts` — the secret-field host path: `encryptStorageValue` (canonical encrypted-storage encoding, shared with storage-handler), `setSecretSetting` / `clearSecretSetting` / `isSecretSettingSet` / `probeSecretSettings`, `secretFieldEntries`.
+- `src/db/queries/extension-settings.ts` — `getDeclaredDefaults`, `clampSettings`, `getUserSettings`, `setUserSettings`, `clearUserSettings`, `resolveExtensionSettings` (the merge `default < override` + clamp logic; secret keys dropped unconditionally).
 - `src/db/schema.ts` — `extension_settings_user` table (`userId` + `extensionId` composite PK, `values` JSONB, cascade-delete on both FKs).
 - `src/extensions/manifest.ts` — `isValidForField` per-value validity predicate used by both clamp and admit-time checks.
 - `src/extensions/tool-executor.ts` — resolves + merges settings into `_meta.invocationMetadata.settings` per tool call (caller overrides win).
@@ -125,7 +128,8 @@ The reference implementation is `kokoro-tts` (`docs/extensions/examples/kokoro-t
 
 ## Notes & gotchas
 
-- **Settings are NOT secret.** `GET /api/extensions/[id]/settings` returns the `resolved` + `userValues` blob to the calling authenticated session, and the chat layout ships `resolved` into the browser bundle. The schema and any declared defaults are visible to every user who can see the extension's detail page. There is no `secret: true` field flag. For API keys / tokens, use the Storage API with `scope: "user"` + `encrypted: true` (the **server** AES-256-GCM-encrypts at rest). Because settings can still carry a user-pasted secret in a text field, the `PUT`/`DELETE` routes audit the mutation (with the raw `submitted` input) defensively.
+- **Non-secret settings are NOT secret.** `GET /api/extensions/[id]/settings` returns the `resolved` + `userValues` blob to the calling authenticated session, and the chat layout ships `resolved` into the browser bundle. The schema and any declared defaults are visible to every user who can see the extension's detail page. Credentials belong in a `type: "secret"` field: the value is encrypted into extension storage (same row shape as Storage-API `scope: "user"` + `encrypted: true`), only `{ isSet }` probes ever leave the server, and the audit trail is name-only (`secretsSet` / `secretsCleared` — `submitted` excludes secret keys). Because a user can still paste a credential into a plain text field, the `PUT`/`DELETE` routes keep auditing the mutation (with the raw non-secret `submitted` input) defensively.
+- **Reset ≠ clear-secrets.** `DELETE /settings/user` wipes only the settings JSON row; stored secrets survive a reset and are cleared per-field (Clear affordance → `PUT` with `""`). This is deliberate — "Reset to default" shouldn't silently destroy a working API token.
 - **Clamp is the only schema guard.** There is no schema-version column on settings rows — the resolver always validates against the **current** manifest. Adding a field → resolves to its `default`; dropping a field → silently dropped on read; narrowing a type / tightening min/max/pattern → invalid persisted values revert to default on read. The host never notifies the user that a value was dropped.
 - **Caller overrides win, per-call.** A cross-extension `ezcorp/invoke` caller passing `invocationMetadata.settings` overrides the resolved blob for that one call (`{ ...resolved, ...callerSettings }`). This is by design for orchestration; an extension cannot prevent a host orchestrator from overriding its own user's values for a single invocation.
 - **Cache is keyed by name, route is keyed by id.** The browser store keys by extension **name** and resolves name → id at load time; the REST routes and the DB table key by extension **id**. A name collision (shouldn't happen — names are unique) would cross wires in the cache only.

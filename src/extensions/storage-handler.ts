@@ -13,7 +13,8 @@ import {
   getStorageUsage,
 } from "../db/queries/extension-storage";
 import { getConversationExtensionIds } from "../db/queries/conversation-extensions";
-import { encrypt, decrypt } from "../providers/encryption";
+import { decrypt } from "../providers/encryption";
+import { encryptStorageValue } from "./secret-settings";
 import { createRateLimiter } from "./rate-limit";
 import { rpcError, rpcResult } from "./json-rpc";
 
@@ -263,9 +264,10 @@ async function handleSet(
     return rpcError(id, -32002, `Storage quota exceeded (${quota} bytes)`);
   }
 
-  // Encrypt if requested
+  // Encrypt if requested — via the shared canonical helper so this path
+  // and the host-side secret-settings write stay byte-identical.
   if (shouldEncrypt) {
-    valueToStore = encrypt(serialized);
+    valueToStore = encryptStorageValue(valueToStore).stored;
   }
 
   const rawTtl = params.ttlSeconds;

@@ -330,6 +330,23 @@ describe("manifest", () => {
     expect(manifest.pages?.[0]?.title).toBe("Card Scanner");
   });
 
+  test("declares the psa_api_token secret setting targeting resolveToken's storage key", async () => {
+    const manifest = (await import("./ezcorp.config.ts")).default;
+    const { TOKEN_STORAGE_KEY } = await import("./lib/token.ts");
+    const field = manifest.settings?.psa_api_token;
+    expect(field?.type).toBe("secret");
+    expect(field?.label).toBe("PSA API token");
+    // MUST equal lib/token.ts's TOKEN_STORAGE_KEY — that is what makes the
+    // settings-page write readable by resolveToken with zero code changes.
+    expect(field && "storageKey" in field ? field.storageKey : undefined).toBe(
+      TOKEN_STORAGE_KEY,
+    );
+    // The description points users at the free-token source.
+    expect(
+      field?.description?.includes("api.psacard.com"),
+    ).toBe(true);
+  });
+
   test("declares the identify_slab preprocessor (deterministic preprocess) with the chart cardType", async () => {
     const manifest = (await import("./ezcorp.config.ts")).default;
     expect(manifest.preprocessors).toEqual([

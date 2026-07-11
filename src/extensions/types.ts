@@ -344,11 +344,29 @@ export interface SettingsFieldBoolean {
   default?: boolean;
 }
 
+/** Write-only secret (API token, credential). The value is NEVER stored in
+ *  the settings JSON blob — the host encrypts it (same cipher path as the
+ *  storage RPC's `encrypted: true`) and writes it to extension storage at
+ *  `(extensionId, scope: "user", scopeId: <saving user>, key: storageKey)`,
+ *  so the sandboxed extension reads it through its existing SDK Storage
+ *  surface. Implicitly PER-USER; no `default` (secrets have none). */
+export interface SettingsFieldSecret {
+  type: "secret";
+  label: string;
+  description?: string;
+  /** Extension-storage key the encrypted value is written to. Must match
+   *  /^[a-z0-9][a-z0-9_.-]{0,63}$/ with no trailing dot (the storage RPC
+   *  rejects dot-terminated keys on read). REQUIRED (and forbidden on all
+   *  other field types). */
+  storageKey: string;
+}
+
 export type SettingsField =
   | SettingsFieldSelect
   | SettingsFieldText
   | SettingsFieldNumber
-  | SettingsFieldBoolean;
+  | SettingsFieldBoolean
+  | SettingsFieldSecret;
 
 /** Map of setting key → field declaration. Keys must match
  *  /^[a-z][a-z0-9_]{0,63}$/ (filesystem-safe identifier). */

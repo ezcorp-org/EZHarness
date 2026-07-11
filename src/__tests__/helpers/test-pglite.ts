@@ -104,7 +104,7 @@ export function restoreFetch() {
 // settings mock from a previous test file (Bun mock.module leaks across files).
 export function mockRealSettings() {
   mock.module("../../db/queries/settings", () => {
-    const { eq } = require("drizzle-orm");
+    const { eq, sql } = require("drizzle-orm");
     const { settings: tbl } = require("../../db/schema");
     return {
       async getAllSettings() {
@@ -116,11 +116,16 @@ export function mockRealSettings() {
         return rows[0]?.value;
       },
       async upsertSetting(key: string, value: unknown) {
+        // Mirror the REAL upsertSetting's explicit jsonb encoding (see
+        // src/db/queries/settings.ts — the ::text hop defeats the Bun.sql
+        // driver's double-encode) so suites that leak this mock across
+        // files observe identical semantics, null included.
+        const encoded = sql`${JSON.stringify(value) ?? "null"}::text::jsonb`;
         const rows = await db.select().from(tbl).where(eq(tbl.key, key));
         if (rows[0]) {
-          await db.update(tbl).set({ value, updatedAt: new Date() }).where(eq(tbl.key, key));
+          await db.update(tbl).set({ value: encoded, updatedAt: new Date() }).where(eq(tbl.key, key));
         } else {
-          await db.insert(tbl).values({ key, value, updatedAt: new Date() });
+          await db.insert(tbl).values({ key, value: encoded, updatedAt: new Date() });
         }
       },
       async deleteSetting(key: string) {

@@ -7,14 +7,15 @@ import type {
 } from "../../extensions/types";
 import { isValidForField } from "../../extensions/manifest";
 
-/** Pure: pulls each field's `default` from the manifest schema. */
+/** Pure: pulls each field's `default` from the manifest schema. Secret
+ *  fields carry no `default` by construction (write-only credentials). */
 export function getDeclaredDefaults(
   schema: SettingsSchema | undefined,
 ): Record<string, unknown> {
   if (!schema) return {};
   const out: Record<string, unknown> = {};
   for (const [key, field] of Object.entries(schema)) {
-    if (field.default !== undefined) out[key] = field.default;
+    if ("default" in field && field.default !== undefined) out[key] = field.default;
   }
   return out;
 }
@@ -22,7 +23,13 @@ export function getDeclaredDefaults(
 /** Pure: clamps a values blob against the schema. Drops unknown keys and
  *  invalid values. Never throws. The per-value validity rules live in
  *  `isValidForField` (src/extensions/manifest.ts) — the same predicate
- *  the admit-time validator uses for default checks. */
+ *  the admit-time validator uses for default checks.
+ *
+ *  Secret-typed fields are dropped UNCONDITIONALLY (even when the value
+ *  would pass `isValidForField`): their plaintext must never persist in
+ *  the settings JSON blob nor resolve into tool calls — the host writes
+ *  them encrypted into extension storage instead
+ *  (src/extensions/secret-settings.ts). */
 export function clampSettings(
   schema: SettingsSchema | undefined,
   values: unknown,
@@ -33,6 +40,7 @@ export function clampSettings(
   for (const [key, raw] of Object.entries(values as Record<string, unknown>)) {
     const field = schema[key];
     if (!field) continue;
+    if (field.type === "secret") continue;
     if (isValidForField(field, raw)) out[key] = raw;
   }
   return out;

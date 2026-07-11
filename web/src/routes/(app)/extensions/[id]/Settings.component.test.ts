@@ -226,3 +226,100 @@ describe("Extension detail — Settings section", () => {
     expect(await findByTestId("extension-settings-empty")).toBeInTheDocument();
   });
 });
+
+describe("Extension detail — secret settings fields", () => {
+  const secretSchema = {
+    ...settingsSchema,
+    psa_api_token: {
+      type: "secret",
+      label: "PSA API token",
+      storageKey: "psa-token",
+    },
+  };
+
+  function seedSecretSettings(isSet: boolean) {
+    mockResponses.settings.body = {
+      schema: secretSchema,
+      declaredDefaults: {},
+      userValues: {},
+      resolved: {},
+      secrets: { psa_api_token: { isSet } },
+    };
+  }
+
+  test("GET secrets payload drives the masked, never-prefilled input + Not set badge", async () => {
+    seedSecretSettings(false);
+    const { findByTestId } = render(ExtensionDetailPage);
+    const input = (await findByTestId("schema-input-psa_api_token")) as HTMLInputElement;
+    expect(input.type).toBe("password");
+    expect(input.value).toBe("");
+    expect(await findByTestId("schema-secret-status-psa_api_token")).toHaveTextContent("Not set");
+  });
+
+  test("isSet=true shows the Set badge, the saved-state hint, and the Clear affordance", async () => {
+    seedSecretSettings(true);
+    const { findByTestId } = render(ExtensionDetailPage);
+    expect(await findByTestId("schema-secret-status-psa_api_token")).toHaveTextContent("Set");
+    expect(await findByTestId("schema-secret-hint-psa_api_token")).toHaveTextContent(
+      "never shown again",
+    );
+    expect(await findByTestId("schema-secret-clear-psa_api_token")).toBeInTheDocument();
+    // Never prefilled even when a value is stored server-side.
+    const input = (await findByTestId("schema-input-psa_api_token")) as HTMLInputElement;
+    expect(input.value).toBe("");
+  });
+
+  test("typing a token + Save issues PUT /settings/user carrying the typed value", async () => {
+    seedSecretSettings(false);
+    const { findByTestId } = render(ExtensionDetailPage);
+    const input = (await findByTestId("schema-input-psa_api_token")) as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: "tok-live-1234567890" } });
+    await fireEvent.click(await findByTestId("settings-panel-user-save"));
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        (c) =>
+          String(c[0]).endsWith("/api/extensions/ext-1/settings/user") &&
+          (c[1] as RequestInit | undefined)?.method === "PUT",
+      );
+      expect(put).toBeDefined();
+      const body = JSON.parse(String((put![1] as RequestInit).body));
+      expect(body.values.psa_api_token).toBe("tok-live-1234567890");
+    });
+  });
+
+  test("Clear + Save issues PUT with the explicit empty-string clear", async () => {
+    seedSecretSettings(true);
+    const { findByTestId } = render(ExtensionDetailPage);
+    await fireEvent.click(await findByTestId("schema-secret-clear-psa_api_token"));
+    expect(await findByTestId("schema-secret-hint-psa_api_token")).toHaveTextContent(
+      "Will be cleared when you save.",
+    );
+    await fireEvent.click(await findByTestId("settings-panel-user-save"));
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        (c) =>
+          String(c[0]).endsWith("/api/extensions/ext-1/settings/user") &&
+          (c[1] as RequestInit | undefined)?.method === "PUT",
+      );
+      expect(put).toBeDefined();
+      const body = JSON.parse(String((put![1] as RequestInit).body));
+      expect(body.values.psa_api_token).toBe("");
+    });
+  });
+
+  test("untouched secret field stays ABSENT from the saved values blob", async () => {
+    seedSecretSettings(true);
+    const { findByTestId } = render(ExtensionDetailPage);
+    await fireEvent.click(await findByTestId("settings-panel-user-save"));
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        (c) =>
+          String(c[0]).endsWith("/api/extensions/ext-1/settings/user") &&
+          (c[1] as RequestInit | undefined)?.method === "PUT",
+      );
+      expect(put).toBeDefined();
+      const body = JSON.parse(String((put![1] as RequestInit).body));
+      expect("psa_api_token" in body.values).toBe(false);
+    });
+  });
+});

@@ -212,6 +212,158 @@ describe("SchemaForm — boolean field", () => {
   });
 });
 
+describe("SchemaForm — secret field", () => {
+  const schema: SettingsSchema = {
+    psa_api_token: {
+      type: "secret",
+      label: "PSA API token",
+      storageKey: "psa-token",
+    },
+  };
+
+  test("renders a masked password input, never prefilled", () => {
+    const { getByTestId } = render(SchemaForm, {
+      schema,
+      values: {},
+      secrets: { psa_api_token: { isSet: true } },
+    });
+    const input = getByTestId("schema-input-psa_api_token") as HTMLInputElement;
+    expect(input.type).toBe("password");
+    expect(input.getAttribute("autocomplete")).toBe("new-password");
+    // isSet=true yet the input carries NO value — the server never sends it.
+    expect(input.value).toBe("");
+  });
+
+  test('badge shows "Not set" without a stored value', () => {
+    const { getByTestId } = render(SchemaForm, {
+      schema,
+      values: {},
+      secrets: { psa_api_token: { isSet: false } },
+    });
+    expect(getByTestId("schema-secret-status-psa_api_token")).toHaveTextContent(
+      "Not set",
+    );
+    expect(getByTestId("schema-secret-hint-psa_api_token")).toHaveTextContent(
+      "Stored encrypted. Once saved, the value is never shown again.",
+    );
+  });
+
+  test('badge shows "Set" + saved-state hint when a value is stored', () => {
+    const { getByTestId } = render(SchemaForm, {
+      schema,
+      values: {},
+      secrets: { psa_api_token: { isSet: true } },
+    });
+    expect(getByTestId("schema-secret-status-psa_api_token")).toHaveTextContent(
+      "Set",
+    );
+    expect(getByTestId("schema-secret-hint-psa_api_token")).toHaveTextContent(
+      "A value is set. It is stored encrypted and never shown again — enter a new value to replace it.",
+    );
+  });
+
+  test("badge defaults to Not set when no secrets prop is supplied", () => {
+    const { getByTestId } = render(SchemaForm, { schema, values: {} });
+    expect(getByTestId("schema-secret-status-psa_api_token")).toHaveTextContent(
+      "Not set",
+    );
+  });
+
+  test("typing emits oninput with the new value merged", async () => {
+    const oninput = vi.fn();
+    const { getByTestId } = render(SchemaForm, {
+      schema,
+      values: { other: "x" },
+      secrets: { psa_api_token: { isSet: false } },
+      oninput,
+    });
+    const input = getByTestId("schema-input-psa_api_token") as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: "tok-123" } });
+    expect(oninput).toHaveBeenCalledWith({ other: "x", psa_api_token: "tok-123" });
+  });
+
+  test("erasing the input back to empty REMOVES the key (abandoned edit = no change)", async () => {
+    const oninput = vi.fn();
+    const { getByTestId } = render(SchemaForm, {
+      schema,
+      values: { psa_api_token: "tok-123", other: "x" },
+      secrets: { psa_api_token: { isSet: true } },
+      oninput,
+    });
+    const input = getByTestId("schema-input-psa_api_token") as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: "" } });
+    expect(oninput).toHaveBeenCalledWith({ other: "x" });
+  });
+
+  test("Clear button (only when isSet) queues the explicit empty-string clear", async () => {
+    const oninput = vi.fn();
+    const { getByTestId } = render(SchemaForm, {
+      schema,
+      values: {},
+      secrets: { psa_api_token: { isSet: true } },
+      oninput,
+    });
+    await fireEvent.click(getByTestId("schema-secret-clear-psa_api_token"));
+    expect(oninput).toHaveBeenCalledWith({ psa_api_token: "" });
+  });
+
+  test("no Clear button when nothing is stored", () => {
+    const { queryByTestId } = render(SchemaForm, {
+      schema,
+      values: {},
+      secrets: { psa_api_token: { isSet: false } },
+    });
+    expect(queryByTestId("schema-secret-clear-psa_api_token")).toBeNull();
+  });
+
+  test("pending clear: input disabled, hint explains, Undo restores no-change", async () => {
+    const oninput = vi.fn();
+    const { getByTestId, queryByTestId } = render(SchemaForm, {
+      schema,
+      values: { psa_api_token: "" },
+      secrets: { psa_api_token: { isSet: true } },
+      oninput,
+    });
+    const input = getByTestId("schema-input-psa_api_token") as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+    expect(getByTestId("schema-secret-hint-psa_api_token")).toHaveTextContent(
+      "Will be cleared when you save.",
+    );
+    expect(queryByTestId("schema-secret-clear-psa_api_token")).toBeNull();
+    await fireEvent.click(getByTestId("schema-secret-undo-psa_api_token"));
+    expect(oninput).toHaveBeenCalledWith({});
+  });
+
+  test("disabled form disables the secret input and the Clear button", () => {
+    const { getByTestId } = render(SchemaForm, {
+      schema,
+      values: {},
+      secrets: { psa_api_token: { isSet: true } },
+      disabled: true,
+    });
+    expect(
+      (getByTestId("schema-input-psa_api_token") as HTMLInputElement).disabled,
+    ).toBe(true);
+    expect(
+      (getByTestId("schema-secret-clear-psa_api_token") as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  test("disabled form disables the Undo button during a pending clear", () => {
+    const { getByTestId } = render(SchemaForm, {
+      schema,
+      values: { psa_api_token: "" },
+      secrets: { psa_api_token: { isSet: true } },
+      disabled: true,
+    });
+    expect(
+      (getByTestId("schema-secret-undo-psa_api_token") as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+});
+
 describe("SchemaForm — submission", () => {
   const schema: SettingsSchema = {
     name: { type: "text", label: "Name" },

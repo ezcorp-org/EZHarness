@@ -333,10 +333,10 @@ The section is hidden in the UI when this field is omitted. Mutations to the set
 
 | Field-shared property | Type | Required | Description |
 |-----------------------|------|----------|-------------|
-| `type` | `"select" \| "text" \| "number" \| "boolean"` | Yes | Discriminator. |
+| `type` | `"select" \| "text" \| "number" \| "boolean" \| "secret"` | Yes | Discriminator. |
 | `label` | `string` | Yes | Display label rendered above the input. |
 | `description` | `string` | No | Hint text rendered under the label. |
-| `default` | matches `type` | No | Falls through when no user override exists. |
+| `default` | matches `type` | No | Falls through when no user override exists. **Forbidden on `secret`** (a default would be a plaintext credential in the manifest). |
 
 **`type: "select"`**
 
@@ -363,6 +363,14 @@ The section is hidden in the UI when this field is omitted. Mutations to the set
 
 **`type: "boolean"`** — no extra fields beyond `default`.
 
+**`type: "secret"`** — write-only credential (API token, key). Implicitly **per-user**.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `storageKey` | `string` | Yes | Extension-storage key the encrypted value is written to. Must match `/^[a-z0-9][a-z0-9_.-]{0,63}$/` with no trailing dot (the storage RPC rejects dot-terminated keys on read). Forbidden on every other field type. |
+
+Unlike the other types, a secret's value **never lives in the settings JSON blob** and never resolves into tool calls. On save the host encrypts it (same AES-256-GCM path as the storage RPC's `encrypted: true`) and upserts it into extension storage at `(extensionId, scope: "user", scopeId: <saving user>, key: storageKey)` — so your extension reads it through its ordinary SDK Storage surface (`new Storage("user")` → `storage.get(storageKey)`) with zero extra code. The settings `GET` returns only a per-field `{ isSet: boolean }` existence probe; saving an empty string clears the stored row. Values are capped at 512 characters. The panel renders a masked, never-prefilled input with Set/Not-set + Clear affordances. The reference consumer is `graded-card-scanner`'s `psa_api_token` → `storageKey: "psa-token"` ([manifest](examples/graded-card-scanner/ezcorp.config.ts)).
+
 #### Validation rules
 
 The `validateSettingsSchema()` validator (called from `validateManifestV2` in [`src/extensions/manifest.ts`](../../src/extensions/manifest.ts)) rejects manifests that violate any of the following:
@@ -371,6 +379,7 @@ The `validateSettingsSchema()` validator (called from `validateManifestV2` in [`
 - **`select.options`** must be non-empty; `default`, if set, must equal one of the `value` strings.
 - **`text.pattern`** must compile as a `RegExp` (`new RegExp(pattern)` mustn't throw).
 - **`number` bounds** — when both `min` and `max` are set, `min ≤ default ≤ max`.
+- **`secret.storageKey`** is required and must match `/^[a-z0-9][a-z0-9_.-]{0,63}$/` (no trailing dot); `storageKey` on any other type is rejected; `default` on a secret is rejected.
 - **Unknown `type`** values are rejected.
 
 Values are validated **server-side both on write AND on resolve**. A manifest schema change that drops a field will cause stale persisted values for that key to be silently dropped on the next read — they are never returned to the SDK or to the UI. Plan your migrations accordingly (see [Settings § Migrations](settings.md#migrations)).

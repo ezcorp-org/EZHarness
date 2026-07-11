@@ -113,6 +113,22 @@ export default defineExtension({
     },
   ],
 
+  // Secret settings — the PSA token can be supplied on the extension's
+  // SETTINGS page as well as via the set_psa_token tool. The host writes
+  // the value encrypted into extension storage at (scope "user",
+  // key "psa-token") — the exact row lib/token.ts's resolveToken already
+  // reads — so the scanner needs zero code changes for this path.
+  settings: {
+    psa_api_token: {
+      type: "secret",
+      label: "PSA API token",
+      description:
+        "Free token from api.psacard.com — unlocks card identity and " +
+        "population data. Stored encrypted; never shown again.",
+      storageKey: "psa-token",
+    },
+  },
+
   // Deterministic pre-processing (host feature): when this extension is
   // wired to a conversation and a user message carries a PNG/JPEG
   // attachment, the host runs identify_slab on it automatically — no LLM
@@ -150,8 +166,9 @@ export default defineExtension({
     // PSA official API (identity + population, free-tier token),
     // PriceCharting (keyless prices), and the CGC public cert-lookup
     // pages (multi-grader identity). The free-tier PSA token is supplied
-    // at runtime via the `set_psa_token` tool (encrypted extension secret),
-    // so no credential-shaped `env` grant is declared. NOTE: a decoded QR
+    // at runtime via the `set_psa_token` tool or the extension settings
+    // page (both write the same encrypted extension-storage row), so no
+    // credential-shaped `env` grant is declared. NOTE: a decoded QR
     // may carry a cgccomics.com URL (lib/classify.ts recognises it), but
     // the actual lookup always fetches www.cgccards.com (lib/sources/cgc.ts
     // HOST) — so that is the ONLY CGC host granted (least privilege).

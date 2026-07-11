@@ -12,7 +12,7 @@ import {
   getChannel,
   type HostChannel,
 } from "@ezcorp/sdk/runtime";
-import { GITHUB_PROJECTS_EVENT } from "../../../../src/integrations/github-projects/types";
+import { GITHUB_PROJECTS_EVENT } from "./contract";
 import {
   APPROVE_EVENT,
   DISMISS_EVENT,
