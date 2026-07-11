@@ -19,6 +19,7 @@ type ModeRow = {
 	builtin: boolean;
 	toolRestriction: string;
 	extensionIds?: string[];
+	allowedTools?: string[];
 };
 
 interface FetchCall {
@@ -86,6 +87,34 @@ describe("ModesSection badges and chips", () => {
 		for (const cls of THEME_CHIP_CLASSES) {
 			expect(getByText("no tools").className).toContain(cls);
 		}
+	});
+
+	test("built-in 'allowlist' restriction shows the tool count instead of 'no tools'", async () => {
+		stubFetch(() => [
+			makeMode({
+				id: "m-ez",
+				name: "Ez",
+				builtin: true,
+				toolRestriction: "allowlist",
+				allowedTools: ["a", "b", "c", "d", "e", "f", "g", "h"],
+			}),
+		]);
+		const { getByText, queryByText } = render(ModesSection);
+
+		await waitFor(() => expect(getByText("8 tools")).toBeInTheDocument());
+		// The misleading legacy label must NOT render for allowlist modes.
+		expect(queryByText("no tools")).not.toBeInTheDocument();
+		for (const cls of THEME_CHIP_CLASSES) {
+			expect(getByText("8 tools").className).toContain(cls);
+		}
+	});
+
+	test("built-in 'allowlist' with no allowedTools shows '0 tools'", async () => {
+		stubFetch(() => [
+			makeMode({ id: "m-ez0", name: "Ez", builtin: true, toolRestriction: "allowlist" }),
+		]);
+		const { getByText } = render(ModesSection);
+		await waitFor(() => expect(getByText("0 tools")).toBeInTheDocument());
 	});
 
 	test("built-in with toolRestriction 'all' shows no restriction chip", async () => {

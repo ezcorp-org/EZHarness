@@ -7,12 +7,12 @@
  * `ctx.agentTools = []`. This test pins that wiring shut from two
  * angles:
  *
- *   1. `wireEzToolsForTurn` registers all seven Ez tool names into the
+ *   1. `wireEzToolsForTurn` registers all eight Ez tool names into the
  *      supplied `agentTools` array (and the `builtinToolDefsMap`).
  *
  *   2. After the executor's `applyToolFilters({ toolRestriction:
  *      'allowlist', allowedTools: EZ_TOOL_NAMES })` runs, exactly those
- *      seven names survive (plus the orchestration tools that are always
+ *      eight names survive (plus the orchestration tools that are always
  *      preserved). This is the contract the seeded Ez mode and the
  *      runtime registration must agree on; if they ever drift, the LLM
  *      either sees no Ez tools (registration regression) or sees too
@@ -47,7 +47,7 @@ function freshTurn(): {
 }
 
 describe("wireEzToolsForTurn — Gap #1 fix", () => {
-  test("registers all seven Ez tool names into ctx.agentTools", () => {
+  test("registers all eight Ez tool names into ctx.agentTools", () => {
     const turn = freshTurn();
     wireEzToolsForTurn({
       agentTools: turn.agentTools,
@@ -103,7 +103,7 @@ describe("wireEzToolsForTurn — Gap #1 fix", () => {
     expect(fillFormCount).toBe(1);
   });
 
-  test("INTEGRATION: after wireEzToolsForTurn + applyToolFilters with the Ez allowlist, exactly the seven Ez tools survive", () => {
+  test("INTEGRATION: after wireEzToolsForTurn + applyToolFilters with the Ez allowlist, exactly the eight Ez tools survive", () => {
     // Mirror the runtime sequence: setup-tools wires ez tools (this test),
     // then executor.ts runs applyToolFilters with mode.allowedTools = EZ_TOOL_NAMES.
     // This is the contract the seeded Ez mode + runtime registration MUST agree on.
@@ -131,7 +131,7 @@ describe("wireEzToolsForTurn — Gap #1 fix", () => {
     });
 
     const survivors = filtered.map((t) => t.name).sort();
-    // All seven Ez tools, plus invoke_agent (orchestration), plus
+    // All eight Ez tools, plus invoke_agent (orchestration), plus
     // anything else in ORCHESTRATION_TOOLS that we put in the input
     // (just invoke_agent here). readFile + writeFile must be dropped.
     expect(survivors).toContain("propose_create_project");
@@ -141,6 +141,7 @@ describe("wireEzToolsForTurn — Gap #1 fix", () => {
     expect(survivors).toContain("find_agents");
     expect(survivors).toContain("fill_form");
     expect(survivors).toContain("navigate_to");
+    expect(survivors).toContain("read_page");
     expect(survivors).toContain("invoke_agent");
     // Negative: non-allowlisted, non-orchestration tools are stripped.
     expect(survivors).not.toContain("readFile");

@@ -340,3 +340,83 @@ describe("executor → applyToolFilters plumbing for options.readOnlyAllowedTool
     expect(capturedToolNames).toContain("read_file");
   });
 });
+
+describe("Ez turn → extension-author wire (streamChat, end-to-end)", () => {
+  test("BEHAVIORAL: a kind='ez' conversation's toolset carries the Ez tools AND extension-author__create_extension", async () => {
+    // kind:'ez' flips setup-tools' Ez branch on: wireEzToolsForTurn plus
+    // the wireExtensionAuthorToolsIfEz call site right after it.
+    mock.module("../db/queries/conversations", () => ({
+      getConversation: async () => ({
+        id: "conv-ez",
+        projectId: null,
+        parentConversationId: null,
+        userId: "user-1",
+        kind: "ez",
+      }),
+      getConversationPath: async () => [],
+      getLatestLeaf: async () => null,
+      resolveSystemPrompt: async () => undefined,
+      createConversation: async () => ({ id: "test" }),
+      createMessage: async () => ({ id: "msg-1" }),
+      getMessages: async () => [],
+    }));
+    mock.module("../db/queries/extensions", () => ({
+      getExtensionByName: async (name: string) =>
+        name === "extension-author" ? { id: "ext-author", enabled: true } : null,
+      getExtensionsByNames: async () => new Map(),
+    }));
+    mock.module("../extensions/registry", () => ({
+      ExtensionRegistry: {
+        getInstance: () => ({
+          getToolsForAgent: async () => [],
+          getToolsForExtension: (id: string) =>
+            id === "ext-author"
+              ? [{ name: "extension-author__create_extension", description: "scaffold", inputSchema: {} }]
+              : [],
+        }),
+      },
+    }));
+    // buildExtensionToolExecutor exercises the full host-setter surface;
+    // the base harness class omits those methods, so supply them here.
+    mock.module("../extensions/tool-executor", () => ({
+      MAX_TOOL_CALLS_PER_TURN: 10,
+      ToolExecutor: class {
+        setPendingPermissionGate() {}
+        setStateMediator() {}
+        setExecutor() {}
+        setSpawnQuota() {}
+        setArgsResolver() {}
+        setCurrentUserId() {}
+        setCurrentModel() {}
+        setCurrentProvider() {}
+        setCurrentAgentConfigId() {}
+        async executeToolCall() {
+          return { content: [{ text: "result" }] };
+        }
+      },
+      extensionToAgentTool: (t: { name: string }) => fakeTool(t.name),
+    }));
+
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus, { persist: false });
+    const run = await exec.streamChat("conv-ez", "Hi", {});
+
+    expect(run.status).toBe("success");
+    // Ez concierge tools wired (spot-check a client-side + a propose tool)…
+    expect(capturedToolNames).toContain("fill_form");
+    expect(capturedToolNames).toContain("read_page");
+    expect(capturedToolNames).toContain("propose_create_project");
+    // …and the bundled authoring tool rode in through the ez-only wire.
+    expect(capturedToolNames).toContain("extension-author__create_extension");
+  });
+
+  test("BEHAVIORAL control: a regular conversation gets NO Ez or extension-author tools", async () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus, { persist: false });
+    const run = await exec.streamChat("conv-regular", "Hi", {});
+
+    expect(run.status).toBe("success");
+    expect(capturedToolNames).not.toContain("read_page");
+    expect(capturedToolNames).not.toContain("extension-author__create_extension");
+  });
+});

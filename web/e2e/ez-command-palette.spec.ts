@@ -25,7 +25,9 @@ test.describe("Ez — Command palette ask-ez integration", () => {
 		await page.getByText("Ask Ez").click();
 
 		await expect(page.getByTestId("ez-panel")).toBeVisible();
-		await expect(page.getByTestId("ez-panel-input")).toBeFocused();
+		// The panel's composer is the literal ChatInput — addressed by its Ez
+		// placeholder (no ez-panel-input testid).
+		await expect(page.getByPlaceholder(/Ask Ez to do something/)).toBeFocused();
 	});
 
 	test("`ez: <prompt>` prefix opens the panel with the prompt prefilled", async ({ page, mockApi }) => {
@@ -40,6 +42,6 @@ test.describe("Ez — Command palette ask-ez integration", () => {
 		await search.press("Enter");
 
 		await expect(page.getByTestId("ez-panel")).toBeVisible();
-		await expect(page.getByTestId("ez-panel-input")).toHaveValue("summarize this for me");
+		await expect(page.getByPlaceholder(/Ask Ez to do something/)).toHaveValue("summarize this for me");
 	});
 });

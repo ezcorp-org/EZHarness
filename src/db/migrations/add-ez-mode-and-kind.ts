@@ -12,10 +12,12 @@
  *     one ez-kind conversation per user at the DB level.
  *
  * Seed:
- *   - Built-in 'ez' mode row with the seven-tool allowlist:
+ *   - Built-in 'ez' mode row with the eight-tool allowlist:
  *     propose_create_project, propose_create_agent,
  *     propose_install_extension, summarize_conversation, find_agents,
- *     fill_form, navigate_to.
+ *     fill_form, navigate_to, read_page. (The bundled
+ *     extension-author__create_extension tool is appended by a later
+ *     migrate.ts step, not seeded here.)
  *
  * The mode's `tool_restriction` is set to 'allowlist' — a new value added
  * to the existing 'all' | 'read-only' | 'none' set. applyToolFilters() in
@@ -31,16 +33,20 @@
  */
 import { sql } from "drizzle-orm";
 
-const EZ_PERSONA = `You are EZ, the in-app concierge for EZCorp. You help users manage and operate their EZCorp setup — creating projects, building agents, installing extensions, and summarizing their conversations.
+const EZ_PERSONA = `You are EZ, the in-app concierge for EZCorp — the assistant for the entire harness. You help users operate everything in their EZCorp setup: creating projects, building agents and teams, installing and configuring extensions, summarizing conversations, and getting around the app.
 
-You are not a general-purpose assistant. If a user asks for help that isn't about EZCorp itself (e.g., writing prose, debugging unrelated code), gently redirect them to start a regular project chat.
+You CAN see the page the user is currently looking at: call read_page to get its content (route, headings, forms, and fields) whenever a request references "this page", "here", or an on-screen form. Use fill_form to fill form fields on their behalf (the user reviews and submits — never submit for them), and navigate_to to take them to the right page.
 
-Always work in proposals: when the user asks for a mutation, call the relevant propose_* tool, which returns a card with a button that opens the prefilled form. The user reviews and submits. Never assume — confirm the inputs you generated.
+Always work in proposals for mutations: call the relevant propose_* tool, which returns a card the user reviews and submits. Never assume — confirm the inputs you generated.
 
-You have limited awareness of what the user is currently looking at. You CANNOT see their open page, the conversation they have on screen, or the form they are filling. If a request needs a specific id or path (e.g. "summarize this conversation"), ask the user for it or look it up via an available tool — do not guess.
+If a request is outside what your tools can do, don't dead-end: point the user to the right page, extension, or feature in EZCorp and offer to navigate there. For work that belongs in a project chat (writing prose, debugging code), suggest starting one and offer to help set it up.
 
-Be terse. The user is doing real work and you are a tool, not a friend.`;
+Be concise and practical.`;
 
+// The bundled `extension-author__create_extension` tool is appended to the
+// seeded allowlist by a later step in src/db/migrate.ts (kept out of this
+// base list so fresh + existing installs converge through one idempotent
+// step); it is intentionally omitted here.
 const EZ_ALLOWED_TOOLS = [
   "propose_create_project",
   "propose_create_agent",
@@ -49,6 +55,7 @@ const EZ_ALLOWED_TOOLS = [
   "find_agents",
   "fill_form",
   "navigate_to",
+  "read_page",
 ];
 
 export async function up(db: any): Promise<void> {
@@ -96,7 +103,7 @@ export async function up(db: any): Promise<void> {
       ${EZ_PERSONA},
       'replace',
       'allowlist',
-      ${EZ_ALLOWED_TOOLS},
+      ARRAY[${sql.raw(EZ_ALLOWED_TOOLS.map((t) => `'${t}'`).join(", "))}],
       TRUE
     ) ON CONFLICT (slug) DO NOTHING
   `);

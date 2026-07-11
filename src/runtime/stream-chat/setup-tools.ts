@@ -5,7 +5,7 @@ import { resolveModel, getDefaultTier } from "../../providers/router";
 import { tierForModel } from "../../providers/registry";
 import { chooseTurnTier, type RoutingTier } from "../tier-classifier";
 import { getCredential } from "../../providers/credentials";
-import { extensionToAgentTool, ToolExecutor } from "../../extensions/tool-executor";
+import { extensionToAgentTool, ToolExecutor, type ArgsResolver } from "../../extensions/tool-executor";
 import { ExtensionRegistry } from "../../extensions/registry";
 import type { AgentRun, TeamMember, TeamMemberOverrides, TeamToolScope } from "../../types";
 import type { StreamChatContext } from "./context";
@@ -84,7 +84,7 @@ export interface SetupToolsConvRecord {
   model?: string | null;
   provider?: string | null;
   /** Phase 48: 'ez' marks the conversation as the user's dedicated Ez
-   *  concierge thread. setup-tools branches on this to wire the seven
+   *  concierge thread. setup-tools branches on this to wire the
    *  Ez tools (propose_*, summarize_conversation, find_agents,
    *  fill_form, navigate_to) BEFORE the allowlist filter runs. */
   kind?: "regular" | "ez" | null;
@@ -191,6 +191,138 @@ export async function wireBriefingChatToolsIfEligible(args: {
   } catch (briefingChatWireErr) {
     log.warn("Briefing chat tools wire failed — subscribe tools unavailable this turn", {
       error: String(briefingChatWireErr),
+    });
+  }
+}
+
+/** Minimal registry surface the bundled-extension wire needs — the real
+ *  {@link ExtensionRegistry} satisfies it; tests pass a fake. */
+interface BundledExtensionToolSource {
+  getToolsForExtension(
+    extensionId: string,
+  ): Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
+}
+
+/**
+ * Build a per-turn {@link ToolExecutor} wired with the standard host
+ * context (PDP gate, state mediator, executor, spawn quota, attachment
+ * arg-resolver, acting user, current model/provider/agent-config) — the
+ * same setup the in-line ToolExecutor sites in setupTools use. Consolidated
+ * here for the Ez extension-author wire. Kept module-level (NOT nested in
+ * setupTools) so the attachment-resolver-wiring structural guard only
+ * counts the `new ToolExecutor` sites that live directly in setupTools's
+ * body.
+ */
+export function buildExtensionToolExecutor(
+  registry: ExtensionRegistry,
+  host: StreamChatHost,
+  attachmentArgsResolver: ArgsResolver | null,
+  convRecord: SetupToolsConvRecord | null,
+  options: SetupToolsOptions,
+): ToolExecutor {
+  const toolExec = new ToolExecutor(registry, host.permissionEngine, { bus: host.bus });
+  wireHostPendingPermissions(toolExec, host);
+  if (host.stateMediator) toolExec.setStateMediator(host.stateMediator);
+  toolExec.setExecutor(host.executor);
+  toolExec.setSpawnQuota(host.spawnQuota);
+  if (attachmentArgsResolver) toolExec.setArgsResolver(attachmentArgsResolver);
+  if (convRecord?.userId) toolExec.setCurrentUserId(convRecord.userId);
+  toolExec.setCurrentModel(options.model ?? convRecord?.model);
+  toolExec.setCurrentProvider(options.provider ?? convRecord?.provider);
+  toolExec.setCurrentAgentConfigId(options.agentConfigId ?? convRecord?.agentConfigId);
+  return toolExec;
+}
+
+/**
+ * Push every tool the named extension registers into `agentTools`, deduped
+ * by name. Pure over its inputs (fake registry + executor in tests). The
+ * executor is only STORED on each wrapped AgentTool — never invoked at wire
+ * time — so wiring needs no live subprocess. Returns the count wired.
+ */
+export function wireExtensionToolsIntoTurn(args: {
+  agentTools: AgentTool[];
+  registry: BundledExtensionToolSource;
+  toolExec: ToolExecutor;
+  extensionId: string;
+  conversationId: string;
+  runId: string;
+}): number {
+  const { agentTools, registry, toolExec, extensionId, conversationId, runId } = args;
+  let wired = 0;
+  for (const t of registry.getToolsForExtension(extensionId)) {
+    if (!agentTools.some((at) => at.name === t.name)) {
+      agentTools.push(extensionToAgentTool(
+        { name: t.name, description: t.description, inputSchema: t.inputSchema },
+        toolExec, conversationId, runId,
+      ));
+      wired++;
+    }
+  }
+  return wired;
+}
+
+/**
+ * Ez concierge: wire the bundled `extension-author` extension's tools for a
+ * `kind='ez'` turn so the in-app LLM can scaffold new extensions on
+ * request. The mode allowlist then narrows the surface to just
+ * `extension-author__create_extension` (a draft-only scaffold matching
+ * Ez's proposal posture — the user reviews + installs via the preview
+ * page); the remaining authoring tools are wired but filtered out.
+ *
+ * Fail-soft on three counts: a non-ez turn returns immediately; a missing
+ * or disabled extension logs + skips; and any thrown error is swallowed so
+ * the Ez turn degrades to "no authoring tool" rather than a 500. Mirrors
+ * the wireBriefing* gate contract; unit-tested via the same
+ * mock-the-seam pattern.
+ */
+export async function wireExtensionAuthorToolsIfEz(args: {
+  agentTools: AgentTool[];
+  conversationId: string;
+  runId: string;
+  convRecord: SetupToolsConvRecord | null;
+  host: StreamChatHost;
+  options: SetupToolsOptions;
+  attachmentArgsResolver: ArgsResolver | null;
+}): Promise<void> {
+  const { convRecord } = args;
+  if (convRecord?.kind !== "ez") return;
+  try {
+    const [{ getExtensionByName }, { ExtensionRegistry: Registry }] = await Promise.all([
+      import("../../db/queries/extensions"),
+      import("../../extensions/registry"),
+    ]);
+    const ext = await getExtensionByName("extension-author");
+    if (!ext?.enabled) {
+      log.info("extension-author auto-wire skipped: not installed or disabled", {
+        exists: !!ext,
+        enabled: ext?.enabled ?? false,
+      });
+      return;
+    }
+    const registry = Registry.getInstance();
+    const toolExec = buildExtensionToolExecutor(
+      registry,
+      args.host,
+      args.attachmentArgsResolver,
+      convRecord,
+      args.options,
+    );
+    const wired = wireExtensionToolsIntoTurn({
+      agentTools: args.agentTools,
+      registry,
+      toolExec,
+      extensionId: ext.id,
+      conversationId: args.conversationId,
+      runId: args.runId,
+    });
+    log.info("extension-author tools wired for Ez turn", {
+      conversationId: args.conversationId,
+      extensionId: ext.id,
+      wired,
+    });
+  } catch (err) {
+    log.warn("extension-author wire failed — authoring tools unavailable this turn", {
+      error: String(err),
     });
   }
 }
@@ -539,7 +671,7 @@ export async function setupTools(
 
         // Phase 48: Ez concierge tools. Mirrors the ask-user wire-pattern —
         // auto-wire on every turn before the allowlist filter runs, but
-        // ONLY for `kind='ez'` conversations. The seven Ez tool names must
+        // ONLY for `kind='ez'` conversations. The Ez tool names must
         // be in `ctx.agentTools` BEFORE `applyToolFilters` runs against
         // `mode.allowedTools = [...ezNames]` (executor.ts:432-435); without
         // this branch the filter would strip every project-rooted tool
@@ -585,6 +717,20 @@ export async function setupTools(
               error: String(ezWireErr),
             });
           }
+
+          // Ez concierge: also wire the bundled `extension-author` tools so
+          // the LLM can scaffold new extensions on request. Self-gated on
+          // kind==='ez' + fail-soft (see wireExtensionAuthorToolsIfEz). The
+          // mode allowlist narrows the wired set to just create_extension.
+          await wireExtensionAuthorToolsIfEz({
+            agentTools: ctx.agentTools,
+            conversationId,
+            runId: run.id,
+            convRecord,
+            host,
+            options,
+            attachmentArgsResolver,
+          });
         }
 
         // Daily Briefing Phase 1: wire the briefing read tools for any

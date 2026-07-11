@@ -57,6 +57,7 @@
 	import { getOrCreateEzConversation, clearEzConversation } from "$lib/ez/api.js";
 	import Trash2 from "lucide-svelte/icons/trash-2";
 	import { dispatch as dispatchClientTool } from "$lib/ez/client-tool-dispatcher.js";
+	import { groupToolsByExtension, buildExtensionTypeMap, type LoadedTool } from "$lib/loaded-tools-logic.js";
 	import { goto as appGoto } from "$app/navigation";
 	import { fetchAllMessages, sendMessage, type Message } from "$lib/api.js";
 	import {
@@ -118,6 +119,38 @@
 	// "Clear conversation" in-flight flag. Disables the button and
 	// short-circuits a double-click while the DELETE round-trips.
 	let clearing = $state<boolean>(false);
+
+	// ── Header tools chip ────────────────────────────────────────────
+	//
+	// Surfaces the tools actually wired for this Ez conversation (the same
+	// list the runtime grants — GET /api/tools?conversationId=… resolves
+	// the mode+conversation scope). Fetched lazily on first popover open so
+	// the panel's initial render stays cheap. Reuses the chat header's
+	// grouping logic (loaded-tools-logic.ts) so the two surfaces can't drift.
+	// Non-fatal: a fetch error just shows an inline message.
+	let toolsOpen = $state(false);
+	let toolsFetched = $state(false);
+	let toolsError = $state(false);
+	let loadedTools = $state<LoadedTool[]>([]);
+	let toolsByExtension = $derived(groupToolsByExtension(loadedTools));
+	let toolExtensionTypes = $derived(buildExtensionTypeMap(loadedTools));
+
+	async function toggleTools() {
+		toolsOpen = !toolsOpen;
+		if (!toolsOpen || toolsFetched || !conversationId) return;
+		toolsFetched = true;
+		try {
+			const res = await fetch(`/api/tools?conversationId=${encodeURIComponent(conversationId)}`);
+			if (!res.ok) {
+				toolsError = true;
+				return;
+			}
+			const data = await res.json();
+			loadedTools = Array.isArray(data?.tools) ? data.tools : [];
+		} catch {
+			toolsError = true;
+		}
+	}
 
 	// ── Model + thinking-level state ─────────────────────────────────
 	//
@@ -629,6 +662,55 @@
 			</div>
 			<div class="ez-panel__header-actions">
 				{#if conversationId}
+					<div class="ez-panel__tools">
+						<button
+							type="button"
+							class="ez-panel__link ez-panel__tools-btn"
+							aria-label={`Ez tools (${loadedTools.length})`}
+							aria-expanded={toolsOpen}
+							title="Tools Ez can use in this conversation"
+							data-testid="ez-panel-tools"
+							onclick={() => void toggleTools()}
+						>
+							<span aria-hidden="true">🔧</span>
+							{#if toolsFetched && !toolsError}<span class="ez-panel__tools-count">{loadedTools.length}</span>{/if}
+						</button>
+						{#if toolsOpen}
+							<button
+								type="button"
+								class="ez-panel__tools-backdrop"
+								aria-label="Close tools list"
+								data-testid="ez-panel-tools-backdrop"
+								onclick={() => (toolsOpen = false)}
+							></button>
+							<div class="ez-panel__tools-popover" data-testid="ez-panel-tools-popover">
+								{#if toolsError}
+									<p class="ez-panel__tools-empty">Couldn't load the tool list.</p>
+								{:else if loadedTools.length === 0}
+									<p class="ez-panel__tools-empty">No tools loaded.</p>
+								{:else}
+									{#each [...toolsByExtension] as [ext, tools] (ext)}
+										{@const extType = toolExtensionTypes.get(ext) ?? "extension"}
+										<div class="ez-panel__tools-group">
+											<p class="ez-panel__tools-group-header" data-testid="ez-panel-tools-group">
+												<span class="ez-panel__tools-ext">{ext}</span>
+												<span class="ez-panel__tools-type">{extType}</span>
+											</p>
+											{#each tools as tool (tool.name)}
+												<p
+													class="ez-panel__tools-row"
+													data-testid="ez-panel-tool-row"
+													title={tool.description || "No description provided."}
+												>
+													{tool.name}
+												</p>
+											{/each}
+										</div>
+									{/each}
+								{/if}
+							</div>
+						{/if}
+					</div>
 					<button
 						type="button"
 						class="ez-panel__link"
@@ -783,6 +865,67 @@
 		cursor: pointer;
 	}
 	.ez-panel__link:hover { color: var(--color-text-primary); }
+	.ez-panel__tools { position: relative; display: inline-flex; }
+	.ez-panel__tools-btn { display: inline-flex; align-items: center; gap: 0.2rem; }
+	.ez-panel__tools-count { font-variant-numeric: tabular-nums; }
+	.ez-panel__tools-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 40;
+		background: transparent;
+		border: none;
+		padding: 0;
+		cursor: default;
+	}
+	.ez-panel__tools-popover {
+		position: absolute;
+		top: 100%;
+		right: 0;
+		z-index: 50;
+		margin-top: 0.35rem;
+		width: 16rem;
+		max-height: 18rem;
+		overflow-y: auto;
+		border: 1px solid var(--color-border);
+		border-radius: 0.5rem;
+		background: var(--color-surface-secondary);
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+	}
+	.ez-panel__tools-empty {
+		margin: 0;
+		padding: 0.5rem 0.75rem;
+		font-size: 0.75rem;
+		color: var(--color-text-muted);
+	}
+	.ez-panel__tools-group { padding: 0.5rem 0.75rem; }
+	.ez-panel__tools-group + .ez-panel__tools-group { border-top: 1px solid var(--color-border); }
+	.ez-panel__tools-group-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		margin: 0 0 0.25rem 0;
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: var(--color-text-secondary);
+	}
+	.ez-panel__tools-ext { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.ez-panel__tools-type {
+		flex-shrink: 0;
+		text-transform: uppercase;
+		font-size: 0.5625rem;
+		font-weight: 600;
+		padding: 0.05rem 0.25rem;
+		border-radius: 0.25rem;
+		background: var(--color-surface-tertiary);
+		color: var(--color-text-muted);
+	}
+	.ez-panel__tools-row {
+		margin: 0;
+		padding: 0.1rem 0 0.1rem 0.5rem;
+		font-size: 0.75rem;
+		color: var(--color-text-secondary);
+	}
 	.ez-panel__close {
 		font-size: 1.25rem;
 		line-height: 1;

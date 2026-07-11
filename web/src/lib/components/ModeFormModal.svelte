@@ -222,7 +222,19 @@
 						Attach extensions to give this mode access to their tools. Selected extensions appear as chips below the picker.
 					</p>
 					{#if readonly}
-						{#if form.extensionIds.length === 0}
+						{#if editMode?.toolRestriction === "allowlist" && (editMode?.allowedTools?.length ?? 0) > 0}
+							<!-- Built-in allowlist modes (e.g. Ez) carry an explicit tool-name
+							     list instead of attached extensions. Show it read-only so the
+							     view modal no longer dead-ends on "No extensions attached." -->
+							<p class="mb-1 text-xs text-[var(--color-text-secondary)]">Built-in tool allowlist</p>
+							<div data-testid="mode-allowlist-tools" class="flex flex-wrap gap-1">
+								{#each editMode?.allowedTools ?? [] as toolName (toolName)}
+									<span class="inline-flex max-w-full items-center rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 font-mono text-xs text-[var(--color-text-secondary)]">
+										<span class="truncate">{toolName}</span>
+									</span>
+								{/each}
+							</div>
+						{:else if form.extensionIds.length === 0}
 							<p class="text-xs text-[var(--color-text-muted)] italic">No extensions attached.</p>
 						{:else}
 							<div data-testid="mode-readonly-extension-chips" class="flex flex-wrap gap-1">

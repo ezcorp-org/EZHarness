@@ -13,10 +13,10 @@
  *
  * Tightening the production return type to a discriminated union over the
  * five-tool family was considered (and is still a reasonable cleanup),
- * but two of the seven Ez tools — `fill_form` and `navigate_to` — have
+ * but the client-side Ez tools — `fill_form`, `navigate_to`, `read_page` — have
  * mid-flight wiring changes touching the same lines (a parallel
  * `fix-wiring` agent owns them). Adding a return-type generic across
- * all seven on top of that change would produce a merge churn out of
+ * all of them on top of that change would produce a merge churn out of
  * proportion to the gain.
  *
  * Helpers below let test code narrow at the assertion site instead. They

@@ -2,6 +2,41 @@ import { sql } from "drizzle-orm";
 import { backfillGithubProjectsApiTokens } from "../extensions/secrets-store";
 import { seedSelfProject } from "./seed-self-project";
 
+/**
+ * Ez concierge persona. Single source of truth for BOTH the fresh-install
+ * seed and the migration that refreshes stale personas — the original
+ * seed told the model it "CANNOT see their open page", which is no longer
+ * true now that read_page / fill_form / navigate_to restore on-demand
+ * page context. Kept as a bound parameter (not an inlined SQL literal) so
+ * apostrophes need no manual escaping. The doc-parallel copy lives in
+ * src/db/migrations/add-ez-mode-and-kind.ts.
+ */
+const EZ_PERSONA = `You are EZ, the in-app concierge for EZCorp — the assistant for the entire harness. You help users operate everything in their EZCorp setup: creating projects, building agents and teams, installing and configuring extensions, summarizing conversations, and getting around the app.
+
+You CAN see the page the user is currently looking at: call read_page to get its content (route, headings, forms, and fields) whenever a request references "this page", "here", or an on-screen form. Use fill_form to fill form fields on their behalf (the user reviews and submits — never submit for them), and navigate_to to take them to the right page.
+
+Always work in proposals for mutations: call the relevant propose_* tool, which returns a card the user reviews and submits. Never assume — confirm the inputs you generated.
+
+If a request is outside what your tools can do, don't dead-end: point the user to the right page, extension, or feature in EZCorp and offer to navigate there. For work that belongs in a project chat (writing prose, debugging code), suggest starting one and offer to help set it up.
+
+Be concise and practical.`;
+
+/** Fresh-install Ez allowlist (bound param, mirrors
+ *  src/db/migrations/add-ez-mode-and-kind.ts). The bundled
+ *  `extension-author__create_extension` entry is appended by step (9)
+ *  below so fresh + existing installs converge through one idempotent
+ *  step. */
+const EZ_SEED_ALLOWED_TOOLS = [
+  "propose_create_project",
+  "propose_create_agent",
+  "propose_install_extension",
+  "summarize_conversation",
+  "find_agents",
+  "fill_form",
+  "navigate_to",
+  "read_page",
+];
+
 export async function migrate(db: any): Promise<void> {
   // Enable pgvector extension (must be before any vector column usage)
   await db.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
@@ -1016,7 +1051,7 @@ export async function migrate(db: any): Promise<void> {
   //
   // Schema deltas + Ez mode seed + ez_drafts table + unique partial index
   // ensuring one ez-kind conversation per user. The builtin 'ez' mode is
-  // seeded with `tool_restriction = 'allowlist'` and the seven-tool
+  // seeded with `tool_restriction = 'allowlist'` and the Ez-tool
   // allowed_tools array; applyToolFilters() in src/runtime/tools/filter.ts
   // intersects against this list before the LLM ever sees the toolset.
   //
@@ -1048,8 +1083,11 @@ export async function migrate(db: any): Promise<void> {
       ON conversations (user_id)
       WHERE kind = 'ez'
   `);
-  // Seed Ez mode (allowlist, builtin). Persona text matches Appendix A of
-  // 48-DESIGN.md; tuning it is a normal mode update, not a code change.
+  // Seed Ez mode (allowlist, builtin). Persona = the shared EZ_PERSONA
+  // (module-level); tuning it is a normal mode update, not a code change.
+  // The bundled `extension-author__create_extension` tool is appended to
+  // allowed_tools by step (9) below (not seeded here) so fresh + existing
+  // installs converge through the same idempotent step.
   await db.execute(sql`
     INSERT INTO modes (
       id, slug, name, icon, description, system_prompt_instruction,
@@ -1060,18 +1098,10 @@ export async function migrate(db: any): Promise<void> {
       'Ez',
       '🪄',
       'In-app concierge for managing your EZCorp setup.',
-      'You are EZ, the in-app concierge for EZCorp. You help users manage and operate their EZCorp setup — creating projects, building agents, installing extensions, and summarizing their conversations.
-
-You are not a general-purpose assistant. If a user asks for help that isn''t about EZCorp itself (e.g., writing prose, debugging unrelated code), gently redirect them to start a regular project chat.
-
-Always work in proposals: when the user asks for a mutation, call the relevant propose_* tool, which returns a card with a button that opens the prefilled form. The user reviews and submits. Never assume — confirm the inputs you generated.
-
-You have limited awareness of what the user is currently looking at. You CANNOT see their open page, the conversation they have on screen, or the form they are filling. If a request needs a specific id or path (e.g. "summarize this conversation"), ask the user for it or look it up via an available tool — do not guess.
-
-Be terse. The user is doing real work and you are a tool, not a friend.',
+      ${EZ_PERSONA},
       'replace',
       'allowlist',
-      ARRAY['propose_create_project', 'propose_create_agent', 'propose_install_extension', 'summarize_conversation', 'find_agents', 'fill_form', 'navigate_to'],
+      ARRAY[${sql.raw(EZ_SEED_ALLOWED_TOOLS.map((t) => `'${t}'`).join(", "))}],
       TRUE
     ) ON CONFLICT (slug) DO NOTHING
   `);
@@ -1446,27 +1476,64 @@ Be terse. The user is doing real work and you are a tool, not a friend.',
     ADD COLUMN IF NOT EXISTS installed_permissions JSONB
   `);
 
-  // (9) extension-author bundled extension — append
-  //     `extension-author/create_extension` to Ez mode's `allowed_tools`
-  //     so the in-app LLM can scaffold new extensions on user request.
+  // (9) extension-author bundled extension — ensure Ez mode's
+  //     `allowed_tools` references the bundled `create_extension` tool so
+  //     the in-app LLM can scaffold new extensions on user request.
   //
-  //     Idempotent: only inserts the tool when missing. Uses
-  //     `array_append` + a uniqueness predicate so re-running the
-  //     migration is a no-op. Does NOT edit the original seed; the
-  //     seed runs (8) above for fresh installs and the array doesn't
-  //     contain the new tool yet — this migration's `ALL`/`ANY`
-  //     predicate adds it post-seed in lockstep.
+  //     The runtime registers extension tools NAMESPACED as
+  //     `<ext-name>__<tool>` (double underscore — the Anthropic tool-name
+  //     regex `^[a-zA-Z0-9_-]+$` forbids '/' and '.'; see
+  //     web/src/lib/server/scoped-tools.ts). A prior migration seeded the
+  //     WRONG separator (`extension-author/create_extension`), which never
+  //     matched the runtime name, so the tool was neither listed in the
+  //     allowlist nor callable. Fix it here:
   //
-  //     The `extension-author/create_extension` tool itself comes from
-  //     the bundled extension at
-  //     `docs/extensions/examples/extension-author/`. The `<name>/<tool>`
-  //     namespace shape mirrors how `tool-executor.ts` resolves
-  //     extension-provided tools at runtime.
+  //       (9a) array_replace any stale slash-form entry with the correct
+  //            `__` form (no-op once already correct);
+  //       (9b) array_append the correct form when still missing (fresh
+  //            installs whose seed predates this tool, and rows just fixed
+  //            by 9a already have it).
+  //
+  //     Run 9a BEFORE 9b so a row fixed by 9a is not then re-appended into
+  //     a duplicate. Both are idempotent — re-running the migration is a
+  //     no-op. The tool comes from the bundled extension at
+  //     `docs/extensions/examples/extension-author/`.
   await db.execute(sql`
     UPDATE modes
-    SET allowed_tools = array_append(allowed_tools, 'extension-author/create_extension')
+    SET allowed_tools = array_replace(allowed_tools, 'extension-author/create_extension', 'extension-author__create_extension')
     WHERE slug = 'ez'
-      AND NOT ('extension-author/create_extension' = ANY(allowed_tools))
+      AND 'extension-author/create_extension' = ANY(allowed_tools)
+  `);
+  await db.execute(sql`
+    UPDATE modes
+    SET allowed_tools = array_append(allowed_tools, 'extension-author__create_extension')
+    WHERE slug = 'ez'
+      AND NOT ('extension-author__create_extension' = ANY(allowed_tools))
+  `);
+
+  // (9c) read_page Ez concierge tool (on-demand page context restore).
+  //      Fresh installs get it from the seed array above; this appends it
+  //      to EXISTING Ez rows whose seed predates the tool. Idempotent.
+  await db.execute(sql`
+    UPDATE modes
+    SET allowed_tools = array_append(allowed_tools, 'read_page')
+    WHERE slug = 'ez'
+      AND NOT ('read_page' = ANY(allowed_tools))
+  `);
+
+  // (9d) Ez persona refresh. The original seeded persona told the model it
+  //      "CANNOT see their open page" — false now that read_page /
+  //      fill_form / navigate_to restore on-demand page context.
+  //      Surgically replace ONLY a stale BUILTIN persona (LIKE-matched on
+  //      the retired phrase) so an admin-tuned persona is left untouched.
+  //      Fresh installs already seed EZ_PERSONA (which lacks the phrase),
+  //      so the predicate never matches them — no double-apply.
+  await db.execute(sql`
+    UPDATE modes
+    SET system_prompt_instruction = ${EZ_PERSONA}
+    WHERE slug = 'ez'
+      AND builtin = TRUE
+      AND system_prompt_instruction LIKE '%You CANNOT see their open page%'
   `);
 
   // (10) UX-02 (Phase 57-04) — pg_trgm + GIN indexes for marketplace

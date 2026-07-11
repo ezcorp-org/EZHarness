@@ -85,8 +85,14 @@
 								     restrictions via attached extensions instead. -->
 								{#if mode.builtin && mode.toolRestriction !== "all"}
 									<!-- Locked decision 10 — theme tokens with accessible contrast,
-									     matching the built-in chip (the amber-on-dark chip was illegible). -->
-									<span class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]">{mode.toolRestriction === "read-only" ? "read-only" : "no tools"}</span>
+									     matching the built-in chip (the amber-on-dark chip was illegible).
+									     `allowlist` modes (e.g. Ez) advertise their tool count rather
+									     than the misleading legacy "no tools". -->
+									<span class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]">
+										{#if mode.toolRestriction === "read-only"}read-only
+										{:else if mode.toolRestriction === "allowlist"}{mode.allowedTools?.length ?? 0} tools
+										{:else}no tools{/if}
+									</span>
 								{/if}
 								{#if (mode.extensionIds?.length ?? 0) > 0}
 									<span class="rounded bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]">

@@ -242,6 +242,31 @@ describe("ModeFormModal — Tools & Extensions section structure", () => {
 		expect(queryByTestId("mode-readonly-extension-chips")).toBeNull();
 	});
 
+	test("view mode (builtin allowlist): renders the read-only tool-name chip list, not the extensions fallback", async () => {
+		const { getByTestId, getByText, queryByText, queryByTestId } = render(ModeFormModal, {
+			open: true,
+			editMode: makeMode({
+				id: "m-ez",
+				name: "Ez",
+				builtin: true,
+				toolRestriction: "allowlist",
+				allowedTools: ["summarize_conversation", "fill_form", "read_page"],
+				extensionIds: null,
+			}),
+			viewMode: true,
+			onsaved: () => {},
+			onclose: () => {},
+		});
+
+		expect(getByText("Built-in tool allowlist")).toBeInTheDocument();
+		const chips = getByTestId("mode-allowlist-tools");
+		expect(chips.children).toHaveLength(3);
+		expect(getByText("read_page")).toBeInTheDocument();
+		// The extensions fallback / chip strip must NOT appear for allowlist modes.
+		expect(queryByText("No extensions attached.")).toBeNull();
+		expect(queryByTestId("mode-readonly-extension-chips")).toBeNull();
+	});
+
 	test("view mode (builtin): Edit button is disabled, click does not flip into edit mode", async () => {
 		const { container, queryByText } = render(ModeFormModal, {
 			open: true,

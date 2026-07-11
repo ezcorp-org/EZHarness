@@ -21,8 +21,10 @@ test.describe("Ez panel — open and close", () => {
 
 		await page.getByTestId("ez-button").click();
 		await expect(page.getByTestId("ez-panel")).toBeVisible();
-		// Panel pinned to the locked Ez composer — no mode/agent picker.
-		await expect(page.getByTestId("ez-panel-input")).toBeVisible();
+		// Panel pinned to the locked Ez composer — the ChatInput textarea is
+		// addressed via the Ez placeholder (there is no ez-panel-input testid
+		// since the panel adopted the literal ChatInput component).
+		await expect(page.getByPlaceholder(/Ask Ez to do something/)).toBeVisible();
 
 		await page.getByTestId("ez-panel-close").click();
 		await expect(page.getByTestId("ez-panel")).toHaveCount(0);

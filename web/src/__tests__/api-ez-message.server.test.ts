@@ -165,7 +165,7 @@ describe("POST /api/conversations/[id]/messages — Ez allowlist plumbing", () =
     expect(options.modeId).toBe("builtin-ez");
   });
 
-  test("EZ_TOOL_NAMES exposes the exact seven names the seeded Ez mode allows", () => {
+  test("EZ_TOOL_NAMES exposes the exact eight names the seeded Ez mode allows", () => {
     // This is the contract between the runtime registration (Wave 2) and
     // the migration seed (Wave 1). If they ever drift, the runtime would
     // register a tool whose name isn't in `mode.allowedTools` and the
@@ -178,6 +178,7 @@ describe("POST /api/conversations/[id]/messages — Ez allowlist plumbing", () =
       "find_agents",
       "fill_form",
       "navigate_to",
+      "read_page",
     ]);
   });
 

@@ -74,7 +74,12 @@ export interface ModeData {
 	preferredProvider: string | null;
 	preferredThinkingLevel: string | null;
 	temperature: number | null;
-	toolRestriction: "all" | "read-only" | "none";
+	toolRestriction: "all" | "read-only" | "none" | "allowlist";
+	/**
+	 * Exact tool names granted when toolRestriction === "allowlist" (the
+	 * builtin Ez mode's shape). Null for every other restriction value.
+	 */
+	allowedTools?: string[] | null;
 	/**
 	 * Phase modes.extensionIds — when non-null/non-empty, the executor
 	 * resolves each id to its tool surface and uses the union as the

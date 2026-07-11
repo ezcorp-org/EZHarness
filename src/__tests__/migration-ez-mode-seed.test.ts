@@ -1,6 +1,8 @@
 /**
- * Phase 48 Wave 1 — Migration assertion: the 'ez' mode is seeded with
- * the exact seven-tool allowlist the Ez concierge requires.
+ * Migration assertion: the 'ez' mode is seeded with the exact eight-tool
+ * native allowlist the Ez concierge requires, plus the bundled
+ * extension-author tool appended (under its runtime `__` namespaced name)
+ * by the follow-up migration step.
  *
  * If anyone reorders / drops / renames an entry in the migration's
  * ARRAY[...] literal, this test catches it before the change ships.
@@ -36,10 +38,13 @@ describe("Ez mode seed (post-migration)", () => {
     expect(mode!.toolRestriction).toBe("allowlist");
   });
 
-  test("allowedTools contains the design-spec tool names plus extension-author/create_extension", async () => {
+  test("allowedTools contains the eight native tool names plus extension-author__create_extension", async () => {
     const mode = await getModeBySlug("ez");
-    // Migration step `migrate.ts:1252-1271` appends `extension-author/create_extension`
-    // to Ez mode's allowed_tools after the initial 7-tool seed at `migrate.ts:891`.
+    // The seed ARRAY holds the eight native Ez tools (fresh-install order);
+    // the follow-up migrate.ts step (9) appends the bundled
+    // `extension-author__create_extension` under its runtime `__`
+    // namespaced name (double underscore — the '/' form never matched the
+    // runtime tool name).
     const expected = [
       "propose_create_project",
       "propose_create_agent",
@@ -48,23 +53,26 @@ describe("Ez mode seed (post-migration)", () => {
       "find_agents",
       "fill_form",
       "navigate_to",
-      "extension-author/create_extension",
+      "read_page",
+      "extension-author__create_extension",
     ];
     expect(mode!.allowedTools).toEqual(expected);
   });
 
-  test("system_prompt_instruction carries the Ez persona text", async () => {
+  test("system_prompt_instruction carries the refreshed Ez persona text", async () => {
     const mode = await getModeBySlug("ez");
-    // Lock down the load-bearing phrases of Appendix A so a tuning edit
-    // can't accidentally drop the "concierge" framing or the explicit
-    // "not a general-purpose assistant" guardrail.
+    // Lock down the load-bearing phrases of the restored persona so a
+    // tuning edit can't accidentally drop the "concierge" framing or the
+    // on-demand page-context capability.
     expect(mode!.systemPromptInstruction).toContain("concierge");
-    expect(mode!.systemPromptInstruction).toContain("not a general-purpose assistant");
     // The persona references the propose_* tool family (wildcard form,
     // not literal individual names).
     expect(mode!.systemPromptInstruction).toContain("propose_*");
-    // After the page-context-pushing mechanism was retired, the persona
-    // explicitly tells the model it has limited page awareness.
-    expect(mode!.systemPromptInstruction).toContain("limited awareness");
+    // The restore re-enabled on-demand page context, so the persona now
+    // tells the model it CAN see the page (via read_page) — the retired
+    // "You CANNOT see their open page" line must be gone.
+    expect(mode!.systemPromptInstruction).toContain("You CAN see the page");
+    expect(mode!.systemPromptInstruction).toContain("read_page");
+    expect(mode!.systemPromptInstruction).not.toContain("You CANNOT see their open page");
   });
 });

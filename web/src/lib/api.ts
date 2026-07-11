@@ -354,7 +354,11 @@ export interface Mode {
 	preferredProvider: string | null;
 	preferredThinkingLevel: string | null;
 	temperature: number | null;
-	toolRestriction: "all" | "read-only" | "none";
+	toolRestriction: "all" | "read-only" | "none" | "allowlist";
+	/** Built-in allowlist modes (e.g. Ez) carry their explicit tool names
+	 *  here; meaningful only when `toolRestriction === "allowlist"`. Optional
+	 *  because user-authored modes express scope via `extensionIds` instead. */
+	allowedTools?: string[] | null;
 	extensionIds: string[] | null;
 	/** Per-extension tool subset (extension id → selected tool names). A key
 	 *  absent here (or mapped to an empty array) means all of that extension's

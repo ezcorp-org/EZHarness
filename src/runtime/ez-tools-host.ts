@@ -7,16 +7,16 @@
  * never see Ez tools at all.
  *
  * Why a dedicated host:
- *   - The seven Ez tools live in `src/runtime/tools/ez/*` as factory
+ *   - The Ez tools live in `src/runtime/tools/ez/*` as factory
  *     functions taking a per-turn context (`userId`, `conversationId`,
  *     `bus`). Wiring them inline in setup-tools.ts would balloon the
  *     already-dense tool-loading block.
- *   - Two of the seven (`fill_form`, `navigate_to`) are client-side and
+ *   - Three of them (`fill_form`, `navigate_to`, `read_page`) are client-side and
  *     suspend on the `ez-client-tool-registry`. Hosting their
  *     registration here keeps the registry coupling local.
  *   - The Ez tools must reach `ctx.agentTools` BEFORE the executor's
  *     allowlist filter runs (executor.ts:432-435) — otherwise the
- *     `mode.allowedTools=[…seven…]` filter sees an empty intersection
+ *     `mode.allowedTools=[…ez names…]` filter sees an empty intersection
  *     and strips everything. Centralizing the wire here makes the
  *     ordering invariant easy to audit.
  *
@@ -63,7 +63,7 @@ export interface WireEzToolsForTurnParams {
 }
 
 /**
- * Wire the seven Ez tools into the per-turn `agentTools` array.
+ * Wire the Ez tools into the per-turn `agentTools` array.
  *
  * Idempotent guard: if any of the Ez tool names already exists in
  * agentTools (defensive — shouldn't happen given setup-tools' single

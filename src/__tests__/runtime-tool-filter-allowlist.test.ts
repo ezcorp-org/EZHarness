@@ -14,7 +14,7 @@
  *  5. allowlist + missing allowedTools → fail-closed (orchestration only)
  *  6. allowlist + deny → deny applies after allow (consistent ordering)
  *  7. allowlist alone (no other filter) doesn't accidentally widen scope
- *  8. allowlist with the seven Ez tools is a stable v1 contract
+ *  8. allowlist with the eight Ez tools is a stable contract
  *
  * The complement filters ('all', 'read-only', 'none') are covered in
  * apply-tool-filters.test.ts — this file is the allowlist-specific
@@ -137,7 +137,7 @@ describe("applyToolFilters — 'allowlist' restriction", () => {
     expect(surviving.has("ext_widget")).toBe(false);
   });
 
-  test("the seven Ez tools survive when allowlist matches the design spec", () => {
+  test("the eight Ez tools survive when allowlist matches the design spec", () => {
     // The seeded Ez mode's allowed_tools array is the v1 stable contract.
     // Regressing this test means the seed and the filter disagree — Ez
     // would silently lose a capability.

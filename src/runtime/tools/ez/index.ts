@@ -2,7 +2,7 @@
  * Phase 48 Wave 2 — Ez concierge tool barrel + registration.
  *
  * Exports:
- *   - One factory per tool (5 server-side + 2 client-side stubs).
+ *   - One factory per tool (5 server-side + 3 client-side).
  *   - `getEzToolDefs(ctx)` — returns the full BuiltinToolDef[] for an Ez
  *     turn. Called from setup-tools when the Ez mode is active.
  *   - `getEzToolMetadata()` — schema-only listing for `/api/tools` and
@@ -29,6 +29,7 @@ import { createSummarizeConversationTool, type SummarizeContext } from "./summar
 import { createFindAgentsTool } from "./find-agents";
 import { createFillFormTool } from "./fill-form";
 import { createNavigateToTool } from "./navigate-to";
+import { createReadPageTool } from "./read-page";
 
 export {
   createProposeCreateProjectTool,
@@ -38,8 +39,9 @@ export {
   createFindAgentsTool,
   createFillFormTool,
   createNavigateToTool,
+  createReadPageTool,
 };
-export { EZ_CLIENT_TOOL_DEFERRED_MARKER } from "./fill-form";
+export { EZ_CLIENT_TOOL_DEFERRED_MARKER } from "./client-tool";
 export { isValidInAppPath } from "./navigate-to";
 
 /** Exact set of tool names seeded into the Ez mode's allowlist. */
@@ -51,6 +53,7 @@ export const EZ_TOOL_NAMES = [
   "find_agents",
   "fill_form",
   "navigate_to",
+  "read_page",
 ] as const;
 
 export type EzToolName = (typeof EZ_TOOL_NAMES)[number];
@@ -76,7 +79,7 @@ export interface EzToolFactoryContext {
 /**
  * Build the full set of Ez tool defs for a single Ez-mode turn. The
  * caller is responsible for filtering against the active mode's
- * allowedTools — but in practice the seeded Ez mode allows all seven,
+ * allowedTools — but in practice the seeded Ez mode allows all eight,
  * so this is a 1:1 list. Order matches EZ_TOOL_NAMES.
  */
 export function getEzToolDefs(ctx: EzToolFactoryContext): BuiltinToolDef[] {
@@ -94,6 +97,7 @@ export function getEzToolDefs(ctx: EzToolFactoryContext): BuiltinToolDef[] {
     createFindAgentsTool(userCtx),
     createFillFormTool(clientCtx),
     createNavigateToTool(clientCtx),
+    createReadPageTool(clientCtx),
   ];
 }
 
@@ -116,6 +120,7 @@ export function getEzToolMetadata(): BuiltInToolMeta[] {
     createFindAgentsTool(sentinelUser),
     createFillFormTool(sentinelClient),
     createNavigateToTool(sentinelClient),
+    createReadPageTool(sentinelClient),
   ];
   return defs.map((d) => ({
     name: d.name,
@@ -128,10 +133,11 @@ export function getEzToolMetadata(): BuiltInToolMeta[] {
 
 /**
  * Convenience helper for tests / static checks: returns true iff the
- * named tool is one of the seven Ez tools and is flagged client-side.
- * Server-side tools (propose_*, summarize_conversation, find_agents)
- * return false. Useful for asserting the runtime routes correctly.
+ * named tool is one of the Ez tools flagged client-side (fill_form,
+ * navigate_to, read_page). Server-side tools (propose_*,
+ * summarize_conversation, find_agents) return false. Useful for asserting
+ * the runtime routes correctly.
  */
 export function isEzClientTool(name: string): boolean {
-  return name === "fill_form" || name === "navigate_to";
+  return name === "fill_form" || name === "navigate_to" || name === "read_page";
 }

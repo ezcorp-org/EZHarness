@@ -1,8 +1,12 @@
-// Tests for the Phase 5 Ez `allowed_tools` migration.
+// Tests for the Ez `allowed_tools` migration.
 //
-// The migration appends `extension-author/create_extension` to the
-// builtin Ez mode's `allowed_tools` array. Idempotent: re-running is
-// a no-op.
+// The migration ensures the builtin Ez mode's `allowed_tools` array
+// references the bundled extension-author tool under its RUNTIME
+// namespaced name `extension-author__create_extension` (double
+// underscore). A prior migration seeded the wrong `/` separator, which
+// never matched the runtime tool name; the restore migration fixes stale
+// rows in place (array_replace) and appends the correct name when missing.
+// Idempotent: re-running is a no-op.
 
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
@@ -22,16 +26,19 @@ afterAll(async () => {
 });
 
 describe("Ez mode allowed_tools migration", () => {
-  test("ez mode includes extension-author/create_extension", async () => {
+  test("ez mode references the runtime-namespaced extension-author__create_extension", async () => {
     const rows = await getTestDb().execute(sql`SELECT allowed_tools FROM modes WHERE slug = 'ez'`);
     // PGlite returns an array of objects keyed by column name.
     const r = (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows
       ?? (rows as unknown as Array<{ allowed_tools: string[] }>);
     const allowedTools = r[0]?.allowed_tools ?? [];
-    expect(allowedTools).toContain("extension-author/create_extension");
+    expect(allowedTools).toContain("extension-author__create_extension");
+    // The stale slash-separator form must NOT survive — it never matched
+    // the runtime tool name, so the tool was neither listed nor callable.
+    expect(allowedTools).not.toContain("extension-author/create_extension");
   });
 
-  test("ez mode preserves the original seven tools", async () => {
+  test("ez mode preserves the eight native Ez tools", async () => {
     const rows = await getTestDb().execute(sql`SELECT allowed_tools FROM modes WHERE slug = 'ez'`);
     const r = (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows
       ?? (rows as unknown as Array<{ allowed_tools: string[] }>);
@@ -44,24 +51,56 @@ describe("Ez mode allowed_tools migration", () => {
       "find_agents",
       "fill_form",
       "navigate_to",
+      "read_page",
     ]) {
       expect(allowedTools).toContain(expected);
     }
   });
 
-  test("migration is idempotent: re-running does not duplicate the entry", async () => {
-    // Re-run the same UPDATE statement the migration emitted.
+  test("migration is idempotent: re-running append does not duplicate the entry", async () => {
+    // Re-run the same append UPDATE the migration emitted (correct name).
     await getTestDb().execute(sql`
       UPDATE modes
-      SET allowed_tools = array_append(allowed_tools, 'extension-author/create_extension')
+      SET allowed_tools = array_append(allowed_tools, 'extension-author__create_extension')
       WHERE slug = 'ez'
-        AND NOT ('extension-author/create_extension' = ANY(allowed_tools))
+        AND NOT ('extension-author__create_extension' = ANY(allowed_tools))
     `);
     const rows = await getTestDb().execute(sql`SELECT allowed_tools FROM modes WHERE slug = 'ez'`);
     const r = (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows
       ?? (rows as unknown as Array<{ allowed_tools: string[] }>);
     const allowedTools = r[0]?.allowed_tools ?? [];
-    const occurrences = allowedTools.filter((t) => t === "extension-author/create_extension").length;
+    const occurrences = allowedTools.filter((t) => t === "extension-author__create_extension").length;
     expect(occurrences).toBe(1);
+  });
+
+  test("the replace→append sequence heals a stale slash-form row without duplicating", async () => {
+    // Simulate a pre-restore row: force the wrong separator back in, then
+    // re-run the migration's two steps (9a replace, 9b append) in order.
+    await getTestDb().execute(sql`
+      UPDATE modes
+      SET allowed_tools = array_append(
+        array_remove(allowed_tools, 'extension-author__create_extension'),
+        'extension-author/create_extension'
+      )
+      WHERE slug = 'ez'
+    `);
+    await getTestDb().execute(sql`
+      UPDATE modes
+      SET allowed_tools = array_replace(allowed_tools, 'extension-author/create_extension', 'extension-author__create_extension')
+      WHERE slug = 'ez'
+        AND 'extension-author/create_extension' = ANY(allowed_tools)
+    `);
+    await getTestDb().execute(sql`
+      UPDATE modes
+      SET allowed_tools = array_append(allowed_tools, 'extension-author__create_extension')
+      WHERE slug = 'ez'
+        AND NOT ('extension-author__create_extension' = ANY(allowed_tools))
+    `);
+    const rows = await getTestDb().execute(sql`SELECT allowed_tools FROM modes WHERE slug = 'ez'`);
+    const r = (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows
+      ?? (rows as unknown as Array<{ allowed_tools: string[] }>);
+    const allowedTools = r[0]?.allowed_tools ?? [];
+    expect(allowedTools.filter((t) => t === "extension-author__create_extension").length).toBe(1);
+    expect(allowedTools).not.toContain("extension-author/create_extension");
   });
 });

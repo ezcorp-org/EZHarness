@@ -394,6 +394,80 @@ describe("EzPanel — client-tool dispatch", () => {
 	});
 });
 
+describe("EzPanel — tools chip", () => {
+	test("opening the tools popover fetches /api/tools and lists tools grouped by extension", async () => {
+		const toolsPayload = {
+			tools: [
+				{ name: "read_page", description: "Read the current page", extension: "ez", extensionType: "builtin" },
+				{ name: "fill_form", description: "Fill a form", extension: "ez", extensionType: "builtin" },
+				{ name: "create_extension", description: "Author a new extension", extension: "extension-author", extensionType: "extension" },
+			],
+			count: 3,
+			orchestrationTools: [],
+		};
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = typeof input === "string" ? input : input.toString();
+			if (url.includes("/api/tools")) {
+				return new Response(JSON.stringify(toolsPayload), { status: 200, headers: { "content-type": "application/json" } });
+			}
+			if (url.includes("?withToolCalls=true")) {
+				return new Response(JSON.stringify({ messages: [], orphanedToolCalls: [] }), { status: 200, headers: { "content-type": "application/json" } });
+			}
+			return new Response("not found", { status: 404 });
+		});
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		try {
+			openEzPanel();
+			const { findByTestId, findAllByTestId } = render(EzPanel);
+			await findByTestId("ez-panel");
+			await waitFor(() => expect(mocks.getOrCreateMock).toHaveBeenCalled());
+
+			const btn = await findByTestId("ez-panel-tools");
+			await fireEvent.click(btn);
+
+			await findByTestId("ez-panel-tools-popover");
+			const groups = await findAllByTestId("ez-panel-tools-group");
+			expect(groups).toHaveLength(2); // ez + extension-author
+			const rows = await findAllByTestId("ez-panel-tool-row");
+			expect(rows.map((r) => r.textContent?.trim())).toEqual(["read_page", "fill_form", "create_extension"]);
+
+			// The scoped fetch carried the conversation id.
+			const hitToolsApi = fetchMock.mock.calls.some(
+				(c) => typeof c[0] === "string" && c[0].includes("/api/tools?conversationId=ez-conv-1"),
+			);
+			expect(hitToolsApi).toBe(true);
+
+			// Count badge reflects the fetched total.
+			expect((await findByTestId("ez-panel-tools")).textContent).toContain("3");
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	test("tools popover surfaces an inline message when the fetch fails (non-fatal)", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+			const url = typeof input === "string" ? input : input.toString();
+			if (url.includes("/api/tools")) return new Response("nope", { status: 500 });
+			return new Response(JSON.stringify({ messages: [], orphanedToolCalls: [] }), { status: 200, headers: { "content-type": "application/json" } });
+		}) as unknown as typeof fetch;
+
+		try {
+			openEzPanel();
+			const { findByTestId, findByText } = render(EzPanel);
+			await findByTestId("ez-panel");
+			await waitFor(() => expect(mocks.getOrCreateMock).toHaveBeenCalled());
+
+			await fireEvent.click(await findByTestId("ez-panel-tools"));
+			expect(await findByText(/Couldn't load the tool list/)).toBeInTheDocument();
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+});
+
 describe("EzPanel — close button", () => {
 	test("clicking close hides the panel via the store", async () => {
 		openEzPanel();

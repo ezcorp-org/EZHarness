@@ -247,5 +247,9 @@
   "src/dev-git-info.ts": 100,
   "web/src/lib/dev-badge.ts": 100,
   "web/src/lib/components/DevBadge.svelte": 100,
+  "src/runtime/tools/ez/read-page.ts": 100,
+  "src/runtime/tools/ez/client-tool.ts": 100,
+  "web/src/lib/ez/page-context.ts": 100,
+  "web/src/lib/ez/client-tool-dispatcher.ts": 100,
   "web/src/lib/**": 90
 }
