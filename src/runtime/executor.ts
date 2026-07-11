@@ -78,6 +78,7 @@ async function resolveCompactionConfig(): Promise<Partial<CompactionConfig>> {
     ["compaction:responseReserveFloor", "responseReserveFloor"],
     ["compaction:safetyFraction", "safetyFraction"],
     ["compaction:cacheAnchorFraction", "cacheAnchorFraction"],
+    ["compaction:summarizeMaxTokens", "summarizeMaxTokens"],
   ];
   for (const [key, field] of numeric) {
     const v = await getSetting(key);
