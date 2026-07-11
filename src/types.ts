@@ -480,6 +480,14 @@ export interface AgentEvents {
      * the orchestration extension surfaces this as a distinct error.
      */
     structuredResultError?: string;
+    /**
+     * Set alongside `structuredResultError` when the output DID validate
+     * against the schema but its compact serialization exceeded the 30KB
+     * structured cap — the (capped) `resultFull` carries the salvage.
+     * Lets consumers frame this as an oversized success rather than a
+     * schema violation.
+     */
+    structuredResultOverCap?: boolean;
   };
   // ── Extension Panel State ──
   "ext:state": {

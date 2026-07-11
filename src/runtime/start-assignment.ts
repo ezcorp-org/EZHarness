@@ -234,7 +234,7 @@ function emitAssignmentUpdate(
   taskId: string,
   assignment: TaskAssignment,
   resultFull?: string,
-  structured?: { result?: unknown; error?: string },
+  structured?: { result?: unknown; error?: string; overCap?: boolean },
 ): void {
   bus.emit("task:assignment_update", {
     conversationId,
@@ -243,6 +243,7 @@ function emitAssignmentUpdate(
     ...(resultFull !== undefined ? { resultFull } : {}),
     ...(structured?.result !== undefined ? { structuredResult: structured.result } : {}),
     ...(structured?.error !== undefined ? { structuredResultError: structured.error } : {}),
+    ...(structured?.overCap ? { structuredResultOverCap: true } : {}),
   });
 }
 
@@ -535,9 +536,17 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       cleanup();
 
       // (1) User steering always wins: a queued user message re-prompts
-      // the sub-agent verbatim, regardless of autonomous mode.
+      // the sub-agent verbatim, regardless of autonomous mode. A user
+      // message also ABANDONS any in-flight schema correction (the
+      // correction run's output is discarded here anyway), so the flag
+      // is cleared and the user-driven run gets normal autonomous
+      // semantics — branch (2.5) still validates at the natural terminal
+      // point. This cannot reintroduce the correction-swallow bug: that
+      // bug is about protecting an ISSUED correction response, which the
+      // user message replaces entirely.
       const pending = dequeue(subConversationId);
       if (pending) {
+        schemaRepromptInFlight = false;
         const newRunId = crypto.randomUUID();
         assignment.agentRunId = newRunId;
         emitTaskSnapshot(bus, snapshot);
@@ -616,6 +625,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       // (the child still completes — success is unchanged).
       let structuredResult: unknown | undefined;
       let structuredResultError: string | undefined;
+      let structuredResultOverCap = false;
       if (outputSchema && assignment.status === "running") {
         // This completion consumed any in-flight correction — clear the
         // gate before deciding the next step (a fresh correction re-arms it).
@@ -626,10 +636,13 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
           // Cap parity with resultFull: the parsed object rides the bus and
           // is echoed to the orchestrator, so bound it by the same 30KB cap.
           // Over-cap validated output is NOT attached; the (capped)
-          // resultFull carries the salvage instead.
+          // resultFull carries the salvage instead. `overCap` marks this as
+          // a VALIDATED-but-oversized result (not a schema failure) so the
+          // extension frames it honestly rather than as a violation.
           if (JSON.stringify(outcome.value).length > ASSIGNMENT_RESULT_FULL_CAP) {
+            structuredResultOverCap = true;
             structuredResultError =
-              "validated successfully but result exceeds the 30KB structured cap; raw output follows";
+              "result validated against the schema but exceeds the 30KB structured cap; the (capped) raw output carries the result";
           } else {
             structuredResult = outcome.value;
           }
@@ -690,12 +703,13 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
 
       // Structured-output payload (Phase B1) rides the terminal update
       // alongside resultFull: a validated object as `structuredResult`, or
-      // an exhausted-retry violation summary as `structuredResultError`.
-      let structuredArg: { result?: unknown; error?: string } | undefined;
+      // an exhausted-retry violation summary as `structuredResultError`
+      // (with `overCap` marking the validated-but-oversized case).
+      let structuredArg: { result?: unknown; error?: string; overCap?: boolean } | undefined;
       if (structuredResult !== undefined) {
         structuredArg = { result: structuredResult };
       } else if (structuredResultError !== undefined) {
-        structuredArg = { error: structuredResultError };
+        structuredArg = { error: structuredResultError, overCap: structuredResultOverCap };
       }
 
       emitTaskSnapshot(bus, snapshot);

@@ -1081,6 +1081,36 @@ describe("orchestration extension — structured output", () => {
     expect(text).toContain("I could not produce valid JSON for you.");
   });
 
+  test("structuredResultOverCap → framed as an oversized SUCCESS (raw text), not a schema violation", async () => {
+    const { fn } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+
+    const invocation = tools.invoke_agent!({
+      agentConfigId: "agent-builder",
+      task: "grade",
+      outputSchema: SCHEMA,
+    });
+    const key = await drainPendingKey();
+
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: `task-${key}`,
+      assignment: { id: key, status: "completed", resultPreview: "big..." },
+      resultFull: '{"grade":9,"notes":"' + "z".repeat(100) + '"}',
+      structuredResultError:
+        "result validated against the schema but exceeds the 30KB structured cap; the (capped) raw output carries the result",
+      structuredResultOverCap: true,
+    });
+
+    const out = await invocation;
+    // Validated output that merely blew the size cap is NOT an error.
+    expect(expectIsError(out)).toBe(false);
+    const text = expectText(out);
+    expect(text).toContain("validated against the schema but exceeded the 30KB structured cap");
+    expect(text).not.toContain("did not satisfy the schema");
+    expect(text).toContain('"grade":9');
+  });
+
   test("structuredResult wins over structuredResultError when both are present", async () => {
     const { fn } = makeFakeSpawn();
     _setSpawnForTests(fn);

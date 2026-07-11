@@ -534,6 +534,10 @@ interface IncomingAssignmentUpdate {
    *  summary of the violations. Surfaced as an error carrying the raw
    *  output so the orchestrator can salvage. */
   structuredResultError?: string;
+  /** Set alongside `structuredResultError` when the output DID validate
+   *  but its compact form exceeded the host's 30KB structured cap — framed
+   *  as an oversized SUCCESS (raw text result), not a schema violation. */
+  structuredResultOverCap?: boolean;
 }
 
 /** Mirrors the host's `ASSIGNMENT_RESULT_FULL_CAP` (30KB). The host bounds
@@ -576,6 +580,18 @@ function shapeTerminalResult(
     typeof payload.structuredResultError === "string" &&
     payload.structuredResultError
   ) {
+    // Validated-but-oversized is NOT a schema violation: the child's JSON
+    // satisfied the schema but its compact form blew the 30KB structured
+    // cap, so the host shipped the (capped) raw text instead. Frame it as
+    // an oversized success — the orchestrator can still consume the text.
+    if (payload.structuredResultOverCap === true) {
+      return {
+        result:
+          `Structured output validated against the schema but exceeded the 30KB structured cap — ` +
+          `returning the (capped) raw output instead:\n${rawText}`,
+        success: true,
+      };
+    }
     return {
       result:
         `Structured output did not satisfy the schema: ${payload.structuredResultError}\n\n` +

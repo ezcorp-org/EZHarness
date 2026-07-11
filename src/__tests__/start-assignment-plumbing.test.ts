@@ -1603,9 +1603,81 @@ describe("startAssignment — structured output", () => {
     const terminal = updates.at(-1)!;
     expect(terminal.structuredResult).toBeUndefined();
     expect(terminal.structuredResultError).toContain("exceeds the 30KB structured cap");
+    // The over-cap marker distinguishes validated-but-oversized from a
+    // schema violation so the ext frames it as an oversized success.
+    expect((terminal as { structuredResultOverCap?: boolean }).structuredResultOverCap).toBe(true);
     // The capped raw output still rides resultFull for salvage.
     expect(typeof terminal.resultFull).toBe("string");
     expect(assignment.status).toBe("completed");
+  });
+
+  // A genuine schema failure must NOT carry the over-cap marker.
+  test("exhausted-retry schema failure carries structuredResultError WITHOUT the over-cap marker", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: StructuredUpdate[] = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const schema = { type: "object", required: ["x"], properties: { x: { type: "number" } } } as Record<string, unknown>;
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-nocap",
+      outputSchema: schema,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Three invalid completions: initial + 2 corrective retries → exhausted.
+    emitComplete(bus, agentRunId, "not json at all");
+    emitComplete(bus, assignment.agentRunId!, "still not json");
+    emitComplete(bus, assignment.agentRunId!, "nope");
+
+    const terminal = updates.at(-1)!;
+    expect(terminal.structuredResultError).toBeDefined();
+    expect((terminal as { structuredResultOverCap?: boolean }).structuredResultOverCap).toBeUndefined();
+    expect(assignment.status).toBe("completed");
+  });
+
+  // Validator nice-to-have: a user steering message ABANDONS an in-flight
+  // schema correction — the flag clears so the user-driven run gets normal
+  // autonomous semantics (no suppressed continuation).
+  test("pending user message during a schema correction clears the re-prompt flag (autonomous resumes on the user run)", async () => {
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+
+    const schema = { type: "object", required: ["x"], properties: { x: { type: "number" } } } as Record<string, unknown>;
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-steer",
+      outputSchema: schema,
+      autonomousContinuation: { maxCycles: 3 },
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Invalid output (no sentinel matters: autonomous DONE + invalid JSON)
+    // → correction cycle dispatched (schemaRepromptInFlight armed).
+    emitComplete(bus, agentRunId, "<<TASK_DONE>> not json");
+    expect(calls).toHaveLength(2); // correction in flight
+
+    // User steers while the correction is in flight → the correction run's
+    // completion is superseded by the user message path.
+    enqueue("sub-so-steer", {
+      messageId: "steer-1",
+      content: "actually, do something else",
+      createdAt: new Date().toISOString(),
+    });
+    emitComplete(bus, assignment.agentRunId!, `{"x": 1}`);
+    // The pending-message branch won: a user-driven run started (3rd call).
+    expect(calls).toHaveLength(3);
+    expect(calls[2]!.userMessage).toBe("actually, do something else");
+
+    // The user run completes WITHOUT a sentinel: with the flag cleared,
+    // the autonomous branch resumes (continuation fires) instead of being
+    // suppressed by a stale re-prompt flag.
+    emitComplete(bus, assignment.agentRunId!, "made progress, not done yet");
+    expect(calls).toHaveLength(4);
+    expect(calls[3]!.userMessage).toMatch(/Continue working toward the Pinned Objective/);
   });
 });
 
