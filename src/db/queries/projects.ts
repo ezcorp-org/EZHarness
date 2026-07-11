@@ -1,12 +1,20 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "../connection";
 import { projects } from "../schema";
+import { SELF_PROJECT_ID } from "../seed-self-project";
 
 export type Project = typeof projects.$inferSelect;
 export type NewProject = { name: string; path: string; icon?: string | null; variables?: Record<string, unknown> };
 
 export async function listProjects(): Promise<Project[]> {
-  return getDb().select().from(projects);
+  // The seeded self project (dev-mode dogfooding workspace) is pinned first
+  // so it's the top pick in every project surface; the rest keep the
+  // previous de-facto insertion order (created_at). No-op outside dev —
+  // the row only exists when EZCORP_SELF_PROJECT_PATH seeded it.
+  return getDb()
+    .select()
+    .from(projects)
+    .orderBy(sql`CASE WHEN ${projects.id} = ${SELF_PROJECT_ID} THEN 0 ELSE 1 END`, projects.createdAt);
 }
 
 export async function getProject(id: string): Promise<Project | undefined> {

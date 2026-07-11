@@ -145,6 +145,15 @@ describe("migrate()", () => {
     expect(result.rows).toHaveLength(1);
   });
 
+  test("does not seed a self project when EZCORP_SELF_PROJECT_PATH is unset", async () => {
+    // preload.ts scrubs the var (dev-container `bun test` inherits the compose
+    // env), so migrate() here must not have created the dev-only 'self' row.
+    const result = await db.execute(sql`
+      SELECT id FROM projects WHERE id = 'self'
+    `);
+    expect(result.rows).toHaveLength(0);
+  });
+
   test("ALTER TABLE ADD COLUMN IF NOT EXISTS works on re-run", async () => {
     // Verify columns added by ALTER TABLE exist
     const result = await db.execute(sql`

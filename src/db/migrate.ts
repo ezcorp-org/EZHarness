@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { backfillGithubProjectsApiTokens } from "../extensions/secrets-store";
+import { seedSelfProject } from "./seed-self-project";
 
 export async function migrate(db: any): Promise<void> {
   // Enable pgvector extension (must be before any vector column usage)
@@ -274,6 +275,11 @@ export async function migrate(db: any): Promise<void> {
     VALUES ('global', 'Global', '/')
     ON CONFLICT (id) DO NOTHING
   `);
+
+  // Optional second seed: a project pointing at the app's own source checkout
+  // (dev-compose dogfooding). Gated on EZCORP_SELF_PROJECT_PATH — a no-op
+  // everywhere that env var is unset (prod, CI, tests).
+  await seedSelfProject(db);
 
   // ── Phase 7: Extensions ───────────────────────────────────────────
   await db.execute(sql`

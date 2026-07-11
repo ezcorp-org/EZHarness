@@ -12,26 +12,27 @@ Separately and confusingly named, `getProjectRoot()` in `src/extensions/bundled.
 
 ### The project record (user-facing)
 
-1. **Schema** — `projects` (`src/db/schema.ts`): `id` (uuid), `name`, `path` (both `notNull`), `icon` (nullable), `variables` (jsonb, default `{}`), plus timestamps. There is **no `userId` column** — project rows are instance-global, not user-scoped (see Notes).
+1. **Schema** — `projects` (`src/db/schema.ts`): `id` (TEXT — a uuid for user-created rows, or the seeded literals `global` / `self`), `name`, `path` (both `notNull`), `icon` (nullable), `variables` (jsonb, default `{}`), plus timestamps. There is **no `userId` column** — project rows are instance-global, not user-scoped (see Notes).
 2. **CRUD queries** — `src/db/queries/projects.ts` exposes `listProjects` / `getProject` / `createProject` / `updateProject` / `deleteProject` / `getProjectByName`. None filter by user; `listProjects()` returns every row.
 3. **HTTP surface** — `web/src/routes/api/projects/+server.ts` (`GET` list, `POST` create) and `web/src/routes/api/projects/[id]/+server.ts` (`GET` / `PUT` / `DELETE`). Bodies are Zod-validated (`.strict()`); create requires non-empty `name` and `path` (preserved 400 message: `"name and path required"`).
 4. **Conversation binding** — `conversations.projectId` is `notNull` with `onDelete: "cascade"`: a conversation always belongs to exactly one project, and deleting a project deletes its conversations. Many other tables FK to `projects` (runs, memories, features, lessons, knowledge_base_files, …) with `set null` or `cascade`.
 5. **The data path into agents** — when a turn runs, `ExecutorEngine.resolveInput` (`src/runtime/executor.ts`) merges, in priority order, account settings → `{ cwd: project.path }` → `project.variables` → the call's explicit input. So the project's `path` becomes the agent's `cwd` and its `variables` become input defaults. In the chat send path, `web/src/routes/api/conversations/[id]/messages/+server.ts` calls `getProject(conv.projectId)` and passes `project.path` as `projectRoot` to the streaming runtime; that `projectRoot` is what file tools resolve against.
 6. **File-tool containment** — built-in file tools resolve relative paths against `projectRoot` via `validatePath` (`src/runtime/tools/validate.ts`), a **lexical** `resolve`/`relative`/`startsWith` check (no realpath). The `@`-mention / autocomplete scanner (`src/runtime/fs/scan-fs.ts`) instead uses `realpathInsideRoot` (realpath-based, symlink-escape filtered). This asymmetry is intentional but worth knowing (see Notes).
+7. **Seeded rows** — `migrate()` idempotently seeds two rows on boot: the `global` sentinel (`id='global'`, `path='/'`) and — only when `EZCORP_SELF_PROJECT_PATH` is set — the **self project** (`id='self'`, `src/db/seed-self-project.ts`), a workspace whose `path` is the app's own source checkout so a dev-compose instance can dogfood EZCorp on its own code. First insert also seeds a standing-guidance system prompt as `settings['project:self:systemPrompt']` (delivered via `resolveSystemPrompt`, editable/deletable at `/project/self/settings` — never re-seeded, so user edits stick) and the repo-shipped icon (`/self-project-icon.png` from `web/static/`, backfilled onto older rows only while `icon` is NULL). On later boots only `path` follows the env var; name/icon choices are preserved, and deleting the project re-creates it next boot (a dev affordance, by design). `listProjects()` pins the `self` row first so it's the top option in every project surface. The dev compose stack sets the var to `/repo` (the full-checkout mount); the older seed-marketplace "Test Project" (`path` = container cwd) is superseded by this for dogfooding.
 
 ### Per-project tool-permission mode
 
-7. Stored as a **settings KV entry**, not a project column: key `project:<projectId>:tool_permission_mode`, value one of `ask` / `auto-edit` / `yolo`. Read/written by `handleGetPermissionMode` / `handleSetPermissionMode` in `src/routes/tool-permission.ts`, fronted by `web/src/routes/api/projects/[id]/tool-permission-mode/+server.ts`. `GET` falls back to `DEFAULT_PERMISSION_MODE` (`"yolo"`) when unset. `PUT` upserts the setting and, if a `conversationId` is supplied, emits a `tool:permission_mode_change` bus event so live UIs update.
+8. Stored as a **settings KV entry**, not a project column: key `project:<projectId>:tool_permission_mode`, value one of `ask` / `auto-edit` / `yolo`. Read/written by `handleGetPermissionMode` / `handleSetPermissionMode` in `src/routes/tool-permission.ts`, fronted by `web/src/routes/api/projects/[id]/tool-permission-mode/+server.ts`. `GET` falls back to `DEFAULT_PERMISSION_MODE` (`"yolo"`) when unset. `PUT` upserts the setting and, if a `conversationId` is supplied, emits a `tool:permission_mode_change` bus event so live UIs update.
 
 ### The install-root resolver (host-internal, unrelated)
 
-8. `getProjectRoot()` / `resolveProjectRoot()` (`src/extensions/bundled.ts`) resolve the EZCorp checkout root, first-match-wins:
+9. `getProjectRoot()` / `resolveProjectRoot()` (`src/extensions/bundled.ts`) resolve the EZCorp checkout root, first-match-wins:
    1. `EZCORP_PROJECT_ROOT` env var — accepted only if it exists **and** contains `docs/extensions/examples/` (a stale/typo'd value falls through rather than failing closed).
    2. substring match on `import.meta.dir` / `import.meta.url` containing `src/extensions` (direct `bun src/...` runs).
    3. `.git` walk-up from the meta dir then `process.cwd()`, accepted only if the result contains `docs/extensions/examples/` (needed under `vite preview`, where the bundler rewrites `import.meta.url`).
    4. `process.cwd()` fallback with a WARN log.
    The result is cached process-lifetime (`__resetProjectRootCacheForTests` resets it for tests).
-9. **Consumers**: `ensureBundledExtensions()` joins `getProjectRoot()` with each bundled entry's `path` to load its on-disk manifest; the `$CWD` extension-grant token expands to `getProjectRoot()` via `grantCwdBase()` in `src/extensions/permissions.ts` (`expandGrantPrefix`); the registry injects `EZCORP_EXTENSION_DATA_ROOT = getProjectRoot()` into extension subprocess env. In production the host cwd already **is** the install root (`/app`), so `$CWD` → project-root is a no-op there; it only matters under the vite-SSR dev server where host cwd is `/app/web`.
+10. **Consumers**: `ensureBundledExtensions()` joins `getProjectRoot()` with each bundled entry's `path` to load its on-disk manifest; the `$CWD` extension-grant token expands to `getProjectRoot()` via `grantCwdBase()` in `src/extensions/permissions.ts` (`expandGrantPrefix`); the registry injects `EZCORP_EXTENSION_DATA_ROOT = getProjectRoot()` into extension subprocess env. In production the host cwd already **is** the install root (`/app`), so `$CWD` → project-root is a no-op there; it only matters under the vite-SSR dev server where host cwd is `/app/web`.
 
 ## Usage
 
@@ -57,13 +58,16 @@ Separately and confusingly named, `getProjectRoot()` in `src/extensions/bundled.
 **Env vars / settings**
 
 - `EZCORP_PROJECT_ROOT` — explicit override for the install-root resolver (must contain `docs/extensions/examples/`).
+- `EZCORP_SELF_PROJECT_PATH` / `EZCORP_SELF_PROJECT_NAME` — boot-seed the `self` project **record** at that path (dev-compose dogfooding). Despite the similar name, unrelated to `EZCORP_PROJECT_ROOT`: this creates a user-facing workspace row; the other configures the host-internal install-root resolver.
 - `EZCORP_EXTENSION_DATA_ROOT` — injected into extension subprocesses; derived from `getProjectRoot()`.
 - Settings key `project:<id>:tool_permission_mode` — per-project mode (not a project column).
+- Settings key `project:<id>:systemPrompt` — per-project standing prompt; seeded once for `self` with self-modification guidance.
 
 ## Key files
 
 - `src/db/schema.ts` — `projects` table (id/name/path/icon/variables/timestamps); `conversations.projectId` notNull FK.
 - `src/db/queries/projects.ts` — project CRUD queries (no user filter).
+- `src/db/seed-self-project.ts` — env-gated boot seed of the `self` project + its guidance prompt (called from `migrate()`).
 - `web/src/routes/api/projects/+server.ts` — list / create routes.
 - `web/src/routes/api/projects/[id]/+server.ts` — get / update / delete routes.
 - `web/src/routes/api/projects/[id]/tool-permission-mode/+server.ts` — per-project mode route shim.

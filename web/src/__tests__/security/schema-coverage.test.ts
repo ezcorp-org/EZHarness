@@ -93,6 +93,10 @@ describe("createConversationSchema", () => {
     expect(createConversationSchema.safeParse({ projectId: "global" }).success).toBe(true);
   });
 
+  test("accepts 'self' projectId (seeded dev-workspace project)", () => {
+    expect(createConversationSchema.safeParse({ projectId: "self" }).success).toBe(true);
+  });
+
   test("rejects missing projectId", () => {
     expect(createConversationSchema.safeParse({}).success).toBe(false);
   });
@@ -140,6 +144,11 @@ describe("runAgentSchema", () => {
 
   test("rejects invalid UUID projectId", () => {
     expect(runAgentSchema.safeParse({ projectId: "bad" }).success).toBe(false);
+  });
+
+  test("accepts 'self' projectId; still rejects 'global'", () => {
+    expect(runAgentSchema.safeParse({ projectId: "self" }).success).toBe(true);
+    expect(runAgentSchema.safeParse({ projectId: "global" }).success).toBe(false);
   });
 });
 
@@ -233,11 +242,21 @@ describe("uploadKBFileSchema", () => {
   test("rejects null projectId", () => {
     expect(uploadKBFileSchema.safeParse({ projectId: null }).success).toBe(false);
   });
+
+  test("accepts 'self' projectId; still rejects 'global'", () => {
+    expect(uploadKBFileSchema.safeParse({ projectId: "self" }).success).toBe(true);
+    expect(uploadKBFileSchema.safeParse({ projectId: "global" }).success).toBe(false);
+  });
 });
 
 describe("searchMemoriesQuerySchema", () => {
   test("accepts empty object (all optional)", () => {
     expect(searchMemoriesQuerySchema.safeParse({}).success).toBe(true);
+  });
+
+  test("accepts 'self' projectId; still rejects 'global'", () => {
+    expect(searchMemoriesQuerySchema.safeParse({ projectId: "self" }).success).toBe(true);
+    expect(searchMemoriesQuerySchema.safeParse({ projectId: "global" }).success).toBe(false);
   });
 
   test("accepts full query", () => {

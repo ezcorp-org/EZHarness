@@ -67,6 +67,19 @@ describe("projects queries", () => {
     expect(userNames).toEqual(["a", "b"]);
   });
 
+  test("listProjects pins the seeded 'self' project first, rest by created_at", async () => {
+    const { getTestDb } = await import("./helpers/test-pglite");
+    const { sql } = await import("drizzle-orm");
+    await createProject({ name: "older", path: "/older" });
+    await createProject({ name: "newer", path: "/newer" });
+    // Insert 'self' LAST so pinning (not insertion order) is what puts it first.
+    await getTestDb().execute(sql`INSERT INTO projects (id, name, path) VALUES ('self', 'EZCorp (this app)', '/repo')`);
+    const all = await listProjects();
+    expect(all[0]?.id).toBe("self");
+    const rest = all.slice(1).map((r) => r.name).filter((n) => n !== "Global");
+    expect(rest).toEqual(["older", "newer"]);
+  });
+
   test("listProjects returns only seeded global when no user projects exist", async () => {
     const all = await listProjects();
     expect(all.length).toBe(1);

@@ -73,6 +73,22 @@ services:
       # 1B-class is the CPU-viable default; GPU boxes can swap in a larger
       # tier (e.g. qwen3:4b) — ollama-init pulls whatever is set here.
       - EZCORP_SUGGEST_MODEL=${EZCORP_SUGGEST_MODEL:-qwen3:1.7b}
+      # Self-modification: boot-seeds the 'self' project pointing at this
+      # checkout (mounted at /repo below) so an in-app agent can dogfood the
+      # platform on its own source. Dev-only — never set in prod/test/CI.
+      # See src/db/seed-self-project.ts.
+      - EZCORP_SELF_PROJECT_PATH=/repo
+      # Root-run git against the host-uid-owned /repo trips git's
+      # dubious-ownership check — safe.directory clears it. The identity
+      # entries make any future in-container commit attributable. GIT_CONFIG_*
+      # env survives every spawn path (chat shell tool, extension runners).
+      - GIT_CONFIG_COUNT=3
+      - GIT_CONFIG_KEY_0=safe.directory
+      - GIT_CONFIG_VALUE_0=/repo
+      - GIT_CONFIG_KEY_1=user.name
+      - GIT_CONFIG_VALUE_1=${EZCORP_GIT_NAME:-EZCorp Dev}
+      - GIT_CONFIG_KEY_2=user.email
+      - GIT_CONFIG_VALUE_2=${EZCORP_GIT_EMAIL:-dev@ezcorp.local}
     command:
       - sh
       - -c
@@ -126,6 +142,32 @@ services:
       - ./docs:/app/docs
       # User-created projects — accessible on host at ./projects/
       - ./projects:/app/projects
+      # ── Self-modification project (EZCORP_SELF_PROJECT_PATH) ─────────
+      # Whole checkout rw, including everything the scoped mounts above
+      # don't cover. Shares inodes with ./src and ./web/src, so agent edits
+      # write through to the host tree and Vite HMR fires unchanged. The
+      # container runs as root, so files the agent CREATES here land
+      # root-owned on the host (same caveat as .ezcorp above); edits to
+      # EXISTING files keep their owner.
+      - .:/repo
+      # Read-only .git: git diff/log/status work for agent context, but
+      # commits/branches/stashes fail with EROFS — keeps root-owned
+      # objects/refs out of the host repo. Committing is a host-side action.
+      - ./.git:/repo/.git:ro
+      # Secret masks. Files use /dev/null binds (tmpfs can't mask a single
+      # file); dirs use the tmpfs list below. ./.ezcorp holds the PROD
+      # stack's live PGlite DB + keys; .env* hold deploy secrets. On hosts
+      # where a mask target doesn't exist, docker creates an empty
+      # root-owned file/dir at the host path (gitignored, harmless).
+      - /dev/null:/repo/.env:ro
+      - /dev/null:/repo/.env.prod:ro
+      - /dev/null:/repo/.env.seed:ro
+    tmpfs:
+      # Mask the prod DB/keys dir and the multi-GB agent-scratch worktrees
+      # out of /repo (mounts nest by target-path depth — same mechanism as
+      # the .ezcorp bind-over-volume layering above).
+      - /repo/.ezcorp
+      - /repo/worktrees
     depends_on:
       postgres:
         condition: service_healthy

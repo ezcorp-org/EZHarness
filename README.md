@@ -64,6 +64,39 @@ cp .env.example .env
 docker compose up -d                               # → http://localhost:3000
 ```
 
+### Self-modification project (dogfooding)
+
+The dev stack mounts the **whole checkout** read-write at `/repo` inside the
+container and boot-seeds a project named **"EZCorp (this app)"** pointing at it
+(`EZCORP_SELF_PROJECT_PATH=/repo` → `src/db/seed-self-project.ts`). Pick that
+project in the UI and the in-app agent can read and edit EZCorp's own source —
+edits write straight through to your working tree, and `web/src/**` changes
+hot-reload in the very UI you're chatting in.
+
+What to know before letting an agent loose on it:
+
+- **Backend edits can kill the run making them.** `/repo/src` is the same
+  files as the Vite-watched `/app/src`, so a `src/**` write can invalidate the
+  SSR module graph mid-request. The seeded per-project system prompt (editable
+  at `/project/self/settings`) tells the agent to finish all writes first and
+  then apply them via `docker compose restart app` (host) or `kill 1`
+  (in-container; the container auto-restarts).
+- **`.git` is mounted read-only.** `git diff/log/status` work for agent
+  context, but commits/branches/stashes fail with a read-only-filesystem error
+  on purpose: the container runs as root, and root-owned objects/refs would
+  poison the host repo. Committing stays a host-side action. Optional
+  `EZCORP_GIT_NAME` / `EZCORP_GIT_EMAIL` in `.env` set the identity should you
+  ever loosen this.
+- **New files land root-owned on the host** (same caveat as `./.ezcorp/`);
+  edits to existing files keep their owner. `sudo chown` occasionally, or
+  delete/recreate via git.
+- **Non-mounted files need a rebuild.** `package.json`, `bun.lock`,
+  `scripts/**`, `packages/**` edits persist to the checkout but the running
+  server keeps the image's copy until `docker compose up -d --build`.
+- **Secrets are masked.** `.env*`, `./.ezcorp/` (the prod stack's live DB +
+  keys) and `worktrees/` are blanked out inside `/repo`. On a fresh clone the
+  mask targets materialize as empty root-owned gitignored files — harmless.
+
 ### Dev and prod side-by-side
 
 `docker-compose.yml` (dev) and `compose.prod.yml` (prod) declare distinct project names (`ez-corp-ai` and `ezcorp-prod`) and bind to different host ports (`3000` and `4000` by default), so the two stacks run independently — same source tree, different runtimes, different volumes. Bringing one up never touches the other:

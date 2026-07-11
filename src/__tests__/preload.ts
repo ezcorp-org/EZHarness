@@ -18,6 +18,13 @@ if (!process.env.EZCORP_DB_PATH && !process.env.DATABASE_URL) {
   process.env.EZCORP_DB_PATH = join(mkdtempSync(join(tmpdir(), "ezcorp-test-db-")), "db");
 }
 
+// `bun test` inside the dev container inherits the compose env, where
+// EZCORP_SELF_PROJECT_PATH=/repo makes migrate() seed a `self` project —
+// which would leak into test-pglite's cached migrated snapshot (and any
+// suite that runs migrate() directly). Scrub it before any suite runs;
+// the seed's own tests inject env explicitly (seed-self-project.test.ts).
+delete process.env.EZCORP_SELF_PROJECT_PATH;
+
 // Snapshot real module exports BEFORE any test file can mock.module() them.
 // This enables restoreModuleMocks() to undo mock leaks between files.
 await snapshotModules();

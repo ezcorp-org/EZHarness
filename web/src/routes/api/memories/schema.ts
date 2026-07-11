@@ -3,7 +3,9 @@ import { z } from "zod";
 // Memories endpoint currently only has GET (query params).
 // This schema documents the expected query parameters for reference.
 export const searchMemoriesQuerySchema = z.object({
-  projectId: z.string().uuid().optional(),
+  // uuid or 'self' — the seeded dev-workspace project (a real project row,
+  // unlike the 'global' sentinel, which stays excluded here).
+  projectId: z.union([z.literal("self"), z.string().uuid()]).optional(),
   search: z.string().max(500).optional(),
   status: z.string().optional(),
   category: z.string().max(100).optional(),
