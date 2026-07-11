@@ -32,6 +32,7 @@ mock.module("../db/queries/settings", () => ({
 
 afterAll(() => restoreModuleMocks());
 
+import { getModels } from "@earendil-works/pi-ai/compat";
 import { resolveModelObject } from "../providers/registry";
 import { getCapabilities } from "../providers/model-capabilities";
 
@@ -54,10 +55,42 @@ test("getCapabilities('openai', 'gpt-5.5') reports image support", () => {
   expect(caps.deliveryFor.image).toBe("native-image");
 });
 
+// Case 2 (unknown provider + unknown id → unchanged legacy fallback) and
+// case 4 (OAuth override wins before any synthetic fallback) are covered by
+// this test and the two gpt-5.5 tests above, respectively.
 test("unknown provider+model still falls through to generic fallback (no regression)", () => {
   const m = resolveModelObject("some-random-provider", "some-random-id");
   // Hits the custom-model fallback: openai-compat shape, text-only.
   expect(m.id).toBe("some-random-id");
   expect(m.input).toEqual(["text"]);
   expect(m.api).toBe("openai-completions");
+  expect(m.baseUrl).toBe("https://api.openai.com/v1");
+});
+
+test("known provider + unknown id borrows the provider's native wire shape", () => {
+  // A persisted id pi-ai has since dropped (the concrete case: pi-ai 0.80.6
+  // retired claude-3-5-sonnet-20241022 on provider "anthropic"). No catalog
+  // match, no OAuth override, no explicit baseUrl → synthesize with anthropic's
+  // OWN api + baseUrl instead of the openai-completions default that would
+  // misroute the call to api.openai.com with Anthropic credentials.
+  const sibling = getModels("anthropic")[0]!;
+  const m = resolveModelObject("anthropic", "claude-3-5-sonnet-20241022");
+  expect(m.id).toBe("claude-3-5-sonnet-20241022");
+  expect(m.api).toBe(sibling.api);
+  expect(m.api).not.toBe("openai-completions");
+  // Borrowed verbatim from the sibling — NOT put through the /v1 munging.
+  expect(m.baseUrl).toBe(sibling.baseUrl);
+  // Conservative capability floor is preserved.
+  expect(m.input).toEqual(["text"]);
+  expect(m.reasoning).toBe(false);
+});
+
+test("explicit baseUrl on a known provider keeps the legacy openai-completions path", () => {
+  // An explicit baseUrl (custom/local endpoint, or the ezcorp-mock test
+  // provider) must bypass the sibling-borrow branch even for a catalog
+  // provider — the custom-BYOK openai-compat shape + /v1 munging is preserved.
+  const m = resolveModelObject("anthropic", "my-local-model", "http://localhost:11434");
+  expect(m.api).toBe("openai-completions");
+  expect(m.baseUrl).toBe("http://localhost:11434/v1");
+  expect(m.input).toEqual(["text"]);
 });

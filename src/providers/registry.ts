@@ -281,6 +281,38 @@ export function resolveModelObject(provider: string, modelId: string, baseUrl?: 
   const oauthOverride = resolveOAuthModel(provider, modelId);
   if (oauthOverride) return oauthOverride;
 
+  // Known catalog provider + unknown model id (and no explicit baseUrl): a
+  // persisted id that pi-ai has since dropped — e.g. pi-ai 0.80.6 retired the
+  // claude-3-5 snapshot family, so a saved `claude-3-5-sonnet-20241022` pinned
+  // on provider "anthropic" no longer resolves. Synthesize the fallback using
+  // THIS provider's native wire shape (api + baseUrl borrowed from a sibling
+  // catalog model) instead of the OpenAI-completions default below. Otherwise
+  // an Anthropic pin is misrouted to api.openai.com with Anthropic credentials,
+  // producing a confusing wrong-provider failure. With the native shape a
+  // still-servable id works, and a truly-retired id fails at the correct
+  // provider with an accurate model-not-found message. The sibling's baseUrl is
+  // borrowed verbatim — the `/v1` suffix munging below exists for the
+  // custom-BYOK path only and is NOT applied here. An explicit baseUrl arg
+  // (custom models + the ezcorp-mock test provider) and unknown providers keep
+  // the legacy behavior.
+  if (baseUrl === undefined) {
+    const sibling = getModels(provider as KnownProvider)[0];
+    if (sibling) {
+      return {
+        id: modelId,
+        name: modelId,
+        api: sibling.api,
+        provider: provider as any,
+        baseUrl: sibling.baseUrl,
+        reasoning: false,
+        input: ["text"] as ("text" | "image")[],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128_000,
+        maxTokens: 16_384,
+      };
+    }
+  }
+
   // Model not in pi-ai registry -- create a custom model entry
   // Assume OpenAI-compatible API for unknown providers
   // Ensure baseUrl ends with /v1 (required by pi-ai's openai-completions API)
