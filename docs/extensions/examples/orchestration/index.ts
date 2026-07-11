@@ -841,10 +841,11 @@ const collectAgentResult: ToolHandler = async (args, ctx?: ToolHandlerContext) =
   }
 
   // Register a gate resolved by the terminal update (below), by activity-
-  // sliding, or by wait expiry. First-settle-wins.
-  const outcome = await new Promise<
-    { done: true; result: { result: string; success: boolean } } | { done: false }
-  >((resolve) => {
+  // sliding, or by wait expiry. First-settle-wins. (Type kept as a named
+  // alias on one line — bun's per-line coverage counts a wrapped generic
+  // annotation as an executable line, which the patch gate can never hit.)
+  type CollectOutcome = { done: true; result: { result: string; success: boolean } } | { done: false };
+  const outcome = await new Promise<CollectOutcome>((resolve) => {
     const waitMs = wait * 1000;
     const fireTimeout = () => {
       bg.waiters.delete(waiter);
