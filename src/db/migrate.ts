@@ -923,6 +923,45 @@ export async function migrate(db: any): Promise<void> {
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_msg_attachments_message ON message_attachments(message_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_msg_attachments_conversation ON message_attachments(conversation_id)`);
 
+  // ── Agent session-tree storage (pi SessionStorage port) ────────────
+  // Backs src/db/session-storage.ts (DbSessionStorage) — a faithful port
+  // of pi-agent-core's JsonlSessionStorage onto Postgres/PGlite. P1 is
+  // UNWIRED (no runtime imports it yet); this is the durable substrate.
+  // See src/db/migrations/add-session-storage.ts for the full rationale.
+  // NAMESPACED `agent_*` because EZCorp already has an auth `sessions`
+  // table (Phase 43) — these are the pi AGENT session tree, distinct.
+  //
+  //  - agent_sessions: one row per pi session (1:1 with a conversation
+  //    once wired). `leaf_entry_id` is an O(1) getLeafId cache; the leaf
+  //    is still AUTHORITATIVELY recovered by replaying entries on open.
+  //  - agent_session_entries: the append-only session tree. PK is
+  //    (session_id, entry_id) because forked entries REUSE their source
+  //    ids across sessions (pi ids are unique only within a session), so
+  //    a duplicate append within one session rejects on the PK.
+  //  - `seq` (BIGSERIAL) is the load-bearing INSERTION-order axis — pi
+  //    entry ids are 8-char uuidv7 slices, NOT monotonic — so getEntries
+  //    / leaf-recovery / findEntries order by it, never by id.
+  //  - `timestamp` is TEXT (not timestamptz): pi's ISO string is
+  //    round-tripped VERBATIM for byte-fidelity.
+  //  - `payload` is JSONB carrying the type-specific entry fields (incl.
+  //    the full pi AgentMessage for `message` entries), written ONLY via
+  //    column-mapped drizzle inserts (never string-cast SQL — the Bun.sql
+  //    double-encode gotcha).
+  // NOTE: each statement below is a SINGLE-LINE `db.execute`. A multi-line
+  // tagged-template `sql`…`` makes Bun's per-line coverage emit a phantom
+  // 0-hit DA on an interior line that merge-lcov then unions in across
+  // shards, reading as an uncovered changed line (patch-coverage gate).
+  // Single-line executes get one hit DA record, matching the CREATE INDEX
+  // statements below (proven-covered).
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS agent_sessions (id TEXT PRIMARY KEY, conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE, cwd TEXT, parent_session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL, leaf_entry_id TEXT, metadata JSONB, created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW())`);
+  // Partial unique index — a conversation maps to at most one session, but
+  // many sessions may have no conversation (unwired P1 sessions).
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS agent_sessions_conversation_unique ON agent_sessions(conversation_id) WHERE conversation_id IS NOT NULL`);
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS agent_session_entries (session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE, entry_id TEXT NOT NULL, seq BIGSERIAL, type TEXT NOT NULL, parent_id TEXT, timestamp TEXT NOT NULL, payload JSONB NOT NULL DEFAULT '{}', ez_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL, PRIMARY KEY (session_id, entry_id))`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_seq ON agent_session_entries(session_id, seq)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_type ON agent_session_entries(session_id, type)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_parent ON agent_session_entries(session_id, parent_id)`);
+
   // Fix temperature columns — originally created as INTEGER but semantically a
   // float (0.0–2.0 with 0.1 increments). Any save with a non-integer temperature
   // was 500ing ("invalid input syntax for type integer"). Idempotent: re-running
