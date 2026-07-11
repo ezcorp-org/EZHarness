@@ -15,7 +15,12 @@ import { denyAndDisable } from "./security";
 import { handleStorageRpc, type StorageContext } from "./storage-handler";
 import { handleAgentConfigsRpc, type AgentConfigsContext } from "./agent-configs-handler";
 import { handleEmitTaskEventRpc, type TaskEventsContext } from "./task-events-handler";
-import { handleSpawnAssignmentRpc, type SpawnAssignmentContext } from "./spawn-assignment-handler";
+import {
+  handleSpawnAssignmentRpc,
+  handleQueueAgentMessageRpc,
+  type SpawnAssignmentContext,
+  type QueueAgentMessageContext,
+} from "./spawn-assignment-handler";
 import { handleCancelRunRpc, type CancelRunContext } from "./cancel-run-handler";
 import { handleAppendMessageRpc, type AppendMessageContext } from "./append-message-handler";
 import { handleFinalizeToolCallRpc, type FinalizeToolCallContext } from "./finalize-tool-call-handler";
@@ -2007,6 +2012,37 @@ export class ToolExecutor {
   }
 
   /**
+   * Handle a `ezcorp/queue-agent-message` reverse RPC request (Phase B3).
+   * Enqueues a steering message onto a running child's sub-conversation for
+   * the orchestration extension's `send_to_agent`. Reuses the `spawnAgents`
+   * permission gate and fails closed unless the target sub-conversation is a
+   * child of the caller's conversation. See spawn-assignment-handler.ts.
+   */
+  async handlePiQueueAgentMessage(
+    extensionId: string,
+    req: JsonRpcRequest,
+  ): Promise<JsonRpcResponse> {
+    const granted = this.registry.getGrantedPermissions(extensionId);
+    if (!granted) {
+      return {
+        jsonrpc: "2.0",
+        id: req.id,
+        error: { code: -32603, message: "Extension not found in registry" },
+      };
+    }
+    // Per-call provenance: token wins, singletons are the fallback.
+    const scope = this.resolveHandlerScope(req);
+    const ctx: QueueAgentMessageContext = {
+      conversationId: scope.conversationId,
+      userId: scope.userId,
+      grantedPermissions: granted,
+      // Phase 6: thread the PDP for the canonical permission decision.
+      engine: this.engine,
+    };
+    return handleQueueAgentMessageRpc(extensionId, req, ctx);
+  }
+
+  /**
    * Handle a `ezcorp/network.internal` reverse RPC request (Phase 2).
    *
    * The in-sandbox fetch wrapper (sandbox-preload.ts) forwards every
@@ -2149,6 +2185,9 @@ export class ToolExecutor {
       }
       if (req.method === "ezcorp/cancel-run") {
         return this.handlePiCancelRun(extensionId, req);
+      }
+      if (req.method === "ezcorp/queue-agent-message") {
+        return this.handlePiQueueAgentMessage(extensionId, req);
       }
       if (req.method === "ezcorp/append-message") {
         return this.handlePiAppendMessage(extensionId, req);

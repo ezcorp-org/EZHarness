@@ -135,8 +135,8 @@ export {
 
 // ── Phase 2d spawn wrapper ──────────────────────────────────────
 
-export { spawnAssignment } from "./spawn";
-export type { SpawnAssignmentInput, SpawnAssignmentHandle } from "./spawn";
+export { spawnAssignment, queueAgentMessage } from "./spawn";
+export type { SpawnAssignmentInput, SpawnAssignmentHandle, QueueAgentMessageResult } from "./spawn";
 
 // ── Phase 4 cancel-run wrapper (§5.3) ───────────────────────────
 

@@ -16,6 +16,13 @@ export const ORCHESTRATION_TOOLS: ReadonlySet<string> = new Set([
   // Un-namespaced (the form the host wires via wireOrchestrationToolsForTurn),
   // matching `invoke_agent`.
   "collect_agent_result",
+  // Claude-Code SendMessage parity: steer a running child (enqueue a message
+  // onto its sub-conversation) or continue a terminal one (a fresh run on the
+  // reused sub-conversation). Preserved for the same reason as
+  // `collect_agent_result` — an orchestrator under a restrictive scope must
+  // still be able to steer/continue a child it already spawned. Bare name,
+  // wired every turn by wireOrchestrationToolsForTurn.
+  "send_to_agent",
   // Human-in-the-loop is provided by the bundled `ask-user` extension.
   // The registry exposes the tool under the namespaced form, which is
   // what the LLM sees and what the filter must preserve. Auto-wired

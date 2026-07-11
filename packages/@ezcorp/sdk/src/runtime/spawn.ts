@@ -188,3 +188,64 @@ export async function spawnAssignment(
     assignmentId: result.assignmentId,
   };
 }
+
+// ── queueAgentMessage — steer a RUNNING sub-agent (Phase B3) ─────────
+//
+// Thin type-safe wrapper over the `ezcorp/queue-agent-message` reverse RPC.
+// Enqueues a steering message onto a still-running child's sub-conversation
+// queue (the host-internal `pending-messages` module). The child's
+// `run:complete` drain (start-assignment.ts) delivers it as the next turn, so
+// the orchestrator can course-correct an in-flight agent — the counterpart to
+// Claude-Code's SendMessage for a live sub-agent.
+//
+// Permission: reuses `spawnAgents` (same trust envelope — steering a child you
+// spawned is the same boundary as spawning/cancelling it). The host validates
+// the sub-conversation is a child of the CALLER's conversation and fails closed
+// (`{ queued: false, reason: "not-found" }`) otherwise, so one conversation
+// cannot steer another's sub-agent.
+//
+// Error codes the host can raise (surfaced as `JsonRpcError`):
+//   -32001  spawnAgents permission not granted / quota config invalid
+//   -32602  Invalid params (empty subConversationId/message, or message too long)
+
+export interface QueueAgentMessageResult {
+  /** True iff the host enqueued the message onto the child's sub-conversation. */
+  queued: boolean;
+  /** Only present when `queued === false`. `"not-found"` = the
+   *  sub-conversation is not a child of the caller's conversation (or no longer
+   *  exists) — the same fail-closed response used for a cross-conversation
+   *  target so the caller can't probe another conversation's sub-agents. */
+  reason?: "not-found";
+}
+
+/**
+ * Enqueue a steering message onto a RUNNING sub-agent's sub-conversation. The
+ * message is delivered as the child's next turn when its current run completes.
+ * Resolves `{ queued: true }` on success, `{ queued: false, reason: "not-found" }`
+ * when the sub-conversation isn't owned by the caller. Protocol-level failures
+ * (permission, malformed input) throw `JsonRpcError`.
+ */
+export async function queueAgentMessage(
+  subConversationId: string,
+  message: string,
+): Promise<QueueAgentMessageResult> {
+  if (typeof subConversationId !== "string" || !subConversationId.trim()) {
+    throw new Error("queueAgentMessage: 'subConversationId' must be a non-empty string");
+  }
+  if (typeof message !== "string" || !message.trim()) {
+    throw new Error("queueAgentMessage: 'message' must be a non-empty string");
+  }
+  const result = await getChannel().request<{
+    v: 1;
+    queued: boolean;
+    reason?: "not-found";
+  }>("ezcorp/queue-agent-message", {
+    v: 1,
+    subConversationId,
+    message,
+  });
+  return {
+    queued: result.queued,
+    ...(result.reason ? { reason: result.reason } : {}),
+  };
+}

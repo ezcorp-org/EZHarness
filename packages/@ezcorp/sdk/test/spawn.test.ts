@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
-import { spawnAssignment } from "../src/runtime/spawn";
+import { spawnAssignment, queueAgentMessage } from "../src/runtime/spawn";
 import {
   __resetChannelForTests,
   getChannel,
@@ -429,5 +429,62 @@ describe("spawnAssignment — host error propagation", () => {
       expect(err).toBeInstanceOf(JsonRpcError);
       expect((err as JsonRpcError).code).toBe(-32001);
     }
+  });
+});
+
+// ── queueAgentMessage (Phase B3 — send_to_agent steering) ───────────
+
+describe("queueAgentMessage — JSON-RPC frame shape + result mapping", () => {
+  test("sends 'ezcorp/queue-agent-message' with v:1, subConversationId, message; maps queued:true", async () => {
+    const { calls } = stubRequest({ v: 1 as const, queued: true });
+    const res = await queueAgentMessage("sub-9", "please also check X");
+    expect(res).toEqual({ queued: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.method).toBe("ezcorp/queue-agent-message");
+    expect(calls[0]?.params).toEqual({
+      v: 1,
+      subConversationId: "sub-9",
+      message: "please also check X",
+    });
+  });
+
+  test("passes through a not-found reason (queued:false)", async () => {
+    stubRequest({ v: 1 as const, queued: false, reason: "not-found" as const });
+    const res = await queueAgentMessage("sub-foreign", "hi");
+    expect(res).toEqual({ queued: false, reason: "not-found" });
+  });
+
+  test("omits reason key when host returns none", async () => {
+    stubRequest({ v: 1 as const, queued: true });
+    const res = await queueAgentMessage("sub-9", "hi");
+    expect(res).not.toHaveProperty("reason");
+  });
+
+  test("empty subConversationId → throws before channel call", async () => {
+    const { calls } = stubRequest({ v: 1 as const, queued: true });
+    await expect(queueAgentMessage("", "hi")).rejects.toThrow(/non-empty string/i);
+    await expect(queueAgentMessage("   ", "hi")).rejects.toThrow(/non-empty string/i);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("empty / non-string message → throws before channel call", async () => {
+    const { calls } = stubRequest({ v: 1 as const, queued: true });
+    await expect(queueAgentMessage("sub-9", "")).rejects.toThrow(/non-empty string/i);
+    await expect(queueAgentMessage("sub-9", "  \n\t")).rejects.toThrow(/non-empty string/i);
+    await expect(
+      queueAgentMessage("sub-9", 42 as unknown as string),
+    ).rejects.toThrow(/non-empty string/i);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("host permission error propagates as JsonRpcError", async () => {
+    const ch = getChannel();
+    const spy = spyOn(ch, "request");
+    spy.mockImplementation(
+      (async () => {
+        throw new JsonRpcError(-32001, "spawnAgents permission not granted");
+      }) as HostChannel["request"],
+    );
+    await expect(queueAgentMessage("sub-9", "hi")).rejects.toBeInstanceOf(JsonRpcError);
   });
 });

@@ -296,6 +296,45 @@ export async function wireOrchestrationToolsForTurn(
     );
   }
 
+  // ── send_to_agent — ALWAYS (dedup-safe) ─────────────────────────────
+  //    Steer a running child / continue a terminal one. Like
+  //    collect_agent_result it must be reachable on a FOLLOW-UP turn that
+  //    @mentions no new agent ("tell the researcher to also check X"), so it is
+  //    wired BEFORE the no-agents early return. Metadata carries the caller
+  //    conversationId (owner authz) plus the continuation-spawn context
+  //    (parentRunId / depth / message-anchor / overrides / teamToolScope) so a
+  //    terminal-child continuation registers under this orchestrator run and
+  //    cascades on Stop, mirroring invoke_agent. Absent from the registry
+  //    (older manifest) → silently skipped.
+  const sendTool = registeredTools.find(
+    (t) => t.originalName === "send_to_agent",
+  );
+  if (sendTool && !agentTools.some((t) => t.name === sendTool.originalName)) {
+    const sendMetadata: Record<string, unknown> = {
+      conversationId,
+      parentRunId: runId,
+      orchestrationDepth: depth,
+    };
+    if (parentMessageId !== undefined) sendMetadata.parentMessageId = parentMessageId;
+    if (memberOverrides !== undefined) sendMetadata.overrides = memberOverrides;
+    if (teamToolScope !== undefined) sendMetadata.teamToolScope = teamToolScope;
+    agentTools.push(
+      extensionToAgentTool(
+        {
+          name: sendTool.originalName,
+          description: sendTool.description,
+          inputSchema: sendTool.inputSchema as Record<string, unknown>,
+          dispatchName: sendTool.name,
+        },
+        toolExec,
+        conversationId,
+        runId,
+        undefined,
+        sendMetadata,
+      ),
+    );
+  }
+
   // ── invoke_agent — ONLY when there are agents to delegate to ─────────
   if (availableAgents.length === 0) {
     // No @mentioned agents this turn — collect (above) is still wired; skip

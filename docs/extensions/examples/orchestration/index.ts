@@ -39,10 +39,12 @@ import {
   registerEventHandler,
   spawnAssignment,
   cancelRun,
+  queueAgentMessage,
   toolResult,
   type SpawnAssignmentInput,
   type SpawnAssignmentHandle,
   type CancelRunResult,
+  type QueueAgentMessageResult,
   type ToolHandler,
   type ToolHandlerContext,
 } from "@ezcorp/sdk/runtime";
@@ -61,11 +63,16 @@ interface AgentConfigsLike {
 type SpawnFn = (input: SpawnAssignmentInput) => Promise<SpawnAssignmentHandle>;
 type RegisterEventHandlerFn = typeof registerEventHandler;
 type CancelRunFn = (agentRunId: string) => Promise<CancelRunResult>;
+type QueueAgentMessageFn = (
+  subConversationId: string,
+  message: string,
+) => Promise<QueueAgentMessageResult>;
 
 let agentConfigs: AgentConfigsLike = new AgentConfigs();
 let spawn: SpawnFn = spawnAssignment;
 let registerEventHandlerImpl: RegisterEventHandlerFn = registerEventHandler;
 let cancelRunImpl: CancelRunFn = cancelRun;
+let queueAgentMessageImpl: QueueAgentMessageFn = queueAgentMessage;
 
 /** Test-only: inject a fake AgentConfigs resolver. */
 export function _setAgentConfigsForTests(fake: AgentConfigsLike): void {
@@ -89,12 +96,19 @@ export function _setRegisterEventHandlerForTests(fake: RegisterEventHandlerFn): 
 export function _setCancelRunForTests(fake: CancelRunFn): void {
   cancelRunImpl = fake;
 }
+/** Test-only: inject a fake queue-agent-message client (the `send_to_agent`
+ *  running-child steering seam). The real SDK `queueAgentMessage` talks to the
+ *  host over the channel, so unit tests MUST inject a stub. */
+export function _setQueueAgentMessageForTests(fake: QueueAgentMessageFn): void {
+  queueAgentMessageImpl = fake;
+}
 /** Test-only: restore real SDK bindings. */
 export function _resetBindingsForTests(): void {
   agentConfigs = new AgentConfigs();
   spawn = spawnAssignment;
   registerEventHandlerImpl = registerEventHandler;
   cancelRunImpl = cancelRun;
+  queueAgentMessageImpl = queueAgentMessage;
 }
 
 // ── Timeouts (injectable for tests) ────────────────────────────────
@@ -161,6 +175,12 @@ interface PendingInvocation {
   /** Sub-agent run id — used to reap (cancel) the child on give-up so it
    *  stops burning tokens and its quota slot frees for re-dispatch. */
   agentRunId: string;
+  /** The conversation that spawned this (sync) invocation. `send_to_agent`
+   *  authorizes running-child steering against it, mirroring the
+   *  backgroundSpawns owner check — the maps are process-global across every
+   *  conversation on the shared subprocess. Undefined only when the host set no
+   *  conversation id (fail-closed: an entry with no owner is un-steerable). */
+  ownerConversationId?: string;
 }
 
 const pendingInvocations = new Map<string, PendingInvocation>();
@@ -497,6 +517,9 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
         agentConfigId,
         subConversationId: handle.subConversationId,
         agentRunId: handle.agentRunId,
+        ...(typeof md.conversationId === "string"
+          ? { ownerConversationId: md.conversationId }
+          : {}),
       });
     },
   );
@@ -871,9 +894,235 @@ const collectAgentResult: ToolHandler = async (args, ctx?: ToolHandlerContext) =
   return terminalToolResult(outcome.result, meta);
 };
 
+// ── send_to_agent tool handler (Phase B3) ──────────────────────────
+//
+// Claude-Code SendMessage parity. Targets a child THIS conversation already
+// invoked (exactly one of assignmentId / agentConfigId), then:
+//   • RUNNING child → enqueue the message onto its sub-conversation (steering);
+//     the host's run:complete drain delivers it as the child's next turn.
+//   • TERMINAL background child → start a NEW background run on the SAME
+//     (reused) sub-conversation so it continues with full prior context; the
+//     caller collects the new result later via collect_agent_result.
+//   • Unknown / cross-conversation → fail-closed not-found (same owner check as
+//     collect_agent_result — the tracking maps are process-global across every
+//     conversation on the shared subprocess).
+
+/** Char cap on a steered/continued message — mirrors the manifest
+ *  `send_to_agent.message.maxLength` and the host handler's cap. */
+const MAX_SEND_MESSAGE_CHARS = 8000;
+
+interface SendTarget {
+  subConversationId: string;
+  agentName: string;
+  agentConfigId: string;
+  assignmentId: string;
+  /** True once the child reached a terminal state (continue, not steer). */
+  terminal: boolean;
+}
+
+/** Resolve a `send_to_agent` target from the tracking maps, OWNER-checked
+ *  against the caller conversation. A caller with no conversation id (or a
+ *  non-owned / unknown target) resolves to undefined → fail-closed not-found.
+ *  For an agentConfigId target the LAST-registered owned entry wins (the reused
+ *  sub-conversation is per agentConfigId, so every owned entry points at the
+ *  same sub-conversation; most-recent is the intended thread). */
+function resolveSendTarget(opts: {
+  assignmentId?: string;
+  agentConfigId?: string;
+  callerConv?: string;
+}): SendTarget | undefined {
+  const { assignmentId, agentConfigId, callerConv } = opts;
+  if (!callerConv) return undefined;
+  if (assignmentId) {
+    const pending = pendingInvocations.get(assignmentId);
+    if (pending && pending.ownerConversationId === callerConv) {
+      return {
+        subConversationId: pending.subConversationId,
+        agentName: pending.agentName,
+        agentConfigId: pending.agentConfigId,
+        assignmentId,
+        terminal: false,
+      };
+    }
+    const bg = backgroundSpawns.get(assignmentId);
+    if (bg && bg.ownerConversationId === callerConv) {
+      return {
+        subConversationId: bg.subConversationId,
+        agentName: bg.agentName,
+        agentConfigId: bg.agentConfigId,
+        assignmentId,
+        terminal: bg.terminal,
+      };
+    }
+    return undefined;
+  }
+  let match: SendTarget | undefined;
+  for (const [id, bg] of backgroundSpawns) {
+    if (bg.agentConfigId === agentConfigId && bg.ownerConversationId === callerConv) {
+      match = {
+        subConversationId: bg.subConversationId,
+        agentName: bg.agentName,
+        agentConfigId: bg.agentConfigId,
+        assignmentId: id,
+        terminal: bg.terminal,
+      };
+    }
+  }
+  if (match) return match;
+  for (const [id, p] of pendingInvocations) {
+    if (p.agentConfigId === agentConfigId && p.ownerConversationId === callerConv) {
+      match = {
+        subConversationId: p.subConversationId,
+        agentName: p.agentName,
+        agentConfigId: p.agentConfigId,
+        assignmentId: id,
+        terminal: false,
+      };
+    }
+  }
+  return match;
+}
+
+const sendToAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
+  const { assignmentId, agentConfigId, message } = args as {
+    assignmentId?: string;
+    agentConfigId?: string;
+    message: string;
+  };
+
+  if (typeof message !== "string" || !message.trim()) {
+    return toolResult(`Error: send_to_agent requires a non-empty 'message'.`, {
+      isError: true,
+    });
+  }
+  if (message.length > MAX_SEND_MESSAGE_CHARS) {
+    return toolResult(
+      `Error: 'message' too long (${message.length} > ${MAX_SEND_MESSAGE_CHARS} chars).`,
+      { isError: true },
+    );
+  }
+  const hasAssignment = typeof assignmentId === "string" && assignmentId.trim() !== "";
+  const hasAgentConfig = typeof agentConfigId === "string" && agentConfigId.trim() !== "";
+  if (hasAssignment === hasAgentConfig) {
+    return toolResult(
+      `Error: send_to_agent requires EXACTLY ONE of 'assignmentId' or 'agentConfigId'.`,
+      { isError: true },
+    );
+  }
+
+  const callerConversationId = (
+    (ctx?.invocationMetadata ?? {}) as { conversationId?: unknown }
+  ).conversationId;
+  const callerConv =
+    typeof callerConversationId === "string" ? callerConversationId : undefined;
+  const targetLabel = hasAssignment
+    ? `assignmentId "${assignmentId}"`
+    : `agentConfigId "${agentConfigId}"`;
+
+  const target = resolveSendTarget({
+    assignmentId: hasAssignment ? assignmentId : undefined,
+    agentConfigId: hasAgentConfig ? agentConfigId : undefined,
+    callerConv,
+  });
+  const notFound = () =>
+    toolResult(
+      `Error: no sub-agent is tracked for ${targetLabel} in this conversation. It may have never ` +
+        `been invoked here, been started in a different conversation, or (for a background spawn) ` +
+        `been evicted after many later spawns. Invoke it fresh with invoke_agent if you still need the work.`,
+      { isError: true },
+    );
+  if (!target) return notFound();
+
+  const meta = {
+    subConversationId: target.subConversationId,
+    agentName: target.agentName,
+    agentConfigId: target.agentConfigId,
+    assignmentId: target.assignmentId,
+  };
+
+  // ── RUNNING child → steer via enqueue ────────────────────────────
+  if (!target.terminal) {
+    let res: QueueAgentMessageResult;
+    try {
+      res = await queueAgentMessageImpl(target.subConversationId, message);
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err);
+      return toolResult(
+        `Failed to queue message for "${target.agentName}": ${m}`,
+        { isError: true, details: { _agentMeta: meta } },
+      );
+    }
+    // Host fail-closed (sub-conversation not a child of the caller conv) →
+    // surface the same not-found as an unknown target.
+    if (!res.queued) return notFound();
+    return toolResult(
+      `Message queued for "${target.agentName}" — will be delivered when its current cycle completes.`,
+      { details: { _agentMeta: { ...meta, status: "queued" } } },
+    );
+  }
+
+  // ── TERMINAL child → continue on the reused sub-conversation ──────
+  const config = await agentConfigs.resolve(target.agentConfigId);
+  if (!config) {
+    return toolResult(`Error: Unknown agent "${target.agentConfigId}".`, {
+      isError: true,
+    });
+  }
+  const md = ctx?.invocationMetadata ?? {};
+  const spawnInput: SpawnAssignmentInput = {
+    task: message,
+    agentConfigId: target.agentConfigId,
+    reuseSubConversationFor: target.agentConfigId,
+    title: config.name,
+    // Continuation runs background-style: no blocking wait here, the caller
+    // collects later. Ask the host to notify the parent on terminal (same as
+    // invoke_agent background).
+    notifyParentOnTerminal: true,
+    ...(typeof md.parentMessageId === "string"
+      ? { parentMessageId: md.parentMessageId }
+      : {}),
+    ...(md.overrides && typeof md.overrides === "object"
+      ? { overrides: md.overrides as Record<string, unknown> }
+      : {}),
+    ...(md.teamToolScope && typeof md.teamToolScope === "object"
+      ? { teamToolScope: md.teamToolScope as { allowedTools?: string[]; deniedTools?: string[] } }
+      : {}),
+    ...(typeof md.orchestrationDepth === "number"
+      ? { orchestrationDepth: md.orchestrationDepth }
+      : {}),
+    ...(typeof md.parentRunId === "string" ? { parentRunId: md.parentRunId } : {}),
+  };
+  let handle: SpawnAssignmentHandle;
+  try {
+    handle = await spawn(spawnInput);
+  } catch (err) {
+    const m = err instanceof Error ? err.message : String(err);
+    return toolResult(`Agent "${config.name}" failed to continue: ${m}`, {
+      isError: true,
+    });
+  }
+  registerBackgroundSpawn(handle, config.name, target.agentConfigId, callerConv);
+  return toolResult(
+    `Agent "${config.name}" is continuing on its existing sub-conversation with full prior context ` +
+      `(new assignmentId: ${handle.assignmentId}, subConversation: ${handle.subConversationId}). It runs ` +
+      `in the background — get its result with collect_agent_result using the new assignmentId.`,
+    {
+      details: {
+        _agentMeta: {
+          subConversationId: handle.subConversationId,
+          agentName: config.name,
+          agentConfigId: target.agentConfigId,
+          assignmentId: handle.assignmentId,
+        },
+      },
+    },
+  );
+};
+
 export const tools: Record<string, ToolHandler> = {
   invoke_agent: invokeAgent,
   collect_agent_result: collectAgentResult,
+  send_to_agent: sendToAgent,
 };
 
 // Expose internals for tests that want to drive the subscription
@@ -883,10 +1132,12 @@ export const _internals = {
   backgroundSpawns,
   registerBackgroundSpawn,
   handleAssignmentUpdate,
+  resolveSendTarget,
   clampWaitSeconds,
   DEFAULT_AGENT_TIMEOUT_MS,
   MAX_BACKGROUND_SPAWNS,
   MAX_COLLECT_WAIT_SECONDS,
+  MAX_SEND_MESSAGE_CHARS,
 };
 
 // Production wiring — gated on `import.meta.main` so test imports don't

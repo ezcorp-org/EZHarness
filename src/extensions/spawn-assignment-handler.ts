@@ -55,6 +55,7 @@ import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { resolveAgentConfigForUser } from "./agent-configs-handler";
 import { startAssignment } from "../runtime/start-assignment";
+import { enqueue } from "../runtime/pending-messages";
 import type { TaskAssignment, TaskSnapshot, TrackedTask } from "../runtime/task-tracking-host";
 import { rpcError, rpcResult } from "./json-rpc";
 import { intersectPermissions } from "./capability-types";
@@ -585,6 +586,127 @@ export async function handleSpawnAssignmentRpc(
     const msg = err instanceof Error ? err.message : String(err);
     return rpcError(req.id, -32603, `Spawn failed: ${msg}`);
   }
+}
+
+// ── queue-agent-message handler (Phase B3) ──────────────────────────
+//
+// Handles `ezcorp/queue-agent-message` — the host side of the orchestration
+// extension's `send_to_agent` steering of a RUNNING child. Enqueues a message
+// onto the child's sub-conversation `pending-messages` queue; the child's
+// `run:complete` drain (start-assignment.ts) delivers it as the next turn.
+//
+// Reuses the `spawnAgents` trust envelope (steering a child you spawned is the
+// same boundary as spawning/cancelling it) and fails CLOSED on ownership: the
+// target sub-conversation MUST be a child of the CALLER's conversation, so one
+// conversation can neither steer nor probe another's sub-agents.
+
+/** Char cap on a steered message — mirrors the `send_to_agent` tool's 8000-char
+ *  bound so an oversized body is rejected at the host boundary too. */
+export const MAX_QUEUE_MESSAGE_CHARS = 8000;
+
+export interface QueueAgentMessageContext {
+  /** Parent conversation — always forced from `currentConversationId`. */
+  conversationId: string;
+  /** Acting user; `"unknown"` tolerated (no DB writes on this path). */
+  userId: string;
+  grantedPermissions: ExtensionPermissions;
+  /** Phase 6: PDP. Optional for back-compat with pre-PDP unit tests. */
+  engine?: PermissionEngine;
+}
+
+/** Injectable seams so unit tests can exercise the handler without a DB /
+ *  the in-memory pending-messages module. Production defaults are the real
+ *  query + enqueue. */
+export interface QueueAgentMessageDeps {
+  getSubConversations: typeof getSubConversations;
+  enqueue: typeof enqueue;
+}
+
+const defaultQueueDeps: QueueAgentMessageDeps = { getSubConversations, enqueue };
+
+export async function handleQueueAgentMessageRpc(
+  extensionId: string,
+  req: JsonRpcRequest,
+  ctx: QueueAgentMessageContext,
+  deps: QueueAgentMessageDeps = defaultQueueDeps,
+): Promise<JsonRpcResponse> {
+  const params = (req.params ?? {}) as Record<string, unknown>;
+  const auditUser = ctx.userId && ctx.userId !== "unknown" ? ctx.userId : null;
+
+  // 1. Kill-switch.
+  if (capabilityToolsDisabled()) {
+    return rpcError(req.id, -32001, "spawnAgents permission not granted");
+  }
+
+  // 2. Permission — reuse the spawnAgents PDP gate (same envelope as spawn /
+  //    cancel: an extension that can spawn a child can steer it).
+  if (ctx.engine) {
+    const decision = await ctx.engine.authorize(
+      {
+        extensionId,
+        userId: auditUser,
+        conversationId:
+          ctx.conversationId && ctx.conversationId !== "unknown"
+            ? ctx.conversationId
+            : null,
+        toolName: "ezcorp/queue-agent-message",
+      },
+      [{ kind: "ezcorp:agent:spawn" }],
+    );
+    if (decision.decision === "deny") {
+      return rpcError(req.id, -32001, "spawnAgents permission not granted");
+    }
+  }
+  // Quota validity (structural, rate-limit shape — mirrors spawn/cancel).
+  const granted = ctx.grantedPermissions.spawnAgents;
+  if (!granted || typeof granted.maxPerHour !== "number" || granted.maxPerHour <= 0) {
+    return rpcError(req.id, -32001, "spawnAgents quota config invalid");
+  }
+
+  // 3. Parent conversation bound.
+  if (!ctx.conversationId || ctx.conversationId === "unknown") {
+    return rpcError(req.id, -32602, "Conversation scope unavailable in this context");
+  }
+
+  // 4. Payload validation.
+  if (params.v !== 1) {
+    return rpcError(req.id, -32602, "Missing or invalid 'v' (expected 1)");
+  }
+  const subConversationId =
+    typeof params.subConversationId === "string" && params.subConversationId.trim()
+      ? params.subConversationId
+      : undefined;
+  if (!subConversationId) {
+    return rpcError(req.id, -32602, "'subConversationId' must be a non-empty string");
+  }
+  const message = typeof params.message === "string" ? params.message : "";
+  if (!message.trim()) {
+    return rpcError(req.id, -32602, "'message' must be a non-empty string");
+  }
+  if (message.length > MAX_QUEUE_MESSAGE_CHARS) {
+    return rpcError(
+      req.id,
+      -32602,
+      `'message' too long (${message.length} > ${MAX_QUEUE_MESSAGE_CHARS} chars)`,
+    );
+  }
+
+  // 5. Ownership — fail CLOSED. The target sub-conversation must be a direct
+  //    child of the caller's conversation. An unknown / foreign / already-gone
+  //    sub-conversation all return the SAME `not-found` so the caller can't
+  //    confirm another conversation's sub-agents exist.
+  const children = await deps.getSubConversations(ctx.conversationId);
+  if (!children.some((sc) => sc.id === subConversationId)) {
+    return rpcResult(req.id, { v: 1, queued: false, reason: "not-found" });
+  }
+
+  // 6. Enqueue — the child's run:complete drain delivers it as the next turn.
+  deps.enqueue(subConversationId, {
+    messageId: crypto.randomUUID(),
+    content: message,
+    createdAt: new Date().toISOString(),
+  });
+  return rpcResult(req.id, { v: 1, queued: true });
 }
 
 interface ChainSpawnAuditArgs {

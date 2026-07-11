@@ -72,6 +72,36 @@ const COLLECT_AGENT_RESULT_SCHEMA = {
   required: ["assignmentId"],
 } as const;
 
+// Static manifest schema for `send_to_agent` — Claude-Code SendMessage parity.
+// Steer a running child (enqueue a message onto its sub-conversation) or
+// continue a terminal one (a fresh run on the reused sub-conversation). No
+// per-turn runtime scoping — `agentConfigId` targets a PREVIOUSLY-invoked agent
+// (validated against the extension's own tracking maps + host ownership), so it
+// is used verbatim (unlike invoke_agent's per-turn enum override).
+const SEND_TO_AGENT_SCHEMA = {
+  type: "object",
+  properties: {
+    assignmentId: {
+      type: "string",
+      description:
+        "The assignmentId of a child started earlier this conversation (from an invoke_agent result / its _agentMeta). Targets that specific child. Provide EITHER this OR agentConfigId, not both.",
+    },
+    agentConfigId: {
+      type: "string",
+      description:
+        "The agentConfigId of an agent you already invoked this conversation. Targets that agent's (reused) sub-conversation so it continues with full prior context. Provide EITHER this OR assignmentId, not both.",
+    },
+    message: {
+      type: "string",
+      minLength: 1,
+      maxLength: 8000,
+      description:
+        "The message / follow-up instruction to deliver to the child agent (1–8000 chars).",
+    },
+  },
+  required: ["message"],
+} as const;
+
 export default defineExtension({
   schemaVersion: 2,
   name: "orchestration",
@@ -101,6 +131,12 @@ export default defineExtension({
       description:
         "Fetch (or wait for) the result of an agent started with invoke_agent's background: true. Pass the assignmentId from that call. Returns the agent's full result once it has finished (structured output included when a schema was set), or a non-error 'still running' status if it hasn't — optionally block up to waitSeconds. A collect timeout never cancels the agent; keep calling to keep waiting.",
       inputSchema: COLLECT_AGENT_RESULT_SCHEMA as Record<string, unknown>,
+    },
+    {
+      name: "send_to_agent",
+      description:
+        "Send a message to a sub-agent you already invoked this conversation. If the target is STILL RUNNING, the message is queued and delivered as its next turn (steering — course-correct an in-flight agent). If the target has already FINISHED, a fresh run is started on its same (reused) sub-conversation so it continues with full prior context, and you collect the new result later with collect_agent_result. Choose send_to_agent over a new invoke_agent when you want to continue/steer an EXISTING agent thread (keeping its context) rather than start a fresh one; choose collect_agent_result (not this) when you only want to READ a background agent's result without sending it anything. Target with exactly one of assignmentId or agentConfigId.",
+      inputSchema: SEND_TO_AGENT_SCHEMA as Record<string, unknown>,
     },
   ],
   permissions: {

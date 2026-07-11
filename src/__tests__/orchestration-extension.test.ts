@@ -17,6 +17,7 @@ import {
   _setSpawnForTests,
   _setDefaultTimeoutMsForTests,
   _setCancelRunForTests,
+  _setQueueAgentMessageForTests,
   _resetBindingsForTests,
   _internals,
 } from "../../docs/extensions/examples/orchestration/index";
@@ -111,6 +112,9 @@ let fakeAgents: FakeAgentConfigs;
 // safe fake is injected in beforeEach so timeout tests never fall through to
 // the real SDK `cancelRun` (which would block on an absent host channel).
 let cancelRunCalls: string[];
+// Records every send_to_agent steering enqueue routed through the mocked
+// queueAgentMessage SDK client. Reset per test.
+let queueCalls: Array<{ subConversationId: string; message: string }>;
 
 beforeEach(() => {
   fakeAgents = new FakeAgentConfigs([
@@ -125,6 +129,13 @@ beforeEach(() => {
   _setCancelRunForTests(async (agentRunId: string): Promise<CancelRunResult> => {
     cancelRunCalls.push(agentRunId);
     return { cancelled: true };
+  });
+  // Default queue-agent-message stub — records calls, reports queued. Tests that
+  // need a foreign/host-reject response override via _setQueueAgentMessageForTests.
+  queueCalls = [];
+  _setQueueAgentMessageForTests(async (subConversationId: string, message: string) => {
+    queueCalls.push({ subConversationId, message });
+    return { queued: true };
   });
   _internals.pendingInvocations.clear();
   _internals.backgroundSpawns.clear();
@@ -1309,6 +1320,130 @@ function collect(
       : { invocationMetadata: { conversationId } },
   );
 }
+
+// ── send_to_agent (Phase B3) ───────────────────────────────────────
+
+function send(
+  args: Record<string, unknown>,
+  conversationId: string | null = OWNER_CONV,
+) {
+  return tools.send_to_agent!(
+    args,
+    conversationId === null ? undefined : { invocationMetadata: { conversationId } },
+  );
+}
+
+/** Drive a background spawn to a terminal state via the subscription handler. */
+async function driveTerminal(assignmentId: string, resultFull = "done"): Promise<void> {
+  await _internals.handleAssignmentUpdate({
+    conversationId: "conv-x",
+    taskId: `task-${assignmentId}`,
+    assignment: { id: assignmentId, status: "completed", resultPreview: resultFull },
+    resultFull,
+  });
+}
+
+describe("send_to_agent", () => {
+  test("neither assignmentId nor agentConfigId → error, exactly-one required", async () => {
+    const out = await send({ message: "hi" });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("EXACTLY ONE");
+  });
+
+  test("both assignmentId and agentConfigId → error", async () => {
+    const out = await send({ assignmentId: "a", agentConfigId: "b", message: "hi" });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("EXACTLY ONE");
+  });
+
+  test("empty message → error", async () => {
+    const out = await send({ assignmentId: "a", message: "  " });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out).toLowerCase()).toContain("non-empty 'message'");
+  });
+
+  test("message over 8000 chars → error", async () => {
+    const out = await send({ assignmentId: "a", message: "x".repeat(8001) });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("too long");
+  });
+
+  test("running background child → message queued for steering (via mocked RPC)", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    const id = await startBackground(); // owned by OWNER_CONV, not terminal
+
+    const out = await send({ assignmentId: id, message: "also check the logs" });
+    expect(expectIsError(out)).toBe(false);
+    expect(expectText(out)).toContain("queued for");
+    expect(expectText(out)).toContain("will be delivered when its current cycle completes");
+    // The mocked RPC was called with the child's sub-conversation + message.
+    expect(queueCalls).toHaveLength(1);
+    expect(queueCalls[0]!.subConversationId).toBe("sub-asn-1");
+    expect(queueCalls[0]!.message).toBe("also check the logs");
+  });
+
+  test("terminal background child → new run redispatched on the reused sub-conversation", async () => {
+    const { fn, calls } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+    const id = await startBackground(); // asn-1
+    await driveTerminal(id);
+    expect(_internals.backgroundSpawns.get(id)!.terminal).toBe(true);
+
+    const out = await send({ assignmentId: id, message: "keep going" });
+    expect(expectIsError(out)).toBe(false);
+    expect(expectText(out)).toContain("continuing on its existing sub-conversation");
+    // A second spawn was issued, reusing the sub-conversation for the agent.
+    const continueCall = calls[calls.length - 1]!.input;
+    expect(continueCall.task).toBe("keep going");
+    expect(continueCall.reuseSubConversationFor).toBe("agent-builder");
+    expect(continueCall.notifyParentOnTerminal).toBe(true);
+    // The new background spawn is tracked (asn-2), owned by the caller.
+    const meta = expectAgentMetaBg(out);
+    expect(meta.assignmentId).toBe("asn-2");
+    expect(_internals.backgroundSpawns.get("asn-2")!.ownerConversationId).toBe(OWNER_CONV);
+  });
+
+  test("cross-conversation target → fail-closed not-found (no steer, no spawn)", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    const id = await startBackground(); // owned by OWNER_CONV
+
+    const out = await send({ assignmentId: id, message: "hi" }, "conv-intruder");
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("no sub-agent is tracked");
+    expect(queueCalls).toHaveLength(0);
+  });
+
+  test("missing caller conversation id → fail-closed not-found", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    const id = await startBackground();
+    const out = await send({ assignmentId: id, message: "hi" }, null);
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("no sub-agent is tracked");
+  });
+
+  test("agentConfigId target (terminal) → continues the reused sub-conversation", async () => {
+    const { fn, calls } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+    const id = await startBackground(); // agentConfigId agent-builder
+    await driveTerminal(id);
+
+    const out = await send({ agentConfigId: "agent-builder", message: "round two" });
+    expect(expectIsError(out)).toBe(false);
+    const continueCall = calls[calls.length - 1]!.input;
+    expect(continueCall.reuseSubConversationFor).toBe("agent-builder");
+    expect(continueCall.task).toBe("round two");
+  });
+
+  test("host rejects steer as not-found (foreign sub-conv) → surfaced as not-found", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    _setQueueAgentMessageForTests(async () => ({ queued: false, reason: "not-found" }));
+    const id = await startBackground(); // still running
+
+    const out = await send({ assignmentId: id, message: "hi" });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("no sub-agent is tracked");
+  });
+});
 
 describe("collect_agent_result", () => {
   test("terminal already reached → returns the full result immediately (resultFull-preferred), success", async () => {
