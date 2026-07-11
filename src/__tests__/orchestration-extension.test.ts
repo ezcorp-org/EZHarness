@@ -1548,6 +1548,83 @@ describe("send_to_agent", () => {
     expect(continueCall).not.toHaveProperty("orchestrationDepth");
     expect(_internals.backgroundSpawns.get("asn-2")!.spawnScope).toBeUndefined();
   });
+
+  test("steer path: queueAgentMessage throws → surfaced as a queue-failure error (not not-found)", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    _setQueueAgentMessageForTests(async () => {
+      throw new Error("channel down");
+    });
+    const id = await startBackground(); // still running
+
+    const out = await send({ assignmentId: id, message: "hi" });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("Failed to queue message");
+    expect(expectText(out)).toContain("channel down");
+  });
+
+  test("continuation of a terminal child whose agent config no longer resolves → Unknown agent error", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    // Synthesize a terminal background entry for an agent that FakeAgentConfigs
+    // does not know (deleted since spawn).
+    _internals.backgroundSpawns.set("bg-gone", {
+      agentName: "ghost",
+      agentConfigId: "agent-gone",
+      subConversationId: "sub-gone",
+      agentRunId: "run-gone",
+      ownerConversationId: OWNER_CONV,
+      terminal: true,
+      collected: false,
+      waiters: new Set(),
+      result: { result: "done", success: true },
+    } as unknown as Parameters<typeof _internals.backgroundSpawns.set>[1]);
+
+    const out = await send({ assignmentId: "bg-gone", message: "again" });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain(`Unknown agent "agent-gone"`);
+  });
+
+  test("continuation spawn failure → 'failed to continue' error", async () => {
+    const { fn } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+    const id = await startBackground(); // asn-1
+    await driveTerminal(id);
+    // Now make the continuation spawn throw.
+    _setSpawnForTests(makeFakeSpawn({ mode: "throw-dispatch", throwMessage: "spawn boom" }).fn);
+
+    const out = await send({ assignmentId: id, message: "keep going" });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("failed to continue");
+    expect(expectText(out)).toContain("spawn boom");
+  });
+
+  test("steer a still-pending SYNC invocation BY assignmentId → queued (resolveSendTarget pending-by-id branch)", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    // A blocking sync invoke_agent leaves a PendingInvocation keyed by its
+    // assignmentId; steering it by that id resolves the pending-by-id branch
+    // (distinct from the agentConfigId-loop branch).
+    _internals.pendingInvocations.set("sync-steer", {
+      resolve: () => {},
+      reject: () => {},
+      timeoutHandle: setTimeout(() => {}, 100_000),
+      timeoutMs: 100_000,
+      fireTimeout: () => {},
+      agentName: "builder",
+      agentConfigId: "agent-builder",
+      subConversationId: "sub-sync-steer",
+      agentRunId: "run-sync-steer",
+      ownerConversationId: OWNER_CONV,
+      spawnScope: { teamToolScope: { allowedTools: ["read"] } },
+    } as unknown as Parameters<typeof _internals.pendingInvocations.set>[1]);
+
+    const out = await send({ assignmentId: "sync-steer", message: "narrow the search" });
+    expect(expectIsError(out)).toBe(false);
+    expect(expectText(out)).toContain("queued for");
+    expect(queueCalls).toHaveLength(1);
+    expect(queueCalls[0]!.subConversationId).toBe("sub-sync-steer");
+
+    clearTimeout(_internals.pendingInvocations.get("sync-steer")?.timeoutHandle);
+    _internals.pendingInvocations.delete("sync-steer");
+  });
 });
 
 describe("collect_agent_result", () => {

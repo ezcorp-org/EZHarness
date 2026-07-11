@@ -322,6 +322,49 @@ const COLLECT_SCHEMA = {
   required: ["assignmentId"],
 };
 
+const SEND_SCHEMA = {
+  type: "object",
+  properties: {
+    assignmentId: { type: "string", description: "id" },
+    agentConfigId: { type: "string", description: "id" },
+    message: { type: "string", description: "msg" },
+  },
+  required: ["message"],
+};
+
+/** Registry exposing invoke_agent + collect_agent_result + send_to_agent, so
+ *  the Phase B3 send_to_agent wiring block can be asserted. */
+function makeFakeRegistryWithSend() {
+  return {
+    getToolsForExtension: (_extId: string) => [
+      {
+        name: "orchestration__invoke_agent",
+        originalName: "invoke_agent",
+        description: "Invoke a specialized agent.",
+        inputSchema: structuredClone(BASE_SCHEMA),
+        extensionId: ORCH_EXT_ID,
+        extensionName: "orchestration",
+      },
+      {
+        name: "orchestration__collect_agent_result",
+        originalName: "collect_agent_result",
+        description: "Collect a background agent result.",
+        inputSchema: structuredClone(COLLECT_SCHEMA),
+        extensionId: ORCH_EXT_ID,
+        extensionName: "orchestration",
+      },
+      {
+        name: "orchestration__send_to_agent",
+        originalName: "send_to_agent",
+        description: "Steer or continue a sub-agent.",
+        inputSchema: structuredClone(SEND_SCHEMA),
+        extensionId: ORCH_EXT_ID,
+        extensionName: "orchestration",
+      },
+    ],
+  };
+}
+
 // Registry variant that exposes BOTH orchestration tools (production shape),
 // so the Phase B2 collect_agent_result wiring can be asserted. The default
 // `makeFakeRegistry` intentionally exposes only invoke_agent (collect absent
@@ -596,6 +639,72 @@ describe("wireOrchestrationToolsForTurn", () => {
     ).toHaveLength(1);
     // And no collect wrap was produced by this call.
     expect(captured.some((c) => c.extTool.name === "collect_agent_result")).toBe(false);
+  });
+
+  test("Phase B3: wires send_to_agent (always) carrying conversationId + run-linkage + continuation scope metadata", async () => {
+    const params = baseParams({
+      registry: makeFakeRegistryWithSend() as never,
+      parentMessageId: "msg-parent",
+      memberOverrides: { a1: { model: "gpt-4o" } } as Record<string, unknown>,
+      teamToolScope: { allowedTools: ["read_file"], deniedTools: ["bash"] },
+      depth: 4,
+    });
+    await wireOrchestrationToolsForTurn(params);
+
+    expect(params.agentTools.map((t) => t.name)).toContain("send_to_agent");
+    const sendCall = captured.find((c) => c.extTool.name === "send_to_agent");
+    expect(sendCall).toBeDefined();
+    // Bare LLM-visible name, namespaced dispatch key.
+    expect(sendCall!.extTool.dispatchName).toBe("orchestration__send_to_agent");
+    // No per-turn agent enum (unlike invoke_agent).
+    expect(sendCall!.schemaOverride).toBeUndefined();
+    // Metadata: owner conversationId + run-linkage + the recorded-scope inputs
+    // (overrides / teamToolScope / orchestrationDepth) for the continuation path.
+    expect(sendCall!.invocationMetadata).toEqual({
+      conversationId: "conv-wire-3",
+      parentRunId: "run-123",
+      orchestrationDepth: 4,
+      parentMessageId: "msg-parent",
+      overrides: { a1: { model: "gpt-4o" } },
+      teamToolScope: { allowedTools: ["read_file"], deniedTools: ["bash"] },
+    });
+  });
+
+  test("Phase B3: send_to_agent is wired on a no-@mention follow-up turn (before the enum-gate) with only always-set metadata", async () => {
+    const params = baseParams({
+      availableAgents: [],
+      registry: makeFakeRegistryWithSend() as never,
+      depth: 2,
+    });
+    await wireOrchestrationToolsForTurn(params);
+
+    // invoke_agent is enum-gated off; collect + send survive.
+    const names = params.agentTools.map((t) => t.name);
+    expect(names).toContain("send_to_agent");
+    expect(names).not.toContain("invoke_agent");
+    const sendCall = captured.find((c) => c.extTool.name === "send_to_agent");
+    // Only the always-set fields (no parentMessageId / overrides / teamToolScope).
+    expect(sendCall!.invocationMetadata).toEqual({
+      conversationId: "conv-wire-3",
+      parentRunId: "run-123",
+      orchestrationDepth: 2,
+    });
+  });
+
+  test("Phase B3: send_to_agent is dedup-safe when already present (general-path wiring)", async () => {
+    const params = baseParams({ registry: makeFakeRegistryWithSend() as never });
+    params.agentTools.push({
+      name: "send_to_agent",
+      label: "send_to_agent",
+      description: "pre-existing",
+      parameters: {} as never,
+      execute: async () => ({ content: [] }),
+    } as unknown as AgentTool);
+
+    await wireOrchestrationToolsForTurn(params);
+
+    expect(params.agentTools.filter((t) => t.name === "send_to_agent")).toHaveLength(1);
+    expect(captured.some((c) => c.extTool.name === "send_to_agent")).toBe(false);
   });
 
   test("registry missing invoke_agent tool → no append, warn logged", async () => {
