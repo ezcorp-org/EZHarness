@@ -178,7 +178,7 @@ const opts = { reserveTokens: 1_024 };
 describe("makeSummarizer", () => {
   test("summarizes via generateSummary, memoizes, and uses the turn model by default", async () => {
     completeImpl = async () => okAssistant("MEMO SUMMARY");
-    const fn = makeSummarizer(turnModel, "conv-A");
+    const fn = makeSummarizer(turnModel, "conv-A", "conv-A");
 
     const first = await fn(summarizeInput, opts);
     expect(first).toBe("MEMO SUMMARY");
@@ -199,7 +199,7 @@ describe("makeSummarizer", () => {
     resolveModelImpl = async () => ({ provider: "anthropic", piModel: { id: "claude-x", provider: "anthropic", maxTokens: 4_000 } });
     completeImpl = async () => okAssistant("PICKED SUMMARY");
 
-    const fn = makeSummarizer(turnModel, "conv-B");
+    const fn = makeSummarizer(turnModel, "conv-B", "conv-B");
     const out = await fn(summarizeInput, opts);
 
     expect(out).toBe("PICKED SUMMARY");
@@ -214,7 +214,7 @@ describe("makeSummarizer", () => {
     };
     completeImpl = async () => okAssistant("FALLBACK SUMMARY");
 
-    const fn = makeSummarizer(turnModel, "conv-C");
+    const fn = makeSummarizer(turnModel, "conv-C", "conv-C");
     const out = await fn(summarizeInput, opts);
 
     expect(out).toBe("FALLBACK SUMMARY");
@@ -226,7 +226,7 @@ describe("makeSummarizer", () => {
   test("ignores a malformed summarizeModel (no '/') and uses the turn model", async () => {
     settingValue = "no-slash-here";
     completeImpl = async () => okAssistant("TURN SUMMARY");
-    const fn = makeSummarizer(turnModel, "conv-D");
+    const fn = makeSummarizer(turnModel, "conv-D", "conv-D");
     const out = await fn(summarizeInput, opts);
     expect(out).toBe("TURN SUMMARY");
     expect(resolveModelArgs).toEqual([]);
@@ -235,7 +235,7 @@ describe("makeSummarizer", () => {
 
   test("generateSummary error result → null (strategy will fall open to trim)", async () => {
     completeImpl = async () => errAssistant();
-    const fn = makeSummarizer(turnModel, "conv-E");
+    const fn = makeSummarizer(turnModel, "conv-E", "conv-E");
     expect(await fn(summarizeInput, opts)).toBeNull();
   });
 
@@ -243,26 +243,36 @@ describe("makeSummarizer", () => {
     completeImpl = async () => {
       throw new Error("provider down");
     };
-    const fn = makeSummarizer(turnModel, "conv-F");
+    const fn = makeSummarizer(turnModel, "conv-F", "conv-F");
     expect(await fn(summarizeInput, opts)).toBeNull();
   });
 
   test("an empty/whitespace summary → null", async () => {
     completeImpl = async () => okAssistant("   \n  ");
-    const fn = makeSummarizer(turnModel, "conv-G");
+    const fn = makeSummarizer(turnModel, "conv-G", "conv-G");
     expect(await fn(summarizeInput, opts)).toBeNull();
+  });
+
+  test("different conversation ids with an identical cut point do NOT share memo entries", async () => {
+    // convX summarizes and caches under its own key.
+    completeImpl = async () => okAssistant("FROM-X");
+    expect(await makeSummarizer(turnModel, "convX", "credX")(summarizeInput, opts)).toBe("FROM-X");
+    // convY has the SAME fingerprint but a different TRUE conversation id, so
+    // it must MISS convX's entry and compute its own (never read "FROM-X").
+    completeImpl = async () => okAssistant("FROM-Y");
+    expect(await makeSummarizer(turnModel, "convY", "credY")(summarizeInput, opts)).toBe("FROM-Y");
   });
 
   test("the memo is bounded: the oldest entry is evicted past the cap", async () => {
     // Fill well past the 256-entry cap with distinct conversation keys.
     for (let i = 0; i < 260; i++) {
       completeImpl = async () => okAssistant(`S${i}`);
-      await makeSummarizer(turnModel, `evict-${i}`)(summarizeInput, opts);
+      await makeSummarizer(turnModel, `evict-${i}`, `evict-${i}`)(summarizeInput, opts);
     }
     // conv `evict-0` was inserted first, so it has been evicted: re-requesting
     // it MISSES the memo and re-summarizes (returns the fresh value).
     completeImpl = async () => okAssistant("REFRESHED");
-    const out = await makeSummarizer(turnModel, "evict-0")(summarizeInput, opts);
+    const out = await makeSummarizer(turnModel, "evict-0", "evict-0")(summarizeInput, opts);
     expect(out).toBe("REFRESHED");
   });
 });

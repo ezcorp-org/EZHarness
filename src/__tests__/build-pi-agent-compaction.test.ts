@@ -38,7 +38,7 @@ function build(piModel: any, compaction: any) {
     resolved: { provider: "openai", model: piModel.id, piModel },
     initialCred: { type: "api-key", token: "k" },
   } as any;
-  return buildPiAgent(ctx, [], { compaction } as any, resolvedModel, "conv-1");
+  return buildPiAgent(ctx, [], { compaction } as any, resolvedModel, "conv-1", "conv-1");
 }
 
 /** Build with an explicit memory tail (the system-block cache split path). */
@@ -48,7 +48,7 @@ function buildWithTail(piModel: any, systemMemoryTail: string | undefined) {
     resolved: { provider: piModel.provider ?? "openai", model: piModel.id, piModel },
     initialCred: { type: "api-key", token: "k" },
   } as any;
-  return buildPiAgent(ctx, [], {} as any, resolvedModel, "conv-1");
+  return buildPiAgent(ctx, [], {} as any, resolvedModel, "conv-1", "conv-1");
 }
 
 const anthropicModel = () => ({

@@ -430,6 +430,25 @@ describe("makeCompactionTransform", () => {
     expect(out).toEqual([sentinel]);
   });
 
+  test("fail-open net: a throwing strategy returns the input history unchanged", async () => {
+    registerCompactionStrategy({
+      name: "xform-throws",
+      async compact() {
+        throw new Error("strategy boom");
+      },
+    });
+    const transform = makeCompactionTransform(fakeModel(10, 0), {
+      strategy: "xform-throws",
+      safetyFraction: 0,
+      responseReserveFloor: 0,
+      responseReserveCap: 0,
+    });
+    const msgs = [userMsg("a".repeat(10_000))];
+    // Over budget → compact() runs → throws → net returns the input verbatim
+    // (never throws through transformContext, never fails the turn).
+    expect(await transform(msgs)).toBe(msgs);
+  });
+
   test("strategy 'none' leaves an over-budget history unchanged", async () => {
     const transform = makeCompactionTransform(fakeModel(10, 0), {
       strategy: "none",

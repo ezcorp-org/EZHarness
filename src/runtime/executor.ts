@@ -824,7 +824,7 @@ export class AgentExecutor {
         credentialScope: convRecord?.userId ?? undefined,
         initial: initialAttempt,
         buildAgent: (resolved) =>
-          buildPiAgent(ctx, history, { ...options, compaction, cacheRetention }, resolved, credentialConversationId),
+          buildPiAgent(ctx, history, { ...options, compaction, cacheRetention }, resolved, credentialConversationId, conversationId),
         // Bridge pi-agent-core events into the local EventBus + persist tool
         // calls / per-turn assistant messages. EVERY attempt (initial AND
         // fallback) passes the attempt's own provider/model — the SERVED

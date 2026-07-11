@@ -168,7 +168,7 @@ registerCompactionStrategy(new SummarizeStrategy());
  */
 async function resolveSummarizerModel(
   turnModel: Model,
-  conversationId: string,
+  credentialConversationId: string,
 ): Promise<{ model: Model; apiKey: string }> {
   const { getSetting } = await import("../../db/queries/settings");
   const { getCredential } = await import("../../providers/credentials");
@@ -180,13 +180,13 @@ async function resolveSummarizerModel(
     try {
       const { resolveModel } = await import("../../providers/router");
       const r = await resolveModel(provider, modelId);
-      const cred = await getCredential(r.provider, conversationId);
+      const cred = await getCredential(r.provider, credentialConversationId);
       return { model: r.piModel, apiKey: cred.token };
     } catch (err) {
       log.warn("summarizeModel resolve failed; using the turn model", { pick, error: String(err) });
     }
   }
-  const cred = await getCredential(turnModel.provider, conversationId);
+  const cred = await getCredential(turnModel.provider, credentialConversationId);
   return { model: turnModel, apiKey: cred.token };
 }
 
@@ -201,13 +201,22 @@ async function resolveSummarizerModel(
  * the single-method shim is sufficient. Summaries run with thinking off
  * (cheap, deterministic-ish) and are memoized per conversation + cut point.
  */
-export function makeSummarizer(turnModel: Model, conversationId: string): SummarizeFn {
+export function makeSummarizer(
+  turnModel: Model,
+  conversationId: string,
+  credentialConversationId: string,
+): SummarizeFn {
   return async (messages, opts) => {
-    const key = `${conversationId} ${fingerprint(messages)}`;
-    const cached = SUMMARY_MEMO.get(key);
-    if (cached !== undefined) return cached;
     try {
-      const { model, apiKey } = await resolveSummarizerModel(turnModel, conversationId);
+      // Key: TRUE conversation + turn model + exact cut point. Keying on the
+      // real conversationId (not credentialConversationId, which a sub-agent
+      // inherits from its parent) keeps sibling sub-conversations from reading
+      // each other's summaries. fingerprint + the memo read sit INSIDE the try
+      // so even a hashing bug fails open to trim instead of throwing.
+      const key = `${conversationId} ${turnModel.id} ${fingerprint(messages)}`;
+      const cached = SUMMARY_MEMO.get(key);
+      if (cached !== undefined) return cached;
+      const { model, apiKey } = await resolveSummarizerModel(turnModel, credentialConversationId);
       const { generateSummary } = await import("@earendil-works/pi-agent-core");
       const { complete } = await import("@earendil-works/pi-ai/compat");
       const models = {

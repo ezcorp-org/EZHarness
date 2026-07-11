@@ -518,7 +518,22 @@ export function makeCompactionTransform(
       splitTurnBlocks,
       summarize: deps?.summarize,
     };
-    const res = await strategy.compact(messages, ctx, signal);
+    // Last-resort fail-open net: a compaction strategy must NEVER fail the
+    // user's turn. `trim`/`none` can't throw today and `summarize` catches
+    // internally, so this only fires on a future custom-strategy bug — pass
+    // the history through unchanged (pi-ai's `isContextOverflow` backstop
+    // still surfaces a precise overflow rather than an opaque failure).
+    let res: CompactionResult;
+    try {
+      res = await strategy.compact(messages, ctx, signal);
+    } catch (err) {
+      logger.warn("compaction strategy threw; passing history through unchanged", {
+        strategy: cfg.strategy,
+        model: model.id,
+        error: String(err),
+      });
+      return messages;
+    }
 
     logger.warn("context compaction applied", {
       strategy: res.strategy,

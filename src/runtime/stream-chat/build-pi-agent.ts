@@ -49,6 +49,10 @@ export function buildPiAgent(
   options: BuildPiAgentOptions,
   resolvedModel: SetupToolsResult,
   credentialConversationId: string,
+  // The TRUE conversation id (a sub-agent's `credentialConversationId` is its
+  // parent's). Used to namespace the summarizer's memo so sibling
+  // sub-conversations don't read each other's summaries.
+  conversationId: string,
 ): Agent {
   const { resolved, initialCred } = resolvedModel;
 
@@ -125,7 +129,7 @@ export function buildPiAgent(
     // this turn's model + credential; it is only invoked when the
     // `summarize` strategy is selected (a no-op closure otherwise).
     transformContext: makeCompactionTransform(model, options.compaction, {
-      summarize: makeSummarizer(model, credentialConversationId),
+      summarize: makeSummarizer(model, conversationId, credentialConversationId),
     }),
     convertToLlm: (messages) => {
       return messages.filter((m) =>

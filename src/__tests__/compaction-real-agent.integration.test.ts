@@ -147,7 +147,7 @@ function buildRealAgent(piModel: any, history: any[], agentTools: any[] = []) {
     resolved: { provider: MOCK_PROVIDER, model: piModel.id, piModel },
     initialCred: { type: "apikey", token: "no-key-needed" },
   } as any;
-  return buildPiAgent(ctx, history, { compaction: COMPACTION, thinkingLevel: "off" } as any, resolvedModel, "conv-real");
+  return buildPiAgent(ctx, history, { compaction: COMPACTION, thinkingLevel: "off" } as any, resolvedModel, "conv-real", "conv-real");
 }
 
 /**
