@@ -1104,6 +1104,38 @@ describe("orchestration extension — structured output", () => {
     expect(expectIsError(out)).toBe(false);
     expect(expectText(out)).toBe(JSON.stringify({ grade: 10 }, null, 2));
   });
+
+  test("oversized pretty form → returns COMPACT JSON (no whitespace inflation past the cap)", async () => {
+    const { fn } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+
+    const invocation = tools.invoke_agent!({
+      agentConfigId: "agent-builder",
+      task: "big",
+      outputSchema: SCHEMA,
+    });
+    const key = await drainPendingKey();
+
+    // Compact ≤ 30KB but pretty (2-space indent) > 30KB — the host attached
+    // it because compact fits; the ext must NOT inflate it past the cap.
+    const big = { items: Array.from({ length: 6000 }, () => "x") };
+    const compact = JSON.stringify(big);
+    const pretty = JSON.stringify(big, null, 2);
+    expect(compact.length).toBeLessThanOrEqual(30_000);
+    expect(pretty.length).toBeGreaterThan(30_000);
+
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: `task-${key}`,
+      assignment: { id: key, status: "completed", resultPreview: "raw" },
+      structuredResult: big,
+    });
+
+    const out = await invocation;
+    expect(expectIsError(out)).toBe(false);
+    expect(expectText(out)).toBe(compact); // compact form, not pretty
+    expect(expectText(out).length).toBeLessThanOrEqual(30_000);
+  });
 });
 
 // ── invoke_agent — background spawn (Phase B2) ─────────────────────

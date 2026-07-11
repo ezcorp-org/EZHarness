@@ -282,9 +282,16 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
   const maxAutoCycles =
     autonomousContinuation?.maxCycles ?? DEFAULT_MAX_AUTONOMOUS_CYCLES;
   let autoCycle = 0;
-  // Structured-output re-prompt counter (Phase B1). Independent of the
+  // Structured-output re-prompt state (Phase B1). Independent of the
   // autonomy kill-switch: schema validation is its own feature.
   let schemaRetries = 0;
+  // Set while a schema-correction cycle is in flight. A correction run's
+  // response carries no `<<TASK_DONE>>` sentinel, so without this flag the
+  // autonomous branch (2) would treat it as "still working" and fire a
+  // CONTINUATION — swallowing the corrected JSON and sending a conflicting
+  // prompt. While set, branch (2) is skipped and the correction run's
+  // completion goes straight to schema validation, which clears the flag.
+  let schemaRepromptInFlight = false;
 
   // Reuse an existing sub-conversation for this agent, or create one.
   // If the caller pre-resolved a reuse id, honor it verbatim and skip the
@@ -556,8 +563,11 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       // a stopped/cancelled run never re-loops. The objective is
       // re-pinned each cycle via resolveSystem(), so CONTINUATION_PROMPT
       // stays terse.
+      // `!schemaRepromptInFlight` gates out the corrected-JSON run: it has
+      // no sentinel, so branch (2) would otherwise re-absorb it as a
+      // continuation and discard the correction (see schemaRepromptInFlight).
       let autonomousNote: string | undefined;
-      if (autonomousEnabled && assignment.status === "running") {
+      if (autonomousEnabled && assignment.status === "running" && !schemaRepromptInFlight) {
         const signal = detectDoneSignal(
           extractFullText(data.run.result?.output),
         );
@@ -607,13 +617,29 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       let structuredResult: unknown | undefined;
       let structuredResultError: string | undefined;
       if (outputSchema && assignment.status === "running") {
+        // This completion consumed any in-flight correction — clear the
+        // gate before deciding the next step (a fresh correction re-arms it).
+        schemaRepromptInFlight = false;
         const finalText = stripSignals(extractFullText(data.run.result?.output));
         const outcome = validateStructuredOutput(outputSchema, finalText);
         if (outcome.ok) {
-          structuredResult = outcome.value;
+          // Cap parity with resultFull: the parsed object rides the bus and
+          // is echoed to the orchestrator, so bound it by the same 30KB cap.
+          // Over-cap validated output is NOT attached; the (capped)
+          // resultFull carries the salvage instead.
+          if (JSON.stringify(outcome.value).length > ASSIGNMENT_RESULT_FULL_CAP) {
+            structuredResultError =
+              "validated successfully but result exceeds the 30KB structured cap; raw output follows";
+          } else {
+            structuredResult = outcome.value;
+          }
         } else if (schemaRetries < MAX_SCHEMA_RETRIES) {
           schemaRetries++;
-          const correction = buildSchemaCorrection(outputSchema, outcome.summary);
+          // Re-arm the gate so branch (2) skips the sentinel-less correction run.
+          schemaRepromptInFlight = true;
+          const correction = buildSchemaCorrection(outputSchema, outcome.summary, {
+            autonomous: autonomousEnabled,
+          });
           const newRunId = crypto.randomUUID();
           assignment.agentRunId = newRunId;
           emitTaskSnapshot(bus, snapshot);

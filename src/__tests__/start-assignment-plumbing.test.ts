@@ -1535,6 +1535,78 @@ describe("startAssignment — structured output", () => {
     expect(terminal.structuredResult).toEqual({ answer: "final" });
     expect(assignment.status).toBe("completed");
   });
+
+  // Regression (HIGH): the autonomous branch must NOT swallow a schema
+  // correction run. A correction run has no <<TASK_DONE>> sentinel, so
+  // without the in-flight gate the autonomous branch would fire a
+  // CONTINUATION and discard the corrected JSON.
+  test("autonomous child: DONE + invalid JSON → ONE correction cycle; sentinel-less corrected JSON accepted (branch 2 does not swallow it)", async () => {
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: StructuredUpdate[] = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-swallow",
+      autonomousContinuation: { maxCycles: 5 },
+      outputSchema: SCHEMA,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Cycle 1: DONE sentinel (autonomous stops) BUT invalid JSON → the schema
+    // path fires exactly ONE correction cycle (not a continuation).
+    emitComplete(bus, agentRunId, '<<TASK_DONE>>\n{"wrong":"shape"}');
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.userMessage).toContain("did not satisfy the required output schema");
+    expect(calls[1]!.userMessage).not.toMatch(/Continue working toward the Pinned Objective/);
+    // Autonomous-aware correction: tells the child NOT to emit a sentinel.
+    expect(calls[1]!.userMessage).toContain("Do NOT emit a completion sentinel");
+
+    // Correction run: SENTINEL-LESS valid JSON. Without the in-flight gate,
+    // branch (2) would treat the missing sentinel as "still working" and fire
+    // a continuation, discarding this corrected output.
+    emitComplete(bus, assignment.agentRunId!, '{"answer":"fixed"}');
+    expect(calls).toHaveLength(2); // accepted — NO continuation dispatched
+    const terminal = updates.at(-1)!;
+    expect(terminal.structuredResult).toEqual({ answer: "fixed" });
+    expect(terminal.structuredResultError).toBeUndefined();
+    expect(assignment.status).toBe("completed");
+    // Autonomous continuation never happened (no cycle metadata).
+    expect(assignment.autonomousCycle).toBeUndefined();
+  });
+
+  // MED: structuredResult must respect the 30KB cap (parity with resultFull).
+  test("oversized validated result (compact > 30KB) → structuredResultError, no structuredResult; resultFull salvage present", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: StructuredUpdate[] = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    // Permissive schema so the huge object validates; its compact JSON is
+    // over the cap.
+    const permissive = { type: "object" } as Record<string, unknown>;
+    const huge = JSON.stringify({ data: "z".repeat(ASSIGNMENT_RESULT_FULL_CAP + 1000) });
+    expect(huge.length).toBeGreaterThan(ASSIGNMENT_RESULT_FULL_CAP);
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-cap",
+      outputSchema: permissive,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    emitComplete(bus, agentRunId, huge);
+
+    const terminal = updates.at(-1)!;
+    expect(terminal.structuredResult).toBeUndefined();
+    expect(terminal.structuredResultError).toContain("exceeds the 30KB structured cap");
+    // The capped raw output still rides resultFull for salvage.
+    expect(typeof terminal.resultFull).toBe("string");
+    expect(assignment.status).toBe("completed");
+  });
 });
 
 // ── 12. agent:complete emission on every terminal (Phase B2) ───────

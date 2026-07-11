@@ -87,11 +87,17 @@ export function extractJsonCandidate(
   // Whole text (raw-JSON case).
   candidates.push(trimmed);
 
-  // Widest brace-delimited substring (JSON embedded in prose).
+  // Widest brace-delimited substring (a JSON object embedded in prose).
   const firstBrace = trimmed.indexOf("{");
   const lastBrace = trimmed.lastIndexOf("}");
   if (firstBrace !== -1 && lastBrace > firstBrace) {
     candidates.push(trimmed.slice(firstBrace, lastBrace + 1));
+  }
+  // Widest bracket-delimited substring (a top-level JSON array in prose).
+  const firstBracket = trimmed.indexOf("[");
+  const lastBracket = trimmed.lastIndexOf("]");
+  if (firstBracket !== -1 && lastBracket > firstBracket) {
+    candidates.push(trimmed.slice(firstBracket, lastBracket + 1));
   }
 
   for (const candidate of candidates) {
@@ -126,12 +132,26 @@ function pushTypeIssue(
   issues.push({ path, message: `expected ${expected}, got ${typeOfRich(value)}` });
 }
 
+/** Recursively sort object keys so structural equality is
+ *  key-order-insensitive (`{a,b}` === `{b,a}`). Arrays keep their order. */
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (isPlainObject(value)) {
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(value).sort()) {
+      out[key] = sortKeysDeep(value[key]);
+    }
+    return out;
+  }
+  return value;
+}
+
 /** Structural equality for enum membership (primitive `===`, else a
- *  canonical-JSON comparison). Both sides are JSON values, so
- *  `JSON.stringify` never throws. */
+ *  key-order-insensitive canonical-JSON comparison). Both sides are JSON
+ *  values, so `JSON.stringify` never throws. */
 function sameJsonValue(a: unknown, b: unknown): boolean {
   if (a === b) return true;
-  return JSON.stringify(a) === JSON.stringify(b);
+  return JSON.stringify(sortKeysDeep(a)) === JSON.stringify(sortKeysDeep(b));
 }
 
 function joinKey(parent: string, key: string): string {
@@ -153,8 +173,9 @@ export function validateAgainstSchema(
     return;
   }
 
-  // enum is the tightest constraint — when present, the value must be one
-  // of the listed literals regardless of any declared `type`.
+  // enum — validated ADDITIVELY per standard JSON Schema: a value must be
+  // one of the listed literals AND still satisfy any sibling `type`/etc.
+  // (no short-circuit). Membership is key-order-insensitive for objects.
   if (Array.isArray(schema.enum)) {
     const options = schema.enum as unknown[];
     if (!options.some((option) => sameJsonValue(option, value))) {
@@ -163,12 +184,11 @@ export function validateAgainstSchema(
         message: `value not in enum [${options.map((o) => JSON.stringify(o)).join(", ")}]`,
       });
     }
-    return;
   }
 
   const type = schema.type;
   if (type === undefined) {
-    // Typeless schema (e.g. `{}`) matches any value — standard JSON Schema.
+    // Typeless schema (e.g. `{}` or enum-only) imposes no type constraint.
     return;
   }
   if (typeof type !== "string") {
@@ -219,10 +239,14 @@ function walkObject(
     pushTypeIssue(issues, path, "object", value);
     return;
   }
+  // Object.hasOwn (not `in`) throughout: a value parsed from JSON only ever
+  // carries OWN keys, and `in` would spuriously match inherited proto keys
+  // like `constructor`/`toString` — making a `required: ["constructor"]`
+  // pass or an `additionalProperties:false` miss a proto-named extra key.
   const required = Array.isArray(schema.required) ? (schema.required as unknown[]) : [];
   for (const rawKey of required) {
     const key = String(rawKey);
-    if (!(key in value)) {
+    if (!Object.hasOwn(value, key)) {
       issues.push({ path: joinKey(path, key), message: "required property is missing" });
     }
   }
@@ -231,7 +255,7 @@ function walkObject(
   // explicit `false` rejects keys not in `properties`.
   if (schema.additionalProperties === false) {
     for (const key of Object.keys(value)) {
-      if (!(key in properties)) {
+      if (!Object.hasOwn(properties, key)) {
         issues.push({
           path: joinKey(path, key),
           message: "unknown property (additionalProperties is false)",
@@ -240,7 +264,7 @@ function walkObject(
     }
   }
   for (const [key, childSchema] of Object.entries(properties)) {
-    if (!(key in value)) continue; // absence handled by the required-check
+    if (!Object.hasOwn(value, key)) continue; // absence handled by the required-check
     validateAgainstSchema(childSchema, value[key], joinKey(path, key), issues);
   }
 }
@@ -321,16 +345,28 @@ export function buildSchemaInstruction(schema: Record<string, unknown>): string 
 /**
  * Corrective re-prompt after a validation failure: quote the violations
  * and restate the schema.
+ *
+ * `opts.autonomous` — when the child is running under autonomous
+ * self-continuation it has been told to emit `<<TASK_DONE>>` sentinels;
+ * the host gates this correction run out of the autonomous loop, so tell
+ * the child explicitly NOT to emit a completion sentinel here (just the
+ * JSON), removing the conflicting instruction.
  */
 export function buildSchemaCorrection(
   schema: Record<string, unknown>,
   summary: string,
+  opts?: { autonomous?: boolean },
 ): string {
+  const sentinelNote = opts?.autonomous
+    ? " Do NOT emit a completion sentinel (e.g. <<TASK_DONE>>) in this message — reply with the JSON only."
+    : "";
   return (
     "Your previous response did not satisfy the required output schema.\n\n" +
     `Validation errors: ${summary}\n\n` +
     "Respond again with a SINGLE JSON object that satisfies this schema " +
-    "(inside a ```json code fence or as raw JSON, with no other prose):\n\n" +
+    "(inside a ```json code fence or as raw JSON, with no other prose)." +
+    sentinelNote +
+    "\n\n" +
     "```json\n" +
     serializeSchema(schema) +
     "\n```"

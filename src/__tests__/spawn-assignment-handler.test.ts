@@ -800,6 +800,21 @@ describe("spawn-assignment — outputSchema (structured output)", () => {
     expect(resp.error?.message).toMatch(/too large/i);
     expect(startAssignmentCalls).toHaveLength(0);
   });
+
+  test("outputSchema + caller-supplied taskId → -32602 (structured output is synthetic-task only)", async () => {
+    // A schema failure keeps status "completed"; if bound to a REAL taskId,
+    // task-tracking dependents would auto-start off a validation failure.
+    const ext = `os7-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, outputSchema: validSchema, taskId: "real-task-123" }, "os-7"),
+      makeCtx(),
+    );
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.error?.message).toMatch(/taskId/);
+    expect(startAssignmentCalls).toHaveLength(0);
+  });
 });
 
 // ── Phase 6: PDP-deny path + quota-invalid audit reason ─────────────

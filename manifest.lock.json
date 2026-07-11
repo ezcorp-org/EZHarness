@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-11T12:15:10.378Z",
+  "generatedAt": "2026-07-11T12:48:22.011Z",
   "extensions": {
     "ai-kit": {
       "version": "0.1.0",
@@ -90,7 +90,7 @@
     "orchestration": {
       "version": "1.2.0",
       "entrypoint": "./index.ts",
-      "toolsHash": "sha256-d3WIXzMXrenP/8wbs/Fl6tPhbYdzbL6v/Xa2SVpJi4w="
+      "toolsHash": "sha256-P7Pe5/ZnnWYdXrByXs59TI/9e9AlhJ4Hz3s2VX6P5Tw="
     },
     "ping-loop": {
       "version": "1.0.0",

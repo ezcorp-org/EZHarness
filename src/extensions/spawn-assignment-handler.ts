@@ -294,6 +294,20 @@ export async function handleSpawnAssignmentRpc(
     callerOutputSchema = os as Record<string, unknown>;
   }
 
+  // Structured output is only sound on the SYNTHETIC-taskId path
+  // (invoke_agent, which lets the host mint the taskId). A schema failure
+  // keeps the assignment status "completed" (the child DID finish) — so if
+  // outputSchema rode a spawn bound to a REAL, caller-supplied taskId in
+  // task-tracking, that task's dependents would auto-start off a validation
+  // FAILURE. Reject the combination rather than silently mis-signal.
+  if (callerOutputSchema && callerTaskId) {
+    return rpcError(
+      req.id,
+      -32602,
+      "'outputSchema' cannot be combined with a caller-supplied 'taskId' — structured output is only supported on the synthetic-task (invoke_agent) path",
+    );
+  }
+
   // 9. Hourly + concurrent quota.
   const cfg = {
     maxPerHour: granted.maxPerHour,

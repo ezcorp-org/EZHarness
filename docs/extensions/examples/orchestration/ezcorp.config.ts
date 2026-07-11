@@ -39,7 +39,7 @@ const INVOKE_AGENT_SCHEMA = {
     outputSchema: {
       type: "object",
       description:
-        "Optional JSON Schema (object schemas only) that the agent's FINAL answer must satisfy. When provided, the sub-agent's final output is validated against this schema host-side; on failure the agent is automatically re-prompted (bounded) to emit corrected JSON, and you receive the validated JSON object instead of free text (or a clear schema-failure error). Supported keywords: type (object/array/string/number/integer/boolean/null), properties, required, items, enum, additionalProperties.",
+        "Optional JSON Schema (object schemas only) that the agent's FINAL answer must satisfy. When provided, the sub-agent's final output is validated against this schema host-side; on failure the agent is automatically re-prompted (bounded) to emit corrected JSON, and you receive the validated JSON object instead of free text (or a clear schema-failure error). ONLY these keywords are ENFORCED: type (object/array/string/number/integer/boolean/null), properties, required, items, enum, additionalProperties. ALL OTHER keywords — including pattern, minimum, maximum, minLength, maxLength, minItems, maxItems, format, const, oneOf/anyOf/allOf, and $ref — are IGNORED (not validated); do not rely on them. `type` must be a single string; union type arrays are not supported.",
     },
     background: {
       type: "boolean",

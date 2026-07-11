@@ -536,6 +536,12 @@ interface IncomingAssignmentUpdate {
   structuredResultError?: string;
 }
 
+/** Mirrors the host's `ASSIGNMENT_RESULT_FULL_CAP` (30KB). The host bounds
+ *  the COMPACT structuredResult to this cap; we additionally avoid
+ *  pretty-printing past it. Kept as a local literal — extension code must
+ *  not value-import from src/**. */
+const STRUCTURED_RESULT_PRETTY_CAP = 30_000;
+
 /**
  * Shape a TERMINAL assignment update into the `{ result, success }` a tool
  * returns. Shared by the synchronous invoke_agent gate and the background
@@ -554,8 +560,15 @@ function shapeTerminalResult(
   const rawText =
     payload.resultFull ?? payload.assignment.resultPreview ?? "(no result)";
   if (payload.structuredResult !== undefined) {
+    // The host already bounded the COMPACT structuredResult to 30KB
+    // (over-cap validated output arrives as structuredResultError instead).
+    // Pretty-print only when the pretty form is ALSO within the cap;
+    // otherwise return compact so whitespace inflation can't push the
+    // orchestrator's tool result past the cap.
+    const compact = JSON.stringify(payload.structuredResult);
+    const pretty = JSON.stringify(payload.structuredResult, null, 2);
     return {
-      result: JSON.stringify(payload.structuredResult, null, 2),
+      result: pretty.length <= STRUCTURED_RESULT_PRETTY_CAP ? pretty : compact,
       success: true,
     };
   }

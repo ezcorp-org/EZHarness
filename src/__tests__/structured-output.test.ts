@@ -63,6 +63,17 @@ describe("extractJsonCandidate", () => {
   test("open brace without a close is skipped (no substring candidate)", () => {
     expect(extractJsonCandidate("this { is not closed")).toEqual({ found: false });
   });
+
+  test("top-level array embedded in prose → bracket-substring fallback parses", () => {
+    expect(extractJsonCandidate("Here you go: [1, 2, 3] — done")).toEqual({
+      found: true,
+      value: [1, 2, 3],
+    });
+  });
+
+  test("raw top-level array (whole text) parses", () => {
+    expect(extractJsonCandidate('["a","b"]')).toEqual({ found: true, value: ["a", "b"] });
+  });
 });
 
 // ── validateAgainstSchema — primitives ─────────────────────────────
@@ -134,9 +145,27 @@ describe("validateAgainstSchema — enum", () => {
     expect(issuesFor({ enum: [{ k: 1 }] }, { k: 9 })).toHaveLength(1);
   });
 
-  test("enum wins over type (checked regardless of declared type)", () => {
-    // enum present → type is ignored; a matching literal passes.
-    expect(issuesFor({ type: "string", enum: [1, 2, 3] }, 2)).toEqual([]);
+  test("object-enum membership is key-order-insensitive", () => {
+    // {a,b} and {b,a} are the same JSON value — canonical form sorts keys.
+    expect(issuesFor({ enum: [{ a: 1, b: 2 }] }, { b: 2, a: 1 })).toEqual([]);
+    // Nested key-order too.
+    expect(
+      issuesFor({ enum: [{ x: { p: 1, q: 2 } }] }, { x: { q: 2, p: 1 } }),
+    ).toEqual([]);
+  });
+
+  test("enum is ADDITIVE with a sibling type (not short-circuited)", () => {
+    // Consistent schema: value must be an integer AND in the enum.
+    expect(issuesFor({ type: "integer", enum: [1, 2, 3] }, 2)).toEqual([]);
+    // Integer but not a member → enum issue only.
+    expect(issuesFor({ type: "integer", enum: [1, 2, 3] }, 5)).toEqual([
+      { path: "", message: "value not in enum [1, 2, 3]" },
+    ]);
+    // Neither a member nor an integer → BOTH issues (proves no short-circuit).
+    const both = issuesFor({ type: "integer", enum: [1, 2, 3] }, "x");
+    expect(both).toHaveLength(2);
+    expect(both.some((i) => i.message.includes("not in enum"))).toBe(true);
+    expect(both.some((i) => i.message.includes("expected integer"))).toBe(true);
   });
 });
 
@@ -201,6 +230,46 @@ describe("validateAgainstSchema — object", () => {
   test("declared property absent → skipped (only required enforces presence)", () => {
     const schema = { type: "object", properties: { a: { type: "string" } } };
     expect(issuesFor(schema, {})).toEqual([]);
+  });
+
+  // Prototype-key soundness: `in` would spuriously match inherited keys like
+  // `constructor`/`toString`; Object.hasOwn does not.
+  test("required proto-named key on a bare object → still missing", () => {
+    // `"constructor" in {}` is TRUE via the prototype — must NOT satisfy required.
+    expect(issuesFor({ type: "object", required: ["constructor"] }, {})).toEqual([
+      { path: "constructor", message: "required property is missing" },
+    ]);
+    expect(issuesFor({ type: "object", required: ["toString"] }, {})).toEqual([
+      { path: "toString", message: "required property is missing" },
+    ]);
+  });
+
+  test("additionalProperties:false flags a proto-named OWN key", () => {
+    // `"toString" in properties` is TRUE via the prototype — must still be
+    // flagged as an unknown OWN key on the value.
+    const schema = {
+      type: "object",
+      properties: { a: { type: "string" } },
+      additionalProperties: false,
+    };
+    const issues = issuesFor(schema, { a: "ok", toString: "x" });
+    expect(issues).toEqual([
+      { path: "toString", message: "unknown property (additionalProperties is false)" },
+    ]);
+  });
+
+  test("an own __proto__ key (from JSON.parse) is treated as a real extra key", () => {
+    // JSON.parse creates an OWN, enumerable "__proto__" data property (no
+    // prototype pollution) — additionalProperties:false must flag it.
+    const value = JSON.parse('{"__proto__": 1, "a": 2}');
+    const schema = {
+      type: "object",
+      properties: { a: { type: "integer" } },
+      additionalProperties: false,
+    };
+    expect(issuesFor(schema, value)).toEqual([
+      { path: "__proto__", message: "unknown property (additionalProperties is false)" },
+    ]);
   });
 });
 
@@ -361,5 +430,17 @@ describe("prompt builders", () => {
     expect(out).toContain("did not satisfy the required output schema");
     expect(out).toContain("Validation errors: a: expected string, got number");
     expect(out).toContain('"type": "object"');
+  });
+
+  test("buildSchemaCorrection: non-autonomous omits the no-sentinel note", () => {
+    const out = buildSchemaCorrection(schema, "a: bad");
+    expect(out).not.toContain("completion sentinel");
+    expect(out).not.toContain("TASK_DONE");
+  });
+
+  test("buildSchemaCorrection: autonomous adds an explicit no-sentinel instruction", () => {
+    const out = buildSchemaCorrection(schema, "a: bad", { autonomous: true });
+    expect(out).toContain("Do NOT emit a completion sentinel");
+    expect(out).toContain("<<TASK_DONE>>");
   });
 });
