@@ -316,6 +316,39 @@ const BASE_SCHEMA = {
   required: ["agentConfigId", "task"],
 };
 
+const COLLECT_SCHEMA = {
+  type: "object",
+  properties: { assignmentId: { type: "string", description: "id" } },
+  required: ["assignmentId"],
+};
+
+// Registry variant that exposes BOTH orchestration tools (production shape),
+// so the Phase B2 collect_agent_result wiring can be asserted. The default
+// `makeFakeRegistry` intentionally exposes only invoke_agent (collect absent
+// → not wired → existing length-1 assertions stay green).
+function makeFakeRegistryWithCollect() {
+  return {
+    getToolsForExtension: (_extId: string) => [
+      {
+        name: "orchestration__invoke_agent",
+        originalName: "invoke_agent",
+        description: "Invoke a specialized agent.",
+        inputSchema: structuredClone(BASE_SCHEMA),
+        extensionId: ORCH_EXT_ID,
+        extensionName: "orchestration",
+      },
+      {
+        name: "orchestration__collect_agent_result",
+        originalName: "collect_agent_result",
+        description: "Collect a background agent result.",
+        inputSchema: structuredClone(COLLECT_SCHEMA),
+        extensionId: ORCH_EXT_ID,
+        extensionName: "orchestration",
+      },
+    ],
+  };
+}
+
 function baseParams(overrides: Record<string, unknown> = {}): Parameters<
   typeof wireOrchestrationToolsForTurn
 >[0] {
@@ -505,6 +538,45 @@ describe("wireOrchestrationToolsForTurn", () => {
       properties: { agentConfigId: { enum: string[] } };
     };
     expect(override.properties.agentConfigId.enum).toEqual(["a1", "a2"]);
+  });
+
+  test("Phase B2: also wires collect_agent_result (plain tool — no schema override / invocation metadata)", async () => {
+    const params = baseParams({ registry: makeFakeRegistryWithCollect() as never });
+    await wireOrchestrationToolsForTurn(params);
+
+    // Both orchestration tools appended this turn.
+    expect(params.agentTools.map((t) => t.name).sort()).toEqual([
+      "collect_agent_result",
+      "invoke_agent",
+    ]);
+    const collectCall = captured.find((c) => c.extTool.name === "collect_agent_result");
+    expect(collectCall).toBeDefined();
+    // collect needs no per-turn agent enum + no invocation metadata.
+    expect(collectCall!.schemaOverride).toBeUndefined();
+    expect(collectCall!.invocationMetadata).toBeUndefined();
+    expect(collectCall!.conversationId).toBe("conv-wire-3");
+    expect(collectCall!.messageId).toBe("run-123");
+  });
+
+  test("Phase B2: collect_agent_result is dedup-safe when already present (turn 2+ general-path wiring)", async () => {
+    const params = baseParams({ registry: makeFakeRegistryWithCollect() as never });
+    // Simulate the general conversation-extension path having already added it.
+    params.agentTools.push({
+      name: "collect_agent_result",
+      label: "collect_agent_result",
+      description: "pre-existing",
+      parameters: {} as never,
+      execute: async () => ({ content: [] }),
+    } as unknown as AgentTool);
+
+    await wireOrchestrationToolsForTurn(params);
+
+    // Exactly one collect tool — not re-appended.
+    expect(
+      params.agentTools.filter((t) => t.name === "collect_agent_result"),
+    ).toHaveLength(1);
+    // And no collect wrap was produced by this call.
+    expect(captured.some((c) => c.extTool.name === "collect_agent_result")).toBe(false);
   });
 
   test("registry missing invoke_agent tool → no append, warn logged", async () => {

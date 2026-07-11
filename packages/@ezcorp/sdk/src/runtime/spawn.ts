@@ -103,6 +103,14 @@ export interface SpawnAssignmentInput {
    *  at tool-invoke time from the `outputSchema` tool argument, not by
    *  extension authors directly. */
   outputSchema?: Record<string, unknown>;
+  /** Background-spawn opt-in: when true, the host emits `agent:complete`
+   *  AND enqueues a completion-notify pending message for the PARENT
+   *  conversation when the spawned run reaches a terminal state, so an
+   *  orchestrator that dispatched this child without blocking can react on
+   *  its next turn. Set by the orchestration extension for `background: true`
+   *  invocations; a blocking (synchronous) invoke never sets it because the
+   *  caller is already awaiting the result inline. Default OFF. */
+  notifyParentOnTerminal?: boolean;
 }
 
 export interface SpawnAssignmentHandle {
@@ -171,6 +179,7 @@ export async function spawnAssignment(
       ? { autonomousContinuation: input.autonomousContinuation }
       : {}),
     ...(input.outputSchema ? { outputSchema: input.outputSchema } : {}),
+    ...(input.notifyParentOnTerminal ? { notifyParentOnTerminal: true } : {}),
   });
   return {
     subConversationId: result.subConversationId,

@@ -9,6 +9,13 @@
  */
 export const ORCHESTRATION_TOOLS: ReadonlySet<string> = new Set([
   "invoke_agent",
+  // Phase B2 background sub-agents: the counterpart to `invoke_agent` for
+  // fetching a background child's result. Preserved for the same reason — an
+  // orchestrator that can dispatch a background agent under a restrictive
+  // scope must still be able to collect it, or the result is unreachable.
+  // Un-namespaced (the form the host wires via wireOrchestrationToolsForTurn),
+  // matching `invoke_agent`.
+  "collect_agent_result",
   // Human-in-the-loop is provided by the bundled `ask-user` extension.
   // The registry exposes the tool under the namespaced form, which is
   // what the LLM sees and what the filter must preserve. Auto-wired

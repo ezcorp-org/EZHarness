@@ -325,4 +325,35 @@ export async function wireOrchestrationToolsForTurn(
     invocationMetadata,
   );
   agentTools.push(invokeAgentAgentTool);
+
+  // 5. Also wire `collect_agent_result` (Phase B2) so a background
+  //    invoke_agent dispatched THIS turn can be collected in the SAME turn's
+  //    tool loop — the general conversation-extension wiring only reaches
+  //    orchestration on turn 2+ (orchestration is wire-on-first-use, so it
+  //    isn't in `conversation_extensions` yet when that earlier block runs).
+  //    Unlike invoke_agent it needs NO per-turn schema override or invocation
+  //    metadata (it reads the extension's own background-spawn map). Dedup-
+  //    safe: on later turns the general path may already have added it, so
+  //    skip if a tool of the same name is present. Absent from the registry
+  //    (older manifest) → silently skipped.
+  const collectTool = registeredTools.find(
+    (t) => t.originalName === "collect_agent_result",
+  );
+  if (
+    collectTool &&
+    !agentTools.some((t) => t.name === collectTool.originalName)
+  ) {
+    agentTools.push(
+      extensionToAgentTool(
+        {
+          name: collectTool.originalName,
+          description: collectTool.description,
+          inputSchema: collectTool.inputSchema as Record<string, unknown>,
+        },
+        toolExec,
+        conversationId,
+        runId,
+      ),
+    );
+  }
 }

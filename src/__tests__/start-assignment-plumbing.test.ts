@@ -74,7 +74,7 @@ const {
   ASSIGNMENT_RESULT_FULL_CAP,
 } = await import("../runtime/start-assignment");
 const { EventBus } = await import("../runtime/events");
-const { enqueue } = await import("../runtime/pending-messages");
+const { enqueue, dequeue, hasPending } = await import("../runtime/pending-messages");
 const { CURRENT_MODEL_SENTINEL } = await import("../types");
 const { buildSchemaInstruction } = await import("../runtime/structured-output");
 
@@ -1534,5 +1534,296 @@ describe("startAssignment — structured output", () => {
     const terminal = updates.at(-1)!;
     expect(terminal.structuredResult).toEqual({ answer: "final" });
     expect(assignment.status).toBe("completed");
+  });
+});
+
+// ── 12. agent:complete emission on every terminal (Phase B2) ───────
+//
+// startAssignment historically emitted only agent:spawn — the invoke_agent
+// path never fired agent:complete, so the SSE chip / observability agent_call
+// rows / extension lifecycle subscriptions never saw the terminal. Every
+// terminal branch (complete / error / cancel / refused-start) now emits
+// agent:complete with the LIVE cycle run id as both runId and agentRunId,
+// scoped to the parent conversation.
+
+type AgentCompleteEvt = AgentEvents["agent:complete"];
+
+describe("startAssignment — agent:complete emission", () => {
+  test("run:complete → agent:complete(success=true) with the live run id + parent scope", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const events: AgentCompleteEvt[] = [];
+    bus.on("agent:complete", (d) => events.push(d as AgentCompleteEvt));
+
+    const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-ac1" });
+    const { agentRunId } = await startAssignment(opts);
+
+    emitComplete(bus, agentRunId, "the full output");
+
+    expect(events).toHaveLength(1);
+    const e = events[0]!;
+    expect(e.success).toBe(true);
+    expect(e.runId).toBe(agentRunId);
+    expect(e.agentRunId).toBe(agentRunId);
+    expect(e.subConversationId).toBe("sub-ac1");
+    expect(e.agentName).toBe("alice");
+    expect(e.agentConfigId).toBe("cfg-test");
+    expect(e.parentConversationId).toBe("conv-parent");
+    expect(e.resultPreview).toBe("the full output");
+  });
+
+  test("run:error → agent:complete(success=false) with the error preview", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const events: AgentCompleteEvt[] = [];
+    bus.on("agent:complete", (d) => events.push(d as AgentCompleteEvt));
+
+    const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-ac2" });
+    const { agentRunId } = await startAssignment(opts);
+
+    bus.emit("run:error", {
+      run: { id: agentRunId, agentName: "alice", status: "error", startedAt: Date.now(), logs: [] },
+      error: "kaboom",
+      conversationId: "conv-parent",
+      runId: agentRunId,
+    } as AgentEvents["run:error"]);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.success).toBe(false);
+    expect(events[0]!.resultPreview).toBe("kaboom");
+    expect(events[0]!.runId).toBe(agentRunId);
+  });
+
+  test("run:cancel → agent:complete(success=false, 'Run was cancelled')", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const events: AgentCompleteEvt[] = [];
+    bus.on("agent:complete", (d) => events.push(d as AgentCompleteEvt));
+
+    const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-ac3" });
+    const { agentRunId } = await startAssignment(opts);
+
+    bus.emit("run:cancel", {
+      run: { id: agentRunId, agentName: "alice", status: "cancelled", startedAt: Date.now(), logs: [] },
+      conversationId: "conv-parent",
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.success).toBe(false);
+    expect(events[0]!.resultPreview).toBe("Run was cancelled");
+  });
+
+  test("run:cancel that races the Stop pre-mutation (status !== running) emits NO agent:complete", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const events: AgentCompleteEvt[] = [];
+    bus.on("agent:complete", (d) => events.push(d as AgentCompleteEvt));
+
+    const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-ac4" });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Stop endpoint flipped it to "assigned" already → cancel listener no-ops.
+    assignment.status = "assigned";
+    bus.emit("run:cancel", {
+      run: { id: agentRunId, agentName: "alice", status: "cancelled", startedAt: Date.now(), logs: [] },
+      conversationId: "conv-parent",
+    });
+    expect(events).toHaveLength(0);
+  });
+
+  test("live cycle run: agent:complete carries the NEW autonomous-cycle run id, not cycle 1", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const events: AgentCompleteEvt[] = [];
+    bus.on("agent:complete", (d) => events.push(d as AgentCompleteEvt));
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-ac5",
+      autonomousContinuation: { maxCycles: 1 },
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Cycle 1: no sentinel → autonomous continuation mints a new run; NOT terminal.
+    emitComplete(bus, agentRunId, "cycle one");
+    expect(events).toHaveLength(0);
+    const cycle2RunId = assignment.agentRunId!;
+    expect(cycle2RunId).not.toBe(agentRunId);
+
+    // Cycle 2: cap reached → terminal on the LIVE cycle run.
+    emitComplete(bus, cycle2RunId, "cycle two done");
+    expect(events).toHaveLength(1);
+    expect(events[0]!.runId).toBe(cycle2RunId);
+    expect(events[0]!.agentRunId).toBe(cycle2RunId);
+    expect(events[0]!.success).toBe(true);
+  });
+
+  test("refused start (dead parent) → agent:complete(success=false) closes the spawned chip", async () => {
+    const { executor } = makeMockExecutor();
+    registerChildRunResult = false;
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const events: AgentCompleteEvt[] = [];
+    bus.on("agent:complete", (d) => events.push(d as AgentCompleteEvt));
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      parentRunId: "run-dead",
+      reuseSubConversationId: "sub-ac6",
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.success).toBe(false);
+    expect(events[0]!.runId).toBe(agentRunId);
+    expect(events[0]!.resultPreview).toBe("Parent run ended before this agent could start");
+  });
+});
+
+// ── 13. Background completion notify — parent-queue enqueue (Phase B2) ─
+//
+// notifyParentOnTerminal is set by the orchestration extension's background
+// spawn path. On EVERY terminal it enqueues a plain, capped completion-notify
+// pending message onto the PARENT conversation id so an idle orchestrator can
+// react on its next turn. Absent the flag, agent:complete still fires but no
+// pending message is enqueued.
+
+function drainConvParent(): string[] {
+  const drained: string[] = [];
+  let m = dequeue("conv-parent");
+  while (m) {
+    drained.push(m.content);
+    m = dequeue("conv-parent");
+  }
+  return drained;
+}
+
+describe("startAssignment — background completion notify", () => {
+  test("notifyParentOnTerminal + success → enqueues a plain notify for the PARENT conversation", async () => {
+    expect(hasPending("conv-parent")).toBe(false);
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-nfy1",
+      notifyParentOnTerminal: true,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    emitComplete(bus, agentRunId, "the answer is 42");
+
+    expect(hasPending("conv-parent")).toBe(true);
+    const [content, ...rest] = drainConvParent();
+    expect(rest).toHaveLength(0); // exactly one notify
+    expect(content).toContain('Background agent "alice" finished (success)');
+    expect(content).toContain("the answer is 42");
+    expect(content).toContain("collect_agent_result");
+    // Queue drained — no cross-test contamination.
+    expect(hasPending("conv-parent")).toBe(false);
+  });
+
+  test("notifyParentOnTerminal + failure → notify says (failure)", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-nfy2",
+      notifyParentOnTerminal: true,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    bus.emit("run:error", {
+      run: { id: agentRunId, agentName: "alice", status: "error", startedAt: Date.now(), logs: [] },
+      error: "it broke",
+      conversationId: "conv-parent",
+      runId: agentRunId,
+    } as AgentEvents["run:error"]);
+
+    const [content, ...rest] = drainConvParent();
+    expect(rest).toHaveLength(0);
+    expect(content).toContain('Background agent "alice" finished (failure)');
+    expect(content).toContain("it broke");
+    expect(hasPending("conv-parent")).toBe(false);
+  });
+
+  test("notify preview is capped so an over-long result cannot bloat the pending message", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-nfy3",
+      notifyParentOnTerminal: true,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // resultPreview is itself already ≤200 chars, but assert the notify stays
+    // bounded and terminates with the collect hint regardless.
+    emitComplete(bus, agentRunId, "Q".repeat(5000));
+
+    const [content] = drainConvParent();
+    expect(content).toBeDefined();
+    expect(content!.length).toBeLessThan(600);
+    expect(content).toContain("collect_agent_result");
+    expect(hasPending("conv-parent")).toBe(false);
+  });
+
+  test("an over-cap terminal preview (long autonomous blocked reason) is clipped in the notify", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-nfy5",
+      autonomousContinuation: { maxCycles: 3 },
+      notifyParentOnTerminal: true,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // A long <<TASK_BLOCKED: reason>> makes assignment.resultPreview exceed the
+    // notify's 400-char preview cap (the reason is prepended un-truncated), so
+    // the notify must clip it and mark the clip with an ellipsis.
+    const longReason = "R".repeat(600);
+    emitComplete(bus, agentRunId, `stuck here <<TASK_BLOCKED: ${longReason}>>`);
+
+    // Blocked terminates as completed (success), with a long preview.
+    expect(assignment.status).toBe("completed");
+    expect(assignment.resultPreview!.length).toBeGreaterThan(400);
+
+    const [content] = drainConvParent();
+    expect(content).toBeDefined();
+    expect(content).toContain('Background agent "alice" finished (success)');
+    expect(content).toContain("…"); // the clip marker
+    // Bounded: 400-char preview + framing, still well under any limit.
+    expect(content!.length).toBeLessThan(600);
+    expect(hasPending("conv-parent")).toBe(false);
+  });
+
+  test("WITHOUT notifyParentOnTerminal → agent:complete still fires but NO pending message is enqueued", async () => {
+    expect(hasPending("conv-parent")).toBe(false);
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const events: AgentCompleteEvt[] = [];
+    bus.on("agent:complete", (d) => events.push(d as AgentCompleteEvt));
+
+    const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-nfy4" });
+    const { agentRunId } = await startAssignment(opts);
+
+    emitComplete(bus, agentRunId, "done, no notify");
+
+    expect(events).toHaveLength(1); // agent:complete still emitted
+    expect(hasPending("conv-parent")).toBe(false); // but no parent nudge
   });
 });

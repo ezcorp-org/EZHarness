@@ -437,6 +437,38 @@ describe("spawn-assignment — dispatch", () => {
     expect(task.description).toBe("build a thing");
   });
 
+  test("notifyParentOnTerminal: true threads through to startAssignment (background spawn)", async () => {
+    const ext = `nfy-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...validParams, notifyParentOnTerminal: true }, "nfy-1"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls.at(-1)!.notifyParentOnTerminal).toBe(true);
+  });
+
+  test("notifyParentOnTerminal omitted → startAssignment opts omit the flag (sync spawn)", async () => {
+    const ext = `nfy2-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(ext, rpc(validParams, "nfy-2"), makeCtx());
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls.at(-1)!).not.toHaveProperty("notifyParentOnTerminal");
+  });
+
+  test("notifyParentOnTerminal accepts only strict true (a truthy non-true is dropped)", async () => {
+    const ext = `nfy3-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...validParams, notifyParentOnTerminal: "yes" as unknown as boolean }, "nfy-3"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls.at(-1)!).not.toHaveProperty("notifyParentOnTerminal");
+  });
+
   test("threads onCycleRunIdChange that re-keys the quota reservation onto the live cycle run", async () => {
     const ext = `cyc-ext-${crypto.randomUUID().slice(0, 8)}`;
     await wireConversation(CONV_WIRED, ext);

@@ -15,6 +15,22 @@
 // the tool has no persistent state. Pending invocations live in a
 // process-local map keyed on `assignmentId`; the subprocess is
 // `persistent: true` so the map survives across calls.
+//
+// Phase B2 — Claude-Code-style background sub-agents. `invoke_agent`
+// gains an optional `background: true` flag: instead of blocking the
+// orchestrator's tool loop until the child terminates, it dispatches the
+// child and returns IMMEDIATELY with a handle. Background spawns are
+// tracked in a SECOND process-local map (`backgroundSpawns`, bounded) so a
+// later `collect_agent_result` tool call can fetch (or wait for) the
+// child's result. A background child is supervised by its own watchdog +
+// the parent→child cascade-cancel; it legitimately OUTLIVES the parent RUN
+// (the orchestrator's turn usually ends before the child finishes, and
+// run:complete cascade-cancel deliberately does NOT fire for it). The host
+// emits `agent:complete` + enqueues a completion-notify pending message on
+// the parent conversation when the child terminates (see
+// `notifyParentOnTerminal` in the SDK + start-assignment.ts). The SAME
+// `task:assignment_update` subscription drives both maps — no new
+// subscription is required.
 
 import {
   createToolDispatcher,
@@ -149,6 +165,91 @@ interface PendingInvocation {
 
 const pendingInvocations = new Map<string, PendingInvocation>();
 
+// ── Background-spawn tracking (Phase B2) ───────────────────────────
+//
+// A `background: true` invoke returns immediately; the child's result is
+// fetched later via `collect_agent_result`. This map REMEMBERS every
+// background spawn across tool calls (the subprocess is `persistent: true`)
+// keyed on `assignmentId`. The same `task:assignment_update` subscription
+// that resolves synchronous invocations updates these entries: it tracks the
+// LIVE cycle run id on activity and, on the terminal transition, stores the
+// shaped result and resolves any `collect_agent_result` gates waiting on it.
+//
+// Bounded to the last {@link MAX_BACKGROUND_SPAWNS} entries; when full, the
+// OLDEST TERMINAL entry is evicted first so an in-flight child (which a later
+// collect may still query) is never dropped.
+
+/** A `collect_agent_result` call waiting for a not-yet-terminal background
+ *  spawn. Resolved by the terminal `task:assignment_update`, or by its own
+ *  sliding-deadline timer (which returns a NON-error "still running" status
+ *  — a collect timeout never reaps the child). */
+interface CollectWaiter {
+  /** Resolve the gate with the terminal result. */
+  resolveTerminal: (result: { result: string; success: boolean }) => void;
+  timeoutHandle: ReturnType<typeof setTimeout>;
+  /** Wait budget used to (re-)arm the sliding deadline on child activity. */
+  timeoutMs: number;
+  /** Bound expiry handler — removes the waiter and resolves "still running".
+   *  Re-armed on each non-terminal activity update (mirrors the sync
+   *  invoke_agent sliding deadline). */
+  fireTimeout: () => void;
+}
+
+interface BackgroundSpawn {
+  agentName: string;
+  agentConfigId: string;
+  subConversationId: string;
+  /** Sub-agent run id — updated to the LIVE cycle run on every non-terminal
+   *  activity update (the spawn handle's id is frozen at cycle 1). */
+  agentRunId: string;
+  /** Set once a terminal `task:assignment_update` lands. */
+  terminal: boolean;
+  /** Shaped { result, success } — present iff `terminal`. Uses the SAME
+   *  resultFull / structuredResult / structuredResultError precedence as the
+   *  synchronous path (see {@link shapeTerminalResult}). */
+  result?: { result: string; success: boolean };
+  /** Live `collect_agent_result` gates awaiting this spawn's terminal. */
+  waiters: Set<CollectWaiter>;
+}
+
+/** Max background spawns retained. In-flight entries are never evicted; only
+ *  terminal ones are, so the effective ceiling is 50 + in-flight (in-flight is
+ *  itself capped by the extension's `maxConcurrent` quota). */
+const MAX_BACKGROUND_SPAWNS = 50;
+
+const backgroundSpawns = new Map<string, BackgroundSpawn>();
+
+/** Register a background spawn, evicting the oldest terminal entry first when
+ *  the map is at capacity. Map iteration is insertion-ordered, so the first
+ *  terminal entry encountered is the oldest terminal one. */
+function registerBackgroundSpawn(
+  handle: SpawnAssignmentHandle,
+  agentName: string,
+  agentConfigId: string,
+): void {
+  while (backgroundSpawns.size >= MAX_BACKGROUND_SPAWNS) {
+    let evicted = false;
+    for (const [key, val] of backgroundSpawns) {
+      if (val.terminal) {
+        backgroundSpawns.delete(key);
+        evicted = true;
+        break;
+      }
+    }
+    // Every tracked entry is still in-flight (rare — bounded by maxConcurrent):
+    // don't drop a live one, just let the map run slightly over the soft cap.
+    if (!evicted) break;
+  }
+  backgroundSpawns.set(handle.assignmentId, {
+    agentName,
+    agentConfigId,
+    subConversationId: handle.subConversationId,
+    agentRunId: handle.agentRunId,
+    terminal: false,
+    waiters: new Set(),
+  });
+}
+
 // ── invoke_agent tool handler ──────────────────────────────────────
 //
 // Mirrors the legacy built-in (formerly at
@@ -160,13 +261,14 @@ const pendingInvocations = new Map<string, PendingInvocation>();
 // time via `extensionToAgentTool`'s `invocationMetadata` seam.
 
 const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
-  const { agentConfigId, task, autonomous, maxCycles, timeoutSeconds, outputSchema } = args as {
+  const { agentConfigId, task, autonomous, maxCycles, timeoutSeconds, outputSchema, background } = args as {
     agentConfigId: string;
     task: string;
     autonomous?: boolean;
     maxCycles?: number;
     timeoutSeconds?: number;
     outputSchema?: Record<string, unknown>;
+    background?: boolean;
   };
 
   // Validate: agent must exist and be visible to this user. Legacy
@@ -250,6 +352,11 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
     ...(outputSchema && typeof outputSchema === "object" && !Array.isArray(outputSchema)
       ? { outputSchema }
       : {}),
+    // Background spawns ask the host to emit `agent:complete` + enqueue a
+    // completion-notify pending message for the parent conversation on the
+    // child's terminal transition. A synchronous invoke never sets this — the
+    // orchestrator is already awaiting the result inline.
+    ...(background === true ? { notifyParentOnTerminal: true } : {}),
   };
 
   let handle: SpawnAssignmentHandle;
@@ -260,6 +367,38 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
     return toolResult(
       `Agent "${config.name}" failed: ${msg}`,
       { isError: true },
+    );
+  }
+
+  // ── Background spawn (Phase B2) ──────────────────────────────────
+  //
+  // Return IMMEDIATELY with a handle instead of blocking on completion. No
+  // pending-invocation timer is armed (no timeout, no reap): the child is
+  // supervised by its own idle watchdog + the parent→child cascade-cancel,
+  // and it legitimately OUTLIVES the parent RUN — the orchestrator's turn
+  // usually ends before the child finishes, and run:complete cascade-cancel
+  // does NOT fire for a background child by design. It stays cancellable via
+  // a Stop on the assignment/task panel. The result is fetched later via
+  // `collect_agent_result`, and the host separately notifies the parent
+  // conversation on terminal (agent:complete + a pending-message nudge).
+  if (background === true) {
+    registerBackgroundSpawn(handle, config.name, agentConfigId);
+    return toolResult(
+      `Agent "${config.name}" started in the background (assignmentId: ${handle.assignmentId}, ` +
+        `subConversation: ${handle.subConversationId}). You will be notified when it finishes; ` +
+        `use collect_agent_result to wait for / fetch it. Note: a background agent holds a ` +
+        `concurrent spawn slot until it reaches a terminal state, so many parallel background ` +
+        `agents can exhaust the spawn quota.`,
+      {
+        details: {
+          _agentMeta: {
+            subConversationId: handle.subConversationId,
+            agentName: config.name,
+            agentConfigId,
+            assignmentId: handle.assignmentId,
+          },
+        },
+      },
     );
   }
 
@@ -397,19 +536,74 @@ interface IncomingAssignmentUpdate {
   structuredResultError?: string;
 }
 
+/**
+ * Shape a TERMINAL assignment update into the `{ result, success }` a tool
+ * returns. Shared by the synchronous invoke_agent gate and the background
+ * `collect_agent_result` path so both apply IDENTICAL resultFull /
+ * structuredResult / structuredResultError precedence:
+ *   - a host-validated `structuredResult` → pretty-printed JSON, success;
+ *   - a `structuredResultError` (schema failure) → error carrying the
+ *     violation summary AND the raw output so the orchestrator can salvage;
+ *   - otherwise the full result (falling back to the panel preview, then a
+ *     placeholder) with success keyed on the terminal status.
+ */
+function shapeTerminalResult(
+  payload: IncomingAssignmentUpdate,
+): { result: string; success: boolean } {
+  const status = payload.assignment.status;
+  const rawText =
+    payload.resultFull ?? payload.assignment.resultPreview ?? "(no result)";
+  if (payload.structuredResult !== undefined) {
+    return {
+      result: JSON.stringify(payload.structuredResult, null, 2),
+      success: true,
+    };
+  }
+  if (
+    typeof payload.structuredResultError === "string" &&
+    payload.structuredResultError
+  ) {
+    return {
+      result:
+        `Structured output did not satisfy the schema: ${payload.structuredResultError}\n\n` +
+        `Raw output:\n${rawText}`,
+      success: false,
+    };
+  }
+  return { result: rawText, success: status === "completed" };
+}
+
+/** Dispatch a `task:assignment_update` to whichever map owns its assignment.
+ *  An assignmentId lives in AT MOST one map (sync invocations vs. background
+ *  spawns); a miss on both = a foreign update (another extension's — the maps
+ *  are keyed on globally-unique assignmentIds) or a late update for an entry
+ *  already resolved/evicted, both silent no-ops. */
 async function handleAssignmentUpdate(
   payload: IncomingAssignmentUpdate,
 ): Promise<void> {
-  const pending = pendingInvocations.get(payload.assignment.id);
-  // Miss = either a foreign assignment (another extension's update — the map
-  // is keyed on globally-unique assignmentIds) OR a terminal update arriving
-  // for an invocation we already gave up on and reaped. The latter is a
-  // deliberate silent no-op: the timeout path cancels the child before
-  // rejecting, so a late terminal update for a reaped invocation is
-  // near-impossible, and if one still arrives there is no pending waiter to
-  // resolve — dropping it is correct, not a lost result.
-  if (!pending) return;
+  const id = payload.assignment.id;
+  const pending = pendingInvocations.get(id);
+  if (pending) {
+    handleSyncUpdate(pending, payload);
+    return;
+  }
+  const bg = backgroundSpawns.get(id);
+  if (bg) {
+    handleBackgroundUpdate(bg, payload);
+    return;
+  }
+  // Miss on both maps → foreign / already-resolved update. Dropping it is
+  // correct, not a lost result (the sync reap cancels before deleting; a
+  // terminal background entry keeps its result for later collect).
+}
 
+/** Synchronous invoke_agent gate (unchanged behavior). Non-terminal updates
+ *  re-target the reap to the live cycle run and re-arm the sliding deadline;
+ *  a terminal update resolves the promise with the shaped result. */
+function handleSyncUpdate(
+  pending: PendingInvocation,
+  payload: IncomingAssignmentUpdate,
+): void {
   const status = payload.assignment.status;
   if (status !== "completed" && status !== "failed") {
     // Re-target the reap to the LIVE cycle run. Auto-continue / autonomous
@@ -439,57 +633,183 @@ async function handleAssignmentUpdate(
 
   clearTimeout(pending.timeoutHandle);
   pendingInvocations.delete(payload.assignment.id);
+  // Both terminal statuses resolve (not reject) — timeout is the only reject
+  // path. The success flag distinguishes for the tool-result builder.
+  pending.resolve(shapeTerminalResult(payload));
+}
 
-  // Raw final text — the fallback and the "salvage" body on a schema
-  // failure. Prefer the full result; fall back to the panel preview, then
-  // a placeholder (the 200-char clip was the biggest functional gap vs
-  // Claude Code).
-  const rawText =
-    payload.resultFull ?? payload.assignment.resultPreview ?? "(no result)";
-
-  // Structured output (Phase B1). A host-validated object wins: the
-  // orchestrator receives pretty-printed JSON and a success result. A
-  // schema failure (child completed but never satisfied the schema within
-  // the re-prompt budget) surfaces as an ERROR carrying the violation
-  // summary AND the raw output so the orchestrator can salvage.
-  if (payload.structuredResult !== undefined) {
-    pending.resolve({
-      result: JSON.stringify(payload.structuredResult, null, 2),
-      success: true,
-    });
-    return;
-  }
-  if (
-    typeof payload.structuredResultError === "string" &&
-    payload.structuredResultError
-  ) {
-    pending.resolve({
-      result:
-        `Structured output did not satisfy the schema: ${payload.structuredResultError}\n\n` +
-        `Raw output:\n${rawText}`,
-      success: false,
-    });
+/** Background-spawn tracker. Non-terminal updates track the live cycle run id
+ *  and slide any waiting `collect_agent_result` deadlines; a terminal update
+ *  stores the shaped result and resolves every collect gate awaiting it. */
+function handleBackgroundUpdate(
+  bg: BackgroundSpawn,
+  payload: IncomingAssignmentUpdate,
+): void {
+  const status = payload.assignment.status;
+  if (status !== "completed" && status !== "failed") {
+    if (
+      typeof payload.assignment.agentRunId === "string" &&
+      payload.assignment.agentRunId
+    ) {
+      bg.agentRunId = payload.assignment.agentRunId;
+    }
+    // Activity → slide every waiting collect gate's deadline (same duration),
+    // mirroring the sync path: an actively-cycling child keeps a bounded
+    // `collect_agent_result(waitSeconds)` alive instead of expiring it.
+    for (const w of bg.waiters) {
+      clearTimeout(w.timeoutHandle);
+      w.timeoutHandle = setTimeout(w.fireTimeout, w.timeoutMs);
+    }
     return;
   }
 
-  // Both terminal statuses resolve (not reject) — timeout is the only
-  // reject path. Success flag distinguishes for the tool-result builder.
-  pending.resolve({
-    result: rawText,
-    success: status === "completed",
+  // Terminal: memoize the shaped result for later collects and resolve every
+  // waiting gate. The entry is RETAINED (not deleted) so a `collect` issued
+  // after the terminal still returns the result — it's evicted only by the
+  // map's bounded-capacity policy.
+  bg.terminal = true;
+  bg.result = shapeTerminalResult(payload);
+  for (const w of [...bg.waiters]) {
+    clearTimeout(w.timeoutHandle);
+    w.resolveTerminal(bg.result);
+  }
+  bg.waiters.clear();
+}
+
+// ── collect_agent_result tool handler (Phase B2) ───────────────────
+//
+// Fetch (or wait for) the result of a background `invoke_agent`. Terminal →
+// return the shaped result immediately (resultFull / structuredResult-aware,
+// identical to the sync path). Still running + `waitSeconds > 0` → register a
+// gate resolved by the terminal `task:assignment_update` (with the same
+// sliding-deadline reset on activity as the sync invoke). On wait expiry →
+// return a NON-error "still running" status so the orchestrator can keep
+// waiting or move on (a collect timeout NEVER reaps the child). Unknown
+// assignmentId → a clear error.
+
+/** Per-call `waitSeconds` bounds — mirror the manifest inputSchema. */
+const MIN_COLLECT_WAIT_SECONDS = 0;
+const MAX_COLLECT_WAIT_SECONDS = 600;
+
+function clampWaitSeconds(waitSeconds: unknown): number {
+  if (typeof waitSeconds !== "number" || !Number.isFinite(waitSeconds)) return 0;
+  if (waitSeconds <= MIN_COLLECT_WAIT_SECONDS) return MIN_COLLECT_WAIT_SECONDS;
+  if (waitSeconds >= MAX_COLLECT_WAIT_SECONDS) return MAX_COLLECT_WAIT_SECONDS;
+  return Math.floor(waitSeconds);
+}
+
+interface CollectMeta {
+  subConversationId: string;
+  agentName: string;
+  agentConfigId: string;
+  assignmentId: string;
+}
+
+function terminalToolResult(
+  result: { result: string; success: boolean },
+  meta: CollectMeta,
+) {
+  return toolResult(result.result, {
+    ...(result.success ? {} : { isError: true }),
+    details: { _agentMeta: meta },
   });
 }
 
+function stillRunningToolResult(bg: BackgroundSpawn, meta: CollectMeta) {
+  return toolResult(
+    `Background agent "${bg.agentName}" is still running (assignmentId: ${meta.assignmentId}, ` +
+      `subConversation: ${bg.subConversationId}). No terminal result yet — call ` +
+      `collect_agent_result again (optionally with a larger waitSeconds) to keep waiting, ` +
+      `or move on and check back later.`,
+    { details: { _agentMeta: { ...meta, status: "running" } } },
+  );
+}
+
+const collectAgentResult: ToolHandler = async (args) => {
+  const { assignmentId, waitSeconds } = args as {
+    assignmentId: string;
+    waitSeconds?: number;
+  };
+
+  if (typeof assignmentId !== "string" || !assignmentId.trim()) {
+    return toolResult(
+      `Error: collect_agent_result requires a non-empty 'assignmentId' (the id returned by a background invoke_agent call).`,
+      { isError: true },
+    );
+  }
+
+  const bg = backgroundSpawns.get(assignmentId);
+  if (!bg) {
+    return toolResult(
+      `Error: no background agent is tracked for assignmentId "${assignmentId}". It may have ` +
+        `been started synchronously (without background: true), never started, or evicted after ` +
+        `many later background spawns. Re-dispatch it if you still need the work.`,
+      { isError: true },
+    );
+  }
+
+  const meta: CollectMeta = {
+    subConversationId: bg.subConversationId,
+    agentName: bg.agentName,
+    agentConfigId: bg.agentConfigId,
+    assignmentId,
+  };
+
+  // Already terminal → return the memoized shaped result.
+  if (bg.terminal && bg.result) {
+    return terminalToolResult(bg.result, meta);
+  }
+
+  const wait = clampWaitSeconds(waitSeconds);
+  if (wait <= 0) {
+    return stillRunningToolResult(bg, meta);
+  }
+
+  // Register a gate resolved by the terminal update (below), by activity-
+  // sliding, or by wait expiry. First-settle-wins.
+  const outcome = await new Promise<
+    { done: true; result: { result: string; success: boolean } } | { done: false }
+  >((resolve) => {
+    const waitMs = wait * 1000;
+    const fireTimeout = () => {
+      bg.waiters.delete(waiter);
+      resolve({ done: false });
+    };
+    const waiter: CollectWaiter = {
+      resolveTerminal: (result) => {
+        // The terminal handler already removed us from the set + cleared the
+        // timer; just settle the gate.
+        resolve({ done: true, result });
+      },
+      timeoutHandle: setTimeout(fireTimeout, waitMs),
+      timeoutMs: waitMs,
+      fireTimeout,
+    };
+    bg.waiters.add(waiter);
+  });
+
+  if (!outcome.done) {
+    return stillRunningToolResult(bg, meta);
+  }
+  return terminalToolResult(outcome.result, meta);
+};
+
 export const tools: Record<string, ToolHandler> = {
   invoke_agent: invokeAgent,
+  collect_agent_result: collectAgentResult,
 };
 
 // Expose internals for tests that want to drive the subscription
 // handler directly without routing through the real event dispatcher.
 export const _internals = {
   pendingInvocations,
+  backgroundSpawns,
+  registerBackgroundSpawn,
   handleAssignmentUpdate,
+  clampWaitSeconds,
   DEFAULT_AGENT_TIMEOUT_MS,
+  MAX_BACKGROUND_SPAWNS,
+  MAX_COLLECT_WAIT_SECONDS,
 };
 
 // Production wiring — gated on `import.meta.main` so test imports don't

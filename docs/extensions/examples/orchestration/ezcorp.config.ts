@@ -41,8 +41,35 @@ const INVOKE_AGENT_SCHEMA = {
       description:
         "Optional JSON Schema (object schemas only) that the agent's FINAL answer must satisfy. When provided, the sub-agent's final output is validated against this schema host-side; on failure the agent is automatically re-prompted (bounded) to emit corrected JSON, and you receive the validated JSON object instead of free text (or a clear schema-failure error). Supported keywords: type (object/array/string/number/integer/boolean/null), properties, required, items, enum, additionalProperties.",
     },
+    background: {
+      type: "boolean",
+      description:
+        "When true, dispatch the agent and return IMMEDIATELY with a handle (assignmentId) instead of blocking until it finishes — the Claude-Code-style background sub-agent. Use it to fan out several long-running agents in parallel and gather their results later with collect_agent_result; you are also notified when each finishes. A background agent holds a concurrent spawn slot until it reaches a terminal state, so many parallel background agents can exhaust the spawn quota. Omit (or false) for a normal blocking call that returns the agent's result inline.",
+    },
   },
   required: ["agentConfigId", "task"],
+} as const;
+
+// Static manifest schema for `collect_agent_result` — fetch (or wait for)
+// the result of a background invoke_agent. No per-turn runtime scoping, so
+// this schema is used verbatim (unlike invoke_agent's per-turn enum override).
+const COLLECT_AGENT_RESULT_SCHEMA = {
+  type: "object",
+  properties: {
+    assignmentId: {
+      type: "string",
+      description:
+        "The assignmentId returned by a background invoke_agent call (in the tool result and its _agentMeta).",
+    },
+    waitSeconds: {
+      type: "integer",
+      minimum: 0,
+      maximum: 600,
+      description:
+        "How long (seconds) to block waiting for the agent to finish before returning. 0 (or omitted) returns instantly: the result if the agent is already done, else a non-error 'still running' status. A positive value waits up to that many seconds of inactivity — an actively-working agent resets the timer — and on expiry returns the same non-error 'still running' status (the agent is NOT cancelled). Max 600.",
+    },
+  },
+  required: ["assignmentId"],
 } as const;
 
 export default defineExtension({
@@ -66,8 +93,14 @@ export default defineExtension({
     {
       name: "invoke_agent",
       description:
-        "Invoke a specialized agent to handle a task. The agent runs as an independent sub-conversation and returns its response. You can call this tool multiple times in parallel for independent tasks.",
+        "Invoke a specialized agent to handle a task. The agent runs as an independent sub-conversation and returns its response. You can call this tool multiple times in parallel for independent tasks. Pass background: true to dispatch it without blocking and collect the result later via collect_agent_result.",
       inputSchema: INVOKE_AGENT_SCHEMA as Record<string, unknown>,
+    },
+    {
+      name: "collect_agent_result",
+      description:
+        "Fetch (or wait for) the result of an agent started with invoke_agent's background: true. Pass the assignmentId from that call. Returns the agent's full result once it has finished (structured output included when a schema was set), or a non-error 'still running' status if it hasn't — optionally block up to waitSeconds. A collect timeout never cancels the agent; keep calling to keep waiting.",
+      inputSchema: COLLECT_AGENT_RESULT_SCHEMA as Record<string, unknown>,
     },
   ],
   permissions: {

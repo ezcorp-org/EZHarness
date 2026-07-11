@@ -333,6 +333,12 @@ describe("shouldDeliverEvent — pass-through tier", () => {
     expect(await shouldDeliverEvent("agent:complete", payload, { userId: "user-1" }, owned)).toBe(true);
     __clearMembershipCacheForTests();
     expect(await shouldDeliverEvent("agent:complete", payload, { userId: "user-1" }, foreign)).toBe(false);
+    // Phase B2: a background child's terminal agent:complete (success=false)
+    // is scoped identically — the emit is now fired from start-assignment on
+    // every terminal, so the failure variant must reach the owning parent too.
+    __clearMembershipCacheForTests();
+    const failurePayload = { ...payload, success: false, resultPreview: "Run was cancelled" };
+    expect(await shouldDeliverEvent("agent:complete", failurePayload, { userId: "user-1" }, owned)).toBe(true);
   });
 });
 

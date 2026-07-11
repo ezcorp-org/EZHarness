@@ -47,6 +47,25 @@ describe("applyToolFilters", () => {
       expect(names(out)).toEqual(["invoke_agent"]);
     });
 
+    test("Phase B2: collect_agent_result is an always-preserved orchestration tool", () => {
+      // Membership contract for the set (background collect must be reachable
+      // even under the most restrictive scope, like invoke_agent).
+      expect(ORCHESTRATION_TOOLS.has("collect_agent_result")).toBe(true);
+      const withCollect = [...sample(), tool("collect_agent_result")];
+      // Survives toolRestriction: "none" ...
+      expect(
+        names(applyToolFilters(withCollect, builtinDefs, { toolRestriction: "none" })),
+      ).toEqual(["collect_agent_result", "invoke_agent"]);
+      // ... and a broad deny (only forceDeniedTools can strip orchestration tools).
+      expect(
+        names(
+          applyToolFilters(withCollect, builtinDefs, {
+            deniedTools: ["collect_agent_result"],
+          }),
+        ),
+      ).toContain("collect_agent_result");
+    });
+
     test("all is a no-op", () => {
       const out = applyToolFilters(sample(), builtinDefs, { toolRestriction: "all" });
       expect(names(out)).toEqual(names(sample()));

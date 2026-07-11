@@ -127,12 +127,14 @@ beforeEach(() => {
     return { cancelled: true };
   });
   _internals.pendingInvocations.clear();
+  _internals.backgroundSpawns.clear();
 });
 
 afterEach(() => {
   _resetBindingsForTests();
   _setDefaultTimeoutMsForTests(60_000);
   _internals.pendingInvocations.clear();
+  _internals.backgroundSpawns.clear();
 });
 
 // ── invoke_agent — happy path ──────────────────────────────────────
@@ -1101,5 +1103,352 @@ describe("orchestration extension — structured output", () => {
     const out = await invocation;
     expect(expectIsError(out)).toBe(false);
     expect(expectText(out)).toBe(JSON.stringify({ grade: 10 }, null, 2));
+  });
+});
+
+// ── invoke_agent — background spawn (Phase B2) ─────────────────────
+//
+// `background: true` dispatches the child and returns IMMEDIATELY with a
+// handle payload. NO pending-invocation timer is armed (no timeout, no
+// reap); the child is tracked in the process-local `backgroundSpawns` map
+// for a later `collect_agent_result`, and the host notifies the parent.
+
+function expectAgentMetaBg(out: unknown): {
+  subConversationId: string;
+  agentName: string;
+  agentConfigId: string;
+  assignmentId: string;
+} {
+  const meta = expectAgentMeta(out) as {
+    subConversationId: string;
+    agentName: string;
+    agentConfigId: string;
+    assignmentId: string;
+  } | undefined;
+  if (!meta) throw new Error("tool-result has no _agentMeta");
+  return meta;
+}
+
+describe("orchestration extension — background spawn", () => {
+  test("returns immediately with a handle payload; no pending timer; backgroundSpawns tracked", async () => {
+    // A tiny default timeout would fire fast for a SYNC invoke — a background
+    // spawn must NOT arm it at all.
+    _setDefaultTimeoutMsForTests(20);
+    const { fn, calls } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+
+    // Resolves without any subscription being driven — proves non-blocking.
+    const out = await tools.invoke_agent!({
+      agentConfigId: "agent-builder",
+      task: "Long background job",
+      background: true,
+    });
+
+    // Handle payload text + _agentMeta carry the assignmentId.
+    const text = expectText(out);
+    expect(expectIsError(out)).toBe(false);
+    expect(text).toContain("started in the background");
+    expect(text).toContain("collect_agent_result");
+    const meta = expectAgentMetaBg(out);
+    expect(meta.agentName).toBe("builder");
+    expect(meta.agentConfigId).toBe("agent-builder");
+    expect(meta.assignmentId).toBe("asn-1");
+    expect(text).toContain(meta.assignmentId);
+    expect(text).toContain(meta.subConversationId);
+
+    // NO pending invocation registered (no timeout, no reap).
+    expect(_internals.pendingInvocations.size).toBe(0);
+    // Tracked as a background spawn instead.
+    expect(_internals.backgroundSpawns.size).toBe(1);
+    const bg = _internals.backgroundSpawns.get("asn-1")!;
+    expect(bg.terminal).toBe(false);
+    expect(bg.subConversationId).toBe("sub-asn-1");
+    expect(bg.agentRunId).toBe("run-asn-1");
+
+    // The spawn asked the host to notify the parent on terminal.
+    expect(calls[0]!.input.notifyParentOnTerminal).toBe(true);
+
+    // Wait well past the tiny default timeout — nothing fires (no timer),
+    // nothing is reaped, and the entry stays put for a later collect.
+    await new Promise((r) => setTimeout(r, 60));
+    expect(_internals.pendingInvocations.size).toBe(0);
+    expect(cancelRunCalls).toHaveLength(0);
+    expect(_internals.backgroundSpawns.size).toBe(1);
+  });
+
+  test("a synchronous (non-background) invoke does NOT set notifyParentOnTerminal and does not touch backgroundSpawns", async () => {
+    const { fn, calls } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+
+    const invocation = tools.invoke_agent!({ agentConfigId: "agent-builder", task: "sync" });
+    const key = await drainPendingKey();
+    expect(calls[0]!.input.notifyParentOnTerminal).toBeUndefined();
+    expect(_internals.backgroundSpawns.size).toBe(0);
+
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: `task-${key}`,
+      assignment: { id: key, status: "completed", resultPreview: "done" },
+    });
+    await invocation;
+  });
+
+  test("unknown agentConfigId with background:true still errors before spawning", async () => {
+    const { fn, calls } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+    const out = await tools.invoke_agent!({
+      agentConfigId: "agent-does-not-exist",
+      task: "nope",
+      background: true,
+    });
+    expect(expectIsError(out)).toBe(true);
+    expect(calls).toHaveLength(0);
+    expect(_internals.backgroundSpawns.size).toBe(0);
+  });
+});
+
+// ── collect_agent_result (Phase B2) ────────────────────────────────
+
+/** Dispatch a background invoke and return its assignmentId. */
+async function startBackground(
+  args: Record<string, unknown> = {},
+): Promise<string> {
+  const out = await tools.invoke_agent!({
+    agentConfigId: "agent-builder",
+    task: "bg",
+    background: true,
+    ...args,
+  });
+  return expectAgentMetaBg(out).assignmentId;
+}
+
+describe("collect_agent_result", () => {
+  test("terminal already reached → returns the full result immediately (resultFull-preferred), success", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    const id = await startBackground();
+
+    const full = "Z".repeat(4000);
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: "task-x",
+      assignment: { id, status: "completed", resultPreview: "clip..." },
+      resultFull: full,
+    });
+
+    const out = await tools.collect_agent_result!({ assignmentId: id });
+    expect(expectIsError(out)).toBe(false);
+    expect(expectText(out)).toBe(full);
+    const meta = expectAgentMetaBg(out);
+    expect(meta.assignmentId).toBe(id);
+    expect(meta.subConversationId).toBe("sub-asn-1");
+  });
+
+  test("terminal structured result → collect returns pretty-printed JSON", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    const id = await startBackground();
+
+    const parsed = { grade: 9, notes: "ok" };
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: "task-x",
+      assignment: { id, status: "completed", resultPreview: "raw" },
+      resultFull: '{"grade":9}',
+      structuredResult: parsed,
+    });
+
+    const out = await tools.collect_agent_result!({ assignmentId: id });
+    expect(expectIsError(out)).toBe(false);
+    expect(expectText(out)).toBe(JSON.stringify(parsed, null, 2));
+  });
+
+  test("terminal failure → collect returns isError with the result text", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    const id = await startBackground();
+
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: "task-x",
+      assignment: { id, status: "failed", resultPreview: "boom" },
+      resultFull: "the agent failed: boom",
+    });
+
+    const out = await tools.collect_agent_result!({ assignmentId: id });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toBe("the agent failed: boom");
+  });
+
+  test("still running, waitSeconds omitted → non-error 'still running' status immediately", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    const id = await startBackground();
+
+    const out = await tools.collect_agent_result!({ assignmentId: id });
+    expect(expectIsError(out)).toBe(false);
+    expect(expectText(out)).toMatch(/still running/i);
+    expect(expectText(out)).toContain(id);
+  });
+
+  test("still running, waitSeconds>0 → resolves when a terminal update arrives", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    const id = await startBackground();
+
+    // Kick off a waiting collect (does NOT resolve yet).
+    const collectPromise = tools.collect_agent_result!({ assignmentId: id, waitSeconds: 30 });
+
+    // A gate registered on the background entry.
+    let waiters = 0;
+    for (let i = 0; i < 50 && waiters === 0; i++) {
+      await new Promise((r) => setTimeout(r, 1));
+      waiters = _internals.backgroundSpawns.get(id)!.waiters.size;
+    }
+    expect(waiters).toBe(1);
+
+    // Deliver the terminal update — the gate resolves with the result.
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: "task-x",
+      assignment: { id, status: "completed", resultPreview: "p" },
+      resultFull: "waited-and-done",
+    });
+
+    const out = await collectPromise;
+    expect(expectIsError(out)).toBe(false);
+    expect(expectText(out)).toBe("waited-and-done");
+    // Waiter cleaned up; entry retained (memoized result).
+    expect(_internals.backgroundSpawns.get(id)!.waiters.size).toBe(0);
+    expect(_internals.backgroundSpawns.get(id)!.terminal).toBe(true);
+  });
+
+  test("still running, waitSeconds expires with no terminal → non-error 'still running' (child NOT reaped)", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    const id = await startBackground();
+
+    // waitSeconds:1 → ~1s idle window; no terminal arrives → expiry.
+    const out = await tools.collect_agent_result!({ assignmentId: id, waitSeconds: 1 });
+    expect(expectIsError(out)).toBe(false);
+    expect(expectText(out)).toMatch(/still running/i);
+    // A collect timeout must NOT cancel the child.
+    expect(cancelRunCalls).toHaveLength(0);
+    // Gate cleaned up; entry still tracked (not terminal).
+    expect(_internals.backgroundSpawns.get(id)!.waiters.size).toBe(0);
+    expect(_internals.backgroundSpawns.get(id)!.terminal).toBe(false);
+  });
+
+  test("sliding deadline: activity updates keep a waiting collect alive past its base wait, then it resolves", async () => {
+    _setSpawnForTests(makeFakeSpawn().fn);
+    const id = await startBackground();
+
+    // waitSeconds:1 base. Deliver a non-terminal activity update at ~0.6s
+    // (< 1s base, so the timer never fired) which RESETS the deadline; total
+    // elapsed then exceeds 1s, proving the slide. Finally a terminal resolves.
+    const collectPromise = tools.collect_agent_result!({ assignmentId: id, waitSeconds: 1 });
+    for (let i = 0; i < 50 && _internals.backgroundSpawns.get(id)!.waiters.size === 0; i++) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    await new Promise((r) => setTimeout(r, 600));
+    // Activity → slide (also updates the live run id).
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: "task-x",
+      assignment: { id, status: "running", agentRunId: "run-cycle-2" },
+    });
+    expect(_internals.backgroundSpawns.get(id)!.agentRunId).toBe("run-cycle-2");
+    await new Promise((r) => setTimeout(r, 600)); // ~1.2s total > 1s base
+    // Still waiting (would have expired at 1s without the slide).
+    expect(_internals.backgroundSpawns.get(id)!.waiters.size).toBe(1);
+
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: "task-x",
+      assignment: { id, status: "completed", resultPreview: "p" },
+      resultFull: "slid-then-done",
+    });
+    const out = await collectPromise;
+    expect(expectText(out)).toBe("slid-then-done");
+  });
+
+  test("unknown assignmentId → clear error", async () => {
+    const out = await tools.collect_agent_result!({ assignmentId: "not-a-real-id" });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toContain("no background agent");
+    expect(expectText(out)).toContain("not-a-real-id");
+  });
+
+  test("empty / missing assignmentId → clear error", async () => {
+    const out = await tools.collect_agent_result!({ assignmentId: "  " });
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toMatch(/non-empty 'assignmentId'/);
+  });
+
+  test("clampWaitSeconds bounds waitSeconds into [0, MAX] and floors fractions", () => {
+    const { clampWaitSeconds, MAX_COLLECT_WAIT_SECONDS } = _internals;
+    // Non-numbers / non-finite → 0.
+    expect(clampWaitSeconds(undefined)).toBe(0);
+    expect(clampWaitSeconds("30" as unknown)).toBe(0);
+    expect(clampWaitSeconds(Number.NaN)).toBe(0);
+    expect(clampWaitSeconds(Number.POSITIVE_INFINITY)).toBe(0);
+    // At/below the floor → 0.
+    expect(clampWaitSeconds(0)).toBe(0);
+    expect(clampWaitSeconds(-5)).toBe(0);
+    // At/above the ceiling → clamped to MAX (proves the cap without a real wait).
+    expect(clampWaitSeconds(MAX_COLLECT_WAIT_SECONDS)).toBe(MAX_COLLECT_WAIT_SECONDS);
+    expect(clampWaitSeconds(9_999)).toBe(MAX_COLLECT_WAIT_SECONDS);
+    // In range → floored to an integer.
+    expect(clampWaitSeconds(45.9)).toBe(45);
+  });
+});
+
+// ── background map bounding / eviction ─────────────────────────────
+
+describe("orchestration extension — backgroundSpawns bounding", () => {
+  test("keeps at most MAX_BACKGROUND_SPAWNS, evicting the oldest TERMINAL entry first", async () => {
+    const MAX = _internals.MAX_BACKGROUND_SPAWNS;
+    // Fill to capacity, marking each terminal so it is eviction-eligible.
+    for (let i = 0; i < MAX; i++) {
+      const asn = `bg-${i}`;
+      _internals.registerBackgroundSpawn(
+        { assignmentId: asn, subConversationId: `sub-${asn}`, agentRunId: `run-${asn}`, taskId: `task-${asn}` },
+        "builder",
+        "agent-builder",
+      );
+      await _internals.handleAssignmentUpdate({
+        conversationId: "conv-x",
+        taskId: `task-${asn}`,
+        assignment: { id: asn, status: "completed", resultPreview: "done" },
+      });
+    }
+    expect(_internals.backgroundSpawns.size).toBe(MAX);
+    expect(_internals.backgroundSpawns.has("bg-0")).toBe(true);
+
+    // One more → oldest terminal (bg-0) evicted; size holds at MAX.
+    _internals.registerBackgroundSpawn(
+      { assignmentId: "bg-new", subConversationId: "sub-new", agentRunId: "run-new", taskId: "task-new" },
+      "builder",
+      "agent-builder",
+    );
+    expect(_internals.backgroundSpawns.size).toBe(MAX);
+    expect(_internals.backgroundSpawns.has("bg-0")).toBe(false);
+    expect(_internals.backgroundSpawns.has("bg-new")).toBe(true);
+  });
+
+  test("in-flight (non-terminal) entries are NOT evicted — map may run over the soft cap", async () => {
+    const MAX = _internals.MAX_BACKGROUND_SPAWNS;
+    // Fill with in-flight (never terminal) entries.
+    for (let i = 0; i < MAX; i++) {
+      const asn = `live-${i}`;
+      _internals.registerBackgroundSpawn(
+        { assignmentId: asn, subConversationId: `sub-${asn}`, agentRunId: `run-${asn}`, taskId: `task-${asn}` },
+        "builder",
+        "agent-builder",
+      );
+    }
+    // One more: no terminal entry to evict → the live one is kept; size = MAX+1.
+    _internals.registerBackgroundSpawn(
+      { assignmentId: "live-extra", subConversationId: "sub-extra", agentRunId: "run-extra", taskId: "task-extra" },
+      "builder",
+      "agent-builder",
+    );
+    expect(_internals.backgroundSpawns.size).toBe(MAX + 1);
+    expect(_internals.backgroundSpawns.has("live-0")).toBe(true);
+    expect(_internals.backgroundSpawns.has("live-extra")).toBe(true);
   });
 });

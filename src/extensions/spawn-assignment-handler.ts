@@ -260,6 +260,11 @@ export async function handleSpawnAssignmentRpc(
     typeof params.parentRunId === "string" && params.parentRunId.trim()
       ? params.parentRunId
       : undefined;
+  // Background-spawn opt-in: when the caller (the orchestration extension's
+  // `background: true` path) sets this, startAssignment emits `agent:complete`
+  // AND enqueues a completion-notify pending message for the parent
+  // conversation on the terminal transition. Only accepted as a strict `true`.
+  const callerNotifyParentOnTerminal = params.notifyParentOnTerminal === true;
   const callerAutonomous = ((): { maxCycles?: number } | undefined => {
     const ac = params.autonomousContinuation;
     if (!ac || typeof ac !== "object" || Array.isArray(ac)) return undefined;
@@ -386,6 +391,7 @@ export async function handleSpawnAssignmentRpc(
       ...(callerParentRunId ? { parentRunId: callerParentRunId } : {}),
       ...(callerAutonomous ? { autonomousContinuation: callerAutonomous } : {}),
       ...(callerOutputSchema ? { outputSchema: callerOutputSchema } : {}),
+      ...(callerNotifyParentOnTerminal ? { notifyParentOnTerminal: true } : {}),
       // Re-key the quota reservation onto each new cycle's run id so the
       // concurrent slot follows the LIVE run (not the stale cycle-1 id) and
       // `ezcorp/cancel-run` — the invoke_agent timeout reap — can still

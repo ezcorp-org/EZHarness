@@ -29,7 +29,7 @@ import {
   resolveConversationOwnerUserId,
 } from "../db/queries/conversations";
 import { getSetting } from "../db/queries/settings";
-import { dequeue } from "./pending-messages";
+import { dequeue, enqueue } from "./pending-messages";
 import {
   TASK_DONE_RE,
   TASK_BLOCKED_RE,
@@ -191,6 +191,25 @@ export interface StartAssignmentOpts {
    *  `outputSchema` are set, autonomous looping runs first and the schema
    *  validates the FINAL cycle's output. */
   outputSchema?: Record<string, unknown>;
+  /** Background-spawn completion notify (Phase B2). Set by the
+   *  orchestration extension's `background: true` invoke path. When true,
+   *  EVERY terminal transition (complete / error / cancel / refused-start /
+   *  stream-crash) additionally enqueues a plain, capped completion-notify
+   *  pending message onto the PARENT conversation (`conversationId`) so an
+   *  orchestrator that dispatched this child without blocking can react on
+   *  its next turn. `agent:complete` is emitted on the terminal transition
+   *  regardless of this flag (it is the immediate UI / observability / ext-
+   *  subscription signal); this flag ONLY gates the parent-queue nudge.
+   *
+   *  Drain semantics (v1, Claude-Code-style "notify on next turn"): the
+   *  pending-messages queue is drained by (a) `startAssignment`'s own
+   *  run:complete when the PARENT is itself a sub-agent whose run later ends
+   *  (nested teams → the orchestrator auto-continues with the notify text),
+   *  and (b) the goal-host loop. A top-level orchestrator (the user's main
+   *  chat) has no idle-queue drainer, so its notify is delivered whenever the
+   *  parent is next driven through a draining path; the `agent:complete`
+   *  event is the reliable immediate signal in that case. */
+  notifyParentOnTerminal?: boolean;
 }
 
 export interface StartAssignmentResult {
@@ -247,7 +266,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     projectId, agentConfig, parentModel, parentProvider,
     reuseSubConversationId, parentMessageId, overrides, teamToolScope,
     orchestrationDepth, autonomousContinuation, parentRunId,
-    onCycleRunIdChange, outputSchema,
+    onCycleRunIdChange, outputSchema, notifyParentOnTerminal,
   } = opts;
 
   // Master kill-switch (Advanced Settings → "Agent goal pinning &
@@ -369,6 +388,61 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     return autonomyFeatureEnabled ? `${base}\n\n${objectiveBlock}` : base;
   };
 
+  // ── Terminal notify + agent:complete (Phase B2) ──────────────────
+  //
+  // Called from EVERY terminal branch inside startRun with the LIVE cycle
+  // run id (`cycleRunId`) — auto-continue / autonomous / schema-retry cycles
+  // each start a fresh run, and the cascade-cancel + observability trails key
+  // on the run that actually authored the terminal turn.
+  //
+  // (1) Emits the `agent:complete` bus event for ALL assignments. This closes
+  //     the historical gap where the invoke_agent → startAssignment path only
+  //     ever emitted `agent:spawn` + `task:assignment_update` and NEVER
+  //     `agent:complete`, so the SSE chip refresh / observability agent_call
+  //     rows / extension lifecycle subscriptions never saw the terminal. The
+  //     event is already a `parentConversationId`-scoped direct carrier in
+  //     `sse-conversation-filter.ts` and is consumed by `observability/
+  //     collector.ts` + `lifecycle-dispatcher.ts` — this is purely the missing
+  //     emit.
+  // (2) For a background spawn (`notifyParentOnTerminal`), ALSO enqueues a
+  //     plain, capped completion-notify pending message onto the PARENT
+  //     conversation so an orchestrator that dispatched this child without
+  //     blocking can react on its next turn (drain semantics: see
+  //     StartAssignmentOpts.notifyParentOnTerminal). The text carries no
+  //     secrets (only the already-sanitized 200-char preview) and is capped.
+  const NOTIFY_PREVIEW_CAP = 400;
+  function emitTerminal(
+    cycleRunId: string,
+    success: boolean,
+    resultPreview: string,
+  ): void {
+    bus.emit("agent:complete", {
+      runId: cycleRunId,
+      agentRunId: cycleRunId,
+      subConversationId,
+      agentName: agentConfig.name,
+      agentConfigId: assignment.agentConfigId,
+      success,
+      resultPreview,
+      parentConversationId: conversationId,
+    });
+    if (!notifyParentOnTerminal) return;
+    const clipped =
+      resultPreview.length > NOTIFY_PREVIEW_CAP
+        ? resultPreview.slice(0, NOTIFY_PREVIEW_CAP) + "…"
+        : resultPreview;
+    const status = success ? "success" : "failure";
+    const content =
+      `Background agent "${agentConfig.name}" finished (${status})` +
+      (clipped ? `: ${clipped}` : "") +
+      ". Use collect_agent_result for the full output.";
+    enqueue(conversationId, {
+      messageId: crypto.randomUUID(),
+      content,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
   /**
    * Start a run and register lifecycle listeners. Called for the
    * initial task and recursively for auto-continue when the user
@@ -403,6 +477,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
         bus, conversationId, taskId, assignment,
         "Parent run ended before this agent could start — child was not started.",
       );
+      emitTerminal(runId, false, "Parent run ended before this agent could start");
       log.info("Refused to start child of terminal parent run", {
         conversationId, taskId, parentRunId, runId,
       });
@@ -601,6 +676,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       emitAssignmentUpdate(
         bus, conversationId, taskId, assignment, resultFull, structuredArg,
       );
+      emitTerminal(runId, true, assignment.resultPreview ?? "");
     });
 
     unsubError = bus.on("run:error", (data) => {
@@ -616,6 +692,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       // Return the full error to the orchestrator so it can diagnose and
       // retry/route, not just the truncated panel preview.
       emitAssignmentUpdate(bus, conversationId, taskId, assignment, capFullResult(errorMsg));
+      emitTerminal(runId, false, assignment.resultPreview ?? "");
     });
 
     // Cancellation lifecycle. `executor.cancelRun` AND streamChat's own
@@ -643,6 +720,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
 
       emitTaskSnapshot(bus, snapshot);
       emitAssignmentUpdate(bus, conversationId, taskId, assignment, "Run was cancelled");
+      emitTerminal(runId, false, "Run was cancelled");
     });
 
     streamPromise.catch((err) => {
@@ -653,6 +731,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       assignment.resultPreview = errorMsg.slice(0, 200);
       emitTaskSnapshot(bus, snapshot);
       emitAssignmentUpdate(bus, conversationId, taskId, assignment, capFullResult(errorMsg));
+      emitTerminal(runId, false, assignment.resultPreview ?? "");
     });
   }
 

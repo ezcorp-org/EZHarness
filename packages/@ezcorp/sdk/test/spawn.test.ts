@@ -137,6 +137,7 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
     expect(params).not.toHaveProperty("teamToolScope");
     expect(params).not.toHaveProperty("orchestrationDepth");
     expect(params).not.toHaveProperty("autonomousContinuation");
+    expect(params).not.toHaveProperty("notifyParentOnTerminal");
   });
 
   test("reuseSubConversationFor: echoed verbatim", async () => {
@@ -287,6 +288,24 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
     const { calls } = happy();
     await spawnAssignment({ agentConfigId: "cfg-1", task: "t" });
     expect(calls[0]?.params as Record<string, unknown>).not.toHaveProperty("outputSchema");
+  });
+
+  test("notifyParentOnTerminal: sent as true when set (background spawn)", async () => {
+    const { calls } = happy();
+    await spawnAssignment({
+      agentConfigId: "cfg-1",
+      task: "t",
+      notifyParentOnTerminal: true,
+    });
+    expect((calls[0]?.params as Record<string, unknown>).notifyParentOnTerminal).toBe(true);
+  });
+
+  test("notifyParentOnTerminal: omitted when absent or false (no key on the wire)", async () => {
+    const { calls } = happy();
+    await spawnAssignment({ agentConfigId: "cfg-1", task: "t" });
+    expect(calls[0]?.params as Record<string, unknown>).not.toHaveProperty("notifyParentOnTerminal");
+    await spawnAssignment({ agentConfigId: "cfg-1", task: "t", notifyParentOnTerminal: false });
+    expect(calls[1]?.params as Record<string, unknown>).not.toHaveProperty("notifyParentOnTerminal");
   });
 
   test("all 5 Phase 4 fields together — each sits at its own key", async () => {
