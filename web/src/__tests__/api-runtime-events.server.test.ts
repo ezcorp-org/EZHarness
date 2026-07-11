@@ -8,17 +8,26 @@
 
 import { test, expect, describe, vi } from "vitest";
 
-const { busOn } = vi.hoisted(() => ({
+const { busOn, getConversationMock, getRunConversationIdMock, getRunOwnershipMock } = vi.hoisted(() => ({
   busOn: vi.fn((_event: string, _handler: (data: unknown) => void) => () => undefined),
+  getConversationMock: vi.fn(async (_id: string): Promise<unknown> => undefined),
+  getRunConversationIdMock: vi.fn(async (_id: string): Promise<string | undefined> => undefined),
+  getRunOwnershipMock: vi.fn(async (_id: string) => ({ userId: null, conversationId: null })),
 }));
 
 vi.mock("$lib/server/context", () => ({
   getBus: () => ({
     on: busOn,
   }),
+  // Wave 0: the route builds a runId→scope resolver from the executor
+  // for the fail-closed scoped-runtime-event SSE filter.
+  getExecutor: () => ({
+    getRunConversationId: getRunConversationIdMock,
+    getRunOwnership: getRunOwnershipMock,
+  }),
 }));
 vi.mock("$server/db/queries/conversations", () => ({
-  getConversation: vi.fn(async () => undefined),
+  getConversation: getConversationMock,
 }));
 
 const { GET } = await import("../routes/api/runtime-events/+server");
@@ -103,5 +112,59 @@ describe("GET /api/runtime-events", () => {
     // Tear the stream down so the heartbeat interval and bus
     // subscriptions don't leak into other tests.
     await res.body!.cancel();
+  });
+
+  // Wave 0 (orchestration-upgrade): run:token used to broadcast raw
+  // streamed LLM text to every authenticated subscriber. This pins the
+  // full route-level path: bus handler → shouldDeliverEvent (real
+  // filter module) → executor-backed run-scope resolution → frame is
+  // written ONLY for the run's conversation owner.
+  test("run:token frames reach only the run's conversation owner", async () => {
+    const { __clearMembershipCacheForTests, __clearRunScopeCacheForTests } = await import(
+      "$server/runtime/sse-conversation-filter"
+    );
+    __clearMembershipCacheForTests();
+    __clearRunScopeCacheForTests();
+
+    getRunConversationIdMock.mockImplementation(async (runId: string) =>
+      runId === "run-owned" ? "conv-owned" : runId === "run-foreign" ? "conv-foreign" : undefined,
+    );
+    getConversationMock.mockImplementation(async (id: string) =>
+      id === "conv-owned" ? { userId: "u1" } : id === "conv-foreign" ? { userId: "someone-else" } : null,
+    );
+
+    busOn.mockClear();
+    const res = await GET(makeEvent({ locals: authedUser }));
+    expect(res.status).toBe(200);
+
+    const tokenHandler = busOn.mock.calls.find((call) => call[0] === "run:token")?.[1] as
+      | ((data: unknown) => void)
+      | undefined;
+    expect(tokenHandler).toBeDefined();
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    const readFrame = async (): Promise<string> => {
+      const { value } = await reader.read();
+      return decoder.decode(value);
+    };
+
+    // Priming frame arrives first.
+    expect(await readFrame()).toContain(": connected");
+
+    // A foreign run's token must be dropped; the owned run's token must
+    // arrive. Emitting foreign-then-owned proves the drop: microtask
+    // delivery is FIFO per handler, so if the foreign frame had been
+    // written it would precede the owned one.
+    tokenHandler!({ runId: "run-foreign", token: "other-users-secret", kind: "text" });
+    tokenHandler!({ runId: "run-owned", token: "my-own-token", kind: "text" });
+
+    const frame = await readFrame();
+    expect(frame).toContain("my-own-token");
+    expect(frame).not.toContain("other-users-secret");
+
+    await reader.cancel();
+    __clearMembershipCacheForTests();
+    __clearRunScopeCacheForTests();
   });
 });

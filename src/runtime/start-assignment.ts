@@ -23,7 +23,11 @@ import type { AgentExecutor } from "./executor";
 import type { EventBus } from "./events";
 import type { AgentEvents, TeamMemberOverrides, TeamToolScope } from "../types";
 import { CURRENT_MODEL_SENTINEL } from "../types";
-import { createSubConversation, getSubConversations } from "../db/queries/conversations";
+import {
+  createSubConversation,
+  getSubConversations,
+  resolveConversationOwnerUserId,
+} from "../db/queries/conversations";
 import { getSetting } from "../db/queries/settings";
 import { dequeue } from "./pending-messages";
 import {
@@ -203,11 +207,18 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     if (existingAgentConv) {
       subConversationId = existingAgentConv.id;
     } else {
+      // Wave 0: persist the owning user on the sub-conversation so
+      // conversation-scoped authorization (SSE filter, /api/runs
+      // ownership) works without walking the parent chain. Inherited
+      // from the nearest ancestor with an owner; legacy null-owner
+      // rows are covered by the filter's parent walk.
+      const ownerUserId = await resolveConversationOwnerUserId(conversationId);
       const subConv = await createSubConversation(projectId, {
         parentConversationId: conversationId,
         agentConfigId: assignment.agentConfigId,
         systemPrompt: agentConfig.prompt,
         title: agentConfig.name,
+        ...(ownerUserId ? { userId: ownerUserId } : {}),
         ...(parentMessageId ? { parentMessageId } : {}),
       });
       subConversationId = subConv.id;

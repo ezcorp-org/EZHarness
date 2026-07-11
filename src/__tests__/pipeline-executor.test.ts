@@ -164,3 +164,50 @@ describe("PipelineExecutor", () => {
     expect(events).toContain("complete");
   });
 });
+
+// ── Wave 0 (orchestration-upgrade): pipeline events carry the initiating
+//    userId so the SSE filter can scope delivery fail-closed. ──────────
+
+describe("PipelineExecutor — pipeline:* userId scoping", () => {
+  test("success path stamps userId on start/step/complete events", async () => {
+    const { bus, pipeline } = setup([
+      makeAgent("ok", async () => ({ success: true, output: "fine" })),
+    ]);
+    const seen: Array<{ type: string; userId?: string }> = [];
+    bus.on("pipeline:start", (d) => seen.push({ type: "start", userId: d.userId }));
+    bus.on("pipeline:step", (d) => seen.push({ type: "step", userId: d.userId }));
+    bus.on("pipeline:complete", (d) => seen.push({ type: "complete", userId: d.userId }));
+
+    const def: PipelineDefinition = {
+      name: "scoped",
+      description: "t",
+      steps: [{ name: "s1", agent: "ok" }],
+    };
+    const run = await pipeline.runPipeline(def, {}, undefined, "user-42");
+
+    expect(run.status).toBe("success");
+    expect(seen.map((e) => e.type)).toEqual(["start", "step", "complete"]);
+    for (const e of seen) expect(e.userId).toBe("user-42");
+  });
+
+  test("error path stamps userId on pipeline:error; CLI runs (no user) emit undefined", async () => {
+    const { bus, pipeline } = setup([
+      makeAgent("boom", async () => ({ success: false, output: null, error: "nope" })),
+    ]);
+    const errors: Array<string | undefined> = [];
+    bus.on("pipeline:error", (d) => errors.push(d.userId));
+
+    const def: PipelineDefinition = {
+      name: "scoped-err",
+      description: "t",
+      steps: [{ name: "s1", agent: "boom" }],
+    };
+
+    const withUser = await pipeline.runPipeline(def, {}, undefined, "user-42");
+    expect(withUser.status).toBe("error");
+    const cli = await pipeline.runPipeline(def, {});
+    expect(cli.status).toBe("error");
+
+    expect(errors).toEqual(["user-42", undefined]);
+  });
+});

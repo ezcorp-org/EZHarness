@@ -1,9 +1,9 @@
 import type { RequestHandler } from "./$types";
-import { getBus } from "$lib/server/context";
+import { getBus, getExecutor } from "$lib/server/context";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { getConversation } from "$server/db/queries/conversations";
-import { shouldDeliverEvent } from "$server/runtime/sse-conversation-filter";
+import { shouldDeliverEvent, type RunScope } from "$server/runtime/sse-conversation-filter";
 import { BUS_EVENTS } from "./bus-events";
 
 /**
@@ -49,6 +49,20 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   const subscriberConversationId = url.searchParams.get("conversationId") ?? undefined;
   const subscriber = { userId: user.id, conversationId: subscriberConversationId };
 
+  // Wave 0: executor-backed runId→scope resolver for the fail-closed
+  // scoped-runtime-event filter. Memory-map first (hot path — one Map
+  // lookup per `run:token`), persisted run row only as fallback for
+  // conversation-less agent/CLI runs. Results are cached inside the
+  // filter module.
+  const executor = getExecutor();
+  const getRunScope = async (runId: string): Promise<RunScope | null> => {
+    const conversationId = await executor.getRunConversationId(runId);
+    if (conversationId) return { conversationId };
+    const ownership = await executor.getRunOwnership(runId);
+    if (ownership.conversationId || ownership.userId) return ownership;
+    return null;
+  };
+
   // Cleanup state lives in this closure — `cancel()` is called with the
   // cancellation reason (per the WHATWG Streams spec), NOT the controller,
   // so we can't stash refs on the controller and read them back. Hoisting
@@ -84,7 +98,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
             // enqueue if authorized. Events deliver out of strict
             // handler-registration order but in causal order per-type
             // (microtasks run FIFO), which is what the client expects.
-            shouldDeliverEvent(event, data, subscriber, getConversation)
+            shouldDeliverEvent(event, data, subscriber, getConversation, getRunScope)
               .then((deliver) => {
                 if (!deliver) return;
                 try {

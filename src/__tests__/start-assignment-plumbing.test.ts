@@ -43,12 +43,17 @@ let createSubConversationImpl: (
 // plumbing through the fresh-create branch is asserted from the test.
 let createSubConversationCalls: Array<Record<string, unknown>> = [];
 
+// Wave 0: owner resolution for the fresh-create branch. Per-test
+// replaceable so the userId-inheritance assertions can vary the owner.
+let resolveOwnerImpl: (conversationId: string) => Promise<string | null> = async () => "owner-user";
+
 mock.module("../db/queries/conversations", () => ({
   getSubConversations: async (parentId: string) => getSubConversationsImpl(parentId),
   createSubConversation: async (projectId: string, opts: Record<string, unknown>) => {
     createSubConversationCalls.push({ projectId, ...opts });
     return createSubConversationImpl(projectId, opts as any);
   },
+  resolveConversationOwnerUserId: async (conversationId: string) => resolveOwnerImpl(conversationId),
 }));
 
 // Master kill-switch (Advanced Settings → global:agentAutonomyEnabled).
@@ -181,6 +186,7 @@ beforeEach(() => {
   createSubConversationImpl = async () => ({ id: "sub-fresh-created" });
   createSubConversationCalls = [];
   getSettingImpl = async () => undefined;
+  resolveOwnerImpl = async () => "owner-user";
 });
 
 // ── 0. Sub-agent prompt — must tell the LLM not to call task_complete ─
@@ -274,6 +280,38 @@ describe("startAssignment — parentMessageId plumbing", () => {
 
     expect(createSubConversationCalls).toHaveLength(1);
     expect(createSubConversationCalls[0]).not.toHaveProperty("parentMessageId");
+  });
+
+  // Wave 0: fresh sub-conversations are stamped with the parent chain's
+  // owner so conversation-scoped authorization (SSE filter, /api/runs
+  // ownership) holds without a parent walk.
+  test("userId: resolved owner is forwarded onto createSubConversation when creating fresh", async () => {
+    const { executor } = makeMockExecutor();
+    getSubConversationsImpl = async () => [];
+    createSubConversationImpl = async () => ({ id: "sub-owned" });
+    resolveOwnerImpl = async (conversationId: string) => {
+      expect(conversationId).toBe("conv-parent");
+      return "owner-user";
+    };
+
+    const opts = baseOpts({ executor });
+    await startAssignment(opts);
+
+    expect(createSubConversationCalls).toHaveLength(1);
+    expect(createSubConversationCalls[0]?.userId).toBe("owner-user");
+  });
+
+  test("userId: ownerless parent chain → no userId key on createSubConversation opts", async () => {
+    const { executor } = makeMockExecutor();
+    getSubConversationsImpl = async () => [];
+    createSubConversationImpl = async () => ({ id: "sub-ownerless" });
+    resolveOwnerImpl = async () => null;
+
+    const opts = baseOpts({ executor });
+    await startAssignment(opts);
+
+    expect(createSubConversationCalls).toHaveLength(1);
+    expect(createSubConversationCalls[0]).not.toHaveProperty("userId");
   });
 });
 

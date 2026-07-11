@@ -30,7 +30,10 @@ export class PipelineExecutor {
       steps: [],
     };
 
-    this.bus.emit("pipeline:start", { pipelineRun });
+    // `userId` scopes pipeline:* SSE delivery to the initiating user
+    // (fail-closed filter — see sse-conversation-filter.ts). CLI runs
+    // have no user and are observed via stdout/DB, not SSE.
+    this.bus.emit("pipeline:start", { pipelineRun, userId });
 
     const stepResults = new Map<string, AgentResult>();
     let prevResult: AgentResult | undefined;
@@ -46,7 +49,7 @@ export class PipelineExecutor {
             status: "running",
           };
           pipelineRun.steps.push(stepRun);
-          this.bus.emit("pipeline:step", { pipelineRun, step: stepRun });
+          this.bus.emit("pipeline:step", { pipelineRun, step: stepRun, userId });
 
           const resolvedInput = this.resolveStepInput(
             step.input ?? {},
@@ -89,13 +92,13 @@ export class PipelineExecutor {
       pipelineRun.status = "success";
       pipelineRun.finishedAt = Date.now();
       pipelineRun.result = prevResult ?? { success: true, output: null };
-      this.bus.emit("pipeline:complete", { pipelineRun });
+      this.bus.emit("pipeline:complete", { pipelineRun, userId });
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       pipelineRun.status = "error";
       pipelineRun.finishedAt = Date.now();
       pipelineRun.result = { success: false, output: null, error };
-      this.bus.emit("pipeline:error", { pipelineRun, error });
+      this.bus.emit("pipeline:error", { pipelineRun, error, userId });
     }
 
     return pipelineRun;

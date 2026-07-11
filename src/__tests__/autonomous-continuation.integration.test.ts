@@ -25,6 +25,9 @@ afterAll(() => restoreModuleMocks());
 mock.module("../db/queries/conversations", () => ({
   getSubConversations: async () => [],
   createSubConversation: async () => ({ id: "sub-int" }),
+  // Wave 0: startAssignment resolves the owner to stamp on fresh
+  // sub-conversations. Stubbed so the fresh-create branch stays DB-free.
+  resolveConversationOwnerUserId: async () => "int-owner",
 }));
 
 // Master kill-switch absent ⇒ feature enabled (the behavior under test).

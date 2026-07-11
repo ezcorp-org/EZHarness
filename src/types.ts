@@ -251,10 +251,13 @@ export interface AgentEvents {
       };
     };
   };
-  "pipeline:start": { pipelineRun: PipelineRun };
-  "pipeline:step": { pipelineRun: PipelineRun; step: PipelineStepRun };
-  "pipeline:complete": { pipelineRun: PipelineRun };
-  "pipeline:error": { pipelineRun: PipelineRun; error: string };
+  // `userId` (Wave 0) names the initiating user so the SSE filter can
+  // scope delivery fail-closed. CLI-triggered pipelines omit it and are
+  // not SSE-observable (stdout/DB only).
+  "pipeline:start": { pipelineRun: PipelineRun; userId?: string };
+  "pipeline:step": { pipelineRun: PipelineRun; step: PipelineStepRun; userId?: string };
+  "pipeline:complete": { pipelineRun: PipelineRun; userId?: string };
+  "pipeline:error": { pipelineRun: PipelineRun; error: string; userId?: string };
   "tool:start": { conversationId: string; extensionId: string; toolName: string; input: unknown; timestamp: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string; category?: string };
   "tool:complete": { conversationId: string; extensionId: string; toolName: string; output: unknown; duration: number; success: boolean; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };
   "tool:error": { conversationId: string; extensionId: string; toolName: string; error: string; duration: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };

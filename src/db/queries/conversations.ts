@@ -167,6 +167,28 @@ export async function getSubConversations(parentConversationId: string): Promise
     .orderBy(asc(conversations.createdAt));
 }
 
+/**
+ * Resolve the owning userId of a conversation, walking the
+ * `parentConversationId` chain when the row itself has no owner.
+ * Sub-conversations historically persisted with `userId: null`;
+ * ownership is inherited from the (grand)parent. Depth-capped at 10 —
+ * mirrors the executor's MAX_SPAWN_DEPTH, so a legitimate chain can
+ * never exceed it. Returns null for an ownerless chain, a missing
+ * conversation, or a cycle.
+ */
+export async function resolveConversationOwnerUserId(
+  conversationId: string,
+): Promise<string | null> {
+  let currentId: string | null = conversationId;
+  for (let depth = 0; depth <= 10 && currentId; depth++) {
+    const conv: Conversation | null = await getConversation(currentId);
+    if (!conv) return null;
+    if (conv.userId) return conv.userId;
+    currentId = conv.parentConversationId ?? null;
+  }
+  return null;
+}
+
 export async function listConversations(
   projectId: string,
   userId?: string,

@@ -12,21 +12,30 @@ import {
   isAuthorizedForConversation,
   __clearMembershipCacheForTests,
   __clearExtensionEventRegistryForTests,
+  __clearRunScopeCacheForTests,
   DIRECT_CARRIER_EVENT_TYPES,
+  SCOPED_RUNTIME_EVENT_TYPES,
   isDirectCarrierEvent,
   isRegisteredExtensionEvent,
   registerExtensionEvent,
   unregisterExtensionEvents,
+  type GetRunScope,
 } from "../runtime/sse-conversation-filter";
 
 // ── Fake getConversation ──
-type FakeRow = { userId?: string | null } | null;
+type FakeRow = { userId?: string | null; parentConversationId?: string | null } | null;
 function makeGetConversation(rows: Record<string, FakeRow>): (id: string) => Promise<FakeRow> {
   return async (id: string) => rows[id] ?? null;
 }
 
-beforeEach(() => __clearMembershipCacheForTests());
-afterEach(() => __clearMembershipCacheForTests());
+beforeEach(() => {
+  __clearMembershipCacheForTests();
+  __clearRunScopeCacheForTests();
+});
+afterEach(() => {
+  __clearMembershipCacheForTests();
+  __clearRunScopeCacheForTests();
+});
 
 describe("DIRECT_CARRIER_EVENT_TYPES", () => {
   test("enumerates the direct-carrier event types (13 from prereqs audit + ask-user:answer + ez:client-tool + extensions:installed + goal:update + the two briefing events; Phase 5's orchestrator:human_* removed by ask-user migration)", () => {
@@ -276,7 +285,10 @@ describe("shouldDeliverEvent — goal:update (/goal Phase 2, FR-20, FR-16)", () 
 });
 
 describe("shouldDeliverEvent — pass-through tier", () => {
-  test("passes runId-only events regardless of subscriber", async () => {
+  test("DROPS runId-only events when no run-scope resolver is wired (Wave 0 fail-closed — previously broadcast)", async () => {
+    // Pre-Wave-0 behavior was `true` here: run:start (and run:token —
+    // raw LLM text!) broadcast to every authenticated subscriber. The
+    // scoped-runtime tier now fails closed when scope can't be proven.
     const get = makeGetConversation({});
     const deliver = await shouldDeliverEvent(
       "run:start",
@@ -284,7 +296,7 @@ describe("shouldDeliverEvent — pass-through tier", () => {
       { userId: "user-1" },
       get,
     );
-    expect(deliver).toBe(true);
+    expect(deliver).toBe(false);
   });
 
   test("passes ext:state events (extension-scoped, not conversation-scoped)", async () => {
@@ -314,15 +326,13 @@ describe("shouldDeliverEvent — pass-through tier", () => {
     expect(deliver).toBe(true);
   });
 
-  test("passes agent:* events (subConversationId resolution deferred — Phase 2d follow-up)", async () => {
-    const get = makeGetConversation({});
-    const deliver = await shouldDeliverEvent(
-      "agent:complete",
-      { runId: "r", agentRunId: "ar", subConversationId: "sc", agentName: "a", agentConfigId: "ac", success: true, resultPreview: "", parentConversationId: "pc" },
-      { userId: "user-1" },
-      get,
-    );
-    expect(deliver).toBe(true);
+  test("agent:* events are scoped by parentConversationId (Wave 0 — previously broadcast)", async () => {
+    const owned = makeGetConversation({ pc: { userId: "user-1" } });
+    const foreign = makeGetConversation({ pc: { userId: "user-2" } });
+    const payload = { runId: "r", agentRunId: "ar", subConversationId: "sc", agentName: "a", agentConfigId: "ac", success: true, resultPreview: "", parentConversationId: "pc" };
+    expect(await shouldDeliverEvent("agent:complete", payload, { userId: "user-1" }, owned)).toBe(true);
+    __clearMembershipCacheForTests();
+    expect(await shouldDeliverEvent("agent:complete", payload, { userId: "user-1" }, foreign)).toBe(false);
   });
 });
 
@@ -671,5 +681,203 @@ describe("shouldDeliverEvent — extension events", () => {
       get,
     );
     expect(deliver).toBe(true);
+  });
+});
+
+// ── Wave 0 (orchestration-upgrade): scoped runtime streaming events ──
+//
+// `run:token` (raw streamed LLM text) and its siblings used to broadcast
+// to every authenticated SSE subscriber. These suites pin the fail-closed
+// scoping contract: conversation carrier → ownership check, userId →
+// exact match, runId → executor-backed resolution, otherwise DROP.
+
+describe("SCOPED_RUNTIME_EVENT_TYPES", () => {
+  const MEMBERS = [
+    "run:start", "run:log", "run:status", "run:token", "run:usage",
+    "run:turn_text_reset",
+    "agent:spawn", "agent:status", "agent:complete",
+    "pipeline:start", "pipeline:step", "pipeline:complete", "pipeline:error",
+  ] as const;
+
+  test("enumerates the 13 scoped runtime events", () => {
+    expect(SCOPED_RUNTIME_EVENT_TYPES.size).toBe(13);
+    for (const name of MEMBERS) {
+      expect(SCOPED_RUNTIME_EVENT_TYPES.has(name as never)).toBe(true);
+    }
+  });
+
+  test("every member requires authorization filtering (isDirectCarrierEvent)", () => {
+    for (const name of MEMBERS) {
+      expect(isDirectCarrierEvent(name)).toBe(true);
+    }
+  });
+
+  test("members stay OUT of DIRECT_CARRIER_EVENT_TYPES — that set doubles as the extension-subscription allowlist and raw token streams must not become subscribable", () => {
+    for (const name of MEMBERS) {
+      expect(DIRECT_CARRIER_EVENT_TYPES.has(name as never)).toBe(false);
+    }
+  });
+
+  test("registerExtensionEvent rejects collisions with scoped runtime events (an extension named 'run' cannot shadow run:token)", () => {
+    expect(registerExtensionEvent("run", "token")).toBe(false);
+    expect(registerExtensionEvent("agent", "spawn")).toBe(false);
+    expect(registerExtensionEvent("pipeline", "start")).toBe(false);
+    __clearExtensionEventRegistryForTests();
+  });
+});
+
+describe("shouldDeliverEvent — scoped runtime events (Wave 0)", () => {
+  const makeRunScope = (map: Record<string, { conversationId?: string | null; userId?: string | null } | null>): GetRunScope =>
+    async (runId: string) => map[runId] ?? null;
+
+  test("run:token reaches ONLY the run's conversation owner (leak regression)", async () => {
+    const get = makeGetConversation({ "conv-A": { userId: "owner" } });
+    const getRunScope = makeRunScope({ "run-1": { conversationId: "conv-A" } });
+    const payload = { runId: "run-1", token: "s3cret-stream", kind: "text" };
+    expect(await shouldDeliverEvent("run:token", payload, { userId: "owner" }, get, getRunScope)).toBe(true);
+    expect(await shouldDeliverEvent("run:token", payload, { userId: "intruder" }, get, getRunScope)).toBe(false);
+  });
+
+  test("conversation-less run resolves to the initiating user (agent/CLI runs)", async () => {
+    const get = makeGetConversation({});
+    const getRunScope = makeRunScope({ "run-2": { userId: "runner" } });
+    const payload = { runId: "run-2", status: "working" };
+    expect(await shouldDeliverEvent("run:status", payload, { userId: "runner" }, get, getRunScope)).toBe(true);
+    expect(await shouldDeliverEvent("run:status", payload, { userId: "other" }, get, getRunScope)).toBe(false);
+  });
+
+  test("unknown run (resolver returns null) is DROPPED", async () => {
+    const get = makeGetConversation({});
+    const getRunScope = makeRunScope({});
+    expect(await shouldDeliverEvent("run:token", { runId: "ghost", token: "x" }, { userId: "u" }, get, getRunScope)).toBe(false);
+  });
+
+  test("resolver failure is DROPPED (fail-closed), not broadcast", async () => {
+    const get = makeGetConversation({});
+    const getRunScope: GetRunScope = async () => { throw new Error("db down"); };
+    expect(await shouldDeliverEvent("run:token", { runId: "run-1", token: "x" }, { userId: "u" }, get, getRunScope)).toBe(false);
+  });
+
+  test("missing resolver is DROPPED (legacy callers cannot broadcast scoped events)", async () => {
+    const get = makeGetConversation({});
+    expect(await shouldDeliverEvent("run:token", { runId: "run-1", token: "x" }, { userId: "u" }, get)).toBe(false);
+  });
+
+  test("scoped conversation authorization fails CLOSED on DB error (contrast: legacy carriers fail open)", async () => {
+    const getThrowing = async (): Promise<FakeRow> => { throw new Error("db down"); };
+    const getRunScope = makeRunScope({ "run-1": { conversationId: "conv-A" } });
+    expect(await shouldDeliverEvent("run:token", { runId: "run-1", token: "x" }, { userId: "u" }, getThrowing, getRunScope)).toBe(false);
+    // Legacy carrier keeps its documented fail-open contract.
+    expect(await shouldDeliverEvent("tool:complete", { conversationId: "conv-A" }, { userId: "u" }, getThrowing)).toBe(true);
+  });
+
+  test("pipeline:* events are scoped to the initiating userId, fail-closed when absent", async () => {
+    const get = makeGetConversation({});
+    const payload = { pipelineRun: { id: "p1" }, userId: "runner" };
+    expect(await shouldDeliverEvent("pipeline:start", payload, { userId: "runner" }, get)).toBe(true);
+    expect(await shouldDeliverEvent("pipeline:start", payload, { userId: "other" }, get)).toBe(false);
+    // CLI-triggered pipeline (no userId) → dropped, never broadcast.
+    expect(await shouldDeliverEvent("pipeline:complete", { pipelineRun: { id: "p2" } }, { userId: "runner" }, get)).toBe(false);
+  });
+
+  test("agent:status without parent carrier is scoped via subConversationId, walking to the parent owner", async () => {
+    const get = makeGetConversation({
+      "sub-1": { userId: null, parentConversationId: "conv-A" },
+      "conv-A": { userId: "owner" },
+    });
+    const payload = { runId: "r-x", subConversationId: "sub-1", agentName: "a", status: "running" };
+    expect(await shouldDeliverEvent("agent:status", payload, { userId: "owner" }, get)).toBe(true);
+    __clearMembershipCacheForTests();
+    expect(await shouldDeliverEvent("agent:status", payload, { userId: "intruder" }, get)).toBe(false);
+  });
+
+  test("run-scope resolution is cached — one resolver call serves a token burst", async () => {
+    let calls = 0;
+    const getRunScope: GetRunScope = async () => {
+      calls += 1;
+      return { conversationId: "conv-A" };
+    };
+    const get = makeGetConversation({ "conv-A": { userId: "owner" } });
+    for (let i = 0; i < 5; i++) {
+      await shouldDeliverEvent("run:token", { runId: "run-1", token: `t${i}` }, { userId: "owner" }, get, getRunScope);
+    }
+    expect(calls).toBe(1);
+  });
+
+  test("unresolved scope is NOT cached — the run row may not be written yet", async () => {
+    const answers: Array<{ conversationId?: string } | null> = [null, { conversationId: "conv-A" }];
+    let calls = 0;
+    const getRunScope: GetRunScope = async () => {
+      calls += 1;
+      return answers.shift() ?? null;
+    };
+    const get = makeGetConversation({ "conv-A": { userId: "owner" } });
+    expect(await shouldDeliverEvent("run:token", { runId: "run-1", token: "a" }, { userId: "owner" }, get, getRunScope)).toBe(false);
+    expect(await shouldDeliverEvent("run:token", { runId: "run-1", token: "b" }, { userId: "owner" }, get, getRunScope)).toBe(true);
+    expect(calls).toBe(2);
+  });
+});
+
+describe("isAuthorizedForConversation — sub-conversation ownership walk", () => {
+  test("null-owner sub-conversation inherits the parent's owner", async () => {
+    const get = makeGetConversation({
+      "sub-1": { userId: null, parentConversationId: "conv-A" },
+      "conv-A": { userId: "owner" },
+    });
+    expect(await isAuthorizedForConversation("owner", "sub-1", get)).toBe(true);
+    __clearMembershipCacheForTests();
+    expect(await isAuthorizedForConversation("intruder", "sub-1", get)).toBe(false);
+  });
+
+  test("nested null-owner chain walks to the grandparent", async () => {
+    const get = makeGetConversation({
+      "sub-2": { userId: null, parentConversationId: "sub-1" },
+      "sub-1": { userId: null, parentConversationId: "conv-A" },
+      "conv-A": { userId: "owner" },
+    });
+    expect(await isAuthorizedForConversation("owner", "sub-2", get)).toBe(true);
+  });
+
+  test("ownerless chain authorizes NOBODY", async () => {
+    const get = makeGetConversation({
+      "sub-1": { userId: null, parentConversationId: "conv-A" },
+      "conv-A": { userId: null },
+    });
+    expect(await isAuthorizedForConversation("anyone", "sub-1", get)).toBe(false);
+  });
+
+  test("cyclic parent chain terminates at the depth cap and denies", async () => {
+    const get = makeGetConversation({
+      "a": { userId: null, parentConversationId: "b" },
+      "b": { userId: null, parentConversationId: "a" },
+    });
+    expect(await isAuthorizedForConversation("anyone", "a", get)).toBe(false);
+  });
+});
+
+describe("shouldDeliverEvent — run terminal events runId upgrade (Wave 0)", () => {
+  const makeRunScope = (map: Record<string, { conversationId?: string | null; userId?: string | null } | null>): GetRunScope =>
+    async (runId: string) => map[runId] ?? null;
+
+  test("run:complete without conversationId is scoped via runId when a resolver is wired", async () => {
+    const get = makeGetConversation({ "conv-A": { userId: "owner" } });
+    const getRunScope = makeRunScope({ "run-1": { conversationId: "conv-A" } });
+    const payload = { run: { id: "run-1", result: { output: "private" } } };
+    expect(await shouldDeliverEvent("run:complete", payload, { userId: "owner" }, get, getRunScope)).toBe(true);
+    expect(await shouldDeliverEvent("run:complete", payload, { userId: "intruder" }, get, getRunScope)).toBe(false);
+  });
+
+  test("run:complete falls back to the initiating user for conversation-less runs", async () => {
+    const get = makeGetConversation({});
+    const getRunScope = makeRunScope({ "run-2": { userId: "runner" } });
+    const payload = { run: { id: "run-2" } };
+    expect(await shouldDeliverEvent("run:complete", payload, { userId: "runner" }, get, getRunScope)).toBe(true);
+    expect(await shouldDeliverEvent("run:complete", payload, { userId: "other" }, get, getRunScope)).toBe(false);
+  });
+
+  test("genuinely unresolvable run:complete keeps the historical pass-through", async () => {
+    const get = makeGetConversation({});
+    const getRunScope = makeRunScope({});
+    expect(await shouldDeliverEvent("run:complete", { run: { id: "ghost" } }, { userId: "u" }, get, getRunScope)).toBe(true);
   });
 });
