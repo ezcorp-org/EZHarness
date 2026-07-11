@@ -5,9 +5,14 @@
  * against the mocked POST /api/composer/suggest and asserts the UX contract
  * the feature review flagged as make-or-break:
  *   - suggestions appear only after a typing pause on a long-enough draft
+ *   - every chip is labelled extension-first ({extension} · {name})
  *   - the popover never fights the mention popover
- *   - chip click inserts the extension mention; Apply/Undo round-trips the
- *     rewrite; Esc dismisses without re-nagging on the same draft
+ *   - clicking a chip wires the extension AND opens the inline-tool UI
+ *     preselected to the clicked tool: the form opens directly (skipping the
+ *     ToolPicker even when the extension exposes several tools), falling back
+ *     to the picker only when the clicked tool is missing; Add invokes it
+ *   - Apply/Undo round-trips the rewrite; Esc dismisses without re-nagging on
+ *     the same draft, and closing the sub-tool form never re-nags either
  *   - sidecar-absent deployments get chips but no enhancement row
  *   - the request body always carries the authoritative modeId
  */
@@ -28,6 +33,30 @@ const ENHANCEMENT = {
 };
 
 const DRAFT = "please review my code for bugs";
+
+// Bespoke tool sets returned by the per-spec `**/api/extensions/*/tools`
+// override (see openSuggestionSubTool). The default fixture hands back a single
+// `analyze` tool for every extension, so the preselect/picker branches MUST use
+// these overrides or they silently exercise the wrong decision.
+const SCAN_WITH_PARAM = [
+	{
+		name: "scan",
+		description: "Scan a target for issues",
+		inputSchema: {
+			type: "object",
+			properties: { target: { type: "string", description: "What to scan" } },
+			required: ["target"],
+		},
+	},
+	{ name: "lint", description: "Lint the codebase", inputSchema: { type: "object", properties: {} } },
+];
+const TOOLS_WITHOUT_SCAN = [
+	{ name: "lint", description: "Lint the codebase", inputSchema: { type: "object", properties: {} } },
+	{ name: "format", description: "Format the codebase", inputSchema: { type: "object", properties: {} } },
+];
+const SCAN_PARAMETERLESS = [
+	{ name: "scan", description: "Scan the whole workspace", inputSchema: { type: "object", properties: {} } },
+];
 
 async function setupAndFocus(page: any, mockApi: any, composerSuggest: Record<string, unknown>) {
 	await mockApi({
@@ -62,6 +91,27 @@ async function setupAndFocus(page: any, mockApi: any, composerSuggest: Record<st
 
 const popover = (page: any) => page.getByTestId("suggestion-popover");
 
+// Pop the tool chips, then click the `scan` chip to enter the inline-tool flow.
+// A per-spec `**/api/extensions/*/tools` override — registered AFTER mockApi so
+// the last route wins (the shared-variables.spec idiom) — decides which tool set
+// the clicked extension returns, so each test can drive a specific
+// chooseInlineToolAction branch (preselect-hit form, preselect-miss picker,
+// parameterless confirm).
+async function openSuggestionSubTool(
+	page: any,
+	mockApi: any,
+	extensionTools: Array<Record<string, unknown>>,
+) {
+	const textarea = await setupAndFocus(page, mockApi, { tools: SUGGEST_TOOLS });
+	await page.route("**/api/extensions/*/tools", (route: any) => {
+		route.fulfill({ json: { tools: extensionTools } });
+	});
+	await textarea.pressSequentially(DRAFT, { delay: 25 });
+	await expect(popover(page)).toBeVisible({ timeout: 4000 });
+	await page.locator('button[data-testid="suggestion-tool-chip"][data-tool="scan"]').click();
+	return textarea;
+}
+
 test.describe("Composer suggestions", () => {
 	test("typing pause pops ranked tool chips + enhancement @evidence", async ({ page, mockApi }, testInfo) => {
 		const textarea = await setupAndFocus(page, mockApi, {
@@ -74,7 +124,8 @@ test.describe("Composer suggestions", () => {
 		await expect(popover(page)).toBeVisible({ timeout: 4000 });
 		const chips = page.getByTestId("suggestion-tool-chip");
 		await expect(chips).toHaveCount(3);
-		await expect(chips.nth(0)).toContainText("scan");
+		// Extension-first label ({extension} · {name}), 🔧 on the actionable chip.
+		await expect(chips.nth(0)).toContainText("analyzer · scan");
 		// Built-in chip renders informational (span, no button role).
 		await expect(page.locator('span[data-testid="suggestion-tool-chip"][data-tool="task_create"]')).toBeVisible();
 		// Enhancement row with Apply.
@@ -91,14 +142,81 @@ test.describe("Composer suggestions", () => {
 		await expect(popover(page)).not.toBeVisible();
 	});
 
-	test("tool chip click inserts the extension mention and closes the popover", async ({ page, mockApi }) => {
-		const textarea = await setupAndFocus(page, mockApi, { tools: SUGGEST_TOOLS });
-		await textarea.pressSequentially(DRAFT, { delay: 25 });
-		await expect(popover(page)).toBeVisible({ timeout: 4000 });
+	test("suggestion chip opens the preselected sub-tool form, skipping the picker @evidence", async ({ page, mockApi }, testInfo) => {
+		const textarea = await openSuggestionSubTool(page, mockApi, SCAN_WITH_PARAM);
 
-		await page.locator('button[data-testid="suggestion-tool-chip"][data-tool="scan"]').click();
-		// Compact display projection of `![ext:analyzer]`.
+		// The popover closes the moment the chip is chosen.
+		await expect(popover(page)).not.toBeVisible();
+		// The clicked extension is wired — assert the rendered overlay PILL, not
+		// just the textarea projection (the pill IS the visible "wired" state).
+		await expect(page.locator('[data-mention-kind="extension"][data-mention-name="analyzer"]')).toBeVisible();
 		await expect(textarea).toHaveValue(/!analyzer/);
+		// The extension exposes TWO tools, yet no picker appears: the chip
+		// preselected `scan`, so chooseInlineToolAction jumped straight to the
+		// form. (Both listbox surfaces — mention + ToolPicker — are absent.)
+		await expect(page.locator('[role="listbox"]')).toHaveCount(0);
+		// The form opens directly on the preselected tool, with its parameter.
+		const form = page.locator("form");
+		await expect(form).toContainText("analyzer");
+		await expect(form).toContainText("scan");
+		await expect(form.locator("#field-target")).toBeVisible();
+
+		await captureEvidence(page, testInfo, "composer-suggestion-chip-param-form");
+	});
+
+	test("chip whose tool is missing from the extension falls back to the tool picker", async ({ page, mockApi }) => {
+		await openSuggestionSubTool(page, mockApi, TOOLS_WITHOUT_SCAN);
+
+		// Preselect name `scan` matches nothing in the returned set, so
+		// chooseInlineToolAction falls through to the >1-tool picker.
+		await expect(page.getByRole("listbox", { name: "Tools for analyzer" })).toBeVisible();
+		// No tool was preselected, so the form must NOT have opened.
+		await expect(page.locator('form button[type="submit"]')).not.toBeVisible();
+	});
+
+	test("parameterless suggested tool opens a confirm form and Add invokes it", async ({ page, mockApi }) => {
+		await openSuggestionSubTool(page, mockApi, SCAN_PARAMETERLESS);
+
+		let invokeBody: any = null;
+		// No default mock for POST /api/tool-invoke — capture then 200 it.
+		await page.route("**/api/tool-invoke", async (route: any) => {
+			invokeBody = route.request().postDataJSON();
+			await route.fulfill({ json: { ok: true } });
+		});
+
+		// An empty schema still surfaces as an explicit confirm step (per-tool-call
+		// consent) — never fired straight off a speculative suggestion click.
+		await expect(page.getByText("No parameters required — Add runs the tool.")).toBeVisible();
+		await page.locator('form button[type="submit"]').click();
+
+		await expect.poll(() => invokeBody, { timeout: 5000 }).not.toBeNull();
+		expect(invokeBody.extensionName).toBe("analyzer");
+		expect(invokeBody.toolName).toBe("scan");
+		expect(invokeBody.input).toEqual({});
+		// The fresh-conversation edge: the current conversation anchors the call.
+		expect(typeof invokeBody.conversationId).toBe("string");
+		expect(invokeBody.conversationId.length).toBeGreaterThan(0);
+	});
+
+	test("Escape closes the sub-tool form; the pill and draft survive without re-nagging", async ({ page, mockApi }) => {
+		const textarea = await openSuggestionSubTool(page, mockApi, SCAN_WITH_PARAM);
+
+		// Focus a form field so Escape reaches the form's own keydown handler —
+		// the textarea's Escape only ever dismisses the suggestion popover.
+		const field = page.locator("#field-target");
+		await expect(field).toBeVisible();
+		await field.focus();
+		await field.press("Escape");
+
+		// The form closes...
+		await expect(page.locator('form button[type="submit"]')).not.toBeVisible();
+		// ...but the wired extension pill and the drafted prose both survive.
+		await expect(page.locator('[data-mention-kind="extension"][data-mention-name="analyzer"]')).toBeVisible();
+		await expect(textarea).toHaveValue(/please review my code for bugs.*!analyzer/);
+
+		// The chip-click path wired the draft programmatically (no input event),
+		// so no fresh suggest cycle is scheduled — the popover stays closed.
+		await page.waitForTimeout(900);
 		await expect(popover(page)).not.toBeVisible();
 	});
 
@@ -140,7 +258,7 @@ test.describe("Composer suggestions", () => {
 		await expect(popover(page)).not.toBeVisible();
 	});
 
-	test("colliding short tool names disambiguate with the extension suffix @evidence", async ({ page, mockApi }, testInfo) => {
+	test("every suggestion chip is labelled extension-first @evidence", async ({ page, mockApi }, testInfo) => {
 		const clash = (extension: string) => ({
 			name: "weather-now",
 			extension,
@@ -149,18 +267,25 @@ test.describe("Composer suggestions", () => {
 			score: 0.5,
 		});
 		const textarea = await setupAndFocus(page, mockApi, {
-			tools: [clash("open-meteo"), clash("weather-api"), SUGGEST_TOOLS[0]],
+			tools: [clash("open-meteo"), clash("weather-api"), SUGGEST_TOOLS[0], SUGGEST_TOOLS[2]],
 		});
 		await textarea.pressSequentially(DRAFT, { delay: 25 });
 		await expect(popover(page)).toBeVisible({ timeout: 4000 });
 
 		const chips = page.getByTestId("suggestion-tool-chip");
-		await expect(chips.nth(0)).toHaveText(/weather-now · open-meteo/);
-		await expect(chips.nth(1)).toHaveText(/weather-now · weather-api/);
-		// Unique names stay bare — no suffix noise when there's no collision.
-		await expect(chips.nth(2)).toHaveText(/^🔧 scan$/);
+		await expect(chips).toHaveCount(4);
+		// Actionable extension chips: 🔧 + extension-first label, even when two
+		// share the short name `weather-now` (extension prefix disambiguates).
+		await expect(chips.nth(0)).toHaveText(/^🔧 open-meteo · weather-now$/);
+		await expect(chips.nth(1)).toHaveText(/^🔧 weather-api · weather-now$/);
+		await expect(chips.nth(2)).toHaveText(/^🔧 analyzer · scan$/);
+		await expect(chips.nth(2)).toHaveAttribute("data-extension", "analyzer");
+		// Built-in chip: informational span (no 🔧, no button role), extension-first.
+		const builtin = page.locator('span[data-testid="suggestion-tool-chip"][data-tool="task_create"]');
+		await expect(builtin).toHaveText(/^ez · task_create$/);
+		await expect(builtin).toHaveAttribute("data-extension", "ez");
 
-		await captureEvidence(page, testInfo, "composer-suggestions-chip-disambiguation");
+		await captureEvidence(page, testInfo, "composer-suggestions-chip-ext-prefix");
 	});
 
 	test("sidecar absent: chips render, enhancement row does not", async ({ page, mockApi }) => {

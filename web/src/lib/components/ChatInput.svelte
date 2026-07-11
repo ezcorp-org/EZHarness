@@ -23,6 +23,7 @@
 		popoverVisible,
 		buildSuggestBody,
 		appendExtensionMention,
+		chooseInlineToolAction,
 		type SuggestedTool,
 		type Enhancement,
 	} from "$lib/composer-suggest-logic";
@@ -397,7 +398,11 @@
 		return calls[calls.length - 1]!.status;
 	}
 
-	async function handleChipClick(extName: string) {
+	// Fetch an extension's tools and open the inline-tool UI. `preselectToolName`
+	// (set when a suggestion chip clicked a specific tool) jumps straight to the
+	// form for that tool, skipping the picker; without it the shared
+	// `chooseInlineToolAction` decision applies (1 tool → form, >1 → picker).
+	async function openInlineToolUI(extName: string, preselectToolName?: string) {
 		activeExtension = extName;
 		formInitialValues = {};
 		try {
@@ -405,15 +410,22 @@
 			if (!res.ok) return;
 			const { tools }: { tools: ToolDefinition[] } = await res.json();
 			activeTools = tools;
-			if (tools.length === 1) {
-				selectedTool = tools[0];
+			const decision = chooseInlineToolAction(tools, preselectToolName);
+			if (decision.action === "form") {
+				selectedTool = decision.tool;
 				showToolForm = true;
-			} else if (tools.length > 1) {
+			} else if (decision.action === "picker") {
 				showToolPicker = true;
 			}
 		} catch {
 			resetInlineToolState();
 		}
+	}
+
+	// Pill clicks + extension-mention auto-open enter the inline-tool UI with no
+	// preselection (existing behavior — the picker/form choice is tool-count-driven).
+	function handleChipClick(extName: string) {
+		void openInlineToolUI(extName);
 	}
 
 	function handleToolSelect(tool: ToolDefinition) {
@@ -606,6 +618,10 @@
 		suggestDismissed = true;
 		clearSuggestions();
 		adjustHeight();
+		// Converge onto the inline-tool flow, preselected to the clicked tool:
+		// the pill renders + extension is wired above, then the form opens on
+		// exactly this tool (skipping the picker even when the extension has more).
+		void openInlineToolUI(tool.extension, tool.name);
 	}
 
 	function applySuggestEnhancement() {

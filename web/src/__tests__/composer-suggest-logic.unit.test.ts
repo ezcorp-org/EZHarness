@@ -9,6 +9,7 @@ import {
 	popoverVisible,
 	buildSuggestBody,
 	appendExtensionMention,
+	chooseInlineToolAction,
 	MIN_SUGGEST_DRAFT_LENGTH,
 	ENHANCE_BACKOFF_MS,
 	SUGGEST_DEBOUNCE_MS,
@@ -138,6 +139,40 @@ describe("appendExtensionMention", () => {
 
 	test("empty draft gets just the token", () => {
 		expect(appendExtensionMention("", "analyzer").wire).toBe("![ext:analyzer] ");
+	});
+});
+
+describe("chooseInlineToolAction", () => {
+	const scan = { name: "scan" };
+	const lint = { name: "lint" };
+	const fmt = { name: "fmt" };
+
+	test("preselect names a tool among many → form on that exact tool (skip picker)", () => {
+		expect(chooseInlineToolAction([scan, lint, fmt], "lint")).toEqual({
+			action: "form",
+			tool: lint,
+		});
+	});
+
+	test("preselect misses among many → picker", () => {
+		expect(chooseInlineToolAction([scan, lint, fmt], "nope")).toEqual({ action: "picker" });
+	});
+
+	test("preselect misses with a single tool → form on the lone tool", () => {
+		expect(chooseInlineToolAction([scan], "nope")).toEqual({ action: "form", tool: scan });
+	});
+
+	test("no preselect, one tool → form", () => {
+		expect(chooseInlineToolAction([scan])).toEqual({ action: "form", tool: scan });
+	});
+
+	test("no preselect, many tools → picker", () => {
+		expect(chooseInlineToolAction([scan, lint])).toEqual({ action: "picker" });
+	});
+
+	test("empty list → none (with and without a preselect)", () => {
+		expect(chooseInlineToolAction([])).toEqual({ action: "none" });
+		expect(chooseInlineToolAction([], "anything")).toEqual({ action: "none" });
 	});
 });
 

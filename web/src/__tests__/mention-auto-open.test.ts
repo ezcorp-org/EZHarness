@@ -6,6 +6,7 @@ import {
 	getSegments,
 } from "../lib/mention-logic";
 import { searchMentions, type MentionResult } from "../lib/api";
+import { chooseInlineToolAction } from "../lib/composer-suggest-logic";
 
 /**
  * Tests for the auto-open tool form feature:
@@ -33,14 +34,19 @@ interface ChipClickResult {
 async function handleChipClickLogic(
 	extName: string,
 	fetchFn: typeof fetch,
+	preselectToolName?: string,
 ): Promise<ChipClickResult> {
 	try {
 		const res = await fetchFn(`/api/extensions/${encodeURIComponent(extName)}/tools`);
 		if (!res.ok) return { action: "noop" };
 		const { tools }: { tools: ToolDefinition[] } = await res.json();
-		if (tools.length === 1) {
-			return { action: "show-form", tools, selectedTool: tools[0] };
-		} else if (tools.length > 1) {
+		// Delegate the form/picker/none decision to the REAL shared logic so this
+		// simulation can never drift from ChatInput's openInlineToolUI.
+		const decision = chooseInlineToolAction(tools, preselectToolName);
+		if (decision.action === "form") {
+			return { action: "show-form", tools, selectedTool: decision.tool };
+		}
+		if (decision.action === "picker") {
 			return { action: "show-picker", tools };
 		}
 		return { action: "noop", tools };
@@ -72,6 +78,7 @@ async function handleMentionSelectLogic(
 	currentText: string,
 	cursorPos: number,
 	fetchFn: typeof fetch,
+	preselectToolName?: string,
 ): Promise<MentionSelectResult> {
 	const kind = item.kind === "extension" ? "ext" : item.kind;
 	const result = insertMentionToken(currentText, cursorPos, {
@@ -85,7 +92,7 @@ async function handleMentionSelectLogic(
 	// Auto-open tool form/picker for extension mentions
 	if (kind === "ext") {
 		autoOpenTriggered = true;
-		chipClickResult = await handleChipClickLogic(item.name, fetchFn);
+		chipClickResult = await handleChipClickLogic(item.name, fetchFn, preselectToolName);
 	}
 
 	return {
@@ -378,6 +385,52 @@ describe("integration: type → search → select → auto-open", () => {
 		expect(selectResult.text).toBe("use ![ext:markdown-utils] ");
 		expect(selectResult.autoOpenTriggered).toBe(true);
 		expect(selectResult.chipClickResult!.action).toBe("show-picker");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Preselect: a suggestion-chip click names the tool → jump straight to its form
+// (exercises the same handleChipClickLogic delegation with a preselect name)
+// ---------------------------------------------------------------------------
+
+describe("preselect: suggestion-chip click jumps to the named tool", () => {
+	test("preselect names a tool among many → form on that exact tool (no picker)", async () => {
+		const tools = [makeTool("listFiles"), makeTool("readFile", { path: { type: "string" } })];
+		mockFetch(200, { tools });
+		const result = await handleMentionSelectLogic(
+			{ name: "project-analyzer", kind: "extension" },
+			"!pro",
+			4,
+			globalThis.fetch,
+			"readFile",
+		);
+		expect(result.chipClickResult!.action).toBe("show-form");
+		expect(result.chipClickResult!.selectedTool!.name).toBe("readFile");
+	});
+
+	test("preselect misses among many → falls back to picker", async () => {
+		mockFetch(200, { tools: [makeTool("listFiles"), makeTool("readFile")] });
+		const result = await handleMentionSelectLogic(
+			{ name: "project-analyzer", kind: "extension" },
+			"!pro",
+			4,
+			globalThis.fetch,
+			"ghostTool",
+		);
+		expect(result.chipClickResult!.action).toBe("show-picker");
+	});
+
+	test("preselect with a single tool → form on the lone tool", async () => {
+		mockFetch(200, { tools: [makeTool("only")] });
+		const result = await handleMentionSelectLogic(
+			{ name: "solo-ext", kind: "extension" },
+			"!sol",
+			4,
+			globalThis.fetch,
+			"whatever",
+		);
+		expect(result.chipClickResult!.action).toBe("show-form");
+		expect(result.chipClickResult!.selectedTool!.name).toBe("only");
 	});
 });
 

@@ -98,6 +98,30 @@ export function appendExtensionMention(
 }
 
 /**
+ * Decide which inline-tool UI to open once an extension's tools are known.
+ * Behavior-preserving extraction of the chip-click branching ChatInput owns,
+ * so the `!`-mention auto-open, a pill click, AND a suggestion-chip click all
+ * share one decision and can't drift:
+ *  - `preselectName` names a tool in the list → open the form on that tool
+ *    (a suggestion chip clicked a specific tool — skip the picker)
+ *  - otherwise exactly one tool → open the form on it (nothing to pick)
+ *  - more than one tool → open the picker
+ *  - no tools → nothing to open
+ */
+export function chooseInlineToolAction<T extends { name: string }>(
+	tools: T[],
+	preselectName?: string,
+): { action: "form"; tool: T } | { action: "picker" } | { action: "none" } {
+	if (preselectName !== undefined) {
+		const match = tools.find((t) => t.name === preselectName);
+		if (match) return { action: "form", tool: match };
+	}
+	if (tools.length === 1) return { action: "form", tool: tools[0]! };
+	if (tools.length > 1) return { action: "picker" };
+	return { action: "none" };
+}
+
+/**
  * Request body for POST /api/composer/suggest. `modeId` is ALWAYS present
  * (null = explicitly no mode): the composer's selection is authoritative
  * over the conversation's persisted mode — same freshness semantics as

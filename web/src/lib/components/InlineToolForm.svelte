@@ -167,6 +167,9 @@
 
 		<!-- Fields -->
 		<div class="flex flex-col gap-3 px-4 py-3 max-h-[280px] overflow-y-auto">
+			{#if propertyKeys.length === 0}
+				<span class="text-xs text-[var(--color-text-muted)]">No parameters required — Add runs the tool.</span>
+			{/if}
 			{#each propertyKeys as key, i}
 				{@const prop = properties[key]}
 				{@const fieldType = getFieldType(prop)}

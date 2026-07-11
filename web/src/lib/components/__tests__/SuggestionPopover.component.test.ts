@@ -118,7 +118,10 @@ describe("SuggestionPopover", () => {
 		expect(queryByTestId("suggestion-enhance-loading")).not.toBeInTheDocument();
 	});
 
-	test("colliding short names get the extension suffix; unique names stay bare (live finding)", () => {
+	test("every extension chip label is extension-prefixed (extension first, always)", () => {
+		// Short tool names collide across extensions (live: three weather
+		// extensions each expose "weather-now"). Every chip now leads with its
+		// extension unconditionally, so look-alike tools are always distinguishable.
 		const clash = (extension: string): SuggestedTool => ({
 			name: "weather-now",
 			extension,
@@ -131,8 +134,24 @@ describe("SuggestionPopover", () => {
 			makeProps({ tools: [clash("open-meteo"), clash("weather-api"), EXT_TOOL] }),
 		);
 		const labels = getAllByTestId("suggestion-tool-chip").map((c) => c.textContent?.trim());
-		expect(labels).toContain("🔧 weather-now · open-meteo");
-		expect(labels).toContain("🔧 weather-now · weather-api");
-		expect(labels).toContain("🔧 scan"); // unique name — no suffix
+		expect(labels).toContain("🔧 open-meteo · weather-now");
+		expect(labels).toContain("🔧 weather-api · weather-now");
+		expect(labels).toContain("🔧 analyzer · scan");
+	});
+
+	test("built-in chip label is extension-prefixed too (no 🔧 glyph)", () => {
+		const { getByTestId } = render(SuggestionPopover, makeProps({ tools: [BUILTIN_TOOL] }));
+		expect(getByTestId("suggestion-tool-chip").textContent?.trim()).toBe("ez · task_create");
+	});
+
+	test("both chip variants carry data-tool + data-extension", () => {
+		const { getAllByTestId } = render(SuggestionPopover, makeProps());
+		const chips = getAllByTestId("suggestion-tool-chip");
+		const extChip = chips.find((c) => c.tagName === "BUTTON")!;
+		const builtinChip = chips.find((c) => c.tagName === "SPAN")!;
+		expect(extChip).toHaveAttribute("data-tool", "scan");
+		expect(extChip).toHaveAttribute("data-extension", "analyzer");
+		expect(builtinChip).toHaveAttribute("data-tool", "task_create");
+		expect(builtinChip).toHaveAttribute("data-extension", "ez");
 	});
 });
