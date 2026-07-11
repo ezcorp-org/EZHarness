@@ -214,7 +214,7 @@ describe("FU1: single-source orchestration wiring", () => {
     expect(wireCalls[0]!.availableAgents).toHaveLength(0);
   });
 
-  test("no-mention follow-up threads the team scope (memberOverrides + parentMessageId) into the wiring — send_to_agent continuation stays scoped", async () => {
+  test("no-mention follow-up threads options-carried scope (memberOverrides + parentMessageId) into the wiring; teamToolScope is not options-carried", async () => {
     const bus = new EventBus<AgentEvents>();
     const exec = new AgentExecutor(new Map(), bus, { persist: false });
     capturedAgentOpts = null;
@@ -223,8 +223,7 @@ describe("FU1: single-source orchestration wiring", () => {
     convExtIds = [ORCH_EXT_ID, OTHER_EXT_ID];
 
     // A sub-agent/nested run carries the member scope on options — it MUST reach
-    // the wiring so a send_to_agent CONTINUATION spawns the member restricted,
-    // not unrestricted (the escape the fix closes).
+    // the wiring so a send_to_agent continuation in that nested context is scoped.
     const memberOverrides = new Map([["m1", { toolRestriction: "read-only" as const }]]);
     await exec.streamChat(convId, "continue the researcher", {
       projectId,
@@ -234,9 +233,15 @@ describe("FU1: single-source orchestration wiring", () => {
 
     expect(wireCalls).toHaveLength(1);
     expect(wireCalls[0]!.availableAgents).toHaveLength(0);
-    // The persisted/options scope flowed into the follow-up wiring call.
+    // The options-carried scope flowed into the follow-up wiring call.
     expect(wireCalls[0]!.memberOverrides).toEqual({ m1: { toolRestriction: "read-only" } });
     expect(wireCalls[0]!.parentMessageId).toBe("msg-anchor-1");
+    // teamToolScope does NOT ride streamChat options and orchRun scratch is
+    // per-turn (empty on a fresh top-level follow-up), so the wiring threading
+    // alone carries NO teamToolScope here — which is exactly why the ext's
+    // record-at-spawn / reuse-on-continuation is the PRIMARY defense against the
+    // scope escape (see orchestration-extension.test.ts's EXPLOIT test).
+    expect(wireCalls[0]!.teamToolScope).toBeUndefined();
   });
 
   test("no-mention turn where orchestration was NEVER used: no orchestration tools wired at all", async () => {

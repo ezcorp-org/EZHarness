@@ -1297,10 +1297,11 @@ const OWNER_CONV = "conv-owner";
 async function startBackground(
   args: Record<string, unknown> = {},
   conversationId: string = OWNER_CONV,
+  spawnMeta: Record<string, unknown> = {},
 ): Promise<string> {
   const out = await tools.invoke_agent!(
     { agentConfigId: "agent-builder", task: "bg", background: true, ...args },
-    { invocationMetadata: { conversationId } },
+    { invocationMetadata: { conversationId, ...spawnMeta } },
   );
   return expectAgentMetaBg(out).assignmentId;
 }
@@ -1464,26 +1465,88 @@ describe("send_to_agent", () => {
     expect(_internals.backgroundSpawns.get("asn-2")).toBeDefined();
   });
 
-  test("continuation inherits teamToolScope + overrides from invocationMetadata (no scope escape)", async () => {
+  test("EXPLOIT: restricted spawn continued on a NO-SCOPE follow-up reuses the RECORDED restrictions (not the empty current-turn metadata)", async () => {
     const { fn, calls } = makeFakeSpawn();
     _setSpawnForTests(fn);
-    const id = await startBackground();
-    await driveTerminal(id);
-
+    // Turn 1: spawn the member WITH restrictions (as the @team wiring would).
     const teamToolScope = { allowedTools: ["read"], deniedTools: ["bash"] };
     const overrides = { toolRestriction: "read-only" };
+    const id = await startBackground({}, OWNER_CONV, {
+      teamToolScope,
+      overrides,
+      orchestrationDepth: 3,
+    });
+    await driveTerminal(id);
+
+    // Turn 2: a plain top-level follow-up — send_to_agent's invocationMetadata
+    // carries NO teamToolScope/overrides (only the host-set conversationId +
+    // run-linkage). The continuation MUST still be restricted.
     const out = await send(
-      { assignmentId: id, message: "again" },
+      { assignmentId: id, message: "also summarize" },
       OWNER_CONV,
-      { teamToolScope, overrides, parentRunId: "orch-run-7", orchestrationDepth: 2 },
+      { parentRunId: "orch-run-turn2" }, // run-linkage only; no scope
     );
     expect(expectIsError(out)).toBe(false);
     const continueCall = calls[calls.length - 1]!.input;
-    // The scoped member is continued WITH its restrictions — not unrestricted.
+    // Restrictions come from the RECORDED spawn, not the (empty) current turn.
     expect(continueCall.teamToolScope).toEqual(teamToolScope);
     expect(continueCall.overrides).toEqual(overrides);
-    expect(continueCall.parentRunId).toBe("orch-run-7");
-    expect(continueCall.orchestrationDepth).toBe(2);
+    expect(continueCall.orchestrationDepth).toBe(3);
+    // Run-linkage DOES come from the current turn (cascade-cancel anchor).
+    expect(continueCall.parentRunId).toBe("orch-run-turn2");
+    // The continuation re-records the same scope for a continuation-of-continuation.
+    expect(_internals.backgroundSpawns.get("asn-2")!.spawnScope).toEqual({
+      teamToolScope,
+      overrides,
+      orchestrationDepth: 3,
+    });
+  });
+
+  test("agentConfigId continuation of a prior SYNC invoke reuses THAT entry's recorded scope", async () => {
+    const { fn, calls } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+    // The host reports the tracked child idle so the running-map target falls
+    // through to a continuation (exercises the pending-invocation scope reuse).
+    _setQueueAgentMessageForTests(async () => ({ queued: false, reason: "not-running" }));
+    // Synthesize a still-pending SYNC invocation that recorded a scope.
+    const teamToolScope = { allowedTools: ["read"] };
+    _internals.pendingInvocations.set("sync-1", {
+      resolve: () => {},
+      reject: () => {},
+      timeoutHandle: setTimeout(() => {}, 100_000),
+      timeoutMs: 100_000,
+      fireTimeout: () => {},
+      agentName: "builder",
+      agentConfigId: "agent-builder",
+      subConversationId: "sub-sync-1",
+      agentRunId: "run-sync-1",
+      ownerConversationId: OWNER_CONV,
+      spawnScope: { teamToolScope, overrides: { toolRestriction: "read-only" } },
+    } as unknown as Parameters<typeof _internals.pendingInvocations.set>[1]);
+
+    const out = await send({ agentConfigId: "agent-builder", message: "continue" });
+    expect(expectIsError(out)).toBe(false);
+    const continueCall = calls[calls.length - 1]!.input;
+    expect(continueCall.teamToolScope).toEqual(teamToolScope);
+    expect(continueCall.overrides).toEqual({ toolRestriction: "read-only" });
+    // cleanup the synthetic pending timer
+    clearTimeout(_internals.pendingInvocations.get("sync-1")?.timeoutHandle);
+    _internals.pendingInvocations.delete("sync-1");
+  });
+
+  test("a target spawned WITHOUT restrictions continues without scope (faithful)", async () => {
+    const { fn, calls } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+    const id = await startBackground(); // no spawnMeta → no recorded scope
+    await driveTerminal(id);
+
+    const out = await send({ assignmentId: id, message: "go" });
+    expect(expectIsError(out)).toBe(false);
+    const continueCall = calls[calls.length - 1]!.input;
+    expect(continueCall).not.toHaveProperty("teamToolScope");
+    expect(continueCall).not.toHaveProperty("overrides");
+    expect(continueCall).not.toHaveProperty("orchestrationDepth");
+    expect(_internals.backgroundSpawns.get("asn-2")!.spawnScope).toBeUndefined();
   });
 });
 

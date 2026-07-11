@@ -151,6 +151,42 @@ export function _setDefaultTimeoutMsForTests(ms: number): void {
   defaultTimeoutMs = ms;
 }
 
+// ── Recorded spawn-time restrictions (Phase B3 security) ────────────
+//
+// The RESTRICTIONS an invoke_agent spawn ran under — captured from the host's
+// per-turn invocationMetadata AT SPAWN TIME and stored on the tracking entry so
+// a later `send_to_agent` continuation reuses the ORIGINAL restrictions rather
+// than the continuation turn's metadata. This is the primary defense against the
+// scope-escape: a top-level follow-up turn carries NO teamToolScope/overrides in
+// its metadata (those are per-turn team-resolution fields), so continuing off
+// current-turn metadata would spawn a restricted member UNRESTRICTED. Only the
+// security-bearing fields are recorded (teamToolScope / overrides /
+// orchestrationDepth); run-linkage (parentRunId / parentMessageId) legitimately
+// comes from the CURRENT turn on each continuation.
+interface RecordedSpawnScope {
+  teamToolScope?: { allowedTools?: string[]; deniedTools?: string[] };
+  overrides?: Record<string, unknown>;
+  orchestrationDepth?: number;
+}
+
+/** Extract the security-bearing restrictions from a spawn's invocationMetadata,
+ *  using the SAME type guards `invoke_agent` applies when building spawnInput.
+ *  An empty object means "spawned unrestricted" — a faithful continuation then
+ *  also runs unrestricted. */
+function extractSpawnScope(md: Record<string, unknown>): RecordedSpawnScope {
+  const scope: RecordedSpawnScope = {};
+  if (md.teamToolScope && typeof md.teamToolScope === "object" && !Array.isArray(md.teamToolScope)) {
+    scope.teamToolScope = md.teamToolScope as { allowedTools?: string[]; deniedTools?: string[] };
+  }
+  if (md.overrides && typeof md.overrides === "object" && !Array.isArray(md.overrides)) {
+    scope.overrides = md.overrides as Record<string, unknown>;
+  }
+  if (typeof md.orchestrationDepth === "number" && Number.isFinite(md.orchestrationDepth)) {
+    scope.orchestrationDepth = md.orchestrationDepth;
+  }
+  return scope;
+}
+
 // ── Pending-invocation tracking ────────────────────────────────────
 //
 // Keyed on `assignmentId` — the handle returned by `spawnAssignment`
@@ -181,6 +217,9 @@ interface PendingInvocation {
    *  conversation on the shared subprocess. Undefined only when the host set no
    *  conversation id (fail-closed: an entry with no owner is un-steerable). */
   ownerConversationId?: string;
+  /** Restrictions this spawn ran under — reused by a `send_to_agent`
+   *  continuation so a restricted member is never continued unrestricted. */
+  spawnScope?: RecordedSpawnScope;
 }
 
 const pendingInvocations = new Map<string, PendingInvocation>();
@@ -242,6 +281,9 @@ interface BackgroundSpawn {
   result?: { result: string; success: boolean };
   /** Live `collect_agent_result` gates awaiting this spawn's terminal. */
   waiters: Set<CollectWaiter>;
+  /** Restrictions this spawn ran under — reused by a `send_to_agent`
+   *  continuation so a restricted member is never continued unrestricted. */
+  spawnScope?: RecordedSpawnScope;
 }
 
 /** Max background spawns retained. In-flight entries are never evicted; only
@@ -263,6 +305,7 @@ function registerBackgroundSpawn(
   agentName: string,
   agentConfigId: string,
   ownerConversationId?: string,
+  spawnScope?: RecordedSpawnScope,
 ): void {
   while (backgroundSpawns.size >= MAX_BACKGROUND_SPAWNS) {
     let evictKey: string | undefined;
@@ -286,6 +329,7 @@ function registerBackgroundSpawn(
     terminal: false,
     collected: false,
     waiters: new Set(),
+    ...(spawnScope ? { spawnScope } : {}),
   });
 }
 
@@ -409,6 +453,10 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
     );
   }
 
+  // Record the restrictions this spawn ran under so a later send_to_agent
+  // continuation reuses them (never the continuation turn's metadata).
+  const recordedScope = extractSpawnScope(md);
+
   // ── Background spawn (Phase B2) ──────────────────────────────────
   //
   // Return IMMEDIATELY with a handle instead of blocking on completion. No
@@ -430,7 +478,7 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
   if (background === true) {
     const ownerConversationId =
       typeof md.conversationId === "string" ? md.conversationId : undefined;
-    registerBackgroundSpawn(handle, config.name, agentConfigId, ownerConversationId);
+    registerBackgroundSpawn(handle, config.name, agentConfigId, ownerConversationId, recordedScope);
     return toolResult(
       `Agent "${config.name}" started in the background (assignmentId: ${handle.assignmentId}, ` +
         `subConversation: ${handle.subConversationId}). Its progress and completion show in the ` +
@@ -520,6 +568,7 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
         ...(typeof md.conversationId === "string"
           ? { ownerConversationId: md.conversationId }
           : {}),
+        ...(Object.keys(recordedScope).length > 0 ? { spawnScope: recordedScope } : {}),
       });
     },
   );
@@ -918,6 +967,10 @@ interface SendTarget {
   assignmentId: string;
   /** True once the child reached a terminal state (continue, not steer). */
   terminal: boolean;
+  /** Restrictions the target was originally spawned under — a continuation
+   *  reuses these (never the continuation turn's metadata). Undefined = spawned
+   *  unrestricted → continue unrestricted. */
+  spawnScope?: RecordedSpawnScope;
 }
 
 /** Resolve a `send_to_agent` target from the tracking maps, OWNER-checked
@@ -942,6 +995,7 @@ function resolveSendTarget(opts: {
         agentConfigId: pending.agentConfigId,
         assignmentId,
         terminal: false,
+        ...(pending.spawnScope ? { spawnScope: pending.spawnScope } : {}),
       };
     }
     const bg = backgroundSpawns.get(assignmentId);
@@ -952,6 +1006,7 @@ function resolveSendTarget(opts: {
         agentConfigId: bg.agentConfigId,
         assignmentId,
         terminal: bg.terminal,
+        ...(bg.spawnScope ? { spawnScope: bg.spawnScope } : {}),
       };
     }
     return undefined;
@@ -965,6 +1020,7 @@ function resolveSendTarget(opts: {
         agentConfigId: bg.agentConfigId,
         assignmentId: id,
         terminal: bg.terminal,
+        ...(bg.spawnScope ? { spawnScope: bg.spawnScope } : {}),
       };
     }
   }
@@ -977,6 +1033,7 @@ function resolveSendTarget(opts: {
         agentConfigId: p.agentConfigId,
         assignmentId: id,
         terminal: false,
+        ...(p.spawnScope ? { spawnScope: p.spawnScope } : {}),
       };
     }
   }
@@ -985,12 +1042,21 @@ function resolveSendTarget(opts: {
 
 /** Continue an agent on its REUSED sub-conversation via a fresh background run
  *  (full prior context). Shared by the terminal-target branch and the
- *  running-but-idle (`not-running`) fall-through. The continuation inherits the
- *  orchestrator's per-turn scope (parentRunId / depth / message-anchor /
- *  overrides / teamToolScope) from `md` so a scoped member stays scoped. */
+ *  running-but-idle (`not-running`) fall-through.
+ *
+ *  SECURITY: the RESTRICTIONS (teamToolScope / overrides / orchestrationDepth)
+ *  come from `recordedScope` — the values captured when the target was ORIGINALLY
+ *  spawned — NEVER from the continuation turn's metadata. A top-level follow-up
+ *  turn carries no team scope in its metadata, so sourcing restrictions from the
+ *  current turn would continue a restricted member UNRESTRICTED (the escape this
+ *  closes). Run-linkage (parentRunId for cascade-cancel, parentMessageId for the
+ *  display anchor) legitimately comes from the CURRENT turn's `md`. The
+ *  continuation re-records the same scope so a continuation-of-a-continuation
+ *  also stays restricted. */
 async function continueAgent(
   agentConfigId: string,
   message: string,
+  recordedScope: RecordedSpawnScope,
   md: Record<string, unknown>,
   callerConv?: string,
 ) {
@@ -1007,19 +1073,17 @@ async function continueAgent(
     // collects later. Ask the host to notify the parent on terminal (same as
     // invoke_agent background).
     notifyParentOnTerminal: true,
+    // Run-linkage from the CURRENT turn.
     ...(typeof md.parentMessageId === "string"
       ? { parentMessageId: md.parentMessageId }
       : {}),
-    ...(md.overrides && typeof md.overrides === "object"
-      ? { overrides: md.overrides as Record<string, unknown> }
-      : {}),
-    ...(md.teamToolScope && typeof md.teamToolScope === "object"
-      ? { teamToolScope: md.teamToolScope as { allowedTools?: string[]; deniedTools?: string[] } }
-      : {}),
-    ...(typeof md.orchestrationDepth === "number"
-      ? { orchestrationDepth: md.orchestrationDepth }
-      : {}),
     ...(typeof md.parentRunId === "string" ? { parentRunId: md.parentRunId } : {}),
+    // Restrictions from the ORIGINAL spawn (recorded), NOT the current turn.
+    ...(recordedScope.overrides ? { overrides: recordedScope.overrides } : {}),
+    ...(recordedScope.teamToolScope ? { teamToolScope: recordedScope.teamToolScope } : {}),
+    ...(typeof recordedScope.orchestrationDepth === "number"
+      ? { orchestrationDepth: recordedScope.orchestrationDepth }
+      : {}),
   };
   let handle: SpawnAssignmentHandle;
   try {
@@ -1028,7 +1092,13 @@ async function continueAgent(
     const m = err instanceof Error ? err.message : String(err);
     return toolResult(`Agent "${config.name}" failed to continue: ${m}`, { isError: true });
   }
-  registerBackgroundSpawn(handle, config.name, agentConfigId, callerConv);
+  registerBackgroundSpawn(
+    handle,
+    config.name,
+    agentConfigId,
+    callerConv,
+    Object.keys(recordedScope).length > 0 ? recordedScope : undefined,
+  );
   return toolResult(
     `Agent "${config.name}" is continuing on its existing sub-conversation with full prior context ` +
       `(new assignmentId: ${handle.assignmentId}, subConversation: ${handle.subConversationId}). It runs ` +
@@ -1129,11 +1199,11 @@ const sendToAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
     // is not lost. Any other `queued: false` (host fail-closed `not-found`,
     // e.g. the sub-conversation isn't a child of the caller) → not-found.
     if (res.reason !== "not-running") return notFound();
-    return continueAgent(target.agentConfigId, message, md, callerConv);
+    return continueAgent(target.agentConfigId, message, target.spawnScope ?? {}, md, callerConv);
   }
 
   // ── TERMINAL child → continue on the reused sub-conversation ──────
-  return continueAgent(target.agentConfigId, message, md, callerConv);
+  return continueAgent(target.agentConfigId, message, target.spawnScope ?? {}, md, callerConv);
 };
 
 export const tools: Record<string, ToolHandler> = {
