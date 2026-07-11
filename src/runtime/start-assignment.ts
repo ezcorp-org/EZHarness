@@ -336,7 +336,28 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     // once outside) because auto-continue + autonomous cycles call startRun
     // again with a NEW run id — each cycle's run must be registered or a
     // mid-cycle cancel would orphan the live child.
-    if (parentRunId) executor.registerChildRun(parentRunId, runId);
+    //
+    // registerChildRun returns false when the parent is already terminal:
+    // startAssignment awaits several DB reads before reaching here, so a
+    // user's Stop can kill the orchestrator inside that window — its cancel
+    // cascade snapshot saw no child, and starting one now would stream
+    // ownerless with nobody to consume the result. Fail the assignment
+    // instead of starting dead work; the terminal assignment_update also
+    // releases the parent's (already-rejected) invoke_agent gate cleanly.
+    if (parentRunId && !executor.registerChildRun(parentRunId, runId)) {
+      assignment.status = "failed";
+      assignment.failedAt = new Date().toISOString();
+      assignment.resultPreview = "Parent run ended before this agent could start";
+      emitTaskSnapshot(bus, snapshot);
+      emitAssignmentUpdate(
+        bus, conversationId, taskId, assignment,
+        "Parent run ended before this agent could start — child was not started.",
+      );
+      log.info("Refused to start child of terminal parent run", {
+        conversationId, taskId, parentRunId, runId,
+      });
+      return;
+    }
     const streamPromise = executor.streamChat(subConversationId, message, {
       projectId,
       agentConfigId: assignment.agentConfigId,

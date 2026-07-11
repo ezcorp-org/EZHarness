@@ -106,14 +106,16 @@ export function buildPiAgent(
       messages: history,
       thinkingLevel: options.thinkingLevel ?? (model.reasoning ? "medium" : "off"),
     },
-    // Pin pi's documented default retry-delay cap (60s) explicitly. pi-ai
-    // fails a request immediately when a provider asks for a retry delay
-    // LONGER than this, which is exactly what lets our WS2 pre-stream
-    // failover (runWithFailover) take over and rebuild on a fallback
-    // provider instead of silently blocking behind a long server-requested
-    // backoff. Pinning it means an upstream change to pi-ai's default can't
-    // silently shift that failover timing. See @earendil-works/pi-ai
-    // StreamOptions.maxRetryDelayMs (documented default 60000).
+    // Pin pi's default retry-delay cap (60s) explicitly — a purely
+    // DEFENSIVE pin, not a behavior change. What this knob actually does
+    // (verified against pi-ai source): only the openai-codex provider
+    // reads it, and only for 429s — it caps the server-requested backoff
+    // at min(delay, cap) and then SLEEPS + RETRIES IN-BAND (it does NOT
+    // fail fast to our failover; 5xx retry-after is honored uncapped).
+    // Pinning the current default means an upstream default change can't
+    // silently lengthen how long a codex 429 blocks before pi's own
+    // retries exhaust and runWithFailover finally sees the error. See
+    // @earendil-works/pi-ai providers/openai-codex-responses capRetryDelayMs.
     maxRetryDelayMs: 60_000,
     // Per-model context-window compaction. Runs before every LLM call
     // (initial turn + each agentic tool-loop iteration + retries), so a

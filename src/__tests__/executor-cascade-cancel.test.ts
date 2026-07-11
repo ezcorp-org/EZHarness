@@ -193,40 +193,148 @@ describe("AgentExecutor — parent→child cascade cancel", () => {
   });
 });
 
+/** Start a blocking parent run on a fresh executor and resolve its id.
+ *  Used by the registry tests below — registerChildRun's liveness gate
+ *  (validator-a1 MED fix) only registers under a RUNNING parent, so the
+ *  synthetic-id parents these tests originally used are no longer
+ *  registrable. */
+async function startBlockingRun(
+  exec: AgentExecutor,
+  bus: EventBus<AgentEvents>,
+  name: string,
+): Promise<{ id: string; done: Promise<unknown> }> {
+  const started = new Map<string, string>();
+  const off = bus.on("run:start", ({ run }) => started.set(run.agentName, run.id));
+  const done = exec.runAgent(name, {});
+  await waitFor(() => started.has(name));
+  off();
+  return { id: started.get(name)!, done };
+}
+
 describe("AgentExecutor — child-run registry bounding", () => {
-  test("a child's terminal event deregisters it; the empty parent set is dropped", () => {
+  test("a child's terminal event deregisters it; the empty parent set is dropped", async () => {
     const bus = new EventBus<AgentEvents>();
-    const exec = track(new AgentExecutor(new Map(), bus));
+    const exec = track(new AgentExecutor(loadAgentsStatic([blockingAgent("p-bound")]), bus));
+    const parent = await startBlockingRun(exec, bus, "p-bound");
 
-    exec.registerChildRun("P", "C1");
-    exec.registerChildRun("P", "C2");
-    expect(exec.getRegisteredChildRunIds("P").sort()).toEqual(["C1", "C2"]);
+    exec.registerChildRun(parent.id, "C1");
+    exec.registerChildRun(parent.id, "C2");
+    expect(exec.getRegisteredChildRunIds(parent.id).sort()).toEqual(["C1", "C2"]);
 
-    // C1 completes → removed from P's set (size 2→1, P entry retained).
+    // C1 completes → removed from the set (size 2→1, entry retained).
     bus.emit("run:complete", { run: runShape("C1"), conversationId: "c" });
-    expect(exec.getRegisteredChildRunIds("P")).toEqual(["C2"]);
+    expect(exec.getRegisteredChildRunIds(parent.id)).toEqual(["C2"]);
 
-    // C2 errors → removed (size 1→0, whole P entry dropped so the map
+    // C2 errors → removed (size 1→0, whole entry dropped so the map
     // can't grow unbounded across a long orchestrator run).
     bus.emit("run:error", { run: runShape("C2"), runId: "C2", error: "boom", conversationId: "c" });
-    expect(exec.getRegisteredChildRunIds("P")).toEqual([]);
+    expect(exec.getRegisteredChildRunIds(parent.id)).toEqual([]);
+
+    exec.cancelRun(parent.id);
+    await parent.done;
   });
 
-  test("a parent's terminal event clears its entire children entry", () => {
+  test("a parent's terminal event clears its entire children entry", async () => {
     const bus = new EventBus<AgentEvents>();
-    const exec = track(new AgentExecutor(new Map(), bus));
+    const exec = track(new AgentExecutor(loadAgentsStatic([blockingAgent("p-clear")]), bus));
+    const parent = await startBlockingRun(exec, bus, "p-clear");
 
-    exec.registerChildRun("P2", "X");
-    exec.registerChildRun("P2", "Y");
-    bus.emit("run:cancel", { run: runShape("P2"), conversationId: "c" });
-    expect(exec.getRegisteredChildRunIds("P2")).toEqual([]);
+    exec.registerChildRun(parent.id, "X");
+    exec.registerChildRun(parent.id, "Y");
+    exec.cancelRun(parent.id);
+    await parent.done;
+    expect(exec.getRegisteredChildRunIds(parent.id)).toEqual([]);
   });
 
-  test("destroy() clears the registry", () => {
-    const exec = new AgentExecutor(new Map(), new EventBus<AgentEvents>());
-    exec.registerChildRun("PA", "CA");
-    expect(exec.getRegisteredChildRunIds("PA")).toEqual(["CA"]);
+  test("destroy() clears the registry", async () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(loadAgentsStatic([blockingAgent("p-destroy")]), bus);
+    const parent = await startBlockingRun(exec, bus, "p-destroy");
+    exec.registerChildRun(parent.id, "CA");
+    expect(exec.getRegisteredChildRunIds(parent.id)).toEqual(["CA"]);
     exec.destroy();
-    expect(exec.getRegisteredChildRunIds("PA")).toEqual([]);
+    expect(exec.getRegisteredChildRunIds(parent.id)).toEqual([]);
+    await parent.done;
+  });
+});
+
+// ── Validator-a1 fixes: liveness gate + orphan cascade on abnormal parent
+//    terminals ─────────────────────────────────────────────────────────
+
+describe("AgentExecutor — registerChildRun liveness gate (dead-parent race)", () => {
+  test("registers under a RUNNING parent (true); refuses unknown and terminal parents (false, nothing registered)", async () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = track(new AgentExecutor(loadAgentsStatic([blockingAgent("gate-p")]), bus));
+
+    // Unknown parent → refused.
+    expect(exec.registerChildRun("never-existed", "c0")).toBe(false);
+    expect(exec.getRegisteredChildRunIds("never-existed")).toEqual([]);
+
+    // Running parent → accepted.
+    const parent = await startBlockingRun(exec, bus, "gate-p");
+    expect(exec.registerChildRun(parent.id, "c1")).toBe(true);
+    expect(exec.getRegisteredChildRunIds(parent.id)).toEqual(["c1"]);
+
+    // Cancelled (terminal) parent → refused; the Stop-races-spawn window
+    // can no longer produce an ownerless streaming child.
+    exec.cancelRun(parent.id);
+    await parent.done;
+    expect(exec.registerChildRun(parent.id, "c2")).toBe(false);
+    expect(exec.getRegisteredChildRunIds(parent.id)).toEqual([]);
+  });
+});
+
+describe("AgentExecutor — orphan cascade on abnormal parent terminals", () => {
+  test("parent run:error (watchdog-trip seam) cancels registered children instead of just dropping them", async () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = track(
+      new AgentExecutor(
+        loadAgentsStatic([blockingAgent("err-parent"), blockingAgent("err-child")]),
+        bus,
+      ),
+    );
+    const parent = await startBlockingRun(exec, bus, "err-parent");
+    const child = await startBlockingRun(exec, bus, "err-child");
+    expect(exec.registerChildRun(parent.id, child.id)).toBe(true);
+
+    // Simulate the watchdog trip / finalizeError seam: they emit run:error
+    // for the parent WITHOUT calling cancelRun. The executor's terminal
+    // listener must cascade-cancel the child, not orphan it.
+    bus.emit("run:error", {
+      run: { ...runShape(parent.id), status: "error" },
+      runId: parent.id,
+      error: "watchdog kill",
+      conversationId: "c",
+    });
+
+    await child.done;
+    expect((await exec.getRun(child.id))!.status).toBe("cancelled");
+    expect(exec.getRegisteredChildRunIds(parent.id)).toEqual([]);
+
+    exec.cancelRun(parent.id); // tidy the still-blocked parent agent
+    await parent.done;
+  });
+
+  test("parent run:complete does NOT cascade — children survive a clean parent completion (future background mode)", async () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = track(
+      new AgentExecutor(
+        loadAgentsStatic([blockingAgent("done-parent"), blockingAgent("done-child")]),
+        bus,
+      ),
+    );
+    const parent = await startBlockingRun(exec, bus, "done-parent");
+    const child = await startBlockingRun(exec, bus, "done-child");
+    expect(exec.registerChildRun(parent.id, child.id)).toBe(true);
+
+    bus.emit("run:complete", { run: { ...runShape(parent.id), status: "success" }, conversationId: "c" });
+
+    // Child untouched (still running); registry entry dropped.
+    expect((await exec.getRun(child.id))!.status).toBe("running");
+    expect(exec.getRegisteredChildRunIds(parent.id)).toEqual([]);
+
+    exec.cancelRun(parent.id);
+    exec.cancelRun(child.id);
+    await Promise.all([parent.done, child.done]);
   });
 });

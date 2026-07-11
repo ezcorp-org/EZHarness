@@ -170,10 +170,40 @@ export class AgentExecutor {
     // all of them — no per-finalize instrumentation to keep in sync — and
     // it's idempotent (a delete is a no-op if a cascade already dropped the
     // id). Runs that were never registered as children are a cheap Map miss.
+    //
+    // On a parent's run:error the children are cascade-cancelled BEFORE
+    // deregistration: the parent's invoke_agent awaits died with it, so
+    // nobody will ever consume the children's results — letting them
+    // stream on just burns tokens. This is the seam that gives the
+    // watchdog trip and finalizeError cascade semantics for free (they
+    // emit run:error; they never call cancelRun). The re-entrancy is
+    // safe: cascading emits run:cancel (not run:error), so this listener
+    // cannot re-trigger itself.
+    //
+    // run:cancel deliberately does NOT cascade here — cancelRun's own
+    // explicit cascade already covered the tree (it snapshots children
+    // BEFORE self-cancel precisely so this listener's deregistration
+    // can't starve the recursion), and a listener-side cascade would
+    // re-enter with a fresh visited set on every emitted run:cancel,
+    // producing unbounded duplicate cancels in cyclic registrations.
+    //
+    // run:complete does not cascade either: a cleanly-completing parent's
+    // awaited children are already terminal, and future background-mode
+    // children must survive their parent's completion.
     const deregister = (runId: string): void => this.deregisterRun(runId);
+    const cancelOrphanedChildren = (runId: string): void => {
+      const children = [...(this.childRuns.get(runId) ?? [])];
+      if (children.length === 0) return;
+      const visited = new Set<string>([runId]);
+      for (const childId of children) this.cancelRunInternal(childId, visited);
+      this.childRuns.delete(runId);
+    };
     this.childRunUnsubs = [
       this.bus.on("run:complete", ({ run }) => deregister(run.id)),
-      this.bus.on("run:error", ({ run }) => deregister(run.id)),
+      this.bus.on("run:error", ({ run }) => {
+        cancelOrphanedChildren(run.id);
+        deregister(run.id);
+      }),
       this.bus.on("run:cancel", ({ run }) => deregister(run.id)),
     ];
   }
@@ -183,14 +213,24 @@ export class AgentExecutor {
    * the parent cascades to it. Called per-cycle from start-assignment (the
    * initial run AND every auto-continue / autonomous cycle re-registers,
    * because each cycle is a NEW run id). Idempotent within a Set.
+   *
+   * Returns `false` — and does NOT register — when the parent is missing
+   * from the run map or already terminal. start-assignment awaits several
+   * DB reads between the spawn RPC and this call, so a user's Stop can
+   * cancel the parent inside that window; the cascade would have snapshot
+   * an empty child set and the new child would stream ownerless forever.
+   * Callers must treat `false` as "do not start this child".
    */
-  registerChildRun(parentRunId: string, childRunId: string): void {
+  registerChildRun(parentRunId: string, childRunId: string): boolean {
+    const parent = this.runs.get(parentRunId);
+    if (!parent || parent.status !== "running") return false;
     let set = this.childRuns.get(parentRunId);
     if (!set) {
       set = new Set<string>();
       this.childRuns.set(parentRunId, set);
     }
     set.add(childRunId);
+    return true;
   }
 
   /**
@@ -499,6 +539,12 @@ export class AgentExecutor {
     const run = this.runs.get(id);
     const controller = this.controllers.get(id);
     if (!run || !controller) return false;
+    // Emission idempotency: a run can be reached twice in quick succession
+    // (explicit cascade + a user's second Stop click) while its controller
+    // is still in the map (finalizeCleanup deletes it later). Re-cancelling
+    // an already-non-running run must not re-emit run:cancel — duplicate
+    // terminal events would re-trigger quota releases and SSE cards.
+    if (run.status !== "running") return false;
 
     controller.abort();
     this.activeAgents.get(id)?.abort();

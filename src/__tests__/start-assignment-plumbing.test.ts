@@ -123,8 +123,12 @@ function makeMockExecutor(): {
       };
     },
   );
+  // Returns registerChildRunResult (default true = parent live). The
+  // refusal path (false = parent already terminal) is exercised by the
+  // dedicated dead-parent tests, which flip the switch per-test.
   const registerChildRun = mock((parentRunId: string, childRunId: string) => {
     childRegistrations.push({ parentRunId, childRunId });
+    return registerChildRunResult;
   });
   return {
     executor: { streamChat, registerChildRun } as unknown as AgentExecutor,
@@ -132,6 +136,9 @@ function makeMockExecutor(): {
     childRegistrations,
   };
 }
+
+// Per-test switch for the mock executor's registerChildRun return value.
+let registerChildRunResult = true;
 
 function makeAssignment(agentConfigId = "cfg-test"): TaskAssignment {
   return {
@@ -200,6 +207,7 @@ beforeEach(() => {
   createSubConversationCalls = [];
   getSettingImpl = async () => undefined;
   resolveOwnerImpl = async () => "owner-user";
+  registerChildRunResult = true;
 });
 
 // ── 0. Sub-agent prompt — must tell the LLM not to call task_complete ─
@@ -774,6 +782,35 @@ describe("startAssignment — parentRunId child registration", () => {
     const opts = baseOpts({ executor, reuseSubConversationId: "sub-noreg" });
     await startAssignment(opts);
     expect(childRegistrations).toHaveLength(0);
+  });
+
+  // Validator-a1 MEDIUM fix: a Stop racing startAssignment's DB awaits can
+  // terminate the parent before startRun registers — the child must NOT be
+  // started (it would stream ownerless with nobody consuming the result).
+  test("dead parent (registerChildRun → false): child NOT streamed, assignment failed with actionable update", async () => {
+    const { executor, calls } = makeMockExecutor();
+    registerChildRunResult = false;
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: Array<{ resultFull?: string; assignment: { status: string; resultPreview?: string } }> = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      parentRunId: "run-dead-parent",
+      reuseSubConversationId: "sub-dead-parent",
+    });
+    await startAssignment(opts);
+
+    // No streaming started for the dead parent's child.
+    expect(calls).toHaveLength(0);
+    expect(assignment.status).toBe("failed");
+    expect(assignment.resultPreview).toBe("Parent run ended before this agent could start");
+    // Terminal update fires (releases the parent's invoke_agent gate) and
+    // carries the full explanation.
+    const terminal = updates.at(-1)!;
+    expect(terminal.assignment.status).toBe("failed");
+    expect(terminal.resultFull).toContain("child was not started");
   });
 });
 
