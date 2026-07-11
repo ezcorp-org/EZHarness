@@ -158,6 +158,15 @@ export interface PipelineStep {
   agent: string;
   input?: Record<string, string>;
   dependsOn?: string[];
+  /**
+   * Per-step retry budget (durability, Phase C1). When a step's agent run
+   * finishes unsuccessfully, the executor re-runs it up to `retries` more
+   * times before failing the whole pipeline. Clamped to 0..2; absent /
+   * invalid ⇒ 0 (no retry — the historical behavior). A run that was
+   * *cancelled* (pipeline abort or sibling-failure cancel) is never
+   * retried — only a genuine failure is.
+   */
+  retries?: number;
 }
 
 export interface PipelineDefinition {
