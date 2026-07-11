@@ -453,6 +453,16 @@ export interface AgentEvents {
       agentRunId?: string;
       resultPreview?: string;
     };
+    /**
+     * Orchestration reliability (Wave 1): the sub-agent's FULL final
+     * text (sentinel-stripped, capped at {@link ASSIGNMENT_RESULT_FULL_CAP}),
+     * present only on a terminal update. Kept OFF the `assignment` object
+     * so the persisted task-store snapshot and the panel `task:snapshot`
+     * stay lean — only the orchestration extension reads it, to return
+     * the complete result to the orchestrator LLM instead of the
+     * 200-char `resultPreview`.
+     */
+    resultFull?: string;
   };
   // ── Extension Panel State ──
   "ext:state": {

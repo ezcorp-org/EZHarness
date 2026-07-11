@@ -54,6 +54,28 @@ const log = logger.child("start-assignment");
 
 const DEFAULT_MAX_AUTONOMOUS_CYCLES = 8;
 
+/**
+ * Cap for the FULL sub-agent result returned to the orchestrator LLM
+ * (Wave 1 — replaces the 200-char preview as the orchestrator's input).
+ * 30KB (~7-8k tokens) is generous for a worker's final message while
+ * bounding the bus/SSE payload and the parent's context growth; longer
+ * outputs are truncated with an explicit marker so the orchestrator
+ * knows to fetch the sub-conversation for the remainder.
+ */
+export const ASSIGNMENT_RESULT_FULL_CAP = 30_000;
+
+/** Cap a full result to {@link ASSIGNMENT_RESULT_FULL_CAP}, appending a
+ *  visible truncation marker when clipped. Empty input → undefined so a
+ *  no-output run omits the field entirely. */
+export function capFullResult(text: string): string | undefined {
+  if (!text) return undefined;
+  if (text.length <= ASSIGNMENT_RESULT_FULL_CAP) return text;
+  return (
+    text.slice(0, ASSIGNMENT_RESULT_FULL_CAP) +
+    `\n\n[... truncated ${text.length - ASSIGNMENT_RESULT_FULL_CAP} more characters — open the sub-conversation for the full output]`
+  );
+}
+
 const CONTINUATION_PROMPT =
   "Continue working toward the Pinned Objective in your system prompt. " +
   "When the objective is fully met, output `<<TASK_DONE>>` on its own line. " +
@@ -153,8 +175,14 @@ function emitAssignmentUpdate(
   conversationId: string,
   taskId: string,
   assignment: TaskAssignment,
+  resultFull?: string,
 ): void {
-  bus.emit("task:assignment_update", { conversationId, taskId, assignment });
+  bus.emit("task:assignment_update", {
+    conversationId,
+    taskId,
+    assignment,
+    ...(resultFull !== undefined ? { resultFull } : {}),
+  });
 }
 
 /**
@@ -407,17 +435,24 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       const previewable =
         typeof rawOutput === "string" ||
         (!!rawOutput && typeof rawOutput === "object" && "fullText" in rawOutput);
+      // Full result carried to the orchestrator LLM (Wave 1). The panel
+      // still shows the 200-char preview; `resultFull` rides the
+      // assignment_update event only and feeds the invoke_agent return.
+      let resultFull: string | undefined;
       if (previewable || autonomousNote) {
         const cleaned = stripSignals(extractFullText(rawOutput));
         let preview = cleaned.length > 200 ? cleaned.slice(0, 200) + "..." : cleaned;
+        let full = cleaned;
         if (autonomousNote) {
           preview = preview ? `${autonomousNote} ${preview}` : autonomousNote;
+          full = full ? `${autonomousNote} ${full}` : autonomousNote;
         }
         assignment.resultPreview = preview;
+        resultFull = capFullResult(full);
       }
 
       emitTaskSnapshot(bus, snapshot);
-      emitAssignmentUpdate(bus, conversationId, taskId, assignment);
+      emitAssignmentUpdate(bus, conversationId, taskId, assignment, resultFull);
     });
 
     unsubError = bus.on("run:error", (data) => {
@@ -430,7 +465,9 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       assignment.resultPreview = errorMsg.slice(0, 200);
 
       emitTaskSnapshot(bus, snapshot);
-      emitAssignmentUpdate(bus, conversationId, taskId, assignment);
+      // Return the full error to the orchestrator so it can diagnose and
+      // retry/route, not just the truncated panel preview.
+      emitAssignmentUpdate(bus, conversationId, taskId, assignment, capFullResult(errorMsg));
     });
 
     // Cancellation lifecycle. `executor.cancelRun` AND streamChat's own
@@ -457,7 +494,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       assignment.resultPreview = "Run was cancelled";
 
       emitTaskSnapshot(bus, snapshot);
-      emitAssignmentUpdate(bus, conversationId, taskId, assignment);
+      emitAssignmentUpdate(bus, conversationId, taskId, assignment, "Run was cancelled");
     });
 
     streamPromise.catch((err) => {
@@ -467,7 +504,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       assignment.failedAt = new Date().toISOString();
       assignment.resultPreview = errorMsg.slice(0, 200);
       emitTaskSnapshot(bus, snapshot);
-      emitAssignmentUpdate(bus, conversationId, taskId, assignment);
+      emitAssignmentUpdate(bus, conversationId, taskId, assignment, capFullResult(errorMsg));
     });
   }
 

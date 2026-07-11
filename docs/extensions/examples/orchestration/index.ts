@@ -98,7 +98,7 @@ export function _setDefaultTimeoutMsForTests(ms: number): void {
 // map survives across tool calls.
 
 interface PendingInvocation {
-  resolve: (result: { resultPreview: string; success: boolean }) => void;
+  resolve: (result: { result: string; success: boolean }) => void;
   reject: (err: Error) => void;
   timeoutHandle: ReturnType<typeof setTimeout>;
   agentName: string;
@@ -189,12 +189,13 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
   }
 
   // Wait-for-completion promise gate. The subscription handler below
-  // resolves this with `{ resultPreview, success }` when it sees a
-  // matching `task:assignment_update` with a terminal status. Timeout
-  // is the only reject path — both `completed` and `failed` resolve,
+  // resolves this with `{ result, success }` when it sees a matching
+  // `task:assignment_update` with a terminal status. Timeout is the
+  // only reject path — both `completed` and `failed` resolve,
   // differentiated by the `success` flag, so callers only have one
-  // branch for "terminal" vs "timeout".
-  const completion = new Promise<{ resultPreview: string; success: boolean }>(
+  // branch for "terminal" vs "timeout". Wave 1: `result` is the FULL
+  // sub-agent output (event `resultFull`), not the 200-char preview.
+  const completion = new Promise<{ result: string; success: boolean }>(
     (resolve, reject) => {
       const timeoutHandle = setTimeout(() => {
         if (pendingInvocations.has(handle.assignmentId)) {
@@ -218,8 +219,8 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
   );
 
   try {
-    const { resultPreview, success } = await completion;
-    return toolResult(resultPreview, {
+    const { result, success } = await completion;
+    return toolResult(result, {
       ...(success ? {} : { isError: true }),
       details: {
         _agentMeta: {
@@ -261,6 +262,10 @@ interface IncomingAssignmentUpdate {
     status: string;
     resultPreview?: string;
   };
+  /** Wave 1: the sub-agent's FULL final text (sentinel-stripped, capped
+   *  host-side). Preferred over `resultPreview` for the orchestrator's
+   *  tool result; falls back to the preview for older host builds. */
+  resultFull?: string;
 }
 
 async function handleAssignmentUpdate(
@@ -275,11 +280,15 @@ async function handleAssignmentUpdate(
   clearTimeout(pending.timeoutHandle);
   pendingInvocations.delete(payload.assignment.id);
 
-  const resultPreview = payload.assignment.resultPreview ?? "(no result)";
+  // Prefer the full result; fall back to the panel preview, then a
+  // placeholder. This is what the orchestrator LLM synthesizes from —
+  // the 200-char clip was the biggest functional gap vs Claude Code.
+  const result =
+    payload.resultFull ?? payload.assignment.resultPreview ?? "(no result)";
   // Both terminal statuses resolve (not reject) — timeout is the only
   // reject path. Success flag distinguishes for the tool-result builder.
   pending.resolve({
-    resultPreview,
+    result,
     success: status === "completed",
   });
 }

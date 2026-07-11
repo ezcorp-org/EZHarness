@@ -114,10 +114,10 @@ describe("autonomous continuation ↔ orchestration wait (integration)", () => {
     // Wire the REAL orchestration two-hop bridge onto the bus and
     // register a pending invocation keyed on the assignment id (what
     // spawnAssignment's handle would carry in production).
-    let resolvedValue: { resultPreview: string; success: boolean } | undefined;
+    let resolvedValue: { result: string; success: boolean } | undefined;
     let resolvedAtCall: number | undefined;
     _internals.pendingInvocations.set("asn-int", {
-      resolve: (v: { resultPreview: string; success: boolean }) => {
+      resolve: (v: { result: string; success: boolean }) => {
         resolvedValue = v;
         resolvedAtCall = streamChatCalls.length;
       },
@@ -133,6 +133,7 @@ describe("autonomous continuation ↔ orchestration wait (integration)", () => {
           conversationId: string;
           taskId: string;
           assignment: { id: string; status: string; resultPreview?: string };
+          resultFull?: string;
         },
       );
     });
@@ -162,8 +163,10 @@ describe("autonomous continuation ↔ orchestration wait (integration)", () => {
 
     // Parent released ONLY on the terminal (3rd) cycle — never mid-loop.
     expect(resolvedAtCall).toBe(3);
+    // Wave 1: the orchestrator receives the FULL result (from the
+    // event's resultFull), not the 200-char preview.
     expect(resolvedValue).toEqual({
-      resultPreview: "everything is done",
+      result: "everything is done",
       success: true,
     });
     expect(assignment.status).toBe("completed");

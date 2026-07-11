@@ -171,6 +171,62 @@ describe("orchestration extension — invoke_agent happy path", () => {
   });
 });
 
+// ── invoke_agent — full result (Wave 1) ────────────────────────────
+
+describe("orchestration extension — invoke_agent full result", () => {
+  test("prefers the top-level resultFull over the 200-char resultPreview", async () => {
+    const { fn, calls } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+
+    const invocation = tools.invoke_agent!({ agentConfigId: "agent-builder", task: "Research" });
+
+    let assignmentId: string | undefined;
+    for (let i = 0; i < 20 && !assignmentId; i++) {
+      await new Promise((r) => setTimeout(r, 1));
+      if (calls.length > 0) assignmentId = Array.from(_internals.pendingInvocations.keys())[0];
+    }
+    expect(assignmentId).toBeDefined();
+
+    const preview = "A".repeat(200) + "...";
+    const full = "A".repeat(4000); // longer than any preview
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: "task-x",
+      assignment: { id: assignmentId!, status: "completed", resultPreview: preview },
+      resultFull: full,
+    });
+
+    const out = await invocation;
+    // The orchestrator sees the FULL text, not the truncated preview.
+    expect(expectText(out)).toBe(full);
+    expect(expectText(out)).not.toBe(preview);
+    expect(expectIsError(out)).toBe(false);
+  });
+
+  test("falls back to resultPreview when resultFull is absent (older host build)", async () => {
+    const { fn, calls } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+
+    const invocation = tools.invoke_agent!({ agentConfigId: "agent-builder", task: "Legacy" });
+    let assignmentId: string | undefined;
+    for (let i = 0; i < 20 && !assignmentId; i++) {
+      await new Promise((r) => setTimeout(r, 1));
+      if (calls.length > 0) assignmentId = Array.from(_internals.pendingInvocations.keys())[0];
+    }
+    expect(assignmentId).toBeDefined();
+
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: "task-x",
+      assignment: { id: assignmentId!, status: "completed", resultPreview: "just the preview" },
+      // no resultFull
+    });
+
+    const out = await invocation;
+    expect(expectText(out)).toBe("just the preview");
+  });
+});
+
 // ── invoke_agent — failed sub-run ──────────────────────────────────
 
 describe("orchestration extension — invoke_agent failed sub-run", () => {

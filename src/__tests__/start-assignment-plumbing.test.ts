@@ -70,6 +70,8 @@ const {
   extractFullText,
   detectDoneSignal,
   stripSignals,
+  capFullResult,
+  ASSIGNMENT_RESULT_FULL_CAP,
 } = await import("../runtime/start-assignment");
 const { EventBus } = await import("../runtime/events");
 const { enqueue } = await import("../runtime/pending-messages");
@@ -816,6 +818,91 @@ describe("startAssignment — goal pinning across cycles", () => {
     expect(calls[1]!.userMessage).toBe("keep going please");
     // Objective is re-pinned on the re-prompt cycle, not just the first.
     expect(calls[1]!.options.system).toBe(withObjective("you are alice"));
+  });
+});
+
+// ── 8b. Full result to the orchestrator (Wave 1) ───────────────────
+//
+// The `task:assignment_update` event now carries a top-level
+// `resultFull` (the sub-agent's complete final text, capped) alongside
+// the 200-char `resultPreview`. The panel keeps the preview; the
+// orchestration extension returns `resultFull` to the orchestrator LLM.
+
+describe("capFullResult", () => {
+  test("returns undefined for empty input (no-output run omits the field)", () => {
+    expect(capFullResult("")).toBeUndefined();
+  });
+
+  test("passes through text at or under the cap unchanged", () => {
+    const text = "x".repeat(ASSIGNMENT_RESULT_FULL_CAP);
+    expect(capFullResult(text)).toBe(text);
+  });
+
+  test("truncates over-cap text with a visible marker naming the dropped count", () => {
+    const text = "y".repeat(ASSIGNMENT_RESULT_FULL_CAP + 500);
+    const out = capFullResult(text)!;
+    expect(out.startsWith("y".repeat(ASSIGNMENT_RESULT_FULL_CAP))).toBe(true);
+    expect(out).toContain("truncated 500 more characters");
+    expect(out).toContain("open the sub-conversation");
+  });
+});
+
+describe("startAssignment — full result on the assignment_update event", () => {
+  test("completion emits resultFull with the FULL output; preview stays 200-char", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: Array<{ resultFull?: string; assignment: { resultPreview?: string } }> = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-full" });
+    const { agentRunId } = await startAssignment(opts);
+
+    const longOutput = "Z".repeat(1000);
+    emitComplete(bus, agentRunId, longOutput);
+
+    const terminal = updates.at(-1)!;
+    expect(terminal.resultFull).toBe(longOutput);
+    expect(terminal.assignment.resultPreview).toBe("Z".repeat(200) + "...");
+    expect(assignment.resultPreview).toBe("Z".repeat(200) + "...");
+  });
+
+  test("error path emits the full error (not just the 200-char preview) as resultFull", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: Array<{ resultFull?: string }> = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-err" });
+    const { agentRunId } = await startAssignment(opts);
+
+    const longErr = "e".repeat(500);
+    bus.emit("run:error", {
+      run: { id: agentRunId, agentName: "alice", status: "error", startedAt: Date.now(), logs: [] },
+      error: longErr,
+      conversationId: "conv-parent",
+      runId: agentRunId,
+    } as AgentEvents["run:error"]);
+
+    expect(assignment.resultPreview).toBe(longErr.slice(0, 200));
+    expect(updates.at(-1)!.resultFull).toBe(longErr);
+  });
+
+  test("no-output completion emits no resultFull field", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: Array<{ resultFull?: string }> = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-empty" });
+    const { agentRunId } = await startAssignment(opts);
+
+    // output is a non-previewable object → no preview, no resultFull.
+    emitComplete(bus, agentRunId, { some: "object" });
+
+    expect(updates.at(-1)!.resultFull).toBeUndefined();
   });
 });
 
