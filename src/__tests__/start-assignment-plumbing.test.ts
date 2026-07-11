@@ -817,6 +817,204 @@ describe("startAssignment — parentRunId child registration", () => {
   });
 });
 
+// ── 5b-detached. Detached (background) child outlives the parent run ─
+//
+// A background sub-agent (invoke_agent({ background: true })) is DESIGNED to
+// outlive its parent orchestrator run. When it is ALSO multi-cycle
+// (background+autonomous or background+outputSchema), it re-enters startRun at
+// each cycle boundary and calls registerChildRun again — which returns false
+// once the parent has terminalized. The dead-parent guard force-fails a SYNC
+// child in that case (correct: nobody consumes its result), but for a DETACHED
+// child that is WRONG: the child is legitimately still working. The fix threads
+// a `detached` flag so the false branch degrades to streaming UNPARENTED
+// instead of a false self-fail + false "finished (failure)" notify.
+
+describe("startAssignment — detached child outlives terminal parent", () => {
+  test("DETACHED multi-cycle: cycle-boundary dead parent → child CONTINUES unparented, not failed, agentRunId tracks live cycle, no false notify", async () => {
+    const { executor, calls, childRegistrations } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const completes: Array<{ success: boolean }> = [];
+    bus.on("agent:complete", (d) => completes.push(d as never));
+
+    const opts = baseOpts({
+      executor,
+      bus,
+      assignment,
+      conversationId: "conv-detached-cont",
+      reuseSubConversationId: "sub-detached-cont",
+      parentRunId: "parent-detached",
+      autonomousContinuation: { maxCycles: 3 },
+      detached: true,
+      notifyParentOnTerminal: true,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Initial background spawn registered under the LIVE parent (so an early
+    // Stop still cascades to a just-started background child).
+    expect(childRegistrations).toEqual([
+      { parentRunId: "parent-detached", childRunId: agentRunId },
+    ]);
+    expect(calls).toHaveLength(1);
+
+    // Parent run terminalizes: the NEXT cycle's registerChildRun returns false.
+    registerChildRunResult = false;
+
+    // Cycle boundary: run completes with no sentinel → autonomous continuation
+    // mints a new run whose registerChildRun now fails (parent gone).
+    emitComplete(bus, agentRunId, "still working");
+
+    // The child CONTINUED — a new cycle streamed despite the dead parent.
+    expect(calls).toHaveLength(2);
+    const newRunId = calls[1]!.options.runId as string;
+    expect(newRunId).not.toBe(agentRunId);
+    // Registration was still ATTEMPTED for the cycle (only the false result is
+    // handled differently), and it fell through to stream unparented.
+    expect(childRegistrations).toHaveLength(2);
+    expect(childRegistrations[1]).toEqual({
+      parentRunId: "parent-detached",
+      childRunId: newRunId,
+    });
+    // NOT force-failed.
+    expect(assignment.status).toBe("running");
+    expect(assignment.resultPreview).not.toBe(
+      "Parent run ended before this agent could start",
+    );
+    // assignment.agentRunId tracks the LIVE cycle run so task-panel Stop still
+    // targets the run that is actually working.
+    expect(assignment.agentRunId).toBe(newRunId);
+    // No terminal emitted for the still-progressing child → no false
+    // agent:complete and no false completion-notify to the parent conversation.
+    expect(completes).toHaveLength(0);
+    expect(hasPending("conv-detached-cont")).toBe(false);
+  });
+
+  test("DETACHED initial spawn under a RUNNING parent still registers (early Stop cascades)", async () => {
+    const { executor, calls, childRegistrations } = makeMockExecutor();
+    // Parent is live → registerChildRun returns true (default).
+    const opts = baseOpts({
+      executor,
+      reuseSubConversationId: "sub-detached-initial",
+      parentRunId: "parent-live",
+      detached: true,
+      notifyParentOnTerminal: true,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Even for a detached spawn, the INITIAL run registers under the live
+    // parent so an early Stop still cascades to the just-started background
+    // child (only the later post-terminal cycle degrades to unparented).
+    expect(childRegistrations).toEqual([
+      { parentRunId: "parent-live", childRunId: agentRunId },
+    ]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.options.runId).toBe(agentRunId);
+  });
+
+  test("SYNC (non-detached) cycle-boundary dead parent → STILL force-fails (regression pin)", async () => {
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const completes: Array<{ success: boolean }> = [];
+    bus.on("agent:complete", (d) => completes.push(d as never));
+
+    const opts = baseOpts({
+      executor,
+      bus,
+      assignment,
+      conversationId: "conv-sync-cont",
+      reuseSubConversationId: "sub-sync-cont",
+      parentRunId: "parent-sync",
+      autonomousContinuation: { maxCycles: 3 },
+      // detached NOT set → the guard's force-fail must remain intact.
+      notifyParentOnTerminal: true,
+    });
+    const { agentRunId } = await startAssignment(opts);
+    expect(calls).toHaveLength(1);
+
+    // Parent terminalizes; the cycle's registerChildRun returns false.
+    registerChildRunResult = false;
+    emitComplete(bus, agentRunId, "still working");
+
+    // The sync child was NOT started for the cycle — it force-failed.
+    expect(calls).toHaveLength(1);
+    expect(assignment.status).toBe("failed");
+    expect(assignment.resultPreview).toBe(
+      "Parent run ended before this agent could start",
+    );
+    // The sync path DOES emit its terminal (releases the parent gate) and,
+    // because notifyParentOnTerminal is set, enqueues the (correct) failure
+    // notify — exactly ONE.
+    expect(completes).toHaveLength(1);
+    expect(completes[0]!.success).toBe(false);
+    expect(hasPending("conv-sync-cont")).toBe(true);
+  });
+});
+
+// ── 5b-guard. Single terminal emit across racing terminal paths ────
+//
+// The four terminal branches share no "already terminalized" flag beyond the
+// executor's mutual-exclusion + cleanup() unsubscribe. A single closure
+// `terminalized` flag guards emitTerminal so a future change that lets a
+// second terminal path fire (e.g. streamChat rejecting AFTER a bus terminal
+// already landed) cannot double-fire agent:complete + a duplicate parent notify.
+
+describe("startAssignment — emitTerminal double-fire guard", () => {
+  test("agent:complete + parent notify fire at most once when a stream rejection races a bus terminal", async () => {
+    // streamChat returns a promise we reject LATE (after a bus run:complete).
+    const calls: StreamChatCall[] = [];
+    let rejectStream: (e: unknown) => void = () => {};
+    const streamChat = mock(
+      async (
+        conversationId: string,
+        userMessage: string,
+        options: Record<string, unknown>,
+      ) => {
+        calls.push({ conversationId, userMessage, options });
+        return new Promise((_resolve, reject) => {
+          rejectStream = reject;
+        });
+      },
+    );
+    const registerChildRun = mock(() => true);
+    const executor = { streamChat, registerChildRun } as unknown as AgentExecutor;
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const completes: Array<{ success: boolean }> = [];
+    bus.on("agent:complete", (d) => completes.push(d as never));
+
+    const opts = baseOpts({
+      executor,
+      bus,
+      assignment,
+      conversationId: "conv-double",
+      reuseSubConversationId: "sub-double",
+      notifyParentOnTerminal: true,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // First terminal: a bus run:complete fires emitTerminal(true) and cleanup()
+    // unsubscribes the sibling listeners.
+    emitComplete(bus, agentRunId, "done");
+    expect(completes).toHaveLength(1);
+    expect(completes[0]!.success).toBe(true);
+    // One completion-notify enqueued for the parent.
+    expect(hasPending("conv-double")).toBe(true);
+    expect(dequeue("conv-double")).not.toBeNull();
+    expect(hasPending("conv-double")).toBe(false);
+
+    // Now the still-pending stream rejects → its .catch would call
+    // emitTerminal(false) again; the guard must block the second emit.
+    rejectStream(new Error("late stream boom"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Guard held: no second agent:complete, no second parent notify.
+    expect(completes).toHaveLength(1);
+    expect(hasPending("conv-double")).toBe(false);
+  });
+});
+
 // ── 5c. onCycleRunIdChange — quota re-key across a cycle boundary ──
 //
 // CRITICAL (Phase A2 fix): a multi-cycle child mints a NEW run id per cycle.

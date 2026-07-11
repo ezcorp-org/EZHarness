@@ -469,6 +469,38 @@ describe("spawn-assignment — dispatch", () => {
     expect(startAssignmentCalls.at(-1)!).not.toHaveProperty("notifyParentOnTerminal");
   });
 
+  test("detached: true threads through to startAssignment (background spawn outlives parent)", async () => {
+    const ext = `det-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...validParams, detached: true }, "det-1"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls.at(-1)!.detached).toBe(true);
+  });
+
+  test("detached omitted → startAssignment opts omit the flag (sync spawn)", async () => {
+    const ext = `det2-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(ext, rpc(validParams, "det-2"), makeCtx());
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls.at(-1)!).not.toHaveProperty("detached");
+  });
+
+  test("detached accepts only strict true (a truthy non-true is dropped)", async () => {
+    const ext = `det3-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...validParams, detached: 1 as unknown as boolean }, "det-3"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls.at(-1)!).not.toHaveProperty("detached");
+  });
+
   test("threads onCycleRunIdChange that re-keys the quota reservation onto the live cycle run", async () => {
     const ext = `cyc-ext-${crypto.randomUUID().slice(0, 8)}`;
     await wireConversation(CONV_WIRED, ext);

@@ -1244,8 +1244,11 @@ describe("orchestration extension — background spawn", () => {
     expect(bg.subConversationId).toBe("sub-asn-1");
     expect(bg.agentRunId).toBe("run-asn-1");
 
-    // The spawn asked the host to notify the parent on terminal.
+    // The spawn asked the host to notify the parent on terminal AND marked the
+    // child detached so a post-parent-terminal cycle streams unparented rather
+    // than self-failing.
     expect(calls[0]!.input.notifyParentOnTerminal).toBe(true);
+    expect(calls[0]!.input.detached).toBe(true);
 
     // Wait well past the tiny default timeout — nothing fires (no timer),
     // nothing is reaped, and the entry stays put for a later collect.
@@ -1262,6 +1265,7 @@ describe("orchestration extension — background spawn", () => {
     const invocation = tools.invoke_agent!({ agentConfigId: "agent-builder", task: "sync" });
     const key = await drainPendingKey();
     expect(calls[0]!.input.notifyParentOnTerminal).toBeUndefined();
+    expect(calls[0]!.input.detached).toBeUndefined();
     expect(_internals.backgroundSpawns.size).toBe(0);
 
     await _internals.handleAssignmentUpdate({
@@ -1401,6 +1405,9 @@ describe("send_to_agent", () => {
     expect(continueCall.task).toBe("keep going");
     expect(continueCall.reuseSubConversationFor).toBe("agent-builder");
     expect(continueCall.notifyParentOnTerminal).toBe(true);
+    // Continuation runs background-style → detached so a cycle past the
+    // parent's terminal streams unparented rather than self-failing.
+    expect(continueCall.detached).toBe(true);
     // The new background spawn is tracked (asn-2), owned by the caller.
     const meta = expectAgentMetaBg(out);
     expect(meta.assignmentId).toBe("asn-2");

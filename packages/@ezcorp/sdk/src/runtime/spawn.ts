@@ -111,6 +111,17 @@ export interface SpawnAssignmentInput {
    *  invocations; a blocking (synchronous) invoke never sets it because the
    *  caller is already awaiting the result inline. Default OFF. */
   notifyParentOnTerminal?: boolean;
+  /** Detached (background) spawn: the child legitimately OUTLIVES the parent
+   *  run. When set, a later cycle-boundary re-registration that finds the
+   *  parent already terminal degrades gracefully — the child continues
+   *  streaming UNPARENTED instead of being force-failed with a false
+   *  "parent ended" terminal (it is still supervised by its own idle watchdog
+   *  + the task-panel Stop). A synchronous (blocking) spawn never sets this:
+   *  its result must be consumed by a live parent, so an ownerless cycle IS a
+   *  failure. Orthogonal to `notifyParentOnTerminal` (the parent-nudge signal),
+   *  though the orchestration extension currently sets both together for
+   *  background invokes / continuations. Default OFF. */
+  detached?: boolean;
 }
 
 export interface SpawnAssignmentHandle {
@@ -180,6 +191,7 @@ export async function spawnAssignment(
       : {}),
     ...(input.outputSchema ? { outputSchema: input.outputSchema } : {}),
     ...(input.notifyParentOnTerminal ? { notifyParentOnTerminal: true } : {}),
+    ...(input.detached ? { detached: true } : {}),
   });
   return {
     subConversationId: result.subConversationId,

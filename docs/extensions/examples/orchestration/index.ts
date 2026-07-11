@@ -438,8 +438,11 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
     // Background spawns ask the host to emit `agent:complete` + enqueue a
     // completion-notify pending message for the parent conversation on the
     // child's terminal transition. A synchronous invoke never sets this — the
-    // orchestrator is already awaiting the result inline.
-    ...(background === true ? { notifyParentOnTerminal: true } : {}),
+    // orchestrator is already awaiting the result inline. `detached` marks the
+    // child as one that legitimately OUTLIVES the parent run, so a multi-cycle
+    // (autonomous / outputSchema) background child that hits a cycle boundary
+    // after the parent's turn ended streams UNPARENTED instead of self-failing.
+    ...(background === true ? { notifyParentOnTerminal: true, detached: true } : {}),
   };
 
   let handle: SpawnAssignmentHandle;
@@ -1071,8 +1074,10 @@ async function continueAgent(
     title: config.name,
     // Continuation runs background-style: no blocking wait here, the caller
     // collects later. Ask the host to notify the parent on terminal (same as
-    // invoke_agent background).
+    // invoke_agent background), and mark it detached so a cycle boundary past
+    // the parent's terminal streams unparented rather than self-failing.
     notifyParentOnTerminal: true,
+    detached: true,
     // Run-linkage from the CURRENT turn.
     ...(typeof md.parentMessageId === "string"
       ? { parentMessageId: md.parentMessageId }

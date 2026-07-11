@@ -308,6 +308,20 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
     expect(calls[1]?.params as Record<string, unknown>).not.toHaveProperty("notifyParentOnTerminal");
   });
 
+  test("detached: sent as true when set (background child outlives parent)", async () => {
+    const { calls } = happy();
+    await spawnAssignment({ agentConfigId: "cfg-1", task: "t", detached: true });
+    expect((calls[0]?.params as Record<string, unknown>).detached).toBe(true);
+  });
+
+  test("detached: omitted when absent or false (no key on the wire)", async () => {
+    const { calls } = happy();
+    await spawnAssignment({ agentConfigId: "cfg-1", task: "t" });
+    expect(calls[0]?.params as Record<string, unknown>).not.toHaveProperty("detached");
+    await spawnAssignment({ agentConfigId: "cfg-1", task: "t", detached: false });
+    expect(calls[1]?.params as Record<string, unknown>).not.toHaveProperty("detached");
+  });
+
   test("all 5 Phase 4 fields together — each sits at its own key", async () => {
     const { calls } = happy();
     const overrides = { model: "gpt-4o" };

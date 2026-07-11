@@ -218,6 +218,21 @@ export interface StartAssignmentOpts {
    *      every case. The enqueue is kept because it's free and correct for the
    *      nested/goal-host cases; it is simply a no-op for top-level chats. */
   notifyParentOnTerminal?: boolean;
+  /** Detached (background) spawn: the child is DESIGNED to outlive the parent
+   *  orchestrator run (the parent's turn typically ends before the child
+   *  finishes; run:complete cascade-cancel deliberately does not fire for it).
+   *  Multi-cycle background children (`autonomousContinuation` or `outputSchema`)
+   *  re-enter startRun at each cycle boundary and call `registerChildRun` again;
+   *  once the parent has terminalized that returns false. For a SYNC spawn that
+   *  false is correct — don't start an ownerless child whose result nobody
+   *  consumes. For a DETACHED spawn it is NOT: the child legitimately continues,
+   *  so instead of force-failing it (and enqueuing a false "finished (failure)"
+   *  notify to the parent) we stream the cycle UNPARENTED. It stays supervised
+   *  by its own idle watchdog + the task-panel Stop (`assignment.agentRunId`
+   *  tracks the live cycle run). The INITIAL background spawn still registers
+   *  under the parent while the parent IS running, so an early Stop still
+   *  cascades. Default OFF (sync). */
+  detached?: boolean;
 }
 
 export interface StartAssignmentResult {
@@ -275,7 +290,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     projectId, agentConfig, parentModel, parentProvider,
     reuseSubConversationId, parentMessageId, overrides, teamToolScope,
     orchestrationDepth, autonomousContinuation, parentRunId,
-    onCycleRunIdChange, outputSchema, notifyParentOnTerminal,
+    onCycleRunIdChange, outputSchema, notifyParentOnTerminal, detached,
   } = opts;
 
   // Master kill-switch (Advanced Settings → "Agent goal pinning &
@@ -434,11 +449,22 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
   //     StartAssignmentOpts.notifyParentOnTerminal). The text carries no
   //     secrets (only the already-sanitized 200-char preview) and is capped.
   const NOTIFY_PREVIEW_CAP = 400;
+  // Single terminal per assignment. The four terminal branches
+  // (run:complete, run:error, run:cancel, streamPromise.catch) rely on the
+  // executor's mutual-exclusion to fire at most once, and cleanup()
+  // unsubscribes the sibling listeners on the first. This flag is a
+  // belt-and-suspenders backstop so any future change that lets two terminals
+  // race (e.g. streamChat rejecting AFTER already emitting run:error) can't
+  // double-fire `agent:complete` + a duplicate parent notify. Set on the first
+  // terminal; subsequent calls early-return.
+  let terminalized = false;
   function emitTerminal(
     cycleRunId: string,
     success: boolean,
     resultPreview: string,
   ): void {
+    if (terminalized) return;
+    terminalized = true;
     bus.emit("agent:complete", {
       runId: cycleRunId,
       agentRunId: cycleRunId,
@@ -486,25 +512,48 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     //
     // registerChildRun returns false when the parent is already terminal:
     // startAssignment awaits several DB reads before reaching here, so a
-    // user's Stop can kill the orchestrator inside that window — its cancel
-    // cascade snapshot saw no child, and starting one now would stream
-    // ownerless with nobody to consume the result. Fail the assignment
-    // instead of starting dead work; the terminal assignment_update also
-    // releases the parent's (already-rejected) invoke_agent gate cleanly.
+    // user's Stop can kill the orchestrator inside that window — AND, for a
+    // multi-cycle child, each cycle boundary re-enters startRun long after the
+    // parent's turn has legitimately ended.
+    //
+    // SYNC spawn: starting a child now would stream ownerless with nobody to
+    // consume the result. Fail the assignment instead of starting dead work;
+    // the terminal assignment_update also releases the parent's
+    // (already-rejected) invoke_agent gate cleanly.
+    //
+    // DETACHED (background) spawn: the child is DESIGNED to outlive the parent
+    // run (docs/extensions/examples/orchestration — cascade-cancel does not
+    // fire for a background child), so a background+autonomous or
+    // background+outputSchema child WILL hit this false branch at a normal
+    // cycle boundary while still doing real work. Force-failing it here would
+    // non-deterministically self-fail the child mid-run and enqueue a false
+    // "finished (failure)" notify to the parent. Instead we degrade gracefully:
+    // stream this cycle UNPARENTED (cascade registration is already a no-op —
+    // the parent is gone) and let the child's own idle watchdog + task-panel
+    // Stop supervise it. `assignment.agentRunId` already tracks this live cycle
+    // run (set by the caller before startRun), so Stop still targets it.
     if (parentRunId && !executor.registerChildRun(parentRunId, runId)) {
-      assignment.status = "failed";
-      assignment.failedAt = new Date().toISOString();
-      assignment.resultPreview = "Parent run ended before this agent could start";
-      emitTaskSnapshot(bus, snapshot);
-      emitAssignmentUpdate(
-        bus, conversationId, taskId, assignment,
-        "Parent run ended before this agent could start — child was not started.",
-      );
-      emitTerminal(runId, false, "Parent run ended before this agent could start");
-      log.info("Refused to start child of terminal parent run", {
-        conversationId, taskId, parentRunId, runId,
-      });
-      return;
+      if (detached) {
+        log.info("Detached child outlived terminal parent — streaming unparented", {
+          conversationId, taskId, parentRunId, runId,
+        });
+        // Fall through (no return): re-key the cycle quota reservation below
+        // and stream the cycle as normal, just without a parent to cascade to.
+      } else {
+        assignment.status = "failed";
+        assignment.failedAt = new Date().toISOString();
+        assignment.resultPreview = "Parent run ended before this agent could start";
+        emitTaskSnapshot(bus, snapshot);
+        emitAssignmentUpdate(
+          bus, conversationId, taskId, assignment,
+          "Parent run ended before this agent could start — child was not started.",
+        );
+        emitTerminal(runId, false, "Parent run ended before this agent could start");
+        log.info("Refused to start child of terminal parent run", {
+          conversationId, taskId, parentRunId, runId,
+        });
+        return;
+      }
     }
 
     // Cycle continuation: this run replaces `previousRunId` (a new id minted

@@ -274,6 +274,13 @@ export async function handleSpawnAssignmentRpc(
   // AND enqueues a completion-notify pending message for the parent
   // conversation on the terminal transition. Only accepted as a strict `true`.
   const callerNotifyParentOnTerminal = params.notifyParentOnTerminal === true;
+  // Detached (background) opt-in: the child legitimately OUTLIVES the parent
+  // run, so a later cycle-boundary registration that finds the parent already
+  // terminal must NOT force-fail the still-progressing child. Only accepted as
+  // a strict `true`. Threaded verbatim into startAssignment's dead-parent
+  // guard. Orthogonal to `notifyParentOnTerminal` even though the orchestration
+  // extension currently sets both for background spawns.
+  const callerDetached = params.detached === true;
   const callerAutonomous = ((): { maxCycles?: number } | undefined => {
     const ac = params.autonomousContinuation;
     if (!ac || typeof ac !== "object" || Array.isArray(ac)) return undefined;
@@ -415,6 +422,7 @@ export async function handleSpawnAssignmentRpc(
       ...(callerAutonomous ? { autonomousContinuation: callerAutonomous } : {}),
       ...(callerOutputSchema ? { outputSchema: callerOutputSchema } : {}),
       ...(callerNotifyParentOnTerminal ? { notifyParentOnTerminal: true } : {}),
+      ...(callerDetached ? { detached: true } : {}),
       // Re-key the quota reservation onto each new cycle's run id so the
       // concurrent slot follows the LIVE run (not the stale cycle-1 id) and
       // `ezcorp/cancel-run` — the invoke_agent timeout reap — can still
