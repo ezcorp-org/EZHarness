@@ -43,6 +43,7 @@ interface TaskAssignment {
 	subConversationId?: string;
 	agentRunId?: string;
 	resultPreview?: string;
+	schemaFailed?: boolean;
 }
 
 interface TrackedTask {
@@ -124,18 +125,21 @@ class TestStore {
 				break;
 			}
 			case "task:assignment_update": {
-				const { conversationId, taskId, assignment } = event.data as {
+				const { conversationId, taskId, assignment, structuredResultError, structuredResultOverCap } = event.data as {
 					conversationId: string; taskId: string; assignment: TaskAssignment;
+					structuredResultError?: string; structuredResultOverCap?: boolean;
 				};
+				const schemaFailed = structuredResultError !== undefined && !structuredResultOverCap;
+				const merged: TaskAssignment = { ...assignment, schemaFailed };
 				const snapshot = this.taskSnapshots[conversationId];
 				if (snapshot) {
 					const task = snapshot.tasks.find(t => t.id === taskId);
 					if (task) {
-						const idx = (task.assignments ?? []).findIndex(a => a.id === assignment.id);
+						const idx = (task.assignments ?? []).findIndex(a => a.id === merged.id);
 						if (idx >= 0) {
-							task.assignments[idx] = assignment;
+							task.assignments[idx] = merged;
 						} else {
-							task.assignments = [...(task.assignments ?? []), assignment];
+							task.assignments = [...(task.assignments ?? []), merged];
 						}
 						if (
 							task.status !== "completed" &&
@@ -637,6 +641,86 @@ describe("setTaskSnapshot", () => {
 			});
 
 			expect(store.getTaskSnapshot("conv-au3")!.tasks[0].assignments).toHaveLength(0);
+		});
+	});
+
+	// ── Phase B4: structured-output schema-failure flag capture ──────────
+	describe("task:assignment_update schema-failure flag (Phase B4)", () => {
+		let store: TestStore;
+		beforeEach(() => { store = new TestStore(); });
+
+		function setupRunning(convId: string): void {
+			store.setTaskSnapshot(makeSnapshot({
+				conversationId: convId,
+				tasks: [makeTask({
+					id: "t1",
+					status: "active",
+					assignments: [makeAssignment({ id: "a1", status: "running" })],
+				})],
+			}));
+		}
+
+		test("captures schemaFailed=true from top-level structuredResultError", () => {
+			setupRunning("conv-sf1");
+			store.handleWSEvent({
+				type: "task:assignment_update",
+				data: {
+					conversationId: "conv-sf1",
+					taskId: "t1",
+					assignment: makeAssignment({ id: "a1", status: "completed" }),
+					structuredResultError: "field `total` is required but missing",
+				},
+			});
+			const a = store.getTaskSnapshot("conv-sf1")!.tasks[0].assignments[0];
+			expect(a.status).toBe("completed");
+			expect(a.schemaFailed).toBe(true);
+		});
+
+		test("does NOT flag schemaFailed for a validated-but-oversized (overCap) result", () => {
+			setupRunning("conv-sf2");
+			store.handleWSEvent({
+				type: "task:assignment_update",
+				data: {
+					conversationId: "conv-sf2",
+					taskId: "t1",
+					assignment: makeAssignment({ id: "a1", status: "completed" }),
+					structuredResultError: "validated but exceeds the 30KB structured cap",
+					structuredResultOverCap: true,
+				},
+			});
+			expect(store.getTaskSnapshot("conv-sf2")!.tasks[0].assignments[0].schemaFailed).toBe(false);
+		});
+
+		test("schemaFailed=false when no structured error rides the event", () => {
+			setupRunning("conv-sf3");
+			store.handleWSEvent({
+				type: "task:assignment_update",
+				data: {
+					conversationId: "conv-sf3",
+					taskId: "t1",
+					assignment: makeAssignment({ id: "a1", status: "completed" }),
+				},
+			});
+			expect(store.getTaskSnapshot("conv-sf3")!.tasks[0].assignments[0].schemaFailed).toBe(false);
+		});
+
+		test("newly-added assignment also carries the captured flag", () => {
+			store.setTaskSnapshot(makeSnapshot({
+				conversationId: "conv-sf4",
+				tasks: [makeTask({ id: "t1", status: "active" })],
+			}));
+			store.handleWSEvent({
+				type: "task:assignment_update",
+				data: {
+					conversationId: "conv-sf4",
+					taskId: "t1",
+					assignment: makeAssignment({ id: "a-new", status: "completed" }),
+					structuredResultError: "schema mismatch",
+				},
+			});
+			const a = store.getTaskSnapshot("conv-sf4")!.tasks[0].assignments[0];
+			expect(a.id).toBe("a-new");
+			expect(a.schemaFailed).toBe(true);
 		});
 	});
 
