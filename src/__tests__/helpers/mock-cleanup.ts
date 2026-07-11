@@ -216,6 +216,7 @@ const MODULE_PATHS = [
   "../../../web/src/lib/stores/connection",
   "../../../web/src/lib/api",
   "@earendil-works/pi-ai",
+  "@earendil-works/pi-ai/compat",
   "@earendil-works/pi-ai/oauth",
   "@earendil-works/pi-agent-core",
   // Extension SDK exports. Bundled-extension test files in

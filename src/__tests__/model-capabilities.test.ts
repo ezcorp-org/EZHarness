@@ -15,7 +15,7 @@ const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.s
 
 describe("model-capabilities", () => {
   test("vision model (Claude) accepts images, text, and PDFs", () => {
-    const caps = getCapabilities("anthropic", "claude-3-5-sonnet-20241022");
+    const caps = getCapabilities("anthropic", "claude-sonnet-4-5");
     expect(caps.kinds).toEqual(expect.arrayContaining(["image", "text", "pdf"]));
     expect(caps.kinds).not.toContain("audio");
     for (const m of IMAGE_MIMES) expect(isMimeAccepted(caps, m)).toBe(true);
@@ -51,7 +51,7 @@ describe("model-capabilities", () => {
 
   test("no Phase 1 model accepts audio — audio is gated until explicit wire-up", () => {
     for (const pair of [
-      ["anthropic", "claude-3-5-sonnet-20241022"],
+      ["anthropic", "claude-sonnet-4-5"],
       ["openai", "gpt-4o"],
       ["google", "gemini-2.5-pro"],
       ["my-custom-provider", "local-llm"],
@@ -63,7 +63,7 @@ describe("model-capabilities", () => {
   });
 
   test("default size limits: max 10 files, ≥20MB per file", () => {
-    const caps = getCapabilities("anthropic", "claude-3-5-sonnet-20241022");
+    const caps = getCapabilities("anthropic", "claude-sonnet-4-5");
     expect(caps.maxFilesPerMessage).toBe(10);
     expect(caps.maxBytesPerFile).toBeGreaterThanOrEqual(20 * 1024 * 1024);
   });
@@ -78,8 +78,8 @@ describe("model-capabilities", () => {
 
   describe("getCapabilitiesWithExtensions", () => {
     test("with no extension MIMEs returns the base capabilities unchanged", () => {
-      const base = getCapabilities("anthropic", "claude-3-5-sonnet-20241022");
-      const overlay = getCapabilitiesWithExtensions("anthropic", "claude-3-5-sonnet-20241022", []);
+      const base = getCapabilities("anthropic", "claude-sonnet-4-5");
+      const overlay = getCapabilitiesWithExtensions("anthropic", "claude-sonnet-4-5", []);
       expect(overlay.acceptedMimeTypes).toEqual(base.acceptedMimeTypes);
       expect(overlay.kinds).toEqual(base.kinds);
       expect(overlay.kinds).not.toContain("extension-handle");
@@ -87,7 +87,7 @@ describe("model-capabilities", () => {
     });
 
     test("supplied MIMEs are added with extension-handle-only delivery", () => {
-      const caps = getCapabilitiesWithExtensions("anthropic", "claude-3-5-sonnet-20241022", [XLSX_MIME]);
+      const caps = getCapabilitiesWithExtensions("anthropic", "claude-sonnet-4-5", [XLSX_MIME]);
       expect(caps.acceptedMimeTypes).toContain(XLSX_MIME);
       expect(caps.kinds).toContain("extension-handle");
       expect(caps.deliveryFor["extension-handle"]).toBe("extension-handle-only");
@@ -97,13 +97,13 @@ describe("model-capabilities", () => {
     test("MIMEs already in the base allowlist are not downgraded to extension-handle", () => {
       // image/png is already a native image MIME on Claude. Even if a
       // misbehaving extension declares it, the base delivery wins.
-      const caps = getCapabilitiesWithExtensions("anthropic", "claude-3-5-sonnet-20241022", ["image/png"]);
+      const caps = getCapabilitiesWithExtensions("anthropic", "claude-sonnet-4-5", ["image/png"]);
       expect(classifyMimeWithCaps(caps, "image/png")).toBe("image");
       expect(caps.deliveryFor.image).toBe("native-image");
     });
 
     test("classifyMimeWithCaps returns extension-handle for overlay MIMEs", () => {
-      const caps = getCapabilitiesWithExtensions("anthropic", "claude-3-5-sonnet-20241022", [XLSX_MIME]);
+      const caps = getCapabilitiesWithExtensions("anthropic", "claude-sonnet-4-5", [XLSX_MIME]);
       expect(classifyMimeWithCaps(caps, XLSX_MIME)).toBe("extension-handle");
       // Static whitelist still works through the same classifier.
       expect(classifyMimeWithCaps(caps, "image/png")).toBe("image");
@@ -114,7 +114,7 @@ describe("model-capabilities", () => {
     test("duplicate MIMEs in the extension list dedupe", () => {
       const caps = getCapabilitiesWithExtensions(
         "anthropic",
-        "claude-3-5-sonnet-20241022",
+        "claude-sonnet-4-5",
         [XLSX_MIME, XLSX_MIME, "application/x-vnd-foo", XLSX_MIME],
       );
       const occurrences = caps.acceptedMimeTypes.filter((m) => m === XLSX_MIME);
@@ -125,7 +125,7 @@ describe("model-capabilities", () => {
     test("non-string entries in the extension MIME list are dropped", () => {
       const caps = getCapabilitiesWithExtensions(
         "anthropic",
-        "claude-3-5-sonnet-20241022",
+        "claude-sonnet-4-5",
         ["", XLSX_MIME, null as unknown as string, undefined as unknown as string],
       );
       expect(caps.acceptedMimeTypes).toContain(XLSX_MIME);

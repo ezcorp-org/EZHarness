@@ -110,7 +110,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   resetExecutorCalls();
   const conv = await convQueries.createConversation(projectId, {
-    title: "c", provider: "anthropic", model: "claude-3-5-sonnet-20241022",
+    title: "c", provider: "anthropic", model: "claude-sonnet-4-5",
   });
   conversationId = conv.id;
   // ADMIN_USER has role "admin" which bypasses ownership check in verifyConversationOwnership.
@@ -164,7 +164,7 @@ describe("POST /api/conversations/:id/messages (multi-modal)", () => {
 
   test("multipart with a valid PNG → DB row + disk file + streamChat gets attachments", async () => {
     const req = buildMultipartRequest(
-      { content: "look at this", provider: "anthropic", model: "claude-3-5-sonnet-20241022" },
+      { content: "look at this", provider: "anthropic", model: "claude-sonnet-4-5" },
       [{ name: "cat.png", type: "image/png", bytes: PNG_1x1 }],
     );
     const res = await invokePost(req);
@@ -190,7 +190,7 @@ describe("POST /api/conversations/:id/messages (multi-modal)", () => {
 
   test("multipart with text file → TextContent-style persistence", async () => {
     const req = buildMultipartRequest(
-      { content: "summarize", provider: "anthropic", model: "claude-3-5-sonnet-20241022" },
+      { content: "summarize", provider: "anthropic", model: "claude-sonnet-4-5" },
       [{ name: "notes.txt", type: "text/plain", bytes: new TextEncoder().encode("line one") }],
     );
     const res = await invokePost(req);
@@ -220,7 +220,7 @@ describe("POST /api/conversations/:id/messages (multi-modal)", () => {
     const huge = new Uint8Array(33 * 1024 * 1024 + 1);
     huge.set(PNG_1x1, 0);
     const req = buildMultipartRequest(
-      { content: "x", provider: "anthropic", model: "claude-3-5-sonnet-20241022" },
+      { content: "x", provider: "anthropic", model: "claude-sonnet-4-5" },
       [{ name: "big.png", type: "image/png", bytes: huge }],
     );
     const res = await invokePost(req);
@@ -231,7 +231,7 @@ describe("POST /api/conversations/:id/messages (multi-modal)", () => {
 
   test("MIME/magic-byte mismatch → 400", async () => {
     const req = buildMultipartRequest(
-      { content: "x", provider: "anthropic", model: "claude-3-5-sonnet-20241022" },
+      { content: "x", provider: "anthropic", model: "claude-sonnet-4-5" },
       [{ name: "fake.png", type: "image/png", bytes: new TextEncoder().encode("plain text bytes") }],
     );
     const res = await invokePost(req);
@@ -249,7 +249,7 @@ describe("POST /api/conversations/:id/messages (multi-modal)", () => {
 
   test("POST response includes AttachmentSummary with id + kind and no storagePath leak", async () => {
     const req = buildMultipartRequest(
-      { content: "shape check", provider: "anthropic", model: "claude-3-5-sonnet-20241022" },
+      { content: "shape check", provider: "anthropic", model: "claude-sonnet-4-5" },
       [{ name: "cat.png", type: "image/png", bytes: PNG_1x1 }],
     );
     const res = await invokePost(req);
@@ -277,7 +277,7 @@ describe("POST /api/conversations/:id/messages (multi-modal)", () => {
 
   test("POST with multiple images returns one summary per file, stable order", async () => {
     const req = buildMultipartRequest(
-      { content: "two", provider: "anthropic", model: "claude-3-5-sonnet-20241022" },
+      { content: "two", provider: "anthropic", model: "claude-sonnet-4-5" },
       [
         { name: "a.png", type: "image/png", bytes: PNG_1x1 },
         { name: "b.png", type: "image/png", bytes: PNG_1x1 },

@@ -135,7 +135,7 @@ describe("loadPastAttachments", () => {
 });
 
 describe("rehydrateUserMessageContent", () => {
-  const vision = getCapabilities("anthropic", "claude-3-5-sonnet-20241022");
+  const vision = getCapabilities("anthropic", "claude-sonnet-4-5");
   const textOnly = getCapabilities("my-custom-provider", "local");
 
   test("no attachments → returns raw text (no part wrapping)", async () => {

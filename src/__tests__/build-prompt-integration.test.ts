@@ -177,7 +177,7 @@ describe("buildPromptInput — image attachment", () => {
     };
     const result = await buildPromptInput("describe this", {
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
       attachments: [att],
     });
     expect(result.images).toHaveLength(1);
@@ -214,7 +214,7 @@ describe("buildPromptInput — combined cmd + file + attachment", () => {
       {
         projectId: "proj-1",
         provider: "anthropic",
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-sonnet-4-5",
         attachments: [att],
         commandResolver: resolver,
       },
@@ -275,7 +275,7 @@ describe("buildPromptInput — non-fatal failures", () => {
       };
       const result = await buildPromptInput("hello", {
         provider: "anthropic",
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-sonnet-4-5",
         conversationId: "c-test",
         attachments: [att],
       });
@@ -308,7 +308,7 @@ describe("buildPromptInput — extension MIME overlay", () => {
     };
     const result = await buildPromptInput("ingest this sheet", {
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
       conversationId: "c-test",
       attachments: [att],
     });
@@ -338,7 +338,7 @@ describe("buildPromptInput — extension MIME overlay", () => {
     try {
       await buildPromptInput("hi", {
         provider: "anthropic",
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-sonnet-4-5",
         // no conversationId
         attachments: [att],
       });

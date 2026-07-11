@@ -167,7 +167,7 @@ export function setupPiAiMocks(opts: {
     getApiKey: async () => "test-key",
   }));
 
-  mock.module("@earendil-works/pi-ai", () => ({
+  mock.module("@earendil-works/pi-ai/compat", () => ({
     stream: () => createMockPiStream(streamEvents),
     complete: async () => stubAssistantMessage(completeText),
     getModel: () => ({

@@ -14,8 +14,7 @@
  * provider parse path (anthropic.js:349-356), not a synthetic field.
  */
 import { test, expect, describe } from "bun:test";
-import { getModel } from "@earendil-works/pi-ai";
-import { streamAnthropic } from "@earendil-works/pi-ai/anthropic";
+import { getModel, streamAnthropic } from "@earendil-works/pi-ai/compat";
 import { computeTurnCacheStats } from "../runtime/usage/cache-stats";
 
 /** Encode Anthropic message-stream frames as a raw SSE body. */

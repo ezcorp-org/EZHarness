@@ -1,4 +1,5 @@
-import { stream, complete, type Context } from "@earendil-works/pi-ai";
+import { stream, complete } from "@earendil-works/pi-ai/compat";
+import type { Context } from "@earendil-works/pi-ai";
 import { resolveModel } from "../providers/router";
 import { tierForModel } from "../providers/registry";
 import { isRoutingTier } from "./tier-classifier";

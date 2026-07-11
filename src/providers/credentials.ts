@@ -11,7 +11,7 @@ import {
   getOAuthApiKey,
   type OAuthCredentials,
 } from "@earendil-works/pi-ai/oauth";
-import { getEnvApiKey } from "@earendil-works/pi-ai";
+import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
 
 // ── Types ─────────────────────────────────────────────────────────────
 

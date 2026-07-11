@@ -6,7 +6,7 @@ import type { MemoryProvenance } from "../memory/types";
 
 // Mock pi-ai to simulate LLM unavailability — prevents leaked mocks from
 // other test files (e.g. memory-integration) making complete() succeed.
-mock.module("@earendil-works/pi-ai", () => ({
+mock.module("@earendil-works/pi-ai/compat", () => ({
   complete: async () => { throw new Error("LLM not configured in test"); },
   stream: () => ({ [Symbol.asyncIterator]: async function* () {}, result: async () => { throw new Error("LLM not configured in test"); } }),
   getModel: () => { throw new Error("LLM not configured in test"); },

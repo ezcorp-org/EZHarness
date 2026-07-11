@@ -63,14 +63,13 @@ const MOCK_MODEL: Model<Api> = {
   maxTokens: 4096,
 };
 
-mock.module("@earendil-works/pi-ai", () => ({
+mock.module("@earendil-works/pi-ai/compat", () => ({
   stream: () => ({ [Symbol.asyncIterator]: async function* () {}, result: async () => stubAssistantMessage() }),
   complete: async () => stubAssistantMessage(),
   getModel: () => MOCK_MODEL,
   getModels: () => [],
   getProviders: () => ["anthropic", "openai", "google"],
   getEnvApiKey: () => undefined,
-  Type: { Unsafe: (v: any) => v, Object: (v: any) => v, String: () => ({}), Number: () => ({}), Boolean: () => ({}), Array: () => ({}) },
 }));
 
 mock.module("@earendil-works/pi-agent-core", () => ({

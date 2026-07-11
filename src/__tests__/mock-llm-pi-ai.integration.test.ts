@@ -6,7 +6,7 @@
  * part of the deterministic-LLM design, so it gets a real network round-trip.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { stream } from "@earendil-works/pi-ai";
+import { stream } from "@earendil-works/pi-ai/compat";
 import { resolveModelObject } from "../providers/registry";
 // The mock-LLM module is pure (no web aliases) — safe to import from src.
 import {

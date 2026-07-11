@@ -25,7 +25,7 @@ mock.module("$server/providers/encryption", () => ({
   decrypt: (s: string) => decryptImpl(s),
   encrypt: (s: string) => encryptImpl(s),
 }));
-mock.module("@earendil-works/pi-ai", () => ({
+mock.module("@earendil-works/pi-ai/compat", () => ({
   getEnvApiKey: (_p: string) => envApiKey,
 }));
 mock.module("@earendil-works/pi-ai/oauth", () => ({

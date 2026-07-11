@@ -15,7 +15,7 @@ const PNG_1x1 = new Uint8Array([
 const PDF_HEADER = new TextEncoder().encode("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n");
 
 describe("validateAttachment", () => {
-  const claude = getCapabilities("anthropic", "claude-3-5-sonnet-20241022");
+  const claude = getCapabilities("anthropic", "claude-sonnet-4-5");
   const textOnly = getCapabilities("my-custom-provider", "local");
 
   test("accepts a real PNG on a vision model", async () => {

@@ -41,7 +41,7 @@ afterAll(async () => {
 });
 
 describe("content-builder ⇄ handle-resolver round trip", () => {
-	const vision = getCapabilities("anthropic", "claude-3-5-sonnet-20241022");
+	const vision = getCapabilities("anthropic", "claude-sonnet-4-5");
 
 	test("emitted handles resolve to the exact bytes the attachments hold", async () => {
 		const atts: StagedAttachment[] = [
