@@ -628,12 +628,16 @@ export interface QueueAgentMessageContext {
   grantedPermissions: ExtensionPermissions;
   /** Phase 6: PDP. Optional for back-compat with pre-PDP unit tests. */
   engine?: PermissionEngine;
-  /** Liveness check — used to reject a steer for a child that has no LIVE run
-   *  (`getActiveRunForConversation`). Without it a steer for an already-idle
-   *  child would report a false `queued: true` (nothing drains the queue), and
-   *  the ext would never fall through to the terminal-continuation path. When
-   *  absent (pre-executor unit contexts) the liveness gate is skipped. */
-  executor?: Pick<AgentExecutor, "getActiveRunForConversation">;
+  /** Liveness check + live-run steering. `getActiveRunForConversation` rejects a
+   *  steer for a child that has no LIVE run (else it would report a false
+   *  `queued: true` — nothing drains the queue — and the ext would never fall
+   *  through to the terminal-continuation path). `steerConversation` (P3)
+   *  injects the message into the live run at its next turn boundary instead of
+   *  enqueuing for after it. When the executor is absent (pre-executor unit
+   *  contexts) the liveness gate is skipped; when it lacks `steerConversation`
+   *  (pre-P3) the live path falls back to enqueue — today's behavior. */
+  executor?: Pick<AgentExecutor, "getActiveRunForConversation"> &
+    Partial<Pick<AgentExecutor, "steerConversation">>;
 }
 
 /** Injectable seams so unit tests can exercise the handler without a DB /
@@ -734,12 +738,29 @@ export async function handleQueueAgentMessageRpc(
     return rpcResult(req.id, { v: 1, queued: false, reason: "not-running" });
   }
 
-  // 7. Enqueue — the child's run:complete drain delivers it as the next turn.
-  deps.enqueue(subConversationId, {
+  // 7. Steer the live child run (P3), atomic: on `steered` do NOT enqueue; on
+  //    any other result (the pre-first-token no-agent window, or an executor
+  //    without steerConversation) fall back to enqueue exactly as before. The
+  //    best-effort steer is shadow-tracked by the executor, which re-enqueues
+  //    via `enqueuePending` (onUndelivered) if the run ends before delivering —
+  //    so nothing is lost either way, and the child's run:complete drain
+  //    delivers the fallback as the next turn.
+  //
+  //    NOT gated on autonomous / schema children: neither this handler nor the
+  //    orchestration ext's `backgroundSpawns` map records those spawn-time flags
+  //    (they live on the assignment row), so a cheap guard isn't reachable
+  //    without new plumbing — deferred to P4 (see steerConversation's doc).
+  const pending = {
     messageId: crypto.randomUUID(),
     content: message,
     createdAt: new Date().toISOString(),
-  });
+  };
+  const enqueuePending = () => deps.enqueue(subConversationId, pending);
+  const steer = ctx.executor?.steerConversation?.(subConversationId, message, enqueuePending);
+  if (steer?.status === "steered") {
+    return rpcResult(req.id, { v: 1, queued: true, delivery: "steered" });
+  }
+  enqueuePending();
   return rpcResult(req.id, { v: 1, queued: true });
 }
 

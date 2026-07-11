@@ -221,8 +221,17 @@ export async function spawnAssignment(
 //   -32602  Invalid params (empty subConversationId/message, or message too long)
 
 export interface QueueAgentMessageResult {
-  /** True iff the host enqueued the message onto the child's sub-conversation. */
+  /** True iff the host accepted the message — either steered into the child's
+   *  live run (`delivery: "steered"`) or enqueued onto its sub-conversation for
+   *  next-turn delivery (`delivery` absent). */
   queued: boolean;
+  /** Only present when `queued === true`. `"steered"` = the message was injected
+   *  into the child's CURRENT run at its next turn boundary (best-effort — the
+   *  host shadow-tracks it and falls back to next-run delivery if the run ends
+   *  first). Absent = it was enqueued for delivery when the current run
+   *  completes (the pre-steer path, still used when no live Agent is registered
+   *  yet). Lets the caller word its result honestly. */
+  delivery?: "steered";
   /** Only present when `queued === false`.
    *  `"not-found"` = the sub-conversation is not a child of the caller's
    *  conversation (or no longer exists) — the same fail-closed response used for
