@@ -136,7 +136,7 @@ Three independent gates protect this — defence in depth:
    never silently rewrite my extension" guarantee.
 3. **The `modifiable` admin gate** (`extensions.modifiable`, default
    `false`). A per-extension flag an admin flips (Library → the
-   extension → "Allow modify"). Distinct from gate 2: it is a
+   extension → "Allow extension to be modified"). Distinct from gate 2: it is a
    multi-tenant *policy* lever — "even the owner needs admin sign-off to
    use the LLM-modify flow on this extension."
 

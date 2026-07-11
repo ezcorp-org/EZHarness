@@ -109,12 +109,14 @@ List all installed extensions.
 ezcorp ext list
 ```
 
-Displays each extension's name, version, and inferred type.
+Prints a table with five columns: name, version, source, status (`enabled`/`disabled`), and dependency count.
 
 ```bash
 ezcorp ext list
-# weather-tool  1.2.0  extension
-# writing-help  1.0.0  agent
+# Name                      Version    Source                              Status     Deps
+# ----------------------------------------------------------------------------------------
+# weather-tool              1.2.0      github:acme/weather-tool            enabled    0
+# writing-help              1.0.0      local:./writing-help                disabled   1
 ```
 
 ---
@@ -124,14 +126,14 @@ ezcorp ext list
 Remove an installed extension and its files.
 
 ```
-ezcorp ext remove <name>
+ezcorp ext remove <name> [--force]
 ```
 
 ```bash
 ezcorp ext remove weather-tool
 ```
 
-If other installed extensions declare `name` as a dependency, removal will warn about dependents.
+If other installed extensions declare `name` as a dependency, removal is refused (prints an error and exits `1`) unless `--force` is passed.
 
 ---
 
@@ -143,7 +145,7 @@ Show detailed information about an installed extension.
 ezcorp ext info <name>
 ```
 
-Displays manifest contents, install path, enabled status, and granted permissions.
+Displays manifest contents, install path, enabled status, and the permissions the manifest requests.
 
 ```bash
 ezcorp ext info weather-tool
@@ -971,6 +973,7 @@ Returns the schema and the user's resolution chain.
   userValues:       Record<string, unknown>, // calling user's overrides (secret keys never appear)
   resolved:         Record<string, unknown>, // declared < user, clamped to schema (secret keys never appear)
   secrets: Record<string, { isSet: boolean }>, // per secret field: row-existence probe, NEVER the value
+  capabilities: HeldCapability[],            // host capabilities the extension holds (search v1) — each { cap, schema, effective, grant }; [] when none held
 }
 ```
 
@@ -1018,19 +1021,18 @@ Exported from [`@ezcorp/sdk/runtime`](../../packages/@ezcorp/sdk/src/runtime/set
 ```typescript
 import { createToolDispatcher, getChannel, getSetting, getAllSettings, toolResult } from "@ezcorp/sdk/runtime";
 
+getChannel().start();
 createToolDispatcher({
-  synthesize: async (ctx, args) => {
+  synthesize: async (args, ctx) => {
     const voice = getSetting<string>(ctx, "voice") ?? "af_bella";
     const speed = getSetting<number>(ctx, "speed") ?? 1.0;
     // … call into kokoro-js with { voice, speed } …
     return toolResult(JSON.stringify({ ok: true }));
   },
 });
-
-getChannel().start();
 ```
 
-`getSetting<T>(ctx, key)` returns the resolved value (or `undefined` if missing); `getAllSettings(ctx)` returns the full resolved blob. Both read from `ctx._meta.invocationMetadata.settings`.
+`getSetting<T>(ctx, key)` returns the resolved value (or `undefined` if missing); `getAllSettings(ctx)` returns the full resolved blob. Both read from `ctx.invocationMetadata.settings`.
 
 ---
 

@@ -35,7 +35,7 @@ default; each user can override).
   - `bf_emma` — Emma (UK, female)
   - `bm_george` — George (UK, male)
 - **Playback speed** — number, range `[0.5, 2.0]`, step `0.05`,
-  default `1.0`. Forwarded to `kokoro-js`'s `generate()` call as the
+  default `1.0`. Forwarded to `kokoro-js`'s `stream()` call as the
   `speed` option.
 
 The host card resolves these via the per-extension settings store the

@@ -14,14 +14,17 @@ extension that returns the current weather"_, the LLM:
    `scaffoldExtension` (pure function — produces a file map for the
    four template types: `tool`, `skill`, `agent`, `multi`).
 3. The bundled extension writes the file map under
-   `<projectRoot>/.ezcorp/extension-data/extension-author/drafts/<draftId>/`.
+   `<projectRoot>/.ezcorp/extension-data/extension-author/drafts/<userId>/<draftId>/`.
 4. It calls the new `ezcorp/drafts` reverse-RPC (bundled-only) to mint
    an `ez_drafts` row, and returns
    `{ draftId, openUrl: "/extensions/author?prefill=<draftId>", name, type }`
    to the LLM.
-5. The Ez chat panel renders the result via `EzToolResultCard.svelte`
-   as a one-button "Open prefilled form" pill.
-6. The user clicks the pill, lands on `/extensions/author?prefill=...`,
+5. `create_extension` declares no `cardType`, so the Ez chat panel
+   renders its result in `DefaultCard` (raw JSON) — the returned `openUrl`
+   (`/extensions/author?prefill=<draftId>`) appears there, not as a pill.
+   (Only `install_draft`, whose `cardType: "ez-install"` routes to
+   `EzToolResultCard.svelte`, renders a one-click "Open extension" link.)
+6. The user opens that URL, lands on `/extensions/author?prefill=...`,
    tweaks the manifest / index.ts as needed, and clicks **Install**.
 7. The install endpoint runs `validateManifestV2`, the env-key-leak
    gate, and the smoke-spawn (for `tool`/`multi` types), then moves the
@@ -41,6 +44,8 @@ The user explicitly enables the new extension after install (default
 | `read_draft`          | Return the file map of a draft directory                  |
 | `write_draft_file`    | Patch a single file in a draft (path-allowlisted)         |
 | `discard_draft`       | Delete a draft directory + mark its `ez_drafts` row consumed |
+| `install_draft`       | Install a validated draft as a real, ENABLED extension (cardType `ez-install`) — the REQUIRED terminal step |
+| `modify_extension`    | Re-open an already-installed, user-authored extension for editing + re-install |
 
 ## Permissions
 
@@ -77,6 +82,6 @@ See `docs/extensions/AUTHORING.md` for the full authoring contract.
 ## Integration test
 
 `e2e-server-pipeline.test.ts` spawns the extension as a subprocess via
-`createTestExtension` and exercises the full round-trip: create
+`new ExtensionProcess(...)` and exercises the full round-trip: create
 → read → write → validate → discard. Mirrors the auto-note bundled
 extension's pattern.

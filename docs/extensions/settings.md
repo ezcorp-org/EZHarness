@@ -53,9 +53,9 @@ Two layers, lowest to highest:
 declared default  <  user override
 ```
 
-The resolver merges left-to-right, then **clamps** the result against the manifest schema — unknown keys are dropped, type-mismatched values are coerced, and select options outside the declared `options[]` revert to the declared default. The clamp runs at write time AND at read time, so dropping a field from your schema in v1.1 cannot leak the v1.0 value into a tool call.
+The resolver merges left-to-right, then **clamps** the result against the manifest schema — unknown keys are dropped, type-mismatched values are dropped (they fall back to the declared default, never coerced), and select options outside the declared `options[]` revert to the declared default. The clamp runs at write time AND at read time, so dropping a field from your schema in v1.1 cannot leak the v1.0 value into a tool call.
 
-Resolved values land in `_meta.invocationMetadata.settings` on every JSON-RPC envelope your subprocess receives. Cross-extension `ezcorp/invoke` callers may also pass `invocationMetadata.settings` to override the resolved blob — useful when an orchestrator needs to invoke your tool with non-default values without touching the user's own override.
+Resolved values land in `_meta.invocationMetadata.settings` on the `tools/call` dispatch envelope — and only when your manifest declares a `settings` block. Other RPCs (lifecycle, schedule-fire) don't carry it. Cross-extension `ezcorp/invoke` callers may also pass `invocationMetadata.settings` to override the resolved blob — useful when an orchestrator needs to invoke your tool with non-default values without touching the user's own override.
 
 ## Reading values from a tool handler
 
@@ -64,15 +64,15 @@ Use the SDK's runtime helpers — never reach into `_meta` by hand.
 ```typescript
 import { createToolDispatcher, getChannel, getSetting, toolResult } from "@ezcorp/sdk/runtime";
 
+getChannel().start();
 createToolDispatcher({
-  synthesize: async (ctx, args) => {
+  synthesize: async (args, ctx) => {
     const voice = getSetting<string>(ctx, "voice") ?? "af_bella";
     const speed = getSetting<number>(ctx, "speed") ?? 1.0;
     // … synthesize using { voice, speed } …
     return toolResult(JSON.stringify({ ok: true, voice, speed }));
   },
 });
-getChannel().start();
 ```
 
 `getSetting<T>(ctx, key)` returns the resolved value or `undefined`; `getAllSettings(ctx)` returns the full blob. Always provide a fallback (`?? defaultValue`) — settings can be empty if the user hasn't visited the panel and the manifest declared no default.

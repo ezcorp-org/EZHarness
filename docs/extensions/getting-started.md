@@ -204,6 +204,7 @@ See [Data Storage Convention](data-storage.md) for the `postinstall.ts` scaffold
 
 ```typescript
 import { defineExtension } from "@ezcorp/sdk";
+import { handleRequest } from "./index";
 
 export default defineExtension({
   schemaVersion: 2,
@@ -222,8 +223,20 @@ export default defineExtension({
           input: { type: "string", description: "Input text" },
         },
       },
+      handler: handleRequest,
     },
   ],
+  // Deterministic acceptance gate. `ezcorp ext verify` (and the
+  // extension-author install endpoint) spin this extension up in a
+  // sandbox, call the tool below with `input`, and assert the result.
+  // This is the machine-checked PASS contract — "done" means this
+  // passes, NOT a self-judged "looks installed". Keep it in sync with
+  // the example tool's behavior.
+  smokeTest: {
+    tool: "my-first-tool-example",
+    input: { input: "smoke" },
+    expect: { isError: false, textIncludes: "Received: smoke" },
+  },
   permissions: {},
 });
 ```
@@ -243,11 +256,19 @@ The generated `index.ts` is a JSON-RPC 2.0 server over stdio:
 
 import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
 
-const reader = Bun.stdin.stream().getReader();
-const decoder = new TextDecoder();
-let buffer = "";
-
+// IMPORT-SAFE: the stdin reader grab + the JSON-RPC loop run ONLY when
+// this file is the process entrypoint (`import.meta.main`). When the
+// module is merely imported — by `ezcorp.config.ts` for the
+// `handleRequest` reference, by `index.test.ts`, or by the host's
+// `loadManifest` / `ezcorp ext verify` — we must NOT lock stdin's
+// reader (doing so throws "ReadableStream is locked" on the next
+// import / subprocess spawn). The runtime still runs the loop because
+// the host launches this file directly as the subprocess entrypoint.
 async function main() {
+  const reader = Bun.stdin.stream().getReader();
+  const decoder = new TextDecoder();
+  const stdoutWriter = Bun.stdout.writer();
+  let buffer = "";
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -262,7 +283,8 @@ async function main() {
       try {
         const req: JsonRpcRequest = JSON.parse(line);
         const res = handleRequest(req);
-        process.stdout.write(JSON.stringify(res) + "\n");
+        stdoutWriter.write(JSON.stringify(res) + "\n");
+        await stdoutWriter.flush();
       } catch {
         // Ignore malformed lines
       }
@@ -270,7 +292,7 @@ async function main() {
   }
 }
 
-function handleRequest(req: JsonRpcRequest): JsonRpcResponse {
+export function handleRequest(req: JsonRpcRequest): JsonRpcResponse {
   if (req.method === "tools/call") {
     const toolName = (req.params?.name as string) ?? "";
     const args = (req.params?.arguments as Record<string, unknown>) ?? {};
@@ -300,7 +322,11 @@ function handleRequest(req: JsonRpcRequest): JsonRpcResponse {
   };
 }
 
-main();
+// Only run the stdio server when launched as the entrypoint — NOT when
+// imported for `handleRequest` (config / tests / host loadManifest).
+if (import.meta.main) {
+  main();
+}
 ```
 
 **How the protocol works:**
