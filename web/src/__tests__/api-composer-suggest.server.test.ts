@@ -64,12 +64,15 @@ beforeEach(() => {
 	getSuggestConfig.mockResolvedValue({ enabled: true, baseUrl: null, model: "qwen3:1.7b", timeoutMs: 12000 });
 	isSuggestEnabledForProject.mockResolvedValue(true);
 	resolveScopedTools.mockResolvedValue({ tools: SCOPED_TOOLS, orchestrationTools: [], mode: null, projectId: null });
-	// Draft aligned with analyzer__scan; websearch orthogonal-ish; built-in mid.
+	// Draft aligned with analyzer scan; websearch orthogonal-ish; built-in mid.
+	// getToolEmbedding receives the human-readable label ("<extension> <name>"
+	// for extension tools, "<category> <name>" for built-ins) — NOT the
+	// namespaced key (the key prefix measurably drags the cosine down).
 	generateEmbedding.mockResolvedValue([1, 0, 0]);
-	getToolEmbedding.mockImplementation(async (key: string) => {
-		if (key === "analyzer__scan") return [0.95, 0.05, 0];
-		if (key === "websearch__search") return [0.4, 0.6, 0];
-		if (key === "task_create") return [0.5, 0.5, 0];
+	getToolEmbedding.mockImplementation(async (label: string) => {
+		if (label === "analyzer scan") return [0.95, 0.05, 0];
+		if (label === "websearch search") return [0.4, 0.6, 0];
+		if (label === "ez task_create") return [0.5, 0.5, 0];
 		return [0, 0, 1];
 	});
 	getUserToolPriors.mockResolvedValue({});
@@ -205,6 +208,15 @@ describe("POST /api/composer/suggest — tool ranking", () => {
 		const res = await call({ draft: "hello world draft" });
 		expect((await res.json()).tools).toEqual([]);
 		expect(generateEmbedding).not.toHaveBeenCalled();
+	});
+
+	test("lexical rescue: a draft naming the tool ranks it even at zero cosine (live regression)", async () => {
+		// Every tool embedding orthogonal to the draft — embedding-only ranking
+		// would return nothing. "web search" hits websearch's name tokens.
+		getToolEmbedding.mockResolvedValue([0, 0, 1]);
+		const res = await call({ draft: "web search for bun release news" });
+		const names = (await res.json()).tools.map((t: { name: string }) => t.name);
+		expect(names).toEqual(["search"]);
 	});
 });
 

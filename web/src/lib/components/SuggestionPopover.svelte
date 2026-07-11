@@ -25,6 +25,22 @@
 		onundo: () => void;
 		ondismiss: () => void;
 	} = $props();
+
+	// Short tool names can collide across extensions (live: three weather
+	// extensions each expose "weather-now", rendering look-alike triplicate
+	// chips) — suffix the extension name only when a collision exists. Compute
+	// the collision set and every chip's label in ONE pass keyed to `tools`, so
+	// the label always reflects the current tool list; a label derived that read
+	// a *separate* collision derived could render before that read was tracked
+	// and leave the suffix off on the async-populate path.
+	let labeledTools = $derived.by(() => {
+		const counts = new Map<string, number>();
+		for (const tool of tools) counts.set(tool.name, (counts.get(tool.name) ?? 0) + 1);
+		return tools.map((tool) => ({
+			tool,
+			label: (counts.get(tool.name) ?? 0) > 1 ? `${tool.name} · ${tool.extension}` : tool.name,
+		}));
+	});
 </script>
 
 {#if open}
@@ -43,7 +59,7 @@
 				<span class="text-[10px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
 					✦ Suggested
 				</span>
-				{#each tools as tool (tool.extension + "__" + tool.name)}
+				{#each labeledTools as { tool, label } (tool.extension + "__" + tool.name)}
 					{#if tool.extensionType === "built-in"}
 						<!-- Built-ins are always wired — informational chip, no action. -->
 						<span
@@ -52,7 +68,7 @@
 							title={tool.description}
 							class="rounded-full border border-[var(--color-border)] px-2 py-0.5 text-xs text-[var(--color-text-muted)]"
 						>
-							{tool.name}
+							{label}
 						</span>
 					{:else}
 						<button
@@ -63,7 +79,7 @@
 							class="rounded-full border border-indigo-500/40 bg-indigo-500/10 px-2 py-0.5 text-xs text-indigo-300 transition-colors hover:bg-indigo-500/25"
 							onclick={() => onselecttool(tool)}
 						>
-							🔧 {tool.name}
+							🔧 {label}
 						</button>
 					{/if}
 				{/each}

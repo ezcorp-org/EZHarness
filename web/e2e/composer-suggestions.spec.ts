@@ -140,6 +140,29 @@ test.describe("Composer suggestions", () => {
 		await expect(popover(page)).not.toBeVisible();
 	});
 
+	test("colliding short tool names disambiguate with the extension suffix @evidence", async ({ page, mockApi }, testInfo) => {
+		const clash = (extension: string) => ({
+			name: "weather-now",
+			extension,
+			extensionType: "extension",
+			description: `Weather via ${extension}`,
+			score: 0.5,
+		});
+		const textarea = await setupAndFocus(page, mockApi, {
+			tools: [clash("open-meteo"), clash("weather-api"), SUGGEST_TOOLS[0]],
+		});
+		await textarea.pressSequentially(DRAFT, { delay: 25 });
+		await expect(popover(page)).toBeVisible({ timeout: 4000 });
+
+		const chips = page.getByTestId("suggestion-tool-chip");
+		await expect(chips.nth(0)).toHaveText(/weather-now · open-meteo/);
+		await expect(chips.nth(1)).toHaveText(/weather-now · weather-api/);
+		// Unique names stay bare — no suffix noise when there's no collision.
+		await expect(chips.nth(2)).toHaveText(/^🔧 scan$/);
+
+		await captureEvidence(page, testInfo, "composer-suggestions-chip-disambiguation");
+	});
+
 	test("sidecar absent: chips render, enhancement row does not", async ({ page, mockApi }) => {
 		const textarea = await setupAndFocus(page, mockApi, {
 			tools: SUGGEST_TOOLS,

@@ -117,4 +117,22 @@ describe("SuggestionPopover", () => {
 		expect(queryByTestId("suggestion-enhance-row")).not.toBeInTheDocument();
 		expect(queryByTestId("suggestion-enhance-loading")).not.toBeInTheDocument();
 	});
+
+	test("colliding short names get the extension suffix; unique names stay bare (live finding)", () => {
+		const clash = (extension: string): SuggestedTool => ({
+			name: "weather-now",
+			extension,
+			extensionType: "extension",
+			description: `Weather via ${extension}`,
+			score: 0.5,
+		});
+		const { getAllByTestId } = render(
+			SuggestionPopover,
+			makeProps({ tools: [clash("open-meteo"), clash("weather-api"), EXT_TOOL] }),
+		);
+		const labels = getAllByTestId("suggestion-tool-chip").map((c) => c.textContent?.trim());
+		expect(labels).toContain("🔧 weather-now · open-meteo");
+		expect(labels).toContain("🔧 weather-now · weather-api");
+		expect(labels).toContain("🔧 scan"); // unique name — no suffix
+	});
 });

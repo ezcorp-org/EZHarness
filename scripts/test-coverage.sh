@@ -137,7 +137,8 @@ run_legs() {
     ./src/suggest/__tests__/enhance.test.ts \
     ./src/suggest/__tests__/config.test.ts \
     ./src/suggest/__tests__/training-export.test.ts \
-    ./src/db/queries/__tests__/suggestion-feedback.test.ts 2>&1) || true
+    ./src/db/queries/__tests__/suggestion-feedback.test.ts \
+    ./src/db/queries/__tests__/settings-jsonb-roundtrip.test.ts 2>&1) || true
   tally "$suggest_out"
 
   # Node-run vitest leg for the vitest-only web/src/lib files. @vitest/coverage-v8
