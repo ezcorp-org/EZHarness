@@ -54,5 +54,11 @@ test("dev-mode git badge renders branch · commit bottom-right @evidence", async
 	await expect(badge).toContainText("feat/demo");
 	await expect(badge).toContainText("a1b2c3d");
 
+	// Legibility contract: the chip renders on a solid dark-slate fill (the
+	// pre-#82 ghosted currentColor mix was near invisible on the light theme).
+	// Assert the computed background is the opaque slate, not a transparent mix.
+	const bg = await badge.evaluate((el) => getComputedStyle(el).backgroundColor);
+	expect(bg).toMatch(/rgba?\(\s*31\s*,\s*41\s*,\s*55/);
+
 	await captureEvidence(page, testInfo, "dev-badge");
 });
