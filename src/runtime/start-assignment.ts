@@ -157,6 +157,14 @@ export interface StartAssignmentOpts {
    *  or `maxCycles` is reached. Default OFF; default `maxCycles` is
    *  {@link DEFAULT_MAX_AUTONOMOUS_CYCLES}. */
   autonomousContinuation?: { maxCycles?: number };
+  /** Called at each cycle boundary (auto-continue AND autonomous), AFTER the
+   *  new cycle's run is confirmed to start, with `(oldRunId, newRunId)`. The
+   *  spawn-assignment handler uses it to re-key its spawn-quota reservation
+   *  onto the live cycle run so the concurrent slot follows the running child
+   *  and `ezcorp/cancel-run` can still cancel it. Not called for the initial
+   *  run (the handler reserves/​swaps that itself post-dispatch), nor when a
+   *  cycle is refused because the parent already ended. */
+  onCycleRunIdChange?: (oldRunId: string, newRunId: string) => void;
 }
 
 export interface StartAssignmentResult {
@@ -210,6 +218,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     projectId, agentConfig, parentModel, parentProvider,
     reuseSubConversationId, parentMessageId, overrides, teamToolScope,
     orchestrationDepth, autonomousContinuation, parentRunId,
+    onCycleRunIdChange,
   } = opts;
 
   // Master kill-switch (Advanced Settings → "Agent goal pinning &
@@ -330,7 +339,12 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
    * injects messages via the agent-chat endpoint while the agent is
    * running.
    */
-  function startRun(runId: string, message: string, runParentMessageId?: string) {
+  function startRun(
+    runId: string,
+    message: string,
+    runParentMessageId?: string,
+    previousRunId?: string,
+  ) {
     // Link this run to the parent orchestrator BEFORE it streams, so a
     // cancel racing the spawn still cascades. Done inside startRun (not
     // once outside) because auto-continue + autonomous cycles call startRun
@@ -358,6 +372,18 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       });
       return;
     }
+
+    // Cycle continuation: this run replaces `previousRunId` (a new id minted
+    // for an auto-continue or autonomous cycle). Re-key the caller's
+    // spawn-quota reservation onto this live run so the concurrent slot
+    // follows the running child and `ezcorp/cancel-run` can still cancel it.
+    // Done AFTER the registerChildRun success gate so a cycle refused because
+    // the parent already ended never leaks a reservation; the initial run
+    // (previousRunId undefined) is reserved/​swapped by the handler itself.
+    if (previousRunId !== undefined) {
+      onCycleRunIdChange?.(previousRunId, runId);
+    }
+
     const streamPromise = executor.streamChat(subConversationId, message, {
       projectId,
       agentConfigId: assignment.agentConfigId,
@@ -405,7 +431,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
           task: pending.content, parentConversationId: conversationId,
         });
 
-        startRun(newRunId, pending.content, pending.messageId);
+        startRun(newRunId, pending.content, pending.messageId, runId);
         log.info("Auto-continue with pending message", {
           conversationId, taskId, newRunId,
         });
@@ -439,7 +465,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
             task: CONTINUATION_PROMPT, parentConversationId: conversationId,
           });
 
-          startRun(newRunId, CONTINUATION_PROMPT);
+          startRun(newRunId, CONTINUATION_PROMPT, undefined, runId);
           log.info("Autonomous continuation", {
             conversationId, taskId, newRunId,
             cycle: autoCycle, maxCycles: maxAutoCycles,

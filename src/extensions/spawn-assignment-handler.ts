@@ -360,6 +360,13 @@ export async function handleSpawnAssignmentRpc(
       ...(callerOrchestrationDepth !== undefined ? { orchestrationDepth: callerOrchestrationDepth } : {}),
       ...(callerParentRunId ? { parentRunId: callerParentRunId } : {}),
       ...(callerAutonomous ? { autonomousContinuation: callerAutonomous } : {}),
+      // Re-key the quota reservation onto each new cycle's run id so the
+      // concurrent slot follows the LIVE run (not the stale cycle-1 id) and
+      // `ezcorp/cancel-run` — the invoke_agent timeout reap — can still
+      // cancel a multi-cycle child. `swapReservation` is order-independent
+      // vs. the old run's terminal bus-release (see spawn-quota.ts).
+      onCycleRunIdChange: (oldRunId, newRunId) =>
+        ctx.quota.swapReservation(extensionId, oldRunId, newRunId),
     });
 
     // Re-key the reservation to the real agentRunId so the bus

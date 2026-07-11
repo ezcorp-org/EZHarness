@@ -905,3 +905,65 @@ describe("orchestration extension — reap child on give-up", () => {
     expect(meta!.subConversationId).toBe("sub-z-1");
   });
 });
+
+// ── invoke_agent — reap follows the live cycle run ─────────────────
+//
+// A multi-cycle child mints a NEW run id per cycle; the spawn handle's
+// `agentRunId` is frozen at cycle 1. The host stamps the live run id onto
+// every non-terminal (cycle-boundary) assignment_update, and the ext must
+// re-target its reap to that id — else a timeout would cancel the stale
+// cycle-1 run, which the host no longer owns (cancel-run rejects it) while
+// the live child keeps running. This is the CRITICAL regression the
+// single-run reap tests missed.
+
+describe("orchestration extension — reap follows the live cycle run", () => {
+  test("a non-terminal update carrying a new agentRunId re-targets the reap to the live run", async () => {
+    _setDefaultTimeoutMsForTests(100);
+    const { fn } = makeFakeSpawn(); // handle.agentRunId === "run-asn-1"
+    _setSpawnForTests(fn);
+
+    const invocation = tools.invoke_agent!({ agentConfigId: "agent-builder", task: "loop" });
+    const key = await drainPendingKey();
+    // Reap target starts as the spawn handle's cycle-1 run id.
+    expect(_internals.pendingInvocations.get(key)!.agentRunId).toBe("run-asn-1");
+
+    // Cycle boundary: non-terminal update carrying the NEW live run id. This
+    // resets the sliding-deadline timer AND re-targets the reap.
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: `task-${key}`,
+      assignment: { id: key, status: "running", agentRunId: "run-cycle-2" },
+    });
+    expect(_internals.pendingInvocations.get(key)!.agentRunId).toBe("run-cycle-2");
+
+    // Let the (reset) timer fire → the reap must cancel the LIVE cycle run.
+    await new Promise((r) => setTimeout(r, 160));
+    const out = await invocation;
+    expect(expectIsError(out)).toBe(true);
+    expect(expectText(out)).toMatch(/timed out/i);
+    expect(cancelRunCalls).toEqual(["run-cycle-2"]); // NOT the stale "run-asn-1"
+  });
+
+  test("a non-terminal update WITHOUT an agentRunId leaves the reap target unchanged", async () => {
+    _setDefaultTimeoutMsForTests(100);
+    const { fn } = makeFakeSpawn();
+    _setSpawnForTests(fn);
+
+    const invocation = tools.invoke_agent!({ agentConfigId: "agent-builder", task: "loop" });
+    const key = await drainPendingKey();
+
+    // Cycle update that omits agentRunId (older host build) — the reap target
+    // must stay the spawn handle's id, not become undefined.
+    await _internals.handleAssignmentUpdate({
+      conversationId: "conv-x",
+      taskId: `task-${key}`,
+      assignment: { id: key, status: "running" },
+    });
+    expect(_internals.pendingInvocations.get(key)!.agentRunId).toBe("run-asn-1");
+
+    await new Promise((r) => setTimeout(r, 160));
+    const out = await invocation;
+    expect(expectIsError(out)).toBe(true);
+    expect(cancelRunCalls).toEqual(["run-asn-1"]);
+  });
+});

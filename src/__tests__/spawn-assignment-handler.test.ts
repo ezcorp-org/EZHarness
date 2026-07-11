@@ -437,6 +437,36 @@ describe("spawn-assignment — dispatch", () => {
     expect(task.description).toBe("build a thing");
   });
 
+  test("threads onCycleRunIdChange that re-keys the quota reservation onto the live cycle run", async () => {
+    const ext = `cyc-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const bus = new EventBus<AgentEvents>();
+    const quota = createSpawnQuota(bus);
+    const ctx = makeCtx({ quota, bus });
+
+    const resp = await handleSpawnAssignmentRpc(ext, rpc(validParams, "cyc-1"), ctx);
+    expect(resp.error).toBeUndefined();
+    const cycle1RunId = (resp.result as { agentRunId: string }).agentRunId;
+
+    // Post-dispatch the handler swapped assignmentId → the cycle-1 run id.
+    expect(quota.isOwner(ext, cycle1RunId)).toBe(true);
+    expect(quota._concurrentCount(ext)).toBe(1);
+
+    // The handler threaded a re-key callback into startAssignment. Invoke it
+    // as start-assignment would at a cycle boundary — the concurrent slot must
+    // follow the LIVE run so ezcorp/cancel-run (the invoke_agent reap) can
+    // still cancel a multi-cycle child.
+    const opts = startAssignmentCalls.at(-1)! as {
+      onCycleRunIdChange?: (oldRunId: string, newRunId: string) => void;
+    };
+    expect(typeof opts.onCycleRunIdChange).toBe("function");
+
+    opts.onCycleRunIdChange!(cycle1RunId, "cycle-2-run");
+    expect(quota.isOwner(ext, "cycle-2-run")).toBe(true);
+    expect(quota.isOwner(ext, cycle1RunId)).toBe(false);
+    expect(quota._concurrentCount(ext)).toBe(1); // re-keyed, not doubled
+  });
+
   test("forged conversationId in params is IGNORED — sub-conv is parented on ctx.conversationId", async () => {
     const ext = `fo-ext-${crypto.randomUUID().slice(0, 8)}`;
     await wireConversation(CONV_WIRED, ext);

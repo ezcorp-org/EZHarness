@@ -814,6 +814,85 @@ describe("startAssignment — parentRunId child registration", () => {
   });
 });
 
+// ── 5c. onCycleRunIdChange — quota re-key across a cycle boundary ──
+//
+// CRITICAL (Phase A2 fix): a multi-cycle child mints a NEW run id per cycle.
+// Without re-keying, the spawn quota keeps the stale cycle-1 id — so the slot
+// is freed when cycle 1 completes (concurrent under-count) and the live run is
+// un-cancellable (cancel-run's ownership gate rejects it), which is exactly
+// the scenario the invoke_agent timeout reap hits. startAssignment calls
+// onCycleRunIdChange at each cycle boundary so the handler re-keys its
+// SpawnQuota reservation onto the live run. These wire a REAL SpawnQuota to
+// prove the slot follows the live cycle with no double-free.
+
+describe("startAssignment — onCycleRunIdChange re-keys the spawn quota", () => {
+  test("cycle transition follows the live run in the quota; old released once, new owned, no double-free", async () => {
+    const { createSpawnQuota } = await import("../extensions/spawn-quota");
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    // The quota subscribes run:complete at construction — BEFORE
+    // startAssignment's per-run listener — so its release(old) fires FIRST on
+    // a cycle boundary, exactly the order that defeats a non-order-independent
+    // swap. Proving the slot still follows the live run proves order-independence.
+    const quota = createSpawnQuota(bus);
+    const ext = "ext-quota";
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-quota",
+      autonomousContinuation: { maxCycles: 1 },
+      onCycleRunIdChange: (oldId: string, newId: string) =>
+        quota.swapReservation(ext, oldId, newId),
+    });
+    const { agentRunId } = await startAssignment(opts);
+    // Mirror the handler's post-dispatch reserve of the cycle-1 run.
+    quota.reserve(ext, agentRunId);
+    expect(quota._concurrentCount(ext)).toBe(1);
+    expect(quota.isOwner(ext, agentRunId)).toBe(true);
+
+    // Cycle 1: initial run completes with no sentinel → autonomous continuation
+    // mints a new run. quota.release(agentRunId) fires first, THEN the
+    // transition's onCycleRunIdChange swaps → the slot follows the live run.
+    emitComplete(bus, agentRunId, "still working");
+    expect(calls).toHaveLength(2);
+    const newRunId = calls[1]!.options.runId as string;
+    expect(newRunId).not.toBe(agentRunId);
+
+    // Slot followed the live run — still exactly 1, new owned, old not.
+    expect(quota._concurrentCount(ext)).toBe(1);
+    expect(quota.isOwner(ext, newRunId)).toBe(true);
+    expect(quota.isOwner(ext, agentRunId)).toBe(false);
+
+    // No double-free: a duplicate terminal for the OLD run can't free the new slot.
+    bus.emit("run:complete", {
+      run: { id: agentRunId, agentName: "alice", status: "success", startedAt: Date.now(), logs: [] },
+      conversationId: "conv-parent",
+    } as AgentEvents["run:complete"]);
+    expect(quota._concurrentCount(ext)).toBe(1);
+
+    // The live run completes → cap reached → terminal (no further cycle) →
+    // the slot is released exactly once.
+    emitComplete(bus, newRunId, "done enough");
+    expect(calls).toHaveLength(2); // no further continuation
+    expect(quota._concurrentCount(ext)).toBe(0);
+    quota.dispose();
+  });
+
+  test("initial run does NOT invoke onCycleRunIdChange (only cycle continuations do)", async () => {
+    const swaps: Array<[string, string]> = [];
+    const { executor } = makeMockExecutor();
+    const opts = baseOpts({
+      executor,
+      reuseSubConversationId: "sub-nocb",
+      onCycleRunIdChange: (o: string, n: string) => swaps.push([o, n]),
+    });
+    await startAssignment(opts);
+    // Only the initial run started — no cycle transition, so no re-key.
+    expect(swaps).toHaveLength(0);
+  });
+});
+
 // ── 6. Combined: all 5 fields together across the boundary ─────────
 
 describe("startAssignment — combined plumbing (all 5 new fields together)", () => {

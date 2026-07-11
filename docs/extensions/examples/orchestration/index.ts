@@ -87,13 +87,15 @@ export function _resetBindingsForTests(): void {
 //   1. a valid per-call `timeoutSeconds` arg (30..3600s) wins, else
 //   2. the host-threaded `invokeTimeoutMs` metadata (from the operator's
 //      `orchestration:invokeTimeoutMs` setting; host default 300s), else
-//   3. this module `defaultTimeoutMs` floor.
-// The wait is ALSO activity-aware: every non-terminal
-// `task:assignment_update` for a live invocation resets the timer (sliding
-// deadline), so a long multi-cycle child survives as long as it shows
-// lifecycle activity. `defaultTimeoutMs` was raised 60s→300s to align the
-// floor with the host's own idle watchdog (90s / 300s / 900s), so the tool
-// no longer gives up BEFORE the platform considers the child idle.
+//   3. this module `defaultTimeoutMs` fallback.
+// In the non-autonomous path the resolved base IS the give-up timeout; in
+// the autonomous path it acts as a FLOOR under the per-cycle budget (see the
+// `Math.max` at the resolution site). The wait is ALSO activity-aware: every
+// non-terminal `task:assignment_update` for a live invocation resets the
+// timer (sliding deadline), so a long multi-cycle child survives as long as
+// it shows lifecycle activity. `defaultTimeoutMs` was raised 60s→300s to
+// align the base with the host's own idle watchdog (90s / 300s / 900s), so
+// the tool no longer gives up BEFORE the platform considers the child idle.
 const DEFAULT_AGENT_TIMEOUT_MS = 300_000;
 let defaultTimeoutMs = DEFAULT_AGENT_TIMEOUT_MS;
 
@@ -113,8 +115,8 @@ const ORCH_DEFAULT_MAX_CYCLES = 8;
 const MIN_TIMEOUT_SECONDS = 30;
 const MAX_TIMEOUT_SECONDS = 3600;
 
-/** Test-only: shrink the default 60s timeout so the timeout branch can
- *  be exercised without waiting a real minute. */
+/** Test-only: shrink the default 300s timeout so the timeout branch can
+ *  be exercised without waiting minutes. */
 export function _setDefaultTimeoutMsForTests(ms: number): void {
   defaultTimeoutMs = ms;
 }
@@ -266,7 +268,13 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
       // actionable error. On timeout the child would otherwise keep
       // running (orphaned, burning tokens) and the orchestrator would get
       // a non-actionable error and often re-dispatch (double execution).
-      const reapAndReject = async () => {
+      //
+      // `liveAgentRunId` is the CURRENTLY-live run id, captured from the
+      // pending entry at fire time — NOT `handle.agentRunId`, which is frozen
+      // at cycle 1. A multi-cycle child's live run id is updated by the
+      // sliding-deadline branch of `handleAssignmentUpdate` on each cycle
+      // boundary, so the reap cancels the run the host still owns.
+      const reapAndReject = async (liveAgentRunId: string) => {
         const seconds = Math.round(timeoutMs / 1000);
         // Best-effort reap: cancel the child so it stops running (Phase A1's
         // cascade-cancel also tears down any grandchildren) and its quota
@@ -275,7 +283,7 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
         // it is folded into the error text instead.
         let reapNote: string;
         try {
-          const res = await cancelRunImpl(handle.agentRunId);
+          const res = await cancelRunImpl(liveAgentRunId);
           reapNote = res.cancelled
             ? "the child run was cancelled"
             : `the child run could not be cancelled (${res.reason ?? "unknown"})`;
@@ -294,11 +302,13 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
       // `fireTimeout` is stored on the pending entry so the sliding-deadline
       // path can re-arm the exact same behavior on each activity update.
       // First-fire-wins: a terminal update that raced in already removed
-      // the entry, making this a no-op.
+      // the entry, making this a no-op. Read the live run id off the entry
+      // before deleting it so the reap targets the current cycle's run.
       const fireTimeout = () => {
-        if (!pendingInvocations.has(handle.assignmentId)) return;
+        const entry = pendingInvocations.get(handle.assignmentId);
+        if (!entry) return;
         pendingInvocations.delete(handle.assignmentId);
-        void reapAndReject();
+        void reapAndReject(entry.agentRunId);
       };
       pendingInvocations.set(handle.assignmentId, {
         resolve,
@@ -357,6 +367,11 @@ interface IncomingAssignmentUpdate {
     id: string;
     status: string;
     resultPreview?: string;
+    /** The run id of the assignment's CURRENTLY-live run. The host mutates
+     *  this to a fresh id on every auto-continue / autonomous cycle
+     *  transition and emits the update, so the reap can re-target the live
+     *  cycle run instead of the stale cycle-1 id from the spawn handle. */
+    agentRunId?: string;
   };
   /** Wave 1: the sub-agent's FULL final text (sentinel-stripped, capped
    *  host-side). Preferred over `resultPreview` for the orchestrator's
@@ -379,6 +394,20 @@ async function handleAssignmentUpdate(
 
   const status = payload.assignment.status;
   if (status !== "completed" && status !== "failed") {
+    // Re-target the reap to the LIVE cycle run. Auto-continue / autonomous
+    // continuation mints a new run id per cycle (the spawn handle's
+    // `agentRunId` is frozen at cycle 1), and the host stamps the current run
+    // id onto every cycle-boundary update. Without this, a timeout would try
+    // to cancel the stale cycle-1 run — which the host no longer owns, so the
+    // cancel-run ownership gate would reject it and the live child would keep
+    // running. Update before re-arming so a subsequent give-up reaps the
+    // right run.
+    if (
+      typeof payload.assignment.agentRunId === "string" &&
+      payload.assignment.agentRunId
+    ) {
+      pending.agentRunId = payload.assignment.agentRunId;
+    }
     // Sliding (activity-aware) deadline: a non-terminal lifecycle update for
     // a tracked invocation proves the child is still alive. The host emits
     // one on every auto-continue / autonomous cycle transition, so reset the
