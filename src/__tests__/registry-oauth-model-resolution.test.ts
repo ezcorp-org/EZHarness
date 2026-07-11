@@ -94,3 +94,27 @@ test("explicit baseUrl on a known provider keeps the legacy openai-completions p
   expect(m.baseUrl).toBe("http://localhost:11434/v1");
   expect(m.input).toEqual(["text"]);
 });
+
+test("does NOT borrow an EMPTY sibling baseUrl (azure-openai-responses)", () => {
+  // azure-openai-responses' catalog models carry baseUrl "" (filled per
+  // request from the Azure resource config). Borrowing "" would dial an
+  // empty endpoint, so the hardened branch must skip the borrow and fall
+  // through to the non-templated legacy fallback instead.
+  const sibling = getModels("azure-openai-responses")[0];
+  expect(sibling?.baseUrl).toBe(""); // guards the precondition this test relies on
+  const m = resolveModelObject("azure-openai-responses", "no-such-azure-model");
+  expect(m.api).toBe("openai-completions");
+  expect(m.baseUrl).toBe("https://api.openai.com/v1");
+});
+
+test("does NOT borrow a TEMPLATED sibling baseUrl (google-vertex {location})", () => {
+  // google-vertex ships baseUrl "https://{location}-aiplatform.googleapis.com"
+  // — a still-templated placeholder. Borrowing it verbatim would produce a
+  // model that dials a literal "{location}" host, so the borrow is skipped and
+  // the legacy fallback (a concrete URL) is used.
+  const sibling = getModels("google-vertex")[0];
+  expect(sibling?.baseUrl).toContain("{"); // guards the precondition
+  const m = resolveModelObject("google-vertex", "no-such-vertex-model");
+  expect(m.api).toBe("openai-completions");
+  expect(m.baseUrl).toBe("https://api.openai.com/v1");
+});

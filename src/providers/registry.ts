@@ -296,8 +296,23 @@ export function resolveModelObject(provider: string, modelId: string, baseUrl?: 
   // (custom models + the ezcorp-mock test provider) and unknown providers keep
   // the legacy behavior.
   if (baseUrl === undefined) {
-    const sibling = getModels(provider as KnownProvider)[0];
-    if (sibling) {
+    // getModels is wrapped: a malformed provider id can throw, and a throw
+    // here must degrade to the legacy fallback below, not escape.
+    let sibling: Model<any> | undefined;
+    try {
+      sibling = getModels(provider as KnownProvider)[0];
+    } catch {
+      // Unknown/malformed provider → no sibling; fall through to fallback.
+    }
+    // Only borrow the sibling's wire shape when its baseUrl is a concrete,
+    // usable endpoint. Some catalog providers ship a PLACEHOLDER baseUrl that
+    // pi-ai fills in per-request from credentials/config: azure-openai-responses
+    // ("" ), google-vertex ("https://{location}-aiplatform.googleapis.com"),
+    // cloudflare ("…{CLOUDFLARE_ACCOUNT_ID}…"). Borrowing an empty or
+    // still-templated URL verbatim would synthesize a model that dials a broken
+    // endpoint, so skip the borrow and fall through to the legacy fallback (a
+    // non-templated default) instead.
+    if (sibling && sibling.baseUrl && !sibling.baseUrl.includes("{")) {
       return {
         id: modelId,
         name: modelId,
