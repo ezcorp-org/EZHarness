@@ -17,14 +17,18 @@ export interface DevGitInfo {
 /**
  * Current branch + short commit, or null when not in dev mode.
  *
- * `cwd` defaults to EZCORP_PROJECT_ROOT (undefined is fine — gitExec passes it
- * straight through to Bun.spawnSync, which then resolves against the process
- * cwd). Returns null if either rev-parse call fails or yields empty stdout.
+ * `cwd` defaults to EZCORP_PROJECT_ROOT, then EZCORP_SELF_PROJECT_PATH — in
+ * the compose dev container /app holds only bind-mounted source subdirs (no
+ * .git), while the full checkout (with .git) is the self-project mount at
+ * /repo. Undefined is fine — gitExec passes it straight through to
+ * Bun.spawnSync, which then resolves against the process cwd (the bare
+ * `vite dev`-from-checkout case). Returns null if either rev-parse call
+ * fails or yields empty stdout.
  */
 export function getDevGitInfo(cwd?: string): DevGitInfo | null {
   if (process.env.EZCORP_DEV_INDICATOR !== "1") return null;
 
-  const dir = cwd ?? process.env.EZCORP_PROJECT_ROOT;
+  const dir = cwd ?? process.env.EZCORP_PROJECT_ROOT ?? process.env.EZCORP_SELF_PROJECT_PATH;
   const branch = gitExec(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: dir });
   const commit = gitExec(["rev-parse", "--short", "HEAD"], { cwd: dir });
 
