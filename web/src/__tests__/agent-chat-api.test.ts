@@ -65,9 +65,14 @@ const mockBus = { emit: mockBusEmit };
 const mockActiveRun = { id: "run-active", status: "running" };
 let mockGetActiveRunResult: any = null;
 const mockStreamChat = mock(async (..._args: any[]) => ({}));
+const mockSteerConversation = mock((..._args: any[]): { status: string; runId?: string } => ({
+  status: "steered",
+  runId: "run-active",
+}));
 const mockExecutor = {
   streamChat: mockStreamChat,
   getActiveRunForConversation: mock((_id: string) => mockGetActiveRunResult),
+  steerConversation: mockSteerConversation,
 };
 
 mock.module("$lib/server/context", () => ({
@@ -166,6 +171,8 @@ function resetMocks() {
   mockGetAgentConfig.mockImplementation(async () => mockAgentConfig);
   mockExecutor.getActiveRunForConversation.mockReset();
   mockExecutor.getActiveRunForConversation.mockImplementation(() => mockGetActiveRunResult);
+  mockSteerConversation.mockReset();
+  mockSteerConversation.mockImplementation(() => ({ status: "steered", runId: "run-active" }));
   mockStreamChat.mockReset();
   mockStreamChat.mockImplementation(async () => ({}));
   mockBusEmit.mockClear();
@@ -237,8 +244,29 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
 
   // ── Agent running → queue ─────────────────────────────────────────
 
-  test("when agent is running: enqueues message and returns queued status", async () => {
+  test("when agent is running: steers the live run (atomic — no enqueue)", async () => {
     mockGetActiveRunResult = mockActiveRun;
+    const res = await POST(makeEvent("sub-conv-1"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.status).toBe("steered");
+    expect(body.messageId).toBe("msg-new");
+    // Content steered verbatim; a re-enqueue fallback callback is provided.
+    expect(mockSteerConversation).toHaveBeenCalledWith(
+      "sub-conv-1",
+      "hello agent",
+      expect.any(Function),
+    );
+    // Atomic decision: a steered message is NOT also enqueued.
+    expect(mockEnqueue).not.toHaveBeenCalled();
+  });
+
+  test("when agent is running but steer is declined: enqueues (queued) — atomic fallback", async () => {
+    mockGetActiveRunResult = mockActiveRun;
+    // The pre-first-token window / terminal race: steerConversation declines.
+    mockSteerConversation.mockImplementation(() => ({ status: "no-agent", runId: "run-active" }));
+
     const res = await POST(makeEvent("sub-conv-1"));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -412,7 +440,7 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
     expect((completeCall![1] as any).resultPreview).toContain("model timeout");
   });
 
-  test("does NOT emit agent:complete when message is queued (agent already running)", async () => {
+  test("does NOT emit agent:complete for an active-run send (steered, not a new run)", async () => {
     mockGetActiveRunResult = mockActiveRun;
     await POST(makeEvent("sub-conv-1"));
     await flushMicrotasks();
@@ -658,18 +686,21 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
       expect(mockStreamChat).not.toHaveBeenCalled();
     });
 
-    test("when agent is running: body model is ignored and message is queued", async () => {
+    test("when agent is running: body model is ignored, no new run (steered)", async () => {
       mockGetActiveRunResult = mockActiveRun;
       const res = await POST(
         makeEvent("sub-conv-1", { content: "switch", provider: "openai", model: "gpt-5" }),
       );
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.status).toBe("queued");
+      expect(body.status).toBe("steered");
+      // Active-run sends never start a new run, so the body model/provider
+      // override is not threaded through (v1 — same as the pending path).
       expect(mockStreamChat).not.toHaveBeenCalled();
-      expect(mockEnqueue).toHaveBeenCalledWith(
+      expect(mockSteerConversation).toHaveBeenCalledWith(
         "sub-conv-1",
-        expect.objectContaining({ content: "switch" }),
+        "switch",
+        expect.any(Function),
       );
     });
 

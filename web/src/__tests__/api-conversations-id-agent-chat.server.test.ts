@@ -17,9 +17,11 @@ const getConversation = vi.fn();
 const getLatestLeaf = vi.fn();
 const createMessage = vi.fn();
 const getActiveRunForConversation = vi.fn();
+const steerConversation = vi.fn();
 const streamChat = vi.fn(() => Promise.resolve());
 const busEmit = vi.fn();
 const getAgentConfig = vi.fn();
+const enqueue = vi.fn();
 
 vi.mock("$server/db/queries/conversations", () => ({
   getConversation,
@@ -34,13 +36,14 @@ vi.mock("$server/db/queries/agent-configs", () => ({
 vi.mock("$lib/server/context", () => ({
   getExecutor: () => ({
     getActiveRunForConversation,
+    steerConversation,
     streamChat,
   }),
   getBus: () => ({ emit: busEmit }),
 }));
 
 vi.mock("$server/runtime/pending-messages", () => ({
-  enqueue: vi.fn(),
+  enqueue,
 }));
 
 vi.mock("$lib/server/command-resolver", () => ({
@@ -75,10 +78,12 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
     getLatestLeaf.mockReset();
     createMessage.mockReset();
     getActiveRunForConversation.mockReset();
+    steerConversation.mockReset();
     streamChat.mockReset();
     streamChat.mockReturnValue(Promise.resolve());
     busEmit.mockReset();
     getAgentConfig.mockReset();
+    enqueue.mockReset();
   });
 
   test("rejects 401 when unauthenticated", async () => {
@@ -392,7 +397,7 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
       expect(opts.model).toBe("subconv-model");
     });
 
-    test("active-run path: body model is IGNORED, streamChat not called, message queued", async () => {
+    test("active-run path (steered): atomic — steer the live run, do NOT enqueue", async () => {
       installSubConvGraph({
         agentConfig: {
           provider: "anthropic",
@@ -402,6 +407,7 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
         },
       });
       getActiveRunForConversation.mockReturnValue({ id: "run-active" });
+      steerConversation.mockReturnValue({ status: "steered", runId: "run-active" });
 
       const res = await POST(
         makeEvent({
@@ -411,7 +417,30 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
       );
       expect(res.status).toBe(200);
       const body = (await res.json()) as { status?: string };
+      expect(body.status).toBe("steered");
+      // Content is steered verbatim; a fallback re-enqueue callback is passed.
+      expect(steerConversation).toHaveBeenCalledWith("sub-1", "hi", expect.any(Function));
+      // Atomic: a steered message is NOT also enqueued.
+      expect(enqueue).not.toHaveBeenCalled();
+      expect(streamChat).not.toHaveBeenCalled();
+    });
+
+    test("active-run path (not steered): atomic — enqueue to pending-messages, status queued", async () => {
+      installSubConvGraph({
+        agentConfig: { provider: "anthropic", model: "claude-opus-4-7", name: "Agent", prompt: "p" },
+      });
+      getActiveRunForConversation.mockReturnValue({ id: "run-active" });
+      // The pre-first-token window / terminal race: steer declined.
+      steerConversation.mockReturnValue({ status: "no-agent", runId: "run-active" });
+
+      const res = await POST(makeEvent({ locals: { user }, body: { content: "hi" } }));
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { status?: string };
       expect(body.status).toBe("queued");
+      // Falls back to today's behavior: enqueue exactly once, no steer delivery.
+      expect(enqueue).toHaveBeenCalledTimes(1);
+      expect(enqueue).toHaveBeenCalledWith("sub-1", expect.objectContaining({ content: "hi" }));
       expect(streamChat).not.toHaveBeenCalled();
     });
   });
