@@ -50,6 +50,14 @@ interface DanglingTarget {
   assignment: TaskAssignment;
 }
 
+/** Per-conversation working set: the mutable snapshot to re-persist and the
+ *  running assignments found on it. (Named so the `Map<…>` below is a single
+ *  line — a multi-line generic annotation trips Bun's coverage attribution.) */
+interface ConversationEntry {
+  snapshot: { tasks: TrackedTask[]; activeTaskId?: string };
+  running: DanglingTarget[];
+}
+
 /**
  * Reconcile task-tracking assignments left `running` by a restart. Returns
  * the number of assignments transitioned to `failed`. Best-effort: a
@@ -70,13 +78,7 @@ export async function reconcileInterruptedAssignments(
 
   // Gather every RUNNING assignment (task- or subtask-scoped) per conversation
   // so each snapshot is persisted at most once.
-  const perConversation = new Map<
-    string,
-    {
-      snapshot: { tasks: TrackedTask[]; activeTaskId?: string };
-      running: DanglingTarget[];
-    }
-  >();
+  const perConversation = new Map<string, ConversationEntry>();
   const runIds = new Set<string>();
 
   for (const row of rows) {
