@@ -569,6 +569,7 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
       run: { id: "some-other-run", agentName: "alice", status: "error", startedAt: Date.now(), logs: [] },
       error: "ignored",
       conversationId: "conv-parent",
+      runId: "some-other-run",
     } as AgentEvents["run:error"]);
     expect(assignment.status).toBe("running");
 
@@ -577,6 +578,7 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
       run: { id: agentRunId, agentName: "alice", status: "error", startedAt: Date.now(), logs: [] },
       error: longErr,
       conversationId: "conv-parent",
+      runId: agentRunId,
     } as AgentEvents["run:error"]);
 
     expect(assignment.status).toBe("failed");
