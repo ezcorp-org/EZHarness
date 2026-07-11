@@ -228,6 +228,22 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
     );
   });
 
+  test("parentRunId: echoed verbatim when provided", async () => {
+    const { calls } = happy();
+    await spawnAssignment({
+      agentConfigId: "cfg-1",
+      task: "t",
+      parentRunId: "orch-run-9",
+    });
+    expect((calls[0]?.params as Record<string, unknown>).parentRunId).toBe("orch-run-9");
+  });
+
+  test("parentRunId: omitted when absent (no key on the wire)", async () => {
+    const { calls } = happy();
+    await spawnAssignment({ agentConfigId: "cfg-1", task: "t" });
+    expect(calls[0]?.params as Record<string, unknown>).not.toHaveProperty("parentRunId");
+  });
+
   test("autonomousContinuation: { maxCycles } echoed verbatim", async () => {
     const { calls } = happy();
     await spawnAssignment({

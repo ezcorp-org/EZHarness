@@ -249,6 +249,12 @@ export async function handleSpawnAssignmentRpc(
     typeof params.orchestrationDepth === "number" && Number.isFinite(params.orchestrationDepth)
       ? (params.orchestrationDepth as number)
       : undefined;
+  // Parent orchestrator run id — when present, startAssignment registers
+  // every run it starts under this parent so a parent cancel cascades.
+  const callerParentRunId =
+    typeof params.parentRunId === "string" && params.parentRunId.trim()
+      ? params.parentRunId
+      : undefined;
   const callerAutonomous = ((): { maxCycles?: number } | undefined => {
     const ac = params.autonomousContinuation;
     if (!ac || typeof ac !== "object" || Array.isArray(ac)) return undefined;
@@ -352,6 +358,7 @@ export async function handleSpawnAssignmentRpc(
       ...(callerOverrides ? { overrides: callerOverrides } : {}),
       ...(callerTeamToolScope ? { teamToolScope: callerTeamToolScope } : {}),
       ...(callerOrchestrationDepth !== undefined ? { orchestrationDepth: callerOrchestrationDepth } : {}),
+      ...(callerParentRunId ? { parentRunId: callerParentRunId } : {}),
       ...(callerAutonomous ? { autonomousContinuation: callerAutonomous } : {}),
     });
 

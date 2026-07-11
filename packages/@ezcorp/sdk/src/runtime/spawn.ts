@@ -78,6 +78,13 @@ export interface SpawnAssignmentInput {
    *  `options.orchestrationDepth` to `startAssignment`, which becomes the
    *  starting depth for `streamChat`. */
   orchestrationDepth?: number;
+  /** Parent run id — the orchestrator run that is spawning this sub-agent.
+   *  When set, the host registers the spawned run (and each of its
+   *  auto-continue / autonomous cycles) as a child of this run, so
+   *  cancelling the parent cascades the cancel down to this sub-agent
+   *  instead of leaving it running. Supplied by the host at tool-invoke
+   *  time (via `invocationMetadata`), not by extension authors directly. */
+  parentRunId?: string;
   /** Opt-in autonomous self-continuation. When set, the spawned
    *  sub-agent re-prompts itself toward its pinned objective until it
    *  emits a `<<TASK_DONE>>` / `<<TASK_BLOCKED>>` sentinel or hits
@@ -149,6 +156,7 @@ export async function spawnAssignment(
     ...(typeof input.orchestrationDepth === "number"
       ? { orchestrationDepth: input.orchestrationDepth }
       : {}),
+    ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
     ...(input.autonomousContinuation
       ? { autonomousContinuation: input.autonomousContinuation }
       : {}),

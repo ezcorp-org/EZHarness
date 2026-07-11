@@ -242,9 +242,13 @@ export async function wireOrchestrationToolsForTurn(
   }
 
   // 2. Per-turn invocation metadata for `invoke_agent`. Only include
-  //    defined sources. `orchestrationDepth` is always set.
+  //    defined sources. `orchestrationDepth` + `parentRunId` are always
+  //    set. `parentRunId` is THIS turn's orchestrator run id: the handler
+  //    threads it into the spawn so the child registers under it and a
+  //    Stop on the orchestrator cascades to the child (P1 cascade cancel).
   const invocationMetadata: Record<string, unknown> = {
     orchestrationDepth: depth,
+    parentRunId: runId,
   };
   if (parentMessageId !== undefined) invocationMetadata.parentMessageId = parentMessageId;
   if (memberOverrides !== undefined) invocationMetadata.overrides = memberOverrides;

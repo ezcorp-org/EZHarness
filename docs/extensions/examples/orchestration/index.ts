@@ -174,6 +174,9 @@ const invokeAgent: ToolHandler = async (args, ctx?: ToolHandlerContext) => {
     ...(typeof md.orchestrationDepth === "number"
       ? { orchestrationDepth: md.orchestrationDepth }
       : {}),
+    // Parent orchestrator run id (host-set) → registers this spawn as a
+    // child so a Stop on the orchestrator cascades to the sub-agent.
+    ...(typeof md.parentRunId === "string" ? { parentRunId: md.parentRunId } : {}),
     ...(autonomousCfg ? { autonomousContinuation: autonomousCfg } : {}),
   };
 

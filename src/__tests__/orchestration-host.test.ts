@@ -385,15 +385,19 @@ describe("wireOrchestrationToolsForTurn", () => {
       deniedTools: ["bash"],
     });
     expect(md.orchestrationDepth).toBe(3);
+    // parentRunId is THIS turn's orchestrator run id (baseParams runId),
+    // threaded so the spawned child registers under it for cascade cancel.
+    expect(md.parentRunId).toBe("run-123");
   });
 
-  test("invocationMetadata: undefined source fields are omitted (only orchestrationDepth remains)", async () => {
+  test("invocationMetadata: undefined source fields are omitted (only always-set fields remain)", async () => {
     // No parentMessageId / memberOverrides / teamToolScope passed.
     const params = baseParams({ depth: 7 });
     await wireOrchestrationToolsForTurn(params);
 
     const md = captured[0]!.invocationMetadata!;
-    expect(md).toEqual({ orchestrationDepth: 7 });
+    // orchestrationDepth + parentRunId are the two always-present fields.
+    expect(md).toEqual({ orchestrationDepth: 7, parentRunId: "run-123" });
     expect("parentMessageId" in md).toBe(false);
     expect("overrides" in md).toBe(false);
     expect("teamToolScope" in md).toBe(false);

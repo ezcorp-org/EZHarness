@@ -499,12 +499,18 @@ describe("orchestration extension — invocationMetadata forwarding", () => {
     expect(input.orchestrationDepth).toBe(2);
   });
 
+  test("parentRunId forwarded when set", async () => {
+    const input = await run({ parentRunId: "orch-run-1" });
+    expect(input.parentRunId).toBe("orch-run-1");
+  });
+
   test("no metadata fields forwarded when invocationMetadata is absent", async () => {
     const input = await run(undefined);
     expect(input.parentMessageId).toBeUndefined();
     expect(input.overrides).toBeUndefined();
     expect(input.teamToolScope).toBeUndefined();
     expect(input.orchestrationDepth).toBeUndefined();
+    expect(input.parentRunId).toBeUndefined();
     // Core fields still plumb through.
     expect(input.task).toBe("go");
     expect(input.agentConfigId).toBe("agent-builder");

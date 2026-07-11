@@ -146,6 +146,11 @@ export interface StartAssignmentOpts {
   teamToolScope?: TeamToolScope;
   /** Orchestration depth forwarded to `streamChat.options.orchestrationDepth`. */
   orchestrationDepth?: number;
+  /** Parent orchestrator run id. When set, EVERY run this assignment
+   *  starts (the initial task run AND each auto-continue / autonomous
+   *  cycle) is registered on the executor as a child of this run, so a
+   *  cancel of the parent cascades down and stops the sub-agent. */
+  parentRunId?: string;
   /** Opt-in autonomous self-continuation. When set, a finished run with
    *  no pending user message and no done/blocked sentinel re-prompts the
    *  sub-agent toward the pinned objective until it signals completion
@@ -204,7 +209,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     executor, bus, conversationId, taskId, assignment, task, snapshot,
     projectId, agentConfig, parentModel, parentProvider,
     reuseSubConversationId, parentMessageId, overrides, teamToolScope,
-    orchestrationDepth, autonomousContinuation,
+    orchestrationDepth, autonomousContinuation, parentRunId,
   } = opts;
 
   // Master kill-switch (Advanced Settings → "Agent goal pinning &
@@ -326,6 +331,12 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
    * running.
    */
   function startRun(runId: string, message: string, runParentMessageId?: string) {
+    // Link this run to the parent orchestrator BEFORE it streams, so a
+    // cancel racing the spawn still cascades. Done inside startRun (not
+    // once outside) because auto-continue + autonomous cycles call startRun
+    // again with a NEW run id — each cycle's run must be registered or a
+    // mid-cycle cancel would orphan the live child.
+    if (parentRunId) executor.registerChildRun(parentRunId, runId);
     const streamPromise = executor.streamChat(subConversationId, message, {
       projectId,
       agentConfigId: assignment.agentConfigId,

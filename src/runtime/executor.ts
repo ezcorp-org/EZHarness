@@ -116,6 +116,18 @@ export class AgentExecutor {
    *  the many short-lived ToolExecutor instances created per turn. */
   private _spawnQuota: SpawnQuota;
 
+  /** Parent-run id → live child-run ids. Populated by
+   *  {@link registerChildRun} (called from start-assignment when a spawn
+   *  carries a `parentRunId`) so {@link cancelRun} can cascade a cancel
+   *  down the whole spawn tree. Without this link, cancelling an
+   *  orchestrator run left every `invoke_agent` child running and burning
+   *  tokens (the "Stop doesn't stop the work" P1). In-memory only — no DB
+   *  migration; entries self-clean on each run's terminal bus event. */
+  private childRuns = new Map<string, Set<string>>();
+  /** Unsubscribe handles for the terminal-event listeners that keep
+   *  {@link childRuns} bounded. Detached in {@link destroy}. */
+  private childRunUnsubs: Array<() => void> = [];
+
   /** Set the extension state mediator for routing UI state notifications. */
   setStateMediator(mediator: ExtensionStateMediator): void {
     this._stateMediator = mediator;
@@ -149,6 +161,56 @@ export class AgentExecutor {
       errorMessagePersisted: this.errorMessagePersisted,
     });
     this.watchdog.startOrphanCleanup();
+
+    // Deregister a run from the child-run registry the moment it reaches a
+    // terminal state. The three terminal bus events are the most reliable
+    // seam: EVERY terminal path (runAgent success/error, streamChat's
+    // finalizeSuccess/finalizeError, cancelRun, the watchdog trip) emits
+    // exactly one of these, so this single wiring bounds the registry for
+    // all of them — no per-finalize instrumentation to keep in sync — and
+    // it's idempotent (a delete is a no-op if a cascade already dropped the
+    // id). Runs that were never registered as children are a cheap Map miss.
+    const deregister = (runId: string): void => this.deregisterRun(runId);
+    this.childRunUnsubs = [
+      this.bus.on("run:complete", ({ run }) => deregister(run.id)),
+      this.bus.on("run:error", ({ run }) => deregister(run.id)),
+      this.bus.on("run:cancel", ({ run }) => deregister(run.id)),
+    ];
+  }
+
+  /**
+   * Register `childRunId` as a live child of `parentRunId` so a cancel of
+   * the parent cascades to it. Called per-cycle from start-assignment (the
+   * initial run AND every auto-continue / autonomous cycle re-registers,
+   * because each cycle is a NEW run id). Idempotent within a Set.
+   */
+  registerChildRun(parentRunId: string, childRunId: string): void {
+    let set = this.childRuns.get(parentRunId);
+    if (!set) {
+      set = new Set<string>();
+      this.childRuns.set(parentRunId, set);
+    }
+    set.add(childRunId);
+  }
+
+  /**
+   * Drop a terminated run from the registry — both its own children-set
+   * (it can no longer spawn) and its membership in any parent's set. Empty
+   * parent sets are deleted so the map can't grow unbounded across a long
+   * orchestrator run that spawns many sequential children.
+   */
+  private deregisterRun(runId: string): void {
+    this.childRuns.delete(runId);
+    for (const [parentId, set] of this.childRuns) {
+      if (set.delete(runId) && set.size === 0) this.childRuns.delete(parentId);
+    }
+  }
+
+  /** Live child-run ids currently registered under a parent (empty when
+   *  none / already cleared). Read-only observability + cascade-cancel
+   *  test seam. */
+  getRegisteredChildRunIds(parentRunId: string): string[] {
+    return [...(this.childRuns.get(parentRunId) ?? [])];
   }
 
   async resolveInput(
@@ -396,7 +458,44 @@ export class AgentExecutor {
     return [...this.pendingPermissions.values()].filter(p => p.conversationId === conversationId);
   }
 
+  /**
+   * Cancel a run AND every descendant it spawned via `invoke_agent`
+   * (the P1 fix: cancelling an orchestrator must stop the work its
+   * children are doing, not just the parent). Depth-first and cycle-safe.
+   * A child that already finished is a no-op — {@link cancelRunSelf}
+   * returns false for an unknown id, and cascading still clears its stale
+   * registry entry. The return value is the SELF cancel result (true iff
+   * this run existed and was cancellable), preserving the pre-cascade
+   * contract callers rely on.
+   */
   cancelRun(id: string): boolean {
+    return this.cancelRunInternal(id, new Set<string>());
+  }
+
+  private cancelRunInternal(id: string, visited: Set<string>): boolean {
+    // Cycle guard: a (defensive) A→B→A registration must not loop forever.
+    if (visited.has(id)) return false;
+    visited.add(id);
+
+    // Snapshot children BEFORE cancelling self — cancelRunSelf emits
+    // run:cancel, whose terminal-event listener deregisters THIS id
+    // (dropping the very set we're about to iterate).
+    const children = [...(this.childRuns.get(id) ?? [])];
+
+    const cancelled = this.cancelRunSelf(id);
+
+    // Cascade regardless of the self result: a parent whose own run
+    // already finished can still have live children to stop.
+    for (const childId of children) this.cancelRunInternal(childId, visited);
+
+    // Belt-and-suspenders: clear this parent's entry even when self was an
+    // unknown id (no run:cancel emitted, so the listener never fired).
+    this.childRuns.delete(id);
+
+    return cancelled;
+  }
+
+  private cancelRunSelf(id: string): boolean {
     const run = this.runs.get(id);
     const controller = this.controllers.get(id);
     if (!run || !controller) return false;
@@ -774,6 +873,9 @@ export class AgentExecutor {
    */
   destroy(): void {
     this.watchdog.destroy();
+    for (const unsub of this.childRunUnsubs) unsub();
+    this.childRunUnsubs = [];
+    this.childRuns.clear();
     for (const ctrl of this.controllers.values()) {
       if (!ctrl.signal.aborted) ctrl.abort();
     }

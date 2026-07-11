@@ -106,6 +106,15 @@ export function buildPiAgent(
       messages: history,
       thinkingLevel: options.thinkingLevel ?? (model.reasoning ? "medium" : "off"),
     },
+    // Pin pi's documented default retry-delay cap (60s) explicitly. pi-ai
+    // fails a request immediately when a provider asks for a retry delay
+    // LONGER than this, which is exactly what lets our WS2 pre-stream
+    // failover (runWithFailover) take over and rebuild on a fallback
+    // provider instead of silently blocking behind a long server-requested
+    // backoff. Pinning it means an upstream change to pi-ai's default can't
+    // silently shift that failover timing. See @earendil-works/pi-ai
+    // StreamOptions.maxRetryDelayMs (documented default 60000).
+    maxRetryDelayMs: 60_000,
     // Per-model context-window compaction. Runs before every LLM call
     // (initial turn + each agentic tool-loop iteration + retries), so a
     // long thread no longer dead-ends on `context_length_exceeded`.

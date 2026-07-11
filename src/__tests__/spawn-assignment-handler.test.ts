@@ -625,6 +625,32 @@ describe("spawn-assignment — Phase 4 pass-through fields", () => {
     expect(startAssignmentCalls).toHaveLength(1);
     expect(startAssignmentCalls[0]!.orchestrationDepth).toBe(3);
   });
+
+  test("parentRunId: forwarded to startAssignment when a non-empty string", async () => {
+    const ext = `prid-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, parentRunId: "orch-run-42" }, "prid-1"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls).toHaveLength(1);
+    expect(startAssignmentCalls[0]!.parentRunId).toBe("orch-run-42");
+  });
+
+  test("parentRunId: blank/whitespace ignored (no parentRunId key on opts)", async () => {
+    const ext = `prid2-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, parentRunId: "   " }, "prid-2"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls).toHaveLength(1);
+    expect(startAssignmentCalls[0]!).not.toHaveProperty("parentRunId");
+  });
 });
 
 // ── Phase 6: PDP-deny path + quota-invalid audit reason ─────────────

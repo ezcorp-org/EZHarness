@@ -94,8 +94,15 @@ type StreamChatCall = {
   options: Record<string, unknown>;
 };
 
-function makeMockExecutor(): { executor: AgentExecutor; calls: StreamChatCall[] } {
+type ChildRegistration = { parentRunId: string; childRunId: string };
+
+function makeMockExecutor(): {
+  executor: AgentExecutor;
+  calls: StreamChatCall[];
+  childRegistrations: ChildRegistration[];
+} {
   const calls: StreamChatCall[] = [];
+  const childRegistrations: ChildRegistration[] = [];
   const streamChat = mock(
     async (
       conversationId: string,
@@ -116,9 +123,13 @@ function makeMockExecutor(): { executor: AgentExecutor; calls: StreamChatCall[] 
       };
     },
   );
+  const registerChildRun = mock((parentRunId: string, childRunId: string) => {
+    childRegistrations.push({ parentRunId, childRunId });
+  });
   return {
-    executor: { streamChat } as unknown as AgentExecutor,
+    executor: { streamChat, registerChildRun } as unknown as AgentExecutor,
     calls,
+    childRegistrations,
   };
 }
 
@@ -692,6 +703,77 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
     expect(assignment.status).toBe("failed");
     expect(assignment.resultPreview).toContain("stream boom");
     expect(assignment.failedAt).toBeDefined();
+  });
+});
+
+// ── 5b. parentRunId — child-run registration for cascade cancel ────
+//
+// When `parentRunId` is set, startAssignment must register EVERY run it
+// starts (the initial task run AND each auto-continue cycle's new run) on
+// the executor as a child of the parent orchestrator run, so a cancel of
+// the parent cascades down. Registration must happen inside startRun (per
+// cycle), not once outside — auto-continue mints fresh run ids.
+
+describe("startAssignment — parentRunId child registration", () => {
+  test("registers the initial run under the parent before streaming", async () => {
+    const { executor, calls, childRegistrations } = makeMockExecutor();
+    const opts = baseOpts({
+      executor,
+      reuseSubConversationId: "sub-reg",
+      parentRunId: "parent-run-1",
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    expect(childRegistrations).toEqual([
+      { parentRunId: "parent-run-1", childRunId: agentRunId },
+    ]);
+    // The registered child id IS the run id streamChat was told to use.
+    expect(calls[0]!.options.runId).toBe(agentRunId);
+  });
+
+  test("registers each auto-continue cycle's NEW run id under the same parent", async () => {
+    const { executor, calls, childRegistrations } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const opts = baseOpts({
+      executor,
+      bus,
+      reuseSubConversationId: "sub-reg-cycle",
+      parentRunId: "parent-run-2",
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Initial registration.
+    expect(childRegistrations).toEqual([
+      { parentRunId: "parent-run-2", childRunId: agentRunId },
+    ]);
+
+    // Queue a user message, then complete the run → auto-continue cycle
+    // starts a NEW run id which must ALSO register under the parent.
+    enqueue("sub-reg-cycle", {
+      messageId: "m1",
+      content: "keep going",
+      createdAt: new Date().toISOString(),
+    });
+    bus.emit("run:complete", {
+      run: { id: agentRunId, agentName: "alice", status: "success", startedAt: Date.now(), logs: [], result: { success: true, output: "partial" } },
+      conversationId: "conv-parent",
+    } as AgentEvents["run:complete"]);
+
+    expect(calls).toHaveLength(2);
+    const newRunId = calls[1]!.options.runId as string;
+    expect(newRunId).not.toBe(agentRunId);
+    expect(childRegistrations).toHaveLength(2);
+    expect(childRegistrations[1]).toEqual({
+      parentRunId: "parent-run-2",
+      childRunId: newRunId,
+    });
+  });
+
+  test("no parentRunId → registerChildRun never called (legacy manual-start path)", async () => {
+    const { executor, childRegistrations } = makeMockExecutor();
+    const opts = baseOpts({ executor, reuseSubConversationId: "sub-noreg" });
+    await startAssignment(opts);
+    expect(childRegistrations).toHaveLength(0);
   });
 });
 
