@@ -10,6 +10,7 @@ import type {
 } from "../types";
 import type { EventBus } from "./events";
 import type { Agent } from "@earendil-works/pi-agent-core";
+import type { UserMessage } from "@earendil-works/pi-ai";
 import { createStreamChatContext } from "./stream-chat/context";
 import type { PendingPermissionInfo, StreamChatHost } from "./stream-chat/host";
 import {
@@ -54,6 +55,25 @@ export interface ExecutorOptions {
   file?: FileProvider;
   persist?: boolean;
 }
+
+/**
+ * Discriminated outcome of {@link AgentExecutor.steerConversation}. P1 is
+ * plumbing only — nothing calls it yet; P2 builds the atomic
+ * steer-vs-enqueue decision on top of these variants (a non-`steered`
+ * result is the signal to fall back to the pending-messages mailbox).
+ *
+ * - `steered`   — a live run AND its live pi Agent existed; the message was
+ *                 queued via pi `steer()` for next-turn-boundary delivery.
+ * - `no-live-run` — no running run owns this conversation (idle conversation,
+ *                 or the run reached a terminal state before this call).
+ * - `no-agent`  — a run is live but no Agent instance is registered for it yet
+ *                 (the pre-first-token window before failover's first
+ *                 `buildAgent`); `runId` is returned for the caller's fallback.
+ */
+export type SteerResult =
+  | { status: "steered"; runId: string }
+  | { status: "no-live-run" }
+  | { status: "no-agent"; runId: string };
 
 // ── AgentExecutor ───────────────────────────────────────────────────
 
@@ -496,6 +516,40 @@ export class AgentExecutor {
 
   getPendingPermissions(conversationId: string): PendingPermissionInfo[] {
     return [...this.pendingPermissions.values()].filter(p => p.conversationId === conversationId);
+  }
+
+  /**
+   * Queue a user message into the live pi Agent serving `conversationId` so it
+   * is delivered at the next turn boundary of the in-flight run (pi `steer()`).
+   *
+   * P1: PLUMBING ONLY — nothing wires this yet; the sole callers are unit
+   * tests. It returns a discriminated {@link SteerResult} so P2 can build the
+   * atomic steer-vs-enqueue decision (fall back to the pending-messages
+   * mailbox on any non-`steered` result) without re-deriving liveness.
+   *
+   * `activeAgents` is resolved at call time and never cached: a
+   * pre-first-token failover swaps the Agent instance mid-run —
+   * `failover.ts:220` re-runs `activeAgents.set(runId, agent)` on every
+   * attempt — so a reference captured earlier could steer into a discarded
+   * instance whose queue is dropped on abort. Resolving the run and then its
+   * agent freshly here always targets the instance that will actually serve
+   * the next turn. The narrow race that remains — the run reaching a terminal
+   * state between `getActiveRunForConversation` and the `activeAgents` lookup —
+   * surfaces as `no-live-run` / `no-agent` (never a throw), which P2's fallback
+   * treats as "enqueue instead".
+   */
+  steerConversation(conversationId: string, message: string): SteerResult {
+    const run = this.getActiveRunForConversation(conversationId);
+    if (!run) return { status: "no-live-run" };
+    const agent = this.activeAgents.get(run.id);
+    if (!agent) return { status: "no-agent", runId: run.id };
+    const userMessage: UserMessage = {
+      role: "user",
+      content: message,
+      timestamp: Date.now(),
+    };
+    agent.steer(userMessage);
+    return { status: "steered", runId: run.id };
   }
 
   /**
