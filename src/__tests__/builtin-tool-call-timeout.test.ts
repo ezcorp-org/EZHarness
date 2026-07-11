@@ -70,6 +70,7 @@ import { ExtensionRegistry } from "../extensions/registry";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents, AgentRun } from "../types";
 import type { BuiltinToolDef } from "../runtime/tools/types";
+import { LONG_BLOCKING_WATCHDOG_BUDGET_MS } from "../runtime/tools/filter";
 import { Type } from "@earendil-works/pi-ai";
 
 // ── Fake clock + setInterval capture ───────────────────────────────────
@@ -165,6 +166,7 @@ describe("WatchdogManager honors a declared callTimeoutMs > WATCHDOG_IDLE_MS", (
       activeAgents: new Map(),
       runConversations: new Map(),
       pendingPermissions: new Map(),
+      errorMessagePersisted: new Set<string>(),
       bus,
       persist: true,
     };
@@ -287,6 +289,7 @@ function buildBridgeHarness(builtinToolDefsMap: Map<string, BuiltinToolDef>): Br
     controllers,
     runConversations: new Map(),
     activeAgents: new Map(),
+    errorMessagePersisted: new Set<string>(),
     runs,
     watchdog: watchdogStub,
     stateMediator: undefined,
@@ -411,5 +414,77 @@ describe("subscribe-bridge fallback chain — manifest > BuiltinToolDef.callTime
 
     expect(h.noteCalls).toHaveLength(1);
     expect(h.noteCalls[0]!.info.callTimeoutMs).toBe(DEFAULT_BUILTIN_CALL_TIMEOUT_MS);
+  });
+});
+
+// ── F1: long-blocking orchestration tools get a widened, BOUNDED budget ─
+//
+// A synchronous `collect_agent_result` blocks the orchestrator's turn while
+// awaiting a background child. It emits no agent:* liveness (unlike
+// invoke_agent), so at the ~90s default watchdog budget the parent run was
+// idle-killed mid-wait. The bridge now hands the run watchdog a BOUNDED,
+// widened budget for these host-wired bare-named tools. `invoke_agent` is
+// suppressed entirely (it streams its own agent:* liveness).
+
+describe("subscribe-bridge — long-blocking orchestration tools (F1)", () => {
+  test("collect_agent_result → noteToolStart gets the bounded long-blocking budget, not the 90s default", () => {
+    const h = buildBridgeHarness(new Map());
+    h.piAgent.fire({ type: "turn_start" });
+    h.piAgent.fire({
+      type: "tool_execution_start",
+      toolCallId: "tc-collect",
+      toolName: "collect_agent_result", // bare, host-wired
+      args: { assignmentId: "a1", waitSeconds: 300 },
+    });
+
+    expect(h.noteCalls).toHaveLength(1);
+    expect(h.noteCalls[0]!.info.callTimeoutMs).toBe(LONG_BLOCKING_WATCHDOG_BUDGET_MS);
+    // Widened above the 90s idle default (which caused the F1 kill) but still
+    // bounded (a finite ceiling, not indefinite).
+    expect(LONG_BLOCKING_WATCHDOG_BUDGET_MS).toBeGreaterThan(DEFAULT_BUILTIN_CALL_TIMEOUT_MS);
+    expect(Number.isFinite(LONG_BLOCKING_WATCHDOG_BUDGET_MS)).toBe(true);
+  });
+
+  test("invoke_agent → NO noteToolStart (tool:start suppressed; parent stays alive via agent:* liveness)", () => {
+    const h = buildBridgeHarness(new Map());
+    h.piAgent.fire({ type: "turn_start" });
+    h.piAgent.fire({
+      type: "tool_execution_start",
+      toolCallId: "tc-invoke",
+      toolName: "invoke_agent",
+      args: { agentConfigId: "a1", task: "t" },
+    });
+    expect(h.noteCalls).toHaveLength(0);
+  });
+
+  test("the widened collect budget makes the run survive past the 90s idle kill (watchdog-level)", async () => {
+    // Compose with the WatchdogManager: a collect-budgeted inflight tool must
+    // NOT be killed at 90s (the F1 bug), unlike a default-budgeted tool.
+    const bus = new EventBus<AgentEvents>();
+    const RUN_ID = "run-collect-defer";
+    const run: AgentRun = { id: RUN_ID, agentName: "test", status: "running", startedAt: fakeNow, logs: [] };
+    const watchdog = new WatchdogManager({
+      runs: new Map([[RUN_ID, run]]),
+      controllers: new Map([[RUN_ID, new AbortController()]]),
+      activeAgents: new Map(),
+      runConversations: new Map(),
+      pendingPermissions: new Map(),
+      errorMessagePersisted: new Set<string>(),
+      bus,
+      persist: true,
+    });
+    watchdog.startWatchdog(RUN_ID, "conv-collect", () => "");
+    watchdog.noteToolStart(RUN_ID, "tc-1", {
+      toolName: "collect_agent_result",
+      conversationId: "conv-collect",
+      extensionId: "",
+      startedAt: fakeNow,
+      callTimeoutMs: LONG_BLOCKING_WATCHDOG_BUDGET_MS,
+    });
+    // Drive well past the 90s idle window; the deferral holds (F1 fixed).
+    for (let i = 0; i < 10; i++) {
+      await advanceAndTick(15_000); // up to 150s
+      expect(run.status, `tick ${i}`).toBe("running");
+    }
   });
 });

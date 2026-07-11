@@ -50,7 +50,7 @@ mock.module("../db/connection", () => ({
 // ToolExecutor class is still exported for the host module's `new
 // ToolExecutor(...)` call site; we simply swap the function.
 interface CapturedExtToolCall {
-  extTool: { name: string; description: string; inputSchema: Record<string, unknown> };
+  extTool: { name: string; description: string; inputSchema: Record<string, unknown>; dispatchName?: string };
   toolExecutor: unknown;
   conversationId: string;
   messageId: string;
@@ -102,6 +102,18 @@ mock.module("../extensions/tool-executor", () => ({
       execute: async () => ({ content: [], details: { isError: false } }),
     };
   },
+}));
+
+// Controllable `getSetting` so the `orchestration:invokeTimeoutMs`
+// resolution branches (unset / valid / non-positive / read-throws) are all
+// driven deterministically. The real module (backed by the mocked test
+// PGlite) is spread first so `upsertSetting` etc. stay intact for other
+// importers (permission-engine imports both). Reset in beforeEach.
+const _realSettings = await import("../db/queries/settings");
+let settingsGetImpl: (key: string) => Promise<unknown> = async () => undefined;
+mock.module("../db/queries/settings", () => ({
+  ..._realSettings,
+  getSetting: (key: string) => settingsGetImpl(key),
 }));
 
 const {
@@ -195,6 +207,8 @@ afterAll(async () => {
 beforeEach(() => {
   captured.length = 0;
   _resetOrchestrationExtensionIdCache();
+  // Default: setting unset → resolveInvokeTimeoutMs falls back to the default.
+  settingsGetImpl = async () => undefined;
 });
 
 // ── ensureOrchestrationWired ───────────────────────────────────────
@@ -302,6 +316,82 @@ const BASE_SCHEMA = {
   required: ["agentConfigId", "task"],
 };
 
+const COLLECT_SCHEMA = {
+  type: "object",
+  properties: { assignmentId: { type: "string", description: "id" } },
+  required: ["assignmentId"],
+};
+
+const SEND_SCHEMA = {
+  type: "object",
+  properties: {
+    assignmentId: { type: "string", description: "id" },
+    agentConfigId: { type: "string", description: "id" },
+    message: { type: "string", description: "msg" },
+  },
+  required: ["message"],
+};
+
+/** Registry exposing invoke_agent + collect_agent_result + send_to_agent, so
+ *  the Phase B3 send_to_agent wiring block can be asserted. */
+function makeFakeRegistryWithSend() {
+  return {
+    getToolsForExtension: (_extId: string) => [
+      {
+        name: "orchestration__invoke_agent",
+        originalName: "invoke_agent",
+        description: "Invoke a specialized agent.",
+        inputSchema: structuredClone(BASE_SCHEMA),
+        extensionId: ORCH_EXT_ID,
+        extensionName: "orchestration",
+      },
+      {
+        name: "orchestration__collect_agent_result",
+        originalName: "collect_agent_result",
+        description: "Collect a background agent result.",
+        inputSchema: structuredClone(COLLECT_SCHEMA),
+        extensionId: ORCH_EXT_ID,
+        extensionName: "orchestration",
+      },
+      {
+        name: "orchestration__send_to_agent",
+        originalName: "send_to_agent",
+        description: "Steer or continue a sub-agent.",
+        inputSchema: structuredClone(SEND_SCHEMA),
+        extensionId: ORCH_EXT_ID,
+        extensionName: "orchestration",
+      },
+    ],
+  };
+}
+
+// Registry variant that exposes BOTH orchestration tools (production shape),
+// so the Phase B2 collect_agent_result wiring can be asserted. The default
+// `makeFakeRegistry` intentionally exposes only invoke_agent (collect absent
+// → not wired → existing length-1 assertions stay green).
+function makeFakeRegistryWithCollect() {
+  return {
+    getToolsForExtension: (_extId: string) => [
+      {
+        name: "orchestration__invoke_agent",
+        originalName: "invoke_agent",
+        description: "Invoke a specialized agent.",
+        inputSchema: structuredClone(BASE_SCHEMA),
+        extensionId: ORCH_EXT_ID,
+        extensionName: "orchestration",
+      },
+      {
+        name: "orchestration__collect_agent_result",
+        originalName: "collect_agent_result",
+        description: "Collect a background agent result.",
+        inputSchema: structuredClone(COLLECT_SCHEMA),
+        extensionId: ORCH_EXT_ID,
+        extensionName: "orchestration",
+      },
+    ],
+  };
+}
+
 function baseParams(overrides: Record<string, unknown> = {}): Parameters<
   typeof wireOrchestrationToolsForTurn
 >[0] {
@@ -337,7 +427,11 @@ describe("wireOrchestrationToolsForTurn", () => {
     expect(params.agentTools).toHaveLength(1);
     expect(captured).toHaveLength(1);
     const call = captured[0]!;
-    expect(call.extTool.name).toBe("invoke_agent"); // un-namespaced
+    expect(call.extTool.name).toBe("invoke_agent"); // un-namespaced (LLM-visible)
+    // Dispatch-key P0 fix: the LLM sees the bare name, but executeToolCall must
+    // resolve against the NAMESPACED registry key — else getRegisteredTool
+    // returns null and dispatch fails with "Unknown tool: invoke_agent".
+    expect(call.extTool.dispatchName).toBe("orchestration__invoke_agent");
     expect(call.conversationId).toBe("conv-wire-3");
     expect(call.messageId).toBe("run-123"); // runId IS messageId
 
@@ -347,22 +441,32 @@ describe("wireOrchestrationToolsForTurn", () => {
     expect(override.properties.agentConfigId.enum).toEqual(["a1", "a2"]);
   });
 
-  test("empty availableAgents: tool NOT appended, warn logged", async () => {
-    const warnSpy = spyOn(process.stderr, "write").mockImplementation(() => true);
-    try {
-      const params = baseParams({ availableAgents: [] });
-      await wireOrchestrationToolsForTurn(params);
+  test("empty availableAgents: invoke_agent NOT wired (enum-gated), collect_agent_result IS wired (follow-up collect turn)", async () => {
+    // FU1 single-source: on a follow-up turn with no @mentioned agents,
+    // invoke_agent is skipped (its enum would be empty) but collect_agent_result
+    // must stay available so a previously-spawned background agent can be
+    // collected ("is it done yet?").
+    const params = baseParams({
+      availableAgents: [],
+      registry: makeFakeRegistryWithCollect() as never,
+    });
+    await wireOrchestrationToolsForTurn(params);
 
-      expect(params.agentTools).toHaveLength(0);
-      expect(captured).toHaveLength(0);
-      // Confirm a warn was emitted — the logger writes JSON to stderr.
-      const emitted = warnSpy.mock.calls
-        .map((c) => String(c[0]))
-        .join("\n");
-      expect(emitted.toLowerCase()).toContain("no availableagents");
-    } finally {
-      warnSpy.mockRestore();
-    }
+    expect(params.agentTools.map((t) => t.name)).toEqual(["collect_agent_result"]);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.extTool.name).toBe("collect_agent_result");
+    expect(captured[0]!.extTool.dispatchName).toBe("orchestration__collect_agent_result");
+    // collect has no per-turn agent enum.
+    expect(captured[0]!.schemaOverride).toBeUndefined();
+    expect(captured[0]!.invocationMetadata).toEqual({ conversationId: "conv-wire-3" });
+  });
+
+  test("empty availableAgents + registry without collect → nothing wired (no invoke, no collect)", async () => {
+    // Default makeFakeRegistry exposes only invoke_agent.
+    const params = baseParams({ availableAgents: [] });
+    await wireOrchestrationToolsForTurn(params);
+    expect(params.agentTools).toHaveLength(0);
+    expect(captured).toHaveLength(0);
   });
 
   test("invocationMetadata: populated fields carry through when defined", async () => {
@@ -385,18 +489,79 @@ describe("wireOrchestrationToolsForTurn", () => {
       deniedTools: ["bash"],
     });
     expect(md.orchestrationDepth).toBe(3);
+    // parentRunId is THIS turn's orchestrator run id (baseParams runId),
+    // threaded so the spawned child registers under it for cascade cancel.
+    expect(md.parentRunId).toBe("run-123");
+    // invokeTimeoutMs is always present — the resolved operator base
+    // give-up timeout (default here, no setting seeded).
+    expect(md.invokeTimeoutMs).toBe(300_000);
   });
 
-  test("invocationMetadata: undefined source fields are omitted (only orchestrationDepth remains)", async () => {
+  test("invocationMetadata: undefined source fields are omitted (only always-set fields remain)", async () => {
     // No parentMessageId / memberOverrides / teamToolScope passed.
     const params = baseParams({ depth: 7 });
     await wireOrchestrationToolsForTurn(params);
 
     const md = captured[0]!.invocationMetadata!;
-    expect(md).toEqual({ orchestrationDepth: 7 });
+    // orchestrationDepth + parentRunId + invokeTimeoutMs + conversationId are
+    // the always-present fields (invokeTimeoutMs is the resolved default here;
+    // conversationId (F3) is the caller-authz owner threaded to the ext).
+    expect(md).toEqual({
+      orchestrationDepth: 7,
+      parentRunId: "run-123",
+      invokeTimeoutMs: 300_000,
+      conversationId: "conv-wire-3",
+    });
     expect("parentMessageId" in md).toBe(false);
     expect("overrides" in md).toBe(false);
     expect("teamToolScope" in md).toBe(false);
+  });
+
+  test("invokeTimeoutMs defaults to 300000 when orchestration:invokeTimeoutMs is unset", async () => {
+    settingsGetImpl = async () => undefined;
+    const params = baseParams();
+    await wireOrchestrationToolsForTurn(params);
+    expect(captured[0]!.invocationMetadata!.invokeTimeoutMs).toBe(300_000);
+  });
+
+  test("invokeTimeoutMs reflects orchestration:invokeTimeoutMs when set to a positive number", async () => {
+    settingsGetImpl = async (key) =>
+      key === "orchestration:invokeTimeoutMs" ? 123_456 : undefined;
+    const params = baseParams();
+    await wireOrchestrationToolsForTurn(params);
+    expect(captured[0]!.invocationMetadata!.invokeTimeoutMs).toBe(123_456);
+  });
+
+  test("invokeTimeoutMs falls back to the default when the setting is non-positive", async () => {
+    settingsGetImpl = async () => -5;
+    const params = baseParams();
+    await wireOrchestrationToolsForTurn(params);
+    expect(captured[0]!.invocationMetadata!.invokeTimeoutMs).toBe(300_000);
+  });
+
+  test("invokeTimeoutMs falls back to the default when the setting is non-numeric", async () => {
+    settingsGetImpl = async () => "not-a-number";
+    const params = baseParams();
+    await wireOrchestrationToolsForTurn(params);
+    expect(captured[0]!.invocationMetadata!.invokeTimeoutMs).toBe(300_000);
+  });
+
+  test("a settings read failure does not kill the turn — invokeTimeoutMs falls back to the default", async () => {
+    const warnSpy = spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      settingsGetImpl = async () => {
+        throw new Error("settings backend down");
+      };
+      const params = baseParams();
+      await wireOrchestrationToolsForTurn(params);
+      // The tool is still wired and the default timeout applies.
+      expect(params.agentTools).toHaveLength(1);
+      expect(captured[0]!.invocationMetadata!.invokeTimeoutMs).toBe(300_000);
+      const emitted = warnSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(emitted).toContain("orchestration:invokeTimeoutMs");
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   test("schema override de-duplicates agent ids", async () => {
@@ -432,6 +597,114 @@ describe("wireOrchestrationToolsForTurn", () => {
       properties: { agentConfigId: { enum: string[] } };
     };
     expect(override.properties.agentConfigId.enum).toEqual(["a1", "a2"]);
+  });
+
+  test("Phase B2: also wires collect_agent_result (plain tool — no schema override / invocation metadata)", async () => {
+    const params = baseParams({ registry: makeFakeRegistryWithCollect() as never });
+    await wireOrchestrationToolsForTurn(params);
+
+    // Both orchestration tools appended this turn.
+    expect(params.agentTools.map((t) => t.name).sort()).toEqual([
+      "collect_agent_result",
+      "invoke_agent",
+    ]);
+    const collectCall = captured.find((c) => c.extTool.name === "collect_agent_result");
+    expect(collectCall).toBeDefined();
+    // Bare LLM-visible name, namespaced dispatch key (same P0 fix as invoke_agent).
+    expect(collectCall!.extTool.dispatchName).toBe("orchestration__collect_agent_result");
+    // collect needs no per-turn agent enum override...
+    expect(collectCall!.schemaOverride).toBeUndefined();
+    // ...but DOES carry the caller conversationId (F3 authz) in invocationMetadata.
+    expect(collectCall!.invocationMetadata).toEqual({ conversationId: "conv-wire-3" });
+    expect(collectCall!.conversationId).toBe("conv-wire-3");
+    expect(collectCall!.messageId).toBe("run-123");
+  });
+
+  test("Phase B2: collect_agent_result is dedup-safe when already present (turn 2+ general-path wiring)", async () => {
+    const params = baseParams({ registry: makeFakeRegistryWithCollect() as never });
+    // Simulate the general conversation-extension path having already added it.
+    params.agentTools.push({
+      name: "collect_agent_result",
+      label: "collect_agent_result",
+      description: "pre-existing",
+      parameters: {} as never,
+      execute: async () => ({ content: [] }),
+    } as unknown as AgentTool);
+
+    await wireOrchestrationToolsForTurn(params);
+
+    // Exactly one collect tool — not re-appended.
+    expect(
+      params.agentTools.filter((t) => t.name === "collect_agent_result"),
+    ).toHaveLength(1);
+    // And no collect wrap was produced by this call.
+    expect(captured.some((c) => c.extTool.name === "collect_agent_result")).toBe(false);
+  });
+
+  test("Phase B3: wires send_to_agent (always) carrying conversationId + run-linkage + continuation scope metadata", async () => {
+    const params = baseParams({
+      registry: makeFakeRegistryWithSend() as never,
+      parentMessageId: "msg-parent",
+      memberOverrides: { a1: { model: "gpt-4o" } } as Record<string, unknown>,
+      teamToolScope: { allowedTools: ["read_file"], deniedTools: ["bash"] },
+      depth: 4,
+    });
+    await wireOrchestrationToolsForTurn(params);
+
+    expect(params.agentTools.map((t) => t.name)).toContain("send_to_agent");
+    const sendCall = captured.find((c) => c.extTool.name === "send_to_agent");
+    expect(sendCall).toBeDefined();
+    // Bare LLM-visible name, namespaced dispatch key.
+    expect(sendCall!.extTool.dispatchName).toBe("orchestration__send_to_agent");
+    // No per-turn agent enum (unlike invoke_agent).
+    expect(sendCall!.schemaOverride).toBeUndefined();
+    // Metadata: owner conversationId + run-linkage + the recorded-scope inputs
+    // (overrides / teamToolScope / orchestrationDepth) for the continuation path.
+    expect(sendCall!.invocationMetadata).toEqual({
+      conversationId: "conv-wire-3",
+      parentRunId: "run-123",
+      orchestrationDepth: 4,
+      parentMessageId: "msg-parent",
+      overrides: { a1: { model: "gpt-4o" } },
+      teamToolScope: { allowedTools: ["read_file"], deniedTools: ["bash"] },
+    });
+  });
+
+  test("Phase B3: send_to_agent is wired on a no-@mention follow-up turn (before the enum-gate) with only always-set metadata", async () => {
+    const params = baseParams({
+      availableAgents: [],
+      registry: makeFakeRegistryWithSend() as never,
+      depth: 2,
+    });
+    await wireOrchestrationToolsForTurn(params);
+
+    // invoke_agent is enum-gated off; collect + send survive.
+    const names = params.agentTools.map((t) => t.name);
+    expect(names).toContain("send_to_agent");
+    expect(names).not.toContain("invoke_agent");
+    const sendCall = captured.find((c) => c.extTool.name === "send_to_agent");
+    // Only the always-set fields (no parentMessageId / overrides / teamToolScope).
+    expect(sendCall!.invocationMetadata).toEqual({
+      conversationId: "conv-wire-3",
+      parentRunId: "run-123",
+      orchestrationDepth: 2,
+    });
+  });
+
+  test("Phase B3: send_to_agent is dedup-safe when already present (general-path wiring)", async () => {
+    const params = baseParams({ registry: makeFakeRegistryWithSend() as never });
+    params.agentTools.push({
+      name: "send_to_agent",
+      label: "send_to_agent",
+      description: "pre-existing",
+      parameters: {} as never,
+      execute: async () => ({ content: [] }),
+    } as unknown as AgentTool);
+
+    await wireOrchestrationToolsForTurn(params);
+
+    expect(params.agentTools.filter((t) => t.name === "send_to_agent")).toHaveLength(1);
+    expect(captured.some((c) => c.extTool.name === "send_to_agent")).toBe(false);
   });
 
   test("registry missing invoke_agent tool → no append, warn logged", async () => {

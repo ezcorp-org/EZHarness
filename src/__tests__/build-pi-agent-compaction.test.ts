@@ -91,6 +91,14 @@ describe("buildPiAgent + compaction", () => {
     expect(typeof capturedOpts.transformContext).toBe("function");
   });
 
+  test("pins maxRetryDelayMs to pi's documented 60s default (failover timing stability)", () => {
+    // We pin the value so an upstream change to pi-ai's default retry-delay
+    // cap can't silently shift when WS2 pre-stream failover takes over.
+    const piModel = { id: "gpt-5.5", contextWindow: 272_000, maxTokens: 128_000 };
+    build(piModel, undefined);
+    expect(capturedOpts.maxRetryDelayMs).toBe(60_000);
+  });
+
   test("wired transformContext leaves a short history untouched", async () => {
     const piModel = { id: "gpt-5.5", contextWindow: 272_000, maxTokens: 128_000 };
     build(piModel, undefined);

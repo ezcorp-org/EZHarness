@@ -1,7 +1,11 @@
 import { test, expect, describe } from "bun:test";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { BuiltinToolDef } from "../runtime/tools/types";
-import { applyToolFilters, ORCHESTRATION_TOOLS } from "../runtime/tools/filter";
+import {
+  applyToolFilters,
+  ORCHESTRATION_TOOLS,
+  isPreservedOrchestrationTool,
+} from "../runtime/tools/filter";
 
 // Minimal test fixtures — we only need `name`, so cast the rest.
 function tool(name: string): AgentTool {
@@ -45,6 +49,25 @@ describe("applyToolFilters", () => {
     test("none keeps only orchestration tools", () => {
       const out = applyToolFilters(sample(), builtinDefs, { toolRestriction: "none" });
       expect(names(out)).toEqual(["invoke_agent"]);
+    });
+
+    test("Phase B2: collect_agent_result is an always-preserved orchestration tool", () => {
+      // Membership contract for the set (background collect must be reachable
+      // even under the most restrictive scope, like invoke_agent).
+      expect(ORCHESTRATION_TOOLS.has("collect_agent_result")).toBe(true);
+      const withCollect = [...sample(), tool("collect_agent_result")];
+      // Survives toolRestriction: "none" ...
+      expect(
+        names(applyToolFilters(withCollect, builtinDefs, { toolRestriction: "none" })),
+      ).toEqual(["collect_agent_result", "invoke_agent"]);
+      // ... and a broad deny (only forceDeniedTools can strip orchestration tools).
+      expect(
+        names(
+          applyToolFilters(withCollect, builtinDefs, {
+            deniedTools: ["collect_agent_result"],
+          }),
+        ),
+      ).toContain("collect_agent_result");
     });
 
     test("all is a no-op", () => {
@@ -251,5 +274,62 @@ describe("forceDeniedTools — the only layer that strips orchestration tools", 
     expect(names).not.toContain("write_file");
     expect(names).not.toContain("extension_widget");
     expect(names).toContain("invoke_agent");
+  });
+});
+
+// ── FU2: carve-out name normalization (namespaced vs bare) ─────────
+//
+// task-tracking wires its tools NAMESPACED (`task-tracking__task_plan`), but
+// ORCHESTRATION_TOOLS lists them BARE (`task_plan`). Before normalization those
+// bare entries were dead and the task tools were stripped under restrictive
+// scopes — an orchestrator lost task_plan et al. The filter now matches both
+// the raw name (namespaced set entries like `ask-user__ask_user_question`) and
+// the namespace-stripped name (bare set entries for namespaced-wired tools).
+
+describe("applyToolFilters — carve-out matches namespaced task-tracking tools", () => {
+  const withTaskTracking = (): AgentTool[] => [
+    tool("read_file"),
+    tool("write_file"),
+    tool("task-tracking__task_plan"), // namespaced-wired, bare set entry
+    tool("task-tracking__task_complete"),
+    tool("ask-user__ask_user_question"), // namespaced set entry (raw match)
+    tool("some-ext__task_plan"), // NON-orchestration ext coincidence — still preserved (accepted)
+    tool("some-ext__write_file"), // non-orchestration namespaced tool
+  ];
+
+  test("toolRestriction 'none' preserves namespaced task-tracking tools (were previously stripped)", () => {
+    const out = names(applyToolFilters(withTaskTracking(), builtinDefs, { toolRestriction: "none" }));
+    // Preserved: the namespaced task tools + the namespaced ask-user tool.
+    expect(out).toContain("task-tracking__task_plan");
+    expect(out).toContain("task-tracking__task_complete");
+    expect(out).toContain("ask-user__ask_user_question");
+    // Stripped: ordinary tools not in the carve-out.
+    expect(out).not.toContain("read_file");
+    expect(out).not.toContain("write_file");
+    expect(out).not.toContain("some-ext__write_file");
+  });
+
+  test("deniedTools cannot strip a namespaced task tool (carve-out wins)", () => {
+    const out = names(
+      applyToolFilters(withTaskTracking(), builtinDefs, {
+        deniedTools: ["task-tracking__task_plan", "some-ext__write_file"],
+      }),
+    );
+    expect(out).toContain("task-tracking__task_plan"); // carve-out preserved
+    expect(out).not.toContain("some-ext__write_file"); // ordinary tool denied
+  });
+
+  test("isPreservedOrchestrationTool: matches bare, namespaced-bare-entry, and namespaced set entries; not arbitrary tools", () => {
+    // Bare orchestration tool (2d-wired invoke_agent / collect).
+    expect(isPreservedOrchestrationTool("invoke_agent")).toBe(true);
+    expect(isPreservedOrchestrationTool("collect_agent_result")).toBe(true);
+    // Namespaced-wired, bare set entry (task-tracking).
+    expect(isPreservedOrchestrationTool("task-tracking__task_plan")).toBe(true);
+    expect(ORCHESTRATION_TOOLS.has("task_plan")).toBe(true); // the bare set entry it strips to
+    // Namespaced set entry (raw match).
+    expect(isPreservedOrchestrationTool("ask-user__ask_user_question")).toBe(true);
+    // Arbitrary tool → not preserved.
+    expect(isPreservedOrchestrationTool("myext__do_thing")).toBe(false);
+    expect(isPreservedOrchestrationTool("write_file")).toBe(false);
   });
 });

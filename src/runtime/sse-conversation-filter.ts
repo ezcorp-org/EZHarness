@@ -89,6 +89,51 @@ export const DIRECT_CARRIER_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
   // drop it (it carries no conversationId/userId to authorize against).
 ]);
 
+/**
+ * Wave 0 (orchestration-upgrade): run-scoped streaming events. These
+ * carry a `runId` (and sometimes `parentConversationId` / `userId`)
+ * instead of a top-level `conversationId`, and previously broadcast to
+ * EVERY authenticated SSE subscriber — `run:token` leaked one user's
+ * raw streamed LLM text to all connected clients.
+ *
+ * Members are filtered FAIL-CLOSED by `shouldDeliverEvent`, resolving
+ * scope in this order:
+ *   1. `payload.conversationId`        → conversation-ownership check
+ *   2. `payload.parentConversationId`  → conversation-ownership check
+ *   3. `payload.userId`                → exact subscriber match
+ *   4. `payload.runId` via the injected run-scope resolver
+ *      (executor `runConversations` map + persisted run row)
+ *   5. `payload.subConversationId`     → conversation-ownership check
+ *   6. otherwise                       → DROPPED (never broadcast)
+ *
+ * This set is intentionally SEPARATE from `DIRECT_CARRIER_EVENT_TYPES`:
+ * that set doubles as the allowlist of platform events extensions may
+ * subscribe to (`event-subscription-dispatcher.ts` branch 1), and
+ * run-scoped streaming events (raw tokens!) must NOT become
+ * extension-subscribable as a side effect of SSE scoping.
+ *
+ * `run:complete` / `run:error` / `run:cancel` stay in the legacy set
+ * above (optional-carrier semantics) for extension-subscription
+ * compatibility, but `shouldDeliverEvent` upgrades their missing-
+ * conversationId path to the same runId resolution before falling back
+ * to the historical pass-through.
+ */
+export const SCOPED_RUNTIME_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Set([
+  "run:start",
+  "run:log",
+  "run:status",
+  "run:token",
+  "run:usage",
+  "run:turn_text_reset",
+  "agent:spawn",
+  "agent:status",
+  "agent:complete",
+  "pipeline:start",
+  "pipeline:step",
+  "pipeline:complete",
+  "pipeline:error",
+]);
+
 // ── Extension-declared event registry ───────────────────────────────
 //
 // Phase A2: extensions can declare their own canvas events via
@@ -148,8 +193,11 @@ export function registerExtensionEvent(namespace: string, eventName: string): bo
   // Platform-event collision guard — see comment above. The cast
   // mirrors `DIRECT_CARRIER_EVENT_TYPES`'s `keyof AgentEvents`
   // membership check used elsewhere; runtime is just a Set lookup.
+  // Wave 0: the scoped runtime events are equally off-limits — an
+  // extension named `run` must not shadow `run:token`.
   const composed = `${namespace}:${eventName}`;
   if (DIRECT_CARRIER_EVENT_TYPES.has(composed as keyof AgentEvents)) return false;
+  if (SCOPED_RUNTIME_EVENT_TYPES.has(composed as keyof AgentEvents)) return false;
   let set = extensionEventRegistry.get(namespace);
   if (!set) {
     set = new Set();
@@ -217,12 +265,13 @@ export function isRegisteredExtensionEvent(eventType: string): boolean {
 }
 
 /**
- * True iff the event is a known direct-carrier (platform OR
- * extension-declared). Both kinds carry `conversationId` and require
- * authorization filtering.
+ * True iff the event requires authorization filtering before SSE
+ * delivery: a direct carrier (platform OR extension-declared) or a
+ * Wave-0 run-scoped streaming event.
  */
 export function isDirectCarrierEvent(eventType: string): boolean {
   if (DIRECT_CARRIER_EVENT_TYPES.has(eventType as keyof AgentEvents)) return true;
+  if (SCOPED_RUNTIME_EVENT_TYPES.has(eventType as keyof AgentEvents)) return true;
   return isRegisteredExtensionEvent(eventType);
 }
 
@@ -244,10 +293,27 @@ function cacheKey(userId: string, conversationId: string): string {
   return `${userId}:${conversationId}`;
 }
 
+/** Conversation row shape the filter needs. `parentConversationId`
+ *  powers the sub-conversation ownership walk below. */
+export interface ConversationScopeRow {
+  userId?: string | null;
+  parentConversationId?: string | null;
+}
+
+/** Ownership-walk depth cap. Mirrors the executor's MAX_SPAWN_DEPTH
+ *  (spawn-assignment-handler.ts) — sub-conversations never nest deeper. */
+const OWNER_WALK_MAX_DEPTH = 10;
+
 /**
  * Returns true if the given user is authorized to receive events for
  * the given conversation. Strict mode: only the owner today. Team-shares
  * are a future extension point (see `conversation_shares` when added).
+ *
+ * Sub-conversations (orchestration spawns) historically persisted with
+ * `userId: null` — ownership is inherited from the parent chain, so a
+ * null-owner conversation with a `parentConversationId` walks upward
+ * (capped at {@link OWNER_WALK_MAX_DEPTH}) until an owner is found.
+ * A chain that ends ownerless is NOT authorized for anyone.
  *
  * Cached for 30s per (userId, conversationId). The cache is in-process
  * only; no cross-process coherence — acceptable because (1) revoking
@@ -258,7 +324,8 @@ function cacheKey(userId: string, conversationId: string): string {
 export async function isAuthorizedForConversation(
   userId: string,
   conversationId: string,
-  getConversation: (id: string) => Promise<{ userId?: string | null } | null>,
+  getConversation: (id: string) => Promise<ConversationScopeRow | null>,
+  failMode: "open" | "closed" = "open",
 ): Promise<boolean> {
   const key = cacheKey(userId, conversationId);
   const now = Date.now();
@@ -266,25 +333,163 @@ export async function isAuthorizedForConversation(
   if (hit && hit.expiresAt > now) return hit.authorized;
 
   try {
-    const conv = await getConversation(conversationId);
-    const authorized = conv?.userId === userId;
+    let authorized = false;
+    let currentId: string | null = conversationId;
+    for (let depth = 0; depth <= OWNER_WALK_MAX_DEPTH && currentId; depth++) {
+      const conv: ConversationScopeRow | null = await getConversation(currentId);
+      if (!conv) break;
+      if (typeof conv.userId === "string" && conv.userId.length > 0) {
+        authorized = conv.userId === userId;
+        break;
+      }
+      currentId = conv.parentConversationId ?? null;
+    }
     membershipCache.set(key, { authorized, expiresAt: now + CACHE_TTL_MS });
     return authorized;
   } catch (err) {
-    // Fail-open — see module-level rationale. Log so recurring leaks
-    // surface in operator dashboards.
-    log.warn("conversation-membership lookup failed, passing event through (fail-open)", {
+    // Legacy direct carriers fail OPEN (an individual leak beats a
+    // blacked-out UI — see module-level rationale). Wave-0 scoped
+    // streaming events (raw tokens) fail CLOSED: re-opening the
+    // cross-user token leak under DB stress is exactly the failure
+    // this filter exists to prevent. Errors are never cached.
+    log.warn(`conversation-membership lookup failed, ${failMode === "open" ? "passing event through (fail-open)" : "dropping event (fail-closed)"}`, {
       userId,
       conversationId,
       error: err instanceof Error ? err.message : String(err),
     });
-    return true;
+    return failMode === "open";
   }
 }
 
 /** Clear the membership cache. Test-only. */
 export function __clearMembershipCacheForTests(): void {
   membershipCache.clear();
+}
+
+// ── Run-scope resolution (Wave 0) ───────────────────────────────────
+
+/** Resolved delivery scope for a run: the owning conversation (chat
+ *  runs) and/or the initiating user (agent/CLI runs). */
+export interface RunScope {
+  conversationId?: string | null;
+  userId?: string | null;
+}
+
+/** Resolver injected by the SSE route — backed by the executor's
+ *  in-memory `runConversations` map with a persisted-row fallback
+ *  (`AgentExecutor.getRunConversationId` / `getRunOwnership`). */
+export type GetRunScope = (runId: string) => Promise<RunScope | null>;
+
+/**
+ * Per-process cache for runId → scope. A run's conversation/user never
+ * changes after creation, so the TTL exists only to bound memory (the
+ * hot case — `run:token` — fires many times per second per run).
+ */
+interface RunScopeCacheEntry { scope: RunScope | null; expiresAt: number; }
+const runScopeCache = new Map<string, RunScopeCacheEntry>();
+
+async function resolveRunScope(
+  runId: string,
+  getRunScope: GetRunScope,
+): Promise<RunScope | null> {
+  const now = Date.now();
+  const hit = runScopeCache.get(runId);
+  if (hit && hit.expiresAt > now) return hit.scope;
+  const scope = await getRunScope(runId);
+  // Don't cache unresolved scopes: the run row may simply not be
+  // written yet (insertRun races the first `run:start` emit).
+  if (scope && (scope.conversationId || scope.userId)) {
+    runScopeCache.set(runId, { scope, expiresAt: now + CACHE_TTL_MS });
+  }
+  return scope;
+}
+
+/** Clear the run-scope cache. Test-only. */
+export function __clearRunScopeCacheForTests(): void {
+  runScopeCache.clear();
+}
+
+/** The three legacy optional-carrier terminal events. When their
+ *  optional `conversationId` is absent, Wave 0 upgrades them to runId
+ *  resolution before falling back to the historical pass-through. */
+const RUN_TERMINAL_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "run:complete",
+  "run:error",
+  "run:cancel",
+]);
+
+/** Extract a run id from a payload: top-level `runId`, else `run.id`. */
+function extractRunId(payload: unknown): string | undefined {
+  const p = (payload ?? {}) as { runId?: unknown; run?: { id?: unknown } | null };
+  if (typeof p.runId === "string" && p.runId) return p.runId;
+  const nested = p.run?.id;
+  return typeof nested === "string" && nested ? nested : undefined;
+}
+
+/**
+ * Wave-0 fail-closed delivery decision for {@link SCOPED_RUNTIME_EVENT_TYPES}.
+ * Resolution order documented on the set definition.
+ */
+async function deliverScopedRuntimeEvent(
+  payload: unknown,
+  subscriber: { userId: string; conversationId?: string },
+  getConversation: (id: string) => Promise<ConversationScopeRow | null>,
+  getRunScope: GetRunScope | undefined,
+): Promise<boolean> {
+  const p = (payload ?? {}) as Record<string, unknown>;
+
+  // 1+2. Direct conversation carriers (agent:spawn/complete carry
+  // `parentConversationId`; future emitters may carry `conversationId`).
+  for (const key of ["conversationId", "parentConversationId"] as const) {
+    const v = p[key];
+    if (typeof v === "string" && v) {
+      return isAuthorizedForConversation(subscriber.userId, v, getConversation, "closed");
+    }
+  }
+
+  // 3. Explicit user scope (pipeline:* carry the initiating userId).
+  if (typeof p.userId === "string" && p.userId) {
+    return p.userId === subscriber.userId;
+  }
+
+  // 4. runId → scope resolution via the executor-backed resolver.
+  const runId = extractRunId(p);
+  if (runId && getRunScope) {
+    try {
+      const scope = await resolveRunScope(runId, getRunScope);
+      if (typeof scope?.conversationId === "string" && scope.conversationId) {
+        return isAuthorizedForConversation(
+          subscriber.userId,
+          scope.conversationId,
+          getConversation,
+          "closed",
+        );
+      }
+      if (typeof scope?.userId === "string" && scope.userId) {
+        return scope.userId === subscriber.userId;
+      }
+    } catch (err) {
+      log.warn("run-scope resolution failed, dropping event (fail-closed)", {
+        runId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+  }
+
+  // 5. Sub-conversation carrier (agent:status). Ownership walks to the
+  // parent chain inside isAuthorizedForConversation.
+  if (typeof p.subConversationId === "string" && p.subConversationId) {
+    return isAuthorizedForConversation(
+      subscriber.userId,
+      p.subConversationId,
+      getConversation,
+      "closed",
+    );
+  }
+
+  // 6. Unattributable → NEVER broadcast.
+  return false;
 }
 
 /**
@@ -295,19 +500,30 @@ export function __clearMembershipCacheForTests(): void {
  * @param subscriber - The subscriber context captured at SSE connect.
  * @param getConversation - Injected DB accessor so this module stays
  *                          free of server/client module-path coupling.
+ * @param getRunScope - Optional executor-backed runId→scope resolver
+ *                      (Wave 0). Absent (legacy callers/tests) means
+ *                      scoped runtime events without a direct carrier
+ *                      are dropped — fail closed, never broadcast.
  * @returns true if the event should reach the subscriber.
  */
 export async function shouldDeliverEvent(
   eventType: keyof AgentEvents | string,
   payload: unknown,
   subscriber: { userId: string; conversationId?: string },
-  getConversation: (id: string) => Promise<{ userId?: string | null } | null>,
+  getConversation: (id: string) => Promise<ConversationScopeRow | null>,
+  getRunScope?: GetRunScope,
 ): Promise<boolean> {
   // Not a direct-carrier event → pass through. Client-side filtering
   // handles any conversation-identity resolution via `runId`.
   // Both platform (`DIRECT_CARRIER_EVENT_TYPES`) and extension-declared
   // events (`isRegisteredExtensionEvent`) get the same scope filter.
   if (!isDirectCarrierEvent(eventType as string)) return true;
+
+  // Wave 0: run-scoped streaming events — fail-closed multi-key scope
+  // resolution (raw-token leak fix). See SCOPED_RUNTIME_EVENT_TYPES.
+  if (SCOPED_RUNTIME_EVENT_TYPES.has(eventType as keyof AgentEvents)) {
+    return deliverScopedRuntimeEvent(payload, subscriber, getConversation, getRunScope);
+  }
 
   // agent-install-ux-polish Phase 2 (D3): `extensions:installed` is
   // USER-scoped, not conversation-scoped — it carries no
@@ -347,9 +563,32 @@ export async function shouldDeliverEvent(
 
   // Extract conversationId from the payload. If it's absent (valid for
   // the three optional carriers `run:complete`/`:error`/`:cancel`),
-  // pass through — we can't filter what we can't see.
+  // Wave 0 first attempts runId→scope resolution — these events carry
+  // `run.result` (agent-run output), so an attributable one is scoped
+  // to its owner. Only a genuinely unresolvable event keeps the
+  // historical pass-through (extension optional carriers, legacy
+  // emitters, callers without a resolver).
   const convId = (payload as { conversationId?: unknown } | null | undefined)?.conversationId;
-  if (typeof convId !== "string" || !convId) return true;
+  if (typeof convId !== "string" || !convId) {
+    if (RUN_TERMINAL_EVENT_TYPES.has(eventType as string) && getRunScope) {
+      const runId = extractRunId(payload);
+      if (runId) {
+        const scope = await resolveRunScope(runId, getRunScope).catch(() => null);
+        if (typeof scope?.conversationId === "string" && scope.conversationId) {
+          return isAuthorizedForConversation(
+            subscriber.userId,
+            scope.conversationId,
+            getConversation,
+            "closed",
+          );
+        }
+        if (typeof scope?.userId === "string" && scope.userId) {
+          return scope.userId === subscriber.userId;
+        }
+      }
+    }
+    return true;
+  }
 
   // Phase 6 H7: `tool:permission_request` carries an OPTIONAL `userId`
   // that names the originating user. When present, deliver the event

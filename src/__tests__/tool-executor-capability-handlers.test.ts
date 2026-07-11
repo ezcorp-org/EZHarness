@@ -214,6 +214,7 @@ describe("ToolExecutor reverse-RPC handlers — registry miss yields -32603", ()
     ["handlePiStorage", "ezcorp/storage"],
     ["handlePiSpawnAssignment", "ezcorp/spawn-assignment"],
     ["handlePiCancelRun", "ezcorp/cancel-run"],
+    ["handlePiQueueAgentMessage", "ezcorp/queue-agent-message"],
     ["handlePiNetworkInternal", "ezcorp/network.internal"],
     ["handlePiLlmComplete", "ezcorp/llm.complete"],
     ["handlePiMemory", "ezcorp/memory"],
@@ -235,6 +236,32 @@ describe("ToolExecutor reverse-RPC handlers — registry miss yields -32603", ()
       : r(method);
     const resp = await e[fn]!("missing-ext", req);
     expect(resp.error?.code).toBe(-32603);
+  });
+});
+
+// ── handlePiQueueAgentMessage — granted-path plumbing (Phase B3) ──────
+//
+// The registry-miss (-32603) arm is covered above. This drives the GRANTED
+// path so the method's scope-resolve + ctx assembly (incl. the executor
+// liveness seam) + dispatch to the real handler are exercised. With no
+// conversation scope set the handler returns -32602 (conversation unbound),
+// which proves the method got past the registry guard and into the handler.
+describe("ToolExecutor.handlePiQueueAgentMessage — granted path dispatches to the handler", () => {
+  const GRANT: ExtensionPermissions = {
+    spawnAgents: { maxPerHour: 10, maxConcurrent: 3 },
+    grantedAt: {},
+  } as ExtensionPermissions;
+
+  test("threads the executor into the ctx and dispatches (no conv scope → -32602)", async () => {
+    const execu = new ToolExecutor(makeRegistry(GRANT), createStubPermissionEngine());
+    // Set an executor so the liveness seam's truthy branch is taken.
+    execu.setExecutor({ getActiveRunForConversation: () => undefined } as never);
+    const resp = await execu.handlePiQueueAgentMessage(
+      EXT_ID,
+      rpc("ezcorp/queue-agent-message", { v: 1, subConversationId: "sub-x", message: "hi" }),
+    );
+    // Past the -32603 registry guard, into the real handler.
+    expect(resp.error?.code).toBe(-32602);
   });
 });
 

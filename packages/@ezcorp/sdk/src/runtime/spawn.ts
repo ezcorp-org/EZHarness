@@ -78,6 +78,13 @@ export interface SpawnAssignmentInput {
    *  `options.orchestrationDepth` to `startAssignment`, which becomes the
    *  starting depth for `streamChat`. */
   orchestrationDepth?: number;
+  /** Parent run id — the orchestrator run that is spawning this sub-agent.
+   *  When set, the host registers the spawned run (and each of its
+   *  auto-continue / autonomous cycles) as a child of this run, so
+   *  cancelling the parent cascades the cancel down to this sub-agent
+   *  instead of leaving it running. Supplied by the host at tool-invoke
+   *  time (via `invocationMetadata`), not by extension authors directly. */
+  parentRunId?: string;
   /** Opt-in autonomous self-continuation. When set, the spawned
    *  sub-agent re-prompts itself toward its pinned objective until it
    *  emits a `<<TASK_DONE>>` / `<<TASK_BLOCKED>>` sentinel or hits
@@ -86,6 +93,24 @@ export interface SpawnAssignmentInput {
    *  reach a terminal `task:assignment_update` for much longer than a
    *  single run. */
   autonomousContinuation?: { maxCycles?: number };
+  /** Optional JSON Schema (object schemas only) the sub-agent's FINAL
+   *  answer must satisfy. When set, the host appends an output-format
+   *  instruction to the child's first message, validates the child's
+   *  final output against the schema, and re-prompts it (bounded) on a
+   *  validation failure; the terminal `task:assignment_update` then
+   *  carries the validated `structuredResult` (or a `structuredResultError`
+   *  summary if the re-prompt budget is exhausted). Supplied by the host
+   *  at tool-invoke time from the `outputSchema` tool argument, not by
+   *  extension authors directly. */
+  outputSchema?: Record<string, unknown>;
+  /** Background-spawn opt-in: when true, the host emits `agent:complete`
+   *  AND enqueues a completion-notify pending message for the PARENT
+   *  conversation when the spawned run reaches a terminal state, so an
+   *  orchestrator that dispatched this child without blocking can react on
+   *  its next turn. Set by the orchestration extension for `background: true`
+   *  invocations; a blocking (synchronous) invoke never sets it because the
+   *  caller is already awaiting the result inline. Default OFF. */
+  notifyParentOnTerminal?: boolean;
 }
 
 export interface SpawnAssignmentHandle {
@@ -149,14 +174,83 @@ export async function spawnAssignment(
     ...(typeof input.orchestrationDepth === "number"
       ? { orchestrationDepth: input.orchestrationDepth }
       : {}),
+    ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
     ...(input.autonomousContinuation
       ? { autonomousContinuation: input.autonomousContinuation }
       : {}),
+    ...(input.outputSchema ? { outputSchema: input.outputSchema } : {}),
+    ...(input.notifyParentOnTerminal ? { notifyParentOnTerminal: true } : {}),
   });
   return {
     subConversationId: result.subConversationId,
     agentRunId: result.agentRunId,
     taskId: result.taskId,
     assignmentId: result.assignmentId,
+  };
+}
+
+// ── queueAgentMessage — steer a RUNNING sub-agent (Phase B3) ─────────
+//
+// Thin type-safe wrapper over the `ezcorp/queue-agent-message` reverse RPC.
+// Enqueues a steering message onto a still-running child's sub-conversation
+// queue (the host-internal `pending-messages` module). The child's
+// `run:complete` drain (start-assignment.ts) delivers it as the next turn, so
+// the orchestrator can course-correct an in-flight agent — the counterpart to
+// Claude-Code's SendMessage for a live sub-agent.
+//
+// Permission: reuses `spawnAgents` (same trust envelope — steering a child you
+// spawned is the same boundary as spawning/cancelling it). The host validates
+// the sub-conversation is a child of the CALLER's conversation and fails closed
+// (`{ queued: false, reason: "not-found" }`) otherwise, so one conversation
+// cannot steer another's sub-agent.
+//
+// Error codes the host can raise (surfaced as `JsonRpcError`):
+//   -32001  spawnAgents permission not granted / quota config invalid
+//   -32602  Invalid params (empty subConversationId/message, or message too long)
+
+export interface QueueAgentMessageResult {
+  /** True iff the host enqueued the message onto the child's sub-conversation. */
+  queued: boolean;
+  /** Only present when `queued === false`.
+   *  `"not-found"` = the sub-conversation is not a child of the caller's
+   *  conversation (or no longer exists) — the same fail-closed response used for
+   *  a cross-conversation target so the caller can't probe another
+   *  conversation's sub-agents.
+   *  `"not-running"` = the child IS owned but has no LIVE run to drain the
+   *  queue, so steering would sit forever; the caller should continue it on a
+   *  fresh run instead. */
+  reason?: "not-found" | "not-running";
+}
+
+/**
+ * Enqueue a steering message onto a RUNNING sub-agent's sub-conversation. The
+ * message is delivered as the child's next turn when its current run completes.
+ * Resolves `{ queued: true }` on success, `{ queued: false, reason }` when the
+ * sub-conversation isn't owned by the caller (`not-found`) or has no live run
+ * (`not-running`). Protocol-level failures (permission, malformed input) throw
+ * `JsonRpcError`.
+ */
+export async function queueAgentMessage(
+  subConversationId: string,
+  message: string,
+): Promise<QueueAgentMessageResult> {
+  if (typeof subConversationId !== "string" || !subConversationId.trim()) {
+    throw new Error("queueAgentMessage: 'subConversationId' must be a non-empty string");
+  }
+  if (typeof message !== "string" || !message.trim()) {
+    throw new Error("queueAgentMessage: 'message' must be a non-empty string");
+  }
+  const result = await getChannel().request<{
+    v: 1;
+    queued: boolean;
+    reason?: "not-found" | "not-running";
+  }>("ezcorp/queue-agent-message", {
+    v: 1,
+    subConversationId,
+    message,
+  });
+  return {
+    queued: result.queued,
+    ...(result.reason ? { reason: result.reason } : {}),
   };
 }

@@ -183,6 +183,54 @@ describe("SpawnQuota — swapReservation", () => {
     expect(q._concurrentCount("ext-a")).toBe(0);
     q.dispose();
   });
+
+  // Cycle-continuation re-key races the OLD run's terminal bus-release: the
+  // swap runs from INSIDE the old run's run:complete listener, and this
+  // module's own release listener (subscribed first) may have already freed
+  // the old token. The swap must STILL reserve the new token, and the old
+  // id's duplicate release must not double-free the new slot.
+  test("re-key after the old token was already released still reserves the new token (order-independent)", () => {
+    const bus = new EventBus<AgentEvents>();
+    const q = createSpawnQuota(bus);
+    q.reserve("ext-a", "cycle-1");
+    expect(q._concurrentCount("ext-a")).toBe(1);
+
+    // Old run terminates → released FIRST.
+    bus.emit("run:complete", runPayload("cycle-1"));
+    expect(q._concurrentCount("ext-a")).toBe(0);
+    expect(q.isOwner("ext-a", "cycle-1")).toBe(false);
+
+    // …THEN the cycle swap runs — new token must be reserved despite old gone.
+    q.swapReservation("ext-a", "cycle-1", "cycle-2");
+    expect(q._concurrentCount("ext-a")).toBe(1);
+    expect(q.isOwner("ext-a", "cycle-2")).toBe(true);
+
+    // No double-free: a duplicate terminal for the OLD id can't touch cycle-2.
+    bus.emit("run:complete", runPayload("cycle-1"));
+    expect(q._concurrentCount("ext-a")).toBe(1);
+
+    // The live run's terminal releases the slot exactly once.
+    bus.emit("run:complete", runPayload("cycle-2"));
+    expect(q._concurrentCount("ext-a")).toBe(0);
+    q.dispose();
+  });
+
+  test("re-key does NOT re-bill the hourly window (a continuation is the same logical spawn)", () => {
+    const bus = new EventBus<AgentEvents>();
+    const q = createSpawnQuota(bus);
+    q.reserve("ext-a", "cycle-1");
+    q.swapReservation("ext-a", "cycle-1", "cycle-2");
+    q.swapReservation("ext-a", "cycle-2", "cycle-3");
+    // Only the initial reserve billed the rolling window — a second DISTINCT
+    // spawn is blocked at maxPerHour:1, proving the two swaps added nothing.
+    const check = q.check("ext-a", { maxPerHour: 1, maxConcurrent: 10 });
+    expect(check.ok).toBe(false);
+    expect(check.reason).toBe("hourly-exceeded");
+    // Exactly one concurrent slot is held — the live cycle-3 run.
+    expect(q._concurrentCount("ext-a")).toBe(1);
+    expect(q.isOwner("ext-a", "cycle-3")).toBe(true);
+    q.dispose();
+  });
 });
 
 // ── isOwner ────────────────────────────────────────────────────────

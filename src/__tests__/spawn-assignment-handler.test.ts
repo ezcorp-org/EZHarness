@@ -437,6 +437,68 @@ describe("spawn-assignment — dispatch", () => {
     expect(task.description).toBe("build a thing");
   });
 
+  test("notifyParentOnTerminal: true threads through to startAssignment (background spawn)", async () => {
+    const ext = `nfy-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...validParams, notifyParentOnTerminal: true }, "nfy-1"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls.at(-1)!.notifyParentOnTerminal).toBe(true);
+  });
+
+  test("notifyParentOnTerminal omitted → startAssignment opts omit the flag (sync spawn)", async () => {
+    const ext = `nfy2-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(ext, rpc(validParams, "nfy-2"), makeCtx());
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls.at(-1)!).not.toHaveProperty("notifyParentOnTerminal");
+  });
+
+  test("notifyParentOnTerminal accepts only strict true (a truthy non-true is dropped)", async () => {
+    const ext = `nfy3-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...validParams, notifyParentOnTerminal: "yes" as unknown as boolean }, "nfy-3"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls.at(-1)!).not.toHaveProperty("notifyParentOnTerminal");
+  });
+
+  test("threads onCycleRunIdChange that re-keys the quota reservation onto the live cycle run", async () => {
+    const ext = `cyc-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const bus = new EventBus<AgentEvents>();
+    const quota = createSpawnQuota(bus);
+    const ctx = makeCtx({ quota, bus });
+
+    const resp = await handleSpawnAssignmentRpc(ext, rpc(validParams, "cyc-1"), ctx);
+    expect(resp.error).toBeUndefined();
+    const cycle1RunId = (resp.result as { agentRunId: string }).agentRunId;
+
+    // Post-dispatch the handler swapped assignmentId → the cycle-1 run id.
+    expect(quota.isOwner(ext, cycle1RunId)).toBe(true);
+    expect(quota._concurrentCount(ext)).toBe(1);
+
+    // The handler threaded a re-key callback into startAssignment. Invoke it
+    // as start-assignment would at a cycle boundary — the concurrent slot must
+    // follow the LIVE run so ezcorp/cancel-run (the invoke_agent reap) can
+    // still cancel a multi-cycle child.
+    const opts = startAssignmentCalls.at(-1)! as {
+      onCycleRunIdChange?: (oldRunId: string, newRunId: string) => void;
+    };
+    expect(typeof opts.onCycleRunIdChange).toBe("function");
+
+    opts.onCycleRunIdChange!(cycle1RunId, "cycle-2-run");
+    expect(quota.isOwner(ext, "cycle-2-run")).toBe(true);
+    expect(quota.isOwner(ext, cycle1RunId)).toBe(false);
+    expect(quota._concurrentCount(ext)).toBe(1); // re-keyed, not doubled
+  });
+
   test("forged conversationId in params is IGNORED — sub-conv is parented on ctx.conversationId", async () => {
     const ext = `fo-ext-${crypto.randomUUID().slice(0, 8)}`;
     await wireConversation(CONV_WIRED, ext);
@@ -624,6 +686,134 @@ describe("spawn-assignment — Phase 4 pass-through fields", () => {
     expect(resp.error).toBeUndefined();
     expect(startAssignmentCalls).toHaveLength(1);
     expect(startAssignmentCalls[0]!.orchestrationDepth).toBe(3);
+  });
+
+  test("parentRunId: forwarded to startAssignment when a non-empty string", async () => {
+    const ext = `prid-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, parentRunId: "orch-run-42" }, "prid-1"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls).toHaveLength(1);
+    expect(startAssignmentCalls[0]!.parentRunId).toBe("orch-run-42");
+  });
+
+  test("parentRunId: blank/whitespace ignored (no parentRunId key on opts)", async () => {
+    const ext = `prid2-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, parentRunId: "   " }, "prid-2"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls).toHaveLength(1);
+    expect(startAssignmentCalls[0]!).not.toHaveProperty("parentRunId");
+  });
+});
+
+// ── Phase B1: outputSchema validation + threading ──────────────────
+
+describe("spawn-assignment — outputSchema (structured output)", () => {
+  const baseParams = { v: 1, task: "grade the slab", agentConfigId: "cfg-alice-helper" };
+  const validSchema = {
+    type: "object",
+    properties: { grade: { type: "integer" }, notes: { type: "string" } },
+    required: ["grade"],
+    additionalProperties: false,
+  };
+
+  test("valid object schema is threaded verbatim into startAssignment", async () => {
+    const ext = `os-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, outputSchema: validSchema }, "os-1"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls).toHaveLength(1);
+    expect(startAssignmentCalls[0]!.outputSchema).toEqual(validSchema);
+  });
+
+  test("absent outputSchema → no outputSchema key on the startAssignment opts", async () => {
+    const ext = `os2-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext, rpc(baseParams, "os-2"), makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls).toHaveLength(1);
+    expect(startAssignmentCalls[0]!).not.toHaveProperty("outputSchema");
+  });
+
+  test("array outputSchema → -32602 (must be an object)", async () => {
+    const ext = `os3-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, outputSchema: [{ type: "string" }] }, "os-3"),
+      makeCtx(),
+    );
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.error?.message).toMatch(/outputSchema.*object/i);
+    expect(startAssignmentCalls).toHaveLength(0);
+  });
+
+  test("primitive outputSchema → -32602", async () => {
+    const ext = `os4-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, outputSchema: "not-a-schema" }, "os-4"),
+      makeCtx(),
+    );
+    expect(resp.error?.code).toBe(-32602);
+    expect(startAssignmentCalls).toHaveLength(0);
+  });
+
+  test("null outputSchema → -32602", async () => {
+    const ext = `os5-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, outputSchema: null }, "os-5"),
+      makeCtx(),
+    );
+    expect(resp.error?.code).toBe(-32602);
+    expect(startAssignmentCalls).toHaveLength(0);
+  });
+
+  test("oversized outputSchema (> 8KB serialized) → -32602", async () => {
+    const ext = `os6-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const huge = { type: "object", description: "x".repeat(9000) };
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, outputSchema: huge }, "os-6"),
+      makeCtx(),
+    );
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.error?.message).toMatch(/too large/i);
+    expect(startAssignmentCalls).toHaveLength(0);
+  });
+
+  test("outputSchema + caller-supplied taskId → -32602 (structured output is synthetic-task only)", async () => {
+    // A schema failure keeps status "completed"; if bound to a REAL taskId,
+    // task-tracking dependents would auto-start off a validation failure.
+    const ext = `os7-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, outputSchema: validSchema, taskId: "real-task-123" }, "os-7"),
+      makeCtx(),
+    );
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.error?.message).toMatch(/taskId/);
+    expect(startAssignmentCalls).toHaveLength(0);
   });
 });
 

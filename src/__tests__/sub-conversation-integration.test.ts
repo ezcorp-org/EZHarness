@@ -391,3 +391,43 @@ describe("sub-conversation end-to-end flow", () => {
     expect(summaryB!.id).toBe(subB.id);
   });
 });
+
+// ── Wave 0 (orchestration-upgrade): sub-conversation owner resolution ──
+//
+// Sub-conversations spawned by startAssignment historically persisted
+// with `userId: null`; ownership is inherited from the parent chain.
+// `resolveConversationOwnerUserId` powers both the spawn-time owner
+// stamp (start-assignment.ts) and mirrors the SSE filter's parent walk.
+
+describe("resolveConversationOwnerUserId", () => {
+  test("returns the conversation's own userId when set", async () => {
+    const { createUser } = await import("../db/queries/users");
+    const { resolveConversationOwnerUserId } = await import("../db/queries/conversations");
+    const owner = await createUser({ email: "walk-own@test.com", passwordHash: "hash", name: "Walk Own", role: "member" });
+    const conv = await createConversation(projectId, { title: "Owned", userId: owner.id });
+    expect(await resolveConversationOwnerUserId(conv.id)).toBe(owner.id);
+  });
+
+  test("walks a null-owner chain up to the owning ancestor", async () => {
+    const { createUser } = await import("../db/queries/users");
+    const { resolveConversationOwnerUserId } = await import("../db/queries/conversations");
+    const owner = await createUser({ email: "walk-chain@test.com", passwordHash: "hash", name: "Walk Chain", role: "member" });
+    const root = await createConversation(projectId, { title: "Root", userId: owner.id });
+    const mid = await createSubConversation(projectId, { parentConversationId: root.id });
+    const leaf = await createSubConversation(projectId, { parentConversationId: mid.id });
+    expect(mid.userId).toBeNull();
+    expect(await resolveConversationOwnerUserId(leaf.id)).toBe(owner.id);
+  });
+
+  test("returns null for an ownerless chain", async () => {
+    const { resolveConversationOwnerUserId } = await import("../db/queries/conversations");
+    const root = await createConversation(projectId, { title: "Ownerless Root" });
+    const sub = await createSubConversation(projectId, { parentConversationId: root.id });
+    expect(await resolveConversationOwnerUserId(sub.id)).toBeNull();
+  });
+
+  test("returns null for a missing conversation", async () => {
+    const { resolveConversationOwnerUserId } = await import("../db/queries/conversations");
+    expect(await resolveConversationOwnerUserId(crypto.randomUUID())).toBeNull();
+  });
+});

@@ -55,6 +55,7 @@ import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { resolveAgentConfigForUser } from "./agent-configs-handler";
 import { startAssignment } from "../runtime/start-assignment";
+import { enqueue } from "../runtime/pending-messages";
 import type { TaskAssignment, TaskSnapshot, TrackedTask } from "../runtime/task-tracking-host";
 import { rpcError, rpcResult } from "./json-rpc";
 import { intersectPermissions } from "./capability-types";
@@ -69,6 +70,19 @@ const consumeTokens = createRateLimiter(MAX_OPS_PER_SECOND);
  *  tracked separately so a 10-deep invoke chain inside a single spawn is
  *  still allowed. */
 export const MAX_SPAWN_DEPTH = 10;
+
+/** Serialized-size ceiling for a caller-supplied `outputSchema`. Bounds
+ *  what rides in the child's first message + on the bus/SSE payload so an
+ *  accidental or adversarial huge schema can't bloat either. */
+export const MAX_OUTPUT_SCHEMA_BYTES = 8192;
+
+/** Host error messages raised when the spawn quota is exhausted. Exported as the
+ *  SINGLE SOURCE so downstream classifiers (auto-spin-up's quota detector) match
+ *  the exact strings this handler emits — a drift test asserts they stay in
+ *  sync. `hourly-exceeded` → {@link SPAWN_QUOTA_EXCEEDED_MESSAGE}; the concurrent
+ *  cap → {@link CONCURRENT_CAP_REACHED_MESSAGE}. */
+export const SPAWN_QUOTA_EXCEEDED_MESSAGE = "Spawn quota exceeded";
+export const CONCURRENT_CAP_REACHED_MESSAGE = "Concurrent spawn cap reached";
 
 export interface SpawnAssignmentContext {
   /** The parent conversation — always forced from `currentConversationId`. */
@@ -249,6 +263,17 @@ export async function handleSpawnAssignmentRpc(
     typeof params.orchestrationDepth === "number" && Number.isFinite(params.orchestrationDepth)
       ? (params.orchestrationDepth as number)
       : undefined;
+  // Parent orchestrator run id — when present, startAssignment registers
+  // every run it starts under this parent so a parent cancel cascades.
+  const callerParentRunId =
+    typeof params.parentRunId === "string" && params.parentRunId.trim()
+      ? params.parentRunId
+      : undefined;
+  // Background-spawn opt-in: when the caller (the orchestration extension's
+  // `background: true` path) sets this, startAssignment emits `agent:complete`
+  // AND enqueues a completion-notify pending message for the parent
+  // conversation on the terminal transition. Only accepted as a strict `true`.
+  const callerNotifyParentOnTerminal = params.notifyParentOnTerminal === true;
   const callerAutonomous = ((): { maxCycles?: number } | undefined => {
     const ac = params.autonomousContinuation;
     if (!ac || typeof ac !== "object" || Array.isArray(ac)) return undefined;
@@ -257,6 +282,40 @@ export async function handleSpawnAssignmentRpc(
       ? { maxCycles: mc }
       : {};
   })();
+  // outputSchema (structured-output opt-in). Must be a plain JSON object —
+  // arrays/primitives rejected — and the serialized form is size-capped.
+  // Threaded verbatim into startAssignment, which validates the child's
+  // final output against it and re-prompts on failure.
+  let callerOutputSchema: Record<string, unknown> | undefined;
+  if (params.outputSchema !== undefined) {
+    const os = params.outputSchema;
+    if (typeof os !== "object" || os === null || Array.isArray(os)) {
+      return rpcError(req.id, -32602, "'outputSchema' must be a JSON Schema object");
+    }
+    const serialized = JSON.stringify(os);
+    if (serialized.length > MAX_OUTPUT_SCHEMA_BYTES) {
+      return rpcError(
+        req.id,
+        -32602,
+        `'outputSchema' too large (${serialized.length} > ${MAX_OUTPUT_SCHEMA_BYTES} bytes)`,
+      );
+    }
+    callerOutputSchema = os as Record<string, unknown>;
+  }
+
+  // Structured output is only sound on the SYNTHETIC-taskId path
+  // (invoke_agent, which lets the host mint the taskId). A schema failure
+  // keeps the assignment status "completed" (the child DID finish) — so if
+  // outputSchema rode a spawn bound to a REAL, caller-supplied taskId in
+  // task-tracking, that task's dependents would auto-start off a validation
+  // FAILURE. Reject the combination rather than silently mis-signal.
+  if (callerOutputSchema && callerTaskId) {
+    return rpcError(
+      req.id,
+      -32602,
+      "'outputSchema' cannot be combined with a caller-supplied 'taskId' — structured output is only supported on the synthetic-task (invoke_agent) path",
+    );
+  }
 
   // 9. Hourly + concurrent quota.
   const cfg = {
@@ -270,8 +329,8 @@ export async function handleSpawnAssignmentRpc(
       req.id,
       -32000,
       quotaCheck.reason === "hourly-exceeded"
-        ? "Spawn quota exceeded"
-        : "Concurrent spawn cap reached",
+        ? SPAWN_QUOTA_EXCEEDED_MESSAGE
+        : CONCURRENT_CAP_REACHED_MESSAGE,
       { reason: quotaCheck.reason, ...quotaCheck.details },
     );
   }
@@ -352,7 +411,17 @@ export async function handleSpawnAssignmentRpc(
       ...(callerOverrides ? { overrides: callerOverrides } : {}),
       ...(callerTeamToolScope ? { teamToolScope: callerTeamToolScope } : {}),
       ...(callerOrchestrationDepth !== undefined ? { orchestrationDepth: callerOrchestrationDepth } : {}),
+      ...(callerParentRunId ? { parentRunId: callerParentRunId } : {}),
       ...(callerAutonomous ? { autonomousContinuation: callerAutonomous } : {}),
+      ...(callerOutputSchema ? { outputSchema: callerOutputSchema } : {}),
+      ...(callerNotifyParentOnTerminal ? { notifyParentOnTerminal: true } : {}),
+      // Re-key the quota reservation onto each new cycle's run id so the
+      // concurrent slot follows the LIVE run (not the stale cycle-1 id) and
+      // `ezcorp/cancel-run` — the invoke_agent timeout reap — can still
+      // cancel a multi-cycle child. `swapReservation` is order-independent
+      // vs. the old run's terminal bus-release (see spawn-quota.ts).
+      onCycleRunIdChange: (oldRunId, newRunId) =>
+        ctx.quota.swapReservation(extensionId, oldRunId, newRunId),
     });
 
     // Re-key the reservation to the real agentRunId so the bus
@@ -525,6 +594,145 @@ export async function handleSpawnAssignmentRpc(
     const msg = err instanceof Error ? err.message : String(err);
     return rpcError(req.id, -32603, `Spawn failed: ${msg}`);
   }
+}
+
+// ── queue-agent-message handler (Phase B3) ──────────────────────────
+//
+// Handles `ezcorp/queue-agent-message` — the host side of the orchestration
+// extension's `send_to_agent` steering of a RUNNING child. Enqueues a message
+// onto the child's sub-conversation `pending-messages` queue; the child's
+// `run:complete` drain (start-assignment.ts) delivers it as the next turn.
+//
+// Reuses the `spawnAgents` trust envelope (steering a child you spawned is the
+// same boundary as spawning/cancelling it) and fails CLOSED on ownership: the
+// target sub-conversation MUST be a child of the CALLER's conversation, so one
+// conversation can neither steer nor probe another's sub-agents.
+
+/** Char cap on a steered message — mirrors the `send_to_agent` tool's 8000-char
+ *  bound so an oversized body is rejected at the host boundary too. */
+export const MAX_QUEUE_MESSAGE_CHARS = 8000;
+
+export interface QueueAgentMessageContext {
+  /** Parent conversation — always forced from `currentConversationId`. */
+  conversationId: string;
+  /** Acting user; `"unknown"` tolerated (no DB writes on this path). */
+  userId: string;
+  grantedPermissions: ExtensionPermissions;
+  /** Phase 6: PDP. Optional for back-compat with pre-PDP unit tests. */
+  engine?: PermissionEngine;
+  /** Liveness check — used to reject a steer for a child that has no LIVE run
+   *  (`getActiveRunForConversation`). Without it a steer for an already-idle
+   *  child would report a false `queued: true` (nothing drains the queue), and
+   *  the ext would never fall through to the terminal-continuation path. When
+   *  absent (pre-executor unit contexts) the liveness gate is skipped. */
+  executor?: Pick<AgentExecutor, "getActiveRunForConversation">;
+}
+
+/** Injectable seams so unit tests can exercise the handler without a DB /
+ *  the in-memory pending-messages module. Production defaults are the real
+ *  query + enqueue. */
+export interface QueueAgentMessageDeps {
+  getSubConversations: typeof getSubConversations;
+  enqueue: typeof enqueue;
+}
+
+export async function handleQueueAgentMessageRpc(
+  extensionId: string,
+  req: JsonRpcRequest,
+  ctx: QueueAgentMessageContext,
+  // Built at call time — NOT hoisted to a module-scope const — so merely
+  // importing this module never eagerly reads the `getSubConversations` /
+  // `enqueue` bindings. A module-scope read trips any test that mocks those
+  // query modules without re-exporting these symbols. Production callers pass
+  // no `deps`, so this default is the real wiring.
+  deps: QueueAgentMessageDeps = { getSubConversations, enqueue },
+): Promise<JsonRpcResponse> {
+  const params = (req.params ?? {}) as Record<string, unknown>;
+  const auditUser = ctx.userId && ctx.userId !== "unknown" ? ctx.userId : null;
+
+  // 1. Kill-switch.
+  if (capabilityToolsDisabled()) {
+    return rpcError(req.id, -32001, "spawnAgents permission not granted");
+  }
+
+  // 2. Permission — reuse the spawnAgents PDP gate (same envelope as spawn /
+  //    cancel: an extension that can spawn a child can steer it).
+  if (ctx.engine) {
+    const decision = await ctx.engine.authorize(
+      {
+        extensionId,
+        userId: auditUser,
+        conversationId:
+          ctx.conversationId && ctx.conversationId !== "unknown"
+            ? ctx.conversationId
+            : null,
+        toolName: "ezcorp/queue-agent-message",
+      },
+      [{ kind: "ezcorp:agent:spawn" }],
+    );
+    if (decision.decision === "deny") {
+      return rpcError(req.id, -32001, "spawnAgents permission not granted");
+    }
+  }
+  // Quota validity (structural, rate-limit shape — mirrors spawn/cancel).
+  const granted = ctx.grantedPermissions.spawnAgents;
+  if (!granted || typeof granted.maxPerHour !== "number" || granted.maxPerHour <= 0) {
+    return rpcError(req.id, -32001, "spawnAgents quota config invalid");
+  }
+
+  // 3. Parent conversation bound.
+  if (!ctx.conversationId || ctx.conversationId === "unknown") {
+    return rpcError(req.id, -32602, "Conversation scope unavailable in this context");
+  }
+
+  // 4. Payload validation.
+  if (params.v !== 1) {
+    return rpcError(req.id, -32602, "Missing or invalid 'v' (expected 1)");
+  }
+  const subConversationId =
+    typeof params.subConversationId === "string" && params.subConversationId.trim()
+      ? params.subConversationId
+      : undefined;
+  if (!subConversationId) {
+    return rpcError(req.id, -32602, "'subConversationId' must be a non-empty string");
+  }
+  const message = typeof params.message === "string" ? params.message : "";
+  if (!message.trim()) {
+    return rpcError(req.id, -32602, "'message' must be a non-empty string");
+  }
+  if (message.length > MAX_QUEUE_MESSAGE_CHARS) {
+    return rpcError(
+      req.id,
+      -32602,
+      `'message' too long (${message.length} > ${MAX_QUEUE_MESSAGE_CHARS} chars)`,
+    );
+  }
+
+  // 5. Ownership — fail CLOSED. The target sub-conversation must be a direct
+  //    child of the caller's conversation. An unknown / foreign / already-gone
+  //    sub-conversation all return the SAME `not-found` so the caller can't
+  //    confirm another conversation's sub-agents exist.
+  const children = await deps.getSubConversations(ctx.conversationId);
+  if (!children.some((sc) => sc.id === subConversationId)) {
+    return rpcResult(req.id, { v: 1, queued: false, reason: "not-found" });
+  }
+
+  // 6. Liveness — the queue is only drained by a live run's `run:complete`. If
+  //    the child has NO active run, enqueuing would silently sit forever, so
+  //    report `not-running` (a DIFFERENT signal from `not-found`) and let the
+  //    caller (send_to_agent) fall through to the terminal-continuation path
+  //    that starts a fresh run instead. Skipped when no executor is wired.
+  if (ctx.executor && !ctx.executor.getActiveRunForConversation(subConversationId)) {
+    return rpcResult(req.id, { v: 1, queued: false, reason: "not-running" });
+  }
+
+  // 7. Enqueue — the child's run:complete drain delivers it as the next turn.
+  deps.enqueue(subConversationId, {
+    messageId: crypto.randomUUID(),
+    content: message,
+    createdAt: new Date().toISOString(),
+  });
+  return rpcResult(req.id, { v: 1, queued: true });
 }
 
 interface ChainSpawnAuditArgs {

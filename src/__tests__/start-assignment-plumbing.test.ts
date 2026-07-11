@@ -43,12 +43,17 @@ let createSubConversationImpl: (
 // plumbing through the fresh-create branch is asserted from the test.
 let createSubConversationCalls: Array<Record<string, unknown>> = [];
 
+// Wave 0: owner resolution for the fresh-create branch. Per-test
+// replaceable so the userId-inheritance assertions can vary the owner.
+let resolveOwnerImpl: (conversationId: string) => Promise<string | null> = async () => "owner-user";
+
 mock.module("../db/queries/conversations", () => ({
   getSubConversations: async (parentId: string) => getSubConversationsImpl(parentId),
   createSubConversation: async (projectId: string, opts: Record<string, unknown>) => {
     createSubConversationCalls.push({ projectId, ...opts });
     return createSubConversationImpl(projectId, opts as any);
   },
+  resolveConversationOwnerUserId: async (conversationId: string) => resolveOwnerImpl(conversationId),
 }));
 
 // Master kill-switch (Advanced Settings → global:agentAutonomyEnabled).
@@ -65,10 +70,13 @@ const {
   extractFullText,
   detectDoneSignal,
   stripSignals,
+  capFullResult,
+  ASSIGNMENT_RESULT_FULL_CAP,
 } = await import("../runtime/start-assignment");
 const { EventBus } = await import("../runtime/events");
-const { enqueue } = await import("../runtime/pending-messages");
+const { enqueue, dequeue, hasPending } = await import("../runtime/pending-messages");
 const { CURRENT_MODEL_SENTINEL } = await import("../types");
+const { buildSchemaInstruction } = await import("../runtime/structured-output");
 
 import type { AgentExecutor } from "../runtime/executor";
 import type { EventBus as EventBusType } from "../runtime/events";
@@ -87,8 +95,15 @@ type StreamChatCall = {
   options: Record<string, unknown>;
 };
 
-function makeMockExecutor(): { executor: AgentExecutor; calls: StreamChatCall[] } {
+type ChildRegistration = { parentRunId: string; childRunId: string };
+
+function makeMockExecutor(): {
+  executor: AgentExecutor;
+  calls: StreamChatCall[];
+  childRegistrations: ChildRegistration[];
+} {
   const calls: StreamChatCall[] = [];
+  const childRegistrations: ChildRegistration[] = [];
   const streamChat = mock(
     async (
       conversationId: string,
@@ -109,11 +124,22 @@ function makeMockExecutor(): { executor: AgentExecutor; calls: StreamChatCall[] 
       };
     },
   );
+  // Returns registerChildRunResult (default true = parent live). The
+  // refusal path (false = parent already terminal) is exercised by the
+  // dedicated dead-parent tests, which flip the switch per-test.
+  const registerChildRun = mock((parentRunId: string, childRunId: string) => {
+    childRegistrations.push({ parentRunId, childRunId });
+    return registerChildRunResult;
+  });
   return {
-    executor: { streamChat } as unknown as AgentExecutor,
+    executor: { streamChat, registerChildRun } as unknown as AgentExecutor,
     calls,
+    childRegistrations,
   };
 }
+
+// Per-test switch for the mock executor's registerChildRun return value.
+let registerChildRunResult = true;
 
 function makeAssignment(agentConfigId = "cfg-test"): TaskAssignment {
   return {
@@ -181,6 +207,8 @@ beforeEach(() => {
   createSubConversationImpl = async () => ({ id: "sub-fresh-created" });
   createSubConversationCalls = [];
   getSettingImpl = async () => undefined;
+  resolveOwnerImpl = async () => "owner-user";
+  registerChildRunResult = true;
 });
 
 // ── 0. Sub-agent prompt — must tell the LLM not to call task_complete ─
@@ -274,6 +302,38 @@ describe("startAssignment — parentMessageId plumbing", () => {
 
     expect(createSubConversationCalls).toHaveLength(1);
     expect(createSubConversationCalls[0]).not.toHaveProperty("parentMessageId");
+  });
+
+  // Wave 0: fresh sub-conversations are stamped with the parent chain's
+  // owner so conversation-scoped authorization (SSE filter, /api/runs
+  // ownership) holds without a parent walk.
+  test("userId: resolved owner is forwarded onto createSubConversation when creating fresh", async () => {
+    const { executor } = makeMockExecutor();
+    getSubConversationsImpl = async () => [];
+    createSubConversationImpl = async () => ({ id: "sub-owned" });
+    resolveOwnerImpl = async (conversationId: string) => {
+      expect(conversationId).toBe("conv-parent");
+      return "owner-user";
+    };
+
+    const opts = baseOpts({ executor });
+    await startAssignment(opts);
+
+    expect(createSubConversationCalls).toHaveLength(1);
+    expect(createSubConversationCalls[0]?.userId).toBe("owner-user");
+  });
+
+  test("userId: ownerless parent chain → no userId key on createSubConversation opts", async () => {
+    const { executor } = makeMockExecutor();
+    getSubConversationsImpl = async () => [];
+    createSubConversationImpl = async () => ({ id: "sub-ownerless" });
+    resolveOwnerImpl = async () => null;
+
+    const opts = baseOpts({ executor });
+    await startAssignment(opts);
+
+    expect(createSubConversationCalls).toHaveLength(1);
+    expect(createSubConversationCalls[0]).not.toHaveProperty("userId");
   });
 });
 
@@ -510,6 +570,7 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
       run: { id: "some-other-run", agentName: "alice", status: "error", startedAt: Date.now(), logs: [] },
       error: "ignored",
       conversationId: "conv-parent",
+      runId: "some-other-run",
     } as AgentEvents["run:error"]);
     expect(assignment.status).toBe("running");
 
@@ -518,6 +579,7 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
       run: { id: agentRunId, agentName: "alice", status: "error", startedAt: Date.now(), logs: [] },
       error: longErr,
       conversationId: "conv-parent",
+      runId: agentRunId,
     } as AgentEvents["run:error"]);
 
     expect(assignment.status).toBe("failed");
@@ -655,6 +717,185 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
   });
 });
 
+// ── 5b. parentRunId — child-run registration for cascade cancel ────
+//
+// When `parentRunId` is set, startAssignment must register EVERY run it
+// starts (the initial task run AND each auto-continue cycle's new run) on
+// the executor as a child of the parent orchestrator run, so a cancel of
+// the parent cascades down. Registration must happen inside startRun (per
+// cycle), not once outside — auto-continue mints fresh run ids.
+
+describe("startAssignment — parentRunId child registration", () => {
+  test("registers the initial run under the parent before streaming", async () => {
+    const { executor, calls, childRegistrations } = makeMockExecutor();
+    const opts = baseOpts({
+      executor,
+      reuseSubConversationId: "sub-reg",
+      parentRunId: "parent-run-1",
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    expect(childRegistrations).toEqual([
+      { parentRunId: "parent-run-1", childRunId: agentRunId },
+    ]);
+    // The registered child id IS the run id streamChat was told to use.
+    expect(calls[0]!.options.runId).toBe(agentRunId);
+  });
+
+  test("registers each auto-continue cycle's NEW run id under the same parent", async () => {
+    const { executor, calls, childRegistrations } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const opts = baseOpts({
+      executor,
+      bus,
+      reuseSubConversationId: "sub-reg-cycle",
+      parentRunId: "parent-run-2",
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Initial registration.
+    expect(childRegistrations).toEqual([
+      { parentRunId: "parent-run-2", childRunId: agentRunId },
+    ]);
+
+    // Queue a user message, then complete the run → auto-continue cycle
+    // starts a NEW run id which must ALSO register under the parent.
+    enqueue("sub-reg-cycle", {
+      messageId: "m1",
+      content: "keep going",
+      createdAt: new Date().toISOString(),
+    });
+    bus.emit("run:complete", {
+      run: { id: agentRunId, agentName: "alice", status: "success", startedAt: Date.now(), logs: [], result: { success: true, output: "partial" } },
+      conversationId: "conv-parent",
+    } as AgentEvents["run:complete"]);
+
+    expect(calls).toHaveLength(2);
+    const newRunId = calls[1]!.options.runId as string;
+    expect(newRunId).not.toBe(agentRunId);
+    expect(childRegistrations).toHaveLength(2);
+    expect(childRegistrations[1]).toEqual({
+      parentRunId: "parent-run-2",
+      childRunId: newRunId,
+    });
+  });
+
+  test("no parentRunId → registerChildRun never called (legacy manual-start path)", async () => {
+    const { executor, childRegistrations } = makeMockExecutor();
+    const opts = baseOpts({ executor, reuseSubConversationId: "sub-noreg" });
+    await startAssignment(opts);
+    expect(childRegistrations).toHaveLength(0);
+  });
+
+  // Validator-a1 MEDIUM fix: a Stop racing startAssignment's DB awaits can
+  // terminate the parent before startRun registers — the child must NOT be
+  // started (it would stream ownerless with nobody consuming the result).
+  test("dead parent (registerChildRun → false): child NOT streamed, assignment failed with actionable update", async () => {
+    const { executor, calls } = makeMockExecutor();
+    registerChildRunResult = false;
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: Array<{ resultFull?: string; assignment: { status: string; resultPreview?: string } }> = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      parentRunId: "run-dead-parent",
+      reuseSubConversationId: "sub-dead-parent",
+    });
+    await startAssignment(opts);
+
+    // No streaming started for the dead parent's child.
+    expect(calls).toHaveLength(0);
+    expect(assignment.status).toBe("failed");
+    expect(assignment.resultPreview).toBe("Parent run ended before this agent could start");
+    // Terminal update fires (releases the parent's invoke_agent gate) and
+    // carries the full explanation.
+    const terminal = updates.at(-1)!;
+    expect(terminal.assignment.status).toBe("failed");
+    expect(terminal.resultFull).toContain("child was not started");
+  });
+});
+
+// ── 5c. onCycleRunIdChange — quota re-key across a cycle boundary ──
+//
+// CRITICAL (Phase A2 fix): a multi-cycle child mints a NEW run id per cycle.
+// Without re-keying, the spawn quota keeps the stale cycle-1 id — so the slot
+// is freed when cycle 1 completes (concurrent under-count) and the live run is
+// un-cancellable (cancel-run's ownership gate rejects it), which is exactly
+// the scenario the invoke_agent timeout reap hits. startAssignment calls
+// onCycleRunIdChange at each cycle boundary so the handler re-keys its
+// SpawnQuota reservation onto the live run. These wire a REAL SpawnQuota to
+// prove the slot follows the live cycle with no double-free.
+
+describe("startAssignment — onCycleRunIdChange re-keys the spawn quota", () => {
+  test("cycle transition follows the live run in the quota; old released once, new owned, no double-free", async () => {
+    const { createSpawnQuota } = await import("../extensions/spawn-quota");
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    // The quota subscribes run:complete at construction — BEFORE
+    // startAssignment's per-run listener — so its release(old) fires FIRST on
+    // a cycle boundary, exactly the order that defeats a non-order-independent
+    // swap. Proving the slot still follows the live run proves order-independence.
+    const quota = createSpawnQuota(bus);
+    const ext = "ext-quota";
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-quota",
+      autonomousContinuation: { maxCycles: 1 },
+      onCycleRunIdChange: (oldId: string, newId: string) =>
+        quota.swapReservation(ext, oldId, newId),
+    });
+    const { agentRunId } = await startAssignment(opts);
+    // Mirror the handler's post-dispatch reserve of the cycle-1 run.
+    quota.reserve(ext, agentRunId);
+    expect(quota._concurrentCount(ext)).toBe(1);
+    expect(quota.isOwner(ext, agentRunId)).toBe(true);
+
+    // Cycle 1: initial run completes with no sentinel → autonomous continuation
+    // mints a new run. quota.release(agentRunId) fires first, THEN the
+    // transition's onCycleRunIdChange swaps → the slot follows the live run.
+    emitComplete(bus, agentRunId, "still working");
+    expect(calls).toHaveLength(2);
+    const newRunId = calls[1]!.options.runId as string;
+    expect(newRunId).not.toBe(agentRunId);
+
+    // Slot followed the live run — still exactly 1, new owned, old not.
+    expect(quota._concurrentCount(ext)).toBe(1);
+    expect(quota.isOwner(ext, newRunId)).toBe(true);
+    expect(quota.isOwner(ext, agentRunId)).toBe(false);
+
+    // No double-free: a duplicate terminal for the OLD run can't free the new slot.
+    bus.emit("run:complete", {
+      run: { id: agentRunId, agentName: "alice", status: "success", startedAt: Date.now(), logs: [] },
+      conversationId: "conv-parent",
+    } as AgentEvents["run:complete"]);
+    expect(quota._concurrentCount(ext)).toBe(1);
+
+    // The live run completes → cap reached → terminal (no further cycle) →
+    // the slot is released exactly once.
+    emitComplete(bus, newRunId, "done enough");
+    expect(calls).toHaveLength(2); // no further continuation
+    expect(quota._concurrentCount(ext)).toBe(0);
+    quota.dispose();
+  });
+
+  test("initial run does NOT invoke onCycleRunIdChange (only cycle continuations do)", async () => {
+    const swaps: Array<[string, string]> = [];
+    const { executor } = makeMockExecutor();
+    const opts = baseOpts({
+      executor,
+      reuseSubConversationId: "sub-nocb",
+      onCycleRunIdChange: (o: string, n: string) => swaps.push([o, n]),
+    });
+    await startAssignment(opts);
+    // Only the initial run started — no cycle transition, so no re-key.
+    expect(swaps).toHaveLength(0);
+  });
+});
+
 // ── 6. Combined: all 5 fields together across the boundary ─────────
 
 describe("startAssignment — combined plumbing (all 5 new fields together)", () => {
@@ -778,6 +1019,91 @@ describe("startAssignment — goal pinning across cycles", () => {
     expect(calls[1]!.userMessage).toBe("keep going please");
     // Objective is re-pinned on the re-prompt cycle, not just the first.
     expect(calls[1]!.options.system).toBe(withObjective("you are alice"));
+  });
+});
+
+// ── 8b. Full result to the orchestrator (Wave 1) ───────────────────
+//
+// The `task:assignment_update` event now carries a top-level
+// `resultFull` (the sub-agent's complete final text, capped) alongside
+// the 200-char `resultPreview`. The panel keeps the preview; the
+// orchestration extension returns `resultFull` to the orchestrator LLM.
+
+describe("capFullResult", () => {
+  test("returns undefined for empty input (no-output run omits the field)", () => {
+    expect(capFullResult("")).toBeUndefined();
+  });
+
+  test("passes through text at or under the cap unchanged", () => {
+    const text = "x".repeat(ASSIGNMENT_RESULT_FULL_CAP);
+    expect(capFullResult(text)).toBe(text);
+  });
+
+  test("truncates over-cap text with a visible marker naming the dropped count", () => {
+    const text = "y".repeat(ASSIGNMENT_RESULT_FULL_CAP + 500);
+    const out = capFullResult(text)!;
+    expect(out.startsWith("y".repeat(ASSIGNMENT_RESULT_FULL_CAP))).toBe(true);
+    expect(out).toContain("truncated 500 more characters");
+    expect(out).toContain("open the sub-conversation");
+  });
+});
+
+describe("startAssignment — full result on the assignment_update event", () => {
+  test("completion emits resultFull with the FULL output; preview stays 200-char", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: Array<{ resultFull?: string; assignment: { resultPreview?: string } }> = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-full" });
+    const { agentRunId } = await startAssignment(opts);
+
+    const longOutput = "Z".repeat(1000);
+    emitComplete(bus, agentRunId, longOutput);
+
+    const terminal = updates.at(-1)!;
+    expect(terminal.resultFull).toBe(longOutput);
+    expect(terminal.assignment.resultPreview).toBe("Z".repeat(200) + "...");
+    expect(assignment.resultPreview).toBe("Z".repeat(200) + "...");
+  });
+
+  test("error path emits the full error (not just the 200-char preview) as resultFull", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: Array<{ resultFull?: string }> = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-err" });
+    const { agentRunId } = await startAssignment(opts);
+
+    const longErr = "e".repeat(500);
+    bus.emit("run:error", {
+      run: { id: agentRunId, agentName: "alice", status: "error", startedAt: Date.now(), logs: [] },
+      error: longErr,
+      conversationId: "conv-parent",
+      runId: agentRunId,
+    } as AgentEvents["run:error"]);
+
+    expect(assignment.resultPreview).toBe(longErr.slice(0, 200));
+    expect(updates.at(-1)!.resultFull).toBe(longErr);
+  });
+
+  test("no-output completion emits no resultFull field", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: Array<{ resultFull?: string }> = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-empty" });
+    const { agentRunId } = await startAssignment(opts);
+
+    // output is a non-previewable object → no preview, no resultFull.
+    emitComplete(bus, agentRunId, { some: "object" });
+
+    expect(updates.at(-1)!.resultFull).toBeUndefined();
   });
 });
 
@@ -1004,5 +1330,644 @@ describe("startAssignment — global:agentAutonomyEnabled kill-switch", () => {
     const opts = baseOpts({ executor, reuseSubConversationId: "sub-ks4" });
     await startAssignment(opts);
     expect(calls[0]!.options.system).toBe(withObjective("you are alice"));
+  });
+});
+
+// ── 11. Structured output (Phase B1) ───────────────────────────────
+//
+// When `outputSchema` is set, startAssignment appends an output-format
+// instruction to the FIRST message, validates the child's final output
+// host-side, re-prompts (bounded) on failure, and emits the terminal
+// update with `structuredResult` (valid) or `structuredResultError`
+// (retries exhausted). No outputSchema → byte-identical prompt + no new
+// behavior.
+
+const SCHEMA = {
+  type: "object",
+  properties: { answer: { type: "string" } },
+  required: ["answer"],
+  additionalProperties: false,
+} as Record<string, unknown>;
+
+type StructuredUpdate = {
+  resultFull?: string;
+  structuredResult?: unknown;
+  structuredResultError?: string;
+  assignment: { status: string };
+};
+
+describe("startAssignment — structured output", () => {
+  test("no outputSchema → first message omits the schema instruction (byte-identical prompt)", async () => {
+    const { executor: exA, calls: callsA } = makeMockExecutor();
+    await startAssignment(baseOpts({ executor: exA, reuseSubConversationId: "sub-so-none" }));
+    const msgNoSchema = callsA[0]!.userMessage;
+    expect(msgNoSchema).not.toContain("Required Output Format");
+
+    // Same setup WITH a schema appends EXACTLY buildSchemaInstruction(schema)
+    // and nothing else — proving the no-schema prompt is unchanged.
+    const { executor: exB, calls: callsB } = makeMockExecutor();
+    await startAssignment(
+      baseOpts({ executor: exB, reuseSubConversationId: "sub-so-with", outputSchema: SCHEMA }),
+    );
+    expect(callsB[0]!.userMessage).toBe(msgNoSchema + buildSchemaInstruction(SCHEMA));
+  });
+
+  test("valid first try: structuredResult on the terminal update; prompt carries the schema", async () => {
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: StructuredUpdate[] = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-1",
+      outputSchema: SCHEMA,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // First message carries the serialized schema instruction.
+    expect(calls[0]!.userMessage).toContain("## Required Output Format");
+    expect(calls[0]!.userMessage).toContain('"answer"');
+
+    emitComplete(bus, agentRunId, 'All set.\n```json\n{"answer":"42"}\n```');
+
+    expect(calls).toHaveLength(1); // no re-prompt
+    const terminal = updates.at(-1)!;
+    expect(terminal.structuredResult).toEqual({ answer: "42" });
+    expect(terminal.structuredResultError).toBeUndefined();
+    expect(assignment.status).toBe("completed");
+  });
+
+  test("JSON extraction variants (raw / fenced / trailing prose) all validate first try", async () => {
+    for (const [label, output, expected] of [
+      ["raw", '{"answer":"a"}', { answer: "a" }],
+      ["fenced", '```json\n{"answer":"b"}\n```', { answer: "b" }],
+      ["trailing prose", 'Done! {"answer":"c"} — cheers', { answer: "c" }],
+    ] as const) {
+      const { executor } = makeMockExecutor();
+      const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+      const assignment = makeAssignment();
+      const updates: StructuredUpdate[] = [];
+      bus.on("task:assignment_update", (d) => updates.push(d as never));
+      const opts = baseOpts({
+        executor, bus, assignment,
+        reuseSubConversationId: `sub-so-var-${label.replace(/\s/g, "")}`,
+        outputSchema: SCHEMA,
+      });
+      const { agentRunId } = await startAssignment(opts);
+      emitComplete(bus, agentRunId, output);
+      expect(updates.at(-1)!.structuredResult).toEqual(expected);
+    }
+  });
+
+  test("invalid then valid: exactly one re-prompt; new run registered under parent + quota re-key fired", async () => {
+    const { executor, calls, childRegistrations } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const swaps: Array<[string, string]> = [];
+    const updates: StructuredUpdate[] = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-2",
+      parentRunId: "parent-so",
+      outputSchema: SCHEMA,
+      onCycleRunIdChange: (o: string, n: string) => swaps.push([o, n]),
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Cycle 1: schema-invalid JSON (missing required "answer") → re-prompt.
+    emitComplete(bus, agentRunId, '{"wrong":"shape"}');
+    expect(calls).toHaveLength(2);
+    const newRunId = calls[1]!.options.runId as string;
+    expect(newRunId).not.toBe(agentRunId);
+    // Corrective message quotes the violations + restates the schema.
+    expect(calls[1]!.userMessage).toContain("did not satisfy the required output schema");
+    expect(calls[1]!.userMessage).toContain("Validation errors:");
+    expect(calls[1]!.userMessage).toContain('"answer"');
+    // Cycle mechanics: new run registered under parent + quota re-key.
+    expect(childRegistrations).toContainEqual({ parentRunId: "parent-so", childRunId: newRunId });
+    expect(swaps).toContainEqual([agentRunId, newRunId]);
+    // Mid-loop: still running, no terminal structured payload yet.
+    expect(assignment.status).toBe("running");
+
+    // Cycle 2: now valid → terminal with structuredResult, no further run.
+    emitComplete(bus, newRunId, '{"answer":"ok"}');
+    expect(calls).toHaveLength(2);
+    const terminal = updates.at(-1)!;
+    expect(terminal.structuredResult).toEqual({ answer: "ok" });
+    expect(terminal.structuredResultError).toBeUndefined();
+    expect(assignment.status).toBe("completed");
+  });
+
+  test("retries exhausted: structuredResultError on the terminal update; status still completed", async () => {
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: StructuredUpdate[] = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-3",
+      outputSchema: SCHEMA,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Two re-prompts (MAX_SCHEMA_RETRIES = 2), then the third failure is terminal.
+    emitComplete(bus, agentRunId, '{"nope":1}');
+    expect(calls).toHaveLength(2);
+    emitComplete(bus, assignment.agentRunId!, '{"still":"wrong"}');
+    expect(calls).toHaveLength(3);
+    emitComplete(bus, assignment.agentRunId!, '{"final":"miss"}');
+    expect(calls).toHaveLength(3); // budget exhausted — no 4th run
+
+    expect(assignment.status).toBe("completed");
+    const terminal = updates.at(-1)!;
+    expect(terminal.structuredResult).toBeUndefined();
+    expect(terminal.structuredResultError).toContain("answer");
+    // The raw final text still rides resultFull for salvage.
+    expect(terminal.resultFull).toContain("final");
+  });
+
+  test("no JSON at all in the output → treated as a schema failure and re-prompted", async () => {
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-nojson",
+      outputSchema: SCHEMA,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    emitComplete(bus, agentRunId, "I finished but forgot to emit JSON.");
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.userMessage).toContain("no JSON value found");
+  });
+
+  test("autonomous + outputSchema: autonomous loops first; schema validates the FINAL cycle output", async () => {
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: StructuredUpdate[] = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-auto",
+      autonomousContinuation: { maxCycles: 3 },
+      outputSchema: SCHEMA,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Cycle 1: no sentinel → autonomous continues FIRST; schema not yet checked.
+    emitComplete(bus, agentRunId, "still working, no json yet");
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.userMessage).toMatch(/Continue working toward the Pinned Objective/);
+
+    // Cycle 2: DONE sentinel + schema-valid JSON → autonomous stops, schema validates.
+    emitComplete(bus, assignment.agentRunId!, '<<TASK_DONE>>\n```json\n{"answer":"final"}\n```');
+    expect(calls).toHaveLength(2); // no further run
+    const terminal = updates.at(-1)!;
+    expect(terminal.structuredResult).toEqual({ answer: "final" });
+    expect(assignment.status).toBe("completed");
+  });
+
+  // Regression (HIGH): the autonomous branch must NOT swallow a schema
+  // correction run. A correction run has no <<TASK_DONE>> sentinel, so
+  // without the in-flight gate the autonomous branch would fire a
+  // CONTINUATION and discard the corrected JSON.
+  test("autonomous child: DONE + invalid JSON → ONE correction cycle; sentinel-less corrected JSON accepted (branch 2 does not swallow it)", async () => {
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: StructuredUpdate[] = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-swallow",
+      autonomousContinuation: { maxCycles: 5 },
+      outputSchema: SCHEMA,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Cycle 1: DONE sentinel (autonomous stops) BUT invalid JSON → the schema
+    // path fires exactly ONE correction cycle (not a continuation).
+    emitComplete(bus, agentRunId, '<<TASK_DONE>>\n{"wrong":"shape"}');
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.userMessage).toContain("did not satisfy the required output schema");
+    expect(calls[1]!.userMessage).not.toMatch(/Continue working toward the Pinned Objective/);
+    // Autonomous-aware correction: tells the child NOT to emit a sentinel.
+    expect(calls[1]!.userMessage).toContain("Do NOT emit a completion sentinel");
+
+    // Correction run: SENTINEL-LESS valid JSON. Without the in-flight gate,
+    // branch (2) would treat the missing sentinel as "still working" and fire
+    // a continuation, discarding this corrected output.
+    emitComplete(bus, assignment.agentRunId!, '{"answer":"fixed"}');
+    expect(calls).toHaveLength(2); // accepted — NO continuation dispatched
+    const terminal = updates.at(-1)!;
+    expect(terminal.structuredResult).toEqual({ answer: "fixed" });
+    expect(terminal.structuredResultError).toBeUndefined();
+    expect(assignment.status).toBe("completed");
+    // Autonomous continuation never happened (no cycle metadata).
+    expect(assignment.autonomousCycle).toBeUndefined();
+  });
+
+  // MED: structuredResult must respect the 30KB cap (parity with resultFull).
+  test("oversized validated result (compact > 30KB) → structuredResultError, no structuredResult; resultFull salvage present", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: StructuredUpdate[] = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    // Permissive schema so the huge object validates; its compact JSON is
+    // over the cap.
+    const permissive = { type: "object" } as Record<string, unknown>;
+    const huge = JSON.stringify({ data: "z".repeat(ASSIGNMENT_RESULT_FULL_CAP + 1000) });
+    expect(huge.length).toBeGreaterThan(ASSIGNMENT_RESULT_FULL_CAP);
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-cap",
+      outputSchema: permissive,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    emitComplete(bus, agentRunId, huge);
+
+    const terminal = updates.at(-1)!;
+    expect(terminal.structuredResult).toBeUndefined();
+    expect(terminal.structuredResultError).toContain("exceeds the 30KB structured cap");
+    // The over-cap marker distinguishes validated-but-oversized from a
+    // schema violation so the ext frames it as an oversized success.
+    expect((terminal as { structuredResultOverCap?: boolean }).structuredResultOverCap).toBe(true);
+    // The capped raw output still rides resultFull for salvage.
+    expect(typeof terminal.resultFull).toBe("string");
+    expect(assignment.status).toBe("completed");
+  });
+
+  // A genuine schema failure must NOT carry the over-cap marker.
+  test("exhausted-retry schema failure carries structuredResultError WITHOUT the over-cap marker", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const updates: StructuredUpdate[] = [];
+    bus.on("task:assignment_update", (d) => updates.push(d as never));
+
+    const schema = { type: "object", required: ["x"], properties: { x: { type: "number" } } } as Record<string, unknown>;
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-nocap",
+      outputSchema: schema,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Three invalid completions: initial + 2 corrective retries → exhausted.
+    emitComplete(bus, agentRunId, "not json at all");
+    emitComplete(bus, assignment.agentRunId!, "still not json");
+    emitComplete(bus, assignment.agentRunId!, "nope");
+
+    const terminal = updates.at(-1)!;
+    expect(terminal.structuredResultError).toBeDefined();
+    expect((terminal as { structuredResultOverCap?: boolean }).structuredResultOverCap).toBeUndefined();
+    expect(assignment.status).toBe("completed");
+  });
+
+  // Validator nice-to-have: a user steering message ABANDONS an in-flight
+  // schema correction — the flag clears so the user-driven run gets normal
+  // autonomous semantics (no suppressed continuation).
+  test("pending user message during a schema correction clears the re-prompt flag (autonomous resumes on the user run)", async () => {
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+
+    const schema = { type: "object", required: ["x"], properties: { x: { type: "number" } } } as Record<string, unknown>;
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-so-steer",
+      outputSchema: schema,
+      autonomousContinuation: { maxCycles: 3 },
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Invalid output (no sentinel matters: autonomous DONE + invalid JSON)
+    // → correction cycle dispatched (schemaRepromptInFlight armed).
+    emitComplete(bus, agentRunId, "<<TASK_DONE>> not json");
+    expect(calls).toHaveLength(2); // correction in flight
+
+    // User steers while the correction is in flight → the correction run's
+    // completion is superseded by the user message path.
+    enqueue("sub-so-steer", {
+      messageId: "steer-1",
+      content: "actually, do something else",
+      createdAt: new Date().toISOString(),
+    });
+    emitComplete(bus, assignment.agentRunId!, `{"x": 1}`);
+    // The pending-message branch won: a user-driven run started (3rd call).
+    expect(calls).toHaveLength(3);
+    expect(calls[2]!.userMessage).toBe("actually, do something else");
+
+    // The user run completes WITHOUT a sentinel: with the flag cleared,
+    // the autonomous branch resumes (continuation fires) instead of being
+    // suppressed by a stale re-prompt flag.
+    emitComplete(bus, assignment.agentRunId!, "made progress, not done yet");
+    expect(calls).toHaveLength(4);
+    expect(calls[3]!.userMessage).toMatch(/Continue working toward the Pinned Objective/);
+  });
+});
+
+// ── 12. agent:complete emission on every terminal (Phase B2) ───────
+//
+// startAssignment historically emitted only agent:spawn — the invoke_agent
+// path never fired agent:complete, so the SSE chip / observability agent_call
+// rows / extension lifecycle subscriptions never saw the terminal. Every
+// terminal branch (complete / error / cancel / refused-start) now emits
+// agent:complete with the LIVE cycle run id as both runId and agentRunId,
+// scoped to the parent conversation.
+
+type AgentCompleteEvt = AgentEvents["agent:complete"];
+
+describe("startAssignment — agent:complete emission", () => {
+  test("run:complete → agent:complete(success=true) with the live run id + parent scope", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const events: AgentCompleteEvt[] = [];
+    bus.on("agent:complete", (d) => events.push(d as AgentCompleteEvt));
+
+    const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-ac1" });
+    const { agentRunId } = await startAssignment(opts);
+
+    emitComplete(bus, agentRunId, "the full output");
+
+    expect(events).toHaveLength(1);
+    const e = events[0]!;
+    expect(e.success).toBe(true);
+    expect(e.runId).toBe(agentRunId);
+    expect(e.agentRunId).toBe(agentRunId);
+    expect(e.subConversationId).toBe("sub-ac1");
+    expect(e.agentName).toBe("alice");
+    expect(e.agentConfigId).toBe("cfg-test");
+    expect(e.parentConversationId).toBe("conv-parent");
+    expect(e.resultPreview).toBe("the full output");
+  });
+
+  test("run:error → agent:complete(success=false) with the error preview", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const events: AgentCompleteEvt[] = [];
+    bus.on("agent:complete", (d) => events.push(d as AgentCompleteEvt));
+
+    const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-ac2" });
+    const { agentRunId } = await startAssignment(opts);
+
+    bus.emit("run:error", {
+      run: { id: agentRunId, agentName: "alice", status: "error", startedAt: Date.now(), logs: [] },
+      error: "kaboom",
+      conversationId: "conv-parent",
+      runId: agentRunId,
+    } as AgentEvents["run:error"]);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.success).toBe(false);
+    expect(events[0]!.resultPreview).toBe("kaboom");
+    expect(events[0]!.runId).toBe(agentRunId);
+  });
+
+  test("run:cancel → agent:complete(success=false, 'Run was cancelled')", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const events: AgentCompleteEvt[] = [];
+    bus.on("agent:complete", (d) => events.push(d as AgentCompleteEvt));
+
+    const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-ac3" });
+    const { agentRunId } = await startAssignment(opts);
+
+    bus.emit("run:cancel", {
+      run: { id: agentRunId, agentName: "alice", status: "cancelled", startedAt: Date.now(), logs: [] },
+      conversationId: "conv-parent",
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.success).toBe(false);
+    expect(events[0]!.resultPreview).toBe("Run was cancelled");
+  });
+
+  test("run:cancel that races the Stop pre-mutation (status !== running) emits NO agent:complete", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const events: AgentCompleteEvt[] = [];
+    bus.on("agent:complete", (d) => events.push(d as AgentCompleteEvt));
+
+    const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-ac4" });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Stop endpoint flipped it to "assigned" already → cancel listener no-ops.
+    assignment.status = "assigned";
+    bus.emit("run:cancel", {
+      run: { id: agentRunId, agentName: "alice", status: "cancelled", startedAt: Date.now(), logs: [] },
+      conversationId: "conv-parent",
+    });
+    expect(events).toHaveLength(0);
+  });
+
+  test("live cycle run: agent:complete carries the NEW autonomous-cycle run id, not cycle 1", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const events: AgentCompleteEvt[] = [];
+    bus.on("agent:complete", (d) => events.push(d as AgentCompleteEvt));
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-ac5",
+      autonomousContinuation: { maxCycles: 1 },
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // Cycle 1: no sentinel → autonomous continuation mints a new run; NOT terminal.
+    emitComplete(bus, agentRunId, "cycle one");
+    expect(events).toHaveLength(0);
+    const cycle2RunId = assignment.agentRunId!;
+    expect(cycle2RunId).not.toBe(agentRunId);
+
+    // Cycle 2: cap reached → terminal on the LIVE cycle run.
+    emitComplete(bus, cycle2RunId, "cycle two done");
+    expect(events).toHaveLength(1);
+    expect(events[0]!.runId).toBe(cycle2RunId);
+    expect(events[0]!.agentRunId).toBe(cycle2RunId);
+    expect(events[0]!.success).toBe(true);
+  });
+
+  test("refused start (dead parent) → agent:complete(success=false) closes the spawned chip", async () => {
+    const { executor } = makeMockExecutor();
+    registerChildRunResult = false;
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const events: AgentCompleteEvt[] = [];
+    bus.on("agent:complete", (d) => events.push(d as AgentCompleteEvt));
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      parentRunId: "run-dead",
+      reuseSubConversationId: "sub-ac6",
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.success).toBe(false);
+    expect(events[0]!.runId).toBe(agentRunId);
+    expect(events[0]!.resultPreview).toBe("Parent run ended before this agent could start");
+  });
+});
+
+// ── 13. Background completion notify — parent-queue enqueue (Phase B2) ─
+//
+// notifyParentOnTerminal is set by the orchestration extension's background
+// spawn path. On EVERY terminal it enqueues a plain, capped completion-notify
+// pending message onto the PARENT conversation id so an idle orchestrator can
+// react on its next turn. Absent the flag, agent:complete still fires but no
+// pending message is enqueued.
+
+function drainConvParent(): string[] {
+  const drained: string[] = [];
+  let m = dequeue("conv-parent");
+  while (m) {
+    drained.push(m.content);
+    m = dequeue("conv-parent");
+  }
+  return drained;
+}
+
+describe("startAssignment — background completion notify", () => {
+  test("notifyParentOnTerminal + success → enqueues a plain notify for the PARENT conversation", async () => {
+    expect(hasPending("conv-parent")).toBe(false);
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-nfy1",
+      notifyParentOnTerminal: true,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    emitComplete(bus, agentRunId, "the answer is 42");
+
+    expect(hasPending("conv-parent")).toBe(true);
+    const [content, ...rest] = drainConvParent();
+    expect(rest).toHaveLength(0); // exactly one notify
+    expect(content).toContain('Background agent "alice" finished (success)');
+    expect(content).toContain("the answer is 42");
+    expect(content).toContain("collect_agent_result");
+    // Queue drained — no cross-test contamination.
+    expect(hasPending("conv-parent")).toBe(false);
+  });
+
+  test("notifyParentOnTerminal + failure → notify says (failure)", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-nfy2",
+      notifyParentOnTerminal: true,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    bus.emit("run:error", {
+      run: { id: agentRunId, agentName: "alice", status: "error", startedAt: Date.now(), logs: [] },
+      error: "it broke",
+      conversationId: "conv-parent",
+      runId: agentRunId,
+    } as AgentEvents["run:error"]);
+
+    const [content, ...rest] = drainConvParent();
+    expect(rest).toHaveLength(0);
+    expect(content).toContain('Background agent "alice" finished (failure)');
+    expect(content).toContain("it broke");
+    expect(hasPending("conv-parent")).toBe(false);
+  });
+
+  test("notify preview is capped so an over-long result cannot bloat the pending message", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-nfy3",
+      notifyParentOnTerminal: true,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // resultPreview is itself already ≤200 chars, but assert the notify stays
+    // bounded and terminates with the collect hint regardless.
+    emitComplete(bus, agentRunId, "Q".repeat(5000));
+
+    const [content] = drainConvParent();
+    expect(content).toBeDefined();
+    expect(content!.length).toBeLessThan(600);
+    expect(content).toContain("collect_agent_result");
+    expect(hasPending("conv-parent")).toBe(false);
+  });
+
+  test("an over-cap terminal preview (long autonomous blocked reason) is clipped in the notify", async () => {
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+
+    const opts = baseOpts({
+      executor, bus, assignment,
+      reuseSubConversationId: "sub-nfy5",
+      autonomousContinuation: { maxCycles: 3 },
+      notifyParentOnTerminal: true,
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    // A long <<TASK_BLOCKED: reason>> makes assignment.resultPreview exceed the
+    // notify's 400-char preview cap (the reason is prepended un-truncated), so
+    // the notify must clip it and mark the clip with an ellipsis.
+    const longReason = "R".repeat(600);
+    emitComplete(bus, agentRunId, `stuck here <<TASK_BLOCKED: ${longReason}>>`);
+
+    // Blocked terminates as completed (success), with a long preview.
+    expect(assignment.status).toBe("completed");
+    expect(assignment.resultPreview!.length).toBeGreaterThan(400);
+
+    const [content] = drainConvParent();
+    expect(content).toBeDefined();
+    expect(content).toContain('Background agent "alice" finished (success)');
+    expect(content).toContain("…"); // the clip marker
+    // Bounded: 400-char preview + framing, still well under any limit.
+    expect(content!.length).toBeLessThan(600);
+    expect(hasPending("conv-parent")).toBe(false);
+  });
+
+  test("WITHOUT notifyParentOnTerminal → agent:complete still fires but NO pending message is enqueued", async () => {
+    expect(hasPending("conv-parent")).toBe(false);
+    const { executor } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const assignment = makeAssignment();
+    const events: AgentCompleteEvt[] = [];
+    bus.on("agent:complete", (d) => events.push(d as AgentCompleteEvt));
+
+    const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-nfy4" });
+    const { agentRunId } = await startAssignment(opts);
+
+    emitComplete(bus, agentRunId, "done, no notify");
+
+    expect(events).toHaveLength(1); // agent:complete still emitted
+    expect(hasPending("conv-parent")).toBe(false); // but no parent nudge
   });
 });

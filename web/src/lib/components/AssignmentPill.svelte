@@ -97,6 +97,18 @@
 		<span class="tabular-nums text-[var(--color-text-muted)]">{elapsed}</span>
 	{/if}
 
+	<!-- Schema-failure chip: the assignment completed but its structured
+	     output never validated against the requested schema. Status stays
+	     "completed" (the run DID finish), so without this the pill reads as a
+	     plain green success — the amber chip makes the mismatch visible. -->
+	{#if assignment.status === "completed" && assignment.schemaFailed}
+		<span
+			class="rounded-full bg-amber-400/15 px-1 text-amber-400"
+			title="Completed, but the final output did not match the requested schema"
+			data-testid="assignment-schema-failed"
+		>schema</span>
+	{/if}
+
 	<!-- Autonomous self-continuation cycle counter (opt-in; visible so
 	     the loop is observable — Stop on a running pill halts it). -->
 	{#if assignment.status === "running" && assignment.autonomousCycle}

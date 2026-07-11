@@ -23,9 +23,13 @@ import type { AgentExecutor } from "./executor";
 import type { EventBus } from "./events";
 import type { AgentEvents, TeamMemberOverrides, TeamToolScope } from "../types";
 import { CURRENT_MODEL_SENTINEL } from "../types";
-import { createSubConversation, getSubConversations } from "../db/queries/conversations";
+import {
+  createSubConversation,
+  getSubConversations,
+  resolveConversationOwnerUserId,
+} from "../db/queries/conversations";
 import { getSetting } from "../db/queries/settings";
-import { dequeue } from "./pending-messages";
+import { dequeue, enqueue } from "./pending-messages";
 import {
   TASK_DONE_RE,
   TASK_BLOCKED_RE,
@@ -33,6 +37,11 @@ import {
   TASK_BLOCKED_RE_G,
 } from "./sentinels";
 import { logger } from "../logger";
+import {
+  validateStructuredOutput,
+  buildSchemaInstruction,
+  buildSchemaCorrection,
+} from "./structured-output";
 import type {
   TaskAssignment,
   TaskSnapshot,
@@ -49,6 +58,36 @@ const log = logger.child("start-assignment");
 // output sentinel; the cycle cap is the hard backstop if it never does.
 
 const DEFAULT_MAX_AUTONOMOUS_CYCLES = 8;
+
+/**
+ * Bounded structured-output re-prompt budget. When an `outputSchema` is
+ * set and the child's final output fails validation, the child is
+ * re-prompted with the violations at most this many times before the run
+ * terminates with a `structuredResultError`.
+ */
+const MAX_SCHEMA_RETRIES = 2;
+
+/**
+ * Cap for the FULL sub-agent result returned to the orchestrator LLM
+ * (Wave 1 — replaces the 200-char preview as the orchestrator's input).
+ * 30KB (~7-8k tokens) is generous for a worker's final message while
+ * bounding the bus/SSE payload and the parent's context growth; longer
+ * outputs are truncated with an explicit marker so the orchestrator
+ * knows to fetch the sub-conversation for the remainder.
+ */
+export const ASSIGNMENT_RESULT_FULL_CAP = 30_000;
+
+/** Cap a full result to {@link ASSIGNMENT_RESULT_FULL_CAP}, appending a
+ *  visible truncation marker when clipped. Empty input → undefined so a
+ *  no-output run omits the field entirely. */
+export function capFullResult(text: string): string | undefined {
+  if (!text) return undefined;
+  if (text.length <= ASSIGNMENT_RESULT_FULL_CAP) return text;
+  return (
+    text.slice(0, ASSIGNMENT_RESULT_FULL_CAP) +
+    `\n\n[... truncated ${text.length - ASSIGNMENT_RESULT_FULL_CAP} more characters — open the sub-conversation for the full output]`
+  );
+}
 
 const CONTINUATION_PROMPT =
   "Continue working toward the Pinned Objective in your system prompt. " +
@@ -120,12 +159,65 @@ export interface StartAssignmentOpts {
   teamToolScope?: TeamToolScope;
   /** Orchestration depth forwarded to `streamChat.options.orchestrationDepth`. */
   orchestrationDepth?: number;
+  /** Parent orchestrator run id. When set, EVERY run this assignment
+   *  starts (the initial task run AND each auto-continue / autonomous
+   *  cycle) is registered on the executor as a child of this run, so a
+   *  cancel of the parent cascades down and stops the sub-agent. */
+  parentRunId?: string;
   /** Opt-in autonomous self-continuation. When set, a finished run with
    *  no pending user message and no done/blocked sentinel re-prompts the
    *  sub-agent toward the pinned objective until it signals completion
    *  or `maxCycles` is reached. Default OFF; default `maxCycles` is
    *  {@link DEFAULT_MAX_AUTONOMOUS_CYCLES}. */
   autonomousContinuation?: { maxCycles?: number };
+  /** Called at each cycle boundary (auto-continue AND autonomous), AFTER the
+   *  new cycle's run is confirmed to start, with `(oldRunId, newRunId)`. The
+   *  spawn-assignment handler uses it to re-key its spawn-quota reservation
+   *  onto the live cycle run so the concurrent slot follows the running child
+   *  and `ezcorp/cancel-run` can still cancel it. Not called for the initial
+   *  run (the handler reserves/​swaps that itself post-dispatch), nor when a
+   *  cycle is refused because the parent already ended. */
+  onCycleRunIdChange?: (oldRunId: string, newRunId: string) => void;
+  /** Optional JSON Schema (object) the sub-agent's FINAL output must
+   *  satisfy (Phase B1). When set, startAssignment appends an explicit
+   *  output-format instruction to the child's first message, validates
+   *  the child's final text host-side against the documented JSON-Schema
+   *  subset (`structured-output.ts`), and re-prompts the SAME
+   *  sub-conversation (bounded, {@link MAX_SCHEMA_RETRIES}) with the
+   *  violations on failure. The terminal `task:assignment_update` carries
+   *  `structuredResult` (parsed object) on success, or `structuredResultError`
+   *  (violation summary) when the retry budget is exhausted — the child
+   *  still completes either way. If both `autonomousContinuation` and
+   *  `outputSchema` are set, autonomous looping runs first and the schema
+   *  validates the FINAL cycle's output. */
+  outputSchema?: Record<string, unknown>;
+  /** Background-spawn completion notify (Phase B2). Set by the
+   *  orchestration extension's `background: true` invoke path. When true,
+   *  EVERY terminal transition (complete / error / cancel / refused-start /
+   *  stream-crash) additionally enqueues a plain, capped completion-notify
+   *  pending message onto the PARENT conversation (`conversationId`) so an
+   *  orchestrator that dispatched this child without blocking can react on
+   *  its next turn. `agent:complete` is emitted on the terminal transition
+   *  regardless of this flag (it is the immediate UI / observability / ext-
+   *  subscription signal); this flag ONLY gates the parent-queue nudge.
+   *
+   *  Drain semantics — WHICH parents actually get the queued nudge delivered
+   *  to their LLM (be precise; do NOT over-promise):
+   *    • PARENT IS ITSELF A SUB-AGENT (nested teams): delivered. Its own
+   *      `startAssignment` run:complete drains `dequeue(conversationId)` and
+   *      auto-continues the orchestrator with the notify text.
+   *    • PARENT IS A GOAL-HOST conversation: delivered — the goal loop drains
+   *      it (as a supersede signal) on its next evaluated turn.
+   *    • PARENT IS A TOP-LEVEL user chat: NOT delivered in-conversation. Nothing
+   *      drains a plain chat's pending-messages queue (the main chat + agent-
+   *      chat idle paths do NOT dequeue). The message sits until such a drainer
+   *      runs, which for a plain chat never happens — so `collect_agent_result`
+   *      is the ONLY reliable path for a top-level orchestrator, and the tool's
+   *      returned text says so. `agent:complete` (emitted regardless of this
+   *      flag) still drives the UI chip + observability + ext subscriptions in
+   *      every case. The enqueue is kept because it's free and correct for the
+   *      nested/goal-host cases; it is simply a no-op for top-level chats. */
+  notifyParentOnTerminal?: boolean;
 }
 
 export interface StartAssignmentResult {
@@ -149,8 +241,18 @@ function emitAssignmentUpdate(
   conversationId: string,
   taskId: string,
   assignment: TaskAssignment,
+  resultFull?: string,
+  structured?: { result?: unknown; error?: string; overCap?: boolean },
 ): void {
-  bus.emit("task:assignment_update", { conversationId, taskId, assignment });
+  bus.emit("task:assignment_update", {
+    conversationId,
+    taskId,
+    assignment,
+    ...(resultFull !== undefined ? { resultFull } : {}),
+    ...(structured?.result !== undefined ? { structuredResult: structured.result } : {}),
+    ...(structured?.error !== undefined ? { structuredResultError: structured.error } : {}),
+    ...(structured?.overCap ? { structuredResultOverCap: true } : {}),
+  });
 }
 
 /**
@@ -172,7 +274,8 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     executor, bus, conversationId, taskId, assignment, task, snapshot,
     projectId, agentConfig, parentModel, parentProvider,
     reuseSubConversationId, parentMessageId, overrides, teamToolScope,
-    orchestrationDepth, autonomousContinuation,
+    orchestrationDepth, autonomousContinuation, parentRunId,
+    onCycleRunIdChange, outputSchema, notifyParentOnTerminal,
   } = opts;
 
   // Master kill-switch (Advanced Settings → "Agent goal pinning &
@@ -188,6 +291,16 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
   const maxAutoCycles =
     autonomousContinuation?.maxCycles ?? DEFAULT_MAX_AUTONOMOUS_CYCLES;
   let autoCycle = 0;
+  // Structured-output re-prompt state (Phase B1). Independent of the
+  // autonomy kill-switch: schema validation is its own feature.
+  let schemaRetries = 0;
+  // Set while a schema-correction cycle is in flight. A correction run's
+  // response carries no `<<TASK_DONE>>` sentinel, so without this flag the
+  // autonomous branch (2) would treat it as "still working" and fire a
+  // CONTINUATION — swallowing the corrected JSON and sending a conflicting
+  // prompt. While set, branch (2) is skipped and the correction run's
+  // completion goes straight to schema validation, which clears the flag.
+  let schemaRepromptInFlight = false;
 
   // Reuse an existing sub-conversation for this agent, or create one.
   // If the caller pre-resolved a reuse id, honor it verbatim and skip the
@@ -203,11 +316,18 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     if (existingAgentConv) {
       subConversationId = existingAgentConv.id;
     } else {
+      // Wave 0: persist the owning user on the sub-conversation so
+      // conversation-scoped authorization (SSE filter, /api/runs
+      // ownership) works without walking the parent chain. Inherited
+      // from the nearest ancestor with an owner; legacy null-owner
+      // rows are covered by the filter's parent walk.
+      const ownerUserId = await resolveConversationOwnerUserId(conversationId);
       const subConv = await createSubConversation(projectId, {
         parentConversationId: conversationId,
         agentConfigId: assignment.agentConfigId,
         systemPrompt: agentConfig.prompt,
         title: agentConfig.name,
+        ...(ownerUserId ? { userId: ownerUserId } : {}),
         ...(parentMessageId ? { parentMessageId } : {}),
       });
       subConversationId = subConv.id;
@@ -260,8 +380,12 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
   const objectiveBlock =
     `## Pinned Objective\n${taskBody}\n\n` +
     `Stay focused on this objective for the duration of this assignment.`;
+  // Structured-output instruction rides ONLY on the first message. When
+  // no outputSchema is set this appends the empty string, so the prompt is
+  // byte-identical to the legacy behavior.
   const taskDescription =
-    `## Your Task\n${taskBody}\n\n## Full Plan Context\nThis task is part of a larger plan. Here are all tasks:\n${planContext}\n\nFocus on completing YOUR task. If you need information from other tasks, note it in your output.\n\nIMPORTANT: Do NOT call task_complete, task_fail, or task_plan in this run. Your parent conversation tracks your completion automatically when this run ends — calling those tools here only writes to your own (empty) sub-conversation storage and wastes turns. Just finish the work and stop.`;
+    `## Your Task\n${taskBody}\n\n## Full Plan Context\nThis task is part of a larger plan. Here are all tasks:\n${planContext}\n\nFocus on completing YOUR task. If you need information from other tasks, note it in your output.\n\nIMPORTANT: Do NOT call task_complete, task_fail, or task_plan in this run. Your parent conversation tracks your completion automatically when this run ends — calling those tools here only writes to your own (empty) sub-conversation storage and wastes turns. Just finish the work and stop.` +
+    (outputSchema ? buildSchemaInstruction(outputSchema) : "");
 
   const resolveSentinel = (value: string | undefined | null, fallback: string | undefined): string | undefined =>
     value === CURRENT_MODEL_SENTINEL ? fallback : value ?? undefined;
@@ -280,13 +404,120 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     return autonomyFeatureEnabled ? `${base}\n\n${objectiveBlock}` : base;
   };
 
+  // ── Terminal notify + agent:complete (Phase B2) ──────────────────
+  //
+  // Called from EVERY terminal branch inside startRun with the LIVE cycle
+  // run id (`cycleRunId`) — auto-continue / autonomous / schema-retry cycles
+  // each start a fresh run, and the cascade-cancel + observability trails key
+  // on the run that actually authored the terminal turn.
+  //
+  // (1) Emits the `agent:complete` bus event for ALL assignments. This closes
+  //     the historical gap where the invoke_agent → startAssignment path only
+  //     ever emitted `agent:spawn` + `task:assignment_update` and NEVER
+  //     `agent:complete`, so the SSE chip refresh / observability agent_call
+  //     rows / extension lifecycle subscriptions never saw the terminal. The
+  //     event is already a `parentConversationId`-scoped direct carrier in
+  //     `sse-conversation-filter.ts` and is consumed by `observability/
+  //     collector.ts` + `lifecycle-dispatcher.ts` — this is purely the missing
+  //     emit.
+  //     F6 CALLOUT (intended behavior change): `agent:complete` now ALSO fires
+  //     for SYNCHRONOUS invoke_agent (and team/task-panel spawns), not just the
+  //     agent-chat idle path. So `observability/collector.ts` writes an
+  //     agent_call/agent_error row per sync sub-agent, and any
+  //     `lifecycle-dispatcher` `agent:complete` subscriber now receives these
+  //     events. This is the deliberate gap-fill — consumers should expect the
+  //     new events (they were previously emitted only from the agent-chat route).
+  // (2) For a background spawn (`notifyParentOnTerminal`), ALSO enqueues a
+  //     plain, capped completion-notify pending message onto the PARENT
+  //     conversation so an orchestrator that dispatched this child without
+  //     blocking can react on its next turn (drain semantics: see
+  //     StartAssignmentOpts.notifyParentOnTerminal). The text carries no
+  //     secrets (only the already-sanitized 200-char preview) and is capped.
+  const NOTIFY_PREVIEW_CAP = 400;
+  function emitTerminal(
+    cycleRunId: string,
+    success: boolean,
+    resultPreview: string,
+  ): void {
+    bus.emit("agent:complete", {
+      runId: cycleRunId,
+      agentRunId: cycleRunId,
+      subConversationId,
+      agentName: agentConfig.name,
+      agentConfigId: assignment.agentConfigId,
+      success,
+      resultPreview,
+      parentConversationId: conversationId,
+    });
+    if (!notifyParentOnTerminal) return;
+    const clipped =
+      resultPreview.length > NOTIFY_PREVIEW_CAP
+        ? resultPreview.slice(0, NOTIFY_PREVIEW_CAP) + "…"
+        : resultPreview;
+    const status = success ? "success" : "failure";
+    const content =
+      `Background agent "${agentConfig.name}" finished (${status})` +
+      (clipped ? `: ${clipped}` : "") +
+      ". Use collect_agent_result for the full output.";
+    enqueue(conversationId, {
+      messageId: crypto.randomUUID(),
+      content,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
   /**
    * Start a run and register lifecycle listeners. Called for the
    * initial task and recursively for auto-continue when the user
    * injects messages via the agent-chat endpoint while the agent is
    * running.
    */
-  function startRun(runId: string, message: string, runParentMessageId?: string) {
+  function startRun(
+    runId: string,
+    message: string,
+    runParentMessageId?: string,
+    previousRunId?: string,
+  ) {
+    // Link this run to the parent orchestrator BEFORE it streams, so a
+    // cancel racing the spawn still cascades. Done inside startRun (not
+    // once outside) because auto-continue + autonomous cycles call startRun
+    // again with a NEW run id — each cycle's run must be registered or a
+    // mid-cycle cancel would orphan the live child.
+    //
+    // registerChildRun returns false when the parent is already terminal:
+    // startAssignment awaits several DB reads before reaching here, so a
+    // user's Stop can kill the orchestrator inside that window — its cancel
+    // cascade snapshot saw no child, and starting one now would stream
+    // ownerless with nobody to consume the result. Fail the assignment
+    // instead of starting dead work; the terminal assignment_update also
+    // releases the parent's (already-rejected) invoke_agent gate cleanly.
+    if (parentRunId && !executor.registerChildRun(parentRunId, runId)) {
+      assignment.status = "failed";
+      assignment.failedAt = new Date().toISOString();
+      assignment.resultPreview = "Parent run ended before this agent could start";
+      emitTaskSnapshot(bus, snapshot);
+      emitAssignmentUpdate(
+        bus, conversationId, taskId, assignment,
+        "Parent run ended before this agent could start — child was not started.",
+      );
+      emitTerminal(runId, false, "Parent run ended before this agent could start");
+      log.info("Refused to start child of terminal parent run", {
+        conversationId, taskId, parentRunId, runId,
+      });
+      return;
+    }
+
+    // Cycle continuation: this run replaces `previousRunId` (a new id minted
+    // for an auto-continue or autonomous cycle). Re-key the caller's
+    // spawn-quota reservation onto this live run so the concurrent slot
+    // follows the running child and `ezcorp/cancel-run` can still cancel it.
+    // Done AFTER the registerChildRun success gate so a cycle refused because
+    // the parent already ended never leaks a reservation; the initial run
+    // (previousRunId undefined) is reserved/​swapped by the handler itself.
+    if (previousRunId !== undefined) {
+      onCycleRunIdChange?.(previousRunId, runId);
+    }
+
     const streamPromise = executor.streamChat(subConversationId, message, {
       projectId,
       agentConfigId: assignment.agentConfigId,
@@ -320,9 +551,17 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       cleanup();
 
       // (1) User steering always wins: a queued user message re-prompts
-      // the sub-agent verbatim, regardless of autonomous mode.
+      // the sub-agent verbatim, regardless of autonomous mode. A user
+      // message also ABANDONS any in-flight schema correction (the
+      // correction run's output is discarded here anyway), so the flag
+      // is cleared and the user-driven run gets normal autonomous
+      // semantics — branch (2.5) still validates at the natural terminal
+      // point. This cannot reintroduce the correction-swallow bug: that
+      // bug is about protecting an ISSUED correction response, which the
+      // user message replaces entirely.
       const pending = dequeue(subConversationId);
       if (pending) {
+        schemaRepromptInFlight = false;
         const newRunId = crypto.randomUUID();
         assignment.agentRunId = newRunId;
         emitTaskSnapshot(bus, snapshot);
@@ -334,7 +573,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
           task: pending.content, parentConversationId: conversationId,
         });
 
-        startRun(newRunId, pending.content, pending.messageId);
+        startRun(newRunId, pending.content, pending.messageId, runId);
         log.info("Auto-continue with pending message", {
           conversationId, taskId, newRunId,
         });
@@ -348,8 +587,11 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       // a stopped/cancelled run never re-loops. The objective is
       // re-pinned each cycle via resolveSystem(), so CONTINUATION_PROMPT
       // stays terse.
+      // `!schemaRepromptInFlight` gates out the corrected-JSON run: it has
+      // no sentinel, so branch (2) would otherwise re-absorb it as a
+      // continuation and discard the correction (see schemaRepromptInFlight).
       let autonomousNote: string | undefined;
-      if (autonomousEnabled && assignment.status === "running") {
+      if (autonomousEnabled && assignment.status === "running" && !schemaRepromptInFlight) {
         const signal = detectDoneSignal(
           extractFullText(data.run.result?.output),
         );
@@ -368,7 +610,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
             task: CONTINUATION_PROMPT, parentConversationId: conversationId,
           });
 
-          startRun(newRunId, CONTINUATION_PROMPT);
+          startRun(newRunId, CONTINUATION_PROMPT, undefined, runId);
           log.info("Autonomous continuation", {
             conversationId, taskId, newRunId,
             cycle: autoCycle, maxCycles: maxAutoCycles,
@@ -386,6 +628,68 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
         // signal.kind === "done" → no note; normal completion below.
       }
 
+      // (2.5) Structured-output validation + bounded re-prompt (Phase B1).
+      // Runs only when the run would otherwise terminally complete — i.e.
+      // AFTER autonomous sentinel handling (a schema child's autonomous
+      // loop, if any, has already stopped here). On a validation failure
+      // the SAME sub-conversation is re-prompted with the violations, up to
+      // MAX_SCHEMA_RETRIES times, reusing the exact cycle mechanics
+      // (parentRunId registration + onCycleRunIdChange quota re-key) as an
+      // autonomous cycle. A valid parse rides the terminal update as
+      // `structuredResult`; an exhausted budget as `structuredResultError`
+      // (the child still completes — success is unchanged).
+      let structuredResult: unknown | undefined;
+      let structuredResultError: string | undefined;
+      let structuredResultOverCap = false;
+      if (outputSchema && assignment.status === "running") {
+        // This completion consumed any in-flight correction — clear the
+        // gate before deciding the next step (a fresh correction re-arms it).
+        schemaRepromptInFlight = false;
+        const finalText = stripSignals(extractFullText(data.run.result?.output));
+        const outcome = validateStructuredOutput(outputSchema, finalText);
+        if (outcome.ok) {
+          // Cap parity with resultFull: the parsed object rides the bus and
+          // is echoed to the orchestrator, so bound it by the same 30KB cap.
+          // Over-cap validated output is NOT attached; the (capped)
+          // resultFull carries the salvage instead. `overCap` marks this as
+          // a VALIDATED-but-oversized result (not a schema failure) so the
+          // extension frames it honestly rather than as a violation.
+          if (JSON.stringify(outcome.value).length > ASSIGNMENT_RESULT_FULL_CAP) {
+            structuredResultOverCap = true;
+            structuredResultError =
+              "result validated against the schema but exceeds the 30KB structured cap; the (capped) raw output carries the result";
+          } else {
+            structuredResult = outcome.value;
+          }
+        } else if (schemaRetries < MAX_SCHEMA_RETRIES) {
+          schemaRetries++;
+          // Re-arm the gate so branch (2) skips the sentinel-less correction run.
+          schemaRepromptInFlight = true;
+          const correction = buildSchemaCorrection(outputSchema, outcome.summary, {
+            autonomous: autonomousEnabled,
+          });
+          const newRunId = crypto.randomUUID();
+          assignment.agentRunId = newRunId;
+          emitTaskSnapshot(bus, snapshot);
+          emitAssignmentUpdate(bus, conversationId, taskId, assignment);
+
+          bus.emit("agent:spawn", {
+            runId: newRunId, agentRunId: newRunId, subConversationId,
+            agentName: agentConfig.name, agentConfigId: assignment.agentConfigId,
+            task: correction, parentConversationId: conversationId,
+          });
+
+          startRun(newRunId, correction, undefined, runId);
+          log.info("Structured-output re-prompt", {
+            conversationId, taskId, newRunId,
+            retry: schemaRetries, maxRetries: MAX_SCHEMA_RETRIES,
+          });
+          return;
+        } else {
+          structuredResultError = outcome.summary;
+        }
+      }
+
       // (3) Terminal completion. stripSignals keeps the preview clean;
       // for non-autonomous runs the output never carries a sentinel so
       // this branch is byte-for-byte the legacy behavior.
@@ -396,17 +700,38 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       const previewable =
         typeof rawOutput === "string" ||
         (!!rawOutput && typeof rawOutput === "object" && "fullText" in rawOutput);
+      // Full result carried to the orchestrator LLM (Wave 1). The panel
+      // still shows the 200-char preview; `resultFull` rides the
+      // assignment_update event only and feeds the invoke_agent return.
+      let resultFull: string | undefined;
       if (previewable || autonomousNote) {
         const cleaned = stripSignals(extractFullText(rawOutput));
         let preview = cleaned.length > 200 ? cleaned.slice(0, 200) + "..." : cleaned;
+        let full = cleaned;
         if (autonomousNote) {
           preview = preview ? `${autonomousNote} ${preview}` : autonomousNote;
+          full = full ? `${autonomousNote} ${full}` : autonomousNote;
         }
         assignment.resultPreview = preview;
+        resultFull = capFullResult(full);
+      }
+
+      // Structured-output payload (Phase B1) rides the terminal update
+      // alongside resultFull: a validated object as `structuredResult`, or
+      // an exhausted-retry violation summary as `structuredResultError`
+      // (with `overCap` marking the validated-but-oversized case).
+      let structuredArg: { result?: unknown; error?: string; overCap?: boolean } | undefined;
+      if (structuredResult !== undefined) {
+        structuredArg = { result: structuredResult };
+      } else if (structuredResultError !== undefined) {
+        structuredArg = { error: structuredResultError, overCap: structuredResultOverCap };
       }
 
       emitTaskSnapshot(bus, snapshot);
-      emitAssignmentUpdate(bus, conversationId, taskId, assignment);
+      emitAssignmentUpdate(
+        bus, conversationId, taskId, assignment, resultFull, structuredArg,
+      );
+      emitTerminal(runId, true, assignment.resultPreview ?? "");
     });
 
     unsubError = bus.on("run:error", (data) => {
@@ -419,7 +744,10 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       assignment.resultPreview = errorMsg.slice(0, 200);
 
       emitTaskSnapshot(bus, snapshot);
-      emitAssignmentUpdate(bus, conversationId, taskId, assignment);
+      // Return the full error to the orchestrator so it can diagnose and
+      // retry/route, not just the truncated panel preview.
+      emitAssignmentUpdate(bus, conversationId, taskId, assignment, capFullResult(errorMsg));
+      emitTerminal(runId, false, assignment.resultPreview ?? "");
     });
 
     // Cancellation lifecycle. `executor.cancelRun` AND streamChat's own
@@ -446,7 +774,8 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       assignment.resultPreview = "Run was cancelled";
 
       emitTaskSnapshot(bus, snapshot);
-      emitAssignmentUpdate(bus, conversationId, taskId, assignment);
+      emitAssignmentUpdate(bus, conversationId, taskId, assignment, "Run was cancelled");
+      emitTerminal(runId, false, "Run was cancelled");
     });
 
     streamPromise.catch((err) => {
@@ -456,7 +785,8 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       assignment.failedAt = new Date().toISOString();
       assignment.resultPreview = errorMsg.slice(0, 200);
       emitTaskSnapshot(bus, snapshot);
-      emitAssignmentUpdate(bus, conversationId, taskId, assignment);
+      emitAssignmentUpdate(bus, conversationId, taskId, assignment, capFullResult(errorMsg));
+      emitTerminal(runId, false, assignment.resultPreview ?? "");
     });
   }
 

@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
-import { spawnAssignment } from "../src/runtime/spawn";
+import { spawnAssignment, queueAgentMessage } from "../src/runtime/spawn";
 import {
   __resetChannelForTests,
   getChannel,
@@ -137,6 +137,7 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
     expect(params).not.toHaveProperty("teamToolScope");
     expect(params).not.toHaveProperty("orchestrationDepth");
     expect(params).not.toHaveProperty("autonomousContinuation");
+    expect(params).not.toHaveProperty("notifyParentOnTerminal");
   });
 
   test("reuseSubConversationFor: echoed verbatim", async () => {
@@ -228,6 +229,22 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
     );
   });
 
+  test("parentRunId: echoed verbatim when provided", async () => {
+    const { calls } = happy();
+    await spawnAssignment({
+      agentConfigId: "cfg-1",
+      task: "t",
+      parentRunId: "orch-run-9",
+    });
+    expect((calls[0]?.params as Record<string, unknown>).parentRunId).toBe("orch-run-9");
+  });
+
+  test("parentRunId: omitted when absent (no key on the wire)", async () => {
+    const { calls } = happy();
+    await spawnAssignment({ agentConfigId: "cfg-1", task: "t" });
+    expect(calls[0]?.params as Record<string, unknown>).not.toHaveProperty("parentRunId");
+  });
+
   test("autonomousContinuation: { maxCycles } echoed verbatim", async () => {
     const { calls } = happy();
     await spawnAssignment({
@@ -250,6 +267,45 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
     expect(
       (calls[0]?.params as Record<string, unknown>).autonomousContinuation,
     ).toEqual({});
+  });
+
+  test("outputSchema: echoed verbatim when provided", async () => {
+    const { calls } = happy();
+    const outputSchema = {
+      type: "object",
+      properties: { verdict: { type: "string", enum: ["pass", "fail"] } },
+      required: ["verdict"],
+    };
+    await spawnAssignment({
+      agentConfigId: "cfg-1",
+      task: "t",
+      outputSchema,
+    });
+    expect((calls[0]?.params as Record<string, unknown>).outputSchema).toEqual(outputSchema);
+  });
+
+  test("outputSchema: omitted when absent (no key on the wire)", async () => {
+    const { calls } = happy();
+    await spawnAssignment({ agentConfigId: "cfg-1", task: "t" });
+    expect(calls[0]?.params as Record<string, unknown>).not.toHaveProperty("outputSchema");
+  });
+
+  test("notifyParentOnTerminal: sent as true when set (background spawn)", async () => {
+    const { calls } = happy();
+    await spawnAssignment({
+      agentConfigId: "cfg-1",
+      task: "t",
+      notifyParentOnTerminal: true,
+    });
+    expect((calls[0]?.params as Record<string, unknown>).notifyParentOnTerminal).toBe(true);
+  });
+
+  test("notifyParentOnTerminal: omitted when absent or false (no key on the wire)", async () => {
+    const { calls } = happy();
+    await spawnAssignment({ agentConfigId: "cfg-1", task: "t" });
+    expect(calls[0]?.params as Record<string, unknown>).not.toHaveProperty("notifyParentOnTerminal");
+    await spawnAssignment({ agentConfigId: "cfg-1", task: "t", notifyParentOnTerminal: false });
+    expect(calls[1]?.params as Record<string, unknown>).not.toHaveProperty("notifyParentOnTerminal");
   });
 
   test("all 5 Phase 4 fields together — each sits at its own key", async () => {
@@ -373,5 +429,68 @@ describe("spawnAssignment — host error propagation", () => {
       expect(err).toBeInstanceOf(JsonRpcError);
       expect((err as JsonRpcError).code).toBe(-32001);
     }
+  });
+});
+
+// ── queueAgentMessage (Phase B3 — send_to_agent steering) ───────────
+
+describe("queueAgentMessage — JSON-RPC frame shape + result mapping", () => {
+  test("sends 'ezcorp/queue-agent-message' with v:1, subConversationId, message; maps queued:true", async () => {
+    const { calls } = stubRequest({ v: 1 as const, queued: true });
+    const res = await queueAgentMessage("sub-9", "please also check X");
+    expect(res).toEqual({ queued: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.method).toBe("ezcorp/queue-agent-message");
+    expect(calls[0]?.params).toEqual({
+      v: 1,
+      subConversationId: "sub-9",
+      message: "please also check X",
+    });
+  });
+
+  test("passes through a not-found reason (queued:false)", async () => {
+    stubRequest({ v: 1 as const, queued: false, reason: "not-found" as const });
+    const res = await queueAgentMessage("sub-foreign", "hi");
+    expect(res).toEqual({ queued: false, reason: "not-found" });
+  });
+
+  test("passes through a not-running reason (queued:false)", async () => {
+    stubRequest({ v: 1 as const, queued: false, reason: "not-running" as const });
+    const res = await queueAgentMessage("sub-idle", "hi");
+    expect(res).toEqual({ queued: false, reason: "not-running" });
+  });
+
+  test("omits reason key when host returns none", async () => {
+    stubRequest({ v: 1 as const, queued: true });
+    const res = await queueAgentMessage("sub-9", "hi");
+    expect(res).not.toHaveProperty("reason");
+  });
+
+  test("empty subConversationId → throws before channel call", async () => {
+    const { calls } = stubRequest({ v: 1 as const, queued: true });
+    await expect(queueAgentMessage("", "hi")).rejects.toThrow(/non-empty string/i);
+    await expect(queueAgentMessage("   ", "hi")).rejects.toThrow(/non-empty string/i);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("empty / non-string message → throws before channel call", async () => {
+    const { calls } = stubRequest({ v: 1 as const, queued: true });
+    await expect(queueAgentMessage("sub-9", "")).rejects.toThrow(/non-empty string/i);
+    await expect(queueAgentMessage("sub-9", "  \n\t")).rejects.toThrow(/non-empty string/i);
+    await expect(
+      queueAgentMessage("sub-9", 42 as unknown as string),
+    ).rejects.toThrow(/non-empty string/i);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("host permission error propagates as JsonRpcError", async () => {
+    const ch = getChannel();
+    const spy = spyOn(ch, "request");
+    spy.mockImplementation(
+      (async () => {
+        throw new JsonRpcError(-32001, "spawnAgents permission not granted");
+      }) as HostChannel["request"],
+    );
+    await expect(queueAgentMessage("sub-9", "hi")).rejects.toBeInstanceOf(JsonRpcError);
   });
 });

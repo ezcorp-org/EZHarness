@@ -3,6 +3,7 @@ import type { EventBus } from "./events";
 import type { Agent } from "@earendil-works/pi-agent-core";
 import * as activeRunsDb from "../db/queries/active-runs";
 import * as dbRuns from "../db/queries/runs";
+import { reconcileInterruptedAssignments } from "./boot-reconcile-assignments";
 import { logger } from "../logger";
 
 const log = logger.child("executor.watchdog");
@@ -183,6 +184,14 @@ export class WatchdogManager {
     // kill that skipped finalizeCleanup — no manual DB surgery needed.
     dbRuns.terminalizeOrphanedRuns().then((count) => {
       if (count > 0) log.info("Terminalized orphaned runs rows from previous process", { count });
+      // C2: reconcile task-tracking assignments a restart left `running`.
+      // Runs AFTER terminalization so each dangling assignment's run row is
+      // already terminal. Fire-and-forget + self-catching so a slow/failing
+      // reconcile never delays or fails boot. Full resume is a deliberate
+      // v1 non-goal — see boot-reconcile-assignments.ts.
+      void reconcileInterruptedAssignments(this.host.bus).catch((err) => {
+        log.error("assignment reconciliation on startup failed", { error: String(err) });
+      });
     }).catch((err) => {
       log.error("terminalizeOrphanedRuns on startup failed", { error: String(err) });
     });
@@ -442,6 +451,22 @@ export class WatchdogManager {
         const controller = this.host.controllers.get(runId);
         if (controller && !controller.signal.aborted) controller.abort();
         this.host.activeAgents.get(runId)?.abort();
+        // Reap the in-memory maps NOW. The watchdog exists precisely
+        // because the suspended `streamChat` await is wedged — its
+        // `finally → finalizeCleanup` (the normal deleter of these maps)
+        // may NEVER run, leaking controllers/activeAgents/runConversations
+        // plus this watchdog's per-run timer + activity state for the
+        // process lifetime. finalizeCleanup is idempotent (Map.delete
+        // no-ops on miss) so a late unblock that DOES reach it is
+        // unaffected. We deliberately DO NOT release the shared
+        // `errorMessagePersisted` slot here: it's the guard that stops a
+        // late `finalizeError` from persisting a SECOND error bubble, so
+        // it outlives this teardown (finalizeCleanup's clearRun releases
+        // it on the healthy path).
+        this.host.controllers.delete(runId);
+        this.host.activeAgents.delete(runId);
+        this.host.runConversations.delete(runId);
+        this.clearRunTimers(runId);
         return;
       }
       // Still making progress — refresh heartbeat + partial response at the throttled cadence.
@@ -466,6 +491,26 @@ export class WatchdogManager {
    * Called from the finally block of the streaming code path.
    */
   clearRun(runId: string): void {
+    this.clearRunTimers(runId);
+    // Release the shared error-persist slot so the set doesn't grow
+    // unbounded and a future run reusing this id starts clean. Safe:
+    // clearRun runs from `finalizeCleanup` (run teardown) AFTER any
+    // finalize path's persist decision has been made. Optional-chained
+    // so minimal test harnesses that omit the (production-required)
+    // shared set don't NPE on teardown. NOT released by the watchdog
+    // trip's `clearRunTimers` call — see the trip branch comment.
+    this.host.errorMessagePersisted?.delete(runId);
+  }
+
+  /**
+   * Tear down the per-run TIMER + activity state (heartbeat interval,
+   * activity clocks, in-flight tools, persistError closure) WITHOUT
+   * releasing the shared `errorMessagePersisted` slot. Shared by the
+   * normal `clearRun` teardown and the watchdog trip branch — the trip
+   * must keep the error-persist slot alive so a late `finalizeError`
+   * doesn't double-persist.
+   */
+  private clearRunTimers(runId: string): void {
     const hb = this.heartbeats.get(runId);
     if (hb) {
       clearInterval(hb);
@@ -475,13 +520,6 @@ export class WatchdogManager {
     this.lastHeartbeatWriteAt.delete(runId);
     this.inflightTools.delete(runId);
     this.persistError.delete(runId);
-    // Release the shared error-persist slot so the set doesn't grow
-    // unbounded and a future run reusing this id starts clean. Safe:
-    // clearRun runs from `finalizeCleanup` (run teardown) AFTER any
-    // finalize path's persist decision has been made. Optional-chained
-    // so minimal test harnesses that omit the (production-required)
-    // shared set don't NPE on teardown.
-    this.host.errorMessagePersisted?.delete(runId);
   }
 
   /**

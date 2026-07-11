@@ -475,15 +475,22 @@ describe("Watchdog tool:error fan-out on kill (AC3)", () => {
     expect(runErrorData.error).toMatch(/exceeded.*call timeout/i);
   });
 
-  test("aborts the in-flight controller after kill so awaiters unblock", async () => {
+  test("aborts the in-flight controller after kill so awaiters unblock, then reaps the map entry", async () => {
     const h = makeHarness();
     startRun(h);
+    // Capture the controller reference BEFORE the trip: the map-hygiene
+    // trip branch now deletes controllers/activeAgents/runConversations
+    // after aborting (a wedged run may never reach finalizeCleanup), so
+    // post-trip the map no longer holds it — but the captured controller
+    // must still be aborted so awaiters unblock.
+    const controller = h.controllers.get(RUN_ID)!;
     h.manager.noteToolStart(RUN_ID, TOOL_CALL_ID, info({ callTimeoutMs: 10_000 }));
 
     await advanceAndTick(15_000); // past budget
     await advanceAndTick(95_000); // past idle
 
-    expect(h.controllers.get(RUN_ID)!.signal.aborted).toBe(true);
+    expect(controller.signal.aborted).toBe(true);
+    expect(h.controllers.has(RUN_ID)).toBe(false);
   });
 });
 

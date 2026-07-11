@@ -95,6 +95,9 @@ mock.module("$server/db/queries/conversations", () => ({
   getMessages: mockGetMessages,
   getMessagesWithToolCalls: mockGetMessagesWithToolCalls,
   createSubConversation: mockCreateSubConversation,
+  // start-assignment.ts resolves the owning user before creating a sub-conv;
+  // null replicates the legacy no-owner path (no userId written).
+  resolveConversationOwnerUserId: mock(async () => null),
 }));
 
 const mockGetProject = mock(async (_id: string) => mockProject);

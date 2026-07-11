@@ -65,6 +65,20 @@ mock.module("../db/queries/runs", () => ({
   },
 }));
 
+// C2: the boot path invokes the assignment reconciliation pass after
+// terminalization. Mocked so this suite exercises the WIRING (call + its
+// self-catch) without a DB — the reconciliation logic itself is covered
+// end-to-end in boot-reconcile-assignments.test.ts.
+let reconcileCalls = 0;
+let reconcileShouldReject = false;
+mock.module("../runtime/boot-reconcile-assignments", () => ({
+  reconcileInterruptedAssignments: async () => {
+    reconcileCalls += 1;
+    if (reconcileShouldReject) throw new Error("reconcile boom");
+    return 0;
+  },
+}));
+
 import {
   WatchdogManager,
   type WatchdogHost,
@@ -96,6 +110,8 @@ beforeEach(() => {
   interruptAllRunsCalls = 0;
   terminalizeOrphanedRunsCalls = 0;
   orphanBacklog = 0;
+  reconcileCalls = 0;
+  reconcileShouldReject = false;
 });
 
 afterEach(() => {
@@ -207,6 +223,8 @@ describe("boot reconciliation drains the runs backlog", () => {
     // proves the backlog drains on the next legitimate restart with no
     // manual DB surgery.
     expect(terminalizeOrphanedRunsCalls).toBe(1);
+    // ...and the C2 assignment reconciliation is wired in AFTER it.
+    expect(reconcileCalls).toBe(1);
 
     h.manager.destroy();
   });
@@ -218,12 +236,32 @@ describe("boot reconciliation drains the runs backlog", () => {
     h.manager.startOrphanCleanup();
     await new Promise<void>((r) => queueMicrotask(r));
     await new Promise<void>((r) => queueMicrotask(r));
+    await new Promise<void>((r) => queueMicrotask(r));
 
     expect(terminalizeOrphanedRunsCalls).toBe(1);
+    expect(reconcileCalls).toBe(1);
     // A genuinely-live run is distinguished from an orphan by the query's
     // own `WHERE status='running' AND finished_at IS NULL` guard at the
     // DB layer (asserted in runs-finalize.test.ts) — boot itself can't
     // race a live run because a fresh process owns zero in-memory runs.
+
+    h.manager.destroy();
+  });
+
+  test("a reconciliation failure on startup is swallowed (boot is unaffected)", async () => {
+    orphanBacklog = 0;
+    reconcileShouldReject = true;
+
+    const h = makeHarness();
+    // Must not throw despite reconcile rejecting — the wiring self-catches.
+    h.manager.startOrphanCleanup();
+    await new Promise<void>((r) => queueMicrotask(r));
+    await new Promise<void>((r) => queueMicrotask(r));
+    await new Promise<void>((r) => queueMicrotask(r));
+    await new Promise<void>((r) => queueMicrotask(r));
+
+    expect(terminalizeOrphanedRunsCalls).toBe(1);
+    expect(reconcileCalls).toBe(1);
 
     h.manager.destroy();
   });

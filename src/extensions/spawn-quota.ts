@@ -51,10 +51,18 @@ export interface SpawnQuota {
   /** Reserve one slot for this extension under the given token. Call
    *  ONLY after check() returned `ok: true`. */
   reserve(extensionId: string, reservationToken: string): void;
-  /** Re-key an existing reservation. Used to swap a speculative token
-   *  (e.g. `assignment.id` chosen pre-dispatch) for the real
-   *  `agentRunId` after `startAssignment` returns. Releases the old
-   *  token atomically. No-op if `oldToken` isn't tracked. */
+  /** Re-key an existing reservation to `newToken`. Two callers:
+   *   1. post-dispatch — swap the speculative `assignment.id` for the real
+   *      cycle-1 `agentRunId` after `startAssignment` returns;
+   *   2. cycle continuation — swap the completing cycle's run id for the
+   *      next cycle's, so the concurrent slot follows the LIVE run and
+   *      `ezcorp/cancel-run` can still cancel it (ownership follows too).
+   *  Order-independent: `newToken` is reserved even if `oldToken` was
+   *  already released by its own terminal bus event (the cycle swap races
+   *  that release from inside the same `run:complete`). The old token's
+   *  (possibly duplicate) release can't double-free the new slot. Refuses
+   *  only when `oldToken` is owned by a DIFFERENT extension. Does NOT touch
+   *  the hourly window — a continuation is the same logical spawn. */
   swapReservation(extensionId: string, oldToken: string, newToken: string): void;
   /** Release a reservation without waiting for the bus. Handler uses
    *  this on error paths (e.g. `startAssignment` threw after reserve). */
@@ -138,14 +146,27 @@ export function createSpawnQuota(bus: EventBus<AgentEvents>): SpawnQuota {
 
     swapReservation(extensionId, oldToken, newToken) {
       const existing = tokenToExt.get(oldToken);
-      if (existing !== extensionId) return;
-      concurrent.get(extensionId)?.delete(oldToken);
-      tokenToExt.delete(oldToken);
+      // Cross-ext guard: never touch a token another extension owns.
+      if (existing !== undefined && existing !== extensionId) return;
+      // Drop the old token if we still hold it. It may already be gone: a
+      // cycle continuation re-keys old→new from INSIDE the old run's
+      // `run:complete` listener, and THIS module's own run-termination
+      // listener (subscribed first, at executor construction) may have
+      // released it already. Adding `newToken` UNCONDITIONALLY makes the swap
+      // order-independent — the slot follows the live cycle whether the
+      // release or the swap runs first, and the old id's (possibly duplicate)
+      // bus-release can't double-free the new slot.
+      if (existing === extensionId) {
+        concurrent.get(extensionId)?.delete(oldToken);
+        tokenToExt.delete(oldToken);
+      }
       let set = concurrent.get(extensionId);
       if (!set) { set = new Set(); concurrent.set(extensionId, set); }
       set.add(newToken);
       tokenToExt.set(newToken, extensionId);
-      // NOTE: hourly entry is NOT touched — the spawn still happened.
+      // NOTE: hourly entry is NOT touched — the spawn still happened; a cycle
+      // continuation is the same logical spawn, so it must not re-bill the
+      // rolling window.
     },
 
     release,

@@ -158,6 +158,15 @@ export interface PipelineStep {
   agent: string;
   input?: Record<string, string>;
   dependsOn?: string[];
+  /**
+   * Per-step retry budget (durability, Phase C1). When a step's agent run
+   * finishes unsuccessfully, the executor re-runs it up to `retries` more
+   * times before failing the whole pipeline. Clamped to 0..2; absent /
+   * invalid ⇒ 0 (no retry — the historical behavior). A run that was
+   * *cancelled* (pipeline abort or sibling-failure cancel) is never
+   * retried — only a genuine failure is.
+   */
+  retries?: number;
 }
 
 export interface PipelineDefinition {
@@ -251,10 +260,13 @@ export interface AgentEvents {
       };
     };
   };
-  "pipeline:start": { pipelineRun: PipelineRun };
-  "pipeline:step": { pipelineRun: PipelineRun; step: PipelineStepRun };
-  "pipeline:complete": { pipelineRun: PipelineRun };
-  "pipeline:error": { pipelineRun: PipelineRun; error: string };
+  // `userId` (Wave 0) names the initiating user so the SSE filter can
+  // scope delivery fail-closed. CLI-triggered pipelines omit it and are
+  // not SSE-observable (stdout/DB only).
+  "pipeline:start": { pipelineRun: PipelineRun; userId?: string };
+  "pipeline:step": { pipelineRun: PipelineRun; step: PipelineStepRun; userId?: string };
+  "pipeline:complete": { pipelineRun: PipelineRun; userId?: string };
+  "pipeline:error": { pipelineRun: PipelineRun; error: string; userId?: string };
   "tool:start": { conversationId: string; extensionId: string; toolName: string; input: unknown; timestamp: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string; category?: string };
   "tool:complete": { conversationId: string; extensionId: string; toolName: string; output: unknown; duration: number; success: boolean; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };
   "tool:error": { conversationId: string; extensionId: string; toolName: string; error: string; duration: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };
@@ -450,6 +462,41 @@ export interface AgentEvents {
       agentRunId?: string;
       resultPreview?: string;
     };
+    /**
+     * Orchestration reliability (Wave 1): the sub-agent's FULL final
+     * text (sentinel-stripped, capped at {@link ASSIGNMENT_RESULT_FULL_CAP}),
+     * present only on a terminal update. Kept OFF the `assignment` object
+     * so the persisted task-store snapshot and the panel `task:snapshot`
+     * stay lean — only the orchestration extension reads it, to return
+     * the complete result to the orchestrator LLM instead of the
+     * 200-char `resultPreview`.
+     */
+    resultFull?: string;
+    /**
+     * Structured output (Phase B1): when the invocation carried an
+     * `outputSchema` and the child's final text validated against it, the
+     * host-validated parsed value — present only on the terminal update.
+     * Kept OFF the `assignment` object for the same reason as
+     * `resultFull`: only the orchestration extension reads it, to return
+     * validated JSON to the orchestrator LLM.
+     */
+    structuredResult?: unknown;
+    /**
+     * Structured output (Phase B1): set INSTEAD of `structuredResult` when
+     * the child completed but never produced schema-valid JSON within the
+     * bounded re-prompt budget — a human-readable summary of the
+     * violations. The child's status stays `completed` (it did finish);
+     * the orchestration extension surfaces this as a distinct error.
+     */
+    structuredResultError?: string;
+    /**
+     * Set alongside `structuredResultError` when the output DID validate
+     * against the schema but its compact serialization exceeded the 30KB
+     * structured cap — the (capped) `resultFull` carries the salvage.
+     * Lets consumers frame this as an oversized success rather than a
+     * schema violation.
+     */
+    structuredResultOverCap?: boolean;
   };
   // ── Extension Panel State ──
   "ext:state": {

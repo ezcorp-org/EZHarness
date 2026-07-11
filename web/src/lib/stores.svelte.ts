@@ -123,6 +123,18 @@ export interface TaskAssignment {
 	autonomousCycle?: number;
 	/** Cycle cap for this assignment's autonomous continuation. */
 	autonomousMaxCycles?: number;
+	/**
+	 * Structured-output schema failure (Phase B4). Captured from the
+	 * terminal `task:assignment_update` event's top-level
+	 * `structuredResultError` field (which the backend keeps OFF the
+	 * assignment object) — true when the child finished but never produced
+	 * schema-valid JSON. A validated-but-oversized result also carries
+	 * `structuredResultError` but with `structuredResultOverCap=true`; that
+	 * is NOT a schema failure, so it does NOT set this flag. Drives the
+	 * amber "schema" chip on the completed pill so a schema-FAILED
+	 * assignment isn't presented as a plain green success.
+	 */
+	schemaFailed?: boolean;
 }
 
 export interface TaskPanelTask {
@@ -1177,17 +1189,29 @@ export function initStores() {
 			}
 
 			case "agent:complete": {
-				const { runId, subConversationId, agentName: completeAgentName, success: agentSuccess, resultPreview, agentRunId: completeAgentRunId } = event.data as {
+				const { subConversationId, agentName: completeAgentName, success: agentSuccess, resultPreview, agentRunId: completeAgentRunId } = event.data as {
 					runId: string; subConversationId: string; agentName: string; success: boolean; resultPreview: string; agentRunId?: string; parentConversationId?: string;
 				};
-				const agentCalls = store.streamingAgentCalls[runId];
-				if (agentCalls) {
-					store.streamingAgentCalls = {
-						...store.streamingAgentCalls,
-						[runId]: agentCalls.map(a => a.subConversationId === subConversationId
-							? { ...a, status: agentSuccess ? 'complete' as const : 'error' as const, resultPreview }
-							: a),
-					};
+				// Resolve the chip by its stable `subConversationId`, scanning every
+				// run bucket — NOT just `streamingAgentCalls[runId]`. The terminal
+				// `agent:complete` now fires for tool-spawned / background agents
+				// too, and for one that auto-continued (auto-continue / autonomous /
+				// schema-retry cycle) the terminal `runId` is the LAST cycle's run
+				// id, which differs from the initial spawn run id that keyed the
+				// chip. Keying strictly on `runId` would leave such an agent stuck
+				// "running"; matching on `subConversationId` (constant across all
+				// cycles) resolves it to complete/error.
+				let matchedAgentCall = false;
+				const nextAgentCalls: Record<string, AgentCallState[]> = {};
+				for (const [bucketRunId, calls] of Object.entries(store.streamingAgentCalls)) {
+					nextAgentCalls[bucketRunId] = calls.map(a => {
+						if (a.subConversationId !== subConversationId) return a;
+						matchedAgentCall = true;
+						return { ...a, status: agentSuccess ? 'complete' as const : 'error' as const, resultPreview };
+					});
+				}
+				if (matchedAgentCall) {
+					store.streamingAgentCalls = nextAgentCalls;
 				}
 				// Top-level signal for sub-agent failures. The red AgentChip is easy to miss;
 				// a toast makes sure users notice even if the panel is collapsed or the failing
@@ -1228,18 +1252,26 @@ export function initStores() {
 			}
 
 			case "task:assignment_update": {
-				const { conversationId, taskId, assignment } = event.data as {
+				const { conversationId, taskId, assignment, structuredResultError, structuredResultOverCap } = event.data as {
 					conversationId: string; taskId: string; assignment: TaskAssignment;
+					structuredResultError?: string; structuredResultOverCap?: boolean;
 				};
+				// Schema-failure flag rides the top-level event field (the backend
+				// keeps it OFF the assignment object). Capture it into the
+				// view-model: a terminal update carrying `structuredResultError`
+				// WITHOUT `structuredResultOverCap` is a genuine schema failure; a
+				// validated-but-oversized result (overCap) is not.
+				const schemaFailed = structuredResultError !== undefined && !structuredResultOverCap;
+				const merged: TaskAssignment = { ...assignment, schemaFailed };
 				const snapshot = store.taskSnapshots[conversationId];
 				if (snapshot) {
 					const task = snapshot.tasks.find(t => t.id === taskId);
 					if (task) {
-						const idx = (task.assignments ?? []).findIndex(a => a.id === assignment.id);
+						const idx = (task.assignments ?? []).findIndex(a => a.id === merged.id);
 						if (idx >= 0) {
-							task.assignments[idx] = assignment;
+							task.assignments[idx] = merged;
 						} else {
-							task.assignments = [...(task.assignments ?? []), assignment];
+							task.assignments = [...(task.assignments ?? []), merged];
 						}
 						// Client-side rollup: the extension emits a fresh task:snapshot
 						// when it receives this event and auto-advances, but that round-
