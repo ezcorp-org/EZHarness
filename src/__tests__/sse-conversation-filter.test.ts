@@ -330,6 +330,21 @@ describe("shouldDeliverEvent — conversation:tree-changed (Sessions P4 rewind)"
   test("conversation:tree-changed is recognized by isDirectCarrierEvent (so it gets the auth-filter codepath)", () => {
     expect(isDirectCarrierEvent("conversation:tree-changed")).toBe(true);
   });
+
+  test("fails CLOSED on a DB error (dropped, not broadcast) — UNLIKE the fail-open conv carriers", async () => {
+    // The generic conv-scoped carriers fail OPEN on DB error (avoid UI
+    // black-out). A tree-changed nudge instead fails CLOSED: a missed nudge
+    // self-heals on reconnect/refetch, so dropping beats leaking the
+    // conversation + rewound-leaf ids cross-user under DB stress.
+    const getThrowing = async () => { throw new Error("db is down"); };
+    const deliver = await shouldDeliverEvent(
+      "conversation:tree-changed",
+      { conversationId: "conv-A", currentLeaf: "m-1" },
+      { userId: "user-1" },
+      getThrowing,
+    );
+    expect(deliver).toBe(false);
+  });
 });
 
 describe("shouldDeliverEvent — pass-through tier", () => {

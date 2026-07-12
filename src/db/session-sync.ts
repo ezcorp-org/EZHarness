@@ -166,6 +166,15 @@ export async function syncSessionForConversation(conversationId: string): Promis
  * Excluded rows are dropped exactly as loadHistory's legacy path drops them;
  * synthetic-role rows survive here and are mapped to null downstream, byte-
  * identically to legacy. Serialized per conversation.
+ *
+ * CAVEAT (load-bearing): the session LEAF POINTER (`storage.getLeafId()`, moved
+ * by {@link rewindSession} and surfaced by {@link computeSessionTree}) is NOT
+ * read here and is NOT authoritative for producer reads. The branch is chosen
+ * by the CLIENT-CARRIED `parentMessageId` (the edit/retry/rewind branch
+ * mechanism), falling back to the messages-table `getLatestLeaf` — never the
+ * session leaf. Any future feature that wants context to end at a specific node
+ * must carry it as `parentMessageId`; do not read the session leaf to decide
+ * context.
  */
 export async function computeSessionBranch(
   conversationId: string,
@@ -275,9 +284,13 @@ export interface SessionTreeNode {
 /** The conversation's whole message tree + the durable leaf pointer. */
 export interface SessionTreeView {
   conversationId: string;
-  /** The session leaf pointer — the durable rewind/checkpoint position (pi
-   *  `getLeafId`). In normal operation a `messages` row id; a client restores
-   *  its active branch to it so a rewind survives reload. */
+  /** The session leaf pointer — the persisted rewind/checkpoint position (pi
+   *  `getLeafId`); in normal operation a `messages` row id. This is a
+   *  tree-VIEW / harness field: it records where the last rewind moved the
+   *  durable leaf, for display + external consumers. It is NOT authoritative
+   *  for producer reads (the client-carried `parentMessageId` is the branch
+   *  mechanism — see {@link computeSessionBranch}), and the chat client does
+   *  NOT restore it into its active branch on reload. */
   currentLeaf: string | null;
   nodes: SessionTreeNode[];
 }

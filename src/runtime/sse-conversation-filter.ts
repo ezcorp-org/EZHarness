@@ -82,11 +82,12 @@ export const DIRECT_CARRIER_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
   "conversation:created",
   "briefing:delivered",
   // Sessions P4 (rewind/checkpoint): the conversation's message tree / leaf
-  // pointer changed. Carries `conversationId` at the top level, so the
-  // standard conversation-ownership branch of `shouldDeliverEvent` scopes it
-  // per subscriber (fail-open like `goal:update` — the payload is a
-  // content-free nudge and the client re-fetches the ownership-gated
-  // `GET .../tree`, so an individual fail-open pass leaks no content).
+  // pointer changed. Carries `conversationId` at the top level so it's scoped
+  // per subscriber — but via a dedicated FAIL-CLOSED branch in
+  // `shouldDeliverEvent` (NOT the fail-open default the other conv carriers
+  // use): the payload carries the conversation id + rewound-leaf id, and a
+  // dropped nudge self-heals on reconnect/refetch, so dropping-on-DB-error
+  // beats leaking those ids cross-user.
   "conversation:tree-changed",
   // NOTE — "ext:page-state" (Extension Pages Hub) is INTENTIONALLY
   // ABSENT: the mediator strips the page tree before emitting, so the
@@ -611,6 +612,15 @@ export async function shouldDeliverEvent(
     if (typeof eventUserId === "string" && eventUserId.length > 0) {
       if (eventUserId !== subscriber.userId) return false;
     }
+  }
+
+  // Sessions P4 `conversation:tree-changed` fails CLOSED: a missed nudge just
+  // recovers on the next reconnect/refetch, whereas fail-open would (under DB
+  // stress) hand one user's conversation id + rewound-leaf id to another. A
+  // dropped nudge is a strictly better trade than that leak — so this event
+  // does NOT take the fail-OPEN default the other conv-scoped carriers use.
+  if (eventType === "conversation:tree-changed") {
+    return isAuthorizedForConversation(subscriber.userId, convId, getConversation, "closed");
   }
 
   // Filter: subscriber must be authorized for the event's conversation.
