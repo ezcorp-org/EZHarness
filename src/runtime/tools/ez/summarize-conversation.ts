@@ -43,6 +43,10 @@ export interface SummarizeContext {
    *  the legacy default-tier behavior. */
   provider?: string | null;
   model?: string | null;
+  /** The Ez conversation this tool runs inside. Threaded into completeLLM
+   *  so credential resolution honors the conversation's access-mode
+   *  override — the same scoping the surrounding chat turn uses. */
+  conversationId?: string;
 }
 
 /** Default summarizer: routes the request through the project's
@@ -50,12 +54,17 @@ export interface SummarizeContext {
  *  picked by the user (passed via SummarizeContext) so the summarizer
  *  uses the SAME model as the surrounding Ez conversation. Falls back
  *  to default-tier resolution if the picked pair fails to resolve.
- *  Errors propagate as tool errors. */
+ *  Errors propagate as tool errors — including provider errors that
+ *  pi-ai reports as fields on the result (`stopReason: "error"` +
+ *  `errorMessage`) rather than throws: without that check a failed call
+ *  has an EMPTY content array and the tool would return a blank summary
+ *  that looks like a success. */
 async function defaultSummarize(
   systemPrompt: string,
   transcript: string,
   provider?: string | null,
   model?: string | null,
+  conversationId?: string,
 ): Promise<string> {
   const { resolveModel } = await import("../../../providers/router");
   const { completeLLM } = await import("../../../providers/llm");
@@ -78,20 +87,37 @@ async function defaultSummarize(
   if (!resolved) {
     throw new Error("no model available — connect a provider in Settings");
   }
-  const result = await completeLLM(resolved.piModel, {
-    systemPrompt,
-    messages: [{ role: "user", content: transcript }],
-  } as any);
+  const result = await completeLLM(
+    resolved.piModel,
+    {
+      systemPrompt,
+      messages: [{ role: "user", content: transcript }],
+    } as any,
+    { conversationId },
+  );
+  // pi-ai reports provider failures as result fields, not throws.
+  if ((result as any).stopReason === "error") {
+    throw new Error((result as any).errorMessage || "model call failed with no error message");
+  }
   // pi-ai AssistantMessage has a `content` array. Join text parts.
   const content = (result as any).content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .filter((p: any) => p?.type === "text" && typeof p.text === "string")
-      .map((p: any) => p.text)
-      .join("");
+  const text =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content
+            .filter((p: any) => p?.type === "text" && typeof p.text === "string")
+            .map((p: any) => p.text)
+            .join("")
+        : String(content ?? "");
+  // A summary is never legitimately empty — surface the anomaly instead
+  // of returning a blank the panel renders as a silent no-op.
+  if (!text.trim()) {
+    throw new Error(
+      `model returned no text (stopReason: ${String((result as any).stopReason ?? "unknown")})`,
+    );
   }
-  return String(content ?? "");
+  return text;
 }
 
 const MAX_TRANSCRIPT_CHARS = 60_000; // ~15k tokens. Truncates from the start (oldest) so the recent context survives.
@@ -102,7 +128,7 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
   // to know about model resolution. Test-injected stubs ignore this
   // entirely — they receive `(systemPrompt, transcript)` and short-circuit
   // before defaultSummarize runs.
-  const summarize = ctx.summarize ?? ((sys: string, t: string) => defaultSummarize(sys, t, ctx.provider, ctx.model));
+  const summarize = ctx.summarize ?? ((sys: string, t: string) => defaultSummarize(sys, t, ctx.provider, ctx.model, ctx.conversationId));
   return {
     name: "summarize_conversation",
     label: "summarize_conversation",

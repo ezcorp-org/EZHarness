@@ -160,13 +160,13 @@ describe("dispatch — navigate_to", () => {
 		}
 	});
 
-	test("navigates then serializes the destination (path/title/headings only)", async () => {
+	test("navigates then serializes the destination (path/title/headings + content excerpt)", async () => {
 		const calls: string[] = [];
 		const deps: DispatcherDeps = {
 			goto: async (p) => {
 				calls.push(p);
 			},
-			root: makeRoot('<h1>Marketplace</h1><form id="f"><input name="q" /></form>'),
+			root: makeRoot('<h1>Marketplace</h1><p>Browse extensions here.</p><form id="f"><input name="q" /></form>'),
 			currentPath: () => "/marketplace",
 			currentTitle: () => "Marketplace",
 			afterNavigate: async () => {},
@@ -177,10 +177,32 @@ describe("dispatch — navigate_to", () => {
 		if (r.ok) {
 			expect(r.detail).toEqual({
 				path: "/marketplace?q=pdf",
-				destination: { path: "/marketplace", title: "Marketplace", headings: ["Marketplace"] },
+				destination: {
+					path: "/marketplace",
+					title: "Marketplace",
+					headings: ["Marketplace"],
+					content: "Marketplace Browse extensions here.",
+				},
 			});
-			// Destination carries no forms key — identity only.
+			// Destination carries no forms key — identity + excerpt only.
 			expect((r.detail as Record<string, unknown>).forms).toBeUndefined();
+		}
+	});
+
+	test("destination content excerpt is capped at 500 chars", async () => {
+		const long = `<p>${"w".repeat(60)} </p>`.repeat(30); // ~1.8k chars of content
+		const r = await dispatch(evt("navigate_to", { path: "/marketplace" }), {
+			goto: async () => {},
+			root: makeRoot(`<h1>M</h1>${long}`),
+			currentPath: () => "/marketplace",
+			currentTitle: () => "M",
+			afterNavigate: async () => {},
+		});
+		expect(r.ok).toBe(true);
+		if (r.ok) {
+			const destination = (r.detail as { destination: { content: string } }).destination;
+			expect(destination.content.length).toBeLessThanOrEqual(501); // 500 + ellipsis
+			expect(destination.content.endsWith("…")).toBe(true);
 		}
 	});
 

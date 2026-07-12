@@ -49,10 +49,20 @@ mock.module("../providers/router", () => ({
   },
 }));
 
+// Configurable completeLLM stub: the default returns text; individual
+// tests swap `completeLLMImpl` to exercise the error-surfacing paths
+// (stopReason:"error" fields, empty content) and capture the opts bag
+// (conversationId credential-scoping).
+const completeLLMCalls: Array<{ opts: unknown }> = [];
+let completeLLMImpl: (ctx: { systemPrompt: string }) => Promise<unknown> = async (ctx) => ({
+  content: [{ type: "text", text: `STUBBED:${ctx.systemPrompt.slice(0, 12)}` }],
+});
+
 mock.module("../providers/llm", () => ({
-  completeLLM: async (_piModel: unknown, ctx: { systemPrompt: string }) => ({
-    content: [{ type: "text", text: `STUBBED:${ctx.systemPrompt.slice(0, 12)}` }],
-  }),
+  completeLLM: async (_piModel: unknown, ctx: { systemPrompt: string }, opts?: unknown) => {
+    completeLLMCalls.push({ opts });
+    return completeLLMImpl(ctx);
+  },
 }));
 
 const { createUser } = await import("../db/queries/users");
@@ -259,5 +269,52 @@ describe("summarize_conversation", () => {
     const tool = createSummarizeConversationTool({});
     const params = tool.parameters as { required?: string[] };
     expect(params.required ?? []).toContain("conversationId");
+  });
+
+  // ── Error surfacing + credential scoping (the blank-summary fix) ────
+  // pi-ai reports provider failures as FIELDS on the result
+  // (stopReason:"error" + errorMessage) with an EMPTY content array —
+  // not as throws. The old extraction joined zero text parts and
+  // returned '' as a success; the panel rendered a silent blank.
+
+  test("stopReason:'error' surfaces the provider errorMessage as a tool error (was: silent blank)", async () => {
+    completeLLMImpl = async () => ({
+      content: [],
+      stopReason: "error",
+      errorMessage: "OpenAI API error (401): missing scopes: api.responses.write",
+    });
+    try {
+      const tool = createSummarizeConversationTool({});
+      const result = await tool.execute("s-err-1", { conversationId });
+      expect(expectDetails<SummaryDetails>(result).isError).toBe(true);
+      expect(expectText(result)).toContain("api.responses.write");
+    } finally {
+      completeLLMImpl = async (ctx) => ({
+        content: [{ type: "text", text: `STUBBED:${ctx.systemPrompt.slice(0, 12)}` }],
+      });
+    }
+  });
+
+  test("empty content with no error fields is still surfaced as an error, never a blank success", async () => {
+    completeLLMImpl = async () => ({ content: [], stopReason: "stop" });
+    try {
+      const tool = createSummarizeConversationTool({});
+      const result = await tool.execute("s-err-2", { conversationId });
+      expect(expectDetails<SummaryDetails>(result).isError).toBe(true);
+      expect(expectText(result)).toContain("no text");
+    } finally {
+      completeLLMImpl = async (ctx) => ({
+        content: [{ type: "text", text: `STUBBED:${ctx.systemPrompt.slice(0, 12)}` }],
+      });
+    }
+  });
+
+  test("ctx.conversationId rides into completeLLM's opts (credential scoping parity with the chat turn)", async () => {
+    completeLLMCalls.length = 0;
+    const tool = createSummarizeConversationTool({ conversationId: "ez-conv-cred" });
+    const result = await tool.execute("s-cred-1", { conversationId });
+    expectText(result, "STUBBED:");
+    expect(completeLLMCalls.length).toBe(1);
+    expect(completeLLMCalls[0]!.opts).toEqual({ conversationId: "ez-conv-cred" });
   });
 });

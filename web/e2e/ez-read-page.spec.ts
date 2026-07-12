@@ -15,6 +15,7 @@ interface PostedPageContext {
 	path: string;
 	title: string;
 	headings: string[];
+	content: string;
 	forms: { id: string; fields: { name: string; label: string; type: string; value?: string }[] }[];
 }
 
@@ -59,5 +60,13 @@ test.describe("Ez — read_page client tool", () => {
 		expect(allFields.every((f) => f.value === undefined)).toBe(true);
 		// The Ez panel's own composer is excluded from serialization.
 		expect(allFields.some((f) => /Ask Ez to do something/.test(f.label))).toBe(false);
+		// The visible-text excerpt carries the page's actual content — the
+		// user-reported gap: read_page used to return an empty skeleton on
+		// pages without headings, leaving Ez blind to what's on screen.
+		expect(typeof ctx.content).toBe("string");
+		expect(ctx.content.length).toBeGreaterThan(0);
+		expect(ctx.content).toMatch(/Configure|agent/i);
+		// The Ez panel's own text never leaks into the excerpt.
+		expect(ctx.content).not.toContain("Ask Ez to do something");
 	});
 });
