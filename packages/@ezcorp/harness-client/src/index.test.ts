@@ -43,6 +43,8 @@ let lastConversationBody: Record<string, unknown> | null = null;
 let scripted: { scriptKey: string; turns: unknown[] } | null = null;
 let lastWireBody: Record<string, unknown> | null = null;
 let lastRewindBody: Record<string, unknown> | null = null;
+let lastRetryBody: Record<string, unknown> | null = null;
+let lastRetryPath: string | null = null;
 let lastToolInvoke: Record<string, unknown> | null = null;
 // Extension-lifecycle + hub-action capture (Track 3 surface).
 let lastInstallBody: Record<string, unknown> | null = null;
@@ -95,6 +97,12 @@ beforeAll(() => {
       if (req.method === "POST" && /^\/api\/conversations\/[^/]+\/rewind$/.test(p)) {
         lastRewindBody = (await req.json()) as Record<string, unknown>;
         return Response.json({ conversationId: p.split("/")[3], currentLeaf: lastRewindBody.targetMessageId, nodes: [] });
+      }
+      // ── Sessions P5 clean A/B retry surface ──
+      if (req.method === "POST" && /^\/api\/conversations\/[^/]+\/messages\/[^/]+\/retry$/.test(p)) {
+        lastRetryPath = p;
+        lastRetryBody = (await req.json()) as Record<string, unknown>;
+        return Response.json({ userMessage: { id: "u1" }, retriedMessageId: p.split("/")[5], runId: "r-retry" });
       }
       // ── Extension control surface ──
       if (req.method === "GET" && p === "/api/extensions") {
@@ -289,6 +297,22 @@ describe("HarnessClient", () => {
     // Omitting summary sends only targetMessageId (no undefined key).
     await client().rewindConversation("c1", "m3");
     expect(lastRewindBody).toEqual({ targetMessageId: "m3" });
+  });
+
+  test("retryMessage posts the clean-A/B path (mid in the URL) + optional overrides", async () => {
+    const res = await client().retryMessage("c1", "a2", { provider: "openai", model: "gpt", thinkingLevel: "high" });
+    expect(lastRetryPath).toBe("/api/conversations/c1/messages/a2/retry");
+    expect(lastRetryBody).toEqual({ provider: "openai", model: "gpt", thinkingLevel: "high" });
+    expect(res.retriedMessageId).toBe("a2");
+    expect(res.runId).toBe("r-retry");
+    // Omitting overrides sends an empty body (no undefined keys).
+    await client().retryMessage("c1", "a3");
+    expect(lastRetryBody).toEqual({});
+  });
+
+  test("retryMessage percent-encodes a traversal-ish message id into one segment", async () => {
+    await client().retryMessage("c1", "../evil");
+    expect(new URL(lastUrl!).pathname).toBe("/api/conversations/c1/messages/..%2Fevil/retry");
   });
 
   test("resolveToolPermission posts approval with scope", async () => {

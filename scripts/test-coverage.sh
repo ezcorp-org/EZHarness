@@ -181,6 +181,7 @@ run_legs() {
       src/__tests__/api-extensions-id-reapprove-drift.server.test.ts \
       src/__tests__/api-conversations-id-tree.server.test.ts \
       src/__tests__/api-conversations-id-rewind.server.test.ts \
+      src/__tests__/api-conversations-id-messages-mid-retry.server.test.ts \
       src/lib/hub.unit.test.ts \
       src/lib/settings-nav.unit.test.ts \
       src/lib/settings-search.unit.test.ts \
@@ -264,6 +265,8 @@ run_legs() {
       --coverage.include='src/routes/api/conversations/[id]/tree/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/rewind/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/rewind/schema.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/messages/[mid]/retry/+server.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/messages/[mid]/retry/schema.ts' \
       --coverage.include='src/lib/settings-nav.ts' \
       --coverage.include='src/lib/settings-search.ts' \
       --coverage.include='src/lib/settings-search-config.ts' \
