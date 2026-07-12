@@ -363,12 +363,14 @@ export interface SessionTreeNode {
 export interface SessionTreeView {
   conversationId: string;
   /** The session leaf pointer — the persisted rewind/checkpoint position (pi
-   *  `getLeafId`); in normal operation a `messages` row id. This is a
-   *  tree-VIEW / harness field: it records where the last rewind moved the
-   *  durable leaf, for display + external consumers. It is NOT authoritative
-   *  for producer reads (the client-carried `parentMessageId` is the branch
-   *  mechanism — see {@link computeSessionBranch}), and the chat client does
-   *  NOT restore it into its active branch on reload. */
+   *  `getLeafId`); in normal operation a `messages` row id. It records where
+   *  the last rewind moved the durable leaf, for display + external consumers.
+   *  It is NOT authoritative for producer READS (the client-carried
+   *  `parentMessageId` is the branch mechanism — see {@link computeSessionBranch}).
+   *  As of Wave-6 the chat client DOES restore it into its active branch on
+   *  conversation (re)load (ChatThread `restoreDurableLeaf`), so a rewind now
+   *  survives a reload; the restore validates the pointer against live rows and
+   *  fails open to the latest leaf when it is off/absent/stale. */
   currentLeaf: string | null;
   nodes: SessionTreeNode[];
 }

@@ -146,7 +146,9 @@ The composer recognizes **five** sigils (`web/src/lib/mention-logic.ts`), all sh
 
 ## Related docs
 
-None yet — this is the primary reference. (See [slash-commands](../../slash-commands.md) for `/`-command expansion and [context-compaction](../../context-compaction.md) for how the active path becomes the input window.)
+- [[rewind-branching-sessions]] — the durable session-tree layer on top of this `messages` tree: rewind/checkpoint, clean A/B retry, and reload-restore of the active branch.
+
+(See [slash-commands](../../slash-commands.md) for `/`-command expansion and [context-compaction](../../context-compaction.md) for how the active path becomes the input window.)
 
 ## Notes & gotchas
 
