@@ -23,6 +23,7 @@ import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { mock } from "bun:test";
 import { setupTestDb, closeTestDb, getTestPglite } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { withFrozenNow } from "./helpers/frozen-clock";
 
 process.env.EZCORP_ENCRYPTION_SECRET ??= "0".repeat(64);
 process.env.EZCORP_ENCRYPTION_SALT ??= "sh-cov-test-salt";
@@ -307,11 +308,16 @@ describe("storage-handler handleGet branches", () => {
     const m = makeManifest(ext, "5MB");
     await insertExtension(ext, m);
     const ctx = makeCtx(m);
-    let limited = 0;
-    for (let i = 0; i < 60; i++) {
-      const r = await handleStorageRpc(ext, rpc("get", { key: `nope-${i}` }), ctx);
-      if (r.error?.code === -32004) limited += 1;
-    }
+    // Clock frozen: 60 gets in one instant must overflow the 50-token
+    // bucket — no wall-clock refill can mask the drain under CPU load.
+    const limited = await withFrozenNow(async () => {
+      let n = 0;
+      for (let i = 0; i < 60; i++) {
+        const r = await handleStorageRpc(ext, rpc("get", { key: `nope-${i}` }), ctx);
+        if (r.error?.code === -32004) n += 1;
+      }
+      return n;
+    });
     expect(limited).toBeGreaterThan(0);
   });
 
@@ -366,11 +372,14 @@ describe("storage-handler handleSet branches", () => {
     const m = makeManifest(ext, "100MB");
     await insertExtension(ext, m);
     const ctx = makeCtx(m);
-    let limited = 0;
-    for (let i = 0; i < 60; i++) {
-      const r = await handleStorageRpc(ext, rpc("set", { key: `rl-${i}`, value: 1 }), ctx);
-      if (r.error?.code === -32004) limited += 1;
-    }
+    const limited = await withFrozenNow(async () => {
+      let n = 0;
+      for (let i = 0; i < 60; i++) {
+        const r = await handleStorageRpc(ext, rpc("set", { key: `rl-${i}`, value: 1 }), ctx);
+        if (r.error?.code === -32004) n += 1;
+      }
+      return n;
+    });
     expect(limited).toBeGreaterThan(0);
   });
 
@@ -481,11 +490,14 @@ describe("storage-handler handleDelete branches", () => {
     const m = makeManifest(ext, "1MB");
     await insertExtension(ext, m);
     const ctx = makeCtx(m);
-    let limited = 0;
-    for (let i = 0; i < 60; i++) {
-      const r = await handleStorageRpc(ext, rpc("delete", { key: `nope-${i}` }), ctx);
-      if (r.error?.code === -32004) limited += 1;
-    }
+    const limited = await withFrozenNow(async () => {
+      let n = 0;
+      for (let i = 0; i < 60; i++) {
+        const r = await handleStorageRpc(ext, rpc("delete", { key: `nope-${i}` }), ctx);
+        if (r.error?.code === -32004) n += 1;
+      }
+      return n;
+    });
     expect(limited).toBeGreaterThan(0);
   });
 
@@ -517,11 +529,14 @@ describe("storage-handler handleList branches", () => {
     const m = makeManifest(ext, "1MB");
     await insertExtension(ext, m);
     const ctx = makeCtx(m);
-    let limited = 0;
-    for (let i = 0; i < 60; i++) {
-      const r = await handleStorageRpc(ext, rpc("list", {}), ctx);
-      if (r.error?.code === -32004) limited += 1;
-    }
+    const limited = await withFrozenNow(async () => {
+      let n = 0;
+      for (let i = 0; i < 60; i++) {
+        const r = await handleStorageRpc(ext, rpc("list", {}), ctx);
+        if (r.error?.code === -32004) n += 1;
+      }
+      return n;
+    });
     expect(limited).toBeGreaterThan(0);
   });
 
@@ -647,14 +662,18 @@ describe("storage-handler handleBatch branches", () => {
     await insertExtension(ext, m);
     const ctx = makeCtx(m);
 
-    for (let i = 0; i < 50; i++) {
-      await handleStorageRpc(ext, rpc("set", { key: `drain-${i}`, value: 1 }), ctx);
-    }
-
-    const ops = Array.from({ length: 10 }, (_, i) => ({
-      action: "set", key: `post-${i}`, value: i,
-    }));
-    const resp = await handleStorageRpc(ext, rpc("batch", { operations: ops }), ctx);
+    // Clock frozen: the 50 drain sets empty the bucket in one instant, so
+    // the following 10-op batch (needs 10 tokens, 0 available) is rejected —
+    // no wall-clock refill can top the bucket back up under CPU load.
+    const resp = await withFrozenNow(async () => {
+      for (let i = 0; i < 50; i++) {
+        await handleStorageRpc(ext, rpc("set", { key: `drain-${i}`, value: 1 }), ctx);
+      }
+      const ops = Array.from({ length: 10 }, (_, i) => ({
+        action: "set", key: `post-${i}`, value: i,
+      }));
+      return handleStorageRpc(ext, rpc("batch", { operations: ops }), ctx);
+    });
     expect(resp.error).toBeDefined();
     expect(resp.error!.code).toBe(-32004);
     expect(resp.error!.message).toMatch(/Rate limited/);
