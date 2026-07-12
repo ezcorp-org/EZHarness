@@ -32,6 +32,9 @@
  *     with `+`, `;`, or `,` (string-concat continuations)
  *   - SQL keyword fragments inside `sql\`…\`` tagged templates
  *     (`SELECT`, `FROM`, `WHERE`, …, `) AS …`)
+ *   - SQL SELECT-list column aliases (`mc.id AS message_id,`) — the
+ *     uppercase `AS` keyword is the discriminator (TS casts are lowercase)
+ *   - Lone template-interpolation close (`}\`;` / `}\`,`)
  *
  * Concerns about false positives are mitigated by the zero-hit guard: a
  * line that bun did instrument and saw run will keep its DA record.
@@ -105,6 +108,27 @@ const SQL_CLOSE = /^\s*\),?\s*0?\)?\s*AS\b/i;
 const SQL_COLUMN_DEF =
   /^\s*"?[A-Za-z_][A-Za-z0-9_]*"?\s+(TEXT|INTEGER|BIGINT|SMALLINT|BOOLEAN|TIMESTAMP|TIMESTAMPTZ|JSONB|JSON|UUID|SERIAL|BIGSERIAL|NUMERIC|DECIMAL|REAL|VARCHAR|CHAR|DATE|TIME|BYTEA|INTERVAL)\b/;
 
+// SQL SELECT-list column alias on its own line inside a multi-line query
+// template: `mc.message_id AS message_id,` / `c.title AS conversation_title,` /
+// `NULL::bigint AS rank_v,` / `mc.content AS matched_content`. These are string
+// content of a `sql\`…\`` (or plain template) SELECT list — no JS. Bun credits
+// the query to the `db.execute(...)` line; when a shard LOADS the query module
+// but never calls that particular leg, its function body is span-filled with
+// phantom zero-hit DA for every select-list line. The uppercase `AS` keyword is
+// the discriminator (TS's cast operator is lowercase `as`), matched
+// case-SENSITIVE so a value expression never hits it. Left side is a bare
+// column ref (`ident(.ident)*` with an optional `::type` cast); right side is a
+// bare alias identifier. Zero-hit-only, like the rest.
+const SQL_SELECT_ALIAS = /^\s*[\w.]+(?:::\w+)?\s+AS\s+\w+\s*,?\s*$/;
+
+// Lone template-interpolation close: `}\`;` / `}\`,` — the tail of a multi-line
+// template literal whose `${…}` interpolation and closing backtick land on
+// their own line (e.g. the `EXPLAIN` string builder in message-search.ts). The
+// interpolation expression is credited to the statement's opening line; this
+// closer emits no standalone JS, so a shard that loads-but-never-runs the
+// builder span-fills it with a phantom zero-hit DA. Zero-hit-only.
+const TEMPLATE_INTERP_CLOSE = /^\s*\}`[;,]?\s*$/;
+
 // Interface declaration header: `interface Foo {`, `export interface Foo
 // extends Bar {`. Interfaces are erased at compile time → no JS.
 const INTERFACE_DECL = /^\s*(export\s+)?interface\s+\w+/;
@@ -173,6 +197,8 @@ export function isNoiseLine(text: string): boolean {
   if (SQL_FRAGMENT.test(text)) return true;
   if (SQL_CLOSE.test(text)) return true;
   if (SQL_COLUMN_DEF.test(text)) return true;
+  if (SQL_SELECT_ALIAS.test(text)) return true;
+  if (TEMPLATE_INTERP_CLOSE.test(text)) return true;
   if (TYPE_DECL.test(text)) return true;
   if (INTERFACE_DECL.test(text)) return true;
   if (CLASS_DECL.test(text)) return true;

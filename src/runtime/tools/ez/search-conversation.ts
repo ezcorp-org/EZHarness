@@ -21,11 +21,18 @@
  * Determinism for tests: the search call is injected via `search` in the
  * context object (mirroring the summarize_conversation `summarize` seam) so
  * unit tests can stub it without seeding a DB. Production wiring uses the
- * default closure that calls `searchMessages` directly.
+ * default closure, which lazy-imports `searchMessages` only when it actually
+ * runs. The lazy import is deliberate: a static top-level import would drag
+ * `message-search.ts` (all its query legs) into the module graph of EVERY
+ * Ez-mode turn — including the many that never search — and, under Bun's
+ * per-line coverage instrumentation, span-fill its uncalled vector/explain
+ * legs with phantom zero-hit records that float the merged denominator. The
+ * type-only import above is erased at compile time, so nothing loads
+ * `message-search.ts` until `defaultSearch` is invoked.
  */
 import { Type } from "@earendil-works/pi-ai";
 import type { BuiltinToolDef } from "../types";
-import { searchMessages, type MessageSearchHit } from "../../../db/queries/message-search";
+import type { MessageSearchHit } from "../../../db/queries/message-search";
 
 /** Default number of hits returned when the LLM doesn't specify a limit. */
 const DEFAULT_LIMIT = 10;
@@ -70,10 +77,14 @@ function formatHits(query: string, hits: MessageSearchHit[]): string {
 
 export function createSearchConversationTool(ctx: SearchConversationContext): BuiltinToolDef {
   // Bind the default keyword-mode search so the execute body's `search(...)`
-  // call site doesn't know about searchMessages' wider contract. Test stubs
-  // replace this entirely.
+  // call site doesn't know about searchMessages' wider contract. The
+  // searchMessages import is lazy (see the file header) so it loads only when
+  // a real search runs. Test stubs replace this entirely.
   const search: NonNullable<SearchConversationContext["search"]> =
-    ctx.search ?? ((p) => searchMessages({ query: p.query, mode: "keyword", queryEmbedding: null, userId: p.userId, scope: "all", limit: p.limit }));
+    ctx.search ?? (async (p) => {
+      const { searchMessages } = await import("../../../db/queries/message-search");
+      return searchMessages({ query: p.query, mode: "keyword", queryEmbedding: null, userId: p.userId, scope: "all", limit: p.limit });
+    });
   return {
     name: "search_conversation",
     label: "search_conversation",

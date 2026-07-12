@@ -111,6 +111,20 @@ describe("isNoiseLine — positive matches (noise)", () => {
     expect(isNoiseLine("      enabled BOOLEAN NOT NULL DEFAULT TRUE,")).toBe(true);
     expect(isNoiseLine("      status_options JSONB NOT NULL DEFAULT '[]',")).toBe(true);
   });
+
+  test("SQL SELECT-list column alias lines (bare `col AS alias`)", () => {
+    expect(isNoiseLine("      mc.message_id AS message_id,")).toBe(true);
+    expect(isNoiseLine("      mc.content AS matched_content")).toBe(true);
+    expect(isNoiseLine("        c.title AS conversation_title,")).toBe(true);
+    expect(isNoiseLine("        NULL::bigint AS rank_v,")).toBe(true);
+    expect(isNoiseLine("        NULL::text AS matched_content,")).toBe(true);
+  });
+
+  test("lone template-interpolation close (`}` + backtick)", () => {
+    expect(isNoiseLine("        }`;")).toBe(true);
+    expect(isNoiseLine("      }`,")).toBe(true);
+    expect(isNoiseLine("}`")).toBe(true);
+  });
 });
 
 describe("isNoiseLine — negative matches (real executable code)", () => {
@@ -146,6 +160,16 @@ describe("isNoiseLine — negative matches (real executable code)", () => {
     expect(isNoiseLine("  const text = row.text;")).toBe(false);
     expect(isNoiseLine("  await db.execute(sql`")).toBe(false);
     expect(isNoiseLine("  createTable(schema);")).toBe(false);
+  });
+
+  test("lowercase `as`-cast expressions are NOT a SQL alias (case-sensitive AS)", () => {
+    // TS's cast operator is lowercase `as` — must never match SQL_SELECT_ALIAS.
+    expect(isNoiseLine("  const search = ctx.search as SearchFn;")).toBe(false);
+    expect(isNoiseLine("  return value as string;")).toBe(false);
+    expect(isNoiseLine("  const row = result as RawRow,")).toBe(false);
+    // A `}` + backtick line carrying executable code past the backtick is not
+    // a lone interpolation close.
+    expect(isNoiseLine("  }`.trim();")).toBe(false);
   });
 
   test("type-field with value assignment is NOT noise", () => {
