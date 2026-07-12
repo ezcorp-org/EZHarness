@@ -20,6 +20,7 @@ import {
   finalizeSetupError,
 } from "./stream-chat/finalize";
 import { loadHistory } from "./stream-chat/load-history";
+import { isSessionHistoryProducerEnabled } from "../db/session-sync";
 import { subscribeBridge } from "./stream-chat/subscribe-bridge";
 import { setupTools } from "./stream-chat/setup-tools";
 import { applyAutoSpinUp } from "./stream-chat/auto-spin-up";
@@ -1084,6 +1085,11 @@ export class AgentExecutor {
     const cacheRetention: CacheRetention | undefined = resolveCacheRetentionSetting(
       await getSetting("compaction:cacheRetention"),
     );
+    // Resolve the history-producer kill-switch ONCE per run. When on, the
+    // subscribe seam live-appends each saved turn to the pi session tree
+    // (design §5) — the read path (loadHistory) already synced/created the
+    // session for this conversation. Off ⇒ the append seam is a strict no-op.
+    const sessionHistoryProducer = await isSessionHistoryProducerEnabled();
     // Streaming state lives entirely on the per-call context. Re-zero
     // allTurnsText here — the watchdog already captured the closure
     // earlier and reads it lazily on each tick. runWithFailover also resets
@@ -1160,6 +1166,7 @@ export class AgentExecutor {
               requestedModel: options.model ?? null,
               routedTier: options.model ? undefined : resolvedModel.effectiveTier,
               failover: attempt !== initialAttempt,
+              sessionHistoryProducer,
             },
             convRecord ?? null,
           ),

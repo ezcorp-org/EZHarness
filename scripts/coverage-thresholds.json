@@ -40,6 +40,7 @@
   "src/db/seed-self-project.ts": 100,
   "src/db/session-storage.ts": 100,
   "src/db/session-backfill.ts": 100,
+  "src/db/session-sync.ts": 100,
   "src/db/queries/message-embed-outbox.ts": 95,
   "scripts/backfill-embeddings.ts": 95,
   "src/db/queries/message-search.ts": 100,

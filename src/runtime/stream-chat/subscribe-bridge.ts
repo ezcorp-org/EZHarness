@@ -5,6 +5,7 @@ import { logger } from "../../logger";
 import { getDb } from "../../db/connection";
 import { toolCalls, conversations } from "../../db/schema";
 import { persistToolCall } from "../../db/queries/tool-calls";
+import { appendSavedMessageEntry } from "../../db/session-sync";
 import {
   computeTurnCacheStats,
   aggregateCacheStats,
@@ -65,6 +66,11 @@ export interface SubscribeBridgeOptions {
   /** True when the serving attempt differs from the initially resolved one
    *  (a pre-stream failover rebuilt the agent). */
   failover?: boolean;
+  /** When true, live-append each saved turn to the pi session tree (design
+   *  §5). Resolved once per run by the executor from the history-producer
+   *  kill-switch; absent/false skips the append entirely (no DB probe), so
+   *  the legacy path stays a strict no-op here. */
+  sessionHistoryProducer?: boolean;
 }
 
 /** Subset of the conversation row the subscribe handler reads
@@ -167,6 +173,22 @@ export function subscribeBridge(
               // Thread subsequent turns through the steer row even when there was
               // no pre-injection leaf to reparent onto (injection at run start).
               ctx.lastSavedMessageId = persistedId;
+
+              // Mirror the reconciled steer row into the session tree at its
+              // injection position (parent = the pre-injection leaf), so the
+              // session chain matches the reparented messages chain and the
+              // next turn_end append threads through it (design §5). Gated on
+              // the run's history-producer flag. Steer content is a plain
+              // string; non-string content is left for the catch-up to heal.
+              // Fail-open.
+              const steerContent = (injected as { content?: unknown }).content;
+              if (options.sessionHistoryProducer && typeof steerContent === "string") {
+                await appendSavedMessageEntry(
+                  conversationId,
+                  { id: persistedId, role: "user", content: steerContent, createdAt: new Date() },
+                  currentLeaf,
+                );
+              }
             });
           }
         }
@@ -485,6 +507,21 @@ export function subscribeBridge(
                 ));
 
               ctx.lastSavedMessageId = turnMsg.id;
+
+              // Live-append this assistant turn to the pi session tree
+              // (design §5) so the session mirror stays hot for the next
+              // run's read. Keyed by the row id (mirror invariant), parented
+              // on the SAME structural parent the messages row got. Gated on
+              // the run's history-producer flag; fail-open — the replay-
+              // authority catch-up on the next loadHistory is the backstop
+              // for a dropped append.
+              if (options.sessionHistoryProducer) {
+                await appendSavedMessageEntry(
+                  conversationId,
+                  { id: turnMsg.id, role: "assistant", content: capturedText, createdAt: turnMsg.createdAt },
+                  capturedParent,
+                );
+              }
 
               host.bus.emit("run:turn_saved", {
                 runId: run.id,
