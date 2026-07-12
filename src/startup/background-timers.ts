@@ -114,6 +114,23 @@ export async function startBackgroundTimers(): Promise<void> {
   if (started) return;
   started = true;
 
+  // Embedding model warm-up: the in-process MiniLM embedder takes ~2 min to
+  // initialize after a restart, and generateEmbedding() BLOCKS on that load.
+  // Kick it at boot (fire-and-forget) so the first composer-suggest /
+  // semantic-search request usually finds the model ready instead of ranking
+  // lexical-only + degraded (or blocking the whole warm-up window). Lazy
+  // import keeps @huggingface/transformers out of the startup static graph
+  // (house style); warmupEmbeddings() is itself idempotent + self-catching.
+  // Wrapped in the file's never-block-boot contract: a slow/broken model load
+  // must never prevent the maintenance timers below from arming.
+  try {
+    const { warmupEmbeddings } = await import("../memory/embeddings");
+    warmupEmbeddings();
+    log.info("Embedding warmup kicked");
+  } catch (e) {
+    log.warn("Failed to kick embedding warmup", { error: String(e) });
+  }
+
   // Memory decay (1h)
   try {
     // startDecayTimer returns a disposer (() => clearInterval). Track it
