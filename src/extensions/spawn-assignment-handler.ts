@@ -634,10 +634,12 @@ export interface QueueAgentMessageContext {
    *  through to the terminal-continuation path). `steerConversation` (P3)
    *  injects the message into the live run at its next turn boundary instead of
    *  enqueuing for after it. When the executor is absent (pre-executor unit
-   *  contexts) the liveness gate is skipped; when it lacks `steerConversation`
-   *  (pre-P3) the live path falls back to enqueue — today's behavior. */
-  executor?: Pick<AgentExecutor, "getActiveRunForConversation"> &
-    Partial<Pick<AgentExecutor, "steerConversation">>;
+   *  contexts) the liveness gate is skipped; a non-`steered` steer result (the
+   *  pre-first-token no-agent window, or a run that ended between the liveness
+   *  check and the steer) falls back to enqueue. `steerConversation` is a
+   *  REQUIRED member now that P3 has landed — every production caller wires the
+   *  real executor. */
+  executor?: Pick<AgentExecutor, "getActiveRunForConversation" | "steerConversation">;
 }
 
 /** Injectable seams so unit tests can exercise the handler without a DB /
@@ -739,8 +741,8 @@ export async function handleQueueAgentMessageRpc(
   }
 
   // 7. Steer the live child run (P3), atomic: on `steered` do NOT enqueue; on
-  //    any other result (the pre-first-token no-agent window, or an executor
-  //    without steerConversation) fall back to enqueue exactly as before. The
+  //    any other result (the pre-first-token no-agent window, or a run that
+  //    ended between the liveness check and this steer) fall back to enqueue. The
   //    best-effort steer is shadow-tracked by the executor, which re-enqueues
   //    via `enqueuePending` (onUndelivered) if the run ends before delivering —
   //    so nothing is lost either way, and the child's run:complete drain
@@ -756,7 +758,7 @@ export async function handleQueueAgentMessageRpc(
     createdAt: new Date().toISOString(),
   };
   const enqueuePending = () => deps.enqueue(subConversationId, pending);
-  const steer = ctx.executor?.steerConversation?.(subConversationId, message, enqueuePending);
+  const steer = ctx.executor?.steerConversation(subConversationId, message, enqueuePending);
   if (steer?.status === "steered") {
     return rpcResult(req.id, { v: 1, queued: true, delivery: "steered" });
   }

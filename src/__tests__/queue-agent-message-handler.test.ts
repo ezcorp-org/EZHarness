@@ -228,11 +228,17 @@ describe("handleQueueAgentMessageRpc", () => {
     expect(enqueued).toEqual([{ sub: SUB, content: "steer" }]);
   });
 
-  test("liveness: LIVE run, executor without steerConversation (pre-P3) → enqueue fallback", async () => {
+  test("liveness: LIVE run but steer sees no-live-run (race) → enqueue fallback", async () => {
+    // Post-P3 `steerConversation` is a REQUIRED member of the executor Pick, so
+    // there is no longer an "executor without steerConversation" fixture. The
+    // remaining non-`steered` fallback this exercises is the race where the run
+    // ends BETWEEN the step-6 liveness check (still live) and this steer (the
+    // run reached terminal in the gap → `no-live-run`) → enqueue for the next run.
     const { deps, enqueued } = makeDeps();
     const executor = {
       getActiveRunForConversation: (id: string) =>
         id === SUB ? ({ id: "run-live" } as unknown) : undefined,
+      steerConversation: () => ({ status: "no-live-run" }),
     } as unknown as QueueAgentMessageContext["executor"];
     const resp = await handleQueueAgentMessageRpc(
       EXT,
