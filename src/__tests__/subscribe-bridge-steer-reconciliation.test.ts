@@ -180,6 +180,38 @@ describe("subscribeBridge — P4 §1.2 steered-row reconciliation", () => {
 		]);
 	});
 
+	test("ordering is FIFO-structural, not timing-dependent: next turn threads through the steer with NO intervening dbQueue drain", async () => {
+		const emits: EmittedEvent[] = [];
+		const bus = makeBus(emits);
+		const piAgent = makePiAgent();
+		const ctx = makeCtx("leaf-req");
+		const host = makeHost(bus, { steerContent: "steer", persistedId: "row-U" });
+		subscribeBridge(ctx, host, piAgent as any, "conv-1", {}, null);
+
+		// Turn B, the steer, AND turn C all fire before the queue drains — the
+		// production case where pi's inter-turn latency does NOT happen to drain
+		// the queue between events. The reconcile task is queued at message_start,
+		// which precedes turn C's turn_end, so on a FIFO queue it MUST advance the
+		// leaf to the steer BEFORE turn C's parent is resolved — WITHOUT relying on
+		// an intervening `await ctx.dbQueue`. This holds because turn_end reads its
+		// parent at dbQueue-EXECUTION time, matching the reconcile task.
+		piAgent.fire({ type: "turn_start" });
+		piAgent.fire(assistantTurn("B"));
+		piAgent.fire(steerStart("steer"));
+		piAgent.fire({ type: "turn_start" });
+		piAgent.fire(assistantTurn("C"));
+		await ctx.dbQueue;
+
+		expect(reparentCalls).toEqual([
+			{ conversationId: "conv-1", messageId: "row-U", newParent: "turn-1" },
+		]);
+		// Branch = leaf-req → B → steer → C, purely from FIFO ordering.
+		expect(createCalls).toEqual([
+			{ role: "assistant", parentMessageId: "leaf-req" },
+			{ role: "assistant", parentMessageId: "row-U" },
+		]);
+	});
+
 	test("reconciliation serializes on ctx.dbQueue behind a concurrent turn_end save (no race)", async () => {
 		const emits: EmittedEvent[] = [];
 		const bus = makeBus(emits);

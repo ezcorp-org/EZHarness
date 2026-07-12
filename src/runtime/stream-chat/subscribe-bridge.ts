@@ -412,13 +412,24 @@ export function subscribeBridge(
           if (host.persist && (resolvedText || ctx.turnHasToolCalls)) {
             const capturedText = resolvedText;
             const capturedThinking = resolvedThinking || undefined;
-            const capturedParent = ctx.lastSavedMessageId;
             // A turn with no tool calls terminates the agent loop — no further
             // turn will stream into a follow-up placeholder. Captured here
             // because turnHasToolCalls is reset on the next turn_start, which
             // can run before this queued DB callback fires.
             const isFinalTurn = !ctx.turnHasToolCalls;
             queueDb(async () => {
+              // Read the branch leaf at dbQueue-EXECUTION time (NOT a sync
+              // capture): the queue is FIFO, so any task queued before this one
+              // — a preceding turn's save, or a P4 §1.2 steer reconcile queued at
+              // an intervening message_start — has already advanced
+              // lastSavedMessageId. Reading it here makes the parent chain
+              // structural instead of dependent on inter-turn latency happening
+              // to drain the queue: a steered turn threads through the steer row,
+              // and back-to-back turns can't fork off a shared stale leaf.
+              // (text/thinking/isFinalTurn stay sync — they snapshot per-turn
+              // state that the next turn_start resets; lastSavedMessageId is
+              // never reset, only advanced forward by queued task completions.)
+              const capturedParent = ctx.lastSavedMessageId;
               const { createMessage } = await import("../../db/queries/conversations");
               const turnMsg = await createMessage(conversationId, {
                 role: "assistant",
