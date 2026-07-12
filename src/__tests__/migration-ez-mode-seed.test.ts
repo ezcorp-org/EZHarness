@@ -38,9 +38,9 @@ describe("Ez mode seed (post-migration)", () => {
     expect(mode!.toolRestriction).toBe("allowlist");
   });
 
-  test("allowedTools contains the eight native tool names plus extension-author__create_extension", async () => {
+  test("allowedTools contains the nine native tool names plus extension-author__create_extension", async () => {
     const mode = await getModeBySlug("ez");
-    // The seed ARRAY holds the eight native Ez tools (fresh-install order);
+    // The seed ARRAY holds the nine native Ez tools (fresh-install order);
     // the follow-up migrate.ts step (9) appends the bundled
     // `extension-author__create_extension` under its runtime `__`
     // namespaced name (double underscore — the '/' form never matched the
@@ -50,6 +50,7 @@ describe("Ez mode seed (post-migration)", () => {
       "propose_create_agent",
       "propose_install_extension",
       "summarize_conversation",
+      "search_conversation",
       "find_agents",
       "fill_form",
       "navigate_to",

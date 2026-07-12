@@ -31,6 +31,7 @@ const EZ_SEED_ALLOWED_TOOLS = [
   "propose_create_agent",
   "propose_install_extension",
   "summarize_conversation",
+  "search_conversation",
   "find_agents",
   "fill_form",
   "navigate_to",
@@ -1534,6 +1535,19 @@ export async function migrate(db: any): Promise<void> {
     WHERE slug = 'ez'
       AND builtin = TRUE
       AND system_prompt_instruction LIKE '%You CANNOT see their open page%'
+  `);
+
+  // (9e) search_conversation Ez concierge tool (cross-conversation keyword
+  //      search). Fresh installs get it from the seed array above; this
+  //      appends it to EXISTING Ez rows whose seed predates the tool.
+  //      Idempotent — the guard makes a re-run a no-op. Plain SQL literal +
+  //      `= ANY(...)` (never a bound JS array — a `${jsArray}` bind against
+  //      a TEXT[] column serializes as a record, not an array element).
+  await db.execute(sql`
+    UPDATE modes
+    SET allowed_tools = array_append(allowed_tools, 'search_conversation')
+    WHERE slug = 'ez'
+      AND NOT ('search_conversation' = ANY(allowed_tools))
   `);
 
   // (10) UX-02 (Phase 57-04) — pg_trgm + GIN indexes for marketplace

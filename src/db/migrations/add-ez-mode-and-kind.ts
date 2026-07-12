@@ -12,12 +12,12 @@
  *     one ez-kind conversation per user at the DB level.
  *
  * Seed:
- *   - Built-in 'ez' mode row with the eight-tool allowlist:
+ *   - Built-in 'ez' mode row with the nine-tool allowlist:
  *     propose_create_project, propose_create_agent,
- *     propose_install_extension, summarize_conversation, find_agents,
- *     fill_form, navigate_to, read_page. (The bundled
- *     extension-author__create_extension tool is appended by a later
- *     migrate.ts step, not seeded here.)
+ *     propose_install_extension, summarize_conversation,
+ *     search_conversation, find_agents, fill_form, navigate_to, read_page.
+ *     (The bundled extension-author__create_extension tool is appended by a
+ *     later migrate.ts step, not seeded here.)
  *
  * The mode's `tool_restriction` is set to 'allowlist' — a new value added
  * to the existing 'all' | 'read-only' | 'none' set. applyToolFilters() in
@@ -52,6 +52,7 @@ const EZ_ALLOWED_TOOLS = [
   "propose_create_agent",
   "propose_install_extension",
   "summarize_conversation",
+  "search_conversation",
   "find_agents",
   "fill_form",
   "navigate_to",
