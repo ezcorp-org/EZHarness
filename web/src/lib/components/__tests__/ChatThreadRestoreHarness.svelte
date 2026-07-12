@@ -8,7 +8,7 @@
 	 * `activeLeafId` is projected onto a testid the spec reads after the load
 	 * settles.
 	 */
-	import ChatThread, { type ChatThreadChrome } from "./ChatThread.svelte";
+	import ChatThread, { type ChatThreadChrome } from "../ChatThread.svelte";
 
 	interface Props {
 		conversationId?: string;

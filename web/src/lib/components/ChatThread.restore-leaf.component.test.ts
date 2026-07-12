@@ -91,7 +91,7 @@ vi.mock("$lib/api.js", () => ({
 	patchMessageContent: vi.fn(),
 }));
 
-import Harness from "./ChatThreadRestoreHarness.svelte";
+import Harness from "./__tests__/ChatThreadRestoreHarness.svelte";
 
 function leafText(container: HTMLElement): string {
 	return container.querySelector('[data-testid="active-leaf"]')?.textContent ?? "";
