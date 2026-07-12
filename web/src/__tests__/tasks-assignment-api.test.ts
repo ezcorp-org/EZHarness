@@ -130,7 +130,9 @@ const mockBusOn = mock((_event: string, _cb: (...args: unknown[]) => unknown) =>
 const mockBus = { emit: mockBusEmit, on: mockBusOn };
 
 const mockStreamChat = mock(async (..._args: any[]) => ({}));
-const mockExecutor = { streamChat: mockStreamChat };
+// registerRunMode: startAssignment registers every cycle's run mode on the
+// executor before streamChat (Wave-5 steer P4 guard) — the mock must accept it.
+const mockExecutor = { streamChat: mockStreamChat, registerRunMode: () => {} };
 
 mock.module("$lib/server/context", () => ({
   getBus: () => mockBus,
