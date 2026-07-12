@@ -59,6 +59,8 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/conversations/:id/extensions", description: "Wire installed extensions to a conversation", category: "conversations", scope: "extensions", harness: { controllable: true }, responseDescription: "{ wired: string[], extensionIds: string[] }" },
   { method: "GET", path: "/api/conversations/:id/export", description: "Export conversation as JSON/Markdown", category: "conversations" },
   { method: "POST", path: "/api/conversations/:id/active-run", description: "Cancel active run in conversation", category: "conversations" },
+  { method: "GET", path: "/api/conversations/:id/tree", description: "Session-backed message tree + durable leaf pointer for the rewind/branch UI (409 when the history-producer flag is off)", category: "conversations", scope: "read", harness: { controllable: true }, responseDescription: "{ conversationId, currentLeaf: string|null, nodes: [{ id, parentId, role, excluded, createdAt }] }" },
+  { method: "POST", path: "/api/conversations/:id/rewind", description: "Rewind/checkpoint the conversation to a message (moves the durable leaf pointer; 409 when the flag is off or a run is active)", category: "conversations", scope: "chat", harness: { controllable: true }, schemaKey: "rewindConversationSchema", responseDescription: "{ conversationId, currentLeaf, nodes } (the refreshed tree)" },
   { method: "GET", path: "/api/search/messages", description: "Hybrid/keyword/semantic message search (RRF)", category: "conversations", responseDescription: "{ hits, degraded, requestedMode, servedMode }" },
 
   // Daily Briefing

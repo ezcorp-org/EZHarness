@@ -7,11 +7,25 @@
  * per-process ring buffer with a monotonic id so a reconnecting client can
  * replay what it missed via `Last-Event-ID`.
  *
- * The buffer records events PRE-filter and globally (one id sequence shared
- * across all subscribers) — a cursor means the same thing regardless of which
- * connection produced it. Per-subscriber authorization is NOT applied here;
+ * The buffer records events PRE-filter and globally (one internal id sequence
+ * shared across all subscribers) — that global id is the ring's storage,
+ * eviction and replay key. Per-subscriber authorization is NOT applied here;
  * the SSE route re-runs the exact `shouldDeliverEvent` filter over both live
  * and replayed events, so scoping semantics are identical on both paths.
+ *
+ * ── Per-scope `id:` numbering (side-channel fix) ─────────────────────────
+ * The global ring id is NEVER exposed to a client: it advances for EVERY
+ * user's events, so the gaps between a subscriber's consecutive ids would leak
+ * how much activity OTHER users generate (an INFO cross-user volume
+ * side-channel). Instead each subscriber sees a DENSE per-scope sequence
+ * (1,2,3…) covering only the events delivered to IT — `scopeSeqFor` assigns
+ * these post-filter and MEMOISES them per (scope, global id) so replay returns
+ * the same id and the sequence stays monotonic per scope. Resume still works
+ * because the scope key is stable across the fresh-EventSource reconnect: the
+ * client's per-scope cursor translates back to a ring position via
+ * `scopeCursorToGlobalId`, and replay resumes precisely from there. The per-
+ * scope maps are pruned on ring eviction and the scope table is LRU-capped, so
+ * the whole structure stays bounded.
  *
  * A single lazy bus subscription (created on the first `addSink`) keeps the
  * buffer filling even while NO client is connected — that gap is precisely
@@ -50,12 +64,95 @@ const sinks = new Set<BufferedSink>();
 let unsubs: Array<() => void> = [];
 let subscribed = false;
 
+// ── Per-scope dense numbering (side-channel fix) ─────────────────────────
+
+/** Bidirectional per-scope seq map. `byGlobal` memoises the dense seq assigned
+ *  to a global ring id (so replay re-issues the same id); `bySeq` is its
+ *  inverse for translating a reconnecting client's cursor back to a ring
+ *  position. `nextSeq` only ever increases → monotonic per scope. */
+interface ScopeSeq {
+  nextSeq: number;
+  byGlobal: Map<number, number>;
+  bySeq: Map<number, number>;
+}
+
+/** Insertion-ordered so the first key is the least-recently-used scope. */
+let scopes = new Map<string, ScopeSeq>();
+
+/** Cap on distinct scopes retained. Bounds memory on a long-lived process with
+ *  churning users; evicting a scope only costs a reconnecting client a
+ *  replay-the-tail (best-effort), never correctness. */
+export const SSE_MAX_SCOPES = 4096;
+
+function touchScope(scopeKey: string): ScopeSeq {
+  const existing = scopes.get(scopeKey);
+  if (existing) {
+    // Move to the end of the iteration order (most-recently-used).
+    scopes.delete(scopeKey);
+    scopes.set(scopeKey, existing);
+    return existing;
+  }
+  const fresh: ScopeSeq = { nextSeq: 0, byGlobal: new Map(), bySeq: new Map() };
+  scopes.set(scopeKey, fresh);
+  // Evict least-recently-used scopes past the cap (the first inserted key).
+  while (scopes.size > SSE_MAX_SCOPES) {
+    const oldest = scopes.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    scopes.delete(oldest);
+  }
+  return fresh;
+}
+
+/**
+ * Dense per-scope sequence number for a delivered event, memoised so replay
+ * returns the SAME id it first assigned. Call ONLY for events actually
+ * delivered to the scope (post-filter), so the sequence stays gap-free and
+ * never reveals how many events OTHER scopes saw.
+ */
+export function scopeSeqFor(scopeKey: string, globalId: number): number {
+  const scope = touchScope(scopeKey);
+  const memoised = scope.byGlobal.get(globalId);
+  if (memoised !== undefined) return memoised;
+  const seq = ++scope.nextSeq;
+  scope.byGlobal.set(globalId, seq);
+  scope.bySeq.set(seq, globalId);
+  return seq;
+}
+
+/**
+ * Translate a reconnecting client's per-scope cursor back to the ring's global
+ * id to resume AFTER. An unknown cursor (never issued, or its event already
+ * evicted) → 0, i.e. replay whatever tail the ring still holds — the same
+ * best-effort a cursor that fell off the ring already gets.
+ */
+export function scopeCursorToGlobalId(scopeKey: string, cursorSeq: number): number {
+  const scope = scopes.get(scopeKey);
+  if (!scope) return 0;
+  return scope.bySeq.get(cursorSeq) ?? 0;
+}
+
+/** Drop an evicted global id from every scope's maps so they stay bounded to
+ *  the ring's contents. A cursor referencing a pruned seq then resolves to 0
+ *  (replay-the-tail) via `scopeCursorToGlobalId`. */
+function pruneScopes(globalId: number): void {
+  for (const scope of scopes.values()) {
+    const seq = scope.byGlobal.get(globalId);
+    if (seq !== undefined) {
+      scope.byGlobal.delete(globalId);
+      scope.bySeq.delete(seq);
+    }
+  }
+}
+
 /** Record one bus event: stamp it with the next id, retain it in the ring
  *  (evicting the oldest past capacity), and fan it out to every live sink. */
 function record(event: string, data: unknown): void {
   const buffered: BufferedEvent = { id: ++nextId, event, data };
   ring.push(buffered);
-  if (ring.length > SSE_RING_CAPACITY) ring.shift();
+  if (ring.length > SSE_RING_CAPACITY) {
+    const evicted = ring.shift();
+    if (evicted) pruneScopes(evicted.id);
+  }
   for (const sink of sinks) {
     try {
       sink(buffered);
@@ -109,5 +206,6 @@ export function __resetSseResumeBufferForTests(): void {
   ring = [];
   nextId = 0;
   sinks.clear();
+  scopes = new Map();
   subscribed = false;
 }

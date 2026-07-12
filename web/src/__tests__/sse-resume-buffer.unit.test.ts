@@ -11,7 +11,10 @@ import { test, expect, describe, beforeEach } from "vitest";
 import {
   addSink,
   replayFrom,
+  scopeSeqFor,
+  scopeCursorToGlobalId,
   SSE_RING_CAPACITY,
+  SSE_MAX_SCOPES,
   __resetSseResumeBufferForTests,
   type BufferedEvent,
 } from "$lib/server/sse-resume-buffer";
@@ -122,5 +125,65 @@ describe("sse-resume-buffer", () => {
     addSink(bus2, (e) => seen.push(e.id));
     bus2.emit(SAMPLE, {});
     expect(seen).toEqual([1, 1]);
+  });
+});
+
+// Per-scope dense numbering (side-channel fix): the exposed `id:` is a dense
+// per-scope sequence, NEVER the global ring id, so its gaps can't leak how many
+// events other scopes saw.
+describe("sse-resume-buffer — per-scope numbering", () => {
+  test("assigns a DENSE per-scope sequence, memoised per (scope, global id)", () => {
+    // Scope A sees global ids 1 and 3 (global 2 went to another scope and was
+    // filtered out for A). A's exposed ids stay DENSE (1, 2) — the skipped
+    // global 2 never bumps A's counter, so nothing about it leaks.
+    expect(scopeSeqFor("A", 1)).toBe(1);
+    expect(scopeSeqFor("A", 3)).toBe(2);
+    // Memoised: re-asking for the same global id returns the SAME seq (so
+    // replay re-issues the id the client already saw).
+    expect(scopeSeqFor("A", 1)).toBe(1);
+    expect(scopeSeqFor("A", 3)).toBe(2);
+    // A different scope keeps its OWN independent dense sequence.
+    expect(scopeSeqFor("B", 2)).toBe(1);
+    expect(scopeSeqFor("B", 5)).toBe(2);
+  });
+
+  test("scopeCursorToGlobalId translates a known cursor and is 0 for unknown", () => {
+    expect(scopeSeqFor("A", 10)).toBe(1);
+    expect(scopeSeqFor("A", 20)).toBe(2);
+    // A seq → the global id it was assigned (resume resumes AFTER this).
+    expect(scopeCursorToGlobalId("A", 1)).toBe(10);
+    expect(scopeCursorToGlobalId("A", 2)).toBe(20);
+    // A never-issued seq, and a never-seen scope, both resolve to 0 → the
+    // caller replays whatever tail the ring still holds.
+    expect(scopeCursorToGlobalId("A", 99)).toBe(0);
+    expect(scopeCursorToGlobalId("no-such-scope", 1)).toBe(0);
+  });
+
+  test("prunes a scope's seq mapping when its global id is evicted from the ring", () => {
+    const bus = fakeBus();
+    addSink(bus, () => {});
+    bus.emit(SAMPLE, {}); // global id 1
+    expect(scopeSeqFor("A", 1)).toBe(1);
+    expect(scopeCursorToGlobalId("A", 1)).toBe(1);
+    // Push exactly SSE_RING_CAPACITY more events → global id 1 is evicted.
+    for (let i = 0; i < SSE_RING_CAPACITY; i++) bus.emit(SAMPLE, {});
+    // Its per-scope mapping was pruned → the cursor now resolves to 0 (tail).
+    expect(scopeCursorToGlobalId("A", 1)).toBe(0);
+  });
+
+  test("caps the scope table, evicting the least-recently-used scope", () => {
+    // Create one more scope than the cap; the FIRST (never re-touched) is LRU
+    // and gets evicted, while the newest is retained.
+    for (let i = 0; i <= SSE_MAX_SCOPES; i++) scopeSeqFor(`s${i}`, 1);
+    expect(scopeCursorToGlobalId("s0", 1)).toBe(0); // evicted
+    expect(scopeCursorToGlobalId(`s${SSE_MAX_SCOPES}`, 1)).toBe(1); // retained
+  });
+
+  test("reset also clears the per-scope numbering", () => {
+    expect(scopeSeqFor("A", 7)).toBe(1);
+    __resetSseResumeBufferForTests();
+    // Fresh scope table → the sequence restarts and the old cursor is gone.
+    expect(scopeCursorToGlobalId("A", 1)).toBe(0);
+    expect(scopeSeqFor("A", 7)).toBe(1);
   });
 });

@@ -5,6 +5,7 @@ import { logger } from "../../logger";
 import { getDb } from "../../db/connection";
 import { toolCalls, conversations } from "../../db/schema";
 import { persistToolCall } from "../../db/queries/tool-calls";
+import { appendSavedMessageEntry } from "../../db/session-sync";
 import {
   computeTurnCacheStats,
   aggregateCacheStats,
@@ -65,6 +66,11 @@ export interface SubscribeBridgeOptions {
   /** True when the serving attempt differs from the initially resolved one
    *  (a pre-stream failover rebuilt the agent). */
   failover?: boolean;
+  /** When true, live-append each saved turn to the pi session tree (design
+   *  §5). Resolved once per run by the executor from the history-producer
+   *  kill-switch; absent/false skips the append entirely (no DB probe), so
+   *  the legacy path stays a strict no-op here. */
+  sessionHistoryProducer?: boolean;
 }
 
 /** Subset of the conversation row the subscribe handler reads
@@ -129,6 +135,65 @@ export function subscribeBridge(
         ctx.turnHasToolCalls = false;
         host.bus.emit("run:status", { runId: run.id, status: "Thinking..." });
         break;
+      case "message_start": {
+        // P4 §1.2 — steered-row reconciliation (PERSISTENCE LAYER seam; Phase 2's
+        // session live-append should hook the same ordering here). When a steer
+        // is DELIVERED, pi drains it and emits message_start carrying the exact
+        // UserMessage object steerConversation queued. If the caller persisted a
+        // DB row for that steer up-front (agent-chat, for immediate feed
+        // visibility), its parent was the leaf-at-REQUEST — but the LLM sees the
+        // steer HERE, at a later branch position. Re-parent the row to the current
+        // branch leaf and thread later turns through it, so the NEXT run's
+        // loadHistory rebuilds the exact sequence the LLM saw.
+        //
+        // Serialized on ctx.dbQueue with the turn-save chain (no double-write
+        // race): the preceding turn's save — which advances ctx.lastSavedMessageId
+        // — is queued before this, so when the reparent runs ctx.lastSavedMessageId
+        // IS the pre-injection leaf; setting it to the steer row then makes the
+        // next turn_end parent onto the steer. The executor's `consumeSteerPersistedId`
+        // latch fires at most once per steer, and returns undefined for a steer
+        // with no persisted row (send_to_agent — an ephemeral prompt, like every
+        // sub-agent prompt: nothing to reconcile) or a non-steer message.
+        const injected = event.message;
+        if (
+          host.persist &&
+          injected &&
+          typeof injected === "object" &&
+          "role" in injected &&
+          injected.role === "user"
+        ) {
+          const persistedId = host.executor.consumeSteerPersistedId(run.id, injected);
+          if (persistedId) {
+            queueDb(async () => {
+              const currentLeaf = ctx.lastSavedMessageId;
+              if (currentLeaf && currentLeaf !== persistedId) {
+                const { reparentMessage } = await import("../../db/queries/conversations");
+                await reparentMessage(conversationId, persistedId, currentLeaf);
+              }
+              // Thread subsequent turns through the steer row even when there was
+              // no pre-injection leaf to reparent onto (injection at run start).
+              ctx.lastSavedMessageId = persistedId;
+
+              // Mirror the reconciled steer row into the session tree at its
+              // injection position (parent = the pre-injection leaf), so the
+              // session chain matches the reparented messages chain and the
+              // next turn_end append threads through it (design §5). Gated on
+              // the run's history-producer flag. Steer content is a plain
+              // string; non-string content is left for the catch-up to heal.
+              // Fail-open.
+              const steerContent = (injected as { content?: unknown }).content;
+              if (options.sessionHistoryProducer && typeof steerContent === "string") {
+                await appendSavedMessageEntry(
+                  conversationId,
+                  { id: persistedId, role: "user", content: steerContent, createdAt: new Date() },
+                  currentLeaf,
+                );
+              }
+            });
+          }
+        }
+        break;
+      }
       case "message_update": {
         const ame = event.assistantMessageEvent;
         if (ame.type === "text_delta") {
@@ -369,13 +434,24 @@ export function subscribeBridge(
           if (host.persist && (resolvedText || ctx.turnHasToolCalls)) {
             const capturedText = resolvedText;
             const capturedThinking = resolvedThinking || undefined;
-            const capturedParent = ctx.lastSavedMessageId;
             // A turn with no tool calls terminates the agent loop — no further
             // turn will stream into a follow-up placeholder. Captured here
             // because turnHasToolCalls is reset on the next turn_start, which
             // can run before this queued DB callback fires.
             const isFinalTurn = !ctx.turnHasToolCalls;
             queueDb(async () => {
+              // Read the branch leaf at dbQueue-EXECUTION time (NOT a sync
+              // capture): the queue is FIFO, so any task queued before this one
+              // — a preceding turn's save, or a P4 §1.2 steer reconcile queued at
+              // an intervening message_start — has already advanced
+              // lastSavedMessageId. Reading it here makes the parent chain
+              // structural instead of dependent on inter-turn latency happening
+              // to drain the queue: a steered turn threads through the steer row,
+              // and back-to-back turns can't fork off a shared stale leaf.
+              // (text/thinking/isFinalTurn stay sync — they snapshot per-turn
+              // state that the next turn_start resets; lastSavedMessageId is
+              // never reset, only advanced forward by queued task completions.)
+              const capturedParent = ctx.lastSavedMessageId;
               const { createMessage } = await import("../../db/queries/conversations");
               const turnMsg = await createMessage(conversationId, {
                 role: "assistant",
@@ -431,6 +507,21 @@ export function subscribeBridge(
                 ));
 
               ctx.lastSavedMessageId = turnMsg.id;
+
+              // Live-append this assistant turn to the pi session tree
+              // (design §5) so the session mirror stays hot for the next
+              // run's read. Keyed by the row id (mirror invariant), parented
+              // on the SAME structural parent the messages row got. Gated on
+              // the run's history-producer flag; fail-open — the replay-
+              // authority catch-up on the next loadHistory is the backstop
+              // for a dropped append.
+              if (options.sessionHistoryProducer) {
+                await appendSavedMessageEntry(
+                  conversationId,
+                  { id: turnMsg.id, role: "assistant", content: capturedText, createdAt: turnMsg.createdAt },
+                  capturedParent,
+                );
+              }
 
               host.bus.emit("run:turn_saved", {
                 runId: run.id,

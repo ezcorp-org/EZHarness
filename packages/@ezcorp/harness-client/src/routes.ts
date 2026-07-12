@@ -31,6 +31,9 @@ export const HARNESS_ROUTES = {
   // Conversations + drive
   createConversation: { httpMethod: "POST", pathTemplate: "/api/conversations" },
   sendMessage: { httpMethod: "POST", pathTemplate: "/api/conversations/:id/messages" },
+  // Sessions P4 rewind/checkpoint
+  getConversationTree: { httpMethod: "GET", pathTemplate: "/api/conversations/:id/tree" },
+  rewindConversation: { httpMethod: "POST", pathTemplate: "/api/conversations/:id/rewind" },
   // Extension lifecycle (admin-role key)
   listExtensions: { httpMethod: "GET", pathTemplate: "/api/extensions" },
   installExtension: { httpMethod: "POST", pathTemplate: "/api/extensions" },

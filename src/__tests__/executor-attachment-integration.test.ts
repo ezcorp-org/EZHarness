@@ -209,7 +209,7 @@ describe("streamChat attachment-handle integration", () => {
     const run = await executor.streamChat(conv.id, "use the handle", {
       agentConfigId,
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
       projectId,
       attachments: [staged],
     });
@@ -243,7 +243,7 @@ describe("streamChat attachment-handle integration", () => {
     await executor.streamChat(conv.id, "spoof", {
       agentConfigId,
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
       projectId,
       attachments: [staged],
     });
@@ -261,7 +261,7 @@ describe("streamChat attachment-handle integration", () => {
     await executor.streamChat(conv.id, "no attachments", {
       agentConfigId,
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5",
       projectId,
       // no `attachments` field, no past-turn attachments on this branch.
     });

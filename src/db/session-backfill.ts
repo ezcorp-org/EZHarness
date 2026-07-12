@@ -91,7 +91,12 @@ export function rowToPiMessage(row: ConversationMessage): AssistantMessage | Use
  *  messages.parent_message_id → messages(id) is ON DELETE SET NULL) — but a
  *  cross-conversation pointer (the FK is not conversation-scoped) or
  *  inconsistent data would otherwise make getPathToRoot throw
- *  invalid_session on a missing byId entry. Degrade gracefully instead. */
+ *  invalid_session on a missing byId entry. Degrade gracefully instead.
+ *
+ *  This truncation now MATCHES getConversationPath: as of Wave5 0.7 its
+ *  recursive CTE is conversation-scoped, so loadHistory also stops a stray
+ *  cross-conversation pointer at the boundary rather than following it. The
+ *  two read paths agree (asserted in session-backfill-parity.test.ts). */
 export function rowToEntry(row: ConversationMessage, knownIds: ReadonlySet<string>): SessionTreeEntry {
   const parentId = row.parentMessageId && knownIds.has(row.parentMessageId) ? row.parentMessageId : null;
   const base = { id: row.id, parentId, timestamp: row.createdAt.toISOString() };

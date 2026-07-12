@@ -59,7 +59,7 @@ async function fileExists(p: string) {
 describe("conversation delete → attachments GC (disk + DB)", () => {
   test("deleting a conversation removes both DB rows and disk files", async () => {
     const conv = await createConversation(projectId, {
-      title: "doomed", provider: "anthropic", model: "claude-3-5-sonnet-20241022",
+      title: "doomed", provider: "anthropic", model: "claude-sonnet-4-5",
     });
     const msg = await createMessage(conv.id, { role: "user", content: "hi" });
     const bytes = new Uint8Array([1, 2, 3]);

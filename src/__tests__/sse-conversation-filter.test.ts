@@ -38,12 +38,13 @@ afterEach(() => {
 });
 
 describe("DIRECT_CARRIER_EVENT_TYPES", () => {
-  test("enumerates the direct-carrier event types (13 from prereqs audit + ask-user:answer + ez:client-tool + extensions:installed + goal:update + the two briefing events; Phase 5's orchestrator:human_* removed by ask-user migration)", () => {
-    // 18 entries: 13 from the prereqs audit + ez:client-tool (Phase 48
+  test("enumerates the direct-carrier event types (13 from prereqs audit + ask-user:answer + ez:client-tool + extensions:installed + goal:update + the two briefing events + conversation:tree-changed; Phase 5's orchestrator:human_* removed by ask-user migration)", () => {
+    // 19 entries: 13 from the prereqs audit + ez:client-tool (Phase 48
     // Wave 3) + extensions:installed (agent-install-ux-polish Phase 2)
     // + goal:update (/goal Phase 2, FR-20) + conversation:created +
-    // briefing:delivered (Daily Briefing Phase 1).
-    expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(18);
+    // briefing:delivered (Daily Briefing Phase 1) + conversation:tree-changed
+    // (Sessions P4 rewind/checkpoint).
+    expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(19);
     for (const name of [
       "run:complete", "run:error", "run:cancel", "run:turn_saved",
       "tool:start", "tool:complete", "tool:error",
@@ -55,6 +56,7 @@ describe("DIRECT_CARRIER_EVENT_TYPES", () => {
       "goal:update",
       "conversation:created",
       "briefing:delivered",
+      "conversation:tree-changed",
     ]) {
       expect(DIRECT_CARRIER_EVENT_TYPES.has(name as never)).toBe(true);
     }
@@ -281,6 +283,67 @@ describe("shouldDeliverEvent — goal:update (/goal Phase 2, FR-20, FR-16)", () 
     // dropping goal:update from the set would silently broadcast
     // every user's goal-state to every subscriber.
     expect(isDirectCarrierEvent("goal:update")).toBe(true);
+  });
+});
+
+describe("shouldDeliverEvent — conversation:tree-changed (Sessions P4 rewind)", () => {
+  // The rewind nudge MUST be scoped per-subscriber by the payload's
+  // conversationId, exactly like goal:update: a rewind in user-1's
+  // conversation must never light up user-2's tree.
+
+  test("conversation:tree-changed for conv-A passes to conv-A's owner", async () => {
+    const get = makeGetConversation({ "conv-A": { userId: "user-1" } });
+    const deliver = await shouldDeliverEvent(
+      "conversation:tree-changed",
+      { conversationId: "conv-A", currentLeaf: "m-42" },
+      { userId: "user-1" },
+      get,
+    );
+    expect(deliver).toBe(true);
+  });
+
+  test("conversation:tree-changed for conv-A is BLOCKED for a different user (cross-user isolation)", async () => {
+    const get = makeGetConversation({
+      "conv-A": { userId: "user-1" },
+      "conv-B": { userId: "user-2" },
+    });
+    const deliver = await shouldDeliverEvent(
+      "conversation:tree-changed",
+      { conversationId: "conv-A", currentLeaf: "m-42" },
+      { userId: "user-2" },
+      get,
+    );
+    expect(deliver).toBe(false);
+  });
+
+  test("conversation:tree-changed for a non-existent conversation is BLOCKED (fail-closed on unknown rows)", async () => {
+    const get = makeGetConversation({});
+    const deliver = await shouldDeliverEvent(
+      "conversation:tree-changed",
+      { conversationId: "no-such-conv", currentLeaf: null },
+      { userId: "user-1" },
+      get,
+    );
+    expect(deliver).toBe(false);
+  });
+
+  test("conversation:tree-changed is recognized by isDirectCarrierEvent (so it gets the auth-filter codepath)", () => {
+    expect(isDirectCarrierEvent("conversation:tree-changed")).toBe(true);
+  });
+
+  test("fails CLOSED on a DB error (dropped, not broadcast) — UNLIKE the fail-open conv carriers", async () => {
+    // The generic conv-scoped carriers fail OPEN on DB error (avoid UI
+    // black-out). A tree-changed nudge instead fails CLOSED: a missed nudge
+    // self-heals on reconnect/refetch, so dropping beats leaking the
+    // conversation + rewound-leaf ids cross-user under DB stress.
+    const getThrowing = async () => { throw new Error("db is down"); };
+    const deliver = await shouldDeliverEvent(
+      "conversation:tree-changed",
+      { conversationId: "conv-A", currentLeaf: "m-1" },
+      { userId: "user-1" },
+      getThrowing,
+    );
+    expect(deliver).toBe(false);
   });
 });
 

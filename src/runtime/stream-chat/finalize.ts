@@ -75,6 +75,13 @@ export async function finalizeSuccess(
   // options.parentMessageId): the deterministic-preprocess runner may have
   // chained `preprocess-result` rows and re-based the turn's parent onto the
   // last row — the two fields are identical when preprocess didn't run.
+  //
+  // A P4 §1.2 steer reconcile ALSO advances ctx.lastSavedMessageId (to the
+  // steer's row) at delivery, so a run whose only "save" was a reconciled steer
+  // would suppress this fallback. That's acceptable: a successful run with a
+  // delivered steer virtually always has a subsequent turn_end save (the model
+  // responds to the steer), and the steer content is already persisted — it IS
+  // the user row the route created — so nothing is lost by not re-saving it here.
   if (host.persist && ctx.allTurnsText && ctx.lastSavedMessageId === ctx.turnParentMessageId) {
     try {
       const { createMessage } = await import("../../db/queries/conversations");

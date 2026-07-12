@@ -216,7 +216,7 @@
 				autocomplete="off"
 				data-testid="command-form-model"
 				class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] focus:border-blue-500 focus:outline-none"
-				placeholder="claude-3-5-sonnet"
+				placeholder="claude-sonnet-4-5"
 			/>
 			<datalist id="cmd-model-options">
 				{#each modelOptions as opt}

@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/test-base.js";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 
 /**
  * E2E coverage for the /commands authoring UI. Walks the full user
@@ -68,6 +68,27 @@ test.describe("/commands authoring UI", () => {
 		await page.getByTestId("command-form-submit").click();
 
 		await expect(page).toHaveURL("/commands/myreview");
+	});
+
+	// Frontend-visual change (components/**): the advisory Model field's
+	// placeholder was updated off the retired `claude-3-5-sonnet` id to a
+	// current one. @evidence-tagged so the Visual evidence gate captures the
+	// form and the maintainer can eyeball the placeholder in the PR.
+	test("create form Model field shows the current model-id placeholder @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		await mockApi({ userCommands: [] });
+		await page.goto("/commands/new");
+		await expect(page.getByRole("heading", { name: "New Command" })).toBeVisible();
+
+		const modelInput = page.getByTestId("command-form-model");
+		await expect(modelInput).toBeVisible();
+		// A CURRENT pi-ai model id — the previous `claude-3-5-sonnet` placeholder
+		// referenced a snapshot family pi-ai has since retired.
+		await expect(modelInput).toHaveAttribute("placeholder", "claude-sonnet-4-5");
+
+		await captureEvidence(page, testInfo, "command-form-model-placeholder");
 	});
 
 	test("bad slug shows inline error and never fires the API", async ({

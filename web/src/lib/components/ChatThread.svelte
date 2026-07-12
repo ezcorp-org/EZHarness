@@ -37,6 +37,7 @@
 	import { onMount, untrack, tick } from "svelte";
 	import {
 		fetchAllMessages,
+		fetchConversationTree,
 		updateConversation,
 		patchMessageContent,
 		setMessageExcluded,
@@ -335,6 +336,10 @@
 	);
 	let editingMessageId = $state<string | null>(null);
 	let editContent = $state("");
+	// Sessions P4 rewind/checkpoint gate: `treeEnabled` reflects the
+	// `sessions:historyProducer` flag as learned from GET .../tree (200 vs
+	// 409) — the rewind affordance is hidden entirely when off.
+	let treeEnabled = $state(false);
 	let historicalToolCalls = $state<HistoricalToolCall[]>([]);
 	let savedMemories = $state(new Map<string, string>());
 	let subConversations = $state<SubConvoRecord[]>([]);
@@ -750,6 +755,24 @@
 	const handleSubConvoSend = sendApi.handleSubConvoSend;
 	const handleSubConvoReturn = sendApi.handleSubConvoReturn;
 	const submitEdit = (msg: Message) => sendApi.handleEditConfirm(msg);
+
+	// Sessions P4: learn the rewind/checkpoint flag from the feature's own
+	// owner-scoped endpoint (200 = producer on → affordance shown; 409 = off
+	// → hidden). Fail-quiet to disabled so a fetch error never surfaces a
+	// dead button. Re-run on conversation switch + on a tree-changed nudge.
+	async function refreshTree(): Promise<void> {
+		try {
+			const { enabled } = await fetchConversationTree(conversationId);
+			treeEnabled = enabled;
+		} catch {
+			treeEnabled = false;
+		}
+	}
+	$effect(() => {
+		void conversationId;
+		void refreshTree();
+	});
+	const handleRewind = (msg: Message) => sendApi.handleRewind(msg);
 
 	function handleEdit(msg: Message) {
 		editingMessageId = msg.id;
@@ -1178,6 +1201,19 @@
 		};
 		window.addEventListener("ez:agent_complete", handleAgentComplete);
 
+		// Sessions P4: a rewind in another tab moved this conversation's tree
+		// (conversation-scoped `conversation:tree-changed`, re-dispatched as a
+		// window event by stores.svelte). Re-pull the tree (flag/leaf) and the
+		// message list so both tabs converge on the new checkpoint branch.
+		const handleTreeChanged = (e: Event) => {
+			const { conversationId: evtConvId } = (e as CustomEvent).detail ?? {};
+			if (evtConvId !== conversationId) return;
+			void refreshTree();
+			invalidateFetchPolicy(`messages-all:${conversationId}`);
+			loadMessages();
+		};
+		window.addEventListener("conversation:tree-changed", handleTreeChanged);
+
 		// Optional caller-supplied refresh event (panel passes
 		// `agent:complete`). status:'queued' / external completion ⇒
 		// reload the thread.
@@ -1245,6 +1281,10 @@
 			window.removeEventListener(
 				"ez:agent_complete",
 				handleAgentComplete,
+			);
+			window.removeEventListener(
+				"conversation:tree-changed",
+				handleTreeChanged,
 			);
 			if (refreshEventName) {
 				window.removeEventListener(
@@ -2013,6 +2053,8 @@
 							? (p, m) => handleFallback(msg, p, m)
 							: undefined}
 						onbranch={handleBranch}
+						onrewind={treeEnabled ? handleRewind : undefined}
+						abRetryEnabled={treeEnabled && !activeRunId}
 						onsavememory={handleSaveMemory}
 						onremovememory={handleRemoveMemory}
 						savedAsMemory={savedMemories.has(msg.id)}

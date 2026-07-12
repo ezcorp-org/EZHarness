@@ -87,7 +87,7 @@ describe("autonomous continuation ↔ orchestration wait (integration)", () => {
         return { id: runId, agentName: "worker", status: "success", startedAt: Date.now(), logs: [] };
       },
     );
-    const executor = { streamChat } as unknown as AgentExecutor;
+    const executor = { streamChat, registerRunMode: () => {} } as unknown as AgentExecutor;
 
     const assignment: TaskAssignment = {
       id: "asn-int",

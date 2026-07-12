@@ -687,6 +687,59 @@ export async function fetchAllMessages(conversationId: string): Promise<Message[
 	return res.json();
 }
 
+/** One node of a conversation's session-backed message tree (Sessions P4). */
+export interface ConversationTreeNode {
+	id: string;
+	parentId: string | null;
+	role: string;
+	excluded: boolean;
+	createdAt: string;
+}
+/** The conversation's whole message tree + durable leaf pointer. */
+export interface ConversationTree {
+	conversationId: string;
+	currentLeaf: string | null;
+	nodes: ConversationTreeNode[];
+}
+
+/**
+ * Fetch a conversation's session-backed rewind/branch tree.
+ *
+ * The endpoint 409s when the `sessions:historyProducer` flag is off — which is
+ * ALSO how the client learns the feature is enabled (the generic settings
+ * endpoint is admin-gated, but rewind must work for the conversation owner).
+ * So a 409 resolves to `{ enabled: false }` rather than throwing; any other
+ * non-2xx still throws via `checkResponse`.
+ */
+export async function fetchConversationTree(
+	conversationId: string,
+): Promise<{ enabled: boolean; tree: ConversationTree | null }> {
+	const res = await fetch(`${BASE}/api/conversations/${conversationId}/tree`);
+	if (res.status === 409) return { enabled: false, tree: null };
+	await checkResponse(res);
+	return { enabled: true, tree: await res.json() };
+}
+
+/**
+ * Rewind/checkpoint a conversation to a message: moves the durable leaf pointer
+ * there so the next send continues from that turn (the abandoned tail survives
+ * as a switchable sibling). Returns the refreshed tree. Throws on 409 (flag off
+ * / active run) or 400 (bad target).
+ */
+export async function rewindConversation(
+	conversationId: string,
+	targetMessageId: string,
+	summary?: string,
+): Promise<ConversationTree> {
+	const res = await fetch(`${BASE}/api/conversations/${conversationId}/rewind`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(summary ? { targetMessageId, summary } : { targetMessageId }),
+	});
+	await checkResponse(res);
+	return res.json();
+}
+
 export async function sendMessage(
 	conversationId: string,
 	data: {

@@ -97,13 +97,17 @@ type StreamChatCall = {
 
 type ChildRegistration = { parentRunId: string; childRunId: string };
 
+type RunModeRegistration = { runId: string; mode: { autonomous: boolean; schema: boolean } };
+
 function makeMockExecutor(): {
   executor: AgentExecutor;
   calls: StreamChatCall[];
   childRegistrations: ChildRegistration[];
+  runModeRegistrations: RunModeRegistration[];
 } {
   const calls: StreamChatCall[] = [];
   const childRegistrations: ChildRegistration[] = [];
+  const runModeRegistrations: RunModeRegistration[] = [];
   const streamChat = mock(
     async (
       conversationId: string,
@@ -131,10 +135,19 @@ function makeMockExecutor(): {
     childRegistrations.push({ parentRunId, childRunId });
     return registerChildRunResult;
   });
+  // P4: startRun records the run's steer mode per cycle. Capture the calls so
+  // the plumbing test can assert every started run is registered with the
+  // assignment's autonomous/schema flags.
+  const registerRunMode = mock(
+    (runId: string, mode: { autonomous: boolean; schema: boolean }) => {
+      runModeRegistrations.push({ runId, mode });
+    },
+  );
   return {
-    executor: { streamChat, registerChildRun } as unknown as AgentExecutor,
+    executor: { streamChat, registerChildRun, registerRunMode } as unknown as AgentExecutor,
     calls,
     childRegistrations,
+    runModeRegistrations,
   };
 }
 
@@ -743,7 +756,7 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
         throw new Error("stream boom");
       },
     );
-    const executor = { streamChat } as unknown as AgentExecutor;
+    const executor = { streamChat, registerRunMode: () => {} } as unknown as AgentExecutor;
     const task = makeTask();
     const assignment = makeAssignment();
     const snapshot = makeSnapshot(task, "conv-parent");
@@ -861,6 +874,70 @@ describe("startAssignment — parentRunId child registration", () => {
     const terminal = updates.at(-1)!;
     expect(terminal.assignment.status).toBe("failed");
     expect(terminal.resultFull).toContain("child was not started");
+  });
+});
+
+// ── 5a-runmode. P4 steer-mode registration per cycle ────────────────
+//
+// start-assignment records each run's steer mode on the executor so
+// steerConversation can refuse to mid-run-steer an autonomous / structured-output
+// child. Every cycle re-registers (each mints a new run id), mirroring
+// registerChildRun; the executor clears the entry at the run's terminal.
+
+describe("startAssignment — P4 run-mode registration", () => {
+  test("plain assignment registers a non-guarding run mode for the initial run", async () => {
+    const { executor, calls, runModeRegistrations } = makeMockExecutor();
+    const opts = baseOpts({ executor, reuseSubConversationId: "sub-rm-plain" });
+    const { agentRunId } = await startAssignment(opts);
+
+    expect(runModeRegistrations).toEqual([
+      { runId: agentRunId, mode: { autonomous: false, schema: false } },
+    ]);
+    // Registered under the SAME id streamChat runs — so the guard resolves it.
+    expect(calls[0]!.options.runId).toBe(agentRunId);
+  });
+
+  test("autonomous assignment registers autonomous mode on the initial run AND each cycle's new id", async () => {
+    const { executor, calls, runModeRegistrations } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
+    const opts = baseOpts({
+      executor,
+      bus,
+      reuseSubConversationId: "sub-rm-auto",
+      autonomousContinuation: { maxCycles: 3 },
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    expect(runModeRegistrations).toEqual([
+      { runId: agentRunId, mode: { autonomous: true, schema: false } },
+    ]);
+
+    // A no-done-signal completion fires an autonomous cycle → a NEW run id that
+    // must ALSO register the autonomous mode (a mid-run steer of ANY cycle would
+    // break the run-boundary invariant, so every cycle is guarded).
+    emitComplete(bus, agentRunId, "still working");
+    expect(calls).toHaveLength(2);
+    const cycleRunId = calls[1]!.options.runId as string;
+    expect(cycleRunId).not.toBe(agentRunId);
+    expect(runModeRegistrations).toHaveLength(2);
+    expect(runModeRegistrations[1]).toEqual({
+      runId: cycleRunId,
+      mode: { autonomous: true, schema: false },
+    });
+  });
+
+  test("structured-output assignment registers schema mode", async () => {
+    const { executor, runModeRegistrations } = makeMockExecutor();
+    const opts = baseOpts({
+      executor,
+      reuseSubConversationId: "sub-rm-schema",
+      outputSchema: { type: "object" },
+    });
+    const { agentRunId } = await startAssignment(opts);
+
+    expect(runModeRegistrations).toEqual([
+      { runId: agentRunId, mode: { autonomous: false, schema: true } },
+    ]);
   });
 });
 
@@ -1024,7 +1101,7 @@ describe("startAssignment — emitTerminal double-fire guard", () => {
       },
     );
     const registerChildRun = mock(() => true);
-    const executor = { streamChat, registerChildRun } as unknown as AgentExecutor;
+    const executor = { streamChat, registerChildRun, registerRunMode: () => {} } as unknown as AgentExecutor;
     const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
     const assignment = makeAssignment();
     const completes: Array<{ success: boolean }> = [];

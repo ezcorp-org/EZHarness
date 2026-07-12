@@ -418,8 +418,10 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as { status?: string };
       expect(body.status).toBe("steered");
-      // Content is steered verbatim; a fallback re-enqueue callback is passed.
-      expect(steerConversation).toHaveBeenCalledWith("sub-1", "hi", expect.any(Function));
+      // Content is steered verbatim; a fallback re-enqueue callback is passed,
+      // plus the persisted row id (P4 §1.2) so the executor can re-parent it to
+      // the injection position at delivery.
+      expect(steerConversation).toHaveBeenCalledWith("sub-1", "hi", expect.any(Function), "msg-new");
       // Atomic: a steered message is NOT also enqueued.
       expect(enqueue).not.toHaveBeenCalled();
       expect(streamChat).not.toHaveBeenCalled();
@@ -439,6 +441,27 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
       const body = (await res.json()) as { status?: string };
       expect(body.status).toBe("queued");
       // Falls back to today's behavior: enqueue exactly once, no steer delivery.
+      expect(enqueue).toHaveBeenCalledTimes(1);
+      expect(enqueue).toHaveBeenCalledWith("sub-1", expect.objectContaining({ content: "hi" }));
+      expect(streamChat).not.toHaveBeenCalled();
+    });
+
+    test("active-run path (guarded): autonomous/schema child → enqueue, status queued", async () => {
+      installSubConvGraph({
+        agentConfig: { provider: "anthropic", model: "claude-opus-4-7", name: "Agent", prompt: "p" },
+      });
+      getActiveRunForConversation.mockReturnValue({ id: "run-active" });
+      // P4: steerConversation refuses an autonomous / structured-output child.
+      // The route's "any non-steered result → enqueue" fallback must route it to
+      // pending-messages so the run-boundary drain delivers it — preserving the
+      // pre-P2 queued behavior for exactly those children.
+      steerConversation.mockReturnValue({ status: "guarded", runId: "run-active", reason: "autonomous" });
+
+      const res = await POST(makeEvent({ locals: { user }, body: { content: "hi" } }));
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { status?: string };
+      expect(body.status).toBe("queued");
       expect(enqueue).toHaveBeenCalledTimes(1);
       expect(enqueue).toHaveBeenCalledWith("sub-1", expect.objectContaining({ content: "hi" }));
       expect(streamChat).not.toHaveBeenCalled();

@@ -22,6 +22,7 @@ export const RUNTIME_EVENT_NAMES = [
   "extensions:installed",
   "goal:update",
   "conversation:created",
+  "conversation:tree-changed",
   "github-projects:proposal-update",
 ] as const;
 

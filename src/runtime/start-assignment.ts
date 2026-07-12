@@ -317,6 +317,18 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
   // completion goes straight to schema validation, which clears the flag.
   let schemaRepromptInFlight = false;
 
+  // P4 steer mode for THIS assignment's runs (constant across cycles — both
+  // flags are fixed for the assignment's lifetime). An autonomous or
+  // structured-output child must NOT be mid-run-steered: a live steer would
+  // interleave with an autonomous/schema-correction cycle and break the
+  // run-boundary "user steering wins / abandons the in-flight schema
+  // correction" invariant (the schemaRepromptInFlight gate). Registered per
+  // cycle in startRun so steerConversation refuses those runs (`guarded`) and
+  // the caller routes the message to pending-messages, where branch (1)'s
+  // run-boundary drain delivers it — preserving today's behavior for these
+  // children. A plain child (both false) stays mid-run-steerable (P2/P3).
+  const runMode = { autonomous: autonomousEnabled, schema: !!outputSchema };
+
   // Reuse an existing sub-conversation for this agent, or create one.
   // If the caller pre-resolved a reuse id, honor it verbatim and skip the
   // by-agentConfigId lookup. Otherwise preserve legacy reuse semantics.
@@ -566,6 +578,14 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     if (previousRunId !== undefined) {
       onCycleRunIdChange?.(previousRunId, runId);
     }
+
+    // P4: record this cycle's steer mode BEFORE streamChat makes the run
+    // steerable (streamChat registers runConversations synchronously at its
+    // start). Every cycle re-registers because each mints a new run id; the
+    // executor drops the entry at the run's terminal bus event. An
+    // autonomous/schema run is then refused by steerConversation (`guarded`)
+    // and its steers route to pending-messages instead.
+    executor.registerRunMode(runId, runMode);
 
     const streamPromise = executor.streamChat(subConversationId, message, {
       projectId,

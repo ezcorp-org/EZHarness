@@ -4,6 +4,8 @@ import type {
   UserMessage,
 } from "../../types";
 import { getConversationPath, getLatestLeaf, resolveSystemPrompt } from "../../db/queries/conversations";
+import { computeSessionBranch, isSessionHistoryProducerEnabled } from "../../db/session-sync";
+import type { HistoryUserRow } from "../../chat/attachments/history-rehydrate";
 import { logger } from "../../logger";
 // preprocess-shared, NOT preprocess.ts — a constant-only import of the
 // runner module breaks its per-file coverage attribution under bun's
@@ -185,6 +187,71 @@ export interface LoadHistoryResult {
 }
 
 /**
+ * The legacy (kill-switch OFF) branch source: the branch-aware
+ * conversation history from the recursive-CTE walk, with `excluded` rows
+ * dropped so pi-ai never sees them (the transcript still shows them
+ * struck-through; toggling restores them next turn). Returns the
+ * `{id, role, content}` subset the rehydration/mapping below reads.
+ */
+async function computeLegacyBranch(
+  conversationId: string,
+  options: LoadHistoryOptions,
+): Promise<HistoryUserRow[]> {
+  const path = options.parentMessageId
+    ? await getConversationPath(options.parentMessageId, conversationId)
+    : await (async () => {
+        const leaf = await getLatestLeaf(conversationId);
+        return leaf ? getConversationPath(leaf.id, conversationId) : [];
+      })();
+  return path.filter((m) => !m.excluded);
+}
+
+/**
+ * Count of turns where the enabled session producer threw and this call fell
+ * open to the legacy walk. Observability seam: an operator can watch it, and
+ * the LIVE parity suite asserts it stays 0 on the happy path so a SILENT
+ * fail-open can never masquerade as a session-produced parity pass.
+ */
+let sessionProducerFallbacks = 0;
+/** Test/observability accessor for {@link sessionProducerFallbacks}. */
+export function getSessionProducerFallbackCount(): number {
+  return sessionProducerFallbacks;
+}
+/** Reset the fallback counter (tests assert 0 across a single ON read). */
+export function resetSessionProducerFallbackCount(): void {
+  sessionProducerFallbacks = 0;
+}
+
+/**
+ * Choose the branch source. When the history producer is enabled the pi
+ * session tree produces the branch (design §5); ANY failure on that path
+ * (backfill/open failure, invalid_session, a poisoned tree) FAILS OPEN to
+ * the legacy CTE walk for this one call with a warn — a single-container
+ * deploy must never wedge a turn on the new path. Kill-switch OFF skips the
+ * session path entirely, leaving the legacy path byte-for-byte untouched.
+ */
+async function computeBranch(
+  conversationId: string,
+  options: LoadHistoryOptions,
+): Promise<HistoryUserRow[]> {
+  if (await isSessionHistoryProducerEnabled()) {
+    try {
+      return await computeSessionBranch(conversationId, options.parentMessageId);
+    } catch (err) {
+      sessionProducerFallbacks++;
+      // Recovery hint: a PERMANENT fail-open (a truly poisoned tree) is cleared
+      // by deleting this conversation's `agent_sessions` row(s) — the next read
+      // then backfills a fresh tree from the messages table.
+      log.warn("session history producer failed — using legacy branch for this turn (delete the conversation's agent_sessions row to force a fresh backfill)", {
+        conversationId,
+        error: String(err),
+      });
+    }
+  }
+  return computeLegacyBranch(conversationId, options);
+}
+
+/**
  * Load the conversation branch + resolve the system prompt, then
  * rehydrate any past-turn attachments into the user-message content.
  *
@@ -201,19 +268,12 @@ export async function loadHistory(
 ): Promise<LoadHistoryResult> {
   // Load history and resolve system prompt in parallel (they're independent)
   const [branchMessages, resolvedSystem] = await Promise.all([
-    // Gather branch-aware conversation history. Rows the user has flagged
-    // `excluded` are dropped here so pi-ai never sees them — the transcript
-    // still shows them (struck-through), and toggling restores them on the
-    // next turn.
-    (async () => {
-      const path = options.parentMessageId
-        ? await getConversationPath(options.parentMessageId, conversationId)
-        : await (async () => {
-            const leaf = await getLatestLeaf(conversationId);
-            return leaf ? getConversationPath(leaf.id, conversationId) : [];
-          })();
-      return path.filter((m) => !m.excluded);
-    })(),
+    // Gather the branch-aware conversation history as `{id, role, content}`
+    // rows. Under the session history producer these come from the pi
+    // session tree (design §5); otherwise from the legacy CTE walk. The
+    // downstream rehydration/mapping is IDENTICAL for both, so a flag-OFF
+    // turn is byte-for-byte the legacy path.
+    computeBranch(conversationId, options),
     // Resolve system prompt (conversation > project > global)
     (async () => {
       if (options.system) return options.system;

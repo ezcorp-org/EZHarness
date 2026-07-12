@@ -228,11 +228,17 @@ describe("handleQueueAgentMessageRpc", () => {
     expect(enqueued).toEqual([{ sub: SUB, content: "steer" }]);
   });
 
-  test("liveness: LIVE run, executor without steerConversation (pre-P3) → enqueue fallback", async () => {
+  test("liveness: LIVE run but steer sees no-live-run (race) → enqueue fallback", async () => {
+    // Post-P3 `steerConversation` is a REQUIRED member of the executor Pick, so
+    // there is no longer an "executor without steerConversation" fixture. The
+    // remaining non-`steered` fallback this exercises is the race where the run
+    // ends BETWEEN the step-6 liveness check (still live) and this steer (the
+    // run reached terminal in the gap → `no-live-run`) → enqueue for the next run.
     const { deps, enqueued } = makeDeps();
     const executor = {
       getActiveRunForConversation: (id: string) =>
         id === SUB ? ({ id: "run-live" } as unknown) : undefined,
+      steerConversation: () => ({ status: "no-live-run" }),
     } as unknown as QueueAgentMessageContext["executor"];
     const resp = await handleQueueAgentMessageRpc(
       EXT,
@@ -242,6 +248,28 @@ describe("handleQueueAgentMessageRpc", () => {
     );
     expect(resp.result).toEqual({ v: 1, queued: true });
     expect(enqueued).toHaveLength(1);
+  });
+
+  test("liveness: LIVE run but steer is GUARDED (autonomous/schema child) → enqueue fallback", async () => {
+    // P4: an autonomous / structured-output child registers a guarding run mode,
+    // so steerConversation returns `guarded` WITHOUT steering. The handler's
+    // "any non-steered result → enqueue" fallback must route it to
+    // pending-messages so branch (1)'s run-boundary drain delivers it — the
+    // pre-P3 behavior, preserved for exactly those children.
+    const { deps, enqueued } = makeDeps();
+    const executor = {
+      getActiveRunForConversation: (id: string) =>
+        id === SUB ? ({ id: "run-live" } as unknown) : undefined,
+      steerConversation: () => ({ status: "guarded", runId: "run-live", reason: "autonomous" }),
+    } as unknown as QueueAgentMessageContext["executor"];
+    const resp = await handleQueueAgentMessageRpc(
+      EXT,
+      req({ v: 1, subConversationId: SUB, message: "steer" }),
+      makeCtx({ executor }),
+      deps,
+    );
+    expect(resp.result).toEqual({ v: 1, queued: true }); // NOT delivery: steered
+    expect(enqueued).toEqual([{ sub: SUB, content: "steer" }]);
   });
 
   test("liveness: owned child with NO live run → not-running, no enqueue", async () => {

@@ -73,6 +73,26 @@ export interface SendMessageResult {
   [k: string]: unknown;
 }
 
+/** One node of a conversation's session-backed message tree. `parentId` is the
+ *  tree topology; `excluded` rows are kept (struck-through in the UI). */
+export interface ConversationTreeNode {
+  id: string;
+  parentId: string | null;
+  role: string;
+  excluded: boolean;
+  createdAt: string;
+}
+
+/** The conversation's whole message tree + durable leaf pointer, as returned by
+ *  `GET/POST /api/conversations/:id/{tree,rewind}` (Sessions P4). */
+export interface ConversationTree {
+  conversationId: string;
+  /** The durable rewind/checkpoint leaf (a `messages` row id, or null when the
+   *  conversation is empty). */
+  currentLeaf: string | null;
+  nodes: ConversationTreeNode[];
+}
+
 export interface RunResult {
   outcome: "complete" | "error" | "cancel";
   run: Record<string, unknown> & { id: string; status: string; result?: { output?: unknown; error?: unknown } };
@@ -176,6 +196,30 @@ export class HarnessClient {
   }
   sendMessage(conversationId: string, content: string, opts: SendMessageOptions = {}): Promise<SendMessageResult> {
     return this.route("sendMessage", { id: conversationId }, { content, ...opts });
+  }
+
+  /** Fetch a conversation's session-backed message tree + durable leaf pointer
+   *  (`GET /api/conversations/:id/tree`, Sessions P4). Needs the `read` scope.
+   *  Throws `HarnessApiError` 409 when the `sessions:historyProducer` flag is
+   *  off (the tree is meaningless without the producer). */
+  getConversationTree(conversationId: string): Promise<ConversationTree> {
+    return this.route("getConversationTree", { id: conversationId });
+  }
+
+  /** Rewind/checkpoint a conversation to `targetMessageId`, moving the durable
+   *  leaf pointer there (`POST /api/conversations/:id/rewind`, Sessions P4).
+   *  Needs the `chat` scope. The abandoned tail survives as a recoverable
+   *  sibling branch. Throws `HarnessApiError` 409 (flag off / active run) or 400
+   *  (target not in the conversation). Returns the refreshed tree. */
+  rewindConversation(
+    conversationId: string,
+    targetMessageId: string,
+    opts: { summary?: string } = {},
+  ): Promise<ConversationTree> {
+    return this.route("rewindConversation", { id: conversationId }, {
+      targetMessageId,
+      ...(opts.summary !== undefined ? { summary: opts.summary } : {}),
+    });
   }
 
   // ── Extensions ─────────────────────────────────────────────────────

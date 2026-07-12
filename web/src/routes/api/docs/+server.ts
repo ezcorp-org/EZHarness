@@ -11,6 +11,7 @@ import { createInviteSchema } from "../auth/invite/schema";
 import { generateResetSchema, consumeResetSchema } from "../auth/reset-password/schema";
 import { createConversationSchema, updateConversationSchema } from "../conversations/schema";
 import { createMessageSchema } from "../conversations/[id]/messages/schema";
+import { rewindConversationSchema } from "../conversations/[id]/rewind/schema";
 import { createAgentConfigSchema } from "../agent-configs/schema";
 import { generateAgentConfigSchema } from "../agent-configs/generate/schema";
 import { runAgentSchema } from "../agents/[name]/run/schema";
@@ -30,6 +31,7 @@ const schemaMap: Record<string, z.ZodType> = {
   createConversationSchema,
   updateConversationSchema,
   createMessageSchema,
+  rewindConversationSchema,
   createAgentConfigSchema,
   generateAgentConfigSchema,
   runAgentSchema,

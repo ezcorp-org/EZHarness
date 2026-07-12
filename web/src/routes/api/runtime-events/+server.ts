@@ -7,6 +7,8 @@ import { shouldDeliverEvent, type RunScope } from "$server/runtime/sse-conversat
 import {
   addSink,
   replayFrom,
+  scopeSeqFor,
+  scopeCursorToGlobalId,
   type BufferedEvent,
 } from "$lib/server/sse-resume-buffer";
 
@@ -45,16 +47,6 @@ export const GET: RequestHandler = async ({ locals, url, request }) => {
 
   const bus = getBus();
 
-  // Resume cursor (C3): a reconnecting client presents the id of the last
-  // event it saw, via the standard `Last-Event-ID` header (native
-  // EventSource auto-reconnect) or a `?lastEventId=` query param (our manual
-  // reconnect in ws.ts). Buffered events with a greater id are replayed —
-  // through the SAME per-subscriber filter — before switching to live.
-  const cursorRaw =
-    request.headers.get("last-event-id") ?? url.searchParams.get("lastEventId");
-  const cursor =
-    cursorRaw !== null && /^\d+$/.test(cursorRaw) ? Number(cursorRaw) : null;
-
   // Subscriber context captured at connect-time. conversationId is an
   // optional scoping hint from the client — the UI passes it when the
   // SSE connection is bound to a specific conversation page. It's used
@@ -62,6 +54,27 @@ export const GET: RequestHandler = async ({ locals, url, request }) => {
   // per-event against the event's claimed conversationId.
   const subscriberConversationId = url.searchParams.get("conversationId") ?? undefined;
   const subscriber = { userId: user.id, conversationId: subscriberConversationId };
+
+  // Resume/numbering SCOPE. The `id:` we stamp is a DENSE per-scope sequence
+  // (never the process-global ring id — that would leak cross-user event
+  // volume via its gaps), so the scope key must be stable across the client's
+  // fresh-EventSource reconnect. userId is that stable identity; the (unused-
+  // by-delivery) conversationId hint is folded in so two connections with
+  // different hints keep independent dense sequences.
+  const scopeKey = `${user.id}::${subscriberConversationId ?? ""}`;
+
+  // Resume cursor (C3): a reconnecting client presents the id of the last
+  // event it saw, via the standard `Last-Event-ID` header (native
+  // EventSource auto-reconnect) or a `?lastEventId=` query param (our manual
+  // reconnect in ws.ts). That id is a per-scope seq → translate it back to a
+  // ring position; buffered events after it are replayed through the SAME
+  // per-subscriber filter before switching to live.
+  const cursorRaw =
+    request.headers.get("last-event-id") ?? url.searchParams.get("lastEventId");
+  const cursorSeq =
+    cursorRaw !== null && /^\d+$/.test(cursorRaw) ? Number(cursorRaw) : null;
+  const cursor =
+    cursorSeq !== null ? scopeCursorToGlobalId(scopeKey, cursorSeq) : null;
 
   // Wave 0: executor-backed runId→scope resolver for the fail-closed
   // scoped-runtime-event filter. Memory-map first (hot path — one Map
@@ -116,8 +129,11 @@ export const GET: RequestHandler = async ({ locals, url, request }) => {
           .then((ok) => {
             if (!ok) return;
             try {
+              // Stamp a DENSE per-scope id (assigned post-filter, so gap-free)
+              // instead of the global ring id — the client resumes from this.
+              const seq = scopeSeqFor(scopeKey, buffered.id);
               const payload = JSON.stringify({ type: buffered.event, data: buffered.data });
-              controller.enqueue(encodeFrame(`id: ${buffered.id}\ndata: ${payload}\n\n`));
+              controller.enqueue(encodeFrame(`id: ${seq}\ndata: ${payload}\n\n`));
             } catch {
               // Encoding error or controller closed — ignore.
             }

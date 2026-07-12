@@ -216,7 +216,7 @@ beforeEach(async () => {
   const conv = await convQueries.createConversation(projectId, {
     title: "cmd",
     provider: "anthropic",
-    model: "claude-3-5-sonnet-20241022",
+    model: "claude-sonnet-4-5",
   });
   conversationId = conv.id;
 });

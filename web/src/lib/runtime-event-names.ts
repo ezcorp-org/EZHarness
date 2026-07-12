@@ -29,6 +29,10 @@ export const RUNTIME_EVENT_NAMES = [
   "goal:update",
   // Daily Briefing: server-initiated conversation delivery (user-scoped).
   "conversation:created",
+  // Sessions P4 rewind/checkpoint: the conversation's message tree / durable
+  // leaf pointer changed (conversation-scoped). Content-free nudge → client
+  // re-fetches GET /api/conversations/:id/tree.
+  "conversation:tree-changed",
   // github-projects integration: a proposal was created/decided/finished —
   // a content-free Hub-refresh nudge (mirrors `ext:page-state`). Scoped to
   // the proposal's project; the poller daemon + approve/dismiss API routes

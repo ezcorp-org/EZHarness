@@ -46,7 +46,7 @@ describe("extension-handle-only delivery strategy", () => {
   };
 
   test("emits a <file> block referencing the handle, NOT the bytes", async () => {
-    const caps = getCapabilitiesWithExtensions("anthropic", "claude-3-5-sonnet-20241022", [XLSX_MIME]);
+    const caps = getCapabilitiesWithExtensions("anthropic", "claude-sonnet-4-5", [XLSX_MIME]);
     const built = await buildUserContent("ingest this", [{ ...att, storagePath: xlsxPath }], caps);
 
     expect(Array.isArray(built)).toBe(true);
@@ -65,7 +65,7 @@ describe("extension-handle-only delivery strategy", () => {
   test("does NOT read attachment bytes from disk", async () => {
     // Point storagePath at a file that does not exist; the strategy
     // should still succeed because it never opens the file.
-    const caps = getCapabilitiesWithExtensions("anthropic", "claude-3-5-sonnet-20241022", [XLSX_MIME]);
+    const caps = getCapabilitiesWithExtensions("anthropic", "claude-sonnet-4-5", [XLSX_MIME]);
     const built = await buildUserContent(
       "no bytes please",
       [{ ...att, storagePath: "/definitely/does/not/exist.xlsx" }],
@@ -75,7 +75,7 @@ describe("extension-handle-only delivery strategy", () => {
   });
 
   test("rejects MIMEs not in the static OR extension allowlist", async () => {
-    const caps = getCapabilitiesWithExtensions("anthropic", "claude-3-5-sonnet-20241022", [XLSX_MIME]);
+    const caps = getCapabilitiesWithExtensions("anthropic", "claude-sonnet-4-5", [XLSX_MIME]);
     let caught: unknown;
     try {
       await buildUserContent("x", [{ ...att, mimeType: "application/x-rejected", storagePath: xlsxPath }], caps);
