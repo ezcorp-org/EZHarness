@@ -66,18 +66,21 @@ async function seedMsg(convId: string, m: {
   });
 }
 
-describe("isSessionHistoryProducerEnabled — default OFF", () => {
+describe("isSessionHistoryProducerEnabled — default ON (kill-switch)", () => {
   beforeEach(async () => { await setupTestDb(); }, 30_000);
   afterAll(async () => { await closeTestDb(); });
 
-  test("unset → false; true → true; false/garbage → false", async () => {
-    expect(await isSessionHistoryProducerEnabled()).toBe(false);
+  test("unset → true; true → true; explicit false → false; garbage → true", async () => {
+    // Default ON: an absent setting reads as the session-tree producer.
+    expect(await isSessionHistoryProducerEnabled()).toBe(true);
     await upsertSetting(SESSION_HISTORY_PRODUCER_SETTING, true);
     expect(await isSessionHistoryProducerEnabled()).toBe(true);
+    // The kill-switch: ONLY an explicit boolean `false` reverts to legacy.
     await upsertSetting(SESSION_HISTORY_PRODUCER_SETTING, false);
     expect(await isSessionHistoryProducerEnabled()).toBe(false);
+    // Garbage is not the kill value, so it reads ON (fail-open to default).
     await upsertSetting(SESSION_HISTORY_PRODUCER_SETTING, "on");
-    expect(await isSessionHistoryProducerEnabled()).toBe(false);
+    expect(await isSessionHistoryProducerEnabled()).toBe(true);
   });
 });
 

@@ -90,14 +90,17 @@ export const SESSION_HISTORY_PRODUCER_SETTING = "sessions:historyProducer";
 
 /**
  * Whether the pi session tree produces the conversation branch. DEFAULT
- * OFF: unset/false runs the legacy CTE path byte-for-byte. This is the
- * riskiest flip in the campaign, so it ships dark — an operator enables it
- * after validation, and a single-container deploy always has an escape
- * hatch back to the proven path (design §7-P3). Any non-`true` value
- * (undefined, false, garbage) reads as OFF.
+ * ON (post-Wave-6, after the O(delta) catch-up made the hot path cheap):
+ * an absent setting produces the session-tree branch. The setting is a
+ * pure kill-switch now — only an explicit boolean `false` reverts to the
+ * legacy CTE path byte-for-byte, the escape hatch a single-container
+ * deploy always keeps (design §7-P3). Any other value (undefined, true,
+ * garbage) reads as ON. This is orthogonal to the RUNTIME fail-open: if
+ * the producer path throws mid-load, loadHistory still falls back to the
+ * legacy CTE regardless of this flag.
  */
 export async function isSessionHistoryProducerEnabled(): Promise<boolean> {
-  return (await getSetting(SESSION_HISTORY_PRODUCER_SETTING)) === true;
+  return (await getSetting(SESSION_HISTORY_PRODUCER_SETTING)) !== false;
 }
 
 // ── Per-conversation write serialization (design §6) ────────────────
