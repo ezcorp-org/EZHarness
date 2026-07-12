@@ -7,12 +7,12 @@
  * `ctx.agentTools = []`. This test pins that wiring shut from two
  * angles:
  *
- *   1. `wireEzToolsForTurn` registers all eight Ez tool names into the
+ *   1. `wireEzToolsForTurn` registers all nine Ez tool names into the
  *      supplied `agentTools` array (and the `builtinToolDefsMap`).
  *
  *   2. After the executor's `applyToolFilters({ toolRestriction:
  *      'allowlist', allowedTools: EZ_TOOL_NAMES })` runs, exactly those
- *      eight names survive (plus the orchestration tools that are always
+ *      nine names survive (plus the orchestration tools that are always
  *      preserved). This is the contract the seeded Ez mode and the
  *      runtime registration must agree on; if they ever drift, the LLM
  *      either sees no Ez tools (registration regression) or sees too
