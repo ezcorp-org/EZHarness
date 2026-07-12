@@ -129,6 +129,49 @@ export function subscribeBridge(
         ctx.turnHasToolCalls = false;
         host.bus.emit("run:status", { runId: run.id, status: "Thinking..." });
         break;
+      case "message_start": {
+        // P4 §1.2 — steered-row reconciliation (PERSISTENCE LAYER seam; Phase 2's
+        // session live-append should hook the same ordering here). When a steer
+        // is DELIVERED, pi drains it and emits message_start carrying the exact
+        // UserMessage object steerConversation queued. If the caller persisted a
+        // DB row for that steer up-front (agent-chat, for immediate feed
+        // visibility), its parent was the leaf-at-REQUEST — but the LLM sees the
+        // steer HERE, at a later branch position. Re-parent the row to the current
+        // branch leaf and thread later turns through it, so the NEXT run's
+        // loadHistory rebuilds the exact sequence the LLM saw.
+        //
+        // Serialized on ctx.dbQueue with the turn-save chain (no double-write
+        // race): the preceding turn's save — which advances ctx.lastSavedMessageId
+        // — is queued before this, so when the reparent runs ctx.lastSavedMessageId
+        // IS the pre-injection leaf; setting it to the steer row then makes the
+        // next turn_end parent onto the steer. The executor's `consumeSteerPersistedId`
+        // latch fires at most once per steer, and returns undefined for a steer
+        // with no persisted row (send_to_agent — an ephemeral prompt, like every
+        // sub-agent prompt: nothing to reconcile) or a non-steer message.
+        const injected = event.message;
+        if (
+          host.persist &&
+          injected &&
+          typeof injected === "object" &&
+          "role" in injected &&
+          injected.role === "user"
+        ) {
+          const persistedId = host.executor.consumeSteerPersistedId(run.id, injected);
+          if (persistedId) {
+            queueDb(async () => {
+              const currentLeaf = ctx.lastSavedMessageId;
+              if (currentLeaf && currentLeaf !== persistedId) {
+                const { reparentMessage } = await import("../../db/queries/conversations");
+                await reparentMessage(conversationId, persistedId, currentLeaf);
+              }
+              // Thread subsequent turns through the steer row even when there was
+              // no pre-injection leaf to reparent onto (injection at run start).
+              ctx.lastSavedMessageId = persistedId;
+            });
+          }
+        }
+        break;
+      }
       case "message_update": {
         const ame = event.assistantMessageEvent;
         if (ame.type === "text_delta") {

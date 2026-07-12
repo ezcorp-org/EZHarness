@@ -840,6 +840,37 @@ export async function setMessageExcluded(
   return rows[0]!;
 }
 
+/**
+ * Re-parent a message onto a new parent within the SAME conversation (P4 §1.2 —
+ * steered-row reconciliation). agent-chat persists a steer's user row at request
+ * time with the leaf-at-request parent; when the steer is delivered mid-run the
+ * LLM sees it at a LATER branch position, so subscribe-bridge re-parents the row
+ * to the actual injection leaf here (serialized on ctx.dbQueue with the turn-save
+ * chain) — making the next run's loadHistory rebuild the sequence the LLM saw.
+ *
+ * A single-column UPDATE from one valid existing message id to another: a crash
+ * before/after it lands leaves the row with a valid, acyclic parent either way
+ * (no partial state, no dangling/cross-conversation pointer), so the branch stays
+ * coherent regardless. Conversation-scoped so a stray id can't touch another
+ * conversation's row. Returns null when no row matches the pair (so a caller can
+ * treat a since-deleted row as a no-op). NOT an embed write boundary — the parent
+ * pointer doesn't change the indexed content.
+ */
+export async function reparentMessage(
+  conversationId: string,
+  messageId: string,
+  newParentMessageId: string | null,
+): Promise<Message | null> {
+  const db = getDb();
+  const rows = await db
+    .update(messages)
+    .set({ parentMessageId: newParentMessageId })
+    .where(and(eq(messages.conversationId, conversationId), eq(messages.id, messageId)))
+    .returning();
+  if (rows.length === 0) return null;
+  return rows[0]!;
+}
+
 export async function getLatestLeaf(
   conversationId: string,
   opts?: { excludeCapabilityEvents?: boolean },
