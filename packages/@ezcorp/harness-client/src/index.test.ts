@@ -42,6 +42,7 @@ let lastUrl: string | null = null;
 let lastConversationBody: Record<string, unknown> | null = null;
 let scripted: { scriptKey: string; turns: unknown[] } | null = null;
 let lastWireBody: Record<string, unknown> | null = null;
+let lastRewindBody: Record<string, unknown> | null = null;
 let lastToolInvoke: Record<string, unknown> | null = null;
 // Extension-lifecycle + hub-action capture (Track 3 surface).
 let lastInstallBody: Record<string, unknown> | null = null;
@@ -79,6 +80,21 @@ beforeAll(() => {
       }
       if (req.method === "POST" && p === "/api/conversations/c1/messages") {
         return Response.json({ userMessage: { id: "m1" }, runId: "r1" });
+      }
+      // ── Sessions P4 rewind/checkpoint surface ──
+      if (req.method === "GET" && /^\/api\/conversations\/[^/]+\/tree$/.test(p)) {
+        if (p === "/api/conversations/off/tree") {
+          return Response.json({ error: "Session history producer is disabled", code: "session_producer_disabled" }, { status: 409 });
+        }
+        return Response.json({
+          conversationId: p.split("/")[3],
+          currentLeaf: "a1",
+          nodes: [{ id: "a1", parentId: null, role: "assistant", excluded: false, createdAt: "t" }],
+        });
+      }
+      if (req.method === "POST" && /^\/api\/conversations\/[^/]+\/rewind$/.test(p)) {
+        lastRewindBody = (await req.json()) as Record<string, unknown>;
+        return Response.json({ conversationId: p.split("/")[3], currentLeaf: lastRewindBody.targetMessageId, nodes: [] });
       }
       // ── Extension control surface ──
       if (req.method === "GET" && p === "/api/extensions") {
@@ -247,6 +263,32 @@ describe("HarnessClient", () => {
 
   test("getRun (non-wait) returns the run row", async () => {
     expect(await client().getRun("r1")).toMatchObject({ id: "r1", status: "running" });
+  });
+
+  test("getConversationTree returns the tree; a UUID-ish id is path-encoded", async () => {
+    const tree = await client().getConversationTree("c1");
+    expect(tree).toMatchObject({ conversationId: "c1", currentLeaf: "a1" });
+    expect(tree.nodes).toHaveLength(1);
+  });
+
+  test("getConversationTree throws HarnessApiError 409 when the flag is off", async () => {
+    try {
+      await client().getConversationTree("off");
+      throw new Error("expected throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(HarnessApiError);
+      expect((e as HarnessApiError).status).toBe(409);
+      expect((e as HarnessApiError).body).toMatchObject({ code: "session_producer_disabled" });
+    }
+  });
+
+  test("rewindConversation posts the target (+ optional summary) and returns the tree", async () => {
+    const tree = await client().rewindConversation("c1", "m2", { summary: "went sideways" });
+    expect(lastRewindBody).toEqual({ targetMessageId: "m2", summary: "went sideways" });
+    expect(tree.currentLeaf).toBe("m2");
+    // Omitting summary sends only targetMessageId (no undefined key).
+    await client().rewindConversation("c1", "m3");
+    expect(lastRewindBody).toEqual({ targetMessageId: "m3" });
   });
 
   test("resolveToolPermission posts approval with scope", async () => {

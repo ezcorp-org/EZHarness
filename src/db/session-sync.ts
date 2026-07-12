@@ -246,3 +246,116 @@ export async function appendSavedMessageEntry(
     error: String(err),
   }));
 }
+
+// ── TREE VIEW + REWIND (P4) ─────────────────────────────────────────
+// The rewind/checkpoint surface (design §4). Both read the SAME
+// topology+messages join the producer uses: TOPOLOGY (parentId + the
+// durable leaf pointer) from the session tree, SUBSTANCE (role/excluded)
+// from the LIVE `messages` rows. Rewind moves the leaf via a `leaf`
+// POINTER entry (pi moveTo semantics), never by rewriting a message
+// entry's parent — so `messages` stays the authority for message parents
+// and the catch-up reconcile in {@link syncSessionForConversation} keeps
+// healing them.
+
+/** One node of the conversation's message tree for the rewind/branch UI +
+ *  harness client. `parentId` is the SESSION tree's topology (== the live
+ *  `messages` row's parentMessageId after catch-up); `role`/`excluded` are
+ *  the LIVE row's. */
+export interface SessionTreeNode {
+  id: string;
+  parentId: string | null;
+  role: string;
+  /** Live exclude flag. Excluded rows ARE kept as tree nodes (the UI renders
+   *  them struck-through and they're switchable branch points); the producer
+   *  drops them only from the LLM-visible branch, never from the tree. */
+  excluded: boolean;
+  createdAt: string;
+}
+
+/** The conversation's whole message tree + the durable leaf pointer. */
+export interface SessionTreeView {
+  conversationId: string;
+  /** The session leaf pointer — the durable rewind/checkpoint position (pi
+   *  `getLeafId`). In normal operation a `messages` row id; a client restores
+   *  its active branch to it so a rewind survives reload. */
+  currentLeaf: string | null;
+  nodes: SessionTreeNode[];
+}
+
+/** Project a caught-up session + its live rows into a {@link SessionTreeView}.
+ *  Only entries whose live `messages` row still exists become nodes — a row
+ *  deleted out of band drops out, mirroring computeSessionBranch's skip. The
+ *  session-internal `leaf`/`branch_summary` entries carry generated ids that
+ *  never join a `messages` row, so they're naturally absent from `nodes`. */
+function buildTreeView(
+  conversationId: string,
+  currentLeaf: string | null,
+  entries: SessionTreeEntry[],
+  rowsById: Map<string, ConversationMessage>,
+): SessionTreeView {
+  const nodes: SessionTreeNode[] = [];
+  for (const entry of entries) {
+    const row = rowsById.get(entry.id);
+    if (!row) continue;
+    nodes.push({ id: row.id, parentId: entry.parentId, role: row.role, excluded: row.excluded, createdAt: row.createdAt.toISOString() });
+  }
+  return { conversationId, currentLeaf, nodes };
+}
+
+/**
+ * The conversation's whole message tree + durable leaf pointer for the
+ * rewind/branch UI (design §4). Backfills on first use and serializes per
+ * conversation exactly like {@link computeSessionBranch}.
+ */
+export async function computeSessionTree(conversationId: string): Promise<SessionTreeView> {
+  return withConvSessionLock(conversationId, async () => {
+    const { storage, rowsById } = await syncSessionForConversation(conversationId);
+    return buildTreeView(conversationId, await storage.getLeafId(), await storage.getEntries(), rowsById);
+  });
+}
+
+/** Outcome of a rewind: the refreshed tree, or a rejection when the target
+ *  isn't a live row of THIS conversation (the route maps that to a 400). */
+export type RewindOutcome =
+  | { ok: true; tree: SessionTreeView }
+  | { ok: false; reason: "target_not_found" };
+
+/**
+ * Rewind (checkpoint) the conversation to `targetMessageId`: move the session
+ * leaf pointer there and optionally record a `branch_summary` for the branch
+ * being abandoned. pi `moveTo` semantics — the leaf moves via a durable
+ * `leaf` POINTER entry (never a message-entry reparent), so `messages`
+ * remains the authority for message parents. The abandoned tail is untouched
+ * in `messages`, so a later send re-parenting onto it recovers the branch.
+ *
+ * The leaf ends at the target (always a `messages` row id): a `branch_summary`
+ * would otherwise advance the leaf to its own generated id, so it is appended
+ * FIRST and setLeafId(target) runs LAST. Serialized per conversation with the
+ * read path so it can't interleave with a concurrent run's append/sync.
+ */
+export async function rewindSession(
+  conversationId: string,
+  targetMessageId: string,
+  summary?: string,
+): Promise<RewindOutcome> {
+  return withConvSessionLock(conversationId, async () => {
+    const { storage, rowsById } = await syncSessionForConversation(conversationId);
+    if (!rowsById.has(targetMessageId)) return { ok: false, reason: "target_not_found" };
+    const priorLeaf = await storage.getLeafId();
+    const trimmed = summary?.trim();
+    if (trimmed) {
+      const entry: SessionTreeEntry = {
+        type: "branch_summary",
+        id: await storage.createEntryId(),
+        parentId: priorLeaf,
+        timestamp: new Date().toISOString(),
+        fromId: priorLeaf ?? "root",
+        summary: trimmed,
+      };
+      await storage.appendEntry(entry);
+    }
+    await storage.setLeafId(targetMessageId);
+    const tree = buildTreeView(conversationId, targetMessageId, await storage.getEntries(), rowsById);
+    return { ok: true, tree };
+  });
+}

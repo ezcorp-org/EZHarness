@@ -28,6 +28,8 @@ const {
   syncSessionForConversation,
   computeSessionBranch,
   appendSavedMessageEntry,
+  computeSessionTree,
+  rewindSession,
 } = await import("../db/session-sync");
 const { upsertSetting } = await import("../db/queries/settings");
 const { backfillSessionForConversation } = await import("../db/session-backfill");
@@ -289,5 +291,143 @@ describe("appendSavedMessageEntry — O(1) idempotent live-append", () => {
       .from(agentSessionEntries)
       .where(and(eq(agentSessionEntries.sessionId, (await storage.getMetadata()).id), eq(agentSessionEntries.entryId, "ghost-not-in-messages")));
     expect(rows.length).toBe(0); // swallowed; nothing persisted
+  });
+});
+
+describe("computeSessionTree — whole tree + durable leaf pointer (P4)", () => {
+  beforeEach(async () => { await setupTestDb(); }, 30_000);
+  afterAll(async () => { await closeTestDb(); });
+
+  test("nodes carry topology + live substance; currentLeaf = the session leaf", async () => {
+    const c = await newConversation();
+    await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
+    await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+    await seedMsg(c, { id: "u2", role: "user", content: "u2", parentId: "a1", createdAt: at(2) });
+
+    const tree = await computeSessionTree(c);
+    expect(tree.conversationId).toBe(c);
+    expect(tree.currentLeaf).toBe("u2"); // backfill sets leaf = getLatestLeaf
+    expect(tree.nodes.map((n) => n.id).sort()).toEqual(["a1", "u1", "u2"]);
+    const byId = new Map(tree.nodes.map((n) => [n.id, n] as const));
+    expect(byId.get("a1")!.parentId).toBe("u1"); // topology from the session tree
+    expect(byId.get("u2")!.parentId).toBe("a1");
+    expect(byId.get("u1")!.parentId).toBe(null);
+    expect(byId.get("a1")!.role).toBe("assistant"); // substance from the live row
+  });
+
+  test("excluded rows are KEPT as nodes (excluded: true), unlike the producer branch", async () => {
+    const c = await newConversation();
+    await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
+    await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", excluded: true, createdAt: at(1) });
+
+    const tree = await computeSessionTree(c);
+    const a1 = tree.nodes.find((n) => n.id === "a1");
+    expect(a1?.excluded).toBe(true);
+    // But the LLM-visible producer branch drops it (parity with legacy).
+    expect((await computeSessionBranch(c, "a1")).map((r) => r.id)).toEqual(["u1"]);
+  });
+});
+
+describe("rewindSession — moveTo the durable leaf + optional branch_summary (P4)", () => {
+  beforeEach(async () => { await setupTestDb(); }, 30_000);
+  afterAll(async () => { await closeTestDb(); });
+
+  // Build: u1 → a1 → u2 → a2 (the "abandoned tail" once we rewind to a1).
+  async function seedLinearFour(c: string): Promise<void> {
+    await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
+    await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+    await seedMsg(c, { id: "u2", role: "user", content: "u2", parentId: "a1", createdAt: at(2) });
+    await seedMsg(c, { id: "a2", role: "assistant", content: "a2", parentId: "u2", createdAt: at(3) });
+  }
+
+  test("moves the leaf pointer to the target via a `leaf` entry; message-entry parents untouched", async () => {
+    const c = await newConversation();
+    await seedLinearFour(c);
+
+    const outcome = await rewindSession(c, "a1");
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("unreachable");
+    expect(outcome.tree.currentLeaf).toBe("a1");
+
+    // The durable leaf pointer now resolves to a1 (a `messages` row id).
+    expect((await computeSessionTree(c)).currentLeaf).toBe("a1");
+
+    // A `leaf` pointer entry was appended; the message entries kept their parents
+    // (rewind never reparents a message entry — messages stays the authority).
+    const [session] = await getTestDb().select().from(agentSessions).where(eq(agentSessions.conversationId, c));
+    const entries = await getTestDb().select().from(agentSessionEntries).where(eq(agentSessionEntries.sessionId, session.id));
+    expect(entries.some((e) => e.type === "leaf")).toBe(true);
+    expect(session.leafEntryId).toBe("a1");
+    const a2 = entries.find((e) => e.entryId === "a2");
+    expect(a2?.parentId).toBe("u2"); // abandoned tail structurally intact
+  });
+
+  test("the NEXT producer read follows the rewound leaf; the abandoned tail is recoverable", async () => {
+    const c = await newConversation();
+    await seedLinearFour(c);
+    await rewindSession(c, "a1");
+
+    // The client carries parentMessageId = the rewound leaf → context ends at a1.
+    expect((await computeSessionBranch(c, "a1")).map((r) => r.id)).toEqual(["u1", "a1"]);
+    // Switching back to the abandoned tail recovers the full branch.
+    expect((await computeSessionBranch(c, "a2")).map((r) => r.id)).toEqual(["u1", "a1", "u2", "a2"]);
+  });
+
+  test("a real next-send off the rewound leaf forks a sibling of the abandoned tail", async () => {
+    const c = await newConversation();
+    await seedLinearFour(c);
+    await rewindSession(c, "a1");
+
+    // Simulate the next turn: a new user row parented to the rewound leaf a1
+    // (the client passes parentMessageId=a1), then the live-append seam mirrors it.
+    await seedMsg(c, { id: "u2b", role: "user", content: "u2b", parentId: "a1", createdAt: at(4) });
+    await appendSavedMessageEntry(c, { id: "u2b", role: "user", content: "u2b", createdAt: at(4) }, "a1");
+
+    // The new branch ends at u2b; a1 now has two children (u2 abandoned, u2b active).
+    expect((await computeSessionBranch(c, "u2b")).map((r) => r.id)).toEqual(["u1", "a1", "u2b"]);
+    const tree = await computeSessionTree(c);
+    const childrenOfA1 = tree.nodes.filter((n) => n.parentId === "a1").map((n) => n.id).sort();
+    expect(childrenOfA1).toEqual(["u2", "u2b"]);
+    expect(tree.currentLeaf).toBe("u2b"); // live-append bumped the durable leaf
+  });
+
+  test("optional summary writes a branch_summary entry; leaf still ends at the target", async () => {
+    const c = await newConversation();
+    await seedLinearFour(c);
+
+    const outcome = await rewindSession(c, "a1", "  abandoned a plan that went sideways  ");
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("unreachable");
+    expect(outcome.tree.currentLeaf).toBe("a1");
+
+    const [session] = await getTestDb().select().from(agentSessions).where(eq(agentSessions.conversationId, c));
+    const entries = await getTestDb().select().from(agentSessionEntries).where(eq(agentSessionEntries.sessionId, session.id));
+    const summaryEntry = entries.find((e) => e.type === "branch_summary");
+    expect(summaryEntry).toBeDefined();
+    expect((summaryEntry!.payload as { summary?: string }).summary).toBe("abandoned a plan that went sideways"); // trimmed
+    // The summary never joins a messages row → absent from the tree nodes.
+    expect(outcome.tree.nodes.some((n) => n.id === summaryEntry!.entryId)).toBe(false);
+    // Leaf still at the target despite the branch_summary append.
+    expect((await computeSessionTree(c)).currentLeaf).toBe("a1");
+  });
+
+  test("a blank/whitespace summary appends no branch_summary entry", async () => {
+    const c = await newConversation();
+    await seedLinearFour(c);
+    await rewindSession(c, "a1", "   ");
+    const [session] = await getTestDb().select().from(agentSessions).where(eq(agentSessions.conversationId, c));
+    const entries = await getTestDb().select().from(agentSessionEntries).where(eq(agentSessionEntries.sessionId, session.id));
+    expect(entries.some((e) => e.type === "branch_summary")).toBe(false);
+  });
+
+  test("target not in the conversation → { ok: false, target_not_found }, no mutation", async () => {
+    const c = await newConversation();
+    await seedLinearFour(c);
+    const before = await computeSessionTree(c);
+
+    const outcome = await rewindSession(c, "nope-not-here");
+    expect(outcome).toEqual({ ok: false, reason: "target_not_found" });
+    // Leaf unchanged.
+    expect((await computeSessionTree(c)).currentLeaf).toBe(before.currentLeaf);
   });
 });

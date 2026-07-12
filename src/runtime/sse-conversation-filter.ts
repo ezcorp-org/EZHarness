@@ -81,6 +81,13 @@ export const DIRECT_CARRIER_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
   // must never receive user A's briefing event.
   "conversation:created",
   "briefing:delivered",
+  // Sessions P4 (rewind/checkpoint): the conversation's message tree / leaf
+  // pointer changed. Carries `conversationId` at the top level, so the
+  // standard conversation-ownership branch of `shouldDeliverEvent` scopes it
+  // per subscriber (fail-open like `goal:update` — the payload is a
+  // content-free nudge and the client re-fetches the ownership-gated
+  // `GET .../tree`, so an individual fail-open pass leaks no content).
+  "conversation:tree-changed",
   // NOTE — "ext:page-state" (Extension Pages Hub) is INTENTIONALLY
   // ABSENT: the mediator strips the page tree before emitting, so the
   // event carries only {extensionId, extensionName, pageId} — a

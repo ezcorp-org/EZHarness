@@ -540,4 +540,18 @@ export interface AgentEvents {
     turnsEvaluated?: number;
     lastReason?: string | null;
   };
+  /**
+   * Sessions P4 (rewind/checkpoint): the conversation's message tree /
+   * durable leaf pointer changed (a rewind moved the leaf). A content-free
+   * nudge — the client re-fetches the ownership-gated `GET
+   * /api/conversations/:id/tree` on receipt. Carries `conversationId` at the
+   * top level so the SSE filter scopes delivery to the owner
+   * (`DIRECT_CARRIER_EVENT_TYPES`), same as `goal:update`. `currentLeaf` is
+   * the new durable leaf (a `messages` row id) so a same-tab client can
+   * update without the round-trip.
+   */
+  "conversation:tree-changed": {
+    conversationId: string;
+    currentLeaf: string | null;
+  };
 }
