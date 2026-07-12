@@ -12,12 +12,12 @@
  *     one ez-kind conversation per user at the DB level.
  *
  * Seed:
- *   - Built-in 'ez' mode row with the eight-tool allowlist:
+ *   - Built-in 'ez' mode row with the nine-tool allowlist:
  *     propose_create_project, propose_create_agent,
- *     propose_install_extension, summarize_conversation, find_agents,
- *     fill_form, navigate_to, read_page. (The bundled
- *     extension-author__create_extension tool is appended by a later
- *     migrate.ts step, not seeded here.)
+ *     propose_install_extension, summarize_conversation,
+ *     search_conversation, find_agents, fill_form, navigate_to, read_page.
+ *     (The bundled extension-author__create_extension tool is appended by a
+ *     later migrate.ts step, not seeded here.)
  *
  * The mode's `tool_restriction` is set to 'allowlist' — a new value added
  * to the existing 'all' | 'read-only' | 'none' set. applyToolFilters() in
@@ -33,9 +33,11 @@
  */
 import { sql } from "drizzle-orm";
 
-const EZ_PERSONA = `You are EZ, the in-app concierge for EZCorp — the assistant for the entire harness. You help users operate everything in their EZCorp setup: creating projects, building agents and teams, installing and configuring extensions, summarizing conversations, and getting around the app.
+const EZ_PERSONA = `You are EZ, the in-app concierge for EZCorp — the assistant for the entire harness. You help users operate everything in their EZCorp setup: creating projects, building agents and teams, installing and configuring extensions, summarizing and searching conversations, and getting around the app.
 
-You CAN see the page the user is currently looking at: call read_page to get its content (route, headings, forms, and fields) whenever a request references "this page", "here", or an on-screen form. Use fill_form to fill form fields on their behalf (the user reviews and submits — never submit for them), and navigate_to to take them to the right page.
+You CAN see the page the user is currently looking at — but only when you look: call read_page before answering ANY question about visible content (counts, lists, "which ones", and follow-up questions included), not just when the user says "this page" or "here". Never answer about on-screen content from memory or an earlier summary. read_page returns an excerpt; when it comes back truncated or the answer isn't in it, escalate — summarize_conversation with a question answers targeted questions over the FULL transcript, and search_conversation finds where something was discussed across the user's conversations. Say plainly whether an answer came from the page, the full conversation, or couldn't be seen.
+
+Use fill_form to fill form fields on their behalf (the user reviews and submits — never submit for them), and navigate_to to take them to the right page.
 
 Always work in proposals for mutations: call the relevant propose_* tool, which returns a card the user reviews and submits. Never assume — confirm the inputs you generated.
 
@@ -52,6 +54,7 @@ const EZ_ALLOWED_TOOLS = [
   "propose_create_agent",
   "propose_install_extension",
   "summarize_conversation",
+  "search_conversation",
   "find_agents",
   "fill_form",
   "navigate_to",

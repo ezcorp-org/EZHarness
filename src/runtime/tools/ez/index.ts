@@ -2,7 +2,7 @@
  * Phase 48 Wave 2 — Ez concierge tool barrel + registration.
  *
  * Exports:
- *   - One factory per tool (5 server-side + 3 client-side).
+ *   - One factory per tool (6 server-side + 3 client-side).
  *   - `getEzToolDefs(ctx)` — returns the full BuiltinToolDef[] for an Ez
  *     turn. Called from setup-tools when the Ez mode is active.
  *   - `getEzToolMetadata()` — schema-only listing for `/api/tools` and
@@ -26,6 +26,7 @@ import { createProposeCreateProjectTool } from "./propose-create-project";
 import { createProposeCreateAgentTool } from "./propose-create-agent";
 import { createProposeInstallExtensionTool } from "./propose-install-extension";
 import { createSummarizeConversationTool, type SummarizeContext } from "./summarize-conversation";
+import { createSearchConversationTool } from "./search-conversation";
 import { createFindAgentsTool } from "./find-agents";
 import { createFillFormTool } from "./fill-form";
 import { createNavigateToTool } from "./navigate-to";
@@ -36,6 +37,7 @@ export {
   createProposeCreateAgentTool,
   createProposeInstallExtensionTool,
   createSummarizeConversationTool,
+  createSearchConversationTool,
   createFindAgentsTool,
   createFillFormTool,
   createNavigateToTool,
@@ -50,6 +52,7 @@ export const EZ_TOOL_NAMES = [
   "propose_create_agent",
   "propose_install_extension",
   "summarize_conversation",
+  "search_conversation",
   "find_agents",
   "fill_form",
   "navigate_to",
@@ -79,7 +82,7 @@ export interface EzToolFactoryContext {
 /**
  * Build the full set of Ez tool defs for a single Ez-mode turn. The
  * caller is responsible for filtering against the active mode's
- * allowedTools — but in practice the seeded Ez mode allows all eight,
+ * allowedTools — but in practice the seeded Ez mode allows all nine,
  * so this is a 1:1 list. Order matches EZ_TOOL_NAMES.
  */
 export function getEzToolDefs(ctx: EzToolFactoryContext): BuiltinToolDef[] {
@@ -97,6 +100,7 @@ export function getEzToolDefs(ctx: EzToolFactoryContext): BuiltinToolDef[] {
       // access-mode override, mirroring the surrounding chat turn.
       conversationId: ctx.conversationId,
     }),
+    createSearchConversationTool({ userId: ctx.userId }),
     createFindAgentsTool(userCtx),
     createFillFormTool(clientCtx),
     createNavigateToTool(clientCtx),
@@ -120,6 +124,7 @@ export function getEzToolMetadata(): BuiltInToolMeta[] {
     createProposeCreateAgentTool(sentinelUser),
     createProposeInstallExtensionTool(sentinelUser),
     createSummarizeConversationTool({}),
+    createSearchConversationTool({ userId: "" }),
     createFindAgentsTool(sentinelUser),
     createFillFormTool(sentinelClient),
     createNavigateToTool(sentinelClient),
