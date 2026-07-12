@@ -22,6 +22,7 @@ const EZ_ALLOWED_TOOLS = [
 	"propose_create_agent",
 	"propose_install_extension",
 	"summarize_conversation",
+	"search_conversation",
 	"find_agents",
 	"fill_form",
 	"navigate_to",
@@ -59,6 +60,7 @@ test.describe("EZ mode — tool list visibility", () => {
 		await expect(allowlist).toBeVisible();
 		await expect(allowlist).toContainText("read_page");
 		await expect(allowlist).toContainText("propose_create_project");
+		await expect(allowlist).toContainText("search_conversation");
 		await expect(allowlist).toContainText("extension-author__create_extension");
 		await expect(page.getByText("No extensions attached.")).toHaveCount(0);
 		await captureEvidence(page, testInfo, "ez-mode-view-allowlist");
