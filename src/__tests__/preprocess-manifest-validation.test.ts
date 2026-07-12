@@ -17,6 +17,7 @@ import { describe, expect, test } from "bun:test";
 import {
   migrateManifestV2ToV3,
   validateManifestV2,
+  validateNpmDependenciesBlock,
   validatePreprocessorsArray,
 } from "../extensions/manifest";
 import type { ExtensionManifest } from "../extensions/types";
@@ -198,6 +199,96 @@ describe("validatePreprocessorsArray — direct edge cases", () => {
     expect(errors.some((e) => e.includes("preprocessors[2].accepts must be a non-empty array"))).toBe(true);
     // Entry 0 is clean — exactly the two errors above.
     expect(errors).toHaveLength(2);
+  });
+});
+
+describe("validateManifestV2 — npmDependencies surface", () => {
+  test("manifest WITHOUT npmDependencies stays valid (field is optional)", () => {
+    const res = validateManifestV2(baseManifest());
+    expect(res.valid).toBe(true);
+    expect(res.errors).toEqual([]);
+  });
+
+  test("valid npmDependencies map passes (scoped + plain names, range values)", () => {
+    const res = validateManifestV2(
+      baseManifest({
+        npmDependencies: { "@zxing/library": "^0.23.0", "fast-png": "^8.0.0", "jpeg-js": "0.4.4" },
+      }),
+    );
+    expect(res.valid).toBe(true);
+    expect(res.errors).toEqual([]);
+  });
+
+  test("non-object npmDependencies is a manifest error", () => {
+    const res = validateManifestV2(baseManifest({ npmDependencies: "exceljs@^4.4.0" }));
+    expect(res.valid).toBe(false);
+    expect(res.errors).toContain("npmDependencies must be a plain object");
+  });
+
+  test("array npmDependencies is a manifest error", () => {
+    const res = validateManifestV2(baseManifest({ npmDependencies: ["exceljs"] }));
+    expect(res.valid).toBe(false);
+    expect(res.errors).toContain("npmDependencies must be a plain object");
+  });
+
+  test("bad package-name keys are rejected (uppercase, spaces, path traversal)", () => {
+    const res = validateManifestV2(
+      baseManifest({
+        npmDependencies: {
+          "Not-Lower": "^1.0.0",
+          "has space": "^1.0.0",
+          "../evil": "^1.0.0",
+        },
+      }),
+    );
+    expect(res.valid).toBe(false);
+    for (const key of ["Not-Lower", "has space", "../evil"]) {
+      expect(res.errors.some((e) => e.includes(`npmDependencies key "${key}"`))).toBe(true);
+    }
+  });
+
+  test("an over-214-char package name is rejected", () => {
+    const longName = "a".repeat(215);
+    const res = validateManifestV2(baseManifest({ npmDependencies: { [longName]: "^1.0.0" } }));
+    expect(res.valid).toBe(false);
+    expect(res.errors.some((e) => e.includes(`npmDependencies key "${longName}"`))).toBe(true);
+  });
+
+  test("empty-string and non-string range values are rejected", () => {
+    const res = validateManifestV2(
+      baseManifest({ npmDependencies: { "pkg-a": "", "pkg-b": 42 } }),
+    );
+    expect(res.valid).toBe(false);
+    expect(res.errors.some((e) => e.includes("npmDependencies.pkg-a"))).toBe(true);
+    expect(res.errors.some((e) => e.includes("npmDependencies.pkg-b"))).toBe(true);
+  });
+});
+
+describe("validateNpmDependenciesBlock — direct edge cases", () => {
+  test("null value is rejected as a non-object", () => {
+    const errors: string[] = [];
+    validateNpmDependenciesBlock(null, errors);
+    expect(errors).toEqual(["npmDependencies must be a plain object"]);
+  });
+
+  test("valid map accumulates no errors", () => {
+    const errors: string[] = [];
+    validateNpmDependenciesBlock({ "@scope/pkg": "^1.2.3", plain: "2.0.0" }, errors);
+    expect(errors).toEqual([]);
+  });
+});
+
+describe("migrateManifestV2ToV3 — npmDependencies passthrough", () => {
+  test("v2 → v3 migration preserves npmDependencies verbatim", () => {
+    const manifest = baseManifest({
+      npmDependencies: { "@zxing/library": "^0.23.0", "fast-png": "^8.0.0" },
+    }) as unknown as ExtensionManifest;
+    const migrated = migrateManifestV2ToV3(manifest);
+    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.npmDependencies).toEqual({
+      "@zxing/library": "^0.23.0",
+      "fast-png": "^8.0.0",
+    });
   });
 });
 

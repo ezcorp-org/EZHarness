@@ -93,6 +93,9 @@ export function getEzToolDefs(ctx: EzToolFactoryContext): BuiltinToolDef[] {
       summarize: ctx.summarize,
       provider: ctx.provider,
       model: ctx.model,
+      // Credential scoping: completeLLM resolves the conversation's
+      // access-mode override, mirroring the surrounding chat turn.
+      conversationId: ctx.conversationId,
     }),
     createFindAgentsTool(userCtx),
     createFillFormTool(clientCtx),

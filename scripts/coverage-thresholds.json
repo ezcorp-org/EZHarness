@@ -6,6 +6,7 @@
   "src/extensions/json-rpc.ts": 100,
   "src/extensions/sdk/dev.ts": 97,
   "src/extensions/subprocess.ts": 95,
+  "src/extensions/npm-deps.ts": 100,
   "src/extensions/registry.ts": 95,
   "src/extensions/loader.ts": 90,
   "src/extensions/storage-handler.ts": 95,

@@ -59,6 +59,56 @@ describe("serializePageContext — headings", () => {
 	});
 });
 
+describe("serializePageContext — content excerpt", () => {
+	test("collects visible text with whitespace collapsed", () => {
+		const ctx = serializePageContext(
+			setBody("<h1>Chat</h1><div><p>user: hello\n   there</p><p>assistant: hi!</p></div>"),
+		);
+		expect(ctx.content).toBe("Chat user: hello there assistant: hi!");
+	});
+
+	test("prefers the <main> region over surrounding chrome", () => {
+		const ctx = serializePageContext(
+			setBody(
+				"<div>outside main</div><main><p>the real content</p></main><div>also outside</div>",
+			),
+		);
+		expect(ctx.content).toBe("the real content");
+	});
+
+	test("honours [role=main] like <main>", () => {
+		const ctx = serializePageContext(
+			setBody('<div>chrome</div><div role="main"><p>scoped</p></div>'),
+		);
+		expect(ctx.content).toBe("scoped");
+	});
+
+	test("skips chrome, form controls, scripts, and excluded subtrees", () => {
+		const ctx = serializePageContext(
+			setBody(
+				"<nav>Nav link</nav><header>Header</header><footer>Footer</footer><aside>Aside</aside>" +
+					"<script>var x = 1;</script><style>.a{}</style>" +
+					"<textarea>typed draft</textarea><select><option>opt</option></select>" +
+					'<div data-testid="ez-panel">panel text</div><span data-ez-private>secret</span>' +
+					"<p>only this survives</p>",
+			),
+		);
+		expect(ctx.content).toBe("only this survives");
+	});
+
+	test("caps the excerpt at 3000 chars with a trailing ellipsis", () => {
+		const blocks = Array.from({ length: 80 }, (_, i) => `<p>${`b${i} `.repeat(20)}</p>`).join("");
+		const ctx = serializePageContext(setBody(blocks));
+		expect(ctx.content.length).toBeLessThanOrEqual(3001); // cap + ellipsis
+		expect(ctx.content.endsWith("…")).toBe(true);
+	});
+
+	test("empty page yields an empty content string", () => {
+		const ctx = serializePageContext(setBody('<form id="f"><input name="a" /></form>'));
+		expect(ctx.content).toBe("");
+	});
+});
+
 describe("serializePageContext — forms + fields", () => {
 	test("real form gets a stable id from id / data-testid / index and de-dupes collisions", () => {
 		const ctx = serializePageContext(

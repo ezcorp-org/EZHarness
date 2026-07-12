@@ -93,6 +93,22 @@ services:
       - sh
       - -c
       - |
+        # Reconcile deps with the committed lockfile BEFORE anything else.
+        # node_modules is baked into the dev image (it is NOT bind-mounted),
+        # so when a merged PR advances bun.lock — e.g. the pi-ai 0.79→0.80
+        # bump that moved imports to the new `@earendil-works/pi-ai/compat`
+        # subpath — the running image keeps serving the OLD deps against the
+        # freshly bind-mounted ./src. Vite then can't resolve the new subpath
+        # and every route 500s with a cryptic "Missing ./compat specifier".
+        # The manifests + lockfiles are bind-mounted read-only below, so this
+        # install sees the CURRENT committed versions; on an up-to-date image
+        # Bun verifies the install and exits fast (no-op). --ignore-scripts
+        # mirrors Dockerfile.dev (dev runs raw .ts via Bun's "bun" export
+        # condition — no dist/ build needed). Must run before the seed step,
+        # which imports app code that transitively imports pi-ai.
+        echo "Reconciling dependencies with lockfile..."
+        bun install --frozen-lockfile --ignore-scripts
+        (cd web && bun install --frozen-lockfile --ignore-scripts)
         if [ ! -f /app/state/.seeded ]; then
           echo "Seeding database..."
           bun src/db/seed-marketplace.ts && touch /app/state/.seeded
@@ -132,6 +148,22 @@ services:
       # you actually rely on the seed-restore flow, re-add the line
       # locally — the seed script (src/db/seed-marketplace.ts) no-ops
       # cleanly when the file is absent.
+      # Dependency manifests + lockfiles, read-only. Bind-mounting these lets
+      # the boot-time `bun install --frozen-lockfile` (see command: above)
+      # reconcile the image's baked node_modules against the CURRENT committed
+      # lockfile. Without them the container would only ever see the lockfile
+      # snapshot baked at image-build time and silently run stale deps against
+      # newer bind-mounted source. :ro is safe — --frozen-lockfile never
+      # rewrites the lockfile (it fails loudly if the manifests disagree).
+      - ./package.json:/app/package.json:ro
+      - ./bun.lock:/app/bun.lock:ro
+      - ./web/package.json:/app/web/package.json:ro
+      - ./web/bun.lock:/app/web/bun.lock:ro
+      # Workspace manifests must match the lockfile for `workspace:*` to
+      # resolve during the frozen install (same set Dockerfile.dev COPYs).
+      - ./packages/@ezcorp/sdk/package.json:/app/packages/@ezcorp/sdk/package.json:ro
+      - ./packages/@ezcorp/ai-kit/package.json:/app/packages/@ezcorp/ai-kit/package.json:ro
+      - ./packages/@ezcorp/harness-client/package.json:/app/packages/@ezcorp/harness-client/package.json:ro
       # Mount source for live reload (Vite HMR)
       - ./src:/app/src
       - ./web/src:/app/web/src

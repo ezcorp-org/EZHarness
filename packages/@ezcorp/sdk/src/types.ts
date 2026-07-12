@@ -323,6 +323,17 @@ export interface ExtensionManifestV2 {
   // Dependencies on other extensions
   dependencies?: Record<string, DependencySpec>;
 
+  /**
+   * Third-party npm packages this extension imports at runtime — npm
+   * REGISTRY package name → semver RANGE. Distinct from `dependencies`
+   * (which are OTHER EZCorp extensions): these are ordinary npm modules
+   * resolved from the host app's `node_modules` (or vendored under the
+   * extension dir) at spawn time. NOT auto-installed in v1 — only
+   * VERIFIED at install/activate/boot/spawn; the packages must already
+   * exist in the deployment.
+   */
+  npmDependencies?: Record<string, string>;
+
   // Package-level metadata
   permissions: {
     network?: string[];

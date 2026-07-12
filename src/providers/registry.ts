@@ -251,6 +251,43 @@ export function resolveOAuthModel(provider: string, modelId: string): Model<any>
 }
 
 /**
+ * Swap a resolved model for its OAuth-compatible sibling when the turn's
+ * credential is an OAuth token. The standard API endpoints
+ * (google-generative-ai, openai-responses) use API-key auth an OAuth token
+ * cannot satisfy — e.g. a ChatGPT-plan token 401s api.openai.com with
+ * "Missing scopes: api.responses.write" — so the subscription backend's
+ * Model object (correct api + baseUrl + metadata) must be used instead.
+ * The ORIGINAL provider name is kept on the swapped model so credential
+ * lookups still resolve against "openai"/"google", not
+ * "openai-codex"/"google-gemini-cli".
+ *
+ * No-op for API-key credentials and for providers with no OAuth variant.
+ * Throws for google/openai models with no subscription-eligible sibling —
+ * the call would be a guaranteed auth failure, and the error names the
+ * real constraint instead.
+ *
+ * Shared by build-pi-agent (the chat run path) and providers/llm.ts
+ * (streamLLM/completeLLM — summarizers, background LLM calls) so the two
+ * paths can never diverge on OAuth handling again.
+ */
+export function resolveModelForCredential(
+  model: Model<any>,
+  provider: string,
+  credType: "oauth" | "apikey",
+): Model<any> {
+  if (credType !== "oauth") return model;
+  const oauthModel = resolveOAuthModel(provider, model.id);
+  if (oauthModel) return { ...oauthModel, provider };
+  if (provider === "google" || provider === "openai") {
+    throw new Error(
+      `Model "${model.id}" is not supported with ${provider} OAuth. ` +
+      `Only subscription-eligible models are available with OAuth authentication.`,
+    );
+  }
+  return model;
+}
+
+/**
  * Resolve a pi-ai Model object from provider + modelId.
  * Falls back to creating a custom model if not found in registry.
  */

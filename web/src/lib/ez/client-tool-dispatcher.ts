@@ -152,16 +152,25 @@ function handleFillForm(event: EzClientToolEvent, deps: DispatcherDeps): Dispatc
 	};
 }
 
-async function serializeDestination(deps: DispatcherDeps): Promise<Pick<PageContext, "path" | "title" | "headings"> | undefined> {
+/** Content excerpt cap for navigate_to's destination report — a glance at
+ *  where the user landed, not the full read_page payload. */
+const DESTINATION_CONTENT_CHARS = 500;
+
+async function serializeDestination(deps: DispatcherDeps): Promise<Pick<PageContext, "path" | "title" | "headings" | "content"> | undefined> {
 	// Best-effort: wait one macrotask for the destination route to paint, then
-	// serialize just the identity (path/title/headings) so the model knows
-	// where the user landed. Never let a serialization failure fail the nav.
+	// serialize just the identity (path/title/headings + a short content
+	// excerpt) so the model knows where the user landed. Never let a
+	// serialization failure fail the nav.
 	try {
 		await (deps.afterNavigate ?? (() => new Promise<void>((r) => setTimeout(r, 0))))();
 		const root = resolveRoot(deps);
 		if (!root) return undefined;
 		const page = serializePageContext(root, { detail: "summary", path: resolvePath(deps), title: resolveTitle(deps) });
-		return { path: page.path, title: page.title, headings: page.headings };
+		const content =
+			page.content.length > DESTINATION_CONTENT_CHARS
+				? `${page.content.slice(0, DESTINATION_CONTENT_CHARS)}…`
+				: page.content;
+		return { path: page.path, title: page.title, headings: page.headings, content };
 	} catch {
 		return undefined;
 	}

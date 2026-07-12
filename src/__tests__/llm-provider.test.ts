@@ -17,16 +17,26 @@ const mockComplete = mock(async (_model: any, _context: any, _opts: any) => ({
 mock.module("@earendil-works/pi-ai/compat", () => ({
   stream: mockStream,
   complete: mockComplete,
-  getModel: mock(() => ({ provider: "anthropic", id: "claude-sonnet" })),
+  // Throw like the real catalog does for unknown lookups so the registry's
+  // resolveOAuthModel falls through to LOCAL_OAUTH_OVERRIDES (the OAuth
+  // swap tests below rely on the gpt-5.5 override entry).
+  getModel: mock(() => {
+    throw new Error("unknown model (stub)");
+  }),
   getModels: mock(() => []),
   getProviders: mock(() => []),
   getEnvApiKey: mock(() => undefined),
 }));
 
-const mockGetCredential = mock(async (_provider: string, _conversationId?: string) => ({
-  type: "apikey" as const,
-  token: "test-api-key-123",
-}));
+const mockGetCredential = mock(
+  async (
+    _provider: string,
+    _conversationId?: string,
+  ): Promise<{ type: "apikey" | "oauth"; token: string }> => ({
+    type: "apikey",
+    token: "test-api-key-123",
+  }),
+);
 
 mock.module("../providers/credentials", () => ({
   getCredential: mockGetCredential,
@@ -164,5 +174,57 @@ describe("completeLLM", () => {
     await completeLLM(googleModel, fakeContext);
 
     expect(mockGetCredential).toHaveBeenCalledWith("google", undefined);
+  });
+});
+
+describe("OAuth model swap (resolveModelForCredential applied in llm.ts)", () => {
+  // With an OAuth credential, the standard endpoint model must be
+  // exchanged for its subscription-eligible sibling before the pi-ai
+  // call — a ChatGPT-plan token 401s api.openai.com ("Missing scopes:
+  // api.responses.write"). gpt-5.5 resolves through the registry's
+  // LOCAL_OAUTH_OVERRIDES (openai-codex backend), so no compat getModel
+  // stubbing is needed here.
+  const oauthCred = { type: "oauth" as const, token: "oauth-token-xyz" };
+  const openaiModel = { provider: "openai", id: "gpt-5.5" } as any;
+
+  beforeEach(() => {
+    mockGetCredential.mockClear();
+    mockStream.mockClear();
+    mockComplete.mockClear();
+  });
+
+  test("completeLLM swaps an openai model to the codex backend under OAuth, keeping the provider name", async () => {
+    mockGetCredential.mockImplementationOnce(async () => oauthCred);
+    await completeLLM(openaiModel, fakeContext);
+
+    const [modelArg] = mockComplete.mock.calls[0]! as [any, any, any];
+    expect(modelArg.api).toBe("openai-codex-responses");
+    expect(modelArg.baseUrl).toContain("chatgpt.com");
+    // Provider name stays "openai" so credential lookups keep resolving.
+    expect(modelArg.provider).toBe("openai");
+  });
+
+  test("streamLLM applies the same swap", async () => {
+    mockGetCredential.mockImplementationOnce(async () => oauthCred);
+    await streamLLM(openaiModel, fakeContext);
+
+    const [modelArg] = mockStream.mock.calls[0]! as [any, any, any];
+    expect(modelArg.api).toBe("openai-codex-responses");
+    expect(modelArg.provider).toBe("openai");
+  });
+
+  test("an API-key credential passes the model through untouched", async () => {
+    await completeLLM(openaiModel, fakeContext);
+
+    const [modelArg] = mockComplete.mock.calls[0]! as [any, any, any];
+    expect(modelArg).toBe(openaiModel);
+  });
+
+  test("an OAuth credential for a provider with no OAuth variant passes through (anthropic)", async () => {
+    mockGetCredential.mockImplementationOnce(async () => oauthCred);
+    await completeLLM(fakeModel, fakeContext);
+
+    const [modelArg] = mockComplete.mock.calls[0]! as [any, any, any];
+    expect(modelArg).toBe(fakeModel);
   });
 });

@@ -196,6 +196,39 @@ If you're producing an extension that legitimately needs a host-issued
 secret today, document the limitation in the README and have the user
 review the tradeoff.
 
+### Third-party npm dependencies (`npmDependencies`)
+
+If your extension `import`s any third-party **npm** package at runtime
+(e.g. a parser like `exceljs`, a decoder like `@zxing/library`), **declare
+it** in the manifest's `npmDependencies` map (package name → semver range).
+This is separate from `dependencies` (which are OTHER EZCorp extensions).
+
+```typescript
+// The packages lib/*.ts imports at runtime.
+npmDependencies: {
+  "@zxing/library": "^0.23.0",
+  "fast-png": "^8.0.0",
+},
+```
+
+Rules of the road:
+
+- The host **does NOT install** these (v1 is verify-only). They must
+  already exist in the deployment's `node_modules` — for an in-repo
+  extension, add them to the app's **root `package.json`**; for a
+  standalone one, **vendor** them under your extension's own
+  `node_modules/` (checksum-excluded, so it's safe).
+- Every declared package is **verified** at install, activate, boot, and
+  before every spawn. A missing/mismatched one refuses install + activate
+  with an actionable message and refuses the spawn (instead of the opaque
+  `Transport closed` crash-loop that used to auto-disable the extension).
+- A CI audit (`src/__tests__/extension-dependency-audit.test.ts`) fails the
+  build if a bundled/example extension imports a package it did not
+  declare, and `scripts/verify-docker-image.sh` re-checks resolution inside
+  the built image.
+- An extension that ships its **own `package.json`** declares its deps
+  there the standard npm way and skips `npmDependencies`.
+
 ---
 
 ## 5. Manifest validation rules (will be checked at install)

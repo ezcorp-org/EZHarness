@@ -211,6 +211,11 @@ export default defineExtension({
       pattern: "^\\d+$",
     },
   },
+  // lib/substack.ts lazily imports `@modelcontextprotocol/sdk` to spawn the
+  // substack MCP child. Verify-only (host does NOT install it): must exist
+  // in the deployment's node_modules (app root package.json). See
+  // src/extensions/npm-deps.ts.
+  npmDependencies: { "@modelcontextprotocol/sdk": "^1.29.0" },
   permissions: {
     storage: true,
     llm: {

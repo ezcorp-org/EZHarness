@@ -33,6 +33,14 @@ const MAX_FORMS = 20;
 const MAX_FIELDS_PER_FORM = 40;
 const MAX_LINKS = 25;
 const MAX_STR = 200;
+const MAX_CONTENT_CHARS = 3000;
+
+/** Subtrees whose text is chrome or non-content, excluded from the
+ *  `content` excerpt. Form controls are excluded so typed values can't
+ *  leak through the text channel (values ride the fields' opt-in
+ *  `detail:"full"` path, with password masking). */
+const CONTENT_SKIP_SELECTOR =
+	"script,style,noscript,template,svg,nav,header,footer,aside,input,textarea,select,option";
 
 export interface PageField {
 	name: string;
@@ -56,6 +64,12 @@ export interface PageContext {
 	path: string;
 	title: string;
 	headings: string[];
+	/** Visible-text excerpt of the page's main content region (`<main>` /
+	 *  `[role="main"]` when present, else the whole root) — what the user
+	 *  is actually reading. Chrome (nav/header/footer/aside), form-control
+	 *  values, and excluded subtrees never contribute. Capped at
+	 *  {@link MAX_CONTENT_CHARS} with a trailing ellipsis. */
+	content: string;
 	forms: PageForm[];
 	links: PageLink[];
 	/** Set when the output was trimmed to fit the size cap. */
@@ -210,6 +224,48 @@ function collectHeadings(root: ParentNode): string[] {
 	return out;
 }
 
+/**
+ * Visible-text excerpt of the page's main content region. Prefers the
+ * semantic `<main>` / `[role="main"]` scope when the page declares one
+ * (falling back to the whole root), walks its text nodes in document
+ * order, and skips chrome/control/excluded subtrees. Whitespace is
+ * collapsed; output is capped at {@link MAX_CONTENT_CHARS}.
+ */
+function collectContentText(root: ParentNode): string {
+	const scope: ParentNode =
+		(root as Element | Document).querySelector?.('main,[role="main"]') ?? root;
+	const doc: Document | null =
+		(scope as Element).ownerDocument ?? ((scope as Document).createTreeWalker ? (scope as Document) : null);
+	if (!doc?.createTreeWalker) return "";
+
+	// NodeFilter.SHOW_TEXT === 0x4 — numeric literal so no global NodeFilter
+	// reference is needed (jsdom exposes it on window, not globalThis).
+	const walker = doc.createTreeWalker(scope as Node, 0x4);
+	const parts: string[] = [];
+	let length = 0;
+	let cut = false;
+	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+		const parent = (node as Text).parentElement;
+		if (!parent || parent.closest(CONTENT_SKIP_SELECTOR) || isExcluded(parent)) continue;
+		const text = (node.textContent ?? "").replace(/\s+/g, " ").trim();
+		if (!text) continue;
+		parts.push(text);
+		length += text.length + 1;
+		if (length >= MAX_CONTENT_CHARS) {
+			// Stopping at the cap — whether or not more text nodes remain,
+			// the excerpt is (potentially) partial; say so with an ellipsis.
+			cut = true;
+			break;
+		}
+	}
+	let joined = parts.join(" ");
+	if (joined.length > MAX_CONTENT_CHARS) {
+		joined = joined.slice(0, MAX_CONTENT_CHARS);
+		cut = true;
+	}
+	return cut ? `${joined}…` : joined;
+}
+
 function collectLinks(root: ParentNode): PageLink[] {
 	const out: PageLink[] = [];
 	const seen = new Set<string>();
@@ -239,14 +295,28 @@ function byteLength(s: string): number {
 
 /**
  * Trim `ctx` until its JSON fits `MAX_BYTES`, dropping the least useful data
- * first: links → field values → trailing forms → trailing headings.
+ * first: links → content halved → field values → content dropped →
+ * trailing forms → trailing headings. The content excerpt is squeezed in
+ * two steps (halve, then drop) because it's the highest-value field for
+ * "what is the user looking at" — structure (forms) survives it only
+ * because fill_form is unusable without the form vocabulary.
  */
 function capSize(ctx: PageContext): PageContext {
 	if (byteLength(JSON.stringify(ctx)) <= MAX_BYTES) return ctx;
 
+	// Flag FIRST so every fit-check below measures the exact JSON the
+	// caller receives — an early return measured without the flag could
+	// land within the flag's own byte cost of the cap and overflow it.
+	ctx = { ...ctx, truncated: true };
+
 	if (ctx.links.length > 0) {
 		ctx = { ...ctx, links: [] };
-		if (byteLength(JSON.stringify(ctx)) <= MAX_BYTES) return { ...ctx, truncated: true };
+		if (byteLength(JSON.stringify(ctx)) <= MAX_BYTES) return ctx;
+	}
+
+	if (ctx.content.length > 0) {
+		ctx = { ...ctx, content: `${ctx.content.slice(0, Math.floor(MAX_CONTENT_CHARS / 2))}…` };
+		if (byteLength(JSON.stringify(ctx)) <= MAX_BYTES) return ctx;
 	}
 
 	ctx = {
@@ -256,7 +326,12 @@ function capSize(ctx: PageContext): PageContext {
 			fields: f.fields.map(({ value: _value, ...rest }) => rest),
 		})),
 	};
-	if (byteLength(JSON.stringify(ctx)) <= MAX_BYTES) return { ...ctx, truncated: true };
+	if (byteLength(JSON.stringify(ctx)) <= MAX_BYTES) return ctx;
+
+	if (ctx.content.length > 0) {
+		ctx = { ...ctx, content: "" };
+		if (byteLength(JSON.stringify(ctx)) <= MAX_BYTES) return ctx;
+	}
 
 	while (byteLength(JSON.stringify(ctx)) > MAX_BYTES && ctx.forms.length > 0) {
 		ctx = { ...ctx, forms: ctx.forms.slice(0, -1) };
@@ -264,7 +339,7 @@ function capSize(ctx: PageContext): PageContext {
 	while (byteLength(JSON.stringify(ctx)) > MAX_BYTES && ctx.headings.length > 0) {
 		ctx = { ...ctx, headings: ctx.headings.slice(0, -1) };
 	}
-	return { ...ctx, truncated: true };
+	return ctx;
 }
 
 /**
@@ -283,6 +358,7 @@ export function serializePageContext(root: ParentNode, opts: SerializeOptions = 
 		path: trunc(opts.path ?? ""),
 		title: trunc(opts.title ?? ""),
 		headings: collectHeadings(root),
+		content: collectContentText(root),
 		forms,
 		links: collectLinks(root),
 	};

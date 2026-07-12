@@ -1,6 +1,6 @@
 import { Agent } from "@earendil-works/pi-agent-core";
 import type { Message } from "../../types";
-import { resolveOAuthModel } from "../../providers/registry";
+import { resolveModelForCredential } from "../../providers/registry";
 import { getCredential } from "../../providers/credentials";
 import type { StreamChatContext } from "./context";
 import type { SetupToolsResult } from "./setup-tools";
@@ -59,22 +59,14 @@ export function buildPiAgent(
   // When using OAuth, the standard API endpoints (google-generative-ai, openai-responses)
   // use API key auth which is incompatible with OAuth tokens. Resolve the actual
   // OAuth-compatible Model object so the correct API + endpoint + metadata is used.
-  let model = resolved.piModel;
-  if (initialCred.type === "oauth") {
-    const oauthModel = resolveOAuthModel(resolved.provider, model.id);
-    if (oauthModel) {
-      // Keep the original provider name so credential lookups (getApiKey callback)
-      // resolve against "openai"/"google", not "openai-codex"/"google-gemini-cli".
-      // `Provider = KnownProvider | string` in pi-ai, so the assignment is safe
-      // without a cast.
-      model = { ...oauthModel, provider: resolved.provider };
-    } else if (resolved.provider === "google" || resolved.provider === "openai") {
-      throw new Error(
-        `Model "${model.id}" is not supported with ${resolved.provider} OAuth. ` +
-        `Only subscription-eligible models are available with OAuth authentication.`,
-      );
-    }
-  }
+  // Shared with providers/llm.ts (streamLLM/completeLLM) via
+  // resolveModelForCredential so the chat path and background LLM calls
+  // can never diverge on OAuth handling.
+  const model = resolveModelForCredential(
+    resolved.piModel,
+    resolved.provider,
+    initialCred.type,
+  );
 
   // Prefix-cache retention for THIS turn. Anthropic caches the system
   // prompt + tools + conversation prefix; a long TTL keeps that stable

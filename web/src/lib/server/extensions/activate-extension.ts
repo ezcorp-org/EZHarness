@@ -23,6 +23,7 @@ import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { clampExtensionPermissions } from "$lib/server/extension-helpers";
 import { emitEnvKeyLeakWarnings } from "$server/extensions/clamp-permissions";
 import { reconcileSchedules } from "$server/extensions/schedule-reconcile";
+import { formatNpmDepError, verifyNpmDependencies } from "$server/extensions/npm-deps";
 import type { ExtensionManifestV2, ExtensionPermissions } from "$server/extensions/types";
 import type { Extension } from "$server/db/schema";
 
@@ -72,6 +73,23 @@ export async function activateExtension(
 			message:
 				"Cannot re-enable extension with security violations. Clear violations first.",
 		};
+	}
+
+	// Refuse to enable an extension whose declared third-party npm deps
+	// can't be resolved from its install path (verify-only v1). Mirrors the
+	// violations 403 shape (a 4xx with the actionable message, never a 500)
+	// so the operator sees exactly what to install rather than the
+	// extension flipping enabled and then crash-looping on first use.
+	const npmDeps = (ext.manifest as ExtensionManifestV2 | null)?.npmDependencies;
+	if (npmDeps && ext.installPath) {
+		const check = verifyNpmDependencies(npmDeps, ext.installPath);
+		if (!check.ok) {
+			return {
+				ok: false,
+				status: 403,
+				message: formatNpmDepError(ext.name, check.issues),
+			};
+		}
 	}
 
 	const submittedPerms = opts.submittedPermissions;
