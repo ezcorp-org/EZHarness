@@ -141,18 +141,28 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     // its final steering poll), so nothing is silently lost and branch (1)
     // still drains it. Content is passed verbatim to match branch (1)'s
     // verbatim pending-message re-prompt (start-assignment.ts).
+    //
+    // P4 §1.2: pass the persisted row id so the executor can re-parent it to
+    // the actual injection position at delivery (the request-time parent is the
+    // leaf-at-request, which diverges from where the LLM sees the steer). The
+    // route persists the row up-front (above) for immediate feed visibility; the
+    // reconciliation fixes its branch position without deferring that.
     const pending = {
       messageId: userMessage.id,
       content,
       createdAt: userMessage.createdAt instanceof Date ? userMessage.createdAt.toISOString() : String(userMessage.createdAt),
     };
     const enqueuePending = () => enqueue(params.id, pending);
-    const steerResult = executor.steerConversation(params.id, content, enqueuePending);
+    const steerResult = executor.steerConversation(params.id, content, enqueuePending, userMessage.id);
     if (steerResult.status === "steered") {
       return json({ status: "steered", messageId: userMessage.id });
     }
-    // No live run / no Agent registered yet → enqueue exactly as before so
-    // branch (1) drains it at the current run's completion.
+    // Every non-`steered` result → enqueue exactly as before so branch (1)
+    // drains it at the current run's completion. This covers `no-live-run` /
+    // `no-agent` (the run ended or is in its pre-first-token window) AND P4's
+    // `guarded` (an autonomous / structured-output child that must take user
+    // messages at the run boundary, not mid-run) — the pre-P2 queued behavior,
+    // preserved for exactly those children.
     enqueuePending();
     return json({ status: "queued", messageId: userMessage.id });
   }

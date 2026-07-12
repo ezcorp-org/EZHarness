@@ -741,17 +741,21 @@ export async function handleQueueAgentMessageRpc(
   }
 
   // 7. Steer the live child run (P3), atomic: on `steered` do NOT enqueue; on
-  //    any other result (the pre-first-token no-agent window, or a run that
-  //    ended between the liveness check and this steer) fall back to enqueue. The
-  //    best-effort steer is shadow-tracked by the executor, which re-enqueues
-  //    via `enqueuePending` (onUndelivered) if the run ends before delivering —
-  //    so nothing is lost either way, and the child's run:complete drain
-  //    delivers the fallback as the next turn.
+  //    any other result fall back to enqueue. The best-effort steer is
+  //    shadow-tracked by the executor, which re-enqueues via `enqueuePending`
+  //    (onUndelivered) if the run ends before delivering — so nothing is lost
+  //    either way, and the child's run:complete drain delivers the fallback as
+  //    the next turn.
   //
-  //    NOT gated on autonomous / schema children: neither this handler nor the
-  //    orchestration ext's `backgroundSpawns` map records those spawn-time flags
-  //    (they live on the assignment row), so a cheap guard isn't reachable
-  //    without new plumbing — deferred to P4 (see steerConversation's doc).
+  //    P4: the "any other result" fallback now ALSO covers `guarded` — an
+  //    autonomous / structured-output child whose run mode (registered by
+  //    start-assignment via executor.registerRunMode) forbids mid-run steering.
+  //    steerConversation refuses those runs without plumbing spawn-time flags
+  //    through this handler; the message enqueues and branch (1)'s run-boundary
+  //    drain delivers it, preserving the run-boundary "user steering wins /
+  //    abandons in-flight schema correction" invariant for those children. The
+  //    other fallbacks (pre-first-token no-agent window, or a run that ended
+  //    between the liveness check and this steer) enqueue identically.
   const pending = {
     messageId: crypto.randomUUID(),
     content: message,

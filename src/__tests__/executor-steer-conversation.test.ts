@@ -274,3 +274,186 @@ describe("AgentExecutor.steerConversation", () => {
     expect(undelivered).toBe(0); // in-memory mailbox dies with the process
   });
 });
+
+// ── P4 §1.1 — run-mode guard: autonomous / schema runs are NOT mid-run-steered ─
+
+describe("AgentExecutor.steerConversation — P4 run-mode guard", () => {
+  test("autonomous run is guarded (reason autonomous), never queued into the agent", () => {
+    const exec = new AgentExecutor(new Map(), new EventBus<AgentEvents>());
+    const agent = new StubAgent();
+    seed(exec, makeRun({ id: "r1" }), "conv-1", agent);
+    exec.registerRunMode("r1", { autonomous: true, schema: false });
+
+    let undelivered = 0;
+    const result = exec.steerConversation("conv-1", "hi", () => { undelivered++; });
+
+    expect(result).toEqual({ status: "guarded", runId: "r1", reason: "autonomous" });
+    expect(agent.queue).toHaveLength(0); // NOT steered
+    // No shadow tracked for a guarded steer — the caller enqueues directly, so
+    // the executor never invokes onUndelivered.
+    expect(undelivered).toBe(0);
+    expect(agent.listenerCount()).toBe(0);
+  });
+
+  test("structured-output run is guarded with reason schema", () => {
+    const exec = new AgentExecutor(new Map(), new EventBus<AgentEvents>());
+    const agent = new StubAgent();
+    seed(exec, makeRun({ id: "r1" }), "conv-1", agent);
+    exec.registerRunMode("r1", { autonomous: false, schema: true });
+
+    expect(exec.steerConversation("conv-1", "hi")).toEqual({
+      status: "guarded",
+      runId: "r1",
+      reason: "schema",
+    });
+    expect(agent.queue).toHaveLength(0);
+  });
+
+  test("autonomous takes precedence over schema in the guard reason", () => {
+    const exec = new AgentExecutor(new Map(), new EventBus<AgentEvents>());
+    const agent = new StubAgent();
+    seed(exec, makeRun({ id: "r1" }), "conv-1", agent);
+    exec.registerRunMode("r1", { autonomous: true, schema: true });
+
+    const result = exec.steerConversation("conv-1", "hi");
+    expect(result).toMatchObject({ status: "guarded", reason: "autonomous" });
+  });
+
+  test("a plain (both-false) registered run mode still steers", () => {
+    const exec = new AgentExecutor(new Map(), new EventBus<AgentEvents>());
+    const agent = new StubAgent();
+    seed(exec, makeRun({ id: "r1" }), "conv-1", agent);
+    exec.registerRunMode("r1", { autonomous: false, schema: false });
+
+    const result = exec.steerConversation("conv-1", "hi");
+    expect(result).toEqual({ status: "steered", runId: "r1" });
+    expect(agent.queue).toHaveLength(1);
+  });
+
+  test("an unregistered run steers normally (plain chat / idle send)", () => {
+    const exec = new AgentExecutor(new Map(), new EventBus<AgentEvents>());
+    const agent = new StubAgent();
+    seed(exec, makeRun({ id: "r1" }), "conv-1", agent);
+    // No registerRunMode — getRunMode is undefined.
+    expect(exec.getRunMode("r1")).toBeUndefined();
+    expect(exec.steerConversation("conv-1", "hi")).toEqual({ status: "steered", runId: "r1" });
+  });
+
+  test("guard fires in the pre-first-token window (guarded BEFORE the no-agent check)", () => {
+    const exec = new AgentExecutor(new Map(), new EventBus<AgentEvents>());
+    // Live run, no Agent registered yet — an unguarded run here returns no-agent.
+    seed(exec, makeRun({ id: "r1", status: "running" }), "conv-1");
+    exec.registerRunMode("r1", { autonomous: true, schema: false });
+
+    expect(exec.steerConversation("conv-1", "hi")).toEqual({
+      status: "guarded",
+      runId: "r1",
+      reason: "autonomous",
+    });
+  });
+
+  test("run mode is cleared at terminal — a later plain run on a recycled conversation steers again", () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus);
+    const agent1 = new StubAgent();
+    const run1 = makeRun({ id: "r1" });
+    seed(exec, run1, "conv-1", agent1);
+    exec.registerRunMode("r1", { autonomous: true, schema: false });
+    expect(exec.getRunMode("r1")).toEqual({ autonomous: true, schema: false });
+    expect(exec.steerConversation("conv-1", "guarded?")).toMatchObject({ status: "guarded" });
+
+    // Terminal drops the mode (same hygiene seam as childRuns / steerShadows).
+    bus.emit("run:complete", { run: run1 } as AgentEvents["run:complete"]);
+    expect(exec.getRunMode("r1")).toBeUndefined();
+
+    // Simulate finalizeCleanup evicting the terminal run, then a NEW plain run
+    // recycles the same conversation → steerable again (the mode did not persist).
+    (exec as any).runs.delete("r1");
+    (exec as any).runConversations.delete("r1");
+    const agent2 = new StubAgent();
+    seed(exec, makeRun({ id: "r2" }), "conv-1", agent2);
+    expect(exec.steerConversation("conv-1", "again")).toEqual({ status: "steered", runId: "r2" });
+    expect(agent2.queue).toHaveLength(1);
+  });
+
+  test("no run-mode registry leak after a cancel- or error-style terminal", () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus);
+    exec.registerRunMode("r-cancel", { autonomous: true, schema: false });
+    exec.registerRunMode("r-error", { autonomous: false, schema: true });
+
+    bus.emit("run:cancel", { run: makeRun({ id: "r-cancel" }) } as AgentEvents["run:cancel"]);
+    bus.emit("run:error", { run: makeRun({ id: "r-error" }) } as AgentEvents["run:error"]);
+
+    expect(exec.getRunMode("r-cancel")).toBeUndefined();
+    expect(exec.getRunMode("r-error")).toBeUndefined();
+  });
+
+  test("destroy() clears the run-mode registry", () => {
+    const exec = new AgentExecutor(new Map(), new EventBus<AgentEvents>());
+    exec.registerRunMode("r1", { autonomous: true, schema: false });
+    exec.destroy();
+    expect(exec.getRunMode("r1")).toBeUndefined();
+  });
+});
+
+// ── P4 §1.2 — steered-row reconciliation seam (consumeSteerPersistedId) ──────
+
+describe("AgentExecutor.consumeSteerPersistedId — P4 §1.2 reconciliation seam", () => {
+  test("returns the persisted row id ONCE for a delivered steer, then latches undefined", () => {
+    const exec = new AgentExecutor(new Map(), new EventBus<AgentEvents>());
+    const agent = new StubAgent();
+    seed(exec, makeRun({ id: "r1" }), "conv-1", agent);
+
+    exec.steerConversation("conv-1", "hi", () => {}, "row-U");
+    const injected = steered(agent);
+
+    expect(exec.consumeSteerPersistedId("r1", injected)).toBe("row-U");
+    // Latch: a re-emitted message_start for the same object won't re-reconcile.
+    expect(exec.consumeSteerPersistedId("r1", injected)).toBeUndefined();
+  });
+
+  test("returns undefined for a steer with no persisted row (send_to_agent — ephemeral prompt)", () => {
+    const exec = new AgentExecutor(new Map(), new EventBus<AgentEvents>());
+    const agent = new StubAgent();
+    seed(exec, makeRun({ id: "r1" }), "conv-1", agent);
+
+    exec.steerConversation("conv-1", "hi"); // no persistedMessageId
+    expect(exec.consumeSteerPersistedId("r1", steered(agent))).toBeUndefined();
+  });
+
+  test("returns undefined for a message object that is not a tracked steer", () => {
+    const exec = new AgentExecutor(new Map(), new EventBus<AgentEvents>());
+    const agent = new StubAgent();
+    seed(exec, makeRun({ id: "r1" }), "conv-1", agent);
+
+    exec.steerConversation("conv-1", "hi", () => {}, "row-U");
+    // A different object (e.g. the prompt / an assistant message_start).
+    expect(
+      exec.consumeSteerPersistedId("r1", { role: "user", content: "other", timestamp: 1 }),
+    ).toBeUndefined();
+  });
+
+  test("returns undefined for an unknown run id", () => {
+    const exec = new AgentExecutor(new Map(), new EventBus<AgentEvents>());
+    expect(exec.consumeSteerPersistedId("no-run", { role: "user" })).toBeUndefined();
+  });
+
+  test("reconciliation and delivery-tracking are independent: a reconciled steer is still confirmed delivered", () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus);
+    const agent = new StubAgent();
+    const run = makeRun({ id: "r1" });
+    seed(exec, run, "conv-1", agent);
+
+    let undelivered = 0;
+    exec.steerConversation("conv-1", "hi", () => { undelivered++; }, "row-U");
+    // subscribe-bridge consumes the persisted id for reconciliation…
+    expect(exec.consumeSteerPersistedId("r1", steered(agent))).toBe("row-U");
+    // …and the shadow's own delivery listener still fires on the same event, so
+    // the terminal does NOT re-offer it (no double-delivery).
+    agent.emitEvent({ type: "message_start", message: steered(agent) });
+    bus.emit("run:complete", { run } as AgentEvents["run:complete"]);
+    expect(undelivered).toBe(0);
+  });
+});

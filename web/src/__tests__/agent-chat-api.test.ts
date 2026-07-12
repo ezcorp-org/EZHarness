@@ -252,11 +252,13 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
 
     expect(body.status).toBe("steered");
     expect(body.messageId).toBe("msg-new");
-    // Content steered verbatim; a re-enqueue fallback callback is provided.
+    // Content steered verbatim; a re-enqueue fallback callback is provided,
+    // plus the persisted row id (P4 §1.2) for delivery-time reconciliation.
     expect(mockSteerConversation).toHaveBeenCalledWith(
       "sub-conv-1",
       "hello agent",
       expect.any(Function),
+      "msg-new",
     );
     // Atomic decision: a steered message is NOT also enqueued.
     expect(mockEnqueue).not.toHaveBeenCalled();
@@ -266,6 +268,26 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
     mockGetActiveRunResult = mockActiveRun;
     // The pre-first-token window / terminal race: steerConversation declines.
     mockSteerConversation.mockImplementation(() => ({ status: "no-agent", runId: "run-active" }));
+
+    const res = await POST(makeEvent("sub-conv-1"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.status).toBe("queued");
+    expect(body.messageId).toBe("msg-new");
+    expect(mockEnqueue).toHaveBeenCalledTimes(1);
+    expect(mockEnqueue).toHaveBeenCalledWith("sub-conv-1", expect.objectContaining({
+      messageId: "msg-new",
+      content: "hello agent",
+    }));
+  });
+
+  test("when agent is running but steer is GUARDED (autonomous/schema): enqueues (queued)", async () => {
+    mockGetActiveRunResult = mockActiveRun;
+    // P4: steerConversation refuses an autonomous / structured-output child so
+    // the message takes the run-boundary drain path (pending-messages) instead
+    // of a mid-run steer — the pre-P2 behavior, preserved for those children.
+    mockSteerConversation.mockImplementation(() => ({ status: "guarded", runId: "run-active", reason: "schema" }));
 
     const res = await POST(makeEvent("sub-conv-1"));
     expect(res.status).toBe(200);
@@ -701,6 +723,7 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
         "sub-conv-1",
         "switch",
         expect.any(Function),
+        "msg-new",
       );
     });
 

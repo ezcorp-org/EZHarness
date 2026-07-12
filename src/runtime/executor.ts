@@ -71,11 +71,41 @@ export interface ExecutorOptions {
  * - `no-agent`  — a run is live but no Agent instance is registered for it yet
  *                 (the pre-first-token window before failover's first
  *                 `buildAgent`); `runId` is returned for the caller's fallback.
+ * - `guarded`   — a live run owns the conversation but its registered
+ *                 {@link RunMode} forbids mid-run steering (autonomous
+ *                 continuation / structured-output correction). The message is
+ *                 NOT steered; the caller routes it to the pending-messages
+ *                 mailbox so start-assignment's run-boundary drain delivers it
+ *                 at the next cycle (P4 — see {@link AgentExecutor.registerRunMode}
+ *                 and the guard in {@link AgentExecutor.steerConversation}).
  */
 export type SteerResult =
   | { status: "steered"; runId: string }
   | { status: "no-live-run" }
-  | { status: "no-agent"; runId: string };
+  | { status: "no-agent"; runId: string }
+  | { status: "guarded"; runId: string; reason: "autonomous" | "schema" };
+
+/**
+ * Steer eligibility a run carries (P4). Recorded by start-assignment at each
+ * cycle's `startRun` (the initial run AND every auto-continue / autonomous /
+ * schema-retry cycle mints a new run id, so every cycle re-registers, mirroring
+ * {@link AgentExecutor.registerChildRun}). A run whose mode is `autonomous` or
+ * `schema` is refused by {@link AgentExecutor.steerConversation} and routed to
+ * pending-messages instead of being mid-run-steered — this keeps
+ * start-assignment's run-boundary "user steering wins / abandons the in-flight
+ * schema correction" invariant intact (the `schemaRepromptInFlight` gate assumes
+ * a correction run reaches terminal before the next user turn; a mid-run steer
+ * would interleave with it). Plain runs (both false, or simply unregistered —
+ * direct chat / idle sends) stay steerable.
+ */
+export interface RunMode {
+  /** `autonomousContinuation` is opted in — the child self-continues across
+   *  multiple run cycles; a mid-run steer would interleave with a cycle. */
+  autonomous: boolean;
+  /** An `outputSchema` is set — the child may run bounded schema-correction
+   *  cycles whose run-boundary invariant a mid-run steer would break. */
+  schema: boolean;
+}
 
 /**
  * Per-steer tracking entry (P2) — see {@link AgentExecutor.steerConversation}.
@@ -101,6 +131,17 @@ interface SteerShadow {
   delivered: boolean;
   /** Detaches the delivery listener from the Agent. */
   unsubscribe: () => void;
+  /** P4 §1.2 — the id of the DB row the caller persisted for this steer at
+   *  request time (agent-chat persists the user row up-front for immediate feed
+   *  visibility). When present, the persistence layer re-parents this row to the
+   *  actual injection position at delivery so the NEXT run's loadHistory rebuilds
+   *  the sequence the LLM saw. `undefined` for a steer with no persisted row
+   *  (send_to_agent injects an ephemeral prompt, like every other sub-agent
+   *  prompt — nothing to reconcile). See {@link AgentExecutor.consumeSteerPersistedId}. */
+  persistedMessageId?: string;
+  /** Latch so the reconciliation runs at most once even if pi re-emits the
+   *  delivery `message_start` for {@link message}. */
+  reconciled: boolean;
 }
 
 // ── AgentExecutor ───────────────────────────────────────────────────
@@ -146,6 +187,11 @@ export class AgentExecutor {
   // event re-offer any steer that was accepted but never delivered — see
   // steerConversation / flushSteerShadows.
   private steerShadows = new Map<string, SteerShadow[]>();
+  // Per-run steer mode (P4). Recorded by start-assignment at each cycle's
+  // startRun; read by steerConversation's guard to refuse mid-run steering of
+  // autonomous / structured-output runs. Cleared on the run's terminal bus
+  // event alongside steerShadows / childRuns hygiene — see registerRunMode.
+  private runModes = new Map<string, RunMode>();
   private pendingPermissions = new Map<string, PendingPermissionInfo>();
   // Per-run "an assistant error message has been persisted" guard,
   // shared by the watchdog trip branch and the streamChat finalize
@@ -244,6 +290,11 @@ export class AgentExecutor {
     // awaited children are already terminal, and future background-mode
     // children must survive their parent's completion.
     const deregister = (runId: string): void => this.deregisterRun(runId);
+    // P4: a run's steer mode is meaningless once it is terminal — drop it in the
+    // same terminal seam as steerShadows / childRuns so the map can't leak
+    // across the many short-lived cycle runs a long autonomous/schema
+    // assignment mints (the same map-eviction discipline as registerChildRun).
+    const clearMode = (runId: string): void => { this.runModes.delete(runId); };
     const cancelOrphanedChildren = (runId: string): void => {
       const children = [...(this.childRuns.get(runId) ?? [])];
       if (children.length === 0) return;
@@ -261,15 +312,18 @@ export class AgentExecutor {
     this.childRunUnsubs = [
       this.bus.on("run:complete", ({ run }) => {
         this.flushSteerShadows(run.id);
+        clearMode(run.id);
         deregister(run.id);
       }),
       this.bus.on("run:error", ({ run }) => {
         this.flushSteerShadows(run.id);
+        clearMode(run.id);
         cancelOrphanedChildren(run.id);
         deregister(run.id);
       }),
       this.bus.on("run:cancel", ({ run }) => {
         this.flushSteerShadows(run.id);
+        clearMode(run.id);
         deregister(run.id);
       }),
     ];
@@ -298,6 +352,27 @@ export class AgentExecutor {
     }
     set.add(childRunId);
     return true;
+  }
+
+  /**
+   * Record the steer {@link RunMode} for a run (P4). Called from start-assignment
+   * for the initial run AND every auto-continue / autonomous / schema-retry cycle
+   * (each mints a new run id), mirroring {@link registerChildRun}'s per-cycle
+   * re-registration. A run whose mode is autonomous or schema is refused by
+   * {@link steerConversation} (returns `guarded`) and routed to pending-messages
+   * instead of being mid-run-steered. Overwrites any prior entry for the same id
+   * (idempotent). The entry is dropped on the run's terminal bus event, so a
+   * later plain run that recycles a conversation steers normally again.
+   */
+  registerRunMode(runId: string, mode: RunMode): void {
+    this.runModes.set(runId, mode);
+  }
+
+  /** The recorded steer {@link RunMode} for a run, or undefined for an
+   *  unregistered run (plain chat / idle sends — always steerable). Read-only
+   *  observability + guard-test seam. */
+  getRunMode(runId: string): RunMode | undefined {
+    return this.runModes.get(runId);
   }
 
   /**
@@ -591,17 +666,25 @@ export class AgentExecutor {
    * delivered steer never fires it (no double-delivery). The wired consumer is
    * the agent-chat route's active-run branch (P2); `send_to_agent` is P3.
    *
-   * P4 — UNGUARDED mid-run semantics (both P2 and the P3 caller inherit this):
-   * this steers ANY live run, including a start-assignment-managed autonomous
-   * or schema-correction run. That shifts start-assignment's "user steering
-   * wins / abandons the in-flight schema correction" invariant from the
-   * run-boundary (where the drain path clears `schemaRepromptInFlight`) to a
-   * turn-boundary — a mid-run steer can interleave with a correction run.
-   * NOT guarded here: the executor only sees `AgentRun` (id/name/projectId/
-   * status); autonomous-mode + `schemaRepromptInFlight` are start-assignment
-   * closure-local, so a "don't steer those runs" guard needs run-mode plumbing
-   * = P4. Until then a caller that must not risk this should gate on its own
-   * run-type knowledge and enqueue instead of calling this.
+   * P4 — run-mode guard (both P2 and the P3 caller honor it via the shared
+   * "non-`steered` → enqueue" fallback): a live run whose registered
+   * {@link RunMode} is autonomous or schema is NOT steered — this returns
+   * `guarded` (with the reason) and the caller routes the message to the
+   * pending-messages mailbox, so start-assignment's run-boundary drain delivers
+   * it at the next cycle. This preserves the "user steering wins / abandons the
+   * in-flight schema correction" invariant (the `schemaRepromptInFlight` gate
+   * assumes a correction run reaches terminal before the next user turn; a
+   * mid-run steer would interleave with it). start-assignment records the mode
+   * per cycle via {@link registerRunMode}; a plain (unregistered) run steers
+   * normally. The guard runs BEFORE the Agent lookup so an autonomous/schema run
+   * is guarded even in its pre-first-token window.
+   *
+   * P4 §1.2 — steered-row reconciliation: when the caller persisted a DB row for
+   * this steer up-front (agent-chat, for immediate feed visibility) it passes
+   * `persistedMessageId`; the executor shadow-tracks it and the persistence layer
+   * re-parents that row to the injection position at delivery (see
+   * {@link consumeSteerPersistedId} and subscribe-bridge's `message_start` seam)
+   * so the next run's loadHistory rebuilds the sequence the LLM saw.
    *
    * `activeAgents` is read fresh on each call (never cached across calls):
    * `failover.ts:220` re-runs `activeAgents.set(runId, agent)` on every
@@ -618,9 +701,21 @@ export class AgentExecutor {
     conversationId: string,
     message: string,
     onUndelivered: () => void = () => {},
+    persistedMessageId?: string,
   ): SteerResult {
     const run = this.getActiveRunForConversation(conversationId);
     if (!run) return { status: "no-live-run" };
+    // P4 guard — refuse to mid-run-steer an autonomous / structured-output run.
+    // Runs BEFORE the Agent lookup so the pre-first-token window is guarded too.
+    // The caller routes `guarded` to pending-messages (same fallback as
+    // no-live-run / no-agent), and start-assignment's run-boundary drain then
+    // preserves the "user steering wins / abandons in-flight schema correction"
+    // invariant. Autonomous takes precedence in the reason when both hold (the
+    // autonomous loop runs before schema validation each cycle).
+    const mode = this.runModes.get(run.id);
+    if (mode && (mode.autonomous || mode.schema)) {
+      return { status: "guarded", runId: run.id, reason: mode.autonomous ? "autonomous" : "schema" };
+    }
     const agent = this.activeAgents.get(run.id);
     if (!agent) return { status: "no-agent", runId: run.id };
 
@@ -639,6 +734,8 @@ export class AgentExecutor {
       onUndelivered,
       delivered: false,
       unsubscribe: () => {},
+      persistedMessageId,
+      reconciled: false,
     };
     shadow.unsubscribe = agent.subscribe((event: AgentEvent) => {
       if (event.type === "message_start" && event.message === userMessage) {
@@ -683,6 +780,35 @@ export class AgentExecutor {
       shadow.unsubscribe();
       if (!shadow.delivered || shadow.agent !== live) shadow.onUndelivered();
     }
+  }
+
+  /**
+   * P4 §1.2 — persistence-layer reconciliation seam. subscribe-bridge calls this
+   * on a `message_start` for a user message: if that exact object is a steer
+   * shadow-tracked for `runId` and carries a caller-persisted DB row id, return
+   * the id ONCE so the persistence layer can re-parent that row to the injection
+   * position (the current branch leaf) and thread subsequent turns through it —
+   * making the NEXT run's loadHistory rebuild the sequence the LLM saw. Matches
+   * on object identity (the SAME UserMessage pi drained into the run), so it never
+   * fires for the prompt or an unrelated turn, and the `reconciled` latch means a
+   * re-emitted `message_start` can't double-reparent. Returns undefined for a
+   * steer with no persisted row (send_to_agent injects an ephemeral prompt —
+   * nothing to reconcile) or a non-steer message.
+   *
+   * `message` is `unknown`: the match is pure reference identity against the
+   * exact objects we handed `agent.steer`, so the caller passes whatever its
+   * `message_start` event carried (pi-agent-core's `AgentMessage` union) without
+   * a type-coupling cast.
+   */
+  consumeSteerPersistedId(runId: string, message: unknown): string | undefined {
+    const shadows = this.steerShadows.get(runId);
+    if (!shadows) return undefined;
+    const shadow = shadows.find((s) => s.message === message);
+    if (!shadow || shadow.persistedMessageId === undefined || shadow.reconciled) {
+      return undefined;
+    }
+    shadow.reconciled = true;
+    return shadow.persistedMessageId;
   }
 
   /**
@@ -1114,6 +1240,7 @@ export class AgentExecutor {
       for (const shadow of shadows) shadow.unsubscribe();
     }
     this.steerShadows.clear();
+    this.runModes.clear();
     for (const unsub of this.childRunUnsubs) unsub();
     this.childRunUnsubs = [];
     this.childRuns.clear();
