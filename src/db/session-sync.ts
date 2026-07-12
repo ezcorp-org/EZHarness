@@ -6,7 +6,7 @@ import { getDb } from "./connection";
 import { getMessages, getLatestLeaf } from "./queries/conversations";
 import { getSetting } from "./queries/settings";
 import { agentSessionEntries, agentSessions } from "./schema";
-import { entryToRow, type DbSessionStorage } from "./session-storage";
+import { entryToRow, type DbSessionMetadata, type DbSessionStorage } from "./session-storage";
 import { backfillSessionForConversation, isLlmTurn, rowToEntry, rowToPiMessage } from "./session-backfill";
 
 /**
@@ -56,10 +56,29 @@ import { backfillSessionForConversation, isLlmTurn, rowToEntry, rowToPiMessage }
  * is fail-open. All jsonb goes through column-mapped drizzle inserts (never
  * `${JSON.stringify}::jsonb`); the intra-session PK makes appends idempotent.
  *
- * PERF NOTE (INFO, accepted dark): each ON read is O(conversation) — a full
- * `getMessages` + an entry-table read for the catch-up + join. That matches
- * the legacy path's asymptotic class (getConversationPath is O(branch)); a
- * high-water-seq incremental catch-up is future optimisation work.
+ * PERF NOTE — high-water catch-up (Wave6 A3). The topology APPEND scan is now
+ * incremental: a per-session cursor ({@link SYNC_CURSOR_META_KEY}, the max
+ * `messages.createdAt` already reconciled, stashed in the existing
+ * `agent_sessions.metadata` jsonb — no migration) lets the append pass skip
+ * rows the previous sync already appended, so appends are O(delta-new-rows).
+ *
+ * The read as a WHOLE is still O(conversation), and that is deliberate, not a
+ * missed optimisation — two costs cannot be cursor-gated without breaking a
+ * Wave5-pinned invariant:
+ *   1. SUBSTANCE join — `getMessages` reads the live rows every time because
+ *      content/role/`excluded` are authoritative-live (the topology-only+live-
+ *      JOIN design); a cached snapshot would re-introduce the exclude-toggle
+ *      drift the producer exists to avoid.
+ *   2. REPARENT reconcile — a reparent (steer delivery) UPDATEs
+ *      `parent_message_id` WITHOUT touching `created_at`, so it can land on a
+ *      row OLDER than the cursor. A createdAt cursor PROVABLY cannot detect it
+ *      (session-sync.test.ts "topology reconcile" reparents an already-passed
+ *      row), so the reparent sweep stays a full O(existing-entries) pass —
+ *      write-free unless a live parent actually diverged. A fully-O(delta) read
+ *      would need a `messages.updatedAt` watermark (none exists) + a branch-
+ *      scoped substance fetch; both touch more surface (migrate.ts / the parity
+ *      transform) than this hardening slice should, so they are left for a
+ *      measured follow-up. HONESTY over cleverness (task A3).
  */
 
 const log = logger.child("db.sessionSync");
@@ -71,14 +90,17 @@ export const SESSION_HISTORY_PRODUCER_SETTING = "sessions:historyProducer";
 
 /**
  * Whether the pi session tree produces the conversation branch. DEFAULT
- * OFF: unset/false runs the legacy CTE path byte-for-byte. This is the
- * riskiest flip in the campaign, so it ships dark — an operator enables it
- * after validation, and a single-container deploy always has an escape
- * hatch back to the proven path (design §7-P3). Any non-`true` value
- * (undefined, false, garbage) reads as OFF.
+ * ON (post-Wave-6, after the O(delta) catch-up made the hot path cheap):
+ * an absent setting produces the session-tree branch. The setting is a
+ * pure kill-switch now — only an explicit boolean `false` reverts to the
+ * legacy CTE path byte-for-byte, the escape hatch a single-container
+ * deploy always keeps (design §7-P3). Any other value (undefined, true,
+ * garbage) reads as ON. This is orthogonal to the RUNTIME fail-open: if
+ * the producer path throws mid-load, loadHistory still falls back to the
+ * legacy CTE regardless of this flag.
  */
 export async function isSessionHistoryProducerEnabled(): Promise<boolean> {
-  return (await getSetting(SESSION_HISTORY_PRODUCER_SETTING)) === true;
+  return (await getSetting(SESSION_HISTORY_PRODUCER_SETTING)) !== false;
 }
 
 // ── Per-conversation write serialization (design §6) ────────────────
@@ -122,6 +144,30 @@ export interface SessionSyncResult {
 }
 
 /**
+ * Metadata key for the high-water APPEND cursor: the max `messages.createdAt`
+ * (epoch ms) whose topology a prior sync already reconciled into the tree.
+ * Every row at/older than this is guaranteed to already have an entry, so the
+ * append scan can skip it. Stashed in the existing `agent_sessions.metadata`
+ * jsonb — no schema migration. Gates APPENDS ONLY (see the reparent note in
+ * {@link syncSessionForConversation}).
+ */
+export const SYNC_CURSOR_META_KEY = "topologySyncedThroughMs";
+
+/** Read the append cursor from session metadata (0 when unset/invalid — a
+ *  fresh or pre-cursor session, whose first sync then scans every row). */
+function readSyncCursor(meta: DbSessionMetadata): number {
+  const v = meta.metadata?.[SYNC_CURSOR_META_KEY];
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
+
+/** Persist the advanced append cursor, preserving any other metadata keys.
+ *  Serialized under {@link withConvSessionLock} with every other session op. */
+async function writeSyncCursor(sessionId: string, meta: DbSessionMetadata, ms: number): Promise<void> {
+  const nextMeta = { ...(meta.metadata ?? {}), [SYNC_CURSOR_META_KEY]: ms };
+  await getDb().update(agentSessions).set({ metadata: nextMeta }).where(eq(agentSessions.id, sessionId));
+}
+
+/**
  * Bring the conversation's session tree TOPOLOGY up to date with the
  * `messages` table and return the storage + the live rows (indexed by id).
  * First use backfills the whole tree. Later uses reconcile topology:
@@ -131,27 +177,59 @@ export interface SessionSyncResult {
  * Substance (content/role/excluded) is NOT touched here — the producer reads
  * it live from `rowsById`. Idempotent, so safe to run every read. NOT
  * self-locking: callers hold {@link withConvSessionLock}.
+ *
+ * The APPEND pass is INCREMENTAL (Wave6 A3): a per-session high-water cursor
+ * ({@link SYNC_CURSOR_META_KEY}) lets it skip rows a prior sync already
+ * appended, so appends are O(delta-new-rows). The gate is `createdAt < cursor`
+ * (strict `<`, never `<=`) so same-millisecond rows straddling the boundary are
+ * re-checked, not skipped — messages routinely share a createdAt ms (see the
+ * getConversationPath ordering note). This assumes createdAt is monotonic
+ * non-decreasing across inserts, which holds: `messages.createdAt` defaults to
+ * now() and no writer backdates.
+ *
+ * The REPARENT pass is deliberately NOT cursor-gated: a reparent UPDATEs
+ * parent_message_id without changing createdAt, so it can land on a row older
+ * than the cursor — a full sweep is the only correct detection (see the header
+ * PERF NOTE). It is write-free unless a live parent actually diverged.
  */
 export async function syncSessionForConversation(conversationId: string): Promise<SessionSyncResult> {
   const storage = await backfillSessionForConversation(conversationId);
+  const meta = await storage.getMetadata();
+  const cursor = readSyncCursor(meta);
   const existing = new Map((await storage.getEntries()).map((e) => [e.id, e] as const));
   const rows = await getMessages(conversationId);
   const rowsById = new Map(rows.map((r) => [r.id, r] as const));
   const knownIds = new Set(rows.map((r) => r.id));
+
+  // APPEND (O(delta)): rows strictly older than the cursor were appended by a
+  // prior sync — skip their existence check. Track the newest createdAt so the
+  // cursor advances past every row reconciled this pass.
+  let maxCreatedMs = cursor;
   for (const row of rows) {
-    const entry = existing.get(row.id);
-    if (!entry) {
+    const ms = row.createdAt.getTime();
+    if (ms > maxCreatedMs) maxCreatedMs = ms;
+    if (ms < cursor) continue;
+    if (!existing.has(row.id)) {
       // Missing → append (mirrors backfill: real turns become `message`
       // entries cross-linked via ezMessageId = row id; excluded/synthetic
       // rows stay as non-emitting `custom` entries so the chain stays whole).
       await storage.appendEntry(rowToEntry(row, knownIds), isLlmTurn(row) ? row.id : null);
-      continue;
     }
-    // Existing → reconcile topology only. The desired parent mirrors the live
-    // row with backfill's same-conversation re-root guard.
-    const desiredParent = row.parentMessageId && knownIds.has(row.parentMessageId) ? row.parentMessageId : null;
-    if (entry.parentId !== desiredParent) await storage.reparentEntry(row.id, desiredParent);
   }
+
+  // REPARENT (full sweep — cursor-INDEPENDENT). Reconcile every pre-existing
+  // entry whose live row's parentMessageId diverged (a steer reparented at
+  // delivery). Newly appended entries above are born with the right parent, so
+  // only the pre-append `existing` set can drift. The desired parent mirrors
+  // the live row with backfill's same-conversation re-root guard.
+  for (const [id, entry] of existing) {
+    const row = rowsById.get(id);
+    if (!row) continue;
+    const desiredParent = row.parentMessageId && knownIds.has(row.parentMessageId) ? row.parentMessageId : null;
+    if (entry.parentId !== desiredParent) await storage.reparentEntry(id, desiredParent);
+  }
+
+  if (maxCreatedMs > cursor) await writeSyncCursor(meta.id, meta, maxCreatedMs);
   return { storage, rowsById };
 }
 
@@ -285,12 +363,14 @@ export interface SessionTreeNode {
 export interface SessionTreeView {
   conversationId: string;
   /** The session leaf pointer — the persisted rewind/checkpoint position (pi
-   *  `getLeafId`); in normal operation a `messages` row id. This is a
-   *  tree-VIEW / harness field: it records where the last rewind moved the
-   *  durable leaf, for display + external consumers. It is NOT authoritative
-   *  for producer reads (the client-carried `parentMessageId` is the branch
-   *  mechanism — see {@link computeSessionBranch}), and the chat client does
-   *  NOT restore it into its active branch on reload. */
+   *  `getLeafId`); in normal operation a `messages` row id. It records where
+   *  the last rewind moved the durable leaf, for display + external consumers.
+   *  It is NOT authoritative for producer READS (the client-carried
+   *  `parentMessageId` is the branch mechanism — see {@link computeSessionBranch}).
+   *  As of Wave-6 the chat client DOES restore it into its active branch on
+   *  conversation (re)load (ChatThread `restoreDurableLeaf`), so a rewind now
+   *  survives a reload; the restore validates the pointer against live rows and
+   *  fails open to the latest leaf when it is off/absent/stale. */
   currentLeaf: string | null;
   nodes: SessionTreeNode[];
 }

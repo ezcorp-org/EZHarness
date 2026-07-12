@@ -589,9 +589,23 @@ function rowToMessage(row: Record<string, unknown>): Message {
   };
 }
 
+/**
+ * Hard cap on the recursive parent-walk of {@link getConversationPath}
+ * (defense-in-depth vs a `parent_message_id` CYCLE). `parent_message_id` is a
+ * self-FK with no cycle constraint, so a buggy/malicious re-parent (e.g. an
+ * unvalidated client `parentMessageId`, or A→B→A via {@link reparentMessage})
+ * could form a loop the UNION-ALL recursive CTE would follow forever (Postgres
+ * does not dedupe recursion), exhausting `work_mem`/temp — a self-DoS. Bounding
+ * the walk turns that into a truncated (still bounded) read. The cap is ~100×
+ * beyond any real chat branch length, so a legitimate conversation NEVER hits
+ * it; only corrupt/adversarial data does.
+ */
+export const MAX_CONVERSATION_PATH_DEPTH = 100_000;
+
 export async function getConversationPath(
   leafMessageId: string,
   conversationId: string,
+  maxDepth: number = MAX_CONVERSATION_PATH_DEPTH,
 ): Promise<Message[]> {
   const db = getDb();
   // Track depth in the recursive CTE so we can order root → leaf via the
@@ -599,6 +613,10 @@ export async function getConversationPath(
   // millisecond (common in tight-loop tests and fast branch creation) used
   // to come back in non-deterministic order, silently breaking downstream
   // code that expects strict user/assistant alternation in the history.
+  //
+  // `p.depth < maxDepth` bounds the recursion so a parent_message_id CYCLE
+  // truncates the walk instead of looping forever (see
+  // MAX_CONVERSATION_PATH_DEPTH). The default is unreachable for real data.
   //
   // The recursive step is CONVERSATION-SCOPED (`m.conversation_id =
   // ${conversationId}`): messages.parent_message_id is a self-FK to
@@ -620,6 +638,7 @@ export async function getConversationPath(
       UNION ALL
       SELECT m.*, p.depth + 1 FROM messages m
         JOIN path p ON m.id = p.parent_message_id AND m.conversation_id = ${conversationId}
+        WHERE p.depth < ${maxDepth}
     )
     SELECT * FROM path ORDER BY depth DESC
   `);

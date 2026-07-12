@@ -746,6 +746,7 @@
 	});
 	const handleSend = sendApi.handleSend;
 	const handleRegenerate = (msg: Message) => sendApi.handleRegenerate(msg);
+	const handleAbRetry = (msg: Message) => sendApi.handleAbRetry(msg);
 	const handleRerun = (msg: Message) => sendApi.handleRerun(msg);
 	const handleBranchNavigate = sendApi.handleBranchNavigate;
 	const handleSaveMemory = (msg: Message) => sendApi.handleSaveMemory(msg);
@@ -772,6 +773,32 @@
 		void conversationId;
 		void refreshTree();
 	});
+
+	// Sessions P4 reload-restore (Wave-6): re-seat the active branch on the
+	// conversation's DURABLE rewind/checkpoint leaf when the page (re)loads.
+	// A rewind persists the session leaf pointer server-side; before this, a
+	// reload fell back to `computeLatestLeaf` (the abandoned tail), so a rewind
+	// never survived a refresh. Runs ONCE per conversation load, chained AFTER
+	// `loadMessages` has populated `allMessages` and set the default leaf — so
+	// it is the LAST writer (no wrong-branch flicker) and can validate the
+	// pointer against live rows. Seeded mode never reaches here (the reload
+	// $effect returns early on `__seeded`), so a component's `seedLeafId` is
+	// never clobbered. A pointer that is off/absent/stale (not among the loaded
+	// rows) keeps the default — fail-open to `computeLatestLeaf`. The `gen`
+	// guard drops a result whose conversation was switched out mid-fetch,
+	// mirroring `checkActiveRun(gen)`.
+	async function restoreDurableLeaf(gen: number): Promise<void> {
+		try {
+			const { enabled, tree } = await fetchConversationTree(conversationId);
+			if (gen !== loadGeneration) return;
+			treeEnabled = enabled;
+			const leaf = tree?.currentLeaf;
+			if (!enabled || !leaf) return;
+			if (allMessages.some((m) => m.id === leaf)) activeLeafId = leaf;
+		} catch {
+			// fail-quiet: keep computeLatestLeaf's default leaf
+		}
+	}
 	const handleRewind = (msg: Message) => sendApi.handleRewind(msg);
 
 	function handleEdit(msg: Message) {
@@ -1682,7 +1709,11 @@
 		invalidateFetchPolicy("tasks:");
 		selectMode.resetForConvSwitch();
 		loadMessages()
-			.then(() => {
+			.then(async () => {
+				if (gen !== loadGeneration) return;
+				// Re-seat the branch on the durable rewind leaf before we resume
+				// any active run — a rewind must survive reload (design §4).
+				await restoreDurableLeaf(gen);
 				if (gen === loadGeneration) return checkActiveRun(gen);
 			})
 			.catch(() => {
@@ -2048,6 +2079,9 @@
 						onrerun={msg.role === "user" ? handleRerun : undefined}
 						onregenerate={msg.role === "assistant"
 							? handleRegenerate
+							: undefined}
+						onabretry={msg.role === "assistant"
+							? handleAbRetry
 							: undefined}
 						onfallback={msg.role === "assistant"
 							? (p, m) => handleFallback(msg, p, m)

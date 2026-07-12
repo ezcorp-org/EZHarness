@@ -56,6 +56,28 @@ const sendMessageMock = mock(
 	}),
 );
 
+const retryMessageMock = mock(
+	async (
+		_convId: string,
+		_messageId: string,
+		_opts?: { provider?: string; model?: string; thinkingLevel?: string },
+	): Promise<{ userMessage: Message; retriedMessageId: string; runId: string | null }> => ({
+		// The clean /retry returns the EXISTING user turn (no new row) — model it
+		// as a fixed anchor id so the placeholder-parent assertion is meaningful.
+		userMessage: {
+			id: "anchor-user-id",
+			conversationId: "conv-1",
+			role: "user",
+			content: "Q",
+			createdAt: "2024-01-01T00:00:00.000Z",
+			parentMessageId: null,
+			excluded: false,
+		} as Message,
+		retriedMessageId: _messageId,
+		runId: "run-1",
+	}),
+);
+
 const updateConversationMock = mock(
 	async (_convId: string, _data: Record<string, unknown>) => ({
 		id: _convId,
@@ -79,6 +101,7 @@ const createSubConversationMock = mock(
 
 mock.module("$lib/api.js", () => ({
 	sendMessage: sendMessageMock,
+	retryMessage: retryMessageMock,
 	updateConversation: updateConversationMock,
 	createSubConversation: createSubConversationMock,
 	// Exports used by sibling page-handler tests (load-messages, etc.) —
@@ -470,6 +493,7 @@ function makeHost(initial: Partial<HostState> = {}): {
 
 beforeEach(() => {
 	sendMessageMock.mockClear();
+	retryMessageMock.mockClear();
 	updateConversationMock.mockClear();
 	createSubConversationMock.mockClear();
 	startOAuthFlowMock.mockClear();
@@ -968,6 +992,89 @@ describe("handleRegenerate", () => {
 		const handlers = makeSendMessage(host);
 		await handlers.handleRegenerate(a0);
 		expect(sendMessageMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("handleAbRetry (clean /retry — same-role sibling)", () => {
+	test("forks a same-role assistant sibling via retryMessage; no duplicate user turn", async () => {
+		const u1 = makeMessage("u1", { role: "user", content: "Q" });
+		const a1 = makeMessage("a1", { role: "assistant", content: "A", parentMessageId: "u1" });
+		const { host, state } = makeHost({
+			allMessages: [u1, a1],
+			activeLeafId: "a1",
+			modelSupportsReasoning: true,
+			thinkingLevel: "high",
+		});
+		const handlers = makeSendMessage(host);
+		await handlers.handleAbRetry(a1);
+		// The clean endpoint takes the ASSISTANT id — the server anchors on its
+		// user parent, so NO editOf duplicate-prompt fork.
+		const [convArg, msgArg, optsArg] = retryMessageMock.mock.calls[0]!;
+		expect(convArg).toBe("conv-1");
+		expect(msgArg).toBe("a1");
+		expect(optsArg?.thinkingLevel).toBe("high");
+		expect(sendMessageMock).not.toHaveBeenCalled();
+		// Only the assistant placeholder is added, parented on the EXISTING user
+		// turn (a sibling of a1). No new user row appears.
+		expect(state.activeRunId).toBe("run-1");
+		const placeholder = state.allMessages.find((m) => m.id === "streaming-run-1");
+		expect(placeholder).toBeDefined();
+		expect(placeholder!.parentMessageId).toBe("anchor-user-id");
+		expect(placeholder!.role).toBe("assistant");
+		expect(state.allMessages.filter((m) => m.role === "user")).toHaveLength(1);
+		expect(state.activeLeafId).toBe("streaming-run-1");
+	});
+
+	test("omits thinkingLevel when the model lacks reasoning", async () => {
+		const a1 = makeMessage("a1", { role: "assistant" });
+		const { host } = makeHost({
+			allMessages: [makeMessage("u1", { role: "user" }), a1],
+			modelSupportsReasoning: false,
+		});
+		const handlers = makeSendMessage(host);
+		await handlers.handleAbRetry(a1);
+		const [, , optsArg] = retryMessageMock.mock.calls[0]!;
+		expect(optsArg?.thinkingLevel).toBeUndefined();
+	});
+
+	test("no-op when convId is empty", async () => {
+		const { host } = makeHost({ convId: "" });
+		const handlers = makeSendMessage(host);
+		await handlers.handleAbRetry(makeMessage("a1", { role: "assistant" }));
+		expect(retryMessageMock).not.toHaveBeenCalled();
+	});
+
+	test("runId null → no placeholder, no streaming state", async () => {
+		retryMessageMock.mockImplementationOnce(async (_c, mid) => ({
+			userMessage: {
+				id: "anchor-user-id",
+				conversationId: "conv-1",
+				role: "user",
+				content: "Q",
+				createdAt: "",
+				parentMessageId: null,
+				excluded: false,
+			} as Message,
+			retriedMessageId: mid,
+			runId: null,
+		}));
+		const a1 = makeMessage("a1", { role: "assistant" });
+		const { host, state } = makeHost({ allMessages: [makeMessage("u1", { role: "user" }), a1] });
+		const handlers = makeSendMessage(host);
+		await handlers.handleAbRetry(a1);
+		expect(state.activeRunId).toBeNull();
+		expect(state.allMessages.find((m) => m.id.startsWith("streaming-"))).toBeUndefined();
+	});
+
+	test("retryMessage rejection sets the error banner", async () => {
+		retryMessageMock.mockImplementationOnce(async () => {
+			throw new Error("boom");
+		});
+		const a1 = makeMessage("a1", { role: "assistant" });
+		const { host, state } = makeHost({ allMessages: [makeMessage("u1", { role: "user" }), a1] });
+		const handlers = makeSendMessage(host);
+		await handlers.handleAbRetry(a1);
+		expect(state.error).toBe("Failed to retry response");
 	});
 });
 

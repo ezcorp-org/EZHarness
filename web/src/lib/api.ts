@@ -740,6 +740,33 @@ export async function rewindConversation(
 	return res.json();
 }
 
+/**
+ * Clean A/B retry (Sessions P5): re-run the turn that produced `messageId` (an
+ * assistant row) from its parent USER message WITHOUT duplicating that user row.
+ * The new response is a same-role SIBLING of the original assistant — the honest
+ * A/B, distinct from `sendMessage({ editOf })` which forks a new user turn too.
+ * `userMessage` in the result is the EXISTING anchor turn (no new row). Throws
+ * on 409 (flag off / active run) or 400 (target not an assistant with a user
+ * parent). Optional `provider`/`model`/`thinkingLevel` retry against a different
+ * model without touching the conversation's pin.
+ */
+export async function retryMessage(
+	conversationId: string,
+	messageId: string,
+	opts: { provider?: string; model?: string; thinkingLevel?: string } = {},
+): Promise<{ userMessage: Message; retriedMessageId: string; runId: string | null }> {
+	const res = await fetch(
+		`${BASE}/api/conversations/${conversationId}/messages/${messageId}/retry`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(opts),
+		},
+	);
+	await checkResponse(res);
+	return res.json();
+}
+
 export async function sendMessage(
 	conversationId: string,
 	data: {

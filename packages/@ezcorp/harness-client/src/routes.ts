@@ -34,6 +34,8 @@ export const HARNESS_ROUTES = {
   // Sessions P4 rewind/checkpoint
   getConversationTree: { httpMethod: "GET", pathTemplate: "/api/conversations/:id/tree" },
   rewindConversation: { httpMethod: "POST", pathTemplate: "/api/conversations/:id/rewind" },
+  // Sessions P5 clean A/B retry (sibling assistant, no duplicate user row)
+  retryMessage: { httpMethod: "POST", pathTemplate: "/api/conversations/:id/messages/:mid/retry" },
   // Extension lifecycle (admin-role key)
   listExtensions: { httpMethod: "GET", pathTemplate: "/api/extensions" },
   installExtension: { httpMethod: "POST", pathTemplate: "/api/extensions" },

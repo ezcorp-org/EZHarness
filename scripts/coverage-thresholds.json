@@ -126,6 +126,8 @@
   "web/src/routes/api/version/+server.ts": 100,
   "web/src/routes/api/conversations/[id]/goal-state/+server.ts": 100,
   "web/src/routes/api/conversations/[id]/messages/+server.ts": 100,
+  "web/src/routes/api/conversations/[id]/messages/[mid]/retry/+server.ts": 100,
+  "web/src/routes/api/conversations/[id]/messages/[mid]/retry/schema.ts": 100,
   "web/src/routes/api/conversations/[id]/extensions/+server.ts": 100,
   "web/src/routes/api/search/messages/+server.ts": 100,
   "web/src/lib/search/deep-link-resolve.ts": 100,
