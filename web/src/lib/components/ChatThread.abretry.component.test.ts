@@ -1,11 +1,14 @@
 /**
  * Sessions P5 — A/B retry affordance wiring in <ChatThread>.
  *
- * The A/B retry reuses the EXISTING regenerate mechanism (editOf → sibling
- * response); the only new surface is a flag-gated, run-blocked "Retry" affordance
- * in the assistant-row A/B controls (next to the ‹n/m› switcher). Covers: shown
- * when the `sessions:historyProducer` flag is ON; clicking it forks an
- * alternative via sendMessage(editOf); hidden when the flag is OFF.
+ * The A/B retry drives the CLEAN /retry endpoint (Wave-6): it forks a same-role
+ * assistant SIBLING from the target's parent user turn WITHOUT duplicating that
+ * user row — distinct from `handleRegenerate`'s editOf path (which forks a new
+ * user turn too). The only new UI surface is a flag-gated, run-blocked "Retry"
+ * affordance in the assistant-row A/B controls (next to the ‹n/m› switcher).
+ * Covers: shown when the `sessions:historyProducer` flag is ON; clicking it
+ * calls `retryMessage(convId, assistantId)` (NOT `sendMessage(editOf)`) so the
+ * siblings are same-role; hidden when the flag is OFF.
  *
  * vitest + jsdom + @testing-library/svelte. Scaffolding mirrors
  * ChatThread.rewind.component.test.ts.
@@ -20,7 +23,7 @@ interface TreeResult {
 	tree: { conversationId: string; currentLeaf: string | null; nodes: unknown[] } | null;
 }
 
-const { sendMessageMock, fetchAllMessagesMock, fetchConversationTreeMock } = vi.hoisted(() => ({
+const { sendMessageMock, retryMessageMock, fetchAllMessagesMock, fetchConversationTreeMock } = vi.hoisted(() => ({
 	sendMessageMock: vi.fn(async (_c: string, d: { content: string; editOf?: string }) => ({
 		userMessage: {
 			id: "srv-1",
@@ -34,6 +37,21 @@ const { sendMessageMock, fetchAllMessagesMock, fetchConversationTreeMock } = vi.
 		runId: "run-ab",
 		attachments: [] as unknown[],
 		ezActionResults: [] as unknown[],
+	})),
+	// The clean /retry: returns the EXISTING user turn as the anchor (no new
+	// row), a runId to stream, and the id of the assistant being retried.
+	retryMessageMock: vi.fn(async (_c: string, messageId: string) => ({
+		userMessage: {
+			id: "u1",
+			conversationId: "conv-1",
+			role: "user",
+			content: "the prompt",
+			createdAt: "2026-01-01T00:00:01.000Z",
+			parentMessageId: null,
+			excluded: false,
+		},
+		retriedMessageId: messageId,
+		runId: "run-ab",
 	})),
 	fetchAllMessagesMock: vi.fn(async () => [] as Message[]),
 	fetchConversationTreeMock: vi.fn(
@@ -79,6 +97,7 @@ vi.mock("$lib/utils/fetch-policy.js", () => ({
 }));
 vi.mock("$lib/api.js", () => ({
 	sendMessage: sendMessageMock,
+	retryMessage: retryMessageMock,
 	fetchAllMessages: fetchAllMessagesMock,
 	fetchConversationTree: fetchConversationTreeMock,
 	updateConversation: vi.fn(async (id: string) => ({ id })),
@@ -116,6 +135,7 @@ function mount() {
 
 beforeEach(() => {
 	sendMessageMock.mockClear();
+	retryMessageMock.mockClear();
 	fetchConversationTreeMock.mockClear();
 	fetchConversationTreeMock.mockResolvedValue({
 		enabled: true,
@@ -131,7 +151,7 @@ beforeEach(() => {
 });
 
 describe("ChatThread A/B retry affordance (Sessions P5)", () => {
-	test("flag ON → assistant row shows Retry; clicking forks an alternative via editOf regenerate", async () => {
+	test("flag ON → assistant row shows Retry; clicking forks a same-role sibling via the clean /retry endpoint", async () => {
 		const { container } = mount();
 		const btn = await vi.waitFor(() => {
 			const el = container.querySelector('[data-testid="ab-retry-btn"]');
@@ -139,11 +159,15 @@ describe("ChatThread A/B retry affordance (Sessions P5)", () => {
 			return el as HTMLButtonElement;
 		});
 		await fireEvent.click(btn);
-		await vi.waitFor(() => expect(sendMessageMock).toHaveBeenCalled());
-		const [, data] = sendMessageMock.mock.calls[0]!;
-		// Regenerate re-sends the preceding user content as a sibling of a1.
-		expect((data as { editOf?: string }).editOf).toBe("a1");
-		expect((data as { content?: string }).content).toBe("the prompt");
+		await vi.waitFor(() => expect(retryMessageMock).toHaveBeenCalled());
+		// The clean /retry re-runs the ASSISTANT message's parent user turn —
+		// the endpoint takes the assistant id (a1) and the server anchors on the
+		// existing user row, so no duplicate user turn is created.
+		const [convId, messageId] = retryMessageMock.mock.calls[0]!;
+		expect(convId).toBe("conv-1");
+		expect(messageId).toBe("a1");
+		// Crucially NOT the editOf duplicate-prompt path — same-role siblings now.
+		expect(sendMessageMock).not.toHaveBeenCalled();
 	});
 
 	test("flag OFF → the Retry affordance is never rendered", async () => {

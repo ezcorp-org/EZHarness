@@ -81,6 +81,7 @@
 import {
 	createSubConversation,
 	sendMessage,
+	retryMessage,
 	updateConversation,
 	type Message,
 } from "$lib/api.js";
@@ -215,6 +216,11 @@ export interface SendMessageHandlers {
 	handleSend(content: string, attachments?: File[]): Promise<void>;
 	handleEditConfirm(msg: Message): Promise<void>;
 	handleRegenerate(msg: Message): Promise<void>;
+	/** Clean A/B retry (Sessions P5): POST /retry to fork a same-role assistant
+	 *  SIBLING from `msg`'s parent user turn — no duplicate user row (unlike
+	 *  `handleRegenerate`'s `editOf` path). Only the assistant placeholder is
+	 *  added optimistically; the existing user turn is untouched. */
+	handleAbRetry(msg: Message): Promise<void>;
 	handleRerun(msg: Message): Promise<void>;
 	handleBranchNavigate(messageId: string): void;
 	/** Rewind/checkpoint to `msg` (Sessions P4): POST /rewind + move the active
@@ -778,6 +784,58 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		}
 	}
 
+	async function handleAbRetry(msg: Message): Promise<void> {
+		const convId = host.convId();
+		if (!convId) return;
+
+		// The clean A/B: POST /retry re-runs `msg`'s parent user turn as a
+		// same-role assistant SIBLING — the server creates NO new user row, so
+		// we add only the assistant placeholder here (contrast handleRegenerate,
+		// which appends a duplicate user message from the editOf fork).
+		try {
+			const wire = resolveWireModel(
+				host.selectedModel.get(),
+				host.allMessages.get(),
+			);
+			const result = await retryMessage(convId, msg.id, {
+				provider: wire.provider ?? undefined,
+				model: wire.model ?? undefined,
+				thinkingLevel: host.modelSupportsReasoning()
+					? host.thinkingLevel.get()
+					: undefined,
+			});
+
+			// An action-only turn can't be retried (there's always an assistant
+			// row here), but narrow the nullable runId defensively.
+			if (result.runId === null) return;
+			host.activeRunId.set(result.runId);
+			host.activeRunStartedAt.set(Date.now());
+			host.serverStalenessMs.set(0);
+			startStreaming(result.runId, convId);
+
+			// Placeholder assistant, parented on the EXISTING user turn so it
+			// renders as a sibling of the original assistant (BranchNavigator
+			// picks it up; activeLeafId makes the new branch the active one).
+			const assistantPlaceholder = host.makeOptimisticMessage({
+				id: `streaming-${result.runId}`,
+				conversationId: convId,
+				role: "assistant",
+				model: wire.model ?? null,
+				provider: wire.provider ?? null,
+				runId: result.runId,
+				parentMessageId: result.userMessage.id,
+			});
+			host.allMessages.set([
+				...host.allMessages.get(),
+				assistantPlaceholder,
+			]);
+			host.activeLeafId.set(assistantPlaceholder.id);
+		} catch (err) {
+			host.error.set("Failed to retry response");
+			console.error(err);
+		}
+	}
+
 	function handleBranchNavigate(messageId: string): void {
 		// Navigate to the branch containing this message by finding its
 		// leaf — a no-op if the id isn't anywhere in the tree.
@@ -988,6 +1046,7 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		handleSend,
 		handleEditConfirm,
 		handleRegenerate,
+		handleAbRetry,
 		handleRerun,
 		handleBranchNavigate,
 		handleRewind,

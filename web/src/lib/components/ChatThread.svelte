@@ -746,6 +746,7 @@
 	});
 	const handleSend = sendApi.handleSend;
 	const handleRegenerate = (msg: Message) => sendApi.handleRegenerate(msg);
+	const handleAbRetry = (msg: Message) => sendApi.handleAbRetry(msg);
 	const handleRerun = (msg: Message) => sendApi.handleRerun(msg);
 	const handleBranchNavigate = sendApi.handleBranchNavigate;
 	const handleSaveMemory = (msg: Message) => sendApi.handleSaveMemory(msg);
@@ -2048,6 +2049,9 @@
 						onrerun={msg.role === "user" ? handleRerun : undefined}
 						onregenerate={msg.role === "assistant"
 							? handleRegenerate
+							: undefined}
+						onabretry={msg.role === "assistant"
+							? handleAbRetry
 							: undefined}
 						onfallback={msg.role === "assistant"
 							? (p, m) => handleFallback(msg, p, m)

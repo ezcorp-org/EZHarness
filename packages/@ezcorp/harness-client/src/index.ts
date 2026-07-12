@@ -222,6 +222,27 @@ export class HarnessClient {
     });
   }
 
+  /** Clean A/B retry (Sessions P5): re-run the turn that produced `messageId`
+   *  (an assistant row) from its parent USER message, WITHOUT duplicating that
+   *  user row — the new response is a same-role SIBLING of the original
+   *  assistant. Needs the `chat` scope. Optional `provider`/`model`/`thinkingLevel`
+   *  retry against a different model without touching the conversation's pin;
+   *  omitted → the conversation's own identity. Throws `HarnessApiError` 409
+   *  (flag off / active run) or 400 (target is not an assistant with a user
+   *  parent). Returns `{ userMessage, retriedMessageId, runId }` — `userMessage`
+   *  is the EXISTING anchor turn (no new row was created). */
+  retryMessage(
+    conversationId: string,
+    messageId: string,
+    opts: { provider?: string; model?: string; thinkingLevel?: string } = {},
+  ): Promise<SendMessageResult & { retriedMessageId: string }> {
+    return this.route("retryMessage", { id: conversationId, mid: messageId }, {
+      ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
+      ...(opts.model !== undefined ? { model: opts.model } : {}),
+      ...(opts.thinkingLevel !== undefined ? { thinkingLevel: opts.thinkingLevel } : {}),
+    });
+  }
+
   // ── Extensions ─────────────────────────────────────────────────────
   /** List installed extensions. `GET /api/extensions` returns a bare array;
    *  a `{ extensions: [...] }` wrapper is tolerated too. Any other shape throws

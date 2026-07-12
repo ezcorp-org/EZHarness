@@ -49,6 +49,7 @@
 		onretry,
 		onedit,
 		onregenerate,
+		onabretry,
 		onrerun,
 		onfallback,
 		onbranch,
@@ -86,6 +87,11 @@
 		onretry?: () => void;
 		onedit?: (message: Message) => void;
 		onregenerate?: (message: Message) => void;
+		/** Sessions P5 clean A/B retry: fork a same-role assistant SIBLING from
+		 *  this message's parent user turn via POST /retry (no duplicate user
+		 *  row — distinct from `onregenerate`'s editOf fork). Drives the labeled
+		 *  "Retry" A/B affordance; wired by ChatThread on assistant rows only. */
+		onabretry?: (message: Message) => void;
 		/** Re-run this user message's prompt as a sibling fork — no edit
 		 *  modal. Surfaces a circle-arrows affordance on the user-row
 		 *  toolbar that mirrors the assistant-row regenerate button. */
@@ -105,10 +111,10 @@
 		onnavigate?: (messageId: string) => void;
 		/** Sessions P5 A/B retry: when true, surface a labeled "Retry" affordance
 		 *  in the assistant-row A/B controls (next to the ‹n/m› switcher) that
-		 *  fires `onregenerate` to fork an alternative response. Gated by
-		 *  ChatThread on the `sessions:historyProducer` flag AND no active run
-		 *  (hidden off-flag and while a turn streams). Reuses the existing
-		 *  regenerate mechanism — no new send path. */
+		 *  fires `onabretry` to fork a same-role assistant sibling (the clean
+		 *  /retry path — no duplicate user turn). Gated by ChatThread on the
+		 *  `sessions:historyProducer` flag AND no active run (hidden off-flag and
+		 *  while a turn streams). */
 		abRetryEnabled?: boolean;
 		memoriesUsed?: { id: string; content: string; category: string }[];
 		kbSourcesUsed?: { id: string; filename: string; chunkIndex: number }[];
@@ -672,14 +678,14 @@
 			class="min-w-0 flex-1"
 			title={usageTitle}
 		>
-			{#if hasSiblings || (abRetryEnabled && onregenerate)}
+			{#if hasSiblings || (abRetryEnabled && onabretry)}
 				<div class="mb-1 flex items-center gap-2">
 					{#if hasSiblings}
 						<BranchNavigator siblings={siblings!} currentId={message.id} onnavigate={onnavigate!} />
 					{/if}
-					{#if abRetryEnabled && onregenerate}
+					{#if abRetryEnabled && onabretry}
 						<button
-							onclick={() => onregenerate!(message)}
+							onclick={() => onabretry!(message)}
 							class="inline-flex items-center gap-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 							data-testid="ab-retry-btn"
 							title="Generate an alternative response (A/B)"
