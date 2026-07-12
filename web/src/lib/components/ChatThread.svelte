@@ -2054,6 +2054,7 @@
 							: undefined}
 						onbranch={handleBranch}
 						onrewind={treeEnabled ? handleRewind : undefined}
+						abRetryEnabled={treeEnabled && !activeRunId}
 						onsavememory={handleSaveMemory}
 						onremovememory={handleRemoveMemory}
 						savedAsMemory={savedMemories.has(msg.id)}

@@ -58,6 +58,7 @@
 		savedAsMemory = false,
 		siblings,
 		onnavigate,
+		abRetryEnabled = false,
 		memoriesUsed,
 		kbSourcesUsed,
 		toolCalls,
@@ -102,6 +103,13 @@
 		savedAsMemory?: boolean;
 		siblings?: { id: string; createdAt: string }[];
 		onnavigate?: (messageId: string) => void;
+		/** Sessions P5 A/B retry: when true, surface a labeled "Retry" affordance
+		 *  in the assistant-row A/B controls (next to the ‹n/m› switcher) that
+		 *  fires `onregenerate` to fork an alternative response. Gated by
+		 *  ChatThread on the `sessions:historyProducer` flag AND no active run
+		 *  (hidden off-flag and while a turn streams). Reuses the existing
+		 *  regenerate mechanism — no new send path. */
+		abRetryEnabled?: boolean;
 		memoriesUsed?: { id: string; content: string; category: string }[];
 		kbSourcesUsed?: { id: string; filename: string; chunkIndex: number }[];
 		toolCalls?: ToolCallState[];
@@ -664,9 +672,25 @@
 			class="min-w-0 flex-1"
 			title={usageTitle}
 		>
-			{#if hasSiblings}
-				<div class="mb-1">
-					<BranchNavigator siblings={siblings!} currentId={message.id} onnavigate={onnavigate!} />
+			{#if hasSiblings || (abRetryEnabled && onregenerate)}
+				<div class="mb-1 flex items-center gap-2">
+					{#if hasSiblings}
+						<BranchNavigator siblings={siblings!} currentId={message.id} onnavigate={onnavigate!} />
+					{/if}
+					{#if abRetryEnabled && onregenerate}
+						<button
+							onclick={() => onregenerate!(message)}
+							class="inline-flex items-center gap-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+							data-testid="ab-retry-btn"
+							title="Generate an alternative response (A/B)"
+						>
+							<svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+								<path d="M1 4v6h6" /><path d="M23 20v-6h-6" />
+								<path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15" />
+							</svg>
+							Retry
+						</button>
+					{/if}
 				</div>
 			{/if}
 			{#if showExcludedPill}
