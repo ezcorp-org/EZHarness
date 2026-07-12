@@ -239,6 +239,10 @@ describe("web build", () => {
 			}
 			expect(exitCode).toBe(0);
 		},
-		{ timeout: 60_000 },
+		// A full SvelteKit build racing the parallel test pool for CPU can blow a
+		// 60s budget on a loaded dev box (the CI copy is skipped — it's already
+		// built in the image). Give it generous headroom so wall-clock jitter on a
+		// shared runner never flakes this into a false red.
+		{ timeout: 180_000 },
 	);
 });
