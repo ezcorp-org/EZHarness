@@ -28,7 +28,6 @@ const {
   syncSessionForConversation,
   computeSessionBranch,
   appendSavedMessageEntry,
-  messageEntryToHistoryRow,
 } = await import("../db/session-sync");
 const { upsertSetting } = await import("../db/queries/settings");
 const { backfillSessionForConversation } = await import("../db/session-backfill");
@@ -123,18 +122,18 @@ describe("syncSessionForConversation — catch-up from the messages table", () =
     await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
     await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
 
-    const first = await syncSessionForConversation(c);
+    const { storage: first } = await syncSessionForConversation(c);
     const firstIds = (await first.getEntries()).map((e) => e.id).filter((id) => id === "u1" || id === "a1");
     expect(firstIds.sort()).toEqual(["a1", "u1"]);
 
     // A new turn arrives (route wrote the messages row; live-append never ran).
     await seedMsg(c, { id: "u2", role: "user", content: "u2", parentId: "a1", createdAt: at(2) });
 
-    const second = await syncSessionForConversation(c);
+    const { storage: second } = await syncSessionForConversation(c);
     const ids = (await second.getEntries()).filter((e) => e.type === "message").map((e) => e.id);
     expect(ids.sort()).toEqual(["a1", "u1", "u2"]);
 
-    // No duplicate entries for the already-synced rows.
+    // No duplicate entries for the already-synced rows (existing-row no-op path).
     const rows = await getTestDb()
       .select()
       .from(agentSessionEntries)
@@ -151,7 +150,7 @@ describe("syncSessionForConversation — catch-up from the messages table", () =
     // append: the row exists, no entry does.
     await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
 
-    const healed = await syncSessionForConversation(c);
+    const { storage: healed } = await syncSessionForConversation(c);
     const ids = (await healed.getEntries()).filter((e) => e.type === "message").map((e) => e.id);
     expect(ids.sort()).toEqual(["a1", "u1"]);
   });
@@ -161,40 +160,27 @@ describe("syncSessionForConversation — catch-up from the messages table", () =
     await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
     await seedMsg(c, { id: "x1", role: "assistant", content: "x", parentId: "u1", excluded: true, createdAt: at(1) });
     await seedMsg(c, { id: "pr", role: "preprocess-result", content: "{}", parentId: "x1", createdAt: at(2) });
-    const s = await syncSessionForConversation(c);
+    const { storage: s } = await syncSessionForConversation(c);
     const custom = (await s.getEntries()).filter((e) => e.type === "custom").map((e) => e.id);
     expect(custom.sort()).toEqual(["pr", "x1"]);
   });
-});
 
-describe("messageEntryToHistoryRow — raw content extraction", () => {
-  test("user entry → string content verbatim", () => {
-    const row = messageEntryToHistoryRow({
-      type: "message",
-      id: "u1",
-      parentId: null,
-      timestamp: "t",
-      message: { role: "user", content: "hello" },
-    } as never);
-    expect(row).toEqual({ id: "u1", role: "user", content: "hello" });
-  });
+  test("topology reconcile: an existing entry's parentId follows a messages reparent", async () => {
+    const c = await newConversation();
+    await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
+    await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+    await seedMsg(c, { id: "s1", role: "user", content: "steer", parentId: "u1", createdAt: at(2) });
+    await syncSessionForConversation(c); // s1 entry parent = u1
 
-  test("assistant entry → concatenated text parts (thinking parts dropped)", () => {
-    const row = messageEntryToHistoryRow({
-      type: "message",
-      id: "a1",
-      parentId: "u1",
-      timestamp: "t",
-      message: {
-        role: "assistant",
-        content: [
-          { type: "thinking", thinking: "hmm" },
-          { type: "text", text: "part1 " },
-          { type: "text", text: "part2" },
-        ],
-      },
-    } as never);
-    expect(row).toEqual({ id: "a1", role: "assistant", content: "part1 part2" });
+    // Delivery reparents s1 under a1 (a same-id parentMessageId UPDATE).
+    await getTestDb().update(messages).set({ parentMessageId: "a1" }).where(eq(messages.id, "s1"));
+
+    const { storage } = await syncSessionForConversation(c);
+    const s1entry = (await storage.getEntries()).find((e) => e.id === "s1");
+    expect(s1entry?.parentId).toBe("a1"); // reconciled
+    // getPathToRoot now threads s1 under a1.
+    const branch = await computeSessionBranch(c, "s1");
+    expect(branch.map((r) => r.id)).toEqual(["u1", "a1", "s1"]);
   });
 });
 
@@ -226,6 +212,29 @@ describe("computeSessionBranch — session-backed branch", () => {
   test("empty conversation → empty branch (null leaf)", async () => {
     const c = await newConversation();
     expect(await computeSessionBranch(c, undefined)).toEqual([]);
+  });
+
+  test("live excluded flag is honoured at read time (not the entry's stale classification)", async () => {
+    const c = await newConversation();
+    await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
+    await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+    await seedMsg(c, { id: "u2", role: "user", content: "u2", parentId: "a1", createdAt: at(2) });
+    await syncSessionForConversation(c); // a1 backfilled as a NON-excluded message entry
+    // Exclude a1 IN PLACE — the entry stays a `message` entry, but the producer
+    // must drop it because the LIVE row is excluded.
+    await getTestDb().update(messages).set({ excluded: true }).where(eq(messages.id, "a1"));
+    expect((await computeSessionBranch(c, "u2")).map((r) => r.id)).toEqual(["u1", "u2"]);
+  });
+
+  test("a branch entry whose live messages row was deleted is skipped (graceful)", async () => {
+    const c = await newConversation();
+    await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
+    await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+    await syncSessionForConversation(c); // a1 entry created
+    // Delete a1's messages row; its session entry remains (ez_message_id → null).
+    await getTestDb().delete(messages).where(eq(messages.id, "a1"));
+    // The producer walks the entry topology but skips a1 (no live row to join).
+    expect((await computeSessionBranch(c, "a1")).map((r) => r.id)).toEqual(["u1"]);
   });
 });
 

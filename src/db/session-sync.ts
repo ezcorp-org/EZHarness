@@ -15,32 +15,51 @@ import { backfillSessionForConversation, isLlmTurn, rowToEntry, rowToPiMessage }
  * session tree becomes the conversation-history PRODUCER.
  *
  * Two responsibilities live here:
- *  1. READ — {@link computeSessionBranch}: bring the session tree up to
- *     date with the `messages` table (the REPLAY AUTHORITY) and return the
- *     active branch as `{id, role, content}` rows. `load-history.ts` then
- *     runs its EXISTING filter/rehydration/mapping over those rows, so the
- *     produced history is byte-identical to the legacy CTE path (see the
- *     LIVE parity suite). Realises design §5's "swap the branch source to
- *     the session, run the existing transform over it".
+ *  1. READ — {@link computeSessionBranch}: the session tree is the
+ *     TOPOLOGY authority (which rows are on the active branch, in what
+ *     order); the `messages` table is the SUBSTANCE authority (role,
+ *     content, and — crucially — the LIVE `excluded` flag). The branch is
+ *     the ordered entry ids from `getPathToRoot`, JOINED back to live
+ *     `messages` rows by id (the mirror invariant makes entry.id == row id).
+ *     `load-history.ts` then runs its EXISTING filter/rehydration/mapping
+ *     over those live rows, so the history is byte-identical to the legacy
+ *     CTE path. Design §5's "swap the branch source, run the existing
+ *     transform over it".
  *  2. WRITE — {@link appendSavedMessageEntry}: an O(1) idempotent
  *     live-append of a just-saved `messages` row onto the session tree,
  *     wired at the subscribe-bridge turn_end + steer seams.
  *
- * Correctness rests on ONE invariant + ONE backstop:
- *  - MIRROR INVARIANT: a `message` entry's `id` IS its `messages` row id
- *    (backfill AND live-append both key entries by row id), so
- *    `ezMessageId === entry.id` and downstream attachment/image
- *    rehydration keys correctly off the entry id.
- *  - REPLAY-AUTHORITY BACKSTOP: {@link syncSessionForConversation} re-syncs
- *    the tree from the `messages` table on every read, so a dropped
- *    live-append (a crash between the messages write and the session
- *    append, a kill-switch flip, an out-of-band edit/branch) SELF-HEALS on
- *    the next `loadHistory`. Live-append is therefore an eager optimisation,
- *    not a correctness-critical path — which is why every write here is
- *    fail-open.
+ * WHY topology-only (the load-bearing correctness decision): entry payloads
+ * (role/content) and the message/custom CLASSIFICATION are snapshotted at
+ * append time and are NOT reconciled on same-id UPDATEs — so if the producer
+ * read them, an in-place mutation (the exclude-flag toggle, a role change)
+ * would go stale and diverge from legacy. Reading substance from the live
+ * `messages` row at branch time eliminates that class of drift BY
+ * CONSTRUCTION. The entry payload remains for future phases (P4/P5 tree
+ * display/replay) but is explicitly NOT load-bearing on this read path.
  *
- * All jsonb goes through column-mapped drizzle inserts (never
+ * What the catch-up in {@link syncSessionForConversation} DOES heal:
+ *  - MISSING rows → appended (crash between messages-write and session-append,
+ *    a kill-switch flip, an out-of-band insert).
+ *  - TOPOLOGY of existing rows → `parentId` reconciled where a `messages`
+ *    row's `parentMessageId` changed (a steer reparented at delivery).
+ * What it delegates to the read-time messages JOIN (NOT healed in the tree):
+ *  - content / role / excluded / synthetic-role classification — always LIVE.
+ *
+ * MIRROR INVARIANT: a `message` entry's `id` IS its `messages` row id
+ * (backfill AND live-append key entries by row id), so entry.id == ezMessageId
+ * == row id — that is what makes the read-time JOIN and row-keyed
+ * attachment/image rehydration work.
+ *
+ * Live-append is an eager optimisation, not correctness-critical — a dropped
+ * append is healed by the next read's catch-up — which is why every write here
+ * is fail-open. All jsonb goes through column-mapped drizzle inserts (never
  * `${JSON.stringify}::jsonb`); the intra-session PK makes appends idempotent.
+ *
+ * PERF NOTE (INFO, accepted dark): each ON read is O(conversation) — a full
+ * `getMessages` + an entry-table read for the catch-up + join. That matches
+ * the legacy path's asymptotic class (getConversationPath is O(branch)); a
+ * high-water-seq incremental catch-up is future optimisation work.
  */
 
 const log = logger.child("db.sessionSync");
@@ -92,70 +111,77 @@ export async function withConvSessionLock<T>(conversationId: string, fn: () => P
 
 // ── READ: session-backed branch ─────────────────────────────────────
 
+/** A live `messages` row (the fields the producer join reads). */
+type ConversationMessage = Awaited<ReturnType<typeof getMessages>>[number];
+
+/** The result of one topology sync: the caught-up storage + the live rows
+ *  indexed by id, so the producer JOINs substance without a second fetch. */
+export interface SessionSyncResult {
+  storage: DbSessionStorage;
+  rowsById: Map<string, ConversationMessage>;
+}
+
 /**
- * Bring the conversation's session tree up to date with the `messages`
- * table and return the storage. First use backfills the whole tree; later
- * uses append only the rows added since. Idempotent — a row already present
- * as an entry is skipped, so this is safe to run every read. NOT
+ * Bring the conversation's session tree TOPOLOGY up to date with the
+ * `messages` table and return the storage + the live rows (indexed by id).
+ * First use backfills the whole tree. Later uses reconcile topology:
+ *  - MISSING rows → appended (mirroring backfill's classification).
+ *  - EXISTING rows whose `messages` parentMessageId changed → entry parentId
+ *    reparented (closes the steer-reparent drift).
+ * Substance (content/role/excluded) is NOT touched here — the producer reads
+ * it live from `rowsById`. Idempotent, so safe to run every read. NOT
  * self-locking: callers hold {@link withConvSessionLock}.
  */
-export async function syncSessionForConversation(conversationId: string): Promise<DbSessionStorage> {
+export async function syncSessionForConversation(conversationId: string): Promise<SessionSyncResult> {
   const storage = await backfillSessionForConversation(conversationId);
-  const existing = new Set((await storage.getEntries()).map((e) => e.id));
+  const existing = new Map((await storage.getEntries()).map((e) => [e.id, e] as const));
   const rows = await getMessages(conversationId);
+  const rowsById = new Map(rows.map((r) => [r.id, r] as const));
   const knownIds = new Set(rows.map((r) => r.id));
   for (const row of rows) {
-    if (existing.has(row.id)) continue;
-    // Mirror backfill: real turns become `message` entries (cross-linked via
-    // ezMessageId = row id); excluded/synthetic rows stay in the tree as
-    // non-emitting `custom` entries so the parentId chain stays connected.
-    await storage.appendEntry(rowToEntry(row, knownIds), isLlmTurn(row) ? row.id : null);
+    const entry = existing.get(row.id);
+    if (!entry) {
+      // Missing → append (mirrors backfill: real turns become `message`
+      // entries cross-linked via ezMessageId = row id; excluded/synthetic
+      // rows stay as non-emitting `custom` entries so the chain stays whole).
+      await storage.appendEntry(rowToEntry(row, knownIds), isLlmTurn(row) ? row.id : null);
+      continue;
+    }
+    // Existing → reconcile topology only. The desired parent mirrors the live
+    // row with backfill's same-conversation re-root guard.
+    const desiredParent = row.parentMessageId && knownIds.has(row.parentMessageId) ? row.parentMessageId : null;
+    if (entry.parentId !== desiredParent) await storage.reparentEntry(row.id, desiredParent);
   }
-  return storage;
-}
-
-/** A session `message` entry → the `{id, role, content}` shape
- *  `load-history.ts` maps + rehydrates. `content` is the RAW text (the
- *  inverse of session-backfill's `rowToPiMessage`): the user string
- *  verbatim, or the assistant's concatenated text parts. `id` is the entry
- *  id, which IS the messages row id (mirror invariant), so per-message
- *  attachment/image rehydration keys off it. */
-export function messageEntryToHistoryRow(entry: Extract<SessionTreeEntry, { type: "message" }>): HistoryUserRow {
-  // A message entry only ever holds a user/assistant turn (backfill +
-  // live-append store nothing else), so narrow past AgentMessage's wider
-  // union to the role/content pair.
-  const { role, content } = entry.message as {
-    role: string;
-    content: string | ReadonlyArray<{ type: string; text?: string }>;
-  };
-  return { id: entry.id, role, content: typeof content === "string" ? content : extractText(content) };
-}
-
-/** Concatenate the text parts of an assistant content array. */
-function extractText(parts: ReadonlyArray<{ type: string; text?: string }>): string {
-  return parts.filter((p) => p.type === "text").map((p) => p.text).join("");
+  return { storage, rowsById };
 }
 
 /**
  * The conversation's active branch as `{id, role, content}` rows — the
  * session-backed equivalent of loadHistory's legacy getConversationPath
- * walk. Same leaf selection (`parentMessageId` ?? latest leaf) and same
- * conversation-scoped truncation (the session tree only holds this
- * conversation's rows, cross-conversation parents re-rooted to null). Only
- * `message` entries surface; excluded/synthetic `custom` entries are
- * dropped exactly as loadHistory drops them. Serialized per conversation.
+ * walk. TOPOLOGY (ordered ids + leaf) comes from the session tree; SUBSTANCE
+ * (role/content) and the `excluded` filter come from the LIVE `messages`
+ * rows (joined by id). Same leaf selection (`parentMessageId` ?? latest
+ * leaf) and the same conversation-scoped truncation (the tree holds only
+ * this conversation's rows; cross-conversation parents re-rooted to null).
+ * Excluded rows are dropped exactly as loadHistory's legacy path drops them;
+ * synthetic-role rows survive here and are mapped to null downstream, byte-
+ * identically to legacy. Serialized per conversation.
  */
 export async function computeSessionBranch(
   conversationId: string,
   parentMessageId: string | undefined,
 ): Promise<HistoryUserRow[]> {
   return withConvSessionLock(conversationId, async () => {
-    const storage = await syncSessionForConversation(conversationId);
+    const { storage, rowsById } = await syncSessionForConversation(conversationId);
     const leafId = parentMessageId ?? (await getLatestLeaf(conversationId))?.id ?? null;
     const branch = await storage.getPathToRoot(leafId);
     const rows: HistoryUserRow[] = [];
     for (const entry of branch) {
-      if (entry.type === "message") rows.push(messageEntryToHistoryRow(entry));
+      const row = rowsById.get(entry.id);
+      // Skip an entry whose live row is gone (deleted out of band) or that
+      // the user has excluded — matching legacy `path.filter(!excluded)`.
+      if (!row || row.excluded) continue;
+      rows.push({ id: row.id, role: row.role, content: row.content });
     }
     return rows;
   });

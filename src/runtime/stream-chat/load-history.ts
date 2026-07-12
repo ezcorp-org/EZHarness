@@ -207,6 +207,22 @@ async function computeLegacyBranch(
 }
 
 /**
+ * Count of turns where the enabled session producer threw and this call fell
+ * open to the legacy walk. Observability seam: an operator can watch it, and
+ * the LIVE parity suite asserts it stays 0 on the happy path so a SILENT
+ * fail-open can never masquerade as a session-produced parity pass.
+ */
+let sessionProducerFallbacks = 0;
+/** Test/observability accessor for {@link sessionProducerFallbacks}. */
+export function getSessionProducerFallbackCount(): number {
+  return sessionProducerFallbacks;
+}
+/** Reset the fallback counter (tests assert 0 across a single ON read). */
+export function resetSessionProducerFallbackCount(): void {
+  sessionProducerFallbacks = 0;
+}
+
+/**
  * Choose the branch source. When the history producer is enabled the pi
  * session tree produces the branch (design §5); ANY failure on that path
  * (backfill/open failure, invalid_session, a poisoned tree) FAILS OPEN to
@@ -222,7 +238,11 @@ async function computeBranch(
     try {
       return await computeSessionBranch(conversationId, options.parentMessageId);
     } catch (err) {
-      log.warn("session history producer failed — falling back to legacy branch", {
+      sessionProducerFallbacks++;
+      // Recovery hint: a PERMANENT fail-open (a truly poisoned tree) is cleared
+      // by deleting this conversation's `agent_sessions` row(s) — the next read
+      // then backfills a fresh tree from the messages table.
+      log.warn("session history producer failed — using legacy branch for this turn (delete the conversation's agent_sessions row to force a fresh backfill)", {
         conversationId,
         error: String(err),
       });

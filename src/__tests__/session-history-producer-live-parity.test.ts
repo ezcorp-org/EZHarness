@@ -24,15 +24,15 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { agentSessionEntries, agentSessions } from "../db/schema";
+import { agentSessionEntries, agentSessions, messages } from "../db/schema";
 
 mockDbConnection();
 
-const { loadHistory } = await import("../runtime/stream-chat/load-history");
+const { loadHistory, getSessionProducerFallbackCount, resetSessionProducerFallbackCount } = await import("../runtime/stream-chat/load-history");
 const { SESSION_HISTORY_PRODUCER_SETTING } = await import("../db/session-sync");
 const { upsertSetting } = await import("../db/queries/settings");
 const { createProject } = await import("../db/queries/projects");
-const { createConversation, createMessage } = await import("../db/queries/conversations");
+const { createConversation, createMessage, reparentMessage } = await import("../db/queries/conversations");
 const { insertAttachment } = await import("../db/queries/attachments");
 const { persistToolCall } = await import("../db/queries/tool-calls");
 const { createExtension } = await import("../db/queries/extensions");
@@ -60,13 +60,23 @@ async function setFlag(on: boolean): Promise<void> {
   await upsertSetting(SESSION_HISTORY_PRODUCER_SETTING, on);
 }
 
+/** Text of a message's content (string or parts-array). */
+function textOf(content: unknown): string {
+  if (typeof content === "string") return content;
+  return (content as Array<{ text?: string }>).map((p) => p.text ?? "").join("");
+}
+
 /** Load loadHistory OFF (legacy reference) then ON (session candidate).
- *  The caller asserts byte-identity (timestamps normalised). */
+ *  The caller asserts byte-identity (timestamps normalised). Also asserts
+ *  the ON read ACTUALLY used the session producer (fallback counter stayed
+ *  0) so a silent fail-open to legacy can't masquerade as a parity pass. */
 async function loadParity(convId: string, opts: Record<string, unknown> = {}): Promise<{ ref: any[]; cand: any[] }> {
   await setFlag(false);
   const ref = (await loadHistory(mkCtx(), convId, opts)).history;
   await setFlag(true);
+  resetSessionProducerFallbackCount();
   const cand = (await loadHistory(mkCtx(), convId, opts)).history;
+  expect(getSessionProducerFallbackCount()).toBe(0);
   return { ref, cand };
 }
 
@@ -283,8 +293,12 @@ describe("session history producer — fail-open + kill-switch flip", () => {
     });
 
     // With the poisoned session the ON path throws → falls back to legacy.
+    resetSessionProducerFallbackCount();
     const cand = (await loadHistory(mkCtx(), convId, { parentMessageId: leafId })).history;
     expect(stripTimestamps(cand)).toEqual(stripTimestamps(ref));
+    // The fallback ACTUALLY fired (this is the one case where it should) —
+    // proves the counter distinguishes a real fail-open from a session pass.
+    expect(getSessionProducerFallbackCount()).toBeGreaterThan(0);
   });
 
   test("flip mid-conversation: OFF turns are caught up on first ON read; flipping OFF leaves legacy untouched", async () => {
@@ -309,6 +323,85 @@ describe("session history producer — fail-open + kill-switch flip", () => {
     await setFlag(false);
     const backToLegacy = (await loadHistory(mkCtx(), convId, { parentMessageId: leafId })).history;
     expect(stripTimestamps(backToLegacy)).toEqual(stripTimestamps(legacy));
+  });
+});
+
+// ── Topology reconciliation of IN-PLACE messages mutations (validator MED/LOW) ──
+// The producer treats the session as TOPOLOGY only and joins to live `messages`
+// for substance (content/excluded/role), so a same-id UPDATE after the first
+// sync — which catch-up's missing-row append would skip — still reconciles.
+describe("session history producer — in-place mutation reconciliation", () => {
+  test("excluding a row AFTER first sync drops it on the next ON read (byte-parity legacy)", async () => {
+    const { convId, ids, leafId } = await seedLinear([
+      { role: "user", content: "u1" },
+      { role: "assistant", content: "a1" },
+      { role: "user", content: "u2" },
+    ]);
+    // Flag ON, first read → backfills a1 as a NON-excluded message entry.
+    await setFlag(true);
+    await loadHistory(mkCtx(), convId, { parentMessageId: leafId });
+
+    // Exclude a1 IN PLACE (the chat PATCH route / bulk select-mode toggle).
+    await getTestDb().update(messages).set({ excluded: true }).where(eq(messages.id, ids[1]!));
+
+    // Legacy (OFF) drops the excluded a1.
+    await setFlag(false);
+    const ref = (await loadHistory(mkCtx(), convId, { parentMessageId: leafId })).history;
+    // ON must ALSO drop a1 (live excluded) — not emit the stale message entry.
+    await setFlag(true);
+    resetSessionProducerFallbackCount();
+    const cand = (await loadHistory(mkCtx(), convId, { parentMessageId: leafId })).history;
+    expect(getSessionProducerFallbackCount()).toBe(0);
+    expect(stripTimestamps(cand)).toEqual(stripTimestamps(ref));
+    expect(cand.map((m) => textOf(m.content))).toEqual(["u1", "u2"]);
+  });
+
+  test("re-including a row AFTER exclusion brings it back on the next ON read", async () => {
+    const { convId, ids, leafId } = await seedLinear([
+      { role: "user", content: "u1" },
+      { role: "assistant", content: "a1" },
+      { role: "user", content: "u2" },
+    ]);
+    await setFlag(true);
+    await loadHistory(mkCtx(), convId, { parentMessageId: leafId });
+    await getTestDb().update(messages).set({ excluded: true }).where(eq(messages.id, ids[1]!));
+    await loadHistory(mkCtx(), convId, { parentMessageId: leafId }); // read while excluded
+    // Re-include.
+    await getTestDb().update(messages).set({ excluded: false }).where(eq(messages.id, ids[1]!));
+
+    await setFlag(false);
+    const ref = (await loadHistory(mkCtx(), convId, { parentMessageId: leafId })).history;
+    await setFlag(true);
+    const cand = (await loadHistory(mkCtx(), convId, { parentMessageId: leafId })).history;
+    expect(stripTimestamps(cand)).toEqual(stripTimestamps(ref));
+    expect(cand.map((m) => textOf(m.content))).toEqual(["u1", "a1", "u2"]);
+  });
+
+  test("a steer row reparented AFTER a sync reconciles into the session branch", async () => {
+    // u1 → a1. A steer row s1 is persisted up-front with its REQUEST-time
+    // parent (u1). A read syncs s1 under u1. Delivery then REPARENTS s1 under
+    // a1 (the injection leaf). The next ON read must place s1 under a1.
+    const project = await createProject({ name: "LPR", path: tmpRoot });
+    const conv = await createConversation(project.id, { title: "t" });
+    const u1 = await createMessage(conv.id, { role: "user", content: "u1" });
+    const a1 = await createMessage(conv.id, { role: "assistant", content: "a1", parentMessageId: u1.id });
+    const s1 = await createMessage(conv.id, { role: "user", content: "steer", parentMessageId: u1.id });
+
+    // First ON read at s1 → syncs s1 under u1 (its request-time parent).
+    await setFlag(true);
+    await loadHistory(mkCtx(), conv.id, { parentMessageId: s1.id });
+
+    // Delivery reparents s1 under a1 (a same-id parentMessageId UPDATE).
+    await reparentMessage(conv.id, s1.id, a1.id);
+
+    await setFlag(false);
+    const ref = (await loadHistory(mkCtx(), conv.id, { parentMessageId: s1.id })).history;
+    await setFlag(true);
+    resetSessionProducerFallbackCount();
+    const cand = (await loadHistory(mkCtx(), conv.id, { parentMessageId: s1.id })).history;
+    expect(getSessionProducerFallbackCount()).toBe(0);
+    expect(stripTimestamps(cand)).toEqual(stripTimestamps(ref));
+    expect(cand.map((m) => textOf(m.content))).toEqual(["u1", "a1", "steer"]);
   });
 });
 

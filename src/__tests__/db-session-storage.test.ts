@@ -175,6 +175,38 @@ describe("DbSessionStorage — leaf / rewind semantics", () => {
   });
 });
 
+describe("DbSessionStorage — reparentEntry (P3 topology reconcile)", () => {
+  beforeEach(async () => {
+    await setupTestDb();
+  }, 30_000);
+  afterAll(async () => {
+    await closeTestDb();
+  });
+
+  test("changed parent updates in-memory + DB (survives reopen); unchanged is a no-op; missing throws", async () => {
+    const storage = await DbSessionStorage.create({ id: "sess-reparent" });
+    await storage.appendEntry({ type: "message", id: "e1", parentId: null, timestamp: "t", message: userMsg("u1") });
+    await storage.appendEntry({ type: "message", id: "e2", parentId: "e1", timestamp: "t", message: assistantMsg("a1") });
+    await storage.appendEntry({ type: "message", id: "e3", parentId: "e1", timestamp: "t", message: userMsg("u2") });
+
+    // Change: reparent e3 from e1 → e2. getPathToRoot must follow the new parent.
+    await storage.reparentEntry("e3", "e2");
+    expect((await storage.getEntry("e3"))?.parentId).toBe("e2");
+    expect((await storage.getPathToRoot("e3")).map((e) => e.id)).toEqual(["e1", "e2", "e3"]);
+
+    // Persisted across reopen.
+    const reopened = await DbSessionStorage.open("sess-reparent");
+    expect((await reopened.getEntry("e3"))?.parentId).toBe("e2");
+
+    // No-op when the parent is already the desired value (early return, no write).
+    await storage.reparentEntry("e3", "e2");
+    expect((await storage.getEntry("e3"))?.parentId).toBe("e2");
+
+    // Unknown entry rejects.
+    await expect(storage.reparentEntry("nope", null)).rejects.toThrow();
+  });
+});
+
 // ── 3. insertion-order axis + findEntries ───────────────────────────
 describe("DbSessionStorage — insertion order vs tree order", () => {
   beforeEach(async () => {

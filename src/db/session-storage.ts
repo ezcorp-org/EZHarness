@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { SessionError, uuidv7 } from "@earendil-works/pi-agent-core";
 import type { SessionMetadata, SessionStorage, SessionTreeEntry } from "@earendil-works/pi-agent-core";
 import { getDb } from "./connection";
@@ -239,6 +239,27 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
 
   async getEntry(id: string): Promise<SessionTreeEntry | undefined> {
     return this.byId.get(id);
+  }
+
+  /**
+   * Reconcile an existing entry's `parentId` to mirror an out-of-band
+   * `messages` row reparent (P3 topology sync — e.g. a steer row reparented
+   * at delivery). Updates the DB row + the in-memory entry object (shared by
+   * `byId` and `entries`), so a subsequent {@link getPathToRoot} walks the new
+   * parent. A no-op when unchanged. This is the ONLY tree-structure mutation of
+   * an existing message entry; P4's rewind moves the leaf via `leaf` pointer
+   * entries, never by rewriting a message entry's parent, so `messages` stays
+   * the authority for message-entry parents.
+   */
+  async reparentEntry(entryId: string, newParentId: string | null): Promise<void> {
+    const entry = this.byId.get(entryId);
+    if (!entry) throw new SessionError("not_found", `Entry ${entryId} not found`);
+    if (entry.parentId === newParentId) return;
+    entry.parentId = newParentId;
+    await this.db
+      .update(agentSessionEntries)
+      .set({ parentId: newParentId })
+      .where(and(eq(agentSessionEntries.sessionId, this.sessionRow.id), eq(agentSessionEntries.entryId, entryId)));
   }
 
   async findEntries<TType extends SessionTreeEntry["type"]>(
