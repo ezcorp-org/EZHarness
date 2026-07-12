@@ -33,7 +33,16 @@ const MAX_FORMS = 20;
 const MAX_FIELDS_PER_FORM = 40;
 const MAX_LINKS = 25;
 const MAX_STR = 200;
+/** Content-excerpt cap for `detail:"summary"` (the default). */
 const MAX_CONTENT_CHARS = 3000;
+/** Content-excerpt cap for `detail:"full"` — the LLM asked for more. */
+const MAX_CONTENT_CHARS_FULL = 6000;
+/** Marks an elided gap between the kept head and tail of a windowed excerpt. */
+const CONTENT_SEP = " … ";
+/** Rolling tail buffer's overshoot allowance before it prunes its front —
+ *  keeps `collectContentText` from re-pruning on every single text node
+ *  while still bounding memory to a small multiple of the cap. */
+const CONTENT_TAIL_SLACK = 256;
 
 /** Subtrees whose text is chrome or non-content, excluded from the
  *  `content` excerpt. Form controls are excluded so typed values can't
@@ -68,7 +77,12 @@ export interface PageContext {
 	 *  `[role="main"]` when present, else the whole root) — what the user
 	 *  is actually reading. Chrome (nav/header/footer/aside), form-control
 	 *  values, and excluded subtrees never contribute. Capped at
-	 *  {@link MAX_CONTENT_CHARS} with a trailing ellipsis. */
+	 *  {@link MAX_CONTENT_CHARS} for `detail:"summary"`,
+	 *  {@link MAX_CONTENT_CHARS_FULL} for `"full"`: text under the cap comes
+	 *  back unchanged, text over it keeps its opening AND its closing
+	 *  portion (joined by {@link CONTENT_SEP}) so the newest message on a
+	 *  chat page — which sits at the very end of `<main>` — always survives
+	 *  a truncation instead of being silently cut off. */
 	content: string;
 	forms: PageForm[];
 	links: PageLink[];
@@ -225,45 +239,75 @@ function collectHeadings(root: ParentNode): string[] {
 }
 
 /**
+ * Window `text` to at most `cap` characters, preferring BOTH ends over just
+ * the start. Text that already fits comes back unchanged (no separator —
+ * nothing was lost). Text that doesn't keeps its first ⌊cap/3⌋ characters, a
+ * {@link CONTENT_SEP} marker, and as much of its tail as still fits within
+ * `cap`. The shared primitive behind `collectContentText`'s DOM-walk excerpt
+ * and `capSize`'s byte-budget squeeze — both need the same tail-preserving
+ * shape, because on a chat page the newest message sits at the very end of
+ * `<main>`, and a head-only truncation would silently drop it.
+ */
+function windowText(text: string, cap: number): string {
+	if (text.length <= cap) return text;
+	const headLen = Math.floor(cap / 3);
+	const tailLen = Math.max(cap - headLen - CONTENT_SEP.length, 0);
+	return `${text.slice(0, headLen)}${CONTENT_SEP}${text.slice(text.length - tailLen)}`;
+}
+
+/**
  * Visible-text excerpt of the page's main content region. Prefers the
  * semantic `<main>` / `[role="main"]` scope when the page declares one
  * (falling back to the whole root), walks its text nodes in document
- * order, and skips chrome/control/excluded subtrees. Whitespace is
- * collapsed; output is capped at {@link MAX_CONTENT_CHARS}.
+ * order (never stopping early), and skips chrome/control/excluded
+ * subtrees. Whitespace is collapsed.
+ *
+ * Collection stays memory-bounded without an early break: a head buffer
+ * fills up to ⌊cap/3⌋ characters and then freezes, and everything
+ * afterwards routes into a rolling tail buffer that only drops text from
+ * its own front once it overshoots its budget (plus slack) — so a 50k+
+ * char page never balloons the working set, and the buffer at the end of
+ * the walk still holds the page's true closing text. The head+tail
+ * reconstruction is then windowed through {@link windowText} against
+ * {@link MAX_CONTENT_CHARS} (`detail:"summary"`) or
+ * {@link MAX_CONTENT_CHARS_FULL} (`"full"`) — a no-op when it already fits.
  */
-function collectContentText(root: ParentNode): string {
+function collectContentText(root: ParentNode, detail: "summary" | "full"): string {
 	const scope: ParentNode =
 		(root as Element | Document).querySelector?.('main,[role="main"]') ?? root;
 	const doc: Document | null =
 		(scope as Element).ownerDocument ?? ((scope as Document).createTreeWalker ? (scope as Document) : null);
 	if (!doc?.createTreeWalker) return "";
 
+	const cap = detail === "full" ? MAX_CONTENT_CHARS_FULL : MAX_CONTENT_CHARS;
+	const headCap = Math.floor(cap / 3);
+	const tailBudget = cap - headCap - CONTENT_SEP.length;
+
 	// NodeFilter.SHOW_TEXT === 0x4 — numeric literal so no global NodeFilter
 	// reference is needed (jsdom exposes it on window, not globalThis).
 	const walker = doc.createTreeWalker(scope as Node, 0x4);
-	const parts: string[] = [];
-	let length = 0;
-	let cut = false;
+	const headParts: string[] = [];
+	let headLen = 0;
+	const tailParts: string[] = [];
+	let tailLen = 0;
 	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
 		const parent = (node as Text).parentElement;
 		if (!parent || parent.closest(CONTENT_SKIP_SELECTOR) || isExcluded(parent)) continue;
 		const text = (node.textContent ?? "").replace(/\s+/g, " ").trim();
 		if (!text) continue;
-		parts.push(text);
-		length += text.length + 1;
-		if (length >= MAX_CONTENT_CHARS) {
-			// Stopping at the cap — whether or not more text nodes remain,
-			// the excerpt is (potentially) partial; say so with an ellipsis.
-			cut = true;
-			break;
+
+		if (headLen < headCap) {
+			headParts.push(text);
+			headLen += text.length + 1;
+			continue;
+		}
+		tailParts.push(text);
+		tailLen += text.length + 1;
+		while (tailLen > tailBudget + CONTENT_TAIL_SLACK && tailParts.length > 1) {
+			tailLen -= (tailParts.shift() as string).length + 1;
 		}
 	}
-	let joined = parts.join(" ");
-	if (joined.length > MAX_CONTENT_CHARS) {
-		joined = joined.slice(0, MAX_CONTENT_CHARS);
-		cut = true;
-	}
-	return cut ? `${joined}…` : joined;
+	return windowText([...headParts, ...tailParts].join(" "), cap);
 }
 
 function collectLinks(root: ParentNode): PageLink[] {
@@ -299,7 +343,10 @@ function byteLength(s: string): number {
  * trailing forms → trailing headings. The content excerpt is squeezed in
  * two steps (halve, then drop) because it's the highest-value field for
  * "what is the user looking at" — structure (forms) survives it only
- * because fill_form is unusable without the form vocabulary.
+ * because fill_form is unusable without the form vocabulary. The halving
+ * step re-windows through {@link windowText} rather than slicing the head
+ * off, so the squeeze keeps the same head+tail shape as the original
+ * excerpt instead of regressing to a head-only truncation.
  */
 function capSize(ctx: PageContext): PageContext {
 	if (byteLength(JSON.stringify(ctx)) <= MAX_BYTES) return ctx;
@@ -315,7 +362,7 @@ function capSize(ctx: PageContext): PageContext {
 	}
 
 	if (ctx.content.length > 0) {
-		ctx = { ...ctx, content: `${ctx.content.slice(0, Math.floor(MAX_CONTENT_CHARS / 2))}…` };
+		ctx = { ...ctx, content: windowText(ctx.content, Math.floor(MAX_CONTENT_CHARS / 2)) };
 		if (byteLength(JSON.stringify(ctx)) <= MAX_BYTES) return ctx;
 	}
 
@@ -346,7 +393,9 @@ function capSize(ctx: PageContext): PageContext {
  * Serialize the current page rooted at `root`. `path`/`title` come from the
  * caller (the dispatcher reads them off `window.location` / `document`) so
  * this function stays pure and DOM-only. `detail: "full"` includes field
- * values (never for password/file); the default `"summary"` omits them.
+ * values (never for password/file) and raises the content-excerpt cap from
+ * {@link MAX_CONTENT_CHARS} to {@link MAX_CONTENT_CHARS_FULL}; the default
+ * `"summary"` omits values and uses the smaller cap.
  */
 export function serializePageContext(root: ParentNode, opts: SerializeOptions = {}): PageContext {
 	const detail = opts.detail === "full" ? "full" : "summary";
@@ -358,7 +407,7 @@ export function serializePageContext(root: ParentNode, opts: SerializeOptions = 
 		path: trunc(opts.path ?? ""),
 		title: trunc(opts.title ?? ""),
 		headings: collectHeadings(root),
-		content: collectContentText(root),
+		content: collectContentText(root, detail),
 		forms,
 		links: collectLinks(root),
 	};

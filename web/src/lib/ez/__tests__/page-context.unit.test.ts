@@ -96,16 +96,78 @@ describe("serializePageContext — content excerpt", () => {
 		expect(ctx.content).toBe("only this survives");
 	});
 
-	test("caps the excerpt at 3000 chars with a trailing ellipsis", () => {
+	test("caps the excerpt at 3000 chars via head+tail windowing with a middle ellipsis", () => {
 		const blocks = Array.from({ length: 80 }, (_, i) => `<p>${`b${i} `.repeat(20)}</p>`).join("");
 		const ctx = serializePageContext(setBody(blocks));
-		expect(ctx.content.length).toBeLessThanOrEqual(3001); // cap + ellipsis
-		expect(ctx.content.endsWith("…")).toBe(true);
+		// windowText hard-caps head+sep+tail to exactly `cap` once it windows.
+		expect(ctx.content.length).toBe(3000);
+		expect(ctx.content).toContain(" … ");
+		// The elision sits in the middle now, not at the end — the tail survives.
+		expect(ctx.content.endsWith("…")).toBe(false);
+	});
+
+	test("under-cap content is returned unchanged with no ellipsis", () => {
+		const ctx = serializePageContext(setBody("<main><p>short and sweet</p></main>"));
+		expect(ctx.content).toBe("short and sweet");
+		expect(ctx.content).not.toContain("…");
+	});
+
+	test("detail:\"full\" raises the content cap to 6000 vs summary's 3000", () => {
+		const blocks = Array.from({ length: 300 }, (_, i) => `<p>${`x${i} `.repeat(10)}</p>`).join("");
+		const html = `<main>${blocks}</main>`;
+
+		const summary = serializePageContext(setBody(html));
+		expect(summary.content.length).toBe(3000);
+
+		const full = serializePageContext(setBody(html), { detail: "full" });
+		expect(full.content.length).toBe(6000);
+	});
+
+	test("a main region exceeding the cap keeps both its opening AND closing text (50k+ chars)", () => {
+		// Enough distinct paragraphs to exercise the rolling tail buffer's
+		// prune loop many times over, not just fill it once.
+		const blocks = Array.from(
+			{ length: 1200 },
+			(_, i) => `<p>para-${i} ${`word${i} `.repeat(8)}</p>`,
+		).join("");
+		const ctx = serializePageContext(setBody(`<main>${blocks}</main>`));
+
+		expect(ctx.content.length).toBeGreaterThan(50_000 / 20); // sanity: source text is huge
+		expect(ctx.content.startsWith("para-0")).toBe(true);
+		expect(ctx.content).toContain("para-1199");
+		expect(ctx.content).toContain(" … ");
 	});
 
 	test("empty page yields an empty content string", () => {
 		const ctx = serializePageContext(setBody('<form id="f"><input name="a" /></form>'));
 		expect(ctx.content).toBe("");
+	});
+});
+
+describe("serializePageContext — regression: chat sidebar no longer starves the content excerpt", () => {
+	test("a nav-rendered sidebar full of conversation titles is excluded, and a long thread's late answer survives the summary excerpt", () => {
+		// Mirrors the incident: ConversationList renders as <nav> (excluded by
+		// CONTENT_SKIP_SELECTOR), so its ~1.3k chars of titles no longer eat
+		// into the content budget before the final assistant message.
+		const sidebarTitles = Array.from(
+			{ length: 30 },
+			(_, i) => `<button>Conversation about topic ${i} — details and more filler text here</button>`,
+		).join("");
+		const sidebar = `<nav aria-label="Conversations">${sidebarTitles}</nav>`;
+
+		const earlierTurns = Array.from(
+			{ length: 30 },
+			(_, i) =>
+				`<p>user: question ${i} about something unrelated ${`filler${i} `.repeat(10)}</p>` +
+				`<p>assistant: reply ${i} with more unrelated detail ${`stuff${i} `.repeat(10)}</p>`,
+		).join("");
+		const finalAnswer = `<p>assistant: Limited editions: 5 units remain in the current run.</p>`;
+		const main = `<main>${earlierTurns}${finalAnswer}</main>`;
+
+		const ctx = serializePageContext(setBody(`${sidebar}${main}`));
+
+		expect(ctx.content).toContain("Limited editions: 5");
+		expect(ctx.content).not.toContain("Conversation about topic");
 	});
 });
 
@@ -290,6 +352,25 @@ describe("serializePageContext — size cap", () => {
 		expect(ctx.forms).toEqual([]);
 		expect(ctx.headings.length).toBeLessThan(40);
 		expect(byteLen(ctx)).toBeLessThanOrEqual(CAP);
+	});
+
+	test("content squeeze re-windows (keeps the tail) instead of slicing the head off", () => {
+		// Headings alone push the JSON past MAX_BYTES even after the content
+		// excerpt is already at its own 3000-char cap, forcing capSize into
+		// its content-squeeze step (halving via windowText, not a head slice).
+		const headings = Array.from({ length: 30 }, () => `<h1>${"h".repeat(196)}</h1>`).join("");
+		const mainBlocks = Array.from({ length: 200 }, (_, i) => `<p>chunk-${i} ${"z".repeat(20)}</p>`).join("");
+		const ctx = serializePageContext(
+			setBody(`${headings}<main>${mainBlocks}<p>CLOSING-TEXT-MARKER</p></main>`),
+		);
+
+		expect(ctx.truncated).toBe(true);
+		expect(byteLen(ctx)).toBeLessThanOrEqual(CAP);
+		// The squeeze kept the tail — the last thing written in document
+		// order survives even after the byte-budget squeeze halves content.
+		expect(ctx.content).toContain("CLOSING-TEXT-MARKER");
+		expect(ctx.content).toContain(" … ");
+		expect(ctx.content.length).toBeLessThanOrEqual(1500);
 	});
 });
 

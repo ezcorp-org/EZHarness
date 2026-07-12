@@ -316,7 +316,7 @@
 	}
 </script>
 
-<div class="flex h-full w-full md:w-[280px] shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface-secondary)]">
+<nav aria-label="Conversations" class="flex h-full w-full md:w-[280px] shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface-secondary)]">
 	<div class="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-3">
 		<span class="text-sm font-medium text-[var(--color-text-secondary)]">Conversations</span>
 		<div class="flex items-center gap-1.5">
@@ -647,4 +647,4 @@
 		onconfirm={confirmDelete}
 		oncancel={() => (deleteTarget = null)}
 	/>
-</div>
+</nav>
