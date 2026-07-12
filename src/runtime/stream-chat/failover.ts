@@ -212,6 +212,15 @@ export async function runWithFailover(params: RunWithFailoverParams): Promise<vo
       if (ctx.emittedToClient) {
         throw new Error(errorMessage);
       }
+      // The retry/failover/rethrow decision runs off pi-agent-core's stringly
+      // typed `agent.state.errorMessage` (Retry-After et al. are already gone by
+      // now — see this module's header). classifyProviderError grounds that text
+      // decision in pi-ai's OWN error taxonomy: it delegates to
+      // isRetryableAssistantError and re-declares exactly ONE pattern
+      // (ACCOUNT_LIMIT_PATTERN) verbatim from pi's dist. If a pi-ai upgrade
+      // changes those error strings, the classifier's "PATTERN NOTE (drift)" and
+      // its drift-pinned tests are the tripwire — this is where the live error
+      // text is consumed, but the taxonomy it is matched against lives there.
       const action = classifyProviderError(errorMessage);
       // Not an availability failure (bad request / auth / content filter /
       // context-length / unknown) → retrying anywhere won't help; surface it
