@@ -176,14 +176,17 @@ describe("session backfill — dark read-parity vs loadHistory", () => {
     const cand = await candidateContext(c);
     expect(stripTimestamps(cand)).toEqual(stripTimestamps(ref));
 
-    // The message entry carries the ezMessageId cross-link P3 uses to run
-    // loadHistory's attachment/image rehydration as a post-buildContext
-    // transform. DOCUMENTED EXCLUSION: under an image-capable provider,
-    // loadHistory additionally lifts the user turn into image content parts
-    // (rehydrateUserMessageContent) — that transform is row-keyed via this
-    // cross-link and branch-invariant, so it is layered on top of the
-    // session in P3, NOT stored in the session tree here. P2 proves the
-    // load-bearing branch+base parity and that the cross-link exists.
+    // The message entry carries the ezMessageId cross-link (== entry.id, the
+    // mirror invariant) that P3 keys attachment/image rehydration off. This
+    // suite still proves the load-bearing DARK parity (branch + base mapping)
+    // at the buildContext seam and that the cross-link exists.
+    //
+    // EXCLUSION NOW CLOSED (P3): the attachment/image rehydration this test
+    // deferred is asserted LIVE — flag-ON `loadHistory` vs the flag-OFF legacy
+    // path, INCLUDING image-capable-provider attachment lifting and tool-image
+    // injection — in session-history-producer-live-parity.test.ts. The
+    // transform runs over the session-derived branch rows exactly as it runs
+    // over the CTE rows, so full parity holds; it is not stored in the tree.
     const storage = await backfillSessionForConversation(c);
     const [row] = await getTestDb()
       .select()
