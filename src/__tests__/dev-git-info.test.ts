@@ -137,4 +137,15 @@ describe("devPageTransform", () => {
       "<title>DEV EZCorp</title>",
     );
   });
+
+  test("safely no-ops on markup lacking the <html>, <title> and favicon anchors", () => {
+    // Every substitution (the <html splice, the title regex, the favicon
+    // replaceAll) must degrade to a no-op when its anchor is absent — the
+    // transform runs on EVERY streamed page and must never corrupt one that
+    // doesn't match the expected shell.
+    process.env.EZCORP_DEV_INDICATOR = "1";
+    const transform = devPageTransform(REPO_DIR)!;
+    const html = "<body><p>no shell here</p></body>";
+    expect(transform({ html })).toBe(html);
+  });
 });
