@@ -20,7 +20,9 @@ vi.mock("$lib/server/scoped-tools", async (importOriginal) => {
 });
 
 const generateEmbedding = vi.fn();
-vi.mock("$server/memory/embeddings", () => ({ generateEmbedding }));
+const isEmbeddingReady = vi.fn();
+const warmupEmbeddings = vi.fn();
+vi.mock("$server/memory/embeddings", () => ({ generateEmbedding, isEmbeddingReady, warmupEmbeddings }));
 
 const getToolEmbedding = vi.fn();
 const getRawTextEmbedding = vi.fn();
@@ -110,6 +112,10 @@ const SCOPED_TOOLS = [
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	// Default: embedder warm/ready, so every existing case ranks with the
+	// full hybrid (embedding + lexical) signal. The degraded-mode suite
+	// re-points this to false per test.
+	isEmbeddingReady.mockReturnValue(true);
 	getSuggestConfig.mockResolvedValue({ enabled: true, baseUrl: null, model: "qwen3:1.7b", timeoutMs: 12000 });
 	isSuggestEnabledForProject.mockResolvedValue(true);
 	resolveScopedTools.mockResolvedValue({ tools: SCOPED_TOOLS, orchestrationTools: [], mode: null, projectId: null });
@@ -501,6 +507,128 @@ describe("POST /api/composer/suggest — extension ranking (include: extensions)
 		const body = await (await call({ draft: "search the web please", include: ["tools", "extensions"] })).json();
 		expect(body.tools.map((t: { extension: string }) => t.extension)).toContain("websearch");
 		expect(body.extensions).toEqual([]); // deduped against the tool chip → nothing left
+	});
+});
+
+describe("POST /api/composer/suggest — embedder warm-up (degraded mode)", () => {
+	test("embedder not ready: tools rank lexical-only; embedding fns NEVER called; warm-up kicked once", async () => {
+		isEmbeddingReady.mockReturnValue(false);
+		// "web search" hits websearch's NAME tokens → lexical rescue ranks it
+		// even though no embedding is computed (same result as the healthy
+		// lexical-rescue case, but with zero embedder work).
+		const res = await call({ draft: "web search for bun release news" });
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.degraded).toBe(true);
+		expect(body.tools.map((t: { name: string }) => t.name)).toEqual(["search"]);
+		// No embedder touched at all while warming.
+		expect(generateEmbedding).not.toHaveBeenCalled();
+		expect(getToolEmbedding).not.toHaveBeenCalled();
+		expect(getRawTextEmbedding).not.toHaveBeenCalled();
+		// The route kicked the model load exactly once.
+		expect(warmupEmbeddings).toHaveBeenCalledTimes(1);
+	});
+
+	test("embedder not ready: extensions rank lexically, tool-chip dedupe still holds", async () => {
+		isEmbeddingReady.mockReturnValue(false);
+		resolveSuggestableExtensions.mockResolvedValue([
+			{ name: "websearch", description: "Search the web for pages", suggestExamples: undefined },
+			{ name: "file-organizer", description: "Organize and tidy files", suggestExamples: undefined },
+		]);
+		// Draft lexically hits the websearch TOOL (name "search") AND the
+		// file-organizer EXTENSION (desc "organize"/"files") — websearch as an
+		// extension is deduped against its own ranked tool chip.
+		const body = await (
+			await call({ draft: "search the web to organize files", include: ["tools", "extensions"] })
+		).json();
+		expect(body.degraded).toBe(true);
+		expect(body.tools.map((t: { extension: string }) => t.extension)).toContain("websearch");
+		const extNames = body.extensions.map((e: { name: string }) => e.name);
+		expect(extNames).toEqual(["file-organizer"]); // websearch deduped out
+		expect(generateEmbedding).not.toHaveBeenCalled();
+		expect(getToolEmbedding).not.toHaveBeenCalled();
+	});
+
+	test("embedder not ready + irrelevant draft: relevance gates hold → tools [] and extensions []", async () => {
+		isEmbeddingReady.mockReturnValue(false);
+		resolveSuggestableExtensions.mockResolvedValue([
+			{ name: "calendar", description: "Manage calendar events", suggestExamples: undefined },
+		]);
+		// Nonsense tokens match no name/description → lexical 0 everywhere, so
+		// the 0.28 (tool) and 0.35 (extension) gates drop everything.
+		const body = await (
+			await call({ draft: "zzz qqq vvv", include: ["tools", "extensions"] })
+		).json();
+		expect(body.degraded).toBe(true);
+		expect(body.tools).toEqual([]);
+		expect(body.extensions).toEqual([]);
+		expect(generateEmbedding).not.toHaveBeenCalled();
+		expect(getToolEmbedding).not.toHaveBeenCalled();
+	});
+
+	test("embedder not ready: per-user prior still blends over lexical-only relevance", async () => {
+		isEmbeddingReady.mockReturnValue(false);
+		// "search and scan" clears the lexical gate for BOTH scan and search at
+		// relevance 1.0; without a prior they tie and sort by key
+		// (analyzer__scan first). The prior on websearch__search lifts it above.
+		getUserToolPriors.mockResolvedValue({ websearch__search: 1 });
+		const names = (await (await call({ draft: "search and scan" })).json()).tools.map(
+			(t: { name: string }) => t.name,
+		);
+		expect(names.indexOf("search")).toBeLessThan(names.indexOf("scan"));
+		expect(getToolEmbedding).not.toHaveBeenCalled();
+	});
+
+	test("embedder not ready: enhance path still works (sidecar reachable), degraded reported", async () => {
+		isEmbeddingReady.mockReturnValue(false);
+		getSuggestConfig.mockResolvedValue({ enabled: true, baseUrl: "http://ollama:11434", model: "m", timeoutMs: 1000 });
+		isEnhanceAvailable.mockResolvedValue(true);
+		enhancePrompt.mockResolvedValue({ enhanced: "Better draft", reason: "specific" });
+		const body = await (
+			await call({ draft: "web search for bun release news", include: ["tools", "enhance"] })
+		).json();
+		expect(body.degraded).toBe(true);
+		expect(body.llmAvailable).toBe(true);
+		expect(body.enhancement).toEqual({ enhanced: "Better draft", reason: "specific" });
+		// Enhance rode the lexical-only tool ranking; no embedder work.
+		expect(generateEmbedding).not.toHaveBeenCalled();
+		expect(warmupEmbeddings).toHaveBeenCalledTimes(1);
+	});
+
+	test("embedder not ready + empty surface: tools [] with no embedding work, warm-up still kicked", async () => {
+		isEmbeddingReady.mockReturnValue(false);
+		resolveScopedTools.mockResolvedValue({ tools: [], orchestrationTools: [], mode: null, projectId: null });
+		const body = await (await call({ draft: "hello world draft" })).json();
+		expect(body.degraded).toBe(true);
+		expect(body.tools).toEqual([]);
+		expect(generateEmbedding).not.toHaveBeenCalled();
+		expect(getToolEmbedding).not.toHaveBeenCalled();
+		// Warm-up fires even with nothing rankable, so a later request is warm.
+		expect(warmupEmbeddings).toHaveBeenCalledTimes(1);
+	});
+
+	test("healthy embedder: degraded=false and warm-up NOT kicked", async () => {
+		// isEmbeddingReady defaults to true in beforeEach.
+		const body = await (await call({ draft: "find bugs in my code" })).json();
+		expect(body.degraded).toBe(false);
+		expect(warmupEmbeddings).not.toHaveBeenCalled();
+		// The embedder was used (full hybrid ranking).
+		expect(generateEmbedding).toHaveBeenCalledTimes(1);
+	});
+
+	test("embedder ready but generateEmbedding throws → degraded catch branch, lexical-only", async () => {
+		isEmbeddingReady.mockReturnValue(true);
+		generateEmbedding.mockRejectedValue(new Error("embedder boom"));
+		const body = await (await call({ draft: "web search for bun release news" })).json();
+		expect(body.degraded).toBe(true);
+		// generateEmbedding was attempted (and threw); per-candidate embedding
+		// is then skipped (useEmbeddings=false after the catch).
+		expect(generateEmbedding).toHaveBeenCalledTimes(1);
+		expect(getToolEmbedding).not.toHaveBeenCalled();
+		// Falls back to lexical ranking — websearch's name tokens rescue it.
+		expect(body.tools.map((t: { name: string }) => t.name)).toEqual(["search"]);
+		// isEmbeddingReady was true, so the boot-style warm-up was NOT kicked.
+		expect(warmupEmbeddings).not.toHaveBeenCalled();
 	});
 });
 

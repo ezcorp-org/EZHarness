@@ -163,6 +163,16 @@ const loggerSpy = {
   child: () => loggerSpy,
 };
 
+// Embedding warm-up capture. The bootstrap lazy-imports ../memory/embeddings
+// and fire-and-forgets warmupEmbeddings() so the ~100MB MiniLM model loads at
+// boot instead of blocking the first composer-suggest request. The REAL module
+// pulls in @huggingface/transformers and starts that load, so it MUST be
+// stubbed here. The delegating warmupEmbeddings routes to this module-level
+// capture mock (module-level, NOT factory-closure, so it survives Bun's
+// mock.module materialization freeze the same way the daemon handles do) —
+// reset per test in beforeEach.
+let warmupEmbeddingsMock = mock(() => {});
+
 function installModuleMocks(): void {
   mock.module("../memory/lifecycle", () => ({
     startDecayTimer: (...args: unknown[]) => startDecayTimerMock(...(args as [])),
@@ -409,6 +419,23 @@ function installModuleMocks(): void {
   // run can't freeze `../logger` to a partial shape and break a sibling that
   // imports `extensionLogger`.
   mock.module("../logger", () => ({ logger: loggerSpy, extensionLogger: () => loggerSpy }));
+  // Boot-time embedding warm-up. The bootstrap lazy-imports this module and
+  // fire-and-forgets warmupEmbeddings(). Stub the FULL export surface (a
+  // superset of every export of src/memory/embeddings.ts) — NOT just
+  // warmupEmbeddings — so a shared `bun test src/` run can't freeze
+  // `../memory/embeddings` to a partial shape and break
+  // memory-embeddings-state.test.ts (which imports the REAL module). Only
+  // warmupEmbeddings delegates to a capture mock; the rest are inert stubs
+  // (the real one loads the MiniLM model, which this suite must never do).
+  mock.module("../memory/embeddings", () => ({
+    warmupEmbeddings: () => warmupEmbeddingsMock(),
+    isEmbeddingReady: () => false,
+    generateEmbedding: async (_text: string) => Array(384).fill(0),
+    generateEmbeddings: async (_texts: string[]) => [],
+    getTokenizer: async () => ({}),
+    EMBEDDING_MODEL_ID: "Xenova/all-MiniLM-L6-v2@384",
+    resetEmbeddingProvider: () => {},
+  }));
 }
 
 beforeEach(async () => {
@@ -429,6 +456,7 @@ beforeEach(async () => {
   loggerInfoMock = mock((_msg: string, _extra?: Record<string, unknown>) => {});
   loggerWarnMock = mock((_msg: string, _extra?: Record<string, unknown>) => {});
   loggerErrorMock = mock((_msg: string, _extra?: Record<string, unknown>) => {});
+  warmupEmbeddingsMock = mock(() => {});
   briefingDaemonCtorMock = mock(() => {});
   briefingDaemonStartMock = mock(() => Promise.resolve<boolean>(true));
   briefingDaemonStopMock = mock(() => {});
@@ -1386,5 +1414,63 @@ describe("startBackgroundTimers — Phase 50 sdk-capability retention sweep", ()
       "sdk-capability-calls cleanup failed",
       { error: String(new Error("db down")) },
     );
+  });
+});
+
+// Embedding model warm-up — the FIRST block inside startBackgroundTimers(),
+// lazy-importing ../memory/embeddings and fire-and-forgetting warmupEmbeddings()
+// so the MiniLM model loads at boot instead of blocking the first suggest
+// request. Because it is fire-and-forget it registers NO setInterval — the
+// load-bearing intervalCalls length stays at 4 (prior daemon-wiring incident).
+// The throwing-warmup case guards the never-block-boot contract: a broken model
+// load must not stop the maintenance timers/daemons below from arming.
+describe("startBackgroundTimers — embedding warm-up", () => {
+  test("warm-up is kicked exactly once and the boot log fires", async () => {
+    installModuleMocks();
+
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    expect(warmupEmbeddingsMock).toHaveBeenCalledTimes(1);
+    expect(loggerInfoMock).toHaveBeenCalledWith("Embedding warmup kicked", undefined);
+    // Fire-and-forget → no 5th interval.
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("repeated start() calls kick the warm-up only once (idempotent)", async () => {
+    installModuleMocks();
+
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+    await startBackgroundTimers();
+    await startBackgroundTimers();
+
+    // The started-guard short-circuits the 2nd/3rd calls before the warm-up.
+    expect(warmupEmbeddingsMock).toHaveBeenCalledTimes(1);
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("a throwing warm-up is logged but never blocks boot (timers + daemons still start)", async () => {
+    warmupEmbeddingsMock = mock(() => {
+      throw new Error("model load exploded");
+    });
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    // MUST resolve — the boot block's try/catch swallows the throw.
+    await mod.startBackgroundTimers();
+
+    expect(warmupEmbeddingsMock).toHaveBeenCalledTimes(1);
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      "Failed to kick embedding warmup",
+      { error: String(new Error("model load exploded")) },
+    );
+    // The success log did NOT fire.
+    expect(loggerInfoMock).not.toHaveBeenCalledWith("Embedding warmup kicked", undefined);
+    // Boot continued past the failed warm-up: decay started, all four
+    // intervals armed, and a downstream daemon was still constructed.
+    expect(startDecayTimerMock).toHaveBeenCalledTimes(1);
+    expect(intervalCalls).toHaveLength(4);
+    expect(embedWorkerCtorMock).toHaveBeenCalledTimes(1);
   });
 });

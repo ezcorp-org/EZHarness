@@ -11,7 +11,7 @@ import {
   type ScopedToolRow,
   type SuggestableExtension,
 } from "$lib/server/scoped-tools";
-import { generateEmbedding } from "$server/memory/embeddings";
+import { generateEmbedding, isEmbeddingReady, warmupEmbeddings } from "$server/memory/embeddings";
 import { getToolEmbedding, getRawTextEmbedding } from "$server/suggest/embedding-cache";
 import { getUserToolPriors, deriveExtensionPriors } from "$server/suggest/user-tool-priors";
 import { contentTokens, rankCandidates, EXTENSION_SUGGEST_DEFAULTS } from "$server/suggest/intent-rank";
@@ -50,6 +50,7 @@ async function rankScopedTools(
   draftTokens: ReadonlySet<string>,
   tools: ScopedToolRow[],
   priors: Record<string, number>,
+  useEmbeddings: boolean,
 ): Promise<SuggestedToolPayload[]> {
   const candidates = tools.filter((t) => t.description.trim().length > 0);
   if (candidates.length === 0) return [];
@@ -59,13 +60,19 @@ async function rankScopedTools(
   // tokens — the namespaced `ext__tool` key measurably drags the cosine
   // down (-0.04 live), while "extension name" wording is what users type.
   const labelFor = (t: ScopedToolRow) => `${t.extension} ${t.name}`;
+  // useEmbeddings=false during the embedder warm-up window: skip ALL
+  // per-candidate embedding work (empty vectors → cosine 0 → relevance =
+  // lexical). Example TOKENS still fold into descTokens either way, so an
+  // authored suggestExample can rescue a match lexically even while warming.
   const embedded = await Promise.all(
     candidates.map(async (t) => {
       const examples = t.suggestExamples ?? [];
       return {
         key: scopedToolKey(t),
-        embedding: await getToolEmbedding(labelFor(t), t.description),
-        exampleEmbeddings: await Promise.all(examples.map((ex) => getRawTextEmbedding(ex))),
+        embedding: useEmbeddings ? await getToolEmbedding(labelFor(t), t.description) : [],
+        exampleEmbeddings: useEmbeddings
+          ? await Promise.all(examples.map((ex) => getRawTextEmbedding(ex)))
+          : [],
         nameTokens: contentTokens(labelFor(t)),
         descTokens: contentTokens([t.description, ...examples].join(" ")),
       };
@@ -110,6 +117,7 @@ async function rankScopedExtensions(
   candidates: SuggestableExtension[],
   priors: Record<string, number>,
   excludeNames: Set<string>,
+  useEmbeddings: boolean,
 ): Promise<SuggestedExtensionPayload[]> {
   const usable = candidates.filter(
     (c) => !excludeNames.has(c.name) && c.description.trim().length > 0,
@@ -117,13 +125,17 @@ async function rankScopedExtensions(
   if (usable.length === 0) return [];
 
   const byName = new Map(usable.map((c) => [c.name, c]));
+  // Warm-up window (useEmbeddings=false): lexical-only, exactly as
+  // rankScopedTools — skip the per-candidate embedding cache calls.
   const embedded = await Promise.all(
     usable.map(async (c) => {
       const examples = c.suggestExamples ?? [];
       return {
         key: c.name,
-        embedding: await getToolEmbedding(c.name, c.description),
-        exampleEmbeddings: await Promise.all(examples.map((ex) => getRawTextEmbedding(ex))),
+        embedding: useEmbeddings ? await getToolEmbedding(c.name, c.description) : [],
+        exampleEmbeddings: useEmbeddings
+          ? await Promise.all(examples.map((ex) => getRawTextEmbedding(ex)))
+          : [],
         nameTokens: contentTokens(c.name),
         descTokens: contentTokens([c.description, ...examples].join(" ")),
       };
@@ -181,6 +193,16 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     ? await resolveSuggestableExtensions(conversationId ?? null)
     : [];
 
+  // Embedder warm-up gate (mirrors /api/search/messages, SRCH-08): the
+  // in-process MiniLM model takes ~2 min to initialize after a restart and
+  // generateEmbedding() BLOCKS on that load. Rather than hang every suggest
+  // request for the whole window, rank lexical-only while warming (empty
+  // draft vector → cosine 0 → relevance = lexical; the 0.28/0.35 gates still
+  // keep junk out) and report `degraded: true`. Kick the load so a later
+  // request gets full semantics — warmupEmbeddings() is idempotent.
+  let degraded = !isEmbeddingReady();
+  if (degraded) warmupEmbeddings();
+
   // Draft embedding + priors are the two shared inputs for BOTH rankings —
   // compute each ONCE. Skip them entirely when there's nothing rankable
   // (empty tool surface AND no extension candidates), preserving the
@@ -190,11 +212,21 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   let ranked: SuggestedToolPayload[] = [];
   let rankedExtensions: SuggestedExtensionPayload[] = [];
   if (hasToolCandidates || suggestable.length > 0) {
-    const [draftEmbedding, priors] = await Promise.all([
-      generateEmbedding(draft),
-      getUserToolPriors(user.id),
-    ]);
-    ranked = await rankScopedTools(draftEmbedding, draftTokens, scoped.tools, priors);
+    // Priors never touch the embedder — kicked off unconditionally so it
+    // still overlaps the draft embedding on the healthy path. The draft
+    // embedding is skipped while warming; an embedder throw mid-flight also
+    // degrades (SRCH-08 mirror), so per-candidate embedding is skipped too.
+    const priorsPromise = getUserToolPriors(user.id);
+    let draftEmbedding: number[] = [];
+    if (!degraded) {
+      try {
+        draftEmbedding = await generateEmbedding(draft);
+      } catch {
+        degraded = true;
+      }
+    }
+    const priors = await priorsPromise;
+    ranked = await rankScopedTools(draftEmbedding, draftTokens, scoped.tools, priors, !degraded);
     if (wantExtensions) {
       // Dedupe against the FINAL ranked tool chips' extensions.
       const toolExtNames = new Set(ranked.map((t) => t.extension));
@@ -204,11 +236,15 @@ export const POST: RequestHandler = async ({ locals, request }) => {
         suggestable,
         priors,
         toolExtNames,
+        !degraded,
       );
     }
   }
 
   const payload: Record<string, unknown> = { enabled: true };
+  // Honest degraded signal on the enabled path only — the two disabled
+  // short-circuits above stay byte-identical for old clients.
+  payload.degraded = degraded;
   if (include.includes("tools")) {
     payload.tools = ranked;
   }

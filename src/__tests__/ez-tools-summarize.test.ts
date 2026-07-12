@@ -141,6 +141,51 @@ describe("summarize_conversation", () => {
     expect(calls[0]!.system).toContain("280 characters");
   });
 
+  // ── `question` param → targeted-answer pass over the FULL transcript ──
+  // When a non-empty question is supplied the system prompt becomes an
+  // answer-this-question instruction (the escalation path when a read_page
+  // excerpt is truncated); style is ignored. Whitespace falls back to style.
+  test("question param routes an answer-this-question system prompt (style ignored)", async () => {
+    const calls: Array<{ system: string }> = [];
+    const tool = createSummarizeConversationTool({
+      summarize: async (system) => {
+        calls.push({ system });
+        return "There were 3.";
+      },
+    });
+    const result = await tool.execute("s-q1", {
+      conversationId,
+      style: "tweet", // must be ignored while a question is present
+      question: "How many messages mention the weather?",
+    });
+    expect(expectText(result)).toBe("There were 3.");
+    // The question landed verbatim in the system prompt…
+    expect(calls[0]!.system).toContain("How many messages mention the weather?");
+    expect(calls[0]!.system).toContain("Answer the following question");
+    // …and the style prompt did NOT (style is ignored while a question is set).
+    expect(calls[0]!.system).not.toContain("280 characters");
+    const details = expectDetails<SummaryDetails & { question?: string }>(result);
+    expect(details.question).toBe("How many messages mention the weather?");
+    expect(details.messageCount).toBe(3);
+  });
+
+  test("whitespace-only question falls back to the style summary path", async () => {
+    const calls: Array<{ system: string }> = [];
+    const tool = createSummarizeConversationTool({
+      summarize: async (system) => {
+        calls.push({ system });
+        return "* discussed weather";
+      },
+    });
+    const result = await tool.execute("s-q2", { conversationId, style: "standup", question: "   " });
+    // Falls back to the style prompt — no answer-this-question framing.
+    expect(calls[0]!.system).toContain("daily-standup");
+    expect(calls[0]!.system).not.toContain("Answer the following question");
+    const details = expectDetails<SummaryDetails & { question?: string }>(result);
+    expect(details.style).toBe("standup");
+    expect(details.question).toBeUndefined();
+  });
+
   test("missing conversation returns an error result, not a thrown exception", async () => {
     const tool = createSummarizeConversationTool({
       summarize: async () => "should-not-be-called",

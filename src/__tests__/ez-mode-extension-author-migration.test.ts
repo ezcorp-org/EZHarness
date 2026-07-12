@@ -38,7 +38,7 @@ describe("Ez mode allowed_tools migration", () => {
     expect(allowedTools).not.toContain("extension-author/create_extension");
   });
 
-  test("ez mode preserves the eight native Ez tools", async () => {
+  test("ez mode preserves the nine native Ez tools", async () => {
     const rows = await getTestDb().execute(sql`SELECT allowed_tools FROM modes WHERE slug = 'ez'`);
     const r = (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows
       ?? (rows as unknown as Array<{ allowed_tools: string[] }>);
@@ -48,6 +48,7 @@ describe("Ez mode allowed_tools migration", () => {
       "propose_create_agent",
       "propose_install_extension",
       "summarize_conversation",
+      "search_conversation",
       "find_agents",
       "fill_form",
       "navigate_to",
@@ -55,6 +56,30 @@ describe("Ez mode allowed_tools migration", () => {
     ]) {
       expect(allowedTools).toContain(expected);
     }
+  });
+
+  test("search_conversation append (step 9e) is idempotent and heals a missing row", async () => {
+    // Fresh installs seed search_conversation, so re-running 9e's append is a
+    // no-op; simulate a pre-9e install by removing it, then run the exact
+    // append the migration emits and confirm it lands back exactly once.
+    await getTestDb().execute(sql`
+      UPDATE modes
+      SET allowed_tools = array_remove(allowed_tools, 'search_conversation')
+      WHERE slug = 'ez'
+    `);
+    const appendStep = sql`
+      UPDATE modes
+      SET allowed_tools = array_append(allowed_tools, 'search_conversation')
+      WHERE slug = 'ez'
+        AND NOT ('search_conversation' = ANY(allowed_tools))
+    `;
+    await getTestDb().execute(appendStep);
+    await getTestDb().execute(appendStep); // re-run — must not duplicate
+    const rows = await getTestDb().execute(sql`SELECT allowed_tools FROM modes WHERE slug = 'ez'`);
+    const r = (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows
+      ?? (rows as unknown as Array<{ allowed_tools: string[] }>);
+    const allowedTools = r[0]?.allowed_tools ?? [];
+    expect(allowedTools.filter((t) => t === "search_conversation").length).toBe(1);
   });
 
   test("migration is idempotent: re-running append does not duplicate the entry", async () => {
