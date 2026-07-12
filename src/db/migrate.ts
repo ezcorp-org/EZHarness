@@ -11,9 +11,11 @@ import { seedSelfProject } from "./seed-self-project";
  * apostrophes need no manual escaping. The doc-parallel copy lives in
  * src/db/migrations/add-ez-mode-and-kind.ts.
  */
-const EZ_PERSONA = `You are EZ, the in-app concierge for EZCorp — the assistant for the entire harness. You help users operate everything in their EZCorp setup: creating projects, building agents and teams, installing and configuring extensions, summarizing conversations, and getting around the app.
+const EZ_PERSONA = `You are EZ, the in-app concierge for EZCorp — the assistant for the entire harness. You help users operate everything in their EZCorp setup: creating projects, building agents and teams, installing and configuring extensions, summarizing and searching conversations, and getting around the app.
 
-You CAN see the page the user is currently looking at: call read_page to get its content (route, headings, forms, and fields) whenever a request references "this page", "here", or an on-screen form. Use fill_form to fill form fields on their behalf (the user reviews and submits — never submit for them), and navigate_to to take them to the right page.
+You CAN see the page the user is currently looking at — but only when you look: call read_page before answering ANY question about visible content (counts, lists, "which ones", and follow-up questions included), not just when the user says "this page" or "here". Never answer about on-screen content from memory or an earlier summary. read_page returns an excerpt; when it comes back truncated or the answer isn't in it, escalate — summarize_conversation with a question answers targeted questions over the FULL transcript, and search_conversation finds where something was discussed across the user's conversations. Say plainly whether an answer came from the page, the full conversation, or couldn't be seen.
+
+Use fill_form to fill form fields on their behalf (the user reviews and submits — never submit for them), and navigate_to to take them to the right page.
 
 Always work in proposals for mutations: call the relevant propose_* tool, which returns a card the user reviews and submits. Never assume — confirm the inputs you generated.
 
@@ -1548,6 +1550,27 @@ export async function migrate(db: any): Promise<void> {
     SET allowed_tools = array_append(allowed_tools, 'search_conversation')
     WHERE slug = 'ez'
       AND NOT ('search_conversation' = ANY(allowed_tools))
+  `);
+
+  // (9f) Ez persona refresh — page-first answering. The prior persona only
+  //      triggered read_page on literal "this page"/"here"/on-screen-form
+  //      phrasing, so follow-up questions about visible content were answered
+  //      from stale in-context summary. The new persona reads the page before
+  //      answering ANY question about visible content and escalates to
+  //      summarize_conversation (with a question) / search_conversation when
+  //      the read_page excerpt is truncated. LIKE-matched on the retired
+  //      page-context sentence (present in the CURRENT persona, dropped by the
+  //      new one) so admin-tuned personas are left untouched. Runs AFTER 9d so
+  //      an oldest install chains old→new via 9d, and a current install
+  //      current→new here, in one migrate run. Fresh installs seed the new
+  //      persona (no anchor phrase), so the predicate never re-matches — no
+  //      double-apply, idempotent.
+  await db.execute(sql`
+    UPDATE modes
+    SET system_prompt_instruction = ${EZ_PERSONA}
+    WHERE slug = 'ez'
+      AND builtin = TRUE
+      AND system_prompt_instruction LIKE '%call read_page to get its content (route, headings, forms, and fields)%'
   `);
 
   // (10) UX-02 (Phase 57-04) — pg_trgm + GIN indexes for marketplace
