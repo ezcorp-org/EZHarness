@@ -948,6 +948,51 @@ export function validatePreprocessorsArray(
   }
 }
 
+// ── npmDependencies Validator ────────────────────────────────────
+
+// npm package-name grammar (npm's own validate-npm-package-name rules,
+// reduced to the shape a registry name can take): optional `@scope/`
+// prefix, then a name segment. Both segments start with an unreserved
+// char and allow `[a-z0-9-._~]`. Length ≤ 214 (npm's hard cap).
+const NPM_PKG_NAME_REGEX = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
+const NPM_PKG_NAME_MAX_LENGTH = 214;
+
+/**
+ * Validate the optional top-level `npmDependencies` map (npm registry
+ * package name → semver RANGE). Hand-rolled error-array style like the
+ * other validators (NOT zod). Distinct from ext-to-ext `dependencies`:
+ * these are ordinary npm modules the host VERIFIES at runtime (see
+ * ./npm-deps.ts) — it does NOT install or clone them. No schemaVersion
+ * bump: the field is optional on both v2 and v3, and
+ * `migrateManifestV2ToV3` spreads it through untouched.
+ *
+ * Rules: a plain (non-array) object; each KEY is a valid npm package name
+ * (≤ 214 chars); each VALUE is a non-empty string (the semver range —
+ * the range grammar itself is validated at resolve time by
+ * `Bun.semver.satisfies`, not here).
+ */
+export function validateNpmDependenciesBlock(
+  value: unknown,
+  errors: string[],
+): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    errors.push("npmDependencies must be a plain object");
+    return;
+  }
+  for (const [name, range] of Object.entries(value as Record<string, unknown>)) {
+    if (name.length > NPM_PKG_NAME_MAX_LENGTH || !NPM_PKG_NAME_REGEX.test(name)) {
+      errors.push(
+        `npmDependencies key "${name}" must be a valid npm package name (≤ 214 chars, /^(@scope\\/)?name$/)`,
+      );
+    }
+    if (typeof range !== "string" || range.length === 0) {
+      errors.push(
+        `npmDependencies.${name} must be a non-empty version-range string`,
+      );
+    }
+  }
+}
+
 // ── smokeTest Validator ──────────────────────────────────────────
 
 /**
@@ -1140,6 +1185,12 @@ export function validateManifestV2(
   if (m.dependencies !== undefined) {
     const depResult = validateDependencies(m.dependencies);
     errors.push(...depResult.errors);
+  }
+
+  // Optional third-party npm dependency contract (verify-only, v1).
+  // Distinct from the ext-to-ext `dependencies` block above.
+  if (m.npmDependencies !== undefined) {
+    validateNpmDependenciesBlock(m.npmDependencies, errors);
   }
 
   if (m.acceptedAttachmentMimes !== undefined) {

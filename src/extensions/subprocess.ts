@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import { getSandboxTier } from "./sandbox/capability-probe";
 import { buildSandboxArgv } from "./sandbox/build-sandbox-argv";
 import { DEFAULT_RUNTIME_RO_DIRS, runtimeExecRoDirs } from "./sandbox/landlock";
+import { formatNpmDepError, verifyNpmDependencies } from "./npm-deps";
 
 const log = logger.child("extensions/subprocess");
 
@@ -53,6 +54,22 @@ export interface ExtensionProcessOptions {
    * Bun.spawn / Bun.spawnSync. Defaults to false (deny).
    */
   shellAllowed?: boolean;
+  /**
+   * The manifest's declared third-party npm dependencies (package name →
+   * semver range). When provided, `ensureRunning` VERIFIES they resolve
+   * from the extension's install dir BEFORE spawning — an unresolvable
+   * dep throws an actionable error instead of letting the subprocess
+   * crash at module-load and drive the auto-disable loop (live incident
+   * 2026-07-11). Threaded from the registry's `getProcess` construction
+   * site. See ./npm-deps.ts.
+   */
+  npmDependencies?: Record<string, string>;
+  /**
+   * The extension's manifest name, used in operator-facing pre-check
+   * error messages (falls back to the extension id when absent —
+   * a UUID is correct but far less actionable than the name).
+   */
+  extensionName?: string;
 }
 
 /**
@@ -96,6 +113,34 @@ function resolveSandboxPreloadPath(): string {
 }
 const SANDBOX_PRELOAD_PATH = resolveSandboxPreloadPath();
 
+/** Max chars of the child's stderr tail surfaced in an enriched crash
+ *  error. Kept to the LAST 2000 chars — enough for a module-load stack,
+ *  bounded so a chatty child can't bloat the tool result. */
+const CRASH_STDERR_TAIL_CHARS = 2000;
+
+/**
+ * Prepare a child's stderr tail for surfacing in a crash error or log:
+ * keep the LAST {@link CRASH_STDERR_TAIL_CHARS} chars, then mask
+ * credential-shaped values — `key=value` / `key: value` pairs (quoted
+ * JSON forms included) and `Bearer <token>` header echoes — so a secret
+ * accidentally echoed into stderr doesn't land in a tool result, an
+ * audit row, or a log line. BEST-EFFORT only, not a security boundary:
+ * the input is extension-controlled, and a hostile extension can print
+ * any secret it holds in a shape no mask anticipates. Its job is
+ * catching the common accidental shapes (HTTP client errors, JSON
+ * dumps). Pure; exported for direct unit testing.
+ */
+export function redactStderrTail(tail: string): string {
+  const capped =
+    tail.length > CRASH_STDERR_TAIL_CHARS ? tail.slice(-CRASH_STDERR_TAIL_CHARS) : tail;
+  return capped
+    .replace(
+      /(token|secret|password|api[-_]?key|bearer)("?\s*[=:]\s*"?)[^"\s]+/gi,
+      "$1$2[redacted]",
+    )
+    .replace(/\b(bearer)\s+(?!\[redacted\])\S+/gi, "$1 [redacted]");
+}
+
 /**
  * Parse a memory limit string (e.g. "256MB", "1GB") to bytes.
  * Returns default if string is invalid.
@@ -122,6 +167,12 @@ export class ExtensionProcess {
   /** Bounded tail of the child's stderr — surfaced on unexpected exit
    *  so module-load / `--preload` crashes are diagnosable. */
   private stderrTail = "";
+  /** Resolves when the stderr drain-loop finishes (child EOF/close). The
+   *  `call()` crash-enrichment path awaits this (bounded by a 250ms race)
+   *  so a "Transport closed" rejection can carry the child's stderr tail
+   *  even when the drain hasn't flushed the final chunk yet. Reset on each
+   *  `ensureRunning`. */
+  private stderrDrained: Promise<void> = Promise.resolve();
   private nextId = 1;
   private killed = false;
 
@@ -131,6 +182,8 @@ export class ExtensionProcess {
   public readonly memoryLimitBytes: number;
   private readonly networkAllowed: boolean;
   private readonly shellAllowed: boolean;
+  private readonly npmDependencies?: Record<string, string>;
+  private readonly extensionName?: string;
   private pendingRequestHandler?: (req: JsonRpcRequest) => Promise<JsonRpcResponse>;
   private pendingNotificationHandler?: (notification: JsonRpcNotification) => void;
 
@@ -145,6 +198,8 @@ export class ExtensionProcess {
     this.persistent = options?.persistent ?? false;
     this.networkAllowed = options?.networkAllowed ?? false;
     this.shellAllowed = options?.shellAllowed ?? false;
+    this.npmDependencies = options?.npmDependencies;
+    this.extensionName = options?.extensionName;
 
     const minBytes = MIN_MEMORY_LIMIT_MB * 1024 * 1024;
     const rawBytes = options?.memoryLimitBytes ?? DEFAULT_MEMORY_LIMIT_MB * 1024 * 1024;
@@ -364,6 +419,24 @@ export class ExtensionProcess {
   /** Spawn the subprocess if not already running. */
   ensureRunning(): void {
     if (this.proc && !this.killed) return;
+
+    // npm-dependency pre-check (kills the crash-loop). Verify the
+    // manifest's declared third-party npm deps resolve from the
+    // extension's install dir BEFORE spawning. On failure THROW the
+    // actionable message: no spawn happens, so `proc.exited` never runs,
+    // no `consecutive_failures` increment fires, and the auto-disable
+    // loop is never entered — every call surfaces the same operator
+    // message in the tool result / preprocess card instead. (Live
+    // incident 2026-07-11: `@zxing/library` missing from the image.)
+    if (this.npmDependencies) {
+      const check = verifyNpmDependencies(this.npmDependencies, dirname(this.extensionPath));
+      if (!check.ok) {
+        throw new Error(
+          formatNpmDepError(this.extensionName ?? this.extensionId, check.issues),
+        );
+      }
+    }
+
     this.killed = false;
 
     const spawnCwd = this.getSpawnCwd();
@@ -386,9 +459,14 @@ export class ExtensionProcess {
     // hang). Now we keep a bounded tail and surface it on unexpected
     // exit so subprocess-bringup failures are visible.
     this.stderrTail = "";
+    // Track the drain-loop promise so `call()`'s crash-enrichment path can
+    // await the child's final stderr flush (bounded) before surfacing a
+    // "Transport closed" rejection. Defaults resolved (no stream to drain);
+    // reassigned to the live drain when the child exposes a stderr stream.
+    this.stderrDrained = Promise.resolve();
     const stderrStream = this.proc.stderr as ReadableStream<Uint8Array> | null;
     if (stderrStream) {
-      (async () => {
+      this.stderrDrained = (async () => {
         const decoder = new TextDecoder();
         try {
           const reader = stderrStream.getReader();
@@ -445,6 +523,28 @@ export class ExtensionProcess {
           const count = await incrementFailures(this.extensionId);
           if (count >= AUTO_DISABLE_THRESHOLD) {
             await disableExtension(this.extensionId);
+            // Make the auto-disable VISIBLE + actionable, and reconcile
+            // the in-memory registry so a disabled extension stops being
+            // re-spawned on the next tool call (closes the DB-vs-in-memory
+            // divergence where a disabled ext kept crashing until an
+            // unrelated reload). The stderr tail is redacted so no token
+            // echoed to stderr lands in the log.
+            log.error("Extension auto-disabled after repeated crashes", {
+              extensionId: this.extensionId,
+              threshold: AUTO_DISABLE_THRESHOLD,
+              consecutiveFailures: count,
+              ...(tail ? { stderrTail: redactStderrTail(tail) } : {}),
+              remedy:
+                "Fix the crash cause (e.g. missing npm dependency), then re-enable from the Extensions page.",
+            });
+            try {
+              // Dynamic import breaks the registry→subprocess module cycle;
+              // wrapped because the DB/registry may be absent in tests.
+              const { ExtensionRegistry } = await import("./registry");
+              await ExtensionRegistry.getInstance().reload();
+            } catch {
+              // Registry/DB unavailable (tests) — best-effort reconcile.
+            }
           }
         } catch {
           // DB may not be available in tests
@@ -499,6 +599,21 @@ export class ExtensionProcess {
       // On timeout, kill the process
       if (error instanceof Error && error.message.includes("timed out")) {
         this.kill();
+        throw error;
+      }
+      // A dead child rejects the pending JSON-RPC request with the opaque
+      // "Transport closed" (json-rpc.ts) — no cause. Wait (bounded) for
+      // the stderr drain to flush the child's real error, then surface it
+      // so the tool result / preprocess card shows WHY the subprocess died
+      // (e.g. "Cannot find module '@zxing/library'") rather than the
+      // useless transport string. The 250ms cap keeps a call from hanging
+      // if the drain never completes; the tail is redacted for secrets.
+      if (error instanceof Error && error.message.includes("Transport closed")) {
+        await Promise.race([this.stderrDrained, Bun.sleep(250)]);
+        const tail = this.stderrTail.trim();
+        if (tail.length > 0) {
+          throw new Error(`Extension subprocess crashed: ${redactStderrTail(tail)}`);
+        }
       }
       throw error;
     }

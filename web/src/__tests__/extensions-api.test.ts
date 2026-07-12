@@ -520,6 +520,30 @@ describe("POST /api/extensions/:id/activate", () => {
 		expect(mockInsertAuditEntry).not.toHaveBeenCalled();
 	});
 
+	test("unresolvable npmDependencies → 403 with the actionable message, no enable", async () => {
+		// The extension declares a third-party npm dep that cannot resolve
+		// from its install path — activate must REFUSE with a 4xx (never a
+		// 500) and never flip `enabled`, mirroring the violations 403 shape.
+		extensionStore = {
+			...extensionStore,
+			installPath: "/tmp/ext",
+			manifest: {
+				name: "sample-ext",
+				version: "1.0.0",
+				permissions: {},
+				npmDependencies: { "nonexistent-pkg-xyz": "^1.0.0" },
+			},
+		};
+		const res = await (activatePOST(activateReq("ext-1", {})) as any);
+		expect(res.status).toBe(403);
+		const body = await res.json();
+		expect(body.error).toMatch(/requires npm package\(s\) it cannot resolve/);
+		expect(body.error).toContain("nonexistent-pkg-xyz@^1.0.0 (missing)");
+		// No enable / reload on refusal.
+		expect(mockUpdateExtension).not.toHaveBeenCalled();
+		expect(mockReload).not.toHaveBeenCalled();
+	});
+
 	test("unknown id short-circuits before hasSecurityViolation is consulted", async () => {
 		extensionStore = null;
 		const res = await (activatePOST(activateReq("missing", {})) as any);

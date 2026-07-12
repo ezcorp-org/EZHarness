@@ -1,6 +1,8 @@
 import { ExtensionProcess, type ExtensionProcessOptions, parseMemoryLimit } from "./subprocess";
 import type { ToolDefinition, ExtensionManifestV2, ExtensionPermissions } from "./types";
 import { migrateManifestV2ToV3, satisfiesRange } from "./manifest";
+import { formatNpmDepError, verifyNpmDependencies } from "./npm-deps";
+import { logger } from "../logger";
 import { verifyPackageChecksums } from "./checksum";
 import { denyAndDisable } from "./security";
 import { listExtensions, updateExtension } from "../db/queries/extensions";
@@ -22,6 +24,8 @@ import {
   entityToolNames,
   type EntityDeclaration,
 } from "@ezcorp/sdk/entities";
+
+const log = logger.child("extensions/registry");
 
 /** Async resolver that produces a fresh env map on each spawn — exported
  *  so callers can type their resolver fns consistently without pulling in
@@ -399,6 +403,24 @@ export class ExtensionRegistry {
       this.grantedPerms.set(ext.id, ext.grantedPermissions);
       this.bundledFlags.set(ext.id, (ext as { isBundled?: boolean }).isBundled === true);
 
+      // Boot visibility: surface an unresolvable npm-dependency declaration
+      // at load so an operator sees it in the logs. VISIBILITY ONLY — do
+      // NOT disable or throw: config drift must not nuke state at boot, and
+      // the per-call spawn pre-check (subprocess.ts) already refuses the
+      // spawn with the same actionable message. Applies to bundled AND
+      // non-bundled; resolution is anchored at the extension's install dir.
+      if (manifest.npmDependencies && ext.installPath) {
+        const check = verifyNpmDependencies(manifest.npmDependencies, ext.installPath);
+        if (!check.ok) {
+          log.error("extension npm dependencies unresolvable", {
+            extension: manifest.name,
+            extensionId: ext.id,
+            issues: check.issues,
+            remedy: formatNpmDepError(manifest.name, check.issues),
+          });
+        }
+      }
+
       // Namespace separator: use `__` (double underscore), NOT `.`.
       // Anthropic's tool-name pattern is `^[a-zA-Z0-9_-]+$` which rejects dots;
       // passing `ext.name` to the LLM threw `Invalid 'tools[N].name'` errors
@@ -614,6 +636,13 @@ export class ExtensionRegistry {
       callTimeoutMs,
       networkAllowed: (granted.network?.length ?? 0) > 0,
       shellAllowed: granted.shell === true,
+      // Verify the manifest's third-party npm deps before spawn — an
+      // unresolvable dep throws an actionable error instead of crash-
+      // looping the subprocess into auto-disable. See npm-deps.ts. The
+      // name rides along so the pre-check error names the extension, not
+      // its UUID.
+      npmDependencies: manifest.npmDependencies,
+      extensionName: manifest.name,
       ...options,
     });
 

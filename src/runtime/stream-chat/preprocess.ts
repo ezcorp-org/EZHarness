@@ -17,18 +17,27 @@
  *      transcript. Rows chain into the branch path (user →
  *      preprocess-result… → assistant) — `load-history.ts` strips the
  *      role from LLM context exactly like `ez-action-result`.
- *   3. On success, emits a grounding note — a `[Deterministic
- *      preprocess <ext>:<tool> on <filename>]` header followed by the
- *      tool output (≤ 4 KB) wrapped in explicit data delimiters with a
- *      treat-as-data instruction (PREPROCESS_NOTE_OPEN/CLOSE), so a
- *      hostile attachment can't smuggle instructions into the system
- *      prompt — that setup-tools appends to the turn's system prompt.
- *      Failures produce NO note — the ok:false card carries the error.
+ *   3. Emits a grounding note — a `[Deterministic preprocess
+ *      <ext>:<tool> on <filename>]` header followed by the tool output
+ *      (≤ 4 KB) wrapped in explicit data delimiters with a treat-as-data
+ *      instruction (PREPROCESS_NOTE_OPEN/CLOSE), so a hostile attachment
+ *      can't smuggle instructions into the system prompt — that
+ *      setup-tools appends to the turn's system prompt. FAILURES emit a
+ *      note too (header stamped `FAILED`, output = the error, plus an
+ *      explicit "do not call <tool> again this turn — report to the
+ *      user" line): the preprocessor tool is ALSO dual-registered as a
+ *      normal LLM tool, and without a grounding note the LLM blind-
+ *      retried the broken tool, driving the extension into auto-disable
+ *      (live incident 2026-07-11). The note tells it to stop and report.
  *
  * Failure isolation is absolute: a throwing/timeout preprocessor (or a
- * failed row persist) never blocks or fails the turn. The matcher and
- * runner are pure logic with injected deps so they unit-test without a
- * DB; `runPreprocessorsForTurn` is the thin host-context assembly that
+ * failed row persist) never blocks or fails the turn. When a WIRED
+ * extension is DISABLED (so the registry has no manifest for it), the
+ * turn runner emits a single "skipped — extension disabled" card + note
+ * via `getDisabledExtension`, so the LLM reports the outage instead of
+ * silently ignoring the attachment. The matcher and runner are pure
+ * logic with injected deps so they unit-test without a DB;
+ * `runPreprocessorsForTurn` is the thin host-context assembly that
  * setup-tools calls.
  *
  * Spec: tasks/deterministic-preprocess.md (locked decisions 2-8).
@@ -76,6 +85,36 @@ function neutralizeNoteDelimiters(text: string): string {
   return text
     .replaceAll(PREPROCESS_NOTE_CLOSE, "[defanged: end-marker]")
     .replaceAll(PREPROCESS_NOTE_OPEN, "[defanged: open-marker]");
+}
+
+/**
+ * Wrap attacker-influenced tool output for a grounding note: truncate to
+ * the note budget (with a visible `[truncated]` marker), defang embedded
+ * delimiters, then enclose in the explicit untrusted-data region. The
+ * single source of truth for the wrap so the success / failure / skip
+ * note paths can never drift (DRY).
+ */
+function wrapNoteOutput(output: string, noteLimit: number): string {
+  const truncated =
+    output.length > noteLimit ? `${output.slice(0, noteLimit)}\n[truncated]` : output;
+  const safeOutput = neutralizeNoteDelimiters(truncated);
+  return `${PREPROCESS_NOTE_OPEN}\n${safeOutput}\n${PREPROCESS_NOTE_CLOSE}`;
+}
+
+/**
+ * Compose a full grounding note: a header line, the wrapped untrusted-data
+ * region ({@link wrapNoteOutput}), and an optional trailing instruction
+ * line (the failure/skip paths append a "do not retry — report to the
+ * user" directive; the success path passes none).
+ */
+function composeNote(
+  header: string,
+  output: string,
+  noteLimit: number,
+  trailer?: string,
+): string {
+  const body = `${header}\n${wrapNoteOutput(output, noteLimit)}`;
+  return trailer ? `${body}\n${trailer}` : body;
 }
 
 /** Cap for the (sanitized) filename interpolated into a grounding note. */
@@ -335,13 +374,23 @@ export async function runPreprocessors(
       });
     }
 
+    const safeFilename = sanitizeNoteFilename(inv.attachment.filename);
+    const label = `${inv.extensionName}:${inv.tool} on ${safeFilename}`;
     if (ok) {
-      const truncated =
-        output.length > noteLimit ? `${output.slice(0, noteLimit)}\n[truncated]` : output;
-      const safeOutput = neutralizeNoteDelimiters(truncated);
-      const header = `[Deterministic preprocess ${inv.extensionName}:${inv.tool} on ${sanitizeNoteFilename(inv.attachment.filename)}]`;
+      notes.push(composeNote(`[Deterministic preprocess ${label}]`, output, noteLimit));
+    } else {
+      // Changed decision (live incident 2026-07-11): emit a FAILED note.
+      // The preprocessor tool is dual-registered as a normal LLM tool, so
+      // without a grounding note the LLM blind-retried the broken tool and
+      // drove the extension into auto-disable. Tell it what failed and to
+      // stop retrying + report to the user.
       notes.push(
-        `${header}\n${PREPROCESS_NOTE_OPEN}\n${safeOutput}\n${PREPROCESS_NOTE_CLOSE}`,
+        composeNote(
+          `[Deterministic preprocess ${label} FAILED]`,
+          output,
+          noteLimit,
+          `Do not call ${inv.tool} on this attachment again this turn — report the failure to the user.`,
+        ),
       );
     }
   }
@@ -389,9 +438,89 @@ export interface PreprocessTurnArgs {
   log: PreprocessLogger;
   /** Optional progress reporter (see RunPreprocessorsDeps.onStatus). */
   onStatus?: (status: string) => void;
+  /**
+   * Resolve a WIRED extension id the registry has NO manifest for (i.e.
+   * it's disabled) to its DB row's name + manifest, or null when the row
+   * is missing OR still enabled. When provided, the turn runner surfaces a
+   * single "skipped — extension disabled" card + grounding note for any
+   * such extension whose manifest declares a preprocessor that MATCHES an
+   * attachment — so the LLM reports the outage (auto-disabled after
+   * repeated failures, or manually) instead of silently dropping the file.
+   * Absent → the disabled-skip path is a no-op (pre-feature behavior).
+   */
+  getDisabledExtension?(
+    extensionId: string,
+  ): Promise<{ name: string; manifest: ExtensionManifestV2 } | null>;
 }
 
 const EMPTY_RESULT: PreprocessRunResult = { notes: [], rowIds: [], lastRowId: null };
+
+/**
+ * For each WIRED extension the registry has no manifest for (a
+ * disabled-extension candidate), resolve it via `getDisabledExtension`
+ * and — when it declares a preprocessor that MATCHES an attachment —
+ * persist ONE "skipped, extension disabled" `preprocess-result` row +
+ * push a matching grounding note so the LLM tells the user rather than
+ * hallucinating a result. Rows chain off the running tail. Failure-
+ * isolated per candidate: any error degrades to the previous silent
+ * behavior (log.warn). Mutates `result` in place.
+ */
+async function appendDisabledSkips(
+  args: PreprocessTurnArgs,
+  candidateIds: readonly string[],
+  attachments: readonly PreprocessAttachment[],
+  result: PreprocessRunResult,
+): Promise<void> {
+  let parent = result.lastRowId ?? args.parentMessageId;
+  for (const extensionId of candidateIds) {
+    try {
+      const disabled = await args.getDisabledExtension!(extensionId);
+      if (!disabled || (disabled.manifest.preprocessors?.length ?? 0) === 0) continue;
+      // Reuse the real matcher (no duplicated MIME logic) to confirm this
+      // disabled extension WOULD have processed an attachment this turn.
+      const { invocations } = matchPreprocessors(
+        [{ extensionId, manifest: disabled.manifest }],
+        attachments,
+        args.log,
+      );
+      const first = invocations[0];
+      if (!first) continue;
+      const output =
+        `skipped: extension "${disabled.name}" is disabled (auto-disabled after repeated ` +
+        `failures, or manually). Re-enable it from the Extensions page.`;
+      const payload: PreprocessRowPayload = {
+        extensionName: disabled.name,
+        toolName: first.tool,
+        ...(first.cardType !== undefined ? { cardType: first.cardType } : {}),
+        ok: false,
+        output,
+      };
+      const row = await args.persistMessage({
+        role: PREPROCESS_RESULT_ROLE,
+        content: JSON.stringify(payload),
+        ...(parent !== null ? { parentMessageId: parent } : {}),
+        runId: args.runId,
+      });
+      result.rowIds.push(row.id);
+      result.lastRowId = row.id;
+      parent = row.id;
+      const label = `${disabled.name}:${first.tool} on ${sanitizeNoteFilename(first.attachment.filename)}`;
+      result.notes.push(
+        composeNote(
+          `[Deterministic preprocess ${label} SKIPPED]`,
+          output,
+          PREPROCESS_NOTE_LIMIT,
+          `Do not call ${first.tool} on this attachment again this turn — the extension is disabled; report it to the user.`,
+        ),
+      );
+    } catch (err) {
+      args.log.warn("preprocess: disabled-extension skip failed (continuing silently)", {
+        extensionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
 
 /**
  * Assemble host context and run the full match → invoke → persist flow
@@ -407,13 +536,23 @@ export async function runPreprocessorsForTurn(
     }
 
     const extensions: PreprocessExtension[] = [];
+    const disabledCandidateIds: string[] = [];
     for (const extensionId of args.extensionIds) {
       const manifest = args.registry.getManifest(extensionId);
-      if (manifest && (manifest.preprocessors?.length ?? 0) > 0) {
-        extensions.push({ extensionId, manifest });
+      if (manifest) {
+        if ((manifest.preprocessors?.length ?? 0) > 0) {
+          extensions.push({ extensionId, manifest });
+        }
+      } else {
+        // No registry manifest for a WIRED extension → it may be disabled.
+        // Defer to the disabled-lookup below (only when a resolver exists).
+        disabledCandidateIds.push(extensionId);
       }
     }
-    if (extensions.length === 0) return EMPTY_RESULT;
+
+    const willCheckDisabled =
+      args.getDisabledExtension !== undefined && disabledCandidateIds.length > 0;
+    if (extensions.length === 0 && !willCheckDisabled) return EMPTY_RESULT;
 
     const sizes = await args.getAttachmentSizes(args.attachments.map((a) => a.id));
     const attachments: PreprocessAttachment[] = args.attachments.map((a) => ({
@@ -423,44 +562,56 @@ export async function runPreprocessorsForTurn(
       sizeBytes: sizes.get(a.id) ?? 0,
     }));
 
-    const { invocations, droppedByCap } = matchPreprocessors(extensions, attachments, args.log);
-    if (invocations.length === 0) return EMPTY_RESULT;
+    const result: PreprocessRunResult = { notes: [], rowIds: [], lastRowId: null };
 
-    args.log.info("preprocess: running deterministic preprocessors", {
-      invocations: invocations.map((i) => `${i.extensionName}:${i.tool}@${i.attachment.id}`),
-    });
+    if (extensions.length > 0) {
+      const { invocations, droppedByCap } = matchPreprocessors(extensions, attachments, args.log);
+      if (invocations.length > 0) {
+        args.log.info("preprocess: running deterministic preprocessors", {
+          invocations: invocations.map((i) => `${i.extensionName}:${i.tool}@${i.attachment.id}`),
+        });
 
-    const result = await runPreprocessors(invocations, {
-      invokeTool: (inv, input) => {
-        // The registry namespaces tool names (`<ext>__<tool>`); the
-        // manifest declares the ORIGINAL name. Map via originalName so
-        // dispatch hits the registered entry (fall back to the declared
-        // name for registries that don't namespace).
-        const registered = args.registry
-          .getToolsForExtension(inv.extensionId)
-          .find((t) => t.originalName === inv.tool);
-        return args.executeToolCall(registered?.name ?? inv.tool, input);
-      },
-      persistRow: async (content, parentMessageId) =>
-        args.persistMessage({
-          role: PREPROCESS_RESULT_ROLE,
-          content,
-          ...(parentMessageId !== null ? { parentMessageId } : {}),
-          runId: args.runId,
-        }),
-      parentMessageId: args.parentMessageId,
-      log: args.log,
-      ...(args.onStatus !== undefined ? { onStatus: args.onStatus } : {}),
-    });
+        const run = await runPreprocessors(invocations, {
+          invokeTool: (inv, input) => {
+            // The registry namespaces tool names (`<ext>__<tool>`); the
+            // manifest declares the ORIGINAL name. Map via originalName so
+            // dispatch hits the registered entry (fall back to the declared
+            // name for registries that don't namespace).
+            const registered = args.registry
+              .getToolsForExtension(inv.extensionId)
+              .find((t) => t.originalName === inv.tool);
+            return args.executeToolCall(registered?.name ?? inv.tool, input);
+          },
+          persistRow: async (content, parentMessageId) =>
+            args.persistMessage({
+              role: PREPROCESS_RESULT_ROLE,
+              content,
+              ...(parentMessageId !== null ? { parentMessageId } : {}),
+              runId: args.runId,
+            }),
+          parentMessageId: args.parentMessageId,
+          log: args.log,
+          ...(args.onStatus !== undefined ? { onStatus: args.onStatus } : {}),
+        });
+        result.notes.push(...run.notes);
+        result.rowIds.push(...run.rowIds);
+        result.lastRowId = run.lastRowId;
 
-    // Cap honesty: when the per-turn invocation cap dropped matched
-    // attachments, tell the LLM so it never claims it processed files
-    // it silently skipped (the info log above is operator-only).
-    if (droppedByCap > 0) {
-      result.notes.push(
-        `[preprocess: ${droppedByCap} additional attachment(s) skipped — per-turn cap]`,
-      );
+        // Cap honesty: when the per-turn invocation cap dropped matched
+        // attachments, tell the LLM so it never claims it processed files
+        // it silently skipped (the info log above is operator-only).
+        if (droppedByCap > 0) {
+          result.notes.push(
+            `[preprocess: ${droppedByCap} additional attachment(s) skipped — per-turn cap]`,
+          );
+        }
+      }
     }
+
+    if (willCheckDisabled) {
+      await appendDisabledSkips(args, disabledCandidateIds, attachments, result);
+    }
+
     return result;
   } catch (err) {
     args.log.warn("preprocess: turn runner failed (continuing without preprocess)", {

@@ -142,6 +142,20 @@ export default defineExtension({
     },
   ],
 
+  // Third-party npm packages lib/decode.ts imports to decode the slab
+  // barcode/QR host-side. NOT installed by the host — they must exist in
+  // the deployment's node_modules (declared in the app's root
+  // package.json). The host VERIFIES them at install/activate/boot and
+  // before every spawn (see src/extensions/npm-deps.ts); a missing one
+  // refuses install + surfaces an actionable message instead of the
+  // opaque "Transport closed" crash-loop that auto-disabled this
+  // extension on 2026-07-11.
+  npmDependencies: {
+    "@zxing/library": "^0.23.0",
+    "fast-png": "^8.0.0",
+    "jpeg-js": "^0.4.4",
+  },
+
   agent: {
     prompt: [
       "You can look up PSA-graded cards by cert number with `lookup_card`.",

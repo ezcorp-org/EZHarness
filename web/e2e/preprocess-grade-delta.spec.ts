@@ -30,6 +30,8 @@ const PROJECT_ID = "proj-preprocess";
 const CONV_ID = "conv-preprocess";
 const CONV_ERR_ID = "conv-preprocess-err";
 const CONV_HINT_ID = "conv-preprocess-hint";
+const CONV_DEP_ID = "conv-preprocess-dep";
+const CONV_SKIP_ID = "conv-preprocess-skip";
 
 const project = makeProject({ id: PROJECT_ID, name: "Preprocess Project" });
 
@@ -232,6 +234,102 @@ test.describe("Deterministic preprocess — GradeDeltaCard in the transcript", (
 		await expect(
 			page.locator(`[data-message-id="${CONV_ERR_ID}-a1"]`),
 		).toContainText("PSA 9");
+	});
+
+	test("dependency-error preprocess row renders DefaultCard and shows the actionable text on expand", async ({
+		page,
+		mockApi,
+	}) => {
+		// extension npm-deps: a missing runtime dependency surfaces as an
+		// ok:false preprocess row whose output IS the actionable message. It
+		// must render through DefaultCard's error state (never a broken chart)
+		// and reveal the full message when expanded.
+		const depError =
+			'Extension "graded-card-scanner" requires npm package(s) it cannot resolve: ' +
+			"@zxing/library@^0.23.0 (missing). Install them in the deployment " +
+			"(root package.json + bun install, or rebuild the image), then retry.";
+		await mockApi({
+			projects: [project],
+			conversations: [
+				makeConversation({
+					id: CONV_DEP_ID,
+					projectId: PROJECT_ID,
+					title: "Slab chat (missing dependency)",
+				}),
+			],
+			messages: seedMessages(
+				CONV_DEP_ID,
+				JSON.stringify({
+					extensionName: "graded-card-scanner",
+					toolName: "identify_slab",
+					cardType: "grade-delta-chart",
+					ok: false,
+					output: depError,
+				}),
+			),
+		});
+		await page.goto(`/project/${PROJECT_ID}/chat/${CONV_DEP_ID}`);
+
+		const row = page.getByTestId("preprocess-result-row");
+		await expect(row).toBeVisible({ timeout: 5000 });
+		await expect(row).toHaveAttribute("data-preprocess-status", "error");
+
+		// cardType is dropped on failure — DefaultCard owns the error state.
+		await expect(page.getByTestId("grade-delta-card")).toHaveCount(0);
+		const card = page.getByTestId("tool-card-default");
+		await expect(card).toBeVisible();
+
+		// Expand the card to reveal the full actionable dependency message.
+		await card.locator("button").first().click();
+		await expect(card).toContainText("@zxing/library@^0.23.0 (missing)");
+		await expect(card).toContainText("cannot resolve");
+
+		// The assistant turn still rendered (a failed preprocess never blocks).
+		await expect(
+			page.locator(`[data-message-id="${CONV_DEP_ID}-a1"]`),
+		).toContainText("PSA 9");
+	});
+
+	test("skip-when-disabled preprocess row renders the disabled-extension message on expand", async ({
+		page,
+		mockApi,
+	}) => {
+		// extension npm-deps: when the wired extension is DISABLED, the turn
+		// runner persists a single "skipped — disabled" ok:false row so the
+		// user sees the outage rather than a silently-dropped attachment.
+		const skipMsg =
+			'skipped: extension "graded-card-scanner" is disabled (auto-disabled after ' +
+			"repeated failures, or manually). Re-enable it from the Extensions page.";
+		await mockApi({
+			projects: [project],
+			conversations: [
+				makeConversation({
+					id: CONV_SKIP_ID,
+					projectId: PROJECT_ID,
+					title: "Slab chat (extension disabled)",
+				}),
+			],
+			messages: seedMessages(
+				CONV_SKIP_ID,
+				JSON.stringify({
+					extensionName: "graded-card-scanner",
+					toolName: "identify_slab",
+					ok: false,
+					output: skipMsg,
+				}),
+			),
+		});
+		await page.goto(`/project/${PROJECT_ID}/chat/${CONV_SKIP_ID}`);
+
+		const row = page.getByTestId("preprocess-result-row");
+		await expect(row).toBeVisible({ timeout: 5000 });
+		await expect(row).toHaveAttribute("data-preprocess-status", "error");
+
+		const card = page.getByTestId("tool-card-default");
+		await expect(card).toBeVisible();
+		await card.locator("button").first().click();
+		await expect(card).toContainText("is disabled");
+		await expect(card).toContainText("Re-enable it from the Extensions page");
 	});
 
 	test("no-token degradation renders the actionable set_psa_token hint in the empty state, and captures evidence @evidence", async ({

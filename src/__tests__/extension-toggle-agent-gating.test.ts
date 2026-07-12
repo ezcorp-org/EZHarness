@@ -345,3 +345,59 @@ describe("UI toggle-off gates the extension from assigned agents", () => {
     expect(toolNames).toContain(siblingNamespaced);
   });
 });
+
+describe("POST /:id/activate refuses unresolvable npm dependencies", () => {
+  test("declared npm dep that cannot resolve → 403 actionable message, extension stays disabled", async () => {
+    // An extension whose manifest declares a third-party npm package that
+    // is NOT resolvable from its install path. activateExtension must
+    // REFUSE with a 4xx (never a 500) and leave enabled=false — mirroring
+    // the security-violation refusal shape — so the operator sees exactly
+    // what to install instead of the extension flipping enabled and then
+    // crash-looping on first use. Drives the same real activate route +
+    // pglite DB as the toggle tests above.
+    const db = getTestDb();
+    const rows = await db
+      .insert(extensions)
+      .values({
+        name: "npm-dep-ext",
+        version: "1.0.0",
+        description: "declares an unresolvable npm dep",
+        manifest: {
+          ...buildManifest(),
+          name: "npm-dep-ext",
+          npmDependencies: { "nonexistent-pkg-xyz-does-not-exist": "^1.0.0" },
+        } as any,
+        source: "local:/tmp/npm-dep-ext",
+        installPath: "/tmp/npm-dep-ext",
+        enabled: false,
+        grantedPermissions: { grantedAt: {} } as any,
+      })
+      .returning({ id: extensions.id });
+    const npmExtId = rows[0]!.id;
+
+    const res = await call(
+      ACTIVATE,
+      createMockEvent({
+        method: "POST",
+        url: `http://localhost/api/extensions/${npmExtId}/activate`,
+        params: { id: npmExtId },
+        body: {},
+        user: ADMIN_USER,
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/requires npm package\(s\) it cannot resolve/);
+    expect(body.error).toContain(
+      "nonexistent-pkg-xyz-does-not-exist@^1.0.0 (missing)",
+    );
+
+    // The refusal must NOT flip enabled — the row stays disabled so the
+    // extension can't be invoked until its deps are actually installed.
+    const row = await db
+      .select()
+      .from(extensions)
+      .where(eq(extensions.id, npmExtId));
+    expect(row[0]!.enabled).toBe(false);
+  });
+});

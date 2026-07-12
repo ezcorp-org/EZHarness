@@ -5,6 +5,7 @@
 import type { ExtensionManifestV2, ExtensionPermissions, InstalledExtension } from "./types";
 import { clampExtensionPermissions } from "./clamp-permissions";
 import { compareVersions } from "./manifest";
+import { formatNpmDepError, verifyNpmDependencies } from "./npm-deps";
 import { loadManifest } from "./loader";
 import { resolveDependencies, formatDepTree } from "./dependency-resolver";
 import { computeChecksum, verifyChecksum, computePackageChecksums, PACKAGE_CHECKSUM_ALGO } from "./checksum";
@@ -153,6 +154,27 @@ async function runEnvKeyLeakInstallGate(
 }
 
 /**
+ * Refuse an install whose declared third-party npm dependencies can't be
+ * resolved from the on-disk install path (verify-only v1 — the packages
+ * must already be present in the deployment's node_modules; the host does
+ * NOT install them). Same refusal mechanics as the env-leak gate so the
+ * API response carries the actionable message. Called by every install
+ * source (local / git / tarball) once the files are at their final
+ * install dir, so a broken deployment fails LOUD at install instead of
+ * crash-looping the subprocess into auto-disable (live incident
+ * 2026-07-11). See `verifyNpmDependencies` / `formatNpmDepError`.
+ */
+function runNpmDependencyInstallGate(
+  manifest: ExtensionManifestV2,
+  installDir: string,
+): void {
+  const check = verifyNpmDependencies(manifest.npmDependencies, installDir);
+  if (!check.ok) {
+    throw new Error(formatNpmDepError(manifest.name, check.issues));
+  }
+}
+
+/**
  * Phase 3 entity-install hook. Runs the legacy-namespace migration and
  * the seed loop after the extension row is created. Best-effort:
  * failures are surfaced into the install warning log but do NOT abort
@@ -245,6 +267,10 @@ export async function installFromLocal(
   // time). The threat model is "refuse to persist this extension at
   // all" once it declares a credential-shaped env name.
   await runEnvKeyLeakInstallGate(manifest, opts);
+
+  // Refuse the install if a declared npm dependency can't be resolved from
+  // the install path (verify-only; same refusal surface as the env gate).
+  runNpmDependencyInstallGate(manifest, localPath);
 
   const source = `local:${localPath}`;
 
@@ -462,6 +488,10 @@ export async function installFromGitHub(
     // Compute full-package checksums
     const packageChecksums = await computePackageChecksums(installDir);
 
+    // Refuse the install if a declared npm dependency can't be resolved
+    // from the FINAL install dir (verify-only; same surface as the env gate).
+    runNpmDependencyInstallGate(manifest, installDir);
+
     // Create DB record
     const ext = await createExtension({
       name: manifest.name,
@@ -575,6 +605,10 @@ export async function installFromGit(
 
     // Compute full-package checksums
     const packageChecksums = await computePackageChecksums(installDir);
+
+    // Refuse the install if a declared npm dependency can't be resolved
+    // from the FINAL install dir (verify-only; same surface as the env gate).
+    runNpmDependencyInstallGate(manifest, installDir);
 
     // Create DB record
     const ext = await createExtension({

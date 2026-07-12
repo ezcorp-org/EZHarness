@@ -441,6 +441,53 @@ dependencies: {
 
 ---
 
+### `npmDependencies` -- `Record<string, string>`
+
+Declare the third-party **npm registry** packages your extension imports at
+runtime — package name → semver range. **This is distinct from
+`dependencies`** (which are OTHER EZCorp extensions the host clones + installs):
+
+| | `dependencies` | `npmDependencies` |
+|---|---|---|
+| What | other EZCorp extensions | ordinary npm packages |
+| Installed by the host? | Yes (git clone) | **No** — verify-only in v1 |
+| Resolved from | the dependency's install dir | the **host app's** `node_modules` (or vendored under your extension dir) |
+
+The host does **not** install these — they must already be present in the
+deployment. For an in-repo extension that means the package is in the app's
+**root `package.json`** and `bun install` has run; for a standalone extension
+you may **vendor** it under your extension's own `node_modules/` (that dir is
+excluded from the package checksum, so vendoring is safe). What the host DOES
+do is **verify** every declared package, at four points:
+
+- **install / activate** — refuses (a 4xx with an actionable message) if a
+  declared package can't be resolved, so a broken deployment fails loud
+  instead of at first use;
+- **boot** — logs an error (visibility only; never disables);
+- **before every spawn** — throws the same actionable message instead of
+  letting the subprocess crash at module-load and drive the auto-disable
+  crash-loop.
+
+Only exact/caret/tilde/range semver strings that `Bun.semver.satisfies`
+understands are meaningful; the value is validated as a non-empty string at
+admit time and checked against the resolved version at verify time (an
+indeterminate version is treated as satisfied — presence is what matters).
+
+```typescript
+// graded-card-scanner: lib/decode.ts imports these to decode slab barcodes.
+npmDependencies: {
+  "@zxing/library": "^0.23.0",
+  "fast-png": "^8.0.0",
+  "jpeg-js": "^0.4.4",
+},
+```
+
+> An extension that ships its OWN `package.json` (a workspace package)
+> declares its npm deps there the standard way and does not use
+> `npmDependencies`.
+
+---
+
 ### `panel` -- Panel Configuration
 
 Extensions can render a UI panel in the web interface. The panel displays structured status information using a vocabulary of typed components.

@@ -216,9 +216,11 @@ mock.module("../runtime/mention-wiring", () => ({
   stripEzActionTokens: (s: string) => ({ stripped: s, actions: [] }),
 }));
 
-// The conversation has the scanner extension wired.
+// The conversation's wired extension ids — mutable so the disabled-skip
+// integration test can wire a real (disabled) DB extension id instead.
+let wiredExtIds: string[] = ["ext-scanner"];
 mock.module("../db/queries/conversation-extensions", () => ({
-  getConversationExtensionIds: async () => ["ext-scanner"],
+  getConversationExtensionIds: async () => wiredExtIds,
 }));
 
 mock.module("../runtime/task-tracking-host", () => ({
@@ -430,7 +432,7 @@ describe("executor deterministic-preprocess wiring (setup-tools 2c)", () => {
     expect(noOut.system).toHaveLength(1);
   });
 
-  test("failing preprocessor → ok:false row persisted, NO note, turn still completes", async () => {
+  test("failing preprocessor → ok:false row + FAILED do-not-retry note on the tail", async () => {
     const { executor } = createExecutor();
     toolCalls.length = 0;
     capturedAgentOpts = null;
@@ -450,11 +452,28 @@ describe("executor deterministic-preprocess wiring (setup-tools 2c)", () => {
     expect(payload.ok).toBe(false);
     expect(payload.output).toContain("simulated PDP denial");
 
-    // Failure produces NO grounding note (the card carries the error) —
-    // and the turn still reached the Agent (failure isolation).
+    // Changed decision: a failure now emits a FAILED do-not-retry note —
+    // but it rides the UNCACHED tail (onPayload), never the cached region-1
+    // systemPrompt, so the prompt cache stays warm.
     expect(capturedAgentOpts).not.toBeNull();
     expect(capturedAgentOpts.initialState.systemPrompt).not.toContain(
       "[Deterministic preprocess",
+    );
+    const wire = {
+      system: [
+        {
+          type: "text",
+          text: capturedAgentOpts.initialState.systemPrompt,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+    };
+    const out = (await capturedAgentOpts.onPayload(wire)) as { system: Array<{ text: string }> };
+    expect(out.system[1]!.text).toContain(
+      "[Deterministic preprocess graded-card-scanner:identify_slab on slab.png FAILED]",
+    );
+    expect(out.system[1]!.text).toContain(
+      "Do not call identify_slab on this attachment again this turn",
     );
   });
 
@@ -520,12 +539,23 @@ describe("executor deterministic-preprocess wiring (setup-tools 2c)", () => {
     expect(payload.ok).toBe(false);
     expect(payload.output).toBe("decode failed");
 
-    // No grounding note for a failure — and the turn still reached the
-    // Agent (failure isolation).
+    // The FAILED note rides the uncached tail; region-1 stays clean.
     expect(capturedAgentOpts).not.toBeNull();
     expect(capturedAgentOpts.initialState.systemPrompt).not.toContain(
       "[Deterministic preprocess",
     );
+    const wire = {
+      system: [
+        {
+          type: "text",
+          text: capturedAgentOpts.initialState.systemPrompt,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+    };
+    const out = (await capturedAgentOpts.onPayload(wire)) as { system: Array<{ text: string }> };
+    expect(out.system[1]!.text).toContain("FAILED]");
+    expect(out.system[1]!.text).toContain("decode failed");
   });
 
   test("persist-less executor (host.persist absent) → no dispatch, no rows", async () => {
@@ -645,6 +675,134 @@ describe("executor deterministic-preprocess wiring (setup-tools 2c)", () => {
     });
 
     expect(statuses.some((s) => s.includes("preprocessor"))).toBe(false);
+  });
+
+  test("disabled wired extension → skip row persisted + chained (getExtension reads the disabled row)", async () => {
+    const { executor } = createExecutor();
+    toolCalls.length = 0;
+    capturedAgentOpts = null;
+    toolResultMode = "success";
+
+    // A REAL disabled extension row (getDisabledExtension in setup-tools
+    // reads it via getExtension, which does NOT filter on `enabled`). The
+    // registry mock returns undefined for its id (disabled → not loaded),
+    // so it becomes a disabled-skip candidate.
+    const { createExtension } = await import("../db/queries/extensions");
+    const disabledName = `disabled-scanner-${crypto.randomUUID().slice(0, 8)}`;
+    const disabledExt = await createExtension({
+      name: disabledName,
+      version: "1.0.0",
+      description: "disabled scanner",
+      manifest: {
+        schemaVersion: 2,
+        name: disabledName,
+        version: "1.0.0",
+        description: "d",
+        author: { name: "t" },
+        entrypoint: "./index.ts",
+        tools: [
+          { name: "identify_slab", description: "d", inputSchema: { type: "object" }, cardType: "grade-delta-chart" },
+        ],
+        preprocessors: [{ tool: "identify_slab", accepts: ["image/png", "image/jpeg"] }],
+        permissions: {},
+      },
+      source: "local:/tmp/disabled-scanner",
+      installPath: "/tmp/disabled-scanner",
+      enabled: false,
+      grantedPermissions: { grantedAt: {} },
+      checksumVerified: false,
+      consecutiveFailures: 3,
+    });
+    wiredExtIds = [disabledExt.id];
+    try {
+      const { conv, userMsg, attRow } = await seedTurn();
+      await executor.streamChat(conv.id, "what is this slab worth?", {
+        projectId,
+        parentMessageId: userMsg.id,
+        attachments: stagedFor(attRow),
+      });
+
+      // The disabled extension is never dispatched…
+      expect(toolCalls).toHaveLength(0);
+      // …but a single "skipped, disabled" row is persisted + chained off
+      // the user message.
+      const rows = await getMessages(conv.id);
+      const ppRows = rows.filter((m) => m.role === PREPROCESS_RESULT_ROLE);
+      expect(ppRows).toHaveLength(1);
+      expect(ppRows[0]!.parentMessageId).toBe(userMsg.id);
+      const payload = JSON.parse(ppRows[0]!.content);
+      expect(payload.ok).toBe(false);
+      expect(payload.toolName).toBe("identify_slab");
+      expect(payload.output).toContain("is disabled");
+      expect(payload.output).toContain("Re-enable it from the Extensions page");
+
+      // The skip note rides the uncached tail; region-1 stays clean.
+      expect(capturedAgentOpts).not.toBeNull();
+      expect(capturedAgentOpts.initialState.systemPrompt).not.toContain(
+        "[Deterministic preprocess",
+      );
+      const wire = {
+        system: [
+          {
+            type: "text",
+            text: capturedAgentOpts.initialState.systemPrompt,
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+      };
+      const out = (await capturedAgentOpts.onPayload(wire)) as { system: Array<{ text: string }> };
+      expect(out.system[1]!.text).toContain("SKIPPED");
+      expect(out.system[1]!.text).toContain("the extension is disabled; report it to the user");
+    } finally {
+      wiredExtIds = ["ext-scanner"];
+    }
+  });
+
+  test("wired ext ENABLED in DB but absent from registry → getDisabledExtension null, no skip row", async () => {
+    // Covers the getDisabledExtension `return null` branch: the row exists
+    // and is ENABLED (a benign registry-vs-DB lag), so it is NOT surfaced
+    // as a disabled skip.
+    const { executor } = createExecutor();
+    toolCalls.length = 0;
+    toolResultMode = "success";
+    const { createExtension } = await import("../db/queries/extensions");
+    const enabledName = `enabled-unregistered-${crypto.randomUUID().slice(0, 8)}`;
+    const enabledExt = await createExtension({
+      name: enabledName,
+      version: "1.0.0",
+      description: "enabled but not in registry",
+      manifest: {
+        schemaVersion: 2,
+        name: enabledName,
+        version: "1.0.0",
+        description: "d",
+        author: { name: "t" },
+        entrypoint: "./index.ts",
+        tools: [{ name: "identify_slab", description: "d", inputSchema: { type: "object" } }],
+        preprocessors: [{ tool: "identify_slab", accepts: ["image/png"] }],
+        permissions: {},
+      },
+      source: "local:/tmp/enabled-unregistered",
+      installPath: "/tmp/enabled-unregistered",
+      enabled: true,
+      grantedPermissions: { grantedAt: {} },
+      checksumVerified: false,
+      consecutiveFailures: 0,
+    });
+    wiredExtIds = [enabledExt.id];
+    try {
+      const { conv, userMsg, attRow } = await seedTurn();
+      await executor.streamChat(conv.id, "what is this?", {
+        projectId,
+        parentMessageId: userMsg.id,
+        attachments: stagedFor(attRow),
+      });
+      const rows = await getMessages(conv.id);
+      expect(rows.filter((m) => m.role === PREPROCESS_RESULT_ROLE)).toHaveLength(0);
+      expect(toolCalls).toHaveLength(0);
+    } finally {
+      wiredExtIds = ["ext-scanner"];
+    }
   });
 });
 

@@ -151,6 +151,43 @@ SRC=$(echo "${VER}" | jq -r '.source // empty')
 [[ "${SRC}" == "disabled" ]] || die "Expected source=disabled (EZCORP_CHECK_UPDATES=false), got: ${SRC}"
 pass "source=disabled (update check off as configured)"
 
+section "Verify bundled/example extension npm dependencies resolve inside the image"
+# Mode B deploy-time catch (extension npm-deps): for every example + bundled
+# extension manifest that declares `npmDependencies`, resolve each package
+# from that extension's install dir INSIDE the image. A miss here is exactly
+# the live incident (2026-07-11: @zxing/library missing from the image's
+# node_modules); fail the build loudly rather than ship a crash-loop.
+NPMDEPS_JS='
+const { verifyNpmDependencies } = await import("/app/src/extensions/npm-deps");
+const roots = ["docs/extensions/examples", "extensions", "packages/@ezcorp"];
+let failed = 0, checked = 0;
+for (const root of roots) {
+  const glob = new Bun.Glob(root + "/*/ezcorp.config.ts");
+  for (const rel of glob.scanSync("/app")) {
+    const dir = "/app/" + rel.slice(0, rel.lastIndexOf("/"));
+    let manifest;
+    try { manifest = (await import("/app/" + rel)).default; } catch (e) { continue; }
+    const deps = manifest && manifest.npmDependencies;
+    if (!deps) continue;
+    checked += Object.keys(deps).length;
+    const check = verifyNpmDependencies(deps, dir);
+    if (!check.ok) {
+      for (const i of check.issues) console.error("UNRESOLVED " + i.name + " (" + i.range + ") from " + rel + ": " + i.reason);
+      failed += check.issues.length;
+    }
+  }
+}
+console.log("npm-deps: checked=" + checked + " failed=" + failed);
+process.exit(failed > 0 ? 1 : 0);
+'
+if NPMDEPS_OUT=$(docker exec "$CONTAINER" bun -e "${NPMDEPS_JS}" 2>&1); then
+  echo "  ${NPMDEPS_OUT}"
+  pass "all declared extension npmDependencies resolve inside the image"
+else
+  echo "${NPMDEPS_OUT}" >&2
+  die "extension npm dependency resolution failed inside the image (see UNRESOLVED lines above)"
+fi
+
 section "Verify named volume is populated + persists across restart"
 docker volume inspect "${VOLUME}" >/dev/null || die "Named volume not created"
 CONTENTS=$(docker run --rm -v "${VOLUME}:/d" alpine ls -1 /d | sort)

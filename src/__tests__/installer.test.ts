@@ -162,6 +162,45 @@ describe("installFromLocal — manifest.name traversal rejection (SEC-5)", () =>
 });
 
 // ══════════════════════════════════════════════════════════════════════
+// extension npm-deps: install refusal when a declared dep can't resolve
+// ══════════════════════════════════════════════════════════════════════
+//
+// Mirrors the env-key-leak install gate: an unresolvable third-party npm
+// dependency REFUSES the install (verify-only v1) with the actionable
+// formatNpmDepError message, and persists NO DB row. Resolution is from
+// the install path — a tmpdir fixture never reaches the app node_modules,
+// so a declared dep is always "missing" here (exactly the deploy-drift
+// the live incident hit).
+
+describe("installFromLocal — npm-dependency install refusal", () => {
+  test("refuses an install whose declared npm dep can't be resolved", async () => {
+    const pkg = makeLocalPackage({
+      npmDependencies: { "nonexistent-pkg-xyz": "^1.0.0" },
+    });
+    try {
+      await expect(installFromLocal(pkg.path, defaultPerms)).rejects.toThrow(
+        /requires npm package\(s\) it cannot resolve: nonexistent-pkg-xyz@\^1\.0\.0 \(missing\)/,
+      );
+      // No DB row for the refused install.
+      expect(mockExtensions.size).toBe(0);
+    } finally {
+      pkg.cleanup();
+    }
+  });
+
+  test("installs normally when no npm deps are declared (no regression)", async () => {
+    const pkg = makeLocalPackage({ name: "no-npm-deps-ext" });
+    try {
+      const result = await installFromLocal(pkg.path, defaultPerms);
+      expect(result.name).toBe("no-npm-deps-ext");
+      expect(mockExtensions.size).toBe(1);
+    } finally {
+      pkg.cleanup();
+    }
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
 // #9 regression: installFromGitHub fails loudly on cp -r failure
 // ══════════════════════════════════════════════════════════════════════
 //

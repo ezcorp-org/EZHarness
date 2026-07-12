@@ -42,6 +42,11 @@ const REPO_ROOT = realpathSync(resolve(import.meta.dir, "..", ".."));
 const JAILED_ENTRYPOINTS: ReadonlyArray<{ name: string; entry: string }> = [
   { name: "github-projects", entry: "docs/extensions/examples/github-projects/index.ts" },
   { name: "task-tracking", entry: "docs/extensions/examples/task-tracking/index.ts" },
+  // graded-card-scanner imports third-party npm deps (@zxing/library,
+  // fast-png, jpeg-js) at module load via lib/decode — proving they load
+  // under the jail (read from the RO-granted node_modules) is the
+  // regression guard for the missing-dep crash-loop (2026-07-11).
+  { name: "graded-card-scanner", entry: "docs/extensions/examples/graded-card-scanner/index.ts" },
 ];
 
 const TMP_BASE = join(REPO_ROOT, ".ezcorp", "tmp-jail-bringup");

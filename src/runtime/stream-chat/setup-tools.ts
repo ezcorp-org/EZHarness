@@ -840,6 +840,23 @@ export async function setupTools(
                 preprocessStatusEmitted = true;
                 host.bus.emit("run:status", { runId: run.id, status });
               },
+              // Surface a "skipped — extension disabled" card + note for a
+              // WIRED extension the registry has no manifest for (disabled).
+              // getExtension() does NOT filter on `enabled`, so a disabled
+              // row still resolves; we return its manifest only when the row
+              // is present AND disabled (else null → no-op). A throw here is
+              // isolated by runPreprocessorsForTurn's per-candidate catch.
+              getDisabledExtension: async (extensionId) => {
+                const { getExtension } = await import("../../db/queries/extensions");
+                const row = await getExtension(extensionId);
+                if (row && row.enabled === false) {
+                  return {
+                    name: row.name,
+                    manifest: row.manifest as import("../../extensions/types").ExtensionManifestV2,
+                  };
+                }
+                return null;
+              },
             });
             if (preprocessStatusEmitted) {
               // Restore/advance the status once the preprocess loop is
