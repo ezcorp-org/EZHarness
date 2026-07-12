@@ -132,14 +132,30 @@ function pushTypeIssue(
   issues.push({ path, message: `expected ${expected}, got ${typeOfRich(value)}` });
 }
 
+/** Depth ceiling for {@link sortKeysDeep}. Beyond this the canonicaliser stops
+ *  recursing and collapses the subtree to a sentinel. This is a self-DoS guard:
+ *  `sortKeysDeep` is invoked (via {@link sameJsonValue}) on a schema `enum`
+ *  literal AND on the child's extracted output, and the output side is NOT
+ *  size-capped at this layer — a pathologically deep value would otherwise blow
+ *  the stack in `sortKeysDeep` itself and again in the downstream
+ *  `JSON.stringify`. The bound is far above any plausible real schema/output
+ *  nesting yet well under the JS engine's recursion limit. */
+export const MAX_SORT_DEPTH = 1000;
+
 /** Recursively sort object keys so structural equality is
- *  key-order-insensitive (`{a,b}` === `{b,a}`). Arrays keep their order. */
-function sortKeysDeep(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortKeysDeep);
+ *  key-order-insensitive (`{a,b}` === `{b,a}`). Arrays keep their order.
+ *  Recursion is bounded at {@link MAX_SORT_DEPTH}: past it the remaining
+ *  subtree collapses to a constant sentinel so both the sort AND the caller's
+ *  `JSON.stringify` stay bounded on pathologically deep input. Two values that
+ *  differ ONLY below the ceiling then canonicalise identically — an acceptable
+ *  trade for the DoS guard, since such depths never occur in real schemas. */
+function sortKeysDeep(value: unknown, depth = 0): unknown {
+  if (depth >= MAX_SORT_DEPTH) return "[ezcorp:max-depth]";
+  if (Array.isArray(value)) return value.map((v) => sortKeysDeep(v, depth + 1));
   if (isPlainObject(value)) {
     const out: Record<string, unknown> = {};
     for (const key of Object.keys(value).sort()) {
-      out[key] = sortKeysDeep(value[key]);
+      out[key] = sortKeysDeep(value[key], depth + 1);
     }
     return out;
   }

@@ -15,6 +15,7 @@ import {
   summarizeIssues,
   buildSchemaInstruction,
   buildSchemaCorrection,
+  MAX_SORT_DEPTH,
   type SchemaIssue,
 } from "../runtime/structured-output";
 
@@ -166,6 +167,47 @@ describe("validateAgainstSchema — enum", () => {
     expect(both).toHaveLength(2);
     expect(both.some((i) => i.message.includes("not in enum"))).toBe(true);
     expect(both.some((i) => i.message.includes("expected integer"))).toBe(true);
+  });
+
+  test("array enum member matches order-sensitively via canonical JSON", () => {
+    // Exercises sortKeysDeep's array branch: elements keep their order, so
+    // [1,2] matches [1,2] but not [2,1].
+    expect(issuesFor({ enum: [[1, 2]] }, [1, 2])).toEqual([]);
+    expect(issuesFor({ enum: [[1, 2]] }, [2, 1])).toHaveLength(1);
+  });
+});
+
+// ── validateAgainstSchema — enum depth guard (self-DoS) ────────────
+//
+// sortKeysDeep canonicalises BOTH a schema enum literal and the child's
+// extracted output before comparing them. The output side is not size-capped
+// at this layer, so without a depth bound a pathologically deep value would
+// overflow the stack (in sortKeysDeep itself, and again in the downstream
+// JSON.stringify). MAX_SORT_DEPTH collapses the subtree past the ceiling to a
+// sentinel, keeping both bounded.
+describe("validateAgainstSchema — enum depth guard", () => {
+  function nestEndingIn(depth: number, leaf: unknown): unknown {
+    let v: unknown = leaf;
+    for (let i = 0; i < depth; i++) v = { n: v };
+    return v;
+  }
+
+  test("a value nested far beyond MAX_SORT_DEPTH does NOT overflow the stack", () => {
+    const deep = nestEndingIn(MAX_SORT_DEPTH + 5000, { leaf: true });
+    // Same deep value on both sides → identical canonical form past the
+    // ceiling. The assertion that matters is "returns instead of throwing a
+    // RangeError"; the empty-issues result confirms the enum still matched.
+    expect(() => issuesFor({ enum: [deep] }, deep)).not.toThrow();
+    expect(issuesFor({ enum: [deep] }, deep)).toEqual([]);
+  });
+
+  test("values that differ ONLY below the ceiling collapse to equal (documented trade-off)", () => {
+    const deepA = nestEndingIn(MAX_SORT_DEPTH + 10, { leaf: "A" });
+    const deepB = nestEndingIn(MAX_SORT_DEPTH + 10, { leaf: "B" });
+    // The top MAX_SORT_DEPTH levels are identical; the differing leaves sit
+    // beneath the ceiling and are collapsed to the same sentinel, so the enum
+    // treats them as equal. Real schemas never reach this depth.
+    expect(issuesFor({ enum: [deepA] }, deepB)).toEqual([]);
   });
 });
 
