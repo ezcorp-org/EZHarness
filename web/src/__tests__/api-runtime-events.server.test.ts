@@ -293,3 +293,112 @@ describe("GET /api/runtime-events — Last-Event-ID resume (C3)", () => {
     __clearRunScopeCacheForTests();
   });
 });
+
+// Wave5 0.5: the exposed `id:` is a DENSE per-subscriber-scope sequence, never
+// the process-global ring counter, so its gaps can't leak how much activity
+// OTHER users generate — while Last-Event-ID resume keeps working.
+describe("GET /api/runtime-events — per-scope id numbering (Wave5 0.5)", () => {
+  async function frameReader(res: Response) {
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    return {
+      next: async () => decoder.decode((await reader.read()).value),
+      cancel: () => reader.cancel(),
+    };
+  }
+
+  test("a foreign (dropped) event does NOT bump this subscriber's id (side-channel closed)", async () => {
+    const { __clearMembershipCacheForTests, __clearRunScopeCacheForTests } =
+      await import("$server/runtime/sse-conversation-filter");
+    __clearMembershipCacheForTests();
+    __clearRunScopeCacheForTests();
+
+    getRunConversationIdMock.mockImplementation(async (runId: string) =>
+      runId === "run-owned" ? "conv-owned" : runId === "run-u2" ? "conv-u2" : undefined,
+    );
+    getConversationMock.mockImplementation(async (id: string) =>
+      id === "conv-owned" ? { userId: "u1" } : id === "conv-u2" ? { userId: "u2" } : null,
+    );
+
+    busOn.mockClear();
+    const res = await GET(makeEvent({ locals: authedUser }));
+    const emit = busOn.mock.calls.find((c) => c[0] === "run:token")?.[1] as
+      | ((data: unknown) => void)
+      | undefined;
+    expect(emit).toBeDefined();
+
+    const r = await frameReader(res);
+    expect(await r.next()).toContain(": connected"); // priming
+
+    // global 1 (owned) → id 1.
+    emit!({ runId: "run-owned", token: "own-1", kind: "text" });
+    const f1 = await r.next();
+    expect(f1).toContain("own-1");
+    expect(f1).toContain("id: 1");
+
+    // global 2 is a FOREIGN u2 event (dropped for u1 — no frame), yet it
+    // advances the process-global ring counter. global 3 (owned) follows.
+    emit!({ runId: "run-u2", token: "foreign-secret", kind: "text" });
+    emit!({ runId: "run-owned", token: "own-3", kind: "text" });
+    const f3 = await r.next();
+    expect(f3).toContain("own-3");
+    expect(f3).not.toContain("foreign-secret");
+    // DENSE: id is 2, NOT 3 — the gap the global counter would have shown
+    // (revealing the foreign event happened) is gone.
+    expect(f3).toContain("id: 2");
+    expect(f3).not.toContain("id: 3");
+
+    await r.cancel();
+    __clearMembershipCacheForTests();
+    __clearRunScopeCacheForTests();
+  });
+
+  test("Last-Event-ID resume still works across an interleaved foreign event", async () => {
+    const { __clearMembershipCacheForTests, __clearRunScopeCacheForTests } =
+      await import("$server/runtime/sse-conversation-filter");
+    __clearMembershipCacheForTests();
+    __clearRunScopeCacheForTests();
+
+    getRunConversationIdMock.mockImplementation(async (runId: string) =>
+      runId === "run-owned" ? "conv-owned" : runId === "run-u2" ? "conv-u2" : undefined,
+    );
+    getConversationMock.mockImplementation(async (id: string) =>
+      id === "conv-owned" ? { userId: "u1" } : id === "conv-u2" ? { userId: "u2" } : null,
+    );
+
+    busOn.mockClear();
+    const res1 = await GET(makeEvent({ locals: authedUser }));
+    const emit = busOn.mock.calls.find((c) => c[0] === "run:token")?.[1] as
+      | ((data: unknown) => void)
+      | undefined;
+    const r1 = await frameReader(res1);
+    expect(await r1.next()).toContain(": connected");
+
+    // u1 sees own-a (global 1 → id 1); a foreign event (global 2) is dropped;
+    // u1 sees own-b (global 3 → id 2). u1's last seen per-scope id is 2.
+    emit!({ runId: "run-owned", token: "own-a", kind: "text" });
+    expect(await r1.next()).toContain("id: 1");
+    emit!({ runId: "run-u2", token: "foreign", kind: "text" });
+    emit!({ runId: "run-owned", token: "own-b", kind: "text" });
+    expect(await r1.next()).toContain("id: 2");
+    await r1.cancel();
+
+    // A new owned event fires while u1 is "disconnected" (buffered, global 4).
+    emit!({ runId: "run-owned", token: "own-c-missed", kind: "text" });
+
+    // u1 reconnects presenting its per-scope cursor 2 → translated to global 3
+    // → only global 4 (own-c-missed) is replayed, as the NEXT dense id (3).
+    // The already-seen own-a/own-b are NOT re-delivered.
+    const res2 = await GET(
+      makeEvent({ locals: authedUser, query: { lastEventId: "2" } }),
+    );
+    const resumed = await readChunks(res2, 2); // priming + the one missed frame
+    expect(resumed).toContain("own-c-missed");
+    expect(resumed).toContain("id: 3");
+    expect(resumed).not.toContain("own-a");
+    expect(resumed).not.toContain("own-b");
+
+    __clearMembershipCacheForTests();
+    __clearRunScopeCacheForTests();
+  });
+});
