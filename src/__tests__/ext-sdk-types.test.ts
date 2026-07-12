@@ -6,30 +6,38 @@
 // scaffold output; nothing was dropped except the import target.
 import { describe, test, expect } from "bun:test";
 import { validateManifestV2 } from "../extensions/manifest";
-import { join } from "path";
-import { tmpdir } from "os";
-import { randomUUID } from "crypto";
+import { defineExtension } from "../extensions/sdk/define";
 
-/** Write a template's TypeScript output to a temp file, import it, and return the default export (the config object). */
-async function evalTemplateManifest(tsCode: string): Promise<any> {
-  const tmpFile = join(tmpdir(), `ezcorp-test-${randomUUID()}.ts`);
-  const rewritten = tsCode
-    // Rewrite the import to point at the real defineExtension
-    .replace(
-      /from ["']@?ezcorp\/sdk["']/,
-      `from "${join(import.meta.dir, "../extensions/sdk/define")}"`,
-    )
-    // Strip non-resolvable local imports (e.g. handleRequest from "./index")
+/**
+ * Evaluate a template's generated TypeScript manifest to its default-export
+ * config object — WITHOUT writing a temp file or dynamic-`import()`ing it.
+ *
+ * The earlier implementation wrote each rewritten template to `os.tmpdir()`
+ * and `await import()`ed it. Importing a unique-path `.ts` module from
+ * outside the project tree makes Bun re-resolve `@ezcorp/sdk` from the tmp
+ * base and register a never-evicted module per call; under the memory
+ * pressure of the full `bun test` process that corrupted Bun's loader and
+ * SIGSEGV'd the whole shard (repro: 8GB RSS balloon → `Segmentation fault
+ * at address 0x8023`). The unlink was never the trigger — the import was.
+ *
+ * This mirrors the source-of-truth pattern already used by
+ * ts-manifest-integration / sdk-scaffold / ext-init: strip the imports,
+ * turn `export default` into a `return`, and evaluate the body with the
+ * real (identity) `defineExtension` injected. No files, no module-registry
+ * growth, deterministic.
+ */
+function evalTemplateManifest(tsCode: string): any {
+  const body = tsCode
+    // Drop the SDK import — `defineExtension` is injected as a parameter.
+    .replace(/^import\s+\{[^}]*\}\s+from\s+["']@?ezcorp\/sdk["'];?\s*$/gm, "")
+    // Strip non-resolvable local imports (e.g. handleRequest from "./index").
     .replace(/^import\s+\{[^}]*\}\s+from\s+["']\.\/.+["'];?\s*$/gm, "")
-    // Remove handler references that would be undefined after stripping imports
-    .replace(/handler:\s*\w+,?\s*\n?/g, "");
-  await Bun.write(tmpFile, rewritten);
-  try {
-    const mod = await import(tmpFile);
-    return mod.default;
-  } finally {
-    try { await Bun.file(tmpFile).unlink?.(); } catch { /* ignore */ }
-  }
+    // Remove handler references that would be undefined after stripping imports.
+    .replace(/handler:\s*\w+,?\s*\n?/g, "")
+    // Turn the module's default export into the function's return value.
+    .replace(/^export default /m, "return ");
+  // eslint-disable-next-line no-new-func
+  return new Function("defineExtension", body)(defineExtension);
 }
 
 describe("SDK types re-exports", () => {
@@ -43,7 +51,7 @@ describe("tool template", () => {
   test("toolManifest generates valid manifest", async () => {
     const { toolManifest } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/tool");
     const ts = toolManifest("my-tool", "A cool tool");
-    const manifest = await evalTemplateManifest(ts);
+    const manifest = evalTemplateManifest(ts);
     const result = validateManifestV2(manifest);
     expect(result.valid).toBe(true);
     expect(result.errors).toEqual([]);
@@ -82,7 +90,7 @@ describe("skill template", () => {
   test("skillManifest generates valid manifest with skills array", async () => {
     const { skillManifest } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/skill");
     const ts = skillManifest("my-skill", "A cool skill");
-    const manifest = await evalTemplateManifest(ts);
+    const manifest = evalTemplateManifest(ts);
     const result = validateManifestV2(manifest);
     expect(result.valid).toBe(true);
     expect(manifest.skills).toHaveLength(1);
@@ -109,7 +117,7 @@ describe("agent template", () => {
   test("agentManifest generates valid manifest with agent component", async () => {
     const { agentManifest } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/agent");
     const ts = agentManifest("my-agent", "A cool agent");
-    const manifest = await evalTemplateManifest(ts);
+    const manifest = evalTemplateManifest(ts);
     const result = validateManifestV2(manifest);
     expect(result.valid).toBe(true);
     expect(manifest.agent).toBeDefined();
@@ -137,7 +145,7 @@ describe("multi template", () => {
   test("multiManifest generates valid manifest with tools, skills, and agent", async () => {
     const { multiManifest } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/multi");
     const ts = multiManifest("my-multi", "A cool multi");
-    const manifest = await evalTemplateManifest(ts);
+    const manifest = evalTemplateManifest(ts);
     const result = validateManifestV2(manifest);
     expect(result.valid).toBe(true);
     expect(manifest.tools).toHaveLength(1);
