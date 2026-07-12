@@ -23,6 +23,7 @@ import type { EzActionResult } from "$server/runtime/ez-actions/types";
 import { buildDisabledCard, isGoalCommand, parseGoalCommand } from "$server/runtime/goal-host";
 import { validateAttachment } from "$server/chat/attachments/validator";
 import { writeAttachment, deleteForMessage } from "$server/chat/attachments/storage";
+import { cloneAttachmentsForFork } from "$server/chat/attachments/clone";
 import type { StagedAttachment } from "$server/chat/attachments/content-builder";
 import type { AttachmentSummary } from "$server/db/queries/conversations";
 import { buildCommandResolver } from "$lib/server/command-resolver";
@@ -179,10 +180,20 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   }
 
   let parentMessageId = body.parentMessageId;
+  // When a rerun/edit forks a NEW user row (editOf points at a USER message),
+  // that fork REPLACES the original on the active branch — so it must inherit
+  // the original's attachments or the image vanishes (and the model loses it
+  // via loadPastAttachments). A regenerate (editOf points at an ASSISTANT
+  // message) leaves the original user turn ON the path, so it still shows its
+  // own image and must NOT inherit — inheriting would render it twice.
+  let editInheritSourceId: string | undefined;
   if (body.editOf) {
     const allMessages = await convQueries.getMessages(conversationId);
     const editedMsg = allMessages.find((m) => m.id === body.editOf);
-    if (editedMsg) parentMessageId = editedMsg.parentMessageId ?? undefined;
+    if (editedMsg) {
+      parentMessageId = editedMsg.parentMessageId ?? undefined;
+      if (editedMsg.role === "user") editInheritSourceId = editedMsg.id;
+    }
   } else if (parentMessageId === undefined) {
     // No explicit parent and not an edit → continue the conversation's
     // main thread. Anchoring to the latest real leaf (instead of leaving
@@ -318,6 +329,32 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       content: body.content,
       parentMessageId,
     });
+    // Fork inheritance: a rerun/edit re-sends without re-uploading the File
+    // bytes, so copy the source user turn's attachments onto this forked row.
+    // Best-effort — a plain no-files send needs no project path, so a missing
+    // path or storage hiccup degrades to today's behavior (no image inherited)
+    // rather than failing the turn.
+    if (editInheritSourceId) {
+      try {
+        const project = await getProject(conv.projectId);
+        if (project?.path) {
+          const cloned = await cloneAttachmentsForFork({
+            projectRoot: project.path,
+            conversationId,
+            sourceMessageId: editInheritSourceId,
+            targetMessageId: userMessage.id,
+          });
+          stagedAttachments.push(...cloned.staged);
+          attachmentSummaries.push(...cloned.summaries);
+        }
+      } catch (err) {
+        log.warn("fork attachment inheritance failed (continuing without image)", {
+          conversationId,
+          sourceMessageId: editInheritSourceId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
   }
 
   // ── /goal slash-prefix interceptor (PRD §7.2.1, FR-1/2) ───────────

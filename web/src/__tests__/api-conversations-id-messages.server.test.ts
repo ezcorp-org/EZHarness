@@ -27,6 +27,7 @@ const deleteAttachmentsForMessage = vi.fn();
 const getProject = vi.fn();
 const streamChat = vi.fn(() => ({ catch: () => Promise.resolve() }));
 const checkTokenBudget = vi.fn();
+const cloneAttachmentsForFork = vi.fn();
 
 vi.mock("$server/db/queries/conversations", () => ({
   getConversation,
@@ -73,6 +74,10 @@ vi.mock("$server/chat/attachments/validator", () => ({
 vi.mock("$server/chat/attachments/storage", () => ({
   writeAttachment: async () => ({ storagePath: "p", sizeBytes: 1 }),
   deleteForMessage: async () => undefined,
+}));
+
+vi.mock("$server/chat/attachments/clone", () => ({
+  cloneAttachmentsForFork,
 }));
 
 const { GET, POST } = await import(
@@ -481,5 +486,181 @@ describe("POST /api/conversations/[id]/messages — Auto sentinel + route-once",
       }),
     );
     expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /api/conversations/[id]/messages — fork attachment inheritance", () => {
+  const stagedAtt = {
+    id: "att-1",
+    filename: "cow.png",
+    mimeType: "image/png",
+    storagePath: "/proj/.ezcorp/attachments/c1/m-new/x.png",
+  };
+  const summaryAtt = {
+    id: "att-1",
+    filename: "cow.png",
+    mimeType: "image/png",
+    sizeBytes: 5,
+    kind: "image",
+  };
+
+  beforeEach(() => {
+    getConversation.mockReset();
+    getConversation.mockResolvedValue({
+      id: "c1",
+      userId: "u1",
+      projectId: "p1",
+      agentConfigId: null,
+      modeId: null,
+      provider: null,
+      model: null,
+    });
+    createMessage.mockReset();
+    createMessage.mockResolvedValue({ id: "m-new", role: "user", content: "hi" });
+    getMessages.mockReset();
+    getLatestLeaf.mockReset();
+    getProject.mockReset();
+    getProject.mockResolvedValue({ id: "p1", path: "/proj" });
+    cloneAttachmentsForFork.mockReset();
+    cloneAttachmentsForFork.mockResolvedValue({ staged: [], summaries: [] });
+    vi.mocked(checkTokenBudget).mockReset();
+    vi.mocked(checkTokenBudget).mockResolvedValue({ allowed: true } as any);
+    streamChat.mockReset();
+    streamChat.mockReturnValue({ catch: () => Promise.resolve() } as any);
+  });
+
+  test("editOf a USER row copies the source attachments onto the forked row", async () => {
+    getMessages.mockResolvedValue([
+      { id: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "user", parentMessageId: null },
+    ]);
+    cloneAttachmentsForFork.mockResolvedValue({
+      staged: [stagedAtt],
+      summaries: [summaryAtt],
+    });
+
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: { user },
+        body: { content: "hi", editOf: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    // Cloned from the edited USER row onto the freshly-created fork.
+    expect(cloneAttachmentsForFork).toHaveBeenCalledTimes(1);
+    expect(cloneAttachmentsForFork).toHaveBeenCalledWith({
+      projectRoot: "/proj",
+      conversationId: "c1",
+      sourceMessageId: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      targetMessageId: "m-new",
+    });
+
+    // Inherited attachments ride back on userMessage + the top-level field…
+    const body = (await res.json()) as {
+      userMessage: { id: string; attachments?: unknown[] };
+      attachments: unknown[];
+    };
+    expect(body.userMessage.attachments).toEqual([summaryAtt]);
+    expect(body.attachments).toEqual([summaryAtt]);
+
+    // …and the staged copies are replayed to the model this turn.
+    const opts = (streamChat.mock.calls[0] as any)[2];
+    expect(opts.attachments).toEqual([stagedAtt]);
+  });
+
+  test("editOf an ASSISTANT row (regenerate) does NOT inherit — original stays on-path", async () => {
+    getMessages.mockResolvedValue([
+      { id: "b2b2b2b2-bbbb-4bbb-8bbb-bbbbbbbbbbbb", role: "assistant", parentMessageId: "u1" },
+    ]);
+
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: { user },
+        body: { content: "hi", editOf: "b2b2b2b2-bbbb-4bbb-8bbb-bbbbbbbbbbbb" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(cloneAttachmentsForFork).not.toHaveBeenCalled();
+
+    const body = (await res.json()) as {
+      userMessage: { attachments?: unknown[] };
+      attachments: unknown[];
+    };
+    expect(body.userMessage.attachments).toBeUndefined();
+    expect(body.attachments).toEqual([]);
+    const opts = (streamChat.mock.calls[0] as any)[2];
+    expect(opts.attachments).toBeUndefined();
+  });
+
+  test("editOf a USER row with no source attachments is a 200 no-op", async () => {
+    getMessages.mockResolvedValue([
+      { id: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "user", parentMessageId: null },
+    ]);
+    cloneAttachmentsForFork.mockResolvedValue({ staged: [], summaries: [] });
+
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: { user },
+        body: { content: "hi", editOf: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(cloneAttachmentsForFork).toHaveBeenCalledTimes(1);
+    const body = (await res.json()) as { attachments: unknown[] };
+    expect(body.attachments).toEqual([]);
+  });
+
+  test("missing project path degrades — no clone, turn still succeeds", async () => {
+    getMessages.mockResolvedValue([
+      { id: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "user", parentMessageId: null },
+    ]);
+    getProject.mockResolvedValue({ id: "p1", path: null });
+
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: { user },
+        body: { content: "hi", editOf: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(cloneAttachmentsForFork).not.toHaveBeenCalled();
+  });
+
+  test("a clone failure is swallowed — best-effort, turn still succeeds", async () => {
+    getMessages.mockResolvedValue([
+      { id: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "user", parentMessageId: null },
+    ]);
+    cloneAttachmentsForFork.mockRejectedValue(new Error("disk gone"));
+
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: { user },
+        body: { content: "hi", editOf: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { attachments: unknown[] };
+    expect(body.attachments).toEqual([]);
+  });
+
+  test("editOf a non-existent message does not clone and still succeeds", async () => {
+    // editedMsg not found → editInheritSourceId stays undefined (the
+    // `if (editedMsg)` false branch) → no clone, no crash.
+    getMessages.mockResolvedValue([]);
+
+    const res = await POST(
+      makeEvent({
+        method: "POST",
+        locals: { user },
+        body: { content: "hi", editOf: "c3c3c3c3-cccc-4ccc-8ccc-cccccccccccc" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(cloneAttachmentsForFork).not.toHaveBeenCalled();
   });
 });

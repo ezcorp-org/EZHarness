@@ -1,4 +1,5 @@
 {
+  "src/chat/attachments/clone.ts": 100,
   "packages/@ezcorp/sdk/src/**": 100,
   "src/extensions/sdk/**": 100,
   "src/extensions/call-provenance.ts": 100,

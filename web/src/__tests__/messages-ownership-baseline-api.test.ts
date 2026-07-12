@@ -99,6 +99,7 @@ mock.module("$server/db/queries/active-runs", () => ({
 
 mock.module("$server/db/queries/attachments", () => ({
   insertAttachment: mock(async () => ({ id: "att-1" })),
+  listAttachmentsForMessage: mock(async () => []),
   deleteAttachmentsForMessage: mock(async () => undefined),
 }));
 
@@ -159,6 +160,7 @@ mock.module("$server/chat/attachments/validator", () => ({
 
 mock.module("$server/chat/attachments/storage", () => ({
   writeAttachment: async () => ({ storagePath: "p", sizeBytes: 1 }),
+  readAttachmentBytes: async () => new Uint8Array(),
   deleteForMessage: async () => undefined,
 }));
 
