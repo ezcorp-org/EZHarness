@@ -133,7 +133,7 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
     name: "summarize_conversation",
     label: "summarize_conversation",
     description:
-      "Summarize a conversation's message history. The LLM MUST supply the conversationId.",
+      "Summarize a conversation's message history, OR answer a specific question about it. The LLM MUST supply the conversationId. Pass an optional `question` to get a precise answer (counts, lists, extraction) computed over the FULL transcript — use this to escalate when a `read_page` page excerpt is truncated or doesn't contain the answer. Without a `question` it produces a `style`-tuned summary (brief | standup | tweet).",
     category: "ez",
     cardType: "default",
     // Server-side LLM call. Slow models on long transcripts (transcript
@@ -149,7 +149,12 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
           type: "string",
           description: "Conversation to summarize. Required.",
         },
-        style: { type: "string", enum: ["brief", "standup", "tweet"], description: "Summary style." },
+        style: { type: "string", enum: ["brief", "standup", "tweet"], description: "Summary style (ignored when `question` is set)." },
+        question: {
+          type: "string",
+          description:
+            "Optional. A specific question to answer over the FULL transcript (e.g. \"how many limited editions were listed?\", \"list every decision made\"). When set, the tool answers it precisely instead of producing a style summary — the escalation path when a read_page excerpt is truncated.",
+        },
       },
       required: ["conversationId"],
     }),
@@ -170,6 +175,11 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
           };
         }
         const style: SummaryStyle = params?.style && STYLE_PROMPTS[params.style as SummaryStyle] ? params.style : "brief";
+        // A non-empty `question` turns this into a targeted-answer pass over
+        // the transcript instead of a style summary (the escalation path when
+        // a read_page excerpt is truncated). Whitespace-only falls back to
+        // the style behavior.
+        const question = typeof params?.question === "string" ? params.question.trim() : "";
 
         const conv = await getConversation(conversationId);
         if (!conv) {
@@ -196,10 +206,19 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
           transcript = `…[truncated]…\n${transcript.slice(transcript.length - MAX_TRANSCRIPT_CHARS)}`;
         }
 
-        const summary = await summarize(STYLE_PROMPTS[style], transcript);
+        const systemPrompt = question
+          ? `Answer the following question about the conversation transcript below. Be precise and quote/count from the transcript; if the transcript does not contain the answer, say so plainly. Question: ${question}`
+          : STYLE_PROMPTS[style];
+        const summary = await summarize(systemPrompt, transcript);
+        const details: { conversationId: string; style: SummaryStyle; messageCount: number; question?: string } = {
+          conversationId,
+          style,
+          messageCount: messages.length,
+        };
+        if (question) details.question = question;
         return {
           content: [{ type: "text" as const, text: summary }],
-          details: { conversationId, style, messageCount: messages.length },
+          details,
         };
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], details: { isError: true } };
