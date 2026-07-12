@@ -230,20 +230,22 @@ describe("session backfill — dark read-parity vs loadHistory", () => {
     expect(sessRows.length).toBe(1);
   });
 
-  test("parent absent from the loaded set is re-rooted — buildContext degrades, no invalid_session throw", async () => {
-    // A parentMessageId can be FK-legal yet absent from THIS conversation's
-    // rows: messages.parent_message_id is a self-FK to messages(id) (NOT
-    // scoped to conversation), so a pointer can reference a row in ANOTHER
-    // conversation. getMessages loads only this conversation, so that parent
-    // is not in knownIds and backfill re-roots it to null — getPathToRoot
-    // then degrades gracefully instead of throwing invalid_session.
+  test("cross-conversation parent is truncated by BOTH loadHistory and backfill (Wave5 0.7)", async () => {
+    // A parentMessageId can be FK-legal yet reference a row in ANOTHER
+    // conversation: messages.parent_message_id is a self-FK to messages(id)
+    // that is NOT conversation-scoped. No legitimate writer creates such a
+    // pointer (Wave5 0.7 audited every parentMessageId write), but corrupt or
+    // unvalidated client data could.
     //
-    // NOTE (honest scope): a *same-conversation* dangling pointer is
-    // unreachable (self-FK ON DELETE SET NULL). loadHistory parity is NOT
-    // asserted for this case — its recursive CTE is unfiltered by
-    // conversation and would FOLLOW the cross-conversation pointer (a
-    // pre-existing quirk), so the two intentionally differ here; backfill
-    // prefers graceful truncation over a throw.
+    // Both sides now truncate at the conversation boundary and AGREE:
+    //  - backfill: getMessages loads only this conversation, so the parent is
+    //    absent from knownIds and re-roots to null → getPathToRoot degrades
+    //    gracefully (no invalid_session throw).
+    //  - loadHistory: getConversationPath's recursive CTE is conversation-
+    //    scoped (Wave5 0.7), so it stops at the boundary instead of pulling the
+    //    other conversation's row into context. The pre-Wave5 divergence (the
+    //    CTE used to FOLLOW the cross-conversation pointer) is gone, so parity
+    //    IS now asserted here.
     const other = await newConversation();
     await seedMsg({ id: "d1", convId: other, role: "assistant", content: "d1", parentId: null, createdAt: at(0) });
     const c = await newConversation();
@@ -256,6 +258,10 @@ describe("session backfill — dark read-parity vs loadHistory", () => {
 
     const u2entry = (await storage.getEntries()).find((e) => e.id === "u2");
     expect(u2entry?.parentId).toBeNull();
+
+    // loadHistory now matches: the foreign "d1" row is NOT followed.
+    const ref = await referenceHistory(c);
+    expect(ref.map(textOf)).toEqual(["u2", "a2"]);
   });
 
   test("empty conversation: empty session, empty context, null leaf", async () => {

@@ -599,13 +599,27 @@ export async function getConversationPath(
   // millisecond (common in tight-loop tests and fast branch creation) used
   // to come back in non-deterministic order, silently breaking downstream
   // code that expects strict user/assistant alternation in the history.
+  //
+  // The recursive step is CONVERSATION-SCOPED (`m.conversation_id =
+  // ${conversationId}`): messages.parent_message_id is a self-FK to
+  // messages(id) that is NOT conversation-scoped, so a FK-legal pointer could
+  // in principle reference a row in ANOTHER conversation. No legitimate writer
+  // ever creates such a pointer (every runtime save parents within the run's
+  // own conversation; sub-conversation back-links live on conversations.
+  // parent_message_id, a distinct column), but an unvalidated client-supplied
+  // parentMessageId or corrupt data could. Scoping the follow here means a
+  // stray cross-conversation pointer TRUNCATES the walk at the boundary rather
+  // than pulling another conversation's rows into this history — matching the
+  // per-conversation truncation session-backfill already performs (its
+  // getMessages loads only this conversation, so the parent falls out of
+  // knownIds and re-roots to null).
   const result = await db.execute(sql`
     WITH RECURSIVE path AS (
       SELECT *, 0 AS depth FROM messages
         WHERE id = ${leafMessageId} AND conversation_id = ${conversationId}
       UNION ALL
       SELECT m.*, p.depth + 1 FROM messages m
-        JOIN path p ON m.id = p.parent_message_id
+        JOIN path p ON m.id = p.parent_message_id AND m.conversation_id = ${conversationId}
     )
     SELECT * FROM path ORDER BY depth DESC
   `);
