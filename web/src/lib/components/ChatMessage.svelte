@@ -52,6 +52,7 @@
 		onrerun,
 		onfallback,
 		onbranch,
+		onrewind,
 		onsavememory,
 		onremovememory,
 		savedAsMemory = false,
@@ -90,6 +91,12 @@
 		onrerun?: (message: Message) => void;
 		onfallback?: (provider: string, model: string) => void;
 		onbranch?: (message: Message) => void;
+		/** Rewind/checkpoint to this turn (Sessions P4): moves the conversation's
+		 *  durable leaf here so the next send continues from this point, with the
+		 *  abandoned tail preserved as a switchable sibling. Wired by ChatThread
+		 *  only when the `sessions:historyProducer` flag is on (else undefined →
+		 *  the toolbar button is hidden). Assistant rows only. */
+		onrewind?: (message: Message) => void;
 		onsavememory?: (message: Message) => void;
 		onremovememory?: (message: Message) => void;
 		savedAsMemory?: boolean;
@@ -888,6 +895,7 @@
 				renderedHtml={mdContainer?.innerHTML}
 				onregenerate={onregenerate ? () => onregenerate!(message) : undefined}
 				onbranch={onbranch ? () => onbranch!(message) : undefined}
+				onrewind={onrewind ? () => onrewind!(message) : undefined}
 				onsavememory={onsavememory ? () => onsavememory!(message) : undefined}
 				onremovememory={onremovememory ? () => onremovememory!(message) : undefined}
 				{savedAsMemory}

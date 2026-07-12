@@ -217,6 +217,9 @@ export interface SendMessageHandlers {
 	handleRegenerate(msg: Message): Promise<void>;
 	handleRerun(msg: Message): Promise<void>;
 	handleBranchNavigate(messageId: string): void;
+	/** Rewind/checkpoint to `msg` (Sessions P4): POST /rewind + move the active
+	 *  branch to it so the next send continues from here. No-op off the flag. */
+	handleRewind(msg: Message): Promise<void>;
 	handleSaveMemory(msg: Message): Promise<void>;
 	handleRetry(msg: Message): Promise<void>;
 	handleFallback(
@@ -783,6 +786,31 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		);
 	}
 
+	async function handleRewind(msg: Message): Promise<void> {
+		// Rewind/checkpoint (Sessions P4): make THIS turn the conversation's
+		// durable leaf so the next send continues from here. The server moves
+		// the session leaf pointer (POST /rewind); the abandoned tail stays in
+		// `messages` as a switchable sibling branch. A non-2xx (flag off / active
+		// run / bad target) leaves the view unchanged.
+		const convId = host.convId();
+		if (!convId) return;
+		try {
+			const res = await userFetch(`/api/conversations/${convId}/rewind`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ targetMessageId: msg.id }),
+			});
+			if (!res.ok) return;
+			// Move the active branch to the rewound leaf. handleSend derives the
+			// next send's parentMessageId from activeLeafId, so the turn continues
+			// from here; the producer honours that explicit parent. Rewind changes
+			// no messages, so no reload — the thread re-derives root→msg locally.
+			host.activeLeafId.set(msg.id);
+		} catch {
+			// silent — matches handleSaveMemory's fail-quiet behaviour
+		}
+	}
+
 	async function handleSaveMemory(msg: Message): Promise<void> {
 		try {
 			const res = await userFetch("/api/memories", {
@@ -962,6 +990,7 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		handleRegenerate,
 		handleRerun,
 		handleBranchNavigate,
+		handleRewind,
 		handleSaveMemory,
 		handleRetry,
 		handleFallback,

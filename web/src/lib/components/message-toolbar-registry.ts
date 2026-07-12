@@ -106,6 +106,13 @@ export const MESSAGE_TOOLBAR_PROPS: readonly ToolbarPropMeta[] = [
 			"Content-only edit of one assistant turn (no regen). Single-row by design.",
 	},
 	{ prop: "onexclude", role: "both", bulkSupported: true },
+	{
+		prop: "onrewind",
+		role: "assistant",
+		bulkSupported: false,
+		bulkSkipReason:
+			"Rewind/checkpoint moves the durable leaf to ONE specific turn — bulk has no meaning (which of N would the leaf land on?).",
+	},
 ];
 
 /** Quick lookup helper used by the parity test. */

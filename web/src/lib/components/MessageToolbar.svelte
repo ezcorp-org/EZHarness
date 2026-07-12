@@ -30,6 +30,7 @@
 		onregenerate,
 		onrerun,
 		onbranch,
+		onrewind,
 		onretry,
 		onsavememory,
 		onremovememory,
@@ -53,6 +54,11 @@
 		 *  next to the edit affordance. */
 		onrerun?: () => void;
 		onbranch?: () => void;
+		/** Rewind/checkpoint: make THIS turn the conversation's durable leaf so
+		 *  the next send continues from here (the abandoned tail is preserved as
+		 *  a switchable sibling branch). Assistant rows only — gated by the
+		 *  host on the `sessions:historyProducer` flag (hidden when off). */
+		onrewind?: () => void;
 		onretry?: () => void;
 		onsavememory?: () => void;
 		onremovememory?: () => void;
@@ -227,6 +233,17 @@
 						<circle cx="18" cy="6" r="3" />
 						<circle cx="6" cy="18" r="3" />
 						<path d="M18 9a9 9 0 0 1-9 9" />
+					</svg>
+				</button>
+			</Tooltip>
+		{/if}
+
+		{#if role === 'assistant' && onrewind}
+			<Tooltip text="Continue from here (rewind checkpoint)">
+				<button onclick={onrewind} class={btnClass} aria-label="Continue from here" data-testid="rewind-btn">
+					<svg class="h-3.5 w-3.5 text-[var(--color-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+						<polyline points="1 4 1 10 7 10" />
+						<path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
 					</svg>
 				</button>
 			</Tooltip>

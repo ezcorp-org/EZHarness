@@ -1014,6 +1014,55 @@ describe("handleSaveMemory", () => {
 	});
 });
 
+describe("handleRewind (Sessions P4)", () => {
+	test("POSTs the target message id and moves the active branch to it", async () => {
+		userFetchMock.mockImplementationOnce(async () =>
+			new Response(JSON.stringify({ conversationId: "conv-1", currentLeaf: "a1", nodes: [] }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
+		const { host, state } = makeHost({ activeLeafId: "later-tip" });
+		const handlers = makeSendMessage(host);
+		await handlers.handleRewind(makeMessage("a1", { role: "assistant" }));
+		expect(userFetchMock).toHaveBeenCalledTimes(1);
+		const [url, init] = userFetchMock.mock.calls[0]!;
+		expect(url).toBe("/api/conversations/conv-1/rewind");
+		expect((init as RequestInit).method).toBe("POST");
+		expect(JSON.parse((init as RequestInit).body as string)).toEqual({ targetMessageId: "a1" });
+		// The next send derives parentMessageId from activeLeafId → continues from a1.
+		expect(state.activeLeafId).toBe("a1");
+	});
+
+	test("a non-2xx (flag off / active run / bad target) leaves the active branch unchanged", async () => {
+		userFetchMock.mockImplementationOnce(async () =>
+			new Response(JSON.stringify({ error: "disabled", code: "session_producer_disabled" }), { status: 409 }),
+		);
+		const { host, state } = makeHost({ activeLeafId: "later-tip" });
+		const handlers = makeSendMessage(host);
+		await handlers.handleRewind(makeMessage("a1", { role: "assistant" }));
+		expect(state.activeLeafId).toBe("later-tip");
+	});
+
+	test("no-op (no POST) when there is no conversation", async () => {
+		const { host, state } = makeHost({ convId: "", activeLeafId: "later-tip" });
+		const handlers = makeSendMessage(host);
+		await handlers.handleRewind(makeMessage("a1", { role: "assistant" }));
+		expect(userFetchMock).not.toHaveBeenCalled();
+		expect(state.activeLeafId).toBe("later-tip");
+	});
+
+	test("a thrown fetch is swallowed (fail-quiet), branch unchanged", async () => {
+		userFetchMock.mockImplementationOnce(async () => {
+			throw new Error("network down");
+		});
+		const { host, state } = makeHost({ activeLeafId: "later-tip" });
+		const handlers = makeSendMessage(host);
+		await handlers.handleRewind(makeMessage("a1", { role: "assistant" }));
+		expect(state.activeLeafId).toBe("later-tip");
+	});
+});
+
 describe("handleRetry", () => {
 	test("removes the failed assistant turn and re-sends the preceding user content", async () => {
 		const u1 = makeMessage("u1", { role: "user", content: "Q" });

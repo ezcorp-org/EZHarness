@@ -1383,6 +1383,21 @@ export function initStores() {
 				}
 				break;
 			}
+
+			case "conversation:tree-changed": {
+				// Sessions P4 rewind/checkpoint: a rewind moved this
+				// conversation's durable leaf. The SSE filter already scoped
+				// delivery to the owner (conversation-scoped, like goal:update),
+				// so re-dispatch as a window CustomEvent — ChatThread guards on
+				// its own conversationId and re-pulls the tree + messages (same
+				// pattern as `conversation:created` / `ext:page-state`).
+				if (typeof window !== "undefined") {
+					window.dispatchEvent(new CustomEvent("conversation:tree-changed", {
+						detail: event.data,
+					}));
+				}
+				break;
+			}
 		}
 	});
 
