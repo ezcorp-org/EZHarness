@@ -259,6 +259,25 @@ describe("isEmbeddingReady — state checks", () => {
 
 describe("Executor — memory_unavailable emission", () => {
   test("emits run:status with memory_unavailable when memory injection throws", async () => {
+    // getDb() is otherwise left at a prior test's `() => ({})` stub, which
+    // has no `.update/.insert/.select` — the executor's incidental persist
+    // paths (watchdog boot-terminalize, error/tool-call re-anchoring) then
+    // throw `getDb().update is not a function` and derail streamChat BEFORE
+    // it reaches the memory-injection block under test. A universal chainable
+    // no-op DB lets every one of those writes settle harmlessly so the run
+    // reaches setup-tools and the injection failure surfaces as designed.
+    const dbChain: any = new Proxy(() => dbChain, {
+      get(_t, prop) {
+        if (prop === "then") return (resolve: (v: unknown) => void) => resolve([]);
+        return (..._args: unknown[]) => dbChain;
+      },
+      apply: () => dbChain,
+    });
+    mock.module("../db/connection", () => ({
+      getDb: () => dbChain,
+      getPglite: () => null,
+      initDb: mock(() => Promise.resolve()),
+    }));
     // Mock all executor dependencies
     mock.module("../providers/router", () => ({
       resolveModel: mock(() => Promise.resolve({
