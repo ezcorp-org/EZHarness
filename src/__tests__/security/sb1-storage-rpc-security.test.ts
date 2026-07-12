@@ -32,6 +32,7 @@ import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { mock } from "bun:test";
 import { setupTestDb, closeTestDb, getTestPglite } from "../helpers/test-pglite";
 import { restoreModuleMocks } from "../helpers/mock-cleanup";
+import { withFrozenNow } from "../helpers/frozen-clock";
 
 // Encryption module reads .pi-secret / .pi-salt from CWD at first use — point
 // it at deterministic values so this test file never touches the real files.
@@ -325,13 +326,18 @@ describe("sec-SB1: storage RPC quota, rate-limiting, key validation, batch, encr
     await insertExtension(rlExt, rlManifest);
     const ctx = makeCtx(rlManifest);
 
-    let rateLimited = 0;
-    // 60 consecutive writes — the 50-token bucket must reject at least a
-    // handful of them before `elapsed * 50` refills the bucket meaningfully.
-    for (let i = 0; i < 60; i++) {
-      const resp = await handleStorageRpc(rlExt, rpc("set", { key: `rl-${i}`, value: "v" }), ctx);
-      if (resp.error?.code === -32004) rateLimited += 1;
-    }
+    // Clock frozen for the burst so the 50-token bucket cannot refill
+    // between ops: 60 writes in a single instant must reject the 10 past
+    // the budget. This asserts the >50-ops/second guarantee directly,
+    // without the wall-clock race that made this flake under CPU load.
+    const rateLimited = await withFrozenNow(async () => {
+      let n = 0;
+      for (let i = 0; i < 60; i++) {
+        const resp = await handleStorageRpc(rlExt, rpc("set", { key: `rl-${i}`, value: "v" }), ctx);
+        if (resp.error?.code === -32004) n += 1;
+      }
+      return n;
+    });
     expect(rateLimited).toBeGreaterThan(0);
   });
 
