@@ -2,7 +2,9 @@ import { test, expect, describe } from "bun:test";
 import {
   contentTokens,
   cosineSimilarity,
+  EXTENSION_SUGGEST_DEFAULTS,
   lexicalScore,
+  maxExampleCosine,
   rankCandidates,
   RANK_DEFAULTS,
 } from "../intent-rank";
@@ -99,6 +101,67 @@ describe("rankCandidates", () => {
   test("blended score formula: relevance*(1-w) + prior*w", () => {
     const [c] = rankCandidates(draft, [{ key: "k", embedding: [1, 0, 0] }], { k: 0.5 }, { priorWeight: 0.4 });
     expect(c!.score).toBeCloseTo(1 * 0.6 + 0.5 * 0.4);
+  });
+});
+
+describe("maxExampleCosine", () => {
+  const draft = [1, 0, 0];
+
+  test("no examples → plain description cosine (back-compat)", () => {
+    const desc = [0.5, Math.sqrt(1 - 0.25), 0]; // cosine 0.5
+    expect(maxExampleCosine(draft, desc)).toBeCloseTo(0.5);
+    expect(maxExampleCosine(draft, desc, [])).toBeCloseTo(0.5);
+  });
+
+  test("folds in the best example when it beats the description cosine", () => {
+    const desc = [0.1, Math.sqrt(1 - 0.01), 0]; // 0.1
+    const examples = [
+      [0.3, Math.sqrt(1 - 0.09), 0], // 0.3
+      [0.8, Math.sqrt(1 - 0.64), 0], // 0.8 ← best
+    ];
+    expect(maxExampleCosine(draft, desc, examples)).toBeCloseTo(0.8);
+  });
+
+  test("a weak example never drags the score below the description cosine", () => {
+    const desc = [0.9, Math.sqrt(1 - 0.81), 0]; // 0.9
+    expect(maxExampleCosine(draft, desc, [[0, 1, 0]])).toBeCloseTo(0.9);
+  });
+});
+
+describe("rankCandidates — example-aware cosine (suggestExamples)", () => {
+  const draft = [1, 0, 0];
+
+  test("an authored example rescues a candidate whose description cosine is below the gate", () => {
+    // Description cosine 0.2 (below the 0.28 default gate), but an example
+    // matches the draft head-on — the candidate qualifies and its reported
+    // cosine is the example max.
+    const candidate = {
+      key: "file-organizer",
+      embedding: [0.2, Math.sqrt(1 - 0.04), 0],
+      exampleEmbeddings: [[1, 0, 0]],
+    };
+    const [out] = rankCandidates(draft, [candidate], {});
+    expect(out!.key).toBe("file-organizer");
+    expect(out!.cosine).toBeCloseTo(1);
+    expect(out!.relevance).toBeCloseTo(1);
+  });
+
+  test("without a matching example the low-cosine candidate stays gated out", () => {
+    const candidate = {
+      key: "file-organizer",
+      embedding: [0.2, Math.sqrt(1 - 0.04), 0],
+      exampleEmbeddings: [[0, 1, 0]], // orthogonal example — no rescue
+    };
+    expect(rankCandidates(draft, [candidate], {})).toEqual([]);
+  });
+});
+
+describe("EXTENSION_SUGGEST_DEFAULTS", () => {
+  test("2 slots, gate above the 0.32 live noise cosine, shared prior weight", () => {
+    expect(EXTENSION_SUGGEST_DEFAULTS.topK).toBe(2);
+    expect(EXTENSION_SUGGEST_DEFAULTS.minScore).toBe(0.35);
+    expect(EXTENSION_SUGGEST_DEFAULTS.minScore).toBeGreaterThan(0.32);
+    expect(EXTENSION_SUGGEST_DEFAULTS.priorWeight).toBe(RANK_DEFAULTS.priorWeight);
   });
 });
 

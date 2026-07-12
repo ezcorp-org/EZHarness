@@ -53,9 +53,10 @@ export interface MockOverrides {
 	settings?: Record<string, unknown>;
 	/**
 	 * Composer-suggestion responses for `POST /api/composer/suggest`.
-	 * `tools` fills the chip row; `enhancement` (with `llmAvailable`
-	 * defaulting to its presence) fills the ✨ rewrite row; `enabled:false`
-	 * simulates the admin kill-switch short-circuit.
+	 * `tools` fills the tool-chip row; `extensions` fills the 🧩 whole-extension
+	 * chip row (emitted only when the request `include` carries "extensions");
+	 * `enhancement` (with `llmAvailable` defaulting to its presence) fills the
+	 * ✨ rewrite row; `enabled:false` simulates the admin kill-switch short-circuit.
 	 */
 	composerSuggest?: {
 		enabled?: boolean;
@@ -63,6 +64,11 @@ export interface MockOverrides {
 			name: string;
 			extension: string;
 			extensionType: string;
+			description: string;
+			score: number;
+		}>;
+		extensions?: Array<{
+			name: string;
 			description: string;
 			score: number;
 		}>;
@@ -1557,6 +1563,10 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			const include = body.include ?? ["tools"];
 			const json: Record<string, unknown> = { enabled: true, latencyMs: 5 };
 			if (include.includes("tools")) json.tools = composerSuggest.tools ?? [];
+			// Whole-extension chips ride the same fast half as tool chips — but only
+			// when the client opted in via include:["…","extensions"]. Old clients
+			// (include:["tools"]) get no `extensions` key at all (byte-compatible).
+			if (include.includes("extensions")) json.extensions = composerSuggest.extensions ?? [];
 			if (include.includes("enhance")) {
 				const enhancement = composerSuggest.enhancement ?? null;
 				json.llmAvailable = composerSuggest.llmAvailable ?? enhancement !== null;

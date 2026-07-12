@@ -55,6 +55,9 @@ function validateToolsArray(tools: unknown, errors: string[]): void {
     if (t.capabilities !== undefined) {
       validateToolCapabilities(`tools[${i}].capabilities`, t.capabilities, errors);
     }
+    if (t.suggestExamples !== undefined) {
+      validateSuggestExamples(`tools[${i}].suggestExamples`, t.suggestExamples, errors);
+    }
   }
 }
 
@@ -993,6 +996,68 @@ export function validateNpmDependenciesBlock(
   }
 }
 
+// ── suggestExamples Validator ────────────────────────────────────
+//
+// Composer-suggestion example phrasings — declared per-tool
+// (`tools[i].suggestExamples`) and/or top-level (`suggestExamples`); both
+// share this validator. The caps keep an author from stuffing the ranker:
+// at most 5 short entries, each non-empty and ≤ 120 chars after trimming,
+// with no duplicates once trimmed. These strings NEVER reach the LLM (they
+// are stripped before the tool spec is built) — they only feed composer
+// retrieval + the offline training export. No schemaVersion bump: the field
+// is optional on both v2 and v3 (npmDependencies/PR #81 blueprint).
+
+/** Max authored example phrasings per tool / per extension. */
+export const MAX_SUGGEST_EXAMPLES = 5;
+/** Max length (chars, after trimming) of a single example phrasing. */
+export const MAX_SUGGEST_EXAMPLE_LENGTH = 120;
+
+export function validateSuggestExamples(
+  path: string,
+  value: unknown,
+  errors: string[],
+): void {
+  if (!Array.isArray(value)) {
+    errors.push(`${path} must be an array of strings`);
+    return;
+  }
+  if (value.length > MAX_SUGGEST_EXAMPLES) {
+    errors.push(`${path} must declare at most ${MAX_SUGGEST_EXAMPLES} entries`);
+  }
+  const seen = new Set<string>();
+  for (let i = 0; i < value.length; i++) {
+    const raw = value[i];
+    if (typeof raw !== "string") {
+      errors.push(`${path}[${i}] must be a string`);
+      continue;
+    }
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) {
+      errors.push(`${path}[${i}] must be a non-empty string`);
+      continue;
+    }
+    if (trimmed.length > MAX_SUGGEST_EXAMPLE_LENGTH) {
+      errors.push(
+        `${path}[${i}] must be at most ${MAX_SUGGEST_EXAMPLE_LENGTH} characters`,
+      );
+      continue;
+    }
+    // Control characters (incl. NUL) are rejected so an authored example can
+    // never collide with the embedding cache's NUL-delimited tool keys —
+    // examples are plain user phrasings and have no business carrying them.
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point of this check
+    if (/[\u0000-\u001f\u007f]/.test(raw)) {
+      errors.push(`${path}[${i}] must not contain control characters`);
+      continue;
+    }
+    if (seen.has(trimmed)) {
+      errors.push(`${path}[${i}] "${trimmed}" is a duplicate`);
+    } else {
+      seen.add(trimmed);
+    }
+  }
+}
+
 // ── smokeTest Validator ──────────────────────────────────────────
 
 /**
@@ -1191,6 +1256,12 @@ export function validateManifestV2(
   // Distinct from the ext-to-ext `dependencies` block above.
   if (m.npmDependencies !== undefined) {
     validateNpmDependenciesBlock(m.npmDependencies, errors);
+  }
+
+  // Optional top-level composer-suggestion example phrasings (whole-extension
+  // intent). Per-tool examples are validated inside validateToolsArray.
+  if (m.suggestExamples !== undefined) {
+    validateSuggestExamples("suggestExamples", m.suggestExamples, errors);
   }
 
   if (m.acceptedAttachmentMimes !== undefined) {

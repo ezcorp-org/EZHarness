@@ -1,19 +1,24 @@
 <script lang="ts">
-	import type { SuggestedTool, Enhancement } from "$lib/composer-suggest-logic";
+	import type { SuggestedTool, SuggestedExtension, Enhancement } from "$lib/composer-suggest-logic";
 
 	let {
 		open,
 		tools,
+		extensions,
 		enhancement,
 		enhanceLoading,
 		applied,
 		onselecttool,
+		onselectextension,
 		onapply,
 		onundo,
 		ondismiss,
 	}: {
 		open: boolean;
 		tools: SuggestedTool[];
+		/** Whole-extension suggestion chips — rendered after the tool chips in
+		 *  the same wrap row, in a distinct violet palette. */
+		extensions: SuggestedExtension[];
 		enhancement: Enhancement | null;
 		/** True while a rewrite is being generated — renders a subtle shimmer
 		 *  INSIDE an already-open popover (tool chips), never alone. */
@@ -21,6 +26,7 @@
 		/** True after the rewrite was applied — the Apply button becomes Undo. */
 		applied: boolean;
 		onselecttool: (tool: SuggestedTool) => void;
+		onselectextension: (ext: SuggestedExtension) => void;
 		onapply: () => void;
 		onundo: () => void;
 		ondismiss: () => void;
@@ -69,6 +75,21 @@
 							🔧 {tool.extension} · {tool.name}
 						</button>
 					{/if}
+				{/each}
+				{#each extensions as ext (ext.name)}
+					<!-- Whole-extension chip (violet, distinct from the indigo tool
+					     chips): clicking wires the extension via `![ext:name]` and
+					     opens its inline-tool UI. -->
+					<button
+						type="button"
+						data-testid="suggestion-extension-chip"
+						data-extension={ext.name}
+						title="{ext.description} — click to add {ext.name}"
+						class="rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-xs text-violet-300 transition-colors hover:bg-violet-500/25"
+						onclick={() => onselectextension(ext)}
+					>
+						🧩 {ext.name}
+					</button>
 				{/each}
 				<button
 					type="button"

@@ -527,7 +527,7 @@ export const suggestionFeedback = pgTable("suggestion_feedback", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
   conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
-  kind: text("kind").notNull().$type<"tool" | "enhance">(),
+  kind: text("kind").notNull().$type<"tool" | "enhance" | "extension">(),
   action: text("action").notNull().$type<"shown" | "accepted" | "dismissed">(),
   toolName: text("tool_name"),
   latencyMs: integer("latency_ms"),

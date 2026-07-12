@@ -13,7 +13,7 @@ import { render, cleanup, fireEvent } from "@testing-library/svelte";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import SuggestionPopover from "../SuggestionPopover.svelte";
-import type { SuggestedTool } from "$lib/composer-suggest-logic";
+import type { SuggestedTool, SuggestedExtension } from "$lib/composer-suggest-logic";
 
 afterEach(() => cleanup());
 
@@ -31,15 +31,22 @@ const BUILTIN_TOOL: SuggestedTool = {
 	description: "Create a task",
 	score: 0.55,
 };
+const EXT_SUGGESTION: SuggestedExtension = {
+	name: "file-organizer",
+	description: "Keep your files tidy",
+	score: 0.82,
+};
 
 function makeProps(overrides: Partial<Record<string, unknown>> = {}) {
 	return {
 		open: true,
 		tools: [EXT_TOOL, BUILTIN_TOOL],
+		extensions: [] as SuggestedExtension[],
 		enhancement: null,
 		enhanceLoading: false,
 		applied: false,
 		onselecttool: vi.fn(),
+		onselectextension: vi.fn(),
 		onapply: vi.fn(),
 		onundo: vi.fn(),
 		ondismiss: vi.fn(),
@@ -153,5 +160,42 @@ describe("SuggestionPopover", () => {
 		expect(extChip).toHaveAttribute("data-extension", "analyzer");
 		expect(builtinChip).toHaveAttribute("data-tool", "task_create");
 		expect(builtinChip).toHaveAttribute("data-extension", "ez");
+	});
+
+	test("extension chip renders name + description title, fires onselectextension with the ext", async () => {
+		const props = makeProps({ tools: [], extensions: [EXT_SUGGESTION] });
+		const { getByTestId } = render(SuggestionPopover, props);
+		const chip = getByTestId("suggestion-extension-chip");
+		expect(chip.tagName).toBe("BUTTON");
+		expect(chip.textContent?.trim()).toBe("🧩 file-organizer");
+		expect(chip).toHaveAttribute("data-extension", "file-organizer");
+		expect(chip).toHaveAttribute("title", expect.stringContaining("Keep your files tidy"));
+		await fireEvent.click(chip);
+		expect(props.onselectextension).toHaveBeenCalledWith(EXT_SUGGESTION);
+	});
+
+	test("no extension chips render when the extensions list is empty", () => {
+		const { queryByTestId } = render(SuggestionPopover, makeProps({ extensions: [] }));
+		expect(queryByTestId("suggestion-extension-chip")).not.toBeInTheDocument();
+	});
+
+	test("extension-only popover renders (no tool chips, header + one ext chip)", () => {
+		const { getByTestId, getByText, queryAllByTestId } = render(
+			SuggestionPopover,
+			makeProps({ tools: [], extensions: [EXT_SUGGESTION] }),
+		);
+		expect(getByTestId("suggestion-popover")).toBeInTheDocument();
+		expect(getByText("✦ Suggested")).toBeInTheDocument();
+		expect(queryAllByTestId("suggestion-tool-chip")).toHaveLength(0);
+		expect(getByTestId("suggestion-extension-chip")).toBeInTheDocument();
+	});
+
+	test("tool + extension chips coexist in the same row", () => {
+		const { getAllByTestId } = render(
+			SuggestionPopover,
+			makeProps({ tools: [EXT_TOOL], extensions: [EXT_SUGGESTION] }),
+		);
+		expect(getAllByTestId("suggestion-tool-chip")).toHaveLength(1);
+		expect(getAllByTestId("suggestion-extension-chip")).toHaveLength(1);
 	});
 });

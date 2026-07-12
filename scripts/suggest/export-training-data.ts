@@ -11,7 +11,14 @@
  * fine-tune runbook: docs/features/composer/suggestions.md.
  */
 import { initDb, closeDb } from "../../src/db/connection";
-import { buildTrainingExamples, collectPromptToolRows, toJsonl } from "../../src/suggest/training-export";
+import { listExtensions } from "../../src/db/queries/extensions";
+import {
+  buildTrainingExamples,
+  collectPromptToolRows,
+  dedupeSyntheticRows,
+  syntheticPromptToolRows,
+  toJsonl,
+} from "../../src/suggest/training-export";
 
 function argValue(flag: string): string | undefined {
   const idx = process.argv.indexOf(flag);
@@ -24,9 +31,21 @@ const out = argValue("--out") ?? ".ezcorp/suggest-training/dataset.jsonl";
 await initDb();
 try {
   const rows = await collectPromptToolRows(Number.isFinite(days) && days > 0 ? days : 365);
-  const examples = buildTrainingExamples(rows);
+  // Seed the dataset with synthetic rows from every enabled extension's
+  // authored `suggestExamples`, deduped against real history (real usage
+  // wins) so an authored phrasing already covered by usage isn't double-weighted.
+  const enabled = await listExtensions(true);
+  const synthetic = dedupeSyntheticRows(
+    rows,
+    syntheticPromptToolRows(enabled.map((e) => e.manifest)),
+  );
+  const examples = buildTrainingExamples([...rows, ...synthetic]);
   await Bun.write(out, toJsonl(examples));
-  console.log(`Exported ${examples.length} training example(s) from ${rows.length} prompt→tool pair(s) → ${out}`);
+  const historyCount = examples.filter((e) => e.source === "history").length;
+  const manifestCount = examples.length - historyCount;
+  console.log(
+    `Exported ${examples.length} training example(s) (${historyCount} history + ${manifestCount} manifest) from ${rows.length} real prompt→tool pair(s) + ${synthetic.length} synthetic row(s) → ${out}`,
+  );
   if (examples.length < 100) {
     console.log(
       "Note: LoRA fine-tunes on this task start paying off around a few hundred clean examples — keep using tools and re-export later.",

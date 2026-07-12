@@ -91,4 +91,21 @@ describe("POST /api/composer/suggest/feedback", () => {
 			action: "dismissed",
 		});
 	});
+
+	test("extension kind → 201 and carries the extension name as toolName", async () => {
+		const res = await call({ kind: "extension", action: "accepted", toolName: "file-organizer" });
+		expect(res.status).toBe(201);
+		expect(insertSuggestionFeedback).toHaveBeenCalledWith({
+			userId: "user-1",
+			kind: "extension",
+			action: "accepted",
+			toolName: "file-organizer",
+		});
+	});
+
+	test("junk kind is still rejected after the union widened → 400", async () => {
+		const res = await call({ kind: "gremlin", action: "shown" });
+		expect(res.status).toBe(400);
+		expect(insertSuggestionFeedback).not.toHaveBeenCalled();
+	});
 });

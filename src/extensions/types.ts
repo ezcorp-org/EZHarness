@@ -59,6 +59,16 @@ export interface ToolDefinition {
    */
   requiresUserInput?: boolean;
   /**
+   * Example user phrasings that should surface THIS tool in the composer
+   * suggestion popover. Phrase each entry the way a user would ask — do NOT
+   * restate `description`. Entries are embedded verbatim and matched
+   * query↔example against the live draft, so authored examples improve
+   * retrieval immediately and also seed the offline training export. Caps:
+   * at most 5 entries, each 1..120 chars after trimming, no duplicates.
+   * NEVER shown to the LLM (stripped before the tool spec is built).
+   */
+  suggestExamples?: string[];
+  /**
    * Per-tool capability declaration (Phase 1, manifest v3 only).
    *
    * Optional on v2 manifests — `migrateManifestV2ToV3` synthesizes a
@@ -496,6 +506,16 @@ export interface ExtensionManifestV2 {
    * instead of crash-looping the subprocess.
    */
   npmDependencies?: Record<string, string>;
+
+  /**
+   * Example user phrasings that should surface this EXTENSION as a whole in
+   * the composer suggestion popover — for intent that spans the extension
+   * rather than any single tool (e.g. "help me clean up my downloads
+   * folder"). Same phrasing guidance and caps as the per-tool
+   * `ToolDefinition.suggestExamples` (≤ 5 entries, 1..120 chars trimmed, no
+   * duplicates). NEVER shown to the LLM.
+   */
+  suggestExamples?: string[];
 
   // Package-level metadata
   permissions: {

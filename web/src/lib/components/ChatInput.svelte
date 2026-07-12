@@ -25,6 +25,7 @@
 		appendExtensionMention,
 		chooseInlineToolAction,
 		type SuggestedTool,
+		type SuggestedExtension,
 		type Enhancement,
 	} from "$lib/composer-suggest-logic";
 	import type { ToolDefinition } from '../../../../src/extensions/types';
@@ -460,6 +461,7 @@
 	// suppressed while mention/inline-tool UIs are open, and every response
 	// is staleness-guarded by the normalized draft key.
 	let suggestTools = $state<SuggestedTool[]>([]);
+	let suggestExtensions = $state<SuggestedExtension[]>([]);
 	let suggestEnhancement = $state<Enhancement | null>(null);
 	let suggestEnhanceLoading = $state(false);
 	let suggestApplied = $state(false);
@@ -476,12 +478,12 @@
 			!mentionOpen &&
 			!showToolPicker &&
 			!showToolForm &&
-			popoverVisible({ tools: suggestTools, enhancement: suggestEnhancement }),
+			popoverVisible({ tools: suggestTools, extensions: suggestExtensions, enhancement: suggestEnhancement }),
 	);
 
 	/** Fire-and-forget telemetry — content-free by contract (never draft text). */
 	function postSuggestFeedback(
-		kind: "tool" | "enhance",
+		kind: "tool" | "enhance" | "extension",
 		action: "shown" | "accepted" | "dismissed",
 		toolName?: string,
 	) {
@@ -499,6 +501,7 @@
 
 	function clearSuggestions() {
 		suggestTools = [];
+		suggestExtensions = [];
 		suggestEnhancement = null;
 		suggestEnhanceLoading = false;
 		suggestApplied = false;
@@ -507,6 +510,7 @@
 
 	function dismissSuggest() {
 		if (suggestTools.length > 0) postSuggestFeedback("tool", "dismissed");
+		if (suggestExtensions.length > 0) postSuggestFeedback("extension", "dismissed");
 		if (suggestEnhancement) postSuggestFeedback("enhance", "dismissed");
 		suggestDismissed = true;
 		clearSuggestions();
@@ -560,7 +564,7 @@
 				conversationId: conversationId || undefined,
 				projectId: projectId || undefined,
 				modeId: selectedMode?.id ?? null,
-				include: ["tools"],
+				include: ["tools", "extensions"],
 			}),
 		})
 			.then((res) => (res.ok ? res.json() : null))
@@ -571,9 +575,17 @@
 					return;
 				}
 				suggestTools = resp.tools ?? [];
-				if (suggestTools.length > 0 && suggestShownPosted !== key) {
+				suggestExtensions = resp.extensions ?? [];
+				// One shown-impression per draft key, but a separate telemetry
+				// event per non-empty list so tool vs extension acceptance rates
+				// stay distinguishable.
+				if (
+					suggestShownPosted !== key &&
+					(suggestTools.length > 0 || suggestExtensions.length > 0)
+				) {
 					suggestShownPosted = key;
-					postSuggestFeedback("tool", "shown");
+					if (suggestTools.length > 0) postSuggestFeedback("tool", "shown");
+					if (suggestExtensions.length > 0) postSuggestFeedback("extension", "shown");
 				}
 			})
 			.catch(() => {});
@@ -622,6 +634,19 @@
 		// the pill renders + extension is wired above, then the form opens on
 		// exactly this tool (skipping the picker even when the extension has more).
 		void openInlineToolUI(tool.extension, tool.name);
+	}
+
+	function handleSuggestExtensionSelect(ext: SuggestedExtension) {
+		postSuggestFeedback("extension", "accepted", ext.name);
+		const result = appendExtensionMention(value, ext.name);
+		setWire(result.wire, result.cursor);
+		suggestDismissed = true;
+		clearSuggestions();
+		adjustHeight();
+		// A whole-extension chip names no specific tool, so open the inline-tool
+		// UI with NO preselect: 1 tool → form, >1 → picker, 0 tools → nothing
+		// (the pill still wired the extension above).
+		void openInlineToolUI(ext.name);
 	}
 
 	function applySuggestEnhancement() {
@@ -1029,10 +1054,12 @@
 				<SuggestionPopover
 					open={suggestOpen}
 					tools={suggestTools}
+					extensions={suggestExtensions}
 					enhancement={suggestEnhancement}
 					enhanceLoading={suggestEnhanceLoading}
 					applied={suggestApplied}
 					onselecttool={handleSuggestToolSelect}
+					onselectextension={handleSuggestExtensionSelect}
 					onapply={applySuggestEnhancement}
 					onundo={undoSuggestEnhancement}
 					ondismiss={dismissSuggest}

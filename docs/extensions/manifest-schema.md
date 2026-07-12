@@ -75,6 +75,7 @@ Callable functions exposed over JSON-RPC.
 | `inputSchema` | `object` | Yes | JSON Schema defining accepted parameters. |
 | `cardType` | `string` | No | Custom UI card type. Maps to a Svelte component via [`tool-cards/utils.ts`](../../web/src/lib/components/tool-cards/utils.ts). For interactive cards (iframe previews, knob sliders), pair with the SDK's `createCanvas` helper — see **[Canvas Cards](canvas-cards.md)** for the full pattern. |
 | `cardLayout` | `"inline" \| "dock"` | No | Where the card renders when the call completes. Default `"inline"` — chat bubble, same as today. `"dock"` — floats in the right-side `DockHost` panel (~50% viewport on desktop, full-screen overlay on mobile) and replaces the in-message slot with a "Canvas open ↗" pill. Only `status === "complete"` calls dock; running calls always render inline. Unknown values normalize to `"inline"` with a console warning. See **[Canvas Cards](canvas-cards.md)** § Dock layout. |
+| `suggestExamples` | `string[]` | No | Example user phrasings that surface this tool in the composer suggestion popover. Phrase as the user would ask (not a restatement of `description`). ≤ 5 entries, each ≤ 120 chars trimmed, no duplicates, no control characters. Never shown to the LLM. See [AUTHORING.md § Composer suggestions](AUTHORING.md#composer-suggestions-suggestexamples). |
 
 When `tools[]` is non-empty, `entrypoint` is **required** at the manifest level. The platform spawns a subprocess at the entrypoint and communicates via JSON-RPC over stdio.
 
@@ -485,6 +486,29 @@ npmDependencies: {
 > An extension that ships its OWN `package.json` (a workspace package)
 > declares its npm deps there the standard way and does not use
 > `npmDependencies`.
+
+---
+
+### `suggestExamples` -- `string[]`
+
+Top-level example user phrasings that surface this **extension as a whole**
+in the composer suggestion popover — for intent that spans the extension
+rather than a single tool (the per-tool form lives on each
+[`tools[]`](#tools----tooldefinition) entry).
+
+```typescript
+// file-organizer: whole-extension intent.
+suggestExamples: [
+  "help me clean up my downloads folder",
+  "organize these files into folders",
+],
+```
+
+Caps (rejected at install): at most 5 entries, each a non-empty string of
+≤ 120 chars after trimming, with no duplicates or control characters. These strings are **never
+shown to the LLM** — they are stripped before the tool spec is built and only
+feed composer retrieval + the offline training export. See
+[AUTHORING.md § Composer suggestions](AUTHORING.md#composer-suggestions-suggestexamples).
 
 ---
 

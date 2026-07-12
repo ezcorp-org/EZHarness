@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-11T15:12:43.186Z",
+  "generatedAt": "2026-07-12T02:54:41.857Z",
   "extensions": {
     "ai-kit": {
       "version": "0.1.0",
@@ -130,7 +130,7 @@
     "web-search": {
       "version": "1.0.0",
       "entrypoint": "./index.ts",
-      "toolsHash": "sha256-DnshELph/yTzIUcrkuMkGRgJj1nV6jAfeNl6/QSIT5E="
+      "toolsHash": "sha256-1vT5ewp35v7ak1gkoWuHb/Sog0Blxa8T1DeZgy5m63o="
     }
   }
 }

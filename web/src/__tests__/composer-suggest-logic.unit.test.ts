@@ -86,11 +86,16 @@ describe("enhance backoff", () => {
 
 describe("popoverVisible", () => {
 	const tool = { name: "scan", extension: "analyzer", extensionType: "extension", description: "d", score: 0.9 };
+	const ext = { name: "file-organizer", description: "Tidy files", score: 0.8 };
 
-	test("visible with tools or an enhancement — never for a lone spinner", () => {
-		expect(popoverVisible({ tools: [tool], enhancement: null })).toBe(true);
-		expect(popoverVisible({ tools: [], enhancement: { enhanced: "e", reason: "r" } })).toBe(true);
-		expect(popoverVisible({ tools: [], enhancement: null })).toBe(false);
+	test("visible with tools, extensions, or an enhancement — never for a lone spinner", () => {
+		expect(popoverVisible({ tools: [tool], extensions: [], enhancement: null })).toBe(true);
+		expect(popoverVisible({ tools: [], extensions: [], enhancement: { enhanced: "e", reason: "r" } })).toBe(true);
+		expect(popoverVisible({ tools: [], extensions: [], enhancement: null })).toBe(false);
+	});
+
+	test("extensions alone open the popover (tool chips empty, no enhancement)", () => {
+		expect(popoverVisible({ tools: [], extensions: [ext], enhancement: null })).toBe(true);
 	});
 });
 
@@ -120,6 +125,13 @@ describe("buildSuggestBody", () => {
 			modeId: "m1",
 			include: ["enhance"],
 		});
+	});
+
+	test("carries the widened include set (tools + extensions, one round-trip)", () => {
+		const body = JSON.parse(
+			buildSuggestBody({ draft: "clean up my downloads", modeId: null, include: ["tools", "extensions"] }),
+		);
+		expect(body.include).toEqual(["tools", "extensions"]);
 	});
 });
 

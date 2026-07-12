@@ -23,6 +23,15 @@ export interface SuggestedTool {
 	score: number;
 }
 
+/** A whole-extension suggestion chip: an enabled-but-unwired extension whose
+ *  intent matches the draft. Distinct from SuggestedTool — accepting it wires
+ *  the extension (via `![ext:name]`) rather than a single tool. */
+export interface SuggestedExtension {
+	name: string;
+	description: string;
+	score: number;
+}
+
 export interface Enhancement {
 	enhanced: string;
 	reason: string;
@@ -77,9 +86,10 @@ export function nextEnhanceBackoff(nowMs: number, llmAvailable: boolean): number
  *  (or a lone spinner) is noise, not a suggestion. */
 export function popoverVisible(state: {
 	tools: SuggestedTool[];
+	extensions: SuggestedExtension[];
 	enhancement: Enhancement | null;
 }): boolean {
-	return state.tools.length > 0 || state.enhancement !== null;
+	return state.tools.length > 0 || state.extensions.length > 0 || state.enhancement !== null;
 }
 
 /**
@@ -134,7 +144,7 @@ export function buildSuggestBody(opts: {
 	 *  conversation scopes the call (the conversation's project wins). */
 	projectId?: string;
 	modeId: string | null;
-	include: Array<"tools" | "enhance">;
+	include: Array<"tools" | "enhance" | "extensions">;
 }): string {
 	const body: Record<string, unknown> = {
 		draft: opts.draft,

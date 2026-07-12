@@ -21,7 +21,7 @@ export const suggestRequestSchema = z
      *  call; a resolved conversation's own project always wins over this. */
     projectId: z.string().min(1).optional(),
     modeId: z.string().nullable().optional(),
-    include: z.array(z.enum(["tools", "enhance"])).nonempty().default(["tools"]),
+    include: z.array(z.enum(["tools", "enhance", "extensions"])).nonempty().default(["tools"]),
   })
   .strict();
 
@@ -35,7 +35,7 @@ export type SuggestRequest = z.infer<typeof suggestRequestSchema>;
  */
 export const suggestFeedbackSchema = z
   .object({
-    kind: z.enum(["tool", "enhance"]),
+    kind: z.enum(["tool", "enhance", "extension"]),
     action: z.enum(["shown", "accepted", "dismissed"]),
     toolName: z.string().max(200).optional(),
     conversationId: z.string().optional(),

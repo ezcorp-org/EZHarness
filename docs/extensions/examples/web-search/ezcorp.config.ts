@@ -16,6 +16,14 @@ export default defineExtension({
       name: "search-web",
       description:
         "Search the web for a query. Returns a ranked markdown list of results with title, URL, and snippet.",
+      // How a user would ASK for a web search — phrased as intent, not a
+      // restatement of the description. The first entry is a live-measured
+      // MiniLM miss (description cosine 0.19, below the gate).
+      suggestExamples: [
+        "search the web for the latest bun runtime release notes",
+        "find recent articles about the topic we're discussing",
+        "look up what people are saying about this online",
+      ],
       inputSchema: {
         type: "object",
         required: ["query"],
@@ -35,6 +43,11 @@ export default defineExtension({
       name: "read-url",
       description:
         "Fetch a URL and return the main content as clean markdown, ready for summarization.",
+      suggestExamples: [
+        "read this page and summarize it for me",
+        "pull the article at this link into markdown",
+        "fetch the contents of this url so we can discuss it",
+      ],
       inputSchema: {
         type: "object",
         required: ["url"],

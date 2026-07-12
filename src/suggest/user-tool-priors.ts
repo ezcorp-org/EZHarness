@@ -47,6 +47,31 @@ export function computeToolPriors(rows: ToolUsageRow[], nowMs: number): Record<s
   return Object.fromEntries([...raw.entries()].map(([name, value]) => [name, value / max]));
 }
 
+/**
+ * Derive per-EXTENSION priors from an already-computed per-tool priors map:
+ * for each requested extension, the MAX prior over its `${name}__`-prefixed
+ * tool keys. MAX (not sum) keeps the result in [0,1] and avoids
+ * overweighting an extension merely because it exposes many tools.
+ * Extensions with no matching tool key are omitted (absent === 0
+ * downstream). Built-in keys (no `__` namespace) are ignored. Pure — reuses
+ * the TTL-cached map, no new DB query.
+ */
+export function deriveExtensionPriors(
+  priors: Record<string, number>,
+  extensionNames: string[],
+): Record<string, number> {
+  const wanted = new Set(extensionNames);
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(priors)) {
+    const sep = key.indexOf("__");
+    if (sep <= 0) continue; // no `${ext}__` prefix → built-in, not an extension
+    const ext = key.slice(0, sep);
+    if (!wanted.has(ext)) continue;
+    if (out[ext] === undefined || value > out[ext]!) out[ext] = value;
+  }
+  return out;
+}
+
 const priorCache = new Map<string, { at: number; priors: Record<string, number> }>();
 
 /** Fetch (TTL-cached) usage priors for a user. */

@@ -29,6 +29,12 @@ export interface RankCandidate {
    *  built-in name). Doubles as the lookup key into the priors record. */
   key: string;
   embedding: number[];
+  /** Embeddings of the candidate's authored example user-phrasings (see
+   *  `ToolDefinition.suggestExamples`). Folded into the cosine as a MAX with
+   *  the description embedding — any single example matching the draft
+   *  qualifies the candidate. Examples are query-phrasing surrogates, so
+   *  query↔example cosine is the signal (see `getRawTextEmbedding`). */
+  exampleEmbeddings?: number[][];
   /** Tokens of the tool/extension NAME — a draft hitting these is the
    *  strongest lexical signal (counted double). */
   nameTokens?: ReadonlySet<string>;
@@ -61,6 +67,20 @@ export const RANK_DEFAULTS = {
   priorWeight: 0.25,
 } as const;
 
+/**
+ * Ranking defaults for whole-EXTENSION suggestions (distinct from the
+ * per-tool `RANK_DEFAULTS`). `minScore` sits at 0.35 — deliberately ABOVE
+ * the 0.32 noise cosine measured live — because an extension chip commits
+ * the user to a heavier accept than a single tool, so the bar must stay
+ * clear of semantic noise. Only `topK: 2` slots for the same reason:
+ * surface fewer, higher-confidence extensions.
+ */
+export const EXTENSION_SUGGEST_DEFAULTS = {
+  topK: 2,
+  minScore: 0.35,
+  priorWeight: 0.25,
+} as const;
+
 /** Cosine similarity. Returns 0 for mismatched/empty/zero-norm vectors. */
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length === 0 || a.length !== b.length) return 0;
@@ -74,6 +94,27 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   }
   const denom = Math.sqrt(normA) * Math.sqrt(normB);
   return denom > 0 ? dot / denom : 0;
+}
+
+/**
+ * Cosine of the draft against a candidate's description embedding, folded
+ * as a MAX with the best of its authored-example embeddings. Examples are
+ * user-phrasing surrogates (query↔example cosine is the signal), so one
+ * matching example qualifies the candidate even when the description cosine
+ * is weak — the same "either signal wins" spirit as the lexical max. No
+ * examples → identical to the plain description cosine (back-compat).
+ */
+export function maxExampleCosine(
+  draftEmbedding: number[],
+  descEmbedding: number[],
+  exampleEmbeddings: number[][] = [],
+): number {
+  let best = cosineSimilarity(draftEmbedding, descEmbedding);
+  for (const ex of exampleEmbeddings) {
+    const c = cosineSimilarity(draftEmbedding, ex);
+    if (c > best) best = c;
+  }
+  return best;
 }
 
 /** Function words that carry no tool-intent signal. Kept deliberately small
@@ -129,7 +170,7 @@ export function rankCandidates(
   const { topK, minScore, priorWeight } = { ...RANK_DEFAULTS, ...opts };
   return candidates
     .map((c) => {
-      const cosine = cosineSimilarity(draftEmbedding, c.embedding);
+      const cosine = maxExampleCosine(draftEmbedding, c.embedding, c.exampleEmbeddings);
       const lexical = lexicalScore(draftTokens, c.nameTokens, c.descTokens);
       const relevance = Math.max(cosine, lexical);
       const prior = priors[c.key] ?? 0;

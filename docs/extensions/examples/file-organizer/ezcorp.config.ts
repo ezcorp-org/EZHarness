@@ -27,6 +27,15 @@ export default defineExtension({
   category: "Productivity",
   tags: ["files", "organization", "cleanup", "automation", "local"],
 
+  // Whole-extension intent phrasings for the composer suggestion popover —
+  // this extension's value spans several tools, so the examples live at the
+  // manifest level (surface the extension chip) rather than on any one tool.
+  suggestExamples: [
+    "help me clean up my downloads folder",
+    "organize these files into folders",
+    "set up a rule to auto-archive old screenshots",
+  ],
+
   // Flat per-user scalars (SchemaForm). Per-folder rules/modes live in
   // config.json (authored via the Hub + chat agent), NOT here.
   settings: {

@@ -250,6 +250,9 @@ any of these fail:
   declared in this manifest's `tools[]`, and `accepts` MUST be a
   non-empty array of exact MIMEs (`"image/png"`) or type globs
   (`"image/*"`).
+- `suggestExamples[]` (per-tool and/or top-level), when declared, MUST pass
+  `validateSuggestExamples`: at most 5 entries, each a non-empty string of
+  ≤ 120 chars after trimming, with no duplicates or control characters.
 
 Run `validate_extension({ draftId })` from the `extension-author`
 bundled extension to check before install.
@@ -291,6 +294,55 @@ field reference: [manifest-schema.md](manifest-schema.md#preprocessors----prepro
   untrusted-data delimiters, and failures produce no note. Keep the
   output compact (notes truncate at 4 KB) and machine-readable (JSON
   works well — the note and the card both carry it verbatim).
+
+### Composer suggestions (`suggestExamples`)
+
+The composer suggestion popover ranks your extension's tools against the
+user's draft prompt. MiniLM cosine on the tool **description** alone misses
+natural phrasings — a user typing "search the web for the latest bun release
+notes" scored *below* the surface threshold against web-search's own
+description. Declare `suggestExamples` to fix that: short, verbatim examples
+of **how a user would ask**, matched query↔example against the live draft so
+they lift retrieval immediately (and also seed the offline training export).
+
+- **Per-tool** — on a `tools[]` entry, to surface that one tool:
+
+  ```ts
+  {
+    name: "search-web",
+    description: "Search the web for a query…",
+    suggestExamples: [
+      "search the web for the latest bun runtime release notes",
+      "find recent articles about the topic we're discussing",
+    ],
+    inputSchema: { /* … */ },
+  }
+  ```
+
+- **Extension-level** — a top-level `suggestExamples` array, for intent that
+  spans the extension rather than one tool (surfaces an extension chip):
+
+  ```ts
+  suggestExamples: [
+    "help me clean up my downloads folder",
+    "organize these files into folders",
+  ]
+  ```
+
+Guidance:
+
+- **Phrase it as the user would ask.** Don't restate the description — the
+  description is already embedded; add the vocabulary and intent a user
+  brings that the description lacks.
+- **Caps** (rejected at install): ≤ 5 entries, each ≤ 120 chars after
+  trimming, non-empty, no duplicates, no control characters.
+- **Never seen by the LLM.** Examples are stripped before the tool spec is
+  built; they only feed composer retrieval and the offline training export.
+- **Updating an installed (non-bundled) extension:** editing `suggestExamples`
+  in an already-installed extension's `ezcorp.config.ts` on disk changes the
+  package checksum and trips the auto-disable guard. Ship example changes via
+  a **version update** (bump `version`, reinstall) — the same rule as any
+  other manifest edit.
 
 ---
 

@@ -13,19 +13,27 @@
 import { describe, test, expect, vi, beforeEach } from "vitest";
 
 const resolveScopedTools = vi.fn();
+const resolveSuggestableExtensions = vi.fn();
 vi.mock("$lib/server/scoped-tools", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("$lib/server/scoped-tools")>();
-	return { ...actual, resolveScopedTools };
+	return { ...actual, resolveScopedTools, resolveSuggestableExtensions };
 });
 
 const generateEmbedding = vi.fn();
 vi.mock("$server/memory/embeddings", () => ({ generateEmbedding }));
 
 const getToolEmbedding = vi.fn();
-vi.mock("$server/suggest/embedding-cache", () => ({ getToolEmbedding }));
+const getRawTextEmbedding = vi.fn();
+vi.mock("$server/suggest/embedding-cache", () => ({ getToolEmbedding, getRawTextEmbedding }));
 
+// Partial mock: getUserToolPriors is stubbed, but deriveExtensionPriors must
+// stay REAL so the extension prior-boost cases exercise its `${ext}__`-prefix
+// max semantics against the (mocked) priors map.
 const getUserToolPriors = vi.fn();
-vi.mock("$server/suggest/user-tool-priors", () => ({ getUserToolPriors }));
+vi.mock("$server/suggest/user-tool-priors", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("$server/suggest/user-tool-priors")>();
+	return { ...actual, getUserToolPriors };
+});
 
 const getSuggestConfig = vi.fn();
 const isSuggestEnabledForProject = vi.fn();
@@ -37,7 +45,48 @@ vi.mock("$server/suggest/enhance", () => ({ isEnhanceAvailable, enhancePrompt })
 
 vi.mock("$lib/server/context", () => ({ ensureInitialized: vi.fn(async () => {}) }));
 
+// ── Leaves used ONLY by the real-fn coverage blocks below ──────────
+// The handler tests never reach these (they mock resolveScopedTools +
+// resolveSuggestableExtensions), but the real functions — reached via
+// vi.importActual — drive them. Partial db-query mocks keep every other
+// export of those modules intact; the registry/built-in mocks mirror the
+// api-tools handler test's shape (only scoped-tools imports them here).
+const listExtensions = vi.fn();
+vi.mock("$server/db/queries/extensions", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("$server/db/queries/extensions")>();
+	return { ...actual, listExtensions };
+});
+const getConversationExtensionIds = vi.fn();
+vi.mock("$server/db/queries/conversation-extensions", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("$server/db/queries/conversation-extensions")>();
+	return { ...actual, getConversationExtensionIds };
+});
+
+const getAllTools = vi.fn(() => [] as unknown[]);
+const getExtensionType = vi.fn((_name: string) => "local");
+const getExtensionDescription = vi.fn((_name: string): string | undefined => undefined);
+vi.mock("$server/extensions/registry", () => ({
+	ExtensionRegistry: {
+		getInstance: () => ({ getAllTools, getExtensionType, getExtensionDescription }),
+	},
+}));
+
+const getBuiltInToolMetadata = vi.fn(() => [] as Array<{ name: string; description: string; category: string }>);
+const getBuiltInCategoryDescription = vi.fn((_cat: string): string | undefined => undefined);
+vi.mock("$server/runtime/tools/builtin-registry", () => ({
+	getBuiltInToolMetadata,
+	getBuiltInCategoryDescription,
+}));
+
 const { POST } = await import("../routes/api/composer/suggest/+server");
+
+// Real (unmocked) scoped-tools exports for direct coverage of the new
+// functions + the changed tokenEstimate/pass-through line.
+const {
+	resolveSuggestableExtensions: realResolveSuggestableExtensions,
+	isModeToolRestricted,
+	resolveScopedTools: realResolveScopedTools,
+} = await vi.importActual<typeof import("$lib/server/scoped-tools")>("$lib/server/scoped-tools");
 
 const owner = { id: "user-1", email: "u@x", name: "U", role: "member" };
 
@@ -64,6 +113,10 @@ beforeEach(() => {
 	getSuggestConfig.mockResolvedValue({ enabled: true, baseUrl: null, model: "qwen3:1.7b", timeoutMs: 12000 });
 	isSuggestEnabledForProject.mockResolvedValue(true);
 	resolveScopedTools.mockResolvedValue({ tools: SCOPED_TOOLS, orchestrationTools: [], mode: null, projectId: null });
+	// Extensions default to none suggestable + a neutral raw-example vector so
+	// existing tool-only cases stay byte-identical.
+	resolveSuggestableExtensions.mockResolvedValue([]);
+	getRawTextEmbedding.mockResolvedValue([0, 0, 1]);
 	// Draft aligned with analyzer scan; websearch orthogonal-ish; built-in mid.
 	// getToolEmbedding receives the human-readable label ("<extension> <name>"
 	// for extension tools, "<category> <name>" for built-ins) — NOT the
@@ -262,5 +315,269 @@ describe("POST /api/composer/suggest — enhance include", () => {
 		expect(ctxArg.modeDescription).toBe("Planning mode");
 		expect(ctxArg.tools[0]).toEqual({ name: "scan", description: "Scan source code for problems" });
 		expect(cfgArg).toEqual({ baseUrl: "http://ollama:11434", model: "qwen3:1.7b", timeoutMs: 12000 });
+	});
+});
+
+describe("POST /api/composer/suggest — extension ranking (include: extensions)", () => {
+	test("extensions key is absent + never queried when not requested (old-client byte-compat)", async () => {
+		const res = await call({ draft: "find bugs in my code" }); // default include ["tools"]
+		const body = await res.json();
+		expect("extensions" in body).toBe(false);
+		expect(resolveSuggestableExtensions).not.toHaveBeenCalled();
+	});
+
+	test("mode-restricted → extensions [] and resolveSuggestableExtensions NOT called", async () => {
+		resolveScopedTools.mockResolvedValue({
+			tools: SCOPED_TOOLS,
+			orchestrationTools: [],
+			mode: { extensionIds: ["e1"], toolRestriction: "allowlist" },
+			projectId: null,
+		});
+		const res = await call({ draft: "clean up my downloads folder", include: ["tools", "extensions"] });
+		const body = await res.json();
+		expect(body.extensions).toEqual([]);
+		expect(resolveSuggestableExtensions).not.toHaveBeenCalled();
+	});
+
+	test("unwired relevant extensions surface as chips; gate drops the sub-0.35 one", async () => {
+		resolveSuggestableExtensions.mockResolvedValue([
+			{ name: "file-organizer", description: "Organize and tidy files", suggestExamples: undefined },
+			{ name: "calendar", description: "Manage calendar events", suggestExamples: undefined },
+			{ name: "weather", description: "Weather forecasts", suggestExamples: undefined },
+		]);
+		generateEmbedding.mockResolvedValue([1, 0, 0]);
+		getToolEmbedding.mockImplementation(async (label: string) => {
+			if (label === "file-organizer") return [0.95, 0.05, 0]; // cosine ≈ 0.998 in
+			if (label === "calendar") return [0.5, 0.6, 0]; // cosine ≈ 0.64 in
+			if (label === "weather") return [0.3, Math.sqrt(1 - 0.09), 0]; // cosine 0.30 → out
+			return [0, 0, 1]; // scoped tools orthogonal → no tool chips, no dedupe
+		});
+		const res = await call({ draft: "some neutral phrasing text", include: ["extensions"] });
+		const body = await res.json();
+		expect(body.tools).toBeUndefined(); // tools not requested
+		expect(resolveSuggestableExtensions).toHaveBeenCalledWith(null);
+		expect(body.extensions.map((e: { name: string }) => e.name)).toEqual(["file-organizer", "calendar"]);
+		// Scores rounded to 4 decimals, and each chip carries name + description.
+		expect(body.extensions[0]).toMatchObject({ name: "file-organizer", description: "Organize and tidy files" });
+		expect(String(body.extensions[0].score)).not.toMatch(/\d{5,}$/);
+	});
+
+	test("gate is exactly 0.35: 0.30 cosine dropped, 0.40 cosine kept", async () => {
+		resolveSuggestableExtensions.mockResolvedValue([
+			{ name: "just-under", description: "aaa bbb ccc", suggestExamples: undefined },
+			{ name: "just-over", description: "ddd eee fff", suggestExamples: undefined },
+		]);
+		generateEmbedding.mockResolvedValue([1, 0, 0]);
+		getToolEmbedding.mockImplementation(async (label: string) => {
+			if (label === "just-under") return [0.3, Math.sqrt(1 - 0.09), 0]; // cosine 0.30
+			if (label === "just-over") return [0.4, Math.sqrt(1 - 0.16), 0]; // cosine 0.40
+			return [0, 0, 1];
+		});
+		const res = await call({ draft: "zzz qqq vvv wordy stuff", include: ["extensions"] });
+		const names = (await res.json()).extensions.map((e: { name: string }) => e.name);
+		expect(names).toEqual(["just-over"]);
+	});
+
+	test("extension suggestions are capped at top-2 even with more qualifying", async () => {
+		resolveSuggestableExtensions.mockResolvedValue([
+			{ name: "alpha", description: "aaa", suggestExamples: undefined },
+			{ name: "bravo", description: "bbb", suggestExamples: undefined },
+			{ name: "charlie", description: "ccc", suggestExamples: undefined },
+		]);
+		generateEmbedding.mockResolvedValue([1, 0, 0]);
+		getToolEmbedding.mockImplementation(async (label: string) => {
+			if (label === "alpha") return [0.99, 0.14, 0];
+			if (label === "bravo") return [0.9, 0.44, 0];
+			if (label === "charlie") return [0.7, 0.71, 0];
+			return [0, 0, 1];
+		});
+		const names = (await (await call({ draft: "wholly unrelated words here", include: ["extensions"] })).json())
+			.extensions.map((e: { name: string }) => e.name);
+		expect(names).toEqual(["alpha", "bravo"]);
+	});
+
+	test("an extension already surfaced as a ranked TOOL chip is deduped from extension chips", async () => {
+		resolveSuggestableExtensions.mockResolvedValue([
+			{ name: "websearch", description: "Search the web for pages", suggestExamples: undefined },
+			{ name: "file-organizer", description: "Organize and tidy files", suggestExamples: undefined },
+		]);
+		generateEmbedding.mockResolvedValue([1, 0, 0]);
+		getToolEmbedding.mockImplementation(async (label: string) => {
+			if (label === "websearch search") return [0.98, 0.02, 0]; // websearch TOOL ranks
+			if (label === "websearch") return [0.98, 0.02, 0]; // would rank as ext too
+			if (label === "file-organizer") return [0.9, 0.1, 0];
+			return [0, 0, 1];
+		});
+		const body = await (await call({ draft: "search the web now", include: ["tools", "extensions"] })).json();
+		expect(body.tools.map((t: { extension: string }) => t.extension)).toContain("websearch");
+		const extNames = body.extensions.map((e: { name: string }) => e.name);
+		expect(extNames).not.toContain("websearch"); // deduped against the tool chip
+		expect(extNames).toContain("file-organizer");
+	});
+
+	test("prefixed tool prior boosts its extension (deriveExtensionPriors max over ext-prefixed keys)", async () => {
+		resolveSuggestableExtensions.mockResolvedValue([
+			{ name: "cal", description: "calendar stuff", suggestExamples: undefined },
+			{ name: "org", description: "organize stuff", suggestExamples: undefined },
+		]);
+		generateEmbedding.mockResolvedValue([1, 0, 0]);
+		getToolEmbedding.mockResolvedValue([0.6, 0.8, 0]); // both tie on cosine 0.6
+		// Only `cal` has a usage prior, recorded under its namespaced tool key;
+		// the bare built-in key must be ignored by deriveExtensionPriors.
+		getUserToolPriors.mockResolvedValue({ cal__add_event: 1, some_builtin: 1 });
+		const names = (await (await call({ draft: "totally neutral phrasing here", include: ["extensions"] })).json())
+			.extensions.map((e: { name: string }) => e.name);
+		expect(names).toEqual(["cal", "org"]); // prior breaks the cosine tie in cal's favor
+	});
+
+	test("extension retrieval via authored example: orthogonal description, aligned suggestExample", async () => {
+		resolveSuggestableExtensions.mockResolvedValue([
+			{ name: "tidy", description: "orthogonal description text", suggestExamples: ["clean up my downloads folder"] },
+		]);
+		generateEmbedding.mockResolvedValue([1, 0, 0]);
+		getToolEmbedding.mockResolvedValue([0, 1, 0]); // description cosine 0
+		getRawTextEmbedding.mockResolvedValue([0.98, 0.2, 0]); // example cosine ≈ 0.98
+		const body = await (await call({ draft: "help with chores today", include: ["extensions"] })).json();
+		expect(getRawTextEmbedding).toHaveBeenCalledWith("clean up my downloads folder");
+		expect(body.extensions.map((e: { name: string }) => e.name)).toEqual(["tidy"]);
+	});
+
+	test("per-TOOL suggestExamples: getRawTextEmbedding called + example tokens fold into the lexical match", async () => {
+		resolveScopedTools.mockResolvedValue({
+			tools: [
+				{
+					name: "lookup",
+					description: "orthogonal words",
+					extension: "websearch",
+					extensionType: "extension",
+					extensionDescription: undefined,
+					suggestExamples: ["search the web for the latest bun runtime release notes"],
+					tokenEstimate: 10,
+				},
+			],
+			orchestrationTools: [],
+			mode: null,
+			projectId: null,
+		});
+		// Both the description AND the example embeddings are orthogonal to the
+		// draft, so ONLY the folded example tokens (in descTokens) can rescue it.
+		generateEmbedding.mockResolvedValue([1, 0, 0]);
+		getToolEmbedding.mockResolvedValue([0, 1, 0]);
+		getRawTextEmbedding.mockResolvedValue([0, 1, 0]);
+		const body = await (await call({ draft: "latest bun runtime release notes", include: ["tools"] })).json();
+		expect(getRawTextEmbedding).toHaveBeenCalledWith("search the web for the latest bun runtime release notes");
+		expect(body.tools.map((t: { name: string }) => t.name)).toContain("lookup");
+	});
+
+	test("no describable tools but extensions requested: tools [] while extensions still rank", async () => {
+		resolveScopedTools.mockResolvedValue({
+			tools: [
+				{ name: "blank", description: "   ", extension: "misc", extensionType: "extension", extensionDescription: undefined, suggestExamples: undefined, tokenEstimate: 5 },
+			],
+			orchestrationTools: [],
+			mode: null,
+			projectId: null,
+		});
+		resolveSuggestableExtensions.mockResolvedValue([
+			{ name: "file-organizer", description: "Organize and tidy files", suggestExamples: undefined },
+		]);
+		generateEmbedding.mockResolvedValue([1, 0, 0]);
+		getToolEmbedding.mockImplementation(async (label: string) =>
+			label === "file-organizer" ? [0.95, 0.05, 0] : [0, 0, 1],
+		);
+		const body = await (await call({ draft: "help me organize things", include: ["tools", "extensions"] })).json();
+		expect(body.tools).toEqual([]); // rankScopedTools early-returned (no described candidates)
+		expect(body.extensions.map((e: { name: string }) => e.name)).toEqual(["file-organizer"]);
+	});
+
+	test("the only suggestable extension being deduped yields an empty extensions list", async () => {
+		resolveSuggestableExtensions.mockResolvedValue([
+			{ name: "websearch", description: "Search the web for pages", suggestExamples: undefined },
+		]);
+		generateEmbedding.mockResolvedValue([1, 0, 0]);
+		getToolEmbedding.mockImplementation(async (label: string) =>
+			label === "websearch search" ? [0.98, 0.02, 0] : [0, 0, 1],
+		);
+		const body = await (await call({ draft: "search the web please", include: ["tools", "extensions"] })).json();
+		expect(body.tools.map((t: { extension: string }) => t.extension)).toContain("websearch");
+		expect(body.extensions).toEqual([]); // deduped against the tool chip → nothing left
+	});
+});
+
+describe("scoped-tools real functions (direct coverage of the new exports)", () => {
+	test("isModeToolRestricted truth table", () => {
+		expect(isModeToolRestricted(null)).toBe(false);
+		// A pinned extension set restricts, regardless of toolRestriction.
+		expect(isModeToolRestricted({ extensionIds: ["e1"], toolRestriction: "all" })).toBe(true);
+		// "all" is the stored default on EVERY mode row (notNull default) and
+		// applyToolFilters treats it as "no category-level filter" — a plain
+		// mode must NOT suppress extension suggestions, or they would never
+		// surface inside any mode at all.
+		expect(isModeToolRestricted({ extensionIds: [], toolRestriction: "all" })).toBe(false);
+		// A narrowing toolRestriction restricts even with no pinned extensions.
+		expect(isModeToolRestricted({ extensionIds: [], toolRestriction: "read-only" })).toBe(true);
+		expect(isModeToolRestricted({ extensionIds: [], toolRestriction: "none" })).toBe(true);
+		expect(isModeToolRestricted({ extensionIds: [], toolRestriction: "allowlist" })).toBe(true);
+		expect(isModeToolRestricted({ extensionIds: ["e1"], toolRestriction: null } as never)).toBe(true);
+		// Neither → not restricted (synthetic: real rows always set toolRestriction).
+		expect(isModeToolRestricted({ extensionIds: null, toolRestriction: null } as never)).toBe(false);
+		expect(isModeToolRestricted({ extensionIds: [], toolRestriction: "" } as never)).toBe(false);
+	});
+
+	test("resolveSuggestableExtensions: wired-ID exclusion + empty-description drop + field mapping", async () => {
+		listExtensions.mockResolvedValue([
+			{ id: "e1", name: "file-organizer", manifest: { description: "Tidy files", suggestExamples: ["clean up downloads"] } },
+			{ id: "e2", name: "web-search", manifest: { description: "Search the web" } },
+			{ id: "e3", name: "blank", manifest: { description: "   " } }, // whitespace-only → dropped
+			{ id: "e4", name: "nodesc", manifest: {} }, // missing description → dropped
+			{ id: "e5", name: "wired", manifest: { description: "Already wired here" } },
+		]);
+		getConversationExtensionIds.mockResolvedValue(["e5"]); // wired → excluded by ID
+		const out = await realResolveSuggestableExtensions("conv-1");
+		expect(listExtensions).toHaveBeenCalledWith(true);
+		expect(getConversationExtensionIds).toHaveBeenCalledWith("conv-1");
+		expect(out.map((e) => e.name)).toEqual(["file-organizer", "web-search"]);
+		expect(out[0]).toEqual({
+			name: "file-organizer",
+			description: "Tidy files",
+			suggestExamples: ["clean up downloads"],
+		});
+		expect(out[1]!.suggestExamples).toBeUndefined();
+	});
+
+	test("resolveSuggestableExtensions: null conversationId skips the wired-ids query", async () => {
+		listExtensions.mockResolvedValue([
+			{ id: "e1", name: "file-organizer", manifest: { description: "Tidy files" } },
+		]);
+		const out = await realResolveSuggestableExtensions(null);
+		expect(getConversationExtensionIds).not.toHaveBeenCalled();
+		expect(out.map((e) => e.name)).toEqual(["file-organizer"]);
+	});
+
+	test("resolveScopedTools: tokenEstimate excludes suggestExamples; the field passes through", async () => {
+		getBuiltInToolMetadata.mockReturnValue([]);
+		const examples = ["clean up my downloads", "organize these files by type"];
+		const tool = {
+			name: "file-organizer__organize",
+			description: "Organize files",
+			inputSchema: {},
+			suggestExamples: examples,
+			extensionId: "e1",
+			extensionName: "file-organizer",
+			originalName: "organize",
+		};
+		getAllTools.mockReturnValue([tool]);
+		const res = await realResolveScopedTools(owner as never, {
+			conversationId: null,
+			modeId: null,
+			hasModeParam: false,
+		});
+		const row = res!.tools.find((t) => t.name === "organize")!;
+		expect(row.suggestExamples).toEqual(examples);
+		const { suggestExamples: _drop, ...billable } = tool;
+		void _drop;
+		expect(row.tokenEstimate).toBe(Math.ceil(JSON.stringify(billable).length / 4));
+		// Sizing WITH the examples would be strictly larger — proving they're excluded.
+		expect(row.tokenEstimate).toBeLessThan(Math.ceil(JSON.stringify(tool).length / 4));
 	});
 });

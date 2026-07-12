@@ -24,9 +24,12 @@ import {
 } from "$server/runtime/tools/filter";
 import { computeModeToolScope } from "$server/runtime/tools/mode-tool-scope";
 import { getMode } from "$server/db/queries/modes";
+import { listExtensions } from "$server/db/queries/extensions";
+import { getConversationExtensionIds } from "$server/db/queries/conversation-extensions";
 import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
 import type { AuthUser } from "$server/auth/types";
 import type { Mode } from "$server/db/schema";
+import type { ExtensionManifestV2 } from "$server/extensions/types";
 
 export interface ScopedToolRow {
   name: string;
@@ -34,7 +37,23 @@ export interface ScopedToolRow {
   extension: string;
   extensionType: string;
   extensionDescription: string | undefined;
+  /** Authored example user-phrasings (see `ToolDefinition.suggestExamples`).
+   *  Surfaced ONLY for composer-suggestion retrieval — never billed into
+   *  `tokenEstimate` and never sent to the LLM. Undefined for built-ins. */
+  suggestExamples: string[] | undefined;
   tokenEstimate: number;
+}
+
+/**
+ * An enabled extension eligible to be suggested as a whole (chip) in the
+ * composer popover. Distinct from ScopedToolRow — this is EXTENSION-level
+ * intent matching, not tool-level. See `resolveSuggestableExtensions`.
+ */
+export interface SuggestableExtension {
+  name: string;
+  description: string;
+  /** Extension-level authored example phrasings (`ExtensionManifestV2.suggestExamples`). */
+  suggestExamples: string[] | undefined;
 }
 
 export interface ScopedToolsResult {
@@ -116,8 +135,13 @@ export async function resolveScopedTools(
     const name = sep >= 0 ? t.name.slice(sep + 2) : t.name;
     const extensionType = registry.getExtensionType(extension);
     const extensionDescription = registry.getExtensionDescription(extension);
-    const tokenEstimate = Math.ceil(JSON.stringify(t).length / 4);
-    return { name, description: t.description, extension, extensionType, extensionDescription, tokenEstimate };
+    // `suggestExamples` is a composer-suggestion-only retrieval aid: the
+    // tool-executor spec maps ONLY name/description/parameters, so examples
+    // never reach the LLM and must NOT inflate the cost estimate the Tools
+    // UI shows. Strip them before sizing, then carry them separately.
+    const { suggestExamples, ...billable } = t;
+    const tokenEstimate = Math.ceil(JSON.stringify(billable).length / 4);
+    return { name, description: t.description, extension, extensionType, extensionDescription, suggestExamples, tokenEstimate };
   });
 
   // Built-in tools (task tracking, orchestration, scratchpad)
@@ -128,6 +152,9 @@ export async function resolveScopedTools(
     extension: t.category,
     extensionType: "built-in",
     extensionDescription: getBuiltInCategoryDescription(t.category),
+    // Built-ins carry no authored examples — always wired, never suggested
+    // as an extension chip.
+    suggestExamples: undefined,
     tokenEstimate: Math.ceil((t.name.length + t.description.length) / 4),
   }));
 
@@ -151,4 +178,56 @@ export async function resolveScopedTools(
  */
 export function scopedToolKey(tool: Pick<ScopedToolRow, "name" | "extension" | "extensionType">): string {
   return tool.extensionType === "built-in" ? tool.name : `${tool.extension}__${tool.name}`;
+}
+
+/**
+ * True when a mode curates its own tool/extension surface — either by
+ * pinning specific extensions (`extensionIds`) or by carrying a
+ * `toolRestriction` that actually narrows ("read-only" / "none" /
+ * "allowlist"). Whole-extension suggestions are suppressed in that case:
+ * the mode already decides which extensions belong, so proposing an
+ * unwired one would contradict its curation. `"all"` is NOT a
+ * restriction — it is the stored default on every mode row
+ * (`tool_restriction` is notNull default "all") and `applyToolFilters`
+ * treats it as "no category-level filter", so a plain mode leaves the
+ * registry-wide surface open, where extension chips are meaningful.
+ */
+export function isModeToolRestricted(
+  mode: Pick<Mode, "extensionIds" | "toolRestriction"> | null,
+): boolean {
+  return (
+    !!mode &&
+    ((mode.extensionIds?.length ?? 0) > 0 ||
+      (!!mode.toolRestriction && mode.toolRestriction !== "all"))
+  );
+}
+
+/**
+ * Resolve the enabled extensions eligible to be suggested as a whole in the
+ * composer popover: every enabled extension MINUS the ones already wired
+ * into the conversation (matched on extension IDS, not names), keeping only
+ * those with a non-empty manifest description (the retrieval signal). This
+ * is a pure DB read — it performs NO ownership check on the conversation,
+ * so callers MUST gate it behind `resolveScopedTools`' fail-closed (null →
+ * 404) result, exactly as the composer suggest route does.
+ */
+export async function resolveSuggestableExtensions(
+  conversationId: string | null,
+): Promise<SuggestableExtension[]> {
+  const enabled = await listExtensions(true);
+  const wiredIds = conversationId
+    ? new Set(await getConversationExtensionIds(conversationId))
+    : new Set<string>();
+  const out: SuggestableExtension[] = [];
+  for (const ext of enabled) {
+    if (wiredIds.has(ext.id)) continue;
+    const manifest = ext.manifest as ExtensionManifestV2;
+    if (!manifest.description || manifest.description.trim().length === 0) continue;
+    out.push({
+      name: ext.name,
+      description: manifest.description,
+      suggestExamples: manifest.suggestExamples,
+    });
+  }
+  return out;
 }

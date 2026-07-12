@@ -10,7 +10,7 @@ import { suggestionFeedback } from "../schema";
 export interface SuggestionFeedbackEvent {
   userId: string;
   conversationId?: string | null;
-  kind: "tool" | "enhance";
+  kind: "tool" | "enhance" | "extension";
   action: "shown" | "accepted" | "dismissed";
   toolName?: string | null;
   latencyMs?: number | null;

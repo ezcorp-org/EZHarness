@@ -58,6 +58,17 @@ const SCAN_PARAMETERLESS = [
 	{ name: "scan", description: "Scan the whole workspace", inputSchema: { type: "object", properties: {} } },
 ];
 
+// A whole-extension suggestion (🧩 chip): accepting it wires the extension via
+// `![ext:name]` and opens its inline-tool UI with NO preselect. file-organizer
+// exposes MORE than one tool below so the no-preselect accept flow lands on the
+// ToolPicker listbox — the default single-`analyze` mock would silently open the
+// form instead, exercising the wrong branch (the plan's default-mock trap).
+const SUGGEST_EXTENSION = { name: "file-organizer", description: "Keeps project folders tidy", score: 0.7 };
+const FILE_ORGANIZER_TOOLS = [
+	{ name: "organize", description: "Sort files into folders", inputSchema: { type: "object", properties: {} } },
+	{ name: "archive", description: "Archive stale files", inputSchema: { type: "object", properties: {} } },
+];
+
 async function setupAndFocus(page: any, mockApi: any, composerSuggest: Record<string, unknown>) {
 	await mockApi({
 		projects: [proj],
@@ -314,7 +325,10 @@ test.describe("Composer suggestions", () => {
 
 		expect(bodies.length).toBeGreaterThanOrEqual(2);
 		const includes = bodies.map((b) => (b.include as string[]).join(",")).sort();
-		expect(includes).toContain("tools");
+		// The fast half now bundles tool chips AND whole-extension chips in a
+		// single round-trip (include:["tools","extensions"]); the enhance rewrite
+		// stays its own slower call (include:["enhance"]).
+		expect(includes).toContain("tools,extensions");
 		expect(includes).toContain("enhance");
 		for (const body of bodies) {
 			expect(body).toHaveProperty("modeId", null); // no mode selected → explicit null
@@ -324,5 +338,93 @@ test.describe("Composer suggestions", () => {
 			expect(body.projectId).toBe(proj.id);
 			expect(body.draft).toBe(DRAFT);
 		}
+	});
+
+	test("draft suggests a whole extension; accepting wires it and opens its tool UI @evidence", async ({ page, mockApi }, testInfo) => {
+		const textarea = await setupAndFocus(page, mockApi, {
+			tools: SUGGEST_TOOLS,
+			extensions: [SUGGEST_EXTENSION],
+		});
+		// file-organizer exposes TWO tools → the no-preselect accept flow must land
+		// on the ToolPicker, not a form. Registered AFTER mockApi so the last route
+		// wins (overriding the default single-`analyze` mock).
+		await page.route("**/api/extensions/*/tools", (route: any) => {
+			route.fulfill({ json: { tools: FILE_ORGANIZER_TOOLS } });
+		});
+		// Capture every feedback event so we can assert the `accepted` telemetry.
+		const feedback: Array<Record<string, unknown>> = [];
+		await page.route("**/api/composer/suggest/feedback", async (route: any) => {
+			feedback.push(route.request().postDataJSON());
+			await route.fulfill({ status: 201, json: { ok: true } });
+		});
+
+		await textarea.pressSequentially(DRAFT, { delay: 25 });
+		await expect(popover(page)).toBeVisible({ timeout: 4000 });
+
+		// The 🧩 extension chip renders ALONGSIDE the 🔧 tool chips — a distinct
+		// testid, `🧩 {name}` label, and a title carrying the description.
+		const extChip = page.locator('button[data-testid="suggestion-extension-chip"][data-extension="file-organizer"]');
+		await expect(extChip).toHaveText("🧩 file-organizer");
+		await expect(extChip).toHaveAttribute("title", /Keeps project folders tidy/);
+		// Tool chips are still present — the extension chip is additive.
+		await expect(page.getByTestId("suggestion-tool-chip")).toHaveCount(3);
+
+		await extChip.click();
+
+		// The popover closes the moment the extension is accepted.
+		await expect(popover(page)).not.toBeVisible();
+		// The extension is wired — assert the rendered overlay PILL (the pill IS
+		// the visible "wired" state), and the `![ext:…]` token in the draft.
+		await expect(page.locator('[data-mention-kind="extension"][data-mention-name="file-organizer"]')).toBeVisible();
+		await expect(textarea).toHaveValue(/!file-organizer/);
+		// A whole-extension chip names no specific tool, so with >1 tool the picker
+		// opens (no preselect) rather than jumping straight to a form.
+		await expect(page.getByRole("listbox", { name: "Tools for file-organizer" })).toBeVisible();
+		// The accept telemetry is extension-kinded and carries the extension name.
+		await expect
+			.poll(() => feedback.find((f) => f.kind === "extension" && f.action === "accepted"), { timeout: 5000 })
+			.toMatchObject({ kind: "extension", action: "accepted", toolName: "file-organizer" });
+
+		await captureEvidence(page, testInfo, "composer-suggestion-extension-chip");
+	});
+
+	test("extensions-only response still opens the popover", async ({ page, mockApi }) => {
+		const textarea = await setupAndFocus(page, mockApi, {
+			tools: [],
+			extensions: [SUGGEST_EXTENSION],
+		});
+		await textarea.pressSequentially(DRAFT, { delay: 25 });
+		await expect(popover(page)).toBeVisible({ timeout: 4000 });
+
+		// Only the 🧩 extension chip — an all-empty tool list must not suppress the
+		// popover when a whole-extension match remains.
+		await expect(page.getByTestId("suggestion-extension-chip")).toHaveCount(1);
+		await expect(page.getByTestId("suggestion-tool-chip")).toHaveCount(0);
+	});
+
+	test("Escape with extension chips posts extension dismissed without re-nagging", async ({ page, mockApi }) => {
+		const feedback: Array<Record<string, unknown>> = [];
+		const textarea = await setupAndFocus(page, mockApi, {
+			tools: SUGGEST_TOOLS,
+			extensions: [SUGGEST_EXTENSION],
+		});
+		await page.route("**/api/composer/suggest/feedback", async (route: any) => {
+			feedback.push(route.request().postDataJSON());
+			await route.fulfill({ status: 201, json: { ok: true } });
+		});
+
+		await textarea.pressSequentially(DRAFT, { delay: 25 });
+		await expect(popover(page)).toBeVisible({ timeout: 4000 });
+
+		await textarea.press("Escape");
+		await expect(popover(page)).not.toBeVisible();
+		// Dismiss emits an extension-scoped `dismissed` event — fired under the same
+		// guard as the tool `dismissed`, because the response carried 🧩 chips.
+		await expect
+			.poll(() => feedback.find((f) => f.kind === "extension" && f.action === "dismissed"), { timeout: 5000 })
+			.toMatchObject({ kind: "extension", action: "dismissed" });
+		// Same draft, no change → no re-nag (existing 900ms idiom).
+		await page.waitForTimeout(900);
+		await expect(popover(page)).not.toBeVisible();
 	});
 });

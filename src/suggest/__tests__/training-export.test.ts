@@ -11,6 +11,8 @@ mockDbConnection();
 const {
   buildTrainingExamples,
   collectPromptToolRows,
+  dedupeSyntheticRows,
+  syntheticPromptToolRows,
   toJsonl,
   TRAINING_SYSTEM_PROMPT,
   MAX_TRAINING_PROMPT_LENGTH,
@@ -54,6 +56,123 @@ describe("toJsonl", () => {
     expect(jsonl.endsWith("\n")).toBe(true);
     expect(JSON.parse(jsonl.trim())).toEqual(examples[0]);
     expect(toJsonl([])).toBe("");
+  });
+});
+
+describe("syntheticPromptToolRows (pure)", () => {
+  test("per-tool example → one namespaced row with a `synthetic:` messageId", () => {
+    const rows = syntheticPromptToolRows([
+      {
+        name: "web-search",
+        tools: [
+          {
+            name: "search-web",
+            description: "d",
+            inputSchema: {},
+            suggestExamples: ["search the web now", "find recent news"],
+          },
+          { name: "read-url", description: "d", inputSchema: {} },
+        ],
+      },
+    ]);
+    expect(rows).toEqual([
+      { messageId: "synthetic:web-search:search-web:0", prompt: "search the web now", toolName: "web-search__search-web" },
+      { messageId: "synthetic:web-search:search-web:1", prompt: "find recent news", toolName: "web-search__search-web" },
+    ]);
+  });
+
+  test("extension-level example → one shared-messageId row per declared tool", () => {
+    const rows = syntheticPromptToolRows([
+      {
+        name: "file-organizer",
+        suggestExamples: ["clean up my downloads"],
+        tools: [
+          { name: "propose_moves", description: "d", inputSchema: {} },
+          { name: "teach_rule", description: "d", inputSchema: {} },
+        ],
+      },
+    ]);
+    expect(rows).toEqual([
+      { messageId: "synthetic:file-organizer::0", prompt: "clean up my downloads", toolName: "file-organizer__propose_moves" },
+      { messageId: "synthetic:file-organizer::0", prompt: "clean up my downloads", toolName: "file-organizer__teach_rule" },
+    ]);
+  });
+
+  test("extension-level example on a tool-less manifest yields no rows", () => {
+    expect(syntheticPromptToolRows([{ name: "x", suggestExamples: ["clean up my stuff"], tools: [] }])).toEqual([]);
+    expect(syntheticPromptToolRows([{ name: "x", suggestExamples: ["clean up my stuff"] }])).toEqual([]);
+  });
+
+  test("a manifest with no authored examples yields no rows", () => {
+    expect(
+      syntheticPromptToolRows([{ name: "x", tools: [{ name: "t", description: "d", inputSchema: {} }] }]),
+    ).toEqual([]);
+  });
+});
+
+describe("dedupeSyntheticRows (pure)", () => {
+  const synthetic = [
+    { messageId: "synthetic:a:t:0", prompt: "Search The  Web  Now", toolName: "a__t" },
+    { messageId: "synthetic:a:t:1", prompt: "brand new phrasing", toolName: "a__t" },
+  ];
+
+  test("drops synthetic whose normalized prompt already appears in real history", () => {
+    // Real prompt differs only by case + surrounding/collapsed whitespace.
+    const real = [{ messageId: "m1", prompt: "  search the web now  ", toolName: "x__y" }];
+    expect(dedupeSyntheticRows(real, synthetic)).toEqual([
+      { messageId: "synthetic:a:t:1", prompt: "brand new phrasing", toolName: "a__t" },
+    ]);
+  });
+
+  test("empty real history keeps every synthetic row", () => {
+    expect(dedupeSyntheticRows([], synthetic)).toEqual(synthetic);
+  });
+});
+
+describe("buildTrainingExamples — synthetic provenance + grouping", () => {
+  test("stamps source from the `synthetic:` messageId prefix", () => {
+    const examples = buildTrainingExamples([
+      { messageId: "m1", prompt: "scan my repository", toolName: "analyzer__scan" },
+      { messageId: "synthetic:web-search:search-web:0", prompt: "search the web now", toolName: "web-search__search-web" },
+    ]);
+    const bySource = Object.fromEntries(examples.map((e) => [e.source, e]));
+    expect(bySource.history!.messages[1]!.content).toBe("scan my repository");
+    expect(bySource.manifest!.messages[1]!.content).toBe("search the web now");
+  });
+
+  test("extension-level synthetic rows group into one example over the whole tool set", () => {
+    const rows = syntheticPromptToolRows([
+      {
+        name: "file-organizer",
+        suggestExamples: ["clean up my downloads folder"],
+        tools: [
+          { name: "propose_moves", description: "d", inputSchema: {} },
+          { name: "teach_rule", description: "d", inputSchema: {} },
+        ],
+      },
+    ]);
+    const [ex] = buildTrainingExamples(rows);
+    expect(ex!.source).toBe("manifest");
+    expect(ex!.messages[2]!.content).toBe(
+      JSON.stringify({ tools: ["file-organizer__propose_moves", "file-organizer__teach_rule"] }),
+    );
+  });
+
+  test("synthetic prompts below the signal floor are dropped like real ones", () => {
+    const rows = syntheticPromptToolRows([
+      { name: "x", tools: [{ name: "t", description: "d", inputSchema: {}, suggestExamples: ["go"] }] },
+    ]);
+    expect(rows).toHaveLength(1); // the row is produced,
+    expect(buildTrainingExamples(rows)).toEqual([]); // but "go" is under MIN length.
+  });
+
+  test("toJsonl carries the source provenance on each line", () => {
+    const examples = buildTrainingExamples([
+      { messageId: "synthetic:x:t:0", prompt: "organize these files", toolName: "x__t" },
+    ]);
+    const line = JSON.parse(toJsonl(examples).trim());
+    expect(line.source).toBe("manifest");
+    expect(line.messages).toHaveLength(3);
   });
 });
 
