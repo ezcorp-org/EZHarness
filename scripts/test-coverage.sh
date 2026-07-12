@@ -179,6 +179,8 @@ run_legs() {
       src/lib/chat/page-handlers/__tests__/inherit-mode.unit.test.ts \
       src/__tests__/tools-api-mode-scope.server.test.ts \
       src/__tests__/api-extensions-id-reapprove-drift.server.test.ts \
+      src/__tests__/api-conversations-id-tree.server.test.ts \
+      src/__tests__/api-conversations-id-rewind.server.test.ts \
       src/lib/hub.unit.test.ts \
       src/lib/settings-nav.unit.test.ts \
       src/lib/settings-search.unit.test.ts \
@@ -259,6 +261,9 @@ run_legs() {
       --coverage.include='src/lib/chat/page-handlers/inherit-mode.ts' \
       --coverage.include='src/routes/api/tools/+server.ts' \
       --coverage.include='src/routes/api/extensions/[id]/reapprove-drift/+server.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/tree/+server.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/rewind/+server.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/rewind/schema.ts' \
       --coverage.include='src/lib/settings-nav.ts' \
       --coverage.include='src/lib/settings-search.ts' \
       --coverage.include='src/lib/settings-search-config.ts' \
