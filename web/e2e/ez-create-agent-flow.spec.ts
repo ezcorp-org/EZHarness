@@ -4,6 +4,14 @@
  * but the destination is `/agents/new` and the prefilled fields live
  * in `AgentConfigForm` under the Configure tab (the page auto-flips
  * to that tab when a `?prefill=<id>` is present).
+ *
+ * The propose tool runs server-side and returns `{ draftId, openUrl }`,
+ * persisted as a `messageToolCalls` row with `cardType: "ez-propose"`.
+ * The assistant message's `content` is ordinary human-readable text — the
+ * card itself is rendered by `EzPanel`'s tool-call hydration
+ * (`hydrateHistoricalToolCalls` → `inlineToolStore` → `getHistoricalToolCalls`
+ * → `ChatMessage` → `ToolCardRouter` → `parseProposeCardResult`), the same
+ * pipeline production traffic exercises. See issue #99.
  */
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeMessage } from "./fixtures/data.js";
@@ -18,7 +26,7 @@ test.describe("Ez — create agent flow", () => {
 			description: "Summarizes incoming email.",
 			category: "email",
 		};
-		const proposeResult = JSON.stringify({
+		const proposeOutput = JSON.stringify({
 			draftId: "d-create-agent",
 			openUrl: "/agents/new?prefill=d-create-agent",
 			title: "Open new agent form",
@@ -32,11 +40,28 @@ test.describe("Ez — create agent flow", () => {
 				makeMessage({
 					id: "ez-a",
 					role: "assistant",
-					content: proposeResult,
+					content: "I've prepared a draft — open the form below.",
 					parentMessageId: "ez-u",
 					createdAt: "2026-04-01T00:01:00.000Z",
 				}),
 			],
+			messageToolCalls: {
+				"ez-a": [
+					{
+						id: "tc-propose-agent",
+						extensionId: "builtin",
+						toolName: "propose_create_agent",
+						input: { name: "EmailTriager" },
+						outputSummary: proposeOutput,
+						fullOutput: proposeOutput,
+						success: true,
+						durationMs: 120,
+						status: "success",
+						messageId: "ez-a",
+						cardType: "ez-propose",
+					},
+				],
+			},
 			ezDrafts: { "d-create-agent": { kind: "agent", payload: draftPayload } },
 		});
 
