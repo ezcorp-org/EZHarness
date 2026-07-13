@@ -236,6 +236,9 @@ run_legs() {
       src/lib/ez/__tests__/page-context.unit.test.ts \
       src/lib/ez/__tests__/client-tool-dispatcher.unit.test.ts \
       src/__tests__/api-projects-id-features-scan.server.test.ts \
+      src/lib/topic-contexts-logic.unit.test.ts \
+      src/lib/components/__tests__/TopicPills.component.test.ts \
+      src/lib/components/__tests__/TopicsPopover.component.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -318,7 +321,10 @@ run_legs() {
       --coverage.include='src/lib/dev-badge.ts' \
       --coverage.include='src/lib/components/DevBadge.svelte' \
       --coverage.include='src/lib/ez/page-context.ts' \
-      --coverage.include='src/lib/ez/client-tool-dispatcher.ts' ) || VITEST_EXIT=$?
+      --coverage.include='src/lib/ez/client-tool-dispatcher.ts' \
+      --coverage.include='src/lib/topic-contexts-logic.ts' \
+      --coverage.include='src/lib/components/chat/TopicPills.svelte' \
+      --coverage.include='src/lib/components/chat/TopicsPopover.svelte' ) || VITEST_EXIT=$?
   # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
   # resolves them against the repo root and the web/src/... threshold keys match.
   if [ -f "$VITEST_COV/lcov.info" ]; then

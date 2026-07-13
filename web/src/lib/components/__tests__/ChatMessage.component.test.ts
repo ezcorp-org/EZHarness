@@ -155,3 +155,42 @@ describe("ChatMessage — empty-content suppression", () => {
 		expect(container.querySelector(".markdown-body")).toBeNull();
 	});
 });
+
+describe("ChatMessage — topic pills overlay (WS4)", () => {
+	const topics = [
+		{ id: "t1", label: "Auth flow", typeId: "feature", messageIds: ["msg-1"] },
+	];
+
+	test("assistant row renders TopicPills and clicking fires onextracttopic", async () => {
+		const onextracttopic = vi.fn();
+		const { getByTestId } = render(ChatMessage, {
+			message: makeMessage({ role: "assistant", content: "Hello" }),
+			topics,
+			onextracttopic,
+		});
+		const pill = getByTestId("topic-pill-t1");
+		expect(pill).toHaveTextContent("Auth flow");
+		const { fireEvent } = await import("@testing-library/svelte");
+		await fireEvent.click(pill);
+		expect(onextracttopic).toHaveBeenCalledWith("t1");
+	});
+
+	test("user row renders TopicPills for anchored topics", () => {
+		const { getByTestId } = render(ChatMessage, {
+			message: makeMessage({ role: "user", content: "Question" }),
+			topics,
+			onextracttopic: vi.fn(),
+		});
+		expect(getByTestId("topic-pill-t1")).toBeInTheDocument();
+	});
+
+	test("select mode suppresses the pills overlay", () => {
+		const { queryByTestId } = render(ChatMessage, {
+			message: makeMessage({ role: "assistant", content: "Hello" }),
+			topics,
+			onextracttopic: vi.fn(),
+			selectable: true,
+		});
+		expect(queryByTestId("topic-pill-t1")).toBeNull();
+	});
+});
