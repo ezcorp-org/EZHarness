@@ -128,7 +128,18 @@ export async function resolveContextsTarget(
   const deps = { ...DEFAULT_DEPS, ...overrides };
 
   // ── Rung 1: explicit `contexts:model` setting ──────────────────────
-  const parsed = parseModelSetting(await deps.getSetting(CONTEXTS_MODEL_KEY));
+  // The settings UI writes "" when the user clears the picker or selects the
+  // "Current Chat Model" sentinel — that (and any whitespace / non-string)
+  // means UNSET, so fall silently to the default-local sidecar. A NON-empty
+  // value that isn't a valid "provider/modelId" is a genuine misconfiguration:
+  // warn (so an operator sees why the pin is ignored) but still fall through.
+  const rawModelSetting = await deps.getSetting(CONTEXTS_MODEL_KEY);
+  const parsed = parseModelSetting(rawModelSetting);
+  if (!parsed && typeof rawModelSetting === "string" && rawModelSetting.trim().length > 0) {
+    log.warn('contexts:model is set but is not a valid "provider/modelId"; ignoring', {
+      value: rawModelSetting,
+    });
+  }
   if (parsed) {
     // A user-defined local/custom endpoint keeps the grammar-constrained
     // sidecar lane (the accuracy backbone on small models). We read the
