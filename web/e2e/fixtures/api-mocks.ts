@@ -411,6 +411,27 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 	// Composer suggestions — default: enabled, no matches (popover stays shut).
 	const composerSuggest = overrides.composerSuggest ?? {};
 
+	// Shared `?withToolCalls=true` response builder — the `MessagesWithToolCallsResponse`
+	// shape (messages with `toolCalls` attached, plus sub-conversation tool
+	// calls scoped to this parent). Used by both the Ez-conversation handler
+	// and the generic conversations/:id/messages handler so the two stay
+	// byte-for-byte identical instead of duplicating the response literal.
+	function buildMessagesWithToolCalls(convMessages: unknown[], convId: string) {
+		const convSubConvos = subConversations.filter((sc) => sc.parentConversationId === convId);
+		// Include only the tool calls belonging to THIS parent's sub-conversations.
+		const subToolCallsForConv: Record<string, unknown[]> = {};
+		for (const sc of convSubConvos) {
+			const calls = subConversationToolCalls[sc.id];
+			if (calls) subToolCallsForConv[sc.id] = calls;
+		}
+		return {
+			messages: convMessages.map((m: any) => ({ ...m, toolCalls: messageToolCalls[m.id] ?? [] })),
+			subConversations: convSubConvos,
+			orphanedToolCalls: [],
+			subConversationToolCalls: subToolCallsForConv,
+		};
+	}
+
 	await page.route("**/api/**", (route) => {
 		const url = new URL(route.request().url());
 		const path = url.pathname;
@@ -483,13 +504,15 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		}
 		// Messages list for the Ez conversation — must precede the generic
 		// /messages handler so seeded ezMessages are returned even when the
-		// caller didn't pass them via `overrides.messages`.
-		if (
-			method === "GET" &&
-			path === `/api/conversations/${ezConvId}/messages` &&
-			ezMessages.length > 0 &&
-			!url.searchParams.get("withToolCalls")
-		) {
+		// caller didn't pass them via `overrides.messages`. Also answers
+		// `withToolCalls=true` so specs can seed `messageToolCalls` for a
+		// propose result and exercise the real tool-call hydration pipeline
+		// (`hydrateHistoricalToolCalls` in EzPanel.svelte) instead of faking
+		// the card by stuffing the result JSON into message content.
+		if (method === "GET" && path === `/api/conversations/${ezConvId}/messages` && ezMessages.length > 0) {
+			if (route.request().url().includes("withToolCalls=true")) {
+				return route.fulfill({ json: buildMessagesWithToolCalls(ezMessages, ezConvId) });
+			}
 			return route.fulfill({ json: ezMessages });
 		}
 
@@ -605,23 +628,8 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		if (path.match(/^\/api\/conversations\/[^/]+\/messages$/) && method === "GET") {
 			const convId = path.split("/")[3]!;
 			const convMessages = messages.filter((m) => m.conversationId === convId);
-			const urlStr = route.request().url();
-			if (urlStr.includes("withToolCalls=true")) {
-				const convSubConvos = subConversations.filter(sc => sc.parentConversationId === convId);
-				// Include only the tool calls belonging to THIS parent's sub-conversations.
-				const subToolCallsForConv: Record<string, unknown[]> = {};
-				for (const sc of convSubConvos) {
-					const calls = subConversationToolCalls[sc.id];
-					if (calls) subToolCallsForConv[sc.id] = calls;
-				}
-				return route.fulfill({
-					json: {
-						messages: convMessages.map(m => ({ ...m, toolCalls: messageToolCalls[m.id] ?? [] })),
-						subConversations: convSubConvos,
-						orphanedToolCalls: [],
-						subConversationToolCalls: subToolCallsForConv,
-					},
-				});
+			if (route.request().url().includes("withToolCalls=true")) {
+				return route.fulfill({ json: buildMessagesWithToolCalls(convMessages, convId) });
 			}
 			return route.fulfill({ json: convMessages });
 		}
