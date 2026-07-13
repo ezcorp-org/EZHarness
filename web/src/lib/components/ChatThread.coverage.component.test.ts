@@ -977,11 +977,28 @@ describe("ChatThread topic contexts (WS4)", () => {
 		expect(st.extractState.message).toBe("No model");
 	});
 
-	test("handleExtractTopic network throw falls back to the default error", async () => {
+	test("handleExtractTopic 500 fault shows the generic copy, not the 503 no-model copy", async () => {
+		const { api } = mount(linear());
+		userFetchMock.mockResolvedValueOnce({
+			ok: false,
+			status: 500,
+			// SvelteKit's masked 500 shape carries no usable `error` field.
+			json: async () => ({ message: "Internal Error" }),
+		});
+		await api.__test.handleExtractTopic("t1");
+		const st = api.__test.getTopicsState();
+		expect(st.extractState.status).toBe("error");
+		expect(st.extractState.message).toContain("something went wrong");
+		expect(st.extractState.message).not.toContain("no model was available");
+	});
+
+	test("handleExtractTopic network throw falls back to the generic-fault copy", async () => {
 		const { api } = mount(linear());
 		userFetchMock.mockRejectedValueOnce(new Error("net"));
 		await api.__test.handleExtractTopic("t1");
-		expect(api.__test.getTopicsState().extractState.status).toBe("error");
+		const st = api.__test.getTopicsState();
+		expect(st.extractState.status).toBe("error");
+		expect(st.extractState.message).toContain("something went wrong");
 	});
 
 	test("handleTopicManualCopy flips copyFailed → copied on success", async () => {

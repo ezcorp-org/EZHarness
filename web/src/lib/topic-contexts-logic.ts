@@ -62,6 +62,29 @@ export const DEFAULT_EXTRACT_ERROR =
 export const DEFAULT_DETECT_ERROR =
 	"Couldn't analyze topics — no model was available. Check the local model sidecar or set a Topic Contexts model in settings.";
 
+/** Fallback for a NON-503 extract failure (a 500 fault or a network throw) —
+ *  the "no model available" copy above is only accurate for the 503 ladder,
+ *  so a genuine fault gets an honest generic message instead. */
+export const DEFAULT_EXTRACT_FAULT =
+	"Couldn't extract this topic — something went wrong. Please try again; if it keeps failing, check the server logs.";
+
+/**
+ * Pick the message to show for a failed extract POST. The 503 ladder-exhausted
+ * path sends an actionable, server-authored `{error}` (e.g. "no model
+ * available…" or "topic extraction returned no content") — prefer it. When no
+ * usable `{error}` is present, differentiate on status: a 503 keeps the
+ * no-model default (that IS a no-model situation), while any other status is a
+ * genuine fault → the generic-fault copy, never the misleading no-model one.
+ */
+export function extractErrorCopy(
+	status: number,
+	body: { error?: unknown } | null | undefined,
+): string {
+	const serverMsg = body?.error;
+	if (typeof serverMsg === "string" && serverMsg.trim().length > 0) return serverMsg;
+	return status === 503 ? DEFAULT_EXTRACT_ERROR : DEFAULT_EXTRACT_FAULT;
+}
+
 /** The Analyze/Refresh button label + its semantic kind. */
 export interface RefreshLabelResult {
 	text: string;
@@ -173,9 +196,16 @@ export function typeBadgeClass(typeId: string): string {
 	);
 }
 
+/** The sentinel `activeProjectId` uses for "no active project" — a
+ *  cross-project listing, so it is NOT sent as a `projectId` filter. */
+export const GLOBAL_PROJECT_SENTINEL = "global";
+
 /**
  * The library filter querystring for GET /api/contexts. Empty / whitespace
- * filters are omitted so a blank search never narrows the result set.
+ * filters are omitted so a blank search never narrows the result set, and the
+ * `"global"` project sentinel is skipped (it means "list across all projects",
+ * so sending it as a filter would wrongly narrow to a literal project named
+ * "global").
  */
 export function buildContextsSearchParams(opts: {
 	projectId?: string | null;
@@ -185,7 +215,9 @@ export function buildContextsSearchParams(opts: {
 	offset?: number;
 }): string {
 	const params = new URLSearchParams();
-	if (opts.projectId) params.set("projectId", opts.projectId);
+	if (opts.projectId && opts.projectId !== GLOBAL_PROJECT_SENTINEL) {
+		params.set("projectId", opts.projectId);
+	}
 	if (opts.search && opts.search.trim().length > 0) {
 		params.set("search", opts.search.trim());
 	}

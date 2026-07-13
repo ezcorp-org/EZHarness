@@ -19,6 +19,7 @@
 	import SaveIndicator from "$lib/components/settings/SaveIndicator.svelte";
 	import ModelSearchPicker from "$lib/components/ModelSearchPicker.svelte";
 	import { createSaveFlash } from "$lib/save-flash.svelte.js";
+	import { parseModelSetting } from "$lib/topic-contexts-logic";
 
 	const SETTING_KEY = "contexts:model";
 	const flash = createSaveFlash();
@@ -26,20 +27,15 @@
 	// null = default (local suggestions sidecar → chat-model fallback).
 	let selectedModel = $state<{ provider: string; model: string } | null>(null);
 
-	/** Parse a stored `"provider/modelId"` setting. Splits on the FIRST
-	 *  slash so model ids that themselves contain slashes survive. Empty
-	 *  / malformed values parse to null (default-local). */
-	function parseModelSetting(raw: string): { provider: string; model: string } | null {
-		const idx = raw.indexOf("/");
-		if (idx <= 0 || idx === raw.length - 1) return null;
-		return { provider: raw.slice(0, idx), model: raw.slice(idx + 1) };
-	}
-
 	onMount(async () => {
 		try {
 			const settings = await fetchSettings();
 			const raw = settings[SETTING_KEY];
-			if (typeof raw === "string" && raw) selectedModel = parseModelSetting(raw);
+			// Shared parser returns `{ provider, modelId }`; the picker's
+			// `selected` prop wants `{ provider, model }`. Malformed / empty →
+			// null (default-local).
+			const parsed = typeof raw === "string" ? parseModelSetting(raw) : null;
+			selectedModel = parsed ? { provider: parsed.provider, model: parsed.modelId } : null;
 		} catch {
 			// silent — the picker just starts on the default
 		}

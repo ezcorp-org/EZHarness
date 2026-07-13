@@ -22,6 +22,7 @@
 		extractError,
 		CONTEXTS_LIBRARY_HREF,
 	} from "$lib/topic-contexts-logic";
+	import MarkdownRenderer from "$lib/components/MarkdownRenderer.svelte";
 
 	let {
 		topics,
@@ -150,7 +151,9 @@
 					</span>
 				{/if}
 			</div>
-			<div class="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] p-2 text-[11px] text-[var(--color-text-secondary)]">{result.content}</div>
+			<div class="max-h-40 overflow-y-auto break-words rounded border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] p-2 text-[11px] text-[var(--color-text-secondary)]">
+				<MarkdownRenderer content={result.content} />
+			</div>
 			<div class="mt-2 flex items-center justify-between gap-2">
 				{#if needsManualCopy(extractState)}
 					<button

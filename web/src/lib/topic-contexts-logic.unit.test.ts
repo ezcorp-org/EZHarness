@@ -6,6 +6,8 @@ import {
 	MAX_PILLS_PER_MESSAGE,
 	CONTEXTS_LIBRARY_HREF,
 	DEFAULT_EXTRACT_ERROR,
+	DEFAULT_EXTRACT_FAULT,
+	extractErrorCopy,
 	refreshLabel,
 	countNewMessages,
 	topicsByMessageId,
@@ -177,6 +179,11 @@ describe("buildContextsSearchParams", () => {
 		expect(buildContextsSearchParams({ search: "  hi  " })).toBe("search=hi");
 	});
 
+	test('"global" project sentinel is skipped (cross-project listing)', () => {
+		expect(buildContextsSearchParams({ projectId: "global" })).toBe("");
+		expect(buildContextsSearchParams({ projectId: "global", search: "x" })).toBe("search=x");
+	});
+
 	test("empty opts → empty string", () => {
 		expect(buildContextsSearchParams({})).toBe("");
 		expect(
@@ -213,6 +220,29 @@ describe("parseModelSetting", () => {
 	test("leading or trailing slash → null", () => {
 		expect(parseModelSetting("/gpt-4o")).toBeNull();
 		expect(parseModelSetting("openai/")).toBeNull();
+	});
+});
+
+describe("extractErrorCopy", () => {
+	test("prefers a non-empty server {error} message (any status)", () => {
+		expect(extractErrorCopy(503, { error: "No model available" })).toBe(
+			"No model available",
+		);
+		expect(extractErrorCopy(500, { error: "topic extraction returned no content" })).toBe(
+			"topic extraction returned no content",
+		);
+	});
+
+	test("503 with no usable error body → the no-model default", () => {
+		expect(extractErrorCopy(503, {})).toBe(DEFAULT_EXTRACT_ERROR);
+		expect(extractErrorCopy(503, { error: "   " })).toBe(DEFAULT_EXTRACT_ERROR);
+		expect(extractErrorCopy(503, null)).toBe(DEFAULT_EXTRACT_ERROR);
+	});
+
+	test("non-503 fault with no error body → the generic-fault copy, NOT no-model", () => {
+		expect(extractErrorCopy(500, {})).toBe(DEFAULT_EXTRACT_FAULT);
+		expect(extractErrorCopy(500, { error: 42 })).toBe(DEFAULT_EXTRACT_FAULT);
+		expect(extractErrorCopy(500, undefined)).toBe(DEFAULT_EXTRACT_FAULT);
 	});
 });
 

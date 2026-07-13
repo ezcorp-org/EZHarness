@@ -160,7 +160,8 @@
 		extractErrored,
 		markCopied,
 		DEFAULT_DETECT_ERROR,
-		DEFAULT_EXTRACT_ERROR,
+		DEFAULT_EXTRACT_FAULT,
+		extractErrorCopy,
 	} from "$lib/topic-contexts-logic.js";
 	import type { ToolDefinition } from "$server/extensions/types";
 
@@ -1016,12 +1017,13 @@
 				topicExtractState = extractResolved(context, copied);
 			} else {
 				const body = await res.json().catch(() => ({}));
-				topicExtractState = extractErrored(
-					body?.error || DEFAULT_EXTRACT_ERROR,
-				);
+				// 503 → the server's actionable no-model message; any other
+				// status → an honest generic-fault copy (not "no model").
+				topicExtractState = extractErrored(extractErrorCopy(res.status, body));
 			}
 		} catch {
-			topicExtractState = extractErrored(DEFAULT_EXTRACT_ERROR);
+			// Network throw (no response) — a genuine fault, not a missing model.
+			topicExtractState = extractErrored(DEFAULT_EXTRACT_FAULT);
 		} finally {
 			extractingTopicId = null;
 		}

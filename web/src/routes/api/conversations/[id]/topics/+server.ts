@@ -4,8 +4,7 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
-import { getMessages } from "$server/db/queries/conversations";
-import { getTopics, getTopicState } from "$server/db/queries/contexts";
+import { getTopics, getTopicState, getMessageWatermark } from "$server/db/queries/contexts";
 import { detectTopics } from "$server/contexts/detect";
 import { ContextsUnavailableError } from "$server/contexts/config";
 import type { ConversationTopic, ConversationTopicState } from "$server/db/schema";
@@ -43,16 +42,15 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   const ownership = await resolveRootConversationForOwnership(params.id, user);
   if (!ownership) return errorJson(404, "Not found");
 
-  const [topics, state, messages] = await Promise.all([
+  const [topics, state, watermark] = await Promise.all([
     getTopics(params.id),
     getTopicState(params.id),
-    getMessages(params.id),
+    getMessageWatermark(params.id),
   ]);
-  const lastId = messages.length > 0 ? messages[messages.length - 1]!.id : null;
 
   return json({
     topics: shapeTopics(topics),
-    stale: computeStale(messages.length, lastId, state),
+    stale: computeStale(watermark.count, watermark.lastMessageId, state),
     analyzedAt: state ? state.analyzedAt.toISOString() : null,
   });
 };

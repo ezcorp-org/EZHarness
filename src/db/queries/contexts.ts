@@ -20,6 +20,7 @@ import {
   contextTypes,
   conversationTopics,
   conversationTopicState,
+  messages,
   savedContexts,
   type ContextType,
   type ConversationTopic,
@@ -197,6 +198,38 @@ export async function upsertTopicState(
     })
     .returning()) as ConversationTopicState[];
   return rows[0]!;
+}
+
+/**
+ * Lightweight staleness inputs for a conversation: the total message count and
+ * the id of the newest message (by `created_at`). The cache-only
+ * `GET /api/conversations/[id]/topics` fires on every conversation switch and
+ * only needs to compare a count + last-id against the watermark — it must NOT
+ * pull every message row (with content + memories + attachments, as
+ * `getMessages` does). This mirrors detect.ts's watermark math
+ * (`messages.length` + the last message's id) with two indexed lookups.
+ */
+export async function getMessageWatermark(
+  conversationId: string,
+): Promise<{ count: number; lastMessageId: string | null }> {
+  if (!conversationId) return { count: 0, lastMessageId: null };
+  const db = getDb();
+  const countRows = (await db
+    .select({ count: sql<number>`count(*)` })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))) as Array<{
+    count: number | string;
+  }>;
+  const lastRows = (await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(desc(messages.createdAt))
+    .limit(1)) as Array<{ id: string }>;
+  return {
+    count: Number(countRows[0]?.count ?? 0),
+    lastMessageId: lastRows[0]?.id ?? null,
+  };
 }
 
 // ── saved_contexts (library) ───────────────────────────────────────────

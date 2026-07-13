@@ -19,7 +19,7 @@
  */
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
-import { conversations } from "../db/schema";
+import { conversations, messages } from "../db/schema";
 import { migrate } from "../db/migrate";
 
 mockDbConnection();
@@ -31,6 +31,7 @@ const {
   replaceTopics,
   getTopicState,
   upsertTopicState,
+  getMessageWatermark,
   upsertSavedContext,
   getSavedContext,
   deleteSavedContext,
@@ -44,6 +45,14 @@ async function makeConversation(projectId: string, userId: string): Promise<stri
     .insert(conversations)
     .values({ projectId, userId, title: "T" })
     .returning({ id: conversations.id });
+  return rows[0]!.id as string;
+}
+
+async function makeMessage(convId: string, createdAt: Date): Promise<string> {
+  const rows = await getTestDb()
+    .insert(messages)
+    .values({ conversationId: convId, role: "user", content: "hi", createdAt })
+    .returning({ id: messages.id });
   return rows[0]!.id as string;
 }
 
@@ -87,6 +96,34 @@ describe("contexts queries", () => {
       await migrate(getTestDb());
       const types = await listContextTypes();
       expect(types).toHaveLength(10);
+    });
+  });
+
+  // ── message watermark (lightweight staleness inputs for GET topics) ────
+  describe("getMessageWatermark", () => {
+    test("empty conversationId → zero count, null last id (guard)", async () => {
+      expect(await getMessageWatermark("")).toEqual({ count: 0, lastMessageId: null });
+    });
+
+    test("conversation with no messages → zero count, null last id", async () => {
+      expect(await getMessageWatermark(conversationId)).toEqual({
+        count: 0,
+        lastMessageId: null,
+      });
+    });
+
+    test("counts messages and reports the newest message id", async () => {
+      await makeMessage(conversationId, new Date("2026-01-01T00:00:00Z"));
+      await makeMessage(conversationId, new Date("2026-01-01T00:01:00Z"));
+      const newest = await makeMessage(conversationId, new Date("2026-01-01T00:02:00Z"));
+      // A message in a DIFFERENT conversation must not leak into the count.
+      const otherConv = await makeConversation(otherProjectId, otherUserId);
+      await makeMessage(otherConv, new Date("2026-01-01T00:03:00Z"));
+
+      expect(await getMessageWatermark(conversationId)).toEqual({
+        count: 3,
+        lastMessageId: newest,
+      });
     });
   });
 

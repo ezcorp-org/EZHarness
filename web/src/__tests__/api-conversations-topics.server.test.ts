@@ -44,16 +44,14 @@ vi.mock("$lib/server/conversation-ownership", () => ({
   resolveRootConversationForOwnership: vi.fn(async () => ownership),
 }));
 
-let messagesRows: Array<{ id: string }> = [];
-vi.mock("$server/db/queries/conversations", () => ({
-  getMessages: vi.fn(async () => messagesRows),
-}));
+let watermark: { count: number; lastMessageId: string | null } = { count: 0, lastMessageId: null };
 
 let topicsRows: unknown[] = [];
 let stateRow: unknown;
 vi.mock("$server/db/queries/contexts", () => ({
   getTopics: vi.fn(async () => topicsRows),
   getTopicState: vi.fn(async () => stateRow),
+  getMessageWatermark: vi.fn(async () => watermark),
 }));
 
 let detectResult: unknown;
@@ -95,7 +93,7 @@ async function orThrown(fn: () => Promise<Response> | Response): Promise<Respons
 
 beforeEach(() => {
   ownership = { conv: { projectId: "p1" }, root: {} };
-  messagesRows = [];
+  watermark = { count: 0, lastMessageId: null };
   topicsRows = [];
   stateRow = undefined;
   detectResult = { topics: [], analyzedAt: "2026-07-13T00:00:00.000Z", model: "local/x" };
@@ -122,7 +120,7 @@ describe("GET topics", () => {
 
   test("cached shape + stale=false when watermark matches", async () => {
     topicsRows = [{ id: "t1", label: "Auth", typeId: "feature", messageIds: ["m1"] }];
-    messagesRows = [{ id: "m1" }, { id: "m2" }];
+    watermark = { count: 2, lastMessageId: "m2" };
     stateRow = { messageCount: 2, lastMessageId: "m2", analyzedAt: new Date("2026-07-13T00:00:00Z") };
     const res = await GET(getEvent());
     expect(res.status).toBe(200);
@@ -133,14 +131,23 @@ describe("GET topics", () => {
   });
 
   test("stale=true when message count moved past the watermark", async () => {
-    messagesRows = [{ id: "m1" }, { id: "m2" }, { id: "m3" }];
+    watermark = { count: 3, lastMessageId: "m3" };
+    stateRow = { messageCount: 2, lastMessageId: "m2", analyzedAt: new Date() };
+    const body = (await (await GET(getEvent())).json()) as any;
+    expect(body.stale).toBe(true);
+  });
+
+  test("stale=true when the last message id moved but the count is unchanged", async () => {
+    // A rewind/branch can swap the leaf without changing the count — the
+    // last-id half of the watermark must still flag it stale.
+    watermark = { count: 2, lastMessageId: "m9" };
     stateRow = { messageCount: 2, lastMessageId: "m2", analyzedAt: new Date() };
     const body = (await (await GET(getEvent())).json()) as any;
     expect(body.stale).toBe(true);
   });
 
   test("never analyzed → stale iff messages exist, analyzedAt null", async () => {
-    messagesRows = [{ id: "m1" }];
+    watermark = { count: 1, lastMessageId: "m1" };
     stateRow = undefined;
     const body = (await (await GET(getEvent())).json()) as any;
     expect(body.stale).toBe(true);

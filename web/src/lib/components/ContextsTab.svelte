@@ -34,6 +34,8 @@
 	 */
 	import { browser } from "$app/environment";
 	import { copyToClipboard } from "$lib/clipboard";
+	import { buildContextsSearchParams } from "$lib/topic-contexts-logic";
+	import MarkdownRenderer from "$lib/components/MarkdownRenderer.svelte";
 
 	let { projectId }: { projectId: string } = $props();
 
@@ -98,13 +100,16 @@
 		// (assign → dirty → re-run). Set loading up front instead.
 		loading = true;
 		try {
-			const params = new URLSearchParams();
-			if (projectId && projectId !== "global") params.set("projectId", projectId);
-			if (debouncedSearch) params.set("search", debouncedSearch);
-			if (activeTypeId) params.set("typeId", activeTypeId);
-			params.set("limit", "50");
+			// Shared query builder — skips the "global" sentinel + blank filters
+			// (see buildContextsSearchParams in topic-contexts-logic.ts).
+			const qs = buildContextsSearchParams({
+				projectId,
+				search: debouncedSearch,
+				typeId: activeTypeId,
+				limit: 50,
+			});
 
-			const res = await fetch(`/api/contexts?${params}`);
+			const res = await fetch(`/api/contexts?${qs}`);
 			if (res.ok) {
 				const data = (await res.json()) as { contexts: SavedContext[]; total: number };
 				contexts = data.contexts ?? [];
@@ -304,9 +309,9 @@
 				{#if expandedId === ctx.id}
 					<div class="border-t border-[var(--color-border)] px-4 py-3">
 						<div
-							class="whitespace-pre-wrap text-sm leading-relaxed text-[var(--color-text-primary)]"
+							class="text-sm leading-relaxed text-[var(--color-text-primary)]"
 							data-testid="context-content"
-						>{ctx.content}</div>
+						><MarkdownRenderer content={ctx.content} /></div>
 
 						<!-- Meta line -->
 						<div
