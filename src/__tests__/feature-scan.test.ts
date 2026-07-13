@@ -22,12 +22,12 @@
  *   12. listFilteredChildren / realpathInsideRoot direct unit coverage.
  */
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, symlink, rm, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { readFile } from "node:fs/promises";
 
-import { scanFeatures } from "../runtime/scan/feature-scan";
+import { scanFeatures, scanProject } from "../runtime/scan/feature-scan";
 import {
   listFilteredChildren,
   realpathInsideRoot,
@@ -116,6 +116,99 @@ describe("scanFeatures — grouping & skip rules", () => {
 
   test("empty projectRoot string → empty array", async () => {
     expect(await scanFeatures("")).toEqual([]);
+  });
+});
+
+// ── scanProject — discriminated result + top-level fallback ──────────
+describe("scanProject — result discrimination", () => {
+  test("nonexistent projectRoot → { ok: false, reason: 'unresolvable-root' }", async () => {
+    const result = await scanProject("/this/path/definitely/does/not/exist");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("unresolvable-root");
+      expect(result.requestedRoot).toBe("/this/path/definitely/does/not/exist");
+    }
+  });
+
+  test("empty projectRoot string → { ok: false }", async () => {
+    const result = await scanProject("");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("unresolvable-root");
+  });
+
+  test("project with static source roots → ok, usedTopLevelFallback=false, realRoot resolved", async () => {
+    await writeFiles({
+      "src/featA/a.ts": "a",
+      "src/featA/b.ts": "b",
+    });
+    const result = await scanProject(projectRoot);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.usedTopLevelFallback).toBe(false);
+      // realRoot is the realpath of the (possibly symlinked) tmpdir root.
+      expect(result.realRoot).toBe(await realpath(projectRoot));
+      expect(result.features.map((f) => f.name)).toEqual(["featA"]);
+    }
+  });
+
+  test("resolvable root with NO static source roots but qualifying top-level dirs → fallback engages", async () => {
+    // No src/, web/src, packages/, or docs/extensions/examples — instead
+    // arbitrary top-level module directories (the TESTENV / EZ Mind shape).
+    await writeFiles({
+      "moduleA/x.ts": "x",
+      "moduleA/y.ts": "y",
+      "moduleB/one.ts": "1",
+      "moduleB/nested/two.ts": "2",
+    });
+    const result = await scanProject(projectRoot);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.usedTopLevelFallback).toBe(true);
+    expect(result.features.map((f) => f.name).sort()).toEqual(["moduleA", "moduleB"]);
+    // originPath + description use bare basenames (no `./` prefix).
+    const moduleA = result.features.find((f) => f.name === "moduleA")!;
+    expect(moduleA.originPath).toBe("moduleA");
+    expect(moduleA.description).toBe("Files under moduleA");
+    expect(moduleA.files).toEqual(["moduleA/x.ts", "moduleA/y.ts"]);
+    // Recursion into nested dirs still works under fallback.
+    const moduleB = result.features.find((f) => f.name === "moduleB")!;
+    expect(moduleB.files).toEqual(["moduleB/nested/two.ts", "moduleB/one.ts"]);
+  });
+
+  test("fallback skips single-file top-level dirs and excludes node_modules/.git/dotdirs", async () => {
+    await writeFiles({
+      "keeper/a.ts": "a",
+      "keeper/b.ts": "b",
+      "lonely/only.ts": "x", // single-file → skipped
+      "node_modules/pkg/index.js": "n", // excluded
+      ".git/HEAD": "ref", // excluded
+      ".hidden/secret.ts": "s", // dotdir excluded
+    });
+    const result = await scanProject(projectRoot);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.usedTopLevelFallback).toBe(true);
+    expect(result.features.map((f) => f.name)).toEqual(["keeper"]);
+  });
+
+  test("fallback over an empty project → ok with zero features (usedTopLevelFallback=true)", async () => {
+    // The reported repro: a resolvable root with nothing scannable. The
+    // endpoint uses this to explain a legitimate 0-feature result.
+    const result = await scanProject(projectRoot);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.usedTopLevelFallback).toBe(true);
+      expect(result.features).toEqual([]);
+    }
+  });
+
+  test("scanFeatures wrapper surfaces the fallback features (behavior flows through)", async () => {
+    await writeFiles({
+      "widget/a.ts": "a",
+      "widget/b.ts": "b",
+    });
+    // The thin wrapper returns the same features scanProject discovered.
+    expect((await scanFeatures(projectRoot)).map((f) => f.name)).toEqual(["widget"]);
   });
 });
 
