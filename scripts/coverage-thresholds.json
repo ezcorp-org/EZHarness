@@ -261,5 +261,6 @@
   "src/runtime/tools/ez/client-tool.ts": 100,
   "web/src/lib/ez/page-context.ts": 100,
   "web/src/lib/ez/client-tool-dispatcher.ts": 100,
+  "web/src/lib/components/ContextsTab.svelte": 100,
   "web/src/lib/**": 90
 }
