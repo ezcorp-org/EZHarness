@@ -276,5 +276,7 @@
   "web/src/lib/topic-contexts-logic.ts": 100,
   "web/src/lib/components/chat/TopicPills.svelte": 100,
   "web/src/lib/components/chat/TopicsPopover.svelte": 100,
+  "web/src/lib/components/ContextsTab.svelte": 100,
+  "web/src/lib/components/settings/TopicContextsSection.svelte": 100,
   "web/src/lib/**": 90
 }

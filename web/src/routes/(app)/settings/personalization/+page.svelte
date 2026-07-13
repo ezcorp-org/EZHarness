@@ -7,6 +7,7 @@
 	import AuditVisibilitySection from "$lib/components/settings/AuditVisibilitySection.svelte";
 	import AdvancedSection from "$lib/components/settings/AdvancedSection.svelte";
 	import ComposerSuggestSection from "$lib/components/settings/ComposerSuggestSection.svelte";
+	import TopicContextsSection from "$lib/components/settings/TopicContextsSection.svelte";
 	import { scrollToLocationHash } from "$lib/scroll-to-hash.js";
 
 	let pageLoading = $state(true);
@@ -50,6 +51,7 @@
 	<GlobalInstructionsSection bind:globalPrompt />
 	<ModesSection />
 	<ComposerSuggestSection bind:suggestEnabled />
+	<TopicContextsSection />
 	<BriefingCardSection />
 	<AuditVisibilitySection bind:showBuiltinPills bind:showInstalledPills bind:eventAuditSampleN />
 	<AdvancedSection bind:showObservability bind:agentAutonomyEnabled />
