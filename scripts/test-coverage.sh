@@ -241,6 +241,10 @@ run_legs() {
       src/lib/components/__tests__/TopicsPopover.component.test.ts \
       src/lib/components/__tests__/ContextsTab.component.test.ts \
       src/lib/components/__tests__/TopicContextsSection.component.test.ts \
+      src/__tests__/api-context-types.server.test.ts \
+      src/__tests__/api-contexts.server.test.ts \
+      src/__tests__/api-conversations-topics.server.test.ts \
+      src/__tests__/api-topics-extract.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -328,7 +332,14 @@ run_legs() {
       --coverage.include='src/lib/components/chat/TopicPills.svelte' \
       --coverage.include='src/lib/components/chat/TopicsPopover.svelte' \
       --coverage.include='src/lib/components/ContextsTab.svelte' \
-      --coverage.include='src/lib/components/settings/TopicContextsSection.svelte' ) || VITEST_EXIT=$?
+      --coverage.include='src/lib/components/settings/TopicContextsSection.svelte' \
+      --coverage.include='src/routes/api/conversations/[id]/topics/+server.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/topics/schema.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/topics/[topicId]/extract/+server.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/topics/[topicId]/extract/schema.ts' \
+      --coverage.include='src/routes/api/contexts/+server.ts' \
+      --coverage.include='src/routes/api/contexts/[id]/+server.ts' \
+      --coverage.include='src/routes/api/context-types/+server.ts' ) || VITEST_EXIT=$?
   # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
   # resolves them against the repo root and the web/src/... threshold keys match.
   if [ -f "$VITEST_COV/lcov.info" ]; then

@@ -44,14 +44,12 @@ export interface ContextsCompletionRequest {
 
 export interface ContextsCompletionDeps {
   fetchFn?: typeof fetch;
-  completeFn?: (
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    piModel: any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    context: any,
-    opts?: { conversationId?: string },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ) => Promise<any>;
+  // Single line: a multi-line arrow-type signature makes Bun's coverage
+  // instrumenter attribute the wrapping lines as uncovered "statements"
+  // (they carry no runtime code), dropping this file below its 100% line
+  // threshold on the merged host-pool run.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  completeFn?: (piModel: any, context: any, opts?: { conversationId?: string }) => Promise<any>;
 }
 
 /** Strip a trailing `/v1`, slashes, or colons — same normalization as
