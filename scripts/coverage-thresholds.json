@@ -252,6 +252,7 @@
   "web/src/routes/api/composer/suggest/schema.ts": 100,
   "web/src/routes/api/composer/suggest/feedback/+server.ts": 100,
   "web/src/lib/components/settings/ComposerSuggestSection.svelte": 100,
+  "src/db/queries/contexts.ts": 100,
   "web/src/lib/model-selector-logic.ts": 100,
   "src/dev-git-info.ts": 100,
   "web/src/lib/dev-badge.ts": 100,

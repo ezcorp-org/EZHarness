@@ -1879,6 +1879,96 @@ export async function migrate(db: any): Promise<void> {
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_suggestion_feedback_created ON suggestion_feedback(created_at)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_suggestion_feedback_kind_action ON suggestion_feedback(kind, action, created_at)`);
 
+  // ── Topic Contexts v1 ─────────────────────────────────────────────
+  // See src/db/migrations/add-topic-contexts.ts for the full rationale.
+  // Backs the "click a topic pill → extract that topic's context → copy +
+  // store it searchable" feature. The classification enum lives in the DB
+  // (`context_types`) and every detection call reads the LIVE rows to
+  // constrain the model's output — no near-duplicate enum proliferation.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS context_types (
+      id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      description TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+  // Seed the 10 canonical types. ON CONFLICT DO NOTHING so a re-run (or an
+  // operator who tuned a description) is never clobbered. Keep this list
+  // identical to CONTEXT_TYPE_SEED in add-topic-contexts.ts.
+  await db.execute(sql`
+    INSERT INTO context_types (id, label, description, sort_order) VALUES
+      ('feature',      'Feature',      'A capability or piece of functionality to build, or one that already exists.',            1),
+      ('idea',         'Idea',         'A proposal, suggestion, or brainstormed concept that has not been decided yet.',          2),
+      ('decision',     'Decision',     'A choice that was made, together with the reasoning behind it.',                          3),
+      ('bug-fix',      'Bug Fix',      'A defect and how it was, or should be, resolved.',                                        4),
+      ('requirement',  'Requirement',  'A constraint or condition the solution must satisfy.',                                    5),
+      ('how-to',       'How-To',       'Step-by-step instructions or a procedure for accomplishing something.',                   6),
+      ('code-snippet', 'Code Snippet', 'A concrete block of code, configuration, or command.',                                    7),
+      ('fact',         'Fact',         'A piece of reference information or an established truth worth remembering.',              8),
+      ('question',     'Question',     'An open question or unresolved inquiry raised in the conversation.',                      9),
+      ('plan',         'Plan',         'A sequence of steps or a strategy toward a goal.',                                       10)
+    ON CONFLICT (id) DO NOTHING
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS conversation_topics (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      label TEXT NOT NULL,
+      type_id TEXT NOT NULL REFERENCES context_types(id) ON DELETE RESTRICT,
+      message_ids JSONB NOT NULL DEFAULT '[]',
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conversation_topics_conversation ON conversation_topics(conversation_id)`);
+  // Case-insensitive label uniqueness per conversation — migration-only
+  // (drizzle has no portable functional-index helper; mirrors the lessons
+  // partial-unique pattern). Keeps re-detection from spawning duplicate
+  // pills for the same label under different casing.
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_topics_conv_label_unique
+      ON conversation_topics(conversation_id, lower(label))
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS conversation_topic_state (
+      conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+      last_message_id TEXT,
+      message_count INTEGER NOT NULL DEFAULT 0,
+      model TEXT,
+      analyzed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS saved_contexts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+      topic_label TEXT NOT NULL,
+      type_id TEXT NOT NULL REFERENCES context_types(id) ON DELETE RESTRICT,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      model TEXT,
+      message_count INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_saved_contexts_user_created ON saved_contexts(user_id, created_at DESC)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_saved_contexts_project ON saved_contexts(project_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_saved_contexts_type ON saved_contexts(type_id)`);
+  // Re-extract upserts (latest snapshot wins). All three columns are
+  // non-null at insert time (extract always runs on a real conversation),
+  // so a plain composite UNIQUE is a valid ON CONFLICT arbiter.
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_saved_contexts_unique
+      ON saved_contexts(user_id, conversation_id, topic_label)
+  `);
+
   // One-shot, idempotent backfill: move any pre-existing github-projects PATs
   // out of the broadly-readable `settings` table into the scope-isolated,
   // AEAD-bound extension_secrets store. Runs LAST (every FK target exists by
