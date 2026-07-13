@@ -17,6 +17,33 @@ import { render, fireEvent, waitFor } from "@testing-library/svelte";
 import { describe, test, expect, vi, beforeEach } from "vitest";
 import ChatHeader from "../ChatHeader.svelte";
 import type { Conversation } from "$lib/api.js";
+import {
+	type Topic,
+	type SavedContext,
+	EXTRACT_IDLE,
+	extractResolved,
+	contextTypeMap,
+} from "$lib/topic-contexts-logic";
+
+function topicsChrome(overrides: Record<string, unknown> = {}) {
+	return {
+		list: [] as Topic[],
+		stale: false,
+		analyzedAt: null as string | null,
+		newCount: 0,
+		analyzing: false,
+		analyzeError: null as string | null,
+		open: false,
+		extractState: EXTRACT_IDLE,
+		busyId: null as string | null,
+		typeMap: contextTypeMap([]),
+		toggle: vi.fn(),
+		onanalyze: vi.fn(),
+		onextract: vi.fn(),
+		onmanualcopy: vi.fn(),
+		...overrides,
+	};
+}
 
 beforeEach(() => {
 	// PermissionModeIndicator + ExportMenu fire fetches on mount; stub so
@@ -59,6 +86,7 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
 		obsOpen: false,
 		selectMode: false,
 		isStreaming: false,
+		topics: topicsChrome(),
 		onmobilemenu: vi.fn(),
 		ontoolstoggle: vi.fn(),
 		ondifftoggle: vi.fn(),
@@ -263,5 +291,86 @@ describe("ChatHeader loaded-tools badge + popover", () => {
 		);
 		await fireEvent.click(toolButton(container));
 		expect(ontoolstoggle).toHaveBeenCalledWith(true);
+	});
+});
+
+const sampleTopics: Topic[] = [
+	{ id: "t1", label: "Auth flow", typeId: "feature", messageIds: ["m1"] },
+	{ id: "t2", label: "Rate limiting", typeId: "bug-fix", messageIds: ["m2"] },
+];
+
+describe("ChatHeader Topics button + popover", () => {
+	test("shows a count badge when topics exist", () => {
+		const { getByTestId } = render(
+			ChatHeader,
+			defaultProps({ topics: topicsChrome({ list: sampleTopics }) }),
+		);
+		expect(getByTestId("topics-badge")).toHaveTextContent("2");
+	});
+
+	test("no badge when there are no topics", () => {
+		const { queryByTestId } = render(ChatHeader, defaultProps());
+		expect(queryByTestId("topics-badge")).toBeNull();
+	});
+
+	test("clicking the Topics button toggles the popover open", async () => {
+		const toggle = vi.fn();
+		const { getByTestId } = render(
+			ChatHeader,
+			defaultProps({ topics: topicsChrome({ toggle }) }),
+		);
+		await fireEvent.click(getByTestId("topics-btn"));
+		expect(toggle).toHaveBeenCalledWith(true);
+	});
+
+	test("renders the popover with the topic list when open", () => {
+		const { getByTestId } = render(
+			ChatHeader,
+			defaultProps({
+				topics: topicsChrome({ open: true, list: sampleTopics }),
+			}),
+		);
+		expect(getByTestId("topics-popover")).toBeInTheDocument();
+		expect(getByTestId("topic-pill-t1")).toHaveTextContent("Auth flow");
+	});
+
+	test("popover interactions forward to the chrome callbacks", async () => {
+		const context: SavedContext = {
+			id: "ctx-1",
+			topicLabel: "Auth flow",
+			typeId: "feature",
+			title: "Auth flow",
+			content: "JWT rotation",
+			model: "m",
+			updatedAt: "2026-07-13T00:00:00.000Z",
+		};
+		const toggle = vi.fn();
+		const onanalyze = vi.fn();
+		const onextract = vi.fn();
+		const onmanualcopy = vi.fn();
+		const { getByTestId } = render(
+			ChatHeader,
+			defaultProps({
+				topics: topicsChrome({
+					open: true,
+					list: sampleTopics,
+					// copyFailed → the manual Copy button renders so onmanualcopy
+					// is reachable.
+					extractState: extractResolved(context, false),
+					toggle,
+					onanalyze,
+					onextract,
+					onmanualcopy,
+				}),
+			}),
+		);
+		await fireEvent.click(getByTestId("topics-analyze-btn"));
+		expect(onanalyze).toHaveBeenCalled();
+		await fireEvent.click(getByTestId("topic-pill-t1"));
+		expect(onextract).toHaveBeenCalledWith("t1");
+		await fireEvent.click(getByTestId("topic-copy-btn"));
+		expect(onmanualcopy).toHaveBeenCalledWith("JWT rotation");
+		await fireEvent.click(getByTestId("topics-backdrop"));
+		expect(toggle).toHaveBeenCalledWith(false);
 	});
 });
