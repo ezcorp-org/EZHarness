@@ -19,6 +19,7 @@
   "src/extensions/capability-flags.ts": 100,
   "src/extensions/bundled-drift-reapprove.ts": 100,
   "web/src/routes/api/extensions/[id]/reapprove-drift/+server.ts": 100,
+  "web/src/routes/api/projects/[id]/features/scan/+server.ts": 100,
   "web/src/routes/api/extensions/[id]/secrets/+server.ts": 100,
   "web/src/routes/api/rbac/extension-grants/+server.ts": 100,
   "web/src/routes/api/rbac/extension-grants/[id]/+server.ts": 100,

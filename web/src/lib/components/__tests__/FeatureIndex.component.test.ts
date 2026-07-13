@@ -249,3 +249,81 @@ describe("FeatureIndex — inline edit keyboard handling", () => {
 		expect(patchCalls).toHaveLength(0);
 	});
 });
+
+describe("FeatureIndex — scan failure surfacing", () => {
+	test("a scan that returns a notice renders the info banner (not the red error banner)", async () => {
+		vi.stubGlobal(
+			"fetch",
+			makeFetchStub([
+				// Scan POST must be matched BEFORE the generic GET (both share
+				// the /features prefix); makeFetchStub keys on method too.
+				{
+					method: "POST",
+					match: "/api/projects/proj-1/features/scan",
+					respond: () => ({
+						status: 200,
+						body: {
+							features: [],
+							notice:
+								"No feature directories found under /app/TESTENV (scanned top-level fallback)",
+						},
+					}),
+				},
+				{
+					method: "GET",
+					match: "/api/projects/proj-1/features",
+					respond: () => ({ status: 200, body: [] }),
+				},
+			]),
+		);
+
+		render(FeatureIndex, { projectId: "proj-1" });
+
+		const scanButton = await waitFor(() =>
+			screen.getByRole("button", { name: "Scan features" }),
+		);
+		await fireEvent.click(scanButton);
+
+		const notice = await waitFor(() => screen.getByTestId("scan-notice"));
+		expect(notice).toHaveTextContent(
+			"No feature directories found under /app/TESTENV (scanned top-level fallback)",
+		);
+		// Info banner is styled distinctly (blue, not the red error banner).
+		expect(notice.className).toContain("blue");
+		expect(notice.className).not.toContain("red");
+	});
+
+	test("a scan that 400s renders the error banner with the server message and no notice", async () => {
+		const message =
+			'Working directory "app/ezAppTest" does not exist on the server (resolved to "/app/app/ezAppTest"). Set an absolute path in project settings.';
+		vi.stubGlobal(
+			"fetch",
+			makeFetchStub([
+				{
+					method: "POST",
+					match: "/api/projects/proj-1/features/scan",
+					respond: () => ({ status: 400, body: { error: message } }),
+				},
+				{
+					method: "GET",
+					match: "/api/projects/proj-1/features",
+					respond: () => ({ status: 200, body: [] }),
+				},
+			]),
+		);
+
+		render(FeatureIndex, { projectId: "proj-1" });
+
+		const scanButton = await waitFor(() =>
+			screen.getByRole("button", { name: "Scan features" }),
+		);
+		await fireEvent.click(scanButton);
+
+		// The verbatim resolved-path message surfaces through readError.
+		await waitFor(() => {
+			expect(screen.getByText(message)).toBeInTheDocument();
+		});
+		// No info notice banner on the error path.
+		expect(screen.queryByTestId("scan-notice")).toBeNull();
+	});
+});

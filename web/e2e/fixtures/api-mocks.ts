@@ -165,6 +165,20 @@ export interface MockOverrides {
 		source: "user" | "agent";
 		fileCount?: number;
 	}>;
+	/**
+	 * Simulate a `POST /scan` failure (e.g. the 400 an unresolvable working
+	 * directory now returns). When `scanStatus >= 400` the scan handler
+	 * replies with `{ error: scanError }` and that status instead of the
+	 * post-scan list — drives the "red banner on scan failure" spec.
+	 */
+	scanStatus?: number;
+	scanError?: string;
+	/**
+	 * Explanatory `notice` string returned alongside the post-scan feature
+	 * list (mirrors the real endpoint's `{ features, notice }` envelope).
+	 * Drives the "info banner on a 0-feature scan" spec. Defaults to null.
+	 */
+	scanNotice?: string | null;
 	/** Override specific routes: URL pattern -> handler */
 	routes?: Record<string, (url: URL) => unknown>;
 	/**
@@ -366,6 +380,9 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 	}
 	for (const f of features) recomputeCount(f.id);
 	const scanResult = overrides.scanResult;
+	const scanStatus = overrides.scanStatus;
+	const scanError = overrides.scanError;
+	const scanNotice = overrides.scanNotice ?? null;
 	const messageToolCalls: Record<string, Array<any>> = { ...(overrides.messageToolCalls ?? {}) };
 
 	// Phase 48 — Ez panel state. Mutable so the consume route can flip
@@ -1143,6 +1160,14 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 
 			// POST /api/projects/:id/features/scan
 			if (tail === "scan" && method === "POST") {
+				// Simulate the endpoint's failure surface (e.g. 400 on an
+				// unresolvable working directory).
+				if (scanStatus && scanStatus >= 400) {
+					return route.fulfill({
+						status: scanStatus,
+						json: { error: scanError ?? "Scan failed" },
+					});
+				}
 				if (scanResult) {
 					// Replace the in-memory list with the override.
 					features.length = 0;
@@ -1155,8 +1180,12 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 						});
 					}
 				}
+				// New envelope: { features, notice } (was a bare array).
 				return route.fulfill({
-					json: features.filter((f) => f.projectId === projectId),
+					json: {
+						features: features.filter((f) => f.projectId === projectId),
+						notice: scanNotice,
+					},
 				});
 			}
 

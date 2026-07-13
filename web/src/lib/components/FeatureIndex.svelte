@@ -70,6 +70,13 @@
 	// Surface API error to the user without a toast system — inline banner.
 	let errorMessage = $state<string | null>(null);
 
+	// Explanatory notice for a scan that succeeded but discovered zero
+	// feature directories (e.g. a project with no recognized source roots).
+	// Rendered as an info banner — visually distinct from the red error
+	// banner — so an empty index reads as "nothing to index here" rather
+	// than "something broke".
+	let noticeMessage = $state<string | null>(null);
+
 	let filtered = $derived.by(() => {
 		const q = searchQuery.trim().toLowerCase();
 		if (!q) return features;
@@ -124,14 +131,26 @@
 	async function handleScan(): Promise<void> {
 		scanning = true;
 		errorMessage = null;
+		noticeMessage = null;
 		try {
 			const res = await fetch(`/api/projects/${projectId}/features/scan`, { method: "POST" });
 			if (res.ok) {
-				features = await res.json();
+				// The scan endpoint returns { features, notice }: `features`
+				// is the post-scan list; `notice` explains a legitimate
+				// 0-feature result (null when features were found).
+				const data = (await res.json()) as {
+					features: FeatureRow[];
+					notice: string | null;
+				};
+				features = data.features;
+				noticeMessage = data.notice;
 				addToast({
 					type: "success",
 					message: `Scan complete — ${features.length} ${features.length === 1 ? "feature" : "features"}`,
 				});
+				if (data.notice) {
+					addToast({ type: "info", message: data.notice });
+				}
 			} else {
 				errorMessage = await readError(res, "Scan failed");
 				addToast({ type: "error", message: errorMessage });
@@ -422,8 +441,20 @@
 	</div>
 
 	{#if errorMessage}
-		<div class="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+		<div
+			data-testid="feature-error"
+			class="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300"
+		>
 			{errorMessage}
+		</div>
+	{/if}
+
+	{#if noticeMessage}
+		<div
+			data-testid="scan-notice"
+			class="rounded-md border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-sm text-blue-300"
+		>
+			{noticeMessage}
 		</div>
 	{/if}
 

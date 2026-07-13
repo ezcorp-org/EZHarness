@@ -1,11 +1,11 @@
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { json } from "@sveltejs/kit";
 import { errorJson } from "$lib/server/http-errors";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import * as projectQueries from "$server/db/queries/projects";
 import * as featureQueries from "$server/db/queries/features";
-import { scanFeatures } from "$server/runtime/scan/feature-scan";
+import { scanProject } from "$server/runtime/scan/feature-scan";
 import type { RequestHandler } from "./$types";
 
 /**
@@ -13,15 +13,21 @@ import type { RequestHandler } from "./$types";
  *
  * POST /api/projects/:id/features/scan
  *
- * Walks the project's filesystem (via `scanFeatures`), upserts the
+ * Walks the project's filesystem (via `scanProject`), upserts the
  * results as `source='agent'` features, and replaces each agent
  * feature's `source='scan'` files. User-pinned files
  * (`source='user'`) and user-renamed features (`source='user'`)
  * survive every rescan — the load-bearing invariant.
  *
- * Returns the post-scan list of features with file counts (same shape
- * as GET /api/projects/:id/features) so the UI can render in one
- * round trip.
+ * Returns `{ features, notice }`: `features` is the post-scan list with
+ * file counts (same row shape as GET /api/projects/:id/features) so the
+ * UI can render in one round trip; `notice` is a human-readable string
+ * (or null) explaining a legitimate 0-feature result.
+ *
+ * Failure surfacing (was silently a 200-with-[]): an unresolvable
+ * working directory — a missing dir or a stale/relative path that
+ * resolves against the server CWD — returns `400` with an actionable
+ * message rather than an empty index that reads as "no features".
  *
  * Synchronous: the scan is sub-second on real-world projects (no
  * LLM calls, plain FS walk). If that ever becomes false, the
@@ -38,7 +44,23 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 
   // Resolve to absolute so symlink-escape gets the canonical root.
   const projectRoot = resolve(project.path);
-  const scanned = await scanFeatures(projectRoot);
+  const scan = await scanProject(projectRoot);
+  if (!scan.ok) {
+    // Unresolvable working directory (missing dir, or a stale/relative
+    // path that resolves against the server CWD). Surface it instead of
+    // answering 200-with-[] — a silent empty index reads as "no features"
+    // and hides the real breakage. Include the relative-path hint only
+    // when the configured path isn't already absolute.
+    const hint = isAbsolute(project.path)
+      ? ""
+      : " Set an absolute path in project settings.";
+    return errorJson(
+      400,
+      `Working directory "${project.path}" does not exist on the server ` +
+        `(resolved to "${projectRoot}").${hint}`,
+    );
+  }
+  const scanned = scan.features;
 
   // Index existing features twice: once by `originPath` (the scanner-
   // recorded source dir, immutable across renames), once by `name` (a
@@ -124,5 +146,16 @@ export const POST: RequestHandler = async ({ params, locals }) => {
   // hybrid-ownership intent ("rescans never clobber user edits").
 
   const updated = await featureQueries.listFeatures(params.id);
-  return json(updated);
+
+  // When the scan itself discovered zero feature directories, explain WHY
+  // so the UI can distinguish a legitimately-empty project from a broken
+  // one. A scan that found features needs no notice.
+  const notice =
+    scan.features.length === 0
+      ? scan.usedTopLevelFallback
+        ? `No feature directories found under ${scan.realRoot} (scanned top-level fallback)`
+        : `No feature directories found under ${scan.realRoot} (scanned source roots)`
+      : null;
+
+  return json({ features: updated, notice });
 };
