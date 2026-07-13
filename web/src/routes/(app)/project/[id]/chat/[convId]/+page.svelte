@@ -299,6 +299,7 @@
 				{obsOpen}
 				selectMode={chrome.selectMode}
 				isStreaming={chrome.isStreaming}
+				topics={chrome.topics}
 				onmobilemenu={() => (mobileConvListOpen = true)}
 				ontoolstoggle={(next) => (toolsOpen = next)}
 				ondifftoggle={() => (diffPanelOpen = !diffPanelOpen)}

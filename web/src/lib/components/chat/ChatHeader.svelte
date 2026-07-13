@@ -4,6 +4,8 @@
 	import ContextUsageIndicator from "$lib/components/ContextUsageIndicator.svelte";
 	import PermissionModeIndicator from "$lib/components/PermissionModeIndicator.svelte";
 	import ExportMenu from "$lib/components/ExportMenu.svelte";
+	import TopicsPopover from "$lib/components/chat/TopicsPopover.svelte";
+	import type { TopicsChrome } from "$lib/components/ChatThread.svelte";
 	import type { Conversation } from "$lib/api.js";
 	import type { PermissionMode } from "$lib/permission-mode.js";
 	import type { ContextBreakdown, ToolBreakdownEntry } from "$lib/context-usage-logic";
@@ -31,6 +33,9 @@
 		obsOpen: boolean;
 		selectMode: boolean;
 		isStreaming: boolean;
+		/** Topic Contexts (WS4) — state + handlers for the Topics button +
+		 *  popover. Owned by ChatThread, forwarded here via chrome.topics. */
+		topics: TopicsChrome;
 		onmobilemenu: () => void;
 		ontoolstoggle: (next: boolean) => void;
 		ondifftoggle: () => void;
@@ -59,6 +64,7 @@
 		obsOpen,
 		selectMode,
 		isStreaming,
+		topics,
 		onmobilemenu,
 		ontoolstoggle,
 		ondifftoggle,
@@ -246,6 +252,43 @@
 					<span data-testid="diff-badge" class="absolute -bottom-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-bold leading-none text-white">{diffFileCount}</span>
 				{/if}
 			</button>
+		</Tooltip>
+		<!-- Topic Contexts (WS4): analyze the conversation into topics, then
+		     click a topic to extract + copy + save its context. Positioning +
+		     backdrop mirror the tools popover above. -->
+		<Tooltip position="bottom" text="Topics in this conversation — analyze, then click a topic to extract & copy its context">
+		<div class="relative">
+			<button
+				data-testid="topics-btn"
+				onclick={() => topics.toggle(!topics.open)}
+				class="relative flex items-center rounded p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors {topics.open ? 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-primary)]' : ''}"
+				aria-label="Topics ({topics.list.length})"
+			>
+				<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5a1.99 1.99 0 011.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.99 1.99 0 013 12V7a4 4 0 014-4z" />
+				</svg>
+				{#if topics.list.length > 0}
+					<span data-testid="topics-badge" class="absolute -bottom-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-blue-500 px-0.5 text-[9px] font-bold leading-none text-white">{topics.list.length}</span>
+				{/if}
+			</button>
+			{#if topics.open}
+				<TopicsPopover
+					topics={topics.list}
+					stale={topics.stale}
+					analyzedAt={topics.analyzedAt}
+					newCount={topics.newCount}
+					analyzing={topics.analyzing}
+					analyzeError={topics.analyzeError}
+					extractState={topics.extractState}
+					busyId={topics.busyId}
+					typeMap={topics.typeMap}
+					onclose={() => topics.toggle(false)}
+					onanalyze={topics.onanalyze}
+					onextract={topics.onextract}
+					onmanualcopy={topics.onmanualcopy}
+				/>
+			{/if}
+		</div>
 		</Tooltip>
 		<Tooltip position="bottom" text="Export this conversation as Markdown or JSON">
 			<ExportMenu conversationId={convId} leafMessageId={activeLeafId ?? undefined} />
