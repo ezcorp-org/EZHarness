@@ -1894,22 +1894,16 @@ export async function migrate(db: any): Promise<void> {
     )
   `);
   // Seed the 10 canonical types. ON CONFLICT DO NOTHING so a re-run (or an
-  // operator who tuned a description) is never clobbered. Keep this list
+  // operator who tuned a description) is never clobbered. Keep this data
   // identical to CONTEXT_TYPE_SEED in add-topic-contexts.ts.
-  await db.execute(sql`
-    INSERT INTO context_types (id, label, description, sort_order) VALUES
-      ('feature',      'Feature',      'A capability or piece of functionality to build, or one that already exists.',            1),
-      ('idea',         'Idea',         'A proposal, suggestion, or brainstormed concept that has not been decided yet.',          2),
-      ('decision',     'Decision',     'A choice that was made, together with the reasoning behind it.',                          3),
-      ('bug-fix',      'Bug Fix',      'A defect and how it was, or should be, resolved.',                                        4),
-      ('requirement',  'Requirement',  'A constraint or condition the solution must satisfy.',                                    5),
-      ('how-to',       'How-To',       'Step-by-step instructions or a procedure for accomplishing something.',                   6),
-      ('code-snippet', 'Code Snippet', 'A concrete block of code, configuration, or command.',                                    7),
-      ('fact',         'Fact',         'A piece of reference information or an established truth worth remembering.',              8),
-      ('question',     'Question',     'An open question or unresolved inquiry raised in the conversation.',                      9),
-      ('plan',         'Plan',         'A sequence of steps or a strategy toward a goal.',                                       10)
-    ON CONFLICT (id) DO NOTHING
-  `);
+  //
+  // The VALUES list is kept on ONE line deliberately: a multi-line INSERT makes
+  // Bun's coverage instrumenter mark each wrapped VALUES row as an uncovered
+  // "statement" (they carry no runtime code of their own), which drops this
+  // migration below the patch-coverage bar even though the seed runs on every
+  // migrate(). A single-line statement instruments as one line — hit here, the
+  // same shape as the CREATE INDEX statements above.
+  await db.execute(sql`INSERT INTO context_types (id, label, description, sort_order) VALUES ('feature', 'Feature', 'A capability or piece of functionality to build, or one that already exists.', 1), ('idea', 'Idea', 'A proposal, suggestion, or brainstormed concept that has not been decided yet.', 2), ('decision', 'Decision', 'A choice that was made, together with the reasoning behind it.', 3), ('bug-fix', 'Bug Fix', 'A defect and how it was, or should be, resolved.', 4), ('requirement', 'Requirement', 'A constraint or condition the solution must satisfy.', 5), ('how-to', 'How-To', 'Step-by-step instructions or a procedure for accomplishing something.', 6), ('code-snippet', 'Code Snippet', 'A concrete block of code, configuration, or command.', 7), ('fact', 'Fact', 'A piece of reference information or an established truth worth remembering.', 8), ('question', 'Question', 'An open question or unresolved inquiry raised in the conversation.', 9), ('plan', 'Plan', 'A sequence of steps or a strategy toward a goal.', 10) ON CONFLICT (id) DO NOTHING`);
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS conversation_topics (
