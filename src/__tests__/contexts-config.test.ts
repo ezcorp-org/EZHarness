@@ -116,6 +116,44 @@ describe("resolveContextsTarget ladder", () => {
     expect(t).toEqual({ kind: "sidecar", baseUrl: "http://side", model: "qwen3:1.7b" });
   });
 
+  test('empty-string setting (UI "clear" / "Current Chat Model") is treated as unset → sidecar', async () => {
+    // The settings UI PUTs `contexts:model = ""`; it must NOT error, and must
+    // fall to the default-local sidecar without warning (empty = intentional).
+    const t = await resolveContextsTarget(
+      "c1",
+      deps({
+        getSetting: async (k) => (k === CONTEXTS_MODEL_KEY ? "" : []),
+        getSuggestConfig: async () => ({ baseUrl: "http://side", model: "qwen3:1.7b" }),
+        isEnhanceAvailable: async () => true,
+      }),
+    );
+    expect(t).toEqual({ kind: "sidecar", baseUrl: "http://side", model: "qwen3:1.7b" });
+  });
+
+  test("whitespace-only setting is treated as unset → sidecar", async () => {
+    const t = await resolveContextsTarget(
+      "c1",
+      deps({
+        getSetting: async (k) => (k === CONTEXTS_MODEL_KEY ? "   " : []),
+        getSuggestConfig: async () => ({ baseUrl: "http://side", model: "qwen3:1.7b" }),
+        isEnhanceAvailable: async () => true,
+      }),
+    );
+    expect(t.kind).toBe("sidecar");
+  });
+
+  test("malformed non-empty setting (no slash) → warns + falls through to sidecar", async () => {
+    const t = await resolveContextsTarget(
+      "c1",
+      deps({
+        getSetting: async (k) => (k === CONTEXTS_MODEL_KEY ? "gpt4" : []),
+        getSuggestConfig: async () => ({ baseUrl: "http://side", model: "qwen3:1.7b" }),
+        isEnhanceAvailable: async () => true,
+      }),
+    );
+    expect(t).toEqual({ kind: "sidecar", baseUrl: "http://side", model: "qwen3:1.7b" });
+  });
+
   test("rung 3: sidecar down → conversation turn model → pi", async () => {
     const t = await resolveContextsTarget(
       "c1",
