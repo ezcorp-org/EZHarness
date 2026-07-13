@@ -147,11 +147,14 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 
   const updated = await featureQueries.listFeatures(params.id);
 
-  // When the scan itself discovered zero feature directories, explain WHY
-  // so the UI can distinguish a legitimately-empty project from a broken
-  // one. A scan that found features needs no notice.
+  // Explain WHY only when the user actually sees an empty index: the scan
+  // discovered zero feature directories AND no prior rows survived. A
+  // project can carry user-pinned / hand-created features that outlive a
+  // 0-discovery scan — pairing "found nothing" with a populated list would
+  // be contradictory. A scan that found features, or a list with surviving
+  // rows, needs no notice.
   const notice =
-    scan.features.length === 0
+    scan.features.length === 0 && updated.length === 0
       ? scan.usedTopLevelFallback
         ? `No feature directories found under ${scan.realRoot} (scanned top-level fallback)`
         : `No feature directories found under ${scan.realRoot} (scanned source roots)`

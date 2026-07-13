@@ -1170,6 +1170,32 @@ describe("POST /api/projects/:id/features/scan — hybrid-ownership invariants",
     expect(body.notice).toBeNull();
   });
 
+  test("top-level fallback that FINDS features (no static roots, qualifying child dir) → 200, upserted, notice=null", async () => {
+    // The fresh mkdtemp root has NO static source roots (no src/, web/src,
+    // packages/, docs/extensions/examples). A top-level module dir with ≥2
+    // files is discovered via the fallback and upserted as an agent feature;
+    // because the returned list is non-empty, there is no notice.
+    await mkdir(resolve(projectRoot, "moduleX"), { recursive: true });
+    await writeFile(resolve(projectRoot, "moduleX/a.ts"), "a");
+    await writeFile(resolve(projectRoot, "moduleX/b.ts"), "b");
+
+    const res = await call(
+      POST_scan,
+      createMockEvent({ method: "POST", params: { id: projectId }, user: MEMBER_USER }),
+    );
+    expect(res.status).toBe(200);
+    const body = await jsonFromResponse(res);
+    const moduleX = body.features.find((f: any) => f.name === "moduleX");
+    expect(moduleX).toBeDefined();
+    expect(moduleX.source).toBe("agent");
+    expect(moduleX.fileCount).toBe(2);
+    // originPath is the bare basename (no ./ prefix) — matches scanProject.
+    const reloaded = await getFeature(projectId, "moduleX");
+    expect(reloaded!.originPath).toBe("moduleX");
+    // Non-empty list → notice suppressed.
+    expect(body.notice).toBeNull();
+  });
+
   test("vanished feature row is NOT auto-deleted on rescan (intentional per design)", async () => {
     // Seed agent feature with no FS evidence.
     await createFeature({

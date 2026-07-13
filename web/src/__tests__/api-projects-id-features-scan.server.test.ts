@@ -337,4 +337,26 @@ describe("POST /api/projects/[id]/features/scan — notice envelope", () => {
 		const body = (await res.json()) as { notice: string | null };
 		expect(body.notice).toBe("No feature directories found under /repo (scanned source roots)");
 	});
+
+	test("zero discovery but surviving rows (non-empty list) → notice=null (no contradictory banner)", async () => {
+		// The scan finds nothing new, but the project carries a user-pinned /
+		// hand-created feature that survives. The user sees a populated list,
+		// so the "found nothing" notice must be suppressed.
+		scanResult = {
+			ok: true,
+			realRoot: "/app/TESTENV",
+			features: [],
+			usedTopLevelFallback: true,
+		};
+		existingRows = [
+			{ id: "u1", name: "hand-made", originPath: null, source: "user", description: "mine" },
+		];
+		const res = await expectThrownOrResponse(() => POST(makeEvent() as never));
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { features: unknown[]; notice: string | null };
+		expect(body.notice).toBeNull();
+		// No scanned candidates → nothing upserted; the surviving row is returned.
+		expect(createFeature).not.toHaveBeenCalled();
+		expect(body.features).toHaveLength(1);
+	});
 });
