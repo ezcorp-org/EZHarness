@@ -988,7 +988,38 @@
 
 <div class="chat-input-container border-t border-[var(--color-border)] bg-[var(--color-surface)] px-4 pt-2 pb-2 {subConversationStore.isInSubConversation ? 'opacity-50 pointer-events-none' : ''}">
 	<div class="mx-auto flex max-w-3xl items-end gap-2">
-		<div class="flex min-w-0 flex-1 flex-col gap-1">
+		<!--
+		 * Column is `relative` so the suggestions popover can anchor to its TOP
+		 * edge — floating ABOVE the whole toolbar (Model / Thinking / Mode /
+		 * Tools) rather than overlapping it. Keeping the model selector visible
+		 * and clickable while suggestions show is the point: users must still be
+		 * able to switch models mid-draft. `position:relative` with no z-index
+		 * does NOT open a new stacking context, so every dropdown's z-index
+		 * still competes globally as before.
+		-->
+		<div class="relative flex min-w-0 flex-1 flex-col gap-1">
+			<!--
+			 * Suggestions popover — hoisted OUT of the input-box `relative`
+			 * wrapper below (where the mention / inline-tool popovers stay,
+			 * correctly anchored to the textarea). Anchored to the COLUMN top so
+			 * its `bottom-full` clears the toolbar entirely and nothing is
+			 * covered. The mention popover (z-50) still wins when both could
+			 * show, and the parent suppresses suggestions while any mention /
+			 * inline-tool UI is open.
+			-->
+			<SuggestionPopover
+				open={suggestOpen}
+				tools={suggestTools}
+				extensions={suggestExtensions}
+				enhancement={suggestEnhancement}
+				enhanceLoading={suggestEnhanceLoading}
+				applied={suggestApplied}
+				onselecttool={handleSuggestToolSelect}
+				onselectextension={handleSuggestExtensionSelect}
+				onapply={applySuggestEnhancement}
+				onundo={undoSuggestEnhancement}
+				ondismiss={dismissSuggest}
+			/>
 			{#if toolbarPosition !== "hidden"}
 				<!--
 				 * Toolbar — Model / Thinking / Mode columns + the amber
@@ -1051,20 +1082,6 @@
 				</div>
 			{/if}
 			<div class="relative">
-				<SuggestionPopover
-					open={suggestOpen}
-					tools={suggestTools}
-					extensions={suggestExtensions}
-					enhancement={suggestEnhancement}
-					enhanceLoading={suggestEnhanceLoading}
-					applied={suggestApplied}
-					onselecttool={handleSuggestToolSelect}
-					onselectextension={handleSuggestExtensionSelect}
-					onapply={applySuggestEnhancement}
-					onundo={undoSuggestEnhancement}
-					ondismiss={dismissSuggest}
-				/>
-
 				<MentionPopover
 					bind:this={popoverRef}
 					items={mentionItems}

@@ -143,6 +143,20 @@ test.describe("Composer suggestions", () => {
 		await expect(page.getByTestId("suggestion-enhance-row")).toContainText(ENHANCEMENT.enhanced);
 		await expect(page.getByTestId("suggestion-apply")).toBeVisible();
 
+		// The popover must sit ABOVE the toolbar so the Model selector (and the
+		// Thinking / Mode / Tools pickers beside it) stay fully visible and
+		// clickable — the whole point of this layout is "nothing covered". Assert
+		// the popover's bottom edge is at or above the model selector's top edge
+		// (no vertical overlap), and that the model button remains interactive.
+		const modelSelector = page.getByTestId("model-selector");
+		await expect(modelSelector).toBeVisible();
+		const popoverBox = await popover(page).boundingBox();
+		const modelBox = await modelSelector.boundingBox();
+		expect(popoverBox).not.toBeNull();
+		expect(modelBox).not.toBeNull();
+		expect(popoverBox!.y + popoverBox!.height).toBeLessThanOrEqual(modelBox!.y);
+		await expect(modelSelector.locator("button").first()).toBeEnabled();
+
 		await captureEvidence(page, testInfo, "composer-suggestions-popover");
 	});
 
