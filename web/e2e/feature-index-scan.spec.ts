@@ -15,7 +15,7 @@
  * Plus: add-file picker + remove-file flow that round-trips through
  * the user-pin source preservation.
  */
-import { test, expect } from "./fixtures/test-base.js";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
 
 const PROJECT_ID = "proj-feat";
@@ -356,8 +356,10 @@ test.describe("Feature Index — settings UI scan flow", () => {
     await nameInput.press("Escape");
 
     // Row closed, original name still in the row (no commit happened).
+    // Use an exact match: getByText("auth") also matches the description
+    // cell "Files under src/auth" (substring), tripping strict mode.
     await expect(nameInput).not.toBeVisible({ timeout: 5000 });
-    await expect(table.getByText("auth")).toBeVisible();
+    await expect(table.getByText("auth", { exact: true })).toBeVisible();
     // The discarded value never lands in the table.
     await expect(table.getByText("scratch-value")).not.toBeVisible();
   });
@@ -425,5 +427,73 @@ test.describe("Feature Index — settings UI scan flow", () => {
         /Feature name can only contain letters, numbers, hyphens, and underscores/,
       ),
     ).toBeVisible({ timeout: 5000 });
+  });
+
+  // ── Scan failure surfacing ───────────────────────────────────────────
+  // The reported bug: a scan that can't resolve the working directory (or
+  // legitimately finds nothing) used to answer 200-with-[] and looked
+  // identical to a broken index. Now the endpoint 400s (red banner) or
+  // returns an explanatory `notice` (blue info banner).
+
+  test("unresolvable working directory → red error banner with the resolved-path message @evidence", async ({
+    page,
+    mockApi,
+  }, testInfo) => {
+    const message =
+      'Working directory "app/ezAppTest" does not exist on the server (resolved to "/app/app/ezAppTest"). Set an absolute path in project settings.';
+    await mockApi({
+      projects: [project],
+      features: [],
+      scanStatus: 400,
+      scanError: message,
+    });
+
+    await page.goto(`/project/${PROJECT_ID}/settings`);
+    await expect(page.getByRole("heading", { name: "Feature Index" })).toBeVisible({
+      timeout: 5000,
+    });
+
+    await page.getByRole("button", { name: "Scan features" }).click();
+
+    // The verbatim message renders in the red error banner (via readError).
+    const errorBanner = page.getByTestId("feature-error");
+    await expect(errorBanner).toBeVisible({ timeout: 5000 });
+    await expect(errorBanner).toHaveText(message);
+    // Error styling (red), and no info notice on the error path.
+    await expect(errorBanner).toHaveClass(/red/);
+    await expect(page.getByTestId("scan-notice")).toHaveCount(0);
+
+    await captureEvidence(page, testInfo, "feature-scan-error-banner");
+  });
+
+  test("resolvable-but-empty scan → distinct info notice banner explains the zero result @evidence", async ({
+    page,
+    mockApi,
+  }, testInfo) => {
+    const notice =
+      "No feature directories found under /app/TESTENV (scanned top-level fallback)";
+    await mockApi({
+      projects: [project],
+      features: [],
+      scanNotice: notice,
+    });
+
+    await page.goto(`/project/${PROJECT_ID}/settings`);
+    await expect(page.getByRole("heading", { name: "Feature Index" })).toBeVisible({
+      timeout: 5000,
+    });
+
+    await page.getByRole("button", { name: "Scan features" }).click();
+
+    const noticeBanner = page.getByTestId("scan-notice");
+    await expect(noticeBanner).toBeVisible({ timeout: 5000 });
+    await expect(noticeBanner).toHaveText(notice);
+    // Info styling (blue), distinct from the red error banner.
+    await expect(noticeBanner).toHaveClass(/blue/);
+    await expect(noticeBanner).not.toHaveClass(/red/);
+    // The empty-state hint is still shown beneath the banner.
+    await expect(page.getByText(/No features yet/)).toBeVisible();
+
+    await captureEvidence(page, testInfo, "feature-scan-notice-banner");
   });
 });

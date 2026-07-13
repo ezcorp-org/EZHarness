@@ -13,6 +13,12 @@
 import { render, fireEvent, screen, waitFor } from "@testing-library/svelte";
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import FeatureIndex from "../FeatureIndex.svelte";
+import { addToast } from "$lib/toast.svelte.js";
+
+// Mock the toast store so scan toasts can be asserted without a mounted
+// Toaster (and so the auto-dismiss setTimeout doesn't interact with the
+// fake timers below).
+vi.mock("$lib/toast.svelte.js", () => ({ addToast: vi.fn() }));
 
 interface FeatureFixture {
 	id: string;
@@ -65,6 +71,7 @@ function makeFetchStub(routes: Array<{
 
 beforeEach(() => {
 	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	vi.mocked(addToast).mockClear();
 });
 
 afterEach(() => {
@@ -247,5 +254,236 @@ describe("FeatureIndex — inline edit keyboard handling", () => {
 			(call) => (call[1] as RequestInit | undefined)?.method === "PATCH",
 		);
 		expect(patchCalls).toHaveLength(0);
+	});
+});
+
+describe("FeatureIndex — scan failure surfacing", () => {
+	test("a scan that returns a notice renders the info banner (not the red error banner)", async () => {
+		vi.stubGlobal(
+			"fetch",
+			makeFetchStub([
+				// Scan POST must be matched BEFORE the generic GET (both share
+				// the /features prefix); makeFetchStub keys on method too.
+				{
+					method: "POST",
+					match: "/api/projects/proj-1/features/scan",
+					respond: () => ({
+						status: 200,
+						body: {
+							features: [],
+							notice:
+								"No feature directories found under /app/TESTENV (scanned top-level fallback)",
+						},
+					}),
+				},
+				{
+					method: "GET",
+					match: "/api/projects/proj-1/features",
+					respond: () => ({ status: 200, body: [] }),
+				},
+			]),
+		);
+
+		render(FeatureIndex, { projectId: "proj-1" });
+
+		const scanButton = await waitFor(() =>
+			screen.getByRole("button", { name: "Scan features" }),
+		);
+		await fireEvent.click(scanButton);
+
+		const notice = await waitFor(() => screen.getByTestId("scan-notice"));
+		expect(notice).toHaveTextContent(
+			"No feature directories found under /app/TESTENV (scanned top-level fallback)",
+		);
+		// Info banner is styled distinctly (blue, not the red error banner).
+		expect(notice.className).toContain("blue");
+		expect(notice.className).not.toContain("red");
+	});
+
+	test("a scan that 400s renders the error banner with the server message and no notice", async () => {
+		const message =
+			'Working directory "app/ezAppTest" does not exist on the server (resolved to "/app/app/ezAppTest"). Set an absolute path in project settings.';
+		vi.stubGlobal(
+			"fetch",
+			makeFetchStub([
+				{
+					method: "POST",
+					match: "/api/projects/proj-1/features/scan",
+					respond: () => ({ status: 400, body: { error: message } }),
+				},
+				{
+					method: "GET",
+					match: "/api/projects/proj-1/features",
+					respond: () => ({ status: 200, body: [] }),
+				},
+			]),
+		);
+
+		render(FeatureIndex, { projectId: "proj-1" });
+
+		const scanButton = await waitFor(() =>
+			screen.getByRole("button", { name: "Scan features" }),
+		);
+		await fireEvent.click(scanButton);
+
+		// The verbatim resolved-path message surfaces through readError.
+		await waitFor(() => {
+			expect(screen.getByText(message)).toBeInTheDocument();
+		});
+		// No info notice banner on the error path.
+		expect(screen.queryByTestId("scan-notice")).toBeNull();
+	});
+});
+
+describe("FeatureIndex — scan banner lifecycle + toasts", () => {
+	test("notice banner clears on a subsequent rescan that finds features", async () => {
+		let scanCall = 0;
+		vi.stubGlobal(
+			"fetch",
+			makeFetchStub([
+				{
+					method: "POST",
+					match: "/api/projects/proj-1/features/scan",
+					respond: () => {
+						scanCall++;
+						// Scan #1: empty + notice. Scan #2: a feature, notice cleared.
+						return scanCall === 1
+							? { status: 200, body: { features: [], notice: "found nothing here" } }
+							: {
+									status: 200,
+									body: { features: [makeFeature({ name: "auth" })], notice: null },
+								};
+					},
+				},
+				{
+					method: "GET",
+					match: "/api/projects/proj-1/features",
+					respond: () => ({ status: 200, body: [] }),
+				},
+			]),
+		);
+
+		render(FeatureIndex, { projectId: "proj-1" });
+		const scanButton = await waitFor(() =>
+			screen.getByRole("button", { name: "Scan features" }),
+		);
+
+		// Scan #1 → notice banner appears.
+		await fireEvent.click(scanButton);
+		const notice = await waitFor(() => screen.getByTestId("scan-notice"));
+		expect(notice).toHaveTextContent("found nothing here");
+
+		// Scan #2 → notice is null, banner must disappear.
+		await fireEvent.click(scanButton);
+		await waitFor(() => {
+			expect(screen.queryByTestId("scan-notice")).toBeNull();
+		});
+	});
+
+	test("error banner clears on a subsequent successful scan", async () => {
+		let scanCall = 0;
+		vi.stubGlobal(
+			"fetch",
+			makeFetchStub([
+				{
+					method: "POST",
+					match: "/api/projects/proj-1/features/scan",
+					respond: () => {
+						scanCall++;
+						return scanCall === 1
+							? { status: 400, body: { error: "boom: bad working dir" } }
+							: { status: 200, body: { features: [], notice: null } };
+					},
+				},
+				{
+					method: "GET",
+					match: "/api/projects/proj-1/features",
+					respond: () => ({ status: 200, body: [] }),
+				},
+			]),
+		);
+
+		render(FeatureIndex, { projectId: "proj-1" });
+		const scanButton = await waitFor(() =>
+			screen.getByRole("button", { name: "Scan features" }),
+		);
+
+		// Scan #1 → error banner.
+		await fireEvent.click(scanButton);
+		const err = await waitFor(() => screen.getByTestId("feature-error"));
+		expect(err).toHaveTextContent("boom: bad working dir");
+
+		// Scan #2 succeeds → error banner cleared (errorMessage reset at start).
+		await fireEvent.click(scanButton);
+		await waitFor(() => {
+			expect(screen.queryByTestId("feature-error")).toBeNull();
+		});
+	});
+
+	test("a notice dispatches both the success toast and an info toast", async () => {
+		vi.stubGlobal(
+			"fetch",
+			makeFetchStub([
+				{
+					method: "POST",
+					match: "/api/projects/proj-1/features/scan",
+					respond: () => ({
+						status: 200,
+						body: { features: [], notice: "scanned top-level fallback" },
+					}),
+				},
+				{
+					method: "GET",
+					match: "/api/projects/proj-1/features",
+					respond: () => ({ status: 200, body: [] }),
+				},
+			]),
+		);
+
+		render(FeatureIndex, { projectId: "proj-1" });
+		const scanButton = await waitFor(() =>
+			screen.getByRole("button", { name: "Scan features" }),
+		);
+		await fireEvent.click(scanButton);
+
+		await waitFor(() => {
+			expect(addToast).toHaveBeenCalledWith({
+				type: "info",
+				message: "scanned top-level fallback",
+			});
+		});
+		expect(addToast).toHaveBeenCalledWith({
+			type: "success",
+			message: "Scan complete — 0 features",
+		});
+	});
+
+	test("a network error (fetch rejects) surfaces a red 'Scan failed' banner", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+				const url = typeof input === "string" ? input : input.toString();
+				const method = (init?.method ?? "GET").toUpperCase();
+				if (method === "POST" && url.includes("/features/scan")) {
+					throw new Error("network down");
+				}
+				// Initial GET list.
+				return new Response("[]", {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				});
+			}),
+		);
+
+		render(FeatureIndex, { projectId: "proj-1" });
+		const scanButton = await waitFor(() =>
+			screen.getByRole("button", { name: "Scan features" }),
+		);
+		await fireEvent.click(scanButton);
+
+		const err = await waitFor(() => screen.getByTestId("feature-error"));
+		expect(err).toHaveTextContent("Scan failed");
+		expect(err).toHaveTextContent("network down");
+		expect(screen.queryByTestId("scan-notice")).toBeNull();
 	});
 });

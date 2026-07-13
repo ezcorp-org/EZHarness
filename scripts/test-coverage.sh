@@ -235,6 +235,7 @@ run_legs() {
       src/lib/components/DevBadge.component.test.ts \
       src/lib/ez/__tests__/page-context.unit.test.ts \
       src/lib/ez/__tests__/client-tool-dispatcher.unit.test.ts \
+      src/__tests__/api-projects-id-features-scan.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -262,6 +263,7 @@ run_legs() {
       --coverage.include='src/lib/chat/page-handlers/inherit-mode.ts' \
       --coverage.include='src/routes/api/tools/+server.ts' \
       --coverage.include='src/routes/api/extensions/[id]/reapprove-drift/+server.ts' \
+      --coverage.include='src/routes/api/projects/[id]/features/scan/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/tree/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/rewind/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/rewind/schema.ts' \

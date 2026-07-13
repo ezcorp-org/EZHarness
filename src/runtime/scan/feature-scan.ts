@@ -179,13 +179,48 @@ async function walkFilesUnder(
 }
 
 /**
- * Scan `projectRoot` and return the discovered feature buckets.
+ * Discriminated result of a project scan.
+ *
+ * The REST endpoint needs to tell three outcomes apart so it can surface
+ * them differently — a silent `200` with `[]` hides real breakage (an
+ * empty index is indistinguishable from a broken one):
+ *   - `ok: false` — the project's working directory could not be resolved
+ *     on the server (missing dir, stale/relative path). The endpoint turns
+ *     this into a `400` with an actionable message instead of pretending
+ *     the project simply has no features.
+ *   - `ok: true` with `usedTopLevelFallback` — none of the static source
+ *     roots existed, so the scan fell back to the project root's immediate
+ *     child directories. Lets the endpoint explain a 0-feature result.
+ *   - `ok: true` without the fallback flag — a normal scan of the known
+ *     source roots.
+ */
+export type ScanProjectResult =
+  | { ok: false; reason: "unresolvable-root"; requestedRoot: string }
+  | {
+      ok: true;
+      /** realpath of the project root actually scanned. */
+      realRoot: string;
+      features: ScannedFeature[];
+      /**
+       * True when no static source root existed and the scan walked the
+       * project root's immediate child directories instead.
+       */
+      usedTopLevelFallback: boolean;
+    };
+
+/**
+ * Scan `projectRoot` and return a discriminated {@link ScanProjectResult}.
  *
  * Algorithm:
- *   1. Resolve realpath of `projectRoot` (handles symlinked checkouts).
- *   2. Walk known source roots: `src/`, `web/src/`, `packages/*​/src/`.
- *      Roots that don't exist are silently skipped.
- *   3. Each immediate child directory under a source root is a feature
+ *   1. Resolve realpath of `projectRoot` (handles symlinked checkouts). A
+ *      failure here means the working directory doesn't exist on the
+ *      server → `{ ok: false, reason: "unresolvable-root" }`.
+ *   2. Collect the static source roots that exist (`src/`, `web/src/`,
+ *      `docs/extensions/examples`, `packages/*​/src/`). If NONE exist, fall
+ *      back to treating the project root's immediate child directories as
+ *      feature candidates so arbitrarily-shaped projects still get a useful
+ *      index (`usedTopLevelFallback: true`).
+ *   3. Each immediate child directory under a scan root is a feature
  *      candidate. Slug = directory basename.
  *   4. Slug collision rule: if a later root produces a slug already
  *      claimed by an earlier root, prefix the LATER one with the
@@ -199,21 +234,27 @@ async function walkFilesUnder(
  *   6. Skip features with fewer than 2 files (empty / single-file
  *      directories are noise).
  *   7. Output is sorted by slug for stable UI rendering.
- *
- * On unreachable / missing `projectRoot` returns `[]` rather than
- * throwing — the REST endpoint can surface "no features found" without
- * a 500.
  */
-export async function scanFeatures(projectRoot: string): Promise<ScannedFeature[]> {
-  if (!projectRoot) return [];
+export async function scanProject(projectRoot: string): Promise<ScanProjectResult> {
+  if (!projectRoot) {
+    return { ok: false, reason: "unresolvable-root", requestedRoot: projectRoot };
+  }
   let realRoot: string;
   try {
     realRoot = await realpath(projectRoot);
   } catch {
-    return [];
+    return { ok: false, reason: "unresolvable-root", requestedRoot: projectRoot };
   }
 
-  const roots = await listSourceRoots(realRoot);
+  const staticRoots = await listSourceRoots(realRoot);
+  const usedTopLevelFallback = staticRoots.length === 0;
+  // Fallback: with no recognized source root, treat the project root
+  // itself as the single scan root so its immediate child directories
+  // become feature candidates. The empty-string relPrefix makes
+  // `listFilteredChildren` emit bare basenames (e.g. `moduleA`, not
+  // `./moduleA`). Same filtering, slug, and DoS-cap rules apply.
+  const roots = usedTopLevelFallback ? [""] : staticRoots;
+
   const seenSlugs = new Set<string>();
   const features: ScannedFeature[] = [];
   // Shared global file counter so MAX_TOTAL_FILES bounds the scan,
@@ -222,7 +263,7 @@ export async function scanFeatures(projectRoot: string): Promise<ScannedFeature[
 
   for (const rootRel of roots) {
     if (totalCount.value >= MAX_TOTAL_FILES) break;
-    const absRoot = join(realRoot, rootRel);
+    const absRoot = rootRel ? join(realRoot, rootRel) : realRoot;
     const children = await listFilteredChildren(realRoot, absRoot, rootRel);
     // Sort children for deterministic slug-claim order. readdir order
     // is FS-defined; without sorting, the "first seen wins" rule would
@@ -237,7 +278,9 @@ export async function scanFeatures(projectRoot: string): Promise<ScannedFeature[
 
       // Slug collision: prefix with the leading segment of the source
       // root. For `src/components` → "src"; `web/src/components` →
-      // "web"; `packages/foo/src/components` → "packages".
+      // "web"; `packages/foo/src/components` → "packages". (In
+      // top-level fallback mode there is a single root and child
+      // basenames are unique, so this branch never fires.)
       let slug = dirName;
       if (seenSlugs.has(slug)) {
         const rootLeading = rootRel.split("/")[0]!;
@@ -286,5 +329,18 @@ export async function scanFeatures(projectRoot: string): Promise<ScannedFeature[
   }
 
   features.sort((a, b) => a.name.localeCompare(b.name));
-  return features;
+  return { ok: true, realRoot, features, usedTopLevelFallback };
+}
+
+/**
+ * Back-compat wrapper returning just the discovered feature buckets.
+ *
+ * Preserves the original contract (`ScannedFeature[]`, `[]` on an
+ * unreachable / missing root) for the scanner's unit tests and any caller
+ * that doesn't need to distinguish "unresolvable" from "resolved-but-empty".
+ * New callers that must surface failures should use {@link scanProject}.
+ */
+export async function scanFeatures(projectRoot: string): Promise<ScannedFeature[]> {
+  const result = await scanProject(projectRoot);
+  return result.ok ? result.features : [];
 }

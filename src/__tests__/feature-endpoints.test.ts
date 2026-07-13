@@ -923,7 +923,11 @@ describe("POST /api/projects/:id/features/scan — hybrid-ownership invariants",
     const res = await call(POST_scan, event);
     expect(res.status).toBe(200);
     const body = await jsonFromResponse(res);
-    expect(body).toEqual([]);
+    // New envelope: { features, notice }. A fresh mkdtemp root has no
+    // static source roots, so the scan uses the top-level fallback and
+    // finds nothing → empty features + an explanatory notice.
+    expect(body.features).toEqual([]);
+    expect(body.notice).toContain("top-level fallback");
   });
 
   test("missing project → 404", async () => {
@@ -1034,7 +1038,7 @@ describe("POST /api/projects/:id/features/scan — hybrid-ownership invariants",
         user: MEMBER_USER,
       }),
     );
-    const list = await jsonFromResponse(scanRes);
+    const list = (await jsonFromResponse(scanRes)).features;
 
     // No duplicate row under the original slug — this is the user-
     // visible bug fix. Before originPath tracking, a fresh agent row
@@ -1157,10 +1161,39 @@ describe("POST /api/projects/:id/features/scan — hybrid-ownership invariants",
       }),
     );
     expect(res.status).toBe(200);
-    const list = await jsonFromResponse(res);
+    const body = await jsonFromResponse(res);
+    const list = body.features;
     expect(list.map((f: any) => f.name)).toEqual(["newFeat"]);
     expect(list[0].source).toBe("agent");
     expect(list[0].fileCount).toBe(2);
+    // A scan that found features carries no notice.
+    expect(body.notice).toBeNull();
+  });
+
+  test("top-level fallback that FINDS features (no static roots, qualifying child dir) → 200, upserted, notice=null", async () => {
+    // The fresh mkdtemp root has NO static source roots (no src/, web/src,
+    // packages/, docs/extensions/examples). A top-level module dir with ≥2
+    // files is discovered via the fallback and upserted as an agent feature;
+    // because the returned list is non-empty, there is no notice.
+    await mkdir(resolve(projectRoot, "moduleX"), { recursive: true });
+    await writeFile(resolve(projectRoot, "moduleX/a.ts"), "a");
+    await writeFile(resolve(projectRoot, "moduleX/b.ts"), "b");
+
+    const res = await call(
+      POST_scan,
+      createMockEvent({ method: "POST", params: { id: projectId }, user: MEMBER_USER }),
+    );
+    expect(res.status).toBe(200);
+    const body = await jsonFromResponse(res);
+    const moduleX = body.features.find((f: any) => f.name === "moduleX");
+    expect(moduleX).toBeDefined();
+    expect(moduleX.source).toBe("agent");
+    expect(moduleX.fileCount).toBe(2);
+    // originPath is the bare basename (no ./ prefix) — matches scanProject.
+    const reloaded = await getFeature(projectId, "moduleX");
+    expect(reloaded!.originPath).toBe("moduleX");
+    // Non-empty list → notice suppressed.
+    expect(body.notice).toBeNull();
   });
 
   test("vanished feature row is NOT auto-deleted on rescan (intentional per design)", async () => {
@@ -1180,7 +1213,7 @@ describe("POST /api/projects/:id/features/scan — hybrid-ownership invariants",
         user: MEMBER_USER,
       }),
     );
-    const list = await jsonFromResponse(res);
+    const list = (await jsonFromResponse(res)).features;
     expect(list.find((f: any) => f.name === "ghost")).toBeDefined();
   });
 
@@ -1205,7 +1238,7 @@ describe("POST /api/projects/:id/features/scan — hybrid-ownership invariants",
         user: MEMBER_USER,
       }),
     );
-    const list = await jsonFromResponse(res);
+    const list = (await jsonFromResponse(res)).features;
     const stale = list.find((f: any) => f.name === "stale");
     expect(stale.description).toBe("Files under src/stale");
   });
@@ -1228,6 +1261,28 @@ describe("POST /api/projects/:id/features/scan — hybrid-ownership invariants",
       }),
     );
     expect(res.status).toBe(400);
+  });
+
+  test("unresolvable working directory → 400 with the resolved-path message", async () => {
+    // Point the project at an absolute path that doesn't exist on disk.
+    // scanProject realpath()s it, fails, and the endpoint surfaces a 400
+    // instead of the old silent 200-with-[].
+    const { getDb } = await import("../db/connection");
+    const { projects } = await import("../db/schema");
+    const { eq } = await import("drizzle-orm");
+    const missing = resolve(tmpdir(), `feat-missing-${crypto.randomUUID()}`);
+    await getDb().update(projects).set({ path: missing }).where(eq(projects.id, projectId));
+
+    const res = await call(
+      POST_scan,
+      createMockEvent({ method: "POST", params: { id: projectId }, user: MEMBER_USER }),
+    );
+    expect(res.status).toBe(400);
+    const body = await jsonFromResponse(res);
+    expect(body.error).toContain("does not exist on the server");
+    expect(body.error).toContain(missing);
+    // Absolute path → no relative-path hint appended.
+    expect(body.error).not.toContain("Set an absolute path");
   });
 
   test("unauthenticated → 401", async () => {
