@@ -1,7 +1,7 @@
 /**
- * E2E for Topic Contexts (WS7) — the click-a-topic-pill → extract → copy →
- * save-to-library feature. Every LLM-backed route (detect / extract) is mocked
- * at the network layer, so the browser never waits on a real model.
+ * E2E for Topic Contexts (WS7) — the click-a-topic-pill → extract → copy flow.
+ * Every LLM-backed route (detect / extract) is mocked at the network layer, so
+ * the browser never waits on a real model.
  *
  * Scenarios (spec §WS7):
  *   A  happy path: Topics button empty state → Analyze (mock POST returns a
@@ -9,15 +9,12 @@
  *      panel + copied badge → clipboard actually holds the extracted markdown.
  *   B  staleness: cached GET returns `stale:true` → the popover shows the stale
  *      banner + "Refresh (N new)" label → Refresh re-POSTs the detect endpoint.
- *   C  library: deep-link `/memories?tab=contexts` → rows render → search +
- *      type-chip narrow the request (and the visible rows) → Copy → Delete
- *      (click-to-confirm, 2 clicks) removes the row.
  *   D  failure surfaces: extract → 503 `{error}` shows the actionable message;
  *      and an auto-copy that fails (gesture expiry) falls back to a manual Copy
  *      button that succeeds on the fresh gesture.
  *
  * @evidence captures (frontend-visual CI gate): topic-pills, topics-popover,
- * topic-extract-result, contexts-library.
+ * topic-extract-result.
  */
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
@@ -91,8 +88,6 @@ function extractContext(overrides: Record<string, unknown> = {}) {
 const RE_CONTEXT_TYPES = /\/api\/context-types(?:\?.*)?$/;
 const RE_TOPICS = /\/api\/conversations\/[^/]+\/topics(?:\?.*)?$/;
 const RE_EXTRACT = /\/api\/conversations\/[^/]+\/topics\/[^/]+\/extract(?:\?.*)?$/;
-const RE_CONTEXTS_LIST = /\/api\/contexts(?:\?.*)?$/;
-const RE_CONTEXTS_ID = /\/api\/contexts\/[^/]+(?:\?.*)?$/;
 
 interface TopicsBody {
 	topics: typeof TOPIC_JWT[];
@@ -216,10 +211,6 @@ test.describe("Topic Contexts", () => {
 		await expect(result).toBeVisible({ timeout: 5000 });
 		await expect(result).toContainText("Short-lived access token");
 		await expect(page.getByTestId("topic-copied-badge")).toBeVisible();
-		await expect(page.getByTestId("topic-library-link")).toHaveAttribute(
-			"href",
-			"/memories?tab=contexts",
-		);
 		expect(rec.extractCalls.length).toBe(1);
 		await captureEvidence(page, testInfo, "topic-extract-result");
 
@@ -283,116 +274,6 @@ test.describe("Topic Contexts", () => {
 			page.getByTestId("topics-popover").getByTestId(`topic-pill-${TOPIC_SESSION.id}`),
 		).toBeVisible({ timeout: 5000 });
 		await expect(page.getByTestId("topics-stale-banner")).toBeHidden();
-	});
-
-	test("C: library tab — search + type filter, copy, click-to-confirm delete @evidence", async ({
-		page,
-		mockApi,
-		context,
-	}, testInfo) => {
-		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-
-		const rowJwt = {
-			id: "ctx-jwt",
-			topicLabel: "JWT auth",
-			typeId: "feature",
-			title: "JWT auth implementation",
-			content: "Short-lived access tokens with rotating refresh tokens.",
-			conversationId: CONV_ID,
-			model: "qwen3:1.7b",
-			createdAt: "2026-01-01T00:05:00.000Z",
-			updatedAt: "2026-01-01T00:05:00.000Z",
-		};
-		const rowDb = {
-			id: "ctx-db",
-			topicLabel: "Database choice",
-			typeId: "decision",
-			title: "Chose Postgres over Mongo",
-			content: "We picked Postgres for relational integrity and JSONB.",
-			conversationId: CONV_ID,
-			model: "qwen3:1.7b",
-			createdAt: "2026-01-01T00:06:00.000Z",
-			updatedAt: "2026-01-01T00:06:00.000Z",
-		};
-		let rows = [rowJwt, rowDb];
-		const listCalls: string[] = [];
-		const deleteCalls: string[] = [];
-
-		await mockApi({ projects: [project] });
-		await page.route(RE_CONTEXT_TYPES, (route) =>
-			route.fulfill({ json: { types: CONTEXT_TYPES } }),
-		);
-		await page.route(RE_CONTEXTS_LIST, async (route) => {
-			if (route.request().method() !== "GET") return route.fallback();
-			const url = new URL(route.request().url());
-			listCalls.push(route.request().url());
-			const search = (url.searchParams.get("search") ?? "").toLowerCase();
-			const typeId = url.searchParams.get("typeId") ?? "";
-			let out = rows;
-			if (search) {
-				out = out.filter((r) =>
-					`${r.title} ${r.content}`.toLowerCase().includes(search),
-				);
-			}
-			if (typeId) out = out.filter((r) => r.typeId === typeId);
-			return route.fulfill({ json: { contexts: out, total: out.length } });
-		});
-		await page.route(RE_CONTEXTS_ID, async (route) => {
-			if (route.request().method() !== "DELETE") return route.fallback();
-			const id = new URL(route.request().url()).pathname.split("/").pop()!;
-			deleteCalls.push(id);
-			rows = rows.filter((r) => r.id !== id);
-			return route.fulfill({ status: 204, body: "" });
-		});
-
-		await page.goto("/memories?tab=contexts", { waitUntil: "networkidle" });
-
-		// Both rows render.
-		await expect(
-			page.locator('[data-testid="context-row"]'),
-		).toHaveCount(2, { timeout: 5000 });
-		await expect(page.getByText("JWT auth implementation")).toBeVisible();
-		await expect(page.getByText("Chose Postgres over Mongo")).toBeVisible();
-		await captureEvidence(page, testInfo, "contexts-library");
-
-		// Search narrows the request AND the visible rows.
-		await page.getByTestId("contexts-search").fill("postgres");
-		await expect(
-			page.locator('[data-testid="context-row"]'),
-		).toHaveCount(1, { timeout: 5000 });
-		await expect(page.getByText("Chose Postgres over Mongo")).toBeVisible();
-		expect(listCalls.some((u) => u.includes("search=postgres"))).toBe(true);
-
-		// Clear search, then filter by the "decision" type chip.
-		await page.getByTestId("contexts-search").fill("");
-		await expect(
-			page.locator('[data-testid="context-row"]'),
-		).toHaveCount(2, { timeout: 5000 });
-		await page.getByTestId("context-type-chip-decision").click();
-		await expect(
-			page.locator('[data-testid="context-row"]'),
-		).toHaveCount(1, { timeout: 5000 });
-		await expect(page.getByText("Chose Postgres over Mongo")).toBeVisible();
-		expect(listCalls.some((u) => u.includes("typeId=decision"))).toBe(true);
-
-		// Expand the remaining row → Copy its content.
-		const row = page.locator('[data-context-id="ctx-db"]');
-		await row.getByText("Chose Postgres over Mongo").click();
-		await expect(page.getByTestId("context-content")).toBeVisible();
-		await row.getByTestId("context-copy").click();
-		await expect(row.getByTestId("context-copy")).toHaveText(/Copied/);
-		expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-			rowDb.content,
-		);
-
-		// Delete is click-to-confirm: first click arms, second click removes.
-		await row.getByTestId("context-delete").click();
-		await expect(row.getByTestId("context-delete")).toHaveText(/Confirm/);
-		await row.getByTestId("context-delete").click();
-		await expect(page.locator('[data-context-id="ctx-db"]')).toHaveCount(0, {
-			timeout: 5000,
-		});
-		expect(deleteCalls).toContain("ctx-db");
 	});
 
 	test("D1: extract 503 surfaces the actionable error message", async ({

@@ -4,27 +4,20 @@
 	import MemoryList from "$lib/components/MemoryList.svelte";
 	import KnowledgeBaseTab from "$lib/components/KnowledgeBaseTab.svelte";
 	import LessonsTab from "$lib/components/LessonsTab.svelte";
-	import ContextsTab from "$lib/components/ContextsTab.svelte";
 	import InfoTooltip from "$lib/components/InfoTooltip.svelte";
 
-	type Tab = "memories" | "knowledge-base" | "lessons" | "contexts";
+	type Tab = "memories" | "knowledge-base" | "lessons";
+	let activeTab = $state<Tab>("memories");
+
+	let projectId = $derived(store.activeProjectId);
+	// `?focus=<memoryId>` is set by links from chat (MemoriesCard) to auto-expand a specific memory.
+	let focusMemoryId = $derived(page.url.searchParams.get("focus") ?? undefined);
 
 	const tabs: { id: Tab; label: string }[] = [
 		{ id: "memories", label: "Memories" },
 		{ id: "knowledge-base", label: "Knowledge Base" },
 		{ id: "lessons", label: "Lessons" },
-		{ id: "contexts", label: "Contexts" },
 	];
-
-	// Deep-link support: chat's "Saved to Library →" link points at
-	// `/memories?tab=contexts`. Honour `?tab=` when it names a real tab,
-	// otherwise fall back to the default Memories tab.
-	const initialTab = tabs.find((t) => t.id === page.url.searchParams.get("tab"))?.id ?? "memories";
-	let activeTab = $state<Tab>(initialTab);
-
-	let projectId = $derived(store.activeProjectId);
-	// `?focus=<memoryId>` is set by links from chat (MemoriesCard) to auto-expand a specific memory.
-	let focusMemoryId = $derived(page.url.searchParams.get("focus") ?? undefined);
 </script>
 
 <div class="mx-auto max-w-5xl">
@@ -62,14 +55,6 @@
 		{:else}
 			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-8 text-center text-[var(--color-text-secondary)]">
 				Select a project to view lessons.
-			</div>
-		{/if}
-	{:else if activeTab === "contexts"}
-		{#if projectId}
-			<ContextsTab {projectId} />
-		{:else}
-			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-8 text-center text-[var(--color-text-secondary)]">
-				Select a project to view saved contexts.
 			</div>
 		{/if}
 	{/if}

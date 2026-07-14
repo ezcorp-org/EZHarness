@@ -53,9 +53,6 @@ export interface ContextType {
  *  popover, so a heavily-tagged message never grows an unbounded pill row. */
 export const MAX_PILLS_PER_MESSAGE = 3;
 
-/** The library deep-link the extract result panel points at. */
-export const CONTEXTS_LIBRARY_HREF = "/memories?tab=contexts";
-
 /** Fallbacks when the server returns a 503 with an empty/absent message. */
 export const DEFAULT_EXTRACT_ERROR =
 	"Couldn't extract this topic — no model was available. Check the local model sidecar or set a Topic Contexts model in settings.";
@@ -194,37 +191,6 @@ export function typeBadgeClass(typeId: string): string {
 		TYPE_BADGE_CLASSES[typeId] ??
 		"bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)]"
 	);
-}
-
-/** The sentinel `activeProjectId` uses for "no active project" — a
- *  cross-project listing, so it is NOT sent as a `projectId` filter. */
-export const GLOBAL_PROJECT_SENTINEL = "global";
-
-/**
- * The library filter querystring for GET /api/contexts. Empty / whitespace
- * filters are omitted so a blank search never narrows the result set, and the
- * `"global"` project sentinel is skipped (it means "list across all projects",
- * so sending it as a filter would wrongly narrow to a literal project named
- * "global").
- */
-export function buildContextsSearchParams(opts: {
-	projectId?: string | null;
-	search?: string;
-	typeId?: string | null;
-	limit?: number;
-	offset?: number;
-}): string {
-	const params = new URLSearchParams();
-	if (opts.projectId && opts.projectId !== GLOBAL_PROJECT_SENTINEL) {
-		params.set("projectId", opts.projectId);
-	}
-	if (opts.search && opts.search.trim().length > 0) {
-		params.set("search", opts.search.trim());
-	}
-	if (opts.typeId) params.set("typeId", opts.typeId);
-	if (opts.limit != null) params.set("limit", String(opts.limit));
-	if (opts.offset != null) params.set("offset", String(opts.offset));
-	return params.toString();
 }
 
 /**

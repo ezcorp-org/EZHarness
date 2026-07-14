@@ -239,7 +239,6 @@ run_legs() {
       src/lib/topic-contexts-logic.unit.test.ts \
       src/lib/components/__tests__/TopicPills.component.test.ts \
       src/lib/components/__tests__/TopicsPopover.component.test.ts \
-      src/lib/components/__tests__/ContextsTab.component.test.ts \
       src/lib/components/__tests__/TopicContextsSection.component.test.ts \
       src/__tests__/api-context-types.server.test.ts \
       src/__tests__/api-contexts.server.test.ts \
@@ -331,7 +330,6 @@ run_legs() {
       --coverage.include='src/lib/topic-contexts-logic.ts' \
       --coverage.include='src/lib/components/chat/TopicPills.svelte' \
       --coverage.include='src/lib/components/chat/TopicsPopover.svelte' \
-      --coverage.include='src/lib/components/ContextsTab.svelte' \
       --coverage.include='src/lib/components/settings/TopicContextsSection.svelte' \
       --coverage.include='src/routes/api/conversations/[id]/topics/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/topics/schema.ts' \

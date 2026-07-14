@@ -20,7 +20,6 @@
 		isCopied,
 		needsManualCopy,
 		extractError,
-		CONTEXTS_LIBRARY_HREF,
 	} from "$lib/topic-contexts-logic";
 	import MarkdownRenderer from "$lib/components/MarkdownRenderer.svelte";
 
@@ -154,8 +153,8 @@
 			<div class="max-h-40 overflow-y-auto break-words rounded border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] p-2 text-[11px] text-[var(--color-text-secondary)]">
 				<MarkdownRenderer content={result.content} />
 			</div>
-			<div class="mt-2 flex items-center justify-between gap-2">
-				{#if needsManualCopy(extractState)}
+			{#if needsManualCopy(extractState)}
+				<div class="mt-2 flex items-center gap-2">
 					<button
 						type="button"
 						data-testid="topic-copy-btn"
@@ -165,17 +164,8 @@
 						<svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
 						Copy
 					</button>
-				{:else}
-					<span></span>
-				{/if}
-				<a
-					href={CONTEXTS_LIBRARY_HREF}
-					data-testid="topic-library-link"
-					class="text-xs font-medium text-[var(--color-accent)] hover:underline"
-				>
-					Saved to Library →
-				</a>
-			</div>
+				</div>
+			{/if}
 		</div>
 	{/if}
 

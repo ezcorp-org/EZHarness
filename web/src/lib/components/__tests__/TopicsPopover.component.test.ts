@@ -152,7 +152,7 @@ describe("TopicsPopover topic list", () => {
 });
 
 describe("TopicsPopover extract result", () => {
-	test("copied → content preview + copied badge + library link, no Copy button", () => {
+	test("copied → content preview + copied badge, no Copy button", () => {
 		const { getByTestId, queryByTestId } = render(
 			TopicsPopover,
 			props({ extractState: extractResolved(sampleContext, true) }),
@@ -162,10 +162,6 @@ describe("TopicsPopover extract result", () => {
 		expect(panel).toHaveTextContent("JWT with refresh rotation");
 		expect(getByTestId("topic-copied-badge")).toBeInTheDocument();
 		expect(queryByTestId("topic-copy-btn")).toBeNull();
-		expect(getByTestId("topic-library-link")).toHaveAttribute(
-			"href",
-			"/memories?tab=contexts",
-		);
 	});
 
 	test("copyFailed → manual Copy button fires onmanualcopy with the content", async () => {

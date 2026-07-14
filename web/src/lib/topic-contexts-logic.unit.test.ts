@@ -4,7 +4,6 @@ import {
 	type SavedContext,
 	type ContextType,
 	MAX_PILLS_PER_MESSAGE,
-	CONTEXTS_LIBRARY_HREF,
 	DEFAULT_EXTRACT_ERROR,
 	DEFAULT_EXTRACT_FAULT,
 	extractErrorCopy,
@@ -14,7 +13,6 @@ import {
 	contextTypeMap,
 	typeBadgeLabel,
 	typeBadgeClass,
-	buildContextsSearchParams,
 	parseModelSetting,
 	EXTRACT_IDLE,
 	extractStarting,
@@ -149,49 +147,6 @@ describe("context type helpers", () => {
 	});
 });
 
-describe("buildContextsSearchParams", () => {
-	test("all filters present", () => {
-		const qs = buildContextsSearchParams({
-			projectId: "proj-1",
-			search: "auth",
-			typeId: "feature",
-			limit: 20,
-			offset: 40,
-		});
-		const params = new URLSearchParams(qs);
-		expect(params.get("projectId")).toBe("proj-1");
-		expect(params.get("search")).toBe("auth");
-		expect(params.get("typeId")).toBe("feature");
-		expect(params.get("limit")).toBe("20");
-		expect(params.get("offset")).toBe("40");
-	});
-
-	test("each filter alone", () => {
-		expect(buildContextsSearchParams({ projectId: "p" })).toBe("projectId=p");
-		expect(buildContextsSearchParams({ search: "x" })).toBe("search=x");
-		expect(buildContextsSearchParams({ typeId: "idea" })).toBe("typeId=idea");
-		expect(buildContextsSearchParams({ limit: 5 })).toBe("limit=5");
-		expect(buildContextsSearchParams({ offset: 0 })).toBe("offset=0");
-	});
-
-	test("blank / whitespace search is omitted and trims", () => {
-		expect(buildContextsSearchParams({ search: "   " })).toBe("");
-		expect(buildContextsSearchParams({ search: "  hi  " })).toBe("search=hi");
-	});
-
-	test('"global" project sentinel is skipped (cross-project listing)', () => {
-		expect(buildContextsSearchParams({ projectId: "global" })).toBe("");
-		expect(buildContextsSearchParams({ projectId: "global", search: "x" })).toBe("search=x");
-	});
-
-	test("empty opts → empty string", () => {
-		expect(buildContextsSearchParams({})).toBe("");
-		expect(
-			buildContextsSearchParams({ projectId: null, typeId: null }),
-		).toBe("");
-	});
-});
-
 describe("parseModelSetting", () => {
 	test("valid provider/model", () => {
 		expect(parseModelSetting("openai/gpt-4o")).toEqual({
@@ -303,11 +258,5 @@ describe("extract state machine", () => {
 		expect(markCopied(EXTRACT_IDLE)).toBe(EXTRACT_IDLE);
 		const copied = extractResolved(sampleContext, true);
 		expect(markCopied(copied)).toBe(copied);
-	});
-});
-
-describe("constants", () => {
-	test("library href points at the contexts tab", () => {
-		expect(CONTEXTS_LIBRARY_HREF).toBe("/memories?tab=contexts");
 	});
 });
