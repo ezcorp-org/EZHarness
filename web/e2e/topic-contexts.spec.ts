@@ -380,4 +380,21 @@ test.describe("Topic Contexts", () => {
 			EXTRACT_MARKDOWN,
 		);
 	});
+
+	test("E: settings — Topic Contexts section uses the chat ModelSelector + reset @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		// A pinned model surfaces the "Use local default" reset. The chat
+		// ModelSelector loads its options from the mocked /api/models.
+		await mockApi({ settings: { "contexts:model": "openai/gpt-4o" } });
+		await page.goto("/settings/personalization", { waitUntil: "networkidle" });
+
+		const section = page.getByTestId("contexts-model-picker");
+		await expect(section).toBeVisible({ timeout: 5000 });
+		// The app-wide chat ModelSelector (DRY), not a bespoke picker.
+		await expect(section.getByTestId("model-selector")).toBeVisible();
+		await expect(page.getByTestId("contexts-model-reset")).toBeVisible();
+		await captureEvidence(page, testInfo, "topic-contexts-settings");
+	});
 });

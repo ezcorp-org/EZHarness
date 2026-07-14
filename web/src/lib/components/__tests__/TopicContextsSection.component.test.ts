@@ -1,29 +1,26 @@
 /**
- * DOM tests for TopicContextsSection.svelte — the topic-contexts model
- * picker (settings/personalization).
+ * DOM tests for TopicContextsSection.svelte — the topic-contexts model picker
+ * (settings/personalization), now built on the app-wide chat `ModelSelector`.
  *
  * Covers (spec test matrix):
  *   - hydrates the stored `contexts:model` setting into the picker
- *   - onselect PUTs `contexts:model="provider/model"` optimistically +
- *     flashes "Saved ✓"
- *   - a failed save rolls the optimistic selection back + flashes the
- *     error indicator
- *   - onclear (pill ×) resets to default-local (PUTs "")
- *   - the "Current Chat Model" sentinel also resets to default-local
- *   - a malformed / absent setting starts on the default (no pill)
+ *   - a pinned model shows the "Use local default" reset; the default does not
+ *   - selecting a model PUTs `contexts:model="provider/model"` + flashes Saved
+ *   - "Use local default" PUTs "" (default-local) and hides the reset
+ *   - a malformed / absent setting starts on the default (no pill, no reset)
+ *   - a failed save rolls the optimistic selection back + flashes the error
  *
- * Model-picker interaction mirrors BriefingSettings.component.test.ts:
- * the real ModelSearchPicker loads its options from GET /api/models, then
- * options are chosen via mouseDown; the selected pill clears on mouseDown
- * of its × (SelectedPill removes on mousedown, not click).
+ * ModelSelector loads its own options from GET /api/models (array of
+ * ModelOption); a model is chosen by opening the selector and clicking its
+ * option button.
  */
 import { render, fireEvent, screen, waitFor, within } from "@testing-library/svelte";
 import { describe, test, expect, vi, afterEach } from "vitest";
 import TopicContextsSection from "../settings/TopicContextsSection.svelte";
 
 const MODELS = [
-	{ provider: "anthropic", model: "claude-fable-5", tier: "frontier", costTier: "high", displayName: "Fable 5", available: true },
-	{ provider: "openai", model: "gpt-5.5", tier: "frontier", costTier: "high", displayName: "GPT-5.5", available: true },
+	{ provider: "anthropic", model: "claude-fable-5", tier: "powerful", costTier: "high", displayName: "Fable 5", available: true },
+	{ provider: "openai", model: "gpt-5.5", tier: "powerful", costTier: "high", displayName: "GPT-5.5", available: true },
 ];
 
 interface FetchCall {
@@ -42,11 +39,7 @@ function stubFetch(opts: { settings?: Record<string, unknown>; putReject?: boole
 		vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
 			const url = typeof input === "string" ? input : input.toString();
 			const method = (init?.method ?? "GET").toUpperCase();
-			calls.push({
-				url,
-				method,
-				body: init?.body ? JSON.parse(init.body as string) : undefined,
-			});
+			calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined });
 
 			if (url.includes("/api/models")) return json(MODELS);
 			if (url.includes("/api/settings/")) {
@@ -61,21 +54,22 @@ function stubFetch(opts: { settings?: Record<string, unknown>; putReject?: boole
 	return calls;
 }
 
-function picker(): HTMLElement {
-	return screen.getByTestId("contexts-model-picker");
+/** The ModelSelector toggle button (the only button before it is opened). */
+function selectorButton(): HTMLElement {
+	return within(screen.getByTestId("model-selector")).getAllByRole("button")[0]!;
 }
 
-async function pickOption(label: string) {
-	const input = screen.getByTestId("open-model-search-picker");
-	await fireEvent.focus(input);
-	const option = await waitFor(() => {
-		const btn = Array.from(document.querySelectorAll("#model-picker-listbox button")).find((b) =>
-			b.textContent?.includes(label),
+/** Open the selector and click the model whose row text includes `displayName`. */
+async function pickModel(displayName: string) {
+	await fireEvent.click(selectorButton());
+	const opt = await waitFor(() => {
+		const btn = Array.from(document.querySelectorAll("#model-selector-listbox button")).find((b) =>
+			b.textContent?.includes(displayName),
 		);
 		expect(btn).toBeTruthy();
 		return btn as HTMLElement;
 	});
-	await fireEvent.mouseDown(option);
+	await fireEvent.click(opt);
 }
 
 function lastPut(calls: FetchCall[]): FetchCall | undefined {
@@ -85,36 +79,36 @@ function lastPut(calls: FetchCall[]): FetchCall | undefined {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("TopicContextsSection — hydrate", () => {
-	test("stored contexts:model renders as the picker's selected model", async () => {
+	test("stored contexts:model renders as the ModelSelector's selected model + shows reset", async () => {
 		stubFetch({ settings: { "contexts:model": "openai/gpt-5.5" } });
 		render(TopicContextsSection);
-		await waitFor(() => expect(picker().textContent).toContain("GPT-5.5"));
+		await waitFor(() => expect(screen.getByTestId("model-selector").textContent).toContain("GPT-5.5"));
+		// The reset affordance appears only when a model is pinned.
+		expect(screen.queryByTestId("contexts-model-reset")).not.toBeNull();
 	});
 
-	test("no stored setting starts on the default (no selected pill)", async () => {
+	test("no stored setting → 'Select model', no reset button", async () => {
 		stubFetch({ settings: {} });
 		render(TopicContextsSection);
-		// Give onMount + /api/models a chance to settle.
-		await waitFor(() => expect(screen.getByTestId("open-model-search-picker")).not.toBeNull());
-		expect(within(picker()).queryByTestId("selected-pill")).toBeNull();
-		expect(picker().textContent).not.toContain("GPT-5.5");
+		await waitFor(() => expect(screen.getByTestId("model-selector").textContent).toContain("Select model"));
+		expect(screen.queryByTestId("contexts-model-reset")).toBeNull();
 	});
 
-	test("a malformed stored value (no slash) is ignored → default", async () => {
+	test("a malformed stored value (no slash) is ignored → default, no reset", async () => {
 		stubFetch({ settings: { "contexts:model": "noslash" } });
 		render(TopicContextsSection);
-		await waitFor(() => expect(screen.getByTestId("open-model-search-picker")).not.toBeNull());
-		expect(picker().textContent).not.toContain("GPT-5.5");
+		await waitFor(() => expect(screen.getByTestId("model-selector").textContent).toContain("Select model"));
+		expect(screen.queryByTestId("contexts-model-reset")).toBeNull();
 	});
 });
 
-describe("TopicContextsSection — save", () => {
+describe("TopicContextsSection — save + reset", () => {
 	test("selecting a model PUTs contexts:model=provider/model and flashes Saved", async () => {
 		const calls = stubFetch({ settings: {} });
 		render(TopicContextsSection);
-		await waitFor(() => expect(screen.getByTestId("open-model-search-picker")).not.toBeNull());
+		await waitFor(() => expect(calls.some((c) => c.url.includes("/api/models"))).toBe(true));
 
-		await pickOption("GPT-5.5");
+		await pickModel("GPT-5.5");
 		await waitFor(() => {
 			const put = lastPut(calls);
 			expect(decodeURIComponent(put?.url ?? "")).toContain("/api/settings/contexts:model");
@@ -123,43 +117,25 @@ describe("TopicContextsSection — save", () => {
 		await waitFor(() => expect(screen.queryByTestId("save-indicator-saved")).not.toBeNull());
 	});
 
-	test('"Current Chat Model" sentinel resets to default-local (PUTs "")', async () => {
-		const calls = stubFetch({ settings: {} });
-		render(TopicContextsSection);
-		await waitFor(() => expect(screen.getByTestId("open-model-search-picker")).not.toBeNull());
-
-		await pickOption("Current Chat Model");
-		await waitFor(() => {
-			const put = lastPut(calls);
-			expect(put?.body).toEqual({ value: "" });
-		});
-	});
-
-	test("clearing the selected pill PUTs an empty value (default-local)", async () => {
+	test("'Use local default' resets to default-local (PUTs '') and hides the reset", async () => {
 		const calls = stubFetch({ settings: { "contexts:model": "openai/gpt-5.5" } });
 		render(TopicContextsSection);
-		await waitFor(() => expect(picker().textContent).toContain("GPT-5.5"));
+		await waitFor(() => expect(screen.queryByTestId("contexts-model-reset")).not.toBeNull());
 
-		// SelectedPill removes on MOUSEDOWN, not click (modes-extensions e2e lesson).
-		const removeBtn = await waitFor(() => {
-			const btn = picker().querySelector("button[aria-label^='Remove']");
-			expect(btn).toBeTruthy();
-			return btn as HTMLButtonElement;
-		});
-		await fireEvent.mouseDown(removeBtn);
-
+		await fireEvent.click(screen.getByTestId("contexts-model-reset"));
 		await waitFor(() => expect(lastPut(calls)?.body).toEqual({ value: "" }));
+		await waitFor(() => expect(screen.queryByTestId("contexts-model-reset")).toBeNull());
 	});
 
 	test("a failed save rolls the selection back and flashes the error", async () => {
 		const calls = stubFetch({ settings: {}, putReject: true });
 		render(TopicContextsSection);
-		await waitFor(() => expect(screen.getByTestId("open-model-search-picker")).not.toBeNull());
+		await waitFor(() => expect(calls.some((c) => c.url.includes("/api/models"))).toBe(true));
 
-		await pickOption("GPT-5.5");
+		await pickModel("GPT-5.5");
 		await waitFor(() => expect(lastPut(calls)?.body).toEqual({ value: "openai/gpt-5.5" }));
-		// Error indicator shows and the optimistic selection is rolled back.
 		await waitFor(() => expect(screen.queryByTestId("save-indicator-error")).not.toBeNull());
-		await waitFor(() => expect(picker().textContent).not.toContain("GPT-5.5"));
+		// The optimistic selection is rolled back → no longer showing GPT-5.5.
+		await waitFor(() => expect(screen.getByTestId("model-selector").textContent).not.toContain("GPT-5.5"));
 	});
 });
