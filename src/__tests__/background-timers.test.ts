@@ -173,6 +173,17 @@ const loggerSpy = {
 // reset per test in beforeEach.
 let warmupEmbeddingsMock = mock(() => {});
 
+// Topic Contexts model-support warm-up capture. The bootstrap lazy-imports
+// ../contexts/model-support and fire-and-forgets warmupModelSupport() so the
+// local-model support probe is primed at boot. The REAL module runs a probe
+// (getSuggestConfig → DB → a fetch to the sidecar), so it MUST be stubbed. As
+// with the embeddings stub, expose the FULL export surface (a superset of every
+// runtime export of src/contexts/model-support.ts) so a shared `bun test src/`
+// run can't freeze it to a partial shape and break contexts-model-support.test.ts
+// (which imports the REAL module). Only warmupModelSupport delegates to a capture
+// mock; the rest are inert stubs.
+let warmupModelSupportMock = mock(() => Promise.resolve());
+
 function installModuleMocks(): void {
   mock.module("../memory/lifecycle", () => ({
     startDecayTimer: (...args: unknown[]) => startDecayTimerMock(...(args as [])),
@@ -436,6 +447,18 @@ function installModuleMocks(): void {
     EMBEDDING_MODEL_ID: "Xenova/all-MiniLM-L6-v2@384",
     resetEmbeddingProvider: () => {},
   }));
+  mock.module("../contexts/model-support", () => ({
+    warmupModelSupport: () => warmupModelSupportMock(),
+    checkModelSupport: async () => ({ supported: true, baseUrl: "", model: "", checkedAt: 0 }),
+    getModelSupport: async () => ({ supported: true, baseUrl: "", model: "", checkedAt: 0 }),
+    peekModelSupport: () => null,
+    invalidateModelSupport: () => {},
+    resolveLocalModel: async () => ({ baseUrl: null, model: "" }),
+    _resetModelSupportForTests: () => {},
+    MODEL_SUPPORT_LOAD_BUDGET_MS: 30_000,
+    SUPPORTED_TTL_MS: 300_000,
+    FAILURE_TTL_MS: 60_000,
+  }));
 }
 
 beforeEach(async () => {
@@ -457,6 +480,7 @@ beforeEach(async () => {
   loggerWarnMock = mock((_msg: string, _extra?: Record<string, unknown>) => {});
   loggerErrorMock = mock((_msg: string, _extra?: Record<string, unknown>) => {});
   warmupEmbeddingsMock = mock(() => {});
+  warmupModelSupportMock = mock(() => Promise.resolve());
   briefingDaemonCtorMock = mock(() => {});
   briefingDaemonStartMock = mock(() => Promise.resolve<boolean>(true));
   briefingDaemonStopMock = mock(() => {});
@@ -554,6 +578,32 @@ describe("startBackgroundTimers", () => {
 
     // All three calls combined should still equal the first-call results
     expect(startDecayTimerMock).toHaveBeenCalledTimes(1);
+    expect(intervalCalls).toHaveLength(4);
+  });
+
+  test("model-support warmup is kicked (fire-and-forget) at boot", async () => {
+    installModuleMocks();
+
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    expect(warmupModelSupportMock).toHaveBeenCalledTimes(1);
+    // The logger spy delegates as info(msg, extra) — extra is undefined here.
+    expect(loggerInfoMock).toHaveBeenCalledWith("Model-support warmup kicked", undefined);
+  });
+
+  test("model-support warmup failure is logged but boot continues", async () => {
+    warmupModelSupportMock = mock(() => { throw new Error("boom"); });
+    installModuleMocks();
+
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      "Failed to kick model-support warmup",
+      { error: String(new Error("boom")) },
+    );
+    // Boot still armed the maintenance intervals despite the warmup throw.
     expect(intervalCalls).toHaveLength(4);
   });
 

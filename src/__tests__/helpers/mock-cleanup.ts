@@ -104,6 +104,13 @@ const MODULE_PATHS = [
   "../../providers/file",
   "../../providers/local-model-check",
   "../../providers/model-capabilities",
+  // background-timers.test.ts stubs the Topic Contexts model-support module
+  // (warmupModelSupport) during the bootstrap-wiring suite so the real probe
+  // (getSuggestConfig → DB → a sidecar fetch) never runs there. Snapshot so
+  // restoreModuleMocks() re-registers the real module in afterAll and the stub
+  // never leaks into contexts-model-support.test.ts (which imports the REAL
+  // functions and asserts their cache/TTL behaviour).
+  "../../contexts/model-support",
   "../../memory/injection",
   "../../memory/retrieval",
   "../../memory/embeddings",

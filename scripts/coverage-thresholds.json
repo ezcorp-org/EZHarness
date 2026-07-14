@@ -254,6 +254,7 @@
   "web/src/lib/components/settings/ComposerSuggestSection.svelte": 100,
   "src/db/queries/contexts.ts": 100,
   "src/contexts/config.ts": 100,
+  "src/contexts/model-support.ts": 100,
   "src/contexts/llm.ts": 100,
   "src/contexts/detect.ts": 100,
   "src/contexts/extract.ts": 100,

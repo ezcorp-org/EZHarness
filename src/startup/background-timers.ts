@@ -131,6 +131,21 @@ export async function startBackgroundTimers(): Promise<void> {
     log.warn("Failed to kick embedding warmup", { error: String(e) });
   }
 
+  // Topic Contexts resource-aware support probe: the local default is now a
+  // 4B-class tag a modest CPU-only host may not load. Probe support at boot
+  // (fire-and-forget) so the first Analyze/extract consults a primed cache
+  // instead of eating a cold 30s load-check on the request path (and never a
+  // hung 120s call to a model the machine can't run). Lazy import keeps the
+  // probe graph out of the static startup bundle; warmupModelSupport is itself
+  // self-catching, so this is doubly wrapped in the never-block-boot contract.
+  try {
+    const { warmupModelSupport } = await import("../contexts/model-support");
+    void warmupModelSupport();
+    log.info("Model-support warmup kicked");
+  } catch (e) {
+    log.warn("Failed to kick model-support warmup", { error: String(e) });
+  }
+
   // Memory decay (1h)
   try {
     // startDecayTimer returns a disposer (() => clearInterval). Track it

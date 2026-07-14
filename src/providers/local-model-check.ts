@@ -132,11 +132,17 @@ export async function checkModelAvailability(
 
 /**
  * Run a minimal inference test against the endpoint.
+ *
+ * `timeoutMs` is the abort budget (default 15s). Callers that use this as a
+ * cold-load ground truth for a larger model (the Topic Contexts support gate)
+ * pass a longer budget, since loading a multi-GB model + KV cache on a
+ * CPU-only host can legitimately run past 15s.
  */
 export async function testInference(
   baseUrl: string,
   modelId: string,
   endpointType: EndpointType,
+  timeoutMs = 15_000,
 ): Promise<{ success: boolean; latencyMs: number; error?: string }> {
   const url = normalizeUrl(baseUrl);
   const start = performance.now();
@@ -156,7 +162,7 @@ export async function testInference(
         max_tokens: 1,
         stream: false,
       }),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
     const latencyMs = Math.round(performance.now() - start);
