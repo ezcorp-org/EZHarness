@@ -12,9 +12,15 @@
  *   D  failure surfaces: extract → 503 `{error}` shows the actionable message;
  *      and an auto-copy that fails (gesture expiry) falls back to a manual Copy
  *      button that succeeds on the fresh gesture.
+ *   E  settings: Topic Contexts section renders the app-wide chat ModelSelector
+ *      + the "Use local default" reset when a model is pinned.
+ *   F  resource-aware gate: GET topics returns `capability.supported:false`
+ *      with `activeLane:"local"` (nothing else can serve) → the popover shows
+ *      the prominent unsupported notice; a fallback lane instead shows the
+ *      subtle note.
  *
  * @evidence captures (frontend-visual CI gate): topic-pills, topics-popover,
- * topic-extract-result.
+ * topic-extract-result, topic-contexts-settings, topic-contexts-unsupported.
  */
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
@@ -89,10 +95,18 @@ const RE_CONTEXT_TYPES = /\/api\/context-types(?:\?.*)?$/;
 const RE_TOPICS = /\/api\/conversations\/[^/]+\/topics(?:\?.*)?$/;
 const RE_EXTRACT = /\/api\/conversations\/[^/]+\/topics\/[^/]+\/extract(?:\?.*)?$/;
 
+interface TopicCapability {
+	localModel: string;
+	supported: boolean;
+	reason?: string;
+	activeLane: "local" | "cloud" | "turn-model";
+}
+
 interface TopicsBody {
 	topics: typeof TOPIC_JWT[];
 	stale: boolean;
 	analyzedAt: string | null;
+	capability?: TopicCapability;
 }
 
 interface TopicRouteOpts {
@@ -396,5 +410,80 @@ test.describe("Topic Contexts", () => {
 		await expect(section.getByTestId("model-selector")).toBeVisible();
 		await expect(page.getByTestId("contexts-model-reset")).toBeVisible();
 		await captureEvidence(page, testInfo, "topic-contexts-settings");
+	});
+
+	test("F: unsupported local model (no fallback) → prominent notice @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		await mockApi({
+			projects: [project],
+			conversations: [conversation],
+			messages: [userMsg, asstMsg],
+		});
+		await installTopicRoutes(page, {
+			// Already-analyzed topics, but the local model can't run AND no fallback
+			// lane exists (activeLane stays "local") → prominent unsupported notice.
+			getTopics: () => ({
+				topics: [TOPIC_JWT],
+				stale: false,
+				analyzedAt: "2026-01-01T00:03:00.000Z",
+				capability: {
+					localModel: "qwen3.5:4b",
+					supported: false,
+					reason: "load-failed",
+					activeLane: "local",
+				},
+			}),
+		});
+
+		await page.goto(`/project/${PROJECT_ID}/chat/${CONV_ID}`, {
+			waitUntil: "networkidle",
+		});
+		await expect(page.getByTestId("topics-badge")).toHaveText("1", { timeout: 5000 });
+
+		await page.getByTestId("topics-btn").click();
+		const notice = page.getByTestId("topics-unsupported-notice");
+		await expect(notice).toBeVisible({ timeout: 5000 });
+		await expect(notice).toContainText("qwen3.5:4b");
+		await expect(notice).toContainText("couldn't load it");
+		// No subtle fallback note when nothing else can serve.
+		await expect(page.getByTestId("topics-fallback-note")).toBeHidden();
+		await captureEvidence(page, testInfo, "topic-contexts-unsupported");
+	});
+
+	test("F2: unsupported local model WITH a fallback lane → subtle note only", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({
+			projects: [project],
+			conversations: [conversation],
+			messages: [userMsg, asstMsg],
+		});
+		await installTopicRoutes(page, {
+			getTopics: () => ({
+				topics: [TOPIC_JWT],
+				stale: false,
+				analyzedAt: "2026-01-01T00:03:00.000Z",
+				capability: {
+					localModel: "qwen3.5:4b",
+					supported: false,
+					reason: "timeout",
+					activeLane: "turn-model",
+				},
+			}),
+		});
+
+		await page.goto(`/project/${PROJECT_ID}/chat/${CONV_ID}`, {
+			waitUntil: "networkidle",
+		});
+		await expect(page.getByTestId("topics-badge")).toHaveText("1", { timeout: 5000 });
+
+		await page.getByTestId("topics-btn").click();
+		const note = page.getByTestId("topics-fallback-note");
+		await expect(note).toBeVisible({ timeout: 5000 });
+		await expect(note).toContainText("using the chat model");
+		await expect(page.getByTestId("topics-unsupported-notice")).toBeHidden();
 	});
 });
