@@ -70,9 +70,13 @@ services:
       # loopback-published port of the ollama service below. The app degrades
       # gracefully when unreachable (enhancement row hides).
       - EZCORP_SUGGEST_OLLAMA_URL=${EZCORP_SUGGEST_OLLAMA_URL:-http://localhost:11434}
-      # 1B-class is the CPU-viable default; GPU boxes can swap in a larger
-      # tier (e.g. qwen3:4b) — ollama-init pulls whatever is set here.
-      - EZCORP_SUGGEST_MODEL=${EZCORP_SUGGEST_MODEL:-qwen3:1.7b}
+      # Accuracy-first default for Topic Contexts (grammar-constrained topic
+      # detection + verbatim extraction). A modest CPU-only box may not load a
+      # 4B tag — the resource-aware support gate probes before use and falls
+      # back to the chat/turn model, surfacing a notice. Small hosts can pin a
+      # 1B-class tag (EZCORP_SUGGEST_MODEL=qwen3:1.7b); ollama-init pulls
+      # whatever is set here.
+      - EZCORP_SUGGEST_MODEL=${EZCORP_SUGGEST_MODEL:-qwen3.5:4b}
       # Self-modification: boot-seeds the 'self' project pointing at this
       # checkout (mounted at /repo below) so an in-app agent can dogfood the
       # platform on its own source. Dev-only — never set in prod/test/CI.
@@ -240,6 +244,18 @@ services:
     restart: unless-stopped
     mem_limit: 4g
     cpus: 4
+    environment:
+      # Ollama's default context window is 4096 tokens. Topic Contexts feeds
+      # up-to-60k-char transcripts (~15k tokens) plus a system prompt and asks
+      # for up to ~4k tokens of output — well past 4096, so the default would
+      # SILENTLY truncate the prompt (dropping schema instructions or anchored
+      # messages) and wreck detection/extraction accuracy. Raising the server
+      # default makes the OpenAI-compat /v1/chat/completions calls (which don't
+      # send a per-request num_ctx) load models with an adequate window. A
+      # larger window also enlarges the KV cache the model needs to load; the
+      # resource-aware support gate loads the model under this same server
+      # context, so a box that can't afford it is correctly marked unsupported.
+      - OLLAMA_CONTEXT_LENGTH=${EZCORP_OLLAMA_CONTEXT_LENGTH:-16384}
     ports:
       - "127.0.0.1:11434:11434"
     volumes:
@@ -263,7 +279,7 @@ services:
     environment:
       - OLLAMA_HOST=http://ollama:11434
     entrypoint: ["/bin/sh", "-c"]
-    command: ["ollama pull ${EZCORP_SUGGEST_MODEL:-qwen3:1.7b}"]
+    command: ["ollama pull ${EZCORP_SUGGEST_MODEL:-qwen3.5:4b}"]
 
 volumes:
   testenv-pgdata:

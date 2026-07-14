@@ -8,7 +8,7 @@ Users don't know what the mode they picked can actually do, and first-draft prom
 
 - **Tool relevance is retrieval, not generation.** Production tool-routing consensus (Anthropic Tool Search, Bedrock AgentCore, MCP-scaling literature) uses embeddings/BM25 — an LLM pre-flight is slower, costlier, and no better. The tool half therefore needs **no sidecar, no GPU, no cold-start data**.
 - **The generative half is strictly optional.** Prompt rewriting genuinely needs a M/LLM, so it rides a local model sidecar with graceful degradation: sidecar down ⇒ chips keep working, the ✨ row hides.
-- **1B-class is the CPU default.** Measured CPU latency: 1B ≈1.5–3.5 s per short rewrite (viable on a pause), 4B thinking-off ≈5–10 s (marginal), 4B thinking-on ≈60 s (unusable). `qwen3:1.7b` (Apache-2.0, thinking suppressed) is the default; GPU hosts opt into `qwen3:4b` via one env var.
+- **The default is accuracy-first (`qwen3.5:4b`), shared with Topic Contexts.** The sidecar model (`EZCORP_SUGGEST_MODEL` / `suggest:model`) is shared with the Topic Contexts feature, whose grammar-constrained detection + verbatim extraction need a 4B-class tag. Measured CPU latency for composer rewrites: 1B ≈1.5–3.5 s (viable on a pause), 4B thinking-off ≈5–10 s (marginal). Hosts that prioritize composer-suggest latency on a CPU-only box can pin `EZCORP_SUGGEST_MODEL=qwen3:1.7b` (Apache-2.0, thinking suppressed); the Topic Contexts support gate then guards the accuracy tradeoff, and GPU hosts can go larger via one env var.
 - **Measurement is a ship requirement.** Every impression/accept/dismiss lands in `suggestion_feedback` (content-free) so "does the enhancement earn its sidecar?" is answerable with data.
 
 ## How it works
@@ -50,7 +50,7 @@ The enhancement half is **not** fed extension candidates in v1 — a rewrite wou
 | setting `suggest:enabled` | `true` | **Global override** (Settings → Personalization → Composer suggestions): off ⇒ suggestions off in every project; on ⇒ each project's own toggle governs. |
 | setting `project:<id>:suggest:enabled` | `true` | **Per-project toggle** (Project → Settings → Composer suggestions). Mirrors the `project:<id>:systemPrompt` key convention. Server-side, the scoping conversation's own project is authoritative; a client-supplied `projectId` only covers calls with no conversation yet. |
 | setting `suggest:ollama-url` / env `EZCORP_SUGGEST_OLLAMA_URL` | compose: `http://ollama:11434` (prod) / `http://localhost:11434` (dev) | Local model endpoint. Unset ⇒ enhancement off, chips unaffected. |
-| setting `suggest:model` / env `EZCORP_SUGGEST_MODEL` | `qwen3:1.7b` | Ollama tag. GPU tier: `qwen3:4b`. `ollama-init` pulls whatever is set. |
+| setting `suggest:model` / env `EZCORP_SUGGEST_MODEL` | `qwen3.5:4b` | Ollama tag (shared with Topic Contexts). Small CPU host: `qwen3:1.7b`. `ollama-init` pulls whatever is set. |
 
 Settings win over env vars. The compose sidecar follows the SearXNG contract: always-on, hard resource caps, no `depends_on`, delete the `ollama`/`ollama-init` services to run without it.
 

@@ -118,9 +118,13 @@ services:
       # NOT a hard dependency. Point at a BYO Ollama / llama.cpp / any
       # OpenAI-compatible endpoint to skip the bundled sidecar entirely.
       EZCORP_SUGGEST_OLLAMA_URL: "${EZCORP_SUGGEST_OLLAMA_URL:-http://ollama:11434}"
-      # 1B-class is the CPU-viable default; GPU hosts can set qwen3:4b (or
-      # any Ollama tag) — ollama-init pulls whatever is configured here.
-      EZCORP_SUGGEST_MODEL: "${EZCORP_SUGGEST_MODEL:-qwen3:1.7b}"
+      # Accuracy-first default for Topic Contexts (grammar-constrained topic
+      # detection + verbatim extraction). A CPU-only host may not load a 4B
+      # tag — the resource-aware support gate probes before use and falls back
+      # to the chat/turn model with a notice. Pin a 1B-class tag
+      # (EZCORP_SUGGEST_MODEL=qwen3:1.7b) on small hosts; ollama-init pulls
+      # whatever is configured here.
+      EZCORP_SUGGEST_MODEL: "${EZCORP_SUGGEST_MODEL:-qwen3.5:4b}"
     volumes:
       # Local host bind mount for ALL persistent DB state — the live
       # PGlite data dir (./.ezcorp/data/ezcorp) AND its snapshots
@@ -224,6 +228,13 @@ services:
     restart: unless-stopped
     mem_limit: 4g
     cpus: 4
+    environment:
+      # Raise Ollama's 4096-token default context so up-to-60k-char Topic
+      # Contexts transcripts aren't silently truncated on the OpenAI-compat
+      # /v1 endpoint (which sends no per-request num_ctx). The larger KV cache
+      # this implies is exactly what the resource-aware support gate probes
+      # for before use. See docker-compose.yml for the full rationale.
+      OLLAMA_CONTEXT_LENGTH: "${EZCORP_OLLAMA_CONTEXT_LENGTH:-16384}"
     volumes:
       - ollama-models:/root/.ollama
     healthcheck:
@@ -242,7 +253,7 @@ services:
     environment:
       OLLAMA_HOST: "http://ollama:11434"
     entrypoint: ["/bin/sh", "-c"]
-    command: ["ollama pull ${EZCORP_SUGGEST_MODEL:-qwen3:1.7b}"]
+    command: ["ollama pull ${EZCORP_SUGGEST_MODEL:-qwen3.5:4b}"]
 
   # ────────────────────────────────────────────────────────────────────────
   # Optional: automatic image updates via Watchtower.

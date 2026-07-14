@@ -83,8 +83,9 @@
 			{/if}
 		</div>
 		<p class="text-xs text-[var(--color-text-secondary)]">
-			Default is the local suggestions sidecar (<code>qwen3:1.7b</code>). When the
-			sidecar is down, extraction falls back to the chat's current model.
+			Default is the local suggestions sidecar (<code>qwen3.5:4b</code>). When the
+			sidecar is down or your machine can't run the model, extraction falls back
+			to the chat's current model.
 		</p>
 	</div>
 </SettingsSection>

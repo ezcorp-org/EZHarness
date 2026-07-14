@@ -447,11 +447,17 @@ or removed the app degrades gracefully — tool chips keep working, the
 | prod (`compose.prod.yml`) | compose bridge | service DNS, **no published port** | `http://ollama:11434` |
 
 **Model provisioning:** the one-shot `ollama-init` service pulls
-`EZCORP_SUGGEST_MODEL` (default `qwen3:1.7b`, ~1 GB, Apache-2.0) once
+`EZCORP_SUGGEST_MODEL` (default `qwen3.5:4b`, Apache-2.0) once
 the server is healthy, then exits; weights persist in the
-`ollama-models` named volume so the download happens once. GPU hosts
-can set `EZCORP_SUGGEST_MODEL=qwen3:4b` (or any Ollama tag — including
-a self-fine-tuned `ezcorp-suggest`, see the feature doc's runbook);
+`ollama-models` named volume so the download happens once. The 4B
+default is accuracy-first for Topic Contexts; a modest CPU-only box may
+not load it, in which case the resource-aware support gate falls the
+feature back to the chat/turn model and shows a notice. Small hosts can
+pin a 1B-class tag with `EZCORP_SUGGEST_MODEL=qwen3:1.7b` (~1 GB). The
+sidecar's `OLLAMA_CONTEXT_LENGTH` is raised to `16384` (override with
+`EZCORP_OLLAMA_CONTEXT_LENGTH`) so long transcripts aren't truncated.
+GPU hosts can set any larger Ollama tag — including
+a self-fine-tuned `ezcorp-suggest`, see the feature doc's runbook;
 `ollama-init` pulls whatever is configured.
 
 **Resource footprint:** capped at `mem_limit: 4g` / `cpus: 4` — a

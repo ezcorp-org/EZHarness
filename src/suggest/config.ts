@@ -32,9 +32,15 @@ export async function isSuggestEnabledForProject(projectId: string | null): Prom
   return value === undefined ? true : value === true;
 }
 
-/** CPU-first default (council/research verdict: 1B-class is the only viable
- *  CPU default; 4B is a GPU opt-in via EZCORP_SUGGEST_MODEL=qwen3:4b). */
-export const DEFAULT_SUGGEST_MODEL = "qwen3:1.7b";
+/** Accuracy-first default. Topic Contexts (the heaviest consumer of this
+ *  sidecar) needs a model strong enough for grammar-constrained topic
+ *  detection AND verbatim extraction; a 4B tag is the floor that holds up.
+ *  A modest CPU-only box may not be able to load it — that is exactly what
+ *  the resource-aware support gate (`src/contexts/model-support.ts`) probes
+ *  for before any real use, falling back to a cloud / turn model when it
+ *  can't. Override with `EZCORP_SUGGEST_MODEL` (e.g. `qwen3:1.7b` on a small
+ *  host, or a larger tag on a GPU box). */
+export const DEFAULT_SUGGEST_MODEL = "qwen3.5:4b";
 
 /** Enhancement calls run 2–6s on CPU-only hosts; 12s covers a cold sidecar
  *  without pinning composer requests forever. */
