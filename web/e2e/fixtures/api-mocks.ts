@@ -515,6 +515,15 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			}
 			return route.fulfill({ json: ezMessages });
 		}
+		// "Clear conversation" — DELETE wipes the seeded Ez messages so a
+		// follow-up GET reflects the empty state, mirroring the real
+		// server's `deleteAllMessagesForConversation`. Returns the same
+		// conversation id (the row is preserved) plus the deleted count.
+		if (method === "DELETE" && path === "/api/ez/conversation/messages") {
+			const deletedCount = ezMessages.length;
+			ezMessages.length = 0;
+			return route.fulfill({ json: { ok: true, conversationId: ezConvId, deletedCount } });
+		}
 
 		// Projects
 		if (path === "/api/projects" && method === "GET") {

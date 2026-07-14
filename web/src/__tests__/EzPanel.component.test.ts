@@ -479,71 +479,130 @@ describe("EzPanel — close button", () => {
 	});
 });
 
-describe("EzPanel — clear conversation", () => {
-	test("clicking clear (after confirm) calls the API and empties the message list", async () => {
-		// Seed a couple of messages so we can verify the list goes
-		// empty post-clear. The test doesn't care about message
-		// content — only that the rendered `ez-message` count drops
-		// to zero after the DELETE round-trips.
+// ── Clear conversation — inline two-step confirm (NO window.confirm) ──
+//
+// REGRESSION: the clear button used native `window.confirm()`. Browsers
+// silently suppress repeated page dialogs (and some embedded/webview
+// contexts block them outright): `confirm()` then returns `false` with no
+// visible prompt, so clicking Clear did LITERALLY NOTHING. The fix
+// replaces it with a dialog-free inline two-step confirm (arm → confirm),
+// mirroring LessonsTab / SubstackReviewCard. These tests pin that the
+// destructive action never depends on a native dialog again.
+describe("EzPanel — clear conversation (inline confirm)", () => {
+	const seedTwo = () =>
 		mocks.fetchAllMessagesMock.mockResolvedValue([
 			{ id: "m1", role: "user", content: "hello", conversationId: "ez-conv-1", excluded: false, createdAt: "", thinkingContent: null, model: null, provider: null, usage: null, runId: null, parentMessageId: null },
 			{ id: "m2", role: "assistant", content: "hi!", conversationId: "ez-conv-1", excluded: false, createdAt: "", thinkingContent: null, model: null, provider: null, usage: null, runId: null, parentMessageId: null },
 		]);
+
+	test("first click ARMS the confirm (no API call); second click clears the list — and window.confirm is NEVER called", async () => {
+		seedTwo();
 		mocks.clearEzMock.mockResolvedValue({ conversationId: "ez-conv-1", deletedCount: 2 });
 
-		// Stub `window.confirm` to auto-accept — the panel's destructive-
-		// action guard uses the codebase's existing confirm() pattern
-		// (see project-settings, custom-mode delete, pipelines).
-		const originalConfirm = window.confirm;
-		window.confirm = vi.fn().mockReturnValue(true);
+		// The whole point of the fix: no native dialog. Spy on confirm and
+		// assert it is never invoked — if it were, the browser-suppression
+		// footgun that produced the "button does nothing" bug would be back.
+		const confirmSpy = vi.spyOn(window, "confirm");
 
 		openEzPanel();
 		const { findByTestId, findAllByTestId, queryAllByTestId } = render(EzPanel);
 
-		// Wait for bootstrap so messages are rendered before we click.
 		await waitFor(() => expect(mocks.getOrCreateMock).toHaveBeenCalled());
-		const before = await findAllByTestId("ez-message");
-		expect(before).toHaveLength(2);
+		expect(await findAllByTestId("ez-message")).toHaveLength(2);
 
 		const clearBtn = await findByTestId("ez-panel-clear");
+		// Unarmed: neutral label, no destructive text.
 		expect(clearBtn).toHaveAttribute("aria-label", "Clear conversation");
+		expect(clearBtn).toHaveAttribute("data-confirming", "false");
+		expect(clearBtn.textContent).not.toMatch(/Confirm/);
+
+		// First click ARMS — no DELETE yet, button morphs to the
+		// destructive "Confirm?" affordance.
 		await fireEvent.click(clearBtn);
+		expect(mocks.clearEzMock).not.toHaveBeenCalled();
+		expect(clearBtn).toHaveAttribute("data-confirming", "true");
+		expect(clearBtn).toHaveAttribute("aria-label", "Confirm clear conversation");
+		expect(clearBtn.textContent).toMatch(/Confirm\?/);
+		// Messages are still present after arming.
+		expect(queryAllByTestId("ez-message")).toHaveLength(2);
 
-		// Confirm dialog was shown and accepted.
-		expect(window.confirm).toHaveBeenCalledTimes(1);
-
-		// API was hit, message list emptied, conversation id unchanged
-		// (panel still operates against the same conversation).
+		// Second click CONFIRMS — API hit once, list emptied, and the
+		// button disarms.
+		await fireEvent.click(clearBtn);
 		await waitFor(() => expect(mocks.clearEzMock).toHaveBeenCalledTimes(1));
 		await waitFor(() => expect(queryAllByTestId("ez-message")).toHaveLength(0));
+		expect(clearBtn).toHaveAttribute("data-confirming", "false");
 
-		window.confirm = originalConfirm;
+		// The native dialog was never touched — the bug can't recur.
+		expect(confirmSpy).not.toHaveBeenCalled();
+		confirmSpy.mockRestore();
 	});
 
-	test("clicking clear and dismissing the confirm dialog is a no-op", async () => {
-		mocks.fetchAllMessagesMock.mockResolvedValue([
-			{ id: "m1", role: "user", content: "hello", conversationId: "ez-conv-1", excluded: false, createdAt: "", thinkingContent: null, model: null, provider: null, usage: null, runId: null, parentMessageId: null },
-		]);
-		const originalConfirm = window.confirm;
-		// User cancels the destructive action — no DELETE should fire,
-		// no messages removed.
-		window.confirm = vi.fn().mockReturnValue(false);
+	test("armed confirm auto-resets after the confirm window; a later single click only re-arms (does not clear)", async () => {
+		// Only fake setTimeout/clearTimeout so the confirm-arm timeout is
+		// controllable while testing-library's async plumbing stays intact
+		// (mirrors LessonsTab.component.test.ts).
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			seedTwo();
+			openEzPanel();
+			const { findByTestId } = render(EzPanel);
+			await waitFor(() => expect(mocks.getOrCreateMock).toHaveBeenCalled());
 
+			const clearBtn = await findByTestId("ez-panel-clear");
+			await fireEvent.click(clearBtn);
+			expect(clearBtn).toHaveAttribute("data-confirming", "true");
+
+			// Idle past the confirm window — the arm reverts on its own.
+			vi.advanceTimersByTime(3000);
+			await waitFor(() => expect(clearBtn).toHaveAttribute("data-confirming", "false"));
+
+			// A single click after the reset ARMS again rather than
+			// clearing — the confirm gate is intact, nothing was deleted.
+			await fireEvent.click(clearBtn);
+			expect(clearBtn).toHaveAttribute("data-confirming", "true");
+			expect(mocks.clearEzMock).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	test("closing the panel disarms a pending confirm (no stale 'Confirm?' on reopen)", async () => {
+		seedTwo();
 		openEzPanel();
-		const { findByTestId, findAllByTestId } = render(EzPanel);
+		const { findByTestId } = render(EzPanel);
 		await waitFor(() => expect(mocks.getOrCreateMock).toHaveBeenCalled());
-		await findAllByTestId("ez-message");
 
 		const clearBtn = await findByTestId("ez-panel-clear");
 		await fireEvent.click(clearBtn);
+		expect(clearBtn).toHaveAttribute("data-confirming", "true");
 
-		expect(window.confirm).toHaveBeenCalledTimes(1);
+		// Close, then reopen — the button must come back unarmed.
+		closeEzPanel();
+		await waitFor(() => expect(document.querySelector('[data-testid="ez-panel"]')).toBeNull());
+		openEzPanel();
+		const reopened = await findByTestId("ez-panel-clear");
+		expect(reopened).toHaveAttribute("data-confirming", "false");
 		expect(mocks.clearEzMock).not.toHaveBeenCalled();
-		// Messages remain in the DOM.
-		const after = await findAllByTestId("ez-message");
-		expect(after).toHaveLength(1);
+	});
 
-		window.confirm = originalConfirm;
+	test("a clear failure surfaces an inline error and re-enables the button", async () => {
+		seedTwo();
+		mocks.clearEzMock.mockRejectedValue(new Error("boom"));
+
+		openEzPanel();
+		const { findByTestId, findByText } = render(EzPanel);
+		await waitFor(() => expect(mocks.getOrCreateMock).toHaveBeenCalled());
+
+		const clearBtn = await findByTestId("ez-panel-clear");
+		await fireEvent.click(clearBtn); // arm
+		await fireEvent.click(clearBtn); // confirm → rejects
+
+		await waitFor(() => expect(mocks.clearEzMock).toHaveBeenCalledTimes(1));
+		expect(await findByText(/Could not clear conversation: boom/)).toBeInTheDocument();
+		// Button recovered: not stuck disabled, not stuck armed.
+		expect((clearBtn as HTMLButtonElement).disabled).toBe(false);
+		expect(clearBtn).toHaveAttribute("data-confirming", "false");
 	});
 });
 

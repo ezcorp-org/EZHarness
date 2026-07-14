@@ -120,6 +120,21 @@
 	// short-circuits a double-click while the DELETE round-trips.
 	let clearing = $state<boolean>(false);
 
+	// Inline click-to-confirm for the destructive "clear" action. We
+	// deliberately do NOT use native `window.confirm()` here: browsers
+	// silently suppress repeated page dialogs (the "Don't allow this page
+	// to prompt you again" state) and some embedded/webview contexts block
+	// them outright — in those cases `confirm()` returns `false` with no
+	// visible prompt, so the button appeared to "do nothing" on click.
+	// The inline two-step confirm mirrors the codebase's existing
+	// dialog-free pattern (LessonsTab / SubstackReviewCard) and is
+	// deterministically testable. First click arms; a second click within
+	// CLEAR_CONFIRM_MS performs the wipe; the arm auto-resets after the
+	// timeout (or when the panel closes).
+	let clearConfirming = $state<boolean>(false);
+	let clearConfirmTimer: ReturnType<typeof setTimeout> | undefined;
+	const CLEAR_CONFIRM_MS = 3000;
+
 	// ── Header tools chip ────────────────────────────────────────────
 	//
 	// Surfaces the tools actually wired for this Ez conversation (the same
@@ -425,22 +440,45 @@
 	}
 
 	/**
-	 * "Clear conversation / start fresh" — wipes every message on the
-	 * server side and resets the panel's local view to an empty state.
-	 * The conversation id stays the same (schema enforces one Ez convo
-	 * per user), so the panel's SSE subscription and locked mode all
-	 * keep working unchanged. The composer's typed-but-unsent prompt is
-	 * left as-is so the user doesn't lose their draft.
-	 *
-	 * Uses the codebase's existing destructive-action confirm pattern
-	 * (e.g. project settings, custom-mode delete) — `window.confirm()`
-	 * with an actionable, single-sentence prompt.
+	 * "Clear conversation / start fresh" — first click of a two-step
+	 * inline confirm. Arming morphs the trash button into a red
+	 * "Confirm?" affordance for CLEAR_CONFIRM_MS; a second click within
+	 * that window runs {@link performClear}. See `clearConfirming` above
+	 * for why this is dialog-free (native `confirm()` silently no-ops
+	 * under browser dialog-suppression, which is the bug this fixes).
 	 */
-	async function handleClear(): Promise<void> {
+	function handleClearClick(): void {
 		if (clearing) return;
 		if (!conversationId) return;
-		if (typeof window === "undefined" || !window.confirm("Clear this Ez conversation? All messages will be deleted.")) return;
+		if (clearConfirming) {
+			cancelClearConfirm();
+			void performClear();
+			return;
+		}
+		clearConfirming = true;
+		clearTimeout(clearConfirmTimer);
+		clearConfirmTimer = setTimeout(() => {
+			clearConfirming = false;
+		}, CLEAR_CONFIRM_MS);
+	}
 
+	/** Disarm the pending clear-confirm (timeout, cancel, or panel close). */
+	function cancelClearConfirm(): void {
+		clearTimeout(clearConfirmTimer);
+		clearConfirming = false;
+	}
+
+	/**
+	 * Wipes every message on the server side and resets the panel's local
+	 * view to an empty state. The conversation id stays the same (schema
+	 * enforces one Ez convo per user), so the panel's SSE subscription and
+	 * locked mode all keep working unchanged. The composer's
+	 * typed-but-unsent prompt is left as-is so the user doesn't lose their
+	 * draft.
+	 */
+	async function performClear(): Promise<void> {
+		if (clearing) return;
+		if (!conversationId) return;
 		clearing = true;
 		error = null;
 		try {
@@ -630,6 +668,12 @@
 		}
 	});
 
+	// Disarm a pending clear-confirm whenever the panel closes so a stale
+	// "Confirm?" state can't survive a close/reopen.
+	$effect(() => {
+		if (!panelOpen && clearConfirming) cancelClearConfirm();
+	});
+
 	onMount(() => {
 		if (panelOpen && !conversationId) void ensureConversation();
 		if (typeof window !== "undefined") {
@@ -644,6 +688,7 @@
 			window.removeEventListener("ez:client-tool", handleClientTool);
 		}
 		if (activeRunId) stopStreaming(activeRunId);
+		clearTimeout(clearConfirmTimer);
 	});
 </script>
 
@@ -722,13 +767,18 @@
 					<button
 						type="button"
 						class="ez-panel__icon-btn"
-						aria-label="Clear conversation"
-						title="Clear conversation — start fresh"
+						class:ez-panel__icon-btn--confirming={clearConfirming}
+						aria-label={clearConfirming ? "Confirm clear conversation" : "Clear conversation"}
+						title={clearConfirming
+							? "Click again to delete all messages"
+							: "Clear conversation — start fresh"}
 						data-testid="ez-panel-clear"
+						data-confirming={clearConfirming}
 						disabled={clearing}
-						onclick={() => void handleClear()}
+						onclick={() => handleClearClick()}
 					>
 						<Trash2 size={16} aria-hidden="true" />
+						{#if clearConfirming}<span class="ez-panel__icon-btn-label">Confirm?</span>{/if}
 					</button>
 				{/if}
 				<button
@@ -956,6 +1006,21 @@
 	.ez-panel__icon-btn:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+	/* Armed destructive-confirm state — red so a second click reads as
+	   "this deletes everything". Matches the click-to-confirm styling used
+	   for lesson/knowledge-base deletes. */
+	.ez-panel__icon-btn--confirming,
+	.ez-panel__icon-btn--confirming:hover:not(:disabled) {
+		gap: 0.3rem;
+		border-color: #d44a4a;
+		background: rgba(212, 74, 74, 0.12);
+		color: #d44a4a;
+	}
+	.ez-panel__icon-btn-label {
+		font-size: 0.7rem;
+		font-weight: 600;
+		line-height: 1;
 	}
 	.ez-panel__messages {
 		flex: 1;
