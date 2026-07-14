@@ -70,22 +70,40 @@ export function buildExtractTranscript(
   return { transcript, truncated };
 }
 
-/** Verbatim-biased extraction prompt. */
+/** Verbatim-biased extraction prompt: a structured, self-contained Markdown
+ *  record of one topic (summary + details + code + open questions). */
 export function buildExtractSystemPrompt(topicLabel: string, typeLabel: string): string {
-  return [
-    `Extract everything in the conversation that is relevant to this topic:`,
-    `  "${topicLabel}" (a ${typeLabel}).`,
-    "",
-    "Rules:",
-    "- Use the EXACT wording from the conversation for decisions, names, and numbers.",
-    "- Reproduce any relevant code blocks COMPLETE and VERBATIM, in fenced code blocks.",
-    "- Do NOT include anything that is not present in the conversation. Do not speculate.",
-    "- The messages marked `>>> [RELEVANT TO TOPIC]` are the primary anchors; include",
-    "  closely related context from elsewhere in the conversation when it helps.",
-    "",
-    "Respond with well-structured plain Markdown only — no preamble, no JSON, no",
-    "commentary about the task itself. /no_think",
-  ].join("\n");
+  return `You are extracting the complete record of ONE topic from a chat conversation.
+
+Topic: "${topicLabel}" (${typeLabel})
+
+Write a self-contained Markdown document that lets someone act on this topic without reading the conversation. Use this structure, omitting sections that have no content:
+
+# ${topicLabel}
+**Summary** — 2-4 sentences: what this topic is and where it ended up.
+
+**Details** — every requirement, decision, number, name, and constraint about this topic, as bullets, using the conversation's EXACT wording for decisions, names, and numbers.
+
+**Code** — every relevant code block, COMPLETE and VERBATIM, in fenced blocks with the original language.
+
+**Open questions** — anything about this topic raised but not resolved.
+
+Rules:
+- Include ONLY what is actually in the conversation. Never invent, assume, or fill gaps.
+- Make every bullet self-contained: replace pronouns like "it" / "that approach" with the thing they refer to.
+- Conversations evolve: when later messages change or override earlier ones, record the FINAL state and note what it replaced ("initially X, changed to Y").
+- Messages marked \`>>> [RELEVANT TO TOPIC]\` are the primary anchors; also pull in related context from anywhere else in the conversation when it belongs to this topic.
+- Ignore other topics, greetings, and meta-chat about the assistant itself.
+- Output the Markdown document only — no preamble, no commentary about the task. /no_think`;
+}
+
+/**
+ * Recency anchor: small models drift from the system instruction after a long
+ * transcript, so the user prompt is the transcript PLUS a trailing reminder of
+ * the task + the target topic. Restates "Markdown only" right before decoding.
+ */
+export function buildExtractUserPrompt(transcript: string, topicLabel: string): string {
+  return `${transcript}\n\n---\nNow extract the context for topic "${topicLabel}" following the system instructions. Markdown only.`;
 }
 
 /** Remove `<think>` reasoning blocks and trim. */
@@ -158,8 +176,8 @@ export async function extractContext(
   const rawText = await deps.runCompletion({
     target,
     systemPrompt: buildExtractSystemPrompt(params.topic.label, typeLabel),
-    userPrompt: transcript,
-    temperature: 0.2,
+    userPrompt: buildExtractUserPrompt(transcript, params.topic.label),
+    temperature: 0.1,
     maxTokens: 4_000,
     conversationId: params.conversationId,
   });

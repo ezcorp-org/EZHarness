@@ -7,6 +7,7 @@ import { test, expect, describe } from "bun:test";
 import {
   buildExtractTranscript,
   buildExtractSystemPrompt,
+  buildExtractUserPrompt,
   stripThink,
   composeTitle,
   extractContext,
@@ -47,12 +48,32 @@ describe("buildExtractTranscript", () => {
 });
 
 describe("buildExtractSystemPrompt", () => {
-  test("verbatim-biased instructions naming the topic + type", () => {
+  test("structured self-contained record instructions naming the topic + type", () => {
     const p = buildExtractSystemPrompt("Auth flow", "Feature");
-    expect(p).toContain('"Auth flow" (a Feature)');
+    // Topic + type header (no article) and the H1 uses the topic label verbatim.
+    expect(p).toContain('Topic: "Auth flow" (Feature)');
+    expect(p).toContain("# Auth flow");
+    // The four structure sections.
+    expect(p).toContain("**Summary**");
+    expect(p).toContain("**Details**");
+    expect(p).toContain("**Code**");
+    expect(p).toContain("**Open questions**");
+    // Load-bearing rules that fix the "doesn't summarize well" complaint.
+    expect(p).toContain("Make every bullet self-contained");
+    expect(p).toContain("record the FINAL state and note what it replaced");
     expect(p).toContain("VERBATIM");
     expect(p).toContain("RELEVANT TO TOPIC");
     expect(p).toContain("/no_think");
+  });
+});
+
+describe("buildExtractUserPrompt", () => {
+  test("appends the recency-anchor reminder naming the topic after the transcript", () => {
+    const p = buildExtractUserPrompt("TRANSCRIPT-BODY", "Auth flow");
+    expect(p.startsWith("TRANSCRIPT-BODY")).toBe(true);
+    expect(p).toContain("\n\n---\n");
+    expect(p).toContain('Now extract the context for topic "Auth flow"');
+    expect(p).toContain("Markdown only.");
   });
 });
 
@@ -156,6 +177,24 @@ describe("extractContext orchestrator", () => {
         },
       }),
     );
-    expect(sysPrompt).toContain("(a mystery)");
+    expect(sysPrompt).toContain('"Auth" (mystery)');
+  });
+
+  test("wires the user prompt as the transcript + recency-anchor reminder at low temperature", async () => {
+    let req: { userPrompt: string; temperature?: number } | undefined;
+    await extractContext(
+      { conversationId: "conv-1", topic, userId: "u1", projectId: null },
+      baseDeps({
+        runCompletion: async (r) => {
+          req = r;
+          return "body";
+        },
+      }),
+    );
+    // The anchored assistant message rides in the transcript half…
+    expect(req!.userPrompt).toContain(">>> [RELEVANT TO TOPIC]\nassistant: it uses JWT");
+    // …followed by the trailing reminder naming the topic.
+    expect(req!.userPrompt).toContain('Now extract the context for topic "Auth"');
+    expect(req!.temperature).toBe(0.1);
   });
 });
