@@ -29,7 +29,16 @@ interface FetchCall {
 	body?: unknown;
 }
 
-function stubFetch(opts: { settings?: Record<string, unknown>; putReject?: boolean } = {}): FetchCall[] {
+const DEFAULT_SUPPORT = { localModel: "qwen3.5:4b", configured: true, probed: true, supported: true, reason: null };
+
+function stubFetch(
+	opts: {
+		settings?: Record<string, unknown>;
+		putReject?: boolean;
+		support?: Record<string, unknown>;
+		supportRecheck?: Record<string, unknown>;
+	} = {},
+): FetchCall[] {
 	const calls: FetchCall[] = [];
 	const json = (body: unknown, status = 200) =>
 		new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -42,6 +51,10 @@ function stubFetch(opts: { settings?: Record<string, unknown>; putReject?: boole
 			calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined });
 
 			if (url.includes("/api/models")) return json(MODELS);
+			if (url.includes("/api/contexts/model-support")) {
+				const recheck = url.includes("recheck=1");
+				return json((recheck ? opts.supportRecheck : opts.support) ?? opts.support ?? DEFAULT_SUPPORT);
+			}
 			if (url.includes("/api/settings/")) {
 				// Single-key PUT via upsertSetting.
 				if (opts.putReject) return json({ error: "nope" }, 500);
@@ -137,5 +150,73 @@ describe("TopicContextsSection — save + reset", () => {
 		await waitFor(() => expect(screen.queryByTestId("save-indicator-error")).not.toBeNull());
 		// The optimistic selection is rolled back → no longer showing GPT-5.5.
 		await waitFor(() => expect(screen.getByTestId("model-selector").textContent).not.toContain("GPT-5.5"));
+	});
+});
+
+describe("TopicContextsSection — support status", () => {
+	test("supported model shows a ✓ status line", async () => {
+		stubFetch({ support: { localModel: "qwen3.5:4b", configured: true, probed: true, supported: true, reason: null } });
+		render(TopicContextsSection);
+		await waitFor(() => expect(screen.getByTestId("contexts-support-ok")).toHaveTextContent("qwen3.5:4b"));
+	});
+
+	test("unsupported model shows a ✗ status line with the reason", async () => {
+		stubFetch({
+			support: { localModel: "qwen3.5:4b", configured: true, probed: true, supported: false, reason: "load-failed" },
+		});
+		render(TopicContextsSection);
+		await waitFor(() => {
+			const bad = screen.getByTestId("contexts-support-bad");
+			expect(bad).toHaveTextContent("qwen3.5:4b");
+			expect(bad).toHaveTextContent("couldn't load it");
+		});
+	});
+
+	test("not-yet-probed model shows a neutral 'not checked' status", async () => {
+		stubFetch({ support: { localModel: "qwen3.5:4b", configured: true, probed: false, supported: false, reason: null } });
+		render(TopicContextsSection);
+		await waitFor(() =>
+			expect(screen.getByTestId("contexts-support-status")).toHaveTextContent("not checked yet"),
+		);
+	});
+
+	test("no endpoint configured → 'No local model endpoint'", async () => {
+		stubFetch({ support: { localModel: "qwen3.5:4b", configured: false, probed: false, supported: false, reason: "endpoint-down" } });
+		render(TopicContextsSection);
+		await waitFor(() =>
+			expect(screen.getByTestId("contexts-support-status")).toHaveTextContent("No local model endpoint"),
+		);
+	});
+
+	test("Re-check re-fetches with ?recheck=1 and updates the status", async () => {
+		const calls = stubFetch({
+			support: { localModel: "qwen3.5:4b", configured: true, probed: false, supported: false, reason: null },
+			supportRecheck: { localModel: "qwen3.5:4b", configured: true, probed: true, supported: true, reason: null },
+		});
+		render(TopicContextsSection);
+		await waitFor(() =>
+			expect(screen.getByTestId("contexts-support-status")).toHaveTextContent("not checked yet"),
+		);
+
+		await fireEvent.click(screen.getByTestId("contexts-recheck-btn"));
+		await waitFor(() => expect(screen.getByTestId("contexts-support-ok")).toHaveTextContent("qwen3.5:4b"));
+		expect(calls.some((c) => c.url.includes("/api/contexts/model-support") && c.url.includes("recheck=1"))).toBe(true);
+	});
+
+	test("a failed support fetch leaves an unavailable status (no crash)", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: string | URL | Request) => {
+				const url = typeof input === "string" ? input : input.toString();
+				if (url.includes("/api/models")) return new Response(JSON.stringify(MODELS), { status: 200 });
+				if (url.includes("/api/contexts/model-support")) return new Response("nope", { status: 500 });
+				if (url.endsWith("/api/settings")) return new Response(JSON.stringify({}), { status: 200 });
+				return new Response(JSON.stringify({}), { status: 200 });
+			}),
+		);
+		render(TopicContextsSection);
+		await waitFor(() =>
+			expect(screen.getByTestId("contexts-support-status")).toHaveTextContent("status unavailable"),
+		);
 	});
 });

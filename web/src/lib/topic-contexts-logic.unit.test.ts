@@ -14,6 +14,9 @@ import {
 	typeBadgeLabel,
 	typeBadgeClass,
 	parseModelSetting,
+	capabilityNotice,
+	laneLabel,
+	MODEL_SUPPORT_REASON_LABELS,
 	EXTRACT_IDLE,
 	extractStarting,
 	extractResolved,
@@ -25,6 +28,7 @@ import {
 	needsManualCopy,
 	extractError,
 } from "$lib/topic-contexts-logic";
+import type { TopicCapability } from "$lib/topic-contexts-logic";
 
 function topic(id: string, messageIds: string[], typeId = "feature"): Topic {
 	return { id, label: `Topic ${id}`, typeId, messageIds };
@@ -258,5 +262,61 @@ describe("extract state machine", () => {
 		expect(markCopied(EXTRACT_IDLE)).toBe(EXTRACT_IDLE);
 		const copied = extractResolved(sampleContext, true);
 		expect(markCopied(copied)).toBe(copied);
+	});
+});
+
+describe("capabilityNotice", () => {
+	const cap = (o: Partial<TopicCapability>): TopicCapability => ({
+		localModel: "qwen3.5:4b",
+		supported: true,
+		activeLane: "local",
+		...o,
+	});
+
+	test("absent / undefined capability → none", () => {
+		expect(capabilityNotice(null)).toEqual({ kind: "none" });
+		expect(capabilityNotice(undefined)).toEqual({ kind: "none" });
+	});
+
+	test("supported → none (no notice)", () => {
+		expect(capabilityNotice(cap({ supported: true }))).toEqual({ kind: "none" });
+	});
+
+	test("unsupported + activeLane local (no fallback) → prominent, names model + reason", () => {
+		const n = capabilityNotice(cap({ supported: false, reason: "load-failed", activeLane: "local" }));
+		expect(n.kind).toBe("prominent");
+		expect(n.kind === "prominent" && n.text).toContain("qwen3.5:4b");
+		expect(n.kind === "prominent" && n.text).toContain("couldn't load it");
+		expect(n.kind === "prominent" && n.text).toContain("Settings → Topic contexts");
+	});
+
+	test("unsupported + missing reason → prominent with generic 'unavailable'", () => {
+		const n = capabilityNotice(cap({ supported: false, activeLane: "local" }));
+		expect(n.kind === "prominent" && n.text).toContain("it is unavailable");
+	});
+
+	test("unsupported + turn-model fallback → subtle 'using the chat model'", () => {
+		const n = capabilityNotice(cap({ supported: false, reason: "timeout", activeLane: "turn-model" }));
+		expect(n).toEqual({ kind: "subtle", text: "Local model unavailable — using the chat model." });
+	});
+
+	test("unsupported + cloud fallback → subtle 'using the selected model'", () => {
+		const n = capabilityNotice(cap({ supported: false, reason: "endpoint-down", activeLane: "cloud" }));
+		expect(n).toEqual({ kind: "subtle", text: "Local model unavailable — using the selected model." });
+	});
+});
+
+describe("laneLabel + reason labels", () => {
+	test("laneLabel maps cloud vs turn-model", () => {
+		expect(laneLabel("cloud")).toBe("the selected model");
+		expect(laneLabel("turn-model")).toBe("the chat model");
+		expect(laneLabel("local")).toBe("the chat model");
+	});
+
+	test("every reason has a human label", () => {
+		expect(MODEL_SUPPORT_REASON_LABELS["endpoint-down"]).toMatch(/unreachable/);
+		expect(MODEL_SUPPORT_REASON_LABELS["model-missing"]).toMatch(/isn't installed/);
+		expect(MODEL_SUPPORT_REASON_LABELS["load-failed"]).toMatch(/couldn't load/);
+		expect(MODEL_SUPPORT_REASON_LABELS.timeout).toMatch(/too long/);
 	});
 });

@@ -264,6 +264,7 @@
   "web/src/routes/api/conversations/[id]/topics/[topicId]/extract/schema.ts": 100,
   "web/src/routes/api/contexts/+server.ts": 100,
   "web/src/routes/api/contexts/[id]/+server.ts": 100,
+  "web/src/routes/api/contexts/model-support/+server.ts": 100,
   "web/src/routes/api/context-types/+server.ts": 100,
   "web/src/lib/model-selector-logic.ts": 100,
   "src/dev-git-info.ts": 100,

@@ -151,6 +151,7 @@
 		type Topic,
 		type ContextType,
 		type ExtractState,
+		type TopicCapability,
 		topicsByMessageId,
 		countNewMessages,
 		contextTypeMap,
@@ -242,6 +243,8 @@
 		extractState: ExtractState;
 		busyId: string | null;
 		typeMap: Map<string, ContextType>;
+		/** Resource-aware local-model capability (additive; null = no notice). */
+		capability: TopicCapability | null;
 		toggle: (next: boolean) => void;
 		onanalyze: () => void;
 		onextract: (topicId: string) => void;
@@ -395,6 +398,7 @@
 	let topicsOpen = $state(false);
 	let topicExtractState = $state<ExtractState>(EXTRACT_IDLE);
 	let extractingTopicId = $state<string | null>(null);
+	let topicCapability = $state<TopicCapability | null>(null);
 	let contextTypes = $state<ContextType[]>([]);
 	let subConversations = $state<SubConvoRecord[]>([]);
 	let localSystemMessages = $state<Message[]>([]);
@@ -922,10 +926,12 @@
 		topics?: Topic[];
 		stale?: boolean;
 		analyzedAt?: string | null;
+		capability?: TopicCapability | null;
 	}) {
 		topics = data.topics ?? [];
 		topicsStale = data.stale ?? false;
 		topicsAnalyzedAt = data.analyzedAt ?? null;
+		topicCapability = data.capability ?? null;
 	}
 
 	// Cache-only load on conversation change (never runs the LLM). Reset the
@@ -943,6 +949,7 @@
 		topicsOpen = false;
 		topicExtractState = EXTRACT_IDLE;
 		extractingTopicId = null;
+		topicCapability = null;
 		const seq = ++topicsFetchSeq;
 		void backgroundFetch(`topics:${cid}`, `/api/conversations/${cid}/topics`)
 			.then((r) => (r && r.ok ? r.json() : null))
@@ -1191,6 +1198,7 @@
 			extractState: topicExtractState,
 			busyId: extractingTopicId,
 			typeMap: topicTypeMap,
+			capability: topicCapability,
 			toggle: toggleTopics,
 			onanalyze: handleDetectTopics,
 			onextract: handleExtractTopic,
@@ -2058,6 +2066,7 @@
 			extractState: topicExtractState,
 			busyId: extractingTopicId,
 			newCount: topicsNewCount,
+			capability: topicCapability,
 		}),
 		reload: () => loadMessages(),
 		setActiveRun: (id: string | null) => {

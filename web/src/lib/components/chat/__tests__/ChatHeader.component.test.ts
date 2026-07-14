@@ -37,6 +37,7 @@ function topicsChrome(overrides: Record<string, unknown> = {}) {
 		extractState: EXTRACT_IDLE,
 		busyId: null as string | null,
 		typeMap: contextTypeMap([]),
+		capability: null,
 		toggle: vi.fn(),
 		onanalyze: vi.fn(),
 		onextract: vi.fn(),

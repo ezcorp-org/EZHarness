@@ -188,3 +188,44 @@ describe("TopicsPopover extract result", () => {
 		);
 	});
 });
+
+describe("TopicsPopover capability notice", () => {
+	test("no capability → neither notice renders", () => {
+		const { queryByTestId } = render(TopicsPopover, props({ capability: null }));
+		expect(queryByTestId("topics-unsupported-notice")).toBeNull();
+		expect(queryByTestId("topics-fallback-note")).toBeNull();
+	});
+
+	test("supported capability → no notice", () => {
+		const { queryByTestId } = render(
+			TopicsPopover,
+			props({ capability: { localModel: "qwen3.5:4b", supported: true, activeLane: "local" } }),
+		);
+		expect(queryByTestId("topics-unsupported-notice")).toBeNull();
+		expect(queryByTestId("topics-fallback-note")).toBeNull();
+	});
+
+	test("unsupported + no fallback → prominent notice with model + reason", () => {
+		const { getByTestId, queryByTestId } = render(
+			TopicsPopover,
+			props({
+				capability: { localModel: "qwen3.5:4b", supported: false, reason: "load-failed", activeLane: "local" },
+			}),
+		);
+		const notice = getByTestId("topics-unsupported-notice");
+		expect(notice).toHaveTextContent("qwen3.5:4b");
+		expect(notice).toHaveTextContent("couldn't load it");
+		expect(queryByTestId("topics-fallback-note")).toBeNull();
+	});
+
+	test("unsupported + fallback lane → subtle note only", () => {
+		const { getByTestId, queryByTestId } = render(
+			TopicsPopover,
+			props({
+				capability: { localModel: "qwen3.5:4b", supported: false, reason: "timeout", activeLane: "turn-model" },
+			}),
+		);
+		expect(getByTestId("topics-fallback-note")).toHaveTextContent("using the chat model");
+		expect(queryByTestId("topics-unsupported-notice")).toBeNull();
+	});
+});

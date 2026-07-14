@@ -23,11 +23,32 @@ export interface Topic {
 	messageIds: string[];
 }
 
+/** Which lane a topic-contexts completion runs on (from the capability field). */
+export type ContextsActiveLane = "local" | "cloud" | "turn-model";
+
+/** Why the local model can't run (from the capability field). */
+export type ModelSupportReason = "endpoint-down" | "model-missing" | "load-failed" | "timeout";
+
+/**
+ * Resource-aware capability summary carried ADDITIVELY on the topics response.
+ * `supported` is the local model's probe state; `activeLane` is what a
+ * completion would actually use right now (so `supported:false` + a non-local
+ * lane means a fallback is serving).
+ */
+export interface TopicCapability {
+	localModel: string;
+	supported: boolean;
+	reason?: ModelSupportReason;
+	activeLane: ContextsActiveLane;
+}
+
 /** GET/POST /topics response shape (no LLM on GET; POST re-detects). */
 export interface TopicsResponse {
 	topics: Topic[];
 	stale: boolean;
 	analyzedAt: string | null;
+	/** Additive — absent on older servers; the UI treats absence as "no notice". */
+	capability?: TopicCapability;
 }
 
 /** Library snapshot returned by the extract POST (and the library GET). */
@@ -277,4 +298,43 @@ export function needsManualCopy(state: ExtractState): boolean {
 /** The error message when the extract failed, else null. */
 export function extractError(state: ExtractState): string | null {
 	return state.status === "error" ? state.message : null;
+}
+
+// ── Resource-aware capability notice ────────────────────────────────────────
+
+/** Human phrasing for each unsupported reason (mirrors the server copy). */
+export const MODEL_SUPPORT_REASON_LABELS: Record<ModelSupportReason, string> = {
+	"endpoint-down": "the local model endpoint is unreachable",
+	"model-missing": "the model isn't installed",
+	"load-failed": "your machine couldn't load it",
+	timeout: "it took too long to load",
+};
+
+/** Friendly name for the active fallback lane, used in the subtle note. */
+export function laneLabel(lane: ContextsActiveLane): string {
+	return lane === "cloud" ? "the selected model" : "the chat model";
+}
+
+/**
+ * The capability notice to render in the popover:
+ *   - `none`     — local model is fine (or capability absent);
+ *   - `subtle`   — local model can't run BUT a fallback lane is serving;
+ *   - `prominent`— local model can't run AND nothing else can (activeLane stays
+ *                  `local`) — the actionable "pick a smaller model" notice.
+ */
+export type CapabilityNotice =
+	| { kind: "none" }
+	| { kind: "subtle"; text: string }
+	| { kind: "prominent"; text: string };
+
+export function capabilityNotice(cap: TopicCapability | null | undefined): CapabilityNotice {
+	if (!cap || cap.supported) return { kind: "none" };
+	if (cap.activeLane === "local") {
+		const why = cap.reason ? MODEL_SUPPORT_REASON_LABELS[cap.reason] : "it is unavailable";
+		return {
+			kind: "prominent",
+			text: `Your machine can't run the local model ${cap.localModel} (${why}). Pick a smaller model in Settings → Topic contexts, or connect a provider.`,
+		};
+	}
+	return { kind: "subtle", text: `Local model unavailable — using ${laneLabel(cap.activeLane)}.` };
 }

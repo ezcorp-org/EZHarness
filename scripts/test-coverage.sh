@@ -242,6 +242,7 @@ run_legs() {
       src/lib/components/__tests__/TopicContextsSection.component.test.ts \
       src/__tests__/api-context-types.server.test.ts \
       src/__tests__/api-contexts.server.test.ts \
+      src/__tests__/api-contexts-model-support.server.test.ts \
       src/__tests__/api-conversations-topics.server.test.ts \
       src/__tests__/api-topics-extract.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
@@ -337,6 +338,7 @@ run_legs() {
       --coverage.include='src/routes/api/conversations/[id]/topics/[topicId]/extract/schema.ts' \
       --coverage.include='src/routes/api/contexts/+server.ts' \
       --coverage.include='src/routes/api/contexts/[id]/+server.ts' \
+      --coverage.include='src/routes/api/contexts/model-support/+server.ts' \
       --coverage.include='src/routes/api/context-types/+server.ts' ) || VITEST_EXIT=$?
   # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
   # resolves them against the repo root and the web/src/... threshold keys match.

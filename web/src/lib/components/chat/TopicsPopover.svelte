@@ -13,6 +13,7 @@
 		type Topic,
 		type ContextType,
 		type ExtractState,
+		type TopicCapability,
 		refreshLabel,
 		typeBadgeLabel,
 		typeBadgeClass,
@@ -20,6 +21,7 @@
 		isCopied,
 		needsManualCopy,
 		extractError,
+		capabilityNotice,
 	} from "$lib/topic-contexts-logic";
 	import MarkdownRenderer from "$lib/components/MarkdownRenderer.svelte";
 
@@ -33,6 +35,7 @@
 		extractState,
 		busyId = null,
 		typeMap,
+		capability = null,
 		onclose,
 		onanalyze,
 		onextract,
@@ -48,6 +51,8 @@
 		extractState: ExtractState;
 		busyId?: string | null;
 		typeMap: Map<string, ContextType>;
+		/** Resource-aware local-model capability (additive; null = no notice). */
+		capability?: TopicCapability | null;
 		onclose: () => void;
 		onanalyze: () => void;
 		onextract: (topicId: string) => void;
@@ -57,6 +62,7 @@
 	let label = $derived(refreshLabel({ analyzedAt, stale, newCount }));
 	let result = $derived(extractResult(extractState));
 	let error = $derived(extractError(extractState));
+	let notice = $derived(capabilityNotice(capability));
 
 	function clickTopic(id: string) {
 		if (busyId !== null) return;
@@ -93,6 +99,16 @@
 			{/if}
 		</button>
 	</div>
+
+	{#if notice.kind === "prominent"}
+		<div data-testid="topics-unsupported-notice" class="border-b border-amber-700 bg-amber-500/15 px-3 py-2 text-[11px] leading-snug text-amber-200" role="alert">
+			{notice.text}
+		</div>
+	{:else if notice.kind === "subtle"}
+		<div data-testid="topics-fallback-note" class="border-b border-[var(--color-border)] px-3 py-1 text-[10px] text-[var(--color-text-muted)]">
+			{notice.text}
+		</div>
+	{/if}
 
 	{#if analyzeError}
 		<div data-testid="topics-analyze-error" class="border-b border-red-800 bg-red-900/30 px-3 py-1.5 text-[11px] text-red-300" role="alert">

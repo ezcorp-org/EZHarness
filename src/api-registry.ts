@@ -71,6 +71,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/contexts", description: "Search saved topic contexts (library): ?projectId=&search=&typeId=&limit=&offset=", category: "contexts", scope: "read", responseDescription: "{ contexts, total }" },
   { method: "DELETE", path: "/api/contexts/:id", description: "Delete a saved context (owner or admin; 404 otherwise)", category: "contexts", scope: "read" },
   { method: "GET", path: "/api/context-types", description: "List the DB-resident topic classification types", category: "contexts", scope: "read", responseDescription: "{ types: [{ id, label, description, sortOrder }] }" },
+  { method: "GET", path: "/api/contexts/model-support", description: "Resource-aware support status of the default-local topic-contexts model (?recheck=1 forces a fresh probe)", category: "contexts", scope: "read", responseDescription: "{ localModel, configured, probed, supported, reason }" },
 
   // Daily Briefing
   { method: "GET", path: "/api/briefing/config", description: "Get the current user's Daily Briefing configuration (defaults when never configured)", category: "briefing" },

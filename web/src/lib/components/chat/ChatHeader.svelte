@@ -282,6 +282,7 @@
 					extractState={topics.extractState}
 					busyId={topics.busyId}
 					typeMap={topics.typeMap}
+					capability={topics.capability}
 					onclose={() => topics.toggle(false)}
 					onanalyze={topics.onanalyze}
 					onextract={topics.onextract}
