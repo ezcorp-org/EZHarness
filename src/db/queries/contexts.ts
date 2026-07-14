@@ -28,15 +28,49 @@ import {
   type SavedContext,
 } from "../schema";
 
-// ── context_types (the DB enum) ────────────────────────────────────────
+// ── context_types (the open DB taxonomy) ───────────────────────────────
 
-/** All classification types, ordered by `sort_order`. Fed live to the
- *  detection prompt + exposed by GET /api/context-types. */
+/** All classification types: the 10 seeded types first (by `sort_order`),
+ *  then LLM-proposed `auto` types by creation time. Fed live to the detection
+ *  prompt + exposed by GET /api/context-types. */
 export async function listContextTypes(): Promise<ContextType[]> {
   return (await getDb()
     .select()
     .from(contextTypes)
-    .orderBy(contextTypes.sortOrder)) as ContextType[];
+    .orderBy(
+      sql`CASE WHEN ${contextTypes.source} = 'seed' THEN 0 ELSE 1 END`,
+      contextTypes.sortOrder,
+      contextTypes.createdAt,
+    )) as ContextType[];
+}
+
+/**
+ * Ensure an LLM-proposed `auto` type exists. Inserts with source='auto'
+ * (ON CONFLICT DO NOTHING leaves a prior row — seed OR auto — untouched) and
+ * returns the row (existing or newly created). Detection calls this BEFORE
+ * `replaceTopics` so the topic → type FK (RESTRICT) always resolves.
+ */
+export async function ensureContextType(input: {
+  id: string;
+  label: string;
+  description: string;
+}): Promise<ContextType> {
+  const db = getDb();
+  await db
+    .insert(contextTypes)
+    .values({
+      id: input.id,
+      label: input.label,
+      description: input.description,
+      source: "auto",
+    })
+    .onConflictDoNothing({ target: contextTypes.id });
+  const rows = (await db
+    .select()
+    .from(contextTypes)
+    .where(eq(contextTypes.id, input.id))
+    .limit(1)) as ContextType[];
+  return rows[0]!;
 }
 
 // ── conversation_topics ────────────────────────────────────────────────

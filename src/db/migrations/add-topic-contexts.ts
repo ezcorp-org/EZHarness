@@ -69,7 +69,9 @@ export async function up(db: any): Promise<void> {
       id TEXT PRIMARY KEY,
       label TEXT NOT NULL,
       description TEXT NOT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      source TEXT NOT NULL DEFAULT 'seed',
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
 

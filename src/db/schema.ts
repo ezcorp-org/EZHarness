@@ -1567,6 +1567,10 @@ export const contextTypes = pgTable("context_types", {
   label: text("label").notNull(),
   description: text("description").notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
+  // 'seed' = one of the 10 canonical types; 'auto' = an LLM-proposed type
+  // created on the fly during detection (anti-sprawl capped server-side).
+  source: text("source").notNull().default("seed"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type ContextType = typeof contextTypes.$inferSelect;

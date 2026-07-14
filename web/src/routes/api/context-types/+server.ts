@@ -16,6 +16,9 @@ export const GET: RequestHandler = async ({ locals }) => {
       label: t.label,
       description: t.description,
       sortOrder: t.sortOrder,
+      // 'seed' | 'auto' — lets a future management UI distinguish the 10
+      // canonical types from LLM-proposed ones.
+      source: t.source,
     })),
   });
 };

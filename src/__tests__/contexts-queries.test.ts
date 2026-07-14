@@ -26,6 +26,7 @@ mockDbConnection();
 
 const {
   listContextTypes,
+  ensureContextType,
   getTopics,
   getTopic,
   replaceTopics,
@@ -79,7 +80,7 @@ describe("contexts queries", () => {
 
   // ── context_types + migrate idempotency ──────────────────────────────
   describe("context_types seed", () => {
-    test("listContextTypes returns 10 rows ordered by sort_order", async () => {
+    test("listContextTypes returns 10 seed rows ordered by sort_order, all source='seed'", async () => {
       const types = await listContextTypes();
       expect(types).toHaveLength(10);
       expect(types[0]!.id).toBe("feature");
@@ -89,13 +90,63 @@ describe("contexts queries", () => {
       // strictly ascending sort_order
       const orders = types.map((t) => t.sortOrder);
       expect(orders).toEqual([...orders].sort((a, b) => a - b));
+      // every seeded row is source='seed'
+      expect(types.every((t) => t.source === "seed")).toBe(true);
     });
 
-    test("re-running migrate is idempotent (still 10 rows, no throw)", async () => {
+    test("re-running migrate is idempotent (still 10 seed rows, no throw)", async () => {
       await migrate(getTestDb());
       await migrate(getTestDb());
       const types = await listContextTypes();
       expect(types).toHaveLength(10);
+      expect(types.every((t) => t.source === "seed")).toBe(true);
+    });
+  });
+
+  // ── ensureContextType + open-taxonomy ordering ────────────────────────
+  describe("ensureContextType", () => {
+    test("creates an auto type and returns it; re-ensure is idempotent (no dup)", async () => {
+      const created = await ensureContextType({
+        id: "design-review",
+        label: "Design Review",
+        description: "A review of a design.",
+      });
+      expect(created.id).toBe("design-review");
+      expect(created.source).toBe("auto");
+      expect(created.description).toBe("A review of a design.");
+
+      // Re-ensure with a different description → ON CONFLICT DO NOTHING keeps
+      // the original row (returns it unchanged), no duplicate.
+      const again = await ensureContextType({
+        id: "design-review",
+        label: "Different",
+        description: "changed",
+      });
+      expect(again.description).toBe("A review of a design.");
+      const all = await listContextTypes();
+      expect(all.filter((t) => t.id === "design-review")).toHaveLength(1);
+    });
+
+    test("ensuring an existing SEED id leaves it source='seed' (never demoted)", async () => {
+      const row = await ensureContextType({ id: "idea", label: "X", description: "y" });
+      expect(row.source).toBe("seed");
+    });
+
+    test("listContextTypes orders seed rows first, then autos by created_at", async () => {
+      // Two autos, oldest inserted first.
+      await ensureContextType({ id: "aaa-first", label: "First", description: "d" });
+      await new Promise((r) => setTimeout(r, 5));
+      await ensureContextType({ id: "zzz-second", label: "Second", description: "d" });
+
+      const types = await listContextTypes();
+      const seeds = types.filter((t) => t.source === "seed");
+      const autos = types.filter((t) => t.source === "auto");
+      expect(types).toHaveLength(12);
+      // All 10 seeds come before any auto.
+      expect(types.slice(0, 10).every((t) => t.source === "seed")).toBe(true);
+      expect(seeds).toHaveLength(10);
+      // Autos ordered by created_at (insertion order), NOT alphabetically by id.
+      expect(autos.map((t) => t.id)).toEqual(["aaa-first", "zzz-second"]);
     });
   });
 

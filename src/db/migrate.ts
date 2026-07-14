@@ -1890,9 +1890,16 @@ export async function migrate(db: any): Promise<void> {
       id TEXT PRIMARY KEY,
       label TEXT NOT NULL,
       description TEXT NOT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      source TEXT NOT NULL DEFAULT 'seed',
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
+  // Open type taxonomy: `source` distinguishes the 10 seeded types from
+  // LLM-proposed `auto` types; `created_at` orders autos after seeds. Additive
+  // ADD COLUMN IF NOT EXISTS upgrades DBs created before this change.
+  await db.execute(sql`ALTER TABLE context_types ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'seed'`);
+  await db.execute(sql`ALTER TABLE context_types ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()`);
   // Seed the 10 canonical types. ON CONFLICT DO NOTHING so a re-run (or an
   // operator who tuned a description) is never clobbered. Keep this data
   // identical to CONTEXT_TYPE_SEED in add-topic-contexts.ts.
