@@ -51,6 +51,30 @@ export const FALLBACK_TYPE_ID = "idea";
 /** Max length of a normalized type slug. */
 export const MAX_TYPE_SLUG_CHARS = 30;
 
+/**
+ * UI-only synthetic message roles — tool-card payloads + telemetry pills, NOT
+ * human/assistant conversation. Mirrors the kinds
+ * `src/runtime/stream-chat/load-history.ts` strips before building LLM context
+ * (keep in sync). Their content (e.g. raw capability-event JSON) must never
+ * leak into a detection/extraction transcript.
+ */
+const NON_CONVERSATIONAL_ROLES = new Set<string>([
+  "ez-action-result",
+  "capability-event",
+  "preprocess-result",
+]);
+
+/**
+ * True when a message is real conversational content — not a UI-only synthetic
+ * row and not empty/whitespace. The shared filter for BOTH the detection and
+ * extraction transcripts (a topic can only be about something a human or the
+ * assistant actually said).
+ */
+export function isConversationalMessage(m: { role: string; content: string }): boolean {
+  if (NON_CONVERSATIONAL_ROLES.has(m.role)) return false;
+  return m.content.trim().length > 0;
+}
+
 interface DetectMessage {
   id: string;
   role: string;
@@ -143,14 +167,22 @@ export function buildDetectSystemPrompt(
     "You analyze a chat conversation and identify the distinct TOPICS discussed.",
     "A topic is a single coherent subject: a feature, an idea, a decision, a bug fix, etc.",
     "",
+    "Only report topics with SUBSTANTIVE discussion — a real exchange, decision, or work",
+    "happening in the conversation. Do NOT invent a topic for something merely mentioned in",
+    "passing, listed, or speculative. Fewer, well-evidenced topics beat many thin ones.",
+    "",
+    "Each label must be a short DESCRIPTIVE phrase naming the SPECIFIC subject (e.g. 'stale",
+    "watermark refresh bug', 'contexts model picker swap') — NEVER a generic category word",
+    "and NEVER the type name itself.",
+    "",
     "Each topic has a `type`. These types already exist (id — description):",
     typeLines,
     "",
-    "Use an existing type id whenever one fits — this is strongly preferred. ONLY if",
-    "none fits, invent a NEW type id: short kebab-case, singular, generic enough to",
-    "reuse across many conversations (e.g. 'design-review', 'incident'). Never invent a",
-    "near-duplicate of an existing type (no plural/spelling/synonym variants). When you",
-    "invent a new type, also give it a one-line `typeDescription`.",
+    "Use an existing type id when one genuinely fits. When the conversation's subject is",
+    "better described by a type not in the list, CREATE a new one — that is expected and",
+    "useful, not a failure. Never create a near-duplicate (plural/spelling/synonym) of an",
+    "existing type. A new type id is short kebab-case, singular, and generic enough to reuse",
+    "(e.g. 'design-review', 'incident'); give each new type a one-line `typeDescription`.",
     "",
     "For each topic, list the ids of the messages most relevant to it, using the",
     "`[m:<id>]` tags in the transcript. Use the message ids verbatim.",
@@ -262,8 +294,9 @@ export function parseDetectResponse(content: string): RawTopic[] {
 }
 
 export interface ValidateTopicsOpts {
-  /** Live type ids for reuse matching (grows as new types are created). */
-  existingTypeIds: string[];
+  /** Live types (id + label) for reuse matching + the label==type evidence
+   *  check. The id list grows as new types are created this pass. */
+  existingTypes: Array<{ id: string; label: string }>;
   realMessageIds: Set<string>;
   ensureContextType: (t: {
     id: string;
@@ -273,27 +306,40 @@ export interface ValidateTopicsOpts {
 }
 
 /**
- * Validate + resolve raw topics. Labels are word-capped and empty-label
- * entries dropped; message ids are filtered to real ones; the topic count is
- * capped at MAX_TOPICS. The `type` is resolved on the OPEN taxonomy: an
- * existing id (exact or trivial variant) is reused; an otherwise-new slug is
- * created via `ensureContextType` (source='auto'), capped at
- * MAX_NEW_TYPES_PER_PASS per pass; beyond the cap — or for an empty/invalid
- * slug — the topic falls back to the seeded FALLBACK_TYPE_ID with a warn.
- * Types are ensured HERE, before the caller's `replaceTopics`, so the
- * topic → type FK (RESTRICT) always resolves.
+ * Validate + resolve raw topics. Evidence floor + label discipline:
+ *   - drop empty-label entries and entries whose anchors filter down to ZERO
+ *     real message ids (a topic with no evidence in the conversation);
+ *   - drop entries whose label is just the type name (id or type label,
+ *     case/hyphen-insensitive) — such a label carries no information;
+ *   - word-cap surviving labels; cap the topic count at MAX_TOPICS.
+ * The `type` is resolved on the OPEN taxonomy: an existing id (exact or trivial
+ * variant) is reused; an otherwise-new slug is created via `ensureContextType`
+ * (source='auto'), capped at MAX_NEW_TYPES_PER_PASS per pass; beyond the cap —
+ * or for an empty/invalid slug — the topic falls back to the seeded
+ * FALLBACK_TYPE_ID with a warn. Types are ensured HERE, before the caller's
+ * `replaceTopics`, so the topic → type FK (RESTRICT) always resolves.
  */
 export async function validateTopics(
   raw: RawTopic[],
   opts: ValidateTopicsOpts,
 ): Promise<TopicInput[]> {
   const out: TopicInput[] = [];
-  const known = [...opts.existingTypeIds];
+  const known = opts.existingTypes.map((t) => t.id);
+  const labelById = new Map(opts.existingTypes.map((t) => [t.id, t.label]));
   let created = 0;
   for (const t of raw) {
     if (out.length >= MAX_TOPICS) break;
     const label = typeof t.label === "string" ? t.label.trim() : "";
     if (!label) continue;
+
+    // Evidence floor: a topic must anchor to at least one real message.
+    const messageIds = Array.isArray(t.messageIds)
+      ? t.messageIds.filter((id): id is string => typeof id === "string" && opts.realMessageIds.has(id))
+      : [];
+    if (messageIds.length === 0) {
+      log.warn("dropping topic with no real anchor messages", { label });
+      continue;
+    }
 
     const slug = normalizeTypeSlug(typeof t.type === "string" ? t.type : "");
     const match = matchExistingType(slug, known);
@@ -309,6 +355,7 @@ export async function validateTopics(
         description: proposedDesc || `Auto-detected: ${typeLabel}`,
       });
       known.push(row.id);
+      labelById.set(row.id, typeLabel);
       created++;
       typeId = row.id;
     } else {
@@ -321,10 +368,15 @@ export async function validateTopics(
       typeId = FALLBACK_TYPE_ID;
     }
 
+    // A label that's just the type name (id or its label) carries no info.
+    const labelSlug = normalizeTypeSlug(label);
+    const typeLabelSlug = normalizeTypeSlug(labelById.get(typeId) ?? "");
+    if (labelSlug && (labelSlug === typeId || labelSlug === typeLabelSlug)) {
+      log.warn("dropping topic whose label is just the type name", { label, typeId });
+      continue;
+    }
+
     const cappedLabel = label.split(/\s+/).slice(0, MAX_LABEL_WORDS).join(" ");
-    const messageIds = Array.isArray(t.messageIds)
-      ? t.messageIds.filter((id): id is string => typeof id === "string" && opts.realMessageIds.has(id))
-      : [];
     out.push({ label: cappedLabel, typeId, messageIds });
   }
   return out;
@@ -374,13 +426,18 @@ export async function detectTopics(
   const model = describeTarget(target);
 
   const messages = await deps.getMessages(conversationId);
+  // Watermark tracks the RAW newest message + count (matches getMessageWatermark
+  // in the GET route, so staleness stays consistent). The transcript + anchor
+  // validation use only CONVERSATIONAL rows (UI-only telemetry / tool cards +
+  // empty turns are stripped — see isConversationalMessage).
   const lastMessageId = messages.length > 0 ? messages[messages.length - 1]!.id : null;
+  const conversational = messages.filter(isConversationalMessage);
 
-  if (messages.length === 0) {
+  if (conversational.length === 0) {
     const cleared = await deps.replaceTopics(conversationId, []);
     const state = await deps.upsertTopicState(conversationId, {
       lastMessageId,
-      messageCount: 0,
+      messageCount: messages.length,
       model,
     });
     return { topics: cleared, analyzedAt: state.analyzedAt.toISOString(), model };
@@ -390,9 +447,8 @@ export async function detectTopics(
     deps.listContextTypes(),
     deps.getExistingTopics(conversationId),
   ]);
-  const typeIds = types.map((t) => t.id);
 
-  const { transcript } = buildDetectTranscript(messages);
+  const { transcript } = buildDetectTranscript(conversational);
   const systemPrompt = buildDetectSystemPrompt(types, existing.map((e) => e.label));
 
   const rawText = await deps.runCompletion({
@@ -407,8 +463,8 @@ export async function detectTopics(
   });
 
   const validated = await validateTopics(parseDetectResponse(rawText), {
-    existingTypeIds: typeIds,
-    realMessageIds: new Set(messages.map((m) => m.id)),
+    existingTypes: types,
+    realMessageIds: new Set(conversational.map((m) => m.id)),
     ensureContextType: deps.ensureContextType,
   });
 

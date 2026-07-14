@@ -13,7 +13,7 @@ import type { ContextsTarget } from "./config";
 import { describeTarget, resolveContextsTarget } from "./config";
 import type { ContextsCompletionRequest } from "./llm";
 import { runContextsCompletion } from "./llm";
-import { MAX_TRANSCRIPT_CHARS } from "./detect";
+import { MAX_TRANSCRIPT_CHARS, isConversationalMessage } from "./detect";
 import type { SavedContext } from "../db/schema";
 import type { UpsertSavedContextInput } from "../db/queries/contexts";
 import {
@@ -171,8 +171,11 @@ export async function extractContext(
   ]);
   const typeLabel = types.find((t) => t.id === params.topic.typeId)?.label ?? params.topic.typeId;
 
+  // Strip UI-only telemetry / tool-card rows + empty turns so raw
+  // capability-event JSON never leaks into the extracted markdown.
+  const conversational = messages.filter(isConversationalMessage);
   const { transcript, truncated } = buildExtractTranscript(
-    messages,
+    conversational,
     new Set(params.topic.messageIds),
   );
 

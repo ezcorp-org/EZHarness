@@ -13,6 +13,7 @@ import {
   normalizeTypeSlug,
   matchExistingType,
   titleCaseSlug,
+  isConversationalMessage,
   detectTopics,
   MAX_PER_MESSAGE_CHARS,
   MAX_TOPICS,
@@ -69,13 +70,21 @@ describe("buildDetectSchema", () => {
 });
 
 describe("buildDetectSystemPrompt", () => {
-  test("lists live types + labels, prefers existing ids, allows a NEW kebab-case type", () => {
+  test("evidence floor + descriptive labels + create-is-expected + live types/labels", () => {
     const prompt = buildDetectSystemPrompt(TYPES, ["Auth flow", "Caching"]);
     expect(prompt).toContain("feature (Feature): A capability.");
     expect(prompt).toContain("idea (Idea): A proposal.");
-    expect(prompt).toContain("Use an existing type id whenever one fits");
-    expect(prompt).toContain("invent a NEW type id");
+    // FIX 2 — evidence floor.
+    expect(prompt).toContain("Only report topics with SUBSTANTIVE discussion");
+    expect(prompt).toContain("Fewer, well-evidenced topics beat many thin ones");
+    // FIX 3 — descriptive labels.
+    expect(prompt).toContain("short DESCRIPTIVE phrase");
+    expect(prompt).toContain("NEVER the type name itself");
+    // FIX 4 — creating a new type is expected, no near-duplicates.
+    expect(prompt).toContain("CREATE a new one — that is expected and");
+    expect(prompt).toContain("Never create a near-duplicate");
     expect(prompt).toContain("kebab-case");
+    // The existing-label reuse block is unchanged.
     expect(prompt).toContain("REUSE a label");
     expect(prompt).toContain("- Auth flow");
     expect(prompt).toContain("- Caching");
@@ -85,6 +94,23 @@ describe("buildDetectSystemPrompt", () => {
   test("omits the reuse section when no labels exist", () => {
     const prompt = buildDetectSystemPrompt(TYPES, []);
     expect(prompt).not.toContain("REUSE a label");
+  });
+});
+
+describe("isConversationalMessage", () => {
+  test("keeps real user/assistant/system turns with content", () => {
+    expect(isConversationalMessage({ role: "user", content: "hi" })).toBe(true);
+    expect(isConversationalMessage({ role: "assistant", content: "answer" })).toBe(true);
+    expect(isConversationalMessage({ role: "system", content: "note" })).toBe(true);
+  });
+  test("drops UI-only synthetic rows (mirrors load-history kinds)", () => {
+    expect(isConversationalMessage({ role: "capability-event", content: '{"x":1}' })).toBe(false);
+    expect(isConversationalMessage({ role: "ez-action-result", content: "{}" })).toBe(false);
+    expect(isConversationalMessage({ role: "preprocess-result", content: "{}" })).toBe(false);
+  });
+  test("drops empty / whitespace-only content", () => {
+    expect(isConversationalMessage({ role: "assistant", content: "" })).toBe(false);
+    expect(isConversationalMessage({ role: "user", content: "   \n " })).toBe(false);
   });
 });
 
@@ -154,7 +180,7 @@ describe("parseDetectResponse", () => {
   });
 });
 
-describe("validateTopics — open taxonomy", () => {
+describe("validateTopics — open taxonomy + evidence floor", () => {
   function fakeEnsure() {
     const calls: Array<{ id: string; label: string; description: string }> = [];
     const fn = async (t: { id: string; label: string; description: string }) => {
@@ -163,12 +189,16 @@ describe("validateTopics — open taxonomy", () => {
     };
     return { fn, calls };
   }
-  const REAL_IDS = ["feature", "idea", "bug-fix"];
+  const EXISTING_TYPES = [
+    { id: "feature", label: "Feature" },
+    { id: "idea", label: "Idea" },
+    { id: "bug-fix", label: "Bug Fix" },
+  ];
   function vOpts(
     ensureContextType: (t: { id: string; label: string; description: string }) => Promise<{ id: string }> = async (t) => ({ id: t.id }),
   ) {
     return {
-      existingTypeIds: REAL_IDS,
+      existingTypes: EXISTING_TYPES,
       realMessageIds: new Set(["m1", "m2"]),
       ensureContextType,
     };
@@ -176,7 +206,7 @@ describe("validateTopics — open taxonomy", () => {
 
   test("reuses an existing type on exact match (no new type created)", async () => {
     const { fn, calls } = fakeEnsure();
-    const out = await validateTopics([{ label: "Auth", type: "feature", messageIds: ["m1"] }], vOpts(fn));
+    const out = await validateTopics([{ label: "auth token flow", type: "feature", messageIds: ["m1"] }], vOpts(fn));
     expect(out[0]!.typeId).toBe("feature");
     expect(calls).toHaveLength(0);
   });
@@ -185,8 +215,8 @@ describe("validateTopics — open taxonomy", () => {
     const { fn, calls } = fakeEnsure();
     const out = await validateTopics(
       [
-        { label: "A", type: "Bug Fixes", messageIds: [] },
-        { label: "B", type: "IDEAS", messageIds: [] },
+        { label: "login token bug", type: "Bug Fixes", messageIds: ["m1"] },
+        { label: "caching strategy", type: "IDEAS", messageIds: ["m2"] },
       ],
       vOpts(fn),
     );
@@ -197,7 +227,7 @@ describe("validateTopics — open taxonomy", () => {
   test("creates a new auto type with the model's typeDescription", async () => {
     const { fn, calls } = fakeEnsure();
     const out = await validateTopics(
-      [{ label: "A", type: "Design Review", typeDescription: "  A review of a design.  ", messageIds: [] }],
+      [{ label: "picker swap", type: "Design Review", typeDescription: "  A review of a design.  ", messageIds: ["m1"] }],
       vOpts(fn),
     );
     expect(out[0]!.typeId).toBe("design-review");
@@ -208,7 +238,7 @@ describe("validateTopics — open taxonomy", () => {
 
   test("creates a new auto type with a default description when none is given", async () => {
     const { fn, calls } = fakeEnsure();
-    await validateTopics([{ label: "A", type: "incident", messageIds: [] }], vOpts(fn));
+    await validateTopics([{ label: "prod outage", type: "incident", messageIds: ["m1"] }], vOpts(fn));
     expect(calls[0]!.description).toBe("Auto-detected: Incident");
   });
 
@@ -216,8 +246,8 @@ describe("validateTopics — open taxonomy", () => {
     const { fn, calls } = fakeEnsure();
     const out = await validateTopics(
       [
-        { label: "A", type: "incident", messageIds: [] },
-        { label: "B", type: "incidents", messageIds: [] },
+        { label: "prod outage", type: "incident", messageIds: ["m1"] },
+        { label: "second outage", type: "incidents", messageIds: ["m2"] },
       ],
       vOpts(fn),
     );
@@ -229,10 +259,10 @@ describe("validateTopics — open taxonomy", () => {
     const { fn, calls } = fakeEnsure();
     const out = await validateTopics(
       [
-        { label: "A", type: "alpha", messageIds: [] },
-        { label: "B", type: "bravo", messageIds: [] },
-        { label: "C", type: "charlie", messageIds: [] },
-        { label: "D", type: "delta", messageIds: [] },
+        { label: "first subject", type: "alpha", messageIds: ["m1"] },
+        { label: "second subject", type: "bravo", messageIds: ["m1"] },
+        { label: "third subject", type: "charlie", messageIds: ["m1"] },
+        { label: "fourth subject", type: "delta", messageIds: ["m1"] },
       ],
       vOpts(fn),
     );
@@ -242,38 +272,67 @@ describe("validateTopics — open taxonomy", () => {
 
   test("an empty / invalid slug falls back to idea (no create)", async () => {
     const { fn, calls } = fakeEnsure();
-    const out = await validateTopics([{ label: "A", type: "!!!", messageIds: [] }], vOpts(fn));
+    const out = await validateTopics([{ label: "some subject", type: "!!!", messageIds: ["m1"] }], vOpts(fn));
     expect(out[0]!.typeId).toBe("idea");
     expect(calls).toHaveLength(0);
   });
 
+  // FIX 2b — evidence floor: a topic with no real anchors is dropped.
+  test("drops topics whose anchors filter down to ZERO real messages", async () => {
+    const out = await validateTopics(
+      [
+        { label: "real subject", type: "feature", messageIds: ["m1"] },
+        { label: "ghost topic", type: "bug-fix", messageIds: ["ghost", "nope"] },
+        { label: "no anchors", type: "idea", messageIds: [] },
+        { label: "bad shape", type: "idea", messageIds: "nope" },
+      ],
+      vOpts(),
+    );
+    expect(out.map((t) => t.label)).toEqual(["real subject"]);
+  });
+
+  // FIX 3b — label discipline: a label that's just the type name is dropped.
+  test("drops topics whose label is just the type id or type label", async () => {
+    const { fn, calls } = fakeEnsure();
+    const out = await validateTopics(
+      [
+        { label: "bug-fix", type: "bug-fix", messageIds: ["m1"] }, // label == id
+        { label: "Bug Fix", type: "bug-fix", messageIds: ["m1"] }, // label == type label (normalizes to id)
+        { label: "Idea", type: "idea", messageIds: ["m1"] }, // label == seed label
+        { label: "stale watermark refresh bug", type: "bug-fix", messageIds: ["m1"] }, // descriptive → kept
+      ],
+      vOpts(fn),
+    );
+    expect(out.map((t) => t.label)).toEqual(["stale watermark refresh bug"]);
+    expect(calls).toHaveLength(0); // all reuse, never create
+  });
+
   test("filters messageIds to real ids", async () => {
     const out = await validateTopics(
-      [{ label: "A", type: "feature", messageIds: ["m1", "ghost", "m2"] }],
+      [{ label: "auth work", type: "feature", messageIds: ["m1", "ghost", "m2"] }],
       vOpts(),
     );
     expect(out[0]!.messageIds).toEqual(["m1", "m2"]);
   });
 
-  test("word-caps labels, drops empty/non-string labels, non-array messageIds → []", async () => {
+  test("word-caps labels + drops empty / non-string labels", async () => {
     const out = await validateTopics(
       [
-        { label: "  one two three four five six seven ", type: "idea", messageIds: "nope" },
-        { label: "   ", type: "feature", messageIds: [] },
-        { label: 42, type: "feature", messageIds: [] },
+        { label: "  one two three four five six seven ", type: "idea", messageIds: ["m1"] },
+        { label: "   ", type: "feature", messageIds: ["m1"] },
+        { label: 42, type: "feature", messageIds: ["m1"] },
       ],
       vOpts(),
     );
     expect(out).toHaveLength(1);
     expect(out[0]!.label).toBe("one two three four five six".split(" ").slice(0, MAX_LABEL_WORDS).join(" "));
-    expect(out[0]!.messageIds).toEqual([]);
   });
 
   test("caps at MAX_TOPICS", async () => {
     const raw = Array.from({ length: MAX_TOPICS + 5 }, (_, i) => ({
-      label: `T${i}`,
+      label: `topic number ${i}`,
       type: "feature",
-      messageIds: [],
+      messageIds: ["m1"],
     }));
     expect(await validateTopics(raw, vOpts())).toHaveLength(MAX_TOPICS);
   });
@@ -359,5 +418,55 @@ describe("detectTopics orchestrator", () => {
     expect(ran).toBe(false);
     expect(stateArgs).toEqual({ lastMessageId: null, messageCount: 0, model: "local/qwen3:1.7b" });
     expect(res.topics).toEqual([]);
+  });
+
+  test("telemetry-only conversation short-circuits but keeps the RAW watermark", async () => {
+    let ran = false;
+    let stateArgs: any;
+    const res = await detectTopics("conv-1", baseDeps({
+      getMessages: async () => [
+        { id: "m1", role: "capability-event", content: '{"telemetry":1}' },
+        { id: "m2", role: "assistant", content: "   " },
+      ],
+      runCompletion: async () => {
+        ran = true;
+        return "{}";
+      },
+      replaceTopics: async () => [],
+      upsertTopicState: async (_c, input) => {
+        stateArgs = input;
+        return { ...input, conversationId: _c, analyzedAt: new Date() } as any;
+      },
+    }));
+    expect(ran).toBe(false); // no conversational content → no LLM call
+    // Watermark still tracks the RAW newest id + count (staleness stays consistent).
+    expect(stateArgs).toEqual({ lastMessageId: "m2", messageCount: 2, model: "local/qwen3:1.7b" });
+    expect(res.topics).toEqual([]);
+  });
+
+  test("strips telemetry / empty rows from the transcript AND the anchor set", async () => {
+    let userPrompt = "";
+    let replaceArgs: any;
+    await detectTopics("conv-1", baseDeps({
+      getMessages: async () => [
+        { id: "m1", role: "user", content: "how do we fix the login bug" },
+        { id: "cap1", role: "capability-event", content: '{"secret":"TELEMETRY-NOISE"}' },
+        { id: "m2", role: "assistant", content: "rotate the token" },
+      ],
+      // The model tries to anchor to the telemetry row too — it must drop out.
+      runCompletion: async (req) => {
+        userPrompt = req.userPrompt as string;
+        return '{"topics":[{"label":"login token bug","type":"bug-fix","messageIds":["m1","cap1","m2"]}]}';
+      },
+      replaceTopics: async (_c, topics) => {
+        replaceArgs = topics;
+        return topics.map((t, i) => ({ id: `t${i}`, ...t }) as any);
+      },
+    }));
+    // The capability-event content + tag never reach the model.
+    expect(userPrompt).not.toContain("TELEMETRY-NOISE");
+    expect(userPrompt).not.toContain("[m:cap1]");
+    // Its id is not a valid anchor either.
+    expect(replaceArgs).toEqual([{ label: "login token bug", typeId: "bug-fix", messageIds: ["m1", "m2"] }]);
   });
 });

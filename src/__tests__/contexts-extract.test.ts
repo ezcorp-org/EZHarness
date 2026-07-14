@@ -201,4 +201,25 @@ describe("extractContext orchestrator", () => {
     expect(req!.userPrompt).toContain('Now extract the context for topic "Auth"');
     expect(req!.temperature).toBe(0.1);
   });
+
+  test("strips telemetry / empty rows from the extraction transcript", async () => {
+    let req: { userPrompt: string } | undefined;
+    await extractContext(
+      { conversationId: "conv-1", topic, userId: "u1", projectId: null },
+      baseDeps({
+        getMessages: async () => [
+          { id: "m1", role: "user", content: "how does auth work" },
+          { id: "cap1", role: "capability-event", content: '{"secret":"EXTRACT-NOISE"}' },
+          { id: "m2", role: "assistant", content: "it uses JWT" },
+        ],
+        runCompletion: async (r) => {
+          req = r;
+          return "body";
+        },
+      }),
+    );
+    // Real conversation content is present; the telemetry row is gone.
+    expect(req!.userPrompt).toContain("it uses JWT");
+    expect(req!.userPrompt).not.toContain("EXTRACT-NOISE");
+  });
 });
