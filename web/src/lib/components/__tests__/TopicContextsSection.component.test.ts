@@ -203,13 +203,30 @@ describe("TopicContextsSection — support status", () => {
 		expect(calls.some((c) => c.url.includes("/api/contexts/model-support") && c.url.includes("recheck=1"))).toBe(true);
 	});
 
-	test("a failed support fetch leaves an unavailable status (no crash)", async () => {
+	test("a 500 support response leaves an unavailable status (no crash)", async () => {
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async (input: string | URL | Request) => {
 				const url = typeof input === "string" ? input : input.toString();
 				if (url.includes("/api/models")) return new Response(JSON.stringify(MODELS), { status: 200 });
 				if (url.includes("/api/contexts/model-support")) return new Response("nope", { status: 500 });
+				if (url.endsWith("/api/settings")) return new Response(JSON.stringify({}), { status: 200 });
+				return new Response(JSON.stringify({}), { status: 200 });
+			}),
+		);
+		render(TopicContextsSection);
+		await waitFor(() =>
+			expect(screen.getByTestId("contexts-support-status")).toHaveTextContent("status unavailable"),
+		);
+	});
+
+	test("a thrown support fetch (network error) is caught → unavailable status", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: string | URL | Request) => {
+				const url = typeof input === "string" ? input : input.toString();
+				if (url.includes("/api/models")) return new Response(JSON.stringify(MODELS), { status: 200 });
+				if (url.includes("/api/contexts/model-support")) throw new Error("network down");
 				if (url.endsWith("/api/settings")) return new Response(JSON.stringify({}), { status: 200 });
 				return new Response(JSON.stringify({}), { status: 200 });
 			}),
