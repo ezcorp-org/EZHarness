@@ -64,7 +64,12 @@ vi.mock("$server/contexts/detect", () => ({
   detectTopics: (...args: unknown[]) => (detectTopics as (...a: unknown[]) => unknown)(...args),
 }));
 
-vi.mock("$server/contexts/config", () => ({ ContextsUnavailableError }));
+let capability: unknown = { localModel: "qwen3.5:4b", supported: true, activeLane: "local" };
+const describeCapability = vi.fn(async () => capability);
+vi.mock("$server/contexts/config", () => ({
+  ContextsUnavailableError,
+  describeCapability: (...args: unknown[]) => (describeCapability as (...a: unknown[]) => unknown)(...args),
+}));
 
 const { GET, POST } = await import("../routes/api/conversations/[id]/topics/+server");
 
@@ -98,7 +103,9 @@ beforeEach(() => {
   stateRow = undefined;
   detectResult = { topics: [], analyzedAt: "2026-07-13T00:00:00.000Z", model: "local/x" };
   detectThrows = null;
+  capability = { localModel: "qwen3.5:4b", supported: true, activeLane: "local" };
   detectTopics.mockClear();
+  describeCapability.mockClear();
 });
 
 describe("GET topics", () => {
@@ -128,6 +135,19 @@ describe("GET topics", () => {
     expect(body.topics).toEqual([{ id: "t1", label: "Auth", typeId: "feature", messageIds: ["m1"] }]);
     expect(body.stale).toBe(false);
     expect(body.analyzedAt).toBe("2026-07-13T00:00:00.000Z");
+    // Additive capability field.
+    expect(body.capability).toEqual({ localModel: "qwen3.5:4b", supported: true, activeLane: "local" });
+  });
+
+  test("capability field surfaces an unsupported local model (with fallback lane)", async () => {
+    capability = { localModel: "qwen3.5:4b", supported: false, reason: "load-failed", activeLane: "turn-model" };
+    const body = (await (await GET(getEvent())).json()) as any;
+    expect(body.capability).toEqual({
+      localModel: "qwen3.5:4b",
+      supported: false,
+      reason: "load-failed",
+      activeLane: "turn-model",
+    });
   });
 
   test("stale=true when message count moved past the watermark", async () => {
@@ -191,6 +211,7 @@ describe("POST topics", () => {
     expect(body.topics).toEqual([{ id: "t1", label: "Auth", typeId: "feature", messageIds: ["m1"] }]);
     expect(body.stale).toBe(false);
     expect(body.analyzedAt).toBe("2026-07-13T01:00:00.000Z");
+    expect(body.capability).toEqual({ localModel: "qwen3.5:4b", supported: true, activeLane: "local" });
     expect(detectTopics).toHaveBeenCalledWith("c1");
   });
 

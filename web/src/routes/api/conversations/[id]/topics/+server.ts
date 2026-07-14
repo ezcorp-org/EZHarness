@@ -6,7 +6,7 @@ import { errorJson } from "$lib/server/http-errors";
 import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
 import { getTopics, getTopicState, getMessageWatermark } from "$server/db/queries/contexts";
 import { detectTopics } from "$server/contexts/detect";
-import { ContextsUnavailableError } from "$server/contexts/config";
+import { ContextsUnavailableError, describeCapability } from "$server/contexts/config";
 import type { ConversationTopic, ConversationTopicState } from "$server/db/schema";
 import { detectTopicsSchema } from "./schema";
 
@@ -42,16 +42,20 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   const ownership = await resolveRootConversationForOwnership(params.id, user);
   if (!ownership) return errorJson(404, "Not found");
 
-  const [topics, state, watermark] = await Promise.all([
+  const [topics, state, watermark, capability] = await Promise.all([
     getTopics(params.id),
     getTopicState(params.id),
     getMessageWatermark(params.id),
+    // Cached-only (peek) support summary — never probes, so this GET stays
+    // instant. Additive to the frozen contract.
+    describeCapability(params.id),
   ]);
 
   return json({
     topics: shapeTopics(topics),
     stale: computeStale(watermark.count, watermark.lastMessageId, state),
     analyzedAt: state ? state.analyzedAt.toISOString() : null,
+    capability,
   });
 };
 
@@ -72,6 +76,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
       topics: shapeTopics(result.topics),
       stale: false,
       analyzedAt: result.analyzedAt,
+      capability: await describeCapability(params.id),
     });
   } catch (err) {
     // Ladder exhausted → actionable 503 shown in the popover. Any other
