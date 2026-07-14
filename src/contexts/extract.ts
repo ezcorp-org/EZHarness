@@ -71,16 +71,18 @@ export function buildExtractTranscript(
 }
 
 /** Verbatim-biased extraction prompt: a structured, self-contained Markdown
- *  record of one topic (summary + details + code + open questions). */
+ *  record of one topic. Always opens with a topic-tag block (topic + "where it
+ *  stands") followed by the optional details / code / open-questions sections. */
 export function buildExtractSystemPrompt(topicLabel: string, typeLabel: string): string {
   return `You are extracting the complete record of ONE topic from a chat conversation.
 
 Topic: "${topicLabel}" (${typeLabel})
 
-Write a self-contained Markdown document that lets someone act on this topic without reading the conversation. Use this structure, omitting sections that have no content:
+Write a self-contained Markdown document that lets someone act on this topic without reading the conversation. Use this structure. The heading and the tag block are ALWAYS required. Omit the other sections only when they have no content:
 
 # ${topicLabel}
-**Summary** — 2-4 sentences: what this topic is and where it ended up.
+> **Topic:** ${topicLabel} (${typeLabel})
+> **Where it stands:** 1-3 sentences summarizing the current state of the work on this topic — what has been decided or completed, and what is actively being worked on now.
 
 **Details** — every requirement, decision, number, name, and constraint about this topic, as bullets, using the conversation's EXACT wording for decisions, names, and numbers.
 
@@ -92,6 +94,7 @@ Rules:
 - Include ONLY what is actually in the conversation. Never invent, assume, or fill gaps.
 - Make every bullet self-contained: replace pronouns like "it" / "that approach" with the thing they refer to.
 - Conversations evolve: when later messages change or override earlier ones, record the FINAL state and note what it replaced ("initially X, changed to Y").
+- For "Where it stands", prioritize the MOST RECENT messages — they reflect the current state of the work.
 - Messages marked \`>>> [RELEVANT TO TOPIC]\` are the primary anchors; also pull in related context from anywhere else in the conversation when it belongs to this topic.
 - Ignore other topics, greetings, and meta-chat about the assistant itself.
 - Output the Markdown document only — no preamble, no commentary about the task. /no_think`;

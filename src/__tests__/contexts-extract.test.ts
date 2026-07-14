@@ -48,19 +48,23 @@ describe("buildExtractTranscript", () => {
 });
 
 describe("buildExtractSystemPrompt", () => {
-  test("structured self-contained record instructions naming the topic + type", () => {
+  test("mandatory topic-tag block + structure sections naming the topic + type", () => {
     const p = buildExtractSystemPrompt("Auth flow", "Feature");
-    // Topic + type header (no article) and the H1 uses the topic label verbatim.
     expect(p).toContain('Topic: "Auth flow" (Feature)');
     expect(p).toContain("# Auth flow");
-    // The four structure sections.
-    expect(p).toContain("**Summary**");
+    // The topic-tag block that ALWAYS opens the document.
+    expect(p).toContain("> **Topic:** Auth flow (Feature)");
+    expect(p).toContain("> **Where it stands:**");
+    expect(p).toContain("The heading and the tag block are ALWAYS required");
+    // The remaining (optional) sections — Summary is gone, folded into the tag.
+    expect(p).not.toContain("**Summary**");
     expect(p).toContain("**Details**");
     expect(p).toContain("**Code**");
     expect(p).toContain("**Open questions**");
-    // Load-bearing rules that fix the "doesn't summarize well" complaint.
+    // Load-bearing rules.
     expect(p).toContain("Make every bullet self-contained");
     expect(p).toContain("record the FINAL state and note what it replaced");
+    expect(p).toContain('prioritize the MOST RECENT messages');
     expect(p).toContain("VERBATIM");
     expect(p).toContain("RELEVANT TO TOPIC");
     expect(p).toContain("/no_think");
