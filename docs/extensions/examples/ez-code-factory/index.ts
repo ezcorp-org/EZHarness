@@ -44,20 +44,27 @@ import { productionHostRunner, type ShellRunner } from "./lib/shell";
 export const PUSH_RECEIVED_ACTION = `${EXTENSION_NAME}:${TRIGGER_EVENT}`;
 
 // ── Injectable seams (production defaults; tests override) ────────────
+//
+// Each seam's production default is a SINGLE named closure reused by both the
+// initial binding and the `_set*ForTests(null)` reset — one function to cover
+// (DRY) instead of a duplicated inline fallback the reset path never exercises.
 
-let projectRootImpl: () => string | undefined = () => process.env.EZCORP_PROJECT_ROOT;
+const defaultProjectRoot = (): string | undefined => process.env.EZCORP_PROJECT_ROOT;
+let projectRootImpl: () => string | undefined = defaultProjectRoot;
 export function _setProjectRootForTests(fn: (() => string | undefined) | null): void {
-  projectRootImpl = fn ?? (() => process.env.EZCORP_PROJECT_ROOT);
+  projectRootImpl = fn ?? defaultProjectRoot;
 }
 
-let tmpBaseImpl: () => string = () => process.env.TMPDIR || "/tmp";
+const defaultTmpBase = (): string => process.env.TMPDIR || "/tmp";
+let tmpBaseImpl: () => string = defaultTmpBase;
 export function _setTmpBaseForTests(fn: (() => string) | null): void {
-  tmpBaseImpl = fn ?? (() => process.env.TMPDIR || "/tmp");
+  tmpBaseImpl = fn ?? defaultTmpBase;
 }
 
-let baseUrlImpl: () => string = () => process.env.EZCORP_BASE_URL || DEFAULT_BASE_URL;
+const defaultBaseUrl = (): string => process.env.EZCORP_BASE_URL || DEFAULT_BASE_URL;
+let baseUrlImpl: () => string = defaultBaseUrl;
 export function _setBaseUrlForTests(fn: (() => string) | null): void {
-  baseUrlImpl = fn ?? (() => process.env.EZCORP_BASE_URL || DEFAULT_BASE_URL);
+  baseUrlImpl = fn ?? defaultBaseUrl;
 }
 
 let shellImpl: ShellRunner = productionHostRunner;
@@ -120,30 +127,41 @@ export const initGateTool: ToolHandler = async (args) => {
 };
 
 /** `push-received` Hub action — the post-receive hook's trigger target. The
- *  `payload` is attacker-controlled; validate every field before acting. */
+ *  `payload` is attacker-controlled; validate every field before acting. The
+ *  whole body is wrapped: this is a fire-and-forget notification handler, so a
+ *  throw here is otherwise SWALLOWED by the SDK channel (no id → no error
+ *  frame), hiding the failure entirely. Emit one stderr line instead. */
 export async function handlePushReceived(event: PageActionEvent): Promise<void> {
-  const projectRoot = projectRootImpl();
-  if (!projectRoot) {
-    process.stderr.write("ez-code-factory: push-received with no EZCORP_PROJECT_ROOT — ignored\n");
-    return;
-  }
-  const push = parsePushReceived(event.payload);
-  if (!push) {
-    process.stderr.write("ez-code-factory: push-received with invalid payload — ignored\n");
-    return;
-  }
-  const gDir = gateDirFor(projectRoot, push.repoId);
-  const result = await runGateLifecycle(push, {
-    gateDir: gDir,
-    tmpBase: tmpBaseImpl(),
-    store: getStore(),
-    run: shellImpl,
-    onChange: refreshDashboard,
-  });
-  if (!result.ok) {
-    process.stderr.write(
-      `ez-code-factory: run ${result.runId} failed: ${result.error ?? "unknown"}\n`,
-    );
+  try {
+    const projectRoot = projectRootImpl();
+    if (!projectRoot) {
+      process.stderr.write("ez-code-factory: push-received with no EZCORP_PROJECT_ROOT — ignored\n");
+      return;
+    }
+    const push = parsePushReceived(event.payload);
+    if (!push) {
+      process.stderr.write("ez-code-factory: push-received with invalid payload — ignored\n");
+      return;
+    }
+    const gDir = gateDirFor(projectRoot, push.repoId);
+    const result = await runGateLifecycle(push, {
+      gateDir: gDir,
+      tmpBase: tmpBaseImpl(),
+      store: getStore(),
+      run: shellImpl,
+      onChange: refreshDashboard,
+    });
+    if (!result.ok) {
+      process.stderr.write(
+        `ez-code-factory: run ${result.runId} failed: ${result.error ?? "unknown"}\n`,
+      );
+    }
+  } catch (err) {
+    // runGateLifecycle marks its own run failed; this guards anything outside it
+    // (payload parse, store construction, worktree teardown) whose throw the
+    // channel would swallow.
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`ez-code-factory: push-received handler error: ${message}\n`);
   }
 }
 

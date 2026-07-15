@@ -62,6 +62,28 @@ export function notifyLogPath(gateRepoDir: string): string {
   return join(gateRepoDir, "notify-push.log");
 }
 
+/**
+ * Accept only an upstream URL safe to store as the gate repo's `origin` and
+ * hand to `git remote add` / `git fetch`: an `https://` or `ssh://` URL, or the
+ * scp-like `user@host:path` form. Rejects transports that can execute a command
+ * at fetch time (`ext::…`), local `file://` paths, empty/whitespace, and
+ * anything flag-shaped (`-…`) that `git` could parse as an option. Pure — no IO.
+ *
+ * This gates the EXPLICIT `upstream` tool argument only (an attacker-influenced
+ * input); the implicit fallback — the working repo's own `origin` — is already
+ * user-configured and trusted. Forecloses an M1 RCE-at-fetch footgun the moment
+ * the gate first fetches upstream.
+ */
+export function isSafeUpstreamUrl(url: string): boolean {
+  const u = url.trim();
+  if (!u || u.startsWith("-")) return false;
+  // https:// or ssh:// (no whitespace).
+  if (/^(?:https|ssh):\/\/\S+$/i.test(u)) return true;
+  // scp-like [user@]host:path — a host is required, no leading colon.
+  if (/^[\w.+-]+@[\w.-]+:\S+$/.test(u)) return true;
+  return false;
+}
+
 /** Options threaded into the generated post-receive hook. */
 export interface HookScriptOptions {
   repoId: string;
@@ -123,11 +145,39 @@ if [ -z "$KEY" ]; then
 fi
 
 while read -r oldrev newrev refname; do
+  # A gate acts only on branch updates. Skip non-branch refs (tags, notes, …)
+  # and deletions (a delete sends an all-zero newrev): neither has a commit to
+  # check out, and creating a run for one only produces a junk "failed" row.
+  # A skipped ref still leaves the push itself untouched (the hook exits 0).
+  case "$refname" in
+    refs/heads/*) ;;
+    *) continue ;;
+  esac
+  case "$newrev" in
+    *[!0]*) ;;
+    *) continue ;;
+  esac
   branch=\${refname#refs/heads/}
-  BODY="{\\"source\\":\\"hub\\",\\"pageId\\":\\"$PAGE_ID\\",\\"payload\\":{\\"repoId\\":\\"$REPO_ID\\",\\"ref\\":\\"$refname\\",\\"branch\\":\\"$branch\\",\\"oldSha\\":\\"$oldrev\\",\\"newSha\\":\\"$newrev\\",\\"pushOptions\\":$OPTS}}"
+  # JSON-escape ref + branch: a double quote is legal in a git ref name and
+  # would otherwise break this hand-built body (invalid JSON → 400 → a silent
+  # drop). The sha fields and the hex repo id never need escaping.
+  esc_ref=$(json_escape "$refname")
+  esc_branch=$(json_escape "$branch")
+  BODY="{\\"source\\":\\"hub\\",\\"pageId\\":\\"$PAGE_ID\\",\\"payload\\":{\\"repoId\\":\\"$REPO_ID\\",\\"ref\\":\\"$esc_ref\\",\\"branch\\":\\"$esc_branch\\",\\"oldSha\\":\\"$oldrev\\",\\"newSha\\":\\"$newrev\\",\\"pushOptions\\":$OPTS}}"
   if [ -n "$KEY" ]; then
     if command -v curl >/dev/null 2>&1; then
-      out=$(curl -sS -m 15 -X POST "$BASE_URL$ENDPOINT" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d "$BODY" 2>&1) || log_fail "trigger POST failed for $branch: $out"
+      # -sS stays quiet but surfaces transport errors; -w captures the HTTP
+      # status so an HTTP >=400 (401/404/429/5xx) is a VISIBLE failure — curl's
+      # exit code alone is 0 for a 4xx/5xx, which would drop the push silently.
+      # A gate never blocks a push: every failure is logged + echoed to the
+      # pusher's stderr, and the hook still exits 0.
+      http=$(curl -sS -m 15 -o /dev/null -w '%{http_code}' -X POST "$BASE_URL$ENDPOINT" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d "$BODY" 2>/dev/null)
+      rc=$?
+      if [ "$rc" -ne 0 ]; then
+        log_fail "trigger POST failed for $branch (curl exit $rc)"
+      elif [ "$http" -ge 400 ] 2>/dev/null; then
+        log_fail "trigger POST failed for $branch: HTTP $http"
+      fi
     else
       log_fail "curl not found — cannot notify gate for $branch"
     fi
@@ -248,19 +298,32 @@ export async function initGate(opts: {
     warnings.push("extensions.worktreeConfig unsupported by this git — per-worktree hook isolation skipped");
   }
 
-  // 3. Point the gate repo's `origin` at the project's real upstream. Explicit
-  //    `upstream` wins; otherwise mirror the working repo's own `origin`.
-  const upstream = opts.upstream ?? (await remoteUrl(run, projectRoot, "origin"));
+  // 3. Point the gate repo's `origin` at the project's real upstream. An
+  //    EXPLICIT `upstream` (attacker-influenceable tool arg) must clear the
+  //    scheme allowlist; otherwise mirror the working repo's own — trusted —
+  //    `origin`. `--end-of-options` stops git parsing a `-`-shaped URL as a flag
+  //    (belt-and-suspenders with the allowlist's leading-`-` rejection).
+  let upstream: string | null;
+  if (opts.upstream !== undefined) {
+    upstream = isSafeUpstreamUrl(opts.upstream) ? opts.upstream : null;
+    if (upstream === null) {
+      warnings.push(
+        `ignoring unsafe upstream URL '${opts.upstream}' — allowed: https://, ssh://, or user@host:path`,
+      );
+    }
+  } else {
+    upstream = await remoteUrl(run, projectRoot, "origin");
+  }
   if (upstream) {
     const gateOrigin = await remoteUrl(run, gDir, "origin");
     const cmd = gateOrigin === null
-      ? ["git", "-C", gDir, "remote", "add", "origin", upstream]
-      : ["git", "-C", gDir, "remote", "set-url", "origin", upstream];
+      ? ["git", "-C", gDir, "remote", "add", "--end-of-options", "origin", upstream]
+      : ["git", "-C", gDir, "remote", "set-url", "--end-of-options", "origin", upstream];
     const originRes = await run(cmd, projectRoot);
     if (originRes.exitCode !== 0) {
       warnings.push(`could not set gate origin → ${upstream} (exit ${originRes.exitCode})`);
     }
-  } else {
+  } else if (opts.upstream === undefined) {
     warnings.push("no upstream found (working repo has no 'origin'); gate 'origin' left unset");
   }
 
@@ -289,6 +352,17 @@ export async function initGate(opts: {
       return result;
     }
     result.hookAction = hadHook ? "refreshed" : "written";
+  }
+
+  // 4b. Best-effort: tighten the gate credential's mode if it already exists,
+  //     so a key dropped with a lax umask isn't left group/world-readable. The
+  //     hook reads this file at push time; the gate never fails on the chmod.
+  const credProbe = await run(["test", "-f", credPath], projectRoot);
+  if (credProbe.exitCode === 0) {
+    const chmodRes = await run(["chmod", "0600", credPath], projectRoot);
+    if (chmodRes.exitCode !== 0) {
+      warnings.push(`could not tighten gate credential mode at ${credPath} (best-effort)`);
+    }
   }
 
   // 5. Wire the `gate` remote on the working repo (never clobber a foreign URL).

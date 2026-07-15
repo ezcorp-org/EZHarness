@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync, statSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -11,6 +11,7 @@ import {
   notifyLogPath,
   hookScript,
   isManagedHook,
+  isSafeUpstreamUrl,
   decideRemoteWiring,
   initGate,
   HOOK_MARKER,
@@ -32,11 +33,17 @@ afterEach(() => {
 
 const git = (args: string[], cwd: string) => productionHostRunner(["git", ...args], cwd);
 
-/** A bare upstream + a working clone with one commit on `feat/x`. */
-async function makeWorkRepo(withOrigin = true): Promise<{ work: string; upstream: string }> {
-  const upstream = join(root, "upstream.git");
-  await git(["init", "--bare", upstream], root);
-  const work = join(root, "work");
+/** A bare upstream + a working clone with one commit on `feat/x`. `base` lets a
+ *  single test stand up several isolated repos (default: the per-test `root`).
+ *  `workName` may carry a space to exercise path-with-space handling. */
+async function makeWorkRepo(
+  withOrigin = true,
+  base = root,
+  workName = "work",
+): Promise<{ work: string; upstream: string }> {
+  const upstream = join(base, "upstream.git");
+  await git(["init", "--bare", upstream], base);
+  const work = join(base, workName);
   mkdirSync(work);
   await git(["init", "-b", "main"], work);
   await git(["config", "user.email", "t@t"], work);
@@ -50,6 +57,33 @@ async function makeWorkRepo(withOrigin = true): Promise<{ work: string; upstream
   await git(["commit", "-m", "feat"], work);
   if (withOrigin) await git(["remote", "add", "origin", upstream], work);
   return { work, upstream };
+}
+
+/** A live mock events route returning `status`; records every POST. A body that
+ *  is not valid JSON is recorded as the sentinel string so a test can prove the
+ *  hook produced parseable JSON. */
+function mockEventsServer(status = 200): {
+  server: ReturnType<typeof Bun.serve>;
+  received: Array<{ auth: string | null; body: unknown }>;
+} {
+  const received: Array<{ auth: string | null; body: unknown }> = [];
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      let body: unknown;
+      try {
+        body = await req.json();
+      } catch {
+        body = "__invalid_json__";
+      }
+      received.push({ auth: req.headers.get("authorization"), body });
+      return new Response(JSON.stringify({ ok: status < 400 }), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+  return { server, received };
 }
 
 // ── pure helpers ────────────────────────────────────────────────────
@@ -107,6 +141,25 @@ describe("hookScript", () => {
 describe("isManagedHook", () => {
   test("false for a foreign hook", () => {
     expect(isManagedHook("#!/bin/sh\necho hi\n")).toBe(false);
+  });
+});
+
+describe("isSafeUpstreamUrl", () => {
+  test("accepts https / ssh / scp-like URLs", () => {
+    expect(isSafeUpstreamUrl("https://example.com/x.git")).toBe(true);
+    expect(isSafeUpstreamUrl("ssh://git@host:22/me/x.git")).toBe(true);
+    expect(isSafeUpstreamUrl("git@github.com:me/x.git")).toBe(true);
+    expect(isSafeUpstreamUrl("  https://example.com/x.git  ")).toBe(true); // trimmed
+  });
+  test("rejects command-executing transports, local paths, flags, empties", () => {
+    expect(isSafeUpstreamUrl("ext::sh -c 'touch /tmp/pwn'")).toBe(false);
+    expect(isSafeUpstreamUrl("file:///etc/passwd")).toBe(false);
+    expect(isSafeUpstreamUrl("/srv/git/x.git")).toBe(false); // bare local path
+    expect(isSafeUpstreamUrl("--upload-pack=touch /tmp/pwn")).toBe(false);
+    expect(isSafeUpstreamUrl("-oProxyCommand=evil")).toBe(false);
+    expect(isSafeUpstreamUrl("")).toBe(false);
+    expect(isSafeUpstreamUrl("   ")).toBe(false);
+    expect(isSafeUpstreamUrl("http ://bad")).toBe(false); // whitespace in URL
   });
 });
 
@@ -188,6 +241,42 @@ describe("initGate (real git)", () => {
     expect(gateOrigin.exitCode).not.toBe(0); // origin never added
   });
 
+  test("ignores an UNSAFE explicit upstream (never falls back to origin)", async () => {
+    const { work } = await makeWorkRepo(); // has a benign origin
+    const res = await initGate({
+      projectRoot: work,
+      run: productionHostRunner,
+      upstream: "ext::sh -c 'touch /tmp/pwn'", // command-executing transport
+    });
+    expect(res.ok).toBe(true);
+    expect(res.warnings.some((w) => w.includes("unsafe upstream"))).toBe(true);
+    // Fail-closed: the unsafe URL is refused AND the trusted origin is NOT
+    // silently substituted — the gate repo gets no origin at all.
+    const gateOrigin = await git(["remote", "get-url", "origin"], gateDir(work, res.repoId));
+    expect(gateOrigin.exitCode).not.toBe(0);
+  });
+
+  test("best-effort chmod 0600 on a pre-existing lax-mode gate credential", async () => {
+    const { work } = await makeWorkRepo();
+    // Drop a world-readable credential BEFORE init.
+    const cred = credentialPath(work);
+    mkdirSync(dataDir(work), { recursive: true });
+    writeFileSync(cred, "minted-key");
+    chmodSync(cred, 0o644);
+    const res = await initGate({ projectRoot: work, run: productionHostRunner });
+    expect(res.ok).toBe(true);
+    expect(statSync(cred).mode & 0o777).toBe(0o600);
+  });
+
+  test("credential chmod failure → best-effort warning (init still ok)", async () => {
+    const { work } = await makeWorkRepo();
+    mkdirSync(dataDir(work), { recursive: true });
+    writeFileSync(credentialPath(work), "k"); // exists → `test -f` passes, chmod runs
+    const res = await initGate({ projectRoot: work, run: failingAt(/^chmod 0600/) });
+    expect(res.ok).toBe(true);
+    expect(res.warnings.some((w) => w.includes("credential mode"))).toBe(true);
+  });
+
   test("refuses to clobber a foreign `gate` remote", async () => {
     const { work } = await makeWorkRepo();
     await git(["remote", "add", GATE_REMOTE, "git@github.com:foreign/x.git"], work);
@@ -267,7 +356,7 @@ describe("initGate failure branches", () => {
     const { work } = await makeWorkRepo();
     const res = await initGate({
       projectRoot: work,
-      run: failingAt(/remote add origin|remote set-url origin/),
+      run: failingAt(/remote (?:add|set-url) --end-of-options origin/),
     });
     expect(res.ok).toBe(true);
     expect(res.warnings.some((w) => w.includes("gate origin"))).toBe(true);
@@ -337,6 +426,135 @@ describe("git push gate → post-receive hook fires the trigger", () => {
       expect(body.payload.ref).toBe("refs/heads/feat/x");
       expect(typeof body.payload.newSha).toBe("string");
       expect((body.payload.newSha as string).length).toBeGreaterThanOrEqual(40);
+      expect(body.payload.pushOptions).toEqual([]); // no -o given
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("an HTTP >=400 response is logged + echoed to stderr; push still exits 0", async () => {
+    for (const status of [401, 503]) {
+      const sub = mkdtempSync(join(root, `http-${status}-`));
+      const { work } = await makeWorkRepo(true, sub);
+      const { server, received } = mockEventsServer(status);
+      try {
+        const res = await initGate({
+          projectRoot: work,
+          run: productionHostRunner,
+          baseUrl: `http://127.0.0.1:${server.port}`,
+        });
+        writeFileSync(credentialPath(work), "k");
+
+        const push = await git(["push", GATE_REMOTE, "feat/x"], work);
+        expect(push.exitCode).toBe(0); // a gate never blocks a push, even on 4xx/5xx
+        await Bun.sleep(50);
+        expect(received).toHaveLength(1); // the POST DID reach the server
+
+        const log = readFileSync(notifyLogPath(gateDir(work, res.repoId)), "utf8");
+        expect(log).toContain(`HTTP ${status}`);
+        // The banner reaches the pusher's stderr too (not just the log).
+        expect(push.stderr).toContain("ez-code-factory: trigger POST failed");
+      } finally {
+        server.stop(true);
+      }
+    }
+  });
+
+  test("forwards --push-option values as a JSON array", async () => {
+    const { work } = await makeWorkRepo();
+    const { server, received } = mockEventsServer(200);
+    try {
+      await initGate({
+        projectRoot: work,
+        run: productionHostRunner,
+        baseUrl: `http://127.0.0.1:${server.port}`,
+      });
+      writeFileSync(credentialPath(work), "k");
+
+      const push = await git(["push", "-o", "intent=fix", "-o", "x=y", GATE_REMOTE, "feat/x"], work);
+      expect(push.exitCode).toBe(0);
+      await Bun.sleep(50);
+      const body = received[0]!.body as { payload: { pushOptions: unknown } };
+      expect(body.payload.pushOptions).toEqual(["intent=fix", "x=y"]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("JSON-escapes a ref/branch containing a double quote (valid JSON received)", async () => {
+    const { work } = await makeWorkRepo();
+    await git(["branch", 'a"b'], work); // git permits a double quote in a ref name
+    const { server, received } = mockEventsServer(200);
+    try {
+      await initGate({
+        projectRoot: work,
+        run: productionHostRunner,
+        baseUrl: `http://127.0.0.1:${server.port}`,
+      });
+      writeFileSync(credentialPath(work), "k");
+
+      const push = await git(["push", GATE_REMOTE, 'a"b'], work);
+      expect(push.exitCode).toBe(0);
+      await Bun.sleep(50);
+      expect(received).toHaveLength(1);
+      // A parsed object (not the "__invalid_json__" sentinel) proves the quote
+      // did not break the hand-built body; the ref survives verbatim.
+      const body = received[0]!.body as { payload: { ref: string; branch: string } };
+      expect(body.payload.ref).toBe('refs/heads/a"b');
+      expect(body.payload.branch).toBe('a"b');
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("skips a branch deletion and a tag push (no run-creating POST)", async () => {
+    const { work } = await makeWorkRepo();
+    const { server, received } = mockEventsServer(200);
+    try {
+      await initGate({
+        projectRoot: work,
+        run: productionHostRunner,
+        baseUrl: `http://127.0.0.1:${server.port}`,
+      });
+      writeFileSync(credentialPath(work), "k");
+
+      // The create posts once…
+      await git(["push", GATE_REMOTE, "feat/x"], work);
+      await Bun.sleep(50);
+      expect(received).toHaveLength(1);
+      received.length = 0;
+
+      // …but a deletion (all-zero newrev) and a tag push must both be skipped.
+      const del = await git(["push", GATE_REMOTE, ":feat/x"], work);
+      expect(del.exitCode).toBe(0);
+      await git(["tag", "v1"], work);
+      const tagPush = await git(["push", GATE_REMOTE, "v1"], work);
+      expect(tagPush.exitCode).toBe(0);
+      await Bun.sleep(50);
+      expect(received).toHaveLength(0);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("provisions + pushes through a project root containing a space", async () => {
+    const { work } = await makeWorkRepo(true, root, "a project"); // path has a space
+    const { server, received } = mockEventsServer(200);
+    try {
+      const res = await initGate({
+        projectRoot: work,
+        run: productionHostRunner,
+        baseUrl: `http://127.0.0.1:${server.port}`,
+      });
+      expect(res.ok).toBe(true);
+      writeFileSync(credentialPath(work), "k");
+
+      const push = await git(["push", GATE_REMOTE, "feat/x"], work);
+      expect(push.exitCode).toBe(0);
+      await Bun.sleep(50);
+      expect(received).toHaveLength(1);
+      const body = received[0]!.body as { payload: { branch: string } };
+      expect(body.payload.branch).toBe("feat/x");
     } finally {
       server.stop(true);
     }
@@ -362,5 +580,7 @@ describe("git push gate → post-receive hook fires the trigger", () => {
 
     const log = readFileSync(notifyLogPath(gateDir(work, res.repoId)), "utf8");
     expect(log).toContain("trigger POST failed");
+    // The one-line banner also reaches the pusher's stderr.
+    expect(push.stderr).toContain("ez-code-factory: trigger POST failed");
   });
 });

@@ -56,13 +56,16 @@ by the spec's locked Decision #1.
    `chat`-scoped key and drop it at the credential path `init_gate` prints:
 
    ```bash
-   ezcorp key mint --scopes read,chat > \
-     "$(git rev-parse --show-toplevel)/.ezcorp/extension-data/ez-code-factory/gate-key"
+   (umask 077; ezcorp key mint --scopes read,chat > \
+     "$(git rev-parse --show-toplevel)/.ezcorp/extension-data/ez-code-factory/gate-key")
    ```
 
-   `.ezcorp/` is gitignored, so the key never lands in a commit. If the file is
-   missing or empty the hook logs a one-line hint (to `notify-push.log` and the
-   pusher's stderr) and still exits 0 — a gate never blocks a push.
+   The `umask 077` creates the key file `0600` (owner-only) so it is never
+   group/world-readable. `init_gate` also best-effort `chmod 0600`s the key if it
+   already exists at init time. `.ezcorp/` is gitignored, so the key never lands
+   in a commit. If the file is missing or empty the hook logs a one-line hint (to
+   `notify-push.log` and the pusher's stderr) and still exits 0 — a gate never
+   blocks a push.
 
 3. **Point the hook at your server** (optional). The hook POSTs
    `http://127.0.0.1:3000` by default; set `EZCORP_BASE_URL` before running
@@ -83,9 +86,16 @@ The `post-receive` hook is POSIX sh and:
   untouched;
 - is installed **atomically** (temp file → `chmod 0755` → `mv`);
 - **ALWAYS exits 0** — the push's success never depends on the gate;
+- acts on **branch updates only** — it skips non-`refs/heads/*` refs (tags,
+  notes, …) and branch **deletions** (an all-zero newrev), so neither creates a
+  junk run;
 - forwards `oldrev/newrev/refname` plus any `--push-option` values (as a JSON
-  array) to the events route;
+  array) to the events route, JSON-escaping the ref/branch (a `"` is legal in a
+  git ref name);
 - reads its key from the credential **file**, never inline;
+- treats an **HTTP ≥ 400** response (401/404/429/5xx) as a failure, not just a
+  transport error — it captures curl's `%{http_code}` so a rejected POST is
+  never a silent drop;
 - appends any notify failure to `notify-push.log` in the gate dir **and** echoes
   a one-line banner to the pusher's stderr.
 

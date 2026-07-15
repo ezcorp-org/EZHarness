@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach, spyOn } from "bun:test";
-import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { __resetChannelForTests, getChannel } from "@ezcorp/sdk/runtime";
@@ -115,6 +115,16 @@ describe("parsePushReceived", () => {
     expect(parsePushReceived({ ...ok, branch: "../evil" })).toBeNull();
     expect(parsePushReceived({ ...ok, ref: "refs/heads/../x" })).toBeNull();
     expect(parsePushReceived({ ...ok, ref: "refs/heads/a b" })).toBeNull();
+  });
+  test("rejects an all-zero SHA (a branch deletion)", () => {
+    expect(parsePushReceived({ ...ok, newSha: "0".repeat(40) })).toBeNull();
+    expect(parsePushReceived({ ...ok, newSha: "0".repeat(64) })).toBeNull();
+  });
+  test("rejects a non-branch ref (tags and other namespaces)", () => {
+    expect(parsePushReceived({ ...ok, ref: "refs/tags/v1", branch: "v1" })).toBeNull();
+    expect(parsePushReceived({ ...ok, ref: "refs/notes/commits", branch: "commits" })).toBeNull();
+    // A bare branch name (no refs/heads/ prefix) is likewise rejected.
+    expect(parsePushReceived({ ...ok, ref: "feat/x" })).toBeNull();
   });
 });
 
@@ -287,6 +297,57 @@ async function seedGate(): Promise<{ gateDir: string; sha: string; repoId: strin
   return { gateDir, sha: rev.stdout.trim(), repoId: "0123456789ab" };
 }
 
+/** Seed a bare gate repo holding TWO branches (`feat/x`, `feat/y`); return both
+ *  head SHAs. Used to exercise the per-(repo,branch) mutex across branches. */
+async function seedGateTwo(): Promise<{
+  gateDir: string;
+  shaX: string;
+  shaY: string;
+  repoId: string;
+}> {
+  const src = join(root, "src2");
+  mkdirSync(src);
+  await git(["init", "-b", "feat/x"], src);
+  await git(["config", "user.email", "t@t"], src);
+  await git(["config", "user.name", "t"], src);
+  writeFileSync(join(src, "a.txt"), "hi\n");
+  await git(["add", "-A"], src);
+  await git(["commit", "-m", "cx"], src);
+  await git(["checkout", "-b", "feat/y"], src);
+  writeFileSync(join(src, "b.txt"), "yo\n");
+  await git(["add", "-A"], src);
+  await git(["commit", "-m", "cy"], src);
+  const gateDir = join(root, "gate2.git");
+  await git(["init", "--bare", gateDir], root);
+  await git(["remote", "add", "gate", gateDir], src);
+  await git(["push", "gate", "feat/x"], src);
+  await git(["push", "gate", "feat/y"], src);
+  const rx = await git(["rev-parse", "feat/x"], src);
+  const ry = await git(["rev-parse", "feat/y"], src);
+  return { gateDir, shaX: rx.stdout.trim(), shaY: ry.stdout.trim(), repoId: "0123456789ab" };
+}
+
+/** Wrap a runner to count worktree-adds concurrently in flight. Each add holds
+ *  a ~15ms window (a `Bun.sleep`) so a genuine overlap is observable; `maxIn`
+ *  reports the peak. Under the per-(repo,branch) mutex, same-branch adds are
+ *  strictly serial (peak 1); distinct branches may overlap (peak 2). */
+function instrumentedRunner(real: ShellRunner): { runner: ShellRunner; maxIn: () => number } {
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const runner: ShellRunner = async (cmd, cwd, opts) => {
+    if (cmd.includes("worktree") && cmd.includes("add")) {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await Bun.sleep(15);
+      const res = await real(cmd, cwd, opts);
+      inFlight -= 1;
+      return res;
+    }
+    return real(cmd, cwd, opts);
+  };
+  return { runner, maxIn: () => maxInFlight };
+}
+
 describe("runGateLifecycle (real git)", () => {
   test("creates a worktree at the pushed sha, records it, then tears it down", async () => {
     const { gateDir, sha, repoId } = await seedGate();
@@ -355,5 +416,91 @@ describe("runGateLifecycle (real git)", () => {
     expect(a.ok && b.ok).toBe(true);
     expect(a.runId).not.toBe(b.runId);
     expect(store.runs.size).toBe(2);
+  });
+
+  test("a THROW mid-lifecycle marks the run failed + tears the worktree down", async () => {
+    const { gateDir, sha, repoId } = await seedGate();
+    const base = memStore();
+    // updateRun throws exactly once — on the worktree_ready transition — so the
+    // failure lands AFTER the worktree exists (proving teardown still runs). The
+    // best-effort failed-mark that follows then succeeds.
+    let thrown = false;
+    const store: RunStore & { runs: Map<string, RunRecord> } = {
+      ...base,
+      async updateRun(id, patch) {
+        if (!thrown && patch.status === "worktree_ready") {
+          thrown = true;
+          throw new Error("storage boom");
+        }
+        return base.updateRun(id, patch);
+      },
+    };
+    const stderr: string[] = [];
+    const spy = spyOn(process.stderr, "write").mockImplementation(((s: string | Uint8Array) => {
+      stderr.push(String(s));
+      return true;
+    }) as typeof process.stderr.write);
+    try {
+      const res = await runGateLifecycle(
+        { repoId, branch: "feat/x", ref: "refs/heads/feat/x", newSha: sha },
+        { gateDir, tmpBase: join(root, "tmp-throw"), store, run: productionHostRunner },
+      );
+      expect(res.ok).toBe(false);
+      expect(res.status).toBe("failed");
+      // The run was marked failed (the best-effort mark succeeded on retry)…
+      expect(base.runs.get(res.runId)!.status).toBe("failed");
+      // …the worktree was still torn down despite the throw…
+      expect(existsSync(res.worktreePath)).toBe(false);
+      // …and one stderr line surfaced the otherwise-swallowed error.
+      expect(stderr.join("")).toContain("lifecycle error");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("MUTEX PROOF: same-(repo,branch) worktree-adds never overlap (max in-flight 1)", async () => {
+    const { gateDir, shaX, repoId } = await seedGateTwo();
+    const store = memStore();
+    const { runner, maxIn } = instrumentedRunner(productionHostRunner);
+    const push = { repoId, branch: "feat/x", ref: "refs/heads/feat/x", newSha: shaX };
+    const deps = { gateDir, tmpBase: join(root, "tmp-same"), store, run: runner };
+    const [a, b] = await Promise.all([runGateLifecycle(push, deps), runGateLifecycle(push, deps)]);
+    expect(a.ok && b.ok).toBe(true);
+    expect(store.runs.size).toBe(2);
+    // The per-(repo,branch) lock kept the two worktree-adds strictly serial.
+    // (Remove the lock and this becomes 2 — that is what the test guards.)
+    expect(maxIn()).toBe(1);
+  });
+
+  test("MUTEX PROOF: different-branch worktree-adds run concurrently (overlap observed)", async () => {
+    const { gateDir, shaX, shaY, repoId } = await seedGateTwo();
+    const store = memStore();
+    const { runner, maxIn } = instrumentedRunner(productionHostRunner);
+    const deps = { gateDir, tmpBase: join(root, "tmp-diff"), store, run: runner };
+    const [a, b] = await Promise.all([
+      runGateLifecycle({ repoId, branch: "feat/x", ref: "refs/heads/feat/x", newSha: shaX }, deps),
+      runGateLifecycle({ repoId, branch: "feat/y", ref: "refs/heads/feat/y", newSha: shaY }, deps),
+    ]);
+    expect(a.ok && b.ok).toBe(true);
+    expect(store.runs.size).toBe(2);
+    // Distinct locks → the two worktree-adds genuinely overlapped.
+    expect(maxIn()).toBe(2);
+  });
+
+  test("containment: a sibling .ezcorp/data fixture is untouched by a run", async () => {
+    const { gateDir, sha, repoId } = await seedGate();
+    const store = memStore();
+    // A fixture outside the worktree tree that must survive the run untouched.
+    const fixtureDir = join(root, ".ezcorp", "data");
+    mkdirSync(fixtureDir, { recursive: true });
+    const fixture = join(fixtureDir, "keep.txt");
+    writeFileSync(fixture, "precious");
+    const res = await runGateLifecycle(
+      { repoId, branch: "feat/x", ref: "refs/heads/feat/x", newSha: sha },
+      { gateDir, tmpBase: join(root, "tmp-contain"), store, run: productionHostRunner },
+    );
+    expect(res.ok).toBe(true);
+    expect(existsSync(fixture)).toBe(true);
+    expect(readFileSync(fixture, "utf8")).toBe("precious");
   });
 });

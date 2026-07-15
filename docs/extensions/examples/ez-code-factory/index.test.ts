@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach, spyOn } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -182,6 +182,82 @@ describe("handlePushReceived", () => {
     await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
     const run = [...store.runs.values()][0]!;
     expect(run.status).toBe("failed");
+  });
+
+  test("a throw escaping runGateLifecycle (teardown) is caught + logged, not swallowed", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setTmpBaseForTests(() => "/tmp/ext");
+    // worktree add succeeds, but teardown (`worktree remove`) THROWS — that
+    // escapes runGateLifecycle's own catch (it fires in the finally) and would
+    // be swallowed by the channel's notification path without this handler's
+    // outer guard.
+    _setShellForTests(async (cmd) => {
+      if (cmd.includes("worktree") && cmd.includes("remove")) throw new Error("teardown boom");
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+    _setStoreForTests(memStore());
+    _setPushPageForTests(() => {});
+    const stderr: string[] = [];
+    const spy = spyOn(process.stderr, "write").mockImplementation(((s: string | Uint8Array) => {
+      stderr.push(String(s));
+      return true;
+    }) as typeof process.stderr.write);
+    try {
+      await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+      expect(stderr.join("")).toContain("push-received handler error");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+// ── production env defaults (no test overrides) ─────────────────────
+
+describe("production env defaults", () => {
+  test("the default seams read process.env (set + unset)", async () => {
+    const saved = {
+      root: process.env.EZCORP_PROJECT_ROOT,
+      base: process.env.EZCORP_BASE_URL,
+      tmp: process.env.TMPDIR,
+    };
+    try {
+      // Reset every seam to its PRODUCTION default closure (not a test double).
+      _setProjectRootForTests(null);
+      _setBaseUrlForTests(null);
+      _setTmpBaseForTests(null);
+      _setShellForTests(okShell); // every git step a no-op success
+      const store = memStore();
+      _setStoreForTests(store);
+      _setPushPageForTests(() => {});
+
+      // UNSET → defaultProjectRoot() returns undefined → the tool errors out.
+      delete process.env.EZCORP_PROJECT_ROOT;
+      const err = await initGateTool({});
+      expect(err.isError).toBe(true);
+      expect(err.content[0]!.text).toContain("EZCORP_PROJECT_ROOT unset");
+
+      // SET → defaultProjectRoot + defaultBaseUrl are both read through initGate.
+      process.env.EZCORP_PROJECT_ROOT = "/proj";
+      process.env.EZCORP_BASE_URL = "http://127.0.0.1:9";
+      const ok = await initGateTool({});
+      expect(ok.isError).toBe(false);
+
+      // defaultTmpBase is read through the push-received lifecycle.
+      process.env.TMPDIR = "/tmp/ezcf-env-default";
+      await handlePushReceived({ source: "hub", pageId: "dashboard", userId: "u", payload: VALID_PUSH });
+      expect(store.runs.size).toBeGreaterThan(0);
+    } finally {
+      // Restore the ambient env so sibling tests see the original values.
+      const restore: Record<string, string | undefined> = {
+        EZCORP_PROJECT_ROOT: saved.root,
+        EZCORP_BASE_URL: saved.base,
+        TMPDIR: saved.tmp,
+      };
+      for (const [k, v] of Object.entries(restore)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
   });
 });
 

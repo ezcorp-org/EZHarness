@@ -236,7 +236,13 @@ export function parsePushReceived(payload: unknown): PushReceived | null {
   const newSha = str(p.newSha).trim();
   if (!repoId || !branch || !ref || !newSha) return null;
   if (!/^[0-9a-f]{7,64}$/i.test(newSha)) return null;
+  // Reject an all-zero SHA — that is a branch DELETION (git sends 40/64 zeros),
+  // which has no commit to check out and would only yield a junk "failed" run.
+  if (/^0+$/.test(newSha)) return null;
   if (!/^[0-9a-f]{12}$/i.test(repoId)) return null;
+  // A gate acts on branch updates only: reject tag/other refs (defence in depth
+  // — the hook skips them too, but the events route is attacker-reachable).
+  if (!ref.startsWith("refs/heads/")) return null;
   // A ref/branch may not contain shell metacharacters or path traversal.
   if (/[^\w./\-]/.test(branch) || branch.includes("..")) return null;
   if (/[^\w./\-]/.test(ref) || ref.includes("..")) return null;
@@ -291,25 +297,25 @@ export async function runGateLifecycle(
   return withLock(`${push.repoId}:${push.branch}`, async (): Promise<RunLifecycleResult> => {
     const runId = newRunId();
     const wtPath = worktreePathFor(tmpBase, push.repoId, runId);
-    const now = new Date().toISOString();
-    const record: RunRecord = {
-      id: runId,
-      repoId: push.repoId,
-      branch: push.branch,
-      ref: push.ref,
-      headSha: push.newSha,
-      status: "created",
-      worktreePath: null,
-      createdAt: now,
-      updatedAt: now,
-      parkedMs: 0,
-      awaitingAgentSince: null,
-    };
-    await store.createRun(record);
-    await notify();
-
     let added = false;
     try {
+      const now = new Date().toISOString();
+      const record: RunRecord = {
+        id: runId,
+        repoId: push.repoId,
+        branch: push.branch,
+        ref: push.ref,
+        headSha: push.newSha,
+        status: "created",
+        worktreePath: null,
+        createdAt: now,
+        updatedAt: now,
+        parkedMs: 0,
+        awaitingAgentSince: null,
+      };
+      await store.createRun(record);
+      await notify();
+
       const add = await run(
         ["git", "-C", gateDir, "worktree", "add", "--detach", wtPath, push.newSha],
         gateDir,
@@ -334,10 +340,26 @@ export async function runGateLifecycle(
       await store.updateRun(runId, { status: "completed" });
       await notify();
       return { ok: true, runId, worktreePath: wtPath, status: "completed" };
+    } catch (err) {
+      // A THROW mid-lifecycle (e.g. a Storage RPC rejecting) would otherwise be
+      // swallowed by the SDK channel's fire-and-forget notification path,
+      // leaving the run stuck at created/worktree_ready forever with no trace.
+      // Mark it failed (best-effort — the failing RPC may be the status write
+      // itself) and surface one stderr line; the `finally` still tears the
+      // worktree down so a throw never leaks a checkout.
+      const message = err instanceof Error ? err.message : String(err);
+      try {
+        await store.updateRun(runId, { status: "failed", error: `lifecycle error: ${message}` });
+        await notify();
+      } catch {
+        /* storage itself is unreachable — nothing more we can durably record */
+      }
+      process.stderr.write(`ez-code-factory: run ${runId} lifecycle error: ${message}\n`);
+      return { ok: false, runId, worktreePath: wtPath, status: "failed", error: message };
     } finally {
-      // Tear the worktree down on EVERY path (success + failure) so a run
-      // never leaks a checkout. `prune` is the belt-and-suspenders fallback if
-      // `remove` itself failed (e.g. a stuck lock).
+      // Tear the worktree down on EVERY path (success + failure + throw) so a
+      // run never leaks a checkout. `prune` is the belt-and-suspenders fallback
+      // if `remove` itself failed (e.g. a stuck lock).
       if (added) {
         const removed = await run(
           ["git", "-C", gateDir, "worktree", "remove", "--force", wtPath],

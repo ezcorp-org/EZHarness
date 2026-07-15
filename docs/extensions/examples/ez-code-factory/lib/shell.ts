@@ -32,8 +32,11 @@ export type ShellRunner = (
  * Production runner — a plain host `Bun.spawn`. Subprocesses run OUTSIDE the
  * sandbox preload's `node:fs` poisoning, so this is the supported way to touch
  * git + the filesystem from extension code. `GIT_CONFIG_GLOBAL=/dev/null` keeps
- * every `git` invocation hermetic (no `~/.gitconfig` include-file surprises),
- * exactly as ez-code's jailed runner does.
+ * every `git` invocation hermetic (no `~/.gitconfig` include-file surprises).
+ * NOTE: unlike ez-code's jailed runner, this runner is DELIBERATELY UNJAILED —
+ * M0 shells git directly on the host with no ez-sandbox containment (the nested
+ * jail lands in M1+ per spec §6); the hermetic global-config pin is the only
+ * hardening here.
  */
 export const productionHostRunner: ShellRunner = async (cmd, cwd, opts) => {
   const proc = Bun.spawn(cmd, {
