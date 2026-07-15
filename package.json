@@ -1,0 +1,19 @@
+{
+  "name": "ezharness",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/@ezcorp/*"],
+  "scripts": {
+    "build": "bun run --cwd packages/@ezcorp/harness-client build",
+    "typecheck": "bunx tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.13",
+    "@types/bun": "latest",
+    "@types/node": "^25.6.0",
+    "typescript": "^5.9.3"
+  }
+}
