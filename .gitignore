@@ -1,0 +1,34 @@
+# dependencies
+node_modules
+
+# output
+out
+dist
+build
+*.tgz
+
+# code coverage
+coverage
+*.lcov
+
+# logs
+logs
+*.log
+
+# dotenv — never commit any .env* file, with one exception: *.example
+# templates are explicitly tracked so contributors know what shape a
+# concrete .env should take (real secrets must NEVER live in those).
+.env
+.env.*
+!.env.*.example
+
+# caches
+.cache
+*.tsbuildinfo
+
+# editors
+.idea
+.vscode
+
+# OS
+.DS_Store

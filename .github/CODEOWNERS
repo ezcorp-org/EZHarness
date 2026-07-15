@@ -1,0 +1,37 @@
+# CODEOWNERS — the coverage/test GATE is human-owned.
+#
+# These paths define HOW features are gated (what's measured, the thresholds,
+# the CI jobs). An autonomous coding agent writes features + tests in the same
+# PR that must pass the gate, so if it could edit the gate it could weaken it.
+# Assigning these paths to a human means any PR touching them requires a review
+# the agent cannot supply.
+#
+# TEETH: only enforced when branch protection on `main` has
+# "Require review from Code Owners" enabled AND the author cannot self-approve.
+# See docs/development-lifecycle.md.
+
+# The gate definition + machinery.
+/.github/workflows/                 @arch1tect0x
+/.github/CODEOWNERS                 @arch1tect0x
+/.github/pull_request_template.md   @arch1tect0x
+/scripts/check-coverage.ts          @arch1tect0x
+/scripts/coverage-config.ts         @arch1tect0x
+/scripts/coverage-thresholds.json   @arch1tect0x
+/scripts/check-new-file-coverage.ts @arch1tect0x
+/scripts/check-patch-coverage.ts    @arch1tect0x
+/scripts/gate-integrity.ts          @arch1tect0x
+/scripts/check-visual-evidence.ts   @arch1tect0x
+/scripts/visual-evidence/           @arch1tect0x
+/scripts/test-coverage.sh           @arch1tect0x
+/scripts/test.sh                    @arch1tect0x
+/scripts/lib/test-file-sets.sh      @arch1tect0x
+/scripts/merge-lcov.ts              @arch1tect0x
+/scripts/lcov-noise-filter.ts       @arch1tect0x
+
+# Shared CI setup/cache machinery (referenced by every job in workflows/).
+/.github/actions/                   @arch1tect0x
+
+# Test-runner + lint config that decides what runs and how strictly.
+/biome.json                         @arch1tect0x
+/bunfig.toml                        @arch1tect0x
+/web/playwright.config.ts           @arch1tect0x
