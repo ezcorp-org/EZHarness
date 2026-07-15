@@ -1,14 +1,16 @@
 /**
  * Dual-lane LLM runner for topic contexts.
  *
- *  - SIDECAR lane: a raw `fetch` to an OpenAI-compatible `/v1/chat/completions`
- *    endpoint. When a JSON schema is supplied it is sent as
- *    `response_format: json_schema` (Ollama ≥0.5 / llama.cpp translate this
- *    to GBNF — grammar-constrained decoding, the accuracy backbone on small
- *    models) with a no-schema retry for servers that reject `response_format`.
- *    pi-ai does NOT pass grammar through, which is why detection cannot use
- *    the pi lane for its constrained pass. Mechanics copied from
- *    `src/suggest/enhance.ts`.
+ *  - SIDECAR lane: a raw `fetch` to a local model endpoint, ENDPOINT-AWARE
+ *    (see `sidecar-endpoint.ts`). An Ollama daemon is driven through its NATIVE
+ *    `/api/chat` with `options.num_ctx` so long transcripts aren't truncated at
+ *    the server's 4096 default — critical for host-network daemons the compose
+ *    `OLLAMA_CONTEXT_LENGTH` env can't reach. Generic OpenAI-compatible servers
+ *    (llama.cpp, …) keep the `/v1/chat/completions` path. A JSON schema is sent
+ *    as grammar-constrained decoding either way (`format` on Ollama,
+ *    `response_format` on `/v1`), with a no-schema retry for servers that reject
+ *    it. pi-ai does NOT pass grammar through, which is why detection cannot use
+ *    the pi lane for its constrained pass.
  *  - PI lane: `completeLLM` (credentials + OAuth model swap). pi-ai reports
  *    provider failures as RESULT FIELDS (`stopReason: "error"` +
  *    `errorMessage`), not throws — without that check a failed call has an
@@ -16,11 +18,18 @@
  *    `summarize_conversation`'s `defaultSummarize` guards against).
  *
  * The runner returns the raw model text; JSON parsing / `<think>` stripping
- * live in detect.ts / extract.ts. `fetchFn` / `completeFn` are injectable so
- * every branch is unit-testable with no network.
+ * live in detect.ts / extract.ts. `fetchFn` / `completeFn` / `detectFn` are
+ * injectable so every branch is unit-testable with no network.
  */
 
 import type { ContextsTarget } from "./config";
+import {
+  type SidecarChatParams,
+  type SidecarEndpointKind,
+  detectSidecarEndpoint,
+  readSidecarContent,
+  sendSidecarChat,
+} from "./sidecar-endpoint";
 
 /** Default completion timeout — a slow local model on a long transcript can
  *  legitimately run well past a chat turn's watchdog. */
@@ -50,68 +59,41 @@ export interface ContextsCompletionDeps {
   // threshold on the merged host-pool run.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   completeFn?: (piModel: any, context: any, opts?: { conversationId?: string }) => Promise<any>;
-}
-
-/** Strip a trailing `/v1`, slashes, or colons — same normalization as
- *  `src/suggest/enhance.ts` so a bare or `/v1`-suffixed baseUrl both work. */
-function normalizeUrl(baseUrl: string): string {
-  return baseUrl.trim().replace(/\/v1\/?$/, "").replace(/[/:]+$/, "");
-}
-
-interface ChatCompletionResponse {
-  choices?: Array<{ message?: { content?: string } }>;
+  /** Resolve the sidecar endpoint kind (ollama vs openai-compatible). Injected
+   *  so the wire shape is asserted without a network probe. */
+  detectFn?: (baseUrl: string) => Promise<SidecarEndpointKind>;
 }
 
 async function runSidecar(
   target: Extract<ContextsTarget, { kind: "sidecar" }>,
   req: ContextsCompletionRequest,
   fetchFn: typeof fetch,
+  detectFn: (baseUrl: string) => Promise<SidecarEndpointKind>,
 ): Promise<string> {
-  const { baseUrl, model } = target;
-  const url = `${normalizeUrl(baseUrl)}/v1/chat/completions`;
-  const timeoutMs = req.timeoutMs ?? DEFAULT_CONTEXTS_TIMEOUT_MS;
-
-  const doRequest = (withSchema: boolean): Promise<Response> => {
-    const body: Record<string, unknown> = {
-      model,
-      stream: false,
-      temperature: req.temperature ?? 0.2,
-      max_tokens: req.maxTokens ?? 2_000,
-      messages: [
-        { role: "system", content: req.systemPrompt },
-        { role: "user", content: req.userPrompt },
-      ],
-    };
-    if (withSchema && req.schema) {
-      body.response_format = {
-        type: "json_schema",
-        json_schema: {
-          name: req.schemaName ?? "contexts_output",
-          strict: true,
-          schema: req.schema,
-        },
-      };
-    }
-    return fetchFn(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+  const kind = await detectFn(target.baseUrl);
+  const params: SidecarChatParams = {
+    baseUrl: target.baseUrl,
+    model: target.model,
+    system: req.systemPrompt,
+    user: req.userPrompt,
+    schema: req.schema,
+    schemaName: req.schemaName ?? "contexts_output",
+    temperature: req.temperature ?? 0.2,
+    maxTokens: req.maxTokens ?? 2_000,
+    timeoutMs: req.timeoutMs ?? DEFAULT_CONTEXTS_TIMEOUT_MS,
   };
 
-  let res = await doRequest(!!req.schema);
-  // Some /v1 servers reject `response_format` — retry once without the
-  // schema (the schema is also described in the system prompt, and the
-  // parser tolerates free-form JSON).
+  let res = await sendSidecarChat(kind, params, !!req.schema, fetchFn);
+  // Some servers reject the grammar constraint — retry once without the
+  // schema (it is also described in the system prompt, and the parser
+  // tolerates free-form JSON).
   if (!res.ok && req.schema) {
-    res = await doRequest(false);
+    res = await sendSidecarChat(kind, params, false, fetchFn);
   }
   if (!res.ok) {
     throw new Error(`contexts sidecar completion failed (HTTP ${res.status})`);
   }
-  const payload = (await res.json()) as ChatCompletionResponse;
-  const content = payload.choices?.[0]?.message?.content;
+  const content = readSidecarContent(kind, await res.json());
   if (typeof content !== "string" || !content.trim()) {
     throw new Error("contexts sidecar returned empty content");
   }
@@ -175,7 +157,7 @@ export async function runContextsCompletion(
   deps: ContextsCompletionDeps = {},
 ): Promise<string> {
   if (req.target.kind === "sidecar") {
-    return runSidecar(req.target, req, deps.fetchFn ?? fetch);
+    return runSidecar(req.target, req, deps.fetchFn ?? fetch, deps.detectFn ?? detectSidecarEndpoint);
   }
   return runPi(req.target, req, deps.completeFn ?? defaultCompleteFn);
 }

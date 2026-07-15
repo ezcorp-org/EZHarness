@@ -32,8 +32,12 @@
 import {
   checkEndpointReachability,
   checkModelAvailability,
-  testInference,
 } from "../providers/local-model-check";
+import {
+  type SidecarEndpointKind,
+  detectSidecarEndpoint,
+  sendSidecarChat,
+} from "./sidecar-endpoint";
 import { getSuggestConfig } from "../suggest/config";
 import { logger } from "../logger";
 
@@ -60,12 +64,60 @@ export const SUPPORTED_TTL_MS = 5 * 60_000;
 /** Re-probe failures sooner so a box that just finished loading recovers. */
 export const FAILURE_TTL_MS = 60_000;
 
+/** Result of the ground-truth tiny inference. */
+export interface ProbeInferenceResult {
+  success: boolean;
+  error?: string;
+}
+
 export interface ModelSupportDeps {
   checkReachability?: typeof checkEndpointReachability;
   checkAvailability?: typeof checkModelAvailability;
-  runInference?: typeof testInference;
+  /** Resolve the sidecar endpoint kind so the probe uses the same wire shape
+   *  (native `/api/chat` + `num_ctx` for Ollama) the real calls will. */
+  detectEndpoint?: (baseUrl: string) => Promise<SidecarEndpointKind>;
+  /** Run the tiny load-check. Default routes through `sendSidecarChat` so the
+   *  KV-cache RAM it measures matches real detect/extract calls. */
+  runInference?: (
+    baseUrl: string,
+    model: string,
+    kind: SidecarEndpointKind,
+    timeoutMs: number,
+  ) => Promise<ProbeInferenceResult>;
+  /** Injected into the default `runInference` (no network in tests). */
+  fetchFn?: typeof fetch;
   getSuggestConfig?: () => Promise<{ baseUrl: string | null; model: string }>;
   nowFn?: () => number;
+}
+
+/**
+ * Default ground-truth probe: a 1-token inference through the SAME endpoint-
+ * aware wire shape real calls use, so an Ollama daemon loads the model with the
+ * full `num_ctx` KV cache (the RAM footprint we're checking for). Never throws.
+ */
+async function defaultProbeInference(
+  baseUrl: string,
+  model: string,
+  kind: SidecarEndpointKind,
+  timeoutMs: number,
+  fetchFn: typeof fetch,
+): Promise<ProbeInferenceResult> {
+  try {
+    const res = await sendSidecarChat(
+      kind,
+      { baseUrl, model, system: "", user: "Say ok", temperature: 0, maxTokens: 1, timeoutMs },
+      false,
+      fetchFn,
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return { success: false, error: `inference returned ${res.status}: ${text}`.trim() };
+    }
+    await res.json();
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /** Strip trailing slashes/colons so the same endpoint keys consistently. */
@@ -101,7 +153,10 @@ export async function checkModelSupport(
   const now = (deps.nowFn ?? Date.now)();
   const checkReachability = deps.checkReachability ?? checkEndpointReachability;
   const checkAvailability = deps.checkAvailability ?? checkModelAvailability;
-  const runInference = deps.runInference ?? testInference;
+  const detectEndpoint = deps.detectEndpoint ?? detectSidecarEndpoint;
+  const runInference =
+    deps.runInference ??
+    ((b, m, k, t) => defaultProbeInference(b, m, k, t, deps.fetchFn ?? fetch));
 
   const reach = await checkReachability(baseUrl);
   if (!reach.reachable || !reach.endpointType) {
@@ -113,7 +168,12 @@ export async function checkModelSupport(
     return { supported: false, baseUrl, model, reason: "model-missing", checkedAt: now };
   }
 
-  const inference = await runInference(baseUrl, model, reach.endpointType, MODEL_SUPPORT_LOAD_BUDGET_MS);
+  // Route the ground-truth inference through the SAME wire shape real calls use
+  // (native `/api/chat` + `num_ctx` for Ollama) so the KV-cache RAM it exercises
+  // matches reality — a compat-only probe would load a smaller cache and
+  // under-report the true footprint.
+  const kind = await detectEndpoint(baseUrl);
+  const inference = await runInference(baseUrl, model, kind, MODEL_SUPPORT_LOAD_BUDGET_MS);
   if (inference.success) {
     return { supported: true, baseUrl, model, checkedAt: now };
   }

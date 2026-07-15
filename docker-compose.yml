@@ -246,15 +246,20 @@ services:
     cpus: 4
     environment:
       # Ollama's default context window is 4096 tokens. Topic Contexts feeds
-      # up-to-60k-char transcripts (~15k tokens) plus a system prompt and asks
-      # for up to ~4k tokens of output — well past 4096, so the default would
-      # SILENTLY truncate the prompt (dropping schema instructions or anchored
-      # messages) and wreck detection/extraction accuracy. Raising the server
-      # default makes the OpenAI-compat /v1/chat/completions calls (which don't
-      # send a per-request num_ctx) load models with an adequate window. A
-      # larger window also enlarges the KV cache the model needs to load; the
-      # resource-aware support gate loads the model under this same server
-      # context, so a box that can't afford it is correctly marked unsupported.
+      # up-to-60k-char transcripts (~15k tokens) plus a system prompt — well past
+      # 4096 — so a too-small window SILENTLY truncates the prompt (dropping
+      # schema instructions or anchored messages) and wrecks accuracy. This env
+      # sets the server-side default for consumers on the OpenAI-compat lane
+      # (e.g. composer-suggest/enhance) and for this BUNDLED daemon.
+      #
+      # NOTE: Topic Contexts itself is now ENDPOINT-AWARE IN CODE
+      # (src/contexts/sidecar-endpoint.ts): when the endpoint is Ollama it uses
+      # the NATIVE /api/chat with a per-request options.num_ctx, so it gets an
+      # adequate window even against a HOST-network / BYO Ollama daemon this
+      # compose env can never configure. Both read the same override var
+      # (EZCORP_OLLAMA_CONTEXT_LENGTH) so server + code stay in lockstep. The
+      # resource-aware support gate probes through that same native shape, so a
+      # box that can't afford the KV cache is correctly marked unsupported.
       - OLLAMA_CONTEXT_LENGTH=${EZCORP_OLLAMA_CONTEXT_LENGTH:-16384}
     ports:
       - "127.0.0.1:11434:11434"

@@ -29,7 +29,13 @@ function sidecarReq(overrides: Partial<ContextsCompletionRequest> = {}): Context
   };
 }
 
-describe("sidecar lane", () => {
+// Endpoint detection is injected so the wire shape is deterministic + network-
+// free. The generic /v1 (compat) path is the default for these assertions; the
+// native Ollama path has its own describe below.
+const compat = async () => "openai-compatible" as const;
+const ollama = async () => "ollama" as const;
+
+describe("sidecar lane — openai-compatible (/v1)", () => {
   test("happy path sends json_schema, normalizes the /v1 baseUrl, returns content", async () => {
     let capturedUrl = "";
     let capturedBody: any;
@@ -39,7 +45,7 @@ describe("sidecar lane", () => {
       return jsonResponse({ choices: [{ message: { content: "hello" } }] });
     }) as unknown as typeof fetch;
 
-    const out = await runContextsCompletion(sidecarReq(), { fetchFn });
+    const out = await runContextsCompletion(sidecarReq(), { fetchFn, detectFn: compat });
     expect(out).toBe("hello");
     // trailing /v1 stripped then re-appended → exactly one /v1
     expect(capturedUrl).toBe("http://local:11434/v1/chat/completions");
@@ -58,7 +64,7 @@ describe("sidecar lane", () => {
       return jsonResponse({ choices: [{ message: { content: "recovered" } }] });
     }) as unknown as typeof fetch;
 
-    const out = await runContextsCompletion(sidecarReq(), { fetchFn });
+    const out = await runContextsCompletion(sidecarReq(), { fetchFn, detectFn: compat });
     expect(out).toBe("recovered");
     expect(calls).toHaveLength(2);
     expect(calls[0].response_format).toBeDefined();
@@ -67,7 +73,7 @@ describe("sidecar lane", () => {
 
   test("retry also fails → throws with the HTTP status", async () => {
     const fetchFn = (async () => jsonResponse({}, false, 503)) as unknown as typeof fetch;
-    await expect(runContextsCompletion(sidecarReq(), { fetchFn })).rejects.toThrow(/HTTP 503/);
+    await expect(runContextsCompletion(sidecarReq(), { fetchFn, detectFn: compat })).rejects.toThrow(/HTTP 503/);
   });
 
   test("no-schema request (extraction) makes a single call, no retry", async () => {
@@ -76,23 +82,23 @@ describe("sidecar lane", () => {
       count++;
       return jsonResponse({ choices: [{ message: { content: "# md" } }] });
     }) as unknown as typeof fetch;
-    const out = await runContextsCompletion(sidecarReq({ schema: undefined }), { fetchFn });
+    const out = await runContextsCompletion(sidecarReq({ schema: undefined }), { fetchFn, detectFn: compat });
     expect(out).toBe("# md");
     expect(count).toBe(1);
   });
 
   test("empty / non-string content → throws", async () => {
     const empty = (async () => jsonResponse({ choices: [{ message: { content: "   " } }] })) as unknown as typeof fetch;
-    await expect(runContextsCompletion(sidecarReq(), { fetchFn: empty })).rejects.toThrow(/empty content/);
+    await expect(runContextsCompletion(sidecarReq(), { fetchFn: empty, detectFn: compat })).rejects.toThrow(/empty content/);
     const missing = (async () => jsonResponse({ choices: [{}] })) as unknown as typeof fetch;
-    await expect(runContextsCompletion(sidecarReq(), { fetchFn: missing })).rejects.toThrow(/empty content/);
+    await expect(runContextsCompletion(sidecarReq(), { fetchFn: missing, detectFn: compat })).rejects.toThrow(/empty content/);
   });
 
   test("fetch rejection (abort/timeout) propagates", async () => {
     const fetchFn = (async () => {
       throw new DOMException("The operation timed out.", "TimeoutError");
     }) as unknown as typeof fetch;
-    await expect(runContextsCompletion(sidecarReq(), { fetchFn })).rejects.toThrow(/timed out/);
+    await expect(runContextsCompletion(sidecarReq(), { fetchFn, detectFn: compat })).rejects.toThrow(/timed out/);
   });
 
   test("passes the abort signal with the requested timeout", async () => {
@@ -101,8 +107,47 @@ describe("sidecar lane", () => {
       sawSignal = init.signal instanceof AbortSignal;
       return jsonResponse({ choices: [{ message: { content: "x" } }] });
     }) as unknown as typeof fetch;
-    await runContextsCompletion(sidecarReq({ timeoutMs: DEFAULT_CONTEXTS_TIMEOUT_MS }), { fetchFn });
+    await runContextsCompletion(sidecarReq({ timeoutMs: DEFAULT_CONTEXTS_TIMEOUT_MS }), { fetchFn, detectFn: compat });
     expect(sawSignal).toBe(true);
+  });
+});
+
+describe("sidecar lane — ollama native (/api/chat + num_ctx)", () => {
+  test("detection 'ollama' → native /api/chat with options.num_ctx + format, reads message.content", async () => {
+    let capturedUrl = "";
+    let capturedBody: any;
+    const fetchFn = (async (url: string, init: RequestInit) => {
+      capturedUrl = url;
+      capturedBody = JSON.parse(init.body as string);
+      return jsonResponse({ message: { content: "native-out" } });
+    }) as unknown as typeof fetch;
+
+    const out = await runContextsCompletion(sidecarReq(), { fetchFn, detectFn: ollama });
+    expect(out).toBe("native-out");
+    expect(capturedUrl).toBe("http://local:11434/api/chat");
+    expect(capturedBody.options.num_ctx).toBeGreaterThanOrEqual(16384);
+    expect(capturedBody.options.num_predict).toBeDefined();
+    expect(capturedBody.format).toEqual({ type: "object" }); // grammar preserved
+    expect(capturedBody.response_format).toBeUndefined();
+  });
+
+  test("no-OK native with schema → retries without format, reads message.content", async () => {
+    const calls: any[] = [];
+    const fetchFn = (async (_url: string, init: RequestInit) => {
+      calls.push(JSON.parse(init.body as string));
+      if (calls.length === 1) return jsonResponse({}, false, 400);
+      return jsonResponse({ message: { content: "native-recovered" } });
+    }) as unknown as typeof fetch;
+
+    const out = await runContextsCompletion(sidecarReq(), { fetchFn, detectFn: ollama });
+    expect(out).toBe("native-recovered");
+    expect(calls[0].format).toBeDefined();
+    expect(calls[1].format).toBeUndefined();
+  });
+
+  test("empty native content → throws", async () => {
+    const fetchFn = (async () => jsonResponse({ message: { content: "  " } })) as unknown as typeof fetch;
+    await expect(runContextsCompletion(sidecarReq(), { fetchFn, detectFn: ollama })).rejects.toThrow(/empty content/);
   });
 });
 

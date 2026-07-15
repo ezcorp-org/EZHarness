@@ -26,7 +26,8 @@ function deps(overrides: ModelSupportDeps = {}): ModelSupportDeps {
   return {
     checkReachability: async () => ({ reachable: true, endpointType: "ollama" }),
     checkAvailability: async () => ({ available: true }),
-    runInference: async () => ({ success: true, latencyMs: 10 }),
+    detectEndpoint: async () => "openai-compatible",
+    runInference: async () => ({ success: true }),
     getSuggestConfig: async () => ({ baseUrl: BASE, model: MODEL }),
     nowFn: () => 1_000,
     ...overrides,
@@ -65,15 +66,19 @@ describe("checkModelSupport branches", () => {
     expect(r.reason).toBeUndefined();
   });
 
-  test("inference passes the 30s cold-load budget to runInference", async () => {
+  test("passes the 30s cold-load budget + the detected endpoint kind to runInference", async () => {
     let seenTimeout: number | undefined;
+    let seenKind: string | undefined;
     await checkModelSupport(BASE, MODEL, deps({
-      runInference: async (_u, _m, _t, timeoutMs) => {
+      detectEndpoint: async () => "ollama",
+      runInference: async (_u, _m, kind, timeoutMs) => {
         seenTimeout = timeoutMs;
-        return { success: true, latencyMs: 5 };
+        seenKind = kind;
+        return { success: true };
       },
     }));
     expect(seenTimeout).toBe(MODEL_SUPPORT_LOAD_BUDGET_MS);
+    expect(seenKind).toBe("ollama");
   });
 
   test("inference times out/aborts → timeout", async () => {
@@ -102,9 +107,72 @@ describe("checkModelSupport branches", () => {
     const r = await checkModelSupport(BASE, MODEL, {
       checkReachability: async () => ({ reachable: true, endpointType: "ollama" }),
       checkAvailability: async () => ({ available: true }),
-      runInference: async () => ({ success: true, latencyMs: 1 }),
+      detectEndpoint: async () => "openai-compatible",
+      runInference: async () => ({ success: true }),
     });
     expect(r.checkedAt).toBeGreaterThanOrEqual(before);
+  });
+});
+
+describe("default probe inference (RAM-honest wire shape, no injected runInference)", () => {
+  const okResp = () => ({ ok: true, status: 200, json: async () => ({}) }) as unknown as Response;
+  const badResp = (status: number) =>
+    ({ ok: false, status, text: async () => "boom" }) as unknown as Response;
+
+  test("ollama → native /api/chat with options.num_ctx, model loads → supported", async () => {
+    let seenUrl = "";
+    let seenBody: any;
+    const fetchFn = (async (url: string, init: RequestInit) => {
+      seenUrl = url;
+      seenBody = JSON.parse(init.body as string);
+      return okResp();
+    }) as unknown as typeof fetch;
+    const r = await checkModelSupport(BASE, MODEL, deps({
+      detectEndpoint: async () => "ollama",
+      runInference: undefined,
+      fetchFn,
+    }));
+    expect(r.supported).toBe(true);
+    expect(seenUrl).toBe(`${BASE}/api/chat`);
+    // RAM-honest: the probe loads the model with the full context window.
+    expect(seenBody.options.num_ctx).toBeGreaterThanOrEqual(16384);
+  });
+
+  test("non-OK inference → load-failed", async () => {
+    const fetchFn = (async () => badResp(500)) as unknown as typeof fetch;
+    const r = await checkModelSupport(BASE, MODEL, deps({ runInference: undefined, fetchFn }));
+    expect(r).toMatchObject({ supported: false, reason: "load-failed" });
+  });
+
+  test("fetch throws timeout/abort → timeout", async () => {
+    const fetchFn = (async () => {
+      throw new DOMException("The operation was aborted.", "AbortError");
+    }) as unknown as typeof fetch;
+    const r = await checkModelSupport(BASE, MODEL, deps({ runInference: undefined, fetchFn }));
+    expect(r.reason).toBe("timeout");
+  });
+
+  test("fetch throws other error → load-failed", async () => {
+    const fetchFn = (async () => {
+      throw new Error("connection reset");
+    }) as unknown as typeof fetch;
+    const r = await checkModelSupport(BASE, MODEL, deps({ runInference: undefined, fetchFn }));
+    expect(r.reason).toBe("load-failed");
+  });
+
+  test("openai-compatible → /v1/chat/completions (compat probe)", async () => {
+    let seenUrl = "";
+    const fetchFn = (async (url: string) => {
+      seenUrl = url;
+      return okResp();
+    }) as unknown as typeof fetch;
+    const r = await checkModelSupport(BASE, MODEL, deps({
+      detectEndpoint: async () => "openai-compatible",
+      runInference: undefined,
+      fetchFn,
+    }));
+    expect(r.supported).toBe(true);
+    expect(seenUrl).toBe(`${BASE}/v1/chat/completions`);
   });
 });
 
