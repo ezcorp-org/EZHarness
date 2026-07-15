@@ -826,11 +826,15 @@ describe("GET /api/conversations/[id]/tasks/[taskId]/messages", () => {
     });
     taskStore.tasks[0].assignments = [assignment1, assignment2];
 
-    mockGetMessages.mockImplementation(async (convId: string) => {
-      if (convId === "sub-conv-1") return [{ id: "msg-1", content: "Hello" }];
-      if (convId === "sub-conv-2") return [{ id: "msg-2", content: "Done" }];
-      return [];
-    });
+    mockGetMessagesWithToolCalls.mockImplementation(async (convId: string) => ({
+      messages: convId === "sub-conv-1"
+        ? [{ id: "msg-1", content: "Hello", toolCalls: [] }]
+        : convId === "sub-conv-2"
+          ? [{ id: "msg-2", content: "Done", toolCalls: [] }]
+          : [],
+      subConversations: [],
+      orphanedToolCalls: [],
+    }));
 
     const res = await GET_taskMessages(makeGetMessagesEvent("conv-1", "task-1"));
     expect(res.status).toBe(200);
@@ -857,18 +861,20 @@ describe("GET /api/conversations/[id]/tasks/[taskId]/messages", () => {
     });
     taskStore.tasks[0].assignments = [withConvo, withoutConvo];
 
-    mockGetMessages.mockImplementation(async () => [
-      { id: "msg-1", content: "Hello" },
-    ]);
+    mockGetMessagesWithToolCalls.mockImplementation(async () => ({
+      messages: [{ id: "msg-1", content: "Hello", toolCalls: [] }],
+      subConversations: [],
+      orphanedToolCalls: [],
+    }));
 
     const res = await GET_taskMessages(makeGetMessagesEvent("conv-1", "task-1"));
     const body = await res.json();
 
     expect(body.streams).toHaveLength(1);
     expect(body.streams[0].assignmentId).toBe("a1");
-    // getMessages should only be called once (for the assignment with a sub-conv)
-    expect(mockGetMessages).toHaveBeenCalledTimes(1);
-    expect(mockGetMessages).toHaveBeenCalledWith("sub-conv-1");
+    // Hydrated messages should only be loaded once (for the assignment with a sub-conv).
+    expect(mockGetMessagesWithToolCalls).toHaveBeenCalledTimes(1);
+    expect(mockGetMessagesWithToolCalls).toHaveBeenCalledWith("sub-conv-1");
   });
 
   test("includes subtask-level assignment messages", async () => {
@@ -888,9 +894,11 @@ describe("GET /api/conversations/[id]/tasks/[taskId]/messages", () => {
       },
     ];
 
-    mockGetMessages.mockImplementation(async () => [
-      { id: "msg-sub", content: "Subtask msg" },
-    ]);
+    mockGetMessagesWithToolCalls.mockImplementation(async () => ({
+      messages: [{ id: "msg-sub", content: "Subtask msg", toolCalls: [] }],
+      subConversations: [],
+      orphanedToolCalls: [],
+    }));
 
     const res = await GET_taskMessages(makeGetMessagesEvent("conv-1", "task-1"));
     const body = await res.json();

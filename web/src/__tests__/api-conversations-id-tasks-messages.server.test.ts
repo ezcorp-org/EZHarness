@@ -13,12 +13,12 @@
 import { test, expect, describe, vi, beforeEach } from "vitest";
 
 const getConversation = vi.fn();
-const getMessages = vi.fn();
+const getMessagesWithToolCalls = vi.fn();
 const getTaskSnapshotForConversation = vi.fn();
 
 vi.mock("$server/db/queries/conversations", () => ({
   getConversation,
-  getMessages,
+  getMessagesWithToolCalls,
 }));
 
 vi.mock("$server/runtime/task-tracking-host", () => ({
@@ -47,7 +47,7 @@ const user = { id: "u1", email: "u@x", name: "u", role: "user" };
 describe("GET /api/conversations/[id]/tasks/[taskId]/messages", () => {
   beforeEach(() => {
     getConversation.mockReset();
-    getMessages.mockReset();
+    getMessagesWithToolCalls.mockReset();
     getTaskSnapshotForConversation.mockReset();
   });
 
@@ -125,9 +125,13 @@ describe("GET /api/conversations/[id]/tasks/[taskId]/messages", () => {
         },
       ],
     });
-    getMessages.mockImplementation(async (sid: string) => [
-      { id: `m-${sid}`, role: "assistant", content: "hi" },
-    ]);
+    getMessagesWithToolCalls.mockImplementation(async (sid: string) => ({
+      messages: [
+        { id: `m-${sid}`, role: "assistant", content: "hi", toolCalls: [] },
+      ],
+      subConversations: [],
+      orphanedToolCalls: [],
+    }));
 
     const res = await GET(makeEvent({ locals: { user } }));
     expect(res.status).toBe(200);
@@ -137,5 +141,61 @@ describe("GET /api/conversations/[id]/tasks/[taskId]/messages", () => {
     expect(body.streams.length).toBe(2);
     const ids = body.streams.map((s) => s.assignmentId).sort();
     expect(ids).toEqual(["as-1", "as-3"]);
+  });
+
+  test("hydrates tool calls so tool-only sub-agent turns are not blank", async () => {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
+    getTaskSnapshotForConversation.mockResolvedValue({
+      conversationId: "c1",
+      tasks: [
+        {
+          id: "t1",
+          status: "active",
+          assignments: [
+            {
+              id: "as-tool",
+              agentName: "Builder",
+              subConversationId: "sub-tool",
+              status: "running",
+            },
+          ],
+          subtasks: [],
+        },
+      ],
+    });
+    const toolCall = {
+      id: "tc-1",
+      extensionId: "filesystem",
+      toolName: "edit_file",
+      input: { path: "src/example.ts" },
+      outputSummary: "Updated file",
+      success: true,
+      durationMs: 12,
+      status: "success",
+    };
+    getMessagesWithToolCalls.mockResolvedValue({
+      messages: [
+        {
+          id: "assistant-tool-only",
+          role: "assistant",
+          content: "",
+          toolCalls: [toolCall],
+        },
+      ],
+      subConversations: [],
+      orphanedToolCalls: [],
+    });
+
+    const res = await GET(makeEvent({ locals: { user } }));
+    const body = (await res.json()) as {
+      streams: Array<{ messages: Array<{ content: string; toolCalls: unknown[] }> }>;
+    };
+
+    expect(res.status).toBe(200);
+    expect(getMessagesWithToolCalls).toHaveBeenCalledWith("sub-tool");
+    expect(body.streams[0]?.messages[0]).toMatchObject({
+      content: "",
+      toolCalls: [toolCall],
+    });
   });
 });

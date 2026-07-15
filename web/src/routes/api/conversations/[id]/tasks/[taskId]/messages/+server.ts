@@ -35,7 +35,13 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 
   const streams = await Promise.all(
     assignmentsWithConvos.map(async (a) => {
-      const messages = await convQueries.getMessages(a.subConversationId!);
+      // TaskLogsPanel renders tool-only assistant turns from `message.toolCalls`.
+      // Plain getMessages() omits that relation, leaving those turns as an empty
+      // header even though their tool activity was persisted. Use the hydrated
+      // query so text and tool-call logs share the same per-message payload.
+      const { messages } = await convQueries.getMessagesWithToolCalls(
+        a.subConversationId!,
+      );
       return {
         assignmentId: a.id,
         agentName: a.agentName,
