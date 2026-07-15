@@ -30,9 +30,11 @@ const {
 	createSubMock,
 	cloneTurnsMock,
 	gotoMock,
+	copyToClipboardMock,
 } = vi.hoisted(() => ({
 	cloneTurnsMock: vi.fn(async () => ({ id: "fork-1" })),
 	gotoMock: vi.fn(),
+	copyToClipboardMock: vi.fn(async () => true),
 	sendMessageMock: vi.fn(async (_c: string, d: { content: string }) => ({
 		userMessage: {
 			id: `srv-${Math.random().toString(36).slice(2, 6)}`,
@@ -155,10 +157,32 @@ vi.mock("$lib/utils/fetch-policy.js", () => ({
 			};
 		if (url.includes("/active-run"))
 			return { ok: true, json: async () => ({ runId: null }) };
+		if (url.endsWith("/topics"))
+			return {
+				ok: true,
+				json: async () => ({
+					topics: [
+						{ id: "t1", label: "Auth", typeId: "feature", messageIds: ["u1"] },
+					],
+					stale: false,
+					analyzedAt: "2026-07-13T00:00:00.000Z",
+				}),
+			};
+		if (url.includes("/context-types"))
+			return {
+				ok: true,
+				json: async () => ({
+					types: [
+						{ id: "feature", label: "Feature", description: "", sortOrder: 0 },
+					],
+				}),
+			};
 		return null;
 	}),
 	invalidate: vi.fn(),
 }));
+
+vi.mock("$lib/clipboard.js", () => ({ copyToClipboard: copyToClipboardMock }));
 
 vi.mock("$lib/api.js", () => ({
 	sendMessage: sendMessageMock,
@@ -833,5 +857,179 @@ describe("ChatThread sub-conversation + bulk + misc", () => {
 			// stable — either way no throw.
 			expect(container).toBeTruthy();
 		});
+	});
+});
+
+describe("ChatThread topic contexts (WS4)", () => {
+	test("cache-only GET on mount hydrates topics + context types", async () => {
+		const { api } = mount(linear());
+		await vi.waitFor(() =>
+			expect(api.__test.getTopicsState().list.length).toBe(1),
+		);
+		const st = api.__test.getTopicsState();
+		expect(st.analyzedAt).toBe("2026-07-13T00:00:00.000Z");
+		expect(st.stale).toBe(false);
+	});
+
+	test("handleDetectTopics success replaces topics + opens the popover", async () => {
+		const { api } = mount(linear());
+		userFetchMock.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({
+				topics: [
+					{ id: "t2", label: "Rate limit", typeId: "bug-fix", messageIds: ["u2"] },
+				],
+				stale: true,
+				analyzedAt: "2026-07-13T01:00:00.000Z",
+			}),
+		});
+		await api.__test.handleDetectTopics();
+		const st = api.__test.getTopicsState();
+		expect(st.open).toBe(true);
+		expect(st.analyzing).toBe(false);
+		expect(st.list.map((t: { id: string }) => t.id)).toContain("t2");
+		expect(st.stale).toBe(true);
+	});
+
+	test("handleDetectTopics tolerates a partial body (defaults applied)", async () => {
+		const { api } = mount(linear());
+		userFetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+		await api.__test.handleDetectTopics();
+		const st = api.__test.getTopicsState();
+		expect(st.list).toEqual([]);
+		expect(st.stale).toBe(false);
+		expect(st.analyzedAt).toBeNull();
+	});
+
+	test("handleDetectTopics 503 surfaces the actionable error", async () => {
+		const { api } = mount(linear());
+		userFetchMock.mockResolvedValueOnce({
+			ok: false,
+			status: 503,
+			json: async () => ({ error: "No model available" }),
+		});
+		await api.__test.handleDetectTopics();
+		expect(api.__test.getTopicsState().analyzeError).toBe("No model available");
+	});
+
+	test("handleDetectTopics network throw falls back to the default error", async () => {
+		const { api } = mount(linear());
+		userFetchMock.mockRejectedValueOnce(new Error("net"));
+		await api.__test.handleDetectTopics();
+		expect(api.__test.getTopicsState().analyzeError).toContain("Couldn't analyze");
+	});
+
+	test("handleExtractTopic success copies + shows the result", async () => {
+		copyToClipboardMock.mockResolvedValueOnce(true);
+		const { api } = mount(linear());
+		userFetchMock.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({
+				context: {
+					id: "ctx-1",
+					topicLabel: "Auth",
+					typeId: "feature",
+					title: "Auth context",
+					content: "JWT rotation",
+					model: "ollama/qwen3:1.7b",
+					updatedAt: "2026-07-13T00:00:00.000Z",
+				},
+			}),
+		});
+		await api.__test.handleExtractTopic("t1");
+		const st = api.__test.getTopicsState();
+		expect(st.extractState.status).toBe("copied");
+		expect(st.busyId).toBeNull();
+		expect(copyToClipboardMock).toHaveBeenCalledWith("JWT rotation");
+	});
+
+	test("handleExtractTopic surfaces copyFailed when auto-copy is blocked", async () => {
+		copyToClipboardMock.mockResolvedValueOnce(false);
+		const { api } = mount(linear());
+		userFetchMock.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({
+				context: {
+					id: "ctx-2",
+					topicLabel: "Auth",
+					typeId: "feature",
+					title: "Auth",
+					content: "body",
+					model: "m",
+					updatedAt: "2026-07-13T00:00:00.000Z",
+				},
+			}),
+		});
+		await api.__test.handleExtractTopic("t1");
+		expect(api.__test.getTopicsState().extractState.status).toBe("copyFailed");
+	});
+
+	test("handleExtractTopic 503 shows the extract error", async () => {
+		const { api } = mount(linear());
+		userFetchMock.mockResolvedValueOnce({
+			ok: false,
+			status: 503,
+			json: async () => ({ error: "No model" }),
+		});
+		await api.__test.handleExtractTopic("t1");
+		const st = api.__test.getTopicsState();
+		expect(st.extractState.status).toBe("error");
+		expect(st.extractState.message).toBe("No model");
+	});
+
+	test("handleExtractTopic 500 fault shows the generic copy, not the 503 no-model copy", async () => {
+		const { api } = mount(linear());
+		userFetchMock.mockResolvedValueOnce({
+			ok: false,
+			status: 500,
+			// SvelteKit's masked 500 shape carries no usable `error` field.
+			json: async () => ({ message: "Internal Error" }),
+		});
+		await api.__test.handleExtractTopic("t1");
+		const st = api.__test.getTopicsState();
+		expect(st.extractState.status).toBe("error");
+		expect(st.extractState.message).toContain("something went wrong");
+		expect(st.extractState.message).not.toContain("no model was available");
+	});
+
+	test("handleExtractTopic network throw falls back to the generic-fault copy", async () => {
+		const { api } = mount(linear());
+		userFetchMock.mockRejectedValueOnce(new Error("net"));
+		await api.__test.handleExtractTopic("t1");
+		const st = api.__test.getTopicsState();
+		expect(st.extractState.status).toBe("error");
+		expect(st.extractState.message).toContain("something went wrong");
+	});
+
+	test("handleTopicManualCopy flips copyFailed → copied on success", async () => {
+		copyToClipboardMock.mockResolvedValueOnce(false);
+		const { api } = mount(linear());
+		userFetchMock.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({
+				context: {
+					id: "ctx-3",
+					topicLabel: "Auth",
+					typeId: "feature",
+					title: "Auth",
+					content: "body-3",
+					model: "m",
+					updatedAt: "2026-07-13T00:00:00.000Z",
+				},
+			}),
+		});
+		await api.__test.handleExtractTopic("t1");
+		expect(api.__test.getTopicsState().extractState.status).toBe("copyFailed");
+		copyToClipboardMock.mockResolvedValueOnce(true);
+		await api.__test.handleTopicManualCopy("body-3");
+		expect(api.__test.getTopicsState().extractState.status).toBe("copied");
+	});
+
+	test("toggleTopics flips the popover open state", () => {
+		const { api } = mount(linear());
+		api.__test.toggleTopics(true);
+		expect(api.__test.getTopicsState().open).toBe(true);
+		api.__test.toggleTopics(false);
+		expect(api.__test.getTopicsState().open).toBe(false);
 	});
 });

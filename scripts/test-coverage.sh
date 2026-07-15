@@ -236,6 +236,14 @@ run_legs() {
       src/lib/ez/__tests__/page-context.unit.test.ts \
       src/lib/ez/__tests__/client-tool-dispatcher.unit.test.ts \
       src/__tests__/api-projects-id-features-scan.server.test.ts \
+      src/lib/topic-contexts-logic.unit.test.ts \
+      src/lib/components/__tests__/TopicPills.component.test.ts \
+      src/lib/components/__tests__/TopicsPopover.component.test.ts \
+      src/lib/components/__tests__/TopicContextsSection.component.test.ts \
+      src/__tests__/api-context-types.server.test.ts \
+      src/__tests__/api-contexts.server.test.ts \
+      src/__tests__/api-conversations-topics.server.test.ts \
+      src/__tests__/api-topics-extract.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -318,7 +326,18 @@ run_legs() {
       --coverage.include='src/lib/dev-badge.ts' \
       --coverage.include='src/lib/components/DevBadge.svelte' \
       --coverage.include='src/lib/ez/page-context.ts' \
-      --coverage.include='src/lib/ez/client-tool-dispatcher.ts' ) || VITEST_EXIT=$?
+      --coverage.include='src/lib/ez/client-tool-dispatcher.ts' \
+      --coverage.include='src/lib/topic-contexts-logic.ts' \
+      --coverage.include='src/lib/components/chat/TopicPills.svelte' \
+      --coverage.include='src/lib/components/chat/TopicsPopover.svelte' \
+      --coverage.include='src/lib/components/settings/TopicContextsSection.svelte' \
+      --coverage.include='src/routes/api/conversations/[id]/topics/+server.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/topics/schema.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/topics/[topicId]/extract/+server.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/topics/[topicId]/extract/schema.ts' \
+      --coverage.include='src/routes/api/contexts/+server.ts' \
+      --coverage.include='src/routes/api/contexts/[id]/+server.ts' \
+      --coverage.include='src/routes/api/context-types/+server.ts' ) || VITEST_EXIT=$?
   # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
   # resolves them against the repo root and the web/src/... threshold keys match.
   if [ -f "$VITEST_COV/lcov.info" ]; then

@@ -17,6 +17,8 @@
 	import CapabilityEventPill, { parseCapabilityEventContent } from "./CapabilityEventPill.svelte";
 	import ProviderIcon from "./ProviderIcon.svelte";
 	import MessageAttachments from "./MessageAttachments.svelte";
+	import TopicPills from "./chat/TopicPills.svelte";
+	import type { Topic } from "$lib/topic-contexts-logic.js";
 	import { getSegments } from "$lib/mention-logic.js";
 	import { fmtTokens } from "$lib/context-usage-logic.js";
 	import { formatMessageForCopy } from "$lib/message-copy.js";
@@ -76,6 +78,9 @@
 		onedittext,
 		onexclude,
 		pulse = false,
+		topics,
+		topicBusyId = null,
+		onextracttopic,
 	}: {
 		message: Message;
 		streamingText?: string;
@@ -151,6 +156,14 @@
 		 *  pulse self-clears visually via the one-shot animation and is disabled
 		 *  under prefers-reduced-motion. */
 		pulse?: boolean;
+		/** Topic Contexts (WS4): topics anchored to THIS message. When
+		 *  non-empty, a hover-revealed <TopicPills> overlay renders on the row;
+		 *  clicking a pill fires `onextracttopic`. Wired by ChatThread only for
+		 *  the page variant (undefined elsewhere → no pills). */
+		topics?: Topic[];
+		/** Topic id whose extract is in flight (drives the pill spinner + guard). */
+		topicBusyId?: string | null;
+		onextracttopic?: (topicId: string) => void;
 	} = $props();
 
 	// Elapsed counter for the main streaming turn. Reused pattern from AgentChip.svelte.
@@ -626,6 +639,9 @@
 			>{#if hasUserMentions}{#each userSegments as seg}{#if seg.type === "text"}{seg.text}{:else if seg.type === "mention"}<MentionChip name={seg.name} kind={seg.kind === 'ext' ? 'extension' : seg.kind === 'cmd' ? 'command' : seg.kind as 'agent' | 'team' | 'EZ' | 'file' | 'dir' | 'feature' | 'lesson'} tooltip={tooltipForMention(seg.name)} />{/if}{/each}{:else}{message.content}{/if}</p>
 			<MessageAttachments attachments={message.attachments} />
 		</div>
+		{#if topics && topics.length > 0 && !selectable && onextracttopic}
+			<TopicPills {topics} busyId={topicBusyId} onextract={onextracttopic} />
+		{/if}
 		{#if !isStreaming && !selectable}
 			<MessageToolbar
 				role="user"
@@ -917,6 +933,9 @@
 				{/if}
 			</div>
 		</div>
+		{#if topics && topics.length > 0 && !selectable && onextracttopic}
+			<TopicPills {topics} busyId={topicBusyId} onextract={onextracttopic} />
+		{/if}
 		{#if !isStreaming && !selectable}
 			<MessageToolbar
 				role="assistant"

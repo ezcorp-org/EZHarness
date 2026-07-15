@@ -1543,3 +1543,114 @@ export const extensionRbacGrants = pgTable("extension_rbac_grants", {
 
 export type ExtensionRbacGrant = typeof extensionRbacGrants.$inferSelect;
 export type NewExtensionRbacGrant = typeof extensionRbacGrants.$inferInsert;
+
+// ── Topic Contexts (per-conversation topic detection + saved library) ──
+//
+// Four tables backing the "click a topic pill → extract that topic's
+// context → copy + save it searchable" feature. See
+// src/db/migrations/add-topic-contexts.ts for the full rationale and the
+// migration-only DDL (the `lower(label)` unique index has no portable
+// drizzle helper, so it lives in migrate.ts).
+//
+// User's binding constraint: the classification type enum lives in the DB
+// (`context_types`) and every detection call reads the LIVE rows and
+// constrains the model's output to them — no near-duplicate enum
+// proliferation.
+
+/**
+ * The DB-resident classification enum. v1 read-only via API — seeded
+ * `ON CONFLICT DO NOTHING` in migrate.ts. `description` is fed to the
+ * detection prompt so the model classifies against live definitions.
+ */
+export const contextTypes = pgTable("context_types", {
+  id: text("id").primaryKey(), // slug: 'feature' | 'idea' | 'decision' | …
+  label: text("label").notNull(),
+  description: text("description").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  // 'seed' = one of the 10 canonical types; 'auto' = an LLM-proposed type
+  // created on the fly during detection (anti-sprawl capped server-side).
+  source: text("source").notNull().default("seed"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ContextType = typeof contextTypes.$inferSelect;
+export type NewContextType = typeof contextTypes.$inferInsert;
+
+/**
+ * Detected topics for a conversation. Re-detection is a transactional
+ * replace-set keyed by `lower(label)`: surviving labels KEEP their row id
+ * (stable pill ids), missing labels are deleted, new labels are inserted.
+ * The `(conversation_id, lower(label))` unique index lives in migrate.ts.
+ */
+export const conversationTopics = pgTable("conversation_topics", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  typeId: text("type_id").notNull().references(() => contextTypes.id, { onDelete: "restrict" }),
+  /** Anchor message ids this topic is relevant to (subset of the
+   *  conversation's real message ids, validated server-side). */
+  messageIds: jsonb("message_ids").notNull().$type<string[]>().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_conversation_topics_conversation").on(table.conversationId),
+  // The `(conversation_id, lower(label))` UNIQUE index is declared in
+  // migrate.ts — drizzle has no portable functional-index helper.
+]);
+
+export type ConversationTopic = typeof conversationTopics.$inferSelect;
+export type NewConversationTopic = typeof conversationTopics.$inferInsert;
+
+/**
+ * Per-conversation staleness watermark. One row per conversation (PK on
+ * conversation_id). Chat-open reads it to render the "N new messages"
+ * refresh label without re-running detection.
+ */
+export const conversationTopicState = pgTable("conversation_topic_state", {
+  conversationId: text("conversation_id").primaryKey().references(() => conversations.id, { onDelete: "cascade" }),
+  lastMessageId: text("last_message_id"),
+  messageCount: integer("message_count").notNull().default(0),
+  model: text("model"),
+  analyzedAt: timestamp("analyzed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ConversationTopicState = typeof conversationTopicState.$inferSelect;
+export type NewConversationTopicState = typeof conversationTopicState.$inferInsert;
+
+/**
+ * Library snapshots — one row per (user, conversation, topicLabel). A
+ * re-extract UPSERTS (latest snapshot wins, no duplicate rows) via the
+ * `(user_id, conversation_id, topic_label)` unique index below.
+ *
+ * `topic_label` is a TEXT SNAPSHOT, not an FK to conversation_topics — a
+ * saved context outlives re-detection that may drop/rename the topic.
+ * `conversation_id` is ON DELETE SET NULL so deleting a conversation keeps
+ * the saved snapshot but severs the (now-dangling) back-reference.
+ */
+export const savedContexts = pgTable("saved_contexts", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  topicLabel: text("topic_label").notNull(),
+  typeId: text("type_id").notNull().references(() => contextTypes.id, { onDelete: "restrict" }),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  model: text("model"),
+  messageCount: integer("message_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_saved_contexts_user_created").on(table.userId, table.createdAt.desc()),
+  index("idx_saved_contexts_project").on(table.projectId),
+  index("idx_saved_contexts_type").on(table.typeId),
+  // Plain composite UNIQUE (all columns NOT NULL at insert time — extract
+  // always runs on a real conversation), so drizzle can own it directly
+  // and `upsertSavedContext` can target it with onConflictDoUpdate. The
+  // conversation_id → NULL transition only happens on conversation delete,
+  // long after the upsert window.
+  uniqueIndex("idx_saved_contexts_unique").on(table.userId, table.conversationId, table.topicLabel),
+]);
+
+export type SavedContext = typeof savedContexts.$inferSelect;
+export type NewSavedContext = typeof savedContexts.$inferInsert;

@@ -146,6 +146,23 @@
 		userFetch,
 		invalidate as invalidateFetchPolicy,
 	} from "$lib/utils/fetch-policy.js";
+	import { copyToClipboard } from "$lib/clipboard.js";
+	import {
+		type Topic,
+		type ContextType,
+		type ExtractState,
+		topicsByMessageId,
+		countNewMessages,
+		contextTypeMap,
+		EXTRACT_IDLE,
+		extractStarting,
+		extractResolved,
+		extractErrored,
+		markCopied,
+		DEFAULT_DETECT_ERROR,
+		DEFAULT_EXTRACT_FAULT,
+		extractErrorCopy,
+	} from "$lib/topic-contexts-logic.js";
 	import type { ToolDefinition } from "$server/extensions/types";
 
 	// ── Props ─────────────────────────────────────────────────────────
@@ -210,6 +227,27 @@
 		live?: ChatThreadChrome;
 	}
 
+	/** Everything ChatHeader's Topics button + <TopicsPopover> read/drive.
+	 *  Bundled into one chrome field so the route shell forwards a single
+	 *  prop rather than a dozen flat ones. State + fetches live in ChatThread
+	 *  (this component); the header is pure presentation. */
+	export interface TopicsChrome {
+		list: Topic[];
+		stale: boolean;
+		analyzedAt: string | null;
+		newCount: number;
+		analyzing: boolean;
+		analyzeError: string | null;
+		open: boolean;
+		extractState: ExtractState;
+		busyId: string | null;
+		typeMap: Map<string, ContextType>;
+		toggle: (next: boolean) => void;
+		onanalyze: () => void;
+		onextract: (topicId: string) => void;
+		onmanualcopy: (content: string) => void;
+	}
+
 	/** Chrome-relevant derived state surfaced to the page's route shell
 	 *  via the `header` / `chrome_panels` snippets so the page never
 	 *  re-derives thread internals (single source of truth). */
@@ -233,6 +271,8 @@
 		/** Header's permission-mode chooser writes through this so the
 		 *  thread's send-message factory picks it up. */
 		setPermissionMode: (mode: PermissionMode | undefined) => void;
+		/** Topic Contexts (WS4) — header Topics button + popover state. */
+		topics: TopicsChrome;
 		// Extra fields the Phase-0 DRY-pin harness mirrors (page chrome
 		// ignores these).
 		allMessages: Message[];
@@ -342,6 +382,20 @@
 	let treeEnabled = $state(false);
 	let historicalToolCalls = $state<HistoricalToolCall[]>([]);
 	let savedMemories = $state(new Map<string, string>());
+	// ── Topic Contexts (WS4) — cache-only on conversation change; the
+	// detection LLM runs ONLY on an explicit Analyze/Refresh. Only the page
+	// variant surfaces topics (the header button + result panel live in the
+	// page's <ChatHeader>; the panel variant has no place to show them).
+	let topicsEnabled = $derived(variant === "page");
+	let topics = $state<Topic[]>([]);
+	let topicsStale = $state(false);
+	let topicsAnalyzedAt = $state<string | null>(null);
+	let topicsAnalyzing = $state(false);
+	let topicsAnalyzeError = $state<string | null>(null);
+	let topicsOpen = $state(false);
+	let topicExtractState = $state<ExtractState>(EXTRACT_IDLE);
+	let extractingTopicId = $state<string | null>(null);
+	let contextTypes = $state<ContextType[]>([]);
 	let subConversations = $state<SubConvoRecord[]>([]);
 	let localSystemMessages = $state<Message[]>([]);
 	let chatOAuthPending = $state<OAuthPending | null>(null);
@@ -850,6 +904,141 @@
 			// silent
 		}
 	}
+
+	// ── Topic Contexts (WS4) ──────────────────────────────────────────
+	// Pills anchored per message + the "N new since analysis" hint + the
+	// id→ContextType map for badge labels/colours (all pure — see
+	// topic-contexts-logic.ts).
+	let topicsByMsg = $derived(topicsByMessageId(topics));
+	let topicTypeMap = $derived(contextTypeMap(contextTypes));
+	let topicsNewCount = $derived(
+		countNewMessages(
+			messages.map((m) => m.id),
+			topics,
+		),
+	);
+
+	function applyTopicsResponse(data: {
+		topics?: Topic[];
+		stale?: boolean;
+		analyzedAt?: string | null;
+	}) {
+		topics = data.topics ?? [];
+		topicsStale = data.stale ?? false;
+		topicsAnalyzedAt = data.analyzedAt ?? null;
+	}
+
+	// Cache-only load on conversation change (never runs the LLM). Reset the
+	// transient result/open state so a switched-into conversation starts
+	// clean. `seq` guards a stale response from clobbering a newer switch.
+	let topicsFetchSeq = 0;
+	$effect(() => {
+		const cid = conversationId;
+		if (!topicsEnabled || !cid) return;
+		topics = [];
+		topicsStale = false;
+		topicsAnalyzedAt = null;
+		topicsAnalyzing = false;
+		topicsAnalyzeError = null;
+		topicsOpen = false;
+		topicExtractState = EXTRACT_IDLE;
+		extractingTopicId = null;
+		const seq = ++topicsFetchSeq;
+		void backgroundFetch(`topics:${cid}`, `/api/conversations/${cid}/topics`)
+			.then((r) => (r && r.ok ? r.json() : null))
+			.then((d) => {
+				if (d && seq === topicsFetchSeq) applyTopicsResponse(d);
+			})
+			.catch(() => {});
+	});
+
+	// Load the closed type enum once (for badge labels + colours). Static,
+	// so a single throttled background fetch is enough.
+	$effect(() => {
+		if (!topicsEnabled) return;
+		void backgroundFetch("context-types", "/api/context-types")
+			.then((r) => (r && r.ok ? r.json() : null))
+			.then((d) => {
+				if (d?.types) contextTypes = d.types;
+			})
+			.catch(() => {});
+	});
+
+	// Explicit Analyze/Refresh — the ONLY detection-LLM trigger. Opens the
+	// popover so the (re)detected topics + any 503 are visible.
+	async function handleDetectTopics() {
+		if (topicsAnalyzing) return;
+		topicsAnalyzing = true;
+		topicsAnalyzeError = null;
+		topicsOpen = true;
+		try {
+			const res = await userFetch(
+				`/api/conversations/${conversationId}/topics`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ force: true }),
+				},
+			);
+			if (res.ok) {
+				applyTopicsResponse(await res.json());
+			} else {
+				const body = await res.json().catch(() => ({}));
+				topicsAnalyzeError = body?.error || DEFAULT_DETECT_ERROR;
+			}
+		} catch {
+			topicsAnalyzeError = DEFAULT_DETECT_ERROR;
+		} finally {
+			topicsAnalyzing = false;
+		}
+	}
+
+	// Click a pill / popover row → stage-2 extract → attempt clipboard → the
+	// result panel ALWAYS shows (copied badge on success, manual Copy on a
+	// gesture-expiry failure). `extractingTopicId` guards re-entry (one at a
+	// time) and drives the per-pill spinner.
+	async function handleExtractTopic(topicId: string) {
+		if (extractingTopicId !== null) return;
+		extractingTopicId = topicId;
+		topicExtractState = extractStarting();
+		topicsOpen = true;
+		try {
+			const res = await userFetch(
+				`/api/conversations/${conversationId}/topics/${topicId}/extract`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({}),
+				},
+			);
+			if (res.ok) {
+				const { context } = await res.json();
+				const copied = await copyToClipboard(context.content);
+				topicExtractState = extractResolved(context, copied);
+			} else {
+				const body = await res.json().catch(() => ({}));
+				// 503 → the server's actionable no-model message; any other
+				// status → an honest generic-fault copy (not "no model").
+				topicExtractState = extractErrored(extractErrorCopy(res.status, body));
+			}
+		} catch {
+			// Network throw (no response) — a genuine fault, not a missing model.
+			topicExtractState = extractErrored(DEFAULT_EXTRACT_FAULT);
+		} finally {
+			extractingTopicId = null;
+		}
+	}
+
+	// Manual Copy button (fresh user gesture after an auto-copy failure).
+	async function handleTopicManualCopy(content: string) {
+		const ok = await copyToClipboard(content);
+		if (ok) topicExtractState = markCopied(topicExtractState);
+	}
+
+	function toggleTopics(next: boolean) {
+		topicsOpen = next;
+	}
+
 	async function handleStop() {
 		if (!activeRunId) return;
 		const runId = activeRunId;
@@ -990,6 +1179,22 @@
 		toggleSelectMode: () => selectMode.toggleSelectMode(),
 		setPermissionMode: (mode) => {
 			permissionModeOverride = mode;
+		},
+		topics: {
+			list: topics,
+			stale: topicsStale,
+			analyzedAt: topicsAnalyzedAt,
+			newCount: topicsNewCount,
+			analyzing: topicsAnalyzing,
+			analyzeError: topicsAnalyzeError,
+			open: topicsOpen,
+			extractState: topicExtractState,
+			busyId: extractingTopicId,
+			typeMap: topicTypeMap,
+			toggle: toggleTopics,
+			onanalyze: handleDetectTopics,
+			onextract: handleExtractTopic,
+			onmanualcopy: handleTopicManualCopy,
 		},
 		allMessages,
 		activeRunId,
@@ -1836,6 +2041,24 @@
 			editRetryTool = tool;
 		},
 		pushSystem: (t: string) => addSystemMessage(t),
+		// Topic Contexts (WS4) handlers — no jsdom-reachable trigger in this
+		// harness (the header + pills live in the page's ChatHeader / rendered
+		// rows), so the coverage suite drives them here.
+		handleDetectTopics,
+		handleExtractTopic,
+		handleTopicManualCopy,
+		toggleTopics,
+		getTopicsState: () => ({
+			list: topics,
+			stale: topicsStale,
+			analyzedAt: topicsAnalyzedAt,
+			analyzing: topicsAnalyzing,
+			analyzeError: topicsAnalyzeError,
+			open: topicsOpen,
+			extractState: topicExtractState,
+			busyId: extractingTopicId,
+			newCount: topicsNewCount,
+		}),
 		reload: () => loadMessages(),
 		setActiveRun: (id: string | null) => {
 			activeRunId = id;
@@ -2116,6 +2339,9 @@
 							: undefined}
 						onexclude={handleToggleExclude}
 						pulse={msg.id === pulseMessageId}
+						topics={topicsEnabled ? topicsByMsg.get(msg.id) : undefined}
+						topicBusyId={extractingTopicId}
+						onextracttopic={handleExtractTopic}
 					/>
 				{/if}
 

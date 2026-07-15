@@ -64,6 +64,14 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/conversations/:id/messages/:mid/retry", description: "Clean A/B retry — re-run the target assistant message's parent user turn as a same-role sibling (no duplicate user row; 409 when the flag is off or a run is active)", category: "conversations", scope: "chat", harness: { controllable: true }, schemaKey: "retryMessageSchema", responseDescription: "{ userMessage, retriedMessageId, runId }" },
   { method: "GET", path: "/api/search/messages", description: "Hybrid/keyword/semantic message search (RRF)", category: "conversations", responseDescription: "{ hits, degraded, requestedMode, servedMode }" },
 
+  // Topic Contexts
+  { method: "GET", path: "/api/conversations/:id/topics", description: "Cached topic pills for a conversation (no LLM)", category: "contexts", scope: "read", responseDescription: "{ topics: [{ id, label, typeId, messageIds }], stale, analyzedAt }" },
+  { method: "POST", path: "/api/conversations/:id/topics", description: "Detect topics for a conversation (stage-1 LLM); 503 when no model is available", category: "contexts", scope: "chat", responseDescription: "{ topics, stale, analyzedAt }" },
+  { method: "POST", path: "/api/conversations/:id/topics/:topicId/extract", description: "Extract + save a topic's context (stage-2 LLM); 503 when no model is available", category: "contexts", scope: "chat", responseDescription: "{ context: { id, topicLabel, typeId, title, content, model, updatedAt } }" },
+  { method: "GET", path: "/api/contexts", description: "Search saved topic contexts (library): ?projectId=&search=&typeId=&limit=&offset=", category: "contexts", scope: "read", responseDescription: "{ contexts, total }" },
+  { method: "DELETE", path: "/api/contexts/:id", description: "Delete a saved context (owner or admin; 404 otherwise)", category: "contexts", scope: "read" },
+  { method: "GET", path: "/api/context-types", description: "List the DB-resident topic classification types", category: "contexts", scope: "read", responseDescription: "{ types: [{ id, label, description, sortOrder }] }" },
+
   // Daily Briefing
   { method: "GET", path: "/api/briefing/config", description: "Get the current user's Daily Briefing configuration (defaults when never configured)", category: "briefing" },
   { method: "PUT", path: "/api/briefing/config", description: "Update the current user's Daily Briefing configuration (cron, timezone, project, instructions, watchlist, model)", category: "briefing" },
