@@ -82,19 +82,26 @@ interface DetectMessage {
 }
 
 /**
- * Build the detection transcript: each message tagged `[m:<id>]` with its
- * role, per-message-truncated, joined oldest→newest. When the total exceeds
- * the cap, whole messages are dropped from the OLDEST end (never mid-message,
- * so every `[m:id]` tag stays intact) and `truncated` is set.
+ * Build the detection transcript: each message tagged with a 1-based ORDINAL
+ * `[mN]` (in the given, already-conversational order) + its role,
+ * per-message-truncated, joined oldest→newest. Ordinals — not 36-char UUIDs —
+ * are what the model cites for anchors: trivial for a small model to copy and
+ * grammar-friendly. Returns `ordinalToId` so the caller maps the model's
+ * numbers back to real message ids. When the total exceeds the cap, whole
+ * messages are dropped from the OLDEST end (their original ordinals stay on the
+ * kept suffix) and `truncated` is set.
  */
 export function buildDetectTranscript(
   messages: DetectMessage[],
-): { transcript: string; truncated: boolean } {
-  const lines = messages.map((m) => {
+): { transcript: string; truncated: boolean; ordinalToId: Map<number, string> } {
+  const ordinalToId = new Map<number, string>();
+  const lines = messages.map((m, i) => {
+    const ordinal = i + 1;
+    ordinalToId.set(ordinal, m.id);
     const body = m.content.length > MAX_PER_MESSAGE_CHARS
       ? `${m.content.slice(0, MAX_PER_MESSAGE_CHARS)}…`
       : m.content;
-    return `[m:${m.id}] ${m.role}: ${body}`;
+    return `[m${ordinal}] ${m.role}: ${body}`;
   });
 
   // Accumulate from the newest end until the next message would overflow.
@@ -115,7 +122,7 @@ export function buildDetectTranscript(
   const transcript = truncated
     ? `…[older messages truncated]…\n${kept.join("\n")}`
     : kept.join("\n");
-  return { transcript, truncated };
+  return { transcript, truncated, ordinalToId };
 }
 
 /**
@@ -124,6 +131,9 @@ export function buildDetectTranscript(
  * guarantees a valid JSON shape, and the anti-sprawl discipline (prefer
  * existing ids, cap new types) lives in the prompt + server validation.
  * `typeDescription` is optional — the model fills it only for a NEW type.
+ * `anchors` are the 1-based `[mN]` message NUMBERS (integers) — small models
+ * copy a number reliably where they cannot copy a 36-char UUID; the server
+ * maps them back to real ids.
  */
 export function buildDetectSchema(): Record<string, unknown> {
   return {
@@ -137,9 +147,9 @@ export function buildDetectSchema(): Record<string, unknown> {
             label: { type: "string" },
             type: { type: "string" },
             typeDescription: { type: "string" },
-            messageIds: { type: "array", items: { type: "string" } },
+            anchors: { type: "array", items: { type: "integer", minimum: 1 } },
           },
-          required: ["label", "type", "messageIds"],
+          required: ["label", "type", "anchors"],
           additionalProperties: false,
         },
       },
@@ -184,8 +194,8 @@ export function buildDetectSystemPrompt(
     "existing type. A new type id is short kebab-case, singular, and generic enough to reuse",
     "(e.g. 'design-review', 'incident'); give each new type a one-line `typeDescription`.",
     "",
-    "For each topic, list the ids of the messages most relevant to it, using the",
-    "`[m:<id>]` tags in the transcript. Use the message ids verbatim.",
+    "For each topic, cite the message numbers (the [mN] tags) where it is",
+    "substantively discussed — as integers in `anchors` (e.g. [3, 4]).",
   ];
   if (existingLabels.length > 0) {
     parts.push(
@@ -198,7 +208,7 @@ export function buildDetectSystemPrompt(
   parts.push(
     "",
     'Respond with ONLY a JSON object of the shape',
-    '{"topics": [{"label": string, "type": string, "typeDescription"?: string, "messageIds": string[]}]}',
+    '{"topics": [{"label": string, "type": string, "typeDescription"?: string, "anchors": number[]}]}',
     `— no markdown, no prose around it. Keep labels under ${MAX_LABEL_WORDS} words. /no_think`,
   );
   return parts.join("\n");
@@ -209,7 +219,28 @@ export interface RawTopic {
   type: unknown;
   /** Only present when the model proposes a NEW type. */
   typeDescription?: unknown;
-  messageIds: unknown;
+  /** 1-based `[mN]` ordinals (integers) the model cited. */
+  anchors: unknown;
+}
+
+/**
+ * Map a raw `anchors` array (1-based `[mN]` ordinals the model emitted) to real
+ * message ids via the transcript's `ordinalToId`. Non-integers and out-of-range
+ * ordinals are dropped; duplicate ids are collapsed. Order follows the model's
+ * citation order.
+ */
+export function resolveAnchors(anchors: unknown, ordinalToId: Map<number, string>): string[] {
+  if (!Array.isArray(anchors)) return [];
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const a of anchors) {
+    if (typeof a !== "number" || !Number.isInteger(a)) continue;
+    const id = ordinalToId.get(a);
+    if (id === undefined || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
 }
 
 /**
@@ -297,7 +328,8 @@ export interface ValidateTopicsOpts {
   /** Live types (id + label) for reuse matching + the label==type evidence
    *  check. The id list grows as new types are created this pass. */
   existingTypes: Array<{ id: string; label: string }>;
-  realMessageIds: Set<string>;
+  /** 1-based `[mN]` ordinal → real message id, from buildDetectTranscript. */
+  ordinalToId: Map<number, string>;
   ensureContextType: (t: {
     id: string;
     label: string;
@@ -306,40 +338,38 @@ export interface ValidateTopicsOpts {
 }
 
 /**
- * Validate + resolve raw topics. Evidence floor + label discipline:
- *   - drop empty-label entries and entries whose anchors filter down to ZERO
- *     real message ids (a topic with no evidence in the conversation);
- *   - drop entries whose label is just the type name (id or type label,
- *     case/hyphen-insensitive) — such a label carries no information;
- *   - word-cap surviving labels; cap the topic count at MAX_TOPICS.
- * The `type` is resolved on the OPEN taxonomy: an existing id (exact or trivial
- * variant) is reused; an otherwise-new slug is created via `ensureContextType`
- * (source='auto'), capped at MAX_NEW_TYPES_PER_PASS per pass; beyond the cap —
- * or for an empty/invalid slug — the topic falls back to the seeded
- * FALLBACK_TYPE_ID with a warn. Types are ensured HERE, before the caller's
- * `replaceTopics`, so the topic → type FK (RESTRICT) always resolves.
+ * Validate + resolve raw topics. Label + type discipline first (these always
+ * apply): drop empty-label entries; resolve the OPEN-taxonomy `type` (existing
+ * id by exact/variant match is reused; an otherwise-new slug is created via
+ * `ensureContextType`, source='auto', capped at MAX_NEW_TYPES_PER_PASS per
+ * pass; beyond the cap or for an empty slug → seeded FALLBACK_TYPE_ID + warn);
+ * drop entries whose label is just the type name (id or label,
+ * case/hyphen-insensitive); word-cap labels; cap the count at MAX_TOPICS. Types
+ * are ensured HERE, before the caller's `replaceTopics`, so the FK resolves.
+ *
+ * Then the EVIDENCE FLOOR with a wholesale-failure fallback: `anchors` are
+ * `[mN]` ordinals mapped to real ids. If ANY surviving topic has real anchors,
+ * the zero-anchor ones are dropped (a topic with no evidence). But if EVERY
+ * surviving topic has zero anchors — the citation mechanics failed wholesale
+ * (a small model that couldn't emit the numbers) — the topics are KEPT with
+ * empty ids + a single warn, so the feature never returns empty over a
+ * mechanical miss. Anchor-less pills don't attach, but the popover lists them
+ * and extraction (which feeds the full transcript) still works.
  */
 export async function validateTopics(
   raw: RawTopic[],
   opts: ValidateTopicsOpts,
 ): Promise<TopicInput[]> {
-  const out: TopicInput[] = [];
+  // Phase 1 — label + type validation. Anchors are resolved but NOT yet used
+  // to drop, so the wholesale-failure fallback below can see the full set.
+  const candidates: TopicInput[] = [];
   const known = opts.existingTypes.map((t) => t.id);
   const labelById = new Map(opts.existingTypes.map((t) => [t.id, t.label]));
   let created = 0;
   for (const t of raw) {
-    if (out.length >= MAX_TOPICS) break;
+    if (candidates.length >= MAX_TOPICS) break;
     const label = typeof t.label === "string" ? t.label.trim() : "";
     if (!label) continue;
-
-    // Evidence floor: a topic must anchor to at least one real message.
-    const messageIds = Array.isArray(t.messageIds)
-      ? t.messageIds.filter((id): id is string => typeof id === "string" && opts.realMessageIds.has(id))
-      : [];
-    if (messageIds.length === 0) {
-      log.warn("dropping topic with no real anchor messages", { label });
-      continue;
-    }
 
     const slug = normalizeTypeSlug(typeof t.type === "string" ? t.type : "");
     const match = matchExistingType(slug, known);
@@ -377,9 +407,27 @@ export async function validateTopics(
     }
 
     const cappedLabel = label.split(/\s+/).slice(0, MAX_LABEL_WORDS).join(" ");
-    out.push({ label: cappedLabel, typeId, messageIds });
+    const messageIds = resolveAnchors(t.anchors, opts.ordinalToId);
+    candidates.push({ label: cappedLabel, typeId, messageIds });
   }
-  return out;
+
+  // Phase 2 — evidence floor with wholesale-failure fallback.
+  const withAnchors = candidates.filter((c) => c.messageIds.length > 0);
+  if (withAnchors.length > 0) {
+    for (const c of candidates) {
+      if (c.messageIds.length === 0) {
+        log.warn("dropping topic with no real anchor messages", { label: c.label });
+      }
+    }
+    return withAnchors;
+  }
+  if (candidates.length > 0) {
+    log.warn("anchor citation failed wholesale — keeping topics without anchors", {
+      count: candidates.length,
+    });
+    return candidates;
+  }
+  return [];
 }
 
 export interface DetectDeps {
@@ -448,7 +496,7 @@ export async function detectTopics(
     deps.getExistingTopics(conversationId),
   ]);
 
-  const { transcript } = buildDetectTranscript(conversational);
+  const { transcript, ordinalToId } = buildDetectTranscript(conversational);
   const systemPrompt = buildDetectSystemPrompt(types, existing.map((e) => e.label));
 
   const rawText = await deps.runCompletion({
@@ -464,7 +512,7 @@ export async function detectTopics(
 
   const validated = await validateTopics(parseDetectResponse(rawText), {
     existingTypes: types,
-    realMessageIds: new Set(conversational.map((m) => m.id)),
+    ordinalToId,
     ensureContextType: deps.ensureContextType,
   });
 
