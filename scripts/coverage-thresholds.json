@@ -3,6 +3,7 @@
   "packages/@ezcorp/sdk/src/**": 100,
   "src/extensions/sdk/**": 100,
   "src/extensions/call-provenance.ts": 100,
+  "src/extensions/install-grant.ts": 100,
   "src/extensions/event-subscription-dispatcher.ts": 95,
   "src/extensions/json-rpc.ts": 100,
   "src/extensions/sdk/dev.ts": 97,
