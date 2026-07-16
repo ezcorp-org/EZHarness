@@ -33,6 +33,14 @@ import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
 export const COMMENT_MARKER = "<!-- visual-evidence -->";
 
 /**
+ * Max screenshots rendered inline in the sticky comment. Anything beyond this
+ * (after the deterministic sort) is collapsed into a single `<details>` block
+ * so a large-capture PR doesn't produce a wall of images. Presentation only —
+ * every staged shot is still linked, just folded.
+ */
+export const MAX_INLINE_SHOTS = 12;
+
+/**
  * Reduce an untrusted label to a markdown-/shell-safe charset: letters,
  * digits, space, and `._-`. Everything else — crucially `[]()<>` backticks,
  * newlines, `!`, `|`, and `/` — is replaced by a space, so the value can never
@@ -121,9 +129,38 @@ export interface GalleryArgs {
 }
 
 /**
+ * Total order on shots by (spec, label). Plain code-unit `<` comparison — NOT
+ * `localeCompare`, whose default-locale ordering could differ between the CI
+ * runner and a dev box and make the rendered gallery non-reproducible.
+ */
+function compareShots(a: GalleryShot, b: GalleryShot): number {
+  if (a.spec !== b.spec) return a.spec < b.spec ? -1 : 1;
+  if (a.label !== b.label) return a.label < b.label ? -1 : 1;
+  return 0;
+}
+
+/** Render one shot to its heading + immutable-URL image + trailing blank line. */
+function renderShot(shot: GalleryShot, repo: string, commitSha: string, pr: number, runId: number): string[] {
+  // URL segments use the hyphenated, sanitized forms so the path is stable
+  // and contains no markdown/URL-hostile characters; the comment shows the
+  // human label as plain text (never inside the link).
+  const specSeg = sanitizeLabel(shot.spec).replace(/ /g, "-");
+  const labelSeg = sanitizeLabel(shot.label).replace(/ /g, "-");
+  const url =
+    `https://raw.githubusercontent.com/${repo}/${commitSha}` +
+    `/pr-${pr}/${runId}/${specSeg}/${labelSeg}.png`;
+  return [`**${sanitizeLabel(shot.label)}** — \`${specSeg}\``, `![evidence](${url})`, ""];
+}
+
+/**
  * Build the sticky-comment body. Always begins with `COMMENT_MARKER` (so WF2
- * can find + upsert it) and a heading. For each shot, emits a fixed-alt-text
- * image pointing at the IMMUTABLE `raw.githubusercontent.com/<repo>/<commit
+ * can find + upsert it) and a heading. Shots are rendered in a DETERMINISTIC
+ * (spec, label) order — the staging pass hands them over in nondeterministic
+ * worker-completion order, so we sort here to keep the comment reproducible.
+ * The first `MAX_INLINE_SHOTS` render inline; any remainder is folded into a
+ * single `<details>` block (a blank line after `<summary>` lets GitHub parse
+ * the enclosed image markdown). Each shot emits a fixed-alt-text image pointing
+ * at the IMMUTABLE `raw.githubusercontent.com/<repo>/<commit
  * sha>/pr-<pr>/<runId>/<spec>/<label>.png` URL, with the SANITIZED label as
  * adjacent plain text — never inside the link syntax. When `shots` is empty,
  * returns the ⚠️ "no screenshot captured" body instead.
@@ -139,19 +176,21 @@ export function buildGalleryMarkdown(args: GalleryArgs): string {
         "that calls `captureEvidence(page, testInfo, label)`.",
     ].join("\n");
   }
+  const sorted = [...shots].sort(compareShots);
+  const inline = sorted.slice(0, MAX_INLINE_SHOTS);
+  const overflow = sorted.slice(MAX_INLINE_SHOTS);
+
   const lines: string[] = [COMMENT_MARKER, "## Visual evidence", ""];
-  for (const shot of shots) {
-    // URL segments use the hyphenated, sanitized forms so the path is stable
-    // and contains no markdown/URL-hostile characters; the comment shows the
-    // human label as plain text (never inside the link).
-    const specSeg = sanitizeLabel(shot.spec).replace(/ /g, "-");
-    const labelSeg = sanitizeLabel(shot.label).replace(/ /g, "-");
-    const url =
-      `https://raw.githubusercontent.com/${repo}/${commitSha}` +
-      `/pr-${pr}/${runId}/${specSeg}/${labelSeg}.png`;
-    lines.push(`**${sanitizeLabel(shot.label)}** — \`${specSeg}\``);
-    lines.push(`![evidence](${url})`);
+  for (const shot of inline) {
+    lines.push(...renderShot(shot, repo, commitSha, pr, runId));
+  }
+  if (overflow.length > 0) {
+    lines.push(`<details><summary>${overflow.length} more screenshot(s)</summary>`);
     lines.push("");
+    for (const shot of overflow) {
+      lines.push(...renderShot(shot, repo, commitSha, pr, runId));
+    }
+    lines.push("</details>");
   }
   return lines.join("\n").trimEnd();
 }

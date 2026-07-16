@@ -405,6 +405,12 @@ jobs:
     # The job conclusion is the HARD gate (step "Visual-evidence gate"); every
     # later step is continue-on-error so the best-effort capture/publish lane
     # can never red a PR during the fail-soft pilot.
+    #
+    # Capture is DIFF-SCOPED (scripts/visual-evidence/select-specs.ts): a
+    # non-visual diff runs no specs at all (→ no artifact → WF2 posts no
+    # comment); a diff that changes specs runs only those; an evidence-exempt
+    # visual-only diff falls open to the full @evidence suite. A push to main
+    # has an empty base...HEAD diff, so capture is skipped there too.
     name: Visual evidence
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -447,13 +453,33 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
           restore-keys: |
             playwright-${{ runner.os }}-
+      # SOFT capture (best-effort), DIFF-SCOPED: select-specs.ts decides which
+      # @evidence specs to run from the base...HEAD diff. __NONE__ (non-visual
+      # diff, incl. main pushes) skips the browser install entirely. Derived
+      # spec paths flow through a file, never a ${{ }} interpolation, so an
+      # attacker-controlled path can't inject into the run script. Browser
+      # binaries are cached above to skip the ~150 MB chromium download.
       - name: Capture visual evidence
         continue-on-error: true
+        env:
+          BASE_REF: origin/${{ github.event.pull_request.base.ref || 'main' }}
         run: |
+          SPECS_FILE="$RUNNER_TEMP/evidence-specs.txt"
+          bun scripts/visual-evidence/select-specs.ts > "$SPECS_FILE" || echo __ALL__ > "$SPECS_FILE"
+          [ -s "$SPECS_FILE" ] || echo __ALL__ > "$SPECS_FILE"
+          if grep -qx '__NONE__' "$SPECS_FILE"; then
+            echo "non-visual diff — skipping visual-evidence capture"
+            exit 0
+          fi
           cd web && bun install --frozen-lockfile
           bunx --bun svelte-kit sync
           bunx playwright install --with-deps chromium
-          EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence || true
+          if grep -qx '__ALL__' "$SPECS_FILE"; then
+            EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence || true
+          else
+            mapfile -t SPECS < "$SPECS_FILE"
+            EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence "${SPECS[@]}" || true
+          fi
       - name: Build evidence manifest
         continue-on-error: true
         env:

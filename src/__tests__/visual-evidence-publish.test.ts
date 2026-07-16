@@ -19,6 +19,7 @@ import {
 } from "../../scripts/visual-evidence/build-manifest.ts";
 import {
   COMMENT_MARKER,
+  MAX_INLINE_SHOTS,
   buildGalleryMarkdown,
   isPng,
   isSafeRelPath,
@@ -195,6 +196,64 @@ describe("publish: buildGalleryMarkdown", () => {
     expect(md).toContain("⚠️");
     expect(md).toContain("@evidence");
     expect(md).not.toContain("![evidence](");
+  });
+
+  const countImages = (md: string): number => (md.match(/!\[evidence\]\(/g) ?? []).length;
+
+  test("renders shots in deterministic (spec, label) order regardless of input order", () => {
+    const shots = [
+      { spec: "web/e2e/b.spec.ts", label: "zulu", file: "3.png" },
+      { spec: "web/e2e/a.spec.ts", label: "zulu", file: "2.png" },
+      { spec: "web/e2e/a.spec.ts", label: "alpha", file: "1.png" },
+    ];
+    const md = buildGalleryMarkdown({ ...base, shots });
+    // Expected sort: a/alpha, a/zulu, b/zulu.
+    const iAlpha = md.indexOf("alpha");
+    const iAZulu = md.indexOf("zulu");
+    const iBSpec = md.indexOf("web-e2e-b.spec.ts");
+    expect(iAlpha).toBeGreaterThan(-1);
+    expect(iAlpha).toBeLessThan(iAZulu);
+    expect(iAZulu).toBeLessThan(iBSpec);
+    // Order is a pure function of the SET, not the input array order.
+    const reversed = buildGalleryMarkdown({ ...base, shots: [...shots].reverse() });
+    expect(reversed).toBe(md);
+  });
+
+  const makeShots = (n: number) =>
+    Array.from({ length: n }, (_, i) => {
+      const idx = String(i).padStart(2, "0");
+      return { spec: `web/e2e/s${idx}.spec.ts`, label: `shot ${idx}`, file: `${idx}.png` };
+    });
+
+  test("exactly MAX_INLINE_SHOTS renders all inline with no <details> block", () => {
+    const md = buildGalleryMarkdown({ ...base, shots: makeShots(MAX_INLINE_SHOTS) });
+    expect(countImages(md)).toBe(MAX_INLINE_SHOTS);
+    expect(md).not.toContain("<details>");
+    expect(md).not.toContain("</details>");
+  });
+
+  test("MAX_INLINE_SHOTS + 1 folds the overflow into one <details> block", () => {
+    const md = buildGalleryMarkdown({ ...base, shots: makeShots(MAX_INLINE_SHOTS + 1) });
+    // Every shot still linked (12 inline + 1 folded).
+    expect(countImages(md)).toBe(MAX_INLINE_SHOTS + 1);
+    // Exactly one details block, summary counts the remainder.
+    expect((md.match(/<details>/g) ?? []).length).toBe(1);
+    expect((md.match(/<\/details>/g) ?? []).length).toBe(1);
+    expect(md).toContain("<details><summary>1 more screenshot(s)</summary>");
+    // The details block opens AFTER the 12 inline images.
+    const detailsAt = md.indexOf("<details>");
+    const inlineImages = (md.slice(0, detailsAt).match(/!\[evidence\]\(/g) ?? []).length;
+    expect(inlineImages).toBe(MAX_INLINE_SHOTS);
+    // The overflow shot (s12) is rendered inside the folded block.
+    expect(md.slice(detailsAt)).toContain("web-e2e-s12.spec.ts");
+    // A blank line follows the summary so GitHub parses the enclosed markdown.
+    expect(md).toContain("<details><summary>1 more screenshot(s)</summary>\n\n");
+  });
+
+  test("large overflow summary reports the correct remainder count", () => {
+    const md = buildGalleryMarkdown({ ...base, shots: makeShots(MAX_INLINE_SHOTS + 5) });
+    expect(md).toContain("<details><summary>5 more screenshot(s)</summary>");
+    expect(countImages(md)).toBe(MAX_INLINE_SHOTS + 5);
   });
 });
 
