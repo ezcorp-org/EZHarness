@@ -209,6 +209,21 @@ describe("ToolExecutor.ensureSubprocessRpcWired", () => {
     expect(resp.error?.code).toBe(-32603);
   });
 
+  test("installed handler routes ezcorp/emit-loop-event into its inner handler (no granted perms → -32603)", async () => {
+    // Registry returns null for getGrantedPermissions; the wrapper bails
+    // with -32603. -32603 (not -32601) proves the dispatcher routed into
+    // the emit-loop-event branch.
+    await executor.ensureSubprocessRpcWired("ext-1", proc);
+    const handler = proc.installedRequestHandler!;
+    const resp = await handler({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "ezcorp/emit-loop-event",
+      params: { v: 1, type: "approval_pending", payload: { loopId: "l", runId: "r" } },
+    });
+    expect(resp.error?.code).toBe(-32603);
+  });
+
   test("installed handler routes ezcorp/fs into its inner handler (missing path → -32602)", async () => {
     // The fs handler short-circuits on missing path/operation BEFORE
     // touching the registry, so this case yields -32602 regardless of

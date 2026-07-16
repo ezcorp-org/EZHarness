@@ -196,6 +196,40 @@ describe("ToolExecutor.handlePiEmitTaskEvent", () => {
   });
 });
 
+// ── handlePiEmitLoopEvent ────────────────────────────────────────────
+
+describe("ToolExecutor.handlePiEmitLoopEvent", () => {
+  test("registry miss → -32603", async () => {
+    const execu = new ToolExecutor(makeRegistry(null), createStubPermissionEngine());
+    const resp = await execu.handlePiEmitLoopEvent(
+      "missing-ext",
+      rpc("ezcorp/emit-loop-event", { v: 1, type: "approval_pending", payload: { loopId: "l", runId: "r" } }),
+    );
+    expect(resp.error?.code).toBe(-32603);
+  });
+
+  test("granted path threads the bus + emits the content-free nudge (no conversation required)", async () => {
+    const granted: ExtensionPermissions = { grantedAt: {} };
+    const { bus, calls } = makeBus();
+    const execu = new ToolExecutor(makeRegistry(granted), createStubPermissionEngine(), { bus });
+    const resp = await execu.handlePiEmitLoopEvent(
+      EXT_ID,
+      rpc("ezcorp/emit-loop-event", {
+        v: 1,
+        type: "approval_resolved",
+        payload: { loopId: "docs", runId: "r1", decision: "approved" },
+      }),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(resp.result).toEqual({ ok: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual({
+      event: "loops:approval_resolved",
+      payload: { loopId: "docs", runId: "r1", decision: "approved" },
+    });
+  });
+});
+
 // ── Registry-miss (-32603) arm for every reverse-RPC handler ──────────
 //
 // Each `handlePi*` method opens with a `getGrantedPermissions()` (and for
