@@ -1,0 +1,27 @@
+name: demo-deterministic
+description: >-
+  Zero-LLM workflow. A transform reshapes the input via template interpolation,
+  then a gate asserts the composed fields. Being a pure function of its input,
+  it produces byte-identical output on every run with the same input.
+inputSchema:
+  topic:
+    type: string
+    label: Topic
+    description: The subject the report is composed around.
+    required: true
+    default: workflows
+steps:
+  - name: compose
+    kind: transform
+    output:
+      slug: "{{$input.topic}}-report"
+      headline: "Report on {{$input.topic}}"
+  - name: assert-composed
+    kind: gate
+    condition:
+      all:
+        - ref: "$steps.compose.output.headline"
+          op: contains
+          value: "Report on"
+        - ref: "$steps.compose.output.slug"
+          op: exists
