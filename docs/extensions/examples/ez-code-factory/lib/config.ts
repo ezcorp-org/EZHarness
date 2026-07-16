@@ -79,6 +79,10 @@ export function autoFixLimit(config: PipelineConfig, step: PipelineStep): number
   return config.autoFixLimits[step];
 }
 
+/** The auto-fixing steps the single flat `autofixCap` UI knob controls (review
+ *  has its own knob; intent/push/pr never run an auto-fix loop). */
+const OTHER_AUTOFIX_STEPS = ["rebase", "test", "document", "lint", "ci"] as const satisfies readonly PipelineStep[];
+
 /** Clamp an unknown to a non-negative integer, or fall back to `fallback`. A
  *  negative / non-finite / non-number value is rejected (fail-safe: a bad
  *  setting never widens a cap into nonsense). */
@@ -92,11 +96,17 @@ function toNonNegativeInt(v: unknown, fallback: number): number {
  * every field. Unknown / malformed settings fall back to the default — a
  * settings blob can never crash the pipeline or produce an invalid cap.
  *
- * Recognized keys:
- *   - `autoFix.<step>` : number   per-step cap override (>= 0)
- *   - `gateRemote`     : string   non-empty remote name
- *   - `ignorePatterns` : string[] review ignore globs
- *   - `defaultBranch`  : string   non-empty branch name
+ * Recognized keys — both the structured form (programmatic callers / tests) and
+ * the flat scalar form the extension page's settings UI declares (SettingsField
+ * has no array/object type, so the page can only emit scalars — see
+ * ezcorp.config.ts). Every declared settings key is consumed here, so none is a
+ * silently-dead knob; index.ts wires the live read in M2.
+ *   - `autoFix.<step>`   : number   per-step cap override (>= 0) — structured
+ *   - `reviewAutofixCap` : number   flat review cap (0 = always ask a human)
+ *   - `autofixCap`       : number   flat cap for rebase/test/document/lint/ci
+ *   - `gateRemote`       : string   non-empty remote name
+ *   - `ignorePatterns`   : string[] OR comma-separated string of review globs
+ *   - `defaultBranch`    : string   non-empty branch name
  */
 export function resolvePipelineConfig(settings: unknown): PipelineConfig {
   const cfg = defaultPipelineConfig();
@@ -112,12 +122,20 @@ export function resolvePipelineConfig(settings: unknown): PipelineConfig {
       }
     }
   }
+  // Flat cap knobs from the settings UI (a sentinel < 0 means "leave default").
+  const reviewCap = toNonNegativeInt(s.reviewAutofixCap, -1);
+  if (reviewCap >= 0) cfg.autoFixLimits.review = reviewCap;
+  const otherCap = toNonNegativeInt(s.autofixCap, -1);
+  if (otherCap >= 0) for (const step of OTHER_AUTOFIX_STEPS) cfg.autoFixLimits[step] = otherCap;
 
   if (typeof s.gateRemote === "string" && s.gateRemote.trim() !== "") {
     cfg.gateRemote = s.gateRemote.trim();
   }
   if (Array.isArray(s.ignorePatterns)) {
     cfg.ignorePatterns = s.ignorePatterns.filter((x): x is string => typeof x === "string");
+  } else if (typeof s.ignorePatterns === "string") {
+    // Comma-separated text field (the UI form): split, trim, drop empties.
+    cfg.ignorePatterns = s.ignorePatterns.split(",").map((p) => p.trim()).filter((p) => p !== "");
   }
   if (typeof s.defaultBranch === "string" && s.defaultBranch.trim() !== "") {
     cfg.defaultBranch = s.defaultBranch.trim();

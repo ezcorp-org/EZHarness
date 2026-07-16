@@ -157,6 +157,23 @@ describe("makeSpawnDispatcher", () => {
     await expect(h.dispatcher.dispatch(opts())).rejects.toThrow("timed out");
   });
 
+  test("cancels the pending timeout timer once a terminal update wins", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    // A delay that never resolves on its own — only cancellation clears it.
+    const delay: DelayFn = (_ms, signal) => {
+      capturedSignal = signal;
+      return new Promise<void>(() => {});
+    };
+    const h = harness({ delay });
+    const p = h.dispatcher.dispatch(opts());
+    await tick();
+    expect(capturedSignal!.aborted).toBe(false); // still pending mid-dispatch
+    h.fire(update({ id: "asg-1", status: "completed", structuredResult: { ok: true } }));
+    expect(await p).toEqual({ output: { ok: true }, text: "" });
+    // The terminal update won, so the dispatch aborted the timeout timer.
+    expect(capturedSignal!.aborted).toBe(true);
+  });
+
   test("subscribes exactly once across multiple dispatches", async () => {
     const h = harness();
     const p1 = h.dispatcher.dispatch(opts());

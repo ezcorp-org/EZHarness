@@ -36,15 +36,17 @@ describe("ez-code-factory manifest", () => {
     ]);
   });
 
-  test("declares settings v0 (auto-fix caps + gate remote + default branch + ignore globs)", () => {
+  test("declares settings v0 with keys matching resolvePipelineConfig's consumed shape", () => {
     const settings = manifest.settings ?? {};
+    // Keys must be exactly what lib/config.ts resolvePipelineConfig reads, so no
+    // knob is silently dead (M1 fix item 5).
     expect(Object.keys(settings).sort()).toEqual([
-      "autofix_cap",
-      "default_branch",
-      "gate_remote",
-      "ignore_patterns",
-      "review_autofix_cap",
+      "autofixCap",
+      "defaultBranch",
+      "gateRemote",
+      "ignorePatterns",
+      "reviewAutofixCap",
     ]);
-    expect((settings.review_autofix_cap as { default: number }).default).toBe(0);
+    expect((settings.reviewAutofixCap as { default: number }).default).toBe(0);
   });
 });

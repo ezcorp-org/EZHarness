@@ -354,7 +354,7 @@ describe("rebaseStep (real remotes)", () => {
     expect(files).toContain("other.txt");
   });
 
-  test("conflict → needsApproval + autoFixable + findings", async () => {
+  test("conflict → PARKS ask-user (needsApproval, NOT autoFixable)", async () => {
     const { upstream } = await setupUpstream(dirs);
     const wt = await cloneWorktree(upstream, dirs);
     await sh(["git", "checkout", "-b", "feat/x"], wt);
@@ -362,11 +362,16 @@ describe("rebaseStep (real remotes)", () => {
     await advanceUpstreamMain(upstream, dirs, "README.md", "# theirs\n"); // same file → conflict
     const { ctx } = makeCtx(wt, b, { run: { baseSha: b } });
     const outcome = await rebaseStep.execute(ctx);
+    // Park-first parity (upstream rebase.go): the FIRST conflict round parks for a
+    // human — it must NOT flag autoFixable, and the finding's fail-closed default
+    // action must be ask-user (never auto-fix). Auto-resolution only runs later
+    // under sctx.fixing, after a human "fix" response.
     expect(outcome.needsApproval).toBe(true);
-    expect(outcome.autoFixable).toBe(true);
+    expect(outcome.autoFixable).toBeUndefined();
     const findings = deserializeFindings(JSON.parse(outcome.findings!));
     expect(findings.summary).toContain("conflict rebasing onto origin/main");
     expect(findings.items[0]!.file).toBe("README.md");
+    expect(findings.items[0]!.action).toBe("ask-user");
   });
 
   test("empty diff after rebase (branch behind main) → skipRemaining", async () => {

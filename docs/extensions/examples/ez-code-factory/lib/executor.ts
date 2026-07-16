@@ -25,6 +25,7 @@ import type { ShellRunner } from "./shell";
 import {
   deserializeFindings,
   emptyFindings,
+  serializeFindings,
   type RunRecord,
   type RunStore,
   type StepResultRecord,
@@ -235,6 +236,10 @@ async function runStepFixLoop(
     const outcome: StepOutcome = await impl.execute(sctx);
     sr.round += 1;
     const durationMs = deps.now() - roundStart;
+    // Accumulate execution-only elapsed ms across every round (initial + fixes),
+    // excluding parked wait time — upstream tracks this on the step result. The
+    // per-round wall-clock lives on StepRoundRecord.durationMs.
+    sr.executionMs += durationMs;
     const findings = normalizeFindingsJSON(outcome.findings ?? "", impl.name);
     sr.findings = findings === "" ? emptyFindings() : deserializeFindings(JSON.parse(findings));
     sr.fixSummary = outcome.fixSummary && outcome.fixSummary !== "" ? outcome.fixSummary : null;
@@ -454,12 +459,10 @@ async function applyFix(
   if (impl === null) return { status: "failed", error: `step ${input.step} is not fixable` };
 
   const findingIds = input.findingIds ?? [];
-  const parkedFindings = JSON.stringify({
-    findings: sr.findings.items,
-    summary: sr.findings.summary,
-    risk_level: sr.findings.riskLevel,
-    risk_rationale: sr.findings.riskRationale,
-  });
+  // Serialize via the canonical serializeFindings so the parked findings carry
+  // every field (tested / testing_summary / artifacts / user_instructions), not
+  // just the hand-rolled summary + risk pair — the fix agent sees the full set.
+  const parkedFindings = serializeFindings(sr.findings);
   const selected = filterFindingsJSON(parkedFindings, findingIds);
   const merged = mergeUserOverridesJSON(selected, input.instructions ?? {}, input.addedFindings ?? []);
 

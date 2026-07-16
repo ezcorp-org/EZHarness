@@ -106,6 +106,16 @@ describe("deserializeFindings accepts both wire shapes", () => {
     expect(f.items).toHaveLength(1);
     expect(f.items[0]!.description).toBe("new");
   });
+  test("an EMPTY `findings` falls back to a non-empty legacy `items` (length-based)", () => {
+    // Presence-based precedence wrongly dropped f1 here; upstream is length-based
+    // (`if len(items) == 0 && len(legacy) > 0 { items = legacy }`).
+    const f = deserializeFindings({
+      findings: [],
+      items: [{ action: "no-op", severity: "info", description: "legacy" }],
+    });
+    expect(f.items).toHaveLength(1);
+    expect(f.items[0]!.description).toBe("legacy");
+  });
   test("camelCase scalars are accepted as a fallback", () => {
     const f = deserializeFindings({
       findings: [],
@@ -414,6 +424,38 @@ describe("parseRespondPayload", () => {
   test("ignores a non-object instructions field", () => {
     expect(parseRespondPayload({ ...ok, instructions: "nope" })!.instructions).toEqual({});
   });
+
+  // ── size caps (defence-in-depth: the payload is attacker-reachable) ──
+  test("rejects an over-cap findingIds count; accepts at the limit", () => {
+    const many = Array.from({ length: 201 }, (_, i) => `f${i}`);
+    expect(parseRespondPayload({ ...ok, action: "fix", findingIds: many })).toBeNull();
+    expect(parseRespondPayload({ ...ok, action: "fix", findingIds: many.slice(0, 200) })).not.toBeNull();
+  });
+  test("rejects an over-long per-finding instruction; accepts at the limit", () => {
+    const longNote = "x".repeat(4001);
+    expect(parseRespondPayload({ ...ok, action: "fix", instructions: { f1: longNote } })).toBeNull();
+    expect(
+      parseRespondPayload({ ...ok, action: "fix", instructions: { f1: longNote.slice(0, 4000) } }),
+    ).not.toBeNull();
+  });
+  test("rejects an over-cap addedFindings count; accepts at the limit", () => {
+    const many = Array.from({ length: 101 }, () => ({ description: "x" }));
+    expect(parseRespondPayload({ ...ok, action: "fix", addedFindings: many })).toBeNull();
+    expect(parseRespondPayload({ ...ok, action: "fix", addedFindings: many.slice(0, 100) })).not.toBeNull();
+  });
+  test("rejects an over-long added-finding description or user_instructions", () => {
+    const longField = "y".repeat(4001);
+    expect(parseRespondPayload({ ...ok, action: "fix", addedFindings: [{ description: longField }] })).toBeNull();
+    expect(
+      parseRespondPayload({ ...ok, action: "fix", addedFindings: [{ user_instructions: longField }] }),
+    ).toBeNull();
+    expect(
+      parseRespondPayload({ ...ok, action: "fix", addedFindings: [{ description: longField.slice(0, 4000) }] }),
+    ).not.toBeNull();
+  });
+  test("non-object addedFindings entries pass the size check (no field to measure)", () => {
+    expect(parseRespondPayload({ ...ok, action: "fix", addedFindings: [null, "x", 5] })).not.toBeNull();
+  });
 });
 
 // ── runGateLifecycle (real git worktree) ────────────────────────────
@@ -565,6 +607,34 @@ describe("runGateLifecycle (real git)", () => {
     // Containment: the worktree lived under tmpBase, the git dir under gateDir.
     expect(res.worktreePath.startsWith(tmpBase)).toBe(true);
     expect(changes.length).toBeGreaterThan(0);
+  });
+
+  test("a pipeline that reaches a terminal state (not parked) tears the worktree down here", async () => {
+    const { gateDir, sha, repoId } = await seedGate();
+    const store = memStore();
+    let ran = false;
+    const res = await runGateLifecycle(
+      { repoId, branch: "feat/x", ref: "refs/heads/feat/x", newSha: sha },
+      {
+        gateDir,
+        tmpBase: join(root, "tmp-terminal"),
+        store,
+        run: productionHostRunner,
+        // The pipeline runs, marks the run completed, and does NOT park → the
+        // lifecycle reads the final status and tears the worktree down here.
+        runPipeline: async ({ runId }) => {
+          ran = true;
+          await store.updateRun(runId, { status: "completed" });
+          return { parked: false };
+        },
+      },
+    );
+    expect(ran).toBe(true);
+    expect(res.ok).toBe(true);
+    expect(res.status).toBe("completed");
+    // Not parked → the worktree was released (not kept for a human).
+    expect(existsSync(res.worktreePath)).toBe(false);
+    expect(store.runs.get(res.runId)!.status).toBe("completed");
   });
 
   test("worktree-add failure marks the run failed without leaking a checkout", async () => {

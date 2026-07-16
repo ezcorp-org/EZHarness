@@ -110,8 +110,10 @@ export type SpawnFn = (input: SpawnAssignmentInput) => Promise<SpawnAssignmentHa
 /** Subscribe once to terminal-carrying assignment updates. Default: the SDK
  *  `registerEventHandler("task:assignment_update", …)`. */
 export type SubscribeFn = (handler: (update: AssignmentUpdate) => void) => void;
-/** Sleep helper (injectable so the timeout race is deterministic in tests). */
-export type DelayFn = (ms: number) => Promise<void>;
+/** Sleep helper (injectable so the timeout race is deterministic in tests). The
+ *  optional `signal` lets the caller cancel a still-pending delay (clearing its
+ *  timer) once the terminal update has already won the race. */
+export type DelayFn = (ms: number, signal?: AbortSignal) => Promise<void>;
 
 export interface SpawnDispatcherDeps {
   /** Absolute evidence dir named in the steering preamble. */
@@ -133,7 +135,14 @@ const defaultSubscribe: SubscribeFn = (handler) =>
   registerEventHandler("task:assignment_update", (payload) => {
     handler(payload as AssignmentUpdate);
   });
-const defaultDelay: DelayFn = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const defaultDelay: DelayFn = (ms, signal) =>
+  new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    // Clear the pending timer if the caller aborts (terminal update won the
+    // race), so a resolved dispatch never leaves a 10-minute timeout dangling
+    // on the event loop.
+    signal?.addEventListener("abort", () => clearTimeout(timer), { once: true });
+  });
 
 /**
  * Build the production dispatcher. It registers ONE `task:assignment_update`
@@ -174,10 +183,13 @@ export function makeSpawnDispatcher(deps: SpawnDispatcherDeps): AgentDispatcher 
       const terminal = new Promise<AssignmentUpdate>((resolve) => {
         pending.set(assignmentId, resolve);
       });
+      // Cancels the timeout timer as soon as a terminal update wins the race (or
+      // the dispatch throws) — see defaultDelay's abort handling.
+      const timeoutAbort = new AbortController();
       try {
         const outcome = await Promise.race([
           terminal.then((update) => ({ kind: "update" as const, update })),
-          delay(timeoutMs).then(() => ({ kind: "timeout" as const })),
+          delay(timeoutMs, timeoutAbort.signal).then(() => ({ kind: "timeout" as const })),
         ]);
         if (outcome.kind === "timeout") {
           throw new Error(`agent dispatch timed out after ${timeoutMs}ms (${opts.role})`);
@@ -189,6 +201,7 @@ export function makeSpawnDispatcher(deps: SpawnDispatcherDeps): AgentDispatcher 
         }
         return extractStructuredOutput(update);
       } finally {
+        timeoutAbort.abort();
         pending.delete(assignmentId);
       }
     },

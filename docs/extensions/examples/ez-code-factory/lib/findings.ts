@@ -112,7 +112,9 @@ function nextUserFindingID(used: Set<string>, counter: number): [string, number]
 }
 
 /** A user-authored added finding from the respond payload. Action may be blank
- *  (→ auto-fix); source is forced to "user". */
+ *  (→ auto-fix); source is forced to "user". `userInstructions` carries the
+ *  user's per-finding note (upstream's added findings can carry one), threaded
+ *  through to the fix prompt via the merged findings. */
 export interface AddedFinding {
   id?: string;
   severity?: string;
@@ -121,11 +123,14 @@ export interface AddedFinding {
   description?: string;
   action?: string;
   category?: string;
+  userInstructions?: string;
 }
 
 /** Coerce a raw payload object into an AddedFinding, keeping a blank action
  *  blank (MergeUserOverrides defaults it to auto-fix). Unknown severity → error;
- *  unknown-but-nonblank action → ask-user (fail closed, like the M0 contract). */
+ *  unknown-but-nonblank action → ask-user (fail closed, like the M0 contract).
+ *  Accepts both snake_case (`user_instructions`, the agent/wire spelling) and
+ *  camelCase (`userInstructions`) for the note field. */
 function coerceAddedFinding(raw: unknown): AddedFinding {
   const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const s = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -141,6 +146,7 @@ function coerceAddedFinding(raw: unknown): AddedFinding {
     description: s(o.description),
     action,
     category: s(o.category),
+    userInstructions: s(o.user_instructions) || s(o.userInstructions),
   };
 }
 
@@ -170,7 +176,7 @@ export function mergeUserOverrides(
       description: raw.description ?? "",
       action: (raw.action && raw.action !== "" ? raw.action : "auto-fix") as Finding["action"],
       source: "user",
-      userInstructions: "",
+      userInstructions: raw.userInstructions ?? "",
       category: raw.category ?? "",
     };
     if (finding.id === "" || used.has(finding.id)) {

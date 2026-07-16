@@ -69,28 +69,35 @@ export default defineExtension({
   ],
 
   // Settings v0 (M1): per-step auto-fix caps + the gate remote name + review
-  // ignore globs + default branch. Read into a PipelineConfig via
-  // lib/config.ts resolvePipelineConfig; absent/invalid values fall back to
-  // defaults (review cap 0 = always parks, others 3). No repo-file config yet —
-  // trusted-branch `.no-mistakes.yaml`-equivalent reads land in M3.
+  // ignore globs + default branch. The KEY NAMES here match exactly what
+  // lib/config.ts `resolvePipelineConfig` consumes (gateRemote / defaultBranch /
+  // reviewAutofixCap / autofixCap / ignorePatterns), so no knob is silently
+  // dead — each is validated + clamped there, falling back to defaults (review
+  // cap 0 = always parks, others 3) on absent/invalid values. `SettingsField`
+  // only renders scalars (no array/object type), so per-step caps collapse to
+  // one review knob + one "other steps" knob and ignore globs are a
+  // comma-separated string that resolvePipelineConfig splits. index.ts:120 still
+  // uses defaultPipelineConfig(); the live `resolvePipelineConfig(settings)`
+  // read is wired in M2. No repo-file config yet — trusted-branch
+  // `.no-mistakes.yaml`-equivalent reads land in M3.
   settings: {
-    gate_remote: { type: "text", label: "Gate remote name", default: "gate" },
-    default_branch: { type: "text", label: "Default branch", default: "main" },
-    review_autofix_cap: {
+    gateRemote: { type: "text", label: "Gate remote name", default: "gate" },
+    defaultBranch: { type: "text", label: "Default branch", default: "main" },
+    reviewAutofixCap: {
       type: "number",
       label: "Review auto-fix cap (0 = always ask a human)",
       min: 0,
       max: 10,
       default: 0,
     },
-    autofix_cap: {
+    autofixCap: {
       type: "number",
       label: "Auto-fix cap for other steps (rebase/test/document/lint/ci)",
       min: 0,
       max: 10,
       default: 3,
     },
-    ignore_patterns: {
+    ignorePatterns: {
       type: "text",
       label: "Review ignore globs (comma-separated, e.g. *.snap, dist/**)",
       default: "",

@@ -104,10 +104,14 @@ async function executeRebase(sctx: StepContext): Promise<StepOutcome> {
       conflictTargets.push(target);
       for (const file of conflictFiles) {
         conflictFindings.push(
+          // Conflict findings carry NO action (upstream rebase.go:122-128): the
+          // fail-closed default (empty action → ask-user, runs.ts deserialize)
+          // PARKS the first conflict round for a human rather than firing up to
+          // three unattended `rebaseWithAgent` rounds. Auto-resolution happens
+          // ONLY after a human "fix" response, which re-enters this step with
+          // `sctx.fixing` set (handled above).
           deserializeFindings({
-            findings: [
-              { severity: "warning", file, description: `merge conflict rebasing onto ${target}`, action: "auto-fix" },
-            ],
+            findings: [{ severity: "warning", file, description: `merge conflict rebasing onto ${target}` }],
           }).items[0]!,
         );
       }
@@ -126,7 +130,9 @@ async function executeRebase(sctx: StepContext): Promise<StepOutcome> {
         summary: `conflict rebasing onto ${conflictTargets.join(", ")}`,
       }),
     );
-    return { needsApproval: true, autoFixable: true, findings };
+    // No autoFixable flag: the ask-user findings park (needsApproval) rather than
+    // auto-fix. The cap still bounds fix rounds once a human opts in.
+    return { needsApproval: true, findings };
   }
 
   return updateHeadSHA(sctx);
@@ -349,7 +355,11 @@ function dedupeRebaseFindings(findings: Finding[]): Finding[] {
   const seen = new Set<string>();
   const out: Finding[] = [];
   for (const f of findings) {
-    const key = `${f.file} ${f.description}`;
+    // NUL join (upstream rebase.go:488), written as the explicit `\x00` escape
+    // rather than a raw NUL byte in source: an unescaped separator lets a
+    // (file, description) pair collide with a different pair whose concatenation
+    // happens to line up across the delimiter.
+    const key = `${f.file}\x00${f.description}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(f);

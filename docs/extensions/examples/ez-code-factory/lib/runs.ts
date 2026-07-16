@@ -218,18 +218,19 @@ export function deserializeFinding(raw: unknown): Finding {
  *
  * Accepts BOTH wire shapes: the agent/upstream shape (items under the `findings`
  * key, snake_case scalars) and the internal camelCase shape (items under
- * `items`). The `findings` key wins when both are present, mirroring upstream's
- * `findingsWire` (Items json:"findings", Legacy json:"items"). The M0 stub only
+ * `items`). Precedence is LENGTH-based, mirroring upstream ParseFindingsJSON
+ * (`items := wire.Items; if len(items) == 0 && len(wire.Legacy) > 0 { items =
+ * wire.Legacy }`): a NON-EMPTY `findings` always wins, but an EMPTY `findings:[]`
+ * falls back to a non-empty legacy `items`. A presence-based check wrongly
+ * dropped a legacy-only payload (`{findings:[], items:[f1]}`) — the M0 stub only
  * read `items`/camelCase, so it silently dropped every real review finding — a
  * finding whose action the whole fail-closed contract exists to route.
  */
 export function deserializeFindings(raw: unknown): Findings {
   const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const rawItems = Array.isArray(o.findings)
-    ? o.findings
-    : Array.isArray(o.items)
-      ? o.items
-      : [];
+  const findingsArr = Array.isArray(o.findings) ? o.findings : [];
+  const itemsArr = Array.isArray(o.items) ? o.items : [];
+  const rawItems = findingsArr.length === 0 && itemsArr.length > 0 ? itemsArr : findingsArr;
   return {
     items: rawItems.map(deserializeFinding),
     summary: str(o.summary),
@@ -468,10 +469,36 @@ export interface ParsedRespond {
 }
 
 /**
+ * Size caps for the fix-only fields of a `respond` payload. The payload is
+ * attacker-reachable via the generic events route, which bounds only overall
+ * shape/size — so, mirroring `MAX_INTENT_LEN`'s defence-in-depth, each unbounded
+ * sub-field gets its own limit here. An over-cap payload is REJECTED (returns
+ * null → the handler logs "invalid payload — ignored"), never truncated: a
+ * silently truncated findingIds/addedFindings list could drop the very finding a
+ * user meant to fix, which is worse than a rejected respond they can re-issue.
+ */
+const MAX_INSTRUCTION_LEN = MAX_INTENT_LEN; // per-finding user note (same as intent)
+const MAX_FINDING_IDS = 200; // a single review's finding set is far smaller
+const MAX_ADDED_FINDINGS = 100; // user-authored findings merged in one fix
+const MAX_ADDED_FINDING_FIELD_LEN = MAX_INTENT_LEN; // description / user_instructions
+
+/** Length of a string field on a raw added-finding object, or 0 when absent. */
+function addedFindingFieldLen(el: unknown, ...keys: string[]): number {
+  if (!el || typeof el !== "object") return 0;
+  const o = el as Record<string, unknown>;
+  let max = 0;
+  for (const k of keys) {
+    if (typeof o[k] === "string") max = Math.max(max, (o[k] as string).length);
+  }
+  return max;
+}
+
+/**
  * Validate an untrusted `respond` payload (attacker-reachable via the events
  * route). Requires a non-empty runId, a known pipeline step, and one of the
- * four actions; the fix-only fields default to empty. Returns null on any
- * violation — a malformed respond is a silent no-op, never a throw.
+ * four actions; the fix-only fields default to empty and are size-capped
+ * (see the MAX_* constants above). Returns null on any violation — a malformed
+ * or over-cap respond is a silent no-op, never a throw.
  */
 export function parseRespondPayload(payload: unknown): ParsedRespond | null {
   if (!payload || typeof payload !== "object") return null;
@@ -485,13 +512,22 @@ export function parseRespondPayload(payload: unknown): ParsedRespond | null {
   const findingIds = Array.isArray(p.findingIds)
     ? p.findingIds.filter((x): x is string => typeof x === "string")
     : [];
+  if (findingIds.length > MAX_FINDING_IDS) return null;
   const instructions: Record<string, string> = {};
   if (p.instructions && typeof p.instructions === "object") {
     for (const [k, v] of Object.entries(p.instructions as Record<string, unknown>)) {
-      if (typeof v === "string") instructions[k] = v;
+      if (typeof v !== "string") continue;
+      if (v.length > MAX_INSTRUCTION_LEN) return null;
+      instructions[k] = v;
     }
   }
   const addedFindings = Array.isArray(p.addedFindings) ? p.addedFindings : [];
+  if (addedFindings.length > MAX_ADDED_FINDINGS) return null;
+  for (const el of addedFindings) {
+    if (addedFindingFieldLen(el, "description", "user_instructions", "userInstructions") > MAX_ADDED_FINDING_FIELD_LEN) {
+      return null;
+    }
+  }
   return { runId, step: step as PipelineStep, action: action as RespondAction, findingIds, instructions, addedFindings };
 }
 
@@ -610,6 +646,12 @@ export async function runGateLifecycle(
       if (deps.runPipeline) {
         const { parked } = await deps.runPipeline({ runId, worktreePath: wtPath });
         if (parked) {
+          // Deliberate leak-until-resumed: a parked run keeps its worktree so the
+          // human can review + fix in it, and `resumeGateLifecycle` reaps it on a
+          // terminal respond. A run that is NEVER responded to therefore retains
+          // its worktree indefinitely. The bounded gate-reconciliation /
+          // housekeeping sweep that reaps abandoned parked worktrees (and their
+          // stale `awaiting_approval` records) lands in M6 — out of scope here.
           keepWorktree = true;
           const parkedRun = await store.getRun(runId);
           return {

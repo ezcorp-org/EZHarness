@@ -247,6 +247,56 @@ describe("auto-fix loop honors the per-step cap", () => {
     expect((await startPipeline(id, deps)).status).toBe("parked");
     expect((await store.getStepResult(id, "review"))!.status).toBe("awaiting_approval");
   });
+
+  test("autoFixable=true but only ask-user findings → NO auto-fix round (guard on autoFixableFindingsJSON)", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    // rebase cap is 3 and the outcome FLAGS autoFixable, yet the findings carry
+    // ZERO auto-fix actions (all ask-user) → the executor must not run a fix
+    // round; it parks. Kills the guard mutation that drops the
+    // `autoFixableFindingsJSON(findings) !== ""` term from willAutoFix.
+    const rebase = scriptStep("rebase", [
+      {
+        needsApproval: true,
+        autoFixable: true,
+        findings: serializeFindings(
+          deserializeFindings({
+            findings: [{ id: "f1", severity: "warning", description: "conflict", action: "ask-user" }],
+          }),
+        ),
+      },
+    ]);
+    const deps = makeDeps(store, registry({ intent: scriptStep("intent", [clean]), rebase }), { t: 0 });
+    const outcome = await startPipeline(id, deps);
+    expect(outcome.status).toBe("parked");
+    expect(outcome.parkedStep).toBe("rebase");
+    const sr = (await store.getStepResult(id, "rebase"))!;
+    expect(sr.autoFixAttempts).toBe(0);
+    expect(sr.status).toBe("awaiting_approval");
+    expect(rebase.calls.length).toBe(1); // no auto-fix round ran
+  });
+
+  test("executionMs accumulates execution-only ms across rounds", async () => {
+    const store = memStore();
+    const id = await seedRun(store);
+    const clock = { t: 0 };
+    const calls: boolean[] = [];
+    // Each execute advances the injected clock by 10ms of execution time.
+    const rebase: Step = {
+      name: "rebase",
+      async execute(sctx) {
+        calls.push(sctx.fixing);
+        clock.t += 10;
+        return blocking("auto-fix"); // auto-fixable → runs to the cap, then parks
+      },
+    };
+    const deps = makeDeps(store, registry({ intent: scriptStep("intent", [clean]), rebase }), clock);
+    await startPipeline(id, deps);
+    const sr = (await store.getStepResult(id, "rebase"))!;
+    // 1 initial + 3 auto-fix rounds = 4 executes × 10ms = 40ms accumulated.
+    expect(calls.length).toBe(4);
+    expect(sr.executionMs).toBe(40);
+  });
 });
 
 // ── skipRemaining ───────────────────────────────────────────────────

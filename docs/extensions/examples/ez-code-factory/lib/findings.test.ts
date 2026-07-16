@@ -160,6 +160,12 @@ describe("mergeUserOverrides", () => {
     expect(f.items[0]!.severity).toBe("error");
     expect(f.items[0]!.id).toBe("mine");
   });
+  test("threads an added finding's userInstructions onto the merged finding", () => {
+    const f = mergeUserOverrides(mk([]), {}, [
+      { severity: "warning", description: "x", action: "auto-fix", userInstructions: "handle the null case" },
+    ]);
+    expect(f.items[0]!.userInstructions).toBe("handle the null case");
+  });
 });
 
 // ── JSON wrappers ───────────────────────────────────────────────────
@@ -210,6 +216,14 @@ describe("JSON wrappers", () => {
     const added = JSON.parse(merged).findings[0];
     expect(added.action).toBe("ask-user"); // nonblank unrecognized action fails closed
     expect(added.line).toBe(7);
+    expect(added.source).toBe("user");
+  });
+  test("mergeUserOverridesJSON threads a raw added finding's snake_case user_instructions", () => {
+    const merged = mergeUserOverridesJSON("", {}, [
+      { severity: "warning", description: "raw", action: "auto-fix", user_instructions: "do the thing" },
+    ]);
+    const added = JSON.parse(merged).findings[0];
+    expect(added.user_instructions).toBe("do the thing");
     expect(added.source).toBe("user");
   });
   test("findingIDsJSON + marshalFindingIDs", () => {

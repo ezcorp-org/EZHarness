@@ -83,4 +83,32 @@ describe("resolvePipelineConfig", () => {
     expect(cfg.gateRemote).toBe(GATE_REMOTE);
     expect(cfg.defaultBranch).toBe("main");
   });
+
+  // ── flat UI-settings knobs (the keys ezcorp.config.ts declares) ─────
+  test("flat reviewAutofixCap + autofixCap knobs set the per-step caps", () => {
+    const cfg = resolvePipelineConfig({ reviewAutofixCap: 2, autofixCap: 5 });
+    expect(cfg.autoFixLimits.review).toBe(2);
+    // autofixCap fans out to rebase/test/document/lint/ci only …
+    for (const step of ["rebase", "test", "document", "lint", "ci"] as const) {
+      expect(cfg.autoFixLimits[step]).toBe(5);
+    }
+    // … and never touches the no-auto-fix steps.
+    expect(cfg.autoFixLimits.push).toBe(0);
+    expect(cfg.autoFixLimits.intent).toBe(0);
+    expect(cfg.autoFixLimits.pr).toBe(0);
+  });
+  test("invalid/negative flat cap knobs leave defaults untouched", () => {
+    const cfg = resolvePipelineConfig({ reviewAutofixCap: -1, autofixCap: "nope" });
+    expect(cfg.autoFixLimits.review).toBe(0); // default
+    expect(cfg.autoFixLimits.rebase).toBe(3); // default
+  });
+  test("a flat autofixCap of 0 is honored (not treated as unset)", () => {
+    const cfg = resolvePipelineConfig({ autofixCap: 0 });
+    expect(cfg.autoFixLimits.rebase).toBe(0);
+    expect(cfg.autoFixLimits.ci).toBe(0);
+  });
+  test("comma-separated ignorePatterns string is split, trimmed, emptied-out", () => {
+    const cfg = resolvePipelineConfig({ ignorePatterns: " *.snap , , dist/** ,, " });
+    expect(cfg.ignorePatterns).toEqual(["*.snap", "dist/**"]);
+  });
 });
