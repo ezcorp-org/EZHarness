@@ -1,12 +1,12 @@
 /**
- * Server-handler unit tests for /api/pipelines/[name]/+server.ts.
+ * Server-handler unit tests for /api/workflows/[name]/+server.ts.
  *
- * Covers scope/auth gates. Success and 404 branches hit the pipeline
+ * Covers scope/auth gates. Success and 404 branches hit the workflow
  * registry + DB, so they're integration scope.
  */
 
 import { test, expect, describe } from "vitest";
-import { GET, PUT, DELETE } from "../routes/api/pipelines/[name]/+server";
+import { GET, PUT, DELETE } from "../routes/api/workflows/[name]/+server";
 
 function makeEvent(opts: {
 	name?: string;
@@ -14,12 +14,12 @@ function makeEvent(opts: {
 	locals?: Record<string, unknown>;
 	method?: string;
 }) {
-	const name = opts.name ?? "p1";
+	const name = opts.name ?? "w1";
 	return {
-		url: new URL(`http://localhost/api/pipelines/${name}`),
+		url: new URL(`http://localhost/api/workflows/${name}`),
 		locals: opts.locals ?? {},
 		params: { name },
-		request: new Request(`http://localhost/api/pipelines/${name}`, {
+		request: new Request(`http://localhost/api/workflows/${name}`, {
 			method: opts.method ?? "GET",
 			headers: { "content-type": "application/json" },
 			body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
@@ -46,7 +46,7 @@ const authedUser = {
 	user: { id: "u1", email: "u@x", name: "u", role: "user" },
 };
 
-describe("GET /api/pipelines/[name]", () => {
+describe("GET /api/workflows/[name]", () => {
 	test("returns 403 when API-key scope missing 'read'", async () => {
 		const res = await GET(
 			makeEvent({
@@ -63,7 +63,7 @@ describe("GET /api/pipelines/[name]", () => {
 	});
 });
 
-describe("PUT /api/pipelines/[name]", () => {
+describe("PUT /api/workflows/[name]", () => {
 	test("returns 403 when API-key scope missing 'chat'", async () => {
 		const res = await PUT(
 			makeEvent({
@@ -83,9 +83,22 @@ describe("PUT /api/pipelines/[name]", () => {
 			401,
 		);
 	});
+
+	test("returns 400 when replacement steps fail definition-time validation", async () => {
+		const res = await PUT(
+			makeEvent({
+				locals: authedUser,
+				method: "PUT",
+				body: { steps: [{ name: "g", kind: "gate" }] },
+			}),
+		);
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toBe('Step "g" (kind "gate") requires a "condition"');
+	});
 });
 
-describe("DELETE /api/pipelines/[name]", () => {
+describe("DELETE /api/workflows/[name]", () => {
 	test("returns 403 when API-key scope missing 'chat'", async () => {
 		const res = await DELETE(
 			makeEvent({

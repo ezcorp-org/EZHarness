@@ -1,14 +1,14 @@
 /**
- * Server-handler unit tests for /api/pipelines/[name]/run/+server.ts.
+ * Server-handler unit tests for /api/workflows/[name]/run/+server.ts.
  *
- * We intentionally avoid exercising the pipeline executor — tests cover only
- * the scope gate, the auth gate, and the 404 "pipeline not found" branch
+ * We intentionally avoid exercising the workflow executor — tests cover only
+ * the scope gate, the auth gate, and the 404 "Workflow not found" branch
  * which runs before any execution (in the typical empty-registry state the
  * vitest setup boots with).
  */
 
 import { test, expect, describe } from "vitest";
-import { POST } from "../routes/api/pipelines/[name]/run/+server";
+import { POST } from "../routes/api/workflows/[name]/run/+server";
 
 function makeEvent(opts: {
 	name?: string;
@@ -17,10 +17,10 @@ function makeEvent(opts: {
 }) {
 	const name = opts.name ?? "does-not-exist";
 	return {
-		url: new URL(`http://localhost/api/pipelines/${name}/run`),
+		url: new URL(`http://localhost/api/workflows/${name}/run`),
 		locals: opts.locals ?? {},
 		params: { name },
-		request: new Request(`http://localhost/api/pipelines/${name}/run`, {
+		request: new Request(`http://localhost/api/workflows/${name}/run`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: opts.body !== undefined ? JSON.stringify(opts.body) : "{}",
@@ -47,7 +47,7 @@ const authedUser = {
 	user: { id: "u1", email: "u@x", name: "u", role: "user" },
 };
 
-describe("POST /api/pipelines/[name]/run", () => {
+describe("POST /api/workflows/[name]/run", () => {
 	test("returns 403 when API-key scope missing 'chat'", async () => {
 		const res = await POST(
 			makeEvent({
