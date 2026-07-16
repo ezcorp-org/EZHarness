@@ -840,9 +840,17 @@ export type ApprovalResolution =
  * the HOST-SIDE approval route (Phase 3) from the authenticated session — NEVER
  * read from extension-supplied input, which a compromised loop could forge to
  * attribute a decision to another user. Extension code has no path to call this
- * with a caller-chosen identity. TODO(phase-3): the host approval route stamps
- * `decidedBy` from the request's authenticated user id; the `"system"` sentinel
- * is reserved for the staleness auto-decline only.
+ * with a caller-chosen identity.
+ *
+ * PHASE-3 RESOLUTION: the approval surface is the loop's Hub dashboard
+ * `log.dashboard.rowActions`. The generic extension events route
+ * (`web/src/routes/api/extensions/[name]/events/[event]/+server.ts`) STAMPS
+ * `PageActionEvent.userId` from `requireAuth(locals).id` on the hub-action
+ * branch — the client body schema does not carry `userId`, so it cannot be
+ * forged from the request. The flagship rowAction threads that host-stamped
+ * `event.userId` in as `decidedBy` (see docs-updater's `handleApproveAction`).
+ * No caller-supplied identity ever reaches here; `"system"` remains reserved
+ * for the staleness auto-decline only.
  */
 export async function approveRun(
   loopId: string,
@@ -951,11 +959,11 @@ export async function approveRun(
  * hatch so it never wedges forever in `finalizing`.
  *
  * SECURITY — `decidedBy` provenance: see {@link approveRun}. This identity is
- * stamped verbatim onto the LOCKED approval label + the audit mirror; the
- * HOST-SIDE approval route (Phase 3) MUST supply it from the authenticated
- * session and NEVER trust extension-supplied input. TODO(phase-3): host route
- * stamps `decidedBy` from the request's authenticated user; `"system"` is
- * reserved for the staleness auto-decline.
+ * stamped verbatim onto the LOCKED approval label + the audit mirror; it is
+ * supplied by the Hub events route (Phase 3), which host-stamps
+ * `PageActionEvent.userId` from the authenticated session and never trusts
+ * extension-/client-supplied input. `"system"` is reserved for the staleness
+ * auto-decline.
  */
 export async function declineRun(
   loopId: string,

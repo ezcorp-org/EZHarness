@@ -397,9 +397,18 @@ authorization-critical identity: it **MUST** be supplied by the host-side
 approval route from the authenticated session, and **never** read from
 extension-supplied input (a compromised loop could otherwise attribute a
 decision to another user). Extension code has no path to call these with a
-caller-chosen identity. `TODO(phase-3)`: the host approval route stamps
-`decidedBy` from the request's authenticated user id; the `"system"` sentinel is
-reserved for the staleness auto-decline only.
+caller-chosen identity.
+
+Resolved in Phase 3: the approval surface is the loop's Hub dashboard
+`log.dashboard.rowActions`. The generic extension events route
+(`web/src/routes/api/extensions/[name]/events/[event]/+server.ts`) stamps
+`PageActionEvent.userId` from `requireAuth(locals).id` on its hub-action branch
+— the client hub body schema does **not** carry a `userId`, so the acting
+identity can never be forged from the request. A flagship's row action threads
+that host-stamped `event.userId` in as `decidedBy` (see
+[`examples/docs-updater`](examples/docs-updater/index.ts)'s `handleApproveAction`
+/ `handleDeclineAction`). The `"system"` sentinel stays reserved for the
+staleness auto-decline only.
 
 ### Staleness sweep — and its honest limits
 
@@ -448,6 +457,7 @@ only one loop, it does not enter the primitive.
 
 - [`examples/sample-loop`](examples/sample-loop/index.ts) — the runnable reference (terminal capture loop + a `check`).
 - [`examples/repo-activity-notify`](examples/repo-activity-notify/index.ts) — the check-stage trust probe (git-cursor `check` → notify `act`).
+- [`examples/docs-updater`](examples/docs-updater/index.ts) — the proactive PR-drafter flagship: git-cursor `check` → deferred coding-agent `act` → `onComplete` `proposal` → human approve/decline (host-stamped `decidedBy`); merge stays manual on `/repo`.
 - [Data Storage Convention](data-storage.md) — the `.ezcorp/extension-data/` layout.
 - [Pages](pages.md) — the Hub page model the dashboard reuses.
 - [API Reference](api-reference.md) — `Storage`, `Schedule`, `spawnAssignment`, the fs helpers.
