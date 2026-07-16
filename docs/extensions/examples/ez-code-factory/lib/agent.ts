@@ -112,6 +112,17 @@ export function buildSpawnInput(opts: DispatchOptions, evidenceDir: string): Spa
     // Native mapping of the trusted `disable_project_settings` boundary: append a
     // steering directive so the spawned agent ignores repository-level
     // instruction files. Only added when the trusted config opted in.
+    //
+    // Soft (steering-note) vs upstream's hard prevention is SAFE here, verified
+    // 2026-07-16: no EZCorp runtime path auto-injects a worktree's AGENTS.md /
+    // CLAUDE.md into a spawned sub-agent's system prompt (the host loads the
+    // deployment's project settings, not worktree files), so a pushed-branch
+    // instruction file is just a file the agent may read — the steering note
+    // tells it not to. The security-critical part (this flag is sourced
+    // trusted-only, so a pushed branch cannot flip it) lives in repo-config.ts.
+    // INVARIANT: if the host ever begins auto-loading worktree instruction files
+    // into sub-agent context, this note is insufficient — a hard override is
+    // then required.
     ...(opts.disableProjectSettings
       ? { overrides: { systemPromptAppend: DISABLE_PROJECT_SETTINGS_NOTE } }
       : {}),

@@ -342,6 +342,12 @@ export interface StepShellResult {
  * command comes from the trusted default branch only (repo-config.ts), never a
  * pushed SHA — this is where the supply-chain boundary earns its keep, so the
  * caller must pass a trusted-sourced command. Verbatim runShellCommandWithEnv.
+ *
+ * NOTE: `runner` here is the UNJAILED host runner, deliberately — trusted
+ * `commands.test`/`commands.lint` run on the daemon host exactly as upstream
+ * runs them (they need the repo's own toolchain), and they're only reachable via
+ * the trusted-branch opt-in, so they bypass the mutating-git nested jail by
+ * design. Only pass a trusted-sourced `cmd`; never a pushed-branch value.
  */
 export async function runStepShellCommand(
   runner: ShellRunner,
