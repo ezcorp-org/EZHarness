@@ -501,7 +501,7 @@ export function isValidForField(field: SettingsField, value: unknown): boolean {
       if (!textLengthMaxOk(field, value.length)) return false;
       if (field.pattern !== undefined) {
         const re = compileTextPattern(field);
-        if (!re || !re.test(value)) return false;
+        if (!re?.test(value)) return false;
       }
       return true;
     }
