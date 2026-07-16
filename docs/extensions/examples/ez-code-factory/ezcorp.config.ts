@@ -121,7 +121,13 @@ export default defineExtension({
         "`fix` are REJECTED unless you pass the explicit `findingIds` you are acting " +
         "on (proof you surfaced them to the user), or set `consentAll:true` ONLY with " +
         "the user's explicit standing consent. Always call `code_factory_status` and " +
-        "relay `ask-user` findings verbatim BEFORE approving anything.",
+        "relay `ask-user` findings verbatim BEFORE approving anything. Requires the " +
+        "`respond-gate` extension RBAC scope (the host refuses it otherwise).",
+      // Extension-RBAC ENFORCEMENT (M6): the host denies this tool pre-dispatch
+      // unless the acting user holds `respond-gate` — declared in
+      // `permissions.rbacScopes` below. Defence in depth alongside the in-code
+      // `ctx.rbac.check` guard the Hub respond/yolo actions run.
+      rbacScope: "respond-gate",
       inputSchema: {
         type: "object",
         properties: {
@@ -184,6 +190,24 @@ export default defineExtension({
         "approve the review gate findings we discussed",
         "fix the findings the user selected",
         "skip the document step on this run",
+      ],
+    },
+    {
+      name: "code_factory_doctor",
+      description:
+        "Run a READ-ONLY health check on the code-factory gate for the active " +
+        "project and report each diagnostic: gate initialized?, managed " +
+        "post-receive hook installed?, gh CLI available + authenticated?, " +
+        "GitHub token set?, default-branch fetch reachable?, and the background " +
+        "reconcile sweep's heartbeat. Each check is `ok` (nominal), `warn` " +
+        "(degraded but usable — e.g. gh unauthenticated makes pr/ci skip), or " +
+        "`fail` (the gate is broken — run init_gate). Mutates nothing. Use it to " +
+        "diagnose why a push isn't producing a run, or why pr/ci is skipping.",
+      inputSchema: { type: "object", properties: {} },
+      suggestExamples: [
+        "check the code factory's health",
+        "why is my gate not working",
+        "run code factory diagnostics",
       ],
     },
   ],
@@ -312,6 +336,30 @@ export default defineExtension({
       // Gate poll that auto-resolves the gate when its PR has merged/closed.
       "ez-code-factory:reconcile",
     ],
+    // Custom RBAC scope DECLARATIONS (M6, extension-RBAC layer — inert, NOT a
+    // privilege): name the per-extension scopes gating the gate-triage verbs.
+    // Granting lives in `extension_rbac_grants` (admins implicitly hold every
+    // scope); these declarations make the scopes appear in the grant UI and be
+    // checkable from extension code via `ctx.rbac.check(...)` + enforceable via
+    // a tool's `rbacScope`. `respond-gate` gates approve/fix/skip/abort (the
+    // `code_factory_respond` tool + the Hub respond action); `yolo` is its OWN
+    // scope because the autopilot clears every remaining gate of a run — a
+    // strictly broader authority than a single approve (M2 review's RBAC note).
+    rbacScopes: [
+      { name: "respond-gate", description: "Answer a parked gate (approve / fix / skip / abort) from chat or the Hub" },
+      { name: "yolo", description: "Run the yolo autopilot — bulk fix-once-then-approve every remaining gate of a run" },
+    ],
+    // Persistent cron for the background reconcile sweep (M6): every 15 min the
+    // host fires `ez-code-factory`'s `Schedule.on(SWEEP_CRON)` handler, which
+    // re-checks every checks_passed / CI-parked run and completes the ones whose
+    // PR merged/closed. Read-only per run + bounded. The CI step's own poll
+    // handles the fast path; this is the coarse catch-up the README promised.
+    schedule: {
+      crons: ["*/15 * * * *"],
+      maxRunsPerDay: 100,
+      purpose:
+        "Reconcile sweep — poll checks_passed / CI-parked runs and complete the ones whose PR merged/closed.",
+    },
   },
 
   resources: {

@@ -1,5 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import manifest from "./ezcorp.config";
+import { SWEEP_CRON } from "./lib/sweep";
 
 describe("ez-code-factory manifest", () => {
   test("declares the identity + entrypoint", () => {
@@ -8,9 +9,33 @@ describe("ez-code-factory manifest", () => {
     expect(manifest.entrypoint).toBe("./index.ts");
   });
 
-  test("exposes the init_gate tool", () => {
+  test("exposes the init_gate + code_factory_doctor tools", () => {
     const names = (manifest.tools ?? []).map((t) => t.name);
     expect(names).toContain("init_gate");
+    // M6: the read-only diagnostics tool.
+    expect(names).toContain("code_factory_doctor");
+  });
+
+  test("M6: gates the respond tool behind the `respond-gate` RBAC scope", () => {
+    const respond = (manifest.tools ?? []).find((t) => t.name === "code_factory_respond");
+    // Host enforcement — the tool is denied pre-dispatch without the scope.
+    expect((respond as { rbacScope?: string }).rbacScope).toBe("respond-gate");
+  });
+
+  test("M6: declares the two triage RBAC scopes (respond-gate + yolo)", () => {
+    const scopes = (manifest.permissions?.rbacScopes ?? []).map((s) => s.name).sort();
+    expect(scopes).toEqual(["respond-gate", "yolo"]);
+    // Every declared scope carries a non-empty description (the grant-UI text).
+    for (const s of manifest.permissions?.rbacScopes ?? []) {
+      expect(s.description.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("M6: declares the reconcile-sweep cron matching SWEEP_CRON", () => {
+    const schedule = manifest.permissions?.schedule;
+    expect(schedule?.crons).toEqual([SWEEP_CRON]);
+    expect((schedule?.maxRunsPerDay ?? 0)).toBeGreaterThan(0);
+    expect((schedule?.purpose ?? "").length).toBeGreaterThan(0);
   });
 
   test("code_factory_respond declares the addedFindings input (array of finding objects)", () => {

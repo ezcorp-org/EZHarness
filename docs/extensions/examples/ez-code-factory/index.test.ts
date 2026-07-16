@@ -37,13 +37,20 @@ import {
   codeFactoryRunTool,
   codeFactoryStatusTool,
   codeFactoryRespondTool,
+  codeFactoryDoctorTool,
   _setChatToolDepsForTests,
+  _setRbacCheckForTests,
+  _setHeartbeatKVForTests,
+  runReconcileSweep,
+  handleScheduleFire,
+  recoverOnStart,
 } from "./index";
 import type { ChatToolDeps } from "./lib/chat-tools";
-import { gateDir as gateDirFor, GATE_REMOTE } from "./lib/gate";
+import { gateDir as gateDirFor, GATE_REMOTE, HOOK_MARKER } from "./lib/gate";
+import { SWEEP_CRON } from "./lib/sweep";
 import { productionHostRunner, type ShellRunner } from "./lib/shell";
 import { emptyFindings } from "./lib/runs";
-import type { Finding, ParsedRespond, RunRecord, RunStore, StepResultRecord, StepRoundRecord } from "./lib/runs";
+import type { Finding, ParsedRespond, RunRecord, RunStore, StepResultRecord, StepRoundRecord, StepStatus } from "./lib/runs";
 
 // ── in-memory store + fakes ─────────────────────────────────────────
 
@@ -120,6 +127,10 @@ const VALID_PUSH = {
 // resolution override this locally.
 beforeEach(() => {
   _setSettingsReadForTests(async () => ({}));
+  // Default: the acting user HOLDS every triage scope (the pre-M6 ungated
+  // behaviour). The production default calls `new Rbac().check`, which hangs
+  // against the stub channel; RBAC-specific tests override this per-scope.
+  _setRbacCheckForTests(async () => true);
 });
 
 afterEach(() => {
@@ -135,6 +146,8 @@ afterEach(() => {
   _setTokenStorageForTests(null);
   _setSettingsReadForTests(null);
   _setChatToolDepsForTests(null);
+  _setRbacCheckForTests(null);
+  _setHeartbeatKVForTests(null);
 });
 
 /** A fake pipeline runner that drives the run to a chosen terminal/parked state
@@ -943,12 +956,15 @@ describe("register / start", () => {
       expect(methods.has(`ezcorp/event/${RESPOND_ACTION}`)).toBe(true);
       expect(methods.has(`ezcorp/event/${YOLO_ACTION}`)).toBe(true);
       expect(methods.has(`ezcorp/event/${RECONCILE_ACTION}`)).toBe(true);
+      // M6: the reconcile-sweep cron handler is wired.
+      expect(methods.has("ezcorp/schedule-fire")).toBe(true);
       expect(methods.has("tools/call")).toBe(true);
       expect(Object.keys(tools)).toEqual([
         "init_gate",
         "code_factory_run",
         "code_factory_status",
         "code_factory_respond",
+        "code_factory_doctor",
       ]);
     } finally {
       ch.onRequest = original;
@@ -1309,8 +1325,10 @@ describe("handleYolo", () => {
       return { parked: true };
     });
     await handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "run-parked" } });
-    // PIPELINE_STEPS.length (9) + 1 = 10 iterations, then the bound halts it.
-    expect(approvals).toBe(10);
+    // YOLO_MAX_ITERATIONS = PIPELINE_STEPS.length (9) * 2 + 1 = 19: each empty
+    // gate is an approve, so the fix-once budget never engages and only the hard
+    // iteration bound halts the pathological re-park.
+    expect(approvals).toBe(19);
     expect((await store.getRun("run-parked"))!.status).toBe("awaiting_approval");
   });
 
@@ -1440,5 +1458,375 @@ describe("chat-entry tool handlers", () => {
     const out = JSON.parse(res.content[0]!.text);
     expect(out.applied).toBe(true);
     expect(out.status).toBe("aborted");
+  });
+});
+
+// ── M6 hardening ────────────────────────────────────────────────────
+
+/** Build a Finding with sensible defaults. */
+function mkFinding(over: Partial<Finding>): Finding {
+  return {
+    id: over.id ?? "f",
+    severity: over.severity ?? "warning",
+    file: over.file ?? "src/x.ts",
+    line: over.line ?? null,
+    description: over.description ?? "desc",
+    action: over.action ?? "auto-fix",
+    source: over.source ?? "agent",
+    userInstructions: over.userInstructions ?? "",
+    category: over.category ?? "",
+  };
+}
+
+/** A `run-parked` review step result carrying `items`. */
+function reviewStep(items: Finding[], status: StepStatus, autoFixLimit = 0): StepResultRecord {
+  return {
+    runId: "run-parked",
+    step: "review",
+    status,
+    findings: { items, summary: "", tested: [], testingSummary: "", artifacts: [], riskLevel: "", riskRationale: "" },
+    agentPid: null,
+    autoFixLimit,
+    round: 1,
+    autoFixAttempts: 0,
+    executionMs: 0,
+    fixSummary: null,
+  };
+}
+
+describe("RBAC on triage actions (M6)", () => {
+  test("handleRespond proceeds when `respond-gate` is granted", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(okShell);
+    _setPushPageForTests(() => {});
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store);
+    const scopes: string[] = [];
+    _setRbacCheckForTests(async (scope) => {
+      scopes.push(scope);
+      return true;
+    });
+    let resumed = 0;
+    _setRespondRunnerForTests(() => async ({ runId }) => {
+      resumed++;
+      await store.updateRun(runId, { status: "completed" });
+      return { parked: false };
+    });
+    await handleRespond({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "run-parked", step: "review", action: "approve" } });
+    expect(scopes).toContain("respond-gate");
+    expect(resumed).toBe(1);
+  });
+
+  test("handleRespond REFUSES (no-op, no 500) when `respond-gate` is not held", async () => {
+    _setProjectRootForTests(() => "/proj");
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store);
+    _setRbacCheckForTests(async () => false);
+    let resumed = 0;
+    _setRespondRunnerForTests(() => async () => {
+      resumed++;
+      return { parked: false };
+    });
+    const stderr = captureStderr();
+    try {
+      await handleRespond({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "run-parked", step: "review", action: "approve" } });
+      expect(resumed).toBe(0);
+      expect(stderr.text()).toContain("respond refused");
+      expect(stderr.text()).toContain("respond-gate");
+    } finally {
+      stderr.restore();
+    }
+    // The run is untouched — a denied respond never mutates it.
+    expect(store.runs.get("run-parked")!.status).toBe("awaiting_approval");
+  });
+
+  test("handleYolo checks the `yolo` scope (granted → autopilot runs)", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(okShell);
+    _setPushPageForTests(() => {});
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store); // empty review findings → approve
+    const scopes: string[] = [];
+    _setRbacCheckForTests(async (scope) => {
+      scopes.push(scope);
+      return true;
+    });
+    _setRespondRunnerForTests(() => async ({ runId }) => {
+      await store.updateRun(runId, { status: "completed" });
+      return { parked: false };
+    });
+    await handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "run-parked" } });
+    expect(scopes).toContain("yolo");
+    expect(store.runs.get("run-parked")!.status).toBe("completed");
+  });
+
+  test("handleYolo REFUSES (no autopilot) when `yolo` is not held", async () => {
+    _setProjectRootForTests(() => "/proj");
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store);
+    _setRbacCheckForTests(async () => false);
+    let calls = 0;
+    _setRespondRunnerForTests(() => async () => {
+      calls++;
+      return { parked: false };
+    });
+    const stderr = captureStderr();
+    try {
+      await handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "run-parked" } });
+      expect(calls).toBe(0);
+      expect(stderr.text()).toContain("yolo refused");
+      expect(stderr.text()).toContain("yolo");
+    } finally {
+      stderr.restore();
+    }
+  });
+
+  test("code_factory_respond tool REFUSES with a toolError when `respond-gate` is not held", async () => {
+    _setRbacCheckForTests(async () => false);
+    const res = await codeFactoryRespondTool({ runId: "r", step: "review", action: "approve" });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain("respond-gate");
+  });
+});
+
+describe("yolo fix-once semantics (M6)", () => {
+  test("FIXES an auto-fix finding once, then APPROVES the re-parked gate", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(okShell);
+    _setPushPageForTests(() => {});
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store);
+    await store.putStepResult(reviewStep([mkFinding({ id: "f1", action: "auto-fix" })], "awaiting_approval", 3));
+
+    const actions: Array<{ action: string; findingIds: string[] }> = [];
+    _setRespondRunnerForTests((_pr, _gd, respond) => async ({ runId }) => {
+      actions.push({ action: respond!.action, findingIds: respond!.findingIds });
+      if (respond!.action === "fix") {
+        // The fix round re-parks with a CLEAN review gate (findings resolved).
+        await store.putStepResult(reviewStep([], "fix_review", 3));
+        await store.updateRun(runId, { status: "awaiting_approval" });
+        return { parked: true };
+      }
+      await store.putStepResult(reviewStep([], "completed", 3));
+      await store.updateRun(runId, { status: "completed" });
+      return { parked: false };
+    });
+
+    await handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "run-parked" } });
+    expect(actions).toEqual([
+      { action: "fix", findingIds: ["f1"] },
+      { action: "approve", findingIds: [] },
+    ]);
+    expect(store.runs.get("run-parked")!.status).toBe("completed");
+  });
+
+  test("STOPS on an ask-user gate — never blanket-approves it", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(okShell);
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store);
+    await store.putStepResult(reviewStep([mkFinding({ id: "a1", action: "ask-user", file: "src/auth.ts" })], "awaiting_approval"));
+    let calls = 0;
+    _setRespondRunnerForTests(() => async () => {
+      calls++;
+      return { parked: false };
+    });
+    const stderr = captureStderr();
+    try {
+      await handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "run-parked" } });
+      expect(calls).toBe(0); // no respond issued — yolo stopped
+      expect(stderr.text()).toContain("stopping at 'review'");
+      expect(stderr.text()).toContain("ask-user");
+    } finally {
+      stderr.restore();
+    }
+    expect(store.runs.get("run-parked")!.status).toBe("awaiting_approval");
+  });
+});
+
+describe("code_factory_doctor tool (M6)", () => {
+  test("errors when no active project is set", async () => {
+    _setProjectRootForTests(() => undefined);
+    const res = await codeFactoryDoctorTool({});
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain("EZCORP_PROJECT_ROOT unset");
+  });
+
+  test("returns a JSON health report (gate ok when the bare repo + hook + origin resolve)", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(async (cmd) => {
+      const s = cmd.join(" ");
+      if (s.includes("--is-bare-repository")) return { exitCode: 0, stdout: "true\n", stderr: "" };
+      if (cmd[0] === "cat") return { exitCode: 0, stdout: `#!/bin/sh\n# ${HOOK_MARKER}\n`, stderr: "" };
+      if (s.includes("remote get-url origin")) return { exitCode: 0, stdout: "https://github.com/o/r.git\n", stderr: "" };
+      if (cmd[0] === "gh") return { exitCode: 0, stdout: "", stderr: "" }; // gh auth status
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+    _setTokenStorageForTests(() => ({ async get() { return { value: null, exists: false }; } }));
+    _setHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    const res = await codeFactoryDoctorTool({});
+    expect(res.isError).toBe(false);
+    const report = JSON.parse(res.content[0]!.text) as { ok: boolean; checks: Array<{ name: string; status: string }> };
+    expect(report.checks.map((c) => c.name)).toEqual([
+      "gate",
+      "hook",
+      "gh",
+      "token",
+      "default-branch",
+      "reconcile-sweep",
+    ]);
+    expect(report.checks.find((c) => c.name === "gate")!.status).toBe("ok");
+    expect(report.checks.find((c) => c.name === "hook")!.status).toBe("ok");
+  });
+});
+
+describe("reconcile sweep wiring (M6)", () => {
+  test("runReconcileSweep skips with no active project", async () => {
+    _setProjectRootForTests(() => undefined);
+    _setStoreForTests(memStore());
+    const stderr = captureStderr();
+    try {
+      expect(await runReconcileSweep()).toBeNull();
+      expect(stderr.text()).toContain("reconcile sweep with no EZCORP_PROJECT_ROOT");
+    } finally {
+      stderr.restore();
+    }
+  });
+
+  test("runReconcileSweep advances a checks_passed run whose reconcile completes it + writes a heartbeat", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(okShell);
+    _setPushPageForTests(() => {});
+    const store = memStore();
+    _setStoreForTests(store);
+    await store.createRun({
+      id: "g", repoId: "0123456789ab", branch: "feat/x", ref: "refs/heads/feat/x",
+      headSha: "abc", baseSha: "0".repeat(40), status: "checks_passed", worktreePath: "/wt/g",
+      createdAt: "t", updatedAt: "t", parkedMs: 0, awaitingAgentSince: "t", intent: null, intentSource: null,
+    });
+    _setReconcileRunnerForTests(() => async ({ runId }) => {
+      await store.updateRun(runId, { status: "completed" });
+      return { parked: false };
+    });
+    let wrote = 0;
+    _setHeartbeatKVForTests(() => ({ async read() { return null; }, async write() { wrote++; } }));
+    const summary = await runReconcileSweep();
+    expect(summary).not.toBeNull();
+    expect(summary!.advanced).toBe(1);
+    expect(wrote).toBe(1);
+    expect(store.runs.get("g")!.status).toBe("completed");
+  });
+
+  test("handleScheduleFire swallows a thrown sweep", async () => {
+    _setProjectRootForTests(() => "/proj");
+    const store = memStore();
+    const boomStore: RunStore = { ...store, listRuns: async () => { throw new Error("store boom"); } };
+    _setStoreForTests(boomStore);
+    _setHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    const stderr = captureStderr();
+    try {
+      await handleScheduleFire({ cron: SWEEP_CRON, scheduledAt: "t", firedAt: "t", fireId: "f", catchUp: false, retry: false, attempt: 1 });
+      expect(stderr.text()).toContain("reconcile sweep error");
+    } finally {
+      stderr.restore();
+    }
+  });
+
+  test("handleScheduleFire runs a sweep on the happy path (no reconcilable runs)", async () => {
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(okShell);
+    const store = memStore();
+    _setStoreForTests(store);
+    _setHeartbeatKVForTests(() => ({ async read() { return null; }, async write() {} }));
+    await handleScheduleFire({ cron: SWEEP_CRON, scheduledAt: "t", firedAt: "t", fireId: "f", catchUp: false, retry: false, attempt: 1 });
+    // No throw + no reconcilable runs → a clean no-op fire.
+    expect(true).toBe(true);
+  });
+});
+
+describe("crash recovery wiring (M6)", () => {
+  test("recoverOnStart skips with no active project", async () => {
+    _setProjectRootForTests(() => undefined);
+    _setStoreForTests(memStore());
+    const stderr = captureStderr();
+    try {
+      expect(await recoverOnStart()).toBeNull();
+      expect(stderr.text()).toContain("crash recovery with no EZCORP_PROJECT_ROOT");
+    } finally {
+      stderr.restore();
+    }
+  });
+
+  test("recoverOnStart reaps a terminal run's orphaned worktree", async () => {
+    _setProjectRootForTests(() => "/proj");
+    const removed: string[] = [];
+    _setShellForTests(async (cmd) => {
+      if (cmd.includes("worktree") && cmd.includes("remove")) removed.push(cmd[cmd.length - 1]!);
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+    const store = memStore();
+    _setStoreForTests(store);
+    await store.createRun({
+      id: "done", repoId: "0123456789ab", branch: "feat/x", ref: "refs/heads/feat/x",
+      headSha: "abc", baseSha: "0".repeat(40), status: "completed", worktreePath: "/wt/done",
+      createdAt: "t", updatedAt: "t", parkedMs: 0, awaitingAgentSince: null, intent: null, intentSource: null,
+    });
+    const summary = await recoverOnStart();
+    expect(summary!.reaped).toBe(1);
+    expect(removed).toEqual(["/wt/done"]);
+    expect(store.runs.get("done")!.worktreePath).toBeNull();
+  });
+});
+
+describe("production default seams (M6)", () => {
+  test("default rbac check resolves via the ezcorp/rbac-check reverse RPC", async () => {
+    _setRbacCheckForTests(null); // restore the production Rbac-based check
+    __resetChannelForTests();
+    const ch = getChannel() as HostChannel;
+    spyOn(ch, "request").mockImplementation((async (method: string) => {
+      if (method === "ezcorp/rbac-check") return { granted: true };
+      return { value: null, exists: false };
+    }) as HostChannel["request"]);
+    _setProjectRootForTests(() => "/proj");
+    _setShellForTests(okShell);
+    _setPushPageForTests(() => {});
+    const store = memStore();
+    _setStoreForTests(store);
+    await seedParkedRun(store);
+    _setRespondRunnerForTests(() => async ({ runId }) => {
+      await store.updateRun(runId, { status: "completed" });
+      return { parked: false };
+    });
+    try {
+      await handleRespond({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "run-parked", step: "review", action: "approve" } });
+      // The real rbac-check granted → the respond ran to completion.
+      expect(store.runs.get("run-parked")!.status).toBe("completed");
+    } finally {
+      __resetChannelForTests();
+    }
+  });
+
+  test("default heartbeat KV reads via Storage (null when absent → doctor warns)", async () => {
+    _setHeartbeatKVForTests(null); // restore the production Storage-backed KV
+    _setProjectRootForTests(() => "/proj");
+    __resetChannelForTests();
+    const ch = getChannel() as HostChannel;
+    spyOn(ch, "request").mockImplementation((async () => ({ value: null, exists: false })) as HostChannel["request"]);
+    _setShellForTests(okShell);
+    _setTokenStorageForTests(() => ({ async get() { return { value: null, exists: false }; } }));
+    try {
+      const res = await codeFactoryDoctorTool({});
+      expect(res.isError).toBe(false);
+      const report = JSON.parse(res.content[0]!.text) as { checks: Array<{ name: string; status: string }> };
+      expect(report.checks.find((c) => c.name === "reconcile-sweep")!.status).toBe("warn");
+    } finally {
+      __resetChannelForTests();
+    }
   });
 });

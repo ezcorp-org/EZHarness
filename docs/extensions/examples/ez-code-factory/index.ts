@@ -19,11 +19,14 @@ import {
   getToolContext,
   invoke,
   pushPage,
+  Rbac,
+  Schedule,
   Storage,
   toolError,
   toolResult,
   type HubPageTree,
   type PageActionEvent,
+  type ScheduleHandlerContext,
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
 import {
@@ -50,6 +53,7 @@ import {
   createRunStore,
   parsePushReceived,
   parseRespondPayload,
+  removeWorktree,
   runGateLifecycle,
   resumeGateLifecycle,
   type ParsedRespond,
@@ -65,6 +69,17 @@ import { makeGit } from "./lib/git";
 import { resolveTrustedRepoConfig } from "./lib/repo-config";
 import { startPipeline, respondToGate, reconcileGate, type ExecutorDeps } from "./lib/executor";
 import { makeGhRunner, resolveGhToken, type TokenStorage } from "./lib/gh-runner";
+import { guardScope, RESPOND_SCOPE, YOLO_SCOPE, type RbacCheck } from "./lib/rbac";
+import { decideYoloAction } from "./lib/yolo";
+import {
+  reconcileSweep,
+  SWEEP_CRON,
+  type ReconcileResult,
+  type SweepSummary,
+} from "./lib/sweep";
+import { productionHeartbeatKV, type HeartbeatKV } from "./lib/heartbeat";
+import { recoverRuns, type RecoverySummary } from "./lib/recovery";
+import { runDoctor, type DoctorReport } from "./lib/doctor";
 
 /** Full namespaced action name the post-receive hook triggers. */
 export const PUSH_RECEIVED_ACTION = `${EXTENSION_NAME}:${TRIGGER_EVENT}`;
@@ -139,6 +154,32 @@ export function _setTokenStorageForTests(fn: (() => TokenStorage) | null): void 
 /** Resolve the GitHub token for the gh runner (env → encrypted secret → null). */
 export function resolveProductionGhToken(): Promise<string | null> {
   return resolveGhToken(process.env, tokenStorageImpl());
+}
+
+// ── Extension-RBAC seam (M6, triage-action gating) ────────────────────
+//
+// `ctx.rbac.check(scope)` asks the host whether the acting user holds `scope`
+// for this extension (identity resolved host-side from the call's provenance
+// token — a Hub click mints onBehalfOf = the clicking user). The chat respond
+// tool + the Hub respond/yolo actions enforce it via `guardScope`; the seam lets
+// tests drive both the granted + refused paths with a fake.
+
+const defaultRbacCheck: RbacCheck = (scope) => new Rbac().check(scope);
+let rbacCheckImpl: RbacCheck = defaultRbacCheck;
+export function _setRbacCheckForTests(fn: RbacCheck | null): void {
+  rbacCheckImpl = fn ?? defaultRbacCheck;
+}
+
+// ── Reconcile-sweep heartbeat KV (M6, doctor's "loop healthy?" evidence) ──
+//
+// The background sweep records a heartbeat (last run + counts) in global
+// Storage; `code_factory_doctor` reads it. The KV lives in lib/heartbeat.ts
+// (its read/write bodies are covered there, isolated from bun's object-literal
+// coverage drift); here it is just a swappable seam.
+
+let heartbeatKVImpl: () => HeartbeatKV = productionHeartbeatKV;
+export function _setHeartbeatKVForTests(fn: (() => HeartbeatKV) | null): void {
+  heartbeatKVImpl = fn ?? productionHeartbeatKV;
 }
 
 // ── Settings live-read seam (M2, resolves M1's defaultPipelineConfig TODO) ──
@@ -366,9 +407,37 @@ export const codeFactoryRunTool: ToolHandler = (args) =>
 export const codeFactoryStatusTool: ToolHandler = (args) =>
   dispatchChatTool<{ runId?: unknown }>(args, statusChatTool);
 
-/** `code_factory_respond` — approve/fix/skip/abort a parked gate (contract-in-code). */
-export const codeFactoryRespondTool: ToolHandler = (args) =>
-  dispatchChatTool<Parameters<typeof respondChatTool>[0]>(args, respondChatTool);
+/** `code_factory_respond` — approve/fix/skip/abort a parked gate (contract-in-code).
+ *  RBAC (M6): gated on `respond-gate`. The manifest ALSO declares this scope as
+ *  the tool's `rbacScope`, so the HOST denies it pre-dispatch — this in-code
+ *  guard mirrors that for a clear, contract-shaped refusal (and unit coverage). */
+export const codeFactoryRespondTool: ToolHandler = async (args) => {
+  const guard = await guardScope(rbacCheckImpl, RESPOND_SCOPE, "respond to a gate");
+  if (!guard.ok) return toolError(guard.error);
+  return dispatchChatTool<Parameters<typeof respondChatTool>[0]>(args, respondChatTool);
+};
+
+/** `code_factory_doctor` — a read-only health report for the active project's
+ *  gate (spec §13 doctor). Mutates nothing; every check is a git/gh probe or a
+ *  Storage read behind the shared production seams. */
+export const codeFactoryDoctorTool: ToolHandler = async () => {
+  const projectRoot = projectRootImpl();
+  if (!projectRoot) {
+    return toolError("EZCORP_PROJECT_ROOT unset — no active project to diagnose");
+  }
+  const id = repoIdFor(projectRoot);
+  const gDir = gateDirFor(projectRoot, id);
+  const config = await resolveLiveConfig();
+  const report: DoctorReport = await runDoctor({
+    gateDir: gDir,
+    defaultBranch: config.defaultBranch,
+    run: shellImpl,
+    gh: makeGhRunner(shellImpl, gDir, resolveProductionGhToken),
+    resolveToken: resolveProductionGhToken,
+    readHeartbeat: () => heartbeatKVImpl().read(),
+  });
+  return toolResult(JSON.stringify(report));
+};
 
 /** Run statuses that get an inline dashboard detail section: a parked run
  *  (awaiting_approval) for triage, and a resting checks_passed run so its CI gate
@@ -505,6 +574,14 @@ export async function handleRespond(event: PageActionEvent): Promise<void> {
       process.stderr.write("ez-code-factory: respond with invalid payload — ignored\n");
       return;
     }
+    // RBAC (M6): the acting user must hold `respond-gate`. A Hub click resolves
+    // the user host-side from the fire's provenance token; a denied respond is a
+    // no-op (never mutates the run) with a clear refusal line — not a 500.
+    const guard = await guardScope(rbacCheckImpl, RESPOND_SCOPE, "respond to a gate");
+    if (!guard.ok) {
+      process.stderr.write(`ez-code-factory: respond refused — ${guard.error}\n`);
+      return;
+    }
     const rec = await getStore().getRun(respond.runId);
     if (!rec) {
       process.stderr.write(`ez-code-factory: respond for unknown run ${respond.runId} — ignored\n`);
@@ -527,44 +604,54 @@ export async function handleRespond(event: PageActionEvent): Promise<void> {
   }
 }
 
-/** The parked step of a run (the first step awaiting approval / fix review),
- *  read from the store. Null when nothing is parked. */
-async function findParkedStep(store: RunStore, runId: string): Promise<PipelineStep | null> {
+/** The parked step RESULT of a run (the first step awaiting approval / fix
+ *  review), read from the store. Null when nothing is parked. */
+async function findParkedStepResult(store: RunStore, runId: string): Promise<StepResultRecord | null> {
   for (const step of PIPELINE_STEPS) {
     const sr = await store.getStepResult(runId, step);
-    if (sr && (sr.status === "awaiting_approval" || sr.status === "fix_review")) return step;
+    if (sr && (sr.status === "awaiting_approval" || sr.status === "fix_review")) return sr;
   }
   return null;
 }
 
-/** Hard bound on the yolo auto-approve loop — a run can park at most once per
- *  pipeline step, so it can never legitimately exceed the step count. */
-const YOLO_MAX_GATES = PIPELINE_STEPS.length + 1;
+/** Hard bound on the yolo autopilot loop. Under fix-once each pipeline step is
+ *  visited at most twice (one fix round + one approve), so twice the step count
+ *  plus a margin can never be legitimately exceeded — a pathological re-park can
+ *  never spin. */
+const YOLO_MAX_ITERATIONS = PIPELINE_STEPS.length * 2 + 1;
 
 /**
- * The yolo autopilot: approve the current parked gate and every gate the run
- * re-parks at, until the run reaches a terminal state (or can no longer be
- * resumed). Each iteration reuses the EXACT M1 approve path
- * (`resumeGateLifecycle` → `respondToGate`) — no bypass of the gate semantics,
- * just a bounded sequence of real approvals. Bounded by `YOLO_MAX_GATES` so a
- * pathological loop can never spin.
+ * The yolo autopilot (M6 fix-once, spec §13): drive each remaining parked gate
+ * of a run via the SAME approve/fix respond path the Hub buttons use — FIX its
+ * actionable auto-fix findings ONCE, then APPROVE the rest — but STOP the
+ * instant a gate carries an `ask-user` finding (yolo must not clear a decision
+ * the gate exists to force a human to make). `decideYoloAction` owns each
+ * per-gate call; the `fixedSteps` set enforces the one-fix-per-step budget.
+ * Bounded by `YOLO_MAX_ITERATIONS` so a pathological re-park can never spin.
  */
 async function runYoloAutopilot(runId: string, projectRoot: string): Promise<void> {
   const store = getStore();
-  for (let i = 0; i < YOLO_MAX_GATES; i++) {
+  const fixedSteps = new Set<PipelineStep>();
+  for (let i = 0; i < YOLO_MAX_ITERATIONS; i++) {
     const rec = await store.getRun(runId);
     if (!rec || rec.status !== "awaiting_approval") return; // terminal / gone / not parked
-    const step = await findParkedStep(store, runId);
-    if (!step) return; // parked run with no parked step — nothing to approve
+    const sr = await findParkedStepResult(store, runId);
+    if (!sr) return; // parked run with no parked step — nothing to act on
+    const step = sr.step as PipelineStep;
+    const decision = decideYoloAction(sr.findings, fixedSteps.has(step));
+    if (decision.kind === "stop") {
+      process.stderr.write(
+        `ez-code-factory[yolo]: stopping at '${step}' — ${decision.askUserCount} ask-user ` +
+          `finding(s) require a human decision (relay + await approval)\n`,
+      );
+      return;
+    }
     const gDir = gateDirFor(projectRoot, rec.repoId);
-    const respond: ParsedRespond = {
-      runId,
-      step,
-      action: "approve",
-      findingIds: [],
-      instructions: {},
-      addedFindings: [],
-    };
+    const respond: ParsedRespond =
+      decision.kind === "fix"
+        ? { runId, step, action: "fix", findingIds: decision.findingIds, instructions: {}, addedFindings: [] }
+        : { runId, step, action: "approve", findingIds: [], instructions: {}, addedFindings: [] };
+    if (decision.kind === "fix") fixedSteps.add(step);
     const result = await resumeGateLifecycle(runId, {
       gateDir: gDir,
       store,
@@ -591,6 +678,14 @@ export async function handleYolo(event: PageActionEvent): Promise<void> {
     const runId = parseRunIdPayload(event.payload);
     if (!runId) {
       process.stderr.write("ez-code-factory: yolo with invalid payload — ignored\n");
+      return;
+    }
+    // RBAC (M6): yolo has its OWN scope (`yolo`) — strictly broader than a single
+    // approve, since the autopilot clears every remaining gate of a run. A denied
+    // yolo is a no-op with a clear refusal line, not a 500.
+    const guard = await guardScope(rbacCheckImpl, YOLO_SCOPE, "run the yolo autopilot");
+    if (!guard.ok) {
+      process.stderr.write(`ez-code-factory: yolo refused — ${guard.error}\n`);
       return;
     }
     await runYoloAutopilot(runId, projectRoot);
@@ -639,6 +734,76 @@ export async function handleReconcile(event: PageActionEvent): Promise<void> {
   }
 }
 
+// ── Reconcile sweep (M6, background loop) ─────────────────────────────
+//
+// The scheduled catch-up the README promised: every SWEEP_CRON fire re-checks
+// each reconcilable run and completes the ones whose PR merged/closed. Ownerless
+// (a cron fire has no acting user) — reconcile is read-only truth-driven and
+// never RBAC-gated. Drives the SAME resume + reconcile runner the Hub "Re-check
+// PR state" button uses, resolving each run's own gate dir.
+
+/** Reconcile ONE run (resume + the read-only ReconcileApprovalGate poll). Null
+ *  when the run is gone / cannot resume. */
+async function reconcileOneRun(projectRoot: string, runId: string): Promise<ReconcileResult> {
+  const rec = await getStore().getRun(runId);
+  if (!rec) return null;
+  const gDir = gateDirFor(projectRoot, rec.repoId);
+  return resumeGateLifecycle(runId, {
+    gateDir: gDir,
+    store: getStore(),
+    run: shellImpl,
+    onChange: refreshDashboard,
+    respond: makeReconcileRunnerImpl(projectRoot, gDir),
+  });
+}
+
+/** Run one reconcile sweep for the active project (the cron fire's work).
+ *  Records a heartbeat for `code_factory_doctor`. Null when no project is
+ *  active. */
+export async function runReconcileSweep(): Promise<SweepSummary | null> {
+  const projectRoot = projectRootImpl();
+  if (!projectRoot) {
+    process.stderr.write("ez-code-factory: reconcile sweep with no EZCORP_PROJECT_ROOT — skipped\n");
+    return null;
+  }
+  return reconcileSweep({
+    store: getStore(),
+    reconcile: (runId) => reconcileOneRun(projectRoot, runId),
+    now: () => Date.now(),
+    recordHeartbeat: (hb) => heartbeatKVImpl().write(hb),
+    log: (m) => process.stderr.write(`ez-code-factory[sweep]: ${m}\n`),
+  });
+}
+
+/** The SWEEP_CRON schedule-fire handler — runs one sweep, swallowing any throw
+ *  (a cron fire is fire-and-forget; a thrown sweep must not escape the handler). */
+export async function handleScheduleFire(_ctx: ScheduleHandlerContext): Promise<void> {
+  try {
+    await runReconcileSweep();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`ez-code-factory: reconcile sweep error: ${message}\n`);
+  }
+}
+
+// ── Crash recovery (M6, startup) ──────────────────────────────────────
+
+/** Re-derive parked state + reap orphaned worktrees on (re)start. Null when no
+ *  project is active. Fire-and-forget from `start()`. */
+export async function recoverOnStart(): Promise<RecoverySummary | null> {
+  const projectRoot = projectRootImpl();
+  if (!projectRoot) {
+    process.stderr.write("ez-code-factory: crash recovery with no EZCORP_PROJECT_ROOT — skipped\n");
+    return null;
+  }
+  return recoverRuns({
+    store: getStore(),
+    reapWorktree: (run) =>
+      removeWorktree(shellImpl, gateDirFor(projectRoot, run.repoId), run.worktreePath ?? ""),
+    log: (m) => process.stderr.write(`ez-code-factory[recovery]: ${m}\n`),
+  });
+}
+
 /** Dashboard render — the runs table + inline parked-run triage (global scope). */
 export async function renderDashboard() {
   return currentDashboardTree();
@@ -651,10 +816,12 @@ export const tools: Record<string, ToolHandler> = {
   code_factory_run: codeFactoryRunTool,
   code_factory_status: codeFactoryStatusTool,
   code_factory_respond: codeFactoryRespondTool,
+  code_factory_doctor: codeFactoryDoctorTool,
 };
 
-/** Register the page (+ its push-received action), the tool dispatcher, and
- *  return — no stdin side effects (tests call this against a stubbed channel). */
+/** Register the page (+ its push-received action), the reconcile-sweep cron
+ *  handler, and the tool dispatcher, and return — no stdin side effects (tests
+ *  call this against a stubbed channel). */
 export function register(): void {
   definePage({
     id: PAGE_ID,
@@ -666,12 +833,18 @@ export function register(): void {
       [RECONCILE_ACTION]: handleReconcile,
     },
   });
+  // M6: the background reconcile sweep (cron declared in ezcorp.config.ts).
+  new Schedule().on(SWEEP_CRON, handleScheduleFire);
   createToolDispatcher(tools);
 }
 
 export function start(): void {
   register();
   getChannel().start();
+  // M6: re-derive parked state + reap orphaned worktrees left by the last
+  // process (fire-and-forget — a restart must not block on recovery, and the
+  // channel is up so the store reads resolve).
+  void recoverOnStart();
 }
 
 // Production wiring — gated on import.meta.main so test imports don't open stdin.
