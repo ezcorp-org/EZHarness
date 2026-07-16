@@ -6,6 +6,7 @@ import {
   __resetChannelForTests,
   __resetPagesForTests,
   getChannel,
+  withToolContext,
 } from "@ezcorp/sdk/runtime";
 import type { HostChannel } from "@ezcorp/sdk/runtime";
 import {
@@ -259,6 +260,85 @@ describe("initGateTool", () => {
     const res = await initGateTool({});
     expect(res.isError).toBe(true);
     expect(res.content[0]!.text).toContain("init_gate failed");
+  });
+});
+
+// ── B5: init_gate resolves the CONVERSATION's project via ctx.projectRoot ──
+//
+// The host forwards the conversation's active project root on the per-call
+// `_meta.ezProjectRoot`, which the SDK surfaces as `ctx.projectRoot`. The
+// DEFAULT project-root resolver must PREFER that over the process-wide
+// `EZCORP_PROJECT_ROOT` env var (one persistent subprocess serves every
+// conversation, so the env var only ever names ONE project). These tests use
+// the REAL default resolver (`_setProjectRootForTests(null)`), toggling the
+// tool context + env to prove precedence.
+describe("initGateTool — ctx.projectRoot (B5)", () => {
+  let root: string;
+  let savedEnv: string | undefined;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "ezcf-b5-"));
+    savedEnv = process.env.EZCORP_PROJECT_ROOT;
+    _setProjectRootForTests(null); // exercise the REAL default resolver
+    _setShellForTests(productionHostRunner);
+    _setBaseUrlForTests(() => "http://127.0.0.1:9");
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+    if (savedEnv === undefined) delete process.env.EZCORP_PROJECT_ROOT;
+    else process.env.EZCORP_PROJECT_ROOT = savedEnv;
+  });
+
+  async function realRepo(name: string): Promise<string> {
+    const work = join(root, name);
+    mkdirSync(work);
+    await productionHostRunner(["git", "init", "-b", "main"], work);
+    await productionHostRunner(["git", "remote", "add", "origin", "https://up/x.git"], work);
+    return work;
+  }
+
+  test("uses ctx.projectRoot (no env) to gate the conversation's project", async () => {
+    delete process.env.EZCORP_PROJECT_ROOT; // env is NOT the source here
+    const work = await realRepo("ctx-proj");
+
+    const res = await withToolContext({ projectRoot: work }, () => initGateTool({}));
+
+    expect(res.isError).toBe(false);
+    const out = JSON.parse(res.content[0]!.text);
+    expect(out.ok).toBe(true);
+    // Gate provisioned UNDER the ctx-resolved project root.
+    expect(existsSync(gateDirFor(work, out.repoId))).toBe(true);
+  });
+
+  test("falls back to EZCORP_PROJECT_ROOT env when no tool context is bound", async () => {
+    const work = await realRepo("env-proj");
+    process.env.EZCORP_PROJECT_ROOT = work;
+
+    // No withToolContext wrapper → getToolContext() is undefined → env fallback.
+    const res = await initGateTool({});
+
+    expect(res.isError).toBe(false);
+    const out = JSON.parse(res.content[0]!.text);
+    expect(existsSync(gateDirFor(work, out.repoId))).toBe(true);
+  });
+
+  test("ctx.projectRoot WINS over the env var (correct project under concurrency)", async () => {
+    const ctxWork = await realRepo("ctx-wins");
+    process.env.EZCORP_PROJECT_ROOT = join(root, "stale-env-proj"); // wrong project
+
+    const res = await withToolContext({ projectRoot: ctxWork }, () => initGateTool({}));
+
+    expect(res.isError).toBe(false);
+    const out = JSON.parse(res.content[0]!.text);
+    // Gate landed under the ctx project, NOT the (stale) env project.
+    expect(existsSync(gateDirFor(ctxWork, out.repoId))).toBe(true);
+    expect(existsSync(gateDirFor(join(root, "stale-env-proj"), out.repoId))).toBe(false);
+  });
+
+  test("no ctx and no env → the unset error (default resolver returns undefined)", async () => {
+    delete process.env.EZCORP_PROJECT_ROOT;
+    const res = await initGateTool({});
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain("EZCORP_PROJECT_ROOT unset");
   });
 });
 

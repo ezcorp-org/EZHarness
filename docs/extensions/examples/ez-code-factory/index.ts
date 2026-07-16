@@ -107,7 +107,15 @@ export const RECONCILE_ACTION = `${EXTENSION_NAME}:reconcile`;
 // initial binding and the `_set*ForTests(null)` reset — one function to cover
 // (DRY) instead of a duplicated inline fallback the reset path never exercises.
 
-const defaultProjectRoot = (): string | undefined => process.env.EZCORP_PROJECT_ROOT;
+// Prefer the PER-CALL project root the host resolves from the conversation's
+// active project (`ctx.projectRoot`, forwarded on `_meta.ezProjectRoot`): one
+// persistent subprocess serves every conversation, so the process-wide
+// `EZCORP_PROJECT_ROOT` env var only ever names ONE project and is wrong the
+// moment a second project's conversation calls in. The env var stays as a
+// last-resort fallback for out-of-band dispatches (schedule/lifecycle) where
+// no tool-call context is bound.
+const defaultProjectRoot = (): string | undefined =>
+  getToolContext()?.projectRoot ?? process.env.EZCORP_PROJECT_ROOT;
 let projectRootImpl: () => string | undefined = defaultProjectRoot;
 export function _setProjectRootForTests(fn: (() => string | undefined) | null): void {
   projectRootImpl = fn ?? defaultProjectRoot;

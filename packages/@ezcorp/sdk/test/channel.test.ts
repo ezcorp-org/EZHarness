@@ -640,6 +640,79 @@ describe("production channel wiring", () => {
     }
   });
 
+  test("tools/call binds _meta.ezProjectRoot onto the tool context (B5)", async () => {
+    // Covers the real channel.ts dispatcher's `ezProjectRoot` extraction +
+    // `withToolContext({ projectRoot })` binding. A handler probes
+    // getToolContext() and returns the resolved projectRoot on the wire so we
+    // assert the round-trip through the genuine ensureDispatcherRegistered path.
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c;
+      },
+    });
+    const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(() => stream as ReturnType<typeof Bun.stdin.stream>);
+    const stdout = spyOnStdoutWriter();
+    const stdoutWrites = stdout.writes;
+    __rearmDispatcherForTests();
+
+    try {
+      const ch = getChannel();
+      ch.start();
+      createToolDispatcher({
+        probe: () => {
+          const ctx = getToolContext();
+          return toolResult(
+            JSON.stringify({ projectRoot: ctx?.projectRoot ?? null, conversationId: ctx?.conversationId ?? null }),
+          );
+        },
+      });
+
+      const enc = new TextEncoder();
+      const send = (frame: unknown) => controller.enqueue(enc.encode(JSON.stringify(frame) + "\n"));
+
+      // 1) ezProjectRoot present → bound onto ctx.projectRoot.
+      send({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "probe", arguments: {}, _meta: { ezConversationId: "conv-1", ezProjectRoot: "/app/projects/ecf-demo" } },
+      });
+      await waitFor(() => stdoutWrites.length >= 1);
+      expect(JSON.parse(JSON.parse(stdoutWrites[0] ?? "").result.content[0].text)).toEqual({
+        projectRoot: "/app/projects/ecf-demo",
+        conversationId: "conv-1",
+      });
+
+      // 2) Empty ezProjectRoot → ctx.projectRoot stays undefined (the
+      //    length>0 guard), so an ext falls back to the env var.
+      send({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "probe", arguments: {}, _meta: { ezConversationId: "conv-2", ezProjectRoot: "" } },
+      });
+      await waitFor(() => stdoutWrites.length >= 2);
+      expect(JSON.parse(JSON.parse(stdoutWrites[1] ?? "").result.content[0].text)).toEqual({
+        projectRoot: null,
+        conversationId: "conv-2",
+      });
+
+      // 3) No _meta at all → projectRoot undefined, conversationId defaults to "".
+      send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "probe", arguments: {} } });
+      await waitFor(() => stdoutWrites.length >= 3);
+      expect(JSON.parse(JSON.parse(stdoutWrites[2] ?? "").result.content[0].text)).toEqual({
+        projectRoot: null,
+        conversationId: "",
+      });
+
+      _setDispatcherRegister(() => {});
+    } finally {
+      stdinSpy.mockRestore();
+      stdout.restore();
+    }
+  });
+
   test("ensureDispatcherRegistered is idempotent across getChannel() calls", () => {
     // The first getChannel() call in this file's test run already armed
     // the gate and installed the production _register closure. This test

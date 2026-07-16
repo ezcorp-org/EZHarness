@@ -46,6 +46,7 @@ import {
 import type { ScheduleDaemon } from "./schedule-daemon";
 import type { SpawnQuota } from "./spawn-quota";
 import { getConversation, getConversationSpawnDepth } from "../db/queries/conversations";
+import { getProject } from "../db/queries/projects";
 import { getConversationExtensionIds } from "../db/queries/conversation-extensions";
 import { persistToolCall } from "../db/queries/tool-calls";
 import { resolveExtensionSettings } from "../db/queries/extension-settings";
@@ -1195,7 +1196,27 @@ export class ToolExecutor {
         // LLM-visible arguments (see bearer-auth.ts for the reason).
         const meta: Record<string, unknown> = {};
         if (this.currentUserId) meta.ezOnBehalfOf = this.currentUserId;
-        if (conversationId) meta.ezConversationId = conversationId;
+        if (conversationId) {
+          meta.ezConversationId = conversationId;
+          // Resolve the conversation's ACTIVE project root so filesystem-
+          // scoping extensions (ez-code-factory's gate) target the RIGHT
+          // project. A single persistent subprocess serves every
+          // conversation, so the subprocess-wide `EZCORP_PROJECT_ROOT` env
+          // var only ever names ONE project — structurally wrong. The host
+          // owns the truth (`conversations.projectId` → `projects.path`),
+          // so we resolve it per-call and forward it on `_meta`. Best-effort:
+          // any failure leaves it undefined (the SDK/ext fall back to the
+          // env var) rather than failing the tool call.
+          try {
+            const conv = await getConversation(conversationId);
+            if (conv?.projectId) {
+              const project = await getProject(conv.projectId);
+              if (project?.path) meta.ezProjectRoot = project.path;
+            }
+          } catch {
+            // leave meta.ezProjectRoot unset — resolve defensively
+          }
+        }
         if (this.currentModel) meta.ezModel = this.currentModel;
         if (this.currentProvider) meta.ezProvider = this.currentProvider;
         // Public origin of the EZCorp UI — bundled MCP tools (ai-kit)
