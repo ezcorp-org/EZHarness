@@ -869,14 +869,14 @@ describe("handleYolo", () => {
     await seedParkedRun(store);
     // Re-mark the review step as fix_review (a user-fix round parked again).
     await store.putStepResult({ ...(await store.getStepResult("run-parked", "review"))!, status: "fix_review" });
-    let seenStep: string | null = null;
+    const seenSteps: string[] = [];
     _setRespondRunnerForTests((_pr, _gd, respond) => async ({ runId }) => {
-      seenStep = respond!.step;
+      seenSteps.push(respond!.step);
       await store.updateRun(runId, { status: "completed" });
       return { parked: false };
     });
     await handleYolo({ source: "hub", pageId: "dashboard", userId: "u", payload: { runId: "run-parked" } });
-    expect(seenStep).toBe("review");
+    expect(seenSteps).toEqual(["review"]);
     expect((await store.getRun("run-parked"))!.status).toBe("completed");
   });
 
